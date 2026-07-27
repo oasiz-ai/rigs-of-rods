@@ -147,6 +147,7 @@ set(SOURCE_FILES
         physics/ActorExport.cpp
         physics/ActorForcesEuler.cpp
         physics/BeamAxialResponse.h
+        physics/DeterministicCounterNoise.h
         physics/ActorManager.{h,cpp}
         physics/ActorSlideNode.cpp
         physics/ActorSpawner.{h,cpp}

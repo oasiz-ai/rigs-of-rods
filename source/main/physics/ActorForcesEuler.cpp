@@ -30,6 +30,7 @@
 #include "CmdKeyInertia.h"
 #include "Collisions.h"
 #include "Console.h"
+#include "DeterministicCounterNoise.h"
 #include "Differentials.h"
 #include "Engine.h"
 #include "FlexAirfoil.h"
@@ -65,6 +66,7 @@ void Actor::CalcForcesEulerCompute(bool doUpdate, int num_steps)
     this->CalcCabCollisions();
     this->updateSlideNodeForces(PHYSICS_DT); // must be done after the contacters are updated
     this->CalcForceFeedback(doUpdate);
+    ++m_physics_step;
 }
 
 void Actor::CalcForceFeedback(bool doUpdate)
@@ -1155,7 +1157,12 @@ void Actor::CalcTruckEngine(bool doUpdate)
 {
     if (ar_engine)
     {
-        ar_engine->UpdateEngine(PHYSICS_DT, doUpdate);
+        const std::uint64_t engine_update_step = m_engine_update_step++;
+        ar_engine->UpdateEngine(
+            PHYSICS_DT,
+            doUpdate,
+            m_deterministic_seed,
+            engine_update_step);
     }
 }
 
@@ -1702,7 +1709,29 @@ void Actor::CalcNodes()
             Vector3 drag = -defdragxspeed * ar_nodes[i].Velocity;
             // plus: turbulences
             Real maxtur = defdragxspeed * approx_speed * 0.005f;
-            drag += maxtur * Vector3(frand_11(), frand_11(), frand_11());
+            const float turbulence_x =
+                DeterministicCounterNoise::SignedSample(
+                    m_deterministic_seed,
+                    m_physics_step,
+                    DeterministicCounterNoise::DOMAIN_TURBULENT_DRAG,
+                    static_cast<std::uint64_t>(i),
+                    0);
+            const float turbulence_y =
+                DeterministicCounterNoise::SignedSample(
+                    m_deterministic_seed,
+                    m_physics_step,
+                    DeterministicCounterNoise::DOMAIN_TURBULENT_DRAG,
+                    static_cast<std::uint64_t>(i),
+                    1);
+            const float turbulence_z =
+                DeterministicCounterNoise::SignedSample(
+                    m_deterministic_seed,
+                    m_physics_step,
+                    DeterministicCounterNoise::DOMAIN_TURBULENT_DRAG,
+                    static_cast<std::uint64_t>(i),
+                    2);
+            drag += maxtur *
+                Vector3(turbulence_x, turbulence_y, turbulence_z);
             ar_nodes[i].Forces += drag;
         }
 

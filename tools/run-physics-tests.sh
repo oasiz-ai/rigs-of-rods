@@ -13,14 +13,25 @@ trap cleanup EXIT
 
 physics_test_compiler="${CXX:-c++}"
 
+common_test_flags=(
+    -std=c++11
+    -Wall
+    -Wextra
+    -Werror
+    -pedantic
+    -I"${repository_dir}/source/main/physics"
+)
+
 "${physics_test_compiler}" \
-    -std=c++11 \
-    -Wall \
-    -Wextra \
-    -Werror \
-    -pedantic \
-    -I"${repository_dir}/source/main/physics" \
+    "${common_test_flags[@]}" \
     "${repository_dir}/tests/physics/BeamAxialResponseTests.cpp" \
     -o "${test_build_dir}/beam_axial_response_tests"
 
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    -pthread \
+    "${repository_dir}/tests/physics/DeterministicCounterNoiseTests.cpp" \
+    -o "${test_build_dir}/deterministic_counter_noise_tests"
+
 "${test_build_dir}/beam_axial_response_tests"
+"${test_build_dir}/deterministic_counter_noise_tests"

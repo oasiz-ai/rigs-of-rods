@@ -34,6 +34,7 @@
 #include "Collisions.h"
 #include "DashBoardManager.h"
 #include "Differentials.h"
+#include "DeterministicCounterNoise.h"
 #include "DynamicCollisions.h"
 #include "Engine.h"
 #include "ErrorUtils.h"
@@ -1659,6 +1660,8 @@ void Actor::SyncReset(bool reset_position)
     TRIGGER_EVENT_ASYNC(SE_TRUCK_RESET, ar_instance_id);
 
     m_reset_timer.reset();
+    m_physics_step = 0;
+    m_engine_update_step = 0;
 
     m_camera_local_gforces_cur = Vector3::ZERO;
     m_camera_local_gforces_max = Vector3::ZERO;
@@ -4641,6 +4644,10 @@ Actor::Actor(
     , m_disable_default_sounds(false)
     , m_disable_smoke(false)
 {
+    m_deterministic_seed =
+        DeterministicCounterNoise::MakeActorSeed(
+            static_cast<std::uint64_t>(
+                static_cast<std::uint32_t>(actor_id)));
 }
 
 float Actor::getSteeringAngle()

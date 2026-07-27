@@ -27,6 +27,7 @@
 #include "RefCountingObject.h"
 
 #include <Ogre.h>
+#include <cstdint>
 #include <vector>
 
 namespace RoR {
@@ -159,7 +160,11 @@ public:
     /// @name Updates
     /// @{
     void           updateShifts();             //!< Changes gears. Plays sounds.
-    void           UpdateEngine(float dt, int doUpdate);
+    void           UpdateEngine(
+        float dt,
+        int doUpdate,
+        std::uint64_t deterministic_seed,
+        std::uint64_t deterministic_step);
     void           UpdateEngineAudio();
     void           UpdateInputEvents(float dt);
     /// @}

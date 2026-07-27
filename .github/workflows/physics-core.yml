@@ -3,8 +3,8 @@ name: Physics core
 on: [push, pull_request]
 
 jobs:
-  beam-axial-response:
-    name: Beam solver (${{ matrix.os }})
+  physics-kernels:
+    name: Physics kernels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -17,14 +17,59 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Configure dependency-free tests
+      - name: Configure precise tests
         run: >-
-          cmake -S tests -B build-physics-tests
+          cmake -S tests -B build-physics-tests-precise
+          -DCMAKE_BUILD_TYPE=Release
+          -DROR_TEST_GAME_FAST_MATH=OFF
+
+      - name: Build precise tests
+        run: cmake --build build-physics-tests-precise --config Release
+
+      - name: Run precise tests
+        run: cmake -E chdir build-physics-tests-precise ctest -C Release --output-on-failure
+
+      - name: Configure game floating-point mode
+        run: >-
+          cmake -S tests -B build-physics-tests-fast
           -DCMAKE_BUILD_TYPE=Release
           -DROR_TEST_GAME_FAST_MATH=ON
 
+      - name: Build game floating-point mode
+        run: cmake --build build-physics-tests-fast --config Release
+
+      - name: Run game floating-point mode
+        run: cmake -E chdir build-physics-tests-fast ctest -C Release --output-on-failure
+
+  physics-sanitizers:
+    name: Physics kernels (${{ matrix.name }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ASan + UBSan
+            flags: -fsanitize=address,undefined -fno-omit-frame-pointer
+          - name: TSan
+            flags: -fsanitize=thread -fno-omit-frame-pointer
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure
+        env:
+          CXX: clang++
+          SANITIZER_FLAGS: ${{ matrix.flags }}
+        run: >-
+          cmake -S tests -B build-physics-tests-sanitized
+          -DCMAKE_BUILD_TYPE=Debug
+          -DROR_TEST_GAME_FAST_MATH=OFF
+          -DCMAKE_CXX_FLAGS="${SANITIZER_FLAGS}"
+          -DCMAKE_EXE_LINKER_FLAGS="${SANITIZER_FLAGS}"
+
       - name: Build
-        run: cmake --build build-physics-tests --config Release
+        run: cmake --build build-physics-tests-sanitized --config Debug
 
       - name: Test
-        run: cmake -E chdir build-physics-tests ctest -C Release --output-on-failure
+        run: cmake -E chdir build-physics-tests-sanitized ctest -C Debug --output-on-failure

@@ -54,9 +54,11 @@ the repository level. Keep this exact revision in automated comparisons.
 | Water baseline | `simple2_w.terrn2` + DAF semi | Reflection/refraction and Hydrax/compositor ordering |
 | Articulation baseline | DAF semi + `b6b0UID-semi.trailer` and `b6b0UID-semiflat.trailer` | Inter-actor beams, contact ordering, hooks, and deterministic multi-body replay |
 
-The Agora L fixture has 151 nodes, 675 beams, and 222 cab triangles. It is useful
-for correctness but too small for a GPU throughput gate; the benchmark must also
-instantiate repeated vehicles or a generated high-vertex fixture.
+The Agora L definition has 151 authored nodes, 675 beams, and 222 cab triangles.
+Its six legacy wheels and two cinecams bring the spawned actor to 297 runtime
+nodes. It is useful for correctness but too small for a GPU throughput gate; the
+benchmark must also instantiate repeated vehicles or a generated high-vertex
+fixture.
 
 ## Measurement contract
 
@@ -141,6 +143,28 @@ order. Use stable actor/node/triangle contact keys, sorted candidate lists,
 per-task force/impulse buffers, and one ordered reduction. Replace shared random
 state with explicitly seeded per-actor streams and remove mutable camera state
 from collision calculations.
+
+The first D0 slice replaces the racy turbulent-drag and engine anti-lag random
+states with counter-based samples. Turbulence is keyed by persisted actor seed,
+fixed physics step, node index, and XYZ lane. Anti-lag has a domain-separated
+engine-update counter and turbo index so successive sleeping-engine updates do
+not repeat a sample. Those sleeping updates are still outer-frame scheduled, so
+equal-time replay across different render-frame groupings remains open. Full
+actor resets restart the counters; version-3 savegames carry optional
+seed/counter fields so existing version-3 saves remain loadable and resumed
+saves keep their next samples. Golden vectors and dependency-free
+one/two/eight-thread kernel tests lock the sampler's pure-function contract.
+ActorManager/content worker-count runs, save/load continuation tests, the
+runtime TSan soak, contact ordering, and input-replay hashing remain open D0
+work, as does a scenario-level seed/stream-ID contract independent of runtime
+actor-ID assignment.
+
+The first pending runtime micro-scenario uses `simple2.terrn2` and two airborne
+`b6b0UID-semi.truck` actors with fixed poses, explicit stable IDs/seeds, and
+exactly 1,000 physics steps. Each spawned DAF has 176 runtime nodes, so the pair
+requests 1,056 turbulence samples per step. Thirty runs must match ordered
+per-actor node-state hashes with one and eight workers before this slice counts
+as runtime-validated.
 
 Gate D0:
 

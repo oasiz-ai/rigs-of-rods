@@ -499,6 +499,9 @@ bool ActorManager::SaveScene(Ogre::String filename)
         j_entry.AddMember("preloaded_with_terrain", actor->isPreloadedWithTerrain(), j_doc.GetAllocator());
         j_entry.AddMember("sim_state", static_cast<int>(actor->ar_state), j_doc.GetAllocator());
         j_entry.AddMember("physics_paused", actor->ar_physics_paused, j_doc.GetAllocator());
+        j_entry.AddMember("deterministic_seed", actor->m_deterministic_seed, j_doc.GetAllocator());
+        j_entry.AddMember("physics_step", actor->m_physics_step, j_doc.GetAllocator());
+        j_entry.AddMember("engine_update_step", actor->m_engine_update_step, j_doc.GetAllocator());
         j_entry.AddMember("player_actor", actor==App::GetGameContext()->GetPlayerActor(), j_doc.GetAllocator());
         j_entry.AddMember("prev_player_actor", actor==App::GetGameContext()->GetPrevPlayerActor(), j_doc.GetAllocator());
 
@@ -789,6 +792,22 @@ void ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
     actor->m_spawn_rotation = j_entry["spawn_rotation"].GetFloat();
     actor->ar_state = static_cast<ActorState>(j_entry["sim_state"].GetInt());
     actor->ar_physics_paused = j_entry["physics_paused"].GetBool();
+    if (j_entry.HasMember("deterministic_seed") &&
+        j_entry["deterministic_seed"].IsUint64())
+    {
+        actor->m_deterministic_seed =
+            j_entry["deterministic_seed"].GetUint64();
+    }
+    actor->m_physics_step =
+        j_entry.HasMember("physics_step") &&
+        j_entry["physics_step"].IsUint64()
+            ? j_entry["physics_step"].GetUint64()
+            : 0;
+    actor->m_engine_update_step =
+        j_entry.HasMember("engine_update_step") &&
+        j_entry["engine_update_step"].IsUint64()
+            ? j_entry["engine_update_step"].GetUint64()
+            : 0;
 
     if (j_entry["player_actor"].GetBool())
     {

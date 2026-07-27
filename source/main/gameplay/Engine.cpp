@@ -22,10 +22,10 @@
 #include "Engine.h"
 
 #include "AppContext.h"
-#include "ApproxMath.h" // frand()
 #include "Actor.h"
 #include "ActorManager.h"
 #include "Console.h"
+#include "DeterministicCounterNoise.h"
 #include "InputEngine.h"
 #include "ScriptEngine.h"
 #include "SoundScriptManager.h"
@@ -255,7 +255,11 @@ void Engine::SetEngineOptions(float einertia, char etype, float eclutch, float c
     }
 }
 
-void Engine::UpdateEngine(float dt, int doUpdate)
+void Engine::UpdateEngine(
+    float dt,
+    int doUpdate,
+    std::uint64_t deterministic_seed,
+    std::uint64_t deterministic_step)
 {
     float acc = m_cur_acc;
 
@@ -374,7 +378,13 @@ void Engine::UpdateEngine(float dt, int doUpdate)
                 // anti lag
                 if (m_turbo_has_antilag && m_cur_acc < 0.5)
                 {
-                    float f = frand();
+                    const float f =
+                        DeterministicCounterNoise::UnitSample(
+                            deterministic_seed,
+                            deterministic_step,
+                            DeterministicCounterNoise::DOMAIN_ENGINE_ANTILAG,
+                            static_cast<std::uint64_t>(i),
+                            0);
                     if (m_cur_engine_rpm > m_antilag_min_rpm && f > m_antilag_rand_chance)
                     {
                         if (m_cur_turbo_rpm[i] > m_max_turbo_rpm * 0.35 && m_cur_turbo_rpm[i] < m_max_turbo_rpm)

@@ -41,6 +41,7 @@
 #include "VehicleAI.h"
 
 #include <Ogre.h>
+#include <cstdint>
 
 namespace RoR {
 
@@ -674,6 +675,9 @@ private:
     Ogre::Real        m_min_camera_radius = 0.f;
     Ogre::Vector3     m_avg_node_position_prev = Ogre::Vector3::ZERO;
     Ogre::Vector3     m_avg_node_velocity = Ogre::Vector3::ZERO;          //!< average node velocity (compared to the previous frame step)
+    std::uint64_t     m_deterministic_seed = 0;                           //!< Persisted seed shared by this actor's counter-noise domains
+    std::uint64_t     m_physics_step = 0;                                 //!< Next turbulence counter; advances once per completed fixed physics step
+    std::uint64_t     m_engine_update_step = 0;                           //!< Next anti-lag counter; includes fixed and sleeping-engine updates
     float             m_stabilizer_shock_sleep = 0.f;     //!< Sim state
     Replay*           m_replay_handler = nullptr;
     NodeNum_t         m_mouse_grab_node = NODENUM_INVALID;  //!< Sim state; node currently being dragged by user

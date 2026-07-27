@@ -1145,7 +1145,13 @@ void ActorManager::UpdateActors(ActorPtr player_actor)
             }
             if (actor->ar_state == ActorState::LOCAL_SLEEPING)
             {
-                actor->ar_engine->UpdateEngine(dt, 1);
+                const std::uint64_t engine_update_step =
+                    actor->m_engine_update_step++;
+                actor->ar_engine->UpdateEngine(
+                    dt,
+                    1,
+                    actor->m_deterministic_seed,
+                    engine_update_step);
             }
             actor->ar_engine->UpdateEngineAudio();
         }
