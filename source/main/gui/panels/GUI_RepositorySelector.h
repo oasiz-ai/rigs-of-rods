@@ -64,17 +64,18 @@ namespace RoR {
         int rfir_filesize_bytes = 0; // For display only
     };
 
-    // This will be removed during OGRE14 migration
+#if OGRE_VERSION_MAJOR < 14
     struct RepoImageRequestHandler: public Ogre::WorkQueue::RequestHandler
     {
         Ogre::WorkQueue::Response* handleRequest(const Ogre::WorkQueue::Request* req, const Ogre::WorkQueue* srcQ) override;
     };
 
-    // `Ogre::Any` holder requires the `<<` operator to be implemented, otherwise it won't compile. ~ This will also be removed during OGRE14 migration
+    // `Ogre::Any` holder requires the `<<` operator to be implemented, otherwise it won't compile.
     inline std::ostream& operator<<(std::ostream& os, RepoImageDownloadRequest& val)
     {
         return os;
     }
+#endif
 
 namespace GUI {
 
@@ -182,6 +183,7 @@ private:
     void                                TryProcessNextQueuedInstallRequest();
     void                                DrawFooterDownloadsInfo();
     bool                                CheckRepoFileIsInstalled(ResourceFiles& resfile, std::string& out_filepath);
+    void                                QueueImageDownload(RepoImageDownloadRequest* request);
 
     bool                                m_is_visible = false;
     bool                                m_draw = false;
@@ -202,9 +204,10 @@ private:
     std::vector<RepoFileInstallRequest> m_queued_install_requests;
     RepoFileInstallRequestID_t          m_active_install_request_id = REPOFILEINSTALLREQUESTID_INVALID;
 
-    // This will be removed during OGRE14 migration
+#if OGRE_VERSION_MAJOR < 14
     Ogre::uint16                        m_ogre_workqueue_channel = 0;
     RepoImageRequestHandler             m_repo_image_request_handler;
+#endif
 
     // status or error messages
     std::string                         m_repofiles_msg;

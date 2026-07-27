@@ -43,6 +43,7 @@
 
 #include <OgrePlatform.h>
 #include <OgreFileSystem.h>
+#include <cctype>
 #include <string>
 
 namespace RoR {
@@ -126,6 +127,22 @@ void CreateFolder(const char* path)
     }
 }
 
+bool IsAbsolutePath(const char* path)
+{
+    if (path == nullptr || path[0] == 0)
+    {
+        return false;
+    }
+    const bool drive_path =
+        std::isalpha(static_cast<unsigned char>(path[0])) &&
+        path[1] == ':' &&
+        (path[2] == '\\' || path[2] == '/');
+    const bool unc_path =
+        (path[0] == '\\' || path[0] == '/') &&
+        (path[1] == '\\' || path[1] == '/');
+    return drive_path || unc_path;
+}
+
 std::string GetUserHomeDirectory()
 {
     std::wstring out_wstr(MAX_PATH, 0); // Length limit imposed by the function, see https://msdn.microsoft.com/en-us/library/windows/desktop/bb762181(v=vs.85).aspx
@@ -179,6 +196,11 @@ bool FolderExists(const char* path)
 void CreateFolder(const char* path)
 {
     mkdir(path, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+}
+
+bool IsAbsolutePath(const char* path)
+{
+    return path != nullptr && path[0] == '/';
 }
 
 std::string GetUserHomeDirectory()

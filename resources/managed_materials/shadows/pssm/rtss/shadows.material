@@ -1,0 +1,16 @@
+// OGRE 14 generates the receiver programs with RTShader System. Keep these
+// inheritance points free of explicit programs so GL3Plus, GLES, Metal and
+// D3D render systems can select their native shader language.
+abstract technique Shadows/managed/base_receiver
+{
+	pass BaseRender
+	{
+	}
+}
+
+abstract technique Shadows/managed_transparent/base_receiver
+{
+	pass BaseRender
+	{
+	}
+}

@@ -1,3 +1,4 @@
+import * from "shadows.material"
 import * from "texture_manager.material"
 
 material managed/flexmesh_standard/simple

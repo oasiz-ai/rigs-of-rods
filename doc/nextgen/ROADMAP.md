@@ -29,18 +29,19 @@ BeamNG-derived product name without written permission, in accordance with
 - Visual flex deformation and normal generation run on the CPU, then stream
   complete dynamic vertex buffers to the GPU. Simulation nodes remain the
   authoritative geometry.
-- The renderer is pinned to OGRE `1.11.6.1`. The generated configuration enables
-  legacy OpenGL on non-Windows systems and D3D9 on Windows; GL3Plus and D3D11
-  are disabled. Several managed materials depend on Cg-era shader profiles.
+- The compatibility build remains pinned to OGRE `1.11.6.1`, while the opt-in
+  native macOS path pins OGRE `14.5.2`, GL3Plus, and RTShaderSystem. The OGRE 14
+  dependency and application bundle have no Cg package or runtime plugin;
+  Windows/Linux migration and measured renderer parity remain open.
 - Three-cascade PSSM shadows, terrain normal/specular/height inputs, dynamic
   cubemaps, Caelum/SkyX, Hydrax, vegetation, particles, and reflection/refraction
   water already exist. There is no general HDR, PBR, FXAA, bloom, SSAO, or TAA
   pipeline. The `gfx_enable_rtshaders` CVar has no active integration.
-- Apple-specific source branches and Conan platform detection exist, but there
-  is no macOS CI or supported package. Non-Windows CMake and runtime handling
-  still assume X11, `librt`, `.so` plugins, a Linux launcher, and
-  `/proc/self/exe`; there is no complete `.dylib`, rpath, or `.app` bundle path.
-  The present tree is therefore not a verified macOS build.
+- The opt-in Apple Silicon build now removes X11, `librt`, `.so`, Linux
+  launcher, and `/proc/self/exe` assumptions; stages `.dylib` plugins through
+  bundle-relative rpaths; and produces a signed relocatable `.app`. Native
+  macOS CI, a supported release package, controller/audio coverage, the
+  validation-scene soak matrix, and Windows/Linux OGRE 14 parity remain open.
 - A historical OGRE 14 migration branch exists, but it is roughly 740 commits
   behind the audited `master`, and its Conan/platform assumptions remain biased
   toward Linux and Windows. Treat it as research, not as a merge base.
@@ -296,7 +297,7 @@ the dependency-build subprocess, and copies/installs `.dylib` dependencies.
 
 On 2026-07-27, the separate OGRE dependency/package slice passed its native
 macOS proof. The exact Conan reference is
-`ogre3d/14.5.2#9d5edd7c9716090a7e87fdd27cca12d2:a7b76c6f340c40b0b8883ed9b40acfff5165c675#20bd19d8a195eaa6eeca961a07bbca0a`.
+`ogre3d/14.5.2#68db16985fa623986379d2b9422d0dce:a7b76c6f340c40b0b8883ed9b40acfff5165c675#7bca6071546b0b39732f0b83fb5eb89f`.
 It was built as arm64 Release C++17 with AppleClang `21.0.0.21000101`, a macOS
 11.0 minimum deployment target, Metal and GL3Plus, and no Cg Toolkit dependency
 or Cg runtime plugin. Its relocated test initialized Metal with the exact eight
@@ -322,20 +323,41 @@ the pinned upstream `libjpeg/9e` Autotools recipe stops before OGRE with
 prefix-map argument was compiled independently with a spaced source path, but
 that does not turn the blocked full graph into a pass.
 
-This proves only the R0 package foundation. The renderer migration remains open:
+The first full application slice now opts the root graph into the pinned OGRE
+14 and MyGUI recipes, builds a native arm64 GL3Plus executable, creates its SDL
+window at 1280x832 logical points for a 2560x1664 Retina backing store,
+initializes RTShaderSystem without Cg, and stages and ad-hoc signs a relocatable
+`.app`. A clean 444-step build passed, followed by all 16 native CTest targets
+and all 62 tool tests. The bundle audit verified four OGRE plugins and nine
+runtime libraries, and the pristine package contains no user configuration.
 
-- The root graph still forces OGRE `1.11.6.1`, while the game build, generated
-  plugin configuration, and managed materials retain legacy renderer and Cg-era
-  assumptions.
-- `source/main/terrain/OgreTerrainPSSMMaterialGenerator.cpp` has Cg, HLSL,
-  GLSL, and GLSL ES branches but no Metal material-generator path.
-- RoR game media has no authored MSL/`.metal` resources. The package's OGRE
-  `DefaultShaders.metal` does not replace the game's terrain and managed
-  material shader port.
-- The full game has not been built against this package on all three target
-  platforms. The signed relocatable `.app`, ten-minute `simple2_a`, `simple2`,
-  and `simple2_w` runs, visual parity, performance budgets, and native
-  Windows/Linux/macOS CI remain required.
+A relocated, clean-cache live run discovered the user-supplied
+`Audimans_Testor.terrn2` and XBGT Falcon archives, loaded the terrain through
+`===== TERRAIN LOADING DONE`, and rendered its textured terrain, sky,
+structures, and character. The Falcon's unsupported legacy Cg NiceMetal
+programs are rejected explicitly; OGRE RTShaderSystem generated GL3Plus vertex
+and fragment programs for both fallback material passes without a
+`no supportable Techniques` error. macOS keyboard input now uses SDL physical
+key and UTF-8 events while retaining an unbuffered OIS compatibility facade.
+The SDL Cocoa responder is restored after OIS initialization and each focus
+gain, and live input was confirmed on the packaged build. Scene unload and
+application shutdown complete through OGRE teardown without a new macOS crash
+report. The local OGRE patch also closes a shadow-projector index underflow
+found by an LLDB hardware watchpoint during that scene load.
+
+This is meaningful R0 progress, not completion. The remaining gates include:
+
+- Eliminate every GL validation diagnostic and prove PSSM with controlled
+  occluder captures; then cover dynamic cubemaps, water, sky, vegetation,
+  particles, UI, mirrors, screenshots, and hot-load against recorded baselines.
+- Add native controller and audio checks, expected user-directory behavior, and
+  ten-minute `simple2_a`, `simple2`, and `simple2_w` resource-growth soaks.
+- Decide and prove the production Metal material path. RoR media still has no
+  authored MSL pipeline; the current application path intentionally uses
+  GL3Plus.
+- Build and test the full OGRE 14 application on Windows and Linux, add the
+  three-platform native CI matrix, and measure the declared CPU/GPU frame-time
+  budgets.
 
 Merely changing version strings is still an explicitly rejected milestone.
 

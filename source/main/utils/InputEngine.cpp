@@ -529,8 +529,25 @@ void InputEngine::setup()
 
     try
     {
-        mKeyboard = static_cast<Keyboard*>(mInputManager->createInputObject(OISKeyboard, true));
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+        // SDL is the sole buffered keyboard source on the SDL-owned Cocoa
+        // window. Keep an unbuffered OIS object for the existing public
+        // device contract, but never let its first-responder callbacks
+        // duplicate SDL events.
+        mKeyboard = static_cast<Keyboard*>(
+            mInputManager->createInputObject(OISKeyboard, false));
+        // OIS 1.5.1's Cocoa Unicode path never injects key-down events for
+        // non-text keys (arrows, navigation, function keys) because
+        // charactersIgnoringModifiers is empty.
+        mKeyboard->setTextTranslation(OIS::Keyboard::Off);
+        ROR_ASSERT(
+            mKeyboard->getTextTranslation() == OIS::Keyboard::Off);
+        LOG("+ macOS keyboard: SDL buffered keys/text + OIS device facade");
+#else
+        mKeyboard = static_cast<Keyboard*>(
+            mInputManager->createInputObject(OISKeyboard, true));
         mKeyboard->setTextTranslation(OIS::Keyboard::Unicode);
+#endif
     }
     catch (OIS::Exception& ex)
     {
@@ -634,7 +651,9 @@ String InputEngine::getKeyNameForKeyCode(OIS::KeyCode keycode)
 
 void InputEngine::Capture()
 {
+#if !(OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE)
     mKeyboard->capture();
+#endif
     mMouse->capture();
 
     for (int i = 0; i < free_joysticks; i++)
@@ -651,9 +670,14 @@ void InputEngine::Capture()
 void InputEngine::windowResized(Ogre::RenderWindow* rw)
 {
     //update mouse area
-    unsigned int width, height, depth;
+    unsigned int width, height;
     int left, top;
+#if OGRE_VERSION_MAJOR >= 14
+    rw->getMetrics(width, height, left, top);
+#else
+    unsigned int depth;
     rw->getMetrics(width, height, depth, left, top);
+#endif
     const OIS::MouseState& ms = mMouse->getMouseState();
     ms.width = width;
     ms.height = height;
@@ -699,6 +723,13 @@ void InputEngine::ProcessKeyRelease(const OIS::KeyEvent& arg)
     keyState[arg.key] = 0;
 }
 
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+bool InputEngine::SetSdlKeyState(OIS::KeyCode key, bool down)
+{
+    return m_sdl_key_state.Set(key, down);
+}
+#endif
+
 /* --- Mouse Events ------------------------------------------ */
 void InputEngine::processMouseMotionEvent(const OIS::MouseEvent& arg)
 {
@@ -739,6 +770,10 @@ void InputEngine::resetKeysAndMouseButtons()
     {
         iter->second = false;
     }
+
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    m_sdl_key_state.Reset();
+#endif
 
     // OIS WORKAROUND: After a window focus is restored for the 2nd+ time, OIS delivers a fabricated 'LMB pressed' event,
     //    without ever sending matching 'LMB released', see analysis: https://github.com/RigsOfRods/rigs-of-rods/pull/3184#issuecomment-2380397463
@@ -1176,9 +1211,13 @@ float InputEngine::getEventValue(int eventID, bool pure, InputSourceType valueSo
 
 bool InputEngine::isKeyDown(OIS::KeyCode key)
 {
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    return m_sdl_key_state.IsDown(key);
+#else
     if (!mKeyboard)
         return false;
     return this->mKeyboard->isKeyDown(key);
+#endif
 }
 
 bool InputEngine::isKeyDownEffective(OIS::KeyCode mod)

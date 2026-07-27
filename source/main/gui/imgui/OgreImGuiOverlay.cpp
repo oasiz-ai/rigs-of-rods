@@ -130,10 +130,6 @@ void ImGuiOverlay::NewFrame(const FrameEvent& evt)
         evt.timeSinceLastFrame,
         1e-4f); // see https://github.com/ocornut/imgui/commit/3c07ec6a6126fb6b98523a9685d1f0f78ca3c40c
 
-    // Read keyboard modifiers inputs
-    io.KeyAlt = false;
-    io.KeySuper = false;
-
     OverlayManager& oMgr = OverlayManager::getSingleton();
 
     // Setup display size (every frame to accommodate for window resizing)
@@ -270,7 +266,9 @@ void ImGuiOverlay::ImGUIRenderable::initialise(void)
     mRenderOp.indexData->indexStart = 0;
     mRenderOp.operationType = RenderOperation::OT_TRIANGLE_LIST;
     mRenderOp.useIndexes = true;
+#if OGRE_VERSION_MAJOR < 14
     mRenderOp.useGlobalInstancingVertexBufferIsAvailable = false;
+#endif
 
     VertexDeclaration* decl = mRenderOp.vertexData->vertexDeclaration;
 

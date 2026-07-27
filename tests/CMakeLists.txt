@@ -199,6 +199,26 @@ if (APPLE)
         PRIVATE
             "${ROR_REPOSITORY_ROOT}/source/main/utils"
     )
+
+    if (ROR_OGRE14)
+        add_executable(
+            ror_macos_input_bridge_tests
+            "${CMAKE_CURRENT_LIST_DIR}/platform/MacOSInputBridgeTests.cpp"
+        )
+
+        target_include_directories(
+            ror_macos_input_bridge_tests
+            PRIVATE
+                "${ROR_REPOSITORY_ROOT}/source/main/utils"
+        )
+
+        target_link_libraries(
+            ror_macos_input_bridge_tests
+            PRIVATE
+                SDL2::SDL2
+                ois::ois
+        )
+    endif ()
 endif ()
 
 target_link_libraries(
@@ -225,6 +245,9 @@ set(ROR_PHYSICS_TEST_TARGETS
 
 if (APPLE)
     list(APPEND ROR_PHYSICS_TEST_TARGETS ror_apple_executable_path_tests)
+    if (ROR_OGRE14)
+        list(APPEND ROR_PHYSICS_TEST_TARGETS ror_macos_input_bridge_tests)
+    endif ()
 endif ()
 
 foreach (test_target IN LISTS ROR_PHYSICS_TEST_TARGETS)
@@ -335,4 +358,10 @@ if (APPLE)
         NAME apple_executable_path
         COMMAND ror_apple_executable_path_tests
     )
+    if (ROR_OGRE14)
+        add_test(
+            NAME macos_input_bridge
+            COMMAND ror_macos_input_bridge_tests
+        )
+    endif ()
 endif ()

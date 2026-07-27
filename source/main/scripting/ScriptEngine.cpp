@@ -338,7 +338,13 @@ int ScriptEngine::executeContextAndHandleErrors(ScriptUnitID_t nid)
             {
                 SLOG("\tcontext.ExceptionFunction.Declaration: " + ptr2str(func->GetDeclaration()));
                 SLOG("\tcontext.ExceptionFunction.ModuleName: " + ptr2str(func->GetModuleName()));
+#if ANGELSCRIPT_VERSION >= 23800
+                const char* script_section = nullptr;
+                func->GetDeclaredAt(&script_section, nullptr, nullptr);
+                SLOG("\tcontext.ExceptionFunction.ScriptSectionName: " + ptr2str(script_section));
+#else
                 SLOG("\tcontext.ExceptionFunction.ScriptSectionName: " + ptr2str(func->GetScriptSectionName()));
+#endif
                 SLOG("\tcontext.ExceptionFunction.ObjectName: " + ptr2str(func->GetObjectName()));
             }
         }

@@ -36,6 +36,10 @@
 #include "OISKeyboard.h"
 #include "OISMouse.h"
 
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+#    include "MacOSInputBridge.h"
+#endif
+
 #define MAX_JOYSTICKS 10
 #define MAX_JOYSTICK_POVS 4
 #define MAX_JOYSTICK_SLIDERS 4
@@ -488,6 +492,9 @@ public:
     void                processMouseReleaseEvent(const OIS::MouseEvent& arg, OIS::MouseButtonID _id);
     void                ProcessKeyPress(const OIS::KeyEvent& arg);
     void                ProcessKeyRelease(const OIS::KeyEvent& arg);
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    bool                SetSdlKeyState(OIS::KeyCode key, bool down);
+#endif
     void                ProcessJoystickEvent(const OIS::JoyStickEvent& arg);
     void                resetKeysAndMouseButtons();
     void                setEventSimulatedValue(events eventID, float value);
@@ -549,7 +556,7 @@ public:
     /// @{
     OIS::JoyStickState* getCurrentJoyState(int joystickNumber);
     OIS::MouseState     getMouseState();
-    bool                isKeyDown(OIS::KeyCode mod);                        //!< Asks OIS directly
+    bool                isKeyDown(OIS::KeyCode mod);                        //!< Queries the platform's raw key state
     int                 getCurrentKeyCombo(Ogre::String* combo);            //!< Returns number of non-modifier keys pressed (or modifier count as negative number).
     int                 getCurrentJoyButton(int& joystickNumber, int& button);
     int                 getCurrentPovValue(int& joystickNumber, int& pov, int& povdir);
@@ -584,6 +591,9 @@ protected:
 
     // this stores the key/button/axis values
     std::map<int, bool> keyState;
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    MacOSInputBridge::KeyState m_sdl_key_state;
+#endif
     OIS::JoyStickState joyState[MAX_JOYSTICKS];
     OIS::MouseState mouseState;
 

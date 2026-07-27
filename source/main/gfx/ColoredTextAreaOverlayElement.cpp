@@ -42,13 +42,13 @@ ColoredTextAreaOverlayElement::~ColoredTextAreaOverlayElement(void)
 void ColoredTextAreaOverlayElement::setValueBottom(float Value)
 {
     m_ValueTop = Value;
-    mColoursChanged = true;
+    TextAreaOverlayElement::setColourTop(TextAreaOverlayElement::getColourTop());
 }
 
 void ColoredTextAreaOverlayElement::setValueTop(float Value)
 {
     m_ValueBottom = Value;
-    mColoursChanged = true;
+    TextAreaOverlayElement::setColourTop(TextAreaOverlayElement::getColourTop());
 }
 
 ColourValue ColoredTextAreaOverlayElement::GetColor(unsigned char ID, float Value)
@@ -113,7 +113,6 @@ void ColoredTextAreaOverlayElement::setCaption(const DisplayString& text)
 {
     m_Colors.clear();
     m_Colors.resize(text.size(), 9);
-    bool noColor = true;
     int i, iNumColorCodes = 0, iNumSpaces = 0;
     for (i = 0; i < (int)text.size() - 1; ++i)
     {
@@ -130,19 +129,18 @@ void ColoredTextAreaOverlayElement::setCaption(const DisplayString& text)
             fill(m_Colors.begin() + i - (2 * iNumColorCodes) - iNumSpaces, m_Colors.end(), text[i + 1] - '0');
             ++i;
             ++iNumColorCodes;
-            mColoursChanged = true;
-            noColor = false;
         }
     }
-    if (noColor)
-        mColoursChanged = true;
     // Set the caption using the base class, but strip the color codes from it first
     TextAreaOverlayElement::setCaption(StripColors(text));
+    TextAreaOverlayElement::setColourTop(TextAreaOverlayElement::getColourTop());
 }
 
 void ColoredTextAreaOverlayElement::updateColours(void)
 {
-    if (!mRenderOp.vertexData)
+    RenderOperation render_op;
+    getRenderOperation(render_op);
+    if (!render_op.vertexData)
         return;
     // Convert to system-specific
     RGBA topColour, bottomColour;
@@ -151,14 +149,15 @@ void ColoredTextAreaOverlayElement::updateColours(void)
     Root::getSingleton().convertColourValue(ColourValue::White, &bottomColour);
 
     HardwareVertexBufferSharedPtr vbuf =
-        mRenderOp.vertexData->vertexBufferBinding->getBuffer(COLOUR_BINDING);
+        render_op.vertexData->vertexBufferBinding->getBuffer(COLOUR_BINDING);
 
     //RGBA* pDest = static_cast<RGBA*>(
     //	vbuf->lock(HardwareBuffer::HBL_NORMAL) );
     RGBA* pDest = (RGBA*)malloc(vbuf->getSizeInBytes());
     RGBA* oDest = pDest;
 
-    for (size_t i = 0; i < mAllocSize; ++i)
+    const size_t allocated_character_count = vbuf->getNumVertices() / 6;
+    for (size_t i = 0; i < allocated_character_count; ++i)
     {
         if (i < m_Colors.size())
         {

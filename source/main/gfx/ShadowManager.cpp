@@ -31,6 +31,10 @@
 #include <Overlay/OgreOverlay.h>
 #include <OgreMaterialManager.h>
 
+#if OGRE_VERSION_MAJOR >= 14
+#    include <RTShaderSystem/OgreRTShaderSystem.h>
+#endif
+
 using namespace Ogre;
 using namespace RoR;
 
@@ -92,7 +96,14 @@ int ShadowManager::updateShadowTechnique()
 
 void ShadowManager::processPSSM()
 {
+#if OGRE_VERSION_MAJOR >= 14
+    // OGRE 14's programmable-only renderers integrate shadow sampling into
+    // the native RTSS lighting shaders. This keeps legacy fixed-function
+    // materials renderable without relying on the retired Cg plugin.
+    App::GetGfxScene()->GetSceneManager()->setShadowTechnique(Ogre::SHADOWTYPE_TEXTURE_MODULATIVE_INTEGRATED);
+#else
     App::GetGfxScene()->GetSceneManager()->setShadowTechnique(Ogre::SHADOWTYPE_TEXTURE_ADDITIVE_INTEGRATED);
+#endif
 
     App::GetGfxScene()->GetSceneManager()->setShadowDirectionalLightExtrusionDistance(299.0f);
     App::GetGfxScene()->GetSceneManager()->setShadowFarDistance(350.0f);
@@ -102,36 +113,48 @@ void ShadowManager::processPSSM()
     App::GetGfxScene()->GetSceneManager()->setShadowTextureSelfShadow(true);
     App::GetGfxScene()->GetSceneManager()->setShadowCasterRenderBackFaces(true);
 
-    //Caster is set via materials
+#if OGRE_VERSION_MAJOR >= 14
+    // A depth texture only needs the renderer-native RTSS caster. Clearing
+    // the custom caster lets OGRE derive it from Ogre/TextureShadowCaster.
+    App::GetGfxScene()->GetSceneManager()->setShadowTextureCasterMaterial(Ogre::MaterialPtr());
+#else
+    // Caster is set via the legacy Cg material.
     MaterialPtr shadowMat = MaterialManager::getSingleton().getByName("Ogre/shadow/depth/caster");
     App::GetGfxScene()->GetSceneManager()->setShadowTextureCasterMaterial(shadowMat);
+#endif
+
+#if OGRE_VERSION_MAJOR >= 14
+    const Ogre::PixelFormat shadow_texture_format = Ogre::PF_DEPTH16;
+#else
+    const Ogre::PixelFormat shadow_texture_format = Ogre::PF_FLOAT32_R;
+#endif
 
     if (PSSM_Shadows.Quality == 3)
     {
-        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(0, 4096, 4096, PF_FLOAT32_R);
-        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(1, 3072, 3072, PF_FLOAT32_R);
-        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(2, 2048, 2048, PF_FLOAT32_R);
+        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(0, 4096, 4096, shadow_texture_format);
+        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(1, 3072, 3072, shadow_texture_format);
+        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(2, 2048, 2048, shadow_texture_format);
         PSSM_Shadows.lambda = 0.965f;
     }
     else if (PSSM_Shadows.Quality == 2)
     {
-        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(0, 3072, 3072, PF_FLOAT32_R);
-        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(1, 2048, 2048, PF_FLOAT32_R);
-        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(2, 2048, 2048, PF_FLOAT32_R);
+        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(0, 3072, 3072, shadow_texture_format);
+        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(1, 2048, 2048, shadow_texture_format);
+        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(2, 2048, 2048, shadow_texture_format);
         PSSM_Shadows.lambda = 0.97f;
     }
     else if (PSSM_Shadows.Quality == 1)
     {
-        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(0, 2048, 2048, PF_FLOAT32_R);
-        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(1, 1024, 1024, PF_FLOAT32_R);
-        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(2, 1024, 1024, PF_FLOAT32_R);
+        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(0, 2048, 2048, shadow_texture_format);
+        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(1, 1024, 1024, shadow_texture_format);
+        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(2, 1024, 1024, shadow_texture_format);
         PSSM_Shadows.lambda = 0.975f;
     }
     else
     {
-        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(0, 1024, 1024, PF_FLOAT32_R);
-        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(1, 1024, 1024, PF_FLOAT32_R);
-        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(2, 512, 512, PF_FLOAT32_R);
+        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(0, 1024, 1024, shadow_texture_format);
+        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(1, 1024, 1024, shadow_texture_format);
+        App::GetGfxScene()->GetSceneManager()->setShadowTextureConfig(2, 512, 512, shadow_texture_format);
         PSSM_Shadows.lambda = 0.98f;
     }
 
@@ -149,8 +172,27 @@ void ShadowManager::processPSSM()
 
         PSSM_Shadows.mPSSMSetup.bind(pssmSetup);
 
+#if OGRE_VERSION_MAJOR >= 14
+        Ogre::RTShader::ShaderGenerator* shader_generator =
+            Ogre::RTShader::ShaderGenerator::getSingletonPtr();
+        if (shader_generator != nullptr)
+        {
+            Ogre::RTShader::RenderState* render_state =
+                shader_generator->getRenderState(
+                    Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+            Ogre::RTShader::SubRenderState* shadow_mapping =
+                shader_generator->createSubRenderState(
+                    Ogre::RTShader::SRS_SHADOW_MAPPING);
+            shadow_mapping->setParameter(
+                "split_points", pssmSetup->getSplitPoints());
+            render_state->addTemplateSubRenderState(shadow_mapping);
+            shader_generator->invalidateScheme(
+                Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+        }
+#else
         //Send split info to managed materials
         setManagedMaterialSplitPoints(pssmSetup->getSplitPoints());
+#endif
     }
     App::GetGfxScene()->GetSceneManager()->setShadowCameraSetup(PSSM_Shadows.mPSSMSetup);
 }

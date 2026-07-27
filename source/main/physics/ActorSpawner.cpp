@@ -76,6 +76,7 @@
 #include "VehicleAI.h"
 
 #include <OgreMaterialManager.h>
+#include <OgreGpuProgramManager.h>
 #include <OgreSceneManager.h>
 #include <OgreMovableObject.h>
 #include <OgreParticleSystem.h>
@@ -88,6 +89,119 @@ using namespace RoR;
 /* -------------------------------------------------------------------------- */
 // Prepare for loading
 /* -------------------------------------------------------------------------- */
+
+static bool IsManagedMaterialTemplateSupported(
+    const Ogre::String& resource_group,
+    const Ogre::String& material_name,
+    std::string& failure_reason)
+{
+    const Ogre::MaterialPtr material =
+        Ogre::MaterialManager::getSingleton().getByName(material_name, resource_group);
+    if (!material)
+    {
+        failure_reason = fmt::format("template '{}' is missing", material_name);
+        return false;
+    }
+
+    Ogre::Technique* technique = material->getTechnique("BaseTechnique");
+    if (technique == nullptr)
+    {
+        failure_reason =
+            fmt::format("template '{}' has no BaseTechnique", material_name);
+        return false;
+    }
+
+    auto append_failure = [&failure_reason](const std::string& failure)
+    {
+        if (!failure_reason.empty())
+        {
+            failure_reason += "; ";
+        }
+        failure_reason += failure;
+    };
+
+    for (Ogre::Pass* pass: technique->getPasses())
+    {
+        for (int program_index = 0; program_index < Ogre::GPT_COUNT; ++program_index)
+        {
+            const Ogre::GpuProgramType program_type =
+                static_cast<Ogre::GpuProgramType>(program_index);
+            if (!pass->hasGpuProgram(program_type))
+            {
+                continue;
+            }
+
+            const Ogre::GpuProgramPtr program = pass->getGpuProgram(program_type);
+            if (!program)
+            {
+                append_failure(fmt::format(
+                    "pass '{}' has a missing {} program",
+                    pass->getName(),
+                    Ogre::GpuProgram::getProgramTypeName(program_type)));
+                continue;
+            }
+
+            if (!program->isSupported())
+            {
+                if (program->hasCompileError())
+                {
+                    append_failure(fmt::format(
+                        "program '{}' has a compile error",
+                        program->getName()));
+                }
+                else
+                {
+                    append_failure(fmt::format(
+                        "program '{}' uses unsupported language/profile '{}/{}'",
+                        program->getName(),
+                        program->getLanguage(),
+                        program->getSyntaxCode()));
+                }
+                continue;
+            }
+
+            try
+            {
+                // isSupported() validates renderer capabilities and syntax, while
+                // load() also exposes missing source and backend compile failures.
+                program->load();
+            }
+            catch (const Ogre::Exception& e)
+            {
+                append_failure(fmt::format(
+                    "program '{}' failed to load: {}",
+                    program->getName(),
+                    e.getDescription()));
+                continue;
+            }
+
+            if (program->hasCompileError())
+            {
+                append_failure(fmt::format(
+                    "program '{}' has a compile error",
+                    program->getName()));
+            }
+        }
+    }
+
+    if (!failure_reason.empty())
+    {
+        return false;
+    }
+
+    const Ogre::String technique_errors = technique->_compile(true);
+    if (!technique->isSupported())
+    {
+        failure_reason = fmt::format(
+            "template '{}' BaseTechnique is unsupported: {}",
+            material_name,
+            technique_errors);
+        Ogre::StringUtil::trim(failure_reason);
+        return false;
+    }
+
+    return true;
+}
 
 void ActorSpawner::ConfigureSections(Ogre::String const & sectionconfig, RigDef::DocumentPtr def)
 {
@@ -2531,6 +2645,48 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & def)
         def.specular_map = "";
     }
 
+    Ogre::String nice_metal_template_name;
+    if (def.specular_map != "")
+    {
+        switch (def.type)
+        {
+        case RigDef::ManagedMaterialType::FLEXMESH_STANDARD:
+            nice_metal_template_name = def.damaged_diffuse_map.empty()
+                ? "managed/flexmesh_standard/specularonly_nicemetal"
+                : "managed/flexmesh_standard/speculardamage_nicemetal";
+            break;
+        case RigDef::ManagedMaterialType::FLEXMESH_TRANSPARENT:
+            nice_metal_template_name = def.damaged_diffuse_map.empty()
+                ? "managed/flexmesh_transparent/specularonly_nicemetal"
+                : "managed/flexmesh_transparent/speculardamage_nicemetal";
+            break;
+        case RigDef::ManagedMaterialType::MESH_STANDARD:
+            nice_metal_template_name = "managed/mesh_standard/specular_nicemetal";
+            break;
+        case RigDef::ManagedMaterialType::MESH_TRANSPARENT:
+            nice_metal_template_name = "managed/mesh_transparent/specular_nicemetal";
+            break;
+        default:
+            break;
+        }
+    }
+
+    bool use_alt_actor_materials = App::gfx_alt_actor_materials->getBool();
+    if (!use_alt_actor_materials && !nice_metal_template_name.empty())
+    {
+        std::string failure_reason;
+        if (!IsManagedMaterialTemplateSupported(
+                resource_group, nice_metal_template_name, failure_reason))
+        {
+            use_alt_actor_materials = true;
+            LOG(fmt::format(
+                "[RoR|ActorSpawner] Managed material '{}': {}. Using the "
+                "RTSS-compatible material",
+                def.name,
+                failure_reason));
+        }
+    }
+
     // Create fallback placeholders
     // This is necessary to load meshes with original material names (= unchanged managed mat names)
     // - if not found, OGRE substitutes them with 'BaseWhite' which breaks subsequent processing.
@@ -2568,13 +2724,13 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & def)
             if (def.specular_map != "")
             {
                 /* FLEXMESH, damage, specular */
-                if (App::gfx_alt_actor_materials->getBool())
+                if (use_alt_actor_materials)
                 {
                     material = this->InstantiateManagedMaterial(resource_group, mat_name_base + "/speculardamage", custom_name);
                 }
                 else
                 {
-                    material = this->InstantiateManagedMaterial(resource_group, mat_name_base + "/speculardamage_nicemetal", custom_name);
+                    material = this->InstantiateManagedMaterial(resource_group, nice_metal_template_name, custom_name);
                 }
 
                 if (!material)
@@ -2582,7 +2738,7 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & def)
                     return;
                 }
 
-                if (App::gfx_alt_actor_materials->getBool())
+                if (use_alt_actor_materials)
                 {
                     this->AssignManagedMaterialTexture(material->getTechnique("BaseTechnique")->getPass("BaseRender")->getTextureUnitState("Diffuse_Map"), def.name, 0, def.diffuse_map);
                     this->AssignManagedMaterialTexture(material->getTechnique("BaseTechnique")->getPass("BaseRender")->getTextureUnitState("Dmg_Diffuse_Map"), def.name, 2, def.damaged_diffuse_map);
@@ -2613,13 +2769,13 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & def)
             if (def.specular_map != "")
             {
                 /* FLEXMESH, no_damage, specular */
-                if (App::gfx_alt_actor_materials->getBool())
+                if (use_alt_actor_materials)
                 {
                     material = this->InstantiateManagedMaterial(resource_group, mat_name_base + "/specularonly", custom_name);
                 }
                 else
                 {
-                    material = this->InstantiateManagedMaterial(resource_group, mat_name_base + "/specularonly_nicemetal", custom_name);
+                    material = this->InstantiateManagedMaterial(resource_group, nice_metal_template_name, custom_name);
                 }
 
                 if (!material)
@@ -2627,7 +2783,7 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & def)
                     return;
                 }
 
-                if (App::gfx_alt_actor_materials->getBool())
+                if (use_alt_actor_materials)
                 {
                     this->AssignManagedMaterialTexture(material->getTechnique("BaseTechnique")->getPass("BaseRender")->getTextureUnitState("Diffuse_Map"), def.name, 0, def.diffuse_map);
                     this->AssignManagedMaterialTexture(material->getTechnique("BaseTechnique")->getPass("SpecularMapping1")->getTextureUnitState("SpecularMapping1_Tex"), def.name, 1, def.specular_map);
@@ -2661,13 +2817,13 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & def)
         if (def.specular_map != "")
         {
             /* MESH, specular */
-            if (App::gfx_alt_actor_materials->getBool())
+            if (use_alt_actor_materials)
             {
                 material = this->InstantiateManagedMaterial(resource_group, mat_name_base + "/specular", custom_name);
             }
             else
             {
-                material = this->InstantiateManagedMaterial(resource_group, mat_name_base + "/specular_nicemetal", custom_name);
+                material = this->InstantiateManagedMaterial(resource_group, nice_metal_template_name, custom_name);
             }
 
             if (!material)
@@ -2675,7 +2831,7 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & def)
                 return;
             }
 
-            if (App::gfx_alt_actor_materials->getBool())
+            if (use_alt_actor_materials)
             {
                 this->AssignManagedMaterialTexture(material->getTechnique("BaseTechnique")->getPass("BaseRender")->getTextureUnitState("Diffuse_Map"), def.name, 0, def.diffuse_map);
                 this->AssignManagedMaterialTexture(material->getTechnique("BaseTechnique")->getPass("SpecularMapping1")->getTextureUnitState("SpecularMapping1_Tex"), def.name, 1, def.specular_map);
@@ -2708,7 +2864,7 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & def)
             material->getTechnique("BaseTechnique")->getPass("BaseRender")->setCullingMode(Ogre::CULL_NONE);
             if (def.specular_map != "")
             {
-                if (App::gfx_alt_actor_materials->getBool())
+                if (use_alt_actor_materials)
                 {
                     material->getTechnique("BaseTechnique")->getPass("SpecularMapping1")->setCullingMode(Ogre::CULL_NONE);
                 }
@@ -7412,7 +7568,11 @@ Ogre::ParticleSystem* ActorSpawner::CreateParticleSystem(std::string const & nam
     params["templateName"] = template_name;
 
     Ogre::MovableObject* obj = App::GetGfxScene()->GetSceneManager()->createMovableObject(
+#if OGRE_VERSION_MAJOR >= 14
+       name, Ogre::MOT_PARTICLE_SYSTEM, &params);
+#else
        name, Ogre::ParticleSystemFactory::FACTORY_TYPE_NAME, &params);
+#endif
     Ogre::ParticleSystem* psys = static_cast<Ogre::ParticleSystem*>(obj);
     psys->setVisibilityFlags(DEPTHMAP_DISABLED); // disable particles in depthmap
 
@@ -7582,23 +7742,64 @@ void ActorSpawner::AssignManagedMaterialTexture(Ogre::TextureUnitState* tus, con
     // Helper for `ProcessManagedMaterial()`, resolves tweaks
     // ======================================================
 
+    const std::string resolved_texture =
+        TuneupUtil::getTweakedManagedMatMedia(
+            m_actor->getWorkingTuneupDef(), mm_name, media_id, tex_name);
+    const std::string resolved_resource_group =
+        TuneupUtil::getTweakedManagedMatMediaRG(
+            m_actor->getWorkingTuneupDef(),
+            mm_name,
+            media_id,
+            this->GetCurrentElementMediaRG());
+
+    if (tus == nullptr)
+    {
+        LOG(fmt::format(
+            "[RoR|ActorSpawner] Managed material '{}': texture unit {} is "
+            "missing while assigning '{}'",
+            mm_name,
+            media_id,
+            resolved_texture));
+        return;
+    }
+
     try
     {
-        ROR_ASSERT(tus);
-        if (tus)
-        {
-            Ogre::TexturePtr tex = Ogre::TextureManager::getSingleton().load(
-                TuneupUtil::getTweakedManagedMatMedia(m_actor->getWorkingTuneupDef(), mm_name, media_id, tex_name),
-                TuneupUtil::getTweakedManagedMatMediaRG(m_actor->getWorkingTuneupDef(), mm_name, media_id, this->GetCurrentElementMediaRG()));
+        Ogre::TexturePtr tex = Ogre::TextureManager::getSingleton().load(
+            resolved_texture, resolved_resource_group);
 
-            if (tex)
-            {
-                tus->setTexture(tex);
-            }
+        if (tex)
+        {
+            tus->setTexture(tex);
+            LOG(fmt::format(
+                "[RoR|ActorSpawner] Managed material '{}': assigned texture "
+                "'{}' from group '{}' to media unit {} (resource group '{}', loaded={})",
+                mm_name,
+                resolved_texture,
+                resolved_resource_group,
+                media_id,
+                tex->getGroup(),
+                tex->isLoaded()));
+        }
+        else
+        {
+            LOG(fmt::format(
+                "[RoR|ActorSpawner] Managed material '{}': texture manager "
+                "returned no resource for '{}' from group '{}'",
+                mm_name,
+                resolved_texture,
+                resolved_resource_group));
         }
     }
-    catch (...) // Exception is already logged by OGRE
+    catch (const Ogre::Exception& e)
     {
+        LOG(fmt::format(
+            "[RoR|ActorSpawner] Managed material '{}': could not assign "
+            "texture '{}' from group '{}': {}",
+            mm_name,
+            resolved_texture,
+            resolved_resource_group,
+            e.getDescription()));
     }
 }
 

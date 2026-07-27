@@ -13,6 +13,7 @@ namespace Ogre {
 /// @{
 
 /// custom visual data for shader renderer
+#if OGRE_VERSION_MAJOR < 14
 class ParticleCustomParam : public ParticleVisualData
 {
 public:
@@ -26,6 +27,7 @@ public:
 
     Vector4 paramValue;
 };
+#endif
 
 /// @} // addtogroup Particle
 /// @} // addtogroup Gfx

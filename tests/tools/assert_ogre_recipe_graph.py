@@ -37,6 +37,12 @@ EXPECTED_PATCH_SHA256 = {
     "patches/14.5.2/relocatable-install-paths.patch": (
         "6292eb8bf8a9b373f68e7ff180b5750051eff2e21d39cacc84ae020410d06dc2"
     ),
+    "patches/14.5.2/bounds-safe-shadow-texture-projectors.patch": (
+        "13bbbd974dfe0106dc51a8846caff800394b371a57fc98bcdd0dbcf783823d51"
+    ),
+    "patches/14.5.2/defer-glsl-program-validation.patch": (
+        "d60d2684b6fd29ba1d3bdc4aaa34bb21463488ab16af03592e3b19594f249e72"
+    ),
 }
 EXPECTED_OGRE_OPTIONS = {
     "codec_rsimage": "False",
@@ -136,6 +142,15 @@ def source_sha256(conandata: Path) -> str:
     return hash_match.group(1).lower()
 
 
+def registered_patch_paths(conandata: Path) -> set[str]:
+    return set(
+        re.findall(
+            r"(?m)^\s*-\s+patch_file:\s*(\S+)\s*$",
+            conandata.read_text(encoding="utf-8"),
+        )
+    )
+
+
 def assert_exact_patch_set(recipe_dir: Path) -> None:
     patches_dir = recipe_dir / "patches"
     actual_paths = {
@@ -148,13 +163,20 @@ def assert_exact_patch_set(recipe_dir: Path) -> None:
             f"expected {sorted(EXPECTED_PATCH_SHA256)}, "
             f"found {sorted(actual_paths)}"
         )
+    registered_paths = registered_patch_paths(recipe_dir / "conandata.yml")
+    if registered_paths != set(EXPECTED_PATCH_SHA256):
+        raise AssertionError(
+            "OGRE registered patch set changed: "
+            f"expected {sorted(EXPECTED_PATCH_SHA256)}, "
+            f"found {sorted(registered_paths)}"
+        )
     for relative_path, expected_hash in EXPECTED_PATCH_SHA256.items():
         patch_hash = hashlib.sha256(
             (recipe_dir / relative_path).read_bytes()
         ).hexdigest()
         if patch_hash != expected_hash:
             raise AssertionError(
-                f"Nexus-derived patch changed: {relative_path}"
+                f"Pinned OGRE patch changed: {relative_path}"
             )
 
 

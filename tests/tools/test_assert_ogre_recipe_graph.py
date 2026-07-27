@@ -38,6 +38,34 @@ def graph_with(node: dict[str, object]) -> dict[str, object]:
 
 
 class OgreGraphAssertionTests(unittest.TestCase):
+    def test_checked_in_patch_set_is_exact(self) -> None:
+        repository_root = Path(assertion.__file__).resolve().parents[2]
+        assertion.assert_exact_patch_set(
+            repository_root / "cmake/conan/recipes/ogre3d"
+        )
+
+    def test_registered_patch_paths_are_read_from_conandata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            conandata = Path(directory) / "conandata.yml"
+            conandata.write_text(
+                "patches:\n"
+                "  14.5.2:\n"
+                "    - patch_file: patches/first.patch\n"
+                "    - patch_file: patches/second.patch\n"
+                "\n"
+                "sources:\n"
+                "  14.5.2:\n"
+                "    url: https://example.invalid/ogre.tar.gz\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                assertion.registered_patch_paths(conandata),
+                {
+                    "patches/first.patch",
+                    "patches/second.patch",
+                },
+            )
+
     def test_exact_local_build_node_is_accepted(self) -> None:
         graph = graph_with(ogre_node())
         assertion.assert_macos_arm64_ogre_node(

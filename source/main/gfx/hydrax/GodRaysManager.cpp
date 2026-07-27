@@ -132,7 +132,11 @@ namespace Hydrax
 		mManualGodRays->setVisible(mHydrax->_isCurrentFrameUnderwater());
 
 		mManualGodRays->begin(_def_GodRays_Material_Name, Ogre::RenderOperation::OT_TRIANGLE_LIST);
+#if OGRE_VERSION_MAJOR >= 14
+		mManualGodRays->setRenderQueueGroup(Ogre::RENDER_QUEUE_SKIES_LATE+1);
+#else
 		mManualGodRays->setRenderQueueGroup(Ogre::RENDER_QUEUE_9+1);
+#endif
 
 		for(int r = 0; r < mNumberOfRays; r++)
 		{

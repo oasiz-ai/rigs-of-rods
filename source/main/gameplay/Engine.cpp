@@ -22,6 +22,7 @@
 #include "Engine.h"
 
 #include "AppContext.h"
+#include "ApproxMath.h"
 #include "Actor.h"
 #include "ActorManager.h"
 #include "Console.h"

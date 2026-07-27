@@ -329,6 +329,7 @@ int main(int argc, char *argv[])
         {
             App::GetAppContext()->PrepareProfiler();
             OgreBites::WindowEventUtilities::messagePump();
+            App::GetAppContext()->ProcessWindowEvents();
 
             // Halt physics (wait for async tasks to finish)
             if (App::app_state->getEnum<AppState>() == AppState::SIMULATION)
@@ -353,7 +354,19 @@ int main(int argc, char *argv[])
                     {
                         if (App::app_state->getEnum<AppState>() == AppState::SIMULATION)
                         {
+#if OGRE_VERSION_MAJOR >= 14
+                            // The OGRE 14 terrain material generator owns RTShader
+                            // sub-render states. Run the normal terrain cleanup
+                            // before entering SHUTDOWN so those states are released
+                            // before AppContext destroys the shader generator.
+                            App::GetGameContext()->PushMessage(
+                                Message(MSG_SIM_UNLOAD_TERRN_REQUESTED));
+                            App::GetGameContext()->ChainMessage(
+                                Message(MSG_APP_SHUTDOWN_REQUESTED));
+                            break;
+#else
                             App::GetGameContext()->SaveScene("autosave.sav");
+#endif
                         }
                         App::GetConsole()->saveConfig(); // RoR.cfg
                         App::GetDiscordRpc()->Shutdown();

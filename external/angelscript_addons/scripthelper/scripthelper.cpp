@@ -542,7 +542,11 @@ int WriteConfigToStream(asIScriptEngine *engine, ostream &strm)
 	}
 
 	asDWORD flags = 0;
+#if ANGELSCRIPT_VERSION >= 23800
+	int typeId = engine->GetStringFactory(&flags);
+#else
 	int typeId = engine->GetStringFactoryReturnTypeId(&flags);
+#endif
 	if( typeId > 0 )
 		strm << "strfactory \"" << ((flags & asTM_CONST) ? "const " : "") << engine->GetTypeDeclaration(typeId) << ((flags & asTM_INOUTREF) ? "&" : "") << "\"\n";
 
@@ -918,10 +922,12 @@ string GetExceptionInfo(asIScriptContext *ctx, bool showStack)
 	stringstream text;
 
 	const asIScriptFunction *function = ctx->GetExceptionFunction();
+	const char* scriptSection = 0;
+	int line = ctx->GetExceptionLineNumber(0, &scriptSection);
 	text << "func: " << function->GetDeclaration() << "\n";
 	text << "modl: " << (function->GetModuleName() ? function->GetModuleName() : "") << "\n";
-	text << "sect: " << (function->GetScriptSectionName() ? function->GetScriptSectionName() : "") << "\n";
-	text << "line: " << ctx->GetExceptionLineNumber() << "\n";
+	text << "sect: " << (scriptSection ? scriptSection : "") << "\n";
+	text << "line: " << line << "\n";
 	text << "desc: " << ctx->GetExceptionString() << "\n";
 
 	if( showStack )
@@ -934,7 +940,8 @@ string GetExceptionInfo(asIScriptContext *ctx, bool showStack)
 			{
 				if( function->GetFuncType() == asFUNC_SCRIPT )
 				{
-					text << (function->GetScriptSectionName() ? function->GetScriptSectionName() : "") << " (" << ctx->GetLineNumber(n) << "): " << function->GetDeclaration() << "\n";
+					line = ctx->GetLineNumber(n, 0, &scriptSection);
+					text << (scriptSection ? scriptSection : "") << " (" << line << "): " << function->GetDeclaration() << "\n";
 				}
 				else
 				{

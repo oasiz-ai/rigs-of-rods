@@ -6,7 +6,16 @@
 #include <OgreParticleSystemRenderer.h>
 #include <OgreVector2.h>
 
+#include <list>
+#include <vector>
+
 namespace Ogre {
+
+#if OGRE_VERSION_MAJOR >= 14
+    using ShaderParticleContainer = std::vector<Particle*>;
+#else
+    using ShaderParticleContainer = std::list<Particle*>;
+#endif
 
 /// @addtogroup Gfx
 /// @{
@@ -182,17 +191,21 @@ namespace Ogre {
         /// @name Ogre::ParticleSystemRenderer interface
         /// @{
         virtual const String& getType(void) const override;
-        virtual void _updateRenderQueue(RenderQueue* queue, Ogre::list<Particle*>::type& currentParticles, bool cullIndividually) override;
+        virtual void _updateRenderQueue(RenderQueue* queue, ShaderParticleContainer& currentParticles, bool cullIndividually) override;
         virtual void visitRenderables(Renderable::Visitor* visitor, bool debugRenderables = false) override;
         virtual void _setMaterial(MaterialPtr& mat) override;
         virtual void _notifyCurrentCamera(Camera* cam) override;
+#if OGRE_VERSION_MAJOR < 14
         virtual void _notifyParticleRotated(void) override;
         virtual void _notifyParticleResized(void) override;
+#endif
         virtual void _notifyParticleQuota(size_t quota) override;
         virtual void _notifyAttached(Node* parent, bool isTagPoint = false) override;
         virtual void _notifyDefaultDimensions(Real width, Real height) override;
+#if OGRE_VERSION_MAJOR < 14
         virtual ParticleVisualData* _createVisualData(void) override;
         virtual void _destroyVisualData(ParticleVisualData* vis) override;
+#endif
         virtual void setRenderQueueGroup(uint8 queueID) override;
         virtual void setKeepParticlesInLocalSpace(bool keepLocal) override;
         virtual SortMode _getSortMode(void) const override;
@@ -216,7 +229,7 @@ namespace Ogre {
 
         /// add particle to vertex buffer
         void addParticle(uint8* pDataVB, const Particle& particle) const;
-        void setRenderQueueGroupAndPriority(Ogre::uint8,Ogre::ushort);
+        void setRenderQueueGroupAndPriority(Ogre::uint8, Ogre::ushort) override;
     protected:
         static CmdVertexFormatColour		msVertexFmtColour;
         static CmdVertexFormatTexture		msVertexFmtTexture;

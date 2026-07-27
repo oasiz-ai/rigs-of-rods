@@ -32,6 +32,102 @@ THE SOFTWARE.
 #include <Terrain/OgreTerrainMaterialGenerator.h>
 #include <OgreGpuProgramParams.h>
 
+#if OGRE_VERSION_MAJOR >= 14
+
+#include <Terrain/OgreTerrainMaterialGeneratorA.h>
+
+namespace Ogre {
+
+/**
+ * Compatibility facade for OGRE 14's RTSS-based terrain material generator.
+ *
+ * OGRE 14 removed the named-profile and layer-semantic APIs used by RoR's
+ * legacy generator. TerrainMaterialGeneratorA is its maintained replacement
+ * and includes normal, parallax, specular, composite-map and PSSM support.
+ * Keep RoR's existing profile-facing call sites source-compatible while the
+ * actual material and shader generation is delegated to OGRE.
+ */
+class TerrainPSSMMaterialGenerator : public TerrainMaterialGeneratorA
+{
+public:
+    class SM2Profile : public TerrainMaterialGenerator::Profile
+    {
+    public:
+        SM2Profile(TerrainMaterialGeneratorA* parent, TerrainMaterialGeneratorA::SM2Profile* profile)
+            : mParent(parent)
+            , mProfile(profile)
+        {
+        }
+
+        bool isLayerNormalMappingEnabled() const { return mProfile->isLayerNormalMappingEnabled(); }
+        void setLayerNormalMappingEnabled(bool enabled) { mProfile->setLayerNormalMappingEnabled(enabled); }
+
+        bool isLayerParallaxMappingEnabled() const { return mProfile->isLayerParallaxMappingEnabled(); }
+        void setLayerParallaxMappingEnabled(bool enabled) { mProfile->setLayerParallaxMappingEnabled(enabled); }
+
+        bool isLayerSpecularMappingEnabled() const { return mProfile->isLayerSpecularMappingEnabled(); }
+        void setLayerSpecularMappingEnabled(bool enabled) { mProfile->setLayerSpecularMappingEnabled(enabled); }
+
+        // OGRE 14 consumes a terrain's global colour map automatically.
+        bool isGlobalColourMapEnabled() const { return mGlobalColourMapEnabled; }
+        void setGlobalColourMapEnabled(bool enabled) { mGlobalColourMapEnabled = enabled; }
+
+        bool isLightmapEnabled() const { return mParent->isLightmapEnabled(); }
+        void setLightmapEnabled(bool enabled) { mProfile->setLightmapEnabled(enabled); }
+
+        bool isCompositeMapEnabled() const { return mParent->isCompositeMapEnabled(); }
+        void setCompositeMapEnabled(bool enabled) { mProfile->setCompositeMapEnabled(enabled); }
+
+        bool getReceiveDynamicShadowsEnabled() const { return mParent->getReceiveDynamicShadowsEnabled(); }
+        void setReceiveDynamicShadowsEnabled(bool enabled) { mProfile->setReceiveDynamicShadowsEnabled(enabled); }
+
+        void setReceiveDynamicShadowsPSSM(PSSMShadowCameraSetup* pssmSettings)
+        {
+            mProfile->setReceiveDynamicShadowsPSSM(pssmSettings);
+        }
+        PSSMShadowCameraSetup* getReceiveDynamicShadowsPSSM() const
+        {
+            return mProfile->getReceiveDynamicShadowsPSSM();
+        }
+
+        // RTSS shadow mapping is depth-based; retain the requested value for
+        // legacy configuration introspection without changing that pipeline.
+        void setReceiveDynamicShadowsDepth(bool enabled) { mDepthShadows = enabled; }
+        bool getReceiveDynamicShadowsDepth() const { return mDepthShadows; }
+
+        bool getReceiveDynamicShadowsLowLod() const { return mParent->getReceiveDynamicShadowsLowLod(); }
+        void setReceiveDynamicShadowsLowLod(bool enabled) { mProfile->setReceiveDynamicShadowsLowLod(enabled); }
+
+        uint8 getMaxLayers(const Terrain* terrain) const { return mProfile->getMaxLayers(terrain); }
+
+    private:
+        TerrainMaterialGeneratorA* mParent;
+        TerrainMaterialGeneratorA::SM2Profile* mProfile;
+        bool mGlobalColourMapEnabled = true;
+        bool mDepthShadows = false;
+    };
+
+    TerrainPSSMMaterialGenerator()
+        : mCompatProfile(
+              this,
+              static_cast<TerrainMaterialGeneratorA::SM2Profile*>(
+                  TerrainMaterialGeneratorA::getActiveProfile()))
+    {
+    }
+
+    TerrainMaterialGenerator::Profile* getActiveProfile() const override
+    {
+        return &mCompatProfile;
+    }
+
+private:
+    mutable SM2Profile mCompatProfile;
+};
+
+} // namespace Ogre
+
+#else
+
 namespace Ogre {
 class PSSMShadowCameraSetup;
 
@@ -282,3 +378,4 @@ public:
 
 }
 
+#endif

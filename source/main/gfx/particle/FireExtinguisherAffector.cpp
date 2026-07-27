@@ -90,9 +90,22 @@ void FireExtinguisherAffector::_affectParticles(ParticleSystem* pSystem, Real ti
         Real squaredRadius = Math::Pow(fire->getRadius(), 2);
         Vector3 middlePoint = fire->getAbsoluteMiddlePoint();
 
-        ParticleIterator pi = pSystem->_getIterator();
         Particle *p;
         int fireHits = 0;
+#if OGRE_VERSION_MAJOR >= 14
+        for (Particle* activeParticle : pSystem->_getActiveParticles())
+        {
+            p = activeParticle;
+
+            if ( middlePoint.squaredDistance(p->mPosition) < squaredRadius )
+            {
+                // This particle is inside the fire, dispose of it in the next update
+                p->mTimeToLive = 0;
+                ++fireHits;
+            }
+        }
+#else
+        ParticleIterator pi = pSystem->_getIterator();
         while (!pi.end())
         {
             p = pi.getNext();
@@ -104,6 +117,7 @@ void FireExtinguisherAffector::_affectParticles(ParticleSystem* pSystem, Real ti
                 ++fireHits;
             }
         }
+#endif
         if (fireHits>0)
         {
             Real intensity = fire->reduceIntensity(fireHits*mEffectiveness);

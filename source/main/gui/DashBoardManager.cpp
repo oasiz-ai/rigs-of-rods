@@ -35,6 +35,8 @@
 #include "ScriptEngine.h"
 #include "Utils.h"
 
+#include <regex>
+
 using namespace Ogre;
 using namespace RoR;
 

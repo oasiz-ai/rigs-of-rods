@@ -40,10 +40,12 @@ extern char PATH_SLASH;
 bool FileExists(const char* path);   //!< Path must be UTF-8 encoded.
 bool FolderExists(const char* path); //!< Path must be UTF-8 encoded.
 void CreateFolder(const char* path); //!< Path must be UTF-8 encoded.
+bool IsAbsolutePath(const char* path); //!< Tests native absolute-path syntax without accessing the filesystem.
 
 inline bool FileExists(std::string const& path)   { return FileExists(path.c_str()); }
 inline bool FolderExists(std::string const& path) { return FolderExists(path.c_str()); }
 inline void CreateFolder(std::string const& path) { CreateFolder(path.c_str()); }
+inline bool IsAbsolutePath(std::string const& path) { return IsAbsolutePath(path.c_str()); }
 
 inline std::string PathCombine(std::string a, std::string b) { return a + PATH_SLASH + b; };
 

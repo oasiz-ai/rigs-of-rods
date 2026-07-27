@@ -1,0 +1,99 @@
+diff --git a/Platforms/Ogre/OgrePlatform/include/MyGUI_OgreRenderManager.h b/Platforms/Ogre/OgrePlatform/include/MyGUI_OgreRenderManager.h
+index ca147d9..5b19bd1 100644
+--- a/Platforms/Ogre/OgrePlatform/include/MyGUI_OgreRenderManager.h
++++ b/Platforms/Ogre/OgrePlatform/include/MyGUI_OgreRenderManager.h
+@@ -131,6 +131,9 @@ namespace MyGUI
+ #else
+ 		Ogre::TextureUnitState::UVWAddressingMode mTextureAddressMode;
+ #endif
++#if OGRE_VERSION >= MYGUI_DEFINE_VERSION(14, 0, 0)
++		Ogre::SamplerPtr mSampler;
++#endif
+ 		Ogre::LayerBlendModeEx mColorBlendMode, mAlphaBlendMode;
+ 
+ 		RenderTargetInfo mInfo;
+diff --git a/Platforms/Ogre/OgrePlatform/src/MyGUI_OgreRTTexture.cpp b/Platforms/Ogre/OgrePlatform/src/MyGUI_OgreRTTexture.cpp
+index 2ee5e0f..f8a8dbd 100644
+--- a/Platforms/Ogre/OgrePlatform/src/MyGUI_OgreRTTexture.cpp
++++ b/Platforms/Ogre/OgrePlatform/src/MyGUI_OgreRTTexture.cpp
+@@ -66,7 +66,8 @@ namespace MyGUI
+ 	{
+ 		Ogre::RenderSystem* system = Ogre::Root::getSingleton().getRenderSystem();
+ 		system->_setViewport(mSaveViewport);
+-#if OGRE_VERSION >= MYGUI_DEFINE_VERSION(1, 7, 0) && OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
++#if OGRE_VERSION >= MYGUI_DEFINE_VERSION(1, 7, 0) && \
++	OGRE_VERSION < MYGUI_DEFINE_VERSION(14, 0, 0) && OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
+ 		Ogre::OrientationMode orient = mSaveViewport->getOrientationMode();
+ 		system->_setProjectionMatrix(Ogre::Matrix4::IDENTITY * Ogre::Quaternion(Ogre::Degree(orient * 90.f), Ogre::Vector3::UNIT_Z));
+ #else
+diff --git a/Platforms/Ogre/OgrePlatform/src/MyGUI_OgreRenderManager.cpp b/Platforms/Ogre/OgrePlatform/src/MyGUI_OgreRenderManager.cpp
+index f2aa8f7..d141da0 100644
+--- a/Platforms/Ogre/OgrePlatform/src/MyGUI_OgreRenderManager.cpp
++++ b/Platforms/Ogre/OgrePlatform/src/MyGUI_OgreRenderManager.cpp
+@@ -67,6 +67,11 @@ namespace MyGUI
+ 			setRenderSystem(root->getRenderSystem());
+ 		setRenderWindow(_window);
+ 		setSceneManager(_scene);
++#if OGRE_VERSION >= MYGUI_DEFINE_VERSION(14, 0, 0)
++		mSampler = Ogre::TextureManager::getSingleton().createSampler();
++		mSampler->setFiltering(Ogre::FO_LINEAR, Ogre::FO_LINEAR, Ogre::FO_NONE);
++		mSampler->setAddressingMode(mTextureAddressMode);
++#endif
+ 
+ 		MYGUI_PLATFORM_LOG(Info, getClassTypeName() << " successfully initialized");
+ 		mIsInitialise = true;
+@@ -79,6 +84,9 @@ namespace MyGUI
+ 
+ 		destroyAllResources();
+ 
++#if OGRE_VERSION >= MYGUI_DEFINE_VERSION(14, 0, 0)
++		mSampler.reset();
++#endif
+ 		setSceneManager(nullptr);
+ 		setRenderWindow(nullptr);
+ 		setRenderSystem(nullptr);
+@@ -274,7 +282,8 @@ namespace MyGUI
+ 		if (_window->getNumViewports() > mActiveViewport)
+ 		{
+ 			Ogre::Viewport* port = _window->getViewport(mActiveViewport);
+-#if OGRE_VERSION >= MYGUI_DEFINE_VERSION(1, 7, 0) && OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
++#if OGRE_VERSION >= MYGUI_DEFINE_VERSION(1, 7, 0) && \
++	OGRE_VERSION < MYGUI_DEFINE_VERSION(14, 0, 0) && OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
+ 			Ogre::OrientationMode orient = port->getOrientationMode();
+ 			if (orient == Ogre::OR_DEGREE_90 || orient == Ogre::OR_DEGREE_270)
+ 				setViewSize(port->getActualHeight(), port->getActualWidth());
+@@ -315,7 +324,11 @@ namespace MyGUI
+ 			if (!texture_ptr.isNull())
+ 			{
+ 				mRenderSystem->_setTexture(0, true, texture_ptr);
++#if OGRE_VERSION >= MYGUI_DEFINE_VERSION(14, 0, 0)
++				mRenderSystem->_setSampler(0, *mSampler);
++#else
+ 				mRenderSystem->_setTextureUnitFiltering(0, Ogre::FO_LINEAR, Ogre::FO_LINEAR, Ogre::FO_NONE);
++#endif
+ 			}
+ 		}
+ 
+@@ -334,7 +347,8 @@ namespace MyGUI
+ 		mRenderSystem->_setWorldMatrix(Ogre::Matrix4::IDENTITY);
+ 		mRenderSystem->_setViewMatrix(Ogre::Matrix4::IDENTITY);
+ 
+-#if OGRE_VERSION >= MYGUI_DEFINE_VERSION(1, 7, 0) && OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
++#if OGRE_VERSION >= MYGUI_DEFINE_VERSION(1, 7, 0) && \
++	OGRE_VERSION < MYGUI_DEFINE_VERSION(14, 0, 0) && OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
+ 		Ogre::OrientationMode orient = mWindow->getViewport(mActiveViewport)->getOrientationMode();
+ 		mRenderSystem->_setProjectionMatrix(Ogre::Matrix4::IDENTITY * Ogre::Quaternion(Ogre::Degree(orient * 90.f), Ogre::Vector3::UNIT_Z));
+ #else
+@@ -367,8 +381,12 @@ namespace MyGUI
+ 		// initialise texture settings
+ 		mRenderSystem->_setTextureCoordCalculation(0, Ogre::TEXCALC_NONE);
+ 		mRenderSystem->_setTextureCoordSet(0, 0);
++#if OGRE_VERSION >= MYGUI_DEFINE_VERSION(14, 0, 0)
++		mRenderSystem->_setSampler(0, *mSampler);
++#else
+ 		mRenderSystem->_setTextureUnitFiltering(0, Ogre::FO_LINEAR, Ogre::FO_LINEAR, Ogre::FO_NONE);
+ 		mRenderSystem->_setTextureAddressingMode(0, mTextureAddressMode);
++#endif
+ 		mRenderSystem->_setTextureMatrix(0, Ogre::Matrix4::IDENTITY);
+ #if OGRE_VERSION < MYGUI_DEFINE_VERSION(1, 6, 0)
+ 		mRenderSystem->_setAlphaRejectSettings(Ogre::CMPF_ALWAYS_PASS, 0);

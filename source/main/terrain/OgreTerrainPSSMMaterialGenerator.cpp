@@ -27,6 +27,8 @@ THE SOFTWARE.
 */
 #include "OgreTerrainPSSMMaterialGenerator.h"
 
+#if OGRE_VERSION_MAJOR < 14
+
 #include <Terrain/OgreTerrain.h>
 #include <OgreMaterialManager.h>
 #include <OgreTechnique.h>
@@ -1749,3 +1751,5 @@ TerrainPSSMMaterialGenerator::SM2Profile::ShaderHelperGLSLES::createFragmentProg
 }
 
 }
+
+#endif

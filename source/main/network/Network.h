@@ -38,6 +38,10 @@
 #include <thread>
 #include <vector>
 
+#ifdef USE_CURL
+#   include <curl/curl.h>
+#endif
+
 namespace RoR {
 
 /// @addtogroup Network

@@ -41,7 +41,53 @@ option(ROR_BUILD_DOC_DOXYGEN "Build documentation from sources with Doxygen" OFF
 option(ROR_BUILD_TESTS "Build deterministic dependency-free physics tests" OFF)
 option(ROR_USE_PCH "Use a Precompiled header for speeding up the build" ON)
 option(ROR_CREATE_CONTENT_FOLDER "Create the base content folder" ON)
+option(ROR_OGRE14 "Opt in to the native macOS OGRE 14 bring-up" OFF)
 set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to the dependencies")
+
+if (ROR_OGRE14 AND NOT APPLE)
+    message(FATAL_ERROR "ROR_OGRE14 currently supports native macOS only")
+endif ()
+
+if (ROR_OGRE14)
+    find_program(CONAN_COMMAND "conan" REQUIRED)
+    foreach (_ror_recipe IN ITEMS ogre3d mygui)
+        if (_ror_recipe STREQUAL "ogre3d")
+            set(_ror_recipe_version "14.5.2")
+        else ()
+            set(_ror_recipe_version "3.4.0")
+        endif ()
+        execute_process(
+            COMMAND
+                ${CONAN_COMMAND} export
+                "${CMAKE_SOURCE_DIR}/cmake/conan/recipes/${_ror_recipe}"
+                "--version=${_ror_recipe_version}"
+            RESULT_VARIABLE _ror_recipe_export_result
+        )
+        if (NOT _ror_recipe_export_result EQUAL 0)
+            message(FATAL_ERROR "Failed to export ${_ror_recipe} migration recipe")
+        endif ()
+    endforeach ()
+    unset(_ror_recipe)
+    unset(_ror_recipe_version)
+    unset(_ror_recipe_export_result)
+
+    set(_ror_ogre14_conan_args
+        "-o=&:ogre14=True"
+        "--lockfile=${CMAKE_SOURCE_DIR}/cmake/conan/locks/ror-ogre14-macos-arm64-release.lock"
+        "-c:h=tools.cmake:configure_args=[\"-DCMAKE_POLICY_VERSION_MINIMUM=3.5\"]"
+    )
+    foreach (_ror_conan_arg IN LISTS _ror_ogre14_conan_args)
+        list(FIND CONAN_INSTALL_ARGS "${_ror_conan_arg}" _ror_conan_arg_index)
+        if (_ror_conan_arg_index EQUAL -1)
+            list(APPEND CONAN_INSTALL_ARGS "${_ror_conan_arg}")
+        endif ()
+    endforeach ()
+    set(CONAN_INSTALL_ARGS "${CONAN_INSTALL_ARGS}" CACHE STRING
+        "Command line arguments for conan install" FORCE)
+    unset(_ror_ogre14_conan_args)
+    unset(_ror_conan_arg)
+    unset(_ror_conan_arg_index)
+endif ()
 
 set(ROR_BUILD_INSTALLER "Off" CACHE STRING
     "Build the Windows installer. Possible values:

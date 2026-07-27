@@ -22,6 +22,8 @@
 /// @file
 /// @author Petr Ohlidal, 11/2016
 
+#include "ForwardDeclarations.h"
+
 #include <OgreColourValue.h>
 #include <OgreDataStream.h>
 #include <OgreVector3.h>

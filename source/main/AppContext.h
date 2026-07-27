@@ -33,6 +33,25 @@
 #include <Ogre.h>
 #include <OIS.h>
 
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+struct SDL_Window;
+#endif
+
+#if OGRE_VERSION_MAJOR >= 14
+namespace Ogre
+{
+namespace RTShader
+{
+class ShaderGenerator;
+}
+}
+
+namespace OgreBites
+{
+class SGTechniqueResolverListener;
+}
+#endif
+
 namespace RoR {
 
 /// @addtogroup Application
@@ -46,6 +65,8 @@ class AppContext: public OgreBites::WindowEventListener,
                   public OIS::JoyStickListener
 {
 public:
+    ~AppContext();
+
     // Startup (in order)
     void                 SetUpThreads();
     bool                 SetUpProgramPaths();
@@ -55,11 +76,13 @@ public:
     bool                 SetUpConfigSkeleton();
     bool                 SetUpInput();
     void                 SetUpObsoleteConfMarker();
+    void                 ProcessWindowEvents();
 
     // Rendering
     Ogre::RenderWindow*  CreateCustomRenderWindow(std::string const& name, int width, int height);
     void                 CaptureScreenshot();
     void                 ActivateFullscreen(bool val);
+    void                 RegisterRTShaderSceneManager(Ogre::SceneManager* scene_manager);
 
     // Profiling
     void                 PrepareProfiler();
@@ -94,12 +117,25 @@ private:
 
     // Rendering and window management
     void                 SetRenderWindowIcon(Ogre::RenderWindow* rw);
+#if OGRE_VERSION_MAJOR >= 14
+    bool                 SetUpRTShaderSystem();
+    void                 ShutDownRTShaderSystem();
+#endif
 
     // Variables
 
     Ogre::Root*          m_ogre_root     = nullptr;
     Ogre::RenderWindow*  m_render_window = nullptr;
     Ogre::Viewport*      m_viewport      = nullptr;
+#if OGRE_VERSION_MAJOR >= 14
+    Ogre::RTShader::ShaderGenerator*          m_shader_generator = nullptr;
+    OgreBites::SGTechniqueResolverListener*   m_rtshader_material_listener = nullptr;
+#endif
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    SDL_Window*          m_sdl_window = nullptr;
+    bool                 m_owns_sdl_video = false;
+    bool                 m_window_shutdown_requested = false;
+#endif
     bool                 m_windowed_fix = false; //!< Workaround OGRE glitch when switching from fullscreen.
     bool                 m_profiler_enabled = false; //!< Last known state, to workaround OGRE v14.5.2 bug
 

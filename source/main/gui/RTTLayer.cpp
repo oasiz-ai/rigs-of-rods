@@ -1,5 +1,6 @@
 // based on the MyGUI UnitTests
 
+#include "Application.h"
 #include "MyGUI_LayerItem.h"
 #include "RTTLayer.h"
 #include "MyGUI_Enumerator.h"

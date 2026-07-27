@@ -28,6 +28,10 @@
 
 #include "ForwardDeclarations.h"
 
+#include <OgreTexture.h>
+#include <OgreTimer.h>
+#include <imgui.h>
+
 namespace RoR {
 namespace GUI {
 

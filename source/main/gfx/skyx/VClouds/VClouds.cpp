@@ -33,7 +33,11 @@ namespace SkyX { namespace VClouds
 		, mCreated(false)
 		, mGeometrySettings(GeometrySettings())
 		, mDistanceFallingParams(Ogre::Vector2(1,-1))
+#if OGRE_VERSION_MAJOR >= 14
+		, mRenderQueueGroups(RenderQueueGroups(Ogre::RENDER_QUEUE_MAIN, Ogre::RENDER_QUEUE_SKIES_LATE, Ogre::RENDER_QUEUE_4))
+#else
 		, mRenderQueueGroups(RenderQueueGroups(Ogre::RENDER_QUEUE_MAIN, Ogre::RENDER_QUEUE_9, Ogre::RENDER_QUEUE_4))
+#endif
 		, mWindDirection(Ogre::Degree(0))
 		, mWindSpeed(80.0f)
 		, mWheater(Ogre::Vector2(0.5f, 1.0f))

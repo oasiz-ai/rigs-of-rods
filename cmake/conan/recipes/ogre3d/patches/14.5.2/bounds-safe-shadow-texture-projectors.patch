@@ -1,0 +1,55 @@
+--- a/OgreMain/src/OgreTextureShadowRenderer.cpp
++++ b/OgreMain/src/OgreTextureShadowRenderer.cpp
+@@ -462,8 +462,11 @@ void SceneManager::TextureShadowRenderer::destroyShadowTextures(void)
+     mShadowTextures.clear();
+     mShadowTextureCameras.clear();
+ 
+-    // set by render*TextureShadowedQueueGroupObjects
+-    mSceneManager->mAutoParamDataSource->setTextureProjector(NULL, 0);
++    // set by render*TextureShadowedQueueGroupObjects. PSSM and layered shadow
++    // techniques populate more than slot zero, so clear every slot before the
++    // cameras they referenced can be observed again.
++    for (size_t i = 0; i < OGRE_MAX_SIMULTANEOUS_LIGHTS; ++i)
++        mSceneManager->mAutoParamDataSource->setTextureProjector(NULL, i);
+ 
+     // Will destroy if no other scene managers referencing
+     ShadowTextureManager::getSingleton().clearUnused();
+@@ -1063,27 +1066,29 @@ void SceneManager::TextureShadowRenderer::resolveShadowTexture(TextureUnitState*
+ {
+     TexturePtr shadowTex;
+-    if (shadowIndex < mShadowTextures.size())
++    if (shadowIndex < mShadowTextures.size() &&
++        shadowIndex < mShadowTextureCameras.size())
+     {
+         shadowTex = mShadowTextures[shadowIndex];
+         // Enable projective texturing if fixed-function, but also need to
+         // disable it explicitly for program pipeline.
+         tu->setProjectiveTexturing(!tu->getParent()->hasVertexProgram(), mShadowTextureCameras[shadowIndex]);
++
++        // set up projectors for all layers, fixed function does not support layered textures anyway
++        size_t layers = std::max(shadowTex->getDepth(), shadowTex->getNumFaces());
++        layers = std::min(layers, mShadowTextureCameras.size() - shadowIndex); // clamp
++        for (size_t l = 0; l < layers; ++l)
++            mSceneManager->mAutoParamDataSource->setTextureProjector(mShadowTextureCameras[shadowIndex + l],
++                                                                     shadowTexUnitIndex + l);
+     }
+     else
+     {
+         // Use fallback no-shadow texture
+         // no projection since all uniform colour anyway
+         shadowTex = mNoShadowTexture;
+         tu->setProjectiveTexturing(false);
++        mSceneManager->mAutoParamDataSource->setTextureProjector(NULL, shadowTexUnitIndex);
+     }
+ 
+     tu->_setTexturePtr(shadowTex);
+-
+-    // set up projectors for all layers, fixed function does not support layered textures anyway
+-    size_t layers = std::max(shadowTex->getDepth(), shadowTex->getNumFaces());
+-    layers = std::min(layers, mShadowTextureCameras.size() - shadowIndex); // clamp
+-    for (size_t l = 0; l < layers; ++l)
+-        mSceneManager->mAutoParamDataSource->setTextureProjector(mShadowTextureCameras[shadowIndex + l],
+-                                                                 shadowTexUnitIndex + l);
+ }
+ 
+ namespace

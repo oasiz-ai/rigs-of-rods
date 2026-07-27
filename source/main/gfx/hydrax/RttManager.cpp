@@ -505,7 +505,11 @@ namespace Hydrax
 			&& mActive)
 		{
 			mRttManager->mHydrax->getCamera()->disableCustomNearClipPlane();
+#if OGRE_VERSION_MAJOR >= 14
+			Ogre::Root::getSingleton().getRenderSystem()->_setProjectionMatrix(mRttManager->mHydrax->getCamera()->getProjectionMatrix());
+#else
 			Ogre::Root::getSingleton().getRenderSystem()->_setProjectionMatrix(mRttManager->mHydrax->getCamera()->getProjectionMatrixRS());
+#endif
 		}
 	}
 
@@ -519,7 +523,11 @@ namespace Hydrax
 			&& mActive)
 		{
 			mRttManager->mHydrax->getCamera()->enableCustomNearClipPlane(mRttManager->mPlanes[RTT_REFLECTION]);
+#if OGRE_VERSION_MAJOR >= 14
+			Ogre::Root::getSingleton().getRenderSystem()->_setProjectionMatrix(mRttManager->mHydrax->getCamera()->getProjectionMatrix());
+#else
 			Ogre::Root::getSingleton().getRenderSystem()->_setProjectionMatrix(mRttManager->mHydrax->getCamera()->getProjectionMatrixRS());
+#endif
 		}
 	}
 

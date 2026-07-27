@@ -24,7 +24,6 @@
 
 #include <Overlay/OgreOverlayManager.h>
 #include <Overlay/OgreOverlay.h>
-#include <Plugins/ParticleFX/OgreBoxEmitterFactory.h>
 
 
 #include "Application.h"
@@ -382,7 +381,24 @@ void ContentManager::InitManagedMaterials(std::string const & rg_name)
 {
     Ogre::String managed_materials_dir = PathCombine(App::sys_resources_dir->getStr(), "managed_materials");
 
-    //Dirty, needs to be improved
+    // OGRE 14's programmable-only renderers use RTShader System for the
+    // receiver programs. Loading the legacy "on" directory there would bind
+    // Cg-only programs and leave every inheriting material unsupported.
+#if OGRE_VERSION_MAJOR >= 14
+    if (App::gfx_shadow_type->getEnum<GfxShadowType>() == GfxShadowType::PSSM)
+    {
+        ResourceGroupManager::getSingleton().addResourceLocation(
+            PathCombine(managed_materials_dir, "shadows/pssm/rtss"),
+            "FileSystem", rg_name);
+    }
+    else
+    {
+        ResourceGroupManager::getSingleton().addResourceLocation(
+            PathCombine(managed_materials_dir, "shadows/pssm/off"),
+            "FileSystem", rg_name);
+    }
+#else
+    // Legacy PSSM materials use the Cg programs shipped in the "on" tree.
     if (App::gfx_shadow_type->getEnum<GfxShadowType>() == GfxShadowType::PSSM)
     {
         if (rg_name == RGN_MANAGED_MATS) // Only load shared resources on startup
@@ -395,6 +411,7 @@ void ContentManager::InitManagedMaterials(std::string const & rg_name)
     {
         ResourceGroupManager::getSingleton().addResourceLocation(PathCombine(managed_materials_dir,"shadows/pssm/off"), "FileSystem", rg_name);
     }
+#endif
 
     ResourceGroupManager::getSingleton().addResourceLocation(PathCombine(managed_materials_dir, "texture"), "FileSystem", rg_name);
 

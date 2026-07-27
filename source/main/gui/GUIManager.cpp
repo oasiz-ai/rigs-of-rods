@@ -325,13 +325,21 @@ void GUIManager::UpdateMouseCursorVisibility()
 void GUIManager::NewImGuiFrame(float dt)
 {
     ImGuiIO& io = ImGui::GetIO();
-    OIS::Keyboard* kb = App::GetInputEngine()->GetOisKeyboard();
 
-     // Read keyboard modifiers inputs
-    io.KeyCtrl = kb->isKeyDown(OIS::KC_LCONTROL);
-    io.KeyShift = kb->isKeyDown(OIS::KC_LSHIFT);
-    io.KeyAlt = kb->isKeyDown(OIS::KC_LMENU);
-    io.KeySuper = false;
+    // Read modifiers through InputEngine so SDL-owned macOS windows use the
+    // same authoritative state as gameplay.
+    io.KeyCtrl =
+        App::GetInputEngine()->isKeyDown(OIS::KC_LCONTROL) ||
+        App::GetInputEngine()->isKeyDown(OIS::KC_RCONTROL);
+    io.KeyShift =
+        App::GetInputEngine()->isKeyDown(OIS::KC_LSHIFT) ||
+        App::GetInputEngine()->isKeyDown(OIS::KC_RSHIFT);
+    io.KeyAlt =
+        App::GetInputEngine()->isKeyDown(OIS::KC_LMENU) ||
+        App::GetInputEngine()->isKeyDown(OIS::KC_RMENU);
+    io.KeySuper =
+        App::GetInputEngine()->isKeyDown(OIS::KC_LWIN) ||
+        App::GetInputEngine()->isKeyDown(OIS::KC_RWIN);
 
     // Call IMGUI
     Ogre::FrameEvent ev;

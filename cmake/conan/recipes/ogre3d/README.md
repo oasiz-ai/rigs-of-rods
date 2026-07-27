@@ -1,9 +1,9 @@
 # OGRE 14.5.2 Conan recipe — R0 package foundation
 
-This directory contains a pinned and natively verified OGRE package recipe. It
-is intentionally not activated by the repository's root `conanfile.py`. The
-proof below closes the dependency/package slice of R0; it does not prove that
-the full game has migrated to OGRE 14 or that its scenes render correctly.
+This directory contains the pinned, natively verified OGRE package recipe used
+by the repository's opt-in `ROR_OGRE14` macOS build. The proof below covers the
+dependency/package slice; application scene and bundle validation is tracked
+separately.
 
 ## Provenance
 
@@ -18,12 +18,34 @@ the full game has migrated to OGRE 14 or that its scenes render correctly.
   `1949fe62f3e4b8043e82e4dc94f9b0ab412a5bffc9e10d3b1dddc80fe54fe1e3`
 - Local relocation patch SHA-256:
   `6292eb8bf8a9b373f68e7ff180b5750051eff2e21d39cacc84ae020410d06dc2`
+- Local bounds-safe shadow-projector patch SHA-256:
+  `13bbbd974dfe0106dc51a8846caff800394b371a57fc98bcdd0dbcf783823d51`
+- Local deferred GLSL validation patch SHA-256:
+  `d60d2684b6fd29ba1d3bdc4aaa34bb21463488ab16af03592e3b19594f249e72`
 - macOS arm64 Release lock:
   `cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock`
 
 The recipe retains the base revision's `pugixml-fix`,
 `FindPkgMacros.cmake`, and optional Remotery download patches byte-for-byte. It
 intentionally omits `use-external-imgui.patch`.
+
+The local shadow-projector patch fixes an OGRE 14.5.2 bounds bug in
+`resolveShadowTexture()`. A fallback shadow index could exceed both projector
+vectors, underflow `mShadowTextureCameras.size() - shadowIndex`, and then bind an
+out-of-bounds camera pointer. The valid path now requires both a texture and a
+camera, and only that path computes layered-camera bounds. The fallback path
+binds the no-shadow texture and explicitly clears its projector slot.
+`destroyShadowTextures()` additionally clears every
+`OGRE_MAX_SIMULTANEOUS_LIGHTS` slot as lifecycle defense for PSSM and layered
+shadows.
+
+The local GLSL patch keeps `glLinkProgram()`, `GL_LINK_STATUS`, and the link
+info-log diagnostic in `GLSLMonolithicProgram::compileAndLink()`, but removes
+its immediate `glValidateProgram()` and validation-log query. OpenGL program
+validation depends on complete live draw state, including sampler bindings and
+a compatible VAO; RoR has not established that state while OGRE is linking the
+program. Omitting that state-dependent check here avoids reporting valid linked
+programs as failed because of transient setup state.
 
 ## Intentional policy differences
 
@@ -50,15 +72,15 @@ On 2026-07-27, AppleClang `21.0.0.21000101` built the locked Release package as
 native arm64 C++17 with `os.version=11.0`:
 
 ```text
-ogre3d/14.5.2#9d5edd7c9716090a7e87fdd27cca12d2:
+ogre3d/14.5.2#68db16985fa623986379d2b9422d0dce:
   a7b76c6f340c40b0b8883ed9b40acfff5165c675#
-  20bd19d8a195eaa6eeca961a07bbca0a
+  7bca6071546b0b39732f0b83fb5eb89f
 ```
 
 The line breaks above are for readability. The exact Conan reference is:
 
 ```text
-ogre3d/14.5.2#9d5edd7c9716090a7e87fdd27cca12d2:a7b76c6f340c40b0b8883ed9b40acfff5165c675#20bd19d8a195eaa6eeca961a07bbca0a
+ogre3d/14.5.2#68db16985fa623986379d2b9422d0dce:a7b76c6f340c40b0b8883ed9b40acfff5165c675#7bca6071546b0b39732f0b83fb5eb89f
 ```
 
 The proof established all of the following:
@@ -144,7 +166,7 @@ CONAN_HOME="$OGRE_CONAN_HOME" \
   -s:b build_type=Release \
   --build=missing
 
-OGRE_PACKAGE_REF='ogre3d/14.5.2#9d5edd7c9716090a7e87fdd27cca12d2:a7b76c6f340c40b0b8883ed9b40acfff5165c675#20bd19d8a195eaa6eeca961a07bbca0a'
+OGRE_PACKAGE_REF='ogre3d/14.5.2#68db16985fa623986379d2b9422d0dce:a7b76c6f340c40b0b8883ed9b40acfff5165c675#7bca6071546b0b39732f0b83fb5eb89f'
 OGRE_PACKAGE_PATH="$(
   CONAN_HOME="$OGRE_CONAN_HOME" conan cache path "$OGRE_PACKAGE_REF"
 )"
@@ -187,16 +209,8 @@ byte-for-byte path-reproducible packages become a release requirement.
 
 ## Remaining R0 blockers
 
-This package milestone does not activate OGRE 14 in the game:
-
-- The root dependency graph still forces OGRE `1.11.6.1`, and runtime build and
-  plugin configuration still include legacy renderer and Cg-era assumptions.
-- `source/main/terrain/OgreTerrainPSSMMaterialGenerator.cpp` selects Cg, HLSL,
-  GLSL, or GLSL ES generators but has no Metal path.
-- RoR's game media has no authored MSL/`.metal` material resources. OGRE's
-  packaged `DefaultShaders.metal` is not a port of RoR's terrain and managed
-  material shaders.
-- The full game has not yet configured and compiled against this package on all
-  target platforms. A signed relocatable `.app`, the complete validation-scene
-  suite, render parity and performance measurements, and Windows/Linux/macOS CI
-  remain open R0 gates.
+- Metal remains experimental and RoR's game media does not yet provide an
+  authored MSL material pipeline; the current native application path uses
+  GL3Plus and RTShaderSystem.
+- Complete validation-scene render parity, performance measurements, and
+  Windows/Linux OGRE 14 application migration remain open R0 gates.

@@ -25,11 +25,13 @@
 #include "Application.h"
 #include "RefCountingObject.h"
 
-#ifdef __APPLE__
+#if __has_include(<AL/al.h>)
+#   include <AL/al.h>
+#elif defined(__APPLE__)
 #   include <OpenAL/al.h>
 #else
-#   include <AL/al.h>
-#endif // __APPLE__
+#   error "No compatible OpenAL headers found"
+#endif
 
 namespace RoR {
 

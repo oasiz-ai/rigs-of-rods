@@ -42,6 +42,17 @@
 #include "RoRVersion.h"
 #include "OverlayWrapper.h"
 
+#if OGRE_VERSION_MAJOR >= 14
+#    include <Bites/OgreSGTechniqueResolverListener.h>
+#    include <RTShaderSystem/OgreRTShaderSystem.h>
+#endif
+
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+#    define SDL_MAIN_HANDLED
+#    include <SDL.h>
+#    include <SDL_syswm.h>
+#endif
+
 #ifdef USE_ANGELSCRIPT
 #    include "ScriptEngine.h"
 #endif
@@ -50,12 +61,48 @@
 #   include <windows.h>
 #endif
 
+#include <cmath>
+#include <ctime>
 #include <iomanip>
 #include <sstream>
 #include <string>
-#include <ctime>
 
 using namespace RoR;
+
+AppContext::~AppContext()
+{
+#if OGRE_VERSION_MAJOR >= 14
+    this->ShutDownRTShaderSystem();
+
+    if (m_render_window != nullptr)
+    {
+        OgreBites::WindowEventUtilities::removeWindowEventListener(
+            m_render_window, this);
+        OgreBites::WindowEventUtilities::_removeRenderWindow(m_render_window);
+        m_viewport = nullptr;
+        m_ogre_root->destroyRenderTarget(m_render_window);
+        m_render_window = nullptr;
+    }
+
+    delete m_ogre_root;
+    m_ogre_root = nullptr;
+#endif
+
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    // OGRE owns the OpenGL context attached to the external view. Destroy Root
+    // first, then release the SDL-owned NSWindow which hosted that view.
+    if (m_sdl_window != nullptr)
+    {
+        SDL_DestroyWindow(m_sdl_window);
+        m_sdl_window = nullptr;
+    }
+    if (m_owns_sdl_video)
+    {
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        m_owns_sdl_video = false;
+    }
+#endif
+}
 
 // --------------------------
 // Input handling
@@ -66,6 +113,16 @@ bool AppContext::SetUpInput()
     App::GetInputEngine()->SetMouseListener(this);
     App::GetInputEngine()->SetKeyboardListener(this);
     App::GetInputEngine()->SetJoystickListener(this);
+
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    // CocoaKeyboard's constructor makes its OIS responder first responder,
+    // displacing SDL's field editor. Stop/start is intentional: calling only
+    // SDL_StartTextInput() does not reselect an already-attached field editor.
+    // SDL remains the sole buffered source for physical keys and Unicode text.
+    SDL_StopTextInput();
+    SDL_StartTextInput();
+    ROR_ASSERT(SDL_IsTextInputActive() == SDL_TRUE);
+#endif
 
     if (App::io_ffb_enabled->getBool())
     {
@@ -194,8 +251,23 @@ void AppContext::windowFocusChange(Ogre::RenderWindow* rw)
     // See https://github.com/RigsOfRods/rigs-of-rods/issues/2468
     // To work around, we reset all internal mouse button states here and pay attention not to get them polluted by OIS again.
     App::GetGuiManager()->GetImGui().ResetAllMouseButtons();
-    // Same applies to keyboard keys - reset them manually otherwise OIS will hold them 'down' the entire time.
+    // Same applies to keyboard keys: reset the native input and ImGui states so
+    // a focus loss without matching key-up events cannot leave keys held down.
     App::GetInputEngine()->resetKeysAndMouseButtons();
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    if (ImGui::GetCurrentContext() != nullptr)
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        for (bool& key_down : io.KeysDown)
+        {
+            key_down = false;
+        }
+        io.KeyCtrl = false;
+        io.KeyShift = false;
+        io.KeyAlt = false;
+        io.KeySuper = false;
+    }
+#endif
 }
 
 // --------------------------
@@ -242,6 +314,10 @@ bool AppContext::SetUpRendering()
         Ogre::ConfigFile cfg;
         cfg.load(plugins_path);
         std::string plugin_dir = cfg.getSetting("PluginFolder", /*section=*/"", /*default=*/App::sys_process_dir->getStr());
+        if (!IsAbsolutePath(plugin_dir))
+        {
+            plugin_dir = PathCombine(GetParentDirectory(plugins_path.c_str()), plugin_dir);
+        }
         Ogre::StringVector plugins = cfg.getMultiSetting("Plugin");
         for (Ogre::String plugin_filename: plugins)
         {
@@ -365,6 +441,18 @@ bool AppContext::SetUpRendering()
         m_ogre_root->saveConfig();
     }
 
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    // OGRE's macOS video modes are backing-pixel dimensions, while SDL sizes
+    // Cocoa windows in logical points. Preserve the selected native backing
+    // resolution without applying Retina scaling twice.
+    const auto content_scale_option = ropts.find("Content Scaling Factor");
+    if (content_scale_option != ropts.end())
+    {
+        miscParams["contentScalingFactor"] =
+            content_scale_option->second.currentValue;
+    }
+#endif
+
     // Review render window settings
     std::stringstream miscParams_log;
     for (auto& pair: miscParams)
@@ -374,9 +462,107 @@ bool AppContext::SetUpRendering()
     LOG(fmt::format("[RoR|Startup|Rendering] Creating render window with settings:\n{}", miscParams_log.str()));
 
     // Create render window
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    // OGRE 14 deliberately rejects its broken built-in Cocoa window path.
+    // Follow OgreBites::ApplicationContextSDL: let SDL own the NSWindow and
+    // give OGRE that external Cocoa handle so OGRE only owns the GL context.
+    if (SDL_WasInit(SDL_INIT_VIDEO) == 0)
+    {
+        SDL_SetMainReady();
+        if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0)
+        {
+            ErrorUtils::ShowError(
+                _L("Startup error"),
+                fmt::format(_L("Could not initialize SDL video: {}"),
+                            SDL_GetError()));
+            return false;
+        }
+        m_owns_sdl_video = true;
+    }
+
+    Uint32 sdl_window_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI;
+    const bool full_screen = ropts["Full Screen"].currentValue == "Yes";
+    if (full_screen)
+    {
+        sdl_window_flags |= SDL_WINDOW_FULLSCREEN;
+    }
+    else if (App::diag_allow_window_resize->getBool())
+    {
+        sdl_window_flags |= SDL_WINDOW_RESIZABLE;
+    }
+
+    const Ogre::String window_title =
+        "Rigs of Rods version " + Ogre::String(ROR_VERSION_STRING);
+    Ogre::Real content_scale = Ogre::StringConverter::parseReal(
+        miscParams["contentScalingFactor"], 1.0f);
+    if (content_scale < 1.0f)
+    {
+        content_scale = 1.0f;
+    }
+    const int logical_width = full_screen
+        ? static_cast<int>(width)
+        : static_cast<int>(std::ceil(
+            static_cast<Ogre::Real>(width) / content_scale));
+    const int logical_height = full_screen
+        ? static_cast<int>(height)
+        : static_cast<int>(std::ceil(
+            static_cast<Ogre::Real>(height) / content_scale));
+    LOG(fmt::format(
+        "[RoR|Startup|Rendering] Creating SDL host at {}x{} logical points "
+        "for {}x{} backing pixels (scale {:.1f})",
+        logical_width,
+        logical_height,
+        width,
+        height,
+        content_scale));
+    m_sdl_window = SDL_CreateWindow(
+        window_title.c_str(),
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        logical_width,
+        logical_height,
+        sdl_window_flags);
+    if (m_sdl_window == nullptr)
+    {
+        ErrorUtils::ShowError(
+            _L("Startup error"),
+            fmt::format(_L("Could not create the macOS window: {}"),
+                        SDL_GetError()));
+        return false;
+    }
+    SDL_SetWindowMinimumSize(
+        m_sdl_window,
+        static_cast<int>(std::ceil(800.0f / content_scale)),
+        static_cast<int>(std::ceil(600.0f / content_scale)));
+
+    SDL_SysWMinfo window_info;
+    SDL_VERSION(&window_info.version);
+    if (SDL_GetWindowWMInfo(m_sdl_window, &window_info) != SDL_TRUE ||
+        window_info.subsystem != SDL_SYSWM_COCOA ||
+        window_info.info.cocoa.window == nullptr)
+    {
+        ErrorUtils::ShowError(
+            _L("Startup error"),
+            fmt::format(
+                _L("SDL did not provide a Cocoa NSWindow handle: {}"),
+                SDL_GetError()));
+        return false;
+    }
+
+    miscParams["externalWindowHandle"] =
+        Ogre::StringConverter::toString(
+            reinterpret_cast<size_t>(window_info.info.cocoa.window));
+    m_render_window = Ogre::Root::getSingleton().createRenderWindow(
+        window_title,
+        static_cast<Ogre::uint32>(logical_width),
+        static_cast<Ogre::uint32>(logical_height),
+        full_screen,
+        &miscParams);
+#else
     m_render_window = Ogre::Root::getSingleton().createRenderWindow (
         "Rigs of Rods version " + Ogre::String (ROR_VERSION_STRING),
         width, height, ropts["Full Screen"].currentValue == "Yes", &miscParams);
+#endif
     OgreBites::WindowEventUtilities::_addRenderWindow(m_render_window);
     OgreBites::WindowEventUtilities::addWindowEventListener(m_render_window, this);
 
@@ -387,8 +573,262 @@ bool AppContext::SetUpRendering()
     m_viewport = m_render_window->addViewport(/*camera=*/nullptr);
     m_viewport->setBackgroundColour(Ogre::ColourValue::Black);
 
+#if OGRE_VERSION_MAJOR >= 14
+    if (!this->SetUpRTShaderSystem())
+    {
+        return false;
+    }
+#endif
+
     return true;
 }
+
+void AppContext::ProcessWindowEvents()
+{
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    if (m_sdl_window == nullptr || m_render_window == nullptr)
+    {
+        return;
+    }
+
+    const Uint32 main_window_id = SDL_GetWindowID(m_sdl_window);
+    SDL_Event event;
+    while (SDL_PollEvent(&event))
+    {
+        if (event.type == SDL_QUIT)
+        {
+            if (!m_window_shutdown_requested)
+            {
+                m_window_shutdown_requested = true;
+                App::GetGameContext()->PushMessage(
+                    Message(MSG_APP_SHUTDOWN_REQUESTED));
+            }
+            continue;
+        }
+
+        if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) &&
+            event.key.windowID == main_window_id)
+        {
+            const OIS::KeyCode key =
+                MacOSInputBridge::TranslateScancode(
+                    event.key.keysym.scancode);
+            const bool down = event.type == SDL_KEYDOWN;
+
+            // State transitions suppress SDL key-repeat events for gameplay;
+            // repeated text remains available through SDL_TEXTINPUT.
+            if (key != OIS::KC_UNASSIGNED &&
+                App::GetInputEngine()->SetSdlKeyState(key, down))
+            {
+                const OIS::KeyEvent key_event(
+                    App::GetInputEngine()->GetOisKeyboard(),
+                    key,
+                    0u);
+                if (down)
+                {
+                    this->keyPressed(key_event);
+                }
+                else
+                {
+                    this->keyReleased(key_event);
+                }
+            }
+            continue;
+        }
+
+        if (event.type == SDL_TEXTINPUT &&
+            event.text.windowID == main_window_id)
+        {
+            // This is the sole text path on macOS; the unbuffered OIS facade
+            // has text translation disabled, so composed UTF-8 is not
+            // duplicated.
+            if (ImGui::GetCurrentContext() != nullptr)
+            {
+                ImGui::GetIO().AddInputCharactersUTF8(event.text.text);
+            }
+            continue;
+        }
+
+        if (event.type != SDL_WINDOWEVENT ||
+            event.window.windowID != main_window_id)
+        {
+            continue;
+        }
+
+        switch (event.window.event)
+        {
+        case SDL_WINDOWEVENT_CLOSE:
+            if (!m_window_shutdown_requested)
+            {
+                m_window_shutdown_requested = true;
+                App::GetGameContext()->PushMessage(
+                    Message(MSG_APP_SHUTDOWN_REQUESTED));
+            }
+            break;
+        case SDL_WINDOWEVENT_RESIZED:
+        case SDL_WINDOWEVENT_SIZE_CHANGED:
+            m_render_window->resize(
+                static_cast<unsigned int>(event.window.data1),
+                static_cast<unsigned int>(event.window.data2));
+            this->windowResized(m_render_window);
+            break;
+        case SDL_WINDOWEVENT_FOCUS_GAINED:
+            m_render_window->setActive(true);
+            this->windowFocusChange(m_render_window);
+            // SDL's Cocoa text responder may have been displaced by another
+            // native input client. Recreate it so both SDL_KEY* and composed
+            // SDL_TEXTINPUT events continue after every focus cycle.
+            SDL_StopTextInput();
+            SDL_StartTextInput();
+            break;
+        case SDL_WINDOWEVENT_FOCUS_LOST:
+            m_render_window->setActive(false);
+            this->windowFocusChange(m_render_window);
+            break;
+        case SDL_WINDOWEVENT_MINIMIZED:
+        case SDL_WINDOWEVENT_HIDDEN:
+            m_render_window->setActive(false);
+            m_render_window->setVisible(false);
+            break;
+        case SDL_WINDOWEVENT_RESTORED:
+        case SDL_WINDOWEVENT_SHOWN:
+            m_render_window->setVisible(true);
+            m_render_window->setActive(true);
+            break;
+        default:
+            break;
+        }
+    }
+#endif
+}
+
+void AppContext::RegisterRTShaderSceneManager(Ogre::SceneManager* scene_manager)
+{
+#if OGRE_VERSION_MAJOR >= 14
+    if (m_shader_generator != nullptr && scene_manager != nullptr)
+    {
+        // ShaderGenerator::addSceneManager() is explicitly idempotent.
+        m_shader_generator->addSceneManager(scene_manager);
+    }
+#else
+    (void)scene_manager;
+#endif
+}
+
+#if OGRE_VERSION_MAJOR >= 14
+bool AppContext::SetUpRTShaderSystem()
+{
+    if (m_shader_generator != nullptr)
+    {
+        return true;
+    }
+
+    const std::string ogre14_media_path =
+        PathCombine(App::sys_resources_dir->getStr(), "ogre14");
+    const std::string main_shader_lib_path =
+        PathCombine(ogre14_media_path, "Main");
+    const std::string rtshader_lib_path =
+        PathCombine(ogre14_media_path, "RTShaderLib");
+    const std::string terrain_shader_lib_path =
+        PathCombine(ogre14_media_path, "Terrain");
+    if (!FolderExists(main_shader_lib_path) ||
+        !FolderExists(rtshader_lib_path) ||
+        !FolderExists(terrain_shader_lib_path))
+    {
+        ErrorUtils::ShowError(
+            _L("Startup error"),
+            fmt::format(
+                _L("OGRE 14 shader resources are missing.\nExpected '{}', '{}', and '{}'."),
+                main_shader_lib_path,
+                rtshader_lib_path,
+                terrain_shader_lib_path));
+        return false;
+    }
+
+    try
+    {
+        Ogre::ResourceGroupManager& resource_groups =
+            Ogre::ResourceGroupManager::getSingleton();
+        resource_groups.addResourceLocation(
+            main_shader_lib_path,
+            "FileSystem",
+            Ogre::RGN_INTERNAL);
+        resource_groups.addResourceLocation(
+            rtshader_lib_path,
+            "FileSystem",
+            Ogre::RGN_INTERNAL);
+        resource_groups.addResourceLocation(
+            terrain_shader_lib_path,
+            "FileSystem",
+            Ogre::RGN_INTERNAL);
+
+        if (!Ogre::RTShader::ShaderGenerator::initialize())
+        {
+            ErrorUtils::ShowError(
+                _L("Startup error"),
+                _L("OGRE RTShader System initialization failed."));
+            return false;
+        }
+
+        m_shader_generator =
+            Ogre::RTShader::ShaderGenerator::getSingletonPtr();
+        m_shader_generator->setTargetLinearColours(
+            m_render_window->isHardwareGammaEnabled());
+
+        const std::string shader_cache_path =
+            PathCombine(App::sys_cache_dir->getStr(), "rtshader");
+        CreateFolder(App::sys_cache_dir->getStr());
+        CreateFolder(shader_cache_path);
+        m_shader_generator->setShaderCachePath(shader_cache_path);
+
+        m_rtshader_material_listener =
+            new OgreBites::SGTechniqueResolverListener(m_shader_generator);
+        Ogre::MaterialManager::getSingleton().addListener(
+            m_rtshader_material_listener);
+
+        LOG(fmt::format(
+            "[RoR|Startup|Rendering] OGRE RTShader System initialized; cache='{}'",
+            shader_cache_path));
+    }
+    catch (const Ogre::Exception& e)
+    {
+        this->ShutDownRTShaderSystem();
+        ErrorUtils::ShowError(
+            _L("OGRE RTShader System initialization failed"),
+            e.getDescription());
+        return false;
+    }
+
+    return true;
+}
+
+void AppContext::ShutDownRTShaderSystem()
+{
+    if (m_shader_generator == nullptr)
+    {
+        return;
+    }
+
+    if (Ogre::MaterialManager::getSingletonPtr() != nullptr)
+    {
+        Ogre::MaterialManager::getSingleton().setActiveScheme(
+            Ogre::MaterialManager::DEFAULT_SCHEME_NAME);
+        if (m_rtshader_material_listener != nullptr)
+        {
+            Ogre::MaterialManager::getSingleton().removeListener(
+                m_rtshader_material_listener);
+        }
+    }
+
+    delete m_rtshader_material_listener;
+    m_rtshader_material_listener = nullptr;
+
+    // ShaderGenerator::destroy() unregisters every SceneManager listener while
+    // Root still owns those SceneManagers. Root is deleted by our destructor
+    // only after this method returns.
+    Ogre::RTShader::ShaderGenerator::destroy();
+    m_shader_generator = nullptr;
+}
+#endif
 
 Ogre::RenderWindow* AppContext::CreateCustomRenderWindow(std::string const& window_name, int width, int height)
 {

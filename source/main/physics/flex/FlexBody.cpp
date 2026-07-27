@@ -35,6 +35,31 @@
 using namespace Ogre;
 using namespace RoR;
 
+#if OGRE_VERSION_MAJOR >= 14
+static void MakeFlexBuffersDynamic(Ogre::VertexData* vertex_data)
+{
+    // OGRE 14 made the explicit-usage reorganiseBuffers() overload private.
+    // Rebind its reorganised streams to CPU-writable buffers because flexbodies
+    // update position, normal, and colour data every frame.
+    const auto bindings = vertex_data->vertexBufferBinding->getBindings();
+    for (const auto& binding : bindings)
+    {
+        const Ogre::HardwareVertexBufferSharedPtr& source = binding.second;
+        if (source->getUsage() == Ogre::HBU_CPU_TO_GPU)
+        {
+            continue;
+        }
+
+        Ogre::HardwareVertexBufferSharedPtr dynamic_buffer =
+            Ogre::HardwareBufferManager::getSingleton().createVertexBuffer(
+                source->getVertexSize(), source->getNumVertices(),
+                Ogre::HBU_CPU_TO_GPU, source->hasShadowBuffer());
+        dynamic_buffer->copyData(*source, 0, 0, source->getSizeInBytes(), true);
+        vertex_data->vertexBufferBinding->setBinding(binding.first, dynamic_buffer);
+    }
+}
+#endif
+
 FlexBody::FlexBody(
     RoR::FlexBodyCacheData* preloaded_from_cache,
     RoR::GfxActor* gfx_actor,
@@ -146,11 +171,13 @@ FlexBody::FlexBody(
     if (m_has_texture) optimalVD->addElement(3, 0, VET_FLOAT2, VES_TEXTURE_COORDINATES);
     optimalVD->sort();
     optimalVD->closeGapsInSource();
+#if OGRE_VERSION_MAJOR < 14
     BufferUsageList optimalBufferUsages;
     for (size_t u = 0; u <= optimalVD->getMaxSource(); ++u)
     {
         optimalBufferUsages.push_back(HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE);
     }
+#endif
 
     //adding color buffers, well get the reference later
     if (m_has_texture_blend)
@@ -193,7 +220,12 @@ FlexBody::FlexBody(
     //LOG("FLEXBODY reorganizing buffers");
     if (mesh->sharedVertexData)
     {
+#if OGRE_VERSION_MAJOR >= 14
+        mesh->sharedVertexData->reorganiseBuffers(optimalVD);
+        MakeFlexBuffersDynamic(mesh->sharedVertexData);
+#else
         mesh->sharedVertexData->reorganiseBuffers(optimalVD, optimalBufferUsages);
+#endif
         mesh->sharedVertexData->removeUnusedBuffers();
         mesh->sharedVertexData->closeGapsInBindings();
     }
@@ -203,7 +235,12 @@ FlexBody::FlexBody(
         SubMesh* sm = smIt.getNext();
         if (!sm->useSharedVertices)
         {
+#if OGRE_VERSION_MAJOR >= 14
+            sm->vertexData->reorganiseBuffers(optimalVD->clone());
+            MakeFlexBuffersDynamic(sm->vertexData);
+#else
             sm->vertexData->reorganiseBuffers(optimalVD->clone(), optimalBufferUsages);
+#endif
             sm->vertexData->removeUnusedBuffers();
             sm->vertexData->closeGapsInBindings();
         }

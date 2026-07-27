@@ -230,6 +230,7 @@ set(SOURCE_FILES
         utils/InputEngine.{h,cpp}
         utils/InterThreadStoreVector.h
         utils/Language.{h,cpp}
+        utils/MacOSInputBridge.h
         utils/MeshObject.{h,cpp}
         utils/PlatformUtils.{h,cpp}
         utils/SHA1.{h,cpp}
@@ -433,6 +434,12 @@ target_link_libraries(${BINNAME} PRIVATE
         fmt::fmt
         MyGUI::MyGUI
         )
+if (ROR_OGRE14)
+    # TerrainMaterialGeneratorA consumes RTShaderSystem directly.
+    target_link_libraries(${BINNAME} PRIVATE
+        OGRE::RTShaderSystem
+        SDL2::SDL2)
+endif ()
 target_include_directories(${BINNAME} PRIVATE ${OGRE_INCLUDE_DIRS} ${RapidJSON_INCLUDE_DIRS})
 if (TARGET MyGUI::OgrePlatform)
     target_link_libraries(${BINNAME} PRIVATE MyGUI::OgrePlatform)
@@ -505,14 +512,64 @@ endif ()
 
 set(CFG_COMMENT_RENDERSYSTEM_D3D11 "# ")
 set(CFG_COMMENT_RENDERSYSTEM_GL3PLUS "# ")
+set(CFG_COMMENT_RENDERSYSTEM_METAL "# ")
+set(CFG_COMMENT_PLUGIN_CG "")
 
-if (DEFINED OGRE_PLUGIN_DIR AND NOT WIN32)
+if (ROR_OGRE14)
+    # Derive the immutable package root once for build-tree plugin and media
+    # lookup. Installed bundles rewrite PluginFolder to ../PlugIns.
+    set(_ror_ogre14_package_root "")
+    foreach (_ror_ogre_include_dir IN LISTS OGRE_INCLUDE_DIRS)
+        if (EXISTS "${_ror_ogre_include_dir}/OGRE/Ogre.h")
+            get_filename_component(
+                _ror_ogre14_package_root
+                "${_ror_ogre_include_dir}"
+                DIRECTORY)
+            break()
+        elseif (EXISTS "${_ror_ogre_include_dir}/Ogre.h")
+            get_filename_component(
+                _ror_ogre_include_root
+                "${_ror_ogre_include_dir}"
+                DIRECTORY)
+            get_filename_component(
+                _ror_ogre14_package_root
+                "${_ror_ogre_include_root}"
+                DIRECTORY)
+            break()
+        endif ()
+    endforeach ()
+    if (NOT IS_DIRECTORY "${_ror_ogre14_package_root}")
+        message(FATAL_ERROR
+            "Could not derive the pinned OGRE 14 package root")
+    endif ()
+
+    set(_ror_ogre14_plugin_dir
+        "${_ror_ogre14_package_root}/lib/OGRE")
+    if (NOT IS_DIRECTORY "${_ror_ogre14_plugin_dir}")
+        message(FATAL_ERROR
+            "The pinned OGRE 14 package is missing lib/OGRE")
+    endif ()
+
+    set(CFG_COMMENT_RENDERSYSTEM_GL "# ")
+    set(CFG_COMMENT_RENDERSYSTEM_GL3PLUS "")
+    # Metal remains packaged for the next migration slice, but exposing it
+    # before Cocoa window hosting and authored MSL shaders would be unsafe.
+    set(CFG_COMMENT_RENDERSYSTEM_METAL "# ")
+    set(CFG_COMMENT_PLUGIN_CG "# ")
+endif ()
+
+if (ROR_OGRE14)
+    set(PLUGINS_FOLDER "${_ror_ogre14_plugin_dir}")
+elseif (DEFINED OGRE_PLUGIN_DIR AND NOT WIN32)
     set(PLUGINS_FOLDER "${OGRE_PLUGIN_DIR}")
 else ()
     set(PLUGINS_FOLDER ".")
 endif ()
 
-if (WIN32)
+if (ROR_OGRE14)
+    set(CFG_OGRE_PLUGIN_CAELUM "# Plugin=Caelum disabled for OGRE 14 bring-up")
+    set(CFG_OGRE_PLUGIN_CAELUM_D "# Plugin=Caelum disabled for OGRE 14 bring-up")
+elseif (WIN32)
     set(CFG_OGRE_PLUGIN_CAELUM "Plugin=Caelum")
     set(CFG_OGRE_PLUGIN_CAELUM_D "Plugin=Caelum_d")
 elseif (APPLE)
@@ -534,7 +591,12 @@ else ()
 endif ()
 
 configure_file(plugins.cfg.in ${RUNTIME_OUTPUT_DIRECTORY}/plugins.cfg)
-configure_file(plugins_d.cfg.in ${RUNTIME_OUTPUT_DIRECTORY}/plugins_d.cfg)
+if (ROR_OGRE14)
+    # The pinned non-Windows OGRE package does not suffix Debug plugins.
+    configure_file(plugins.cfg.in ${RUNTIME_OUTPUT_DIRECTORY}/plugins_d.cfg)
+else ()
+    configure_file(plugins_d.cfg.in ${RUNTIME_OUTPUT_DIRECTORY}/plugins_d.cfg)
+endif ()
 
 # Copy resources to bin directory
 # -----------------------
@@ -543,9 +605,111 @@ if (ROR_CREATE_CONTENT_FOLDER)
     recursive_zip_folder("${CMAKE_SOURCE_DIR}/content" "${RUNTIME_OUTPUT_DIRECTORY}/content")
 endif ()
 
+if (ROR_OGRE14)
+    # OGRE 14's renderer, RTShaderSystem, and Terrain component load these
+    # shader libraries by resource name at runtime. Stage the exact media
+    # shipped by the pinned OGRE package instead of carrying stale third-party
+    # copies in the source tree.
+    set(_ror_ogre14_main_media
+        "${_ror_ogre14_package_root}/Media/Main")
+    set(_ror_ogre14_rtshader_media
+        "${_ror_ogre14_package_root}/Media/RTShaderLib")
+    set(_ror_ogre14_terrain_media
+        "${_ror_ogre14_package_root}/Media/Terrain")
+    if (NOT IS_DIRECTORY "${_ror_ogre14_main_media}" OR
+        NOT IS_DIRECTORY "${_ror_ogre14_rtshader_media}" OR
+        NOT IS_DIRECTORY "${_ror_ogre14_terrain_media}")
+        message(FATAL_ERROR
+            "The pinned OGRE 14 package is missing Main, RTShaderLib, or Terrain media")
+    endif ()
+
+    file(MAKE_DIRECTORY
+        "${RUNTIME_OUTPUT_DIRECTORY}/resources/ogre14/Main"
+        "${RUNTIME_OUTPUT_DIRECTORY}/resources/ogre14/RTShaderLib"
+        "${RUNTIME_OUTPUT_DIRECTORY}/resources/ogre14/Terrain")
+    fast_copy(
+        "${_ror_ogre14_main_media}"
+        "${RUNTIME_OUTPUT_DIRECTORY}/resources/ogre14/Main")
+    fast_copy(
+        "${_ror_ogre14_rtshader_media}"
+        "${RUNTIME_OUTPUT_DIRECTORY}/resources/ogre14/RTShaderLib")
+    fast_copy(
+        "${_ror_ogre14_terrain_media}"
+        "${RUNTIME_OUTPUT_DIRECTORY}/resources/ogre14/Terrain")
+    add_dependencies(
+        ${BINNAME}
+        fast_copy_Main
+        fast_copy_RTShaderLib
+        fast_copy_Terrain)
+endif ()
+
 fast_copy("${CMAKE_SOURCE_DIR}/resources/managed_materials" "${RUNTIME_OUTPUT_DIRECTORY}/resources/managed_materials")
 fast_copy("${CMAKE_SOURCE_DIR}/resources/fonts" "${RUNTIME_OUTPUT_DIRECTORY}/languages")
 fast_copy("${CMAKE_SOURCE_DIR}/languages" "${RUNTIME_OUTPUT_DIRECTORY}/languages")
+
+if (APPLE AND ROR_OGRE14)
+    # Build a signed, relocatable application only when explicitly requested.
+    # StageMacOSBundle derives the complete dylib closure from the executable
+    # and active OGRE plugins; ROR_RUNTIME_DYLIBS remains available for future
+    # non-linked runtime libraries.
+    set(_ror_macos_bundle_path
+        "${RUNTIME_OUTPUT_DIRECTORY}/RoR.app")
+    set(_ror_macos_bundle_dependencies
+        ${BINNAME}
+        zip_folder_resources
+        fast_copy_managed_materials
+        fast_copy_fonts
+        fast_copy_languages
+        fast_copy_Main
+        fast_copy_RTShaderLib
+        fast_copy_Terrain)
+    set(_ror_macos_bundle_arguments
+        "-DROR_BUNDLE=${_ror_macos_bundle_path}"
+        "-DROR_EXECUTABLE=$<TARGET_FILE:${BINNAME}>"
+        "-DROR_RESOURCES=${RUNTIME_OUTPUT_DIRECTORY}/resources"
+        "-DROR_LANGUAGES=${RUNTIME_OUTPUT_DIRECTORY}/languages"
+        "-DROR_OGRE_PACKAGE_DIR=${_ror_ogre14_package_root}"
+        "-DROR_OGRE_PLUGIN_DIR=${_ror_ogre14_plugin_dir}"
+        "-DROR_OGRE_PLUGINS_CFG=${RUNTIME_OUTPUT_DIRECTORY}/plugins.cfg"
+        "-DROR_RUNTIME_DYLIBS="
+        "-DROR_INFO_PLIST_TEMPLATE=${CMAKE_SOURCE_DIR}/cmake/macos/RoRInfo.plist.in"
+        "-DROR_BUNDLE_SHORT_VERSION=${CMAKE_PROJECT_VERSION}"
+        "-DROR_BUNDLE_BUILD_VERSION=${CMAKE_PROJECT_VERSION_MAJOR}.${CMAKE_PROJECT_VERSION_MINOR}.0"
+        "-DROR_MACOS_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+
+    if (ROR_CREATE_CONTENT_FOLDER)
+        list(APPEND _ror_macos_bundle_arguments
+            "-DROR_CONTENT=${RUNTIME_OUTPUT_DIRECTORY}/content")
+        list(APPEND _ror_macos_bundle_dependencies zip_folder_content)
+    endif ()
+
+    add_custom_target(ror_macos_bundle
+        COMMAND
+            "${CMAKE_COMMAND}"
+            ${_ror_macos_bundle_arguments}
+            -P "${CMAKE_SOURCE_DIR}/cmake/macos/StageMacOSBundle.cmake"
+        COMMENT "Staging and ad-hoc signing ${_ror_macos_bundle_path}"
+        USES_TERMINAL
+        VERBATIM)
+    add_dependencies(
+        ror_macos_bundle
+        ${_ror_macos_bundle_dependencies})
+    set_property(TARGET ror_macos_bundle PROPERTY FOLDER "Packaging")
+
+    unset(_ror_macos_bundle_path)
+    unset(_ror_macos_bundle_dependencies)
+    unset(_ror_macos_bundle_arguments)
+endif ()
+
+if (ROR_OGRE14)
+    unset(_ror_ogre14_package_root)
+    unset(_ror_ogre14_plugin_dir)
+    unset(_ror_ogre14_main_media)
+    unset(_ror_ogre14_rtshader_media)
+    unset(_ror_ogre14_terrain_media)
+    unset(_ror_ogre_include_dir)
+    unset(_ror_ogre_include_root)
+endif ()
 
 # TODO: Run fixup_bundle instead
 if (IS_DIRECTORY "${CMAKE_BINARY_DIR}/conan/bin")
