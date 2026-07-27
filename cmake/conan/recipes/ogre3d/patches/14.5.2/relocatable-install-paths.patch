@@ -1,0 +1,54 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -420,8 +420,19 @@
+ ###################################################################
+ include(ConfigureBuild)
+ 
+-set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH};${CMAKE_INSTALL_PREFIX}/${OGRE_LIB_DIRECTORY}")
+-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
++# Keep tools, components, and plugins mutually discoverable after the install
++# tree moves. Do not copy paths from the build graph into the package.
++set(CMAKE_SKIP_INSTALL_RPATH FALSE)
++if(APPLE)
++  set(CMAKE_INSTALL_RPATH
++    "@loader_path;@loader_path/..;@loader_path/../lib")
++elseif(UNIX)
++  set(CMAKE_INSTALL_RPATH
++    "$ORIGIN;$ORIGIN/..;$ORIGIN/../lib")
++else()
++  set(CMAKE_INSTALL_RPATH "")
++endif()
++set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
+ 
+ ###################################################################
+ # disable way too common compiler warnings on project level
+--- a/CMake/Templates/OgreConfigPaths.h.in
++++ b/CMake/Templates/OgreConfigPaths.h.in
+@@ -1,8 +1,8 @@
+ #ifndef OGRECONFIGPATHS_H_
+ #define OGRECONFIGPATHS_H_
+ 
+-#define OGRE_CONFIG_DIR "@CMAKE_INSTALL_PREFIX@/@OGRE_CFG_INSTALL_PATH@"
+-#define OGRE_MEDIA_DIR "@CMAKE_INSTALL_PREFIX@/@OGRE_MEDIA_PATH@"
+-#define OGRE_PLUGIN_DIR "@OGRE_PLUGIN_DIR_REL@" 
++#define OGRE_CONFIG_DIR "@OGRE_CFG_INSTALL_PATH@"
++#define OGRE_MEDIA_DIR "@OGRE_MEDIA_PATH@"
++#define OGRE_PLUGIN_DIR "@OGRE_PLUGINS_PATH@"
+ 
+ #endif /* OGRECONFIGPATHS_H_ */
+--- a/CMake/Utils/OgreConfigTargets.cmake
++++ b/CMake/Utils/OgreConfigTargets.cmake
+@@ -362,6 +362,13 @@
+ function(ogre_config_tool TOOLNAME)
+   ogre_config_common(${TOOLNAME})
+ 
++  # macOS tools install below bin/macosx, one level deeper than Unix tools.
++  # Give only those executables the additional package-local path to lib.
++  if(APPLE AND NOT APPLE_IOS)
++    set_property(TARGET ${TOOLNAME} APPEND PROPERTY
++      INSTALL_RPATH "@loader_path/../../lib")
++  endif()
++
+   #set _d debug postfix
+   if (WIN32)
+ 	set_property(TARGET ${TOOLNAME} APPEND PROPERTY DEBUG_POSTFIX "_d")

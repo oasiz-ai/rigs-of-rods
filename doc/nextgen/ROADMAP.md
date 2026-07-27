@@ -293,12 +293,51 @@ The first Darwin bootstrap records macOS 11.0 as the native Apple Silicon
 deployment floor, keeps X11 and `librt` off the Apple link line, selects the
 upstream OIS 1.5.1 recipe on macOS, scopes CMake 4's legacy-policy allowance to
 the dependency-build subprocess, and copies/installs `.dylib` dependencies.
-This is not the R0 renderer migration. The audited OGRE 14.5.2 Conan recipe
-still unconditionally introduces Cg; the available nominal macOS/arm64 Cg
-package contains incompatible 32-bit Intel ELF libraries. R0 therefore requires
-a pinned recipe revision that omits Cg, plus the OGRE API/media/terrain port, in
-one buildable change. Merely changing version strings is an explicitly rejected
-milestone.
+
+On 2026-07-27, the separate OGRE dependency/package slice passed its native
+macOS proof. The exact Conan reference is
+`ogre3d/14.5.2#9d5edd7c9716090a7e87fdd27cca12d2:a7b76c6f340c40b0b8883ed9b40acfff5165c675#20bd19d8a195eaa6eeca961a07bbca0a`.
+It was built as arm64 Release C++17 with AppleClang `21.0.0.21000101`, a macOS
+11.0 minimum deployment target, Metal and GL3Plus, and no Cg Toolkit dependency
+or Cg runtime plugin. Its relocated test initialized Metal with the exact eight
+configured plugins. A second native verifier pass checked 20 Mach-O files, 17
+package-local symlinks, ten relative pkg-config files, isolated loading of every
+plugin, and a relocated installed tool. Loader/install/plugin/pkg-config
+metadata contains no lexical or resolved Conan cache prefix. A separate raw
+string inventory records non-runtime Objective-C/Objective-C++ and statically
+linked SDL source/assertion paths in three binaries; this package is therefore
+not claimed to be fully path-reproducible.
+
+Libraries and plugins use only `@loader_path`, `@loader_path/..`, and
+`@loader_path/../lib`. The three tools installed under `bin/macosx` additionally
+use `@loader_path/../../lib`. The verifier resolves every `LC_RPATH` relative to
+its owning binary in the relocated tree and rejects paths outside the package.
+The checked-in lock, full commands, plugin list, patch hash, and package audit
+are recorded in the
+[OGRE recipe proof](../../cmake/conan/recipes/ogre3d/README.md).
+
+A clean full dependency build with a space in `CONAN_HOME` remains unsupported:
+the pinned upstream `libjpeg/9e` Autotools recipe stops before OGRE with
+`configure: error: unsafe srcdir value`. The OGRE recipe's own escaped
+prefix-map argument was compiled independently with a spaced source path, but
+that does not turn the blocked full graph into a pass.
+
+This proves only the R0 package foundation. The renderer migration remains open:
+
+- The root graph still forces OGRE `1.11.6.1`, while the game build, generated
+  plugin configuration, and managed materials retain legacy renderer and Cg-era
+  assumptions.
+- `source/main/terrain/OgreTerrainPSSMMaterialGenerator.cpp` has Cg, HLSL,
+  GLSL, and GLSL ES branches but no Metal material-generator path.
+- RoR game media has no authored MSL/`.metal` resources. The package's OGRE
+  `DefaultShaders.metal` does not replace the game's terrain and managed
+  material shader port.
+- The full game has not been built against this package on all three target
+  platforms. The signed relocatable `.app`, ten-minute `simple2_a`, `simple2`,
+  and `simple2_w` runs, visual parity, performance budgets, and native
+  Windows/Linux/macOS CI remain required.
+
+Merely changing version strings is still an explicitly rejected milestone.
 
 ## V0/V1 — Post-processing and PBR
 

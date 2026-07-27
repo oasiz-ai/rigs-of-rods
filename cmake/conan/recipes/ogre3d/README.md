@@ -1,42 +1,202 @@
-# OGRE 14.5.2 Conan recipe prototype
+# OGRE 14.5.2 Conan recipe — R0 package foundation
 
-This directory is an intentionally unactivated prototype. The repository's root
-`conanfile.py` does not reference it.
+This directory contains a pinned and natively verified OGRE package recipe. It
+is intentionally not activated by the repository's root `conanfile.py`. The
+proof below closes the dependency/package slice of R0; it does not prove that
+the full game has migrated to OGRE 14 or that its scenes render correctly.
 
 ## Provenance
 
 - Base recipe: `ogre3d/14.5.2@anotherfoxguy/stable`
-- Nexus remote: `https://nexus.anotherfoxguy.com/repository/rigs-of-rods/`
+- Nexus remote:
+  `https://nexus.anotherfoxguy.com/repository/rigs-of-rods/`
 - Base recipe revision: `09d5bedad24a0560adc53606214f2cbf`
 - Base revision timestamp: `2026-07-23T09:33:28Z`
-- OGRE archive: `https://github.com/OGRECave/ogre/archive/refs/tags/v14.5.2.tar.gz`
+- OGRE archive:
+  `https://github.com/OGRECave/ogre/archive/refs/tags/v14.5.2.tar.gz`
 - OGRE archive SHA-256:
   `1949fe62f3e4b8043e82e4dc94f9b0ab412a5bffc9e10d3b1dddc80fe54fe1e3`
+- Local relocation patch SHA-256:
+  `6292eb8bf8a9b373f68e7ff180b5750051eff2e21d39cacc84ae020410d06dc2`
+- macOS arm64 Release lock:
+  `cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock`
 
-The prototype retains the base revision's `pugixml-fix`,
-`FindPkgMacros.cmake`, and optional Remotery download patches byte-for-byte.
-It intentionally omits `use-external-imgui.patch`.
+The recipe retains the base revision's `pugixml-fix`,
+`FindPkgMacros.cmake`, and optional Remotery download patches byte-for-byte. It
+intentionally omits `use-external-imgui.patch`.
 
 ## Intentional policy differences
 
-- Cg is neither required nor built.
+- There is no Cg Toolkit package requirement and the OGRE Cg plugin is disabled.
+  OGRE's RTShaderSystem still compiles source-level program-writer support for
+  several shader languages; this policy is about the package dependency and
+  runtime plugin graph, not removal of every Cg-named source file.
 - The ImGui overlay is disabled, with no ImGui package requirement or external
   overlay patch.
 - Apt packages are requested only for Linux.
 - macOS frameworks and Direct3D 9 are always disabled.
 - Direct3D 11 is enabled only on Windows.
-- GL3Plus is enabled on every non-Windows platform.
+- GL3Plus is enabled on Linux and macOS; Metal is additionally enabled on
+  macOS.
 - Collected library metadata is sorted before publication.
+- Installed metadata and binaries use package-relative paths. The common
+  macOS RPATH set is `@loader_path`, `@loader_path/..`, and
+  `@loader_path/../lib`. Only tools installed one level deeper under
+  `bin/macosx` receive `@loader_path/../../lib`.
 
-## Verification
+## Verified native package
 
-Run the isolated graph assertion from the repository root:
+On 2026-07-27, AppleClang `21.0.0.21000101` built the locked Release package as
+native arm64 C++17 with `os.version=11.0`:
 
-```sh
-python3 tests/tools/assert_ogre_recipe_graph.py
+```text
+ogre3d/14.5.2#9d5edd7c9716090a7e87fdd27cca12d2:
+  a7b76c6f340c40b0b8883ed9b40acfff5165c675#
+  20bd19d8a195eaa6eeca961a07bbca0a
 ```
 
-The tool creates a temporary `CONAN_HOME`, exports this recipe locally, resolves
-a fresh macOS arm64 graph, and verifies that the graph contains neither
-`cg-toolkit` nor `imgui`. It also verifies the source SHA in both the source tree
-and Conan's exported recipe, plus the exact retained Nexus patch set.
+The line breaks above are for readability. The exact Conan reference is:
+
+```text
+ogre3d/14.5.2#9d5edd7c9716090a7e87fdd27cca12d2:a7b76c6f340c40b0b8883ed9b40acfff5165c675#20bd19d8a195eaa6eeca961a07bbca0a
+```
+
+The proof established all of the following:
+
+- The Conan `test_package` linked `Main`, `Bites`, `MeshLodGenerator`,
+  `Overlay`, `Paging`, `Property`, `RTShaderSystem`, `Terrain`, and `Volume`.
+  It copied the package to a random temporary prefix, cleared
+  `DYLD_LIBRARY_PATH` and `DYLD_FALLBACK_LIBRARY_PATH`, loaded the package's
+  `plugins.cfg`, selected Metal, and completed OGRE initialization.
+- The package contains 20 arm64 Mach-O files, all with a macOS 11.0 minimum
+  deployment target, relocatable install names, 17 package-local symlinks, ten
+  relative pkg-config files, and no absolute Conan prefix in loader, install,
+  plugin, or pkg-config metadata. Both lexical paths and resolved macOS path
+  aliases are checked.
+- The exact active plugin set is `Codec_FreeImage`,
+  `Plugin_BSPSceneManager`, `Plugin_OctreeSceneManager`,
+  `Plugin_OctreeZone`, `Plugin_PCZSceneManager`, `Plugin_ParticleFX`,
+  `RenderSystem_GL3Plus`, and `RenderSystem_Metal`.
+- The native verifier copied the package to a second relocated prefix, repeated
+  every Mach-O metadata check there, loaded each plugin in an isolated process,
+  and ran the relocated `OgreMeshUpgrader` far enough to reach its argument
+  parser.
+- For every Mach-O, the verifier resolves each `LC_RPATH` relative to that
+  binary and rejects a result outside the relocated package. Libraries and
+  plugins contain only the three common paths. The three tools under
+  `bin/macosx` also contain their required `@loader_path/../../lib`, which
+  resolves to this package's `lib` directory from that specific location.
+- A raw string inventory separately reports non-runtime build-source/assertion
+  paths in exactly three files:
+  `lib/libOgreBites.14.5.dylib`,
+  `lib/OGRE/RenderSystem_GL3Plus.14.5.dylib`, and
+  `lib/OGRE/RenderSystem_Metal.14.5.dylib`. The OGRE paths come from Objective-C
+  or Objective-C++ `__FILE__` sites; OgreBites also contains source paths from
+  the statically linked SDL package. These strings do not participate in
+  loading, but they mean this artifact is not claimed to be fully
+  path-reproducible.
+
+## Reproduce the proof
+
+Run the graph checks from the repository root:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 \
+  python3 -m unittest discover \
+  -s tests/tools -p 'test_assert_ogre_*.py' -v
+
+PYTHONDONTWRITEBYTECODE=1 \
+  python3 tests/tools/assert_ogre_recipe_graph.py
+```
+
+The graph assertion creates a temporary `CONAN_HOME`, adds the pinned remotes,
+exports the local recipe, checks the source and patch hashes, resolves the
+checked-in lock, and rejects dependency revisions, target settings, or options
+that drift.
+
+The following reproduces the dated native build on an Apple Silicon host with
+AppleClang 21. `CMAKE_POLICY_VERSION_MINIMUM=3.5` applies only to the Conan
+dependency-build subprocess; do not apply it to the top-level RoR configure.
+
+```sh
+OGRE_CONAN_HOME="$(mktemp -d /tmp/ror-ogre-native-proof.XXXXXX)"
+
+CONAN_HOME="$OGRE_CONAN_HOME" conan profile detect --force
+CONAN_HOME="$OGRE_CONAN_HOME" conan remote add \
+  conancenter https://center2.conan.io --force
+CONAN_HOME="$OGRE_CONAN_HOME" conan remote add \
+  nexus https://nexus.anotherfoxguy.com/repository/rigs-of-rods/ --force
+
+PYTHONDONTWRITEBYTECODE=1 \
+CMAKE_POLICY_VERSION_MINIMUM=3.5 \
+CONAN_HOME="$OGRE_CONAN_HOME" \
+  conan create cmake/conan/recipes/ogre3d \
+  --version=14.5.2 \
+  --lockfile=cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock \
+  -pr:h=default -pr:b=default \
+  -s:h os=Macos -s:h os.version=11.0 -s:h arch=armv8 \
+  -s:h compiler=apple-clang -s:h compiler.version=21 \
+  -s:h compiler.libcxx=libc++ -s:h compiler.cppstd=17 \
+  -s:h build_type=Release \
+  -s:b os=Macos -s:b arch=armv8 \
+  -s:b compiler=apple-clang -s:b compiler.version=21 \
+  -s:b compiler.libcxx=libc++ -s:b compiler.cppstd=17 \
+  -s:b build_type=Release \
+  --build=missing
+
+OGRE_PACKAGE_REF='ogre3d/14.5.2#9d5edd7c9716090a7e87fdd27cca12d2:a7b76c6f340c40b0b8883ed9b40acfff5165c675#20bd19d8a195eaa6eeca961a07bbca0a'
+OGRE_PACKAGE_PATH="$(
+  CONAN_HOME="$OGRE_CONAN_HOME" conan cache path "$OGRE_PACKAGE_REF"
+)"
+PYTHONDONTWRITEBYTECODE=1 \
+  python3 tests/tools/assert_ogre_native_package.py "$OGRE_PACKAGE_PATH"
+```
+
+Changing compiler settings can legitimately change the package ID or package
+revision; update this evidence only after rerunning the complete native proof.
+
+## Whitespace-path evidence and limitation
+
+The recipe rejects unsafe source-path characters and escapes spaces in its C
+and C++ compiler prefix maps. This independent CMake proof compiled
+successfully and preserved the escaped space in the final compiler command:
+
+```sh
+cmake -S tests -B '/tmp/ror CMake flag audit' \
+  -DCMAKE_BUILD_TYPE=Release \
+  '-DCMAKE_CXX_FLAGS=-ffile-prefix-map=/tmp/Conan\ Home/source=ogre3d-14.5.2' \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build '/tmp/ror CMake flag audit' \
+  --target ror_beam_axial_response_tests --verbose -j2
+```
+
+A separate clean full-graph build with a space in `CONAN_HOME` progressed
+through several dependencies but stopped before OGRE in the pinned upstream
+`libjpeg/9e` Autotools recipe:
+
+```text
+configure: error: unsafe srcdir value: '.../RoR OGRE native proof.../libj.../b/src'
+```
+
+Therefore the OGRE recipe's CMake whitespace escaping is proven, but a clean
+full dependency build in a spaced Conan cache is not supported yet. This is an
+upstream dependency-recipe limitation and must not be reported as a passing
+package configuration. Objective-C/Objective-C++ prefix maps and equivalent
+source-path remapping in the pinned SDL dependency also remain open if
+byte-for-byte path-reproducible packages become a release requirement.
+
+## Remaining R0 blockers
+
+This package milestone does not activate OGRE 14 in the game:
+
+- The root dependency graph still forces OGRE `1.11.6.1`, and runtime build and
+  plugin configuration still include legacy renderer and Cg-era assumptions.
+- `source/main/terrain/OgreTerrainPSSMMaterialGenerator.cpp` selects Cg, HLSL,
+  GLSL, or GLSL ES generators but has no Metal path.
+- RoR's game media has no authored MSL/`.metal` material resources. OGRE's
+  packaged `DefaultShaders.metal` is not a port of RoR's terrain and managed
+  material shaders.
+- The full game has not yet configured and compiled against this package on all
+  target platforms. A signed relocatable `.app`, the complete validation-scene
+  suite, render parity and performance measurements, and Windows/Linux/macOS CI
+  remain open R0 gates.
