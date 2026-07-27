@@ -2,7 +2,9 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -24,6 +26,8 @@ void Check(bool condition, const char* expression, int line)
 using RoR::BeamNG::JBeamDiagnostic;
 using RoR::BeamNG::JBeamDiagnosticCode;
 using RoR::BeamNG::JBeamFieldAssignment;
+using RoR::BeamNG::JBeamFieldLookupMetrics;
+using RoR::BeamNG::JBeamNormalizeLimits;
 using RoR::BeamNG::JBeamNormalizedTable;
 using RoR::BeamNG::JBeamNormalizedTableEntryKind;
 using RoR::BeamNG::JBeamObjectField;
@@ -53,6 +57,27 @@ const JBeamValue* LastField(
     const JBeamObjectField* field =
         RoR::BeamNG::FindLastJBeamObjectField(object, key);
     return field != NULL ? field->value.get() : NULL;
+}
+
+JBeamValue StringValue(const std::string& value)
+{
+    JBeamValue output;
+    output.type = JBeamValueType::STRING;
+    output.scalar_text = value;
+    return output;
+}
+
+JBeamValue NumberValue(double value)
+{
+    JBeamValue output;
+    output.type = JBeamValueType::NUMBER;
+    output.number_value = value;
+    return output;
+}
+
+std::shared_ptr<const JBeamValue> SharedValue(const JBeamValue& value)
+{
+    return std::shared_ptr<const JBeamValue>(new JBeamValue(value));
 }
 
 void TestCommentsOptionalCommasAndScalars()
@@ -244,6 +269,10 @@ void TestDefaultSnapshotsShareLinearStorage()
     CHECK(
         first.inherited_assignment_storage ==
         second.inherited_assignment_storage);
+    CHECK(first.inherited_assignment_index != NULL);
+    CHECK(
+        first.inherited_assignment_index ==
+        second.inherited_assignment_index);
     CHECK(first.inherited_assignment_count == 1);
     CHECK(second.inherited_assignment_count == 2);
     CHECK(first.inherited_assignment_storage->size() == 2);
@@ -258,6 +287,175 @@ void TestDefaultSnapshotsShareLinearStorage()
     CHECK(
         second_weight != NULL &&
         second_weight->value->number_value == 2.0);
+}
+
+void TestStructuralScaleDefaultsAreNearLinearAndBudgeted()
+{
+    const std::size_t pair_count = 100000U;
+    JBeamValue table;
+    table.type = JBeamValueType::ARRAY;
+    table.array_values.reserve(1U + pair_count * 2U);
+
+    JBeamValue header;
+    header.type = JBeamValueType::ARRAY;
+    header.array_values.push_back(StringValue("id"));
+    table.array_values.push_back(std::move(header));
+
+    for (std::size_t i = 0; i < pair_count; ++i)
+    {
+        JBeamValue defaults;
+        defaults.type = JBeamValueType::OBJECT;
+        JBeamObjectField field;
+        field.key = "nodeWeight";
+        field.value = SharedValue(NumberValue(static_cast<double>(i)));
+        defaults.object_fields.push_back(std::move(field));
+        table.array_values.push_back(std::move(defaults));
+
+        JBeamValue row;
+        row.type = JBeamValueType::ARRAY;
+        row.array_values.push_back(StringValue("node"));
+        table.array_values.push_back(std::move(row));
+    }
+
+    JBeamNormalizeLimits limits;
+    limits.max_work_units = pair_count * 24U;
+    limits.max_retained_bytes = 384U * 1024U * 1024U;
+    const RoR::BeamNG::JBeamNormalizeResult normalized =
+        RoR::BeamNG::NormalizeJBeamTables(table, limits);
+    CHECK(normalized.IsValid());
+    CHECK(normalized.tables.size() == 1);
+    CHECK(normalized.work_units <= limits.max_work_units);
+    CHECK(normalized.retained_bytes <= limits.max_retained_bytes);
+    if (normalized.tables.size() != 1)
+    {
+        return;
+    }
+
+    const JBeamNormalizedTable& normalized_table =
+        normalized.tables[0];
+    CHECK(normalized_table.entries.size() == pair_count * 2U);
+    JBeamFieldLookupMetrics lookup_metrics;
+    for (std::size_t i = 0; i < pair_count; ++i)
+    {
+        const RoR::BeamNG::JBeamNormalizedDataRow& row =
+            normalized_table.entries[i * 2U + 1U].data_row;
+        const JBeamFieldAssignment* assignment =
+            RoR::BeamNG::FindEffectiveJBeamField(
+                row, "nodeWeight", &lookup_metrics);
+        CHECK(assignment != NULL);
+        if (assignment != NULL)
+        {
+            CHECK(assignment->value != NULL);
+            CHECK(
+                assignment->value->number_value ==
+                static_cast<double>(i));
+        }
+        // A missing field is the historical worst case: the old reverse
+        // prefix scan inspected every same-key default before returning null.
+        CHECK(
+            RoR::BeamNG::FindEffectiveJBeamField(
+                row, "unmapped", &lookup_metrics) == NULL);
+    }
+    // Positional checks plus indexed present/missing searches remain
+    // logarithmic even when every inherited default uses the same key.
+    CHECK(lookup_metrics.work_units <= pair_count * 24U);
+}
+
+void TestNormalizationBudgetsFailClosed()
+{
+    const JBeamParseResult parsed = RoR::BeamNG::ParseJBeam(
+        "{\"part\":{\"nodes\":[[\"id\"],[\"n\"]]}}",
+        "normalize-budget.jbeam");
+    CHECK(parsed.IsValid());
+
+    JBeamNormalizeLimits limits;
+    limits.max_work_units = 1;
+    const RoR::BeamNG::JBeamNormalizeResult work_limited =
+        RoR::BeamNG::NormalizeJBeamTables(parsed.root, limits);
+    CHECK(!work_limited.IsValid());
+    CHECK(work_limited.tables.empty());
+    CHECK(work_limited.work_units <= limits.max_work_units);
+    CHECK(
+        FindDiagnostic(
+            work_limited.diagnostics,
+            JBeamDiagnosticCode::NORMALIZE_WORK_LIMIT) != NULL);
+
+    limits = JBeamNormalizeLimits();
+    limits.max_retained_bytes = 1;
+    const RoR::BeamNG::JBeamNormalizeResult bytes_limited =
+        RoR::BeamNG::NormalizeJBeamTables(parsed.root, limits);
+    CHECK(!bytes_limited.IsValid());
+    CHECK(bytes_limited.tables.empty());
+    CHECK(bytes_limited.retained_bytes <= limits.max_retained_bytes);
+    CHECK(
+        FindDiagnostic(
+            bytes_limited.diagnostics,
+            JBeamDiagnosticCode::NORMALIZE_RETAINED_BYTES_LIMIT) != NULL);
+}
+
+void TestNullObjectFieldsAreIgnoredSafely()
+{
+    JBeamValue table;
+    table.type = JBeamValueType::ARRAY;
+    JBeamValue header;
+    header.type = JBeamValueType::ARRAY;
+    header.array_values.push_back(StringValue("id"));
+    table.array_values.push_back(std::move(header));
+
+    JBeamValue defaults;
+    defaults.type = JBeamValueType::OBJECT;
+    JBeamObjectField null_default;
+    null_default.key = "nodeWeight";
+    defaults.object_fields.push_back(std::move(null_default));
+    table.array_values.push_back(std::move(defaults));
+
+    JBeamValue row;
+    row.type = JBeamValueType::ARRAY;
+    row.array_values.push_back(StringValue("node"));
+    JBeamValue overrides;
+    overrides.type = JBeamValueType::OBJECT;
+    JBeamObjectField null_override;
+    null_override.key = "group";
+    overrides.object_fields.push_back(std::move(null_override));
+    row.array_values.push_back(std::move(overrides));
+    table.array_values.push_back(std::move(row));
+
+    JBeamValue root;
+    root.type = JBeamValueType::OBJECT;
+    JBeamObjectField null_section;
+    null_section.key = "broken";
+    root.object_fields.push_back(std::move(null_section));
+    JBeamObjectField table_section;
+    table_section.key = "nodes";
+    table_section.value = SharedValue(table);
+    root.object_fields.push_back(std::move(table_section));
+
+    const RoR::BeamNG::JBeamNormalizeResult normalized =
+        RoR::BeamNG::NormalizeJBeamTables(root);
+    CHECK(normalized.IsValid());
+    CHECK(normalized.tables.size() == 1);
+    CHECK(
+        FindDiagnostic(
+            normalized.diagnostics,
+            JBeamDiagnosticCode::TABLE_INVALID_ENTRY) != NULL);
+    if (normalized.tables.size() != 1)
+    {
+        return;
+    }
+    const JBeamNormalizedTable& normalized_table =
+        normalized.tables[0];
+    CHECK(normalized_table.entries.size() == 2);
+    const RoR::BeamNG::JBeamNormalizedDataRow& normalized_row =
+        normalized_table.entries[1].data_row;
+    CHECK(normalized_row.inherited_assignment_count == 0);
+    CHECK(normalized_row.row_local_assignments.empty());
+    CHECK(
+        RoR::BeamNG::FindEffectiveJBeamField(
+            normalized_row, "nodeWeight") == NULL);
+    const JBeamFieldAssignment* id =
+        RoR::BeamNG::FindEffectiveJBeamField(normalized_row, "id");
+    CHECK(id != NULL);
+    CHECK(id != NULL && id->value != NULL);
 }
 
 void TestObjectValuedCellIsNotMistakenForRowOverrides()
@@ -296,6 +494,115 @@ void TestDuplicateSectionPathsAndNestedDiscovery()
     CHECK(normalized.tables.size() == 2);
     CHECK(normalized.tables[0].path == "$/part#0/nodes#0");
     CHECK(normalized.tables[1].path == "$/part#1/nodes#0");
+}
+
+void TestNestedRowArraysAreNotRediscoveredAsTables()
+{
+    const JBeamParseResult parsed = RoR::BeamNG::ParseJBeam(
+        "{"
+        "\"part\":{\"nodes\":[[\"id\",\"payload\"],"
+        "[\"n\",[[\"fake\"],[\"nested-row\"]]]]},"
+        "\"ordinary\":[{\"nested\":[[\"id\"],[\"not-a-section\"]]}]"
+        "}",
+        "nested-row-array.jbeam");
+    CHECK(parsed.IsValid());
+    const RoR::BeamNG::JBeamNormalizeResult normalized =
+        RoR::BeamNG::NormalizeJBeamTables(parsed.root);
+    CHECK(normalized.IsValid());
+    CHECK(normalized.tables.size() == 1);
+    CHECK(
+        normalized.tables.size() == 1 &&
+        normalized.tables[0].path == "$/part#0/nodes#0");
+}
+
+void TestNearTableHeaderInspectionIsBudgeted()
+{
+    JBeamValue root;
+    root.type = JBeamValueType::ARRAY;
+    JBeamValue almost_header;
+    almost_header.type = JBeamValueType::ARRAY;
+    for (std::size_t i = 0; i < 256U; ++i)
+    {
+        almost_header.array_values.push_back(StringValue("field"));
+    }
+    almost_header.array_values.push_back(NumberValue(1.0));
+    root.array_values.push_back(std::move(almost_header));
+
+    JBeamNormalizeLimits limits;
+    limits.max_work_units = 32U;
+    const RoR::BeamNG::JBeamNormalizeResult normalized =
+        RoR::BeamNG::NormalizeJBeamTables(root, limits);
+    CHECK(!normalized.IsValid());
+    CHECK(normalized.tables.empty());
+    CHECK(normalized.work_units <= limits.max_work_units);
+    CHECK(
+        FindDiagnostic(
+            normalized.diagnostics,
+            JBeamDiagnosticCode::NORMALIZE_WORK_LIMIT) != NULL);
+}
+
+void TestObjectPathConstructionIsLinearAndBudgeted()
+{
+    JBeamValue root;
+    root.type = JBeamValueType::OBJECT;
+    JBeamValue* current = &root;
+    const std::string segment(4096U, '/');
+    for (std::size_t depth = 0; depth < 32U; ++depth)
+    {
+        JBeamObjectField field;
+        field.key = segment;
+        std::shared_ptr<JBeamValue> child(new JBeamValue());
+        child->type = JBeamValueType::OBJECT;
+        field.value = child;
+        current->object_fields.push_back(field);
+        current = child.get();
+    }
+
+    JBeamNormalizeLimits limits;
+    limits.max_work_units = 1000U;
+    limits.max_retained_bytes = 1U;
+    const RoR::BeamNG::JBeamNormalizeResult limited =
+        RoR::BeamNG::NormalizeJBeamTables(root, limits);
+    CHECK(!limited.IsValid());
+    CHECK(limited.tables.empty());
+    CHECK(limited.work_units <= limits.max_work_units);
+    CHECK(
+        FindDiagnostic(
+            limited.diagnostics,
+            JBeamDiagnosticCode::NORMALIZE_WORK_LIMIT) != NULL);
+
+    limits.max_work_units = 1024U * 1024U;
+    const RoR::BeamNG::JBeamNormalizeResult complete =
+        RoR::BeamNG::NormalizeJBeamTables(root, limits);
+    CHECK(complete.IsValid());
+    CHECK(complete.tables.empty());
+    // Each segment is scanned/escaped once. Re-copying every cumulative
+    // ancestor path would make this grow quadratically with depth.
+    CHECK(complete.work_units < 500000U);
+}
+
+void TestObjectKeyIsChargedBeforeOccurrenceBookkeeping()
+{
+    JBeamValue root;
+    root.type = JBeamValueType::OBJECT;
+    JBeamObjectField field;
+    field.key.assign(4096U, 'k');
+    // A null value deliberately exercises the early diagnostic path. The key
+    // must be rejected by the work budget before duplicate bookkeeping copies
+    // it into the occurrence map.
+    root.object_fields.push_back(std::move(field));
+
+    JBeamNormalizeLimits limits;
+    limits.max_work_units = 32U;
+    const RoR::BeamNG::JBeamNormalizeResult normalized =
+        RoR::BeamNG::NormalizeJBeamTables(root, limits);
+    CHECK(!normalized.IsValid());
+    CHECK(normalized.tables.empty());
+    CHECK(normalized.work_units <= limits.max_work_units);
+    CHECK(
+        FindDiagnostic(
+            normalized.diagnostics,
+            JBeamDiagnosticCode::NORMALIZE_WORK_LIMIT) != NULL);
 }
 
 void TestSyntaxFailuresAndStableDiagnostics()
@@ -454,8 +761,15 @@ int main()
     TestDuplicateKeysAreOrderedAndLastWins();
     TestTableNormalizationPreservesSemantics();
     TestDefaultSnapshotsShareLinearStorage();
+    TestStructuralScaleDefaultsAreNearLinearAndBudgeted();
+    TestNormalizationBudgetsFailClosed();
+    TestNullObjectFieldsAreIgnoredSafely();
     TestObjectValuedCellIsNotMistakenForRowOverrides();
     TestDuplicateSectionPathsAndNestedDiscovery();
+    TestNestedRowArraysAreNotRediscoveredAsTables();
+    TestNearTableHeaderInspectionIsBudgeted();
+    TestObjectPathConstructionIsLinearAndBudgeted();
+    TestObjectKeyIsChargedBeforeOccurrenceBookkeeping();
     TestSyntaxFailuresAndStableDiagnostics();
     TestResourceBudgets();
     TestDeterministicNoiseCorpus();

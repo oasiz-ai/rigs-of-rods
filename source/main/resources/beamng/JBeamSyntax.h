@@ -83,7 +83,9 @@ enum class JBeamDiagnosticCode
     DUPLICATE_TABLE_HEADER,
     TABLE_ROW_TOO_SHORT,
     TABLE_ROW_TOO_LONG,
-    TABLE_INVALID_ENTRY
+    TABLE_INVALID_ENTRY,
+    NORMALIZE_WORK_LIMIT,
+    NORMALIZE_RETAINED_BYTES_LIMIT
 };
 
 struct JBeamDiagnostic
@@ -235,6 +237,21 @@ struct JBeamFieldAssignment
     std::shared_ptr<const JBeamValue> value;
 };
 
+struct JBeamInheritedFieldIndex
+{
+    std::string name;
+    /// Ascending indexes into JBeamNormalizedDataRow's shared inherited
+    /// assignment storage.
+    std::vector<std::size_t> assignment_indices;
+};
+
+struct JBeamInheritedAssignmentIndex
+{
+    /// Sorted by exact case-sensitive field name for deterministic
+    /// logarithmic lookup.
+    std::vector<JBeamInheritedFieldIndex> fields;
+};
+
 struct JBeamNormalizedDataRow
 {
     JBeamSourceSpan span;
@@ -247,6 +264,11 @@ struct JBeamNormalizedDataRow
     std::shared_ptr<const std::vector<JBeamFieldAssignment> >
         inherited_assignment_storage;
     std::size_t inherited_assignment_count = 0;
+    /// Shared table-wide index. A prefix search selects the last assignment
+    /// that existed when this row was encountered without scanning all prior
+    /// default modifiers.
+    std::shared_ptr<const JBeamInheritedAssignmentIndex>
+        inherited_assignment_index;
     /// Header/cell assignments in column order, including duplicate headers.
     std::vector<JBeamFieldAssignment> positional_assignments;
     /// Trailing dictionary assignments in source order, including duplicates.
@@ -276,29 +298,59 @@ struct JBeamNormalizedTable
     std::vector<JBeamNormalizedTableEntry> entries;
 };
 
+struct JBeamNormalizeLimits
+{
+    /// Deterministic units charged for discovery, retained-value measurement,
+    /// table entries, cells, and assignments.
+    std::size_t max_work_units;
+    /// Conservative logical bytes retained by normalized tables, copied value
+    /// payloads, assignment indexes, strings, and diagnostics. The source AST
+    /// and allocator bookkeeping are excluded.
+    std::size_t max_retained_bytes;
+    std::size_t max_diagnostics;
+
+    JBeamNormalizeLimits();
+};
+
 struct JBeamNormalizeResult
 {
     std::vector<JBeamNormalizedTable> tables;
     std::vector<JBeamDiagnostic> diagnostics;
+    std::size_t work_units = 0;
+    std::size_t retained_bytes = 0;
 
     bool IsValid() const;
 };
 
-/// Discovers table-shaped arrays recursively and preserves their raw entries.
-/// An array is treated as a table only when its first item is a non-empty array
-/// consisting entirely of strings. This deliberate syntactic rule avoids
-/// section-name allowlists; semantic section validation belongs to J1 resolver
-/// stages. A final object in a data row is treated as the documented row-local
-/// override dictionary only when it appears after all header columns; an
-/// object in a declared positional column remains an ordinary cell.
-JBeamNormalizeResult NormalizeJBeamTables(const JBeamValue& root);
+/// Discovers table-shaped arrays reachable through object fields and preserves
+/// their raw entries. An array is treated as a table only when its first item
+/// is a non-empty array consisting entirely of strings. Array contents are
+/// data, not additional section roots, so discovery deliberately does not
+/// recurse into them. This prevents nested row payloads from being normalized
+/// repeatedly while retaining the root/object/section contract. A final object
+/// in a data row is treated as the documented row-local override dictionary
+/// only when it appears after all header columns; an object in a declared
+/// positional column remains an ordinary cell.
+JBeamNormalizeResult NormalizeJBeamTables(
+    const JBeamValue& root,
+    const JBeamNormalizeLimits& limits = JBeamNormalizeLimits());
+
+struct JBeamFieldLookupMetrics
+{
+    std::size_t work_units;
+
+    JBeamFieldLookupMetrics();
+};
 
 /// Applies JBeam precedence (defaults, positional cells, row-local overrides)
 /// and returns the final exact-case field assignment without discarding any
-/// source history from the normalized row.
+/// source history from the normalized row. Normalized rows use a shared
+/// table-wide index, making inherited-default lookup logarithmic in the number
+/// of assignments rather than a reverse scan of the whole defaults prefix.
 const JBeamFieldAssignment* FindEffectiveJBeamField(
     const JBeamNormalizedDataRow& row,
-    const std::string& name);
+    const std::string& name,
+    JBeamFieldLookupMetrics* metrics = NULL);
 
 const char* JBeamDiagnosticCodeToString(JBeamDiagnosticCode code);
 

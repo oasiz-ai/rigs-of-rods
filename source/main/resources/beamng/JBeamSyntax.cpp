@@ -23,6 +23,7 @@
 #include <locale>
 #include <map>
 #include <sstream>
+#include <utility>
 
 namespace RoR {
 namespace BeamNG {
@@ -1121,29 +1122,6 @@ private:
     JBeamParseResult m_result;
 };
 
-std::string EscapePathKey(const std::string& key)
-{
-    std::ostringstream output;
-    for (std::size_t i = 0; i < key.size(); ++i)
-    {
-        const unsigned char value = static_cast<unsigned char>(key[i]);
-        if ((value >= 'a' && value <= 'z') ||
-            (value >= 'A' && value <= 'Z') ||
-            (value >= '0' && value <= '9') ||
-            value == '_' || value == '-' || value == '.')
-        {
-            output << static_cast<char>(value);
-        }
-        else
-        {
-            output << '%' << std::uppercase << std::hex << std::setw(2)
-                   << std::setfill('0') << static_cast<unsigned int>(value)
-                   << std::nouppercase << std::dec;
-        }
-    }
-    return output.str();
-}
-
 bool IsTableHeader(const JBeamValue& value)
 {
     if (value.type != JBeamValueType::ARRAY ||
@@ -1166,78 +1144,640 @@ std::shared_ptr<const JBeamValue> CopyValue(const JBeamValue& value)
     return std::shared_ptr<const JBeamValue>(new JBeamValue(value));
 }
 
-void AppendObjectAssignments(
+bool AddWithoutOverflow(
+    std::size_t left,
+    std::size_t right,
+    std::size_t& output)
+{
+    if (right > std::numeric_limits<std::size_t>::max() - left)
+    {
+        return false;
+    }
+    output = left + right;
+    return true;
+}
+
+bool MultiplyWithoutOverflow(
+    std::size_t left,
+    std::size_t right,
+    std::size_t& output)
+{
+    if (left != 0 &&
+        right > std::numeric_limits<std::size_t>::max() / left)
+    {
+        return false;
+    }
+    output = left * right;
+    return true;
+}
+
+bool IsPathSafeByte(unsigned char value)
+{
+    return (value >= 'a' && value <= 'z') ||
+        (value >= 'A' && value <= 'Z') ||
+        (value >= '0' && value <= '9') ||
+        value == '_' || value == '-' || value == '.';
+}
+
+bool EscapedPathKeySize(
+    const std::string& key,
+    std::size_t& escaped_size)
+{
+    escaped_size = key.size();
+    for (std::size_t i = 0; i < key.size(); ++i)
+    {
+        if (!IsPathSafeByte(
+                static_cast<unsigned char>(key[i])) &&
+            !AddWithoutOverflow(escaped_size, 2U, escaped_size))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+void AppendEscapedPathKey(
+    const std::string& key,
+    std::string& output)
+{
+    static const char HEX_DIGITS[] = "0123456789ABCDEF";
+    for (std::size_t i = 0; i < key.size(); ++i)
+    {
+        const unsigned char value =
+            static_cast<unsigned char>(key[i]);
+        if (IsPathSafeByte(value))
+        {
+            output.push_back(static_cast<char>(value));
+        }
+        else
+        {
+            output.push_back('%');
+            output.push_back(HEX_DIGITS[value >> 4]);
+            output.push_back(HEX_DIGITS[value & 0x0fU]);
+        }
+    }
+}
+
+std::size_t DecimalDigitCount(std::size_t value)
+{
+    std::size_t count = 1U;
+    while (value >= 10U)
+    {
+        value /= 10U;
+        ++count;
+    }
+    return count;
+}
+
+void AppendDecimal(std::size_t value, std::string& output)
+{
+    char digits[
+        std::numeric_limits<std::size_t>::digits10 + 2U];
+    std::size_t count = 0U;
+    do
+    {
+        digits[count++] =
+            static_cast<char>('0' + value % 10U);
+        value /= 10U;
+    }
+    while (value != 0U);
+    while (count > 0U)
+    {
+        output.push_back(digits[--count]);
+    }
+}
+
+class TableNormalizer
+{
+public:
+    TableNormalizer(
+        const JBeamNormalizeLimits& limits,
+        JBeamNormalizeResult& result)
+        : m_limits(limits)
+        , m_result(result)
+        , m_stopped(false)
+    {
+    }
+
+    bool IsStopped() const
+    {
+        return m_stopped;
+    }
+
+    bool ConsumeWork(
+        std::size_t units,
+        const JBeamSourceSpan& span)
+    {
+        if (m_stopped)
+        {
+            return false;
+        }
+        if (units > m_limits.max_work_units - std::min(
+                m_result.work_units, m_limits.max_work_units))
+        {
+            Stop(
+                JBeamDiagnosticCode::NORMALIZE_WORK_LIMIT,
+                span,
+                "JBeam table normalization exceeded the configured work "
+                "budget");
+            return false;
+        }
+        m_result.work_units += units;
+        return true;
+    }
+
+    bool Retain(
+        std::size_t bytes,
+        const JBeamSourceSpan& span)
+    {
+        if (m_stopped)
+        {
+            return false;
+        }
+        if (bytes > m_limits.max_retained_bytes - std::min(
+                m_result.retained_bytes, m_limits.max_retained_bytes))
+        {
+            Stop(
+                JBeamDiagnosticCode::NORMALIZE_RETAINED_BYTES_LIMIT,
+                span,
+                "JBeam table normalization exceeded the configured retained "
+                "byte budget");
+            return false;
+        }
+        m_result.retained_bytes += bytes;
+        return true;
+    }
+
+    bool RetainElements(
+        std::size_t count,
+        std::size_t element_size,
+        const JBeamSourceSpan& span)
+    {
+        std::size_t bytes = 0;
+        if (!MultiplyWithoutOverflow(count, element_size, bytes))
+        {
+            Stop(
+                JBeamDiagnosticCode::NORMALIZE_RETAINED_BYTES_LIMIT,
+                span,
+                "JBeam table normalization retained-byte accounting "
+                "overflowed");
+            return false;
+        }
+        return Retain(bytes, span);
+    }
+
+    bool RetainString(
+        const std::string& text,
+        const JBeamSourceSpan& span)
+    {
+        // Empty and short strings are normally stored inline. Charging their
+        // exact logical size remains deterministic and conservative for
+        // payload growth without depending on a standard-library SSO width.
+        return Retain(text.size(), span);
+    }
+
+    bool AddDiagnostic(
+        JBeamDiagnosticCode code,
+        JBeamDiagnosticSeverity severity,
+        const JBeamSourceSpan& span,
+        const std::string& message)
+    {
+        if (m_stopped)
+        {
+            return false;
+        }
+        if (m_result.diagnostics.size() >= m_limits.max_diagnostics)
+        {
+            Stop(
+                JBeamDiagnosticCode::DIAGNOSTIC_LIMIT,
+                span,
+                "JBeam table normalization reached the configured "
+                "diagnostic limit");
+            return false;
+        }
+        std::size_t bytes = sizeof(JBeamDiagnostic);
+        if (!AddWithoutOverflow(bytes, span.source_name.size(), bytes) ||
+            !AddWithoutOverflow(bytes, message.size(), bytes) ||
+            !Retain(bytes, span))
+        {
+            return false;
+        }
+        m_result.diagnostics.push_back(
+            MakeDiagnostic(code, severity, span, message));
+        return true;
+    }
+
+    bool MeasureValueCopyDynamicBytes(
+        const JBeamValue& value,
+        std::size_t& bytes)
+    {
+        bytes = 0;
+        std::vector<const JBeamValue*> pending;
+        if (!ConsumeWork(1, value.span))
+        {
+            return false;
+        }
+        pending.push_back(&value);
+        while (!pending.empty())
+        {
+            const JBeamValue* current = pending.back();
+            pending.pop_back();
+            if (!AccumulateString(bytes, current->span.source_name) ||
+                !AccumulateString(bytes, current->scalar_text))
+            {
+                Stop(
+                    JBeamDiagnosticCode::NORMALIZE_RETAINED_BYTES_LIMIT,
+                    current->span,
+                    "JBeam copied-value retained-byte accounting "
+                    "overflowed");
+                return false;
+            }
+            if (current->type == JBeamValueType::ARRAY)
+            {
+                std::size_t child_bytes = 0;
+                if (!MultiplyWithoutOverflow(
+                        current->array_values.size(),
+                        sizeof(JBeamValue),
+                        child_bytes) ||
+                    !AddWithoutOverflow(bytes, child_bytes, bytes))
+                {
+                    Stop(
+                        JBeamDiagnosticCode::
+                            NORMALIZE_RETAINED_BYTES_LIMIT,
+                        current->span,
+                        "JBeam copied-array retained-byte accounting "
+                        "overflowed");
+                    return false;
+                }
+                if (!ConsumeWork(
+                        current->array_values.size(), current->span))
+                {
+                    return false;
+                }
+                for (std::size_t i = 0;
+                     i < current->array_values.size();
+                     ++i)
+                {
+                    pending.push_back(&current->array_values[i]);
+                }
+            }
+            else if (current->type == JBeamValueType::OBJECT)
+            {
+                std::size_t field_bytes = 0;
+                if (!MultiplyWithoutOverflow(
+                        current->object_fields.size(),
+                        sizeof(JBeamObjectField),
+                        field_bytes) ||
+                    !AddWithoutOverflow(bytes, field_bytes, bytes) ||
+                    !ConsumeWork(
+                        current->object_fields.size(), current->span))
+                {
+                    if (!m_stopped)
+                    {
+                        Stop(
+                            JBeamDiagnosticCode::
+                                NORMALIZE_RETAINED_BYTES_LIMIT,
+                            current->span,
+                            "JBeam copied-object retained-byte accounting "
+                            "overflowed");
+                    }
+                    return false;
+                }
+                for (std::size_t i = 0;
+                     i < current->object_fields.size();
+                     ++i)
+                {
+                    const JBeamObjectField& field =
+                        current->object_fields[i];
+                    if (!AccumulateString(bytes, field.key) ||
+                        !AccumulateString(
+                            bytes, field.key_span.source_name))
+                    {
+                        Stop(
+                            JBeamDiagnosticCode::
+                                NORMALIZE_RETAINED_BYTES_LIMIT,
+                            field.key_span,
+                            "JBeam copied-field retained-byte accounting "
+                            "overflowed");
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+private:
+    bool AccumulateString(
+        std::size_t& bytes,
+        const std::string& text)
+    {
+        return AddWithoutOverflow(bytes, text.size(), bytes);
+    }
+
+    void Stop(
+        JBeamDiagnosticCode code,
+        const JBeamSourceSpan& span,
+        const std::string& message)
+    {
+        if (m_stopped)
+        {
+            return;
+        }
+        m_stopped = true;
+        m_result.diagnostics.push_back(MakeDiagnostic(
+            code,
+            JBeamDiagnosticSeverity::ERROR,
+            span,
+            message));
+    }
+
+    const JBeamNormalizeLimits& m_limits;
+    JBeamNormalizeResult& m_result;
+    bool m_stopped;
+};
+
+bool ChargeTreeLookupWork(
+    std::size_t element_count,
+    const JBeamSourceSpan& span,
+    TableNormalizer& normalizer)
+{
+    std::size_t units = 1;
+    while (element_count > 1)
+    {
+        ++units;
+        element_count /= 2;
+    }
+    return normalizer.ConsumeWork(units, span);
+}
+
+bool ChargeAssignment(
+    const JBeamObjectField& field,
+    TableNormalizer& normalizer)
+{
+    return normalizer.RetainString(field.key, field.key_span) &&
+           normalizer.RetainString(
+               field.value->span.source_name, field.value->span);
+}
+
+bool AppendObjectAssignments(
     const JBeamValue& object,
     JBeamFieldOrigin origin,
-    std::vector<JBeamFieldAssignment>& output)
+    std::vector<JBeamFieldAssignment>& output,
+    std::shared_ptr<JBeamInheritedAssignmentIndex> inherited_index,
+    std::map<std::string, std::size_t>* inherited_buckets,
+    TableNormalizer& normalizer)
 {
+    if (!normalizer.ConsumeWork(
+            object.object_fields.size(), object.span))
+    {
+        return false;
+    }
     for (std::size_t i = 0; i < object.object_fields.size(); ++i)
     {
         const JBeamObjectField& field = object.object_fields[i];
+        if (!field.value)
+        {
+            if (!normalizer.AddDiagnostic(
+                    JBeamDiagnosticCode::TABLE_INVALID_ENTRY,
+                    JBeamDiagnosticSeverity::WARNING,
+                    field.key_span,
+                    "Null JBeam object field value is ignored during table "
+                    "normalization"))
+            {
+                return false;
+            }
+            continue;
+        }
+        if (!ChargeAssignment(field, normalizer))
+        {
+            return false;
+        }
         JBeamFieldAssignment assignment;
         assignment.name = field.key;
         assignment.origin = origin;
         assignment.span = field.value->span;
         assignment.value = field.value;
-        output.push_back(assignment);
+        const std::size_t assignment_index = output.size();
+        output.push_back(std::move(assignment));
+
+        if (inherited_index && inherited_buckets != NULL)
+        {
+            if (!ChargeTreeLookupWork(
+                    inherited_buckets->size(),
+                    field.key_span,
+                    normalizer))
+            {
+                return false;
+            }
+            std::map<std::string, std::size_t>::iterator found =
+                inherited_buckets->find(field.key);
+            std::size_t bucket_index = 0;
+            if (found == inherited_buckets->end())
+            {
+                bucket_index = inherited_index->fields.size();
+                if (!normalizer.RetainElements(
+                        1, sizeof(JBeamInheritedFieldIndex),
+                        field.key_span) ||
+                    !normalizer.RetainString(field.key, field.key_span))
+                {
+                    return false;
+                }
+                JBeamInheritedFieldIndex bucket;
+                bucket.name = field.key;
+                inherited_index->fields.push_back(std::move(bucket));
+                inherited_buckets->insert(
+                    std::make_pair(field.key, bucket_index));
+            }
+            else
+            {
+                bucket_index = found->second;
+            }
+            if (!normalizer.RetainElements(
+                    1, sizeof(std::size_t), field.key_span))
+            {
+                return false;
+            }
+            inherited_index->fields[bucket_index]
+                .assignment_indices.push_back(assignment_index);
+        }
     }
+    return true;
 }
 
-void NormalizeTable(
+bool NormalizeTable(
     const JBeamValue& value,
     const std::string& path,
-    JBeamNormalizeResult& result)
+    JBeamNormalizeResult& result,
+    TableNormalizer& normalizer)
 {
+    if (!normalizer.ConsumeWork(1, value.span) ||
+        !normalizer.RetainElements(
+            1, sizeof(JBeamNormalizedTable), value.span) ||
+        !normalizer.RetainString(path, value.span) ||
+        !normalizer.RetainString(
+            value.span.source_name, value.span))
+    {
+        return false;
+    }
+
     JBeamNormalizedTable table;
     table.path = path;
     table.span = value.span;
     const JBeamValue& header = value.array_values[0];
+    if (!normalizer.RetainElements(
+            header.array_values.size(),
+            sizeof(JBeamTableColumn),
+            header.span))
+    {
+        return false;
+    }
+    table.columns.reserve(header.array_values.size());
     std::map<std::string, std::size_t> header_names;
     for (std::size_t i = 0; i < header.array_values.size(); ++i)
     {
+        if (!normalizer.ConsumeWork(1, header.array_values[i].span) ||
+            !normalizer.RetainString(
+                header.array_values[i].scalar_text,
+                header.array_values[i].span) ||
+            !normalizer.RetainString(
+                header.array_values[i].span.source_name,
+                header.array_values[i].span))
+        {
+            return false;
+        }
         JBeamTableColumn column;
         column.name = header.array_values[i].scalar_text;
         column.span = header.array_values[i].span;
-        table.columns.push_back(column);
-        if (header_names.find(column.name) != header_names.end())
+        table.columns.push_back(std::move(column));
+        if (!ChargeTreeLookupWork(
+                header_names.size(),
+                table.columns.back().span,
+                normalizer))
         {
-            result.diagnostics.push_back(MakeDiagnostic(
-                JBeamDiagnosticCode::DUPLICATE_TABLE_HEADER,
-                JBeamDiagnosticSeverity::WARNING,
-                column.span,
-                "Duplicate case-sensitive JBeam table header is preserved"));
+            return false;
+        }
+        if (header_names.find(table.columns.back().name) !=
+            header_names.end())
+        {
+            if (!normalizer.AddDiagnostic(
+                    JBeamDiagnosticCode::DUPLICATE_TABLE_HEADER,
+                    JBeamDiagnosticSeverity::WARNING,
+                    table.columns.back().span,
+                    "Duplicate case-sensitive JBeam table header is "
+                    "preserved"))
+            {
+                return false;
+            }
         }
         else
         {
-            header_names.insert(std::make_pair(column.name, i));
+            header_names.insert(
+                std::make_pair(table.columns.back().name, i));
         }
     }
 
-    std::shared_ptr<std::vector<JBeamFieldAssignment> > active_defaults(
-        new std::vector<JBeamFieldAssignment>());
+    const std::size_t entry_count = value.array_values.size() - 1;
+    std::size_t default_assignment_capacity = 0;
+    if (!normalizer.ConsumeWork(entry_count, value.span))
+    {
+        return false;
+    }
     for (std::size_t entry_index = 1;
          entry_index < value.array_values.size();
          ++entry_index)
     {
         const JBeamValue& entry_value = value.array_values[entry_index];
+        if (entry_value.type == JBeamValueType::OBJECT)
+        {
+            if (!AddWithoutOverflow(
+                    default_assignment_capacity,
+                    entry_value.object_fields.size(),
+                    default_assignment_capacity))
+            {
+                normalizer.RetainElements(
+                    std::numeric_limits<std::size_t>::max(),
+                    2U,
+                    entry_value.span);
+                return false;
+            }
+        }
+    }
+    if (!normalizer.RetainElements(
+            entry_count,
+            sizeof(JBeamNormalizedTableEntry),
+            value.span) ||
+        !normalizer.RetainElements(
+            default_assignment_capacity,
+            sizeof(JBeamFieldAssignment),
+            value.span) ||
+        !normalizer.RetainElements(
+            1,
+            sizeof(std::vector<JBeamFieldAssignment>) + 64U,
+            value.span) ||
+        !normalizer.RetainElements(
+            1,
+            sizeof(JBeamInheritedAssignmentIndex) + 64U,
+            value.span))
+    {
+        return false;
+    }
+    table.entries.reserve(entry_count);
+    std::shared_ptr<std::vector<JBeamFieldAssignment> > active_defaults(
+        new std::vector<JBeamFieldAssignment>());
+    active_defaults->reserve(default_assignment_capacity);
+    std::shared_ptr<JBeamInheritedAssignmentIndex> inherited_index(
+        new JBeamInheritedAssignmentIndex());
+    std::map<std::string, std::size_t> inherited_buckets;
+
+    for (std::size_t entry_index = 1;
+         entry_index < value.array_values.size();
+         ++entry_index)
+    {
+        if (!normalizer.ConsumeWork(
+                1, value.array_values[entry_index].span))
+        {
+            return false;
+        }
+        const JBeamValue& entry_value = value.array_values[entry_index];
         JBeamNormalizedTableEntry entry;
+        std::size_t raw_value_bytes = 0;
+        if (!normalizer.MeasureValueCopyDynamicBytes(
+                entry_value, raw_value_bytes) ||
+            !normalizer.Retain(raw_value_bytes, entry_value.span))
+        {
+            return false;
+        }
         entry.raw_value = entry_value;
         if (entry_value.type == JBeamValueType::OBJECT)
         {
             entry.kind = JBeamNormalizedTableEntryKind::DEFAULT_MODIFIER;
-            AppendObjectAssignments(
-                entry_value,
-                JBeamFieldOrigin::INHERITED_DEFAULT,
-                *active_defaults);
+            if (!AppendObjectAssignments(
+                    entry_value,
+                    JBeamFieldOrigin::INHERITED_DEFAULT,
+                    *active_defaults,
+                    inherited_index,
+                    &inherited_buckets,
+                    normalizer))
+            {
+                return false;
+            }
         }
         else if (entry_value.type == JBeamValueType::ARRAY)
         {
             entry.kind = JBeamNormalizedTableEntryKind::DATA_ROW;
+            if (!normalizer.RetainString(
+                    entry_value.span.source_name, entry_value.span) ||
+                !normalizer.Retain(raw_value_bytes, entry_value.span))
+            {
+                return false;
+            }
             entry.data_row.span = entry_value.span;
             entry.data_row.raw_row = entry_value;
             entry.data_row.inherited_assignment_storage = active_defaults;
             entry.data_row.inherited_assignment_count =
                 active_defaults->size();
+            entry.data_row.inherited_assignment_index = inherited_index;
 
             std::size_t positional_count = entry_value.array_values.size();
             if (positional_count > table.columns.size() &&
@@ -1246,19 +1786,68 @@ void NormalizeTable(
             {
                 const JBeamValue& overrides =
                     entry_value.array_values[positional_count - 1];
-                AppendObjectAssignments(
-                    overrides,
-                    JBeamFieldOrigin::ROW_LOCAL_OVERRIDE,
-                    entry.data_row.row_local_assignments);
+                if (!normalizer.RetainElements(
+                        overrides.object_fields.size(),
+                        sizeof(JBeamFieldAssignment),
+                        overrides.span))
+                {
+                    return false;
+                }
+                entry.data_row.row_local_assignments.reserve(
+                    overrides.object_fields.size());
+                if (!AppendObjectAssignments(
+                        overrides,
+                        JBeamFieldOrigin::ROW_LOCAL_OVERRIDE,
+                        entry.data_row.row_local_assignments,
+                        std::shared_ptr<JBeamInheritedAssignmentIndex>(),
+                        NULL,
+                        normalizer))
+                {
+                    return false;
+                }
                 --positional_count;
             }
 
             const std::size_t mapped_count =
                 std::min(positional_count, table.columns.size());
+            if (!normalizer.RetainElements(
+                    mapped_count,
+                    sizeof(JBeamFieldAssignment),
+                    entry_value.span))
+            {
+                return false;
+            }
+            entry.data_row.positional_assignments.reserve(mapped_count);
             for (std::size_t column_index = 0;
                  column_index < mapped_count;
                  ++column_index)
             {
+                if (!normalizer.ConsumeWork(
+                        1,
+                        entry_value.array_values[column_index].span) ||
+                    !normalizer.RetainString(
+                        table.columns[column_index].name,
+                        table.columns[column_index].span) ||
+                    !normalizer.RetainString(
+                        entry_value.array_values[column_index]
+                            .span.source_name,
+                        entry_value.array_values[column_index].span))
+                {
+                    return false;
+                }
+                std::size_t copied_cell_bytes = 0;
+                if (!normalizer.MeasureValueCopyDynamicBytes(
+                        entry_value.array_values[column_index],
+                        copied_cell_bytes) ||
+                    !normalizer.RetainElements(
+                        1, sizeof(JBeamValue) + 64U,
+                        entry_value.array_values[column_index].span) ||
+                    !normalizer.Retain(
+                        copied_cell_bytes,
+                        entry_value.array_values[column_index].span))
+                {
+                    return false;
+                }
                 JBeamFieldAssignment assignment;
                 assignment.name = table.columns[column_index].name;
                 assignment.origin = JBeamFieldOrigin::POSITIONAL_CELL;
@@ -1266,60 +1855,102 @@ void NormalizeTable(
                     entry_value.array_values[column_index].span;
                 assignment.value =
                     CopyValue(entry_value.array_values[column_index]);
-                entry.data_row.positional_assignments.push_back(assignment);
+                entry.data_row.positional_assignments.push_back(
+                    std::move(assignment));
             }
             if (positional_count < table.columns.size())
             {
-                result.diagnostics.push_back(MakeDiagnostic(
-                    JBeamDiagnosticCode::TABLE_ROW_TOO_SHORT,
-                    JBeamDiagnosticSeverity::WARNING,
-                    entry_value.span,
-                    "JBeam table row has fewer positional cells than its "
-                    "header; the raw row is preserved"));
+                if (!normalizer.AddDiagnostic(
+                        JBeamDiagnosticCode::TABLE_ROW_TOO_SHORT,
+                        JBeamDiagnosticSeverity::WARNING,
+                        entry_value.span,
+                        "JBeam table row has fewer positional cells than "
+                        "its header; the raw row is preserved"))
+                {
+                    return false;
+                }
             }
             else if (positional_count > table.columns.size())
             {
-                result.diagnostics.push_back(MakeDiagnostic(
-                    JBeamDiagnosticCode::TABLE_ROW_TOO_LONG,
-                    JBeamDiagnosticSeverity::WARNING,
-                    entry_value.span,
-                    "JBeam table row has more positional cells than its "
-                    "header; extra raw cells are preserved"));
+                if (!normalizer.AddDiagnostic(
+                        JBeamDiagnosticCode::TABLE_ROW_TOO_LONG,
+                        JBeamDiagnosticSeverity::WARNING,
+                        entry_value.span,
+                        "JBeam table row has more positional cells than its "
+                        "header; extra raw cells are preserved"))
+                {
+                    return false;
+                }
             }
         }
         else
         {
             entry.kind = JBeamNormalizedTableEntryKind::INVALID_ENTRY;
-            result.diagnostics.push_back(MakeDiagnostic(
-                JBeamDiagnosticCode::TABLE_INVALID_ENTRY,
-                JBeamDiagnosticSeverity::WARNING,
-                entry_value.span,
-                "JBeam table entry is neither a default dictionary nor a "
-                "data-row array; the raw value is preserved"));
+            if (!normalizer.AddDiagnostic(
+                    JBeamDiagnosticCode::TABLE_INVALID_ENTRY,
+                    JBeamDiagnosticSeverity::WARNING,
+                    entry_value.span,
+                    "JBeam table entry is neither a default dictionary nor "
+                    "a data-row array; the raw value is preserved"))
+            {
+                return false;
+            }
         }
-        table.entries.push_back(entry);
+        table.entries.push_back(std::move(entry));
     }
-    result.tables.push_back(table);
+
+    for (std::size_t width = inherited_index->fields.size();
+         width > 1;
+         width = width / 2 + width % 2)
+    {
+        if (!normalizer.ConsumeWork(
+                inherited_index->fields.size(), value.span))
+        {
+            return false;
+        }
+    }
+    std::sort(
+        inherited_index->fields.begin(),
+        inherited_index->fields.end(),
+        [](const JBeamInheritedFieldIndex& left,
+           const JBeamInheritedFieldIndex& right)
+        {
+            return left.name < right.name;
+        });
+    result.tables.push_back(std::move(table));
+    return true;
 }
 
 void DiscoverTables(
     const JBeamValue& value,
-    const std::string& path,
-    JBeamNormalizeResult& result)
+    std::string& path,
+    JBeamNormalizeResult& result,
+    TableNormalizer& normalizer)
 {
+    if (!normalizer.ConsumeWork(1, value.span))
+    {
+        return;
+    }
     if (value.type == JBeamValueType::ARRAY)
     {
-        if (!value.array_values.empty() &&
-            IsTableHeader(value.array_values[0]))
+        if (!value.array_values.empty())
         {
-            NormalizeTable(value, path, result);
+            const JBeamValue& candidate_header =
+                value.array_values[0];
+            if (!normalizer.ConsumeWork(
+                    candidate_header.array_values.size(),
+                    candidate_header.span))
+            {
+                return;
+            }
+            if (IsTableHeader(candidate_header))
+            {
+                NormalizeTable(value, path, result, normalizer);
+            }
         }
-        for (std::size_t i = 0; i < value.array_values.size(); ++i)
-        {
-            std::ostringstream child_path;
-            child_path << path << "/[" << i << "]";
-            DiscoverTables(value.array_values[i], child_path.str(), result);
-        }
+        // JBeam section arrays contain rows and arbitrary cell payloads.
+        // They are never namespaces for more independently normalized
+        // sections.
         return;
     }
     if (value.type != JBeamValueType::OBJECT)
@@ -1330,21 +1961,118 @@ void DiscoverTables(
     std::map<std::string, std::size_t> occurrences;
     for (std::size_t i = 0; i < value.object_fields.size(); ++i)
     {
+        if (!normalizer.ConsumeWork(1, value.object_fields[i].key_span))
+        {
+            return;
+        }
         const JBeamObjectField& field = value.object_fields[i];
+        // Charge source bytes before the occurrence map can compare or copy
+        // the key. This ordering also covers null fields, which still consume
+        // an occurrence so later duplicate paths remain deterministic.
+        if (!normalizer.ConsumeWork(
+                field.key.size(), field.key_span))
+        {
+            return;
+        }
+        if (!ChargeTreeLookupWork(
+                occurrences.size(), field.key_span, normalizer))
+        {
+            return;
+        }
         const std::size_t occurrence = occurrences[field.key]++;
-        std::ostringstream child_path;
-        child_path << path << "/" << EscapePathKey(field.key)
-                   << "#" << occurrence;
-        DiscoverTables(*field.value, child_path.str(), result);
+        if (!field.value)
+        {
+            if (!normalizer.AddDiagnostic(
+                    JBeamDiagnosticCode::TABLE_INVALID_ENTRY,
+                    JBeamDiagnosticSeverity::WARNING,
+                    field.key_span,
+                    "Null JBeam object field value is ignored during table "
+                    "discovery"))
+            {
+                return;
+            }
+            continue;
+        }
+
+        // Charge every source byte before scanning/escaping it. A mutable
+        // append/resize path keeps traversal linear in the total segment
+        // bytes rather than copying the complete ancestor path at every edge.
+        std::size_t escaped_size = 0U;
+        if (!EscapedPathKeySize(field.key, escaped_size))
+        {
+            normalizer.ConsumeWork(
+                std::numeric_limits<std::size_t>::max(),
+                field.key_span);
+            return;
+        }
+        const std::size_t occurrence_digits =
+            DecimalDigitCount(occurrence);
+        std::size_t appended_size = 2U;
+        if (!AddWithoutOverflow(
+                appended_size,
+                escaped_size,
+                appended_size) ||
+            !AddWithoutOverflow(
+                appended_size,
+                occurrence_digits,
+                appended_size))
+        {
+            normalizer.ConsumeWork(
+                std::numeric_limits<std::size_t>::max(),
+                field.key_span);
+            return;
+        }
+        const std::size_t escape_expansion =
+            escaped_size - field.key.size();
+        if (!normalizer.ConsumeWork(
+                escape_expansion + occurrence_digits + 2U,
+                field.key_span))
+        {
+            return;
+        }
+
+        const std::size_t parent_path_size = path.size();
+        if (appended_size >
+            path.max_size() -
+                std::min(path.size(), path.max_size()))
+        {
+            normalizer.ConsumeWork(
+                std::numeric_limits<std::size_t>::max(),
+                field.key_span);
+            return;
+        }
+        path.reserve(parent_path_size + appended_size);
+        path.push_back('/');
+        AppendEscapedPathKey(field.key, path);
+        path.push_back('#');
+        AppendDecimal(occurrence, path);
+        DiscoverTables(
+            *field.value, path, result, normalizer);
+        path.resize(parent_path_size);
+        if (normalizer.IsStopped())
+        {
+            return;
+        }
+    }
+}
+
+void ChargeLookupWork(JBeamFieldLookupMetrics* metrics)
+{
+    if (metrics != NULL &&
+        metrics->work_units < std::numeric_limits<std::size_t>::max())
+    {
+        ++metrics->work_units;
     }
 }
 
 const JBeamFieldAssignment* FindLastAssignment(
     const std::vector<JBeamFieldAssignment>& assignments,
-    const std::string& name)
+    const std::string& name,
+    JBeamFieldLookupMetrics* metrics)
 {
     for (std::size_t i = assignments.size(); i > 0; --i)
     {
+        ChargeLookupWork(metrics);
         if (assignments[i - 1].name == name)
         {
             return &assignments[i - 1];
@@ -1357,7 +2085,8 @@ const JBeamFieldAssignment* FindLastAssignmentPrefix(
     const std::shared_ptr<const std::vector<JBeamFieldAssignment> >&
         assignments,
     std::size_t count,
-    const std::string& name)
+    const std::string& name,
+    JBeamFieldLookupMetrics* metrics)
 {
     if (!assignments)
     {
@@ -1366,12 +2095,88 @@ const JBeamFieldAssignment* FindLastAssignmentPrefix(
     const std::size_t bounded_count = std::min(count, assignments->size());
     for (std::size_t i = bounded_count; i > 0; --i)
     {
+        ChargeLookupWork(metrics);
         if ((*assignments)[i - 1].name == name)
         {
             return &(*assignments)[i - 1];
         }
     }
     return NULL;
+}
+
+const JBeamFieldAssignment* FindIndexedAssignmentPrefix(
+    const JBeamNormalizedDataRow& row,
+    const std::string& name,
+    JBeamFieldLookupMetrics* metrics)
+{
+    if (!row.inherited_assignment_storage ||
+        !row.inherited_assignment_index)
+    {
+        return FindLastAssignmentPrefix(
+            row.inherited_assignment_storage,
+            row.inherited_assignment_count,
+            name,
+            metrics);
+    }
+
+    const std::vector<JBeamInheritedFieldIndex>& fields =
+        row.inherited_assignment_index->fields;
+    std::size_t low = 0;
+    std::size_t high = fields.size();
+    while (low < high)
+    {
+        ChargeLookupWork(metrics);
+        const std::size_t middle = low + (high - low) / 2;
+        if (fields[middle].name < name)
+        {
+            low = middle + 1;
+        }
+        else
+        {
+            high = middle;
+        }
+    }
+    if (low >= fields.size())
+    {
+        return NULL;
+    }
+    ChargeLookupWork(metrics);
+    if (fields[low].name != name)
+    {
+        return NULL;
+    }
+
+    const std::vector<std::size_t>& indexes =
+        fields[low].assignment_indices;
+    const std::size_t bounded_count = std::min(
+        row.inherited_assignment_count,
+        row.inherited_assignment_storage->size());
+    std::size_t index_low = 0;
+    std::size_t index_high = indexes.size();
+    while (index_low < index_high)
+    {
+        ChargeLookupWork(metrics);
+        const std::size_t middle =
+            index_low + (index_high - index_low) / 2;
+        if (indexes[middle] < bounded_count)
+        {
+            index_low = middle + 1;
+        }
+        else
+        {
+            index_high = middle;
+        }
+    }
+    if (index_low == 0)
+    {
+        return NULL;
+    }
+    const std::size_t assignment_index = indexes[index_low - 1];
+    if (assignment_index >= bounded_count)
+    {
+        return NULL;
+    }
+    return &(*row.inherited_assignment_storage)[assignment_index];
 }
 
 } // namespace
@@ -1400,6 +2205,18 @@ JBeamParseLimits::JBeamParseLimits()
     , max_depth(128U)
     , max_string_bytes(4U * 1024U * 1024U)
     , max_diagnostics(4096U)
+{
+}
+
+JBeamNormalizeLimits::JBeamNormalizeLimits()
+    : max_work_units(12000000U)
+    , max_retained_bytes(512U * 1024U * 1024U)
+    , max_diagnostics(4096U)
+{
+}
+
+JBeamFieldLookupMetrics::JBeamFieldLookupMetrics()
+    : work_units(0)
 {
 }
 
@@ -1477,33 +2294,40 @@ bool JBeamNormalizeResult::IsValid() const
     return !HasErrors(diagnostics);
 }
 
-JBeamNormalizeResult NormalizeJBeamTables(const JBeamValue& root)
+JBeamNormalizeResult NormalizeJBeamTables(
+    const JBeamValue& root,
+    const JBeamNormalizeLimits& limits)
 {
     JBeamNormalizeResult result;
-    DiscoverTables(root, "$", result);
+    TableNormalizer normalizer(limits, result);
+    std::string path("$");
+    DiscoverTables(root, path, result, normalizer);
+    if (normalizer.IsStopped())
+    {
+        result.tables.clear();
+    }
     SortDiagnostics(result.diagnostics);
     return result;
 }
 
 const JBeamFieldAssignment* FindEffectiveJBeamField(
     const JBeamNormalizedDataRow& row,
-    const std::string& name)
+    const std::string& name,
+    JBeamFieldLookupMetrics* metrics)
 {
     const JBeamFieldAssignment* assignment =
-        FindLastAssignment(row.row_local_assignments, name);
+        FindLastAssignment(row.row_local_assignments, name, metrics);
     if (assignment != NULL)
     {
         return assignment;
     }
-    assignment = FindLastAssignment(row.positional_assignments, name);
+    assignment =
+        FindLastAssignment(row.positional_assignments, name, metrics);
     if (assignment != NULL)
     {
         return assignment;
     }
-    return FindLastAssignmentPrefix(
-        row.inherited_assignment_storage,
-        row.inherited_assignment_count,
-        name);
+    return FindIndexedAssignmentPrefix(row, name, metrics);
 }
 
 const char* JBeamDiagnosticCodeToString(JBeamDiagnosticCode code)
@@ -1566,6 +2390,10 @@ const char* JBeamDiagnosticCodeToString(JBeamDiagnosticCode code)
         return "table-row-too-long";
     case JBeamDiagnosticCode::TABLE_INVALID_ENTRY:
         return "table-invalid-entry";
+    case JBeamDiagnosticCode::NORMALIZE_WORK_LIMIT:
+        return "normalize-work-limit";
+    case JBeamDiagnosticCode::NORMALIZE_RETAINED_BYTES_LIMIT:
+        return "normalize-retained-bytes-limit";
     }
     return "unknown";
 }
