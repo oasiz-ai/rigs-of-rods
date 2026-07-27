@@ -132,6 +132,18 @@ jobs:
           test -L "$app/Contents/MacOS/plugins.cfg"
           test ! -e "$app/Contents/MacOS/config"
 
+          controller_map="config/SDL_GameController_v1.macos.map"
+          skeleton="$app/Contents/Resources/resources/skeleton.zip"
+          unzip -Z1 "$skeleton" | grep -Fx "$controller_map"
+          unzip -p "$skeleton" "$controller_map" |
+            cmp - "resources/skeleton/$controller_map"
+          unzip -p "$skeleton" "$controller_map" |
+            grep -F \
+              "TRUCK_ACCELERATE              JoystickAxis         0 5 UPPER"
+          unzip -p "$skeleton" "$controller_map" |
+            grep -F \
+              "TRUCK_BRAKE                   JoystickAxis         0 4 UPPER"
+
           test "$(
             find "$app/Contents/PlugIns" -type f -name '*.dylib' |
               wc -l |

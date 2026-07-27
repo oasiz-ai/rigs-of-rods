@@ -211,6 +211,7 @@ struct BackendEvents
 {
     int added = 0;
     int removed = 0;
+    int remapped = 0;
     int errors = 0;
     int changed = 0;
 };
@@ -235,6 +236,9 @@ BackendEvents DrainControllerEvents(MacOSControllerBackend& backend)
             break;
         case MacOSControllerBackend::UpdateKind::DEVICE_REMOVED:
             ++summary.removed;
+            break;
+        case MacOSControllerBackend::UpdateKind::DEVICE_REMAPPED:
+            ++summary.remapped;
             break;
         case MacOSControllerBackend::UpdateKind::DEVICE_ERROR:
             ++summary.errors;
@@ -272,7 +276,9 @@ bool AttachVirtualController(
 {
     SDL_VirtualJoystickDesc description = {};
     description.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
-    description.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
+    // This exercises the raw joystick/wheel compatibility path. A separate
+    // test below covers SDL's standardized GameController semantics.
+    description.type = SDL_JOYSTICK_TYPE_UNKNOWN;
     description.naxes = 2;
     description.nbuttons = 4;
     description.nhats = 1;
@@ -281,6 +287,38 @@ bool AttachVirtualController(
     const int device_index = SDL_JoystickAttachVirtualEx(&description);
     if (device_index < 0)
     {
+        return false;
+    }
+    instance_id = SDL_JoystickGetDeviceInstanceID(device_index);
+    return instance_id >= 0;
+}
+
+bool AttachVirtualGameController(
+    const char* name,
+    SDL_JoystickID& instance_id)
+{
+    SDL_VirtualJoystickDesc description = {};
+    description.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
+    description.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
+    description.naxes = SDL_CONTROLLER_AXIS_MAX;
+    description.nbuttons = SDL_CONTROLLER_BUTTON_MAX;
+    description.nhats = 0;
+    description.axis_mask =
+        (static_cast<Uint32>(1) << SDL_CONTROLLER_AXIS_MAX) - 1u;
+    description.button_mask =
+        (static_cast<Uint32>(1) << SDL_CONTROLLER_BUTTON_MAX) - 1u;
+    description.vendor_id = 0x1209;
+    description.product_id = 0x524f;
+    description.name = name;
+
+    const int device_index = SDL_JoystickAttachVirtualEx(&description);
+    if (device_index < 0 ||
+        SDL_IsGameController(device_index) != SDL_TRUE)
+    {
+        if (device_index >= 0)
+        {
+            SDL_JoystickDetachVirtual(device_index);
+        }
         return false;
     }
     instance_id = SDL_JoystickGetDeviceInstanceID(device_index);
@@ -349,6 +387,9 @@ int VerifySDLVirtualController()
             slot->axis_count != 2 ||
             slot->button_count != 4 ||
             slot->hat_count != 1 ||
+            backend.IsStandardGameController(first_slot) ||
+            backend.GetMappingProfile(first_slot) !=
+                "RoR macOS controller startup" ||
             backend.GetVendor(first_slot) !=
                 "RoR macOS controller startup")
         {
@@ -598,6 +639,223 @@ int VerifySDLVirtualController()
     return result;
 }
 
+int VerifySDLVirtualGameController()
+{
+    const Uint32 test_subsystems =
+        SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS;
+    if (SDL_InitSubSystem(test_subsystems) != 0)
+    {
+        return Fail(
+            std::string("SDL GameController initialization failed: ") +
+            SDL_GetError());
+    }
+
+    SDL_JoystickID instance_id = -1;
+    if (!AttachVirtualGameController(
+            "RoR macOS standardized gamepad",
+            instance_id))
+    {
+        const std::string error = SDL_GetError();
+        SDL_QuitSubSystem(test_subsystems);
+        return Fail(
+            std::string("SDL virtual GameController attach failed: ") +
+            error);
+    }
+
+    int result = EXIT_SUCCESS;
+    MacOSControllerBackend backend;
+    do
+    {
+        if (!backend.Initialize())
+        {
+            result = Fail(
+                std::string(
+                    "the standardized backend did not initialize: ") +
+                backend.GetLastError());
+            break;
+        }
+
+        std::size_t slot_index = Registry::MAX_DEVICES;
+        if (!FindBackendSlot(backend, instance_id, slot_index) ||
+            !backend.IsStandardGameController(slot_index))
+        {
+            result = Fail(
+                "the virtual GameController used the raw joystick path");
+            break;
+        }
+
+        const Slot* slot = backend.GetSlot(slot_index);
+        if (slot == nullptr ||
+            slot->axis_count != SDL_CONTROLLER_AXIS_MAX ||
+            slot->button_count != SDL_CONTROLLER_BUTTON_MAX ||
+            slot->hat_count != 0 ||
+            backend.GetMappingProfile(slot_index) !=
+                MacOSControllerBackend::STANDARD_MAPPING_PROFILE ||
+            backend.GetVendor(slot_index) !=
+                "RoR macOS standardized gamepad")
+        {
+            result = Fail(
+                "the standardized controller ABI or mapping profile changed");
+            break;
+        }
+
+        // Discard add/state events generated during attach and startup.
+        DrainControllerEvents(backend);
+        SDL_FlushEvents(
+            SDL_JOYAXISMOTION,
+            SDL_CONTROLLERDEVICEREMAPPED);
+
+        SDL_Joystick* const joystick =
+            SDL_JoystickFromInstanceID(instance_id);
+        if (joystick == nullptr ||
+            SDL_JoystickSetVirtualAxis(
+                joystick,
+                SDL_CONTROLLER_AXIS_LEFTX,
+                SDL_JOYSTICK_AXIS_MIN) != 0 ||
+            SDL_JoystickSetVirtualAxis(
+                joystick,
+                SDL_CONTROLLER_AXIS_TRIGGERRIGHT,
+                SDL_JOYSTICK_AXIS_MAX) != 0 ||
+            SDL_JoystickSetVirtualButton(
+                joystick,
+                SDL_CONTROLLER_BUTTON_DPAD_UP,
+                SDL_PRESSED) != 0)
+        {
+            result = Fail(
+                std::string(
+                    "SDL rejected a standardized virtual transition: ") +
+                SDL_GetError());
+            break;
+        }
+
+        SDL_GameControllerUpdate();
+        SDL_JoystickUpdate();
+        const BackendEvents transitions = DrainControllerEvents(backend);
+        slot = backend.GetSlot(slot_index);
+        if (transitions.changed < 3 ||
+            slot == nullptr ||
+            slot->axes[SDL_CONTROLLER_AXIS_LEFTX] !=
+                SDL_JOYSTICK_AXIS_MIN ||
+            slot->axes[SDL_CONTROLLER_AXIS_TRIGGERRIGHT] !=
+                SDL_JOYSTICK_AXIS_MAX ||
+            !slot->buttons[SDL_CONTROLLER_BUTTON_DPAD_UP])
+        {
+            result = Fail(
+                "standard semantic axes/buttons did not reach the contract");
+            break;
+        }
+
+        // Mapped GameControllers also emit raw JOY events. Those raw indices
+        // must never overwrite the stable semantic controller state.
+        SDL_Event duplicate_raw = {};
+        duplicate_raw.type = SDL_JOYAXISMOTION;
+        duplicate_raw.jaxis.which = instance_id;
+        duplicate_raw.jaxis.axis = SDL_CONTROLLER_AXIS_LEFTX;
+        duplicate_raw.jaxis.value = 12345;
+        if (backend.ProcessEvent(duplicate_raw).kind !=
+                MacOSControllerBackend::UpdateKind::IGNORED ||
+            backend.GetSlot(slot_index) == nullptr ||
+            backend.GetSlot(slot_index)->
+                axes[SDL_CONTROLLER_AXIS_LEFTX] !=
+                    SDL_JOYSTICK_AXIS_MIN)
+        {
+            result = Fail(
+                "a duplicate raw joystick event corrupted GameController state");
+            break;
+        }
+
+        SDL_Event remapped = {};
+        remapped.type = SDL_CONTROLLERDEVICEREMAPPED;
+        remapped.cdevice.which = instance_id;
+        if (backend.ProcessEvent(remapped).kind !=
+                MacOSControllerBackend::UpdateKind::DEVICE_REMAPPED ||
+            backend.GetSlot(slot_index) == nullptr ||
+            !backend.GetSlot(slot_index)->
+                buttons[SDL_CONTROLLER_BUTTON_DPAD_UP])
+        {
+            result = Fail(
+                "a controller remap did not refresh semantic state");
+            break;
+        }
+
+        backend.ResetStates();
+        slot = backend.GetSlot(slot_index);
+        if (slot == nullptr ||
+            slot->axes[SDL_CONTROLLER_AXIS_LEFTX] != 0 ||
+            slot->axes[SDL_CONTROLLER_AXIS_TRIGGERRIGHT] != 0 ||
+            slot->buttons[SDL_CONTROLLER_BUTTON_DPAD_UP])
+        {
+            result = Fail(
+                "focus loss did not neutralize standardized state");
+            break;
+        }
+
+        backend.RefreshStates();
+        slot = backend.GetSlot(slot_index);
+        if (slot == nullptr ||
+            slot->axes[SDL_CONTROLLER_AXIS_LEFTX] !=
+                SDL_JOYSTICK_AXIS_MIN ||
+            slot->axes[SDL_CONTROLLER_AXIS_TRIGGERRIGHT] !=
+                SDL_JOYSTICK_AXIS_MAX ||
+            !slot->buttons[SDL_CONTROLLER_BUTTON_DPAD_UP])
+        {
+            result = Fail(
+                "focus regain did not restore standardized held state");
+            break;
+        }
+
+        if (SDL_JoystickSetVirtualAxis(
+                joystick,
+                SDL_CONTROLLER_AXIS_TRIGGERRIGHT,
+                SDL_JOYSTICK_AXIS_MIN) != 0 ||
+            SDL_JoystickSetVirtualButton(
+                joystick,
+                SDL_CONTROLLER_BUTTON_DPAD_UP,
+                SDL_RELEASED) != 0)
+        {
+            result = Fail(
+                "SDL rejected a standardized release transition");
+            break;
+        }
+        SDL_GameControllerUpdate();
+        SDL_JoystickUpdate();
+        DrainControllerEvents(backend);
+        slot = backend.GetSlot(slot_index);
+        if (slot == nullptr ||
+            slot->axes[SDL_CONTROLLER_AXIS_TRIGGERRIGHT] != 0 ||
+            slot->buttons[SDL_CONTROLLER_BUTTON_DPAD_UP])
+        {
+            result = Fail(
+                "standard trigger/button release semantics were not preserved");
+            break;
+        }
+    }
+    while (false);
+
+    backend.Shutdown();
+    if (SDL_WasInit(SDL_INIT_GAMECONTROLLER) == 0 &&
+        result == EXIT_SUCCESS)
+    {
+        result = Fail(
+            "backend shutdown quit a GameController subsystem owned by its caller");
+    }
+    if (!DetachVirtualController(instance_id) &&
+        result == EXIT_SUCCESS)
+    {
+        result = Fail(
+            std::string("SDL virtual GameController cleanup failed: ") +
+            SDL_GetError());
+    }
+    SDL_QuitSubSystem(test_subsystems);
+    if (SDL_WasInit(SDL_INIT_GAMECONTROLLER) != 0 &&
+        result == EXIT_SUCCESS)
+    {
+        result = Fail(
+            "test teardown did not release the GameController subsystem");
+    }
+    return result;
+}
+
 } // namespace
 
 int main()
@@ -614,6 +872,13 @@ int main()
         return sdl_result;
     }
 
-    std::cout << "macOS SDL virtual-controller migration contract verified\n";
+    const int gamecontroller_result = VerifySDLVirtualGameController();
+    if (gamecontroller_result != EXIT_SUCCESS)
+    {
+        return gamecontroller_result;
+    }
+
+    std::cout
+        << "macOS SDL raw and standardized controller contracts verified\n";
     return EXIT_SUCCESS;
 }

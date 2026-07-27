@@ -706,6 +706,7 @@ void AppContext::ProcessWindowEvents()
         case SDL_WINDOWEVENT_SHOWN:
             m_render_window->setVisible(true);
             m_render_window->setActive(true);
+            input_engine->RefreshSdlControllerStates();
             break;
         default:
             break;

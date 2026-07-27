@@ -21,11 +21,15 @@ namespace RoR {
 class MacOSControllerBackend
 {
 public:
+    static constexpr const char* STANDARD_MAPPING_PROFILE =
+        "SDL_GameController_v1";
+
     enum class UpdateKind
     {
         IGNORED,
         DEVICE_ADDED,
         DEVICE_REMOVED,
+        DEVICE_REMAPPED,
         DEVICE_ERROR,
         STATE_CHANGED
     };
@@ -45,7 +49,8 @@ public:
     MacOSControllerBackend(const MacOSControllerBackend&) = delete;
     MacOSControllerBackend& operator=(const MacOSControllerBackend&) = delete;
 
-    bool Initialize();
+    bool Initialize(
+        const std::string& gamecontroller_mapping_file = std::string());
     void Shutdown();
 
     Update ProcessEvent(const SDL_Event& event);
@@ -58,6 +63,8 @@ public:
     std::size_t SlotLimit() const;
     const MacOSControllerContract::Slot* GetSlot(std::size_t slot) const;
     const std::string& GetVendor(std::size_t slot) const;
+    const std::string& GetMappingProfile(std::size_t slot) const;
+    bool IsStandardGameController(std::size_t slot) const;
     const std::string& GetLastError() const { return m_last_error; }
 
     static bool IsControllerEvent(Uint32 event_type);
@@ -65,17 +72,23 @@ public:
 private:
     struct Device
     {
-        SDL_Joystick* handle = nullptr;
+        // SDL_GameController owns and closes its underlying joystick. The
+        // joystick pointer is borrowed whenever game_controller is non-null.
+        SDL_Joystick* joystick = nullptr;
+        SDL_GameController* game_controller = nullptr;
+        bool standardized = false;
         std::string vendor;
+        std::string mapping_profile;
     };
 
     bool OpenDevice(int device_index, std::size_t& slot);
     bool CloseDevice(std::int32_t instance_id, std::size_t& slot);
+    void CloseHandle(Device& device);
     void PopulateCurrentState(std::size_t slot);
     void SetLastSDLError(const char* operation);
 
     bool m_ready = false;
-    bool m_owns_joystick_subsystem = false;
+    bool m_owns_gamecontroller_subsystem = false;
     MacOSControllerContract::Registry m_registry;
     std::array<
         Device,

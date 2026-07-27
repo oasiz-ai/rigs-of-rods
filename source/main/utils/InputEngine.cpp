@@ -27,6 +27,7 @@
 #include "ContentManager.h"
 #include "GUIManager.h"
 #include "Language.h"
+#include "PlatformUtils.h"
 
 #include <regex>
 
@@ -578,7 +579,15 @@ void InputEngine::setup()
 
     bool create_ois_joysticks = true;
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
-    if (m_sdl_controller_backend.Initialize())
+    std::string gamecontroller_mapping_file;
+    const std::string mapping_candidate = PathCombine(
+        App::sys_config_dir->getStr(),
+        "gamecontrollerdb.txt");
+    if (FileExists(mapping_candidate))
+    {
+        gamecontroller_mapping_file = mapping_candidate;
+    }
+    if (m_sdl_controller_backend.Initialize(gamecontroller_mapping_file))
     {
         // SDL and OIS must never open the same HID joystick simultaneously.
         // Once SDL initializes successfully it remains the sole joystick owner,
@@ -867,7 +876,10 @@ bool InputEngine::ProcessSdlControllerEvent(const SDL_Event& event)
         event.type == SDL_JOYAXISMOTION ||
         event.type == SDL_JOYBUTTONDOWN ||
         event.type == SDL_JOYBUTTONUP ||
-        event.type == SDL_JOYHATMOTION;
+        event.type == SDL_JOYHATMOTION ||
+        event.type == SDL_CONTROLLERAXISMOTION ||
+        event.type == SDL_CONTROLLERBUTTONDOWN ||
+        event.type == SDL_CONTROLLERBUTTONUP;
     if (!m_sdl_controller_input_active && is_state_event)
     {
         return true;
@@ -906,6 +918,13 @@ bool InputEngine::ProcessSdlControllerEvent(const SDL_Event& event)
         free_joysticks =
             static_cast<int>(m_sdl_controller_backend.SlotLimit());
         LOG("+ SDL joystick disconnected from slot " +
+            TOSTRING(update.slot + 1));
+        break;
+
+    case MacOSControllerBackend::UpdateKind::DEVICE_REMAPPED:
+        joyState[update.slot] = JoyStickState();
+        this->SyncSdlControllerSlot(update.slot);
+        LOG("+ SDL GameController mapping refreshed in slot " +
             TOSTRING(update.slot + 1));
         break;
 
@@ -2352,6 +2371,15 @@ bool InputEngine::loadConfigFile(int deviceID)
         ROR_ASSERT(this->IsJoystickConnected(deviceID));
 
         String deviceStr = this->getJoyVendor(deviceID);
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+        if (m_use_sdl_controller_backend)
+        {
+            // Mapped gamepads share a versioned, position-based semantic ABI.
+            // Raw wheels and joysticks keep their vendor-specific filenames.
+            deviceStr = m_sdl_controller_backend.GetMappingProfile(
+                static_cast<std::size_t>(deviceID));
+        }
+#endif
 
         // care about unsuitable chars
         String repl = "\\/ #@?!$%^&*()+=-><.:'|\";";
