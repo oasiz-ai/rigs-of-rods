@@ -205,7 +205,8 @@ bool IsAbsolutePath(const char* path)
 
 std::string GetUserHomeDirectory()
 {
-    return getenv("HOME");
+    const char* user_home = getenv("HOME");
+    return user_home != nullptr ? std::string(user_home) : std::string();
 }
 
 std::string GetExecutablePath()

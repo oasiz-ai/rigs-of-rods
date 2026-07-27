@@ -194,8 +194,19 @@ if (APPLE)
         "${CMAKE_CURRENT_LIST_DIR}/platform/AppleExecutablePathTests.cpp"
     )
 
+    add_executable(
+        ror_macos_user_directory_layout_tests
+        "${CMAKE_CURRENT_LIST_DIR}/platform/MacOSUserDirectoryLayoutTests.cpp"
+    )
+
     target_include_directories(
         ror_apple_executable_path_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/utils"
+    )
+
+    target_include_directories(
+        ror_macos_user_directory_layout_tests
         PRIVATE
             "${ROR_REPOSITORY_ROOT}/source/main/utils"
     )
@@ -245,6 +256,8 @@ set(ROR_PHYSICS_TEST_TARGETS
 
 if (APPLE)
     list(APPEND ROR_PHYSICS_TEST_TARGETS ror_apple_executable_path_tests)
+    list(APPEND ROR_PHYSICS_TEST_TARGETS
+        ror_macos_user_directory_layout_tests)
     if (ROR_OGRE14)
         list(APPEND ROR_PHYSICS_TEST_TARGETS ror_macos_input_bridge_tests)
     endif ()
@@ -357,6 +370,10 @@ if (APPLE)
     add_test(
         NAME apple_executable_path
         COMMAND ror_apple_executable_path_tests
+    )
+    add_test(
+        NAME macos_user_directory_layout
+        COMMAND ror_macos_user_directory_layout_tests
     )
     if (ROR_OGRE14)
         add_test(

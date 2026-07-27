@@ -100,13 +100,27 @@ int main(int argc, char *argv[])
 
         // User directories
         App::sys_config_dir    ->setStr(PathCombine(App::sys_user_dir->getStr(), "config"));
-        App::sys_cache_dir     ->setStr(PathCombine(App::sys_user_dir->getStr(), "cache"));
-        App::sys_thumbnails_dir->setStr(PathCombine(App::sys_user_dir->getStr(), "thumbnails"));
+        if (App::sys_cache_dir->getStr().empty())
+        {
+            App::sys_cache_dir->setStr(PathCombine(App::sys_user_dir->getStr(), "cache"));
+        }
+        if (App::sys_thumbnails_dir->getStr().empty())
+        {
+            App::sys_thumbnails_dir->setStr(PathCombine(App::sys_user_dir->getStr(), "thumbnails"));
+        }
         App::sys_savegames_dir ->setStr(PathCombine(App::sys_user_dir->getStr(), "savegames"));
         App::sys_screenshot_dir->setStr(PathCombine(App::sys_user_dir->getStr(), "screenshots"));
         App::sys_scripts_dir   ->setStr(PathCombine(App::sys_user_dir->getStr(), "scripts"));
         App::sys_projects_dir  ->setStr(PathCombine(App::sys_user_dir->getStr(), "projects"));
         App::sys_repo_attachments_dir->setStr(PathCombine(App::sys_user_dir->getStr(), "repo_attachments"));
+        LOG(fmt::format(
+            "[RoR|Startup|Paths] process='{}', user='{}', config='{}', cache='{}', thumbnails='{}', logs='{}'",
+            App::sys_process_dir->getStr(),
+            App::sys_user_dir->getStr(),
+            App::sys_config_dir->getStr(),
+            App::sys_cache_dir->getStr(),
+            App::sys_thumbnails_dir->getStr(),
+            App::sys_logs_dir->getStr()));
 
         // Load RoR.cfg - updates cvars
         App::GetConsole()->loadConfig();

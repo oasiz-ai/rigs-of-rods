@@ -39,6 +39,9 @@
 #include "InputEngine.h"
 #include "Language.h"
 #include "PlatformUtils.h"
+#if defined(__APPLE__)
+    #include "MacOSUserDirectoryLayout.h"
+#endif
 #include "RoRVersion.h"
 #include "OverlayWrapper.h"
 
@@ -943,6 +946,63 @@ bool AppContext::SetUpProgramPaths()
 
     // RoR's home directory
     std::string local_userdir = PathCombine(App::sys_process_dir->getStr(), "config"); // TODO: Think of a better name, this is ambiguious with ~/.rigsofrods/config which stores configfiles! ~ only_a_ptr, 02/2018
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    std::string user_home = RoR::GetUserHomeDirectory();
+    if (user_home.empty())
+    {
+        ErrorUtils::ShowError(_L("Startup error"), _L("Error while retrieving user directory path"));
+        return false;
+    }
+
+    const std::string application_support_parent =
+        PathCombine(user_home, "Library/Application Support");
+    const std::string application_support_dir =
+        PathCombine(application_support_parent, "Rigs of Rods");
+    const std::string legacy_user_dir =
+        PathCombine(user_home, "RigsOfRods");
+
+    PlatformUtilsDetail::MacOSUserDirectoryState directory_state;
+    directory_state.process_config_exists = FolderExists(local_userdir);
+    directory_state.application_support_exists =
+        FolderExists(application_support_dir);
+    directory_state.legacy_user_data_exists =
+        FolderExists(PathCombine(legacy_user_dir, "config")) ||
+        FolderExists(PathCombine(legacy_user_dir, "mods")) ||
+        FolderExists(PathCombine(legacy_user_dir, "packs")) ||
+        FolderExists(PathCombine(legacy_user_dir, "terrains")) ||
+        FolderExists(PathCombine(legacy_user_dir, "vehicles")) ||
+        FolderExists(PathCombine(legacy_user_dir, "projects")) ||
+        FolderExists(PathCombine(legacy_user_dir, "savegames"));
+
+    const PlatformUtilsDetail::MacOSUserDirectoryLayout directory_layout =
+        PlatformUtilsDetail::ResolveMacOSUserDirectoryLayout(
+            App::sys_process_dir->getStr(),
+            user_home,
+            directory_state);
+
+    if (PlatformUtilsDetail::IsMacOSAppBundleProcessDirectory(
+            App::sys_process_dir->getStr()))
+    {
+        // mkdir() only creates one component, so ensure each conventional
+        // Library parent exists before creating the product directories.
+        const std::string library_dir = PathCombine(user_home, "Library");
+        const std::string caches_parent = PathCombine(library_dir, "Caches");
+        const std::string logs_parent = PathCombine(library_dir, "Logs");
+        CreateFolder(library_dir);
+        CreateFolder(application_support_parent);
+        CreateFolder(caches_parent);
+        CreateFolder(logs_parent);
+    }
+
+    CreateFolder(directory_layout.user_dir);
+    CreateFolder(directory_layout.cache_dir);
+    CreateFolder(directory_layout.thumbnails_dir);
+    CreateFolder(directory_layout.logs_dir);
+    App::sys_user_dir->setStr(directory_layout.user_dir);
+    App::sys_cache_dir->setStr(directory_layout.cache_dir);
+    App::sys_thumbnails_dir->setStr(directory_layout.thumbnails_dir);
+    App::sys_logs_dir->setStr(directory_layout.logs_dir);
+#else
     if (FolderExists(local_userdir))
     {
         // It's a portable installation
@@ -968,19 +1028,22 @@ bool AppContext::SetUpProgramPaths()
             ror_homedir = env_SNAP;
         else
             ror_homedir << user_home << PATH_SLASH << ".rigsofrods";
-#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE
-        ror_homedir << user_home << PATH_SLASH << "RigsOfRods";
 #endif
         CreateFolder(ror_homedir.ToCStr ());
         App::sys_user_dir->setStr(ror_homedir.ToCStr ());
     }
+#endif
 
     return true;
 }
 
 void AppContext::SetUpLogging()
 {
-    std::string logs_dir = PathCombine(App::sys_user_dir->getStr(), "logs");
+    std::string logs_dir = App::sys_logs_dir->getStr();
+    if (logs_dir.empty())
+    {
+        logs_dir = PathCombine(App::sys_user_dir->getStr(), "logs");
+    }
     CreateFolder(logs_dir);
     App::sys_logs_dir->setStr(logs_dir.c_str());
 
