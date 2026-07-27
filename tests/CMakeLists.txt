@@ -50,6 +50,22 @@ add_executable(
 )
 
 add_executable(
+    ror_deterministic_state_trace_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicStateTraceTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateDigest.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateTrace.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateTraceCli.cpp"
+)
+
+add_executable(
+    ror_state_trace
+    "${ROR_REPOSITORY_ROOT}/tools/ror_state_trace.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateDigest.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateTrace.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateTraceCli.cpp"
+)
+
+add_executable(
     ror_calibrated_beam_material_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamMaterialTests.cpp"
 )
@@ -294,6 +310,8 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_counter_noise_tests
     ror_deterministic_fixed_step_cadence_tests
     ror_deterministic_state_digest_tests
+    ror_deterministic_state_trace_tests
+    ror_state_trace
     ror_hydro_actuator_response_tests
     ror_jbeam_advanced_structure_ir_tests
     ror_jbeam_coordinate_transform_tests
@@ -382,6 +400,11 @@ add_test(
 add_test(
     NAME deterministic_state_digest
     COMMAND ror_deterministic_state_digest_tests
+)
+
+add_test(
+    NAME deterministic_state_trace
+    COMMAND ror_deterministic_state_trace_tests
 )
 
 add_test(

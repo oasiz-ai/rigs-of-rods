@@ -240,19 +240,28 @@ values, and immutable actor/node/beam/contact ceiling violations fail closed.
 IEEE exponent bits are inspected through the object representation, so NaN and
 infinity are rejected even with the game's fast-math mode; strict, fast-math,
 and address/undefined-sanitizer fixtures lock golden digests and field
-sensitivity. Cross-section actor/reference validation, accepted material
-schemas/flag masks, the production `Actor` snapshot adapter, per-step artifact
-stream, input recording, pause/resume, and one/eight-worker scene runs are still
-open; the digest kernel alone is not runtime determinism evidence.
+sensitivity. The production `Actor` adapter now canonicalizes live actors and
+contacts after worker synchronization and validates cross-section references,
+accepted material schemas, and flag masks.
+
+The version-1 state-trace container adds a checked run header, contiguous
+64-byte per-step digest records, and a mandatory aggregate trailer. Its bounded
+streaming reader rejects every tested truncation or single-bit corruption, and
+the comparator reports the first divergent step while allowing only an
+explicit worker-count exception for D0's one-versus-eight-worker check. The
+`ror_state_trace` CLI emits canonical JSON with distinct match, divergence, and
+invalid-input exit codes. A production fixed-step writer caller, input
+recording, pause/resume, and one/eight-worker scene runs are still open; the
+digest and artifact kernels alone are not runtime determinism evidence.
 
 For a local kernel stress pass, run
 `ROR_PHYSICS_TEST_REPEAT=30 tools/run-physics-tests.sh`, then repeat with
 both `ROR_PHYSICS_TEST_REPEAT=30` and
 `ROR_PHYSICS_TEST_FAST_MATH=1`. This covers the 120,000-step axial soak,
 fixed-seed contact oracle, one/two/eight-buffer reductions, counter-noise
-threading, and state-digest golden vectors. It deliberately does not claim the
-`simple2` runtime gate: that still requires the production `Actor` snapshot
-adapter, a fixed-step scene driver, per-step artifacts, and worker-count
+threading, state-digest golden vectors, and exhaustive trace integrity checks.
+It deliberately does not claim the `simple2` runtime gate: that still requires
+a fixed-step scene driver, production trace writer activation, and worker-count
 control.
 
 Gate D0:

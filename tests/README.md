@@ -182,6 +182,33 @@ accumulation when the same contacts are partitioned into one, two, and eight
 task buffers. It also locks quota remainder allocation, hard overflow, partial
 buffer rejection, and canonical fallback order.
 
+## Deterministic state traces
+
+`DeterministicStateTrace` wraps each fixed-step state digest in a bounded,
+versioned binary stream. Its checked header records scenario identity, worker
+count, the exact rational physics step, and floating-point mode. Every record
+contains one contiguous physics-step number, actor/contact counts, and its
+32-byte digest. A mandatory aggregate trailer distinguishes a deliberately
+short run from truncation.
+
+The reader rejects malformed schemas, nonzero reserved fields, discontinuous
+steps, count/size overflow, local or aggregate checksum failures, inconsistent
+summaries, and trailing bytes. Exhaustive fixtures truncate the stream at every
+byte and flip every individual bit. The comparator validates both complete
+inputs, reports the first divergence, and only permits worker-count metadata to
+differ when explicitly requested for the D0 one-versus-eight-worker gate.
+
+With `ROR_BUILD_TESTS=ON`, compare completed artifacts using:
+
+```sh
+ror_state_trace [--allow-worker-count-difference] LEFT.trace RIGHT.trace
+```
+
+The command emits canonical JSON and exits `0` for a match, `1` for a valid
+divergence, and `2` for invalid input. Live fixed-step recording, input
+recording, pause/load continuation, and the pinned-content worker-count runs
+remain separate runtime gates.
+
 ## Beam axial response invariant
 
 The axial damping kernel limits the effective damping coefficient to:

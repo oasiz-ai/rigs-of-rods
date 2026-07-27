@@ -78,6 +78,22 @@ fi
 
 "${physics_test_compiler}" \
     "${common_test_flags[@]}" \
+    "${repository_dir}/tests/physics/DeterministicStateTraceTests.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicStateDigest.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicStateTrace.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicStateTraceCli.cpp" \
+    -o "${test_build_dir}/deterministic_state_trace_tests"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    "${repository_dir}/tools/ror_state_trace.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicStateDigest.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicStateTrace.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicStateTraceCli.cpp" \
+    -o "${test_build_dir}/ror_state_trace"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
     "${repository_dir}/tests/physics/HydroActuatorResponseTests.cpp" \
     -o "${test_build_dir}/hydro_actuator_response_tests"
 
@@ -88,6 +104,7 @@ physics_test_executables=(
     deterministic_fixed_step_cadence_tests
     deterministic_contact_order_tests
     deterministic_state_digest_tests
+    deterministic_state_trace_tests
     calibrated_beam_material_tests
     hydro_actuator_response_tests
 )
@@ -97,5 +114,7 @@ for ((run = 1; run <= physics_test_repeat; ++run)); do
         "${test_build_dir}/${test_executable}"
     done
 done
+
+"${test_build_dir}/ror_state_trace" --help >/dev/null
 
 echo "physics kernel suite passed ${physics_test_repeat} time(s)"

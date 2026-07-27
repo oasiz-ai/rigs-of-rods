@@ -154,6 +154,8 @@ set(SOURCE_FILES
         physics/DeterministicCounterNoise.h
         physics/DeterministicFixedStepCadence.h
         physics/DeterministicStateDigest.{h,cpp}
+        physics/DeterministicStateTrace.{h,cpp}
+        physics/DeterministicStateTraceCli.{h,cpp}
         physics/HydroActuatorResponse.h
         physics/ActorManager.{h,cpp}
         physics/ActorSlideNode.cpp
