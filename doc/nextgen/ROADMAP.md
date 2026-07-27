@@ -337,8 +337,11 @@ A relocated, clean-cache live run discovered the user-supplied
 structures, and character. The Falcon's unsupported legacy Cg NiceMetal
 programs are rejected explicitly; OGRE RTShaderSystem generated GL3Plus vertex
 and fragment programs for both fallback material passes without a
-`no supportable Techniques` error. macOS keyboard input now uses SDL physical
-key and UTF-8 events while retaining an unbuffered OIS compatibility facade.
+`no supportable Techniques` error. OGRE 14-safe placeholder texture units
+preserve every managed diffuse/specular lookup name; the packaged Falcon run
+loaded and assigned all body, interior, engine, glass, wheel, tyre, and needle
+maps and rendered the textured vehicle. macOS keyboard input now uses SDL
+physical key and UTF-8 events while retaining an unbuffered OIS compatibility facade.
 The SDL Cocoa responder is restored after OIS initialization and each focus
 gain, and live input was confirmed on the packaged build. Scene unload and
 application shutdown complete through OGRE teardown without a new macOS crash
