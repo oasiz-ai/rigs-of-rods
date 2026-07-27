@@ -604,6 +604,24 @@ class ContentProvenanceAuditTests(unittest.TestCase):
                 self.assertEqual(diagnostics.total_count, 5_000)
             self.assertEqual(reports[0], reports[1])
 
+    def test_directory_identity_ignores_mutable_windows_metadata(self) -> None:
+        initial = os.stat_result(
+            [stat.S_IFDIR | 0o755, 91, 7, 1, 0, 0, 0, 1, 2, 3]
+        )
+        refreshed = os.stat_result(
+            [stat.S_IFDIR | 0o755, 91, 7, 1, 0, 0, 4096, 4, 5, 6]
+        )
+        replacement = os.stat_result(
+            [stat.S_IFDIR | 0o755, 92, 7, 1, 0, 0, 4096, 4, 5, 6]
+        )
+
+        self.assertTrue(
+            AUDITOR._same_directory_identity(initial, refreshed)
+        )
+        self.assertFalse(
+            AUDITOR._same_directory_identity(initial, replacement)
+        )
+
     def test_symlinked_roots_are_rejected(self) -> None:
         if not hasattr(Path, "symlink_to"):
             self.skipTest("platform has no symlink support")

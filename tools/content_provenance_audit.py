@@ -381,6 +381,27 @@ def _stat_stability_key(info: os.stat_result) -> tuple[int, ...]:
     )
 
 
+def _same_directory_identity(
+    first: os.stat_result,
+    second: os.stat_result,
+) -> bool:
+    """Compare directory objects without treating mutable metadata as identity.
+
+    Windows can refresh a directory's reported size and timestamps after child
+    handles close even when the directory object and its entries are unchanged.
+    Entry-set stability is checked by the mandatory second scan below; object
+    replacement remains fail-closed through ``samestat`` and reparse checks.
+    """
+
+    return (
+        stat.S_ISDIR(first.st_mode)
+        and stat.S_ISDIR(second.st_mode)
+        and not _is_symlink_or_reparse_point(first)
+        and not _is_symlink_or_reparse_point(second)
+        and _same_file_identity(first, second)
+    )
+
+
 def _is_symlink_or_reparse_point(info: os.stat_result) -> bool:
     reparse_attribute = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
     file_attributes = getattr(info, "st_file_attributes", 0)
@@ -1838,12 +1859,9 @@ def scan_package_root(
             )
             diagnostics.merge(local_diagnostics)
             return found, False
-        if (
-            _is_symlink_or_reparse_point(directory_info)
-            or not stat.S_ISDIR(directory_info.st_mode)
-            or not _same_file_identity(expected_directory_info, directory_info)
-            or _stat_stability_key(expected_directory_info)
-            != _stat_stability_key(directory_info)
+        if not _same_directory_identity(
+            expected_directory_info,
+            directory_info,
         ):
             local_diagnostics.add(
                 "PACKAGE_SCAN_CHANGED",
@@ -1938,13 +1956,9 @@ def scan_package_root(
             )
             diagnostics.merge(local_diagnostics)
             return found, False
-        if (
-            _is_symlink_or_reparse_point(actual_directory_info)
-            or not _same_file_identity(
-                expected_directory_info, actual_directory_info
-            )
-            or _stat_stability_key(expected_directory_info)
-            != _stat_stability_key(actual_directory_info)
+        if not _same_directory_identity(
+            expected_directory_info,
+            actual_directory_info,
         ):
             local_diagnostics.add(
                 "PACKAGE_SCAN_CHANGED",
