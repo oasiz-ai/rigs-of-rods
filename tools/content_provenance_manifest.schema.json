@@ -1,0 +1,251 @@
+{
+  "$id": "https://rigsofrods.org/schemas/content-provenance-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "assets": {
+      "items": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "classification": {
+                  "const": "generated"
+                }
+              },
+              "required": [
+                "classification"
+              ]
+            },
+            "then": {
+              "properties": {
+                "modified": {
+                  "const": true
+                },
+                "source": {
+                  "properties": {
+                    "kind": {
+                      "const": "generator"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "classification": {
+                  "enum": [
+                    "import-archive",
+                    "derived-cache"
+                  ]
+                }
+              },
+              "required": [
+                "classification"
+              ]
+            },
+            "then": {
+              "required": [
+                "import"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "import"
+                ]
+              }
+            }
+          }
+        ],
+        "properties": {
+          "author": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "classification": {
+            "description": "Archive-looking paths must use import-archive and cache-looking paths must use derived-cache; the runtime applies this check case-insensitively.",
+            "enum": [
+              "project-authored",
+              "third-party",
+              "generated",
+              "import-archive",
+              "derived-cache"
+            ]
+          },
+          "editable_source": {
+            "$ref": "#/$defs/fileReference"
+          },
+          "import": {
+            "additionalProperties": false,
+            "properties": {
+              "archive_sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "conversion_options": {
+                "type": "object"
+              },
+              "detected_version": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "importer_schema": {
+                "maxLength": 128,
+                "minLength": 7,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._/+@:-]{6,127}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "archive_sha256",
+              "detected_version",
+              "importer_schema",
+              "conversion_options"
+            ],
+            "type": "object"
+          },
+          "license": {
+            "description": "The runtime auditor validates its frozen SPDX 3.28 identifier subset.",
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "modified": {
+            "type": "boolean"
+          },
+          "path": {
+            "$ref": "#/$defs/safePath"
+          },
+          "redistribution": {
+            "additionalProperties": false,
+            "properties": {
+              "allowed": {
+                "const": true
+              },
+              "evidence": {
+                "description": "Canonical ASCII lowercase HTTPS URL; the runtime validates DNS/IP authority syntax.",
+                "format": "uri",
+                "maxLength": 4096,
+                "pattern": "^https://",
+                "type": "string"
+              }
+            },
+            "required": [
+              "allowed",
+              "evidence"
+            ],
+            "type": "object"
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "source": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "revision"
+                ]
+              },
+              {
+                "required": [
+                  "sha256"
+                ]
+              }
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "repository",
+                  "url",
+                  "generator"
+                ]
+              },
+              "revision": {
+                "description": "Lowercase content-addressed repository identifier.",
+                "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+                "type": "string"
+              },
+              "sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "uri": {
+                "description": "Canonical ASCII lowercase HTTPS URL; the runtime validates DNS/IP authority syntax.",
+                "format": "uri",
+                "maxLength": 4096,
+                "pattern": "^https://",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "uri"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "path",
+          "sha256",
+          "author",
+          "license",
+          "modified",
+          "classification",
+          "source",
+          "editable_source",
+          "redistribution"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100000,
+      "type": "array"
+    },
+    "format": {
+      "const": "ror-content-provenance-v1"
+    },
+    "spdx_list_version": {
+      "const": "3.28.0"
+    }
+  },
+  "required": [
+    "format",
+    "spdx_list_version",
+    "assets"
+  ],
+  "title": "Rigs of Rods content provenance manifest v1",
+  "type": "object",
+  "$defs": {
+    "fileReference": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/safePath"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "safePath": {
+      "description": "Portable relative POSIX path. The runtime additionally enforces NFC, 1024 UTF-8 bytes total, 255 UTF-8 bytes per component, Windows device names, and case-fold collision checks.",
+      "maxLength": 1024,
+      "minLength": 1,
+      "pattern": "^(?!/)(?! )(?!.*\\/ )(?!.*//)(?!.*\\/$)(?!\\.\\.?(?:/|$))(?!.*\\/\\.\\.?(?:/|$))(?!.*[<>:\"\\\\|?*\\u0000-\\u001F\\u007F])(?!.*[ .](?:/|$)).+$",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  }
+}

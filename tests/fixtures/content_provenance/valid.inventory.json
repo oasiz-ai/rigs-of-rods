@@ -1,0 +1,17 @@
+{
+  "files": [
+    {
+      "path": "content/dafsemi/thumbnail.png",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 128,
+      "type": "file"
+    },
+    {
+      "path": "content/simple2-terrain/asphalt-albedo.png",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "size": 256,
+      "type": "file"
+    }
+  ],
+  "format": "ror-distributable-inventory-v1"
+}

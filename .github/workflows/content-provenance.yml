@@ -1,0 +1,32 @@
+name: Content provenance preflight
+
+on: [push, pull_request]
+
+jobs:
+  provenance-tool:
+    name: Provenance tool (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - windows-2025
+          - macos-15
+        python:
+          - "3.11"
+          - "3.14"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Run standard-library provenance tests
+        run: python -m unittest -v tests/tools/test_content_provenance_audit.py
+
+      - name: Run optimized standard-library provenance tests
+        run: python -O -m unittest -v tests/tools/test_content_provenance_audit.py

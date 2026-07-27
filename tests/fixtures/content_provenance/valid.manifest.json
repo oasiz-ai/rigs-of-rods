@@ -1,0 +1,48 @@
+{
+  "assets": [
+    {
+      "author": "Rigs of Rods contributors",
+      "classification": "project-authored",
+      "editable_source": {
+        "path": "tools/graphics-source/dafsemi-thumbnail.svg",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "content/dafsemi/thumbnail.png",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/RigsOfRods/rigs-of-rods/blob/master/content/LICENSE"
+      },
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source": {
+        "kind": "repository",
+        "revision": "0123456789abcdef0123456789abcdef01234567",
+        "uri": "https://github.com/RigsOfRods/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Example texture author",
+      "classification": "third-party",
+      "editable_source": {
+        "path": "content-source/asphalt/albedo-source.png",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "license": "CC-BY-SA-4.0",
+      "modified": false,
+      "path": "content/simple2-terrain/asphalt-albedo.png",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://example.invalid/asphalt/license"
+      },
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "source": {
+        "kind": "url",
+        "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "uri": "https://example.invalid/asphalt/source.png"
+      }
+    }
+  ],
+  "format": "ror-content-provenance-v1",
+  "spdx_list_version": "3.28.0"
+}
