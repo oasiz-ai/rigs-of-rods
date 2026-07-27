@@ -80,6 +80,15 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
 )
 
+add_executable(
+    ror_jbeam_to_rigdef_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamToRigDefTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamToRigDef.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
+)
+
 target_include_directories(
     ror_beamng_package_manifest_tests
     PRIVATE
@@ -109,6 +118,55 @@ target_include_directories(
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
 )
+
+target_include_directories(
+    ror_jbeam_to_rigdef_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    target_compile_definitions(
+        ror_jbeam_to_rigdef_tests
+        PRIVATE ROR_JBEAM_TO_RIGDEF_PREFLIGHT_ONLY
+    )
+else ()
+    target_compile_definitions(
+        ror_jbeam_to_rigdef_tests
+        PRIVATE ROR_JBEAM_TO_RIGDEF_FULL_TEST
+    )
+    target_include_directories(
+        ror_jbeam_to_rigdef_tests
+        SYSTEM PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main"
+            "${ROR_REPOSITORY_ROOT}/source/main/system"
+            "${ROR_REPOSITORY_ROOT}/source/main/utils"
+            "${ROR_REPOSITORY_ROOT}/source/main/utils/memory"
+            "${ROR_REPOSITORY_ROOT}/source/main/resources/rig_def_fileformat"
+            ${OGRE_INCLUDE_DIRS}
+    )
+    if (TARGET OgreMain)
+        target_link_libraries(
+            ror_jbeam_to_rigdef_tests
+            PRIVATE OgreMain
+        )
+    else ()
+        target_link_libraries(
+            ror_jbeam_to_rigdef_tests
+            PRIVATE ${OGRE_LIBRARIES}
+        )
+    endif ()
+    target_link_libraries(
+        ror_jbeam_to_rigdef_tests
+        PRIVATE fmt::fmt
+    )
+    if (TARGET Angelscript::angelscript)
+        target_link_libraries(
+            ror_jbeam_to_rigdef_tests
+            PRIVATE Angelscript::angelscript
+        )
+    endif ()
+endif ()
 
 if (APPLE)
     add_executable(
@@ -140,6 +198,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_jbeam_part_resolver_tests
     ror_jbeam_structural_ir_tests
     ror_jbeam_syntax_tests
+    ror_jbeam_to_rigdef_tests
 )
 
 if (APPLE)
@@ -172,6 +231,12 @@ foreach (test_target IN LISTS ROR_PHYSICS_TEST_TARGETS)
         endif ()
     endif ()
 endforeach ()
+
+set_target_properties(ror_jbeam_to_rigdef_tests PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS NO
+)
 
 add_test(
     NAME beam_axial_response
@@ -226,6 +291,11 @@ add_test(
 add_test(
     NAME jbeam_structural_ir
     COMMAND ror_jbeam_structural_ir_tests
+)
+
+add_test(
+    NAME jbeam_to_rigdef
+    COMMAND ror_jbeam_to_rigdef_tests
 )
 
 if (APPLE)

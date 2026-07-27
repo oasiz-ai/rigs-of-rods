@@ -454,10 +454,20 @@ frame. It enforces global node identity, positive finite mass, finite or exact
 `"FLT_MAX"` beam limits, complete references, nondegenerate geometry, documented
 `+Y` back / `+X` left / `+Z` up alignment, and part/row/topology/diagnostic
 quotas. Unknown and unsupported data remains preserved in stable diagnostics,
-and canonical serialization is invariant to package enumeration order. Runtime
-spawn remains disabled until the fresh `RigDef::Document` adapter preserves
-authored masses/defaults and passes float-narrowing, topology, and finite-settle
-gates.
+and canonical serialization is invariant to package enumeration order.
+
+The fresh `RigDef::Document` adapter now preserves authored point masses,
+normal-beam spring/damping/deformation/strength and precompression, stable
+triangle winding, and the six-node reference frame without passing through the
+legacy sequential importer. A dependency-light preflight reproduces the
+binary32 arithmetic that `ActorSpawner` consumes, rejects narrowing,
+normalization, topology, accumulated-mass, accumulated-length, and extent
+failures, and enforces immutable record/work/diagnostic bounds even for
+hand-built IR. The emitted beam defaults explicitly bypass RoR's legacy creak
+floor so a valid BeamNG deformation threshold below 100 kN is not silently
+raised. Runtime import remains disabled until this document is admitted through
+the existing validator/spawner and passes the 120,000-step finite
+settle/impact, authored-mass, and topology gates.
 
 ### J2/J3 — Physics lowering and bounded driveability
 
