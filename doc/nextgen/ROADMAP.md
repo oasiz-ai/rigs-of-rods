@@ -225,6 +225,22 @@ requests 1,056 turbulence samples per step. Thirty runs must match ordered
 per-actor node-state hashes with one and eight workers before this slice counts
 as runtime-validated.
 
+The version-1 D0 state-digest kernel now defines the byte-level contract for
+those comparisons. It streams, without retaining records, exact binary32 actor
+origins, integer actor state, full-width deterministic seeds/noise counters,
+ordered node positions/velocities, ordered beam rest length and stress, the
+complete binary64 P1 material history, beam flags, and ordered inter-actor
+contact keys into a domain-separated SHA-256 digest. Invalid section order or
+counts, noncanonical within-section keys, invalid numeric ranges, non-finite
+values, and immutable actor/node/beam/contact ceiling violations fail closed.
+IEEE exponent bits are inspected through the object representation, so NaN and
+infinity are rejected even with the game's fast-math mode; strict, fast-math,
+and address/undefined-sanitizer fixtures lock golden digests and field
+sensitivity. Cross-section actor/reference validation, accepted material
+schemas/flag masks, the production `Actor` snapshot adapter, per-step artifact
+stream, input recording, pause/resume, and one/eight-worker scene runs are still
+open; the digest kernel alone is not runtime determinism evidence.
+
 Gate D0:
 
 - The broad phase returns the same ordered contact keys as a brute-force oracle

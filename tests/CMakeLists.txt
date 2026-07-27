@@ -39,6 +39,12 @@ add_executable(
 )
 
 add_executable(
+    ror_deterministic_state_digest_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicStateDigestTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateDigest.cpp"
+)
+
+add_executable(
     ror_calibrated_beam_material_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamMaterialTests.cpp"
 )
@@ -207,6 +213,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_calibrated_beam_material_tests
     ror_deterministic_contact_order_tests
     ror_deterministic_counter_noise_tests
+    ror_deterministic_state_digest_tests
     ror_hydro_actuator_response_tests
     ror_jbeam_coordinate_transform_tests
     ror_jbeam_part_resolver_tests
@@ -271,6 +278,11 @@ add_test(
 add_test(
     NAME deterministic_contact_order
     COMMAND ror_deterministic_contact_order_tests
+)
+
+add_test(
+    NAME deterministic_state_digest
+    COMMAND ror_deterministic_state_digest_tests
 )
 
 add_test(
