@@ -1,0 +1,159 @@
+---
+name: macOS native Apple Silicon
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ogre14-app:
+    name: OGRE 14 app bundle (arm64)
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: "3"
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned Conan client
+        run: |
+          pipx install --force conan==2.31.1
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/conan" --version
+
+      - name: Restore Conan packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.conan2
+          key: macos-15-arm64-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/recipes/**') }}
+          restore-keys: |
+            macos-15-arm64-conan-2.31.1-
+
+      - name: Configure Conan remotes and profile
+        run: |
+          conan profile detect --force
+          conan remote add \
+            conancenter https://center2.conan.io --force
+          conan remote add \
+            rigs-of-rods-deps \
+            https://nexus.anotherfoxguy.com/repository/rigs-of-rods/ \
+            --force
+          conan profile show
+
+      - name: Verify native runner and pinned content
+        run: |
+          test "$(uname -m)" = "arm64"
+          test "$(git -C content rev-parse HEAD)" = \
+            "34fefdd126784bf87b068fc283f812525d159dd7"
+          xcodebuild -version
+          clang++ --version
+
+      - name: Configure native OGRE 14 application
+        run: |
+          cmake \
+            -S . \
+            -B build-macos-ogre14 \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
+            -DROR_BUILD_TESTS=ON \
+            -DROR_CREATE_CONTENT_FOLDER=ON \
+            -DROR_OGRE14=ON
+
+      - name: Build and stage application bundle
+        run: >-
+          cmake
+          --build build-macos-ogre14
+          --target ror_macos_bundle
+          --config Release
+
+      - name: Run native test suite
+        run: >-
+          ctest
+          --test-dir build-macos-ogre14
+          --build-config Release
+          --output-on-failure
+
+      - name: Run packaging and tooling tests
+        run: >-
+          python3 -m unittest discover
+          -s tests/tools
+          -p 'test_*.py'
+
+      - name: Audit application bundle
+        shell: bash
+        run: |
+          app="build-macos-ogre14/bin/RoR.app"
+          executable="$app/Contents/MacOS/RoR"
+
+          test -d "$app"
+          test "$(lipo -archs "$executable")" = "arm64"
+          test "$(
+            otool -l "$executable" |
+              awk '
+                /LC_BUILD_VERSION/ { in_build_version = 1; next }
+                in_build_version && $1 == "minos" { print $2; exit }
+              '
+          )" = "11.0"
+
+          codesign --verify --deep --strict --verbose=2 "$app"
+          plutil -lint "$app/Contents/Info.plist"
+
+          test -L "$app/Contents/MacOS/resources"
+          test -L "$app/Contents/MacOS/languages"
+          test -L "$app/Contents/MacOS/content"
+          test -L "$app/Contents/MacOS/plugins.cfg"
+          test ! -e "$app/Contents/MacOS/config"
+
+          test "$(
+            find "$app/Contents/PlugIns" -type f -name '*.dylib' |
+              wc -l |
+              tr -d ' '
+          )" = "4"
+          test "$(
+            find "$app/Contents/Frameworks" -type f -name '*.dylib' |
+              wc -l |
+              tr -d ' '
+          )" = "9"
+
+      - name: Archive verified application
+        run: |
+          mkdir -p artifacts
+          ditto \
+            -c -k \
+            --sequesterRsrc \
+            --keepParent \
+            build-macos-ogre14/bin/RoR.app \
+            artifacts/Rigs-of-Rods-macOS-arm64.zip
+          shasum -a 256 \
+            artifacts/Rigs-of-Rods-macOS-arm64.zip \
+            > artifacts/Rigs-of-Rods-macOS-arm64.zip.sha256
+
+      - name: Upload verified application
+        uses: actions/upload-artifact@v7
+        with:
+          name: Rigs-of-Rods-macOS-arm64
+          path: artifacts/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
