@@ -185,12 +185,15 @@ The first D0 slice replaces the racy turbulent-drag and engine anti-lag random
 states with counter-based samples. Turbulence is keyed by persisted actor seed,
 fixed physics step, node index, and XYZ lane. Anti-lag has a domain-separated
 engine-update counter and turbo index so successive sleeping-engine updates do
-not repeat a sample. Those sleeping updates are still outer-frame scheduled, so
-equal-time replay across different render-frame groupings remains open. Full
-actor resets restart the counters; version-3 savegames carry optional
-seed/counter fields so existing version-3 saves remain loadable and resumed
-saves keep their next samples. Golden vectors and dependency-free
-one/two/eight-thread kernel tests lock the sampler's pure-function contract.
+not repeat a sample. Sleeping engines now advance that counter once per fixed
+physics step and integrate on exact 32-step boundaries (62.5 Hz), independent
+of render-frame grouping. The deterministic path is enabled by the
+`sim_deterministic_sleeping_engine` CVar, with the old outer-frame scheduler
+retained as a fallback. Full actor resets restart the counters; version-3
+savegames carry optional seed/counter fields so existing version-3 saves remain
+loadable and resumed saves retain the next cadence boundary. Golden vectors,
+dependency-free one/two/eight-thread noise tests, and 50,000 fixed-seed cadence
+fixtures lock the pure-function and frame-regrouping contracts.
 ActorManager/content worker-count runs, save/load continuation tests, the
 runtime TSan soak, the production broad-phase oracle, and input-replay hashing
 remain open D0 work, as does a scenario-level seed/stream-ID contract

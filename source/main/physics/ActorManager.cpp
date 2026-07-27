@@ -1192,7 +1192,8 @@ void ActorManager::UpdateActors(ActorPtr player_actor)
             {
                 this->UpdateTruckFeatures(actor, dt);
             }
-            if (actor->ar_state == ActorState::LOCAL_SLEEPING)
+            if (actor->ar_state == ActorState::LOCAL_SLEEPING &&
+                !App::sim_deterministic_sleeping_engine->getBool())
             {
                 const std::uint64_t engine_update_step =
                     actor->m_engine_update_step++;
@@ -1295,6 +1296,18 @@ void ActorManager::UpdatePhysicsSimulation()
     }
     for (int i = 0; i < m_physics_steps; i++)
     {
+        if (App::sim_deterministic_sleeping_engine->getBool())
+        {
+            // Sleeping engines run at a fixed 32-substep cadence instead of
+            // once per render frame. The same counter advances on every
+            // active or sleeping physics step, making both update boundaries
+            // and anti-lag samples independent of frame grouping.
+            for (ActorPtr& actor: m_actors)
+            {
+                if (actor->ar_state == ActorState::LOCAL_SLEEPING)
+                    actor->UpdateSleepingEngineFixedStep();
+            }
+        }
         {
             std::vector<std::function<void()>> tasks;
             for (ActorPtr& actor: m_actors)

@@ -152,6 +152,7 @@ set(SOURCE_FILES
         physics/CalibratedBeamMaterial.h
         physics/DeterministicContactOrder.h
         physics/DeterministicCounterNoise.h
+        physics/DeterministicFixedStepCadence.h
         physics/DeterministicStateDigest.{h,cpp}
         physics/HydroActuatorResponse.h
         physics/ActorManager.{h,cpp}

@@ -31,6 +31,7 @@
 #include "Collisions.h"
 #include "Console.h"
 #include "DeterministicCounterNoise.h"
+#include "DeterministicFixedStepCadence.h"
 #include "Differentials.h"
 #include "Engine.h"
 #include "FlexAirfoil.h"
@@ -1157,10 +1158,47 @@ void Actor::CalcTruckEngine(bool doUpdate)
 {
     if (ar_engine)
     {
-        const std::uint64_t engine_update_step = m_engine_update_step++;
+        std::uint64_t engine_update_step = 0U;
+        const DeterministicFixedStepCadence::AdvanceResult result =
+            DeterministicFixedStepCadence::AdvanceCounter(
+                1U,
+                m_engine_update_step,
+                engine_update_step);
+        ROR_ASSERT(
+            result ==
+            DeterministicFixedStepCadence::AdvanceResult::TICK);
+        if (result !=
+            DeterministicFixedStepCadence::AdvanceResult::TICK)
+        {
+            return;
+        }
         ar_engine->UpdateEngine(
             PHYSICS_DT,
             doUpdate,
+            m_deterministic_seed,
+            engine_update_step);
+    }
+}
+
+void Actor::UpdateSleepingEngineFixedStep()
+{
+    using namespace DeterministicFixedStepCadence;
+
+    if (!ar_engine)
+        return;
+
+    std::uint64_t engine_update_step = 0U;
+    const AdvanceResult result = AdvanceCounter(
+        SLEEPING_ENGINE_PERIOD_STEPS,
+        m_engine_update_step,
+        engine_update_step);
+    ROR_ASSERT(result != AdvanceResult::INVALID);
+    if (result == AdvanceResult::TICK)
+    {
+        ar_engine->UpdateEngine(
+            PHYSICS_DT *
+                static_cast<float>(SLEEPING_ENGINE_PERIOD_STEPS),
+            1,
             m_deterministic_seed,
             engine_update_step);
     }

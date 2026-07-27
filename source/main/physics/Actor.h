@@ -642,6 +642,7 @@ private:
     void              CalcTriggers(int i, Ogre::Real difftoBeamL, bool update_hooks);
     void              CalcTies();                          
     void              CalcTruckEngine(bool doUpdate);      
+    void              UpdateSleepingEngineFixedStep();
     void              CalcWheels(bool doUpdate, int num_steps); 
 
     void              DetermineLinkedActors();
@@ -682,7 +683,7 @@ private:
     Ogre::Vector3     m_avg_node_velocity = Ogre::Vector3::ZERO;          //!< average node velocity (compared to the previous frame step)
     std::uint64_t     m_deterministic_seed = 0;                           //!< Persisted seed shared by this actor's counter-noise domains
     std::uint64_t     m_physics_step = 0;                                 //!< Next turbulence counter; advances once per completed fixed physics step
-    std::uint64_t     m_engine_update_step = 0;                           //!< Next anti-lag counter; includes fixed and sleeping-engine updates
+    std::uint64_t     m_engine_update_step = 0;                           //!< Next engine fixed-step/anti-lag counter; legacy mode counts calls
     float             m_stabilizer_shock_sleep = 0.f;     //!< Sim state
     Replay*           m_replay_handler = nullptr;
     NodeNum_t         m_mouse_grab_node = NODENUM_INVALID;  //!< Sim state; node currently being dragged by user

@@ -34,6 +34,11 @@ add_executable(
 )
 
 add_executable(
+    ror_deterministic_fixed_step_cadence_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicFixedStepCadenceTests.cpp"
+)
+
+add_executable(
     ror_deterministic_contact_order_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicContactOrderTests.cpp"
 )
@@ -287,6 +292,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_calibrated_beam_material_tests
     ror_deterministic_contact_order_tests
     ror_deterministic_counter_noise_tests
+    ror_deterministic_fixed_step_cadence_tests
     ror_deterministic_state_digest_tests
     ror_hydro_actuator_response_tests
     ror_jbeam_advanced_structure_ir_tests
@@ -361,6 +367,11 @@ add_test(
 add_test(
     NAME deterministic_counter_noise
     COMMAND ror_deterministic_counter_noise_tests
+)
+
+add_test(
+    NAME deterministic_fixed_step_cadence
+    COMMAND ror_deterministic_fixed_step_cadence_tests
 )
 
 add_test(

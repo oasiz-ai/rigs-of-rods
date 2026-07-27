@@ -132,7 +132,7 @@ Physics noise is a pure function of a persisted actor seed, an effect-specific
 integer step, a domain salt, a stable element index, and a component lane. It
 does not contain a shared or advancing random-number state. Turbulent drag uses
 the actor's completed fixed-physics-step count plus node and XYZ lane; engine
-anti-lag uses a separate engine-update count plus turbo index.
+anti-lag uses a separate engine fixed-step count plus turbo index.
 
 Full actor resets restore both counters to zero while preserving the actor seed.
 Savegames persist the resolved seed and both next counters. Golden integer and
@@ -147,10 +147,13 @@ runtime actor ID, so independent fresh runs must preserve the same actor-ID
 assignment. Savegame restoration does not have that limitation because it
 restores the resolved seed.
 
-Sleeping engines receive a distinct sample on each outer-frame engine update.
-That removes shared-state races and repeated samples, but equal simulated time
-with different render-frame grouping is not yet a deterministic replay
-contract.
+With `sim_deterministic_sleeping_engine` enabled (the default), sleeping engines
+advance the same counter once per 2 kHz physics step and integrate on exact
+32-step boundaries, or 62.5 Hz. A dependency-free cadence contract proves that
+the tick sequence survives arbitrary render-frame grouping, pauses, and
+save/restore continuation; malformed serialized phases fail closed. The legacy
+once-per-render-frame path remains available by disabling the CVar. Full
+engine-state replay and pinned-content worker-count runs remain separate gates.
 
 ## Deterministic contact ordering
 
