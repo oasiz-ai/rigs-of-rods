@@ -24,6 +24,11 @@ add_executable(
 )
 
 add_executable(
+    ror_beam_rest_length_scale_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/BeamRestLengthScaleTests.cpp"
+)
+
+add_executable(
     ror_deterministic_counter_noise_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicCounterNoiseTests.cpp"
 )
@@ -106,6 +111,7 @@ target_link_libraries(
 
 set(ROR_PHYSICS_TEST_TARGETS
     ror_beam_axial_response_tests
+    ror_beam_rest_length_scale_tests
     ror_beamng_package_manifest_tests
     ror_calibrated_beam_material_tests
     ror_deterministic_contact_order_tests
@@ -149,6 +155,11 @@ endforeach ()
 add_test(
     NAME beam_axial_response
     COMMAND ror_beam_axial_response_tests
+)
+
+add_test(
+    NAME beam_rest_length_scale
+    COMMAND ror_beam_rest_length_scale_tests
 )
 
 add_test(

@@ -147,6 +147,7 @@ set(SOURCE_FILES
         physics/ActorExport.cpp
         physics/ActorForcesEuler.cpp
         physics/BeamAxialResponse.h
+        physics/BeamRestLengthScale.h
         physics/CalibratedBeamMaterial.h
         physics/DeterministicContactOrder.h
         physics/DeterministicCounterNoise.h

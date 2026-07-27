@@ -38,6 +38,7 @@
 #include "Actor.h"
 #include "ActorManager.h"
 #include "BitFlags.h"
+#include "BeamRestLengthScale.h"
 #include "Buoyance.h"
 #include "CacheSystem.h"
 #include "CameraManager.h"
@@ -5677,6 +5678,21 @@ void ActorSpawner::ProcessBeam(RigDef::Beam & def)
         return;
     }
 
+    float scaled_rest_length = 0.0f;
+    const float geometric_length =
+        (m_actor->ar_nodes[n1].RelPosition -
+            m_actor->ar_nodes[n2].RelPosition).length();
+    if (!RoR::Physics::TryScaleBeamRestLength(
+            geometric_length,
+            def._rest_length_scale,
+            &scaled_rest_length))
+    {
+        AddMessage(
+            Message::TYPE_ERROR,
+            "Skipping beam with invalid geometric or scaled rest length.");
+        return;
+    }
+
     // Beam
     int beam_index = m_actor->ar_num_beams;
     m_actor->ar_beams_user_defined[beam_index] = true;
@@ -5687,8 +5703,9 @@ void ActorSpawner::ProcessBeam(RigDef::Beam & def)
     beam.bounded = NOSHOCK; // Orig: if (shortbound) ... hardcoded in BTS_BEAMS
 
     /* Calculate length */
-    // orig = precompression hardcoded to 1
     CalculateBeamLength(beam);
+    beam.L = scaled_rest_length;
+    beam.refL = scaled_rest_length;
 
     /* Strength */
     float beam_strength = def.defaults->GetScaledBreakingThreshold();

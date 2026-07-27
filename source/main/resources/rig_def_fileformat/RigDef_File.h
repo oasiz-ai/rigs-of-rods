@@ -499,6 +499,9 @@ struct Beam
     BitMask_t options = 0;
     float extension_break_limit = 0.f;
     bool _has_extension_break_limit = false;
+    /// Import-only scale applied to the geometric rest length. Legacy parser
+    /// content keeps the exact historical value of 1.
+    float _rest_length_scale = 1.f;
     int detacher_group = 0;
     std::shared_ptr<BeamDefaults> defaults;
 };
