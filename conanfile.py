@@ -16,6 +16,11 @@ class RoR(ConanFile):
 
     def requirements(self):
         self.requires("angelscript/2.35.1")
+        if self.settings.os == "Macos":
+            self.requires("ois/1.5.1")
+        else:
+            self.requires("ois/1.4.1@rigsofrods/custom")
+
         self.requires("discord-rpc/3.4.0@anotherfoxguy/stable")
         self.requires("libcurl/8.2.1")
         self.requires("fmt/12.1.0")
@@ -23,7 +28,6 @@ class RoR(ConanFile):
         self.requires("ogre3d-caelum/0.6.3.1@anotherfoxguy/stable")
         self.requires("ogre3d-pagedgeometry/1.2.0@anotherfoxguy/stable")
         self.requires("ogre3d/1.11.6.1@anotherfoxguy/stable", force=True)
-        self.requires("ois/1.4.1@rigsofrods/custom")
         self.requires("openal-soft/1.24.3")
         self.requires("openssl/3.6.3", force=True)
         self.requires("rapidjson/cci.20211112", force=True)
@@ -53,4 +57,5 @@ class RoR(ConanFile):
     def cp_data(self, src):
         bindir = os.path.join(self.build_folder, "bin")
         copy(self, "*.dll", src, bindir, False)
+        copy(self, "*.dylib*", src, bindir, False)
         copy(self, "*.so*", src, bindir, False)

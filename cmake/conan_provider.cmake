@@ -468,7 +468,17 @@ function(conan_install)
         set(ENV{PATH} "$ENV{PATH}:${PATH_TO_CMAKE_BIN}")
     endif()
 
-    execute_process(COMMAND ${CONAN_COMMAND} install ${CMAKE_SOURCE_DIR} ${conan_args} ${ARGN} --format=json
+    # OIS 1.5.1 still declares compatibility with CMake 2.8. CMake 4 accepts
+    # that dependency on macOS when the policy floor is supplied explicitly.
+    # Use `cmake -E env` so this compatibility setting affects only the Conan
+    # subprocess and never changes policy behavior for RoR itself.
+    set(conan_environment_command)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        list(APPEND conan_environment_command
+             ${CMAKE_COMMAND} -E env CMAKE_POLICY_VERSION_MINIMUM=3.5)
+    endif()
+
+    execute_process(COMMAND ${conan_environment_command} ${CONAN_COMMAND} install ${CMAKE_SOURCE_DIR} ${conan_args} ${ARGN} --format=json
                     RESULT_VARIABLE return_code
                     OUTPUT_VARIABLE conan_stdout
                     ERROR_VARIABLE conan_stderr

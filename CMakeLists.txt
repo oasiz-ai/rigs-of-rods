@@ -18,6 +18,18 @@ set(PROJECT_NAME_LONG "Rigs of Rods")
 
 set(REQUIRED_DEPS_VERSION 30)
 
+# macOS 11.0 is the first release with native Apple Silicon support. Set the
+# supported floor before project() so CMake's Conan dependency provider and all
+# source-built dependencies receive the same deployment target. Callers may
+# still raise it explicitly for local builds.
+if ((NOT CMAKE_SYSTEM_NAME AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+        OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    if (NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING
+            "Minimum supported macOS version")
+    endif ()
+endif ()
+
 # The version is used by installer
 project(${PROJECT_NAME_UNDERSCORE} VERSION 2026.01)
 

@@ -273,6 +273,17 @@ Gate R0:
 - On the declared Windows and Linux reference machines, CPU and GPU frame-time
   medians regress by no more than 10% before any new visual feature is enabled.
 
+The first Darwin bootstrap records macOS 11.0 as the native Apple Silicon
+deployment floor, keeps X11 and `librt` off the Apple link line, selects the
+upstream OIS 1.5.1 recipe on macOS, scopes CMake 4's legacy-policy allowance to
+the dependency-build subprocess, and copies/installs `.dylib` dependencies.
+This is not the R0 renderer migration. The audited OGRE 14.5.2 Conan recipe
+still unconditionally introduces Cg; the available nominal macOS/arm64 Cg
+package contains incompatible 32-bit Intel ELF libraries. R0 therefore requires
+a pinned recipe revision that omits Cg, plus the OGRE API/media/terrain port, in
+one buildable change. Merely changing version strings is an explicitly rejected
+milestone.
+
 ## V0/V1 — Post-processing and PBR
 
 V0 establishes a deterministic LDR post-processing seam: scene capture,
