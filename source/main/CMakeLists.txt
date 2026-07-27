@@ -188,6 +188,7 @@ set(SOURCE_FILES
         resources/beamng/BeamNGPackageManifest.{h,cpp}
         resources/beamng/JBeamCoordinateTransform.h
         resources/beamng/JBeamPartResolver.{h,cpp}
+        resources/beamng/JBeamStructuralIR.{h,cpp}
         resources/beamng/JBeamSyntax.{h,cpp}
         resources/addonpart_fileformat/AddonPartFileFormat.{h,cpp}
         resources/otc_fileformat/OTCFileFormat.{h,cpp}

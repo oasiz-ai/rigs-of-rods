@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "fixtureId": "ror-cleanroom-structural-v1",
+  "documentationProfile": "beamng-docs-0.38.5.0-2026-07-27",
+  "authorship": "original-clean-room",
+  "copyright": "Copyright (c) 2026 Rigs of Rods contributors",
+  "license": "GPL-3.0-or-later",
+  "redistributable": true,
+  "execution": "data-only",
+  "rootPart": "ror_cleanroom_frame",
+  "sourceFiles": [
+    {
+      "path": "vehicles/ror_cleanroom/main.jbeam",
+      "sha256": "46405a25fdc0bc05b6aeedd532784fd49197c586c151295e02a5aff978713f7c"
+    },
+    {
+      "path": "vehicles/ror_cleanroom/power.jbeam",
+      "sha256": "347aab6fa045fe213185b9a106b5d16072e326a4e8bfcebca2158513c941b7e3"
+    }
+  ],
+  "expectedStructural": {
+    "parts": 2,
+    "nodes": 9,
+    "totalMassKg": 200,
+    "beams": 12,
+    "enabledTriangles": 4,
+    "reference": "ref",
+    "back": "back",
+    "left": "left",
+    "up": "up",
+    "leftCorner": "leftCorner",
+    "rightCorner": "rightCorner"
+  },
+  "prohibitedInputs": [
+    "lua",
+    "network",
+    "external-assets",
+    "third-party-mod-data"
+  ]
+}

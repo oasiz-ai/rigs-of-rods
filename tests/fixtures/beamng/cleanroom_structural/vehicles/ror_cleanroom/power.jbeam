@@ -1,0 +1,17 @@
+{
+  "ror_cleanroom_power_basic": {
+    "slotType": "ror_cleanroom_power",
+
+    "nodes": [
+      ["id", "posX", "posY", "posZ", "nodeWeight"],
+      ["powerMass", 0, 0.5, 0.5, 40],
+    ],
+
+    "beams": [
+      ["id1:", "id2:", "beamSpring", "beamDamp"],
+      ["ref", "powerMass", 4300000, 580],
+      ["back", "powerMass", 4300000, 580],
+      ["up", "powerMass", 4300000, 580],
+    ],
+  },
+}

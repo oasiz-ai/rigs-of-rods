@@ -1,0 +1,54 @@
+{
+  // Original rectangular frame used only for interoperability conformance.
+  "ror_cleanroom_frame": {
+    "slotType": "main",
+    "slots": [
+      ["type", "default", "description"],
+      ["ror_cleanroom_power", "ror_cleanroom_power_basic", "Power unit"],
+    ],
+
+    "nodes": [
+      ["id", "posX", "posY", "posZ"],
+      {"nodeWeight": 20},
+      ["ref",          0,  0, 0],
+      ["back",         0,  2, 0],
+      ["left",         1,  0, 0],
+      ["up",           0,  0, 1],
+      ["leftCorner",   1, -2, 0],
+      ["rightCorner", -1, -2, 0],
+      ["rearLeft",     1,  2, 0],
+      ["rearRight",   -1,  2, 0],
+    ],
+
+    "refNodes": [
+      ["ref:", "back:", "left:", "up:", "leftCorner:", "rightCorner:"],
+      ["ref", "back", "left", "up", "leftCorner", "rightCorner"],
+    ],
+
+    "beams": [
+      ["id1:", "id2:", "beamSpring", "beamDamp",
+       "beamDeform", "beamStrength"],
+      {"beamSpring": 4300000, "beamDamp": 580},
+      ["leftCorner",  "rightCorner", 4300000, 580, 220000, "FLT_MAX"],
+      ["rightCorner", "rearRight",   4300000, 580, 220000, "FLT_MAX"],
+      ["rearRight",   "rearLeft",    4300000, 580, 220000, "FLT_MAX"],
+      ["rearLeft",    "leftCorner",  4300000, 580, 220000, "FLT_MAX"],
+      ["leftCorner",  "rearRight",   4300000, 580, 220000, "FLT_MAX"],
+      ["rightCorner", "rearLeft",    4300000, 580, 220000, "FLT_MAX"],
+      ["ref",         "up",          4300000, 580, 220000, "FLT_MAX"],
+      ["ref",         "left",        4300000, 580, 220000, "FLT_MAX"],
+      ["ref",         "back",        4300000, 580, 220000, "FLT_MAX"],
+    ],
+
+    "triangles": [
+      ["id1:", "id2:", "id3:"],
+      ["leftCorner", "rightCorner", "rearRight"],
+      ["leftCorner", "rearRight", "rearLeft"],
+    ],
+
+    "quads": [
+      ["id1:", "id2:", "id3:", "id4:"],
+      ["leftCorner", "rightCorner", "rearRight", "rearLeft"],
+    ],
+  },
+}

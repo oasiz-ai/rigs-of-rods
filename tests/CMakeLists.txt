@@ -72,6 +72,14 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
 )
 
+add_executable(
+    ror_jbeam_structural_ir_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamStructuralIRTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
+)
+
 target_include_directories(
     ror_beamng_package_manifest_tests
     PRIVATE
@@ -92,6 +100,12 @@ target_include_directories(
 
 target_include_directories(
     ror_jbeam_part_resolver_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+target_include_directories(
+    ror_jbeam_structural_ir_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
 )
@@ -124,6 +138,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_hydro_actuator_response_tests
     ror_jbeam_coordinate_transform_tests
     ror_jbeam_part_resolver_tests
+    ror_jbeam_structural_ir_tests
     ror_jbeam_syntax_tests
 )
 
@@ -206,6 +221,11 @@ add_test(
 add_test(
     NAME jbeam_part_resolver
     COMMAND ror_jbeam_part_resolver_tests
+)
+
+add_test(
+    NAME jbeam_structural_ir
+    COMMAND ror_jbeam_structural_ir_tests
 )
 
 if (APPLE)

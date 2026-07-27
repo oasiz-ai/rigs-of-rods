@@ -434,8 +434,8 @@ cycles, invalid slot tables, and resource-limit overflow with canonical source
 diagnostics. Canonical index and resolved-graph identities retain the full
 duplicate assignment/body history and source spans. Per-`vehicles/<id>` part
 namespaces, allowlisted expression evaluation, field-specific semantic
-validation, coordinate lowering, and the canonical vehicle IR remain open
-J1/J2 work.
+validation beyond the structural subset, coordinate lowering into `RigDef`, and
+the complete vehicle IR remain open J1/J2 work.
 
 The first J2 kernel locks the vehicle-basis conversion as the exact,
 handedness-preserving permutation
@@ -446,6 +446,18 @@ fail-closed non-finite handling under fast-math. The structural IR and every
 runtime node, force, rotation, inertia, mesh, prop, and camera adapter must use
 this single boundary; no imported actor is enabled merely because the transform
 kernel exists.
+
+The structural semantic pass now deterministically lowers the resolved part
+preorder into bounded SI nodes, enabled normal beams, disabled special/optional
+beams, triangles, fixed-diagonal quads, and exactly one source-traceable refnode
+frame. It enforces global node identity, positive finite mass, finite or exact
+`"FLT_MAX"` beam limits, complete references, nondegenerate geometry, documented
+`+Y` back / `+X` left / `+Z` up alignment, and part/row/topology/diagnostic
+quotas. Unknown and unsupported data remains preserved in stable diagnostics,
+and canonical serialization is invariant to package enumeration order. Runtime
+spawn remains disabled until the fresh `RigDef::Document` adapter preserves
+authored masses/defaults and passes float-narrowing, topology, and finite-settle
+gates.
 
 ### J2/J3 — Physics lowering and bounded driveability
 
@@ -463,10 +475,13 @@ Each source concept gets an explicit exact, approximate, or unsupported mapping:
 - Treat RoR generated wheels as a J3 approximation only. J5 requires dynamic
   pressure-tyre topology, radial/sidewall behavior, load/slip friction,
   thermals, damage, and removal of fixed wheel-node limits.
-- Limit J3 powertrain lowering to declared simple ICE, clutch/gearbox, axle
-  differential, and transfer-case graphs. Multi-motor, EV/hybrid, CVT,
-  converter, rangebox, energy, thermal, per-wheel brake, electrics, and
-  controller graphs remain disabled until native adapters pass their own gates.
+- The locked public documentation profile does not publish a powertrain device
+  schema or defaults. J3 therefore inventories and preserves source powertrain
+  data but does not call an inferred ICE/clutch/gearbox graph BeamNG-compatible.
+  A separately versioned RoR-native simple-drivetrain approximation may be
+  calibrated later. Multi-motor, EV/hybrid, CVT, converter, rangebox, energy,
+  thermal, per-wheel brake, electrics, and controller graphs remain disabled
+  until native adapters pass their own gates.
 
 The first J3 actuator kernel implements the documented hydro factor examples,
 asymmetric length limits, input center/locks/scaling, and independently bounded

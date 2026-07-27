@@ -74,6 +74,21 @@ tested under strict C++11, the game's fast-math mode, and sanitizers. Runtime
 lowering still must route nodes, forces, rotations, inertia, meshes, and cameras
 through this one boundary before imported actors may spawn.
 
+## JBeam structural IR
+
+The dependency-free J2 semantic pass consumes a valid resolved part graph and
+emits a bounded structural IR in authored BeamNG SI coordinates. It resolves
+positive node masses, normal-beam properties, deterministic quad triangles, and
+one refnode frame while preserving unsupported fields and special beams with
+source-spanned diagnostics. Required references, global node IDs, table
+ambiguity, non-finite numbers, degenerate geometry, resource quotas, and the
+documented `+Y` back / `+X` left / `+Z` up refnode alignment fail closed.
+
+The exact `"FLT_MAX"` sentinel is represented as an explicit unbounded
+deformation/strength flag; arbitrary strings remain invalid. Canonical output is
+tested against package enumeration changes. Strict, fast-math, and sanitizer
+tests run before the future `JBeamToRigDef` adapter may enable spawning.
+
 ## Calibrated beam material
 
 The version-1 dependency-free material kernel uses SI stress/strain units and a

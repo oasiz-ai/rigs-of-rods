@@ -135,7 +135,9 @@ through this one tested boundary.
 One aligned [refNodes][refnodes] set is required. `ref`, `back`, `left`, and
 `up` define the vehicle frame; `leftCorner` and `rightCorner` identify its front
 corners but do not redefine the axes. A missing or degenerate required frame is
-rejected rather than inferred from a mesh.
+rejected rather than inferred from a mesh. The structural validator also
+requires `back` on `+Y`, `left` on `+X`, and `up` on `+Z`; reversed, mirrored,
+or skewed frames fail before coordinate lowering.
 
 Props use their own three-node frame: local `+X` is `idRef -> idX`, local `+Y`
 is `idRef -> idY`, and local `+Z` is their cross product. This frame is converted
@@ -247,39 +249,80 @@ structural approximation, but native status requires:
 - rotor/pad material, thermal mass, heating, cooling, fade, and damage;
 - dynamic node storage rather than RoR's fixed generated-wheel array limits.
 
+For profile `beamng-docs-0.38.5.0-2026-07-27`, the required table fields are
+`name`, `hubGroup`, `group`, `node1:`, `node2:`, `nodeS`, `nodeArm`, and
+`wheelDir`. `wheelDir` accepts `1` or `-1` despite being typed as a string in
+the page. `numRays` must be even; the documentation recommends 10 through 20
+and calls 16 typical. Geometry fields such as radius, hub radius, widths,
+offset, and `hasTire` have no published defaults, so an importer must not
+invent them.
+
+The same profile records the exact published defaults that are meaningful to
+inventory: `stribeckExponent=1.75`, `treadCoef=1`, `softnessCoef=0.6`,
+reinforcement/support beams disabled, support-beam sidewall ratio `0.9`,
+triangle collision flags disabled, `dragCoef=100`, and `skinDragCoef=0`.
+Published brake defaults include zero service and parking torque,
+`brakeSpring=10 Nm/rad`, thermals disabled, `0.35 m` diameter, `10 kg` mass,
+vented-disc/steel/basic material choices, split coefficients of one, ABS
+disabled, target slip `0.18`, `100 Hz` update rate, and `0.04 s` in/out delay.
+These values are data-profile facts, not evidence that RoR's wheel or brake
+solver behaves equivalently.
+
+The page has type/text ambiguities (`wheelDir`, `enableABS`,
+`hubcapNodeMaterial`, and whether `tireWeight` is distributed over tyre or hub
+nodes). Ambiguous fields are preserved with a profile diagnostic; they are not
+lowered by guessing.
+
 The tyre friction curve and brake thermals are behavioral systems, not metadata
 that may be copied into a report and called supported. J3 reports the fields
 that its approximation ignores; J5 validates loaded radius, vertical stiffness,
 longitudinal/lateral slip, aligning behavior, heat energy, fade, and recovery.
 
+Before any J3 wheel allocation, admission enforces an even `numRays` in the
+documented 10-through-20 range, no more than 64 generated wheels, and the
+expanded node/beam/triangle budgets. RoR's existing `Wheel2` changes authored
+width/mass/offset and reaction semantics and its tyre-pressure control rewrites
+spring stiffness rather than maintaining a pressure-volume state. It therefore
+cannot be advertised as native. Unequal per-wheel brake torque, separate
+brake/drivetrain reaction arms, fractional parking-brake input, and per-wheel
+ABS remain disabled until dedicated native systems exist.
+
 ## Powertrain, electrics, and controllers
 
-BeamNG vehicle powertrains are device graphs rather than a single engine and
-gearbox. The section catalog includes engines/motors, clutches, torque
-converters, manual/automatic/DCT/CVT gearboxes, shafts, differentials,
-transfer/range devices, energy storage, forced induction, thermals, and damage.
+The official section catalog identifies a `powertrain` section, but the current
+English documentation profile does not publish a linked powertrain section or
+device schema; the obvious section and vehicle-system URLs return no page.
+The vehicle-controller documentation is also explicitly work in progress.
+Accordingly, this profile inventories and preserves powertrain data but cannot
+claim exact BeamNG device-graph lowering or infer undocumented defaults.
 
-J3 accepts only a declared simple path:
+A future project-native driveability profile may declare a simple path:
 
 ```text
 combustion engine -> clutch -> gearbox -> shaft/differential -> driven wheels
 ```
 
-Each accepted device records ratios, inertia, friction/loss, limits, and control
-inputs. Split paths, multiple motors, EV/hybrid storage, CVTs, converters,
-disconnects, rangeboxes, locking strategies, thermals, and damage remain
-preserved-but-disabled until corresponding native graph devices exist.
+That would be an explicitly versioned RoR approximation with its own schema and
+calibration fixtures, not BeamNG compatibility. Split paths, multiple motors,
+EV/hybrid storage, CVTs, converters, disconnects, rangeboxes, locking
+strategies, thermals, and damage remain preserved-but-disabled until published
+source behavior and corresponding native graph devices exist.
 
 The [vehicle controller][vehicle-controller] manages input, shift logic, and
-electrics. Documented behavior includes gear selection, ignition/starter,
-automatic shift points, shift delays, aggression, wheel-slip shift blocking,
-speed limits, and exposed engine/transmission state. The custom
-[electrics section][electrics] can evaluate Lua-like expressions and smoothing.
+electrics. Its public page documents shifting to a gear index, shifting up/down,
+starter and ignition switches, and manual clutch-ratio polarity. The documented
+[electrics values][electrics-values] expose throttle, brake, clutch, parking
+brake, and steering inputs. The custom [electrics section][electrics] can
+evaluate Lua-like expressions and smoothing.
 
 Imported controllers and electrics expressions are never executed. Each useful
 behavior is reimplemented as an allowlisted native controller with declared
 inputs, outputs, units, update rate, reset/save/replay state, and deterministic
-tests.
+tests. The initial safe controller vocabulary is throttle/brake/clutch/
+parking-brake in `[0,1]`, steering in `[-1,1]`, gear-index/up/down, starter, and
+ignition. Arcade/automatic assists and fractional-to-boolean parking-brake
+conversion remain disabled unless a separately named approximation defines
+them.
 
 ## Meshes, deformation, materials, and props
 
@@ -373,6 +416,7 @@ and behavior text. Existing profiles and golden results remain reproducible.
 - [Torsion bars][torsionbars]
 - [Pressure wheels][wheels]
 - [Vehicle controller][vehicle-controller]
+- [Vehicle-system electrics values][electrics-values]
 - [Electrics][electrics]
 - [Flexbodies][flexbodies]
 - [Props][props]
@@ -382,6 +426,7 @@ and behavior text. Existing profiles and golden results remain reproducible.
 [beams]: https://documentation.beamng.com/modding/vehicle/sections/beams/
 [coordinates]: https://documentation.beamng.com/modding/vehicle/coordinate_systems/
 [electrics]: https://documentation.beamng.com/modding/vehicle/sections/electrics/
+[electrics-values]: https://documentation.beamng.com/modding/vehicle/vehicle_system/electrics/
 [flexbodies]: https://documentation.beamng.com/modding/vehicle/sections/flexbodies/
 [glowmaps]: https://documentation.beamng.com/modding/vehicle/sections/glowmaps/
 [hydros]: https://documentation.beamng.com/modding/vehicle/sections/hydros/
