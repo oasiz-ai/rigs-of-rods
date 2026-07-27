@@ -118,17 +118,19 @@ their availability is part of the declared documentation profile.
 
 BeamNG documents SI units and a Z-up vehicle frame:
 
-| BeamNG axis | Direction | Candidate RoR axis |
+| BeamNG axis | Direction | RoR axis |
 | --- | --- | --- |
 | `+X` | left | `+Z` |
 | `+Y` | backward | `+X` |
 | `+Z` | up | `+Y` |
 
-The candidate position transform is therefore
+The position transform is therefore
 `(x_ror, y_ror, z_ror) = (y_beamng, z_beamng, x_beamng)`. It is a
-handedness-preserving cyclic permutation, but it remains disabled until golden
-tests prove RoR cab normals, camera direction, wheel placement, rotations,
-forces, and inertia use the same convention.
+handedness-preserving cyclic permutation. Dependency-free golden tests lock its
+basis, inverse, metric and cross-product preservation, triangle winding, and
+refnode landmarks. Runtime import remains disabled until nodes, cab normals,
+camera direction, wheel placement, rotations, forces, and inertia all route
+through this one tested boundary.
 
 One aligned [refNodes][refnodes] set is required. `ref`, `back`, `left`, and
 `up` define the vehicle frame; `leftCorner` and `rightCorner` identify its front

@@ -426,6 +426,16 @@ namespaces, allowlisted expression evaluation, field-specific semantic
 validation, coordinate lowering, and the canonical vehicle IR remain open
 J1/J2 work.
 
+The first J2 kernel locks the vehicle-basis conversion as the exact,
+handedness-preserving permutation
+`(x_ror, y_ror, z_ror) = (y_beamng, z_beamng, x_beamng)`, with the exact
+inverse. Dependency-free tests prove basis/refnode landmarks, distance, dot and
+cross products, triangle winding and normals, in-place round trips, and
+fail-closed non-finite handling under fast-math. The structural IR and every
+runtime node, force, rotation, inertia, mesh, prop, and camera adapter must use
+this single boundary; no imported actor is enabled merely because the transform
+kernel exists.
+
 ### J2/J3 — Physics lowering and bounded driveability
 
 Each source concept gets an explicit exact, approximate, or unsupported mapping:

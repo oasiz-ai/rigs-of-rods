@@ -184,6 +184,7 @@ set(SOURCE_FILES
         resources/CacheSystem.{h,cpp}
         resources/ContentManager.{h,cpp}
         resources/beamng/BeamNGPackageManifest.{h,cpp}
+        resources/beamng/JBeamCoordinateTransform.h
         resources/beamng/JBeamPartResolver.{h,cpp}
         resources/beamng/JBeamSyntax.{h,cpp}
         resources/addonpart_fileformat/AddonPartFileFormat.{h,cpp}

@@ -58,6 +58,22 @@ index and graph identities retain source spans and duplicate assignment history
 so different source inputs cannot silently collapse to one cache key. Semantic
 physics lowering remains a separate J2 gate.
 
+## JBeam coordinate boundary
+
+The J2 coordinate kernel locks the documented BeamNG vehicle frame
+`+X left, +Y backward, +Z up` to RoR's vehicle frame
+`+X backward, +Y up, +Z left` with the exact cyclic permutation
+`(x_ror, y_ror, z_ror) = (y_beamng, z_beamng, x_beamng)`. Its inverse is
+explicit, and point and vector APIs are distinct so later part translations
+cannot leak into force or direction conversion.
+
+The transform has determinant `+1`, so it preserves handedness, distances, dot
+and cross products, and triangle winding. Basis, refnode landmarks, triangle
+normals, in-place round trips, null outputs, and NaN/infinity rejection are
+tested under strict C++11, the game's fast-math mode, and sanitizers. Runtime
+lowering still must route nodes, forces, rotations, inertia, meshes, and cameras
+through this one boundary before imported actors may spawn.
+
 ## Calibrated beam material
 
 The version-1 dependency-free material kernel uses SI stress/strain units and a
