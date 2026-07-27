@@ -492,14 +492,34 @@ class ContentProvenanceAuditTests(unittest.TestCase):
 
             package_file.write_bytes(b"tampered\n")
             editable_file.write_bytes(b"tampered source\n")
-            codes = diagnostic_codes(
-                self.audit(
+            original_fstat = AUDITOR.os.fstat
+
+            class DescriptorStat:
+                """Model Windows' fstat change-time semantics on every host."""
+
+                def __init__(self, wrapped: os.stat_result) -> None:
+                    self._wrapped = wrapped
+                    self.st_ctime = wrapped.st_ctime + 1
+                    self.st_ctime_ns = wrapped.st_ctime_ns + 1_000_000_000
+
+                def __getattr__(self, name: str) -> object:
+                    return getattr(self._wrapped, name)
+
+            def descriptor_stat(descriptor: int) -> DescriptorStat:
+                return DescriptorStat(original_fstat(descriptor))
+
+            with mock.patch.object(
+                AUDITOR.os,
+                "fstat",
+                side_effect=descriptor_stat,
+            ):
+                report = self.audit(
                     manifest,
                     inventory,
                     package_root=package_root,
                     editable_root=editable_root,
                 )
-            )
+            codes = diagnostic_codes(report)
             self.assertIn("INVENTORY_CHECKSUM_MISMATCH", codes)
             self.assertIn("INVENTORY_SIZE_MISMATCH", codes)
             self.assertIn("EDITABLE_SOURCE_CHECKSUM_MISMATCH", codes)

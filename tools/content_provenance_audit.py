@@ -381,6 +381,24 @@ def _stat_stability_key(info: os.stat_result) -> tuple[int, ...]:
     )
 
 
+def _path_descriptor_binding_key(info: os.stat_result) -> tuple[int, ...]:
+    """Return metadata with consistent path-stat and descriptor-stat meaning.
+
+    CPython's Windows path-based stat implementation preserves the legacy
+    creation-time meaning of ``st_ctime``, while ``fstat`` reports the actual
+    metadata-change time.  Comparing that field across the APIs therefore
+    rejects a stable file after it has been edited.  Identity, type, size, and
+    modification time bind the checked path to the opened handle; same-API
+    before/after checks retain ``st_ctime`` through ``_stat_stability_key``.
+    """
+
+    return (
+        stat.S_IFMT(info.st_mode),
+        info.st_size,
+        getattr(info, "st_mtime_ns", int(info.st_mtime * 1_000_000_000)),
+    )
+
+
 def _same_directory_identity(
     first: os.stat_result,
     second: os.stat_result,
@@ -1676,8 +1694,8 @@ def hash_regular_file(
             opened_info = os.fstat(descriptor)
             if (
                 not _same_file_identity(snapshot[0][1], opened_info)
-                or _stat_stability_key(snapshot[0][1])
-                != _stat_stability_key(opened_info)
+                or _path_descriptor_binding_key(snapshot[0][1])
+                != _path_descriptor_binding_key(opened_info)
             ):
                 diagnostics.add(
                     f"{code_prefix}_CHANGED",
@@ -1704,8 +1722,8 @@ def hash_regular_file(
                 expected_info = snapshot[index][1]
                 if (
                     not _same_file_identity(expected_info, opened_info)
-                    or _stat_stability_key(expected_info)
-                    != _stat_stability_key(opened_info)
+                    or _path_descriptor_binding_key(expected_info)
+                    != _path_descriptor_binding_key(opened_info)
                 ):
                     diagnostics.add(
                         f"{code_prefix}_CHANGED",
@@ -1760,8 +1778,8 @@ def hash_regular_file(
             return None
         if (
             not _same_file_identity(snapshot[-1][1], initial_info)
-            or _stat_stability_key(snapshot[-1][1])
-            != _stat_stability_key(initial_info)
+            or _path_descriptor_binding_key(snapshot[-1][1])
+            != _path_descriptor_binding_key(initial_info)
         ):
             diagnostics.add(
                 f"{code_prefix}_CHANGED",
