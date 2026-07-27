@@ -35,6 +35,7 @@
 #include "ChatSystem.h"
 #include "Collisions.h"
 #include "DashBoardManager.h"
+#include "DeterministicContactOrder.h"
 #include "DynamicCollisions.h"
 #include "Engine.h"
 #include "GameContext.h"
@@ -60,17 +61,65 @@
 #include "VehicleAI.h"
 
 #include <fmt/format.h>
+#include <algorithm>
+#include <new>
 
 using namespace Ogre;
 using namespace RoR;
 
 const ActorPtr ActorManager::ACTORPTR_NULL; // Dummy value to be returned as const reference.
 
+namespace RoR {
+
+struct InterActorContactBufferPool
+{
+    typedef DeterministicContactOrder::BoundedTaskBuffer<
+        InterActorCollisionContact> ContactTaskBuffer;
+
+    void Prepare(std::size_t task_count)
+    {
+        if (m_buffers.size() < task_count)
+        {
+            m_buffers.resize(task_count);
+        }
+
+        const std::size_t base_quota =
+            task_count == 0
+                ? 0
+                : DeterministicContactOrder::
+                    INTER_ACTOR_CONTACT_BUDGET / task_count;
+        const std::size_t remainder =
+            task_count == 0
+                ? 0
+                : DeterministicContactOrder::
+                    INTER_ACTOR_CONTACT_BUDGET % task_count;
+        for (std::size_t index = 0; index < m_buffers.size(); ++index)
+        {
+            const std::size_t quota =
+                index < task_count
+                    ? base_quota + (index < remainder ? 1U : 0U)
+                    : 0U;
+            m_buffers[index].Reset(quota);
+        }
+    }
+
+    std::vector<ContactTaskBuffer>& GetBuffers()
+    {
+        return m_buffers;
+    }
+
+private:
+    std::vector<ContactTaskBuffer> m_buffers;
+};
+
+} // namespace RoR
+
 ActorManager::ActorManager()
     : m_dt_remainder(0.0f)
     , m_forced_awake(false)
     , m_physics_steps(2000)
     , m_simulation_speed(1.0f)
+    , m_inter_contact_buffers(new InterActorContactBufferPool())
 {
     // Create worker thread (used for physics calculations)
     m_sim_thread_pool = std::unique_ptr<ThreadPool>(new ThreadPool(1));
@@ -1252,9 +1301,12 @@ void ActorManager::UpdatePhysicsSimulation()
             {
                 if (actor->ar_update_physics = actor->CalcForcesEulerPrepare(i == 0))
                 {
-                    auto func = std::function<void()>([this, i, &actor]()
+                    Actor* const actor_raw = actor.GetRef();
+                    auto func = std::function<void()>([this, i, actor_raw]()
                         {
-                            actor->CalcForcesEulerCompute(i == 0, m_physics_steps);
+                            actor_raw->CalcForcesEulerCompute(
+                                i == 0,
+                                m_physics_steps);
                         });
                     tasks.push_back(func);
                 }
@@ -1269,32 +1321,180 @@ void ActorManager::UpdatePhysicsSimulation()
             }
         }
         {
-            std::vector<std::function<void()>> tasks;
+            std::vector<Actor*> collision_actors;
             for (ActorPtr& actor: m_actors)
             {
-                if (actor->m_inter_point_col_detector != nullptr && (actor->ar_update_physics ||
-                        (App::mp_pseudo_collisions->getBool() && actor->ar_state == ActorState::NETWORKED_OK)))
+                if (actor->m_inter_point_col_detector != nullptr &&
+                        (actor->ar_update_physics ||
+                        (App::mp_pseudo_collisions->getBool() &&
+                        actor->ar_state == ActorState::NETWORKED_OK)))
                 {
-                    auto func = std::function<void()>([this, &actor]()
+                    collision_actors.push_back(actor.GetRef());
+                }
+            }
+            std::sort(
+                collision_actors.begin(),
+                collision_actors.end(),
+                [](const Actor* left, const Actor* right)
+                {
+                    return left->ar_instance_id < right->ar_instance_id;
+                });
+
+            // Updating detectors can reset collision-rate state on both actors,
+            // so establish that state in one canonical order before launching
+            // read-only contact discovery tasks.
+            for (Actor* actor: collision_actors)
+                actor->m_inter_point_col_detector->UpdateInterPoint();
+
+            std::vector<Actor*> contact_actors;
+            std::vector<InterActorCollisionSchedule> contact_schedules;
+            for (Actor* actor: collision_actors)
+            {
+                if (actor->ar_collision_relevant)
+                {
+                    InterActorCollisionSchedule schedule;
+                    PrepareInterActorCollisionSchedule(
+                        actor->ar_num_collcabs,
+                        actor->ar_inter_collcabrate,
+                        schedule);
+                    if (schedule.active_surface_contacts.any())
+                    {
+                        contact_actors.push_back(actor);
+                        contact_schedules.push_back(schedule);
+                    }
+                }
+            }
+
+            auto resolve_contacts_serially =
+                [&contact_actors, &contact_schedules](
+                    bool update_rate_state)
+                {
+                    for (std::size_t actor_index = 0;
+                            actor_index < contact_actors.size();
+                            ++actor_index)
+                    {
+                        Actor* const actor = contact_actors[actor_index];
+                        ROR_ASSERT(
+                            actor_index == 0 ||
+                            contact_actors[actor_index - 1]->ar_instance_id <
+                                actor->ar_instance_id);
+                        ResolveInterActorCollisionContactsSerial(
+                            actor->ar_instance_id,
+                            PHYSICS_DT,
+                           *actor->m_inter_point_col_detector,
+                            contact_schedules[actor_index],
+                            update_rate_state,
+                            actor->ar_num_collcabs,
+                            actor->ar_collcabs,
+                            actor->ar_cabs,
+                            actor->ar_inter_collcabrate,
+                            actor->ar_nodes,
+                            actor->ar_collision_range,
+                           *actor->ar_submesh_ground_model);
+                    }
+                };
+            auto report_contact_fallback =
+                [this](const char* reason)
+                {
+                    const std::uint64_t count =
+                        ++m_inter_contact_fallback_count;
+                    if ((count & (count - 1)) == 0)
+                    {
+                        RoR::LogFormat(
+                            "[RoR|Physics] Inter-actor contact buffer "
+                            "fallback #%llu (%s)",
+                            static_cast<unsigned long long>(count),
+                            reason);
+                    }
+                };
+
+            typedef DeterministicContactOrder::BoundedTaskBuffer<
+                InterActorCollisionContact> ContactTaskBuffer;
+            std::vector<ContactTaskBuffer>* contact_buffers = nullptr;
+            bool buffers_ready = true;
+            try
+            {
+                m_inter_contact_buffers->Prepare(contact_actors.size());
+                contact_buffers =
+                    &m_inter_contact_buffers->GetBuffers();
+            }
+            catch (const std::bad_alloc&)
+            {
+                buffers_ready = false;
+                report_contact_fallback("task-buffer allocation");
+            }
+
+            if (buffers_ready)
+            {
+                std::vector<std::function<void()>> tasks;
+                for (std::size_t actor_index = 0;
+                        actor_index < contact_actors.size();
+                        ++actor_index)
+                {
+                    Actor* const actor = contact_actors[actor_index];
+                    auto func = std::function<void()>(
+                        [actor, actor_index, &contact_buffers,
+                         &contact_schedules]()
                         {
-                            actor->m_inter_point_col_detector->UpdateInterPoint();
-                            if (actor->ar_collision_relevant)
-                            {
-                                ResolveInterActorCollisions(PHYSICS_DT,
-                                   *actor->m_inter_point_col_detector,
-                                    actor->ar_num_collcabs,
-                                    actor->ar_collcabs,
-                                    actor->ar_cabs,
-                                    actor->ar_inter_collcabrate,
-                                    actor->ar_nodes,
-                                    actor->ar_collision_range,
-                                   *actor->ar_submesh_ground_model);
-                            }
+                            CollectInterActorCollisionContacts(
+                                actor->ar_instance_id,
+                               *actor->m_inter_point_col_detector,
+                                contact_schedules[actor_index],
+                                actor->ar_num_collcabs,
+                                actor->ar_collcabs,
+                                actor->ar_cabs,
+                                actor->ar_inter_collcabrate,
+                                actor->ar_nodes,
+                                actor->ar_collision_range,
+                               *actor->ar_submesh_ground_model,
+                                (*contact_buffers)[actor_index]);
                         });
                     tasks.push_back(func);
                 }
+                App::GetThreadPool()->Parallelize(tasks);
+
+                const bool quota_overflow =
+                    DeterministicContactOrder::AnyTaskBufferOverflowed(
+                        *contact_buffers);
+                const bool growth_allocation_failed =
+                    DeterministicContactOrder::
+                        AnyTaskBufferAllocationFailed(*contact_buffers);
+                DeterministicContactOrder::ProcessTaskBuffersOrFallback(
+                    *contact_buffers,
+                    [](const InterActorCollisionContact& contact)
+                    {
+                        return contact.key;
+                    },
+                    [](const std::vector<ContactTaskBuffer>& buffers)
+                    {
+                        for (const ContactTaskBuffer& buffer : buffers)
+                        {
+                            ApplyInterActorCollisionContacts(
+                                PHYSICS_DT,
+                                buffer.GetItems());
+                        }
+                    },
+                    [&resolve_contacts_serially,
+                     &report_contact_fallback,
+                     growth_allocation_failed,
+                     quota_overflow]()
+                    {
+                        report_contact_fallback(
+                            growth_allocation_failed
+                                ? "task-buffer growth allocation"
+                                : quota_overflow
+                                ? "per-actor contact quota overflow"
+                                : "noncanonical task ranges");
+                        // Discovery already finalized collision-rate state.
+                        resolve_contacts_serially(false);
+                    });
             }
-            App::GetThreadPool()->Parallelize(tasks);
+            else
+            {
+                // Schedule transitions were prepared, but discovery has not
+                // run yet, so the serial path must finalize rate state.
+                resolve_contacts_serially(true);
+            }
         }
 
         // Apply FreeForces - intentionally as a separate pass over all actors

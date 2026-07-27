@@ -1,1 +1,2 @@
 CMakeLists.txt whitespace=cr-at-eol
+source/main/utils/PlatformUtils.cpp whitespace=cr-at-eol

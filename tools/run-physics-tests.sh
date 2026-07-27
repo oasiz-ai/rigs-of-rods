@@ -33,5 +33,17 @@ common_test_flags=(
     "${repository_dir}/tests/physics/DeterministicCounterNoiseTests.cpp" \
     -o "${test_build_dir}/deterministic_counter_noise_tests"
 
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    "${repository_dir}/tests/physics/DeterministicContactOrderTests.cpp" \
+    -o "${test_build_dir}/deterministic_contact_order_tests"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    "${repository_dir}/tests/physics/CalibratedBeamMaterialTests.cpp" \
+    -o "${test_build_dir}/calibrated_beam_material_tests"
+
 "${test_build_dir}/beam_axial_response_tests"
 "${test_build_dir}/deterministic_counter_noise_tests"
+"${test_build_dir}/deterministic_contact_order_tests"
+"${test_build_dir}/calibrated_beam_material_tests"

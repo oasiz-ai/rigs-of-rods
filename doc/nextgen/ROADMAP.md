@@ -152,6 +152,26 @@ Tyre, suspension, and drivetrain refinements follow the same pattern: isolate a
 model, cite its calibration data, version it, and pass force-slip, energy, and
 step-sensitivity fixtures before changing defaults.
 
+The first P1 kernel now implements a versioned, opt-in-ready uniaxial
+elastoplastic damage law in SI units. It uses a closed-form backward-Euler
+return map, isotropic hardening, accumulated plastic strain, monotonic damage,
+and a finite post-onset damage-driver capacity. This local capacity is not
+claimed to be total dissipated fracture energy or mesh-objective `G_f`. Under
+the kernel's monotonic post-onset nominal stress/strain-area convention,
+`C = 2 (G_f / l_char) / (1 + H/E)`; a total-dissipation convention includes
+stored energy at damage onset and therefore maps differently. The future beam
+adapter must declare its convention, perform characteristic-length calibration,
+control localization, and pass monotonic plus cyclic mesh-refinement energy
+gates; characteristic length alone is not proof of mesh objectivity.
+Dependency-free
+analytical, cyclic-regression,
+exact energy-balance, reversal, tangent, fracture-event, subdivision, malformed
+state, and fixed-seed property tests pass under strict C++11 and fast-math
+sanitizers. It is not yet wired into `Actor`: cross-sectional-area/rest-length
+adaptation, assembled momentum, authored material parsing, save/replay state,
+starter-content calibration, and the Agora impact regression remain open before
+P1 can change any runtime default.
+
 ## D0 — Deterministic collision and replay
 
 Make contact discovery and force application independent of task completion
@@ -171,9 +191,32 @@ seed/counter fields so existing version-3 saves remain loadable and resumed
 saves keep their next samples. Golden vectors and dependency-free
 one/two/eight-thread kernel tests lock the sampler's pure-function contract.
 ActorManager/content worker-count runs, save/load continuation tests, the
-runtime TSan soak, contact ordering, and input-replay hashing remain open D0
-work, as does a scenario-level seed/stream-ID contract independent of runtime
-actor-ID assignment.
+runtime TSan soak, the production broad-phase oracle, and input-replay hashing
+remain open D0 work, as does a scenario-level seed/stream-ID contract
+independent of runtime actor-ID assignment.
+
+The contact-order slice now updates inter-actor detectors in stable actor-ID
+order, canonicalizes collision-partner and KD-hit lists, discovers narrow-phase
+contacts into per-actor task buffers, and applies forces only after one stable
+`(surface actor, surface contact, hit actor, hit node)` reduction. Worker tasks no
+longer concurrently mutate another actor's node forces. The parallel fast path
+has a hard global buffered-contact cap of 65,536, split into deterministic
+per-actor quotas. If any actor exceeds its quota, the entire partial buffer set
+is discarded and all scheduled contacts are re-discovered and applied serially
+in the same key order;
+contacts are never truncated, and adaptive collision-rate state advances only
+once. Actors with no contact surface scheduled on a step allocate no task
+buffer. Bounded buffers grow lazily, retain storage across 2 kHz substeps and
+scheduled-actor-count fluctuations, and convert worker-side allocation failure
+into the full serial fallback. Fallbacks are counted for the session and logged
+with their reason on counts 1, 2, 4, 8, and subsequent powers of two, making
+pathological content observable without per-step log spam. A
+dependency-free contract compares
+10,000 fixed-seed shuffled AABB candidate sets with a brute-force ordered
+oracle, produces bit-identical
+reductions from one, two, and eight task buffers, and locks quota, overflow, and
+fallback-order behavior. A runtime oracle against `PointColDetector` itself and
+the multi-actor TSan soak are still required to close the gate.
 
 The first pending runtime micro-scenario uses `simple2.terrn2` and two airborne
 `b6b0UID-semi.truck` actors with fixed poses, explicit stable IDs/seeds, and
@@ -318,8 +361,8 @@ configuration, source hash, importer schema, and option set:
   parachutes, JATO/thrusters, towing, and controllers as tested native systems.
 
 No package is called simply "compatible." Its report uses `native`,
-`approximated`, `preserved-but-disabled`, or `unsupported` for every discovered
-feature and resource, with the reason and source location.
+`approximated`, `preserved-but-disabled`, `unsupported`, or `rejected` for
+every discovered feature and resource, with the reason and source location.
 
 ### J0 — Package identity and hostile-input boundary
 
@@ -363,6 +406,25 @@ refNodes, nodes, normal/support beams, triangles, and basic hydros/rails.
 BeamNG's `+X left, +Y backward, +Z up` basis is converted by one named,
 unit-tested transform; offsets, rotations, reference directions, triangle
 winding, meshes, forces, and inertia all use that same transform.
+
+The first J1 front-end slice now provides a bounded relaxed-JBeam lexer/parser
+and duplicate-preserving, source-spanned AST. It accepts documented comments,
+optional/trailing commas, strict finite scalars, UTF-8/Unicode escapes, and
+normalizes table headers, inherited defaults, positional cells, trailing row
+dictionaries, malformed rows, and effective last-write lookup without erasing
+raw input. Variables and `$=` expressions remain inert.
+
+The bounded resolver indexes parts independently of archive enumeration order,
+selects the sole `main` root or requires an explicit root when a package exposes
+several vehicles, handles legacy `slots`, allow/deny `slots2`, core and optional
+defaults, explicit empty selections, `.pc` part selections, and typed scalar
+variable inheritance. It rejects duplicate definitions, ambiguous parts,
+cycles, invalid slot tables, and resource-limit overflow with canonical source
+diagnostics. Canonical index and resolved-graph identities retain the full
+duplicate assignment/body history and source spans. Per-`vehicles/<id>` part
+namespaces, allowlisted expression evaluation, field-specific semantic
+validation, coordinate lowering, and the canonical vehicle IR remain open
+J1/J2 work.
 
 ### J2/J3 — Physics lowering and bounded driveability
 

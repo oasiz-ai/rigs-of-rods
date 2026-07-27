@@ -28,6 +28,66 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicCounterNoiseTests.cpp"
 )
 
+add_executable(
+    ror_deterministic_contact_order_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicContactOrderTests.cpp"
+)
+
+add_executable(
+    ror_calibrated_beam_material_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamMaterialTests.cpp"
+)
+
+add_executable(
+    ror_beamng_package_manifest_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/BeamNGPackageManifestTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGPackageManifest.cpp"
+)
+
+add_executable(
+    ror_jbeam_syntax_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamSyntaxTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
+)
+
+add_executable(
+    ror_jbeam_part_resolver_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamPartResolverTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
+)
+
+target_include_directories(
+    ror_beamng_package_manifest_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+target_include_directories(
+    ror_jbeam_syntax_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+target_include_directories(
+    ror_jbeam_part_resolver_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+if (APPLE)
+    add_executable(
+        ror_apple_executable_path_tests
+        "${CMAKE_CURRENT_LIST_DIR}/platform/AppleExecutablePathTests.cpp"
+    )
+
+    target_include_directories(
+        ror_apple_executable_path_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/utils"
+    )
+endif ()
+
 target_link_libraries(
     ror_deterministic_counter_noise_tests
     PRIVATE Threads::Threads
@@ -35,8 +95,17 @@ target_link_libraries(
 
 set(ROR_PHYSICS_TEST_TARGETS
     ror_beam_axial_response_tests
+    ror_beamng_package_manifest_tests
+    ror_calibrated_beam_material_tests
+    ror_deterministic_contact_order_tests
     ror_deterministic_counter_noise_tests
+    ror_jbeam_part_resolver_tests
+    ror_jbeam_syntax_tests
 )
+
+if (APPLE)
+    list(APPEND ROR_PHYSICS_TEST_TARGETS ror_apple_executable_path_tests)
+endif ()
 
 foreach (test_target IN LISTS ROR_PHYSICS_TEST_TARGETS)
     target_include_directories(${test_target} PRIVATE
@@ -74,3 +143,35 @@ add_test(
     NAME deterministic_counter_noise
     COMMAND ror_deterministic_counter_noise_tests
 )
+
+add_test(
+    NAME deterministic_contact_order
+    COMMAND ror_deterministic_contact_order_tests
+)
+
+add_test(
+    NAME calibrated_beam_material
+    COMMAND ror_calibrated_beam_material_tests
+)
+
+add_test(
+    NAME beamng_package_manifest
+    COMMAND ror_beamng_package_manifest_tests
+)
+
+add_test(
+    NAME jbeam_syntax
+    COMMAND ror_jbeam_syntax_tests
+)
+
+add_test(
+    NAME jbeam_part_resolver
+    COMMAND ror_jbeam_part_resolver_tests
+)
+
+if (APPLE)
+    add_test(
+        NAME apple_executable_path
+        COMMAND ror_apple_executable_path_tests
+    )
+endif ()

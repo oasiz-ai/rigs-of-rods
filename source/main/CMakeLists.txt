@@ -147,6 +147,8 @@ set(SOURCE_FILES
         physics/ActorExport.cpp
         physics/ActorForcesEuler.cpp
         physics/BeamAxialResponse.h
+        physics/CalibratedBeamMaterial.h
+        physics/DeterministicContactOrder.h
         physics/DeterministicCounterNoise.h
         physics/ActorManager.{h,cpp}
         physics/ActorSlideNode.cpp
@@ -181,6 +183,9 @@ set(SOURCE_FILES
         physics/water/Wavefield.{h,cpp}
         resources/CacheSystem.{h,cpp}
         resources/ContentManager.{h,cpp}
+        resources/beamng/BeamNGPackageManifest.{h,cpp}
+        resources/beamng/JBeamPartResolver.{h,cpp}
+        resources/beamng/JBeamSyntax.{h,cpp}
         resources/addonpart_fileformat/AddonPartFileFormat.{h,cpp}
         resources/otc_fileformat/OTCFileFormat.{h,cpp}
         resources/odef_fileformat/ODefFileFormat.{h,cpp}

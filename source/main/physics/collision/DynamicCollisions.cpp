@@ -115,12 +115,12 @@ void ResolveCollisionForces(const float penetration_depth,
 }
 
 
-void RoR::ResolveInterActorCollisions(const float dt, PointColDetector &interPointCD,
-        const int free_collcab, int collcabs[], int cabs[],
-        collcab_rate_t inter_collcabrate[], node_t nodes[],
-        const float collrange,
-        ground_model_t &submesh_ground_model)
+void RoR::PrepareInterActorCollisionSchedule(
+        const int free_collcab,
+        collcab_rate_t inter_collcabrate[],
+        InterActorCollisionSchedule& schedule)
 {
+    schedule.active_surface_contacts.reset();
     for (int i=0; i<free_collcab; i++)
     {
         if (inter_collcabrate[i].rate > 0)
@@ -131,6 +131,100 @@ void RoR::ResolveInterActorCollisions(const float dt, PointColDetector &interPoi
         }
         inter_collcabrate[i].rate = std::min(inter_collcabrate[i].distance, 12);
         inter_collcabrate[i].distance = 0;
+        schedule.active_surface_contacts.set(static_cast<std::size_t>(i));
+    }
+}
+
+namespace {
+
+class InterActorCollisionResolver
+{
+public:
+    explicit InterActorCollisionResolver(float dt):
+        m_dt(dt)
+    {
+    }
+
+    void Apply(const InterActorCollisionContact& contact)
+    {
+        if (contact.key.surface_actor != m_cached_surface_actor_id)
+        {
+            m_cached_surface_actor_id = contact.key.surface_actor;
+            m_surface_actor = App::GetGameContext()
+                ->GetActorManager()->GetActorById(
+                    m_cached_surface_actor_id).GetRef();
+        }
+        if (contact.key.hit_actor != m_cached_hit_actor_id)
+        {
+            m_cached_hit_actor_id = contact.key.hit_actor;
+            m_hit_actor = App::GetGameContext()
+                ->GetActorManager()->GetActorById(
+                    m_cached_hit_actor_id).GetRef();
+        }
+        if (m_surface_actor == nullptr ||
+                m_hit_actor == nullptr ||
+                contact.ground_model == nullptr)
+        {
+            return;
+        }
+
+        node_t& hitnode = m_hit_actor->ar_nodes[contact.key.hit_node];
+        node_t& no = m_surface_actor->ar_nodes[contact.surface_node_o];
+        node_t& na = m_surface_actor->ar_nodes[contact.surface_node_a];
+        node_t& nb = m_surface_actor->ar_nodes[contact.surface_node_b];
+        const bool remote =
+            (m_hit_actor->ar_state == ActorState::NETWORKED_OK);
+
+        ResolveCollisionForces(
+            contact.penetration_depth,
+            hitnode,
+            na,
+            nb,
+            no,
+            contact.alpha,
+            contact.beta,
+            contact.gamma,
+            contact.normal,
+            m_dt,
+            remote,
+            *contact.ground_model);
+
+        hitnode.nd_last_collision_gm = contact.ground_model;
+        hitnode.nd_has_mesh_contact = true;
+        na.nd_has_mesh_contact = true;
+        nb.nd_has_mesh_contact = true;
+        no.nd_has_mesh_contact = true;
+    }
+
+private:
+    float m_dt = 0.f;
+    ActorInstanceID_t m_cached_surface_actor_id = ACTORINSTANCEID_INVALID;
+    ActorInstanceID_t m_cached_hit_actor_id = ACTORINSTANCEID_INVALID;
+    Actor* m_surface_actor = nullptr;
+    Actor* m_hit_actor = nullptr;
+};
+
+template <typename ContactSink>
+void DiscoverInterActorCollisionContacts(
+        const ActorInstanceID_t surface_actor_id,
+        PointColDetector &interPointCD,
+        const InterActorCollisionSchedule& schedule,
+        const bool update_rate_state,
+        const int free_collcab, int collcabs[], int cabs[],
+        collcab_rate_t inter_collcabrate[], node_t nodes[],
+        const float collrange,
+        ground_model_t &submesh_ground_model,
+        const ContactSink& contact_sink)
+{
+    DeterministicContactOrder::CanonicalOrderValidator<
+        DeterministicContactOrder::InterActorKey> emitted_order;
+    for (int i=0; i<free_collcab; i++)
+    {
+        if (!schedule.active_surface_contacts.test(
+                static_cast<std::size_t>(i)))
+        {
+            continue;
+        }
 
         int tmpv = collcabs[i]*3;
         const auto no = &nodes[cabs[tmpv]];
@@ -147,63 +241,146 @@ void RoR::ResolveInterActorCollisions(const float dt, PointColDetector &interPoi
             const Triangle triangle(na->AbsPosition, nb->AbsPosition, no->AbsPosition);
             const CartesianToTriangleTransform transform(triangle);
 
-            // To avoid repeated lookups in ActorManager, we loop actors first and skip non-matching hits.
-            for (ActorInstanceID_t actorid: interPointCD.hit_list_actorset)
+            ActorInstanceID_t cached_actor_id = ACTORINSTANCEID_INVALID;
+            Actor* hit_actor = nullptr;
+            for (PointidID_t h : interPointCD.hit_list)
             {
-                const ActorPtr& hit_actor = App::GetGameContext()->GetActorManager()->GetActorById(actorid);
-                for (PointidID_t h : interPointCD.hit_list)
+                const PointColDetector::pointid_t& point_id =
+                    interPointCD.hit_pointid_list[h];
+                if (point_id.actorid != cached_actor_id)
                 {
-                    // skip hits from other actors
-                    if (interPointCD.hit_pointid_list[h].actorid != actorid)
-                        continue;
-
-                    NodeNum_t hitnode_num = interPointCD.hit_pointid_list[h].nodenum;
-                    node_t& hitnode = hit_actor->ar_nodes[hitnode_num];
-
-                    // transform point to triangle local coordinates
-                    const auto local_point = transform(hitnode.AbsPosition);
-
-                    // collision test
-                    const bool is_colliding = InsideTriangleTest(local_point, collrange);
-                    if (is_colliding)
-                    {
-                        inter_collcabrate[i].rate = 0;
-
-                        const auto coord = local_point.barycentric;
-                        auto distance   = local_point.distance;
-                        auto normal     = triangle.normal();
-
-                        // adapt in case the collision is occuring on the backface of the triangle
-                        const auto neighbour_node_ids = hit_actor->ar_node_to_node_connections[hitnode_num];
-                        const bool is_backface = BackfaceCollisionTest(distance, normal, *no, neighbour_node_ids, hit_actor->ar_nodes);
-                        if (is_backface)
-                        {
-                            // flip surface normal and distance to triangle plane
-                            normal   = -normal;
-                            distance = -distance;
-                        }
-
-                        const auto penetration_depth = collrange - distance;
-
-                        const bool remote = (hit_actor->ar_state == ActorState::NETWORKED_OK);
-
-                        ResolveCollisionForces(penetration_depth, hitnode, *na, *nb, *no, coord.alpha,
-                                coord.beta, coord.gamma, normal, dt, remote, submesh_ground_model);
-
-                        hitnode.nd_last_collision_gm = &submesh_ground_model;
-                        hitnode.nd_has_mesh_contact = true;
-                        na->nd_has_mesh_contact = true;
-                        nb->nd_has_mesh_contact = true;
-                        no->nd_has_mesh_contact = true;
-                    }
+                    cached_actor_id = point_id.actorid;
+                    hit_actor = App::GetGameContext()
+                        ->GetActorManager()->GetActorById(
+                            cached_actor_id).GetRef();
                 }
+                if (hit_actor == nullptr)
+                    continue;
+
+                const NodeNum_t hitnode_num = point_id.nodenum;
+                const node_t& hitnode = hit_actor->ar_nodes[hitnode_num];
+
+                // Transform point to triangle local coordinates.
+                const auto local_point = transform(hitnode.AbsPosition);
+
+                if (!InsideTriangleTest(local_point, collrange))
+                    continue;
+
+                if (update_rate_state)
+                    inter_collcabrate[i].rate = 0;
+
+                const auto coord = local_point.barycentric;
+                auto distance = local_point.distance;
+                auto normal = triangle.normal();
+
+                // Adapt in case the collision occurs on the backface.
+                const auto& neighbour_node_ids =
+                    hit_actor->ar_node_to_node_connections[hitnode_num];
+                const bool is_backface = BackfaceCollisionTest(
+                    distance,
+                    normal,
+                    *no,
+                    neighbour_node_ids,
+                    hit_actor->ar_nodes);
+                if (is_backface)
+                {
+                    normal = -normal;
+                    distance = -distance;
+                }
+
+                InterActorCollisionContact contact;
+                contact.key.surface_actor = surface_actor_id;
+                contact.key.surface_contact = static_cast<std::uint32_t>(i);
+                contact.key.hit_actor = point_id.actorid;
+                contact.key.hit_node = hitnode_num;
+                contact.surface_node_o = static_cast<NodeNum_t>(cabs[tmpv]);
+                contact.surface_node_a = static_cast<NodeNum_t>(cabs[tmpv+1]);
+                contact.surface_node_b = static_cast<NodeNum_t>(cabs[tmpv+2]);
+                contact.penetration_depth = collrange - distance;
+                contact.alpha = coord.alpha;
+                contact.beta = coord.beta;
+                contact.gamma = coord.gamma;
+                contact.normal = normal;
+                contact.ground_model = &submesh_ground_model;
+                ROR_ASSERT(emitted_order.Observe(contact.key));
+                contact_sink(contact);
             }
         }
-        else
+        else if (update_rate_state)
         {
             inter_collcabrate[i].rate++;
         }
     }
+}
+
+} // namespace
+
+void RoR::CollectInterActorCollisionContacts(
+        const ActorInstanceID_t surface_actor_id,
+        PointColDetector &interPointCD,
+        const InterActorCollisionSchedule& schedule,
+        const int free_collcab, int collcabs[], int cabs[],
+        collcab_rate_t inter_collcabrate[], node_t nodes[],
+        const float collrange,
+        ground_model_t &submesh_ground_model,
+        DeterministicContactOrder::BoundedTaskBuffer<
+            InterActorCollisionContact>& out_contacts)
+{
+    DiscoverInterActorCollisionContacts(
+        surface_actor_id,
+        interPointCD,
+        schedule,
+        true,
+        free_collcab,
+        collcabs,
+        cabs,
+        inter_collcabrate,
+        nodes,
+        collrange,
+        submesh_ground_model,
+        [&out_contacts](const InterActorCollisionContact& contact)
+        {
+            out_contacts.TryPush(contact);
+        });
+}
+
+void RoR::ApplyInterActorCollisionContacts(
+        const float dt,
+        const std::vector<InterActorCollisionContact>& contacts)
+{
+    InterActorCollisionResolver resolver(dt);
+    for (const InterActorCollisionContact& contact : contacts)
+        resolver.Apply(contact);
+}
+
+void RoR::ResolveInterActorCollisionContactsSerial(
+        const ActorInstanceID_t surface_actor_id,
+        const float dt,
+        PointColDetector &interPointCD,
+        const InterActorCollisionSchedule& schedule,
+        const bool update_rate_state,
+        const int free_collcab, int collcabs[], int cabs[],
+        collcab_rate_t inter_collcabrate[], node_t nodes[],
+        const float collrange,
+        ground_model_t &submesh_ground_model)
+{
+    InterActorCollisionResolver resolver(dt);
+    DiscoverInterActorCollisionContacts(
+        surface_actor_id,
+        interPointCD,
+        schedule,
+        update_rate_state,
+        free_collcab,
+        collcabs,
+        cabs,
+        inter_collcabrate,
+        nodes,
+        collrange,
+        submesh_ground_model,
+        [&resolver](const InterActorCollisionContact& contact)
+        {
+            resolver.Apply(contact);
+        });
 }
 
 

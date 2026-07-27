@@ -27,6 +27,10 @@
 #include "PlatformUtils.h"
 #include "Application.h"
 
+#if defined(__APPLE__)
+    #include "PlatformUtilsApple.h"
+#endif
+
 #ifdef _MSC_VER
     #include <Windows.h>
     #include <shlobj.h> // SHGetFolderPathW()
@@ -184,6 +188,14 @@ std::string GetUserHomeDirectory()
 
 std::string GetExecutablePath()
 {
+#if defined(__APPLE__)
+    const std::string executable_path = PlatformUtilsDetail::GetAppleExecutablePath();
+    if (executable_path.empty())
+    {
+        RoR::Log("[RoR] Internal error: GetExecutablePath() failed; _NSGetExecutablePath() returned no path");
+    }
+    return executable_path;
+#else
     const int BUF_SIZE = 500;
     std::string buf_str(BUF_SIZE, 0);
     // Linux or POSIX assumed; http://stackoverflow.com/a/625523
@@ -194,6 +206,7 @@ std::string GetExecutablePath()
     }
 
     return std::move(buf_str);
+#endif
 }
 
 void OpenUrlInDefaultBrowser(std::string const& url)

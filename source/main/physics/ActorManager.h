@@ -32,10 +32,13 @@
 #include "SimData.h"
 #include "ThreadPool.h"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace RoR {
+
+struct InterActorContactBufferPool;
 
 /// @addtogroup Physics
 /// @{
@@ -162,6 +165,8 @@ private:
     float               m_simulation_time        = 0.f;   //!< Amount of time the physics simulation is going to be advanced
     bool                m_simulation_paused      = false;
     float               m_total_sim_time         = 0.f;
+    std::uint64_t       m_inter_contact_fallback_count = 0; //!< Logged at powers of two to expose pathological contact sets without per-step spam
+    std::unique_ptr<InterActorContactBufferPool> m_inter_contact_buffers; //!< Reused bounded task storage; avoids allocating at 2 kHz
     FreeForceVec_t      m_free_forces;                    //!< Global forces added ad-hoc by scripts
     FreeForceID_t       m_free_force_next_id     = 0;     //!< Unique ID for each FreeForce
 

@@ -22,7 +22,10 @@
 
 #include "Actor.h"
 #include "ActorManager.h"
+#include "DeterministicContactOrder.h"
 #include "GameContext.h"
+
+#include <algorithm>
 
 using namespace Ogre;
 using namespace RoR;
@@ -75,6 +78,8 @@ void PointColDetector::UpdateInterPoint(bool ignorestate)
             }
         }
     }
+
+    std::sort(collision_partners.begin(), collision_partners.end());
 
     m_actor->ar_collision_relevant = (contacters_size > 0);
 
@@ -152,8 +157,18 @@ void PointColDetector::query(const Vector3 &vec1, const Vector3 &vec2, const Vec
     m_bbmax += enlargeBB;
 
     hit_list.clear();
-    hit_list_actorset.clear();
     queryrec(0, 0);
+    DeterministicContactOrder::SortByKey(
+        hit_list,
+        [this](PointidID_t candidate)
+        {
+            const pointid_t& point_id = hit_pointid_list[candidate];
+            DeterministicContactOrder::PointKey key;
+            key.actor = point_id.actorid;
+            key.node = point_id.nodenum;
+            key.candidate = candidate;
+            return key;
+        });
 }
 
 void PointColDetector::queryrec(int kdindex, int axis)
@@ -173,7 +188,6 @@ void PointColDetector::queryrec(int kdindex, int axis)
                 point[2] >= m_bbmin.z && point[2] <= m_bbmax.z)
             {
                 hit_list.push_back(m_ref_list[m_kdtree[kdindex].refid].pidrefid);
-                hit_list_actorset.insert(hit_pointid_list[m_ref_list[m_kdtree[kdindex].refid].pidrefid].actorid);
             }
             return;
         }
