@@ -242,6 +242,16 @@ schemas/flag masks, the production `Actor` snapshot adapter, per-step artifact
 stream, input recording, pause/resume, and one/eight-worker scene runs are still
 open; the digest kernel alone is not runtime determinism evidence.
 
+For a local kernel stress pass, run
+`ROR_PHYSICS_TEST_REPEAT=30 tools/run-physics-tests.sh`, then repeat with
+both `ROR_PHYSICS_TEST_REPEAT=30` and
+`ROR_PHYSICS_TEST_FAST_MATH=1`. This covers the 120,000-step axial soak,
+fixed-seed contact oracle, one/two/eight-buffer reductions, counter-noise
+threading, and state-digest golden vectors. It deliberately does not claim the
+`simple2` runtime gate: that still requires the production `Actor` snapshot
+adapter, a fixed-step scene driver, per-step artifacts, and worker-count
+control.
+
 Gate D0:
 
 - The broad phase returns the same ordered contact keys as a brute-force oracle

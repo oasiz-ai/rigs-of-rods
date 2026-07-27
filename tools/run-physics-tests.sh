@@ -12,6 +12,19 @@ cleanup() {
 trap cleanup EXIT
 
 physics_test_compiler="${CXX:-c++}"
+physics_test_repeat="${ROR_PHYSICS_TEST_REPEAT:-1}"
+physics_test_fast_math="${ROR_PHYSICS_TEST_FAST_MATH:-0}"
+
+if [[ ! "${physics_test_repeat}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ROR_PHYSICS_TEST_REPEAT must be a positive integer" >&2
+    exit 2
+fi
+
+if [[ "${physics_test_fast_math}" != "0" &&
+      "${physics_test_fast_math}" != "1" ]]; then
+    echo "ROR_PHYSICS_TEST_FAST_MATH must be 0 or 1" >&2
+    exit 2
+fi
 
 common_test_flags=(
     -std=c++11
@@ -22,10 +35,19 @@ common_test_flags=(
     -I"${repository_dir}/source/main/physics"
 )
 
+if [[ "${physics_test_fast_math}" == "1" ]]; then
+    common_test_flags+=(-ffast-math)
+fi
+
 "${physics_test_compiler}" \
     "${common_test_flags[@]}" \
     "${repository_dir}/tests/physics/BeamAxialResponseTests.cpp" \
     -o "${test_build_dir}/beam_axial_response_tests"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    "${repository_dir}/tests/physics/BeamRestLengthScaleTests.cpp" \
+    -o "${test_build_dir}/beam_rest_length_scale_tests"
 
 "${physics_test_compiler}" \
     "${common_test_flags[@]}" \
@@ -43,7 +65,31 @@ common_test_flags=(
     "${repository_dir}/tests/physics/CalibratedBeamMaterialTests.cpp" \
     -o "${test_build_dir}/calibrated_beam_material_tests"
 
-"${test_build_dir}/beam_axial_response_tests"
-"${test_build_dir}/deterministic_counter_noise_tests"
-"${test_build_dir}/deterministic_contact_order_tests"
-"${test_build_dir}/calibrated_beam_material_tests"
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    "${repository_dir}/tests/physics/DeterministicStateDigestTests.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicStateDigest.cpp" \
+    -o "${test_build_dir}/deterministic_state_digest_tests"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    "${repository_dir}/tests/physics/HydroActuatorResponseTests.cpp" \
+    -o "${test_build_dir}/hydro_actuator_response_tests"
+
+physics_test_executables=(
+    beam_axial_response_tests
+    beam_rest_length_scale_tests
+    deterministic_counter_noise_tests
+    deterministic_contact_order_tests
+    deterministic_state_digest_tests
+    calibrated_beam_material_tests
+    hydro_actuator_response_tests
+)
+
+for ((run = 1; run <= physics_test_repeat; ++run)); do
+    for test_executable in "${physics_test_executables[@]}"; do
+        "${test_build_dir}/${test_executable}"
+    done
+done
+
+echo "physics kernel suite passed ${physics_test_repeat} time(s)"
