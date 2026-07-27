@@ -188,6 +188,7 @@ set(SOURCE_FILES
         resources/beamng/BeamNGPackageManifest.{h,cpp}
         resources/beamng/JBeamCoordinateTransform.h
         resources/beamng/JBeamPartResolver.{h,cpp}
+        resources/beamng/JBeamPressureWheelIR.{h,cpp}
         resources/beamng/JBeamStructuralIR.{h,cpp}
         resources/beamng/JBeamSyntax.{h,cpp}
         resources/beamng/JBeamToRigDef.{h,cpp}

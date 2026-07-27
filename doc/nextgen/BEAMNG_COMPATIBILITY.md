@@ -287,6 +287,18 @@ cannot be advertised as native. Unequal per-wheel brake torque, separate
 brake/drivetrain reaction arms, fractional parking-brake input, and per-wheel
 ABS remain disabled until dedicated native systems exist.
 
+The first pressure-wheel implementation is deliberately an inventory boundary,
+not a wheel generator. It retains duplicate-preserving source tables,
+source-order `scale*` process modifiers, controller/powertrain sections, and Lua
+as inert data; validates the required literal geometry and exact documented
+field families; records topology reservations for a possible RoR approximation;
+and labels every accepted row `inventory-only-never-lower`. Immutable
+part/row/field/value-depth/work/byte/diagnostic/canonical-output ceilings apply
+even when a caller requests larger limits. Its canonical identity includes the
+documentation profile and is independent of archive order and container
+capacity. No pressure, friction, brake, powertrain, controller, or generated
+topology behavior is activated by this pass.
+
 ## Powertrain, electrics, and controllers
 
 The official section catalog identifies a `powertrain` section, but the current

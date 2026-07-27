@@ -73,6 +73,14 @@ add_executable(
 )
 
 add_executable(
+    ror_jbeam_pressure_wheel_ir_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamPressureWheelIRTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPressureWheelIR.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
+)
+
+add_executable(
     ror_jbeam_structural_ir_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamStructuralIRTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
@@ -109,6 +117,12 @@ target_include_directories(
 
 target_include_directories(
     ror_jbeam_part_resolver_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+target_include_directories(
+    ror_jbeam_pressure_wheel_ir_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
 )
@@ -196,6 +210,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_hydro_actuator_response_tests
     ror_jbeam_coordinate_transform_tests
     ror_jbeam_part_resolver_tests
+    ror_jbeam_pressure_wheel_ir_tests
     ror_jbeam_structural_ir_tests
     ror_jbeam_syntax_tests
     ror_jbeam_to_rigdef_tests
@@ -286,6 +301,11 @@ add_test(
 add_test(
     NAME jbeam_part_resolver
     COMMAND ror_jbeam_part_resolver_tests
+)
+
+add_test(
+    NAME jbeam_pressure_wheel_ir
+    COMMAND ror_jbeam_pressure_wheel_ir_tests
 )
 
 add_test(

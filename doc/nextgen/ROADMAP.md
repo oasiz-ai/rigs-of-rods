@@ -504,6 +504,17 @@ rate bounds, and finite positive output. Structural `hydros` table lowering,
 native input wiring, save/replay state, force integration, and source-engine
 calibration remain open before the adapter can advertise native behavior.
 
+The first pressure-wheel pass now provides a bounded, deterministic inventory
+of literal `pressureWheels` rows and every relevant source section. It preserves
+exact documented fields, unknowns, duplicate history, source-order `scale*`
+modifiers, controllers, powertrain data, and Lua without executing or lowering
+them. Schema-admissible rows remain explicitly
+`inventory-only-never-lower`; generated topology, pressure, friction, brakes,
+thermals, ABS, and drivetrain behavior are still absent. Hard record, retained
+byte, value depth/work, diagnostic, topology-reservation, and canonical-output
+ceilings plus strict, fast-math, and sanitizer fixtures close this inventory
+boundary without implying J3 driveability.
+
 Imported vehicle Lua and controllers are untrusted data. They never run inside
 the game, editor, converter, tests, or build. A requested behavior becomes
 available only through an allowlisted native implementation with a versioned
