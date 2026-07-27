@@ -25,6 +25,8 @@
 
 #include "ScriptEngine.h"
 
+#include <type_traits>
+
 // AS addons start
 #include "scriptstdstring/scriptstdstring.h"
 #include "scriptmath/scriptmath.h"
@@ -353,12 +355,17 @@ int ScriptEngine::executeContextAndHandleErrors(ScriptUnitID_t nid)
             if (context->GetFunction())
             {
                 SLOG(fmt::format("The script ended with error code asCONTEXT_NOT_PREPARED; Function to execute: {},currently triggered event: {}, NID: {}",
-                    context->GetFunction()->GetName(), fmt::underlying(m_currently_executing_event_trigger), nid));
+                    context->GetFunction()->GetName(),
+                    static_cast<std::underlying_type_t<scriptEvents>>(
+                        m_currently_executing_event_trigger),
+                    nid));
             }
             else
             {
                 SLOG(fmt::format("The script ended with error code asCONTEXT_NOT_PREPARED; Function to execute NOT SET,currently triggered event: {}, NID: {}",
-                    fmt::underlying(m_currently_executing_event_trigger), nid));
+                    static_cast<std::underlying_type_t<scriptEvents>>(
+                        m_currently_executing_event_trigger),
+                    nid));
             }
         }
         else
