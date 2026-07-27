@@ -80,7 +80,14 @@ jobs:
             -DROR_CREATE_CONTENT_FOLDER=ON \
             -DROR_OGRE14=ON
 
-      - name: Build and stage application bundle
+      - name: Build native application and tests
+        run: >-
+          cmake
+          --build build-macos-ogre14
+          --target all
+          --config Release
+
+      - name: Stage application bundle
         run: >-
           cmake
           --build build-macos-ogre14
