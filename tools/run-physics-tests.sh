@@ -72,6 +72,11 @@ fi
 
 "${physics_test_compiler}" \
     "${common_test_flags[@]}" \
+    "${repository_dir}/tests/physics/CalibratedBeamMaterialAdapterTests.cpp" \
+    -o "${test_build_dir}/calibrated_beam_material_adapter_tests"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
     "${repository_dir}/tests/physics/DeterministicStateDigestTests.cpp" \
     "${repository_dir}/source/main/physics/DeterministicStateDigest.cpp" \
     -o "${test_build_dir}/deterministic_state_digest_tests"
@@ -105,6 +110,7 @@ physics_test_executables=(
     deterministic_contact_order_tests
     deterministic_state_digest_tests
     deterministic_state_trace_tests
+    calibrated_beam_material_adapter_tests
     calibrated_beam_material_tests
     hydro_actuator_response_tests
 )

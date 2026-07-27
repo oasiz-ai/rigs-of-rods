@@ -153,7 +153,7 @@ Tyre, suspension, and drivetrain refinements follow the same pattern: isolate a
 model, cite its calibration data, version it, and pass force-slip, energy, and
 step-sensitivity fixtures before changing defaults.
 
-The first P1 kernel now implements a versioned, opt-in-ready uniaxial
+The first P1 kernel implements a versioned uniaxial
 elastoplastic damage law in SI units. It uses a closed-form backward-Euler
 return map, isotropic hardening, accumulated plastic strain, monotonic damage,
 and a finite post-onset damage-driver capacity. This local capacity is not
@@ -167,11 +167,35 @@ gates; characteristic length alone is not proof of mesh objectivity.
 Dependency-free
 analytical, cyclic-regression,
 exact energy-balance, reversal, tangent, fracture-event, subdivision, malformed
-state, and fixed-seed property tests pass under strict C++11 and fast-math
-sanitizers. It is not yet wired into `Actor`: cross-sectional-area/rest-length
-adaptation, assembled momentum, authored material parsing, save/replay state,
-starter-content calibration, and the Agora impact regression remain open before
-P1 can change any runtime default.
+state, and fixed-seed property tests pass under strict C++11, fast-math, and
+sanitizer builds.
+
+The first production adapter is now wired into both local and inter-actor
+`Actor` axial-beam paths as an explicit per-beam opt-in. It maps SI stress to
+force using configured cross-sectional area and the beam's reference length, so
+its elastic force/displacement slope is `E A / L`. Plastic strain, accumulated
+plastic strain, damage, damage-driver density, last total strain, and fracture
+state live on each beam. Actor reset clears that history while preserving a
+validated opt-in configuration. Successful fracture disconnects both material
+and damping forces and enters the existing beam-break path. Every assembled
+force pair is generated equal-and-opposite, and invalid geometry,
+configuration, history, material response, or float-runtime force range latches
+the calibrated beam fault closed instead of silently reverting to the legacy
+law. A faulted production beam is disabled; deterministic snapshots therefore
+record its disabled flag and unchanged material history when that history is
+finite. Corrupted non-finite history makes the canonical snapshot fail, rather
+than admitting a NaN payload into a digest. The digest schema does not yet
+distinguish a runtime fault from another disabled beam.
+
+This opt-in is currently **programmatic only**, through
+`CalibratedBeamMaterialAdapter::TryConfigure()`. No native truck directive,
+BeamNG lowering rule, UI, or shipped vehicle enables it, so all existing
+content continues through the unchanged legacy spring/deformation branch.
+Authored parsing and validation, savegame and replay restoration, calibrated
+material datasets, mesh-refinement/localization validation, the three-step-size
+fixture comparison, starter-content tuning, and the versioned Agora impact
+regression remain open. P1 is not complete and cannot become a runtime default
+until those gates pass.
 
 ## D0 — Deterministic collision and replay
 

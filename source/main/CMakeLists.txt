@@ -150,6 +150,7 @@ set(SOURCE_FILES
         physics/BeamAxialResponse.h
         physics/BeamRestLengthScale.h
         physics/CalibratedBeamMaterial.h
+        physics/CalibratedBeamMaterialAdapter.h
         physics/DeterministicContactOrder.h
         physics/DeterministicCounterNoise.h
         physics/DeterministicFixedStepCadence.h

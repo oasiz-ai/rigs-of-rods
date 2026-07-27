@@ -30,6 +30,7 @@
 #pragma once
 
 #include "Application.h"
+#include "CalibratedBeamMaterialAdapter.h"
 #include "ForwardDeclarations.h"
 #include "SimConstants.h"
 #include "BitFlags.h"
@@ -317,6 +318,7 @@ struct beam_t
     float           strength = 0.f;
     float           stress = 0.f;
     float           plastic_coef = 0.f;
+    CalibratedBeamMaterialAdapter::Runtime calibrated_material;
     int             detacher_group = DEFAULT_DETACHER_GROUP; //!< Attribute: detacher group number (integer)
     SpecialBeam     bounded = SpecialBeam::NOSHOCK;
     BeamType        bm_type = BeamType::BEAM_NORMAL;

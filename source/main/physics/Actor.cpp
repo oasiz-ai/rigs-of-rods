@@ -1705,6 +1705,8 @@ void Actor::SyncReset(bool reset_position)
         ar_beams[i].stress          = 0.0;
         ar_beams[i].bm_broken       = false;
         ar_beams[i].bm_disabled     = false;
+        CalibratedBeamMaterialAdapter::ResetHistory(
+            ar_beams[i].calibrated_material);
     }
 
     this->applyNodeBeamScales();

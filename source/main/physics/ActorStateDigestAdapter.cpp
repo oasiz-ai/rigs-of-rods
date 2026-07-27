@@ -176,19 +176,46 @@ public:
         beam.beam_id = beam_index;
         beam.rest_length = source_beam.L;
         beam.stress = source_beam.stress;
-        // Actor's current beam_t has no P1 material-history state. Schema zero
-        // keeps the absence explicit until the material adapter lands.
-        beam.material_schema_version = BEAM_MATERIAL_SCHEMA_NONE;
-        beam.plastic_strain = 0.0;
-        beam.accumulated_plastic_strain = 0.0;
-        beam.damage = 0.0;
-        beam.damage_driver_density = 0.0;
-        beam.last_total_strain = 0.0;
+        if (source_beam.calibrated_material.enabled)
+        {
+            beam.material_schema_version =
+                BEAM_MATERIAL_SCHEMA_CALIBRATED_V1;
+            const CalibratedBeamMaterial::State& material_state =
+                source_beam.calibrated_material.state;
+            beam.plastic_strain = material_state.plastic_strain;
+            beam.accumulated_plastic_strain =
+                material_state.accumulated_plastic_strain;
+            beam.damage = material_state.damage;
+            beam.damage_driver_density =
+                material_state.damage_driver_density;
+            beam.last_total_strain =
+                material_state.last_total_strain;
+        }
+        else
+        {
+            beam.material_schema_version =
+                BEAM_MATERIAL_SCHEMA_NONE;
+            beam.plastic_strain = 0.0;
+            beam.accumulated_plastic_strain = 0.0;
+            beam.damage = 0.0;
+            beam.damage_driver_density = 0.0;
+            beam.last_total_strain = 0.0;
+        }
         beam.state_flags = 0;
+        // A fail-closed calibrated beam is disabled by the production force
+        // path, so schema v1 captures the disabled bit plus its unchanged
+        // finite material history. The builder rejects non-finite corrupted
+        // history. A dedicated material-fault bit requires a future digest
+        // schema revision.
         if (source_beam.bm_disabled)
             beam.state_flags |= BEAM_STATE_DISABLED;
         if (source_beam.bm_broken)
             beam.state_flags |= BEAM_STATE_BROKEN;
+        if (source_beam.calibrated_material.enabled &&
+            source_beam.calibrated_material.state.fractured)
+        {
+            beam.state_flags |= BEAM_STATE_MATERIAL_FRACTURED;
+        }
         return true;
     }
 

@@ -27,6 +27,7 @@
 #include "ActorManager.h"
 #include "BeamAxialResponse.h"
 #include "Buoyance.h"
+#include "CalibratedBeamMaterialAdapter.h"
 #include "CmdKeyInertia.h"
 #include "Collisions.h"
 #include "Console.h"
@@ -1265,6 +1266,17 @@ void Actor::CalcBeams(bool trigger_hooks)
             Real dislen = dis.squaredLength();
             if (!BeamAxialResponse::HasUsableLength(dislen))
             {
+                if (ar_beams[i].calibrated_material.enabled)
+                {
+                    CalibratedBeamMaterialAdapter::LatchFailure(
+                        ar_beams[i].calibrated_material,
+                        BeamAxialResponse::IsFinite(dislen)
+                            ? CalibratedBeamMaterialAdapter::Error::
+                                INVALID_CURRENT_LENGTH
+                            : CalibratedBeamMaterialAdapter::Error::
+                                NONFINITE_INPUT);
+                    ar_beams[i].bm_disabled = true;
+                }
                 ar_beams[i].stress = 0.0f;
                 ar_beams[i].debug_k = 0.0f;
                 ar_beams[i].debug_d = 0.0f;
@@ -1280,84 +1292,92 @@ void Actor::CalcBeams(bool trigger_hooks)
 
             Real k = ar_beams[i].k;
             Real d = ar_beams[i].d;
+            const bool use_calibrated_material =
+                ar_beams[i].calibrated_material.enabled;
 
             // Calculate beam's rate of change
             float v = (ar_beams[i].p1->Velocity - ar_beams[i].p2->Velocity).dotProduct(dis) * inverted_dislen;
 
-            if (ar_beams[i].bounded == SHOCK1)
+            // A calibrated material is valid only for a plain axial beam.
+            // Do not execute a special-beam legacy law before the adapter can
+            // reject and latch an unsupported authored combination.
+            if (!use_calibrated_material)
             {
-                float interp_ratio = 0.0f;
-
-                // Following code interpolates between defined beam parameters and default beam parameters
-                if (difftoBeamL > ar_beams[i].longbound * ar_beams[i].L)
-                    interp_ratio = difftoBeamL - ar_beams[i].longbound * ar_beams[i].L;
-                else if (difftoBeamL < -ar_beams[i].shortbound * ar_beams[i].L)
-                    interp_ratio = -difftoBeamL - ar_beams[i].shortbound * ar_beams[i].L;
-
-                if (interp_ratio != 0.0f)
+                if (ar_beams[i].bounded == SHOCK1)
                 {
-                    // Hard (normal) shock bump
-                    float tspring = DEFAULT_SPRING;
-                    float tdamp = DEFAULT_DAMP;
+                    float interp_ratio = 0.0f;
 
-                    // Skip camera, wheels or any other shocks which are not generated in a shocks or shocks2 section
-                    if (ar_beams[i].bm_type == BEAM_HYDRO)
-                    {
-                        tspring = ar_beams[i].shock->sbd_spring;
-                        tdamp = ar_beams[i].shock->sbd_damp;
-                    }
+                    // Following code interpolates between defined beam parameters and default beam parameters
+                    if (difftoBeamL > ar_beams[i].longbound * ar_beams[i].L)
+                        interp_ratio = difftoBeamL - ar_beams[i].longbound * ar_beams[i].L;
+                    else if (difftoBeamL < -ar_beams[i].shortbound * ar_beams[i].L)
+                        interp_ratio = -difftoBeamL - ar_beams[i].shortbound * ar_beams[i].L;
 
-                    k += (tspring - k) * interp_ratio;
-                    d += (tdamp - d) * interp_ratio;
-                }
-            }
-            else if (ar_beams[i].bounded == TRIGGER)
-            {
-                this->CalcTriggers(i, difftoBeamL, trigger_hooks);
-            }
-            else if (ar_beams[i].bounded == SHOCK2)
-            {
-                this->CalcShocks2(i, difftoBeamL, k, d, v);
-            }
-            else if (ar_beams[i].bounded == SHOCK3)
-            {
-                this->CalcShocks3(i, difftoBeamL, k, d, v);
-            }
-            else if (ar_beams[i].bounded == SUPPORTBEAM)
-            {
-                if (difftoBeamL > 0.0f)
-                {
-                    k = 0.0f;
-                    d *= 0.1f;
-                    float break_limit = SUPPORT_BEAM_LIMIT_DEFAULT;
-                    if (ar_beams[i].longbound > 0.0f)
+                    if (interp_ratio != 0.0f)
                     {
-                        // This is a supportbeam with a user set break limit, get the user set limit
-                        break_limit = ar_beams[i].longbound;
-                    }
+                        // Hard (normal) shock bump
+                        float tspring = DEFAULT_SPRING;
+                        float tdamp = DEFAULT_DAMP;
 
-                    // If support beam is extended the originallength * break_limit, break and disable it
-                    if (difftoBeamL > ar_beams[i].L * break_limit)
-                    {
-                        ar_beams[i].bm_broken = true;
-                        ar_beams[i].bm_disabled = true;
-                        if (m_beam_break_debug_enabled)
+                        // Skip camera, wheels or any other shocks which are not generated in a shocks or shocks2 section
+                        if (ar_beams[i].bm_type == BEAM_HYDRO)
                         {
-                            RoR::Str<300> msg;
-                            msg << "[RoR|Diag] XXX Support-Beam " << i << " limit extended and broke. "
-                                << "Length: " << difftoBeamL << " / max. Length: " << (ar_beams[i].L*break_limit) << ". ";
-                            LogBeamNodes(msg, ar_beams[i]);
-                            App::GetConsole()->putMessage(Console::CONSOLE_MSGTYPE_ACTOR, Console::CONSOLE_SYSTEM_NOTICE, msg.ToCStr());
+                            tspring = ar_beams[i].shock->sbd_spring;
+                            tdamp = ar_beams[i].shock->sbd_damp;
+                        }
+
+                        k += (tspring - k) * interp_ratio;
+                        d += (tdamp - d) * interp_ratio;
+                    }
+                }
+                else if (ar_beams[i].bounded == TRIGGER)
+                {
+                    this->CalcTriggers(i, difftoBeamL, trigger_hooks);
+                }
+                else if (ar_beams[i].bounded == SHOCK2)
+                {
+                    this->CalcShocks2(i, difftoBeamL, k, d, v);
+                }
+                else if (ar_beams[i].bounded == SHOCK3)
+                {
+                    this->CalcShocks3(i, difftoBeamL, k, d, v);
+                }
+                else if (ar_beams[i].bounded == SUPPORTBEAM)
+                {
+                    if (difftoBeamL > 0.0f)
+                    {
+                        k = 0.0f;
+                        d *= 0.1f;
+                        float break_limit = SUPPORT_BEAM_LIMIT_DEFAULT;
+                        if (ar_beams[i].longbound > 0.0f)
+                        {
+                            // This is a supportbeam with a user set break limit, get the user set limit
+                            break_limit = ar_beams[i].longbound;
+                        }
+
+                        // If support beam is extended the originallength * break_limit, break and disable it
+                        if (difftoBeamL > ar_beams[i].L * break_limit)
+                        {
+                            ar_beams[i].bm_broken = true;
+                            ar_beams[i].bm_disabled = true;
+                            if (m_beam_break_debug_enabled)
+                            {
+                                RoR::Str<300> msg;
+                                msg << "[RoR|Diag] XXX Support-Beam " << i << " limit extended and broke. "
+                                    << "Length: " << difftoBeamL << " / max. Length: " << (ar_beams[i].L*break_limit) << ". ";
+                                LogBeamNodes(msg, ar_beams[i]);
+                                App::GetConsole()->putMessage(Console::CONSOLE_MSGTYPE_ACTOR, Console::CONSOLE_SYSTEM_NOTICE, msg.ToCStr());
+                            }
                         }
                     }
                 }
-            }
-            else if (ar_beams[i].bounded == ROPE)
-            {
-                if (difftoBeamL < 0.0f)
+                else if (ar_beams[i].bounded == ROPE)
                 {
-                    k = 0.0f;
-                    d *= 0.1f;
+                    if (difftoBeamL < 0.0f)
+                    {
+                        k = 0.0f;
+                        d *= 0.1f;
+                    }
                 }
             }
 
@@ -1371,21 +1391,70 @@ void Actor::CalcBeams(bool trigger_hooks)
                     !ar_beams[i].p1->nd_immovable,
                     !ar_beams[i].p2->nd_immovable);
 
-            if (trigger_hooks && ar_beams[i].bounded && ar_beams[i].bm_type == BEAM_HYDRO)
+            if (!use_calibrated_material &&
+                trigger_hooks &&
+                ar_beams[i].bounded &&
+                ar_beams[i].bm_type == BEAM_HYDRO)
             {
                 ar_beams[i].debug_k = k * std::abs(difftoBeamL);
                 ar_beams[i].debug_d = std::abs(damping_response.force);
                 ar_beams[i].debug_v = std::abs(v);
             }
 
-            float slen = -k * difftoBeamL + damping_response.force;
+            CalibratedBeamMaterialAdapter::StepResult
+                calibrated_response;
+            bool material_fractured = false;
+            float slen = 0.0f;
+            if (use_calibrated_material)
+            {
+                CalibratedBeamMaterialAdapter::StepInput input;
+                input.reference_length_m = ar_beams[i].refL;
+                input.current_length_m = dislen;
+                input.damping_force_n = damping_response.force;
+                input.direction = {{
+                    static_cast<double>(dis.x) * inverted_dislen,
+                    static_cast<double>(dis.y) * inverted_dislen,
+                    static_cast<double>(dis.z) * inverted_dislen
+                }};
+                input.is_plain_axial_beam =
+                    ar_beams[i].bm_type == BEAM_NORMAL &&
+                    ar_beams[i].bounded == NOSHOCK;
+                calibrated_response =
+                    CalibratedBeamMaterialAdapter::Step(
+                        ar_beams[i].calibrated_material,
+                        input);
+                if (!calibrated_response.IsValid())
+                {
+                    // Never fall back to the legacy law after an explicit
+                    // calibrated-material opt-in fails validation.
+                    ar_beams[i].stress = 0.0f;
+                    ar_beams[i].debug_k = 0.0f;
+                    ar_beams[i].debug_d = 0.0f;
+                    ar_beams[i].debug_v = 0.0f;
+                    ar_beams[i].bm_disabled = true;
+                    continue;
+                }
+                slen = static_cast<float>(
+                    calibrated_response.axial_force_n);
+                material_fractured =
+                    calibrated_response.fractured;
+            }
+            else
+            {
+                slen = -k * difftoBeamL + damping_response.force;
+            }
             ar_beams[i].stress = slen;
 
             // Fast test for deformation
             float len = std::abs(slen);
-            if (len > ar_beams[i].minmaxposnegstress)
+            if (material_fractured ||
+                (!use_calibrated_material &&
+                    len > ar_beams[i].minmaxposnegstress))
             {
-                if (ar_beams[i].bm_type == BEAM_NORMAL && ar_beams[i].bounded != SHOCK1 && k != 0.0f)
+                if (!use_calibrated_material &&
+                    ar_beams[i].bm_type == BEAM_NORMAL &&
+                    ar_beams[i].bounded != SHOCK1 &&
+                    k != 0.0f)
                 {
                     // Actual deformation tests
                     if (slen > ar_beams[i].maxposstress && difftoBeamL < 0.0f) // compression
@@ -1442,7 +1511,9 @@ void Actor::CalcBeams(bool trigger_hooks)
                 }
 
                 // Test if the beam should break
-                if (len > ar_beams[i].strength)
+                if (material_fractured ||
+                    (!use_calibrated_material &&
+                        len > ar_beams[i].strength))
                 {
                     // Sound effect.
                     // Sound volume depends on springs stored energy
@@ -1452,9 +1523,17 @@ void Actor::CalcBeams(bool trigger_hooks)
                     //Break the beam only when it is not connected to a node
                     //which is a part of a collision triangle and has 2 "live" beams or less
                     //connected to it.
-                    if (!((ar_beams[i].p1->nd_cab_node && GetNumActiveConnectedBeams(ar_beams[i].p1->pos) < 3) || (ar_beams[i].p2->nd_cab_node && GetNumActiveConnectedBeams(ar_beams[i].p2->pos) < 3)))
+                    if (use_calibrated_material ||
+                        !((ar_beams[i].p1->nd_cab_node &&
+                                GetNumActiveConnectedBeams(
+                                    ar_beams[i].p1->pos) < 3) ||
+                            (ar_beams[i].p2->nd_cab_node &&
+                                GetNumActiveConnectedBeams(
+                                    ar_beams[i].p2->pos) < 3)))
                     {
                         slen = 0.0f;
+                        if (use_calibrated_material)
+                            ar_beams[i].stress = 0.0f;
                         ar_beams[i].bm_broken = true;
                         ar_beams[i].bm_disabled = true;
 
@@ -1522,8 +1601,22 @@ void Actor::CalcBeams(bool trigger_hooks)
             }
 
             // At last update the beam forces
-            Vector3 f = dis;
-            f *= (slen * inverted_dislen);
+            Vector3 f;
+            if (use_calibrated_material)
+            {
+                f = Vector3(
+                    static_cast<Real>(
+                        calibrated_response.forces.endpoint_1[0]),
+                    static_cast<Real>(
+                        calibrated_response.forces.endpoint_1[1]),
+                    static_cast<Real>(
+                        calibrated_response.forces.endpoint_1[2]));
+            }
+            else
+            {
+                f = dis;
+                f *= (slen * inverted_dislen);
+            }
             ar_beams[i].p1->Forces += f;
             ar_beams[i].p2->Forces -= f;
         }
@@ -1542,6 +1635,18 @@ void Actor::CalcBeamsInterActor()
             Real dislen = dis.squaredLength();
             if (!BeamAxialResponse::HasUsableLength(dislen))
             {
+                if (ar_inter_beams[i]->
+                        calibrated_material.enabled)
+                {
+                    CalibratedBeamMaterialAdapter::LatchFailure(
+                        ar_inter_beams[i]->calibrated_material,
+                        BeamAxialResponse::IsFinite(dislen)
+                            ? CalibratedBeamMaterialAdapter::Error::
+                                INVALID_CURRENT_LENGTH
+                            : CalibratedBeamMaterialAdapter::Error::
+                                NONFINITE_INPUT);
+                    ar_inter_beams[i]->bm_disabled = true;
+                }
                 ar_inter_beams[i]->stress = 0.0f;
                 continue;
             }
@@ -1554,8 +1659,12 @@ void Actor::CalcBeamsInterActor()
 
             Real k = ar_inter_beams[i]->k;
             Real d = ar_inter_beams[i]->d;
+            const bool use_calibrated_material =
+                ar_inter_beams[i]->calibrated_material.enabled;
 
-            if (ar_inter_beams[i]->bounded == ROPE && difftoBeamL < 0.0f)
+            if (!use_calibrated_material &&
+                ar_inter_beams[i]->bounded == ROPE &&
+                difftoBeamL < 0.0f)
             {
                 k = 0.0f;
                 d *= 0.1f;
@@ -1574,14 +1683,57 @@ void Actor::CalcBeamsInterActor()
                     !ar_inter_beams[i]->p1->nd_immovable,
                     !ar_inter_beams[i]->p2->nd_immovable);
 
-            float slen = -k * difftoBeamL + damping_response.force;
+            CalibratedBeamMaterialAdapter::StepResult
+                calibrated_response;
+            bool material_fractured = false;
+            float slen = 0.0f;
+            if (use_calibrated_material)
+            {
+                CalibratedBeamMaterialAdapter::StepInput input;
+                input.reference_length_m =
+                    ar_inter_beams[i]->refL;
+                input.current_length_m = dislen;
+                input.damping_force_n = damping_response.force;
+                input.direction = {{
+                    static_cast<double>(dis.x) * inverted_dislen,
+                    static_cast<double>(dis.y) * inverted_dislen,
+                    static_cast<double>(dis.z) * inverted_dislen
+                }};
+                input.is_plain_axial_beam =
+                    ar_inter_beams[i]->bm_type == BEAM_NORMAL &&
+                    ar_inter_beams[i]->bounded == NOSHOCK;
+                calibrated_response =
+                    CalibratedBeamMaterialAdapter::Step(
+                        ar_inter_beams[i]->calibrated_material,
+                        input);
+                if (!calibrated_response.IsValid())
+                {
+                    ar_inter_beams[i]->stress = 0.0f;
+                    ar_inter_beams[i]->bm_disabled = true;
+                    continue;
+                }
+                slen = static_cast<float>(
+                    calibrated_response.axial_force_n);
+                material_fractured =
+                    calibrated_response.fractured;
+            }
+            else
+            {
+                slen = -k * difftoBeamL + damping_response.force;
+            }
             ar_inter_beams[i]->stress = slen;
 
             // Fast test for deformation
             float len = std::abs(slen);
-            if (len > ar_inter_beams[i]->minmaxposnegstress)
+            if (material_fractured ||
+                (!use_calibrated_material &&
+                    len >
+                        ar_inter_beams[i]->minmaxposnegstress))
             {
-                if (ar_inter_beams[i]->bm_type == BEAM_NORMAL && ar_inter_beams[i]->bounded != SHOCK1 && k != 0.0f)
+                if (!use_calibrated_material &&
+                    ar_inter_beams[i]->bm_type == BEAM_NORMAL &&
+                    ar_inter_beams[i]->bounded != SHOCK1 &&
+                    k != 0.0f)
                 {
                     // Actual deformation tests
                     if (slen > ar_inter_beams[i]->maxposstress && difftoBeamL < 0.0f) // compression
@@ -1638,7 +1790,9 @@ void Actor::CalcBeamsInterActor()
                 }
 
                 // Test if the beam should break
-                if (len > ar_inter_beams[i]->strength)
+                if (material_fractured ||
+                    (!use_calibrated_material &&
+                        len > ar_inter_beams[i]->strength))
                 {
                     // Sound effect.
                     // Sound volume depends on springs stored energy
@@ -1648,9 +1802,17 @@ void Actor::CalcBeamsInterActor()
                     //Break the beam only when it is not connected to a node
                     //which is a part of a collision triangle and has 2 "live" beams or less
                     //connected to it.
-                    if (!((ar_inter_beams[i]->p1->nd_cab_node && GetNumActiveConnectedBeams(ar_inter_beams[i]->p1->pos) < 3) || (ar_inter_beams[i]->p2->nd_cab_node && GetNumActiveConnectedBeams(ar_inter_beams[i]->p2->pos) < 3)))
+                    if (use_calibrated_material ||
+                        !((ar_inter_beams[i]->p1->nd_cab_node &&
+                                GetNumActiveConnectedBeams(
+                                    ar_inter_beams[i]->p1->pos) < 3) ||
+                            (ar_inter_beams[i]->p2->nd_cab_node &&
+                                GetNumActiveConnectedBeams(
+                                    ar_inter_beams[i]->p2->pos) < 3)))
                     {
                         slen = 0.0f;
+                        if (use_calibrated_material)
+                            ar_inter_beams[i]->stress = 0.0f;
                         ar_inter_beams[i]->bm_broken = true;
                         ar_inter_beams[i]->bm_disabled = true;
 
@@ -1670,8 +1832,22 @@ void Actor::CalcBeamsInterActor()
             }
 
             // At last update the beam forces
-            Vector3 f = dis;
-            f *= (slen * inverted_dislen);
+            Vector3 f;
+            if (use_calibrated_material)
+            {
+                f = Vector3(
+                    static_cast<Real>(
+                        calibrated_response.forces.endpoint_1[0]),
+                    static_cast<Real>(
+                        calibrated_response.forces.endpoint_1[1]),
+                    static_cast<Real>(
+                        calibrated_response.forces.endpoint_1[2]));
+            }
+            else
+            {
+                f = dis;
+                f *= (slen * inverted_dislen);
+            }
             ar_inter_beams[i]->p1->Forces += f;
             ar_inter_beams[i]->p2->Forces -= f;
         }

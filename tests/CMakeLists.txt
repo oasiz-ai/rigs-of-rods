@@ -71,6 +71,11 @@ add_executable(
 )
 
 add_executable(
+    ror_calibrated_beam_material_adapter_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamMaterialAdapterTests.cpp"
+)
+
+add_executable(
     ror_hydro_actuator_response_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/HydroActuatorResponseTests.cpp"
 )
@@ -305,6 +310,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_beam_axial_response_tests
     ror_beam_rest_length_scale_tests
     ror_beamng_package_manifest_tests
+    ror_calibrated_beam_material_adapter_tests
     ror_calibrated_beam_material_tests
     ror_deterministic_contact_order_tests
     ror_deterministic_counter_noise_tests
@@ -410,6 +416,11 @@ add_test(
 add_test(
     NAME calibrated_beam_material
     COMMAND ror_calibrated_beam_material_tests
+)
+
+add_test(
+    NAME calibrated_beam_material_adapter
+    COMMAND ror_calibrated_beam_material_adapter_tests
 )
 
 add_test(

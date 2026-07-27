@@ -105,9 +105,18 @@ fail closed with zero force response and the previous history state intact.
 Analytical elastic/yield fixtures, a versioned cyclic-load regression, exact
 energy balance, reversal, finite-difference tangent, fracture monotonicity,
 one-through-1,000-step subdivision checks, and fixed-seed property histories
-cover the isolated law. Actor beam adaptation, assembled force/momentum checks,
-save/replay integration, content calibration, and the Agora impact regression
-remain separate P1 gates.
+cover the isolated law. The separate SI beam-adapter fixture covers explicit
+programmatic opt-in, `E A / L` stiffness, tension/compression force signs,
+viscous-force composition, plastic residual strain, reset semantics, fracture
+disconnect, atomic configuration, latched malformed-state failures, runtime
+float-range rejection, and 50,000 fixed-seed equal-and-opposite force pairs
+under strict and fast-math builds.
+
+The adapter is wired into `Actor`, but there is intentionally no authored
+truck/JBeam parser or shipped material configuration yet; legacy beams remain
+the default. Savegame/replay restoration, authored calibration data,
+mesh-refinement/localization gates, step-size comparison, starter-content
+calibration, and the Agora impact regression remain separate P1 gates.
 
 ## Bounded hydro actuator response
 
