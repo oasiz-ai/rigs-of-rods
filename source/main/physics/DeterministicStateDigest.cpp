@@ -17,10 +17,13 @@
 
 #include "DeterministicStateDigest.h"
 
+#include <algorithm>
 #include <cstring>
 #include <iomanip>
 #include <limits>
+#include <new>
 #include <sstream>
+#include <vector>
 
 namespace {
 
@@ -83,6 +86,33 @@ bool ContactLess(
     if (left.hit_actor != right.hit_actor)
         return left.hit_actor < right.hit_actor;
     return left.hit_node < right.hit_node;
+}
+
+struct OrderedSnapshotActor
+{
+    std::size_t source_index;
+    RoR::DeterministicStateDigest::SnapshotActor snapshot;
+};
+
+bool OrderedSnapshotActorLess(
+    const OrderedSnapshotActor& left,
+    const OrderedSnapshotActor& right)
+{
+    return left.snapshot.actor.actor_id <
+        right.snapshot.actor.actor_id;
+}
+
+struct OrderedSnapshotContact
+{
+    std::size_t source_index;
+    RoR::DeterministicStateDigest::ContactRecord contact;
+};
+
+bool OrderedSnapshotContactLess(
+    const OrderedSnapshotContact& left,
+    const OrderedSnapshotContact& right)
+{
+    return ContactLess(left.contact, right.contact);
 }
 
 const std::uint32_t SHA256_CONSTANTS[64] = {
@@ -200,6 +230,26 @@ ContactRecord::ContactRecord():
     surface_contact(0),
     hit_actor(0),
     hit_node(0)
+{
+}
+
+SnapshotActor::SnapshotActor():
+    actor(),
+    node_count(0),
+    beam_count(0),
+    surface_contact_count(0)
+{
+}
+
+SnapshotSource::~SnapshotSource()
+{
+}
+
+SnapshotStatus::SnapshotStatus():
+    error(SnapshotError::NONE),
+    digest_error(Error::NONE),
+    source_index(std::numeric_limits<std::size_t>::max()),
+    record_index(0)
 {
 }
 
@@ -324,7 +374,9 @@ bool Builder::AddActor(const ActorRecord& record)
         return Fail(Error::INVALID_SECTION_ORDER, m_observed_count);
     if (m_observed_count >= m_expected_count)
         return Fail(Error::COUNT_MISMATCH, m_observed_count);
-    if (record.actor_id < 0)
+    if (record.actor_id < 0 ||
+        record.state > ACTOR_STATE_DISPOSED ||
+        (record.flags & ~ACTOR_FLAG_MASK) != 0)
         return Fail(Error::INVALID_RECORD, m_observed_count);
     if (m_has_previous_key && record.actor_id <= m_previous_actor_id)
         return Fail(Error::NON_CANONICAL_KEY, m_observed_count);
@@ -445,6 +497,22 @@ bool Builder::AddBeam(const BeamRecord& record)
                 m_observed_count) ||
             !RequireFinite(record.last_total_strain, m_observed_count))
         return false;
+    if (record.material_schema_version >
+            BEAM_MATERIAL_SCHEMA_CALIBRATED_V1 ||
+        (record.state_flags & ~BEAM_STATE_MASK) != 0)
+    {
+        return Fail(Error::INVALID_RECORD, m_observed_count);
+    }
+    if (record.material_schema_version == BEAM_MATERIAL_SCHEMA_NONE &&
+        ((record.state_flags & BEAM_STATE_MATERIAL_FRACTURED) != 0 ||
+         ExactBinary64Bits(record.plastic_strain) != 0 ||
+         ExactBinary64Bits(record.accumulated_plastic_strain) != 0 ||
+         ExactBinary64Bits(record.damage) != 0 ||
+         ExactBinary64Bits(record.damage_driver_density) != 0 ||
+         ExactBinary64Bits(record.last_total_strain) != 0))
+    {
+        return Fail(Error::INVALID_RECORD, m_observed_count);
+    }
 
     HashI32(record.actor_id);
     HashU32(record.beam_id);
@@ -521,6 +589,345 @@ Error Builder::GetError() const
 std::uint32_t Builder::GetErrorRecordIndex() const
 {
     return m_error_record_index;
+}
+
+bool BuildSnapshotDigest(
+    std::uint64_t physics_step,
+    std::uint64_t scenario_id,
+    const SnapshotSource& source,
+    Digest& digest,
+    SnapshotStatus* status)
+{
+    SnapshotStatus local_status;
+    const auto fail =
+        [&local_status, status](
+            SnapshotError error,
+            std::size_t source_index,
+            std::uint32_t record_index,
+            Error digest_error)
+        {
+            local_status.error = error;
+            local_status.digest_error = digest_error;
+            local_status.source_index = source_index;
+            local_status.record_index = record_index;
+            if (status != nullptr)
+                *status = local_status;
+            return false;
+        };
+
+    const std::size_t actor_count = source.GetActorCount();
+    const std::size_t contact_count = source.GetContactCount();
+    if (actor_count > MAX_ACTORS || contact_count > MAX_CONTACTS)
+    {
+        return fail(
+            SnapshotError::COUNT_LIMIT_EXCEEDED,
+            std::numeric_limits<std::size_t>::max(),
+            0,
+            Error::NONE);
+    }
+
+    std::vector<OrderedSnapshotActor> actors;
+    std::vector<OrderedSnapshotContact> contacts;
+    try
+    {
+        actors.reserve(actor_count);
+        contacts.reserve(contact_count);
+    }
+    catch (const std::bad_alloc&)
+    {
+        return fail(
+            SnapshotError::ALLOCATION_FAILED,
+            std::numeric_limits<std::size_t>::max(),
+            0,
+            Error::NONE);
+    }
+
+    std::uint32_t total_nodes = 0;
+    std::uint32_t total_beams = 0;
+    for (std::size_t source_index = 0;
+            source_index < actor_count;
+            ++source_index)
+    {
+        OrderedSnapshotActor ordered;
+        ordered.source_index = source_index;
+        if (!source.ReadActor(source_index, ordered.snapshot))
+        {
+            return fail(
+                SnapshotError::SOURCE_READ_FAILED,
+                source_index,
+                0,
+                Error::NONE);
+        }
+        if (ordered.snapshot.actor.actor_id <= 0)
+        {
+            return fail(
+                SnapshotError::INVALID_ACTOR_ID,
+                source_index,
+                0,
+                Error::NONE);
+        }
+        if (ordered.snapshot.node_count > MAX_NODES - total_nodes ||
+            ordered.snapshot.beam_count > MAX_BEAMS - total_beams)
+        {
+            return fail(
+                SnapshotError::COUNT_LIMIT_EXCEEDED,
+                source_index,
+                0,
+                Error::NONE);
+        }
+        total_nodes += ordered.snapshot.node_count;
+        total_beams += ordered.snapshot.beam_count;
+        try
+        {
+            actors.push_back(ordered);
+        }
+        catch (const std::bad_alloc&)
+        {
+            return fail(
+                SnapshotError::ALLOCATION_FAILED,
+                source_index,
+                0,
+                Error::NONE);
+        }
+    }
+
+    std::sort(
+        actors.begin(),
+        actors.end(),
+        OrderedSnapshotActorLess);
+    for (std::size_t index = 1; index < actors.size(); ++index)
+    {
+        if (actors[index - 1].snapshot.actor.actor_id ==
+            actors[index].snapshot.actor.actor_id)
+        {
+            return fail(
+                SnapshotError::DUPLICATE_ACTOR_ID,
+                actors[index].source_index,
+                0,
+                Error::NONE);
+        }
+    }
+
+    Builder builder(physics_step, scenario_id);
+    if (!builder.BeginActors(static_cast<std::uint32_t>(actor_count)))
+    {
+        return fail(
+            SnapshotError::DIGEST_REJECTED,
+            std::numeric_limits<std::size_t>::max(),
+            builder.GetErrorRecordIndex(),
+            builder.GetError());
+    }
+    for (const OrderedSnapshotActor& ordered : actors)
+    {
+        if (!builder.AddActor(ordered.snapshot.actor))
+        {
+            return fail(
+                SnapshotError::DIGEST_REJECTED,
+                ordered.source_index,
+                builder.GetErrorRecordIndex(),
+                builder.GetError());
+        }
+    }
+
+    if (!builder.BeginNodes(total_nodes))
+    {
+        return fail(
+            SnapshotError::DIGEST_REJECTED,
+            std::numeric_limits<std::size_t>::max(),
+            builder.GetErrorRecordIndex(),
+            builder.GetError());
+    }
+    for (const OrderedSnapshotActor& ordered : actors)
+    {
+        for (std::uint32_t node_index = 0;
+                node_index < ordered.snapshot.node_count;
+                ++node_index)
+        {
+            NodeRecord node;
+            if (!source.ReadNode(
+                    ordered.source_index,
+                    node_index,
+                    node))
+            {
+                return fail(
+                    SnapshotError::SOURCE_READ_FAILED,
+                    ordered.source_index,
+                    node_index,
+                    Error::NONE);
+            }
+            if (node.actor_id !=
+                    ordered.snapshot.actor.actor_id ||
+                node.node_id != node_index)
+            {
+                return fail(
+                    SnapshotError::INVALID_CROSS_REFERENCE,
+                    ordered.source_index,
+                    node_index,
+                    Error::NONE);
+            }
+            if (!builder.AddNode(node))
+            {
+                return fail(
+                    SnapshotError::DIGEST_REJECTED,
+                    ordered.source_index,
+                    builder.GetErrorRecordIndex(),
+                    builder.GetError());
+            }
+        }
+    }
+
+    if (!builder.BeginBeams(total_beams))
+    {
+        return fail(
+            SnapshotError::DIGEST_REJECTED,
+            std::numeric_limits<std::size_t>::max(),
+            builder.GetErrorRecordIndex(),
+            builder.GetError());
+    }
+    for (const OrderedSnapshotActor& ordered : actors)
+    {
+        for (std::uint32_t beam_index = 0;
+                beam_index < ordered.snapshot.beam_count;
+                ++beam_index)
+        {
+            BeamRecord beam;
+            if (!source.ReadBeam(
+                    ordered.source_index,
+                    beam_index,
+                    beam))
+            {
+                return fail(
+                    SnapshotError::SOURCE_READ_FAILED,
+                    ordered.source_index,
+                    beam_index,
+                    Error::NONE);
+            }
+            if (beam.actor_id !=
+                    ordered.snapshot.actor.actor_id ||
+                beam.beam_id != beam_index)
+            {
+                return fail(
+                    SnapshotError::INVALID_CROSS_REFERENCE,
+                    ordered.source_index,
+                    beam_index,
+                    Error::NONE);
+            }
+            if (!builder.AddBeam(beam))
+            {
+                return fail(
+                    SnapshotError::DIGEST_REJECTED,
+                    ordered.source_index,
+                    builder.GetErrorRecordIndex(),
+                    builder.GetError());
+            }
+        }
+    }
+
+    for (std::size_t source_index = 0;
+            source_index < contact_count;
+            ++source_index)
+    {
+        OrderedSnapshotContact ordered;
+        ordered.source_index = source_index;
+        if (!source.ReadContact(source_index, ordered.contact))
+        {
+            return fail(
+                SnapshotError::SOURCE_READ_FAILED,
+                source_index,
+                0,
+                Error::NONE);
+        }
+        try
+        {
+            contacts.push_back(ordered);
+        }
+        catch (const std::bad_alloc&)
+        {
+            return fail(
+                SnapshotError::ALLOCATION_FAILED,
+                source_index,
+                0,
+                Error::NONE);
+        }
+    }
+    std::sort(
+        contacts.begin(),
+        contacts.end(),
+        OrderedSnapshotContactLess);
+
+    if (!builder.BeginContacts(
+            static_cast<std::uint32_t>(contact_count)))
+    {
+        return fail(
+            SnapshotError::DIGEST_REJECTED,
+            std::numeric_limits<std::size_t>::max(),
+            builder.GetErrorRecordIndex(),
+            builder.GetError());
+    }
+    for (const OrderedSnapshotContact& ordered : contacts)
+    {
+        const auto actor_for_id =
+            [&actors](std::int32_t actor_id)
+                -> const OrderedSnapshotActor*
+            {
+                const auto found = std::lower_bound(
+                    actors.begin(),
+                    actors.end(),
+                    actor_id,
+                    [](const OrderedSnapshotActor& actor,
+                       std::int32_t id)
+                    {
+                        return actor.snapshot.actor.actor_id < id;
+                    });
+                if (found == actors.end() ||
+                    found->snapshot.actor.actor_id != actor_id)
+                {
+                    return nullptr;
+                }
+                return &*found;
+            };
+
+        const OrderedSnapshotActor* const surface_actor =
+            actor_for_id(ordered.contact.surface_actor);
+        const OrderedSnapshotActor* const hit_actor =
+            actor_for_id(ordered.contact.hit_actor);
+        if (surface_actor == nullptr || hit_actor == nullptr ||
+            ordered.contact.surface_actor ==
+                ordered.contact.hit_actor ||
+            ordered.contact.surface_contact >=
+                surface_actor->snapshot.surface_contact_count ||
+            ordered.contact.hit_node >=
+                hit_actor->snapshot.node_count)
+        {
+            return fail(
+                SnapshotError::INVALID_CROSS_REFERENCE,
+                ordered.source_index,
+                0,
+                Error::NONE);
+        }
+        if (!builder.AddContact(ordered.contact))
+        {
+            return fail(
+                SnapshotError::DIGEST_REJECTED,
+                ordered.source_index,
+                builder.GetErrorRecordIndex(),
+                builder.GetError());
+        }
+    }
+
+    Digest completed;
+    if (!builder.Finish(completed))
+    {
+        return fail(
+            SnapshotError::DIGEST_REJECTED,
+            std::numeric_limits<std::size_t>::max(),
+            builder.GetErrorRecordIndex(),
+            builder.GetError());
+    }
+    digest = completed;
+    if (status != nullptr)
+        *status = local_status;
+    return true;
 }
 
 void Builder::HashByte(std::uint8_t value)

@@ -45,6 +45,10 @@
 
 namespace RoR {
 
+namespace DeterministicStateDigest {
+class ActorSnapshotSource;
+}
+
 /// @addtogroup Physics
 /// @{
 
@@ -56,6 +60,7 @@ class Actor : public RefCountingObject<Actor>
 {
     friend class ActorSpawner;
     friend class ActorManager;
+    friend class DeterministicStateDigest::ActorSnapshotSource;
     friend class GfxActor; // Temporary until all visuals are moved there. ~ only_a_ptr, 2018
     friend class OutGauge;
 public:

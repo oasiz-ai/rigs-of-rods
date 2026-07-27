@@ -59,6 +59,30 @@ enum class Error
     ALREADY_FINISHED
 };
 
+enum ActorStateCode : std::uint32_t
+{
+    ACTOR_STATE_LOCAL_SIMULATED = 0,
+    ACTOR_STATE_NETWORKED_OK = 1,
+    ACTOR_STATE_NETWORKED_HIDDEN = 2,
+    ACTOR_STATE_LOCAL_REPLAY = 3,
+    ACTOR_STATE_LOCAL_SLEEPING = 4,
+    ACTOR_STATE_DISPOSED = 5
+};
+
+enum ActorRecordFlags : std::uint32_t
+{
+    ACTOR_FLAG_UPDATE_PHYSICS = UINT32_C(1) << 0,
+    ACTOR_FLAG_PHYSICS_PAUSED = UINT32_C(1) << 1,
+    ACTOR_FLAG_COLLISION_RELEVANT = UINT32_C(1) << 2,
+    ACTOR_FLAG_ONGOING_RESET = UINT32_C(1) << 3
+};
+
+static const std::uint32_t ACTOR_FLAG_MASK =
+    ACTOR_FLAG_UPDATE_PHYSICS |
+    ACTOR_FLAG_PHYSICS_PAUSED |
+    ACTOR_FLAG_COLLISION_RELEVANT |
+    ACTOR_FLAG_ONGOING_RESET;
+
 struct ActorRecord
 {
     std::int32_t actor_id;
@@ -76,6 +100,8 @@ struct NodeRecord
 {
     std::int32_t actor_id;
     std::uint32_t node_id;
+    /// Actor-local simulation position (`node_t::RelPosition` in production).
+    /// ActorRecord::origin carries the world-space offset separately.
     std::array<float, 3> position;
     std::array<float, 3> velocity;
 
@@ -88,6 +114,13 @@ enum BeamStateFlags : std::uint32_t
     BEAM_STATE_BROKEN = UINT32_C(1) << 1,
     BEAM_STATE_MATERIAL_FRACTURED = UINT32_C(1) << 2
 };
+
+static const std::uint32_t BEAM_STATE_MASK =
+    BEAM_STATE_DISABLED |
+    BEAM_STATE_BROKEN |
+    BEAM_STATE_MATERIAL_FRACTURED;
+static const std::uint32_t BEAM_MATERIAL_SCHEMA_NONE = 0;
+static const std::uint32_t BEAM_MATERIAL_SCHEMA_CALIBRATED_V1 = 1;
 
 struct BeamRecord
 {
@@ -199,6 +232,78 @@ private:
     std::uint64_t m_sha_byte_count;
     std::size_t m_sha_buffer_size;
 };
+
+/// Per-actor section sizes and actor state supplied to the production snapshot
+/// adapter. Node and beam records are read by their immutable array index.
+struct SnapshotActor
+{
+    ActorRecord actor;
+    std::uint32_t node_count;
+    std::uint32_t beam_count;
+    std::uint32_t surface_contact_count;
+
+    SnapshotActor();
+};
+
+/// Dependency-free extraction seam. Implementations expose live simulation
+/// state without transferring ownership or allowing the digest code to mutate
+/// it. BuildSnapshotDigest() may read records in canonical actor-ID order rather
+/// than source order. The caller must keep every exposed record immutable until
+/// BuildSnapshotDigest() returns; this API performs no synchronization.
+class SnapshotSource
+{
+public:
+    virtual ~SnapshotSource();
+
+    virtual std::size_t GetActorCount() const = 0;
+    virtual bool ReadActor(
+        std::size_t source_actor_index,
+        SnapshotActor& actor) const = 0;
+    virtual bool ReadNode(
+        std::size_t source_actor_index,
+        std::uint32_t node_index,
+        NodeRecord& node) const = 0;
+    virtual bool ReadBeam(
+        std::size_t source_actor_index,
+        std::uint32_t beam_index,
+        BeamRecord& beam) const = 0;
+    virtual std::size_t GetContactCount() const = 0;
+    virtual bool ReadContact(
+        std::size_t source_contact_index,
+        ContactRecord& contact) const = 0;
+};
+
+enum class SnapshotError
+{
+    NONE = 0,
+    COUNT_LIMIT_EXCEEDED,
+    SOURCE_READ_FAILED,
+    INVALID_ACTOR_ID,
+    DUPLICATE_ACTOR_ID,
+    INVALID_CROSS_REFERENCE,
+    ALLOCATION_FAILED,
+    DIGEST_REJECTED
+};
+
+struct SnapshotStatus
+{
+    SnapshotError error;
+    Error digest_error;
+    std::size_t source_index;
+    std::uint32_t record_index;
+
+    SnapshotStatus();
+};
+
+/// Builds one canonical snapshot without changing the source or output on
+/// failure. Actors and contacts are canonicalized within the immutable schema
+/// ceilings; nodes and beams retain their Actor array indexes.
+bool BuildSnapshotDigest(
+    std::uint64_t physics_step,
+    std::uint64_t scenario_id,
+    const SnapshotSource& source,
+    Digest& digest,
+    SnapshotStatus* status = nullptr);
 
 } // namespace DeterministicStateDigest
 } // namespace RoR

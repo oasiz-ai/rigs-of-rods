@@ -143,6 +143,7 @@ set(SOURCE_FILES
         network/OutGauge.{h,cpp}
         network/RoRnet.h
         physics/Actor.{h,cpp}
+        physics/ActorStateDigestAdapter.{h,cpp}
         physics/ApproxMath.h
         physics/ActorExport.cpp
         physics/ActorForcesEuler.cpp

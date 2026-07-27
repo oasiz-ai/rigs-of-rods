@@ -1,10 +1,12 @@
 #include "DeterministicStateDigest.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <limits>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -35,6 +37,202 @@ double DoubleFromBits(std::uint64_t bits)
     return value;
 }
 
+void StoreDoubleBits(std::uint64_t bits, double* value)
+{
+    const unsigned char* const source =
+        reinterpret_cast<const unsigned char*>(&bits);
+    volatile unsigned char* const destination =
+        reinterpret_cast<volatile unsigned char*>(value);
+    for (std::size_t index = 0; index < sizeof(bits); ++index)
+        destination[index] = source[index];
+}
+
+struct FakeSnapshotActor
+{
+    RoR::DeterministicStateDigest::SnapshotActor snapshot;
+    std::vector<RoR::DeterministicStateDigest::NodeRecord> nodes;
+    std::vector<RoR::DeterministicStateDigest::BeamRecord> beams;
+};
+
+class FakeSnapshotSource final :
+    public RoR::DeterministicStateDigest::SnapshotSource
+{
+public:
+    std::vector<FakeSnapshotActor> actors;
+    std::vector<RoR::DeterministicStateDigest::ContactRecord> contacts;
+    std::size_t reported_actor_count =
+        std::numeric_limits<std::size_t>::max();
+    std::size_t reported_contact_count =
+        std::numeric_limits<std::size_t>::max();
+    std::size_t failing_actor =
+        std::numeric_limits<std::size_t>::max();
+    std::size_t failing_node_actor =
+        std::numeric_limits<std::size_t>::max();
+    std::size_t failing_beam_actor =
+        std::numeric_limits<std::size_t>::max();
+    std::size_t failing_contact =
+        std::numeric_limits<std::size_t>::max();
+
+    std::size_t GetActorCount() const override
+    {
+        return reported_actor_count ==
+                std::numeric_limits<std::size_t>::max()
+            ? actors.size()
+            : reported_actor_count;
+    }
+
+    bool ReadActor(
+        std::size_t source_actor_index,
+        RoR::DeterministicStateDigest::SnapshotActor& actor)
+        const override
+    {
+        if (source_actor_index == failing_actor ||
+            source_actor_index >= actors.size())
+        {
+            return false;
+        }
+        actor = actors[source_actor_index].snapshot;
+        return true;
+    }
+
+    bool ReadNode(
+        std::size_t source_actor_index,
+        std::uint32_t node_index,
+        RoR::DeterministicStateDigest::NodeRecord& node)
+        const override
+    {
+        if (source_actor_index == failing_node_actor ||
+            source_actor_index >= actors.size() ||
+            node_index >= actors[source_actor_index].nodes.size())
+        {
+            return false;
+        }
+        node = actors[source_actor_index].nodes[node_index];
+        return true;
+    }
+
+    bool ReadBeam(
+        std::size_t source_actor_index,
+        std::uint32_t beam_index,
+        RoR::DeterministicStateDigest::BeamRecord& beam)
+        const override
+    {
+        if (source_actor_index == failing_beam_actor ||
+            source_actor_index >= actors.size() ||
+            beam_index >= actors[source_actor_index].beams.size())
+        {
+            return false;
+        }
+        beam = actors[source_actor_index].beams[beam_index];
+        return true;
+    }
+
+    std::size_t GetContactCount() const override
+    {
+        return reported_contact_count ==
+                std::numeric_limits<std::size_t>::max()
+            ? contacts.size()
+            : reported_contact_count;
+    }
+
+    bool ReadContact(
+        std::size_t source_contact_index,
+        RoR::DeterministicStateDigest::ContactRecord& contact)
+        const override
+    {
+        if (source_contact_index == failing_contact ||
+            source_contact_index >= contacts.size())
+        {
+            return false;
+        }
+        contact = contacts[source_contact_index];
+        return true;
+    }
+};
+
+FakeSnapshotSource MakeSnapshotSourceFixture()
+{
+    using namespace RoR::DeterministicStateDigest;
+
+    FakeSnapshotSource source;
+    FakeSnapshotActor actor;
+    actor.snapshot.actor.actor_id = 9;
+    actor.snapshot.actor.state = ACTOR_STATE_LOCAL_SLEEPING;
+    actor.snapshot.actor.flags = ACTOR_FLAG_PHYSICS_PAUSED;
+    actor.snapshot.actor.deterministic_seed =
+        UINT64_C(0x9988776655443322);
+    actor.snapshot.actor.actor_physics_step = 45;
+    actor.snapshot.actor.engine_update_step = 47;
+    actor.snapshot.actor.origin = {{90.f, 9.f, -9.f}};
+    actor.snapshot.node_count = 2;
+    actor.snapshot.beam_count = 1;
+    actor.snapshot.surface_contact_count = 3;
+
+    NodeRecord node;
+    node.actor_id = 9;
+    node.node_id = 0;
+    node.position = {{9.f, 0.f, 1.f}};
+    node.velocity = {{0.9f, 0.f, 0.1f}};
+    actor.nodes.push_back(node);
+    node.node_id = 1;
+    node.position = {{9.f, 2.f, 3.f}};
+    node.velocity = {{0.9f, 0.2f, 0.3f}};
+    actor.nodes.push_back(node);
+
+    BeamRecord beam;
+    beam.actor_id = 9;
+    beam.beam_id = 0;
+    beam.rest_length = 2.5f;
+    beam.stress = -12.f;
+    beam.state_flags = BEAM_STATE_DISABLED;
+    actor.beams.push_back(beam);
+    source.actors.push_back(actor);
+
+    actor = FakeSnapshotActor();
+    actor.snapshot.actor.actor_id = 3;
+    actor.snapshot.actor.state = ACTOR_STATE_LOCAL_SIMULATED;
+    actor.snapshot.actor.flags =
+        ACTOR_FLAG_UPDATE_PHYSICS |
+        ACTOR_FLAG_COLLISION_RELEVANT;
+    actor.snapshot.actor.deterministic_seed =
+        UINT64_C(0x123456789abcdef0);
+    actor.snapshot.actor.actor_physics_step = 50;
+    actor.snapshot.actor.engine_update_step = 53;
+    actor.snapshot.actor.origin = {{30.f, 3.f, -3.f}};
+    actor.snapshot.node_count = 1;
+    actor.snapshot.beam_count = 1;
+    actor.snapshot.surface_contact_count = 5;
+
+    node = NodeRecord();
+    node.actor_id = 3;
+    node.node_id = 0;
+    node.position = {{3.f, 4.f, 5.f}};
+    node.velocity = {{0.3f, 0.4f, 0.5f}};
+    actor.nodes.push_back(node);
+
+    beam = BeamRecord();
+    beam.actor_id = 3;
+    beam.beam_id = 0;
+    beam.rest_length = 1.25f;
+    beam.stress = 24.f;
+    beam.state_flags = BEAM_STATE_BROKEN;
+    actor.beams.push_back(beam);
+    source.actors.push_back(actor);
+
+    ContactRecord contact;
+    contact.surface_actor = 9;
+    contact.surface_contact = 2;
+    contact.hit_actor = 3;
+    contact.hit_node = 0;
+    source.contacts.push_back(contact);
+    contact.surface_actor = 3;
+    contact.surface_contact = 4;
+    contact.hit_actor = 9;
+    contact.hit_node = 1;
+    source.contacts.push_back(contact);
+    return source;
+}
+
 RoR::DeterministicStateDigest::Digest BuildFixture(
     std::uint32_t first_position_bits,
     float beam_stress,
@@ -49,7 +247,9 @@ RoR::DeterministicStateDigest::Digest BuildFixture(
     ActorRecord actor;
     actor.actor_id = 3;
     actor.state = 1;
-    actor.flags = UINT32_C(0x21);
+    actor.flags =
+        ACTOR_FLAG_UPDATE_PHYSICS |
+        ACTOR_FLAG_COLLISION_RELEVANT;
     actor.deterministic_seed = UINT64_C(0xabcdef0123456789);
     actor.actor_physics_step = UINT64_C(73);
     actor.engine_update_step = UINT64_C(81);
@@ -185,7 +385,7 @@ void TestGoldenAndSensitivity()
     const Digest baseline =
         BuildFixture(UINT32_C(0x3f800000), 4500.f, UINT32_C(0x03));
     CHECK(baseline.ToHex() ==
-        "694aa61f24f54d3c33bd06f67a2d93fb534dfa853ea85230fc6274edcf314f1e");
+        "d569dfba124a6a07344e49edeb3416da287d1552dd6c8a64be3e68ac690fa470");
     CHECK(baseline.ToHex().size() == 64);
     CHECK(BuildFixture(
         UINT32_C(0x3f800000), 4500.f, UINT32_C(0x03)) == baseline);
@@ -238,9 +438,6 @@ void TestCompleteMaterialHistorySensitivity()
     const Digest baseline = BuildMaterialFixture(beam);
 
     BeamRecord changed = beam;
-    changed.material_schema_version = 2;
-    CHECK(BuildMaterialFixture(changed) != baseline);
-    changed = beam;
     changed.plastic_strain = -0.11;
     CHECK(BuildMaterialFixture(changed) != baseline);
     changed = beam;
@@ -407,6 +604,24 @@ void TestInvalidRecordsAndFastMathFiniteCheck()
     }
     {
         Builder builder(0, 0);
+        CHECK(builder.BeginActors(1));
+        ActorRecord actor;
+        actor.actor_id = 1;
+        actor.state = ACTOR_STATE_DISPOSED + 1U;
+        CHECK(!builder.AddActor(actor));
+        CHECK(builder.GetError() == Error::INVALID_RECORD);
+    }
+    {
+        Builder builder(0, 0);
+        CHECK(builder.BeginActors(1));
+        ActorRecord actor;
+        actor.actor_id = 1;
+        actor.flags = UINT32_C(1) << 31;
+        CHECK(!builder.AddActor(actor));
+        CHECK(builder.GetError() == Error::INVALID_RECORD);
+    }
+    {
+        Builder builder(0, 0);
         CHECK(builder.BeginActors(0));
         CHECK(builder.BeginNodes(0));
         CHECK(builder.BeginBeams(1));
@@ -464,6 +679,224 @@ void TestInvalidRecordsAndFastMathFiniteCheck()
         CHECK(!builder.AddBeam(beam));
         CHECK(builder.GetError() == Error::NON_FINITE_VALUE);
     }
+    {
+        Builder builder(0, 0);
+        CHECK(builder.BeginActors(0));
+        CHECK(builder.BeginNodes(0));
+        CHECK(builder.BeginBeams(1));
+        BeamRecord beam;
+        beam.actor_id = 1;
+        beam.rest_length = 1.f;
+        beam.material_schema_version =
+            BEAM_MATERIAL_SCHEMA_CALIBRATED_V1 + 1U;
+        CHECK(!builder.AddBeam(beam));
+        CHECK(builder.GetError() == Error::INVALID_RECORD);
+    }
+    {
+        Builder builder(0, 0);
+        CHECK(builder.BeginActors(0));
+        CHECK(builder.BeginNodes(0));
+        CHECK(builder.BeginBeams(1));
+        BeamRecord beam;
+        beam.actor_id = 1;
+        beam.rest_length = 1.f;
+        beam.state_flags = UINT32_C(1) << 31;
+        CHECK(!builder.AddBeam(beam));
+        CHECK(builder.GetError() == Error::INVALID_RECORD);
+    }
+    {
+        Builder builder(0, 0);
+        CHECK(builder.BeginActors(0));
+        CHECK(builder.BeginNodes(0));
+        CHECK(builder.BeginBeams(1));
+        BeamRecord beam;
+        beam.actor_id = 1;
+        beam.rest_length = 1.f;
+        StoreDoubleBits(
+            UINT64_C(0x8000000000000000),
+            &beam.plastic_strain);
+        CHECK(!builder.AddBeam(beam));
+        CHECK(builder.GetError() == Error::INVALID_RECORD);
+    }
+    {
+        Builder builder(0, 0);
+        CHECK(builder.BeginActors(0));
+        CHECK(builder.BeginNodes(0));
+        CHECK(builder.BeginBeams(1));
+        BeamRecord beam;
+        beam.actor_id = 1;
+        beam.rest_length = 1.f;
+        beam.state_flags = BEAM_STATE_MATERIAL_FRACTURED;
+        CHECK(!builder.AddBeam(beam));
+        CHECK(builder.GetError() == Error::INVALID_RECORD);
+    }
+}
+
+void TestSnapshotAdapterCanonicalExtraction()
+{
+    using namespace RoR::DeterministicStateDigest;
+
+    FakeSnapshotSource source = MakeSnapshotSourceFixture();
+    SnapshotStatus status;
+    status.error = SnapshotError::SOURCE_READ_FAILED;
+    status.digest_error = Error::INVALID_RECORD;
+    status.source_index = 4;
+    status.record_index = 5;
+    Digest baseline;
+    CHECK(BuildSnapshotDigest(73, 91, source, baseline, &status));
+    CHECK(baseline.ToHex() ==
+        "aa66a9ab55a0e7c89fb62eeb0209897d921fd5b7f7fde709d4eeeaee6940026e");
+    CHECK(status.error == SnapshotError::NONE);
+    CHECK(status.digest_error == Error::NONE);
+    CHECK(
+        status.source_index ==
+        std::numeric_limits<std::size_t>::max());
+    CHECK(status.record_index == 0);
+
+    FakeSnapshotSource reordered = source;
+    std::reverse(reordered.actors.begin(), reordered.actors.end());
+    std::reverse(reordered.contacts.begin(), reordered.contacts.end());
+    Digest reordered_digest;
+    CHECK(BuildSnapshotDigest(
+        73, 91, reordered, reordered_digest, &status));
+    CHECK(reordered_digest == baseline);
+
+    FakeSnapshotSource changed = source;
+    changed.actors[0].snapshot.actor.deterministic_seed++;
+    Digest changed_digest;
+    CHECK(BuildSnapshotDigest(
+        73, 91, changed, changed_digest, &status));
+    CHECK(changed_digest != baseline);
+
+    changed = source;
+    changed.actors[0].snapshot.actor.actor_physics_step++;
+    CHECK(BuildSnapshotDigest(
+        73, 91, changed, changed_digest, &status));
+    CHECK(changed_digest != baseline);
+
+    changed = source;
+    changed.actors[0].snapshot.actor.engine_update_step++;
+    CHECK(BuildSnapshotDigest(
+        73, 91, changed, changed_digest, &status));
+    CHECK(changed_digest != baseline);
+
+    FakeSnapshotSource minimum_id = source;
+    minimum_id.actors[1].snapshot.actor.actor_id = 1;
+    minimum_id.actors[1].nodes[0].actor_id = 1;
+    minimum_id.actors[1].beams[0].actor_id = 1;
+    for (ContactRecord& contact : minimum_id.contacts)
+    {
+        if (contact.surface_actor == 3)
+            contact.surface_actor = 1;
+        if (contact.hit_actor == 3)
+            contact.hit_actor = 1;
+    }
+    CHECK(BuildSnapshotDigest(
+        73, 91, minimum_id, changed_digest, &status));
+    CHECK(status.error == SnapshotError::NONE);
+}
+
+void TestSnapshotAdapterFailsClosed()
+{
+    using namespace RoR::DeterministicStateDigest;
+
+    FakeSnapshotSource source = MakeSnapshotSourceFixture();
+    SnapshotStatus status;
+    Digest sentinel;
+    sentinel.bytes.fill(UINT8_C(0xa5));
+    const Digest unchanged = sentinel;
+
+    source.reported_actor_count =
+        static_cast<std::size_t>(MAX_ACTORS) + 1U;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::COUNT_LIMIT_EXCEEDED);
+    CHECK(sentinel == unchanged);
+
+    source = MakeSnapshotSourceFixture();
+    source.reported_contact_count =
+        static_cast<std::size_t>(MAX_CONTACTS) + 1U;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::COUNT_LIMIT_EXCEEDED);
+
+    source = MakeSnapshotSourceFixture();
+    source.actors[0].snapshot.node_count = MAX_NODES;
+    source.actors[1].snapshot.node_count = 1;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::COUNT_LIMIT_EXCEEDED);
+
+    source = MakeSnapshotSourceFixture();
+    source.actors[1].snapshot.actor.actor_id = 0;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::INVALID_ACTOR_ID);
+
+    source = MakeSnapshotSourceFixture();
+    source.actors[1].snapshot.actor.actor_id =
+        source.actors[0].snapshot.actor.actor_id;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::DUPLICATE_ACTOR_ID);
+
+    source = MakeSnapshotSourceFixture();
+    source.actors[0].snapshot.actor.state =
+        ACTOR_STATE_DISPOSED + 1U;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::DIGEST_REJECTED);
+    CHECK(status.digest_error == Error::INVALID_RECORD);
+
+    source = MakeSnapshotSourceFixture();
+    source.actors[0].nodes[0].node_id = 1;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::INVALID_CROSS_REFERENCE);
+
+    source = MakeSnapshotSourceFixture();
+    source.contacts[0].hit_node = 1;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::INVALID_CROSS_REFERENCE);
+
+    source = MakeSnapshotSourceFixture();
+    source.contacts[0].surface_contact = 3;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::INVALID_CROSS_REFERENCE);
+
+    source = MakeSnapshotSourceFixture();
+    source.contacts.push_back(source.contacts[0]);
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::DIGEST_REJECTED);
+    CHECK(status.digest_error == Error::NON_CANONICAL_KEY);
+
+    source = MakeSnapshotSourceFixture();
+    source.contacts[0].hit_actor = source.contacts[0].surface_actor;
+    source.contacts[0].hit_node = 0;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::INVALID_CROSS_REFERENCE);
+
+    source = MakeSnapshotSourceFixture();
+    source.actors[0].snapshot.actor.origin[0] =
+        FloatFromBits(UINT32_C(0x7f800000));
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::DIGEST_REJECTED);
+    CHECK(status.digest_error == Error::NON_FINITE_VALUE);
+    CHECK(sentinel == unchanged);
+
+    source = MakeSnapshotSourceFixture();
+    const volatile double wider_than_binary32 =
+        std::numeric_limits<double>::max();
+    source.actors[0].nodes[0].position[0] =
+        static_cast<float>(wider_than_binary32);
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::DIGEST_REJECTED);
+    CHECK(status.digest_error == Error::NON_FINITE_VALUE);
+    CHECK(sentinel == unchanged);
+
+    source = MakeSnapshotSourceFixture();
+    source.failing_actor = 1;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::SOURCE_READ_FAILED);
+    CHECK(status.source_index == 1);
+
+    source = MakeSnapshotSourceFixture();
+    CHECK(BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::NONE);
+    CHECK(status.digest_error == Error::NONE);
 }
 
 } // namespace
@@ -477,6 +910,8 @@ int main()
     TestOrderAndCountFailures();
     TestHardLimits();
     TestInvalidRecordsAndFastMathFiniteCheck();
+    TestSnapshotAdapterCanonicalExtraction();
+    TestSnapshotAdapterFailsClosed();
 
     if (g_failures != 0)
     {
