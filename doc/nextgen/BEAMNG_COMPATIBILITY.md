@@ -1,0 +1,390 @@
+# BeamNG.drive Vehicle-Format Compatibility Specification
+
+This document converts BeamNG's published vehicle-modding documentation into
+an independently implemented, testable import contract for Rigs of Rods. It
+does not describe binary compatibility, reuse BeamNG code or stock assets, or
+promise identical results from different physics engines.
+
+The initial documentation profile is:
+
+```text
+profile: beamng-docs-0.38.5.0-2026-07-27
+scope: user-supplied vehicle packages
+execution: data only; imported Lua is never executed
+```
+
+The profile name records the version identified by BeamNG's
+[JBeam section catalog][sections] and the date on which the linked documentation
+was reviewed. BeamNG states that its documentation is incomplete and under
+development, so a newer importer must introduce a new profile rather than
+silently changing an existing conversion.
+
+## Competitive hypotheses
+
+The project is deliberately aiming beyond format compatibility. The following
+are informed engineering bets about where this architecture can be better than
+existing simulators. They guide design now, but remain hypotheses until a public
+like-for-like fixture produces evidence.
+
+| Hypothesis | Why the design can win | Evidence required |
+| --- | --- | --- |
+| Multithreaded replay is more reproducible | Stable contact keys, per-task buffers, ordered reductions, counter-based noise, and per-step state hashes make scheduling observable and removable. | Thirty one-worker and eight-worker runs with identical ordered hashes; equivalent external replay telemetry where available. |
+| Bad content fails more safely | Finite guards, energy-bounded damping, hostile-input quotas, source-span diagnostics, and no imported code execution establish explicit failure boundaries. | Fuzz/sanitizer corpus, 120,000-step soaks, and zero silent drops in the compatibility report. |
+| Soft-body materials are easier to calibrate | Versioned elastic/plastic/damage laws expose yield, hardening, plastic strain, and fracture energy instead of relying only on opaque tuning. | Published tension, compression, cyclic, and impact curves with step-sensitivity and energy accounting. |
+| Mod interoperability is more transparent | A normalized IR preserves unknown fields and assigns every feature a native, approximate, disabled, unsupported, or rejected status. | Canonical report stability across platforms and complete source-field accounting for representative packages. |
+| Visual deformation scales better | CPU-authoritative nodes plus GPU vertex reconstruction avoid uploading the full deformed mesh every frame while retaining a CPU oracle. | Position/normal error bounds and frame-time comparisons at 250,000 or more visible vertices. |
+| Cross-platform behavior is easier to verify | Dependency-free kernels, declared floating-point modes, deterministic fixtures, and native Windows/Linux/macOS CI make platform drift a first-class result. | Compiler/platform matrix with recorded first-divergence steps and declared numeric tolerances. |
+| Save, replay, and imported-config identity are stronger | Source hash, slot tree, variables, importer schema, RNG streams, and dynamic state are part of one versioned identity. | Save/load continuation and network/replay hashes that survive pause, resume, and worker-count changes. |
+
+An internal gate may justify wording such as "more deterministic in our
+published fixture." A general statement that the simulator is better requires
+the same vehicle intent, inputs, versions, hardware, capture method, and
+published raw measurements on both systems. When exact external state is not
+available, the comparison is limited to observable telemetry and is labeled as
+such.
+
+## Compatibility vocabulary
+
+Every package, selected configuration, and discovered feature receives one of
+these statuses:
+
+| Status | Meaning |
+| --- | --- |
+| `native` | RoR implements the documented state, units, inputs, and behavior, and the conformance fixture passes. |
+| `approximated` | A declared, measured mapping exists, but one or more documented semantics differ. |
+| `preserved-but-disabled` | The importer retains the source data and origin in its IR but does not activate it. |
+| `unsupported` | The feature is recognized but has no safe mapping. |
+| `rejected` | The input is unsafe, malformed, ambiguous, or requires a missing dependency. |
+
+No field may disappear silently. An import reaches the lowest tier of any
+required feature in the selected configuration.
+
+## Package and identity contract
+
+BeamNG's [mod-packing documentation][packing] places supported roots such as
+`vehicles/`, `levels/`, `art/`, `assets/`, `lua/`, `scripts/`, and `ui/`
+directly at the ZIP root. The first implementation indexes only vehicle
+packages, while reporting other roots without loading them.
+
+The canonical package identity contains:
+
+```text
+source SHA-256
+normalized sorted path manifest
+declared documentation profile
+main part
+selected .pc configuration
+resolved slot tree and variables
+importer schema and implementation version
+import options
+```
+
+Archive enumeration order, filesystem case behavior, and worker count must not
+change this identity. Absolute paths, parent traversal, normalized duplicates,
+case-fold collisions, symlinks, encrypted entries, unsafe compression ratios,
+and quota violations are rejected before extraction. Importing performs no
+network access and never executes package content.
+
+## JBeam syntax and resolution
+
+The [JBeam syntax][jbeam-syntax] is JSON-derived but is not strict JSON. The
+front end must support and test:
+
+- case-sensitive keys and identifiers;
+- line and block comments;
+- optional commas;
+- top-level named part dictionaries;
+- table sections with a header row;
+- dictionary rows that change inherited defaults;
+- row-local dictionaries that override inherited defaults;
+- numeric variables and deterministic `$=` expressions;
+- string and Boolean slot variables;
+- `$prefix`, `$suffix`, and `$.name` namespace expansion;
+- source spans for every part, section, default row, data row, and field.
+
+The expression evaluator accepts only the documented pure expression subset,
+has depth and operation budgets, rejects non-finite output where a finite value
+is required, and cannot call Lua or host functions.
+
+The [part/slot system][slots] is a recursive tree, not a flat list. `slotType:
+"main"` identifies a root part. The resolver applies the chosen `.pc` parts and
+variables, follows `slots` and `slots2`, propagates slot variables to
+descendants, applies components and node transforms, and detects cycles,
+duplicate resolved names, missing required parts, and optional references.
+Namespace variables were added in BeamNG 0.38 and slot variables in 0.32, so
+their availability is part of the declared documentation profile.
+
+## Units and coordinate frames
+
+BeamNG documents SI units and a Z-up vehicle frame:
+
+| BeamNG axis | Direction | Candidate RoR axis |
+| --- | --- | --- |
+| `+X` | left | `+Z` |
+| `+Y` | backward | `+X` |
+| `+Z` | up | `+Y` |
+
+The candidate position transform is therefore
+`(x_ror, y_ror, z_ror) = (y_beamng, z_beamng, x_beamng)`. It is a
+handedness-preserving cyclic permutation, but it remains disabled until golden
+tests prove RoR cab normals, camera direction, wheel placement, rotations,
+forces, and inertia use the same convention.
+
+One aligned [refNodes][refnodes] set is required. `ref`, `back`, `left`, and
+`up` define the vehicle frame; `leftCorner` and `rightCorner` identify its front
+corners but do not redefine the axes. A missing or degenerate required frame is
+rejected rather than inferred from a mesh.
+
+Props use their own three-node frame: local `+X` is `idRef -> idX`, local `+Y`
+is `idRef -> idY`, and local `+Z` is their cross product. This frame is converted
+through the same basis transform as the physics skeleton.
+
+## Structural and collision behavior
+
+### Nodes
+
+[Nodes][nodes] are dimensionless point masses. Coordinates are meters and
+`nodeWeight` is kilograms. Node material controls effects such as sound and
+particles rather than mass behavior.
+
+The documented collision participants are nodes and vehicle triangles:
+
+- nodes collide with terrain heightmaps and static world geometry;
+- dynamic vehicle collision is node-to-triangle;
+- self-collision and external vehicle collision are distinct;
+- dynamic collision has priority over static and heightmap collision;
+- beams do not collide.
+
+J2 therefore requires first-class authored base mass per imported node. RoR's
+legacy whole-vehicle dry-mass redistribution and minimum-mass pass cannot be
+used for a `native` result.
+
+### Beams
+
+[Beams][beams] are massless spring/damper links with deformation and breaking.
+The documented core parameters include endpoints, spring, damping, deformation,
+strength, precompression, break/deform groups, and mesh/triangle-breaking
+controls.
+
+The initial type matrix is:
+
+| Type | Import policy |
+| --- | --- |
+| `NORMAL` | J2 after spring, damping, deformation, strength, and precompression conformance tests. |
+| `SUPPORT` | J2 approximation until compression-only and extension-break behavior match. |
+| `HYDRO` | Lower through the dedicated hydro contract below. |
+| `ANISOTROPIC` | Preserve until separate compression/extension and transition behavior is native. |
+| bounded, pressured, and L-beams | Preserve until dedicated J5 kernels exist. |
+
+When a beam breaks, BeamNG can disable adjacent or grouped triangle collision
+and aero and remove affected flexbody polygons. RoR must not advertise native
+breakage until these coupled topology changes are implemented.
+
+### Triangles and quads
+
+[Triangles][triangles] use three counter-clockwise node references. They:
+
+- collide with nodes, not other triangles or static world geometry;
+- apply aerodynamic drag and lift forces to adjacent nodes;
+- calculate lift from angle of attack and reduce it beyond a stall angle;
+- may define pressure volumes;
+- may use break groups, ground models, and external collision bias.
+
+Topology-only import is J2. Collision side/bias, self-collision grouping,
+aerodynamics, stall, pressure, ground-model friction, and break propagation are
+independent capabilities. Quads lower deterministically to two triangles with a
+declared diagonal and preserved exterior winding.
+
+### Hydros, rails, thrusters, and torsion
+
+[Hydros][hydros] are variable-length beams. For normalized input `u`, factor
+`f`, and initial length `L0`, the documentation examples imply the target:
+
+```text
+L_target = L0 * (1 + f * u)
+```
+
+The conformance fixture covers negative, zero, and positive input; limits;
+centering; rate behavior; steering lock; and all inherited beam properties.
+
+Rails/slidenodes constrain a named node to a named node-chain rail. Native
+status requires matching attachment distance, spring/strength, tolerance,
+caps/loops, and break behavior.
+
+Thrusters apply force along a two-node direction and are used for systems such
+as JATO. Imported thruster input remains disabled until force direction,
+magnitude, control input, energy use, and break behavior have a native contract.
+
+[Torsion bars][torsionbars] use four nodes defining two lever ends and an axis.
+They can be anisotropic and can break when connecting structure breaks. They
+are not approximated as axial beams.
+
+## Pressure wheels, friction, and brakes
+
+The documented [pressureWheel][wheels] is generated from axle/reference nodes
+as a pressured node/beam/triangle tyre. RoR generated wheels may provide a J3
+structural approximation, but native status requires:
+
+- separate hub, tread, sidewall, and reinforcement topology;
+- pressure-volume state and leak/deflation behavior;
+- radial and lateral spring/damping behavior;
+- static-to-sliding Stribeck friction transition;
+- per-contact-node load sensitivity;
+- tread interaction with surface roughness;
+- service and parking torque;
+- progressive/digressive brake input;
+- rotor/pad material, thermal mass, heating, cooling, fade, and damage;
+- dynamic node storage rather than RoR's fixed generated-wheel array limits.
+
+The tyre friction curve and brake thermals are behavioral systems, not metadata
+that may be copied into a report and called supported. J3 reports the fields
+that its approximation ignores; J5 validates loaded radius, vertical stiffness,
+longitudinal/lateral slip, aligning behavior, heat energy, fade, and recovery.
+
+## Powertrain, electrics, and controllers
+
+BeamNG vehicle powertrains are device graphs rather than a single engine and
+gearbox. The section catalog includes engines/motors, clutches, torque
+converters, manual/automatic/DCT/CVT gearboxes, shafts, differentials,
+transfer/range devices, energy storage, forced induction, thermals, and damage.
+
+J3 accepts only a declared simple path:
+
+```text
+combustion engine -> clutch -> gearbox -> shaft/differential -> driven wheels
+```
+
+Each accepted device records ratios, inertia, friction/loss, limits, and control
+inputs. Split paths, multiple motors, EV/hybrid storage, CVTs, converters,
+disconnects, rangeboxes, locking strategies, thermals, and damage remain
+preserved-but-disabled until corresponding native graph devices exist.
+
+The [vehicle controller][vehicle-controller] manages input, shift logic, and
+electrics. Documented behavior includes gear selection, ignition/starter,
+automatic shift points, shift delays, aggression, wheel-slip shift blocking,
+speed limits, and exposed engine/transmission state. The custom
+[electrics section][electrics] can evaluate Lua-like expressions and smoothing.
+
+Imported controllers and electrics expressions are never executed. Each useful
+behavior is reimplemented as an allowlisted native controller with declared
+inputs, outputs, units, update rate, reset/save/replay state, and deterministic
+tests.
+
+## Meshes, deformation, materials, and props
+
+[Flexbodies][flexbodies] bind a named DAE mesh to one or more node groups.
+BeamNG maps each vertex to nearby eligible nodes and deforms it with them.
+Documented flexbody transforms use position in meters, scale, and intrinsic
+Euler rotation in `+Z, +X, +Y` order. Deform groups can switch a base material
+to a damaged material after associated beam deformation or breakage.
+
+J4 separately gates:
+
+- Collada scene parsing and coordinate conversion;
+- object/material name isolation per imported vehicle;
+- vertex-to-node candidate selection and maximum-distance behavior;
+- normal/tangent deformation;
+- mesh breakage;
+- flexbody position, intrinsic rotation, and scale;
+- damage-group material switching.
+
+BeamNG [`*.materials.json`][materials] keys and array shapes are retained,
+including unknown fields. `mapTo` connects a material definition to the DAE
+slot. The translator maps documented metal/rough PBR base color, normal,
+metallic, roughness, ambient occlusion, opacity, emissive, palette, and clear
+coat inputs to V1; missing inputs get an explicit diagnostic and visible
+placeholder.
+
+[Glow maps][glowmaps] select material states from an evaluated input:
+
+| Value | State |
+| --- | --- |
+| `<= 0.0001` | `off` |
+| `> 0.0001` and `< 0.5` | `on` |
+| `>= 0.5` | `on_intense`, or `on` when no intense material exists |
+
+Only native electrics values may drive that state. [Props][props] remain rigid,
+follow their three-node frame, and may translate/rotate from allowlisted native
+inputs. Cameras and sounds have separate resource, coordinate, and behavior
+gates; discovering them does not imply support.
+
+## Capability priority from the official catalog
+
+BeamNG's section page publishes occurrence counts for vanilla content in
+0.38.5.0. Those counts guide parser priority, not implementation claims:
+
+1. information/slot types, flexbodies, beams, nodes, triangles, and slots;
+2. pressure wheels, variables, props, controllers, and powertrain;
+3. torsion bars, slidenodes/rails, components, glow maps, and refNodes;
+4. specialized controllers, energy storage, forced induction, couplers,
+   thrusters, airbags, and vehicle-specific systems.
+
+The parser inventories every section name even when the semantic validator does
+not know it. Unknown sections are preserved and reported with their source span.
+
+## Conformance and drift gates
+
+Public tests use original, minimal fixtures written for this project. A
+third-party mod may be used only as an explicit local acceptance input.
+
+Required fixture families:
+
+- package-path normalization and hostile ZIP cases;
+- comments, optional commas, defaults, malformed tables, and source locations;
+- main/slot recursion, namespace variables, `.pc` selection, cycles, and missing
+  optional/required references;
+- basis, refNodes, prop frames, rotations, triangle winding, and units;
+- node mass, beam load cycles, deformation, fracture, and break propagation;
+- node/triangle collision, aero/stall, pressure volumes, and ground models;
+- hydro, rail, torsion, and thruster input/state behavior;
+- pressure-tyre load/slip/heat behavior;
+- simple and branched powertrain graphs plus controller reset/replay;
+- DAE/material/flexbody/glow-map translation and resource namespacing.
+
+Every fixture records its documentation-profile ID. A documentation refresh
+produces a reviewed diff of field names, defaults, units, version annotations,
+and behavior text. Existing profiles and golden results remain reproducible.
+
+## Official sources
+
+- [JBeam section catalog][sections]
+- [JBeam syntax][jbeam-syntax]
+- [Mod packing][packing]
+- [Slots and slot variables][slots]
+- [Coordinate systems][coordinates]
+- [RefNodes][refnodes]
+- [Nodes][nodes]
+- [Beams][beams]
+- [Triangles][triangles]
+- [Hydros][hydros]
+- [Rails and slidenodes][rails]
+- [Thrusters][thrusters]
+- [Torsion bars][torsionbars]
+- [Pressure wheels][wheels]
+- [Vehicle controller][vehicle-controller]
+- [Electrics][electrics]
+- [Flexbodies][flexbodies]
+- [Props][props]
+- [Glow maps][glowmaps]
+- [Materials JSON][materials]
+
+[beams]: https://documentation.beamng.com/modding/vehicle/sections/beams/
+[coordinates]: https://documentation.beamng.com/modding/vehicle/coordinate_systems/
+[electrics]: https://documentation.beamng.com/modding/vehicle/sections/electrics/
+[flexbodies]: https://documentation.beamng.com/modding/vehicle/sections/flexbodies/
+[glowmaps]: https://documentation.beamng.com/modding/vehicle/sections/glowmaps/
+[hydros]: https://documentation.beamng.com/modding/vehicle/sections/hydros/
+[jbeam-syntax]: https://documentation.beamng.com/modding/vehicle/intro_jbeam/jbeamsyntax/
+[materials]: https://documentation.beamng.com/modding/file_formats/materials/
+[nodes]: https://documentation.beamng.com/modding/vehicle/sections/nodes/
+[packing]: https://documentation.beamng.com/modding/mod-support/mod_packing/
+[props]: https://documentation.beamng.com/modding/vehicle/sections/props/
+[rails]: https://documentation.beamng.com/modding/vehicle/sections/rails/
+[refnodes]: https://documentation.beamng.com/modding/vehicle/sections/refnodes/
+[sections]: https://documentation.beamng.com/modding/vehicle/sections/
+[slots]: https://documentation.beamng.com/modding/vehicle/sections/slots/
+[thrusters]: https://documentation.beamng.com/modding/vehicle/sections/thrusters/
+[torsionbars]: https://documentation.beamng.com/modding/vehicle/sections/torsionbars/
+[triangles]: https://documentation.beamng.com/modding/vehicle/sections/triangles/
+[vehicle-controller]: https://documentation.beamng.com/modding/vehicle/vehicle_system/controller/main/vehiclecontroller/
+[wheels]: https://documentation.beamng.com/modding/vehicle/sections/wheels/

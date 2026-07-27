@@ -295,6 +295,9 @@ does not use BeamNG executable code or stock assets, and does not promise the
 same result from two different physics engines. Initial scope is `vehicles/`
 content. Level, UI, gameplay, and executable-plugin compatibility require
 separate milestones; Lua found in a package is inventoried but never executed.
+The versioned field, unit, behavior, fidelity, and competitive-hypothesis
+contract lives in
+[the BeamNG.drive compatibility specification](BEAMNG_COMPATIBILITY.md).
 
 Every import advertises the highest tier reached by that exact package,
 configuration, source hash, importer schema, and option set:
