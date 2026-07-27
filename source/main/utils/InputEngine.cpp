@@ -416,6 +416,15 @@ using namespace OIS;
 
 const std::string InputEngine::DEFAULT_MAPFILE = "input.map";
 
+static float NormalizeJoystickAxis(int value)
+{
+    // SDL and OIS expose the same asymmetric signed 16-bit axis range.
+    // Use the matching magnitude on each side so -32768 maps to exactly -1.
+    return value < 0 ?
+        static_cast<float>(value) / 32768.0f :
+        static_cast<float>(value) / 32767.0f;
+}
+
 InputEngine::InputEngine() :
      free_joysticks(0)
     , mForceFeedback(0)
@@ -441,6 +450,18 @@ InputEngine::~InputEngine()
 
 void InputEngine::destroy()
 {
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    m_sdl_controller_backend.Shutdown();
+    m_use_sdl_controller_backend = false;
+    m_sdl_controller_input_active = true;
+#endif
+    free_joysticks = 0;
+    mForceFeedback = 0;
+    for (int i = 0; i < MAX_JOYSTICKS; ++i)
+    {
+        joyState[i] = JoyStickState();
+    }
+
     if (mInputManager)
     {
         LOG("*** Terminating OIS ***");
@@ -555,31 +576,98 @@ void InputEngine::setup()
     }
 
 
-    try
+    bool create_ois_joysticks = true;
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    if (m_sdl_controller_backend.Initialize())
     {
-        //This demo uses at most 10 joysticks - use old way to create (i.e. disregard vendor)
-        int numSticks = std::min(mInputManager->getNumberOfDevices(OISJoyStick), 10);
-        free_joysticks = 0;
-        for (int i = 0; i < numSticks; ++i)
+        // SDL and OIS must never open the same HID joystick simultaneously.
+        // Once SDL initializes successfully it remains the sole joystick owner,
+        // including when no controller is present yet so hotplug still works.
+        m_use_sdl_controller_backend = true;
+        m_sdl_controller_input_active = true;
+        create_ois_joysticks = false;
+        free_joysticks =
+            static_cast<int>(m_sdl_controller_backend.SlotLimit());
+        LOG("+ macOS joysticks: SDL event backend");
+        if (!m_sdl_controller_backend.GetLastError().empty())
         {
-            mJoy[i] = (JoyStick*)mInputManager->createInputObject(OISJoyStick, true);
-            free_joysticks++;
-            //create force feedback too
-            //here, we take the first device we can get, but we could take a device index
-            if (!mForceFeedback)
-                mForceFeedback = (OIS::ForceFeedback*)mJoy[i]->queryInterface(OIS::Interface::ForceFeedback);
-
-            LOG("Creating Joystick " + TOSTRING(i + 1) + " (" + mJoy[i]->vendor() + ")");
-            LOG("* Axes: " + TOSTRING(mJoy[i]->getNumberOfComponents(OIS_Axis)));
-            LOG("* Sliders: " + TOSTRING(mJoy[i]->getNumberOfComponents(OIS_Slider)));
-            LOG("* POV/HATs: " + TOSTRING(mJoy[i]->getNumberOfComponents(OIS_POV)));
-            LOG("* Buttons: " + TOSTRING(mJoy[i]->getNumberOfComponents(OIS_Button)));
-            LOG("* Vector3: " + TOSTRING(mJoy[i]->getNumberOfComponents(OIS_Vector3)));
+            LOG("+ macOS joystick warning: " +
+                m_sdl_controller_backend.GetLastError());
         }
+
+        for (int i = 0; i < free_joysticks; ++i)
+        {
+            if (!this->IsJoystickConnected(i))
+            {
+                continue;
+            }
+            joyState[i] = JoyStickState();
+            this->SyncSdlControllerSlot(static_cast<std::size_t>(i));
+            LOG("Creating SDL Joystick " + TOSTRING(i + 1) +
+                " (" + this->getJoyVendor(i) + ")");
+            LOG("* Axes: " +
+                TOSTRING(this->getJoyComponentCount(OIS_Axis, i)));
+            LOG("* Sliders: 0");
+            LOG("* POV/HATs: " +
+                TOSTRING(this->getJoyComponentCount(OIS_POV, i)));
+            LOG("* Buttons: " +
+                TOSTRING(this->getJoyComponentCount(OIS_Button, i)));
+            LOG("* Vector3: 0");
+        }
+        LOG("+ macOS SDL joystick force feedback is unavailable; "
+            "continuing without FFB");
     }
-    catch (OIS::Exception& ex)
+    else
     {
-        LOG(String("Exception raised on joystick creation: ") + String(ex.eText));
+        LOG("+ macOS SDL joystick initialization failed; "
+            "falling back to OIS: " +
+            m_sdl_controller_backend.GetLastError());
+    }
+#endif
+
+    if (create_ois_joysticks)
+    {
+        try
+        {
+            // This demo uses at most 10 joysticks - use old way to create
+            // (i.e. disregard vendor).
+            int numSticks = std::min(
+                mInputManager->getNumberOfDevices(OISJoyStick),
+                MAX_JOYSTICKS);
+            free_joysticks = 0;
+            for (int i = 0; i < numSticks; ++i)
+            {
+                mJoy[i] = (JoyStick*)mInputManager->createInputObject(
+                    OISJoyStick,
+                    true);
+                free_joysticks++;
+                // Create force feedback too. Take the first device which
+                // exposes it; a device-specific selection can be added later.
+                if (!mForceFeedback)
+                {
+                    mForceFeedback = (OIS::ForceFeedback*)mJoy[i]->
+                        queryInterface(OIS::Interface::ForceFeedback);
+                }
+
+                LOG("Creating Joystick " + TOSTRING(i + 1) + " (" +
+                    mJoy[i]->vendor() + ")");
+                LOG("* Axes: " + TOSTRING(
+                    mJoy[i]->getNumberOfComponents(OIS_Axis)));
+                LOG("* Sliders: " + TOSTRING(
+                    mJoy[i]->getNumberOfComponents(OIS_Slider)));
+                LOG("* POV/HATs: " + TOSTRING(
+                    mJoy[i]->getNumberOfComponents(OIS_POV)));
+                LOG("* Buttons: " + TOSTRING(
+                    mJoy[i]->getNumberOfComponents(OIS_Button)));
+                LOG("* Vector3: " + TOSTRING(
+                    mJoy[i]->getNumberOfComponents(OIS_Vector3)));
+            }
+        }
+        catch (OIS::Exception& ex)
+        {
+            LOG(String("Exception raised on joystick creation: ") +
+                String(ex.eText));
+        }
     }
 
     try
@@ -592,7 +680,7 @@ void InputEngine::setup()
     }
 
 
-    if (free_joysticks)
+    if (create_ois_joysticks && free_joysticks)
     {
         for (int i = 0; i < free_joysticks; i++)
             joyState[i] = mJoy[i]->getJoyStickState();
@@ -615,7 +703,16 @@ void InputEngine::setup()
     // then load device (+OS) specific mappings
     for (int i = 0; i < free_joysticks; ++i)
     {
-        this->loadConfigFile(i);
+        if (this->IsJoystickConnected(i))
+        {
+            if (!this->loadConfigFile(i))
+            {
+                LOG("+ No joystick mapping found for " +
+                    this->getJoyVendor(i) + " (expected " +
+                    m_loaded_configs[i] +
+                    "); add or select a matching device map");
+            }
+        }
     }
     completeMissingEvents();
 }
@@ -697,9 +794,18 @@ void InputEngine::SetMouseListener(OIS::MouseListener* mouse_listener)
 
 void InputEngine::SetJoystickListener(OIS::JoyStickListener* obj)
 {
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    if (m_use_sdl_controller_backend)
+    {
+        return;
+    }
+#endif
     for (int i = 0; i < free_joysticks; i++)
     {
-        mJoy[i]->setEventCallback(obj);
+        if (mJoy[i] != nullptr)
+        {
+            mJoy[i]->setEventCallback(obj);
+        }
     }
 }
 
@@ -727,6 +833,199 @@ void InputEngine::ProcessKeyRelease(const OIS::KeyEvent& arg)
 bool InputEngine::SetSdlKeyState(OIS::KeyCode key, bool down)
 {
     return m_sdl_key_state.Set(key, down);
+}
+
+void InputEngine::BeginSdlControllerEventFrame()
+{
+    if (!m_use_sdl_controller_backend)
+    {
+        return;
+    }
+
+    for (int slot = 0; slot < free_joysticks; ++slot)
+    {
+        if (!this->IsJoystickConnected(slot))
+        {
+            continue;
+        }
+        for (Axis& axis : joyState[slot].mAxes)
+        {
+            axis.rel = 0;
+        }
+    }
+}
+
+bool InputEngine::ProcessSdlControllerEvent(const SDL_Event& event)
+{
+    if (!m_use_sdl_controller_backend ||
+        !MacOSControllerBackend::IsControllerEvent(event.type))
+    {
+        return false;
+    }
+
+    const bool is_state_event =
+        event.type == SDL_JOYAXISMOTION ||
+        event.type == SDL_JOYBUTTONDOWN ||
+        event.type == SDL_JOYBUTTONUP ||
+        event.type == SDL_JOYHATMOTION;
+    if (!m_sdl_controller_input_active && is_state_event)
+    {
+        return true;
+    }
+
+    const MacOSControllerBackend::Update update =
+        m_sdl_controller_backend.ProcessEvent(event);
+    switch (update.kind)
+    {
+    case MacOSControllerBackend::UpdateKind::DEVICE_ADDED:
+        free_joysticks =
+            static_cast<int>(m_sdl_controller_backend.SlotLimit());
+        if (!m_sdl_controller_input_active)
+        {
+            m_sdl_controller_backend.ResetStates();
+        }
+        joyState[update.slot] = JoyStickState();
+        this->SyncSdlControllerSlot(update.slot);
+        this->clearEventsByDevice(static_cast<int>(update.slot));
+        if (!this->loadConfigFile(static_cast<int>(update.slot)))
+        {
+            LOG("+ No joystick mapping found for " +
+                m_sdl_controller_backend.GetVendor(update.slot) +
+                " (expected " + m_loaded_configs[update.slot] +
+                "); add or select a matching device map");
+        }
+        LOG("+ SDL joystick connected in slot " +
+            TOSTRING(update.slot + 1) + ": " +
+            m_sdl_controller_backend.GetVendor(update.slot));
+        break;
+
+    case MacOSControllerBackend::UpdateKind::DEVICE_REMOVED:
+        this->clearEventsByDevice(static_cast<int>(update.slot));
+        m_loaded_configs[update.slot].clear();
+        joyState[update.slot] = JoyStickState();
+        free_joysticks =
+            static_cast<int>(m_sdl_controller_backend.SlotLimit());
+        LOG("+ SDL joystick disconnected from slot " +
+            TOSTRING(update.slot + 1));
+        break;
+
+    case MacOSControllerBackend::UpdateKind::DEVICE_ERROR:
+        LOG("+ SDL joystick hotplug failed: " +
+            m_sdl_controller_backend.GetLastError());
+        break;
+
+    case MacOSControllerBackend::UpdateKind::STATE_CHANGED:
+        this->SyncSdlControllerSlot(
+            update.slot,
+            update.component_type ==
+                MacOSControllerContract::EventType::AXIS,
+            update.component);
+        break;
+
+    case MacOSControllerBackend::UpdateKind::IGNORED:
+        break;
+    }
+
+    return true;
+}
+
+void InputEngine::ResetSdlControllerStates()
+{
+    if (!m_use_sdl_controller_backend)
+    {
+        return;
+    }
+
+    m_sdl_controller_input_active = false;
+    m_sdl_controller_backend.ResetStates();
+    for (int slot = 0; slot < free_joysticks; ++slot)
+    {
+        if (!this->IsJoystickConnected(slot))
+        {
+            continue;
+        }
+        joyState[slot] = JoyStickState();
+        this->SyncSdlControllerSlot(static_cast<std::size_t>(slot));
+    }
+}
+
+void InputEngine::RefreshSdlControllerStates()
+{
+    if (!m_use_sdl_controller_backend)
+    {
+        return;
+    }
+
+    m_sdl_controller_input_active = true;
+    m_sdl_controller_backend.RefreshStates();
+    for (int slot = 0; slot < free_joysticks; ++slot)
+    {
+        if (!this->IsJoystickConnected(slot))
+        {
+            continue;
+        }
+        joyState[slot] = JoyStickState();
+        this->SyncSdlControllerSlot(static_cast<std::size_t>(slot));
+    }
+}
+
+void InputEngine::SyncSdlControllerSlot(
+    std::size_t slot,
+    bool update_relative_axis,
+    std::size_t relative_axis)
+{
+    const MacOSControllerContract::Slot* const source =
+        m_sdl_controller_backend.GetSlot(slot);
+    if (source == nullptr || slot >= MAX_JOYSTICKS)
+    {
+        return;
+    }
+
+    JoyStickState& destination = joyState[slot];
+    destination.mAxes.resize(source->axis_count);
+    for (std::size_t i = 0; i < source->axis_count; ++i)
+    {
+        Axis& axis = destination.mAxes[i];
+        const int previous = axis.abs;
+        axis.abs = source->axes[i];
+        axis.absOnly = true;
+        if (update_relative_axis && i == relative_axis)
+        {
+            axis.rel += axis.abs - previous;
+        }
+    }
+
+    destination.mButtons.resize(source->button_count);
+    for (std::size_t i = 0; i < source->button_count; ++i)
+    {
+        destination.mButtons[i] = source->buttons[i];
+    }
+
+    for (int i = 0; i < MAX_JOYSTICK_POVS; ++i)
+    {
+        destination.mPOV[i].direction = Pov::Centered;
+    }
+    for (std::size_t i = 0; i < source->hat_count; ++i)
+    {
+        int direction = Pov::Centered;
+        if ((source->hats[i] & SDL_HAT_UP) != 0)
+        {
+            direction |= Pov::North;
+        }
+        if ((source->hats[i] & SDL_HAT_DOWN) != 0)
+        {
+            direction |= Pov::South;
+        }
+        if ((source->hats[i] & SDL_HAT_RIGHT) != 0)
+        {
+            direction |= Pov::East;
+        }
+        if ((source->hats[i] & SDL_HAT_LEFT) != 0)
+        {
+            direction |= Pov::West;
+        }
+        destination.mPOV[i].direction = direction;
+    }
 }
 #endif
 
@@ -1052,15 +1351,19 @@ float InputEngine::getEventValue(int eventID, bool pure, InputSourceType valueSo
                 break;
             case ET_JoystickButton:
                 {
-                    if (t.joystickNumber > free_joysticks || !mJoy[t.joystickNumber])
+                    if (!this->IsJoystickConnected(t.joystickNumber))
                     {
                         value = 0;
                         continue;
                     }
-                    if (t.joystickButtonNumber >= (int)mJoy[t.joystickNumber]->getNumberOfComponents(OIS_Button))
+                    const int button_count = this->getJoyComponentCount(
+                        OIS_Button,
+                        t.joystickNumber);
+                    if (t.joystickButtonNumber < 0 ||
+                        t.joystickButtonNumber >= button_count)
                     {
 #ifndef NOOGRE
-                        LOG("*** Joystick has not enough buttons for mapping: need button "+TOSTRING(t.joystickButtonNumber) + ", availabe buttons: "+TOSTRING(mJoy[t.joystickNumber]->getNumberOfComponents(OIS_Button)));
+                        LOG("*** Joystick has not enough buttons for mapping: need button "+TOSTRING(t.joystickButtonNumber) + ", availabe buttons: "+TOSTRING(button_count));
 #endif
                         value = 0;
                         continue;
@@ -1070,15 +1373,19 @@ float InputEngine::getEventValue(int eventID, bool pure, InputSourceType valueSo
                 break;
             case ET_JoystickPov:
                 {
-                    if (t.joystickNumber > free_joysticks || !mJoy[t.joystickNumber])
+                    if (!this->IsJoystickConnected(t.joystickNumber))
                     {
                         value = 0;
                         continue;
                     }
-                    if (t.joystickPovNumber >= (int)mJoy[t.joystickNumber]->getNumberOfComponents(OIS_POV))
+                    const int pov_count = this->getJoyComponentCount(
+                        OIS_POV,
+                        t.joystickNumber);
+                    if (t.joystickPovNumber < 0 ||
+                        t.joystickPovNumber >= pov_count)
                     {
 #ifndef NOOGRE
-                        LOG("*** Joystick has not enough POVs for mapping: need POV "+TOSTRING(t.joystickPovNumber) + ", availabe POVs: "+TOSTRING(mJoy[t.joystickNumber]->getNumberOfComponents(OIS_POV)));
+                        LOG("*** Joystick has not enough POVs for mapping: need POV "+TOSTRING(t.joystickPovNumber) + ", availabe POVs: "+TOSTRING(pov_count));
 #endif
                         value = 0;
                         continue;
@@ -1108,12 +1415,15 @@ float InputEngine::getEventValue(int eventID, bool pure, InputSourceType valueSo
             case ET_JoystickAxisRel:
             case ET_JoystickAxisAbs:
                 {
-                    if (t.joystickNumber > free_joysticks || !mJoy[t.joystickNumber])
+                    if (!this->IsJoystickConnected(t.joystickNumber))
                     {
                         value = 0;
                         continue;
                     }
-                    if (t.joystickAxisNumber >= (int)joyState[t.joystickNumber].mAxes.size())
+                    if (t.joystickAxisNumber < 0 ||
+                        t.joystickAxisNumber >=
+                            static_cast<int>(
+                                joyState[t.joystickNumber].mAxes.size()))
                     {
 #ifndef NOOGRE
                         LOG("*** Joystick has not enough axis for mapping: need axe "+TOSTRING(t.joystickAxisNumber) + ", availabe axis: "+TOSTRING(joyState[t.joystickNumber].mAxes.size()));
@@ -1125,11 +1435,11 @@ float InputEngine::getEventValue(int eventID, bool pure, InputSourceType valueSo
 
                     if (t.eventtype == ET_JoystickAxisRel)
                     {
-                        value = (float)axe.rel / (float)mJoy[t.joystickNumber]->MAX_AXIS;
+                        value = NormalizeJoystickAxis(axe.rel);
                     }
                     else
                     {
-                        value = (float)axe.abs / (float)mJoy[t.joystickNumber]->MAX_AXIS;
+                        value = NormalizeJoystickAxis(axe.abs);
                         switch (t.joystickAxisRegion)
                         {
                         case 0:
@@ -1186,15 +1496,29 @@ float InputEngine::getEventValue(int eventID, bool pure, InputSourceType valueSo
             case ET_JoystickSliderX:
             case ET_JoystickSliderY:
                 {
-                    if (t.joystickNumber > free_joysticks || !mJoy[t.joystickNumber])
+                    if (!this->IsJoystickConnected(t.joystickNumber))
+                    {
+                        value = 0;
+                        continue;
+                    }
+                    const int slider_count = this->getJoyComponentCount(
+                        OIS_Slider,
+                        t.joystickNumber);
+                    if (t.joystickSliderNumber < 0 ||
+                        t.joystickSliderNumber >= slider_count ||
+                        t.joystickSliderNumber >= MAX_JOYSTICK_SLIDERS)
                     {
                         value = 0;
                         continue;
                     }
                     if (t.eventtype == ET_JoystickSliderX)
-                        value = (float)joyState[t.joystickNumber].mSliders[t.joystickSliderNumber].abX / (float)mJoy[t.joystickNumber]->MAX_AXIS;
+                        value = NormalizeJoystickAxis(
+                            joyState[t.joystickNumber].
+                                mSliders[t.joystickSliderNumber].abX);
                     else if (t.eventtype == ET_JoystickSliderY)
-                        value = (float)joyState[t.joystickNumber].mSliders[t.joystickSliderNumber].abY / (float)mJoy[t.joystickNumber]->MAX_AXIS;
+                        value = NormalizeJoystickAxis(
+                            joyState[t.joystickNumber].
+                                mSliders[t.joystickSliderNumber].abY);
                     value = (value + 1) / 2; // full axis
                     if (t.joystickSliderReverse)
                         value = 1.0 - value; // reversed
@@ -1719,6 +2043,10 @@ int InputEngine::getCurrentJoyButton(int& joystickNumber, int& button)
 {
     for (int j = 0; j < free_joysticks; j++)
     {
+        if (!this->IsJoystickConnected(j))
+        {
+            continue;
+        }
         for (int i = 0; i < (int)joyState[j].mButtons.size(); i++)
         {
             if (joyState[j].mButtons[i])
@@ -1736,7 +2064,14 @@ int InputEngine::getCurrentPovValue(int& joystickNumber, int& pov, int& povdir)
 {
     for (int j = 0; j < free_joysticks; j++)
     {
-        for (int i = 0; i < MAX_JOYSTICK_POVS; i++)
+        if (!this->IsJoystickConnected(j))
+        {
+            continue;
+        }
+        const int pov_count = this->getJoyComponentCount(OIS_POV, j);
+        for (int i = 0;
+             i < pov_count && i < MAX_JOYSTICK_POVS;
+             ++i)
         {
             if (joyState[j].mPOV[i].direction != Pov::Centered)
             {
@@ -1768,23 +2103,91 @@ event_trigger_t InputEngine::newEvent()
 
 int InputEngine::getJoyComponentCount(OIS::ComponentType type, int joystickNumber)
 {
-    if (joystickNumber > free_joysticks || !mJoy[joystickNumber])
+    if (!this->IsJoystickConnected(joystickNumber))
+    {
         return 0;
+    }
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    if (m_use_sdl_controller_backend)
+    {
+        const MacOSControllerContract::Slot* const slot =
+            m_sdl_controller_backend.GetSlot(
+                static_cast<std::size_t>(joystickNumber));
+        if (slot == nullptr)
+        {
+            return 0;
+        }
+        switch (type)
+        {
+        case OIS_Axis:
+            return static_cast<int>(slot->axis_count);
+        case OIS_Button:
+            return static_cast<int>(slot->button_count);
+        case OIS_POV:
+            return static_cast<int>(slot->hat_count);
+        case OIS_Slider:
+        case OIS_Vector3:
+        default:
+            return 0;
+        }
+    }
+#endif
     return mJoy[joystickNumber]->getNumberOfComponents(type);
+}
+
+int InputEngine::getNumJoysticks() const
+{
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    if (m_use_sdl_controller_backend)
+    {
+        return static_cast<int>(
+            m_sdl_controller_backend.ConnectedCount());
+    }
+#endif
+    return free_joysticks;
 }
 
 std::string InputEngine::getJoyVendor(int joystickNumber)
 {
-    if (joystickNumber > free_joysticks || !mJoy[joystickNumber])
+    if (!this->IsJoystickConnected(joystickNumber))
+    {
         return "unknown";
+    }
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    if (m_use_sdl_controller_backend)
+    {
+        return m_sdl_controller_backend.GetVendor(
+            static_cast<std::size_t>(joystickNumber));
+    }
+#endif
     return mJoy[joystickNumber]->vendor();
 }
 
 JoyStickState* InputEngine::getCurrentJoyState(int joystickNumber)
 {
-    if (joystickNumber > free_joysticks)
+    if (!this->IsJoystickConnected(joystickNumber))
+    {
         return 0;
+    }
     return &joyState[joystickNumber];
+}
+
+bool InputEngine::IsJoystickConnected(int joystickNumber) const
+{
+    if (joystickNumber < 0 ||
+        joystickNumber >= free_joysticks ||
+        joystickNumber >= MAX_JOYSTICKS)
+    {
+        return false;
+    }
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    if (m_use_sdl_controller_backend)
+    {
+        return m_sdl_controller_backend.IsConnected(
+            static_cast<std::size_t>(joystickNumber));
+    }
+#endif
+    return mJoy[joystickNumber] != nullptr;
 }
 
 int InputEngine::getCurrentKeyCombo(String* combo)
@@ -1946,9 +2349,9 @@ bool InputEngine::loadConfigFile(int deviceID)
     }
     else
     {
-        ROR_ASSERT(deviceID < free_joysticks);
+        ROR_ASSERT(this->IsJoystickConnected(deviceID));
 
-        String deviceStr = mJoy[deviceID]->vendor();
+        String deviceStr = this->getJoyVendor(deviceID);
 
         // care about unsuitable chars
         String repl = "\\/ #@?!$%^&*()+=-><.:'|\";";
@@ -1963,6 +2366,8 @@ bool InputEngine::loadConfigFile(int deviceID)
         osSpecificMapFile = deviceStr + ".windows.map";
 #elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX
         osSpecificMapFile = deviceStr + ".linux.map";
+#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+        osSpecificMapFile = deviceStr + ".macos.map";
 #endif
         if (osSpecificMapFile != "" &&
             ResourceGroupManager::getSingleton().resourceExists(RGN_CONFIG, osSpecificMapFile))
@@ -1983,7 +2388,9 @@ bool InputEngine::loadConfigFile(int deviceID)
 
 bool InputEngine::saveConfigFile(int deviceID)
 {
-    ROR_ASSERT(deviceID < free_joysticks);
+    ROR_ASSERT(
+        deviceID == DEFAULT_MAPFILE_DEVICEID ||
+        this->IsJoystickConnected(deviceID));
 
     if (deviceID == -1)
         return this->saveMapping(DEFAULT_MAPFILE, deviceID);
@@ -1993,7 +2400,9 @@ bool InputEngine::saveConfigFile(int deviceID)
 
 std::string const& InputEngine::getLoadedConfigFile(int deviceID /*= -1*/)
 {
-    ROR_ASSERT(deviceID < free_joysticks);
+    ROR_ASSERT(
+        deviceID == DEFAULT_MAPFILE_DEVICEID ||
+        this->IsJoystickConnected(deviceID));
     if (deviceID == -1)
         return DEFAULT_MAPFILE;
     else

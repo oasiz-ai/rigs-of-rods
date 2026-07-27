@@ -220,6 +220,7 @@ if (APPLE)
         add_executable(
             ror_macos_controller_contract_tests
             "${CMAKE_CURRENT_LIST_DIR}/platform/MacOSControllerContractTests.cpp"
+            "${ROR_REPOSITORY_ROOT}/source/main/utils/MacOSControllerBackend.cpp"
         )
 
         target_include_directories(

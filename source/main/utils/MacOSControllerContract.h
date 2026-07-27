@@ -14,8 +14,8 @@
 namespace RoR {
 namespace MacOSControllerContract {
 
-// This dependency-free state contract is the migration seam for a future SDL
-// controller backend. The production macOS runtime still uses OIS.
+// Dependency-free state and slot contract shared by the production SDL
+// controller backend and its virtual-device tests.
 enum class EventType
 {
     AXIS,
@@ -208,6 +208,47 @@ public:
             }
         }
         return nullptr;
+    }
+
+    bool FindSlot(
+        std::int32_t instance_id,
+        std::size_t& slot_index) const
+    {
+        for (std::size_t i = 0; i < m_slots.size(); ++i)
+        {
+            if (m_slots[i].connected &&
+                m_slots[i].instance_id == instance_id)
+            {
+                slot_index = i;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    std::size_t ActiveCount() const
+    {
+        std::size_t count = 0;
+        for (const Slot& slot : m_slots)
+        {
+            if (slot.connected)
+            {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    std::size_t SlotLimit() const
+    {
+        for (std::size_t i = m_slots.size(); i > 0; --i)
+        {
+            if (m_slots[i - 1].connected)
+            {
+                return i;
+            }
+        }
+        return 0;
     }
 
     static double NormalizeAxis(std::int16_t value)

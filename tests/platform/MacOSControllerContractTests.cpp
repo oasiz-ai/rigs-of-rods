@@ -5,6 +5,7 @@
     it under the terms of the GNU General Public License version 3.
 */
 
+#include "MacOSControllerBackend.h"
 #include "MacOSControllerContract.h"
 
 #include <SDL.h>
@@ -13,6 +14,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -34,41 +36,6 @@ bool NearlyEqual(double lhs, double rhs)
     return std::fabs(lhs - rhs) < 1.0e-12;
 }
 
-ApplyResult ApplySDLEvent(Registry& registry, const SDL_Event& sdl_event)
-{
-    Event event;
-
-    switch (sdl_event.type)
-    {
-    case SDL_JOYAXISMOTION:
-        event.type = EventType::AXIS;
-        event.instance_id = sdl_event.jaxis.which;
-        event.component = sdl_event.jaxis.axis;
-        event.value = sdl_event.jaxis.value;
-        break;
-
-    case SDL_JOYBUTTONDOWN:
-    case SDL_JOYBUTTONUP:
-        event.type = EventType::BUTTON;
-        event.instance_id = sdl_event.jbutton.which;
-        event.component = sdl_event.jbutton.button;
-        event.value = sdl_event.jbutton.state;
-        break;
-
-    case SDL_JOYHATMOTION:
-        event.type = EventType::HAT;
-        event.instance_id = sdl_event.jhat.which;
-        event.component = sdl_event.jhat.hat;
-        event.value = sdl_event.jhat.value;
-        break;
-
-    default:
-        return ApplyResult::NO_CHANGE;
-    }
-
-    return registry.Apply(event);
-}
-
 int VerifyPureContract()
 {
     Registry registry;
@@ -86,6 +53,14 @@ int VerifyPureContract()
         second_slot != 1)
     {
         return Fail("the second controller did not receive stable slot one");
+    }
+    std::size_t found_slot = Registry::MAX_DEVICES;
+    if (!registry.FindSlot(101, found_slot) ||
+        found_slot != second_slot ||
+        registry.ActiveCount() != 2 ||
+        registry.SlotLimit() != 2)
+    {
+        return Fail("registry occupancy metadata did not match attached slots");
     }
     if (registry.Attach(100, 2, 3, 1, second_slot) !=
         AttachResult::DUPLICATE)
@@ -108,6 +83,10 @@ int VerifyPureContract()
     if (registry.Get(first_slot) != nullptr)
     {
         return Fail("detaching a controller did not clear its slot");
+    }
+    if (registry.ActiveCount() != 1 || registry.SlotLimit() != 2)
+    {
+        return Fail("a sparse stable slot was hidden by the occupancy limit");
     }
     if (registry.Attach(102, 2, 2, 1, first_slot) !=
             AttachResult::ATTACHED ||
@@ -226,149 +205,396 @@ int VerifyPureContract()
     return EXIT_SUCCESS;
 }
 
-int VerifySDLVirtualController()
-{
-    if (SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) != 0)
-    {
-        return Fail(std::string("SDL joystick initialization failed: ") +
-            SDL_GetError());
-    }
+using RoR::MacOSControllerBackend;
 
+struct BackendEvents
+{
+    int added = 0;
+    int removed = 0;
+    int errors = 0;
+    int changed = 0;
+};
+
+BackendEvents DrainControllerEvents(MacOSControllerBackend& backend)
+{
+    BackendEvents summary;
+    SDL_Event event;
+    while (SDL_PollEvent(&event) != 0)
+    {
+        if (!MacOSControllerBackend::IsControllerEvent(event.type))
+        {
+            continue;
+        }
+
+        const MacOSControllerBackend::Update update =
+            backend.ProcessEvent(event);
+        switch (update.kind)
+        {
+        case MacOSControllerBackend::UpdateKind::DEVICE_ADDED:
+            ++summary.added;
+            break;
+        case MacOSControllerBackend::UpdateKind::DEVICE_REMOVED:
+            ++summary.removed;
+            break;
+        case MacOSControllerBackend::UpdateKind::DEVICE_ERROR:
+            ++summary.errors;
+            break;
+        case MacOSControllerBackend::UpdateKind::STATE_CHANGED:
+            ++summary.changed;
+            break;
+        case MacOSControllerBackend::UpdateKind::IGNORED:
+            break;
+        }
+    }
+    return summary;
+}
+
+bool FindBackendSlot(
+    const MacOSControllerBackend& backend,
+    SDL_JoystickID instance_id,
+    std::size_t& slot_index)
+{
+    for (std::size_t i = 0; i < Registry::MAX_DEVICES; ++i)
+    {
+        const Slot* const slot = backend.GetSlot(i);
+        if (slot != nullptr && slot->instance_id == instance_id)
+        {
+            slot_index = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool AttachVirtualController(
+    const char* name,
+    SDL_JoystickID& instance_id)
+{
     SDL_VirtualJoystickDesc description = {};
     description.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
     description.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
     description.naxes = 2;
     description.nbuttons = 4;
     description.nhats = 1;
-    description.name = "RoR macOS controller contract";
+    description.name = name;
 
     const int device_index = SDL_JoystickAttachVirtualEx(&description);
     if (device_index < 0)
     {
-        const std::string error = SDL_GetError();
-        SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_EVENTS);
-        return Fail(std::string("SDL virtual joystick attach failed: ") + error);
+        return false;
+    }
+    instance_id = SDL_JoystickGetDeviceInstanceID(device_index);
+    return instance_id >= 0;
+}
+
+bool DetachVirtualController(SDL_JoystickID instance_id)
+{
+    const int device_count = SDL_NumJoysticks();
+    for (int device_index = 0;
+         device_index < device_count;
+         ++device_index)
+    {
+        if (SDL_JoystickGetDeviceInstanceID(device_index) == instance_id)
+        {
+            return SDL_JoystickDetachVirtual(device_index) == 0;
+        }
+    }
+    return true;
+}
+
+int VerifySDLVirtualController()
+{
+    const Uint32 test_subsystems = SDL_INIT_JOYSTICK | SDL_INIT_EVENTS;
+    if (SDL_InitSubSystem(test_subsystems) != 0)
+    {
+        return Fail(std::string("SDL joystick initialization failed: ") +
+            SDL_GetError());
     }
 
-    SDL_Joystick* const joystick = SDL_JoystickOpen(device_index);
-    if (joystick == nullptr)
+    std::vector<SDL_JoystickID> virtual_devices;
+    SDL_JoystickID first_id = -1;
+    if (!AttachVirtualController(
+            "RoR macOS controller startup",
+            first_id))
     {
         const std::string error = SDL_GetError();
-        SDL_JoystickDetachVirtual(device_index);
-        SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_EVENTS);
-        return Fail(std::string("SDL virtual joystick open failed: ") + error);
+        SDL_QuitSubSystem(test_subsystems);
+        return Fail(std::string("SDL virtual joystick attach failed: ") +
+            error);
     }
+    virtual_devices.push_back(first_id);
 
     int result = EXIT_SUCCESS;
+    MacOSControllerBackend backend;
     do
     {
-        if (SDL_JoystickIsVirtual(device_index) != SDL_TRUE ||
-            SDL_JoystickNumAxes(joystick) != description.naxes ||
-            SDL_JoystickNumButtons(joystick) != description.nbuttons ||
-            SDL_JoystickNumHats(joystick) != description.nhats)
+        if (!backend.Initialize())
         {
-            result = Fail("SDL did not expose the declared virtual shape");
+            result = Fail(std::string(
+                "the production SDL backend did not initialize: ") +
+                backend.GetLastError());
             break;
         }
 
-        const SDL_JoystickID instance_id = SDL_JoystickInstanceID(joystick);
-        if (instance_id < 0)
+        std::size_t first_slot = Registry::MAX_DEVICES;
+        if (!FindBackendSlot(backend, first_id, first_slot))
         {
-            result = Fail("SDL did not assign a virtual instance id");
+            result = Fail(
+                "startup enumeration missed the virtual controller");
             break;
         }
 
-        Registry registry;
-        std::size_t slot_index = Registry::MAX_DEVICES;
-        if (registry.Attach(
-                instance_id,
-                static_cast<std::size_t>(SDL_JoystickNumAxes(joystick)),
-                static_cast<std::size_t>(SDL_JoystickNumButtons(joystick)),
-                static_cast<std::size_t>(SDL_JoystickNumHats(joystick)),
-                slot_index) != AttachResult::ATTACHED)
+        const Slot* slot = backend.GetSlot(first_slot);
+        if (slot == nullptr ||
+            slot->axis_count != 2 ||
+            slot->button_count != 4 ||
+            slot->hat_count != 1 ||
+            backend.GetVendor(first_slot) !=
+                "RoR macOS controller startup")
         {
-            result = Fail("the SDL virtual device did not attach to the contract");
+            result = Fail(
+                "the backend did not preserve the SDL controller shape");
             break;
         }
 
-        SDL_JoystickEventState(SDL_ENABLE);
+        // Discard the duplicate add event queued before startup enumeration.
+        DrainControllerEvents(backend);
         SDL_FlushEvents(SDL_JOYAXISMOTION, SDL_JOYDEVICEREMOVED);
 
-        if (SDL_JoystickSetVirtualAxis(joystick, 0, 16384) != 0 ||
-            SDL_JoystickSetVirtualButton(joystick, 1, SDL_PRESSED) != 0 ||
+        SDL_Joystick* const first_joystick =
+            SDL_JoystickFromInstanceID(first_id);
+        if (first_joystick == nullptr ||
+            SDL_JoystickSetVirtualAxis(first_joystick, 0, -32768) != 0 ||
+            SDL_JoystickSetVirtualButton(
+                first_joystick,
+                1,
+                SDL_PRESSED) != 0 ||
             SDL_JoystickSetVirtualHat(
-                joystick,
+                first_joystick,
                 0,
                 SDL_HAT_LEFTDOWN) != 0)
         {
-            result = Fail(std::string("SDL rejected a virtual transition: ") +
+            result = Fail(std::string(
+                "SDL rejected a virtual transition: ") +
                 SDL_GetError());
             break;
         }
 
         SDL_JoystickUpdate();
-        SDL_Event sdl_event;
-        int applied_events = 0;
-        while (SDL_PollEvent(&sdl_event) != 0)
-        {
-            if (ApplySDLEvent(registry, sdl_event) == ApplyResult::APPLIED)
-            {
-                ++applied_events;
-            }
-        }
-
-        const Slot* slot = registry.Get(slot_index);
-        if (applied_events < 3 || slot == nullptr ||
-            slot->axes[0] != 16384 || !slot->buttons[1] ||
-            slot->hats[0] != SDL_HAT_LEFTDOWN)
-        {
-            result = Fail("SDL events did not reproduce the virtual device state");
-            break;
-        }
-
-        if (SDL_JoystickSetVirtualAxis(joystick, 0, -32768) != 0 ||
-            SDL_JoystickSetVirtualButton(joystick, 1, SDL_RELEASED) != 0 ||
-            SDL_JoystickSetVirtualHat(
-                joystick,
-                0,
-                SDL_HAT_CENTERED) != 0)
-        {
-            result = Fail(std::string("SDL rejected a reset transition: ") +
-                SDL_GetError());
-            break;
-        }
-
-        SDL_JoystickUpdate();
-        while (SDL_PollEvent(&sdl_event) != 0)
-        {
-            ApplySDLEvent(registry, sdl_event);
-        }
-
-        slot = registry.Get(slot_index);
-        if (slot == nullptr || slot->axes[0] != -32768 ||
-            slot->buttons[1] || slot->hats[0] != SDL_HAT_CENTERED ||
+        const BackendEvents transitions = DrainControllerEvents(backend);
+        slot = backend.GetSlot(first_slot);
+        if (transitions.changed < 3 ||
+            slot == nullptr ||
+            slot->axes[0] != -32768 ||
+            !slot->buttons[1] ||
+            slot->hats[0] != SDL_HAT_LEFTDOWN ||
             !NearlyEqual(Registry::NormalizeAxis(slot->axes[0]), -1.0))
         {
-            result = Fail("SDL reset events did not reproduce the virtual state");
+            result = Fail(
+                "production event handling lost virtual controller state");
             break;
         }
 
-        if (!registry.Detach(instance_id) ||
-            registry.Get(slot_index) != nullptr)
+        backend.ResetStates();
+        slot = backend.GetSlot(first_slot);
+        if (slot == nullptr ||
+            slot->axis_count != 2 ||
+            slot->button_count != 4 ||
+            slot->hat_count != 1 ||
+            slot->axes[0] != 0 ||
+            slot->buttons[1] ||
+            slot->hats[0] != SDL_HAT_CENTERED)
         {
-            result = Fail("the virtual disconnect did not clear its stable slot");
+            result = Fail(
+                "focus loss did not neutralize state and preserve shape");
+            break;
+        }
+
+        backend.RefreshStates();
+        slot = backend.GetSlot(first_slot);
+        if (slot == nullptr ||
+            slot->axes[0] != -32768 ||
+            !slot->buttons[1] ||
+            slot->hats[0] != SDL_HAT_LEFTDOWN)
+        {
+            result = Fail(
+                "focus regain did not recover held physical state");
+            break;
+        }
+        DrainControllerEvents(backend);
+
+        SDL_JoystickID second_id = -1;
+        const std::size_t before_hotplug = backend.ConnectedCount();
+        if (!AttachVirtualController(
+                "RoR macOS controller hotplug",
+                second_id))
+        {
+            result = Fail(std::string(
+                "SDL hotplug attach failed: ") + SDL_GetError());
+            break;
+        }
+        virtual_devices.push_back(second_id);
+        const BackendEvents hotplug_events =
+            DrainControllerEvents(backend);
+        std::size_t second_slot = Registry::MAX_DEVICES;
+        if (hotplug_events.added != 1 ||
+            backend.ConnectedCount() != before_hotplug + 1 ||
+            !FindBackendSlot(backend, second_id, second_slot) ||
+            second_slot == first_slot)
+        {
+            result = Fail(
+                "the production backend did not hotplug a new controller");
+            break;
+        }
+
+        if (!DetachVirtualController(first_id))
+        {
+            result = Fail(std::string(
+                "SDL hot-unplug failed: ") + SDL_GetError());
+            break;
+        }
+        const BackendEvents removal_events =
+            DrainControllerEvents(backend);
+        std::size_t detached_slot = Registry::MAX_DEVICES;
+        if (removal_events.removed != 1 ||
+            FindBackendSlot(backend, first_id, detached_slot) ||
+            backend.GetSlot(first_slot) != nullptr ||
+            !backend.IsConnected(second_slot) ||
+            backend.SlotLimit() != second_slot + 1)
+        {
+            result = Fail(
+                "hot-unplug did not preserve sparse stable slot occupancy");
+            break;
+        }
+
+        SDL_JoystickID replacement_id = -1;
+        if (!AttachVirtualController(
+                "RoR macOS controller replacement",
+                replacement_id))
+        {
+            result = Fail(std::string(
+                "SDL replacement attach failed: ") + SDL_GetError());
+            break;
+        }
+        virtual_devices.push_back(replacement_id);
+        const BackendEvents replacement_events =
+            DrainControllerEvents(backend);
+        std::size_t replacement_slot = Registry::MAX_DEVICES;
+        if (replacement_events.added != 1 ||
+            !FindBackendSlot(
+                backend,
+                replacement_id,
+                replacement_slot) ||
+            replacement_slot != first_slot ||
+            !backend.IsConnected(second_slot))
+        {
+            result = Fail(
+                "hotplug did not deterministically reuse the first free slot");
+            break;
+        }
+
+        int filler_number = 0;
+        while (backend.ConnectedCount() < Registry::MAX_DEVICES)
+        {
+            const std::string name =
+                "RoR macOS controller filler " +
+                std::to_string(filler_number++);
+            SDL_JoystickID filler_id = -1;
+            if (!AttachVirtualController(name.c_str(), filler_id))
+            {
+                result = Fail(std::string(
+                    "SDL filler attach failed: ") + SDL_GetError());
+                break;
+            }
+            virtual_devices.push_back(filler_id);
+            const BackendEvents filler_events =
+                DrainControllerEvents(backend);
+            std::size_t filler_slot = Registry::MAX_DEVICES;
+            if (filler_events.added != 1 ||
+                !FindBackendSlot(backend, filler_id, filler_slot))
+            {
+                result = Fail(
+                    "the backend lost a controller below its slot bound");
+                break;
+            }
+        }
+        if (result != EXIT_SUCCESS)
+        {
+            break;
+        }
+
+        SDL_JoystickID overflow_id = -1;
+        if (!AttachVirtualController(
+                "RoR macOS controller overflow",
+                overflow_id))
+        {
+            result = Fail(std::string(
+                "SDL overflow attach failed: ") + SDL_GetError());
+            break;
+        }
+        virtual_devices.push_back(overflow_id);
+        const BackendEvents overflow_events =
+            DrainControllerEvents(backend);
+        std::size_t overflow_slot = Registry::MAX_DEVICES;
+        if (overflow_events.errors != 1 ||
+            backend.ConnectedCount() != Registry::MAX_DEVICES ||
+            backend.SlotLimit() != Registry::MAX_DEVICES ||
+            FindBackendSlot(backend, overflow_id, overflow_slot) ||
+            backend.GetLastError() !=
+                "macOS SDL controller slot limit reached")
+        {
+            result = Fail(
+                "the production backend exceeded its bounded slot registry");
             break;
         }
     }
     while (false);
 
-    SDL_JoystickClose(joystick);
-    if (SDL_JoystickDetachVirtual(device_index) != 0 && result == EXIT_SUCCESS)
+    backend.Shutdown();
+    if (SDL_WasInit(SDL_INIT_JOYSTICK) == 0 &&
+        result == EXIT_SUCCESS)
     {
-        result = Fail(std::string("SDL virtual joystick detach failed: ") +
-            SDL_GetError());
+        result = Fail(
+            "backend shutdown quit an SDL subsystem owned by its caller");
     }
-    SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_EVENTS);
+
+    for (const SDL_JoystickID instance_id : virtual_devices)
+    {
+        if (!DetachVirtualController(instance_id) &&
+            result == EXIT_SUCCESS)
+        {
+            result = Fail(std::string(
+                "SDL virtual joystick cleanup failed: ") +
+                SDL_GetError());
+        }
+    }
+    SDL_QuitSubSystem(test_subsystems);
+
+    if (result == EXIT_SUCCESS)
+    {
+        if (SDL_WasInit(SDL_INIT_JOYSTICK) != 0)
+        {
+            result = Fail(
+                "test teardown did not release its SDL joystick subsystem");
+        }
+        else
+        {
+            MacOSControllerBackend owning_backend;
+            if (!owning_backend.Initialize() ||
+                SDL_WasInit(SDL_INIT_JOYSTICK) == 0)
+            {
+                result = Fail(
+                    "backend did not initialize its owned SDL subsystem");
+            }
+            owning_backend.Shutdown();
+            if (SDL_WasInit(SDL_INIT_JOYSTICK) != 0 &&
+                result == EXIT_SUCCESS)
+            {
+                result = Fail(
+                    "backend did not release its owned SDL subsystem");
+            }
+        }
+    }
     return result;
 }
 

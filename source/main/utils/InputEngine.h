@@ -37,6 +37,7 @@
 #include "OISMouse.h"
 
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+#    include "MacOSControllerBackend.h"
 #    include "MacOSInputBridge.h"
 #endif
 
@@ -494,6 +495,10 @@ public:
     void                ProcessKeyRelease(const OIS::KeyEvent& arg);
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     bool                SetSdlKeyState(OIS::KeyCode key, bool down);
+    void                BeginSdlControllerEventFrame();
+    bool                ProcessSdlControllerEvent(const SDL_Event& event);
+    void                ResetSdlControllerStates();
+    void                RefreshSdlControllerStates();
 #endif
     void                ProcessJoystickEvent(const OIS::JoyStickEvent& arg);
     void                resetKeysAndMouseButtons();
@@ -515,7 +520,9 @@ public:
     int                 getKeboardKeyForCommand(int eventID);               //!< Returns -1 if not Keyboard
     int                 getJoyComponentCount(OIS::ComponentType type, int joystickNumber);
     std::string         getJoyVendor(int joystickNumber);
-    int                 getNumJoysticks() { return free_joysticks; }
+    int                 getNumJoysticks() const;                            //!< Connected device count
+    int                 getJoystickSlotLimit() const { return free_joysticks; } //!< Addressable slot high-water mark
+    bool                isJoystickConnected(int joystickNumber) const { return IsJoystickConnected(joystickNumber); }
     EventMap&           getEvents() { return events; };
     /// @}
 
@@ -585,7 +592,7 @@ protected:
     OIS::Mouse* mMouse;
     OIS::Keyboard* mKeyboard;
     OIS::JoyStick* mJoy[MAX_JOYSTICKS];
-    int free_joysticks; //!< Number of detected game controllers
+    int free_joysticks; //!< Dense OIS count, or occupied SDL slot high-water mark
     OIS::ForceFeedback* mForceFeedback;
     int uniqueCounter;
 
@@ -593,6 +600,9 @@ protected:
     std::map<int, bool> keyState;
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     MacOSInputBridge::KeyState m_sdl_key_state;
+    MacOSControllerBackend m_sdl_controller_backend;
+    bool m_use_sdl_controller_backend = false;
+    bool m_sdl_controller_input_active = true;
 #endif
     OIS::JoyStickState joyState[MAX_JOYSTICKS];
     OIS::MouseState mouseState;
@@ -609,6 +619,13 @@ protected:
 
     void initAllKeys();
     void setup();
+    bool IsJoystickConnected(int joystickNumber) const;
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    void SyncSdlControllerSlot(
+        std::size_t slot,
+        bool update_relative_axis = false,
+        std::size_t relative_axis = 0);
+#endif
     std::map<std::string, OIS::KeyCode> allkeys;
     std::map<std::string, OIS::KeyCode>::iterator allit;
 

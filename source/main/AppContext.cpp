@@ -595,9 +595,16 @@ void AppContext::ProcessWindowEvents()
     }
 
     const Uint32 main_window_id = SDL_GetWindowID(m_sdl_window);
+    InputEngine* const input_engine = App::GetInputEngine();
+    input_engine->BeginSdlControllerEventFrame();
     SDL_Event event;
     while (SDL_PollEvent(&event))
     {
+        if (input_engine->ProcessSdlControllerEvent(event))
+        {
+            continue;
+        }
+
         if (event.type == SDL_QUIT)
         {
             if (!m_window_shutdown_requested)
@@ -677,6 +684,7 @@ void AppContext::ProcessWindowEvents()
         case SDL_WINDOWEVENT_FOCUS_GAINED:
             m_render_window->setActive(true);
             this->windowFocusChange(m_render_window);
+            input_engine->RefreshSdlControllerStates();
             // SDL's Cocoa text responder may have been displaced by another
             // native input client. Recreate it so both SDL_KEY* and composed
             // SDL_TEXTINPUT events continue after every focus cycle.
@@ -686,11 +694,13 @@ void AppContext::ProcessWindowEvents()
         case SDL_WINDOWEVENT_FOCUS_LOST:
             m_render_window->setActive(false);
             this->windowFocusChange(m_render_window);
+            input_engine->ResetSdlControllerStates();
             break;
         case SDL_WINDOWEVENT_MINIMIZED:
         case SDL_WINDOWEVENT_HIDDEN:
             m_render_window->setActive(false);
             m_render_window->setVisible(false);
+            input_engine->ResetSdlControllerStates();
             break;
         case SDL_WINDOWEVENT_RESTORED:
         case SDL_WINDOWEVENT_SHOWN:

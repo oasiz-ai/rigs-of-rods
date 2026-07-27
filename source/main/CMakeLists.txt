@@ -244,6 +244,12 @@ set(SOURCE_FILES
         utils/bbcode/BBDocument.{h,cpp}
         )
 
+if (APPLE AND ROR_OGRE14)
+    list(APPEND SOURCE_FILES
+            utils/MacOSControllerBackend.{h,cpp}
+            )
+endif ()
+
 if (ROR_USE_ANGELSCRIPT)
     list(APPEND SOURCE_FILES
             scripting/GameScript.{h,cpp}
