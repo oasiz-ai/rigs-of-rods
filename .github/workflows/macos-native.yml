@@ -136,6 +136,87 @@ jobs:
               tr -d ' '
           )" = "9"
 
+      - name: Launch application bundle and shut down cleanly
+        shell: bash
+        env:
+          ALSOFT_DRIVERS: "null"
+          ALSOFT_LOGLEVEL: "0"
+        run: |
+          app="build-macos-ogre14/bin/RoR.app"
+          executable="$app/Contents/MacOS/RoR"
+          output="$RUNNER_TEMP/ror-bundle-smoke.stdout"
+          log="$HOME/Library/Logs/Rigs of Rods/RoR.log"
+          script_log="$HOME/Library/Logs/Rigs of Rods/Angelscript.log"
+
+          dump_smoke_logs() {
+            for diagnostic in "$output" "$log" "$script_log"; do
+              if test -f "$diagnostic"; then
+                echo "::group::$diagnostic"
+                tail -n 200 "$diagnostic"
+                echo "::endgroup::"
+              fi
+            done
+          }
+          trap 'status=$?; if test "$status" -ne 0; then dump_smoke_logs; fi' EXIT
+
+          python3 - "$executable" "$output" <<'PY'
+          import pathlib
+          import subprocess
+          import sys
+
+          executable = pathlib.Path(sys.argv[1])
+          output = pathlib.Path(sys.argv[2])
+          with output.open("wb") as stream:
+              try:
+                  result = subprocess.run(
+                      [
+                          str(executable),
+                          "-runscript",
+                          "example_ci_bundle_smoke.as",
+                      ],
+                      stdout=stream,
+                      stderr=subprocess.STDOUT,
+                      timeout=90,
+                      check=False,
+                  )
+              except subprocess.TimeoutExpired:
+                  raise SystemExit(
+                      "RoR bundle smoke did not shut down within 90 seconds"
+                  )
+          if result.returncode != 0:
+              raise SystemExit(
+                  f"RoR bundle smoke exited with {result.returncode}"
+              )
+          PY
+
+          test -f "$log"
+          test -f "$script_log"
+          grep -F "[RoR|Startup|Rendering] Creating SDL host" "$log"
+          grep -F "OpenGL 3+ Renderer Started" "$log"
+          grep -F "SoundManager: OpenAL renderer is: OpenAL Soft" "$log"
+          grep -F "[RoR|CI|BundleSmoke] START" "$script_log"
+          grep -F "[RoR|CI|BundleSmoke] PASS frames=10" "$script_log"
+          grep -F "*-*-* OGRE Shutdown" "$log"
+
+          if grep -E \
+            "RenderingAPIException|OGRE EXCEPTION|An exception.*occured|EXC_BAD_ACCESS|Segmentation fault" \
+            "$log" "$script_log" "$output"; then
+            echo "A fatal renderer/runtime diagnostic was logged" >&2
+            exit 1
+          fi
+
+      - name: Upload bundle-smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Rigs-of-Rods-macOS-arm64-smoke-logs
+          path: |
+            ${{ runner.temp }}/ror-bundle-smoke.stdout
+            ~/Library/Logs/Rigs of Rods/RoR.log
+            ~/Library/Logs/Rigs of Rods/Angelscript.log
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Archive verified application
         run: |
           mkdir -p artifacts
