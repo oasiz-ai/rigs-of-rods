@@ -72,6 +72,14 @@ add_executable(
 )
 
 add_executable(
+    ror_jbeam_advanced_structure_ir_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamAdvancedStructureIRTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamAdvancedStructureIR.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
+)
+
+add_executable(
     ror_jbeam_part_resolver_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamPartResolverTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
@@ -117,6 +125,12 @@ target_include_directories(
 
 target_include_directories(
     ror_jbeam_coordinate_transform_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+target_include_directories(
+    ror_jbeam_advanced_structure_ir_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
 )
@@ -275,6 +289,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_counter_noise_tests
     ror_deterministic_state_digest_tests
     ror_hydro_actuator_response_tests
+    ror_jbeam_advanced_structure_ir_tests
     ror_jbeam_coordinate_transform_tests
     ror_jbeam_part_resolver_tests
     ror_jbeam_pressure_wheel_ir_tests
@@ -381,6 +396,11 @@ add_test(
 add_test(
     NAME jbeam_coordinate_transform
     COMMAND ror_jbeam_coordinate_transform_tests
+)
+
+add_test(
+    NAME jbeam_advanced_structure_ir
+    COMMAND ror_jbeam_advanced_structure_ir_tests
 )
 
 add_test(

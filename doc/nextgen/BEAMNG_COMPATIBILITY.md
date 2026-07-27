@@ -220,6 +220,18 @@ RoR state contract, not yet a parity claim. A package remains
 `preserved-but-disabled` until table lowering and behavioral comparison show
 that its relied-upon source behavior fits that declared interpretation.
 
+The first advanced-structure semantic pass is an inert, bounded inventory of
+`hydros`, legacy `rails`, `rails2`, `slidenodes`, `thrusters`, and
+`torsionbars`. It locks the official defaults and dependent defaults in this
+documentation profile, including hydro input/rate behavior, rail cap/loop
+flags, slidenode attachment flags, the thruster factor and `FLT_MAX` limit, and
+torsion-bar secondary spring/damping inheritance. Exact source values,
+modifier order, unknown fields, source spans, and disabled expressions remain
+identity material. Static rail geometry can be classified as ready for a
+future native adapter, but all actuated or force-producing rows remain
+inventory-only. This pass does not execute electrics, apply forces, create
+constraints, or authorize runtime lowering.
+
 Rails/slidenodes constrain a named node to a named node-chain rail. Native
 status requires matching attachment distance, spring/strength, tolerance,
 caps/loops, and break behavior.

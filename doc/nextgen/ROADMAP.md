@@ -623,6 +623,20 @@ byte, value depth/work, diagnostic, topology-reservation, and canonical-output
 ceilings plus strict, fast-math, and sanitizer fixtures close this inventory
 boundary without implying J3 driveability.
 
+The advanced-structure inventory now covers the documented `hydros`, legacy
+`rails`, `rails2`, `slidenodes`, `thrusters`, and `torsionbars` sections under
+the locked `beamng-docs-0.38.5.0-2026-07-27` profile. It retains exact source
+ASTs, inherited and row-local field origins, unknown fields, source spans, and
+official defaults; validates node/rail references and nondegenerate static
+geometry; and gives every accepted row an explicit static-ready,
+inventory-only, or inert-expression classification. Duplicate sections and
+rail names, malformed tables, non-finite values, unresolved references, cyclic
+resolved graphs, and quota overflow fail closed. Canonical identity is stable
+across package enumeration order and container capacity, with strict,
+fast-math, and sanitizer fixtures. No actuator, rail constraint, thrust, or
+torsion force is enabled by this inventory pass; runtime lowering and
+behavioral conformance remain open.
+
 Imported vehicle Lua and controllers are untrusted data. They never run inside
 the game, editor, converter, tests, or build. A requested behavior becomes
 available only through an allowlisted native implementation with a versioned
