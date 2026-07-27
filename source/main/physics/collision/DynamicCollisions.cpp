@@ -353,7 +353,7 @@ void RoR::ApplyInterActorCollisionContacts(
         resolver.Apply(contact);
 }
 
-void RoR::ResolveInterActorCollisionContactsSerial(
+bool RoR::ResolveInterActorCollisionContactsSerial(
         const ActorInstanceID_t surface_actor_id,
         const float dt,
         PointColDetector &interPointCD,
@@ -362,9 +362,13 @@ void RoR::ResolveInterActorCollisionContactsSerial(
         const int free_collcab, int collcabs[], int cabs[],
         collcab_rate_t inter_collcabrate[], node_t nodes[],
         const float collrange,
-        ground_model_t &submesh_ground_model)
+        ground_model_t &submesh_ground_model,
+        std::vector<
+            DeterministicContactOrder::InterActorKey>*
+                out_contact_keys)
 {
     InterActorCollisionResolver resolver(dt);
+    bool contact_capture_succeeded = true;
     DiscoverInterActorCollisionContacts(
         surface_actor_id,
         interPointCD,
@@ -377,10 +381,38 @@ void RoR::ResolveInterActorCollisionContactsSerial(
         nodes,
         collrange,
         submesh_ground_model,
-        [&resolver](const InterActorCollisionContact& contact)
+        [&resolver,
+         out_contact_keys,
+         &contact_capture_succeeded](
+            const InterActorCollisionContact& contact)
         {
+            if (out_contact_keys != nullptr &&
+                    contact_capture_succeeded)
+            {
+                if (out_contact_keys->size() >=
+                        DeterministicContactOrder::
+                            INTER_ACTOR_CONTACT_BUDGET)
+                {
+                    contact_capture_succeeded = false;
+                }
+                else
+                {
+                    try
+                    {
+                        out_contact_keys->push_back(contact.key);
+                    }
+                    catch (...)
+                    {
+                        // Trace capture is diagnostic-only. Preserve the
+                        // complete collision response and let the caller fail
+                        // the trace.
+                        contact_capture_succeeded = false;
+                    }
+                }
+            }
             resolver.Apply(contact);
         });
+    return contact_capture_succeeded;
 }
 
 

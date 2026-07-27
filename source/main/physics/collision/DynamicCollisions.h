@@ -74,7 +74,11 @@ void ApplyInterActorCollisionContacts(
         const float dt,
         const std::vector<InterActorCollisionContact>& contacts);
 
-void ResolveInterActorCollisionContactsSerial(
+/// Resolves every discovered contact in canonical order. When
+/// `out_contact_keys` is non-null, it also captures the exact resolved key
+/// stream. A false return only reports that optional trace capture ran out of
+/// storage; collision forces are still applied in full.
+bool ResolveInterActorCollisionContactsSerial(
         const ActorInstanceID_t surface_actor_id,
         const float dt,
         PointColDetector &interPointCD,
@@ -83,7 +87,10 @@ void ResolveInterActorCollisionContactsSerial(
         const int free_collcab, int collcabs[], int cabs[],
         collcab_rate_t inter_collcabrate[], node_t nodes[],
         const float collrange,
-        ground_model_t &submesh_ground_model);
+        ground_model_t &submesh_ground_model,
+        std::vector<
+            DeterministicContactOrder::InterActorKey>*
+                out_contact_keys = nullptr);
 
 void ResolveIntraActorCollisions(const float dt, PointColDetector &intraPointCD,
         const int free_collcab, int collcabs[], int cabs[],

@@ -274,9 +274,26 @@ streaming reader rejects every tested truncation or single-bit corruption, and
 the comparator reports the first divergent step while allowing only an
 explicit worker-count exception for D0's one-versus-eight-worker check. The
 `ror_state_trace` CLI emits canonical JSON with distinct match, divergence, and
-invalid-input exit codes. A production fixed-step writer caller, input
-recording, pause/resume, and one/eight-worker scene runs are still open; the
-digest and artifact kernels alone are not runtime determinism evidence.
+invalid-input exit codes.
+
+The opt-in production caller now records a digest after every completed 2 kHz
+fixed step, after physics workers, canonical contact reduction, and free-force
+application have finished. `sim_deterministic_state_trace` controls capture and
+`sim_deterministic_state_trace_scenario_id` supplies an unsigned decimal
+scenario identity. Each uniquely reserved `.rortrace` artifact is written
+under the configured log directory without overwriting an existing file. Its
+metadata records the actual worker-pool size, exact `1/2000 s` cadence, and
+fast-math mode. The parallel path captures contact keys from the exact ordered
+buffers it applies; the serial fallback captures the same resolved stream
+without truncating collision response. Disable, scene cleanup, destruction,
+immutable step limits, and capture errors finalize the artifact. Diagnostic
+allocation, quota, digest, or I/O failures stop only tracing and never skip a
+physics force.
+
+Input recording, pause/load continuation, a runtime trace lifecycle fixture,
+the pinned one/eight-worker scene runs, and TSan soak are still open. Live
+capture makes those comparisons possible, but is not by itself runtime
+determinism evidence.
 
 For a local kernel stress pass, run
 `ROR_PHYSICS_TEST_REPEAT=30 tools/run-physics-tests.sh`, then repeat with
@@ -285,8 +302,8 @@ both `ROR_PHYSICS_TEST_REPEAT=30` and
 fixed-seed contact oracle, one/two/eight-buffer reductions, counter-noise
 threading, state-digest golden vectors, and exhaustive trace integrity checks.
 It deliberately does not claim the `simple2` runtime gate: that still requires
-a fixed-step scene driver, production trace writer activation, and worker-count
-control.
+an automated fixed-step scene driver, controlled one/eight-worker runs, and
+comparison of the resulting production artifacts.
 
 Gate D0:
 

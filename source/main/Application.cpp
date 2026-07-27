@@ -111,6 +111,8 @@ CVar* sim_quickload_dialog;
 CVar* sim_live_repair_interval;
 CVar* sim_tuning_enabled;
 CVar* sim_deterministic_sleeping_engine;
+CVar* sim_deterministic_state_trace;
+CVar* sim_deterministic_state_trace_scenario_id;
 
 // Multiplayer
 CVar* mp_state;

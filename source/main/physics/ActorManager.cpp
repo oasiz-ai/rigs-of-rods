@@ -36,6 +36,8 @@
 #include "Collisions.h"
 #include "DashBoardManager.h"
 #include "DeterministicContactOrder.h"
+#include "DeterministicStateTrace.h"
+#include "ActorStateDigestAdapter.h"
 #include "DynamicCollisions.h"
 #include "Engine.h"
 #include "GameContext.h"
@@ -48,6 +50,7 @@
 #include "MovableText.h"
 #include "Network.h"
 #include "PointColDetector.h"
+#include "PlatformUtils.h"
 #include "Replay.h"
 #include "RigDef_Validator.h"
 #include "RigDef_Serializer.h"
@@ -62,7 +65,22 @@
 
 #include <fmt/format.h>
 #include <algorithm>
+#include <exception>
+#include <fstream>
+#include <limits>
 #include <new>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 using namespace Ogre;
 using namespace RoR;
@@ -112,7 +130,305 @@ private:
     std::vector<ContactTaskBuffer> m_buffers;
 };
 
+struct DeterministicStateTraceRuntime
+{
+    std::ofstream output;
+    std::unique_ptr<DeterministicStateTrace::Writer> writer;
+    std::vector<DeterministicContactOrder::InterActorKey> contact_keys;
+    std::vector<const Actor*> actors;
+    std::uint64_t scenario_id = 0;
+    std::string output_path;
+};
+
 } // namespace RoR
+
+namespace {
+
+bool ParseDecimalUint64(
+    const std::string& value,
+    std::uint64_t& parsed)
+{
+    if (value.empty())
+        return false;
+
+    std::uint64_t result = 0;
+    for (std::string::const_iterator iterator = value.begin();
+            iterator != value.end();
+            ++iterator)
+    {
+        if (*iterator < '0' || *iterator > '9')
+            return false;
+        const std::uint64_t digit =
+            static_cast<std::uint64_t>(*iterator - '0');
+        if (result >
+            (std::numeric_limits<std::uint64_t>::max() - digit) /
+                UINT64_C(10))
+        {
+            return false;
+        }
+        result = result * UINT64_C(10) + digit;
+    }
+    parsed = result;
+    return true;
+}
+
+const char* SnapshotErrorName(
+    RoR::DeterministicStateDigest::SnapshotError error)
+{
+    using RoR::DeterministicStateDigest::SnapshotError;
+    switch (error)
+    {
+    case SnapshotError::NONE:
+        return "none";
+    case SnapshotError::COUNT_LIMIT_EXCEEDED:
+        return "count-limit-exceeded";
+    case SnapshotError::SOURCE_READ_FAILED:
+        return "source-read-failed";
+    case SnapshotError::INVALID_ACTOR_ID:
+        return "invalid-actor-id";
+    case SnapshotError::DUPLICATE_ACTOR_ID:
+        return "duplicate-actor-id";
+    case SnapshotError::INVALID_CROSS_REFERENCE:
+        return "invalid-cross-reference";
+    case SnapshotError::ALLOCATION_FAILED:
+        return "allocation-failed";
+    case SnapshotError::DIGEST_REJECTED:
+        return "digest-rejected";
+    }
+    return "unknown";
+}
+
+const char* DigestErrorName(
+    RoR::DeterministicStateDigest::Error error)
+{
+    using RoR::DeterministicStateDigest::Error;
+    switch (error)
+    {
+    case Error::NONE:
+        return "none";
+    case Error::INVALID_SECTION_ORDER:
+        return "invalid-section-order";
+    case Error::COUNT_LIMIT_EXCEEDED:
+        return "count-limit-exceeded";
+    case Error::COUNT_MISMATCH:
+        return "count-mismatch";
+    case Error::NON_CANONICAL_KEY:
+        return "noncanonical-key";
+    case Error::INVALID_RECORD:
+        return "invalid-record";
+    case Error::NON_FINITE_VALUE:
+        return "non-finite-value";
+    case Error::ALREADY_FINISHED:
+        return "already-finished";
+    }
+    return "unknown";
+}
+
+std::uint32_t GetDeterministicTracePhysicsFlags()
+{
+#if defined(__FAST_MATH__) || defined(_M_FP_FAST)
+    return RoR::DeterministicStateTrace::PHYSICS_FLAG_FAST_MATH;
+#else
+    return 0;
+#endif
+}
+
+enum class ExclusiveCreateResult
+{
+    CREATED,
+    EXISTS,
+    FAILED
+};
+
+#if defined(_WIN32)
+bool Utf8ToWidePath(
+    const std::string& path,
+    std::wstring& wide_path)
+{
+    const int wide_size = MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        path.c_str(),
+        -1,
+        nullptr,
+        0);
+    if (wide_size <= 0)
+        return false;
+
+    try
+    {
+        wide_path.resize(static_cast<std::size_t>(wide_size));
+    }
+    catch (...)
+    {
+        return false;
+    }
+    return MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        path.c_str(),
+        -1,
+        &wide_path[0],
+        wide_size) == wide_size;
+}
+#endif
+
+ExclusiveCreateResult CreateEmptyFileExclusive(
+    const std::string& path)
+{
+#if defined(_WIN32)
+    std::wstring wide_path;
+    if (!Utf8ToWidePath(path, wide_path))
+        return ExclusiveCreateResult::FAILED;
+
+    HANDLE handle = CreateFileW(
+        wide_path.c_str(),
+        GENERIC_WRITE,
+        0,
+        nullptr,
+        CREATE_NEW,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        const DWORD error = GetLastError();
+        if (error == ERROR_FILE_EXISTS ||
+                error == ERROR_ALREADY_EXISTS)
+        {
+            return ExclusiveCreateResult::EXISTS;
+        }
+        return ExclusiveCreateResult::FAILED;
+    }
+    if (!CloseHandle(handle))
+        return ExclusiveCreateResult::FAILED;
+    return ExclusiveCreateResult::CREATED;
+#else
+    int descriptor = -1;
+    do
+    {
+        descriptor = ::open(
+            path.c_str(),
+            O_WRONLY | O_CREAT | O_EXCL,
+            S_IRUSR | S_IWUSR);
+    }
+    while (descriptor < 0 && errno == EINTR);
+
+    if (descriptor < 0)
+    {
+        if (errno == EEXIST)
+            return ExclusiveCreateResult::EXISTS;
+        return ExclusiveCreateResult::FAILED;
+    }
+
+    const int close_result = ::close(descriptor);
+    // POSIX leaves the descriptor state unspecified after EINTR; retrying can
+    // close a descriptor that another thread has since acquired.
+    return close_result == 0 || errno == EINTR
+        ? ExclusiveCreateResult::CREATED
+        : ExclusiveCreateResult::FAILED;
+#endif
+}
+
+bool OpenTraceOutputAppend(
+    std::ofstream& output,
+    const std::string& path)
+{
+#if defined(_WIN32)
+    std::wstring wide_path;
+    if (!Utf8ToWidePath(path, wide_path))
+        return false;
+    output.open(
+        wide_path.c_str(),
+        std::ios::out | std::ios::binary | std::ios::app);
+#else
+    output.open(
+        path.c_str(),
+        std::ios::out | std::ios::binary | std::ios::app);
+#endif
+    return output.is_open() && output.good();
+}
+
+bool OpenUniqueDeterministicTrace(
+    RoR::DeterministicStateTraceRuntime& runtime,
+    std::uint64_t scenario_id,
+    std::uint64_t first_physics_step)
+{
+    const std::string logs_directory =
+        RoR::App::sys_logs_dir->getStr();
+    if (logs_directory.empty() ||
+            !RoR::FolderExists(logs_directory))
+    {
+        return false;
+    }
+
+    // Reserve a unique name atomically. APP mode then guarantees that opening
+    // the stream cannot truncate even this process's zero-byte reservation.
+    static const std::uint32_t MAX_FILENAME_ATTEMPTS = 10000;
+    for (std::uint32_t attempt = 0;
+            attempt < MAX_FILENAME_ATTEMPTS;
+            ++attempt)
+    {
+        const std::string filename = fmt::format(
+            "deterministic-state-s{}-step{}-{:04}.rortrace",
+            scenario_id,
+            first_physics_step,
+            attempt);
+        const std::string path =
+            RoR::PathCombine(logs_directory, filename);
+        const ExclusiveCreateResult create_result =
+            CreateEmptyFileExclusive(path);
+        if (create_result == ExclusiveCreateResult::EXISTS)
+            continue;
+        if (create_result == ExclusiveCreateResult::FAILED)
+            return false;
+
+        if (!OpenTraceOutputAppend(runtime.output, path))
+        {
+            runtime.output.clear();
+            runtime.output.close();
+            return false;
+        }
+
+        runtime.output.seekp(0, std::ios::end);
+        if (!runtime.output.good() ||
+                runtime.output.tellp() != std::streampos(0))
+        {
+            runtime.output.clear();
+            runtime.output.close();
+            continue;
+        }
+        runtime.output_path = path;
+        return true;
+    }
+    return false;
+}
+
+bool AppendBufferedContactKeys(
+    const std::vector<
+        RoR::InterActorContactBufferPool::ContactTaskBuffer>& buffers,
+    std::vector<
+        RoR::DeterministicContactOrder::InterActorKey>& keys)
+{
+    try
+    {
+        for (const RoR::InterActorContactBufferPool::ContactTaskBuffer&
+                buffer : buffers)
+        {
+            for (const RoR::InterActorCollisionContact& contact :
+                    buffer.GetItems())
+            {
+                keys.push_back(contact.key);
+            }
+        }
+    }
+    catch (...)
+    {
+        return false;
+    }
+    return true;
+}
+
+} // namespace
 
 ActorManager::ActorManager()
     : m_dt_remainder(0.0f)
@@ -128,6 +444,390 @@ ActorManager::ActorManager()
 ActorManager::~ActorManager()
 {
     this->SyncWithSimThread(); // Wait for sim task to finish
+    this->FinishDeterministicStateTrace(
+        "actor manager destruction",
+        false);
+}
+
+void ActorManager::FinishDeterministicStateTrace(
+    const char* reason,
+    bool suppress_until_disabled)
+{
+    if (m_deterministic_state_trace != nullptr)
+    {
+        DeterministicStateTraceRuntime& runtime =
+            *m_deterministic_state_trace;
+        bool finished = true;
+        std::uint64_t step_count = 0;
+        if (runtime.writer != nullptr)
+        {
+            step_count = runtime.writer->GetStepCount();
+            finished = runtime.writer->Finish();
+            if (!finished)
+            {
+                const DeterministicStateTrace::Status& status =
+                    runtime.writer->GetStatus();
+                RoR::LogFormat(
+                    "[RoR|Determinism] State trace '%s' could not be "
+                    "finished (%s, byte=%llu, step-index=%llu; %s)",
+                    runtime.output_path.c_str(),
+                    DeterministicStateTrace::ToString(status.error),
+                    static_cast<unsigned long long>(
+                        status.byte_offset),
+                    static_cast<unsigned long long>(
+                        status.step_index),
+                    reason != nullptr ? reason : "no reason supplied");
+            }
+        }
+
+        bool stream_ok = true;
+        if (runtime.output.is_open())
+        {
+            runtime.output.flush();
+            stream_ok = runtime.output.good();
+            runtime.output.close();
+            stream_ok = stream_ok && runtime.output.good();
+        }
+        if (!stream_ok)
+        {
+            RoR::LogFormat(
+                "[RoR|Determinism] State trace '%s' failed while "
+                "flushing; treat the artifact as invalid (%s)",
+                runtime.output_path.c_str(),
+                reason != nullptr ? reason : "no reason supplied");
+        }
+        else if (finished && runtime.writer != nullptr)
+        {
+            RoR::LogFormat(
+                "[RoR|Determinism] Finished state trace '%s' with "
+                "%llu fixed-step records (%s)",
+                runtime.output_path.c_str(),
+                static_cast<unsigned long long>(step_count),
+                reason != nullptr ? reason : "capture complete");
+        }
+    }
+
+    m_deterministic_state_trace.reset();
+    m_deterministic_state_trace_suppressed =
+        suppress_until_disabled;
+}
+
+bool ActorManager::PrepareDeterministicStateTraceStep()
+{
+    if (!App::sim_deterministic_state_trace->getBool())
+    {
+        if (m_deterministic_state_trace != nullptr)
+        {
+            this->FinishDeterministicStateTrace(
+                "capture disabled",
+                false);
+        }
+        m_deterministic_state_trace_suppressed = false;
+        return false;
+    }
+
+    if (m_deterministic_state_trace_suppressed)
+        return false;
+
+    std::uint64_t scenario_id = 0;
+    if (!ParseDecimalUint64(
+            App::sim_deterministic_state_trace_scenario_id->getStr(),
+            scenario_id))
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] Refusing state trace: "
+            "sim_deterministic_state_trace_scenario_id must be an "
+            "unsigned decimal 64-bit integer; disable capture before "
+            "correcting it");
+        this->FinishDeterministicStateTrace(
+            "invalid scenario ID",
+            true);
+        return false;
+    }
+
+    if (m_deterministic_state_trace != nullptr)
+    {
+        if (m_deterministic_state_trace->scenario_id != scenario_id)
+        {
+            RoR::LogFormat(
+                "[RoR|Determinism] Refusing to change scenario ID "
+                "inside an active state trace; disable capture before "
+                "changing sim_deterministic_state_trace_scenario_id");
+            this->FinishDeterministicStateTrace(
+                "scenario ID changed while active",
+                true);
+            return false;
+        }
+        m_deterministic_state_trace->contact_keys.clear();
+        return true;
+    }
+
+    try
+    {
+        std::unique_ptr<DeterministicStateTraceRuntime> runtime(
+            new DeterministicStateTraceRuntime());
+        runtime->scenario_id = scenario_id;
+
+        ThreadPool* const worker_pool = App::GetThreadPool();
+        const std::size_t worker_count =
+            worker_pool != nullptr
+                ? worker_pool->m_threads.size()
+                : 0;
+        if (worker_count == 0 ||
+                worker_count >
+                    DeterministicStateTrace::MAX_WORKERS)
+        {
+            RoR::LogFormat(
+                "[RoR|Determinism] Refusing state trace: actual "
+                "physics worker count %llu is outside [1, %u]",
+                static_cast<unsigned long long>(worker_count),
+                DeterministicStateTrace::MAX_WORKERS);
+            m_deterministic_state_trace = std::move(runtime);
+            this->FinishDeterministicStateTrace(
+                "invalid worker count",
+                true);
+            return false;
+        }
+
+        if (!OpenUniqueDeterministicTrace(
+                *runtime,
+                scenario_id,
+                m_completed_physics_steps))
+        {
+            RoR::LogFormat(
+                "[RoR|Determinism] Refusing state trace: could not "
+                "reserve a new trace file under log directory '%s'; "
+                "check directory permissions and free space",
+                App::sys_logs_dir->getStr().c_str());
+            m_deterministic_state_trace = std::move(runtime);
+            this->FinishDeterministicStateTrace(
+                "trace output could not be opened",
+                true);
+            return false;
+        }
+
+        DeterministicStateTrace::Metadata metadata;
+        metadata.worker_count =
+            static_cast<std::uint32_t>(worker_count);
+        metadata.scenario_id = scenario_id;
+        metadata.first_physics_step =
+            m_completed_physics_steps;
+        metadata.physics_step_numerator = 1;
+        metadata.physics_step_denominator = 2000;
+        metadata.physics_flags =
+            GetDeterministicTracePhysicsFlags();
+
+        runtime->writer.reset(
+            new DeterministicStateTrace::Writer(
+                runtime->output,
+                metadata));
+        if (!runtime->writer->IsReady())
+        {
+            const DeterministicStateTrace::Status& status =
+                runtime->writer->GetStatus();
+            RoR::LogFormat(
+                "[RoR|Determinism] Refusing state trace '%s': writer "
+                "initialization failed (%s, byte=%llu)",
+                runtime->output_path.c_str(),
+                DeterministicStateTrace::ToString(status.error),
+                static_cast<unsigned long long>(
+                    status.byte_offset));
+            m_deterministic_state_trace = std::move(runtime);
+            this->FinishDeterministicStateTrace(
+                "writer initialization failed",
+                true);
+            return false;
+        }
+
+        m_deterministic_state_trace = std::move(runtime);
+        m_deterministic_state_trace->contact_keys.reserve(
+            DeterministicContactOrder::
+                INTER_ACTOR_CONTACT_BUDGET);
+        m_deterministic_state_trace->actors.reserve(
+            m_actors.size());
+        RoR::LogFormat(
+            "[RoR|Determinism] Recording state trace '%s' "
+            "(scenario=%llu, workers=%llu, step=1/2000 s, "
+            "fast-math=%s)",
+            m_deterministic_state_trace->output_path.c_str(),
+            static_cast<unsigned long long>(scenario_id),
+            static_cast<unsigned long long>(worker_count),
+            (GetDeterministicTracePhysicsFlags() &
+                DeterministicStateTrace::
+                    PHYSICS_FLAG_FAST_MATH) != 0
+                ? "true"
+                : "false");
+        return true;
+    }
+    catch (const std::exception& error)
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] State trace initialization failed: %s; "
+            "capture is suppressed until it is disabled",
+            error.what());
+    }
+    catch (...)
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] State trace initialization failed with "
+            "an unknown error; capture is suppressed until it is "
+            "disabled");
+    }
+
+    this->FinishDeterministicStateTrace(
+        "trace initialization exception",
+        true);
+    return false;
+}
+
+void ActorManager::CaptureDeterministicStateTraceStep(
+    bool contact_capture_succeeded)
+{
+    if (m_deterministic_state_trace == nullptr ||
+            m_deterministic_state_trace->writer == nullptr)
+    {
+        return;
+    }
+
+    if (!contact_capture_succeeded)
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] State trace contact-key capture "
+            "exceeded its bounded storage or allocation failed at "
+            "fixed step %llu; physics completed, but trace capture is "
+            "being stopped",
+            static_cast<unsigned long long>(
+                m_completed_physics_steps));
+        this->FinishDeterministicStateTrace(
+            "contact-key capture failed",
+            true);
+        return;
+    }
+
+    DeterministicStateTraceRuntime& runtime =
+        *m_deterministic_state_trace;
+    if (m_actors.size() >
+            DeterministicStateDigest::MAX_ACTORS)
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] State trace actor limit exceeded at "
+            "fixed step %llu (actors=%llu); capture is being stopped",
+            static_cast<unsigned long long>(
+                m_completed_physics_steps),
+            static_cast<unsigned long long>(m_actors.size()));
+        this->FinishDeterministicStateTrace(
+            "actor limit exceeded",
+            true);
+        return;
+    }
+
+    try
+    {
+        runtime.actors.clear();
+        if (runtime.actors.capacity() < m_actors.size())
+            runtime.actors.reserve(m_actors.size());
+        for (const ActorPtr& actor : m_actors)
+            runtime.actors.push_back(actor.GetRef());
+    }
+    catch (...)
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] State trace actor-list allocation "
+            "failed at fixed step %llu; capture is being stopped",
+            static_cast<unsigned long long>(
+                m_completed_physics_steps));
+        this->FinishDeterministicStateTrace(
+            "actor-list capture failed",
+            true);
+        return;
+    }
+
+    if (runtime.actors.size() >
+            DeterministicStateDigest::MAX_ACTORS ||
+        runtime.contact_keys.size() >
+            DeterministicStateDigest::MAX_CONTACTS)
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] State trace snapshot limits exceeded "
+            "at fixed step %llu (actors=%llu, contacts=%llu); capture "
+            "is being stopped",
+            static_cast<unsigned long long>(
+                m_completed_physics_steps),
+            static_cast<unsigned long long>(runtime.actors.size()),
+            static_cast<unsigned long long>(
+                runtime.contact_keys.size()));
+        this->FinishDeterministicStateTrace(
+            "snapshot limits exceeded",
+            true);
+        return;
+    }
+
+    DeterministicStateDigest::Digest digest;
+    DeterministicStateDigest::SnapshotStatus snapshot_status;
+    if (!DeterministicStateDigest::BuildActorSnapshotDigest(
+            m_completed_physics_steps,
+            runtime.scenario_id,
+            runtime.actors,
+            runtime.contact_keys,
+            digest,
+            &snapshot_status))
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] State trace snapshot failed at fixed "
+            "step %llu (%s, digest=%s, source-index=%llu, "
+            "record-index=%u); capture is being stopped",
+            static_cast<unsigned long long>(
+                m_completed_physics_steps),
+            SnapshotErrorName(snapshot_status.error),
+            DigestErrorName(snapshot_status.digest_error),
+            static_cast<unsigned long long>(
+                snapshot_status.source_index),
+            snapshot_status.record_index);
+        this->FinishDeterministicStateTrace(
+            "snapshot digest failed",
+            true);
+        return;
+    }
+
+    DeterministicStateTrace::StepRecord record;
+    record.physics_step = m_completed_physics_steps;
+    record.actor_count =
+        static_cast<std::uint32_t>(runtime.actors.size());
+    record.contact_count =
+        static_cast<std::uint32_t>(runtime.contact_keys.size());
+    record.digest = digest;
+    if (!runtime.writer->Append(record))
+    {
+        const DeterministicStateTrace::Status& status =
+            runtime.writer->GetStatus();
+        RoR::LogFormat(
+            "[RoR|Determinism] State trace append failed at fixed "
+            "step %llu (%s, byte=%llu, step-index=%llu); capture is "
+            "being stopped",
+            static_cast<unsigned long long>(
+                m_completed_physics_steps),
+            DeterministicStateTrace::ToString(status.error),
+            static_cast<unsigned long long>(status.byte_offset),
+            static_cast<unsigned long long>(status.step_index));
+        this->FinishDeterministicStateTrace(
+            "step append failed",
+            true);
+        return;
+    }
+
+    if (runtime.writer->GetStepCount() ==
+            DeterministicStateTrace::MAX_TRACE_STEPS)
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] State trace '%s' reached its immutable "
+            "%llu-step limit and is being finalized",
+            runtime.output_path.c_str(),
+            static_cast<unsigned long long>(
+                DeterministicStateTrace::MAX_TRACE_STEPS));
+        this->FinishDeterministicStateTrace(
+            "trace step limit reached",
+            true);
+    }
 }
 
 ActorPtr ActorManager::CreateNewActor(ActorSpawnRequest rq, RigDef::DocumentPtr def)
@@ -997,6 +1697,11 @@ std::pair<ActorPtr, float> ActorManager::GetNearestActor(Vector3 position)
 
 void ActorManager::CleanUpSimulation() // Called after simulation finishes
 {
+    this->SyncWithSimThread();
+    this->FinishDeterministicStateTrace(
+        "simulation cleanup",
+        false);
+
     while (m_actors.size() > 0)
     {
         this->DeleteActorInternal(m_actors.back()); // OK to invoke here - CleanUpSimulation() - processing `MSG_SIM_UNLOAD_TERRAIN_REQUESTED`
@@ -1006,6 +1711,8 @@ void ActorManager::CleanUpSimulation() // Called after simulation finishes
     m_last_simulation_speed = 0.1f;
     m_simulation_paused = false;
     m_simulation_speed = 1.f;
+    m_completed_physics_steps = 0;
+    m_deterministic_state_trace_suppressed = false;
 }
 
 void ActorManager::DeleteActorInternal(ActorPtr actor)
@@ -1166,6 +1873,15 @@ void ActorManager::UpdateActors(ActorPtr player_actor)
     m_physics_steps = dt / PHYSICS_DT;
     if (m_physics_steps == 0)
     {
+        if ((m_deterministic_state_trace != nullptr ||
+                m_deterministic_state_trace_suppressed) &&
+            !App::sim_deterministic_state_trace->getBool())
+        {
+            this->SyncWithSimThread();
+            this->FinishDeterministicStateTrace(
+                "capture disabled while no fixed step was due",
+                false);
+        }
         return;
     }
 
@@ -1296,6 +2012,16 @@ void ActorManager::UpdatePhysicsSimulation()
     }
     for (int i = 0; i < m_physics_steps; i++)
     {
+        const bool capture_deterministic_state =
+            this->PrepareDeterministicStateTraceStep();
+        std::vector<
+            DeterministicContactOrder::InterActorKey>*
+                trace_contact_keys =
+                    capture_deterministic_state
+                        ? &m_deterministic_state_trace->contact_keys
+                        : nullptr;
+        bool trace_contact_capture_succeeded = true;
+
         if (App::sim_deterministic_sleeping_engine->getBool())
         {
             // Sleeping engines run at a fixed 32-substep cadence instead of
@@ -1379,9 +2105,14 @@ void ActorManager::UpdatePhysicsSimulation()
             }
 
             auto resolve_contacts_serially =
-                [&contact_actors, &contact_schedules](
+                [&contact_actors,
+                 &contact_schedules,
+                 trace_contact_keys,
+                 &trace_contact_capture_succeeded](
                     bool update_rate_state)
                 {
+                    if (trace_contact_keys != nullptr)
+                        trace_contact_keys->clear();
                     for (std::size_t actor_index = 0;
                             actor_index < contact_actors.size();
                             ++actor_index)
@@ -1391,7 +2122,8 @@ void ActorManager::UpdatePhysicsSimulation()
                             actor_index == 0 ||
                             contact_actors[actor_index - 1]->ar_instance_id <
                                 actor->ar_instance_id);
-                        ResolveInterActorCollisionContactsSerial(
+                        const bool actor_contacts_captured =
+                            ResolveInterActorCollisionContactsSerial(
                             actor->ar_instance_id,
                             PHYSICS_DT,
                            *actor->m_inter_point_col_detector,
@@ -1403,7 +2135,13 @@ void ActorManager::UpdatePhysicsSimulation()
                             actor->ar_inter_collcabrate,
                             actor->ar_nodes,
                             actor->ar_collision_range,
-                           *actor->ar_submesh_ground_model);
+                           *actor->ar_submesh_ground_model,
+                            trace_contact_capture_succeeded
+                                ? trace_contact_keys
+                                : nullptr);
+                        trace_contact_capture_succeeded =
+                            trace_contact_capture_succeeded &&
+                            actor_contacts_captured;
                     }
                 };
             auto report_contact_fallback =
@@ -1478,13 +2216,22 @@ void ActorManager::UpdatePhysicsSimulation()
                     {
                         return contact.key;
                     },
-                    [](const std::vector<ContactTaskBuffer>& buffers)
+                    [trace_contact_keys,
+                     &trace_contact_capture_succeeded](
+                        const std::vector<ContactTaskBuffer>& buffers)
                     {
                         for (const ContactTaskBuffer& buffer : buffers)
                         {
                             ApplyInterActorCollisionContacts(
                                 PHYSICS_DT,
                                 buffer.GetItems());
+                        }
+                        if (trace_contact_keys != nullptr)
+                        {
+                            trace_contact_capture_succeeded =
+                                AppendBufferedContactKeys(
+                                    buffers,
+                                    *trace_contact_keys);
                         }
                     },
                     [&resolve_contacts_serially,
@@ -1512,6 +2259,29 @@ void ActorManager::UpdatePhysicsSimulation()
 
         // Apply FreeForces - intentionally as a separate pass over all actors
         this->CalcFreeForces();
+
+        if (capture_deterministic_state)
+        {
+            this->CaptureDeterministicStateTraceStep(
+                trace_contact_capture_succeeded);
+        }
+        if (m_completed_physics_steps ==
+                std::numeric_limits<std::uint64_t>::max())
+        {
+            if (m_deterministic_state_trace != nullptr)
+            {
+                RoR::LogFormat(
+                    "[RoR|Determinism] Fixed-step counter exhausted; "
+                    "state trace capture is being stopped");
+                this->FinishDeterministicStateTrace(
+                    "fixed-step counter exhausted",
+                    true);
+            }
+        }
+        else
+        {
+            ++m_completed_physics_steps;
+        }
     }
     for (ActorPtr& actor: m_actors)
     {

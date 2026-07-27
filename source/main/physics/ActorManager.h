@@ -39,6 +39,7 @@
 namespace RoR {
 
 struct InterActorContactBufferPool;
+struct DeterministicStateTraceRuntime;
 
 /// @addtogroup Physics
 /// @{
@@ -147,6 +148,12 @@ private:
     void           ForwardCommands(ActorPtr source_actor); //!< Fowards things to trailers
     void           UpdateTruckFeatures(ActorPtr vehicle, float dt);
     void           CalcFreeForces();                             //!< Apply FreeForces - intentionally as a separate pass over all actors
+    bool           PrepareDeterministicStateTraceStep();
+    void           CaptureDeterministicStateTraceStep(
+                       bool contact_capture_succeeded);
+    void           FinishDeterministicStateTrace(
+                       const char* reason,
+                       bool suppress_until_disabled);
 
     // Networking
     std::map<int, std::set<int>> m_stream_mismatches; //!< Networking: A set of streams without a corresponding actor in the actor-array for each stream source
@@ -165,8 +172,11 @@ private:
     float               m_simulation_time        = 0.f;   //!< Amount of time the physics simulation is going to be advanced
     bool                m_simulation_paused      = false;
     float               m_total_sim_time         = 0.f;
+    std::uint64_t       m_completed_physics_steps = 0; //!< Canonical fixed-step index across one loaded simulation
     std::uint64_t       m_inter_contact_fallback_count = 0; //!< Logged at powers of two to expose pathological contact sets without per-step spam
     std::unique_ptr<InterActorContactBufferPool> m_inter_contact_buffers; //!< Reused bounded task storage; avoids allocating at 2 kHz
+    std::unique_ptr<DeterministicStateTraceRuntime> m_deterministic_state_trace; //!< Allocates/captures only while the opt-in trace is active
+    bool                m_deterministic_state_trace_suppressed = false; //!< Error latch cleared only by disabling capture or loading a new simulation
     FreeForceVec_t      m_free_forces;                    //!< Global forces added ad-hoc by scripts
     FreeForceID_t       m_free_force_next_id     = 0;     //!< Unique ID for each FreeForce
 

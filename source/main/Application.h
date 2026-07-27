@@ -657,6 +657,8 @@ extern CVar* sim_quickload_dialog;
 extern CVar* sim_live_repair_interval; //!< Hold EV_COMMON_REPAIR_TRUCK to enter LiveRepair mode. 0 or negative interval disables.
 extern CVar* sim_tuning_enabled;
 extern CVar* sim_deterministic_sleeping_engine;
+extern CVar* sim_deterministic_state_trace;
+extern CVar* sim_deterministic_state_trace_scenario_id;
 
 // Multiplayer
 extern CVar* mp_state;

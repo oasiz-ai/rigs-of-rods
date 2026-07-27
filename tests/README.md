@@ -214,9 +214,19 @@ ror_state_trace [--allow-worker-count-difference] LEFT.trace RIGHT.trace
 ```
 
 The command emits canonical JSON and exits `0` for a match, `1` for a valid
-divergence, and `2` for invalid input. Live fixed-step recording, input
-recording, pause/load continuation, and the pinned-content worker-count runs
-remain separate runtime gates.
+divergence, and `2` for invalid input.
+
+Live recording is opt-in through `sim_deterministic_state_trace`; set the
+unsigned-decimal `sim_deterministic_state_trace_scenario_id` before enabling
+it. The actor manager writes a uniquely named `.rortrace` under
+`sys_logs_dir`, after each completed 2 kHz step and after ordered contact
+resolution and free-force application. Turning the CVar off or unloading the
+scene finalizes the aggregate trailer. Capture failure is logged and latched
+off until the CVar is disabled, while physics continues normally.
+
+Automated runtime lifecycle coverage, input recording, pause/load
+continuation, and the pinned-content one/eight-worker runs remain separate
+runtime gates.
 
 ## Beam axial response invariant
 
