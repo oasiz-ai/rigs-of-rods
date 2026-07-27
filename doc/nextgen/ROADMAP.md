@@ -8,6 +8,12 @@ platform support, and authoring quality.
 It does not claim parity or superiority over another simulator. Such a claim
 would require comparable public scenarios, inputs, hardware, and measurements.
 
+BeamNG and BeamNG.drive are used below only to identify an external mod format.
+The project keeps independent branding, uses no BeamNG logo, and describes the
+importer as unofficial and unendorsed. It must not use `BeamNG 2` or another
+BeamNG-derived product name without written permission, in accordance with
+[BeamNG's trademark guidelines][beamng-trademark].
+
 ## Audited baseline
 
 - Physics uses a fixed `0.0005 s` (2 kHz) Euler-style step. Existing beam,
@@ -53,12 +59,22 @@ the repository level. Keep this exact revision in automated comparisons.
 | Deformation baseline | `simple2.terrn2` + `95bbUID-agoral.truck` | Dense node/beam deformation, self-contact, CPU/GPU flex comparison, crash replay |
 | Water baseline | `simple2_w.terrn2` + DAF semi | Reflection/refraction and Hydrax/compositor ordering |
 | Articulation baseline | DAF semi + `b6b0UID-semi.trailer` and `b6b0UID-semiflat.trailer` | Inter-actor beams, contact ordering, hooks, and deterministic multi-body replay |
+| BeamNG vehicle import (local opt-in) | User-supplied [GD808 FormulaCOUPE v0.9.7][formulacoupe], resource `M764KYBVX` | Safe package inventory, 39 configurations, deterministic `FC-A7-01` resolution, structural/drivable/visual tier reports, and explicit advanced-feature diagnostics |
 
 The Agora L definition has 151 authored nodes, 675 beams, and 222 cab triangles.
 Its six legacy wheels and two cinecams bring the spawned actor to 297 runtime
 nodes. It is useful for correctness but too small for a GPU throughput gate; the
 benchmark must also instantiate repeated vehicles or a generated high-vertex
 fixture.
+
+FormulaCOUPE is a manual interoperability fixture, not project content. The
+v0.9.7 metadata above was audited on 2026-07-27. The importer never downloads
+it, and its archive, extracted files, conversions, screenshots, and golden
+assets remain outside the repository and distributable builds. An opt-in test
+records the user-supplied ZIP's SHA-256, detected version, resource ID, importer
+version, and selected configuration; it reports `SKIP` when the archive is
+absent and version drift when those values change. Public CI uses small,
+original clean-room JBeam fixtures with explicit licenses.
 
 ## Measurement contract
 
@@ -271,12 +287,175 @@ Gate G0:
 - The CPU fallback passes the same scene and image tests on unsupported
   hardware.
 
+## J0–J5 — User-side BeamNG vehicle-mod interoperability
+
+This track is clean-room, format-level interoperability for vehicle packages a
+user has legally obtained. It is not binary compatibility with BeamNG.drive,
+does not use BeamNG executable code or stock assets, and does not promise the
+same result from two different physics engines. Initial scope is `vehicles/`
+content. Level, UI, gameplay, and executable-plugin compatibility require
+separate milestones; Lua found in a package is inventoried but never executed.
+
+Every import advertises the highest tier reached by that exact package,
+configuration, source hash, importer schema, and option set:
+
+- **J0 Inspectable:** safely index the package and issue a complete dependency,
+  provenance, and unsupported-content report.
+- **J1 Resolved:** parse the JBeam dialect and deterministically resolve one
+  complete part/configuration graph into a normalized, versioned vehicle IR.
+- **J2 Structural:** lower supported nodes, beams, triangles, and references to a
+  finite physics skeleton that can spawn and settle headlessly.
+- **J3 Drivable-simple:** provide a deliberately bounded conventional
+  drivetrain, steering, brakes, suspension, and approximate pressure-wheel
+  adapter.
+- **J4 Visual:** resolve DAE meshes, namespaced materials and textures,
+  flexbodies, props, cameras, emissive state, and damage-material mappings.
+- **J5 Advanced-native:** implement special beams and collision semantics,
+  pressure tyres, modular ICE/EV/CVT powertrains, thermals, active aero,
+  parachutes, JATO/thrusters, towing, and controllers as tested native systems.
+
+No package is called simply "compatible." Its report uses `native`,
+`approximated`, `preserved-but-disabled`, or `unsupported` for every discovered
+feature and resource, with the reason and source location.
+
+### J0 — Package identity and hostile-input boundary
+
+BeamNG's [documented packed-mod layout][beamng-mod-packing] places roots such as
+`vehicles/`, `art/`, `assets/`, and `lua/` directly at the ZIP root. J0 accepts
+only an explicit local ZIP or unpacked directory and creates a deterministic,
+sorted manifest. It rejects absolute and parent-relative paths, path
+normalization collisions, case collisions, duplicate entries, symlinks,
+encrypted entries, excessive nesting, entry counts, expanded bytes, and
+compression ratios. Scanning, previewing, and importing perform no network
+access or code execution.
+
+Do not add `.jbeam` as another single-file vehicle type in `CacheSystem`.
+A BeamNG vehicle is a package of parts and configurations. Index one package
+and expose virtual entries for each resolvable main/configuration pair. Generated
+data lives in an untracked cache keyed by source SHA-256, main part,
+configuration/slot tree, variables, importer schema, and import options.
+
+### J1 — Parser, part graph, and normalized import IR
+
+[JBeam][beamng-jbeam-syntax] is a case-sensitive JSON-derived syntax with
+comments, optional commas, table headers, inherited row defaults, variables,
+and expressions. A purpose-built front end must preserve unknown keys/sections
+and file, section, row, line, and column origins. Its expression evaluator is
+deterministic, resource-bounded, and allowlisted; it cannot invoke Lua or host
+functions.
+
+`JBeamPackageIndex -> JBeamSyntaxParser -> JBeamResolver ->
+JBeamSemanticValidator` produces a canonical resolved IR. Resolution includes
+`main`/`slotType`, recursive `slots` and `slots2`, `.pc` selections, inherited
+variables, components, namespace/prefix rules, node transforms, duplicate and
+optional references, missing external parts, and cycle detection. Enumeration
+order, archive order, path case, and worker count cannot change the canonical
+serialization or hash.
+
+`JBeamToRigDef` then lowers a fresh, named-node `RigDef::Document` into the
+existing validator and `ActorSpawner`. It must not add JBeam conditionals to the
+spawner or repurpose `RigDef::SequentialImporter`, whose role is repairing
+legacy RoR node ordering. The first subset is one resolved main part with
+refNodes, nodes, normal/support beams, triangles, and basic hydros/rails.
+BeamNG's `+X left, +Y backward, +Z up` basis is converted by one named,
+unit-tested transform; offsets, rotations, reference directions, triangle
+winding, meshes, forces, and inertia all use that same transform.
+
+### J2/J3 — Physics lowering and bounded driveability
+
+Each source concept gets an explicit exact, approximate, or unsupported mapping:
+
+- Preserve authored point masses rather than passing them through RoR's legacy
+  dry-mass redistribution or minimum-mass rules.
+- Map normal beam spring/damping/deform/break values only where semantics match.
+  Bounded/anisotropic/L-beams, torsion, pressure, deform groups, and triangle
+  breaking need native implementations or remain disabled.
+- Flatten quads deterministically, but gate per-triangle collision, aero,
+  pressure, breaking, ground-model, and self-collision behavior separately.
+- Test basic hydros and rails/slidenodes against their source limits rather than
+  assuming the similarly named RoR systems are equivalent.
+- Treat RoR generated wheels as a J3 approximation only. J5 requires dynamic
+  pressure-tyre topology, radial/sidewall behavior, load/slip friction,
+  thermals, damage, and removal of fixed wheel-node limits.
+- Limit J3 powertrain lowering to declared simple ICE, clutch/gearbox, axle
+  differential, and transfer-case graphs. Multi-motor, EV/hybrid, CVT,
+  converter, rangebox, energy, thermal, per-wheel brake, electrics, and
+  controller graphs remain disabled until native adapters pass their own gates.
+
+Imported vehicle Lua and controllers are untrusted data. They never run inside
+the game, editor, converter, tests, or build. A requested behavior becomes
+available only through an allowlisted native implementation with a versioned
+input contract and deterministic test.
+
+### J4/J5 — Visuals and advanced native systems
+
+J4 resolves Collada DAE meshes and
+[`*.materials.json`][beamng-materials] without sharing global resource names
+between vehicles. `mapTo` bindings, texture paths, flexbody node groups, props,
+cameras, glow/emissive states, and damage material changes remain traceable to
+their source. Unknown material fields and array shapes are preserved in the IR.
+BeamNG metal/rough PBR maps require V1; full GPU flex throughput requires G0.
+Missing or unsupported resources use obvious placeholders and diagnostics,
+never an apparently successful silent fallback.
+
+J5 is feature-by-feature native work, not a catch-all compatibility switch.
+FormulaCOUPE provides a useful manual ladder: start with `FC-A7-01`, then test an
+active-wing configuration, a parachute/air-brake configuration, a JATO/thruster
+configuration, an EV/CVT configuration, mixed-terrain tyres, towing/cargo, and
+controlled impact/failure configurations. Until a rung is implemented, loading
+it must fail closed or run at a lower declared tier with exact structured
+diagnostics.
+
+Gate J0–J5:
+
+- Malicious ZIP, parser, resolver, table, and expression fuzz corpora pass under
+  documented CPU, memory, depth, entry-count, and expanded-size budgets. No test
+  can escape the cache, access the network, execute a script, or write an
+  archive-derived file into a tracked path.
+- Clean-room fixtures cover comments and optional commas, table defaults,
+  malformed rows, duplicate names, optional references, slot cycles, `.pc`
+  selection, variables, components, transforms, expression limits, unknown
+  field preservation, and source-span diagnostics.
+- The same input resolves to byte-identical canonical IR and compatibility
+  reports across archive enumeration orders and one, two, and eight workers.
+  Platform-specific cache artifacts may differ only where the manifest declares
+  the converter and target format.
+- J2 lowerings match approved node/beam/triangle counts, total mass, center of
+  mass, bounds, handedness, wheelbase/track landmarks, and reference directions;
+  every supported reference resolves and every unsupported field appears in the
+  report. A 120,000-step settle/impact soak remains finite and bounded.
+- J3 fixtures test static wheel load and radius, steering travel, suspension
+  bump/droop, brake/drive direction, gear ratios, and torque at the driven
+  wheels. Repeated runs and one/eight-worker runs satisfy D0's replay contract.
+- J4 resolves every supported local mesh, material, and texture, produces finite
+  flex vertices, and creates no cross-vehicle OGRE resource collision. Visual
+  captures and converted third-party assets stay local unless redistribution
+  permission is recorded.
+- With an explicitly supplied v0.9.7 FormulaCOUPE ZIP, J0 finds 39
+  configurations and J1 resolves `FC-A7-01` twice identically. Later tiers
+  record invariant and behavioral measurements, never bitwise or visual parity
+  with BeamNG.drive. Absence of the optional archive cannot fail public CI.
+- Public compatibility CI and distributable demos use only original or
+  author-cleared fixtures. A public compatibility preview requires at least one
+  such representative vehicle to reach J4 on Windows, Linux, and macOS; a
+  locally successful fixture without recorded redistribution permission is not
+  a shipping right.
+
 ## A0 — Content and licensing
 
 Treat content provenance as a build input. Every redistributable asset needs a
 machine-readable record containing source URL or repository, pinned revision or
 checksum, author, SPDX license identifier, modification status, and editable
 source location.
+
+Third-party import archives and their generated caches are local inputs, not
+redistributable project content. A public download or zero price is not itself a
+license to bundle an archive or a conversion. Record the source URL, archive
+hash, detected version, author, permission/license, importer schema, and
+conversion options; refuse export or packaging when asset-level rights are not
+explicit. Follow BeamNG's [modding guidelines][beamng-modding-guidelines] for
+authorship and permission, while keeping the implementation independent of
+BeamNG software and stock assets.
 
 The six optional 2022.12 content packs total about 3.07 GB, and their hosting
 repository did not declare a license during this audit. They may be user-fetched
@@ -289,6 +468,8 @@ Gate A0:
   and fails on missing provenance, license, or checksum.
 - Derivative assets retain their editable sources and attribution; generated
   runtime textures/meshes identify the source and tool version.
+- The packaging audit fails if a user-supplied import archive or derived cache
+  enters a distributable or tracked path without explicit compatible rights.
 - Community packs remain separate downloads unless they independently pass the
   same audit.
 - The first vertical slice remasters only the pinned DAF semi and
@@ -301,15 +482,33 @@ Gate A0:
 ## Integration order and release gate
 
 1. Land the measurement contract and P0 numerical tests.
-2. Make D0 deterministic before parallelizing or replacing more solver work.
-3. Develop P1 and R0 in parallel, but do not merge new defaults without their
+2. Start J0/J1's scanner, parser, resolver, and clean-room fixtures without
+   waiting for renderer work; keep the importer outside runtime spawn code until
+   the IR and hostile-input gates pass.
+3. Make D0 deterministic before parallelizing or replacing more solver work.
+4. Develop P1 and R0 in parallel, but do not merge new defaults without their
    independent gates.
-4. Land V0 as the render-regression seam, then complete R0 before V1.
-5. Land G0 only after the modern renderer exposes a stable cross-platform GPU
+5. Land J2 after its mass, coordinate, topology, collision, and finite-spawn
+   gates. Land J3 adapters only after their P0/P1 numerical and D0 replay tests.
+6. Land V0 as the render-regression seam, then complete R0 before V1.
+7. Land G0 only after the modern renderer exposes a stable cross-platform GPU
    data path.
-6. Ship the A0 DAF/asphalt vertical slice before expanding the asset library.
+8. Land J4's PBR path after V1 and its GPU-flex path after G0. Land J5 one native
+   feature at a time; never make controller execution a dependency.
+9. Ship the A0 DAF/asphalt vertical slice and pass imported-content provenance
+   gates before expanding the asset library or publishing compatibility demos.
 
 A next-generation preview is ready only when the pinned four-scene suite passes
 on Windows, Linux, and macOS; one-worker and eight-worker physics hashes match;
 sanitizers are clean; post-FX/PBR/GPU-flex budgets pass; legacy content still
 loads through fallbacks; and every shipped asset passes the content audit.
+Interoperability does not broaden that claim: public builds publish a
+per-package/configuration J0–J5 capability matrix and never imply general
+drop-in compatibility.
+
+[beamng-modding-guidelines]: https://www.beamng.com/game/support/policies/modding-guidelines/
+[beamng-materials]: https://documentation.beamng.com/modding/file_formats/materials/
+[beamng-mod-packing]: https://documentation.beamng.com/modding/mod-support/mod_packing/
+[beamng-jbeam-syntax]: https://documentation.beamng.com/modding/vehicle/intro_jbeam/jbeamsyntax/
+[beamng-trademark]: https://www.beamng.com/game/support/policies/trademark-guidelines/
+[formulacoupe]: https://www.beamng.com/resources/gd808-formulacoupe.38055/
