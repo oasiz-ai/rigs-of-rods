@@ -146,6 +146,7 @@ set(SOURCE_FILES
         physics/ApproxMath.h
         physics/ActorExport.cpp
         physics/ActorForcesEuler.cpp
+        physics/BeamAxialResponse.h
         physics/ActorManager.{h,cpp}
         physics/ActorSlideNode.cpp
         physics/ActorSpawner.{h,cpp}

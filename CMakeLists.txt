@@ -26,6 +26,7 @@ project(${PROJECT_NAME_UNDERSCORE} VERSION 2026.01)
 ################################################################################
 option(ROR_BUILD_DEV_VERSION "Disable this for official releases" ON)
 option(ROR_BUILD_DOC_DOXYGEN "Build documentation from sources with Doxygen" OFF)
+option(ROR_BUILD_TESTS "Build deterministic dependency-free physics tests" OFF)
 option(ROR_USE_PCH "Use a Precompiled header for speeding up the build" ON)
 option(ROR_CREATE_CONTENT_FOLDER "Create the base content folder" ON)
 set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to the dependencies")
@@ -133,5 +134,10 @@ add_subdirectory(external/angelscript_addons)
 add_subdirectory(source/version_info)
 add_subdirectory(source/main)
 add_subdirectory(doc)
+
+if (ROR_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif ()
 
 feature_summary(WHAT ALL)

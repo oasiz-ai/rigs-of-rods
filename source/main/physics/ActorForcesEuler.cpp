@@ -25,6 +25,7 @@
 #include "ApproxMath.h"
 #include "Actor.h"
 #include "ActorManager.h"
+#include "BeamAxialResponse.h"
 #include "Buoyance.h"
 #include "CmdKeyInertia.h"
 #include "Collisions.h"
@@ -1217,6 +1218,14 @@ void Actor::CalcBeams(bool trigger_hooks)
             Vector3 dis = ar_beams[i].p1->RelPosition - ar_beams[i].p2->RelPosition;
 
             Real dislen = dis.squaredLength();
+            if (!BeamAxialResponse::HasUsableLength(dislen))
+            {
+                ar_beams[i].stress = 0.0f;
+                ar_beams[i].debug_k = 0.0f;
+                ar_beams[i].debug_d = 0.0f;
+                ar_beams[i].debug_v = 0.0f;
+                continue;
+            }
             Real inverted_dislen = fast_invSqrt(dislen);
 
             dislen *= inverted_dislen;
@@ -1307,14 +1316,24 @@ void Actor::CalcBeams(bool trigger_hooks)
                 }
             }
 
+            const BeamAxialResponse::DampingResult damping_response =
+                BeamAxialResponse::ComputeDamping(
+                    v,
+                    d,
+                    PHYSICS_DT,
+                    ar_beams[i].p1->mass,
+                    ar_beams[i].p2->mass,
+                    !ar_beams[i].p1->nd_immovable,
+                    !ar_beams[i].p2->nd_immovable);
+
             if (trigger_hooks && ar_beams[i].bounded && ar_beams[i].bm_type == BEAM_HYDRO)
             {
                 ar_beams[i].debug_k = k * std::abs(difftoBeamL);
-                ar_beams[i].debug_d = d * std::abs(v);
+                ar_beams[i].debug_d = std::abs(damping_response.force);
                 ar_beams[i].debug_v = std::abs(v);
             }
 
-            float slen = -k * difftoBeamL - d * v;
+            float slen = -k * difftoBeamL + damping_response.force;
             ar_beams[i].stress = slen;
 
             // Fast test for deformation
@@ -1476,6 +1495,11 @@ void Actor::CalcBeamsInterActor()
             Vector3 dis = ar_inter_beams[i]->p1->AbsPosition - ar_inter_beams[i]->p2->AbsPosition;
 
             Real dislen = dis.squaredLength();
+            if (!BeamAxialResponse::HasUsableLength(dislen))
+            {
+                ar_inter_beams[i]->stress = 0.0f;
+                continue;
+            }
             Real inverted_dislen = fast_invSqrt(dislen);
 
             dislen *= inverted_dislen;
@@ -1494,8 +1518,18 @@ void Actor::CalcBeamsInterActor()
 
             // Calculate beam's rate of change
             Vector3 v = ar_inter_beams[i]->p1->Velocity - ar_inter_beams[i]->p2->Velocity;
+            const float relative_velocity = v.dotProduct(dis) * inverted_dislen;
+            const BeamAxialResponse::DampingResult damping_response =
+                BeamAxialResponse::ComputeDamping(
+                    relative_velocity,
+                    d,
+                    PHYSICS_DT,
+                    ar_inter_beams[i]->p1->mass,
+                    ar_inter_beams[i]->p2->mass,
+                    !ar_inter_beams[i]->p1->nd_immovable,
+                    !ar_inter_beams[i]->p2->nd_immovable);
 
-            float slen = -k * (difftoBeamL) - d * v.dotProduct(dis) * inverted_dislen;
+            float slen = -k * difftoBeamL + damping_response.force;
             ar_inter_beams[i]->stress = slen;
 
             // Fast test for deformation

@@ -28,6 +28,7 @@
 #include "Actor.h"
 #include "Application.h"
 #include "ApproxMath.h"
+#include "BeamAxialResponse.h"
 #include "Buoyance.h"
 #include "CacheSystem.h"
 #include "ContentManager.h"
@@ -1661,6 +1662,11 @@ void ActorManager::CalcFreeForces()
                 const Vector3 dis = p1->AbsPosition - p2->AbsPosition;
 
                 Real dislen = dis.squaredLength();
+                if (!BeamAxialResponse::HasUsableLength(dislen))
+                {
+                    freeforce.ffc_halfb_stress = 0.0f;
+                    break;
+                }
                 const Real inverted_dislen = fast_invSqrt(dislen);
 
                 dislen *= inverted_dislen;
@@ -1679,8 +1685,21 @@ void ActorManager::CalcFreeForces()
 
                 // Calculate beam's rate of change
                 Vector3 v = p1->Velocity - p2->Velocity;
+                const float relative_velocity = v.dotProduct(dis) * inverted_dislen;
+                // Free beams are represented by two mirrored half-beams. Both
+                // endpoint masses must share the same damping bound even
+                // though this half applies force only to its base node.
+                const BeamAxialResponse::DampingResult damping_response =
+                    BeamAxialResponse::ComputeDamping(
+                        relative_velocity,
+                        d,
+                        PHYSICS_DT,
+                        p1->mass,
+                        p2->mass,
+                        !p1->nd_immovable,
+                        !p2->nd_immovable);
 
-                float slen = -k * (difftoBeamL)-d * v.dotProduct(dis) * inverted_dislen;
+                float slen = -k * difftoBeamL + damping_response.force;
                 freeforce.ffc_halfb_stress = slen;
 
                 // Fast test for deformation

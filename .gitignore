@@ -26,6 +26,7 @@ dependencies-*.zip
 _build
 0_build
 build/
+build-physics-tests/
 libangelscript_addons*.a
 .idea
 cmake-build-*/

@@ -298,7 +298,8 @@ ActorPtr GameContext::SpawnActor(ActorSpawnRequest& rq)
     {
         if (fresh_actor->ar_driveable != NOT_DRIVEABLE &&
             fresh_actor->ar_num_nodes > 0 &&
-            App::diag_preset_veh_enter->getBool())
+            (App::cli_preset_veh_enter->getBool() ||
+             App::diag_preset_veh_enter->getBool()))
         {
             fresh_actor_seat_player = true;
         }

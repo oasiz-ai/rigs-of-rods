@@ -1,0 +1,30 @@
+name: Physics core
+
+on: [push, pull_request]
+
+jobs:
+  beam-axial-response:
+    name: Beam solver (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - windows-2025
+          - macos-15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure dependency-free tests
+        run: >-
+          cmake -S tests -B build-physics-tests
+          -DCMAKE_BUILD_TYPE=Release
+          -DROR_TEST_GAME_FAST_MATH=ON
+
+      - name: Build
+        run: cmake --build build-physics-tests --config Release
+
+      - name: Test
+        run: cmake -E chdir build-physics-tests ctest -C Release --output-on-failure
