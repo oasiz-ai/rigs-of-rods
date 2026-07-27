@@ -217,8 +217,19 @@ if (APPLE)
             "${CMAKE_CURRENT_LIST_DIR}/platform/MacOSInputBridgeTests.cpp"
         )
 
+        add_executable(
+            ror_macos_controller_contract_tests
+            "${CMAKE_CURRENT_LIST_DIR}/platform/MacOSControllerContractTests.cpp"
+        )
+
         target_include_directories(
             ror_macos_input_bridge_tests
+            PRIVATE
+                "${ROR_REPOSITORY_ROOT}/source/main/utils"
+        )
+
+        target_include_directories(
+            ror_macos_controller_contract_tests
             PRIVATE
                 "${ROR_REPOSITORY_ROOT}/source/main/utils"
         )
@@ -228,6 +239,23 @@ if (APPLE)
             PRIVATE
                 SDL2::SDL2
                 ois::ois
+        )
+
+        target_link_libraries(
+            ror_macos_controller_contract_tests
+            PRIVATE SDL2::SDL2
+        )
+    endif ()
+
+    if (ROR_USE_OPENAL)
+        add_executable(
+            ror_macos_openal_smoke_tests
+            "${CMAKE_CURRENT_LIST_DIR}/platform/MacOSOpenALSmokeTests.cpp"
+        )
+
+        target_link_libraries(
+            ror_macos_openal_smoke_tests
+            PRIVATE OpenAL::OpenAL
         )
     endif ()
 endif ()
@@ -259,7 +287,15 @@ if (APPLE)
     list(APPEND ROR_PHYSICS_TEST_TARGETS
         ror_macos_user_directory_layout_tests)
     if (ROR_OGRE14)
-        list(APPEND ROR_PHYSICS_TEST_TARGETS ror_macos_input_bridge_tests)
+        list(APPEND ROR_PHYSICS_TEST_TARGETS
+            ror_macos_controller_contract_tests
+            ror_macos_input_bridge_tests
+        )
+    endif ()
+    if (ROR_USE_OPENAL)
+        list(APPEND ROR_PHYSICS_TEST_TARGETS
+            ror_macos_openal_smoke_tests
+        )
     endif ()
 endif ()
 
@@ -377,8 +413,18 @@ if (APPLE)
     )
     if (ROR_OGRE14)
         add_test(
+            NAME macos_controller_contract
+            COMMAND ror_macos_controller_contract_tests
+        )
+        add_test(
             NAME macos_input_bridge
             COMMAND ror_macos_input_bridge_tests
+        )
+    endif ()
+    if (ROR_USE_OPENAL)
+        add_test(
+            NAME macos_openal_smoke
+            COMMAND ror_macos_openal_smoke_tests
         )
     endif ()
 endif ()

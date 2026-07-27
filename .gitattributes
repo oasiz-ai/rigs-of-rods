@@ -1,5 +1,6 @@
 CMakeLists.txt whitespace=cr-at-eol
 source/main/audio/Sound.h whitespace=cr-at-eol
+source/main/audio/SoundManager.cpp whitespace=cr-at-eol
 source/main/audio/SoundManager.h whitespace=cr-at-eol
 source/main/gfx/ColoredTextAreaOverlayElement.cpp whitespace=cr-at-eol
 source/main/gfx/ShadowManager.cpp whitespace=cr-at-eol

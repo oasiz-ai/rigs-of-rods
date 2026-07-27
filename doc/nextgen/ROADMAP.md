@@ -358,13 +358,31 @@ application shutdown complete through OGRE teardown without a new macOS crash
 report. The local OGRE patch also closes a shadow-projector index underflow
 found by an LLDB hardware watchpoint during that scene load.
 
+OpenAL teardown now retains the device and context it owns, deletes only
+successfully generated sources and buffers while that context is current, and
+is safe when device creation, context creation, or context activation fails.
+An executable smoke test opens the pinned OpenAL Soft null backend and exercises
+device, context, source, buffer, playback, and teardown calls without requiring
+audio hardware. This verifies the native library lifecycle, not audible output,
+output-device switching, or long-running scene audio.
+
+A dependency-free controller state contract and executable SDL virtual-joystick
+test now cover deterministic slot assignment and reuse, bounded axis/button/hat
+state, transitions versus repeated values, focus reset, disconnect, and invalid
+input. This is a tested migration seam only: the production runtime still uses
+OIS 1.5.1 on macOS, and a virtual SDL device is not evidence for physical HID
+enumeration, hot-plugging, vendor mappings, or force feedback.
+
 This is meaningful R0 progress, not completion. The remaining gates include:
 
 - Eliminate every GL validation diagnostic and prove PSSM with controlled
   occluder captures; then cover dynamic cubemaps, water, sky, vegetation,
   particles, UI, mirrors, screenshots, and hot-load against recorded baselines.
-- Add native controller and audio checks, expected user-directory behavior, and
-  ten-minute `simple2_a`, `simple2`, and `simple2_w` resource-growth soaks.
+- Wire the tested SDL controller contract into the production runtime; verify
+  real controller enumeration, hot-plugging, representative vendor mappings,
+  and force feedback on physical hardware. Verify audible scene audio and
+  output-device changes, expected user-directory behavior, and ten-minute
+  `simple2_a`, `simple2`, and `simple2_w` resource-growth soaks.
 - Decide and prove the production Metal material path. RoR media still has no
   authored MSL pipeline; the current application path intentionally uses
   GL3Plus.

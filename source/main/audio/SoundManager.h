@@ -259,7 +259,7 @@ private:
     int    hardware_sources_num = 0;                   //!< total number of allocated hardware sources (<= MAX_HARDWARE_SOURCES)
     int    hardware_sources_in_use_count = 0;
     int    hardware_sources_map[MAX_HARDWARE_SOURCES]; //!< maps from the index of a hardware source to the index of the audio source currently assigned to the corresponding hardware source. -1 = unmapped
-    ALuint hardware_sources[MAX_HARDWARE_SOURCES];     // this buffer contains valid AL handles up to m_hardware_sources_num
+    ALuint hardware_sources[MAX_HARDWARE_SOURCES] = {}; // this buffer contains valid AL handles up to hardware_sources_num
 
     // audio sources
     int      m_audio_sources_in_use_count = 0;
@@ -269,7 +269,7 @@ private:
 
     // audio buffers: Array of AL buffers and filenames
     int          audio_buffers_in_use_count = 0;
-    ALuint       audio_buffers[MAX_AUDIO_BUFFERS];
+    ALuint       audio_buffers[MAX_AUDIO_BUFFERS] = {};
     Ogre::String audio_buffer_file_name[MAX_AUDIO_BUFFERS];
 
     bool          m_listener_is_underwater = false;

@@ -90,7 +90,15 @@ SoundManager::SoundManager()
         return;
     }
 
-    alcMakeContextCurrent(sound_context);
+    if (alcMakeContextCurrent(sound_context) == ALC_FALSE)
+    {
+        LOGSTREAM << "Failed to make the OpenAL context current. Sound disabled.";
+        alcDestroyContext(sound_context);
+        sound_context = nullptr;
+        alcCloseDevice(audio_device);
+        audio_device = nullptr;
+        return;
+    }
 
     if (alGetString(AL_VENDOR)) LOG("SoundManager: OpenAL vendor is: " + String(alGetString(AL_VENDOR)));
     if (alGetString(AL_VERSION)) LOG("SoundManager: OpenAL version is: " + String(alGetString(AL_VERSION)));
@@ -252,41 +260,86 @@ SoundManager::SoundManager()
 
 SoundManager::~SoundManager()
 {
-    // delete the sources and buffers
-    alDeleteSources(MAX_HARDWARE_SOURCES, hardware_sources);
-    alDeleteBuffers(MAX_AUDIO_BUFFERS, audio_buffers);
+    ALCcontext* const owned_context = sound_context;
+    ALCdevice* const owned_device = audio_device;
+    ALCcontext* const previous_context = alcGetCurrentContext();
 
-    if (m_efx_is_available)
+    if (owned_context == nullptr)
     {
-        if (this->alIsFilter(m_efx_outdoor_obstruction_lowpass_filter_id))
+        if (owned_device != nullptr)
         {
-            this->alDeleteFilters(1, &m_efx_outdoor_obstruction_lowpass_filter_id);
+            alcCloseDevice(owned_device);
+            audio_device = nullptr;
         }
-
-        if (this->alIsFilter(m_efx_occlusion_wet_path_lowpass_filter_id))
-        {
-            this->alDeleteFilters(1, &m_efx_occlusion_wet_path_lowpass_filter_id);
-        }
-
-        if (this->alIsAuxiliaryEffectSlot(m_listener_slot))
-        {
-            this->alAuxiliaryEffectSloti(m_listener_slot, AL_EFFECTSLOT_EFFECT, AL_EFFECTSLOT_NULL);
-            this->alDeleteAuxiliaryEffectSlots(1, &m_listener_slot);
-            m_listener_slot = 0;
-        }
+        LOG("SoundManager destroyed (audio was disabled).");
+        return;
     }
 
-    CleanUp();
+    const bool context_is_current =
+        previous_context == owned_context ||
+        alcMakeContextCurrent(owned_context) == ALC_TRUE;
 
-    // destroy the sound context and device
-    sound_context = alcGetCurrentContext();
-    audio_device = alcGetContextsDevice(sound_context);
-    alcMakeContextCurrent(NULL);
-    alcDestroyContext(sound_context);
-    if (audio_device)
+    if (context_is_current)
     {
-        alcCloseDevice(audio_device);
+        // Only delete handles that were successfully generated. The constructor
+        // can stop early when the backend exposes fewer sources than requested.
+        if (hardware_sources_num > 0)
+        {
+            alDeleteSources(
+                static_cast<ALsizei>(hardware_sources_num),
+                hardware_sources);
+            hardware_sources_num = 0;
+        }
+        if (audio_buffers_in_use_count > 0)
+        {
+            alDeleteBuffers(
+                static_cast<ALsizei>(audio_buffers_in_use_count),
+                audio_buffers);
+            audio_buffers_in_use_count = 0;
+        }
+
+        if (m_efx_is_available)
+        {
+            if (this->alIsFilter(m_efx_outdoor_obstruction_lowpass_filter_id))
+            {
+                this->alDeleteFilters(1, &m_efx_outdoor_obstruction_lowpass_filter_id);
+            }
+
+            if (this->alIsFilter(m_efx_occlusion_wet_path_lowpass_filter_id))
+            {
+                this->alDeleteFilters(1, &m_efx_occlusion_wet_path_lowpass_filter_id);
+            }
+
+            if (this->alIsAuxiliaryEffectSlot(m_listener_slot))
+            {
+                this->alAuxiliaryEffectSloti(m_listener_slot, AL_EFFECTSLOT_EFFECT, AL_EFFECTSLOT_NULL);
+                this->alDeleteAuxiliaryEffectSlots(1, &m_listener_slot);
+                m_listener_slot = 0;
+            }
+        }
+
+        CleanUp();
+        alcMakeContextCurrent(nullptr);
     }
+    else
+    {
+        LOG("SoundManager: Could not make the owned OpenAL context current; "
+            "skipping explicit AL object deletion.");
+    }
+
+    sound_context = nullptr;
+    audio_device = nullptr;
+    alcDestroyContext(owned_context);
+    if (owned_device != nullptr)
+    {
+        alcCloseDevice(owned_device);
+    }
+
+    if (previous_context != nullptr && previous_context != owned_context)
+    {
+        alcMakeContextCurrent(previous_context);
+    }
+
     LOG("SoundManager destroyed.");
 }
 

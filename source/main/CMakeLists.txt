@@ -230,6 +230,7 @@ set(SOURCE_FILES
         utils/InputEngine.{h,cpp}
         utils/InterThreadStoreVector.h
         utils/Language.{h,cpp}
+        utils/MacOSControllerContract.h
         utils/MacOSInputBridge.h
         utils/MeshObject.{h,cpp}
         utils/PlatformUtils.{h,cpp}
