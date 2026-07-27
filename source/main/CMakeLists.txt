@@ -151,6 +151,7 @@ set(SOURCE_FILES
         physics/CalibratedBeamMaterial.h
         physics/DeterministicContactOrder.h
         physics/DeterministicCounterNoise.h
+        physics/HydroActuatorResponse.h
         physics/ActorManager.{h,cpp}
         physics/ActorSlideNode.cpp
         physics/ActorSpawner.{h,cpp}

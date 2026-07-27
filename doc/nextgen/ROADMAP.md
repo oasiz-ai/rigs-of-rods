@@ -468,6 +468,17 @@ Each source concept gets an explicit exact, approximate, or unsupported mapping:
   converter, rangebox, energy, thermal, per-wheel brake, electrics, and
   controller graphs remain disabled until native adapters pass their own gates.
 
+The first J3 actuator kernel implements the documented hydro factor examples,
+asymmetric length limits, input center/locks/scaling, and independently bounded
+contraction, extension, and auto-center rates as a versioned positive
+rest-length-ratio state. Factor mode has the documented precedence over
+separate travel/input scaling. Invalid configuration, input, state, timestep,
+or resolved rest length fails closed under strict and fast-math builds.
+Golden examples and 50,000 fixed-seed property cases cover target progress,
+rate bounds, and finite positive output. Structural `hydros` table lowering,
+native input wiring, save/replay state, force integration, and source-engine
+calibration remain open before the adapter can advertise native behavior.
+
 Imported vehicle Lua and controllers are untrusted data. They never run inside
 the game, editor, converter, tests, or build. A requested behavior becomes
 available only through an allowlisted native implementation with a versioned

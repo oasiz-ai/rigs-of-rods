@@ -94,6 +94,23 @@ cover the isolated law. Actor beam adaptation, assembled force/momentum checks,
 save/replay integration, content calibration, and the Agora impact regression
 remain separate P1 gates.
 
+## Bounded hydro actuator response
+
+The dependency-free hydro kernel implements the documented length-factor
+examples and a versioned interpretation of input center, input locks, in/out
+length limits, input scaling, and contraction/extension/auto-center rates.
+Targets and state are positive length ratios relative to the initial beam
+length. Factor mode takes precedence over separate travel limits and input
+scaling; malformed or non-finite parameters, input, state, timestep, or rest
+length fail closed before reaching the beam solver.
+
+Golden examples cover doubling, halving, reversed factors, asymmetric travel,
+clamping, centering, and rate-limited motion. A 50,000-case fixed-seed property
+test proves finite positive output, monotonic progress toward the target, and
+the per-step rate bound. Structural JBeam parsing, native input wiring, beam
+force integration, replay state, and source-engine behavioral calibration
+remain separate J2/J3 gates.
+
 ## Deterministic counter noise
 
 Physics noise is a pure function of a persisted actor seed, an effect-specific

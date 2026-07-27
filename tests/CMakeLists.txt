@@ -44,6 +44,11 @@ add_executable(
 )
 
 add_executable(
+    ror_hydro_actuator_response_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/HydroActuatorResponseTests.cpp"
+)
+
+add_executable(
     ror_beamng_package_manifest_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/BeamNGPackageManifestTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGPackageManifest.cpp"
@@ -116,6 +121,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_calibrated_beam_material_tests
     ror_deterministic_contact_order_tests
     ror_deterministic_counter_noise_tests
+    ror_hydro_actuator_response_tests
     ror_jbeam_coordinate_transform_tests
     ror_jbeam_part_resolver_tests
     ror_jbeam_syntax_tests
@@ -175,6 +181,11 @@ add_test(
 add_test(
     NAME calibrated_beam_material
     COMMAND ror_calibrated_beam_material_tests
+)
+
+add_test(
+    NAME hydro_actuator_response
+    COMMAND ror_hydro_actuator_response_tests
 )
 
 add_test(

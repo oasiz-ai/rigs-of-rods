@@ -209,6 +209,15 @@ L_target = L0 * (1 + f * u)
 The conformance fixture covers negative, zero, and positive input; limits;
 centering; rate behavior; steering lock; and all inherited beam properties.
 
+The first dependency-free actuator slice locks a versioned interpretation:
+`inputInLimit`, `inputCenter`, and `inputOutLimit` map piecewise to normalized
+travel `-1`, `0`, and `+1`; `factor` uses `1 + factor * input` and takes
+precedence over `inLimit`, `outLimit`, and `inputFactor`; and in/out/auto-center
+rates bound ratio change per second without overshoot. This is a safe native
+RoR state contract, not yet a parity claim. A package remains
+`preserved-but-disabled` until table lowering and behavioral comparison show
+that its relied-upon source behavior fits that declared interpretation.
+
 Rails/slidenodes constrain a named node to a named node-chain rail. Native
 status requires matching attachment distance, spring/strength, tolerance,
 caps/loops, and break behavior.
