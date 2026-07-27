@@ -17,6 +17,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Configure debug tests
+        run: >-
+          cmake -S tests -B build-physics-tests-debug
+          -DCMAKE_BUILD_TYPE=Debug
+          -DROR_TEST_GAME_FAST_MATH=OFF
+
+      - name: Build debug tests
+        run: cmake --build build-physics-tests-debug --config Debug
+
+      - name: Run debug tests
+        run: cmake -E chdir build-physics-tests-debug ctest -C Debug --output-on-failure
+
       - name: Configure precise tests
         run: >-
           cmake -S tests -B build-physics-tests-precise

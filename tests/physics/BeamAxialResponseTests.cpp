@@ -1,5 +1,6 @@
 #include "BeamAxialResponse.h"
 
+#include <cstddef>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -86,9 +87,12 @@ void TestFiniteAndLengthGuards()
     CHECK(!IsFinite(double_nan));
 
     CHECK(!HasUsableLength(0.0f));
+    CHECK(!HasUsableLength(std::numeric_limits<float>::denorm_min()));
+    CHECK(!HasUsableLength(-1.0f));
     CHECK(!HasUsableLength(MIN_LENGTH_SQUARED));
     CHECK(HasUsableLength(MIN_LENGTH_SQUARED * 1.01f));
     CHECK(!HasUsableLength(positive_infinity));
+    CHECK(!HasUsableLength(negative_infinity));
     CHECK(!HasUsableLength(quiet_nan));
 }
 
@@ -209,20 +213,57 @@ void TestInvalidInputsStayFinite()
 {
     using namespace RoR::BeamAxialResponse;
 
+    const float positive_infinity = FloatFromBits(UINT32_C(0x7f800000));
+    const float negative_infinity = FloatFromBits(UINT32_C(0xff800000));
+    const float quiet_nan = FloatFromBits(UINT32_C(0x7fc00001));
+    const float tiny = std::numeric_limits<float>::denorm_min();
+
     CHECK_NEAR(ComputeDamping(4.0f, 0.0f, 0.0005f, 50.0f, 50.0f, true, true).force, 0.0f, 0.0f);
     CHECK_NEAR(ComputeDamping(4.0f, -1.0f, 0.0005f, 50.0f, 50.0f, true, true).force, 0.0f, 0.0f);
     CHECK_NEAR(ComputeDamping(4.0f, 1.0f, 0.0f, 50.0f, 50.0f, true, true).force, 0.0f, 0.0f);
-    CHECK_NEAR(
-        ComputeDamping(
-            FloatFromBits(UINT32_C(0x7fc00001)),
-            1.0f,
-            0.0005f,
-            50.0f,
-            50.0f,
-            true,
-            true).force,
-        0.0f,
-        0.0f);
+
+    const float invalid_values[] =
+    {
+        positive_infinity,
+        negative_infinity,
+        quiet_nan
+    };
+    for (std::size_t i = 0; i < sizeof(invalid_values) / sizeof(invalid_values[0]); ++i)
+    {
+        const float invalid = invalid_values[i];
+        const DampingResult invalid_velocity =
+            ComputeDamping(invalid, 1.0f, 0.0005f, 50.0f, 50.0f, true, true);
+        const DampingResult invalid_damping =
+            ComputeDamping(4.0f, invalid, 0.0005f, 50.0f, 50.0f, true, true);
+        const DampingResult invalid_time_step =
+            ComputeDamping(4.0f, 1.0f, invalid, 50.0f, 50.0f, true, true);
+        const DampingResult invalid_mass_1 =
+            ComputeDamping(4.0f, 1.0f, 0.0005f, invalid, 50.0f, true, true);
+        const DampingResult invalid_mass_2 =
+            ComputeDamping(4.0f, 1.0f, 0.0005f, 50.0f, invalid, true, true);
+
+        CHECK_NEAR(invalid_velocity.force, 0.0f, 0.0f);
+        CHECK_NEAR(invalid_damping.force, 0.0f, 0.0f);
+        CHECK_NEAR(invalid_time_step.force, 0.0f, 0.0f);
+        CHECK_NEAR(invalid_mass_1.force, 0.0f, 0.0f);
+        CHECK_NEAR(invalid_mass_2.force, 0.0f, 0.0f);
+        CHECK(IsFinite(invalid_velocity.effective_coefficient));
+        CHECK(IsFinite(invalid_damping.effective_coefficient));
+        CHECK(IsFinite(invalid_time_step.effective_coefficient));
+        CHECK(IsFinite(invalid_mass_1.effective_coefficient));
+        CHECK(IsFinite(invalid_mass_2.effective_coefficient));
+    }
+
+    const DampingResult tiny_mass =
+        ComputeDamping(4.0f, 1.0f, 0.0005f, tiny, tiny, true, true);
+    const DampingResult tiny_time_step =
+        ComputeDamping(4.0f, 1.0f, tiny, 50.0f, 50.0f, true, true);
+    CHECK(IsFinite(tiny_mass.force));
+    CHECK(IsFinite(tiny_mass.effective_coefficient));
+    CHECK(IsFinite(tiny_time_step.force));
+    CHECK(IsFinite(tiny_time_step.effective_coefficient));
+    CHECK(IsFinite(InverseMass(tiny, true)));
+    CHECK_NEAR(InverseMass(tiny, false), 0.0f, 0.0f);
 
     const DampingResult overflow =
         ComputeDamping(
@@ -234,6 +275,67 @@ void TestInvalidInputsStayFinite()
             true,
             true);
     CHECK(IsFinite(overflow.force));
+}
+
+void TestLongRunningDampingSoak()
+{
+    using namespace RoR::BeamAxialResponse;
+
+    const float mass_1 = 10.0f;
+    const float mass_2 = 90.0f;
+    const float time_step = 0.0005f;
+    const float damping = 12000.0f;
+    float velocity_1 = 30.0f;
+    float velocity_2 = -5.0f;
+
+    for (int step = 0; step < 120000; ++step)
+    {
+        // Re-excite the pair at a fixed cadence so the soak exercises the
+        // damping path instead of spending nearly all 60 simulated seconds at
+        // equilibrium. Equal and opposite impulses preserve total momentum.
+        if (step % 997 == 0)
+        {
+            velocity_1 += 2.0f;
+            velocity_2 -= 2.0f * mass_1 / mass_2;
+        }
+
+        const float relative_velocity = velocity_1 - velocity_2;
+        const double energy_before =
+            0.5 * static_cast<double>(mass_1) * velocity_1 * velocity_1 +
+            0.5 * static_cast<double>(mass_2) * velocity_2 * velocity_2;
+        const double momentum_before =
+            static_cast<double>(mass_1) * velocity_1 +
+            static_cast<double>(mass_2) * velocity_2;
+        const DampingResult result =
+            ComputeDamping(
+                relative_velocity,
+                damping,
+                time_step,
+                mass_1,
+                mass_2,
+                true,
+                true);
+
+        velocity_1 += result.force / mass_1 * time_step;
+        velocity_2 -= result.force / mass_2 * time_step;
+
+        const double energy_after =
+            0.5 * static_cast<double>(mass_1) * velocity_1 * velocity_1 +
+            0.5 * static_cast<double>(mass_2) * velocity_2 * velocity_2;
+        const double momentum_after =
+            static_cast<double>(mass_1) * velocity_1 +
+            static_cast<double>(mass_2) * velocity_2;
+        const double energy_tolerance = 1.0e-5 * (1.0 + energy_before);
+        const double momentum_tolerance =
+            1.0e-5 * (1.0 + std::fabs(momentum_before));
+
+        CHECK(IsFinite(result.force));
+        CHECK(IsFinite(result.effective_coefficient));
+        CHECK(IsFinite(velocity_1));
+        CHECK(IsFinite(velocity_2));
+        CHECK(energy_after <= energy_before + energy_tolerance);
+        CHECK(std::fabs(momentum_after - momentum_before) <= momentum_tolerance);
+    }
 }
 
 void TestRandomizedEnergyBound()
@@ -310,6 +412,7 @@ int main()
     TestEndpointMassCases();
     TestMirroredHalfBeamPair();
     TestInvalidInputsStayFinite();
+    TestLongRunningDampingSoak();
     TestRandomizedEnergyBound();
 
     if (g_failures != 0)

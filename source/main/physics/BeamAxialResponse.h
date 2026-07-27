@@ -83,9 +83,19 @@ ROR_BEAM_FORCE_INLINE bool HasUsableLength(double squared_length)
         squared_length > static_cast<double>(MIN_LENGTH_SQUARED);
 }
 
+/// Returns a finite inverse mass. Extremely small positive masses saturate
+/// instead of allowing their reciprocal to become infinity.
 ROR_BEAM_FORCE_INLINE float InverseMass(float mass, bool movable)
 {
-    return movable && IsFinite(mass) && mass > 0.0f ? 1.0f / mass : 0.0f;
+    if (!movable || !IsFinite(mass) || mass <= 0.0f)
+    {
+        return 0.0f;
+    }
+
+    const float inverse_mass = 1.0f / mass;
+    return IsFinite(inverse_mass)
+        ? inverse_mass
+        : std::numeric_limits<float>::max();
 }
 
 ROR_BEAM_FORCE_INLINE float EffectiveMass(

@@ -60,4 +60,7 @@ d_effective <= 1 / (effective_inverse_mass * physics_timestep)
 This means damping alone can reduce relative axial velocity to zero in one
 fixed step, but cannot reverse it and inject kinetic energy. The deterministic
 property test checks that invariant across 20,000 fixed-seed combinations of
-mass, velocity, damping, mobility, and timestep.
+mass, velocity, damping, mobility, and timestep. A separate 120,000-step kernel
+soak repeatedly excites an unequal-mass pair and checks finite state, energy
+dissipation, and momentum conservation. It complements, but does not replace,
+the pending starter-content full-solver soak.
