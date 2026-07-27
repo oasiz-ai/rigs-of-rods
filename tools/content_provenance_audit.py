@@ -404,7 +404,7 @@ def _same_directory_identity(
 
 def _is_symlink_or_reparse_point(info: os.stat_result) -> bool:
     reparse_attribute = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
-    file_attributes = getattr(info, "st_file_attributes", 0)
+    file_attributes = getattr(info, "st_file_attributes", 0) or 0
     return stat.S_ISLNK(info.st_mode) or bool(
         reparse_attribute and file_attributes & reparse_attribute
     )
@@ -1928,7 +1928,30 @@ def scan_package_root(
                             ),
                         )
                     elif stat.S_ISDIR(info.st_mode):
-                        pending_directories.append((candidate, info))
+                        try:
+                            child_directory_info = candidate.lstat()
+                        except OSError as error:
+                            local_diagnostics.add(
+                                "PACKAGE_ENTRY_UNREADABLE",
+                                path=relative,
+                                message=type(error).__name__,
+                            )
+                            continue
+                        if (
+                            _is_symlink_or_reparse_point(child_directory_info)
+                            or not stat.S_ISDIR(child_directory_info.st_mode)
+                        ):
+                            local_diagnostics.add(
+                                "PACKAGE_SCAN_CHANGED",
+                                path=relative,
+                                message=(
+                                    "directory changed while it was queued"
+                                ),
+                            )
+                            continue
+                        pending_directories.append(
+                            (candidate, child_directory_info)
+                        )
                     elif stat.S_ISREG(info.st_mode):
                         found.add(relative)
                     else:
