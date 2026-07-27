@@ -1171,6 +1171,32 @@ bool MultiplyWithoutOverflow(
     return true;
 }
 
+namespace JBeamNormalizeRetainedV1 {
+
+// Retained-byte limits are a portable admission contract, not a measurement of
+// the active standard library's Debug/Release object layout. In particular,
+// MSVC iterator debugging enlarges strings and vectors. Using sizeof() here
+// made identical JBeam input cross the same byte limit on Windows Debug while
+// remaining admissible on the other supported configurations.
+//
+// These fixed 64-bit logical weights conservatively cover the ordinary release
+// layouts used by the supported x64/arm64 platforms. Dynamic string and vector
+// payloads are charged separately below.
+const std::size_t DIAGNOSTIC_RECORD = 120U;
+const std::size_t VALUE_RECORD = 176U;
+const std::size_t OBJECT_FIELD_RECORD = 128U;
+const std::size_t FIELD_ASSIGNMENT_RECORD = 136U;
+const std::size_t INHERITED_FIELD_INDEX_RECORD = 56U;
+const std::size_t INDEX_RECORD = 8U;
+const std::size_t TABLE_RECORD = 160U;
+const std::size_t TABLE_COLUMN_RECORD = 112U;
+const std::size_t TABLE_ENTRY_RECORD = 528U;
+const std::size_t VECTOR_RECORD = 24U;
+const std::size_t INHERITED_ASSIGNMENT_INDEX_RECORD = 24U;
+const std::size_t SHARED_ALLOCATION_OVERHEAD = 64U;
+
+} // namespace JBeamNormalizeRetainedV1
+
 bool IsPathSafeByte(unsigned char value)
 {
     return (value >= 'a' && value <= 'z') ||
@@ -1355,7 +1381,8 @@ public:
                 "diagnostic limit");
             return false;
         }
-        std::size_t bytes = sizeof(JBeamDiagnostic);
+        std::size_t bytes =
+            JBeamNormalizeRetainedV1::DIAGNOSTIC_RECORD;
         if (!AddWithoutOverflow(bytes, span.source_name.size(), bytes) ||
             !AddWithoutOverflow(bytes, message.size(), bytes) ||
             !Retain(bytes, span))
@@ -1397,7 +1424,7 @@ public:
                 std::size_t child_bytes = 0;
                 if (!MultiplyWithoutOverflow(
                         current->array_values.size(),
-                        sizeof(JBeamValue),
+                        JBeamNormalizeRetainedV1::VALUE_RECORD,
                         child_bytes) ||
                     !AddWithoutOverflow(bytes, child_bytes, bytes))
                 {
@@ -1426,7 +1453,7 @@ public:
                 std::size_t field_bytes = 0;
                 if (!MultiplyWithoutOverflow(
                         current->object_fields.size(),
-                        sizeof(JBeamObjectField),
+                        JBeamNormalizeRetainedV1::OBJECT_FIELD_RECORD,
                         field_bytes) ||
                     !AddWithoutOverflow(bytes, field_bytes, bytes) ||
                     !ConsumeWork(
@@ -1577,7 +1604,9 @@ bool AppendObjectAssignments(
             {
                 bucket_index = inherited_index->fields.size();
                 if (!normalizer.RetainElements(
-                        1, sizeof(JBeamInheritedFieldIndex),
+                        1,
+                        JBeamNormalizeRetainedV1::
+                            INHERITED_FIELD_INDEX_RECORD,
                         field.key_span) ||
                     !normalizer.RetainString(field.key, field.key_span))
                 {
@@ -1594,7 +1623,9 @@ bool AppendObjectAssignments(
                 bucket_index = found->second;
             }
             if (!normalizer.RetainElements(
-                    1, sizeof(std::size_t), field.key_span))
+                    1,
+                    JBeamNormalizeRetainedV1::INDEX_RECORD,
+                    field.key_span))
             {
                 return false;
             }
@@ -1613,7 +1644,9 @@ bool NormalizeTable(
 {
     if (!normalizer.ConsumeWork(1, value.span) ||
         !normalizer.RetainElements(
-            1, sizeof(JBeamNormalizedTable), value.span) ||
+            1,
+            JBeamNormalizeRetainedV1::TABLE_RECORD,
+            value.span) ||
         !normalizer.RetainString(path, value.span) ||
         !normalizer.RetainString(
             value.span.source_name, value.span))
@@ -1627,7 +1660,7 @@ bool NormalizeTable(
     const JBeamValue& header = value.array_values[0];
     if (!normalizer.RetainElements(
             header.array_values.size(),
-            sizeof(JBeamTableColumn),
+            JBeamNormalizeRetainedV1::TABLE_COLUMN_RECORD,
             header.span))
     {
         return false;
@@ -1705,19 +1738,22 @@ bool NormalizeTable(
     }
     if (!normalizer.RetainElements(
             entry_count,
-            sizeof(JBeamNormalizedTableEntry),
+            JBeamNormalizeRetainedV1::TABLE_ENTRY_RECORD,
             value.span) ||
         !normalizer.RetainElements(
             default_assignment_capacity,
-            sizeof(JBeamFieldAssignment),
+            JBeamNormalizeRetainedV1::FIELD_ASSIGNMENT_RECORD,
             value.span) ||
         !normalizer.RetainElements(
             1,
-            sizeof(std::vector<JBeamFieldAssignment>) + 64U,
+            JBeamNormalizeRetainedV1::VECTOR_RECORD +
+                JBeamNormalizeRetainedV1::SHARED_ALLOCATION_OVERHEAD,
             value.span) ||
         !normalizer.RetainElements(
             1,
-            sizeof(JBeamInheritedAssignmentIndex) + 64U,
+            JBeamNormalizeRetainedV1::
+                    INHERITED_ASSIGNMENT_INDEX_RECORD +
+                JBeamNormalizeRetainedV1::SHARED_ALLOCATION_OVERHEAD,
             value.span))
     {
         return false;
@@ -1788,7 +1824,8 @@ bool NormalizeTable(
                     entry_value.array_values[positional_count - 1];
                 if (!normalizer.RetainElements(
                         overrides.object_fields.size(),
-                        sizeof(JBeamFieldAssignment),
+                        JBeamNormalizeRetainedV1::
+                            FIELD_ASSIGNMENT_RECORD,
                         overrides.span))
                 {
                     return false;
@@ -1812,7 +1849,8 @@ bool NormalizeTable(
                 std::min(positional_count, table.columns.size());
             if (!normalizer.RetainElements(
                     mapped_count,
-                    sizeof(JBeamFieldAssignment),
+                    JBeamNormalizeRetainedV1::
+                        FIELD_ASSIGNMENT_RECORD,
                     entry_value.span))
             {
                 return false;
@@ -1840,7 +1878,10 @@ bool NormalizeTable(
                         entry_value.array_values[column_index],
                         copied_cell_bytes) ||
                     !normalizer.RetainElements(
-                        1, sizeof(JBeamValue) + 64U,
+                        1,
+                        JBeamNormalizeRetainedV1::VALUE_RECORD +
+                            JBeamNormalizeRetainedV1::
+                                SHARED_ALLOCATION_OVERHEAD,
                         entry_value.array_values[column_index].span) ||
                     !normalizer.Retain(
                         copied_cell_bytes,

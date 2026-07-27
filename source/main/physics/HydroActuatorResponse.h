@@ -158,8 +158,15 @@ inline bool UnitIntervalFraction(
     double denominator = 0.0;
     if (start < 0.0 && end > 0.0)
     {
-        numerator = value * 0.5 - start * 0.5;
-        denominator = end * 0.5 - start * 0.5;
+        // Volatile stores make the two bounded products observable before the
+        // subtraction. GCC fast-math must not reassociate these expressions
+        // back into (value - start) * 0.5 or (end - start) * 0.5, because the
+        // intermediate subtraction can overflow for finite binary64 endpoints.
+        const volatile double scaled_value = value * 0.5;
+        const volatile double scaled_start = start * 0.5;
+        const volatile double scaled_end = end * 0.5;
+        numerator = scaled_value - scaled_start;
+        denominator = scaled_end - scaled_start;
     }
     else
     {

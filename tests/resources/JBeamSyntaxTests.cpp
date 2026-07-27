@@ -190,6 +190,9 @@ void TestTableNormalizationPreservesSemantics()
     const RoR::BeamNG::JBeamNormalizeResult normalized =
         RoR::BeamNG::NormalizeJBeamTables(parsed.root);
     CHECK(normalized.IsValid());
+    // Version-1 retained-byte accounting is part of the portable resource
+    // contract and must not vary with the standard-library Debug ABI.
+    CHECK(normalized.retained_bytes == 17369U);
     CHECK(normalized.tables.size() == 1);
     CHECK(
         normalized.tables[0].path ==

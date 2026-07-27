@@ -303,9 +303,10 @@ struct JBeamNormalizeLimits
     /// Deterministic units charged for discovery, retained-value measurement,
     /// table entries, cells, and assignments.
     std::size_t max_work_units;
-    /// Conservative logical bytes retained by normalized tables, copied value
-    /// payloads, assignment indexes, strings, and diagnostics. The source AST
-    /// and allocator bookkeeping are excluded.
+    /// Version-1 portable logical bytes retained by normalized tables, copied
+    /// value payloads, assignment indexes, strings, and diagnostics. Fixed
+    /// record weights are independent of standard-library ABI and iterator
+    /// debugging; the source AST and allocator bookkeeping are excluded.
     std::size_t max_retained_bytes;
     std::size_t max_diagnostics;
 

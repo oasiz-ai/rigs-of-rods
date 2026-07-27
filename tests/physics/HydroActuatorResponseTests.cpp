@@ -312,6 +312,26 @@ void TestExtremeFiniteInputSpan()
 {
     const double maximum =
         DoubleFromBits(UINT64_C(0x7fefffffffffffff));
+    double fraction = -1.0;
+    Require(
+        RoR::HydroActuatorDetail::UnitIntervalFraction(
+            -maximum, -maximum, maximum, &fraction),
+        "widest finite span start must remain normalizable");
+    RequireNear(fraction, 0.0, 0.0,
+        "widest finite span start must map exactly to zero");
+    Require(
+        RoR::HydroActuatorDetail::UnitIntervalFraction(
+            0.0, -maximum, maximum, &fraction),
+        "widest finite span midpoint must remain normalizable");
+    RequireNear(fraction, 0.5, 0.0,
+        "widest finite span midpoint must map exactly to one half");
+    Require(
+        RoR::HydroActuatorDetail::UnitIntervalFraction(
+            maximum, -maximum, maximum, &fraction),
+        "widest finite span end must remain normalizable");
+    RequireNear(fraction, 1.0, 0.0,
+        "widest finite span end must map exactly to one");
+
     RoR::HydroActuatorConfig config;
     config.input_in_limit = -maximum;
     config.input_center = maximum * 0.5;
