@@ -597,14 +597,23 @@ owned asynchronous operation: a second capture or renderer teardown joins the
 previous writer and reports codec failures on the main thread. The 1,000-step
 rapid-shutdown capture now exits cleanly, fully decodes, and has non-black
 pixels across all 128 sampled bottom-edge positions. Sampler-validation
-diagnostics remain. These findings do not close the R0 visual-parity gate.
+diagnostics were then traced to OGRE's premature link-time
+`glValidateProgram()`: mixed 2D, cube, and PSSM shadow samplers still had their
+default unit values because draw-time state had not been assigned. The pinned
+recipe already carried the correct deferred-validation patch, but the
+application build referenced an older detached Conan package directory. After
+regenerating the locked dependency graph and relinking, the same 1,000-step
+PSSM capture logs no sampler-validation failure or `GL_INVALID_*`, exits
+cleanly, and fully decodes. The deterministic scene runner now rejects either
+diagnostic. These findings do not close the broader R0 visual-parity gate.
 
 This is meaningful R0 progress, not completion. The remaining gates include:
 
 - Prove logical-point/backing-pixel/UI scaling across explicit 1x and 2x modes,
-  eliminate every GL validation diagnostic, and prove PSSM with controlled
-  occluder captures; then cover dynamic cubemaps, water, sky, vegetation,
-  particles, UI, mirrors, screenshots, and hot-load against recorded baselines.
+  extend the zero-GL-diagnostic proof across every validation scene, and prove
+  PSSM with controlled occluder captures; then cover dynamic cubemaps, water,
+  sky, vegetation, particles, UI, mirrors, screenshots, and hot-load against
+  recorded baselines.
 - Verify real controller enumeration, hot-plugging, representative vendor
   mappings, and force feedback on physical hardware. Add a native
   force-feedback path rather than silently presenting the OIS device API as

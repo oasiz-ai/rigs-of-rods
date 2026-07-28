@@ -4,9 +4,9 @@
 
 The tool performs no downloads. It accepts an already built RoR executable,
 verifies the repository and runtime copies of the pinned fixture content,
-launches isolated exact-step runs, validates each completed state trace, and
-compares every run with the first one through the canonical ror_state_trace
-tool.
+launches isolated exact-step runs, rejects renderer API diagnostics, validates
+each completed state trace, and compares every run with the first one through
+the canonical ror_state_trace tool.
 """
 
 from __future__ import annotations
@@ -48,6 +48,8 @@ FATAL_MARKERS = (
     "State trace snapshot failed",
     "State trace append failed",
     "could not be finished",
+    "Validation Failed: Sampler error:",
+    "GL_INVALID_",
     "RenderingAPIException",
     "OGRE EXCEPTION",
     "EXC_BAD_ACCESS",

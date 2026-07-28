@@ -47,6 +47,13 @@ a compatible VAO; RoR has not established that state while OGRE is linking the
 program. Omitting that state-dependent check here avoids reporting valid linked
 programs as failed because of transient setup state.
 
+On 2026-07-28, the native arm64 application was reconfigured against the exact
+package reference below and exercised with PSSM plus mixed cube, 2D, and shadow
+samplers. The two-truck scene completed 1,000 physics steps, wrote and fully
+decoded a 2560x1440 Retina PNG, and logged neither a sampler-validation failure
+nor `GL_INVALID_*`. The deterministic scene runner now rejects both diagnostics
+so a stale package or regression cannot silently satisfy the runtime gate.
+
 ## Intentional policy differences
 
 - There is no Cg Toolkit package requirement and the OGRE Cg plugin is disabled.
