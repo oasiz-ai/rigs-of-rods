@@ -98,7 +98,7 @@ jobs:
       - name: Cache conan packages
         uses: actions/cache@v6
         with:
-          key: conan-windows-${{ hashFiles('conanfile.py') }}
+          key: conan-windows-cpp14-${{ hashFiles('conanfile.py', 'cmake/conan_provider.cmake') }}
           path: ~/.conan2
 
       - name: Enable Developer Command Prompt
@@ -107,7 +107,11 @@ jobs:
       - name: Configure
         run: |
           conan remote add rigs-of-rods-deps https://nexus.anotherfoxguy.com/repository/rigs-of-rods/ -f
-          cmake . -GNinja -DCMAKE_BUILD_TYPE=Release -Bbuild -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake -DCMAKE_INSTALL_PREFIX=redist -DCREATE_CONTENT_FOLDER=ON
+          rem Legacy OGRE 1.11 still uses std::binary_function. Keep its Conan
+          rem dependency graph on the last compatible language mode while RoR
+          rem itself continues to compile as required C++17.
+          cmake . -GNinja -DCMAKE_BUILD_TYPE=Release -Bbuild -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake -DCONAN_INSTALL_ARGS:STRING="--build=missing;-s:h=compiler.cppstd=14" -DCMAKE_INSTALL_PREFIX=redist -DCREATE_CONTENT_FOLDER=ON
+          findstr /C:"compiler.cppstd=14" build\conan_host_profile
         shell: cmd
 
       - name: Build
@@ -134,4 +138,3 @@ jobs:
       - name: Clean Conan pkgs
         run: conan cache clean "*" -sbd
         shell: cmd
-
