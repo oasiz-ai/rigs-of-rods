@@ -85,6 +85,7 @@ void RoR::RegisterGameScript(asIScriptEngine *engine)
     // > General
     result = engine->RegisterObjectMethod("GameScriptClass", "void log(const string &in)", asMETHOD(GameScript,log), asCALL_THISCALL); ROR_ASSERT(result>=0);
     result = engine->RegisterObjectMethod("GameScriptClass", "float getTime()", asMETHOD(GameScript,getTime), asCALL_THISCALL); ROR_ASSERT(result>=0);
+    result = engine->RegisterObjectMethod("GameScriptClass", "uint64 getCompletedPhysicsSteps()", asMETHOD(GameScript,getCompletedPhysicsSteps), asCALL_THISCALL); ROR_ASSERT(result>=0);
     result = engine->RegisterObjectMethod("GameScriptClass", "void backToMenu()", asMETHOD(GameScript, backToMenu), asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("GameScriptClass", "void quitGame()", asMETHOD(GameScript, quitGame), asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("GameScriptClass", "float getFPS()", asMETHOD(GameScript, getFPS), asCALL_THISCALL); ROR_ASSERT(result >= 0);

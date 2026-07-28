@@ -44,6 +44,7 @@
 #include <OgrePlatform.h>
 #include <OgreFileSystem.h>
 #include <cctype>
+#include <cstdlib>
 #include <string>
 
 namespace RoR {
@@ -205,6 +206,13 @@ bool IsAbsolutePath(const char* path)
 
 std::string GetUserHomeDirectory()
 {
+    // The D0 runtime harness needs an isolated writable tree without
+    // repurposing the invoking user's HOME. Accept only an explicit absolute
+    // path; ordinary launches never set this diagnostic variable.
+    const char* d0_scene_home = getenv("ROR_D0_SCENE_HOME");
+    if (d0_scene_home != nullptr && IsAbsolutePath(d0_scene_home))
+        return std::string(d0_scene_home);
+
     const char* user_home = getenv("HOME");
     return user_home != nullptr ? std::string(user_home) : std::string();
 }

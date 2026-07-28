@@ -36,6 +36,7 @@
 #include "Collisions.h"
 #include "DashBoardManager.h"
 #include "DeterministicContactOrder.h"
+#include "DeterministicScenarioSchedule.h"
 #include "DeterministicStateTrace.h"
 #include "ActorStateDigestAdapter.h"
 #include "DynamicCollisions.h"
@@ -137,6 +138,8 @@ struct DeterministicStateTraceRuntime
     std::vector<DeterministicContactOrder::InterActorKey> contact_keys;
     std::vector<const Actor*> actors;
     std::uint64_t scenario_id = 0;
+    std::uint64_t step_limit =
+        DeterministicStateTrace::MAX_TRACE_STEPS;
     std::string output_path;
 };
 
@@ -545,6 +548,25 @@ bool ActorManager::PrepareDeterministicStateTraceStep()
         return false;
     }
 
+    std::uint64_t step_limit = 0;
+    if (!DeterministicScenarioSchedule::TryParseTraceStepLimit(
+            App::sim_deterministic_state_trace_step_limit->getStr(),
+            DeterministicStateTrace::MAX_TRACE_STEPS,
+            step_limit))
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] Refusing state trace: "
+            "sim_deterministic_state_trace_step_limit must be an "
+            "unsigned decimal integer in [0, %llu], where zero uses "
+            "the format maximum; disable capture before correcting it",
+            static_cast<unsigned long long>(
+                DeterministicStateTrace::MAX_TRACE_STEPS));
+        this->FinishDeterministicStateTrace(
+            "invalid trace step limit",
+            true);
+        return false;
+    }
+
     if (m_deterministic_state_trace != nullptr)
     {
         if (m_deterministic_state_trace->scenario_id != scenario_id)
@@ -558,6 +580,17 @@ bool ActorManager::PrepareDeterministicStateTraceStep()
                 true);
             return false;
         }
+        if (m_deterministic_state_trace->step_limit != step_limit)
+        {
+            RoR::LogFormat(
+                "[RoR|Determinism] Refusing to change the step limit "
+                "inside an active state trace; disable capture before "
+                "changing sim_deterministic_state_trace_step_limit");
+            this->FinishDeterministicStateTrace(
+                "trace step limit changed while active",
+                true);
+            return false;
+        }
         m_deterministic_state_trace->contact_keys.clear();
         return true;
     }
@@ -567,6 +600,7 @@ bool ActorManager::PrepareDeterministicStateTraceStep()
         std::unique_ptr<DeterministicStateTraceRuntime> runtime(
             new DeterministicStateTraceRuntime());
         runtime->scenario_id = scenario_id;
+        runtime->step_limit = step_limit;
 
         ThreadPool* const worker_pool = App::GetThreadPool();
         const std::size_t worker_count =
@@ -648,10 +682,11 @@ bool ActorManager::PrepareDeterministicStateTraceStep()
         RoR::LogFormat(
             "[RoR|Determinism] Recording state trace '%s' "
             "(scenario=%llu, workers=%llu, step=1/2000 s, "
-            "fast-math=%s)",
+            "limit=%llu, fast-math=%s)",
             m_deterministic_state_trace->output_path.c_str(),
             static_cast<unsigned long long>(scenario_id),
             static_cast<unsigned long long>(worker_count),
+            static_cast<unsigned long long>(step_limit),
             (GetDeterministicTracePhysicsFlags() &
                 DeterministicStateTrace::
                     PHYSICS_FLAG_FAST_MATH) != 0
@@ -816,14 +851,14 @@ void ActorManager::CaptureDeterministicStateTraceStep(
     }
 
     if (runtime.writer->GetStepCount() ==
-            DeterministicStateTrace::MAX_TRACE_STEPS)
+            runtime.step_limit)
     {
         RoR::LogFormat(
-            "[RoR|Determinism] State trace '%s' reached its immutable "
+            "[RoR|Determinism] State trace '%s' reached its configured "
             "%llu-step limit and is being finalized",
             runtime.output_path.c_str(),
             static_cast<unsigned long long>(
-                DeterministicStateTrace::MAX_TRACE_STEPS));
+                runtime.step_limit));
         this->FinishDeterministicStateTrace(
             "trace step limit reached",
             true);
@@ -1864,13 +1899,45 @@ void ActorManager::UpdateActors(ActorPtr player_actor)
 {
     float dt = m_simulation_time;
 
-    // do not allow dt > 1/20
-    dt = std::min(dt, 1.0f / 20.0f);
+    std::uint32_t fixed_steps_per_frame = 0U;
+    const int configured_fixed_steps =
+        App::sim_deterministic_fixed_steps_per_frame->getInt();
+    if (!DeterministicScenarioSchedule::
+            TryResolveFixedStepsPerFrame(
+                configured_fixed_steps,
+                fixed_steps_per_frame))
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] Invalid "
+            "sim_deterministic_fixed_steps_per_frame=%d; expected "
+            "[0, %u]. Restoring wall-clock scheduling.",
+            configured_fixed_steps,
+            DeterministicScenarioSchedule::
+                MAX_FIXED_STEPS_PER_FRAME);
+        App::sim_deterministic_fixed_steps_per_frame->setVal(0);
+        fixed_steps_per_frame = 0U;
+    }
 
-    dt *= m_simulation_speed;
+    if (fixed_steps_per_frame > 0U)
+    {
+        // Diagnostic scene mode deliberately ignores wall-clock dt and
+        // simulation-speed grouping. Physics time still advances by exactly
+        // PHYSICS_DT for every scheduled substep.
+        m_physics_steps =
+            static_cast<int>(fixed_steps_per_frame);
+        m_dt_remainder = 0.0f;
+        dt = PHYSICS_DT * m_physics_steps;
+    }
+    else
+    {
+        // do not allow dt > 1/20
+        dt = std::min(dt, 1.0f / 20.0f);
 
-    dt += m_dt_remainder;
-    m_physics_steps = dt / PHYSICS_DT;
+        dt *= m_simulation_speed;
+
+        dt += m_dt_remainder;
+        m_physics_steps = dt / PHYSICS_DT;
+    }
     if (m_physics_steps == 0)
     {
         if ((m_deterministic_state_trace != nullptr ||
@@ -1885,8 +1952,11 @@ void ActorManager::UpdateActors(ActorPtr player_actor)
         return;
     }
 
-    m_dt_remainder = dt - (m_physics_steps * PHYSICS_DT);
-    dt = PHYSICS_DT * m_physics_steps;
+    if (fixed_steps_per_frame == 0U)
+    {
+        m_dt_remainder = dt - (m_physics_steps * PHYSICS_DT);
+        dt = PHYSICS_DT * m_physics_steps;
+    }
 
     this->SyncWithSimThread();
 

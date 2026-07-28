@@ -157,6 +157,7 @@ set(SOURCE_FILES
         physics/DeterministicContactOrder.h
         physics/DeterministicCounterNoise.h
         physics/DeterministicFixedStepCadence.h
+        physics/DeterministicScenarioSchedule.h
         physics/DeterministicInputTrace.{h,cpp}
         physics/DeterministicInputTraceRuntime.{h,cpp}
         physics/DeterministicVehicleInput.{h,cpp}

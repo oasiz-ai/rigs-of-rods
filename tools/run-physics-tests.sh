@@ -62,6 +62,11 @@ fi
 
 "${physics_test_compiler}" \
     "${common_test_flags[@]}" \
+    "${repository_dir}/tests/physics/DeterministicScenarioScheduleTests.cpp" \
+    -o "${test_build_dir}/deterministic_scenario_schedule_tests"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
     "${repository_dir}/tests/physics/DeterministicContactOrderTests.cpp" \
     -o "${test_build_dir}/deterministic_contact_order_tests"
 
@@ -143,6 +148,7 @@ physics_test_executables=(
     beam_rest_length_scale_tests
     deterministic_counter_noise_tests
     deterministic_fixed_step_cadence_tests
+    deterministic_scenario_schedule_tests
     deterministic_contact_order_tests
     deterministic_input_trace_tests
     deterministic_input_trace_runtime_tests

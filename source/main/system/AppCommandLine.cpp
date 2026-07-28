@@ -46,7 +46,8 @@ enum {
     OPT_TRUCKCONFIG,
     OPT_RUNSCRIPT,
     OPT_ENTERTRUCK,
-    OPT_JOINMPSERVER
+    OPT_JOINMPSERVER,
+    OPT_APPLE_PERSISTENCE_IGNORE_STATE
 };
 
 // option array
@@ -65,6 +66,11 @@ CSimpleOpt::SOption cmdline_options[] = {
     { OPT_CHECKCACHE,     ("-checkcache"),  SO_NONE    },
     { OPT_VER,            ("-version"),     SO_NONE    },
     { OPT_JOINMPSERVER,   ("-joinserver"),  SO_REQ_CMB },
+    // AppKit consumes this NSArgumentDomain preference before RoR parses the
+    // command line. Accept it here as a no-op so unattended macOS runs can
+    // disable crash-state restoration without falling back to help/exit.
+    { OPT_APPLE_PERSISTENCE_IGNORE_STATE,
+                          ("-ApplePersistenceIgnoreState"), SO_REQ_SEP },
     SO_END_OF_OPTIONS
 };
 
@@ -185,4 +191,3 @@ void Console::showCommandLineVersion()
     printf(" * built with gcc %d.%d.%d\n", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
 #endif //__GNUC__
 }
-

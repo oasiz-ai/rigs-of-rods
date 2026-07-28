@@ -66,6 +66,7 @@
 
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
+#include <limits>
 
 using namespace Ogre;
 using namespace RoR;
@@ -110,6 +111,11 @@ void GameScript::setTrucksForcedAwake(bool forceActive)
 float GameScript::getTime()
 {
     return App::GetGameContext()->GetActorManager()->GetTotalTime();
+}
+
+std::uint64_t GameScript::getCompletedPhysicsSteps()
+{
+    return App::GetGameContext()->GetActorManager()->GetCompletedPhysicsSteps();
 }
 
 void GameScript::setPersonPosition(const Vector3& vec)
@@ -1554,8 +1560,51 @@ bool GameScript::pushMessage(MsgType type, AngelScript::CScriptDictionary* dict)
                 return false;
             }
 
-            // Set instance ID if specified
-            GetValueFromScriptDict(log_msg, dict, /*required:*/false, "instance_id", "int", rq->asr_instance_id);
+            // Script dictionaries store integral primitives as int64. Keep an
+            // explicitly supplied stable ID exact instead of silently
+            // ignoring it through an `int` type mismatch.
+            if (dict->find("instance_id") != dict->end())
+            {
+                int64_t instance_id = ACTORINSTANCEID_INVALID;
+                if (!GetValueFromScriptDict(
+                        log_msg,
+                        dict,
+                        /*required:*/true,
+                        "instance_id",
+                        "int64",
+                        instance_id) ||
+                    instance_id < 0 ||
+                    instance_id >
+                        static_cast<int64_t>(
+                            std::numeric_limits<
+                                ActorInstanceID_t>::max()))
+                {
+                    this->log(fmt::format(
+                        "{}: ERROR, 'instance_id' must be a nonnegative "
+                        "actor ID representable by the native runtime.",
+                        log_msg));
+                    delete rq;
+                    return false;
+                }
+                rq->asr_instance_id =
+                    static_cast<ActorInstanceID_t>(instance_id);
+            }
+
+            // Exact-position diagnostic and editor spawns must bypass the
+            // terrain-height adjustment deliberately rather than relying on
+            // an ignored dictionary field.
+            if (dict->find("free_position") != dict->end() &&
+                !GetValueFromScriptDict(
+                    log_msg,
+                    dict,
+                    /*required:*/true,
+                    "free_position",
+                    "bool",
+                    rq->asr_free_position))
+            {
+                delete rq;
+                return false;
+            }
 
             // Set sectionconfig
             GetValueFromScriptDict(log_msg, dict, /*required:*/false, "config", "string", rq->asr_config);

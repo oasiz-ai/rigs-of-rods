@@ -47,10 +47,20 @@ const char REGISTRY_SOURCE_NAME[] =
     "ror-restricted-applied-control-state-v1+sha256:"
     "5368675b48c68ee2804455ed0577bc5069aab2fa50a210c3dbe9d28785057f95";
 
-std::uint64_t DoubleBits(double value)
+std::uint64_t DoubleBits(const double& value)
 {
+    // Read the object representation through volatile bytes. Optimized
+    // fast-math builds may otherwise prove a by-value floating argument
+    // finite and fold away the exponent check, even though this validation
+    // boundary deliberately accepts hostile serialized values.
+    unsigned char representation[sizeof(value)];
+    const volatile unsigned char* source =
+        reinterpret_cast<const volatile unsigned char*>(&value);
+    for (std::size_t index = 0; index < sizeof(value); ++index)
+        representation[index] = source[index];
+
     std::uint64_t bits = 0;
-    std::memcpy(&bits, &value, sizeof(bits));
+    std::memcpy(&bits, representation, sizeof(bits));
     return bits;
 }
 

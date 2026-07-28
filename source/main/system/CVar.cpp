@@ -75,6 +75,16 @@ void Console::cVarSetupBuiltins()
         "Deterministic trace scenario ID",
         CVAR_ARCHIVE,
         "0");
+    App::sim_deterministic_state_trace_step_limit = this->cVarCreate(
+        "sim_deterministic_state_trace_step_limit",
+        "Deterministic trace step limit (0 uses the format maximum)",
+        CVAR_ARCHIVE,
+        "0");
+    App::sim_deterministic_fixed_steps_per_frame = this->cVarCreate(
+        "sim_deterministic_fixed_steps_per_frame",
+        "Deterministic fixed physics steps per rendered frame",
+        CVAR_ARCHIVE | CVAR_TYPE_INT,
+        "0");
 
     App::mp_state                = this->cVarCreate("mp_state",                "",                                          CVAR_TYPE_INT,     "0"/*(int)MpState::DISABLED*/);
     App::mp_join_on_startup      = this->cVarCreate("mp_join_on_startup",      "Auto connect",               CVAR_ARCHIVE | CVAR_TYPE_BOOL,    "false");

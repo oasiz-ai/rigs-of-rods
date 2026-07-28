@@ -309,8 +309,36 @@ scene finalizes the aggregate trailer. Capture failure is logged and latched
 off until the CVar is disabled, while physics continues normally.
 
 Automated runtime lifecycle coverage, input recording, pause/load
-continuation, and the pinned-content one/eight-worker runs remain separate
-runtime gates.
+continuation, and runtime TSan coverage remain separate runtime gates.
+
+## Deterministic two-truck runtime scene
+
+`tools/run_deterministic_scene.py` drives the pinned D0 production scene
+through a full RoR build. It verifies content commit
+`34fefdd126784bf87b068fc283f812525d159dd7` and the byte-exact DAF/simple2
+fixture inventory before launching anything. The scene spawns two fixed-ID
+DAF trucks while paused at step zero, then advances exactly 1,000 physics steps
+in ten-step render batches and writes one bounded state trace.
+
+The runner defaults to 30 fresh-process runs with one worker and 30 with eight
+workers. It validates the script/engine completion markers and trace metadata,
+self-checks every artifact, and compares all canonical step records with the
+first trace while allowing only the declared worker-count metadata difference.
+Use a fresh artifact directory:
+
+```sh
+python3 tools/run_deterministic_scene.py \
+    --executable BUILD/bin/RoR.app/Contents/MacOS/RoR \
+    --trace-tool BUILD/bin/ror_state_trace \
+    --runtime-content BUILD/bin/RoR.app/Contents/MacOS/content \
+    --artifact-dir /tmp/ror-d0-scene-artifacts
+```
+
+Each launch receives an isolated RoR home, null audio, disabled online access,
+and a fixed 1280x720 renderer configuration with content scale factor 1.
+Shadows, sky, and water are disabled because this is a physics gate rather
+than a renderer comparison. On macOS the command also disables AppKit state
+restoration so a previous crash-recovery dialog cannot block automation.
 
 ## Beam axial response invariant
 

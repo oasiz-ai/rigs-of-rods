@@ -276,10 +276,10 @@ savegames carry optional seed/counter fields so existing version-3 saves remain
 loadable and resumed saves retain the next cadence boundary. Golden vectors,
 dependency-free one/two/eight-thread noise tests, and 50,000 fixed-seed cadence
 fixtures lock the pure-function and frame-regrouping contracts.
-ActorManager/content worker-count runs, save/load continuation tests, the
-runtime TSan soak, the production broad-phase oracle, and input-replay hashing
-remain open D0 work, as does a scenario-level seed/stream-ID contract
-independent of runtime actor-ID assignment.
+Save/load continuation tests, the runtime TSan soak, the production broad-phase
+oracle, and input-replay hashing remain open D0 work, as does a general
+scenario-level seed/stream-ID contract independent of runtime actor-ID
+assignment.
 
 The contact-order slice now updates inter-actor detectors in stable actor-ID
 order, canonicalizes collision-partner and KD-hit lists, discovers narrow-phase
@@ -304,12 +304,20 @@ reductions from one, two, and eight task buffers, and locks quota, overflow, and
 fallback-order behavior. A runtime oracle against `PointColDetector` itself and
 the multi-actor TSan soak are still required to close the gate.
 
-The first pending runtime micro-scenario uses `simple2.terrn2` and two airborne
+The first runtime micro-scenario now uses `simple2.terrn2` and two airborne
 `b6b0UID-semi.truck` actors with fixed poses, explicit stable IDs/seeds, and
 exactly 1,000 physics steps. Each spawned DAF has 176 runtime nodes, so the pair
-requests 1,056 turbulence samples per step. Thirty runs must match ordered
-per-actor node-state hashes with one and eight workers before this slice counts
-as runtime-validated.
+requests 1,056 turbulence samples per step. The startup script synchronously
+pauses at the zero-step boundary, spawns both actors while paused, enables the
+trace, and advances exactly ten 2 kHz steps per rendered frame until the
+immutable 1,000-step limit finalizes the artifact. The production runner
+verifies the pinned content revision and every fixture byte, isolates the user
+home, disables online/audio and nonessential visual systems, fixes macOS
+rendering at 1280x720 with scale factor 1, and fails closed on missing markers,
+extra traces, invalid metadata, timeout, crash, or state divergence. On native
+Apple Silicon, thirty fresh-process runs with one worker and thirty with eight
+workers matched every canonical state record. This closes the pinned
+two-vehicle worker-count runtime check, but not the remaining D0 gates.
 
 The version-1 D0 state-digest kernel now defines the byte-level contract for
 those comparisons. It streams, without retaining records, exact binary32 actor
@@ -418,11 +426,10 @@ before it mutates an `Actor`. Multi-actor atomic input uses a future composite
 schema rather than silently sharing this single-target stream.
 
 Production input-map capture and replay injection, lifecycle/error CVars,
-scenario-assigned IDs independent of runtime actor indexes, savegame ownership
-of the input runtime continuation, the pinned one/eight-worker scene runs, and
-TSan soak are still open. The kernel, runtime, and live state capture make
-those comparisons possible, but are not by themselves runtime determinism
-evidence.
+general scenario-assigned IDs independent of runtime actor indexes, savegame
+ownership of the input runtime continuation, and the TSan soak are still open.
+The completed two-truck scene validates collision/state determinism without
+claiming that its neutral controls close the input-replay gate.
 
 For a local kernel stress pass, run
 `ROR_PHYSICS_TEST_REPEAT=30 tools/run-physics-tests.sh`, then repeat with
@@ -430,9 +437,10 @@ both `ROR_PHYSICS_TEST_REPEAT=30` and
 `ROR_PHYSICS_TEST_FAST_MATH=1`. This covers the 120,000-step axial soak,
 fixed-seed contact oracle, one/two/eight-buffer reductions, counter-noise
 threading, state-digest golden vectors, and exhaustive trace integrity checks.
-It deliberately does not claim the `simple2` runtime gate: that still requires
-an automated fixed-step scene driver, controlled one/eight-worker runs, and
-comparison of the resulting production artifacts.
+Run `tools/run_deterministic_scene.py` against a full application build and its
+`ror_state_trace` tool for the pinned `simple2` production runtime gate. The
+runner defaults to thirty runs each at one and eight workers and compares every
+artifact with the first accepted trace.
 
 Gate D0:
 

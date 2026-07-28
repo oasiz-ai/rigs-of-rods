@@ -93,6 +93,7 @@ public:
     bool           IsSimulationPaused() const              { return m_simulation_paused; }
     void           SetSimulationPaused(bool v)             { m_simulation_paused = v; }
     float          GetTotalTime() const                    { return m_total_sim_time; }
+    std::uint64_t  GetCompletedPhysicsSteps() const        { return m_completed_physics_steps; }
     RoR::CmdKeyInertiaConfig& GetInertiaConfig()           { return m_inertia_config; }
     
 

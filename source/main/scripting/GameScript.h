@@ -55,8 +55,11 @@ public:
     /**
      * returns the time in seconds since the game was started
      * @return time in seconds
-     */
+    */
     float getTime();
+
+    /// Canonical number of completed 2 kHz fixed steps in the loaded scene.
+    std::uint64_t getCompletedPhysicsSteps();
 
     void backToMenu();
     void quitGame();

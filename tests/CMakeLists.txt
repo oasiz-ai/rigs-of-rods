@@ -40,6 +40,11 @@ add_executable(
 )
 
 add_executable(
+    ror_deterministic_scenario_schedule_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicScenarioScheduleTests.cpp"
+)
+
+add_executable(
     ror_deterministic_contact_order_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicContactOrderTests.cpp"
 )
@@ -446,6 +451,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_contact_order_tests
     ror_deterministic_counter_noise_tests
     ror_deterministic_fixed_step_cadence_tests
+    ror_deterministic_scenario_schedule_tests
     ror_deterministic_input_trace_tests
     ror_deterministic_input_trace_runtime_tests
     ror_deterministic_vehicle_input_tests
@@ -540,6 +546,11 @@ add_test(
 add_test(
     NAME deterministic_fixed_step_cadence
     COMMAND ror_deterministic_fixed_step_cadence_tests
+)
+
+add_test(
+    NAME deterministic_scenario_schedule
+    COMMAND ror_deterministic_scenario_schedule_tests
 )
 
 add_test(

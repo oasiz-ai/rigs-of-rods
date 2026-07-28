@@ -660,6 +660,8 @@ extern CVar* sim_tuning_enabled;
 extern CVar* sim_deterministic_sleeping_engine;
 extern CVar* sim_deterministic_state_trace;
 extern CVar* sim_deterministic_state_trace_scenario_id;
+extern CVar* sim_deterministic_state_trace_step_limit;
+extern CVar* sim_deterministic_fixed_steps_per_frame;
 
 // Multiplayer
 extern CVar* mp_state;
