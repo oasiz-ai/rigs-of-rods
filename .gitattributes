@@ -31,3 +31,13 @@ cmake/conan/recipes/ogre3d/patches/14.5.2/relocatable-install-paths.patch -white
 cmake/conan/recipes/ogre3d/patches/14.5.2/bounds-safe-shadow-texture-projectors.patch -whitespace
 cmake/conan/recipes/ogre3d/patches/14.5.2/defer-glsl-program-validation.patch -whitespace
 cmake/conan/recipes/mygui/patches/3.4.0/ogre14-api.patch -whitespace
+
+# CityWorld asset manifests hash their source inputs byte-for-byte. Keep these
+# authored and generated text files identical on Windows, macOS, and Linux.
+tools/blender/cityworld_next/*.py text eol=lf
+tools/build_cityworld_next_provenance.py text eol=lf
+tools/validate_cityworld_asset.py text eol=lf
+tests/tools/test_build_cityworld_next_provenance.py text eol=lf
+tests/tools/test_validate_cityworld_asset.py text eol=lf
+resources/nextgen/cityworld/**/*.json text eol=lf
+content-source/cityworld_next/provenance/*.json text eol=lf
