@@ -76,6 +76,11 @@ add_executable(
 )
 
 add_executable(
+    ror_rigdef_calibrated_beam_material_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/RigDefCalibratedBeamMaterialTests.cpp"
+)
+
+add_executable(
     ror_hydro_actuator_response_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/HydroActuatorResponseTests.cpp"
 )
