@@ -818,6 +818,22 @@ BeamNG metal/rough PBR maps require V1; full GPU flex throughput requires G0.
 Missing or unsupported resources use obvious placeholders and diagnostics,
 never an apparently successful silent fallback.
 
+The first J4 material-inventory gate is implemented. It transactionally
+enumerates every manifest `*.materials.json` source in canonical path order,
+retains duplicate object fields, numeric spelling, unknown fields, arrays, and
+source spans, and gives every package material a collision-free scoped identity.
+It recognizes PBR inputs at both the root and within legacy `Stages`, validates
+all texture references against the bounded package manifest, and distinguishes
+exact local files, documented package-local cooked DDS substitutes, dynamic
+textures, missing files, case mismatches, and invalid paths. It performs no
+filesystem access, archive extraction, script execution, shader creation, or
+runtime material activation. Strict, fast-math, and sanitizer fixtures cover
+truncation, embedded NULs, traversal, collisions, quotas, and canonical identity.
+The opt-in FormulaCOUPE v0.9.7 fixture records 70 materials, 280 stages, and 335
+texture references: 281 cooked DDS, 7 dynamic, 19 missing/external, and 28
+case-mismatched. Those last 47 remain visible placeholders until an explicit
+policy or corrected local asset resolves them; the inventory does not guess.
+
 J5 is feature-by-feature native work, not a catch-all compatibility switch.
 FormulaCOUPE provides a useful manual ladder: start with `FC-A7-01`, then test an
 active-wing configuration, a parachute/air-brake configuration, a JATO/thruster

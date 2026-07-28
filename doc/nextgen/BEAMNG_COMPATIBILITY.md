@@ -412,6 +412,18 @@ metallic, roughness, ambient occlusion, opacity, emissive, palette, and clear
 coat inputs to V1; missing inputs get an explicit diagnostic and visible
 placeholder.
 
+Both direct root fields and the legacy four-entry `Stages` array occur in
+vehicle material files; neither shape may be flattened or silently rewritten
+by the inventory. BeamNG's [Texture Cooker][texture-cooker] keeps material
+references pointed at source PNG names while packaged mods commonly contain
+only the corresponding cooked DDS files. A same-path, same-case
+`.color.png`/`.normal.png`/`.data.png` reference with its documented local DDS
+substitute is therefore reported as `local-cooked-dds`, not missing. The
+importer never invokes BeamNG's cooker and never guesses across a case
+mismatch, package boundary, or unsupported suffix. Color inputs are sRGB;
+normal, roughness, metallic, opacity, AO, clear-coat, height, and other data
+inputs remain linear, and documented normal maps use OpenGL Y+ tangent space.
+
 [Glow maps][glowmaps] select material states from an evaluated input:
 
 | Value | State |
@@ -421,9 +433,14 @@ placeholder.
 | `>= 0.5` | `on_intense`, or `on` when no intense material exists |
 
 Only native electrics values may drive that state. [Props][props] remain rigid,
-follow their three-node frame, and may translate/rotate from allowlisted native
-inputs. Cameras and sounds have separate resource, coordinate, and behavior
-gates; discovering them does not imply support.
+follow their `idRef`/`idX`/`idY` three-node frame, and may translate/rotate from
+allowlisted native inputs; authored prop rotations use the documented intrinsic
+`-X, -Z, -Y` order. [External and chase cameras][cameras] are refnode-relative,
+whereas internal cameras are physical camera nodes connected by six beams and
+may carry a secondary reference frame. Those distinctions, camera type/FOV,
+offsets, transforms, and source spans must survive inventory before a native
+camera adapter is enabled. Sounds have a separate resource and behavior gate;
+discovering any of these sections does not imply support.
 
 ## Capability priority from the official catalog
 
@@ -484,10 +501,13 @@ and behavior text. Existing profiles and golden results remain reproducible.
 - [Electrics][electrics]
 - [Flexbodies][flexbodies]
 - [Props][props]
+- [Cameras][cameras]
 - [Glow maps][glowmaps]
 - [Materials JSON][materials]
+- [Texture Cooker][texture-cooker]
 
 [beams]: https://documentation.beamng.com/modding/vehicle/sections/beams/
+[cameras]: https://documentation.beamng.com/modding/vehicle/sections/camera/
 [components]: https://documentation.beamng.com/modding/vehicle/sections/components/
 [coordinates]: https://documentation.beamng.com/modding/vehicle/coordinate_systems/
 [electrics]: https://documentation.beamng.com/modding/vehicle/sections/electrics/
@@ -497,6 +517,7 @@ and behavior text. Existing profiles and golden results remain reproducible.
 [hydros]: https://documentation.beamng.com/modding/vehicle/sections/hydros/
 [jbeam-syntax]: https://documentation.beamng.com/modding/vehicle/intro_jbeam/jbeamsyntax/
 [materials]: https://documentation.beamng.com/modding/file_formats/materials/
+[texture-cooker]: https://documentation.beamng.com/modding/materials/texture_cooker/
 [nodes]: https://documentation.beamng.com/modding/vehicle/sections/nodes/
 [packing]: https://documentation.beamng.com/modding/mod-support/mod_packing/
 [props]: https://documentation.beamng.com/modding/vehicle/sections/props/

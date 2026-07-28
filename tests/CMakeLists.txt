@@ -125,6 +125,14 @@ add_executable(
 )
 
 add_executable(
+    ror_beamng_material_inventory_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/BeamNGMaterialInventoryTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGMaterialInventory.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGPackageManifest.cpp"
+)
+
+add_executable(
     ror_beamng_zip_archive_index_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/BeamNGZipArchiveIndexTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGZipArchiveIndex.cpp"
@@ -199,6 +207,12 @@ add_executable(
 
 target_include_directories(
     ror_beamng_package_manifest_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+target_include_directories(
+    ror_beamng_material_inventory_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
 )
@@ -399,6 +413,7 @@ target_link_libraries(
 set(ROR_PHYSICS_TEST_TARGETS
     ror_beam_axial_response_tests
     ror_beam_rest_length_scale_tests
+    ror_beamng_material_inventory_tests
     ror_beamng_package_manifest_tests
     ror_beamng_zip_archive_index_tests
     ror_beamng_zip_index
@@ -475,7 +490,10 @@ foreach (test_target IN LISTS ROR_PHYSICS_TEST_TARGETS)
     endif ()
 endforeach ()
 
-set_target_properties(ror_jbeam_to_rigdef_tests PROPERTIES
+set_target_properties(
+    ror_beamng_material_inventory_tests
+    ror_jbeam_to_rigdef_tests
+    PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
@@ -576,6 +594,11 @@ add_test(
 add_test(
     NAME beamng_package_manifest
     COMMAND ror_beamng_package_manifest_tests
+)
+
+add_test(
+    NAME beamng_material_inventory
+    COMMAND ror_beamng_material_inventory_tests
 )
 
 add_test(
