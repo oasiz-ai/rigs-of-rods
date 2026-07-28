@@ -93,6 +93,36 @@ new kit uses project-owned names and geometry. The longer
 NeoQueretaro-to-NeoQ2.0 corridor starts only after the first link passes
 collision, navigation, visual, and performance gates.
 
+The first project-owned tangent module is now checked in as
+`rorng_city_bridge_span_20m`. Its Blender 5.2 generator produces:
+
+- an editable, metre-scale Blender source and a 1280x720 authoring preview;
+- one standard Y-up glTF 2.0 GLB with applied transforms and no imported
+  scripts, shaders, textures, cameras, lights, animation, or extensions;
+- LOD0/LOD1/LOD2 render objects at 4,636, 300, and 48 triangles;
+- a continuous watertight road collision box and separate watertight left and
+  right barrier collision boxes, all with outward winding and non-overlapping
+  bounds;
+- exact start/end connector metadata for a 20 m span, 8.9 m road width, and
+  two 3.5 m lanes; and
+- a canonical asset manifest plus A0 release-gate provenance for the GLB and
+  manifest.
+
+`tools/validate_cityworld_asset.py` reads the GLB container and accessors
+directly. It checks finite data, required normal/UV/tangent streams, exact PBR
+material coverage, LOD ratios, connector continuity, welded collision
+manifoldness, winding, connectedness, and artifact hashes. The GLB was
+byte-identical across consecutive Blender 5.2 arm64 generations. Blender
+sources and rendered previews remain pinned artifacts rather than
+cross-version byte-canonical formats.
+
+![First project-owned CityWorld bridge span](../../content-source/cityworld_next/bridge/rorng_city_bridge_span_20m_preview.png)
+
+This is the first CW2 asset, not completion of the intercity corridor. Curved
+spans, piers, abutments, retaining walls, transitions, deterministic placement,
+RoR runtime compilation, vehicle clearance/contact tests, fixed-camera
+captures, and the declared frame-time gates remain required.
+
 ### CW3 — Vegetation
 
 Replace the repeated billboard-era trees with a small bioclimatically coherent

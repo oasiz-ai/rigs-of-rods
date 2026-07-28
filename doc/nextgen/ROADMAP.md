@@ -100,6 +100,15 @@ authoring contract, LOD/collision requirements, and visual acceptance gates are
 tracked in the
 [CityWorld visual-upgrade specification](CITYWORLD_VISUAL_UPGRADE.md).
 
+The first rights-cleared CityWorld Next content slice is now present without
+modifying that archive: a Blender-generated 20 m tangent bridge span with three
+render LODs, separate validated collision, lane connectors, a standard glTF
+interchange artifact, and a full A0 release-gate provenance inventory.
+Dependency-free validation runs on macOS, Linux, and Windows CI. It is an
+authoring/compiler fixture until the offline glTF-to-runtime compiler and
+deterministic corridor overlay land; it is not yet a replacement placed in the
+local CityWorld map.
+
 ## Measurement contract
 
 No milestone below is complete until its test is automated.
@@ -1129,6 +1138,10 @@ Gate A0:
    feature at a time; never make controller execution a dependency.
 9. Ship the A0 DAF/asphalt vertical slice and pass imported-content provenance
    gates before expanding the asset library or publishing compatibility demos.
+10. Compile the project-owned CityWorld tangent span through the same
+    fail-closed glTF boundary, prove in-game lane/collision continuity, then
+    expand CW2 to curved spans, supports, and the first intercity overlay before
+    starting the longer corridor.
 
 A next-generation preview is ready only when the pinned four-scene suite passes
 on Windows, Linux, and macOS; one-worker and eight-worker physics hashes match;

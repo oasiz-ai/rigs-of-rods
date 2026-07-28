@@ -1,0 +1,310 @@
+{
+  "artifacts": {
+    "blend": {
+      "path": "content-source/cityworld_next/bridge/rorng_city_bridge_span_20m.blend",
+      "sha256": "b382e1f92bda4c4bad07e852bfd2e888dcde4be44918a9de206f44999d423463"
+    },
+    "glb": {
+      "path": "resources/nextgen/cityworld/bridge/rorng_city_bridge_span_20m.glb",
+      "sha256": "d658272799f6369abb6339a6eb6b52e13862098ff81737f76df6bd45a2eaa3c3"
+    },
+    "preview": {
+      "path": "content-source/cityworld_next/bridge/rorng_city_bridge_span_20m_preview.png",
+      "sha256": "edb902dc32480f2205aabfbcc2e64bd84a280cbd4148c3c364167de7906d9867"
+    }
+  },
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_bridge_span_20m",
+    "license": "GPL-3.0-or-later",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "axis": "blender-z-up",
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "format": "ror-cityworld-blender-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+      "sha256": "4910be675d50da85f0dc9ad49bf5e21c0f6d3a4277c65993860389acbc5bee9c"
+    },
+    "transforms_applied": true,
+    "units": "metres"
+  },
+  "collision": {
+    "objects": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            4.45,
+            10.0,
+            0.0
+          ],
+          "min": [
+            -4.45,
+            -10.0,
+            -0.12
+          ]
+        },
+        "name": "rorng_city_bridge_span_20m_collision_road",
+        "role": "collision-road",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -4.49,
+            10.0,
+            1.06
+          ],
+          "min": [
+            -4.79,
+            -10.0,
+            0.02
+          ]
+        },
+        "name": "rorng_city_bridge_span_20m_collision_barrier_left",
+        "role": "collision-barrier",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            4.79,
+            10.0,
+            1.06
+          ],
+          "min": [
+            4.49,
+            -10.0,
+            0.02
+          ]
+        },
+        "name": "rorng_city_bridge_span_20m_collision_barrier_right",
+        "role": "collision-barrier",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      }
+    ],
+    "road_surface_z_m": 0.0,
+    "separate_from_render_mesh": true
+  },
+  "connectors": [
+    {
+      "forward": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "id": "start",
+      "lane_centres_x_m": [
+        -1.75,
+        1.75
+      ],
+      "position_blender_z_up_m": [
+        0.0,
+        -10.0,
+        0.0
+      ],
+      "road_width_m": 8.9
+    },
+    {
+      "forward": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "id": "end",
+      "lane_centres_x_m": [
+        -1.75,
+        1.75
+      ],
+      "position_blender_z_up_m": [
+        0.0,
+        10.0,
+        0.0
+      ],
+      "road_width_m": 8.9
+    }
+  ],
+  "export": {
+    "allowlisted_extensions": [],
+    "animations": false,
+    "apply_modifiers": true,
+    "cameras": false,
+    "format": "glb",
+    "lights": false,
+    "materials": "export",
+    "profile": "gltf-2.0",
+    "selection_only": true,
+    "tangents": true,
+    "textures": [],
+    "y_up": true
+  },
+  "format": "ror-cityworld-asset-v1",
+  "geometry": {
+    "bridge_length_m": 20.0,
+    "bridge_width_m": 10.0,
+    "lane_width_m": 3.5,
+    "lod0_triangle_ceiling": 60000,
+    "lod1_max_ratio": 0.35,
+    "lod2_max_ratio": 0.1,
+    "lods": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            5.0,
+            10.0,
+            1.085
+          ],
+          "min": [
+            -5.0,
+            -10.0,
+            -1.515
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_bridge_span_20m_lod0",
+        "triangles": 4636
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            5.0,
+            10.0,
+            0.98
+          ],
+          "min": [
+            -5.0,
+            -10.0,
+            -1.32
+          ]
+        },
+        "lod": 1,
+        "name": "rorng_city_bridge_span_20m_lod1",
+        "triangles": 300
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            5.0,
+            10.0,
+            0.86
+          ],
+          "min": [
+            -5.0,
+            -10.0,
+            -0.72
+          ]
+        },
+        "lod": 2,
+        "name": "rorng_city_bridge_span_20m_lod2",
+        "triangles": 48
+      }
+    ],
+    "road_width_m": 8.9
+  },
+  "materials": [
+    {
+      "base_color_factor_linear": [
+        0.032,
+        0.038,
+        0.045,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_asphalt",
+      "roughness_factor": 0.9
+    },
+    {
+      "base_color_factor_linear": [
+        0.31,
+        0.34,
+        0.37,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_concrete",
+      "roughness_factor": 0.78
+    },
+    {
+      "base_color_factor_linear": [
+        0.035,
+        0.047,
+        0.058,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.78,
+      "name": "rorng_city_dark_steel",
+      "roughness_factor": 0.29
+    },
+    {
+      "base_color_factor_linear": [
+        0.23,
+        0.29,
+        0.34,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.72,
+      "name": "rorng_city_galvanized_steel",
+      "roughness_factor": 0.34
+    },
+    {
+      "base_color_factor_linear": [
+        0.82,
+        0.84,
+        0.79,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_lane_white",
+      "roughness_factor": 0.66
+    },
+    {
+      "base_color_factor_linear": [
+        0.93,
+        0.58,
+        0.035,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_lane_yellow",
+      "roughness_factor": 0.6
+    },
+    {
+      "base_color_factor_linear": [
+        0.8,
+        0.04,
+        0.03,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_collision_debug",
+      "roughness_factor": 1.0
+    }
+  ]
+}

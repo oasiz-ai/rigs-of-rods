@@ -84,10 +84,13 @@ python3 tools/content_provenance_audit.py \
 ```
 
 `--release-gate` fails when either root is absent. The repository's
-`Content provenance preflight` workflow runs the dependency-free auditor tests
-on supported hosts and Python versions; it deliberately does not claim Gate A0
-or audit a distributable until the build supplies a real package, inventory,
-manifest, and editable-source root to the command above.
+`Content provenance preflight` workflow runs the dependency-free auditor
+tests on supported hosts and Python versions. It also applies the real release
+gate to the checked-in `resources/nextgen/cityworld` package using the
+deterministically generated inventory/manifest and repository editable-source
+root. That proves A0 for this bounded CityWorld Next package, not for the
+entire application distribution; every other distributable still needs its
+own complete package inventory before the broader gate can be claimed.
 
 Exit status is `0` for a clean audit, `1` for policy/schema findings, and `2`
 when an input cannot be read or parsed. Standard output is one canonical JSON
