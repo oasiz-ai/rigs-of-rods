@@ -112,10 +112,32 @@ disconnect, atomic configuration, latched malformed-state failures, runtime
 float-range rejection, and 50,000 fixed-seed equal-and-opposite force pairs
 under strict and fast-math builds.
 
-The adapter is wired into `Actor`, but there is intentionally no authored
-truck/JBeam parser or shipped material configuration yet; legacy beams remain
-the default. Savegame/replay restoration, authored calibration data,
-mesh-refinement/localization gates, step-size comparison, starter-content
+The adapter is wired into `Actor` and the native truck parser through
+`set_calibrated_beam_material 1, on, ...` with an explicit `1, off`
+transition. The dependency-light directive tests cover strict finite
+locale-independent parsing, invalid-input atomicity, exact serialization
+round trips, the parser's production copy-on-write transition, serializer
+normal/specialized/normal role transitions, field-specific diagnostics, and the
+inert legacy default in Release, fast-math, and sanitizer builds. It also
+exercises the exact atomic, role-aware spawn preparation called by
+`ActorSpawner`.
+
+When the full application is built with `ROR_BUILD_TESTS=ON`, the
+`rigdef_calibrated_beam_material_roundtrip_integration` CTest invokes a hidden
+pre-renderer test hook in the real `RoR` executable. It loads the authored
+`calibrated_beam_material_roundtrip.truck` fixture through
+`RigDef::Parser::ProcessRawLine()` and `SequentialImporter`, proves that an
+enabled rope is rejected while an explicit-off rope remains legacy, prepares
+the supported beams through the production spawn seam, serializes the complete
+document with `RigDef::Serializer`, checks the fail-closed on/off/on/off
+transitions, reparses the output, and requires bit-exact binary64 material
+values. The hook is excluded from normal builds and returns before renderer,
+audio, input, or GUI startup.
+
+Version 1 is limited to normal `NOSHOCK` entries in `beams`; specialized beam
+roles remain disabled. There is intentionally no JBeam mapping or shipped
+material configuration yet. Savegame/replay restoration, authored calibration
+data, mesh-refinement/localization gates, step-size comparison, starter-content
 calibration, and the Agora impact regression remain separate P1 gates.
 
 ## Bounded hydro actuator response

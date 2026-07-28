@@ -157,6 +157,7 @@ Order is alphabetical, lettercase matches original docs (parsing is insensitive)
     section                      MODULE     
     set_beam_defaults            DIRECTIVE  
     set_beam_defaults_scale      DIRECTIVE  
+    set_calibrated_beam_material DIRECTIVE
     set_collision_range          DIRECTIVE  
     set_default_minimass         DIRECTIVE
     set_inertia_defaults         DIRECTIVE  

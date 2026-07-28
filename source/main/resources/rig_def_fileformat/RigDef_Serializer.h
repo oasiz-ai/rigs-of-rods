@@ -62,7 +62,10 @@ private:
     void ProcessDefaultMinimass(DefaultMinimass* default_minimass);
     
     void ProcessBeams(Document::Module*);
-    void ProcessBeamDefaults(BeamDefaults* beam_defaults);
+    void ProcessBeamDefaults(
+        BeamDefaults* beam_defaults,
+        bool allow_calibrated_material);
+    void DisableCalibratedBeamMaterial();
     void ProcessBeam(Beam & beam);
 
     void ProcessShocks(Document::Module*);
@@ -177,6 +180,7 @@ protected:
     BeamDefaults*     m_current_beam_defaults = nullptr;
     NodeDefaults*     m_current_node_defaults = nullptr;
     DefaultMinimass*  m_current_default_minimass = nullptr;
+    bool              m_calibrated_beam_material_enabled = false;
 };
 
 } // namespace RigDef

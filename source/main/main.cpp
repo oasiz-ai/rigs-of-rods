@@ -50,6 +50,9 @@
 #include "OutGauge.h"
 #include "OverlayWrapper.h"
 #include "PlatformUtils.h"
+#ifdef ROR_ENABLE_INTERNAL_TEST_HOOKS
+#include "RigDef_TestHooks.h"
+#endif
 #include "RoRVersion.h"
 #include "ScriptEngine.h"
 #include "Skidmark.h"
@@ -58,7 +61,9 @@
 #include "Utils.h"
 #include <Overlay/OgreOverlaySystem.h>
 #include <ctime>
+#include <cstring>
 #include <iomanip>
+#include <iostream>
 #include <string>
 #include <fstream>
 
@@ -97,6 +102,25 @@ int main(int argc, char *argv[])
 
         // Create OGRE default logger early
         App::GetAppContext()->SetUpLogging();
+
+#ifdef ROR_ENABLE_INTERNAL_TEST_HOOKS
+        if (argc >= 2 &&
+            std::strcmp(
+                argv[1],
+                "--internal-rigdef-calibrated-material-roundtrip") == 0)
+        {
+            if (argc != 3)
+            {
+                std::cerr
+                    << "usage: RoR "
+                       "--internal-rigdef-calibrated-material-roundtrip "
+                       "<fixture.truck>\n";
+                return 2;
+            }
+            return RigDef::RunCalibratedBeamMaterialRoundTripIntegration(
+                argv[2]);
+        }
+#endif
 
         // User directories
         App::sys_config_dir    ->setStr(PathCombine(App::sys_user_dir->getStr(), "config"));

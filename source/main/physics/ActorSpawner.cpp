@@ -5834,6 +5834,47 @@ void ActorSpawner::ProcessBeam(RigDef::Beam & def)
         return;
     }
 
+    RoR::CalibratedBeamMaterialAdapter::Runtime configured_material;
+    if (def.defaults->calibrated_material.enabled)
+    {
+        RoR::CalibratedBeamMaterialAdapter::Error adapter_error =
+            RoR::CalibratedBeamMaterialAdapter::Error::NONE;
+        RoR::CalibratedBeamMaterial::Error material_error =
+            RoR::CalibratedBeamMaterial::Error::NONE;
+        const bool is_plain_normal_noshock_beam =
+            (def.options &
+                (RigDef::Beam::OPTION_r_ROPE |
+                    RigDef::Beam::OPTION_s_SUPPORT)) == 0;
+        if (!RigDef::TryPrepareCalibratedBeamMaterialForSpawn(
+                def.defaults->calibrated_material,
+                is_plain_normal_noshock_beam,
+                configured_material,
+                &adapter_error,
+                &material_error))
+        {
+            if (adapter_error ==
+                RoR::CalibratedBeamMaterialAdapter::Error::
+                    UNSUPPORTED_BEAM_ROLE)
+            {
+                AddMessage(
+                    Message::TYPE_ERROR,
+                    "Skipping calibrated beam: v1 only supports normal "
+                    "NOSHOCK beams, not rope or support roles.");
+            }
+            else
+            {
+                AddMessage(
+                    Message::TYPE_ERROR,
+                    fmt::format(
+                        "Skipping calibrated beam with invalid authored "
+                        "material (adapter error {}, material error {}).",
+                        static_cast<int>(adapter_error),
+                        static_cast<int>(material_error)));
+            }
+            return;
+        }
+    }
+
     float scaled_rest_length = 0.0f;
     const float geometric_length =
         (m_actor->ar_nodes[n1].RelPosition -
@@ -5876,6 +5917,20 @@ void ActorSpawner::ProcessBeam(RigDef::Beam & def)
     {
         beam.bounded = SUPPORTBEAM;
         beam.longbound = def.extension_break_limit;
+    }
+
+    if (def.defaults->calibrated_material.enabled)
+    {
+        if (beam.bm_type != BEAM_NORMAL || beam.bounded != NOSHOCK)
+        {
+            AddMessage(
+                Message::TYPE_ERROR,
+                "Disabling calibrated beam after an unsupported role was "
+                "detected during spawn validation.");
+            beam.bm_disabled = true;
+            return;
+        }
+        beam.calibrated_material = configured_material;
     }
 
     if (BITMASK_IS_0(def.options, RigDef::Beam::OPTION_i_INVISIBLE))

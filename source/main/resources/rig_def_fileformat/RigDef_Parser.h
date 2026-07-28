@@ -105,6 +105,7 @@ private:
     void ParseDirectiveSectionConfig();
     void ParseDirectiveSetBeamDefaults();
     void ParseDirectiveSetBeamDefaultsScale();
+    void ParseDirectiveSetCalibratedBeamMaterial();
     void ParseDirectiveSetDefaultMinimass();
     void ParseDirectiveSetInertiaDefaults();
     void ParseDirectiveSetManagedMaterialsOptions();

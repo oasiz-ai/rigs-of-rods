@@ -1189,7 +1189,9 @@ void Serializer::ProcessRopes(Document::Module* module)
 
         if (first || (def.beam_defaults.get() != beam_defaults))
         {
-            ProcessBeamDefaults(def.beam_defaults.get());
+            ProcessBeamDefaults(
+                def.beam_defaults.get(),
+                false);
         }
 
         m_stream << m_dataline_indentstr 
@@ -1989,17 +1991,38 @@ void Serializer::ProcessBeams(Document::Module* module)
     m_stream << "beams" << endl << endl;
 
     BeamDefaults* prev_defaults = nullptr;
+    bool prev_allow_calibrated_material = false;
+    bool first = true;
     for (size_t i = 0; i < module->beams.size(); i++)
     {
         Beam& beam = module->beams[i];
-        if (prev_defaults != beam.defaults.get())
+        const bool allow_calibrated_material =
+            !BITMASK_IS_1(beam.options, Beam::OPTION_r_ROPE) &&
+            !BITMASK_IS_1(beam.options, Beam::OPTION_s_SUPPORT);
+        const bool calibrated_role_changed =
+            !first &&
+            prev_allow_calibrated_material != allow_calibrated_material &&
+            beam.defaults != nullptr &&
+            beam.defaults->calibrated_material.enabled &&
+            beam.defaults->calibrated_material._is_user_defined;
+        if (prev_defaults != beam.defaults.get() ||
+            calibrated_role_changed)
         {
-            ProcessBeamDefaults(beam.defaults.get());
+            ProcessBeamDefaults(
+                beam.defaults.get(),
+                allow_calibrated_material);
             prev_defaults = beam.defaults.get();
+            prev_allow_calibrated_material =
+                allow_calibrated_material;
         }
+        first = false;
         this->ExportDocComment(module, Keyword::BEAMS, i);
         this->ProcessBeam(beam);
     }
+
+    // The directive is global parser state. Close the opt-in before any later
+    // role section (shocks, hydros, commands, wheels, etc.) can inherit it.
+    DisableCalibratedBeamMaterial();
 
     // Empty line
     m_stream << endl;
@@ -2021,7 +2044,9 @@ void Serializer::ProcessShocks(Document::Module* module)
         Shock& shock = module->shocks[i];
         if (prev_defaults != shock.beam_defaults.get())
         {
-            ProcessBeamDefaults(shock.beam_defaults.get());
+            ProcessBeamDefaults(
+                shock.beam_defaults.get(),
+                false);
             prev_defaults = shock.beam_defaults.get();
         }
         this->ExportDocComment(module, Keyword::SHOCKS, i);
@@ -2048,7 +2073,9 @@ void Serializer::ProcessShocks2(Document::Module* module)
         Shock2& shock2 = module->shocks2[i];
         if (prev_defaults != shock2.beam_defaults.get())
         {
-            ProcessBeamDefaults(shock2.beam_defaults.get());
+            ProcessBeamDefaults(
+                shock2.beam_defaults.get(),
+                false);
             prev_defaults = shock2.beam_defaults.get();
         }
         this->ExportDocComment(module, Keyword::SHOCKS2, i);
@@ -2075,7 +2102,9 @@ void Serializer::ProcessShocks3(Document::Module* module)
         Shock3& shock3 = module->shocks3[i];
         if (prev_defaults != shock3.beam_defaults.get())
         {
-            ProcessBeamDefaults(shock3.beam_defaults.get());
+            ProcessBeamDefaults(
+                shock3.beam_defaults.get(),
+                false);
             prev_defaults = shock3.beam_defaults.get();
         }
         this->ExportDocComment(module, Keyword::SHOCKS3, i);
@@ -2103,7 +2132,9 @@ void Serializer::ProcessHydros(Document::Module* module)
         Hydro& hydro = module->hydros[i];
         if (prev_defaults != hydro.beam_defaults.get())
         {
-            ProcessBeamDefaults(hydro.beam_defaults.get());
+            ProcessBeamDefaults(
+                hydro.beam_defaults.get(),
+                false);
             prev_defaults = hydro.beam_defaults.get();
         }
         this->ExportDocComment(module, Keyword::HYDROS, i);
@@ -2130,7 +2161,9 @@ void Serializer::ProcessCommands2(Document::Module* module)
         Command2& command = module->commands2[i];
         if (prev_defaults != command.beam_defaults.get())
         {
-            ProcessBeamDefaults(command.beam_defaults.get());
+            ProcessBeamDefaults(
+                command.beam_defaults.get(),
+                false);
             prev_defaults = command.beam_defaults.get();
         }
         this->ExportDocComment(module, Keyword::COMMANDS2, i);
@@ -2362,7 +2395,9 @@ void Serializer::ProcessShock3(Shock3 & def)
     m_stream << endl;
 }
 
-void Serializer::ProcessBeamDefaults(BeamDefaults* beam_defaults)
+void Serializer::ProcessBeamDefaults(
+    BeamDefaults* beam_defaults,
+    bool allow_calibrated_material)
 {
     if (beam_defaults != nullptr)
     {
@@ -2380,6 +2415,35 @@ void Serializer::ProcessBeamDefaults(BeamDefaults* beam_defaults)
     {
         m_stream << fmt::format("{}set_beam_defaults {}, {}, {}, {}, {}, {}, {}\n",
             m_setdefaults_indentstr, -1, -1, -1, -1, -1, " ", -1);
+    }
+
+    const CalibratedBeamMaterialSerializationTransition transition =
+        AdvanceCalibratedBeamMaterialSerialization(
+            beam_defaults != nullptr
+                ? &beam_defaults->calibrated_material
+                : nullptr,
+            allow_calibrated_material,
+            m_calibrated_beam_material_enabled);
+    if (transition.emit_directive)
+    {
+        m_stream << m_setdefaults_indentstr
+            << "set_calibrated_beam_material "
+            << transition.arguments << "\n";
+    }
+}
+
+void Serializer::DisableCalibratedBeamMaterial()
+{
+    const CalibratedBeamMaterialSerializationTransition transition =
+        AdvanceCalibratedBeamMaterialSerialization(
+            nullptr,
+            false,
+            m_calibrated_beam_material_enabled);
+    if (transition.emit_directive)
+    {
+        m_stream << m_setdefaults_indentstr
+            << "set_calibrated_beam_material "
+            << transition.arguments << "\n";
     }
 }
 
@@ -2683,7 +2747,9 @@ void Serializer::UpdatePresets(BeamDefaults* beam_defaults, NodeDefaults* node_d
     if (m_current_beam_defaults != beam_defaults)
     {
         m_current_beam_defaults = beam_defaults;
-        this->ProcessBeamDefaults(beam_defaults);
+        this->ProcessBeamDefaults(
+            beam_defaults,
+            false);
     }
 
     if (m_current_default_minimass != default_minimass)
@@ -2703,4 +2769,3 @@ void Serializer::ExportDocComment(Document::Module* module, RigDef::Keyword keyw
         m_stream << itor->comment_text;
     }
 }
-

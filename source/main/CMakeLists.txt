@@ -255,6 +255,12 @@ if (APPLE AND ROR_OGRE14)
             )
 endif ()
 
+if (ROR_BUILD_TESTS)
+    list(APPEND SOURCE_FILES
+            resources/rig_def_fileformat/RigDef_TestHooks.{h,cpp}
+            )
+endif ()
+
 if (ROR_USE_ANGELSCRIPT)
     list(APPEND SOURCE_FILES
             scripting/GameScript.{h,cpp}
@@ -309,6 +315,13 @@ endif ()
 ####################################################################################################
 set(BINNAME "RoR")
 add_executable(${BINNAME} ${SOURCE_FILES})
+
+if (ROR_BUILD_TESTS)
+    target_compile_definitions(
+        ${BINNAME}
+        PRIVATE ROR_ENABLE_INTERNAL_TEST_HOOKS
+    )
+endif ()
 
 if (WIN32)
     set_target_properties(${BINNAME} PROPERTIES WIN32_EXECUTABLE YES)

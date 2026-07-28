@@ -206,6 +206,7 @@ namespace Regexes
     E_KEYWORD_INLINE("sectionconfig")                             \
     E_KEYWORD_INLINE("set_beam_defaults")                         \
     E_KEYWORD_INLINE("set_beam_defaults_scale")                   \
+    E_KEYWORD_INLINE("set_calibrated_beam_material")              \
     E_KEYWORD_INLINE("set_collision_range")                       \
     E_KEYWORD_INLINE("set_default_minimass")                      \
     E_KEYWORD_INLINE("set_inertia_defaults")                      \

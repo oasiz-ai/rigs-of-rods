@@ -41,6 +41,7 @@
 
 #include "Application.h"
 #include "BitFlags.h"
+#include "RigDef_CalibratedBeamMaterial.h"
 #include "RigDef_Node.h"
 #include "SimConstants.h"
 
@@ -566,6 +567,7 @@ struct BeamDefaults
     bool _is_plastic_deform_coef_user_defined;
     bool _is_user_defined; //!< Informs whether these data were read from "set_beam_defaults" directive or filled in by the parser on startup.
     BeamDefaultsScale scale;
+    CalibratedBeamMaterialDefaults calibrated_material;
 };
 
 struct Brakes

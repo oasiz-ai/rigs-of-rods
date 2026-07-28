@@ -187,15 +187,22 @@ finite. Corrupted non-finite history makes the canonical snapshot fail, rather
 than admitting a NaN payload into a digest. The digest schema does not yet
 distinguish a runtime fault from another disabled beam.
 
-This opt-in is currently **programmatic only**, through
-`CalibratedBeamMaterialAdapter::TryConfigure()`. No native truck directive,
-BeamNG lowering rule, UI, or shipped vehicle enables it, so all existing
-content continues through the unchanged legacy spring/deformation branch.
-Authored parsing and validation, savegame and replay restoration, calibrated
-material datasets, mesh-refinement/localization validation, the three-step-size
-fixture comparison, starter-content tuning, and the versioned Agora impact
-regression remain open. P1 is not complete and cannot become a runtime default
-until those gates pass.
+The native truck format now exposes the same opt-in through the versioned
+`set_calibrated_beam_material 1, on, ...` directive and an explicit `1, off`
+transition. Parsing is strict, finite, locale-independent, copy-on-write, and
+atomic on failure; serialization preserves binary64 values at round-trip
+precision. Version 1 is deliberately limited to normal `NOSHOCK` entries in
+the `beams` section. Rope, support, shock, hydro, command, wheel, and other
+specialized roles fail closed instead of inheriting a material law whose
+semantics have not been calibrated. Omitting the directive leaves the exact
+legacy path active.
+
+No BeamNG lowering rule, UI, or shipped vehicle enables the new model yet.
+Savegame and replay restoration, calibrated material datasets,
+mesh-refinement/localization validation, the three-step-size fixture
+comparison, starter-content tuning, and the versioned Agora impact regression
+remain open. P1 is not complete and cannot become a runtime default until
+those gates pass.
 
 ## D0 — Deterministic collision and replay
 

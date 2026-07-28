@@ -802,6 +802,7 @@ const char * KeywordToString(RigDef::Keyword keyword)
         case Keyword::SECTIONCONFIG:        return "sectionconfig";
         case Keyword::SET_BEAM_DEFAULTS:    return "set_beam_defaults";
         case Keyword::SET_BEAM_DEFAULTS_SCALE: return "set_beam_defaults_scale";
+        case Keyword::SET_CALIBRATED_BEAM_MATERIAL: return "set_calibrated_beam_material";
         case Keyword::SET_COLLISION_RANGE:  return "set_collision_range";
         case Keyword::SET_DEFAULT_MINIMASS: return "set_default_minimass";
         case Keyword::SET_INERTIA_DEFAULTS: return "set_inertia_defaults";

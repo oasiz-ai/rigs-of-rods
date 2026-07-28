@@ -155,6 +155,12 @@ target_include_directories(
 )
 
 target_include_directories(
+    ror_rigdef_calibrated_beam_material_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/rig_def_fileformat"
+)
+
+target_include_directories(
     ror_jbeam_syntax_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
@@ -323,6 +329,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_beamng_package_manifest_tests
     ror_calibrated_beam_material_adapter_tests
     ror_calibrated_beam_material_tests
+    ror_rigdef_calibrated_beam_material_tests
     ror_deterministic_contact_order_tests
     ror_deterministic_counter_noise_tests
     ror_deterministic_fixed_step_cadence_tests
@@ -434,6 +441,21 @@ add_test(
     NAME calibrated_beam_material_adapter
     COMMAND ror_calibrated_beam_material_adapter_tests
 )
+
+add_test(
+    NAME rigdef_calibrated_beam_material
+    COMMAND ror_rigdef_calibrated_beam_material_tests
+)
+
+if (TARGET RoR)
+    add_test(
+        NAME rigdef_calibrated_beam_material_roundtrip_integration
+        COMMAND
+            $<TARGET_FILE:RoR>
+            --internal-rigdef-calibrated-material-roundtrip
+            "${CMAKE_CURRENT_LIST_DIR}/fixtures/rigdef/calibrated_beam_material_roundtrip.truck"
+    )
+endif ()
 
 add_test(
     NAME hydro_actuator_response

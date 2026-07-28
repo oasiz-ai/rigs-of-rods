@@ -67,6 +67,34 @@ inline bool StrEqualsNocase(std::string const & s1, std::string const & s2)
     return true;
 }
 
+inline bool IsUnsupportedCalibratedBeamMaterialBlock(Keyword keyword)
+{
+    switch (keyword)
+    {
+    case Keyword::ANIMATORS:
+    case Keyword::CINECAM:
+    case Keyword::COMMANDS:
+    case Keyword::COMMANDS2:
+    case Keyword::FLEXBODYWHEELS:
+    case Keyword::HYDROS:
+    case Keyword::MESHWHEELS:
+    case Keyword::MESHWHEELS2:
+    case Keyword::NODES:
+    case Keyword::NODES2:
+    case Keyword::ROPES:
+    case Keyword::SHOCKS:
+    case Keyword::SHOCKS2:
+    case Keyword::SHOCKS3:
+    case Keyword::TIES:
+    case Keyword::TRIGGERS:
+    case Keyword::WHEELS:
+    case Keyword::WHEELS2:
+        return true;
+    default:
+        return false;
+    }
+}
+
 Parser::Parser()
 {
     // Push defaults 
@@ -176,6 +204,9 @@ void Parser::ProcessCurrentLine()
         case Keyword::SET_BEAM_DEFAULTS_SCALE:
             this->ParseDirectiveSetBeamDefaultsScale();
             return;
+        case Keyword::SET_CALIBRATED_BEAM_MATERIAL:
+            this->ParseDirectiveSetCalibratedBeamMaterial();
+            return;
         case Keyword::SET_COLLISION_RANGE:
             this->ParseSetCollisionRange();
             return;
@@ -247,6 +278,17 @@ void Parser::ProcessCurrentLine()
 
     // Parse current block, if any
     m_log_keyword = m_current_block;
+    if (m_user_beam_defaults->calibrated_material.enabled &&
+        IsUnsupportedCalibratedBeamMaterialBlock(m_current_block))
+    {
+        this->LogMessage(
+            Console::CONSOLE_SYSTEM_ERROR,
+            "Calibrated beam material v1 only supports plain entries in "
+            "section 'beams'; disable it with "
+            "'set_calibrated_beam_material 1, off' before this section. "
+            "Skipping line.");
+        return;
+    }
     switch (m_current_block)
     {
         case Keyword::AIRBRAKES:            this->ParseAirbrakes();               return;
@@ -625,6 +667,38 @@ void Parser::ParseDirectiveSetBeamDefaults()
 
     m_user_beam_defaults = std::shared_ptr<BeamDefaults>( new BeamDefaults(d) );
     return;
+}
+
+void Parser::ParseDirectiveSetCalibratedBeamMaterial()
+{
+    std::vector<std::string> fields;
+    fields.reserve(
+        m_num_args > 1 ? static_cast<std::size_t>(m_num_args - 1) : 0);
+    for (int index = 1; index < m_num_args; ++index)
+        fields.push_back(this->GetArgStr(index));
+
+    const CalibratedBeamMaterialDirectiveResult result =
+        TryApplyCalibratedBeamMaterialDirective(
+            fields,
+            m_user_beam_defaults);
+    if (!result.IsValid())
+    {
+        const std::string field_diagnostic = result.HasField()
+            ? fmt::format(" (field {})", result.field_index + 1)
+            : std::string();
+        this->LogMessage(
+            Console::CONSOLE_SYSTEM_ERROR,
+            fmt::format(
+                "Invalid set_calibrated_beam_material directive: {}{}."
+                " Expected '1, off' or '1, on, area_m2, "
+                "E_pa, yield_pa, hardening_pa, "
+                "damage_onset_plastic_strain, "
+                "damage_driver_capacity_density_j_m3'. "
+                "The previous beam defaults remain active.",
+                CalibratedBeamMaterialDirectiveErrorToString(result.error),
+                field_diagnostic));
+        return;
+    }
 }
 
 void Parser::ParseDirectivePropCameraMode()
@@ -2730,6 +2804,17 @@ void Parser::ParseBeams()
     beam.nodes[0] = this->GetArgNodeRef(0);
     beam.nodes[1] = this->GetArgNodeRef(1);
     if (m_num_args > 2) beam.options = this->GetArgBeamOptions(2);
+
+    if (beam.defaults->calibrated_material.enabled &&
+        (beam.options &
+            (Beam::OPTION_r_ROPE | Beam::OPTION_s_SUPPORT)) != 0)
+    {
+        this->LogMessage(
+            Console::CONSOLE_SYSTEM_ERROR,
+            "Calibrated beam material v1 only supports normal NOSHOCK "
+            "entries in section 'beams'; skipping rope/support beam.");
+        return;
+    }
 
     if ((m_num_args > 3) && BITMASK_IS_1(beam.options, Beam::OPTION_s_SUPPORT))
     {

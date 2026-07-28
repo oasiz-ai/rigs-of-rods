@@ -1,0 +1,18 @@
+P1 calibrated beam material round-trip fixture
+
+nodes
+0, 0, 0, 0
+1, 1, 0, 0
+2, 2, 0, 0
+3, 3, 0, 0
+
+beams
+set_calibrated_beam_material 1, on, 0.00012345678901234567, 210000000000, 355000000, 1200000000, 0.0175, 85000000
+0, 1, n
+0, 2, r
+set_calibrated_beam_material 1, off
+1, 2, r
+set_calibrated_beam_material 1, on, 0.00012345678901234567, 210000000000, 355000000, 1200000000, 0.0175, 85000000
+2, 3, n
+
+end
