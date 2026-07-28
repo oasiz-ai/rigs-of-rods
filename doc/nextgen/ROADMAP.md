@@ -95,7 +95,10 @@ content. The archive tested on 2026-07-28 is 158,845,395 bytes with SHA-256
 `ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3`.
 Do not track or redistribute it. Its legacy material-definition errors remain
 content-fidelity diagnostics rather than renderer success, and must not be
-hidden by the crash gate.
+hidden by the crash gate. The measured fixtures, bridge corridors, Blender/glTF
+authoring contract, LOD/collision requirements, and visual acceptance gates are
+tracked in the
+[CityWorld visual-upgrade specification](CITYWORLD_VISUAL_UPGRADE.md).
 
 ## Measurement contract
 
