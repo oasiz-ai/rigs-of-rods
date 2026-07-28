@@ -470,19 +470,36 @@ output-device switching, or long-running scene audio.
 
 A dependency-free controller state contract and executable SDL virtual-joystick
 test now cover deterministic slot assignment and reuse, bounded axis/button/hat
-state, transitions versus repeated values, focus reset, disconnect, and invalid
-input. This is a tested migration seam only: the production runtime still uses
-OIS 1.5.1 on macOS, and a virtual SDL device is not evidence for physical HID
-enumeration, hot-plugging, vendor mappings, or force feedback.
+state, transitions versus repeated values, focus reset, disconnect, remapping,
+and invalid input. The production macOS runtime now enumerates, hot-plugs, and
+samples gamepads, wheels, flight sticks, and throttles through that SDL
+backend, while the existing OIS-shaped state facade keeps input-map evaluation
+portable. Standard gamepads use SDL's position-based
+`SDL_GameController_v1` profile; specialized and unmapped devices retain a
+bounded raw profile. Focus loss clears state and focus gain performs a fresh
+poll so stale controls cannot remain engaged. Virtual devices prove the
+integration and mapping contract, not representative physical HID behavior or
+force feedback; the SDL macOS path still exposes no force-feedback device.
+
+The exact-commit coworker preview
+`macos-arm64-preview-2026-07-27-9270490` independently passed a post-download
+audit: all 14 Mach-O executables/libraries are thin arm64 with macOS 11.0
+minimum deployment metadata, bundle-relative rpaths, deep ad-hoc signatures,
+four renderer plugins, nine frameworks, byte-identical staged OGRE shader
+trees, and 29 valid resource archives. The downloaded artifact then completed
+an Apple M5 GL3Plus/OpenAL/AngelScript runtime smoke. This establishes a
+reproducible Apple Silicon handoff, but the artifact is not notarized and does
+not replace the longer scene/resource or physical-device gates.
 
 This is meaningful R0 progress, not completion. The remaining gates include:
 
 - Eliminate every GL validation diagnostic and prove PSSM with controlled
   occluder captures; then cover dynamic cubemaps, water, sky, vegetation,
   particles, UI, mirrors, screenshots, and hot-load against recorded baselines.
-- Wire the tested SDL controller contract into the production runtime; verify
-  real controller enumeration, hot-plugging, representative vendor mappings,
-  and force feedback on physical hardware. Verify audible scene audio and
+- Verify real controller enumeration, hot-plugging, representative vendor
+  mappings, and force feedback on physical hardware. Add a native
+  force-feedback path rather than silently presenting the OIS device API as
+  available. Verify audible scene audio and
   output-device changes, expected user-directory behavior, and ten-minute
   `simple2_a`, `simple2`, and `simple2_w` resource-growth soaks.
 - Decide and prove the production Metal material path. RoR media still has no
