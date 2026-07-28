@@ -234,11 +234,26 @@ sanitizer builds. This closes the local constitutive step-sensitivity gate; it
 does not substitute for vehicle mass integration, contact, mesh-localization,
 or real coupon calibration.
 
+The version-1 monotonic crack-band convention is now executable rather than a
+comment-only formula. A validated helper maps `G_f`, characteristic length,
+elastic modulus, and hardening modulus to the local damage-driver capacity,
+with transactional failure and finite checks that remain effective under
+fast-math. A genuine series coupon—common force, summed element elongation,
+one deterministic 0.5%-weaker notch, and unloading intact elements—passes at
+1, 2, 4, 8, and 16 elements. Post-onset crack work, peak force, and permanent
+set have zero measured spread; total work and irreversible-dissipation spread
+is `0.371259375%`, the maximum equilibrium residual is `1.192e-16`, and exactly
+one element fractures at every refinement. This closes only the monotonic,
+single-localization kernel gate under the declared nominal-work convention.
+Cyclic mesh objectivity, production-network localization control, selection of
+a physical adapter characteristic length, and calibrated coupon data remain
+open.
+
 No BeamNG lowering rule, UI, or shipped vehicle enables the new model yet.
 Replay injection/ownership, calibrated material datasets, mesh-refinement and
-localization validation, starter-content tuning, and the versioned Agora impact
-regression remain open. P1 is not complete and cannot become a runtime default
-until those gates pass.
+localization validation beyond the monotonic kernel, starter-content tuning,
+and the versioned Agora impact regression remain open. P1 is not complete and
+cannot become a runtime default until those gates pass.
 
 ## D0 — Deterministic collision and replay
 

@@ -149,6 +149,7 @@ set(SOURCE_FILES
         physics/ActorForcesEuler.cpp
         physics/BeamAxialResponse.h
         physics/BeamRestLengthScale.h
+        physics/CalibratedBeamFractureCalibration.h
         physics/CalibratedBeamMaterial.h
         physics/CalibratedBeamMaterialAdapter.h
         physics/CalibratedBeamSavegame.h
