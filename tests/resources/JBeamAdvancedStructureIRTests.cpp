@@ -635,6 +635,7 @@ void TestLimitsAndCyclicValues()
         Nodes() +
         ",\"hydros\":[[\"id1:\",\"id2:\"],"
         "[\"n1\",\"n2\"]]");
+    std::shared_ptr<JBeamValue> injected_cycle;
     JBeamObjectField* section = MutableLastField(
         cyclic.root->definition.body, "hydros");
     CHECK(section != NULL);
@@ -648,6 +649,7 @@ void TestLimitsAndCyclicValues()
         loop.key = "self";
         loop.value = self;
         self->object_fields.push_back(loop);
+        injected_cycle = self;
         table->array_values.insert(
             table->array_values.begin() + 1U, *self);
     }
@@ -657,6 +659,13 @@ void TestLimitsAndCyclicValues()
     CHECK(CountDiagnostic(
         rejected,
         JBeamAdvancedDiagnosticCode::PRESERVED_VALUE_LIMIT) == 1U);
+    // The cycle is intentional hostile input for the traversal guard, but it
+    // must not remain owned after the assertion or LeakSanitizer would report
+    // the test fixture itself as an engine leak.
+    if (injected_cycle)
+    {
+        injected_cycle->object_fields.clear();
+    }
 }
 
 void TestResolvedGraphDepthAndCycleBounds()
@@ -693,6 +702,9 @@ void TestResolvedGraphDepthAndCycleBounds()
     CHECK(CountDiagnostic(
         cycle_rejected,
         JBeamAdvancedDiagnosticCode::RESOLVED_GRAPH_CYCLE) == 1U);
+    // Break the deliberately injected shared-ownership cycle after the
+    // rejection behavior has been observed.
+    cycle.root->slots.pop_back();
 }
 
 void TestExactAggregateBoundaries()
