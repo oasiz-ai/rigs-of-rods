@@ -119,6 +119,14 @@ fi
 
 "${physics_test_compiler}" \
     "${common_test_flags[@]}" \
+    "${repository_dir}/tests/physics/DeterministicVehicleInputTests.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicInputTrace.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicInputTraceRuntime.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicVehicleInput.cpp" \
+    -o "${test_build_dir}/deterministic_vehicle_input_tests"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
     "${repository_dir}/tools/ror_state_trace.cpp" \
     "${repository_dir}/source/main/physics/DeterministicStateDigest.cpp" \
     "${repository_dir}/source/main/physics/DeterministicStateTrace.cpp" \
@@ -138,6 +146,7 @@ physics_test_executables=(
     deterministic_contact_order_tests
     deterministic_input_trace_tests
     deterministic_input_trace_runtime_tests
+    deterministic_vehicle_input_tests
     deterministic_state_digest_tests
     deterministic_state_trace_tests
     calibrated_beam_material_adapter_tests

@@ -159,6 +159,7 @@ set(SOURCE_FILES
         physics/DeterministicFixedStepCadence.h
         physics/DeterministicInputTrace.{h,cpp}
         physics/DeterministicInputTraceRuntime.{h,cpp}
+        physics/DeterministicVehicleInput.{h,cpp}
         physics/DeterministicStateDigest.{h,cpp}
         physics/DeterministicStateTrace.{h,cpp}
         physics/DeterministicStateTraceCli.{h,cpp}

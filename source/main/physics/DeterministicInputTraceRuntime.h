@@ -32,6 +32,8 @@
 namespace RoR {
 namespace DeterministicInputTrace {
 
+class Runtime;
+
 /// Runtime mode is immutable between Begin/Import and terminal completion.
 enum class RuntimeMode : std::uint32_t
 {
@@ -123,6 +125,13 @@ class FixedStepSampleSource
 {
 public:
     virtual ~FixedStepSampleSource() {}
+
+    /// Optional ownership guard for adapters whose continuation baseline is
+    /// derived from one specific Runtime. The default keeps dependency-free
+    /// stateless sources compatible; bound adapters override this and reject
+    /// accidental use by another runtime before any source state is sampled.
+    virtual bool AcceptsRuntime(const Runtime& runtime) const;
+
     virtual bool SampleFixedStepStart(
         std::uint64_t physics_step,
         SampleCollector& collector) = 0;
@@ -149,6 +158,11 @@ class FixedStepInjectionSink
 {
 public:
     virtual ~FixedStepInjectionSink() {}
+
+    /// Optional ownership guard matching FixedStepSampleSource. Runtime checks
+    /// this before consuming the next authenticated frame.
+    virtual bool AcceptsRuntime(const Runtime& runtime) const;
+
     virtual bool InjectFixedStepStart(const StepInjection& injection) = 0;
 };
 

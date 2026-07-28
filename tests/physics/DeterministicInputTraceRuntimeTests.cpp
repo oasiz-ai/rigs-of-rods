@@ -149,6 +149,8 @@ struct ScriptSource : public Trace::FixedStepSampleSource
     std::size_t calls;
     bool reject;
     bool throw_exception;
+    bool reject_runtime;
+    bool throw_runtime_exception;
     bool ignore_add_failure;
 
     explicit ScriptSource(const std::vector<Trace::Frame>& script):
@@ -157,8 +159,17 @@ struct ScriptSource : public Trace::FixedStepSampleSource
         calls(0),
         reject(false),
         throw_exception(false),
+        reject_runtime(false),
+        throw_runtime_exception(false),
         ignore_add_failure(true)
     {
+    }
+
+    bool AcceptsRuntime(const Trace::Runtime&) const override
+    {
+        if (throw_runtime_exception)
+            throw std::runtime_error("hostile source binding");
+        return !reject_runtime;
     }
 
     bool SampleFixedStepStart(
@@ -204,13 +215,24 @@ struct CapturingSink : public Trace::FixedStepInjectionSink
     std::size_t calls;
     bool reject;
     bool throw_exception;
+    bool reject_runtime;
+    bool throw_runtime_exception;
 
     CapturingSink():
         injections(),
         calls(0),
         reject(false),
-        throw_exception(false)
+        throw_exception(false),
+        reject_runtime(false),
+        throw_runtime_exception(false)
     {
+    }
+
+    bool AcceptsRuntime(const Trace::Runtime&) const override
+    {
+        if (throw_runtime_exception)
+            throw std::runtime_error("hostile sink binding");
+        return !reject_runtime;
     }
 
     bool InjectFixedStepStart(
@@ -581,6 +603,28 @@ void TestHostileSourcesAndOrdering()
         CHECK(runtime.BeginRecording(metadata));
         CHECK(!runtime.RecordFixedStep(100, source));
         CHECK(source.calls == 1);
+        CHECK(runtime.GetStatus().error ==
+            Trace::RuntimeError::SOURCE_EXCEPTION);
+    }
+    {
+        Trace::Runtime runtime;
+        ScriptSource source(
+            std::vector<Trace::Frame>{frames[0]});
+        source.reject_runtime = true;
+        CHECK(runtime.BeginRecording(metadata));
+        CHECK(!runtime.RecordFixedStep(100, source));
+        CHECK(source.calls == 0);
+        CHECK(runtime.GetStatus().error ==
+            Trace::RuntimeError::SOURCE_REJECTED);
+    }
+    {
+        Trace::Runtime runtime;
+        ScriptSource source(
+            std::vector<Trace::Frame>{frames[0]});
+        source.throw_runtime_exception = true;
+        CHECK(runtime.BeginRecording(metadata));
+        CHECK(!runtime.RecordFixedStep(100, source));
+        CHECK(source.calls == 0);
         CHECK(runtime.GetStatus().error ==
             Trace::RuntimeError::SOURCE_EXCEPTION);
     }
@@ -981,6 +1025,28 @@ void TestIoMismatchCorruptionAndHostileSinks()
         CHECK(runtime.GetStatus().error ==
             Trace::RuntimeError::SINK_EXCEPTION);
         CHECK(runtime.GetPersistentState().GetControlCount() == 0);
+    }
+    {
+        Trace::Runtime runtime;
+        CapturingSink sink;
+        sink.reject_runtime = true;
+        CHECK(runtime.BeginReplay(valid, metadata));
+        CHECK(!runtime.ReplayFixedStep(100, sink));
+        CHECK(sink.calls == 0);
+        CHECK(runtime.GetStatus().error ==
+            Trace::RuntimeError::SINK_REJECTED);
+        CHECK(runtime.GetProcessedStepCount() == 0);
+    }
+    {
+        Trace::Runtime runtime;
+        CapturingSink sink;
+        sink.throw_runtime_exception = true;
+        CHECK(runtime.BeginReplay(valid, metadata));
+        CHECK(!runtime.ReplayFixedStep(100, sink));
+        CHECK(sink.calls == 0);
+        CHECK(runtime.GetStatus().error ==
+            Trace::RuntimeError::SINK_EXCEPTION);
+        CHECK(runtime.GetProcessedStepCount() == 0);
     }
     {
         Trace::Runtime runtime;

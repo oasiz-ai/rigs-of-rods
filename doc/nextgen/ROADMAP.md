@@ -384,6 +384,39 @@ unauthenticated internal hash or stream cursor. Strict, fast-math, sanitizer,
 hostile-I/O, hostile-source/sink, quota, corruption, frame-regrouping,
 continuation, and 10,000-step fixtures lock the contract.
 
+The first restricted applied-control-state bridge now gives that runtime a
+versioned, dependency-free vehicle boundary. Schema 1 assigns stable nonzero
+control IDs to steering command, service brake, throttle, clutch, parking
+brake, engine contact/starter, gear/range, steering-speed coupling, trailer
+parking brake, and all 84 native command keys. One stream owns one stable
+target. Every value must be exactly representable as the binary32 value used by
+`Actor`/`Engine`; negative zero is rejected and positive zero is the only
+release value. Its canonical registry manifest is bound into D0 metadata as
+`ror-restricted-applied-control-state-v1` plus SHA-256
+`5368675b48c68ee2804455ed0577bc5069aab2fa50a210c3dbe9d28785057f95`;
+the stable target ID is also the authenticated D0 stream ID. A
+schema/control-table or target change therefore cannot silently reuse an old
+trace identity, including for an all-zero control stream.
+Recording captures one complete fixed-step-start snapshot and emits only
+bitwise persistent changes. Replay reconstructs the complete authenticated
+state, proves that nonredundant step deltas produce that state, rejects active
+zeros, unknown targets/controls, impulses, noncanonical ordering, non-finite or
+out-of-domain values, and invokes its consumer once only after full validation.
+Adapter construction is bound to an initialized runtime of the correct mode;
+the runtime rejects cross-runtime source/sink use before sampling or consuming
+a frame. The adapter automatically derives the mandatory fresh or continuation
+baseline from its authenticated persistent state. Strict, fast-math, sanitizer,
+hostile-batch, quota, transactional-failure, continuation, registry-mismatch,
+and 4,096-step fixed-seed round-trip fixtures lock the adapter without
+importing device, actor, OGRE, or scheduler dependencies.
+
+This is not yet authorization to replay every truck. A live consumer must also
+validate gear counts and either encode or reject unsupported automatic-shift
+intent/timers, gearbox selector/mode changes, differential and transfer-case
+modes, ABS/traction-control, cruise, speed limiting, and other controller state
+before it mutates an `Actor`. Multi-actor atomic input uses a future composite
+schema rather than silently sharing this single-target stream.
+
 Production input-map capture and replay injection, lifecycle/error CVars,
 scenario-assigned IDs independent of runtime actor indexes, savegame ownership
 of the input runtime continuation, the pinned one/eight-worker scene runs, and

@@ -519,6 +519,16 @@ RuntimeStatus::RuntimeStatus():
 {
 }
 
+bool FixedStepSampleSource::AcceptsRuntime(const Runtime&) const
+{
+    return true;
+}
+
+bool FixedStepInjectionSink::AcceptsRuntime(const Runtime&) const
+{
+    return true;
+}
+
 SampleCollector::SampleCollector(std::uint32_t max_events):
     m_events(),
     m_max_events(max_events),
@@ -943,6 +953,23 @@ bool Runtime::RecordFixedStep(
             RuntimeError::INVALID_TRANSITION,
             physics_step);
     }
+    bool accepts_runtime = false;
+    try
+    {
+        accepts_runtime = source.AcceptsRuntime(*this);
+    }
+    catch (...)
+    {
+        return m_impl->Fail(
+            RuntimeError::SOURCE_EXCEPTION,
+            physics_step);
+    }
+    if (!accepts_runtime)
+    {
+        return m_impl->Fail(
+            RuntimeError::SOURCE_REJECTED,
+            physics_step);
+    }
     const std::uint64_t expected = GetNextPhysicsStep();
     if (physics_step != expected)
     {
@@ -1105,6 +1132,23 @@ bool Runtime::ReplayFixedStep(
     {
         return m_impl->Fail(
             RuntimeError::INVALID_TRANSITION,
+            physics_step);
+    }
+    bool accepts_runtime = false;
+    try
+    {
+        accepts_runtime = sink.AcceptsRuntime(*this);
+    }
+    catch (...)
+    {
+        return m_impl->Fail(
+            RuntimeError::SINK_EXCEPTION,
+            physics_step);
+    }
+    if (!accepts_runtime)
+    {
+        return m_impl->Fail(
+            RuntimeError::SINK_REJECTED,
             physics_step);
     }
     const std::uint64_t expected = GetNextPhysicsStep();
