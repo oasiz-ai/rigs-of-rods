@@ -26,6 +26,8 @@
 #include "Actor.h"
 #include "Buoyance.h"
 #include "CacheSystem.h"
+#include "CalibratedBeamSavegame.h"
+#include "CalibratedBeamSavegameJson.h"
 #include "ContentManager.h"
 #include "Console.h"
 #include "Engine.h"
@@ -44,11 +46,261 @@
 
 #include <rapidjson/rapidjson.h>
 #include <fstream>
+#include <new>
+#include <stdexcept>
 
 #define SAVEGAME_FILE_FORMAT 3
 
 using namespace Ogre;
 using namespace RoR;
+
+namespace {
+
+static const char* const CALIBRATED_BEAM_STATE_MEMBER =
+    "calibrated_beam_material_state";
+
+bool BuildLiveMaterialBeams(
+    const ActorPtr& actor,
+    const rapidjson::Value* saved_beams,
+    std::vector<CalibratedBeamSavegame::LiveBeam>& live_beams)
+{
+    if (!actor || actor->ar_num_beams < 0 ||
+        (actor->ar_num_beams > 0 && actor->ar_beams == nullptr))
+    {
+        return false;
+    }
+    if (static_cast<std::uint64_t>(actor->ar_num_beams) >
+        std::numeric_limits<std::uint32_t>::max())
+    {
+        return false;
+    }
+    if (saved_beams != nullptr &&
+        (!saved_beams->IsArray() ||
+            saved_beams->Size() !=
+                static_cast<rapidjson::SizeType>(
+                    actor->ar_num_beams)))
+    {
+        return false;
+    }
+
+    std::vector<CalibratedBeamSavegame::LiveBeam> candidate;
+    candidate.reserve(static_cast<std::size_t>(actor->ar_num_beams));
+    for (int index = 0; index < actor->ar_num_beams; ++index)
+    {
+        const beam_t& beam = actor->ar_beams[index];
+        CalibratedBeamSavegame::LiveBeam live;
+        live.beam_index = static_cast<std::uint32_t>(index);
+        live.node_1 = beam.p1 != nullptr ? beam.p1->pos : -1;
+        live.node_2 = beam.p2 != nullptr ? beam.p2->pos : -1;
+        live.beam_type = static_cast<std::int32_t>(beam.bm_type);
+        live.special_beam = static_cast<std::int32_t>(beam.bounded);
+        live.is_plain_axial_beam =
+            beam.p1 != nullptr &&
+            beam.p2 != nullptr &&
+            beam.bm_type == BEAM_NORMAL &&
+            beam.bounded == NOSHOCK &&
+            !beam.bm_inter_actor;
+        live.authored_runtime = beam.calibrated_material;
+
+        if (saved_beams != nullptr)
+        {
+            const rapidjson::Value& saved = (*saved_beams)[index];
+            if (!saved.IsArray() || saved.Size() != 9 ||
+                !saved[5].IsBool() || !saved[6].IsBool())
+            {
+                return false;
+            }
+            live.saved_broken = saved[5].GetBool();
+            live.saved_disabled = saved[6].GetBool();
+        }
+        else
+        {
+            live.saved_broken = beam.bm_broken;
+            live.saved_disabled = beam.bm_disabled;
+        }
+        candidate.push_back(live);
+    }
+    live_beams.swap(candidate);
+    return true;
+}
+
+bool BuildMaterialPayload(
+    const ActorPtr& actor,
+    CalibratedBeamSavegame::ActorPayload& payload,
+    CalibratedBeamSavegame::Result& validation) try
+{
+    std::vector<CalibratedBeamSavegame::LiveBeam> live_beams;
+    if (!BuildLiveMaterialBeams(actor, nullptr, live_beams))
+    {
+        validation = CalibratedBeamSavegame::Failure(
+            CalibratedBeamSavegame::Error::MALFORMED_PAYLOAD,
+            0);
+        return false;
+    }
+
+    payload = CalibratedBeamSavegame::ActorPayload();
+    payload.beam_count =
+        static_cast<std::uint32_t>(live_beams.size());
+    for (std::size_t index = 0; index < live_beams.size(); ++index)
+    {
+        const CalibratedBeamSavegame::LiveBeam& live =
+            live_beams[index];
+        if (!live.authored_runtime.enabled)
+            continue;
+
+        CalibratedBeamSavegame::BeamRecord record;
+        record.beam_index = live.beam_index;
+        record.node_1 = live.node_1;
+        record.node_2 = live.node_2;
+        record.beam_type = live.beam_type;
+        record.special_beam = live.special_beam;
+        record.disabled = live.saved_disabled;
+        record.broken = live.saved_broken;
+        record.runtime = live.authored_runtime;
+        payload.records.push_back(record);
+    }
+
+    std::vector<CalibratedBeamSavegame::StagedBeam> staged;
+    validation =
+        CalibratedBeamSavegame::TryStage(
+            payload,
+            live_beams,
+            staged);
+    return validation.IsValid();
+}
+catch (const std::bad_alloc&)
+{
+    validation = CalibratedBeamSavegame::Failure(
+        CalibratedBeamSavegame::Error::MALFORMED_PAYLOAD,
+        0);
+    return false;
+}
+catch (const std::length_error&)
+{
+    validation = CalibratedBeamSavegame::Failure(
+        CalibratedBeamSavegame::Error::MALFORMED_PAYLOAD,
+        0);
+    return false;
+}
+
+bool TryStageMaterialRestore(
+    const ActorPtr& actor,
+    const rapidjson::Value& j_entry,
+    bool& has_payload,
+    std::vector<CalibratedBeamSavegame::StagedBeam>& staged,
+    CalibratedBeamSavegame::Result& validation) try
+{
+    if (!j_entry.IsObject())
+    {
+        validation = CalibratedBeamSavegame::Failure(
+            CalibratedBeamSavegame::Error::MALFORMED_PAYLOAD,
+            0);
+        return false;
+    }
+    has_payload = j_entry.HasMember(CALIBRATED_BEAM_STATE_MEMBER);
+    if (!has_payload)
+        return true;
+    if (!j_entry.HasMember("beams"))
+    {
+        validation = CalibratedBeamSavegame::Failure(
+            CalibratedBeamSavegame::Error::MALFORMED_PAYLOAD,
+            0);
+        return false;
+    }
+
+    std::vector<CalibratedBeamSavegame::LiveBeam> live_beams;
+    if (!BuildLiveMaterialBeams(
+            actor,
+            &j_entry["beams"],
+            live_beams))
+    {
+        validation = CalibratedBeamSavegame::Failure(
+            CalibratedBeamSavegame::Error::MALFORMED_PAYLOAD,
+            0);
+        return false;
+    }
+
+    const rapidjson::Value& serialized =
+        j_entry[CALIBRATED_BEAM_STATE_MEMBER];
+    if (!serialized.IsObject() ||
+        !serialized.HasMember("schema_version") ||
+        !serialized["schema_version"].IsUint())
+    {
+        validation = CalibratedBeamSavegame::Failure(
+            CalibratedBeamSavegame::Error::MALFORMED_PAYLOAD,
+            0);
+        return false;
+    }
+    if (serialized["schema_version"].GetUint() !=
+        CalibratedBeamSavegame::PAYLOAD_SCHEMA_VERSION)
+    {
+        validation = CalibratedBeamSavegame::Failure(
+            CalibratedBeamSavegame::Error::UNSUPPORTED_SCHEMA,
+            0);
+        return false;
+    }
+    if (!serialized.HasMember("beam_count") ||
+        !serialized["beam_count"].IsUint() ||
+        serialized["beam_count"].GetUint() != live_beams.size())
+    {
+        validation = CalibratedBeamSavegame::Failure(
+            CalibratedBeamSavegame::Error::BEAM_COUNT_MISMATCH,
+            0);
+        return false;
+    }
+
+    CalibratedBeamSavegame::ActorPayload payload;
+    if (!CalibratedBeamSavegame::ParseJson(serialized, payload))
+    {
+        validation = CalibratedBeamSavegame::Failure(
+            CalibratedBeamSavegame::Error::MALFORMED_PAYLOAD,
+            0);
+        return false;
+    }
+    validation =
+        CalibratedBeamSavegame::TryStage(
+            payload,
+            live_beams,
+            staged);
+    return validation.IsValid();
+}
+catch (const std::bad_alloc&)
+{
+    validation = CalibratedBeamSavegame::Failure(
+        CalibratedBeamSavegame::Error::MALFORMED_PAYLOAD,
+        0);
+    return false;
+}
+catch (const std::length_error&)
+{
+    validation = CalibratedBeamSavegame::Failure(
+        CalibratedBeamSavegame::Error::MALFORMED_PAYLOAD,
+        0);
+    return false;
+}
+
+void FailClosedMaterialRestore(const ActorPtr& actor)
+{
+    if (!actor || actor->ar_num_beams <= 0 ||
+        actor->ar_beams == nullptr)
+    {
+        return;
+    }
+    for (int index = 0; index < actor->ar_num_beams; ++index)
+    {
+        beam_t& beam = actor->ar_beams[index];
+        if (!beam.calibrated_material.enabled)
+            continue;
+        CalibratedBeamMaterialAdapter::LatchFailure(
+            beam.calibrated_material,
+            CalibratedBeamMaterialAdapter::Error::MATERIAL_FAILURE,
+            CalibratedBeamMaterial::Error::INVALID_STATE);
+        beam.stress = 0.0f;
+        beam.bm_disabled = true;
+    }
+}
+
+} // namespace
 
 // --------------------------------
 // GameContext functions
@@ -403,7 +655,8 @@ bool ActorManager::LoadScene(Ogre::String save_filename)
         ActorPtr actor = actors[index];
         rapidjson::Value& j_entry = j_doc["actors"][index];
 
-        this->RestoreSavedState(actor, j_entry);
+        if (!this->RestoreSavedState(actor, j_entry))
+            return false;
     }
 
     if (save_filename != "autosave.sav")
@@ -765,6 +1018,34 @@ bool ActorManager::SaveScene(Ogre::String filename)
         }
         j_entry.AddMember("beams", j_beams, j_doc.GetAllocator());
 
+        CalibratedBeamSavegame::ActorPayload material_payload;
+        CalibratedBeamSavegame::Result material_validation;
+        if (!BuildMaterialPayload(
+                actor,
+                material_payload,
+                material_validation))
+        {
+            RoR::LogFormat(
+                "[RoR|Savegame] Refusing to serialize invalid calibrated "
+                "beam state (error=%d, beam=%u)",
+                static_cast<int>(material_validation.error),
+                material_validation.beam_index);
+            App::GetConsole()->putMessage(
+                Console::CONSOLE_MSGTYPE_INFO,
+                Console::CONSOLE_SYSTEM_ERROR,
+                _L("Error while saving scene: Invalid calibrated beam state"));
+            return false;
+        }
+        if (!material_payload.records.empty())
+        {
+            j_entry.AddMember(
+                rapidjson::StringRef(CALIBRATED_BEAM_STATE_MEMBER),
+                CalibratedBeamSavegame::SerializeJson(
+                    material_payload,
+                    j_doc.GetAllocator()),
+                j_doc.GetAllocator());
+        }
+
         j_actors.PushBack(j_entry, j_doc.GetAllocator());
     }
     j_doc.AddMember("actors", j_actors, j_doc.GetAllocator());
@@ -787,8 +1068,34 @@ bool ActorManager::SaveScene(Ogre::String filename)
     return true;
 }
 
-void ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_entry)
+bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_entry)
 {
+    bool has_material_payload = false;
+    std::vector<CalibratedBeamSavegame::StagedBeam> staged_material;
+    CalibratedBeamSavegame::Result material_validation;
+    if (!TryStageMaterialRestore(
+            actor,
+            j_entry,
+            has_material_payload,
+            staged_material,
+            material_validation))
+    {
+        // A present malformed payload is never treated like a legacy save.
+        // Explicitly latch every authored material before returning so a
+        // caller that keeps the actor cannot resume it through the old law.
+        FailClosedMaterialRestore(actor);
+        RoR::LogFormat(
+            "[RoR|Savegame] Rejected calibrated beam state "
+            "(error=%d, beam=%u)",
+            static_cast<int>(material_validation.error),
+            material_validation.beam_index);
+        App::GetConsole()->putMessage(
+            Console::CONSOLE_MSGTYPE_INFO,
+            Console::CONSOLE_SYSTEM_ERROR,
+            _L("Error while loading scene: Invalid calibrated beam state"));
+        return false;
+    }
+
     actor->m_spawn_rotation = j_entry["spawn_rotation"].GetFloat();
     actor->ar_state = static_cast<ActorState>(j_entry["sim_state"].GetInt());
     actor->ar_physics_paused = j_entry["physics_paused"].GetBool();
@@ -986,6 +1293,23 @@ void ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
         }
     }
 
+    // Legacy version-3 saves have no actor-local payload and retain the exact
+    // old behavior: spawn/reset supplies pristine authored material history.
+    // A present schema-v1 payload was completely staged before any actor state
+    // above was changed, so this commit cannot partially restore.
+    if (has_material_payload)
+    {
+        for (std::size_t index = 0;
+             index < staged_material.size();
+             ++index)
+        {
+            const CalibratedBeamSavegame::StagedBeam& restored =
+                staged_material[index];
+            actor->ar_beams[restored.beam_index].calibrated_material =
+                restored.runtime;
+        }
+    }
+
     auto hooks = j_entry["hooks"].GetArray();
     for (int i = 0; i < actor->ar_hooks.size(); i++)
     {
@@ -1059,4 +1383,5 @@ void ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
     actor->UpdateBoundingBoxes();
     actor->calculateAveragePosition();
     actor->m_avg_node_position_prev = actor->m_avg_node_position;
+    return true;
 }

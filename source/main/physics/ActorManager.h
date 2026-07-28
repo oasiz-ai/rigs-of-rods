@@ -126,7 +126,7 @@ public:
 
     bool           LoadScene(Ogre::String filename);
     bool           SaveScene(Ogre::String filename);
-    void           RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_entry);
+    bool           RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_entry);
 
     ActorPtrVec& GetActors() { return m_actors; };
     std::vector<ActorPtr> GetLocalActors();

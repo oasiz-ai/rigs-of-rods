@@ -151,6 +151,8 @@ set(SOURCE_FILES
         physics/BeamRestLengthScale.h
         physics/CalibratedBeamMaterial.h
         physics/CalibratedBeamMaterialAdapter.h
+        physics/CalibratedBeamSavegame.h
+        physics/CalibratedBeamSavegameJson.h
         physics/DeterministicContactOrder.h
         physics/DeterministicCounterNoise.h
         physics/DeterministicFixedStepCadence.h

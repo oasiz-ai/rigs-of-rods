@@ -390,7 +390,14 @@ void GameContext::ModifyActor(ActorModifyRequest& rq)
     }
     else if (rq.amr_type == ActorModifyRequest::Type::RESTORE_SAVED)
     {
-        m_actor_manager.RestoreSavedState(actor, *rq.amr_saved_state.get());
+        if (!m_actor_manager.RestoreSavedState(
+                actor,
+                *rq.amr_saved_state.get()))
+        {
+            RoR::LogFormat(
+                "[RoR|Savegame] Failed to restore spawned actor '%s'",
+                actor->ar_filename.c_str());
+        }
     }
     else if (rq.amr_type == ActorModifyRequest::Type::WAKE_UP &&
         actor->ar_state == ActorState::LOCAL_SLEEPING)
@@ -1994,4 +2001,3 @@ void GameContext::UpdateTruckInputEvents(float dt, ActorPtr truck)
         truck->getTyrePressure().UpdateInputEvents(dt);
     }
 }
-

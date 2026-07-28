@@ -208,12 +208,25 @@ specialized roles fail closed instead of inheriting a material law whose
 semantics have not been calibrated. Omitting the directive leaves the exact
 legacy path active.
 
+Version-3 savegames now carry an optional actor-local schema-1 payload for
+every authored calibrated beam. It records stable beam identity and role,
+bit-exact authored configuration, all material history, fracture state,
+fault/error state, and the legacy broken/disabled flags. The complete payload
+is decoded and validated into temporary storage before assignment; unknown,
+duplicate, non-finite, structurally mismatched, or configuration-mismatched
+state rejects the restore and fault-latches authored calibrated beams instead
+of silently reverting them to the legacy law. Actors without calibrated beams
+retain the legacy v3 JSON shape, and old v3 saves without the optional member
+retain their existing pristine-history behavior. Dependency-free and strict
+RapidJSON fixtures lock atomic failure, hostile inputs, bit-exact text
+round-trip, resumed state, and next-step force under strict, fast-math, and
+sanitizer builds.
+
 No BeamNG lowering rule, UI, or shipped vehicle enables the new model yet.
-Savegame and replay restoration, calibrated material datasets,
-mesh-refinement/localization validation, the three-step-size fixture
-comparison, starter-content tuning, and the versioned Agora impact regression
-remain open. P1 is not complete and cannot become a runtime default until
-those gates pass.
+Replay injection/ownership, calibrated material datasets, mesh-refinement and
+localization validation, the three-step-size fixture comparison,
+starter-content tuning, and the versioned Agora impact regression remain open.
+P1 is not complete and cannot become a runtime default until those gates pass.
 
 ## D0 — Deterministic collision and replay
 

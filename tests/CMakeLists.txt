@@ -2,6 +2,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     cmake_minimum_required(VERSION 3.16)
     project(RoRPhysicsTests LANGUAGES CXX)
     enable_testing()
+    find_package(RapidJSON QUIET)
 endif ()
 
 get_filename_component(
@@ -80,6 +81,22 @@ add_executable(
     ror_calibrated_beam_material_adapter_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamMaterialAdapterTests.cpp"
 )
+
+add_executable(
+    ror_calibrated_beam_savegame_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamSavegameTests.cpp"
+)
+
+if (RapidJSON_INCLUDE_DIRS)
+    add_executable(
+        ror_calibrated_beam_savegame_json_tests
+        "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamSavegameJsonTests.cpp"
+    )
+    target_include_directories(
+        ror_calibrated_beam_savegame_json_tests
+        SYSTEM PRIVATE ${RapidJSON_INCLUDE_DIRS}
+    )
+endif ()
 
 add_executable(
     ror_rigdef_calibrated_beam_material_tests
@@ -382,6 +399,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_beamng_zip_index
     ror_calibrated_beam_material_adapter_tests
     ror_calibrated_beam_material_tests
+    ror_calibrated_beam_savegame_tests
     ror_rigdef_calibrated_beam_material_tests
     ror_deterministic_contact_order_tests
     ror_deterministic_counter_noise_tests
@@ -401,6 +419,11 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_jbeam_syntax_tests
     ror_jbeam_to_rigdef_tests
 )
+
+if (TARGET ror_calibrated_beam_savegame_json_tests)
+    list(APPEND ROR_PHYSICS_TEST_TARGETS
+        ror_calibrated_beam_savegame_json_tests)
+endif ()
 
 if (APPLE)
     list(APPEND ROR_PHYSICS_TEST_TARGETS ror_apple_executable_path_tests)
@@ -501,6 +524,18 @@ add_test(
     NAME calibrated_beam_material_adapter
     COMMAND ror_calibrated_beam_material_adapter_tests
 )
+
+add_test(
+    NAME calibrated_beam_savegame
+    COMMAND ror_calibrated_beam_savegame_tests
+)
+
+if (TARGET ror_calibrated_beam_savegame_json_tests)
+    add_test(
+        NAME calibrated_beam_savegame_json
+        COMMAND ror_calibrated_beam_savegame_json_tests
+    )
+endif ()
 
 add_test(
     NAME rigdef_calibrated_beam_material
