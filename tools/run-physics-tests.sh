@@ -77,6 +77,11 @@ fi
 
 "${physics_test_compiler}" \
     "${common_test_flags[@]}" \
+    "${repository_dir}/tests/physics/CalibratedBeamStepSensitivityTests.cpp" \
+    -o "${test_build_dir}/calibrated_beam_step_sensitivity_tests"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
     "${repository_dir}/tests/physics/CalibratedBeamSavegameTests.cpp" \
     -o "${test_build_dir}/calibrated_beam_savegame_tests"
 
@@ -124,6 +129,7 @@ physics_test_executables=(
     deterministic_state_trace_tests
     calibrated_beam_material_adapter_tests
     calibrated_beam_material_tests
+    calibrated_beam_step_sensitivity_tests
     calibrated_beam_savegame_tests
     hydro_actuator_response_tests
 )

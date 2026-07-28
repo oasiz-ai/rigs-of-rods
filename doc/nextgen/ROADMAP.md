@@ -222,11 +222,23 @@ RapidJSON fixtures lock atomic failure, hostile inputs, bit-exact text
 round-trip, resumed state, and next-step force under strict, fast-math, and
 sanitizer builds.
 
+The prescribed-history calibration gate now exercises a non-grid-aligned
+monotonic ramp, warped cyclic reversals, damage, and unloading at exact
+`0.25`, `0.5`, and `1.0 ms` steps. Across those three rates, peak-force spread
+is `0.0000213%`, permanent-plastic-strain spread is `0.0144%`, and irreversible
+dissipation spread is `0.0274%`; the maximum independent work-quadrature energy
+shortfall is `0.0500%`, and every equal-and-opposite endpoint force has exact
+zero normalized momentum residual. Twenty-four additional fixed-seed profiles,
+non-finite input, and fault-latch fixtures pass under strict, fast-math, and
+sanitizer builds. This closes the local constitutive step-sensitivity gate; it
+does not substitute for vehicle mass integration, contact, mesh-localization,
+or real coupon calibration.
+
 No BeamNG lowering rule, UI, or shipped vehicle enables the new model yet.
 Replay injection/ownership, calibrated material datasets, mesh-refinement and
-localization validation, the three-step-size fixture comparison,
-starter-content tuning, and the versioned Agora impact regression remain open.
-P1 is not complete and cannot become a runtime default until those gates pass.
+localization validation, starter-content tuning, and the versioned Agora impact
+regression remain open. P1 is not complete and cannot become a runtime default
+until those gates pass.
 
 ## D0 — Deterministic collision and replay
 

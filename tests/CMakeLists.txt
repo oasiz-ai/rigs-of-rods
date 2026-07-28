@@ -83,6 +83,11 @@ add_executable(
 )
 
 add_executable(
+    ror_calibrated_beam_step_sensitivity_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamStepSensitivityTests.cpp"
+)
+
+add_executable(
     ror_calibrated_beam_savegame_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamSavegameTests.cpp"
 )
@@ -399,6 +404,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_beamng_zip_index
     ror_calibrated_beam_material_adapter_tests
     ror_calibrated_beam_material_tests
+    ror_calibrated_beam_step_sensitivity_tests
     ror_calibrated_beam_savegame_tests
     ror_rigdef_calibrated_beam_material_tests
     ror_deterministic_contact_order_tests
@@ -523,6 +529,11 @@ add_test(
 add_test(
     NAME calibrated_beam_material_adapter
     COMMAND ror_calibrated_beam_material_adapter_tests
+)
+
+add_test(
+    NAME calibrated_beam_step_sensitivity
+    COMMAND ror_calibrated_beam_step_sensitivity_tests
 )
 
 add_test(
