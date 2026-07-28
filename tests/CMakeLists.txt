@@ -58,6 +58,12 @@ add_executable(
 )
 
 add_executable(
+    ror_deterministic_input_trace_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicInputTraceTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputTrace.cpp"
+)
+
+add_executable(
     ror_state_trace
     "${ROR_REPOSITORY_ROOT}/tools/ror_state_trace.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateDigest.cpp"
@@ -380,6 +386,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_contact_order_tests
     ror_deterministic_counter_noise_tests
     ror_deterministic_fixed_step_cadence_tests
+    ror_deterministic_input_trace_tests
     ror_deterministic_state_digest_tests
     ror_deterministic_state_trace_tests
     ror_state_trace
@@ -478,6 +485,11 @@ add_test(
 add_test(
     NAME deterministic_state_trace
     COMMAND ror_deterministic_state_trace_tests
+)
+
+add_test(
+    NAME deterministic_input_trace
+    COMMAND ror_deterministic_input_trace_tests
 )
 
 add_test(

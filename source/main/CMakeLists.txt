@@ -154,6 +154,7 @@ set(SOURCE_FILES
         physics/DeterministicContactOrder.h
         physics/DeterministicCounterNoise.h
         physics/DeterministicFixedStepCadence.h
+        physics/DeterministicInputTrace.{h,cpp}
         physics/DeterministicStateDigest.{h,cpp}
         physics/DeterministicStateTrace.{h,cpp}
         physics/DeterministicStateTraceCli.{h,cpp}

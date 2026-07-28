@@ -308,10 +308,28 @@ immutable step limits, and capture errors finalize the artifact. Diagnostic
 allocation, quota, digest, or I/O failures stop only tracing and never skip a
 physics force.
 
-Input recording, pause/load continuation, a runtime trace lifecycle fixture,
-the pinned one/eight-worker scene runs, and TSan soak are still open. Live
-capture makes those comparisons possible, but is not by itself runtime
-determinism evidence.
+The version-1 D0 input-trace kernel now defines a bounded canonical recording
+contract independently of devices and worker scheduling. It samples stable
+logical target/control IDs at the start of each contiguous fixed step, records
+only persistent-state deltas plus explicit one-step impulses, and emits no
+wall-clock or paused-frame records. Exact binary64 values, reduced cadence,
+canonical UTF-8 identities, scenario/source identity, immutable ceilings, a
+per-frame SHA-256 chain, and an authenticated mandatory trailer make malformed,
+truncated, reordered, redundant, non-finite, or trailing data fail closed. The
+streaming reader reconstructs a copyable persistent state for save/load
+continuation, while the comparator drains both streams before reporting the
+first semantic divergence so later corruption cannot be hidden by an earlier
+difference. Golden bytes and an independently checked digest, every truncation,
+every single-bit mutation, strict/fast-math/sanitizer builds, segmented writes,
+worker-bucket ordering, and a 10,000-step fixed-seed continuation fixture lock
+the dependency-free kernel.
+
+Production input-map capture and replay injection, lifecycle/error CVars,
+scenario-assigned IDs independent of runtime actor indexes, savegame ownership
+of the input reader/writer continuation, a runtime trace lifecycle fixture, the
+pinned one/eight-worker scene runs, and TSan soak are still open. The kernel and
+live state capture make those comparisons possible, but are not by themselves
+runtime determinism evidence.
 
 For a local kernel stress pass, run
 `ROR_PHYSICS_TEST_REPEAT=30 tools/run-physics-tests.sh`, then repeat with
