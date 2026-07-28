@@ -580,11 +580,25 @@ an Apple M5 GL3Plus/OpenAL/AngelScript runtime smoke. This establishes a
 reproducible Apple Silicon handoff, but the artifact is not notarized and does
 not replace the longer scene/resource or physical-device gates.
 
+On 2026-07-28, the signed arm64 bundle completed the 1,000-step deterministic
+two-truck scene with PSSM enabled on each of `simple2_a`, `simple2`, and
+`simple2_w`, including terrain unload, the following main-menu render, and
+process shutdown. The fix activates PSSM only after the terrain camera and main
+light exist, and disables its shadow texture cameras plus RTSS template before
+terrain scene objects are destroyed. This closes the reproduced stale-projector
+crashes during terrain loading and unloading. All 39 configured CTests passed
+after the change, with the user-supplied FormulaCOUPE test skipped as designed.
+A 2560x1440 Retina capture proves that terrain, sky, character, and generated
+RTSS material programs render, but also exposes a 240-pixel black viewport band;
+sampler-validation diagnostics remain. These findings do not close the R0
+visual-parity gate.
+
 This is meaningful R0 progress, not completion. The remaining gates include:
 
-- Eliminate every GL validation diagnostic and prove PSSM with controlled
-  occluder captures; then cover dynamic cubemaps, water, sky, vegetation,
-  particles, UI, mirrors, screenshots, and hot-load against recorded baselines.
+- Correct Retina render-target/viewport sizing, eliminate every GL validation
+  diagnostic, and prove PSSM with controlled occluder captures; then cover
+  dynamic cubemaps, water, sky, vegetation, particles, UI, mirrors, screenshots,
+  and hot-load against recorded baselines.
 - Verify real controller enumeration, hot-plugging, representative vendor
   mappings, and force feedback on physical hardware. Add a native
   force-feedback path rather than silently presenting the OIS device API as

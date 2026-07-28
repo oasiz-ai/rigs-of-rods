@@ -29,9 +29,14 @@
 #include <Terrain/OgreTerrainMaterialGeneratorA.h>
 
 #include "Application.h"
-#include "Application.h"
 
 #include "OgreTerrainPSSMMaterialGenerator.h"
+
+#if OGRE_VERSION_MAJOR >= 14
+namespace Ogre::RTShader {
+class SubRenderState;
+}
+#endif
 
 namespace RoR {
 
@@ -69,6 +74,9 @@ protected:
     int updateShadowTechnique();
 
     PSSM_Shadows_Data PSSM_Shadows;
+#if OGRE_VERSION_MAJOR >= 14
+    Ogre::RTShader::SubRenderState* m_rtss_shadow_mapping = nullptr;
+#endif
 };
 
 /// @} // addtogroup Gfx

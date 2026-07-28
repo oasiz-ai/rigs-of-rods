@@ -48,6 +48,32 @@ ShadowManager::ShadowManager()
 
 ShadowManager::~ShadowManager()
 {
+    Ogre::SceneManager* scene_manager =
+        App::GetGfxScene()->GetSceneManager();
+
+    // Shadow texture cameras are owned by OGRE's scene manager, while the
+    // generated receiver shaders retain their projector auto-parameters.
+    // Tear both sides down before terrain lights, geometry, or scene nodes are
+    // destroyed so the next frame cannot observe a stale projector.
+    scene_manager->setShadowCameraSetup(Ogre::ShadowCameraSetupPtr());
+    scene_manager->setShadowTechnique(Ogre::SHADOWTYPE_NONE);
+
+#if OGRE_VERSION_MAJOR >= 14
+    Ogre::RTShader::ShaderGenerator* shader_generator =
+        Ogre::RTShader::ShaderGenerator::getSingletonPtr();
+    if (shader_generator != nullptr && m_rtss_shadow_mapping != nullptr)
+    {
+        Ogre::RTShader::RenderState* render_state =
+            shader_generator->getRenderState(
+                Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+        render_state->removeSubRenderState(m_rtss_shadow_mapping);
+        m_rtss_shadow_mapping = nullptr;
+        shader_generator->invalidateScheme(
+            Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+    }
+#endif
+
+    PSSM_Shadows.mPSSMSetup.reset();
 }
 
 void ShadowManager::loadConfiguration()
@@ -180,12 +206,12 @@ void ShadowManager::processPSSM()
             Ogre::RTShader::RenderState* render_state =
                 shader_generator->getRenderState(
                     Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
-            Ogre::RTShader::SubRenderState* shadow_mapping =
+            m_rtss_shadow_mapping =
                 shader_generator->createSubRenderState(
                     Ogre::RTShader::SRS_SHADOW_MAPPING);
-            shadow_mapping->setParameter(
+            m_rtss_shadow_mapping->setParameter(
                 "split_points", pssmSetup->getSplitPoints());
-            render_state->addTemplateSubRenderState(shadow_mapping);
+            render_state->addTemplateSubRenderState(m_rtss_shadow_mapping);
             shader_generator->invalidateScheme(
                 Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
         }

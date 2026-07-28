@@ -77,6 +77,15 @@ RoR::Terrain::~Terrain()
 
 void RoR::Terrain::dispose()
 {
+    // PSSM owns scene-manager cameras and RTSS projector state. It must be
+    // disabled before any terrain light, geometry, or scene node disappears,
+    // including the abbreviated application-shutdown path.
+    if (m_shadow_manager != nullptr)
+    {
+        delete(m_shadow_manager);
+        m_shadow_manager = nullptr;
+    }
+
     if (App::app_state->getEnum<AppState>() == AppState::SHUTDOWN)
     {
         // Rush to exit
@@ -122,12 +131,6 @@ void RoR::Terrain::dispose()
         m_geometry_manager = nullptr;
     }
 
-    if (m_shadow_manager != nullptr)
-    {
-        delete(m_shadow_manager);
-        m_shadow_manager = nullptr;
-    }
-
     if (m_collisions != nullptr)
     {
         delete(m_collisions);
@@ -156,9 +159,6 @@ bool RoR::Terrain::initialize()
     loading_window->SetProgress(10, _L("Initializing Object Subsystem"));
     this->initObjects(); // *.odef files
 
-    loading_window->SetProgress(14, _L("Initializing Shadow Subsystem"));
-    this->initShadows();
-
     loading_window->SetProgress(17, _L("Initializing Geometry Subsystem"));
     this->m_geometry_manager = new TerrainGeometryManager(this);
 
@@ -171,6 +171,12 @@ bool RoR::Terrain::initialize()
 
     loading_window->SetProgress(27, _L("Initializing Light Subsystem"));
     this->initLight();
+
+    // The loading window renders intermediate frames. PSSM setup requires a
+    // valid terrain camera and directional light before any such frame can be
+    // rendered, otherwise OGRE may resolve an incomplete shadow projector.
+    loading_window->SetProgress(28, _L("Initializing Shadow Subsystem"));
+    this->initShadows();
 
     if (App::gfx_sky_mode->getEnum<GfxSkyMode>() != GfxSkyMode::CAELUM) //Caelum has its own fog management
     {
