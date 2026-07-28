@@ -178,7 +178,7 @@ bool RoR::Terrain::initialize()
     loading_window->SetProgress(28, _L("Initializing Shadow Subsystem"));
     this->initShadows();
 
-    if (App::gfx_sky_mode->getEnum<GfxSkyMode>() != GfxSkyMode::CAELUM) //Caelum has its own fog management
+    if (GetEffectiveGfxSkyMode() != GfxSkyMode::CAELUM) //Caelum has its own fog management
     {
         loading_window->SetProgress(29, _L("Initializing Fog Subsystem"));
         this->initFog();
@@ -239,7 +239,7 @@ void RoR::Terrain::initCamera()
     App::GetCameraManager()->GetCamera()->getViewport()->setBackgroundColour(m_def->ambient_color);
     App::GetCameraManager()->GetCameraNode()->setPosition(m_def->start_position);
 
-    if (App::gfx_sky_mode->getEnum<GfxSkyMode>() == GfxSkyMode::SKYX)
+    if (GetEffectiveGfxSkyMode() == GfxSkyMode::SKYX)
     {
         m_sight_range = 5000;  //Force unlimited for SkyX, lower settings are glitchy
     } 
@@ -248,7 +248,7 @@ void RoR::Terrain::initCamera()
         m_sight_range = App::gfx_sight_range->getInt();
     } 
 
-    if (m_sight_range < UNLIMITED_SIGHTRANGE && App::gfx_sky_mode->getEnum<GfxSkyMode>() != GfxSkyMode::SKYX)
+    if (m_sight_range < UNLIMITED_SIGHTRANGE && GetEffectiveGfxSkyMode() != GfxSkyMode::SKYX)
     {
         App::GetCameraManager()->GetCamera()->setFarClipDistance(m_sight_range);
     }
@@ -266,7 +266,7 @@ void RoR::Terrain::initSkySubSystem()
 {
 #ifdef USE_CAELUM
     // Caelum skies
-    if (App::gfx_sky_mode->getEnum<GfxSkyMode>() == GfxSkyMode::CAELUM)
+    if (GetEffectiveGfxSkyMode() == GfxSkyMode::CAELUM)
     {
         m_sky_manager = new SkyManager();
 
@@ -285,7 +285,7 @@ void RoR::Terrain::initSkySubSystem()
     else
 #endif //USE_CAELUM
     // SkyX skies
-    if (App::gfx_sky_mode->getEnum<GfxSkyMode>() == GfxSkyMode::SKYX)
+    if (GetEffectiveGfxSkyMode() == GfxSkyMode::SKYX)
     {
          // try to load SkyX config
          if (!m_def->skyx_config.empty() && ResourceGroupManager::getSingleton().resourceExistsInAnyGroup(m_def->skyx_config))
@@ -310,13 +310,13 @@ void RoR::Terrain::initSkySubSystem()
 
 void RoR::Terrain::initLight()
 {
-    if (App::gfx_sky_mode->getEnum<GfxSkyMode>() == GfxSkyMode::CAELUM)
+    if (GetEffectiveGfxSkyMode() == GfxSkyMode::CAELUM)
     {
 #ifdef USE_CAELUM
         m_main_light = m_sky_manager->GetSkyMainLight();
 #endif
     }
-    else if (App::gfx_sky_mode->getEnum<GfxSkyMode>() == GfxSkyMode::SKYX)
+    else if (GetEffectiveGfxSkyMode() == GfxSkyMode::SKYX)
     {
         m_main_light = SkyX_manager->getMainLight();
     }

@@ -409,10 +409,16 @@ void GameSettings::DrawGraphicsSettings()
         }
     }
 
-    DrawGCombo(App::gfx_sky_mode, _LC("GameSettings", "Sky gfx"),
-        m_combo_items_sky_mode.c_str());
+    if (DrawGCombo(App::gfx_sky_mode, _LC("GameSettings", "Sky gfx"),
+            m_combo_items_sky_mode.c_str()) &&
+        !IsGfxSkyModeAvailable(
+            App::gfx_sky_mode->getEnum<GfxSkyMode>()))
+    {
+        App::gfx_sky_mode->setVal(
+            static_cast<int>(GfxSkyMode::SANDSTORM));
+    }
 
-    if (App::gfx_sky_mode->getEnum<GfxSkyMode>() != GfxSkyMode::SKYX)
+    if (GetEffectiveGfxSkyMode() != GfxSkyMode::SKYX)
     {
         DrawGIntSlider(App::gfx_sight_range, _LC("GameSettings", "Sight range (meters)"), 100, 5000);
     }

@@ -419,6 +419,8 @@ enum class GfxSkyMode
     SKYX,       //!< SkyX (best looking, slower)
 };
 std::string ToLocalizedString(GfxSkyMode e);
+bool IsGfxSkyModeAvailable(GfxSkyMode mode);
+GfxSkyMode GetEffectiveGfxSkyMode();
 
 enum class EfxReverbEngine
 {

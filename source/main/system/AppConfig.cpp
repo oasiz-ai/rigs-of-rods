@@ -158,10 +158,15 @@ GfxWaterMode ParseGfxWaterMode(std::string const & s)
 
 GfxSkyMode ParseGfxSkyMode(std::string const & s)
 {
-    if (s == CONF_SKY_SANDSTORM)      { return GfxSkyMode::SANDSTORM ; }
-    if (s == CONF_SKY_CAELUM   )      { return GfxSkyMode::CAELUM    ; }
-    if (s == CONF_SKY_SKYX     )      { return GfxSkyMode::SKYX      ; }
-    else                              { return GfxSkyMode::SANDSTORM ; }
+    GfxSkyMode requested = GfxSkyMode::SANDSTORM;
+    if (s == CONF_SKY_CAELUM)
+        requested = GfxSkyMode::CAELUM;
+    else if (s == CONF_SKY_SKYX)
+        requested = GfxSkyMode::SKYX;
+
+    return IsGfxSkyModeAvailable(requested)
+        ? requested
+        : GfxSkyMode::SANDSTORM;
 }
 
 EfxReverbEngine ParseEfxReverbEngine(std::string const & s)
@@ -467,5 +472,4 @@ void Console::saveConfig()
                         CONFIG_FILE_NAME, RGN_CONFIG, e.what());
     }
 }
-
 

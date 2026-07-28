@@ -41,6 +41,7 @@
 #include "MumbleIntegration.h"
 #include "Network.h"
 #include "ScriptEngine.h"
+#include "SkyModeAvailability.h"
 #include "SoundScriptManager.h"
 #include "Terrain.h"
 #include "ThreadPool.h"
@@ -465,6 +466,63 @@ void LogFormat(const char* format, ...)
 // ------------------------------------------------------------------------------------------------
 // Global enums
 // ------------------------------------------------------------------------------------------------
+
+namespace
+{
+
+SkyModeAvailability GetBuiltSkyModeAvailability()
+{
+#ifdef USE_CAELUM
+    const bool caelum_available = true;
+#else
+    const bool caelum_available = false;
+#endif
+    return {caelum_available, true};
+}
+
+SkyModeBackend ToSkyModeBackend(GfxSkyMode mode)
+{
+    switch (mode)
+    {
+    case GfxSkyMode::CAELUM:
+        return SkyModeBackend::CAELUM;
+    case GfxSkyMode::SKYX:
+        return SkyModeBackend::SKYX;
+    case GfxSkyMode::SANDSTORM:
+    default:
+        return SkyModeBackend::SANDSTORM;
+    }
+}
+
+GfxSkyMode ToGfxSkyMode(SkyModeBackend mode)
+{
+    switch (mode)
+    {
+    case SkyModeBackend::CAELUM:
+        return GfxSkyMode::CAELUM;
+    case SkyModeBackend::SKYX:
+        return GfxSkyMode::SKYX;
+    case SkyModeBackend::SANDSTORM:
+    default:
+        return GfxSkyMode::SANDSTORM;
+    }
+}
+
+} // namespace
+
+bool IsGfxSkyModeAvailable(GfxSkyMode mode)
+{
+    return IsSkyModeBackendAvailable(
+        ToSkyModeBackend(mode), GetBuiltSkyModeAvailability());
+}
+
+GfxSkyMode GetEffectiveGfxSkyMode()
+{
+    const GfxSkyMode requested =
+        App::gfx_sky_mode->getEnum<GfxSkyMode>();
+    return ToGfxSkyMode(ResolveAvailableSkyMode(
+        ToSkyModeBackend(requested), GetBuiltSkyModeAvailability()));
+}
 
 std::string ToLocalizedString(SimGearboxMode e)
 {

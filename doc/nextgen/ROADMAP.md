@@ -643,6 +643,22 @@ native CTests pass, with the user-supplied FormulaCOUPE fixture skipped as
 designed. The window was visually inspected at 2x to confirm UI retained its
 logical size instead of doubling with the backing viewport.
 
+The sky selection now has one compile-time availability contract shared by
+config parsing, settings UI, resource loading, terrain setup, and lighting.
+This closes a CityWorld darkness failure on builds compiled without Caelum:
+the saved Caelum choice previously bypassed both Caelum's light and the basic
+directional `MainLight`. Such builds now persist and use the dependency-free
+Sandstorm fallback, including its directional sun, ambient lighting, fog, and
+skybox; SkyX and compiled Caelum choices remain unchanged. The dependency-free
+resolver covers available, missing-Caelum, missing-SkyX, and basic-only builds.
+On 2026-07-28, all 41 configured native CTests passed, with the opt-in
+FormulaCOUPE fixture skipped as designed. The signed arm64 candidate then
+loaded the pinned local CityWorld fixture, captured a fully decoded 2560x1664
+frame after a 120-frame warmup, exited at frame 180 with the declared pass
+marker, and persisted `Sky effects=Sandstorm (fastest)`. The capture confirms
+direct sun and ambient response; it also keeps CityWorld's missing-material
+messages visible as the separate content-authoring failures they are.
+
 This is meaningful R0 progress, not completion. The remaining gates include:
 
 - Extend the display-metrics proof to native Windows/Linux, window resize and

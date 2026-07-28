@@ -200,7 +200,11 @@ void Console::cVarSetupBuiltins()
     App::gfx_polygon_mode        = this->cVarCreate("gfx_polygon_mode",        "Polygon mode",                              CVAR_TYPE_INT,     "1"/*(int)Ogre::PM_SOLID*/);
     App::gfx_shadow_type         = this->cVarCreate("gfx_shadow_type",         "Shadow technique",           CVAR_ARCHIVE | CVAR_TYPE_INT,     "1"/*(int)GfxShadowType::PSSM*/);
     App::gfx_extcam_mode         = this->cVarCreate("gfx_extcam_mode",         "External Camera Mode",       CVAR_ARCHIVE | CVAR_TYPE_INT,     "2"/*(int)GfxExtCamMode::PITCHING*/);
+#ifdef USE_CAELUM
     App::gfx_sky_mode            = this->cVarCreate("gfx_sky_mode",            "Sky effects",                CVAR_ARCHIVE | CVAR_TYPE_INT,     "1"/*(int)GfxSkyMode::CAELUM*/);
+#else
+    App::gfx_sky_mode            = this->cVarCreate("gfx_sky_mode",            "Sky effects",                CVAR_ARCHIVE | CVAR_TYPE_INT,     "0"/*(int)GfxSkyMode::SANDSTORM*/);
+#endif
     App::gfx_texture_filter      = this->cVarCreate("gfx_texture_filter",      "Texture Filtering",          CVAR_ARCHIVE | CVAR_TYPE_INT,     "3"/*(int)GfxTexFilter::ANISOTROPIC*/);
     App::gfx_vegetation_mode     = this->cVarCreate("gfx_vegetation_mode",     "Vegetation",                 CVAR_ARCHIVE | CVAR_TYPE_INT,     "3"/*(int)GfxVegetation::FULL*/);
     App::gfx_sky_time_cycle      = this->cVarCreate("gfx_sky_time_cycle",      "",                                          CVAR_TYPE_BOOL,    "false");

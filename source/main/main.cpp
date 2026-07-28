@@ -1035,7 +1035,7 @@ int main(int argc, char *argv[])
                             {
                                 SOUND_KILL(-1, SS_TRIG_MAIN_MENU);
                             }
-                            if (App::gfx_sky_mode->getEnum<GfxSkyMode>() == GfxSkyMode::SANDSTORM)
+                            if (GetEffectiveGfxSkyMode() == GfxSkyMode::SANDSTORM)
                             {
                                 App::GetGfxScene()->GetSceneManager()->setAmbientLight(Ogre::ColourValue(0.7f, 0.7f, 0.7f));
                             }

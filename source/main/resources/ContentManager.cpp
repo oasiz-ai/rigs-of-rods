@@ -855,10 +855,10 @@ void ContentManager::LoadGameplayResources()
     if (App::gfx_water_mode->getEnum<GfxWaterMode>() == GfxWaterMode::HYDRAX)
         this->AddResourcePack(ContentManager::ResourcePack::HYDRAX);
 
-    if (App::gfx_sky_mode->getEnum<GfxSkyMode>() == GfxSkyMode::CAELUM)
+    if (GetEffectiveGfxSkyMode() == GfxSkyMode::CAELUM)
         this->AddResourcePack(ContentManager::ResourcePack::CAELUM);
 
-    if (App::gfx_sky_mode->getEnum<GfxSkyMode>() == GfxSkyMode::SKYX)
+    if (GetEffectiveGfxSkyMode() == GfxSkyMode::SKYX)
         this->AddResourcePack(ContentManager::ResourcePack::SKYX);
 
     if (App::gfx_vegetation_mode->getEnum<GfxVegetation>() != RoR::GfxVegetation::NONE)
