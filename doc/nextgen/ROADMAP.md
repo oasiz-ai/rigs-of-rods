@@ -61,6 +61,7 @@ the repository level. Keep this exact revision in automated comparisons.
 | Water baseline | `simple2_w.terrn2` + DAF semi | Reflection/refraction and Hydrax/compositor ordering |
 | Articulation baseline | DAF semi + `b6b0UID-semi.trailer` and `b6b0UID-semiflat.trailer` | Inter-actor beams, contact ordering, hooks, and deterministic multi-body replay |
 | BeamNG vehicle import (local opt-in) | User-supplied [GD808 FormulaCOUPE v0.9.7][formulacoupe], resource `M764KYBVX` | Safe package inventory, 39 configurations, deterministic `FC-A7-01` resolution, structural/drivable/visual tier reports, and explicit advanced-feature diagnostics |
+| AirSim visual floor | Pinned AirSim v1.8.1 plus one shared rights-cleared glTF scene | Same-scene PBR/HDR/shadow/AA/atmosphere/temporal comparison against offline path-traced truth |
 
 The Agora L definition has 151 authored nodes, 675 beams, and 222 cab triangles.
 Its six legacy wheels and two cinecams bring the spawned actor to 297 runtime
@@ -633,6 +634,41 @@ Gate V1:
   and UI have dedicated regression captures.
 - The PBR DAF and terrain slice meets a recorded render budget on each reference
   platform before additional assets are converted.
+
+## V2 — AirSim-referenced visual fidelity and scene import
+
+AirSim is a simulator plugin whose visual quality depends on its Unreal/Unity
+host environment, not one fixed map or renderer preset. Pin AirSim v1.8.1 and
+compare both engines on one rights-cleared shared source scene against the same
+offline path-traced reference. Official AirSim environments are
+capture-only references: the v1.8.1 release notes state that the high-detail
+downloads use proprietary assets whose source projects cannot be distributed.
+Unreal `.uasset`, `.umap`, cooked packages, Marketplace content, and engine
+template assets are therefore not RoR import inputs without separate verified
+rights.
+
+The RoR path is an offline, fail-closed glTF 2.0 scene compiler with bounded
+parsing, deterministic conversion, PBR materials, tangents, LODs, instancing,
+collision proxies, terrain tiles, texture transcodes, provenance, and canonical
+output hashes. The runtime consumes only compiled packages and never imported
+scripts or shaders.
+
+Gate V2:
+
+- On the shared camera/weather/material suite, no diagnostic stratum is more
+  than 2% worse than the pinned AirSim result relative to offline truth.
+- Aggregate perceptual error beats AirSim by at least 5% with a bootstrap 95%
+  confidence interval, while HDR, edge, shadow, reflection, transparency,
+  vegetation, LOD, and temporal-stability absolute gates all pass.
+- The macOS arm64 high preset sustains 60 FPS at 1920x1080 on the declared
+  reference Apple Silicon machine, with p95 frame time at or below 18.3 ms and
+  bounded resources through a ten-minute camera loop.
+- Missing geometry/materials, blank/stale/corrupt/non-finite frames, UI
+  contamination, invalid rights, unsupported glTF features, or conversion
+  nondeterminism fail closed.
+
+The complete fixture, capture, metric, provenance, and platform contract is in
+[the AirSim visual-fidelity specification](AIRSIM_VISUAL_FIDELITY.md).
 
 ## G0 — GPU visual flex deformation
 
