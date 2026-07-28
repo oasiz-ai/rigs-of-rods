@@ -58,6 +58,35 @@ index and graph identities retain source spans and duplicate assignment history
 so different source inputs cannot silently collapse to one cache key. Semantic
 physics lowering remains a separate J2 gate.
 
+## JBeam expression boundary
+
+`JBeamExpressionEvaluator` is an independent C++11 scalar-expression core. It
+requires the documented `$=` prefix and supports finite decimal arithmetic,
+comparisons, Lua-style `and`/`or`/`not` with short-circuit operand-returning
+semantics, Boolean three-argument `case`, string concatenation/byte length,
+typed variables, and flattened scalar `$components` paths. Missing variables
+evaluate to `nil`, duplicate environment assignments use last-write semantics,
+and canonical results normalize the sign of zero and length-prefix strings.
+
+The clean-room suite covers precedence, variables, eager `case` versus
+short-circuit logic, malformed and unsupported syntax, hostile binary input,
+every quota, overflow and non-finite values, UTF-8, deterministic repeats, and
+canonical collisions. It runs in strict, fast-math, and sanitizer builds.
+Expression source size, token count, recursion depth, deterministic work,
+literal/output strings, variable count/name size, and environment strings are
+all bounded.
+
+This evaluator does not execute Lua and has no host, file, network, clock, or
+random access. It rejects numeric-selector `case`, all other built-in functions,
+numeric-to-string concatenation, table values, indexing, and method calls.
+`ParseJBeam` and `JBeamPartResolver` still preserve expression strings as inert
+data. The structural semantic pass now constructs the scalar environment from
+resolved configuration/slot variables and merged scalar component leaves, then
+applies standalone variables, `$=` expressions, and `$.name` namespace
+expansion only at explicitly supported typed field readers. Unsupported fields,
+sections, component tables, and expression-valued components remain inert and
+preserved; there is no blanket AST evaluation.
+
 ## JBeam coordinate boundary
 
 The J2 coordinate kernel locks the documented BeamNG vehicle frame
@@ -83,6 +112,14 @@ one refnode frame while preserving unsupported fields and special beams with
 source-spanned diagnostics. Required references, global node IDs, table
 ambiguity, non-finite numbers, degenerate geometry, resource quotas, and the
 documented `+Y` back / `+X` left / `+Z` up refnode alignment fail closed.
+
+Pipeline tests pass source through `ParseJBeam`, `.pc` parsing, package indexing,
+part/slot resolution, and structural lowering. They cover standalone and
+computed variables, missing-variable `nil` branches, scalar component paths,
+Boolean results, BeamNG 0.38 prefix/suffix namespace strings, forbidden host
+calls, aggregate quotas, and FormulaCOUPE-shaped node-mass and
+beam-precompression expressions. Component arrays are retained with warnings,
+and evaluator errors remain attached to their structural field and source.
 
 The exact `"FLT_MAX"` sentinel is represented as an explicit unbounded
 deformation/strength flag; arbitrary strings remain invalid. Canonical output is

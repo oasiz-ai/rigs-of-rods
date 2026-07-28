@@ -114,9 +114,36 @@ front end must support and test:
 - `$prefix`, `$suffix`, and `$.name` namespace expansion;
 - source spans for every part, section, default row, data row, and field.
 
-The expression evaluator accepts only the documented pure expression subset,
-has depth and operation budgets, rejects non-finite output where a finite value
-is required, and cannot call Lua or host functions.
+The dependency-light expression-evaluator core now accepts a documented pure
+scalar subset behind the mandatory `$=` prefix: finite decimal arithmetic,
+comparisons, Lua-style `and`/`or`/`not`, the Boolean three-argument `case`
+form, string concatenation/length, typed `$variables`, and flattened scalar
+[`$components`][components] paths. Missing variables evaluate to `nil`.
+Expression bytes, tokens, recursion, deterministic work, strings, output, and
+environment size are bounded. Non-finite input or output fails closed even
+under the game's fast-math mode, and canonical values are independent of
+source spelling.
+
+This core is not a Lua interpreter and exposes no host, filesystem, network,
+clock, or random functions. Numeric-selector `case`, other built-in functions,
+numeric-to-string concatenation, component tables, indexing, and method calls
+remain unsupported. `ParseJBeam` and `JBeamPartResolver` retain authored
+expression strings as inert source values so syntax and graph identity never
+depend on execution. The J2 structural semantic pass now constructs a bounded
+environment from each resolved part's effective configuration/slot variables
+and the selected graph's deterministically merged scalar component leaves. It
+evaluates standalone variables, `$=` expressions, and `$.name` namespace
+strings only for explicitly supported scalar node, beam, surface, and refNodes
+fields before applying the field's required type.
+
+Table-valued and expression-valued components are preserved with diagnostics
+instead of entering the scalar environment. Unknown sections and fields,
+including legacy `rails.id`, are never evaluated. Per-expression limits are
+supplemented by aggregate evaluation, work, component-node, component-depth,
+environment-count, environment-string, and structural retained-byte limits.
+An absent variable is a valid `nil` expression operand, but a final `nil` in a
+field that requires a number, Boolean, or string fails that field closed with
+its source span.
 
 The [part/slot system][slots] is a recursive tree, not a flat list. `slotType:
 "main"` identifies a root part. The resolver applies the chosen `.pc` parts and
@@ -439,6 +466,7 @@ and behavior text. Existing profiles and golden results remain reproducible.
 
 - [JBeam section catalog][sections]
 - [JBeam syntax][jbeam-syntax]
+- [Components][components]
 - [Mod packing][packing]
 - [Slots and slot variables][slots]
 - [Coordinate systems][coordinates]
@@ -460,6 +488,7 @@ and behavior text. Existing profiles and golden results remain reproducible.
 - [Materials JSON][materials]
 
 [beams]: https://documentation.beamng.com/modding/vehicle/sections/beams/
+[components]: https://documentation.beamng.com/modding/vehicle/sections/components/
 [coordinates]: https://documentation.beamng.com/modding/vehicle/coordinate_systems/
 [electrics]: https://documentation.beamng.com/modding/vehicle/sections/electrics/
 [electrics-values]: https://documentation.beamng.com/modding/vehicle/vehicle_system/electrics/

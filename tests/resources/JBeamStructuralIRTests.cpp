@@ -32,6 +32,7 @@ using RoR::BeamNG::JBeamPackageIndex;
 using RoR::BeamNG::JBeamPackageSource;
 using RoR::BeamNG::JBeamObjectField;
 using RoR::BeamNG::JBeamParseResult;
+using RoR::BeamNG::JBeamConfigurationResult;
 using RoR::BeamNG::JBeamResolvedGraph;
 using RoR::BeamNG::JBeamStructuralBeamStatus;
 using RoR::BeamNG::JBeamStructuralDiagnostic;
@@ -63,6 +64,28 @@ JBeamResolvedGraph Resolve(
     CHECK(index.IsValid());
     const JBeamResolvedGraph graph =
         RoR::BeamNG::ResolveJBeamPartGraph(index);
+    CHECK(graph.IsValid());
+    return graph;
+}
+
+JBeamResolvedGraph ResolveConfigured(
+    const std::vector<JBeamPackageSource>& packages,
+    const std::string& configuration_source)
+{
+    const JBeamParseResult parsed =
+        RoR::BeamNG::ParseJBeam(
+            configuration_source,
+            "vehicles/clean/config.pc");
+    CHECK(parsed.IsValid());
+    const JBeamConfigurationResult configuration =
+        RoR::BeamNG::ParseJBeamConfiguration(parsed.root);
+    CHECK(configuration.IsValid());
+    const JBeamPackageIndex index =
+        RoR::BeamNG::BuildJBeamPackageIndex(packages);
+    CHECK(index.IsValid());
+    const JBeamResolvedGraph graph =
+        RoR::BeamNG::ResolveJBeamPartGraph(
+            index, configuration.request);
     CHECK(graph.IsValid());
     return graph;
 }
@@ -417,7 +440,295 @@ void TestDuplicateAndMalformedNodes()
     CHECK(!invalid.IsValid());
     CHECK(CountDiagnostic(
         invalid,
-        JBeamStructuralDiagnosticCode::EXPRESSION_DISABLED) == 1U);
+        JBeamStructuralDiagnosticCode::EXPRESSION_DISABLED) == 0U);
+    CHECK(CountDiagnostic(
+        invalid,
+        JBeamStructuralDiagnosticCode::INVALID_NODE_WEIGHT) == 1U);
+}
+
+void TestResolvedExpressionsVariablesAndComponents()
+{
+    std::vector<JBeamPackageSource> packages;
+    packages.push_back(Package(
+        "vehicles/formulacoupe-representative/main.jbeam",
+        "{"
+        "\"car\":{"
+        "\"slotType\":\"main\","
+        "\"components\":{"
+        "\"geometry\":{\"reference\":\"ref\",\"x\":0.25},"
+        "\"unsupportedTable\":[1,2,3]"
+        "},"
+        "\"nodes\":["
+        "[\"id\",\"posX\",\"posY\",\"posZ\",\"nodeWeight\"],"
+        "[\"$=$components.geometry.reference\","
+        "\"$=$components.geometry.x+$offset\","
+        "\"$=$missing == nil and 0 or $missing\",0,"
+        "\"$lanceMass\"],"
+        "[\"back\",1,1,0,1],"
+        "[\"left\",2,0,0,1],"
+        "[\"up\",1,0,1,1],"
+        "[\"leftCorner\",2,-1,0,1],"
+        "[\"rightCorner\",0,-1,0,1]"
+        "],"
+        "\"refNodes\":["
+        "[\"ref:\",\"back:\",\"left:\",\"up:\","
+        "\"leftCorner:\",\"rightCorner:\"],"
+        "[\"$=$components.geometry.reference\",\"back\","
+        "\"left\",\"up\",\"leftCorner\",\"rightCorner\"]"
+        "],"
+        "\"beams\":["
+        "[\"id1:\",\"id2:\",\"beamPrecompression\",\"optional\"],"
+        "[\"ref\",\"back\",\"$=2-$caster_F\",\"$=$optional\"]"
+        "]"
+        "}"
+        "}"));
+    const JBeamResolvedGraph graph = ResolveConfigured(
+        packages,
+        "{"
+        "\"parts\":{},"
+        "\"vars\":{"
+        "\"$offset\":0.75,"
+        "\"$baseMass\":7.5,"
+        "\"$lanceMass\":\"$=$baseMass*2\","
+        "\"$caster_F\":1.01695,"
+        "\"$optional\":false"
+        "}"
+        "}");
+    const JBeamStructuralIR ir =
+        RoR::BeamNG::BuildJBeamStructuralIR(graph);
+    CHECK(ir.IsValid());
+    CHECK(ir.nodes.size() == 6U);
+    CHECK(ir.nodes[0].id == "ref");
+    CHECK(ir.nodes[0].x == 1.0);
+    CHECK(ir.nodes[0].y == 0.0);
+    CHECK(ir.nodes[0].node_weight == 15.0);
+    CHECK(ir.nodes[0].node_weight_authored);
+    CHECK(ir.beams.size() == 1U);
+    CHECK(ir.beams[0].has_precompression);
+    CHECK(ir.beams[0].precompression == 2.0 - 1.01695);
+    CHECK(!ir.beams[0].optional);
+    CHECK(ir.ref_frame.reference == "ref");
+    CHECK(CountDiagnostic(
+        ir,
+        JBeamStructuralDiagnosticCode::
+            UNSUPPORTED_COMPONENT_VALUE) == 1U);
+    const JBeamStructuralDiagnostic* unsupported = FindDiagnostic(
+        ir,
+        JBeamStructuralDiagnosticCode::
+            UNSUPPORTED_COMPONENT_VALUE);
+    CHECK(unsupported != NULL);
+    if (unsupported != NULL)
+    {
+        CHECK(unsupported->severity ==
+            RoR::BeamNG::JBeamStructuralSeverity::WARNING);
+        CHECK(unsupported->has_preserved_value);
+        CHECK(unsupported->preserved_value != NULL);
+        CHECK(unsupported->preserved_value->type ==
+            JBeamValueType::ARRAY);
+    }
+    CHECK(CountDiagnostic(
+        ir,
+        JBeamStructuralDiagnosticCode::EXPRESSION_ERROR) == 0U);
+    CHECK(CountDiagnostic(
+        ir,
+        JBeamStructuralDiagnosticCode::EXPRESSION_DISABLED) == 0U);
+
+    const JBeamStructuralIR repeated =
+        RoR::BeamNG::BuildJBeamStructuralIR(graph);
+    CHECK(repeated.IsValid());
+    CHECK(
+        RoR::BeamNG::SerializeCanonicalJBeamStructuralIR(ir) ==
+        RoR::BeamNG::SerializeCanonicalJBeamStructuralIR(repeated));
+}
+
+void TestSlotNamespaceExpressionPipeline()
+{
+    std::vector<JBeamPackageSource> packages;
+    packages.push_back(Package(
+        "vehicles/namespace/main.jbeam",
+        "{"
+        "\"car\":{"
+        "\"slotType\":\"main\","
+        "\"slots\":["
+        "[\"type\",\"default\",\"description\"],"
+        "[\"aux\",\"namespace_child\",\"Aux\",{"
+        "\"variables\":{"
+        "\"$prefix\":\"aux_\","
+        "\"$suffix\":\"_x\","
+        "\"$delta\":0.25"
+        "}}]"
+        "],"
+        "\"nodes\":["
+        "[\"id\",\"posX\",\"posY\",\"posZ\"],"
+        "[\"ref\",0,0,0],"
+        "[\"back\",0,1,0],"
+        "[\"left\",1,0,0],"
+        "[\"up\",0,0,1],"
+        "[\"leftCorner\",1,-1,0],"
+        "[\"rightCorner\",-1,-1,0]"
+        "],"
+        "\"refNodes\":["
+        "[\"ref:\",\"back:\",\"left:\",\"up:\","
+        "\"leftCorner:\",\"rightCorner:\"],"
+        "[\"ref\",\"back\",\"left\",\"up\","
+        "\"leftCorner\",\"rightCorner\"]"
+        "]"
+        "}"
+        "}"));
+    packages.push_back(Package(
+        "vehicles/namespace/child.jbeam",
+        "{"
+        "\"namespace_child\":{"
+        "\"slotType\":\"aux\","
+        "\"nodes\":["
+        "[\"id\",\"posX\",\"posY\",\"posZ\"],"
+        "[\"$.sensor\",\"$=$delta\",0,0]"
+        "],"
+        "\"beams\":["
+        "[\"id1:\",\"id2:\"],"
+        "[\"ref\",\"$.sensor\"]"
+        "]"
+        "}"
+        "}"));
+    const JBeamStructuralIR ir =
+        RoR::BeamNG::BuildJBeamStructuralIR(Resolve(packages));
+    CHECK(ir.IsValid());
+    CHECK(ir.nodes.size() == 7U);
+    CHECK(ir.nodes[6].id == "aux_sensor_x");
+    CHECK(ir.nodes[6].x == 0.25);
+    CHECK(ir.beams.size() == 1U);
+    CHECK(ir.beams[0].node_b == "aux_sensor_x");
+}
+
+void TestExpressionFailuresAndAggregateLimits()
+{
+    const JBeamStructuralIR missing =
+        RoR::BeamNG::BuildJBeamStructuralIR(ResolveSingle(
+            "\"nodes\":["
+            "[\"id\",\"posX\",\"posY\",\"posZ\"],"
+            "[\"ref\",\"$missing\",0,0],"
+            "[\"back\",0,1,0],"
+            "[\"left\",1,0,0],"
+            "[\"up\",0,0,1],"
+            "[\"leftCorner\",1,-1,0],"
+            "[\"rightCorner\",-1,-1,0]"
+            "],"
+            "\"refNodes\":["
+            "[\"ref:\",\"back:\",\"left:\",\"up:\","
+            "\"leftCorner:\",\"rightCorner:\"],"
+            "[\"ref\",\"back\",\"left\",\"up\","
+            "\"leftCorner\",\"rightCorner\"]"
+            "]"));
+    CHECK(!missing.IsValid());
+    CHECK(CountDiagnostic(
+        missing,
+        JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE) == 1U);
+    CHECK(CountDiagnostic(
+        missing,
+        JBeamStructuralDiagnosticCode::EXPRESSION_ERROR) == 0U);
+
+    const JBeamStructuralIR forbidden =
+        RoR::BeamNG::BuildJBeamStructuralIR(ResolveSingle(
+            "\"nodes\":["
+            "[\"id\",\"posX\",\"posY\",\"posZ\"],"
+            "[\"ref\",\"$=os.execute('x')\",0,0],"
+            "[\"back\",0,1,0],"
+            "[\"left\",1,0,0],"
+            "[\"up\",0,0,1],"
+            "[\"leftCorner\",1,-1,0],"
+            "[\"rightCorner\",-1,-1,0]"
+            "],"
+            "\"refNodes\":["
+            "[\"ref:\",\"back:\",\"left:\",\"up:\","
+            "\"leftCorner:\",\"rightCorner:\"],"
+            "[\"ref\",\"back\",\"left\",\"up\","
+            "\"leftCorner\",\"rightCorner\"]"
+            "]"));
+    CHECK(!forbidden.IsValid());
+    CHECK(CountDiagnostic(
+        forbidden,
+        JBeamStructuralDiagnosticCode::EXPRESSION_ERROR) == 1U);
+    const JBeamStructuralDiagnostic* expression_error =
+        FindDiagnostic(
+            forbidden,
+            JBeamStructuralDiagnosticCode::EXPRESSION_ERROR);
+    CHECK(expression_error != NULL);
+    if (expression_error != NULL)
+    {
+        CHECK(expression_error->section == "nodes");
+        CHECK(expression_error->field_name == "posX");
+        CHECK(expression_error->provenance.SourceName() ==
+            "vehicles/clean/main.jbeam");
+        CHECK(expression_error->detail.find("decoded byte") !=
+            std::string::npos);
+    }
+
+    const JBeamStructuralIR table_component =
+        RoR::BeamNG::BuildJBeamStructuralIR(ResolveSingle(
+            "\"components\":{\"position\":[1,2,3]},"
+            "\"nodes\":["
+            "[\"id\",\"posX\",\"posY\",\"posZ\"],"
+            "[\"ref\","
+            "\"$=$components.position == nil and 0 or 1\",0,0],"
+            "[\"back\",0,1,0],"
+            "[\"left\",1,0,0],"
+            "[\"up\",0,0,1],"
+            "[\"leftCorner\",1,-1,0],"
+            "[\"rightCorner\",-1,-1,0]"
+            "],"
+            "\"refNodes\":["
+            "[\"ref:\",\"back:\",\"left:\",\"up:\","
+            "\"leftCorner:\",\"rightCorner:\"],"
+            "[\"ref\",\"back\",\"left\",\"up\","
+            "\"leftCorner\",\"rightCorner\"]"
+            "]"));
+    CHECK(!table_component.IsValid());
+    CHECK(CountDiagnostic(
+        table_component,
+        JBeamStructuralDiagnosticCode::
+            UNSUPPORTED_COMPONENT_VALUE) == 1U);
+    CHECK(CountDiagnostic(
+        table_component,
+        JBeamStructuralDiagnosticCode::EXPRESSION_ERROR) == 1U);
+
+    JBeamStructuralLimits evaluation_limit;
+    evaluation_limit.max_expression_evaluations = 0U;
+    const JBeamStructuralIR no_evaluations =
+        RoR::BeamNG::BuildJBeamStructuralIR(
+            ResolveSingle(
+                "\"nodes\":["
+                "[\"id\",\"posX\",\"posY\",\"posZ\"],"
+                "[\"ref\",\"$=1\",0,0],"
+                "[\"back\",0,1,0],"
+                "[\"left\",1,0,0],"
+                "[\"up\",0,0,1],"
+                "[\"leftCorner\",1,-1,0],"
+                "[\"rightCorner\",-1,-1,0]"
+                "],"
+                "\"refNodes\":["
+                "[\"ref:\",\"back:\",\"left:\",\"up:\","
+                "\"leftCorner:\",\"rightCorner:\"],"
+                "[\"ref\",\"back\",\"left\",\"up\","
+                "\"leftCorner\",\"rightCorner\"]"
+                "]"),
+            evaluation_limit);
+    CHECK(!no_evaluations.IsValid());
+    CHECK(CountDiagnostic(
+        no_evaluations,
+        JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT) == 1U);
+
+    JBeamStructuralLimits component_depth;
+    component_depth.max_component_depth = 1U;
+    const JBeamStructuralIR deep_component =
+        RoR::BeamNG::BuildJBeamStructuralIR(
+            ResolveSingle(
+                "\"components\":{\"a\":{\"b\":1}},"
+                + FrameAndNodes()),
+            component_depth);
+    CHECK(!deep_component.IsValid());
+    CHECK(CountDiagnostic(
+        deep_component,
+        JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT) == 1U);
 }
 
 void TestNonFiniteDefenseUnderFastMath()
@@ -1550,6 +1861,9 @@ int main()
     TestNormalizedCoreAndPreservedFields();
     TestResolvedPartPreorderAndCanonicalSourcePermutation();
     TestDuplicateAndMalformedNodes();
+    TestResolvedExpressionsVariablesAndComponents();
+    TestSlotNamespaceExpressionPipeline();
+    TestExpressionFailuresAndAggregateLimits();
     TestNonFiniteDefenseUnderFastMath();
     TestBeamReferenceAndTypeSemantics();
     TestBeamInfinitySentinel();

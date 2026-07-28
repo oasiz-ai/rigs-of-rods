@@ -195,6 +195,7 @@ set(SOURCE_FILES
         resources/beamng/BeamNGZipArchiveIndex.{h,cpp}
         resources/beamng/JBeamAdvancedStructureIR.{h,cpp}
         resources/beamng/JBeamCoordinateTransform.h
+        resources/beamng/JBeamExpressionEvaluator.{h,cpp}
         resources/beamng/JBeamPartResolver.{h,cpp}
         resources/beamng/JBeamPressureWheelIR.{h,cpp}
         resources/beamng/JBeamStructuralIR.{h,cpp}

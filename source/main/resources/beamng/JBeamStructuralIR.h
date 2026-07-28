@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "JBeamExpressionEvaluator.h"
 #include "JBeamPartResolver.h"
 
 #include <cstddef>
@@ -57,7 +58,12 @@ enum class JBeamStructuralDiagnosticCode
     MISSING_REQUIRED_FIELD,
     AMBIGUOUS_REQUIRED_FIELD,
     INVALID_FIELD_TYPE,
+    EXPRESSION_ERROR,
+    EXPRESSION_LIMIT,
     EXPRESSION_DISABLED,
+    UNSUPPORTED_COMPONENT_VALUE,
+    INVALID_COMPONENT_PATH,
+    INVALID_VARIABLE_VALUE,
     NON_FINITE_NUMBER,
     INVALID_NODE_WEIGHT,
     INVALID_BEAM_PARAMETER,
@@ -142,6 +148,16 @@ struct JBeamStructuralLimits
     /// also protects hand-built cyclic or unusually deep value graphs.
     std::size_t max_preserved_value_work_units;
     std::size_t max_preserved_value_depth;
+    /// Per-expression bounds inherited by the allowlisted scalar evaluator.
+    JBeamExpressionLimits expression_limits;
+    /// Aggregate bounds across component discovery, inherited-variable
+    /// materialization, and all structural-field evaluations. These prevent a
+    /// large but individually valid table from multiplying the evaluator's
+    /// per-expression allowance.
+    std::size_t max_expression_evaluations;
+    std::size_t max_expression_work_units;
+    std::size_t max_component_nodes;
+    std::size_t max_component_depth;
     /// Bounds canonical serialization. Serialization returns an empty string
     /// rather than constructing a partial or oversized identity.
     std::size_t max_canonical_output_bytes;
@@ -266,7 +282,10 @@ struct JBeamStructuralIR
 };
 
 /// Builds the dependency-free J2 structural subset in BeamNG's authored SI
-/// coordinate system. Expressions remain inert and are never evaluated.
+/// coordinate system. Explicitly supported scalar fields resolve standalone
+/// variables, namespace strings, and the allowlisted "$=" expression subset
+/// against the resolved part's variables and globally merged scalar component
+/// leaves. Unsupported fields and table-valued components remain inert.
 JBeamStructuralIR BuildJBeamStructuralIR(
     const JBeamResolvedGraph& graph,
     const JBeamStructuralLimits& limits = JBeamStructuralLimits());

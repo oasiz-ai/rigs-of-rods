@@ -111,6 +111,12 @@ add_executable(
 )
 
 add_executable(
+    ror_jbeam_expression_evaluator_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamExpressionEvaluatorTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
+)
+
+add_executable(
     ror_jbeam_syntax_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamSyntaxTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
@@ -147,6 +153,7 @@ add_executable(
 add_executable(
     ror_jbeam_structural_ir_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamStructuralIRTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
@@ -156,6 +163,7 @@ add_executable(
     ror_jbeam_to_rigdef_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamToRigDefTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamToRigDef.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
@@ -189,6 +197,12 @@ target_include_directories(
     ror_rigdef_calibrated_beam_material_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/rig_def_fileformat"
+)
+
+target_include_directories(
+    ror_jbeam_expression_evaluator_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
 )
 
 target_include_directories(
@@ -373,6 +387,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_shader_compatibility_policy_tests
     ror_jbeam_advanced_structure_ir_tests
     ror_jbeam_coordinate_transform_tests
+    ror_jbeam_expression_evaluator_tests
     ror_jbeam_part_resolver_tests
     ror_jbeam_pressure_wheel_ir_tests
     ror_jbeam_structural_ir_tests
@@ -528,6 +543,11 @@ set_tests_properties(
     PROPERTIES
         SKIP_REGULAR_EXPRESSION
             "SKIP: FormulaCOUPE fixture is not explicitly supplied"
+)
+
+add_test(
+    NAME jbeam_expression_evaluator
+    COMMAND ror_jbeam_expression_evaluator_tests
 )
 
 add_test(

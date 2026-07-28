@@ -61,6 +61,9 @@ struct PartContext
 {
     const JBeamResolvedPartNode* node;
     JBeamStructuralProvenance provenance;
+    /// Resolved configuration and slot-variable assignments only. Component
+    /// leaves are owned once by StructuralBuilder and prepended on demand.
+    std::shared_ptr<std::vector<JBeamExpressionVariable> > variables;
 };
 
 struct SectionOccurrence
@@ -242,6 +245,47 @@ bool IsExpressionString(const JBeamValue& value)
         value.scalar_text[0] == '$';
 }
 
+bool IsAsciiAlpha(unsigned char value)
+{
+    return (value >= static_cast<unsigned char>('a') &&
+            value <= static_cast<unsigned char>('z')) ||
+        (value >= static_cast<unsigned char>('A') &&
+         value <= static_cast<unsigned char>('Z'));
+}
+
+bool IsAsciiDigit(unsigned char value)
+{
+    return value >= static_cast<unsigned char>('0') &&
+        value <= static_cast<unsigned char>('9');
+}
+
+bool IsComponentPathSegment(const std::string& value)
+{
+    if (value.empty())
+    {
+        return false;
+    }
+    const unsigned char first =
+        static_cast<unsigned char>(value[0]);
+    if (!IsAsciiAlpha(first) &&
+        first != static_cast<unsigned char>('_'))
+    {
+        return false;
+    }
+    for (std::size_t i = 1U; i < value.size(); ++i)
+    {
+        const unsigned char current =
+            static_cast<unsigned char>(value[i]);
+        if (!IsAsciiAlpha(current) &&
+            !IsAsciiDigit(current) &&
+            current != static_cast<unsigned char>('_'))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool IsRecognizedSection(const std::string& name)
 {
     return name == "nodes" ||
@@ -255,7 +299,8 @@ bool IsResolverMetadataSection(const std::string& name)
 {
     return name == "slotType" ||
         name == "slots" ||
-        name == "slots2";
+        name == "slots2" ||
+        name == "components";
 }
 
 bool IsKnownUnsupportedField(
@@ -387,6 +432,11 @@ public:
         , m_ref_row_count(0U)
         , m_authored_beam_rows(0U)
         , m_retained_bytes(0U)
+        , m_semantic_bytes(0U)
+        , m_expression_evaluations(0U)
+        , m_expression_work_units(0U)
+        , m_component_nodes(0U)
+        , m_component_string_bytes(0U)
     {
         m_result.canonical_output_byte_limit =
             limits.max_canonical_output_bytes;
@@ -410,6 +460,14 @@ public:
             return m_result;
         }
         CollectParts();
+        if (!m_resource_limit)
+        {
+            BuildComponentEnvironment();
+        }
+        if (!m_resource_limit)
+        {
+            BuildPartVariableEnvironments();
+        }
         if (!m_resource_limit)
         {
             DiscoverSections();
@@ -476,6 +534,16 @@ private:
     std::size_t m_ref_row_count;
     std::size_t m_authored_beam_rows;
     std::size_t m_retained_bytes;
+    std::size_t m_semantic_bytes;
+    std::size_t m_expression_evaluations;
+    std::size_t m_expression_work_units;
+    std::size_t m_component_nodes;
+    std::size_t m_component_string_bytes;
+    std::vector<JBeamExpressionVariable> m_components;
+    /// Exact flattened paths that still denote non-scalar values. false
+    /// allows scalar descendants of an object; true also blocks descendants
+    /// because an array or unsupported expression replaced the subtree.
+    std::map<std::string, bool> m_non_scalar_components;
     std::map<
         std::string,
         std::shared_ptr<const std::string> > m_source_names;
@@ -533,10 +601,16 @@ private:
 
     bool ReserveRetained(std::size_t bytes)
     {
+        std::size_t admitted = m_retained_bytes;
+        if (!AddSize(m_semantic_bytes, admitted))
+        {
+            RejectRetained();
+            return false;
+        }
         if (bytes >
             m_limits.max_retained_bytes -
                 std::min(
-                    m_retained_bytes,
+                    admitted,
                     m_limits.max_retained_bytes))
         {
             RejectRetained();
@@ -544,6 +618,23 @@ private:
         }
         m_retained_bytes += bytes;
         m_result.retained_byte_count = m_retained_bytes;
+        return true;
+    }
+
+    bool ReserveSemantic(std::size_t bytes)
+    {
+        std::size_t admitted = m_retained_bytes;
+        if (!AddSize(m_semantic_bytes, admitted) ||
+            bytes >
+                m_limits.max_retained_bytes -
+                    std::min(
+                        admitted,
+                        m_limits.max_retained_bytes))
+        {
+            RejectRetained();
+            return false;
+        }
+        m_semantic_bytes += bytes;
         return true;
     }
 
@@ -997,6 +1088,8 @@ private:
             }
             PartContext part;
             part.node = node;
+            part.variables.reset(
+                new std::vector<JBeamExpressionVariable>());
             std::size_t identity_bytes = 0U;
             if (!AddSize(
                     node->definition.name.size(),
@@ -1072,6 +1165,1113 @@ private:
                     }
                     pending.push_back(child);
                 }
+            }
+        }
+    }
+
+    bool ChargeSemanticWork(
+        std::size_t units,
+        const JBeamStructuralProvenance& provenance,
+        const std::string& section,
+        const std::string& field_name,
+        const std::string& detail)
+    {
+        if (units >
+            m_limits.max_expression_work_units -
+                std::min(
+                    m_expression_work_units,
+                    m_limits.max_expression_work_units))
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
+                JBeamStructuralSeverity::ERROR,
+                provenance,
+                section,
+                0U,
+                field_name,
+                detail);
+            m_resource_limit = true;
+            return false;
+        }
+        m_expression_work_units += units;
+        return true;
+    }
+
+    bool IsSimpleExpressionVariableName(
+        const std::string& name) const
+    {
+        return name.size() >= 2U &&
+            name[0] == '$' &&
+            IsComponentPathSegment(name.substr(1U)) &&
+            name.size() <=
+                m_limits.expression_limits.max_variable_name_bytes;
+    }
+
+    bool ComposeExpressionEnvironment(
+        const std::vector<JBeamExpressionVariable>& local_variables,
+        const JBeamStructuralProvenance& provenance,
+        const std::string& section,
+        const std::string& field_name,
+        JBeamExpressionEnvironment& environment)
+    {
+        if (m_components.size() >
+                m_limits.expression_limits.max_variables ||
+            local_variables.size() >
+                m_limits.expression_limits.max_variables -
+                    m_components.size())
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
+                JBeamStructuralSeverity::ERROR,
+                provenance,
+                section,
+                0U,
+                field_name,
+                "Expression environment exceeds the configured "
+                "variable limit");
+            m_resource_limit = true;
+            return false;
+        }
+        const std::size_t count =
+            m_components.size() + local_variables.size();
+        if (!ChargeSemanticWork(
+                count,
+                provenance,
+                section,
+                field_name,
+                "Expression environment construction exceeds the "
+                "aggregate work limit"))
+        {
+            return false;
+        }
+        environment.variables.reserve(count);
+        environment.variables.insert(
+            environment.variables.end(),
+            m_components.begin(),
+            m_components.end());
+        environment.variables.insert(
+            environment.variables.end(),
+            local_variables.begin(),
+            local_variables.end());
+        return true;
+    }
+
+    bool FindUnsupportedComponentReference(
+        const std::string& expression,
+        std::string& rejected_path) const
+    {
+        std::size_t index = 2U;
+        while (index < expression.size())
+        {
+            if (expression[index] == '\'')
+            {
+                ++index;
+                while (index < expression.size())
+                {
+                    if (expression[index] == '\\' &&
+                        index + 1U < expression.size())
+                    {
+                        index += 2U;
+                        continue;
+                    }
+                    if (expression[index++] == '\'')
+                    {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if (expression[index] != '$')
+            {
+                ++index;
+                continue;
+            }
+            const std::size_t begin = index++;
+            if (index >= expression.size() ||
+                (!IsAsciiAlpha(
+                    static_cast<unsigned char>(expression[index])) &&
+                 expression[index] != '_'))
+            {
+                continue;
+            }
+            ++index;
+            while (index < expression.size())
+            {
+                const unsigned char current =
+                    static_cast<unsigned char>(expression[index]);
+                if (IsAsciiAlpha(current) ||
+                    IsAsciiDigit(current) ||
+                    current == static_cast<unsigned char>('_'))
+                {
+                    ++index;
+                    continue;
+                }
+                if (current == static_cast<unsigned char>('.') &&
+                    index + 1U < expression.size() &&
+                    expression[index + 1U] != '.' &&
+                    (IsAsciiAlpha(static_cast<unsigned char>(
+                         expression[index + 1U])) ||
+                     expression[index + 1U] == '_'))
+                {
+                    ++index;
+                    continue;
+                }
+                break;
+            }
+            const std::string token =
+                expression.substr(begin, index - begin);
+            if (token.compare(0U, 12U, "$components.") != 0)
+            {
+                continue;
+            }
+            const std::string component_path = token.substr(12U);
+            std::map<std::string, bool>::const_iterator exact =
+                m_non_scalar_components.find(component_path);
+            if (exact != m_non_scalar_components.end())
+            {
+                rejected_path = token;
+                return true;
+            }
+            std::string::size_type separator =
+                component_path.find_last_of('.');
+            while (separator != std::string::npos &&
+                   separator != 0U)
+            {
+                const std::string prefix =
+                    component_path.substr(0U, separator);
+                const std::map<std::string, bool>::const_iterator
+                    parent = m_non_scalar_components.find(prefix);
+                if (parent != m_non_scalar_components.end() &&
+                    parent->second)
+                {
+                    rejected_path = "$components." + prefix;
+                    return true;
+                }
+                separator = prefix.find_last_of('.');
+            }
+        }
+        return false;
+    }
+
+    bool EvaluateExpressionText(
+        const std::string& expression,
+        const std::vector<JBeamExpressionVariable>& local_variables,
+        const JBeamStructuralProvenance& provenance,
+        const std::string& section,
+        std::size_t row_index,
+        const std::string& field_name,
+        JBeamExpressionValue& output)
+    {
+        if (m_expression_evaluations >=
+            m_limits.max_expression_evaluations)
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
+                JBeamStructuralSeverity::ERROR,
+                provenance,
+                section,
+                row_index,
+                field_name,
+                "Structural lowering exceeds the configured expression "
+                "evaluation limit");
+            m_resource_limit = true;
+            return false;
+        }
+        if (expression.size() >
+            m_limits.expression_limits.max_expression_bytes)
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
+                JBeamStructuralSeverity::ERROR,
+                provenance,
+                section,
+                row_index,
+                field_name,
+                "Expression exceeds the configured byte limit");
+            return false;
+        }
+        if (!ChargeSemanticWork(
+                expression.size(),
+                provenance,
+                section,
+                field_name,
+                "Expression scanning exceeds the aggregate semantic "
+                "work limit"))
+        {
+            return false;
+        }
+        std::string unsupported_component;
+        if (FindUnsupportedComponentReference(
+                expression, unsupported_component))
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_ERROR,
+                JBeamStructuralSeverity::ERROR,
+                provenance,
+                section,
+                row_index,
+                field_name,
+                "Expression references non-scalar component '" +
+                    unsupported_component +
+                    "', which is preserved but not allowlisted");
+            return false;
+        }
+
+        JBeamExpressionEnvironment environment;
+        if (!ComposeExpressionEnvironment(
+                local_variables,
+                provenance,
+                section,
+                field_name,
+                environment))
+        {
+            return false;
+        }
+        if (m_expression_work_units >=
+            m_limits.max_expression_work_units)
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
+                JBeamStructuralSeverity::ERROR,
+                provenance,
+                section,
+                row_index,
+                field_name,
+                "Structural lowering exhausted the aggregate expression "
+                "work limit");
+            m_resource_limit = true;
+            return false;
+        }
+
+        JBeamExpressionLimits limits =
+            m_limits.expression_limits;
+        const std::size_t remaining_work =
+            m_limits.max_expression_work_units -
+                std::min(
+                    m_expression_work_units,
+                    m_limits.max_expression_work_units);
+        limits.max_work_units =
+            std::min(limits.max_work_units, remaining_work);
+        ++m_expression_evaluations;
+        const JBeamExpressionResult evaluated =
+            EvaluateJBeamExpression(expression, environment, limits);
+        if (evaluated.work_units > remaining_work)
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
+                JBeamStructuralSeverity::ERROR,
+                provenance,
+                section,
+                row_index,
+                field_name,
+                "Expression evaluator exceeded the aggregate work "
+                "limit");
+            m_resource_limit = true;
+            return false;
+        }
+        m_expression_work_units += evaluated.work_units;
+        if (!evaluated.IsValid())
+        {
+            const bool has_diagnostic =
+                !evaluated.diagnostics.empty();
+            const JBeamExpressionDiagnostic* diagnostic =
+                has_diagnostic ? &evaluated.diagnostics[0] : NULL;
+            const bool is_limit =
+                diagnostic != NULL &&
+                (diagnostic->code ==
+                        JBeamExpressionDiagnosticCode::
+                            EXPRESSION_SIZE_LIMIT ||
+                 diagnostic->code ==
+                        JBeamExpressionDiagnosticCode::TOKEN_LIMIT ||
+                 diagnostic->code ==
+                        JBeamExpressionDiagnosticCode::DEPTH_LIMIT ||
+                 diagnostic->code ==
+                        JBeamExpressionDiagnosticCode::WORK_LIMIT ||
+                 diagnostic->code ==
+                        JBeamExpressionDiagnosticCode::
+                            STRING_SIZE_LIMIT ||
+                 diagnostic->code ==
+                        JBeamExpressionDiagnosticCode::
+                            OUTPUT_STRING_SIZE_LIMIT ||
+                 diagnostic->code ==
+                        JBeamExpressionDiagnosticCode::
+                            ENVIRONMENT_LIMIT);
+            std::ostringstream detail;
+            detail.imbue(std::locale::classic());
+            detail << "JBeam expression evaluation failed";
+            if (diagnostic != NULL)
+            {
+                detail << " at decoded byte "
+                    << diagnostic->byte_offset << " ("
+                    << JBeamExpressionDiagnosticCodeToString(
+                        diagnostic->code)
+                    << "): " << diagnostic->message;
+            }
+            Push(
+                is_limit
+                    ? JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT
+                    : JBeamStructuralDiagnosticCode::EXPRESSION_ERROR,
+                JBeamStructuralSeverity::ERROR,
+                provenance,
+                section,
+                row_index,
+                field_name,
+                detail.str());
+            return false;
+        }
+        output = evaluated.value;
+        return true;
+    }
+
+    const JBeamExpressionValue* FindLocalExpressionVariable(
+        const std::vector<JBeamExpressionVariable>& variables,
+        const std::string& name) const
+    {
+        for (std::size_t i = variables.size(); i > 0U; --i)
+        {
+            if (variables[i - 1U].name == name)
+            {
+                return &variables[i - 1U].value;
+            }
+        }
+        return NULL;
+    }
+
+    bool ExpandNamespaceString(
+        const std::string& authored,
+        const std::vector<JBeamExpressionVariable>& variables,
+        const JBeamStructuralProvenance& provenance,
+        const std::string& section,
+        std::size_t row_index,
+        const std::string& field_name,
+        JBeamExpressionValue& output)
+    {
+        std::string expanded;
+        const JBeamExpressionValue* prefix =
+            FindLocalExpressionVariable(variables, "$prefix");
+        const JBeamExpressionValue* suffix =
+            FindLocalExpressionVariable(variables, "$suffix");
+        if ((prefix != NULL &&
+             prefix->type != JBeamExpressionValueType::NIL_VALUE &&
+             prefix->type != JBeamExpressionValueType::STRING) ||
+            (suffix != NULL &&
+             suffix->type != JBeamExpressionValueType::NIL_VALUE &&
+             suffix->type != JBeamExpressionValueType::STRING))
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_ERROR,
+                JBeamStructuralSeverity::ERROR,
+                provenance,
+                section,
+                row_index,
+                field_name,
+                "Namespace variables $prefix and $suffix must be "
+                "strings or nil");
+            return false;
+        }
+        const std::size_t prefix_size =
+            prefix != NULL &&
+                    prefix->type == JBeamExpressionValueType::STRING
+                ? prefix->string_value.size()
+                : 0U;
+        const std::size_t suffix_size =
+            suffix != NULL &&
+                    suffix->type == JBeamExpressionValueType::STRING
+                ? suffix->string_value.size()
+                : 0U;
+        std::size_t output_size = prefix_size;
+        if (!AddSize(authored.size() - 2U, output_size) ||
+            !AddSize(suffix_size, output_size) ||
+            output_size >
+                m_limits.expression_limits.max_output_string_bytes)
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
+                JBeamStructuralSeverity::ERROR,
+                provenance,
+                section,
+                row_index,
+                field_name,
+                "Expanded namespace string exceeds the configured "
+                "output limit");
+            return false;
+        }
+        expanded.reserve(output_size);
+        if (prefix_size != 0U)
+        {
+            expanded.append(prefix->string_value);
+        }
+        expanded.append(authored, 2U, std::string::npos);
+        if (suffix_size != 0U)
+        {
+            expanded.append(suffix->string_value);
+        }
+        std::size_t namespace_work = output_size;
+        if (!AddSize(1U, namespace_work))
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
+                JBeamStructuralSeverity::ERROR,
+                provenance,
+                section,
+                row_index,
+                field_name,
+                "Namespace expansion work accounting overflowed");
+            m_resource_limit = true;
+            return false;
+        }
+        if (!ChargeSemanticWork(
+                namespace_work,
+                provenance,
+                section,
+                field_name,
+                "Namespace expansion exceeds the aggregate semantic "
+                "work limit"))
+        {
+            return false;
+        }
+        output = JBeamExpressionValue::String(expanded);
+        return true;
+    }
+
+    bool ResolveScalarValue(
+        const JBeamValue& value,
+        const std::vector<JBeamExpressionVariable>& variables,
+        const JBeamStructuralProvenance& provenance,
+        const std::string& section,
+        std::size_t row_index,
+        const std::string& field_name,
+        JBeamExpressionValue& output)
+    {
+        switch (value.type)
+        {
+        case JBeamValueType::NULL_VALUE:
+            output = JBeamExpressionValue::Nil();
+            return true;
+        case JBeamValueType::BOOLEAN:
+            output = JBeamExpressionValue::Boolean(
+                value.boolean_value);
+            return true;
+        case JBeamValueType::NUMBER:
+            if (!IsFiniteDouble(value.number_value))
+            {
+                Push(
+                    JBeamStructuralDiagnosticCode::NON_FINITE_NUMBER,
+                    JBeamStructuralSeverity::ERROR,
+                    provenance,
+                    section,
+                    row_index,
+                    field_name,
+                    "Non-finite structural numbers are rejected");
+                return false;
+            }
+            output = JBeamExpressionValue::Number(
+                value.number_value == 0.0 ? 0.0 : value.number_value);
+            return true;
+        case JBeamValueType::STRING:
+            if (value.scalar_text.compare(0U, 2U, "$.") == 0)
+            {
+                return ExpandNamespaceString(
+                    value.scalar_text,
+                    variables,
+                    provenance,
+                    section,
+                    row_index,
+                    field_name,
+                    output);
+            }
+            if (IsExpressionString(value))
+            {
+                const std::string expression =
+                    value.scalar_text.compare(0U, 2U, "$=") == 0
+                        ? value.scalar_text
+                        : std::string("$=") + value.scalar_text;
+                return EvaluateExpressionText(
+                    expression,
+                    variables,
+                    provenance,
+                    section,
+                    row_index,
+                    field_name,
+                    output);
+            }
+            output = JBeamExpressionValue::String(
+                value.scalar_text);
+            return true;
+        case JBeamValueType::ARRAY:
+        case JBeamValueType::OBJECT:
+            return false;
+        }
+        return false;
+    }
+
+    bool EraseComponentPath(
+        std::map<std::string, JBeamExpressionValue>& values,
+        const std::string& path,
+        bool descendants,
+        const JBeamStructuralProvenance& provenance)
+    {
+        const std::string prefix = path + ".";
+        std::map<std::string, JBeamExpressionValue>::iterator iterator =
+            values.begin();
+        while (iterator != values.end())
+        {
+            if (!ChargeSemanticWork(
+                    1U,
+                    provenance,
+                    "components",
+                    path,
+                    "Component merging exceeds the aggregate semantic "
+                    "work limit"))
+            {
+                return false;
+            }
+            const bool exact = iterator->first == path;
+            const bool child =
+                descendants &&
+                iterator->first.size() > prefix.size() &&
+                iterator->first.compare(
+                    0U, prefix.size(), prefix) == 0;
+            if (exact || child)
+            {
+                values.erase(iterator++);
+            }
+            else
+            {
+                ++iterator;
+            }
+        }
+        return true;
+    }
+
+    bool EraseNonScalarComponentPath(
+        const std::string& path,
+        bool descendants,
+        const JBeamStructuralProvenance& provenance)
+    {
+        const std::string prefix = path + ".";
+        std::map<std::string, bool>::iterator iterator =
+            m_non_scalar_components.begin();
+        while (iterator != m_non_scalar_components.end())
+        {
+            if (!ChargeSemanticWork(
+                    1U,
+                    provenance,
+                    "components",
+                    path,
+                    "Component classification exceeds the aggregate "
+                    "semantic work limit"))
+            {
+                return false;
+            }
+            const bool exact = iterator->first == path;
+            const bool child =
+                descendants &&
+                iterator->first.size() > prefix.size() &&
+                iterator->first.compare(
+                    0U, prefix.size(), prefix) == 0;
+            if (exact || child)
+            {
+                m_non_scalar_components.erase(iterator++);
+            }
+            else
+            {
+                ++iterator;
+            }
+        }
+        return true;
+    }
+
+    bool SetNonScalarComponent(
+        const std::string& path,
+        bool blocks_descendants)
+    {
+        std::map<std::string, bool>::iterator found =
+            m_non_scalar_components.find(path);
+        if (found != m_non_scalar_components.end())
+        {
+            found->second = blocks_descendants;
+            return true;
+        }
+        std::size_t bytes = path.size();
+        if (!AddSize(sizeof(bool), bytes))
+        {
+            RejectRetained();
+            return false;
+        }
+        if (!ReserveSemantic(bytes))
+        {
+            return false;
+        }
+        m_non_scalar_components.insert(
+            std::make_pair(path, blocks_descendants));
+        return true;
+    }
+
+    void PreserveUnsupportedComponent(
+        JBeamStructuralDiagnosticCode code,
+        const PartContext& part,
+        const std::string& path,
+        const std::string& detail,
+        const std::shared_ptr<const JBeamValue>& value)
+    {
+        PushPreserved(
+            code,
+            value
+                ? ProvenanceWithSpan(part.provenance, value->span)
+                : part.provenance,
+            "components",
+            0U,
+            path,
+            detail,
+            value);
+    }
+
+    void MergeComponentValue(
+        const PartContext& part,
+        const std::string& path,
+        const std::shared_ptr<const JBeamValue>& value,
+        std::size_t depth,
+        std::map<std::string, JBeamExpressionValue>& values)
+    {
+        if (m_resource_limit)
+        {
+            return;
+        }
+        if (m_component_nodes >= m_limits.max_component_nodes ||
+            depth > m_limits.max_component_depth)
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
+                JBeamStructuralSeverity::ERROR,
+                part.provenance,
+                "components",
+                0U,
+                path,
+                "Component tree exceeds the configured node or depth "
+                "limit");
+            m_resource_limit = true;
+            return;
+        }
+        ++m_component_nodes;
+        if (!ChargeSemanticWork(
+                1U,
+                part.provenance,
+                "components",
+                path,
+                "Component discovery exceeds the aggregate semantic "
+                "work limit"))
+        {
+            return;
+        }
+        if (!value)
+        {
+            PreserveUnsupportedComponent(
+                JBeamStructuralDiagnosticCode::
+                    UNSUPPORTED_COMPONENT_VALUE,
+                part,
+                path,
+                "Null component storage is preserved but unavailable "
+                "to expressions",
+                value);
+            return;
+        }
+        if (value->type == JBeamValueType::OBJECT)
+        {
+            if (!EraseComponentPath(
+                    values, path, false, part.provenance))
+            {
+                return;
+            }
+            if (!path.empty())
+            {
+                if (!SetNonScalarComponent(path, false))
+                {
+                    return;
+                }
+            }
+            for (std::size_t i = 0U;
+                 i < value->object_fields.size();
+                 ++i)
+            {
+                const JBeamObjectField& field =
+                    value->object_fields[i];
+                if (!IsComponentPathSegment(field.key))
+                {
+                    PreserveUnsupportedComponent(
+                        JBeamStructuralDiagnosticCode::
+                            INVALID_COMPONENT_PATH,
+                        part,
+                        path.empty()
+                            ? field.key
+                            : path + "." + field.key,
+                        "Component path segment cannot be represented by "
+                        "the allowlisted scalar evaluator",
+                        field.value);
+                    continue;
+                }
+                const std::string child_path = path.empty()
+                    ? field.key
+                    : path + "." + field.key;
+                const std::size_t component_prefix_bytes = 12U;
+                if (m_limits.expression_limits.
+                            max_variable_name_bytes <
+                        component_prefix_bytes ||
+                    child_path.size() >
+                        m_limits.expression_limits.
+                            max_variable_name_bytes -
+                            component_prefix_bytes)
+                {
+                    PreserveUnsupportedComponent(
+                        JBeamStructuralDiagnosticCode::
+                            INVALID_COMPONENT_PATH,
+                        part,
+                        child_path,
+                        "Flattened component path exceeds the "
+                        "configured expression-variable name limit",
+                        field.value);
+                    continue;
+                }
+                MergeComponentValue(
+                    part,
+                    child_path,
+                    field.value,
+                    depth + 1U,
+                    values);
+            }
+            return;
+        }
+        if (!EraseComponentPath(
+                values, path, true, part.provenance))
+        {
+            return;
+        }
+        if (!EraseNonScalarComponentPath(
+                path, true, part.provenance))
+        {
+            return;
+        }
+        if (value->type == JBeamValueType::ARRAY)
+        {
+            if (!SetNonScalarComponent(path, true))
+            {
+                return;
+            }
+            PreserveUnsupportedComponent(
+                JBeamStructuralDiagnosticCode::
+                    UNSUPPORTED_COMPONENT_VALUE,
+                part,
+                path,
+                "Table-valued component is preserved but cannot enter "
+                "the scalar expression environment",
+                value);
+            return;
+        }
+        if (value->type == JBeamValueType::STRING &&
+            IsExpressionString(*value))
+        {
+            if (!SetNonScalarComponent(path, true))
+            {
+                return;
+            }
+            PreserveUnsupportedComponent(
+                JBeamStructuralDiagnosticCode::
+                    UNSUPPORTED_COMPONENT_VALUE,
+                part,
+                path,
+                "Expression-valued component is preserved; recursive "
+                "component evaluation is not allowlisted",
+                value);
+            return;
+        }
+        if (value->type == JBeamValueType::STRING &&
+            value->scalar_text.size() >
+                m_limits.expression_limits.max_string_bytes)
+        {
+            if (!SetNonScalarComponent(path, true))
+            {
+                return;
+            }
+            PreserveUnsupportedComponent(
+                JBeamStructuralDiagnosticCode::
+                    UNSUPPORTED_COMPONENT_VALUE,
+                part,
+                path,
+                "Component string exceeds the scalar evaluator limit "
+                "and is preserved without entering the environment",
+                value);
+            return;
+        }
+
+        JBeamExpressionValue scalar;
+        if (!ResolveScalarValue(
+                *value,
+                std::vector<JBeamExpressionVariable>(),
+                ProvenanceWithSpan(part.provenance, value->span),
+                "components",
+                0U,
+                path,
+                scalar))
+        {
+            return;
+        }
+        std::size_t admission_bytes = 12U;
+        if (!AddSize(path.size(), admission_bytes) ||
+            (scalar.type == JBeamExpressionValueType::STRING &&
+             !AddSize(
+                 scalar.string_value.size(), admission_bytes)))
+        {
+            RejectRetained();
+            return;
+        }
+        if (!ReserveSemantic(admission_bytes))
+        {
+            return;
+        }
+        values[path] = scalar;
+        if (values.size() >
+            m_limits.expression_limits.max_variables)
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
+                JBeamStructuralSeverity::ERROR,
+                part.provenance,
+                "components",
+                0U,
+                path,
+                "Flattened component environment exceeds the "
+                "configured variable limit");
+            m_resource_limit = true;
+        }
+    }
+
+    void BuildComponentEnvironment()
+    {
+        std::map<std::string, JBeamExpressionValue> values;
+        for (std::size_t part_index = 0U;
+             part_index < m_parts.size() && !m_resource_limit;
+             ++part_index)
+        {
+            const PartContext& part = m_parts[part_index];
+            const JBeamValue& body = part.node->definition.body;
+            if (body.type != JBeamValueType::OBJECT)
+            {
+                continue;
+            }
+            for (std::size_t field_index = 0U;
+                 field_index < body.object_fields.size();
+                 ++field_index)
+            {
+                const JBeamObjectField& field =
+                    body.object_fields[field_index];
+                if (field.key != "components")
+                {
+                    continue;
+                }
+                if (!field.value ||
+                    field.value->type != JBeamValueType::OBJECT)
+                {
+                    PreserveUnsupportedComponent(
+                        JBeamStructuralDiagnosticCode::
+                            UNSUPPORTED_COMPONENT_VALUE,
+                        part,
+                        "$components",
+                        "The components section must be a dictionary; "
+                        "its inert value is preserved",
+                        field.value);
+                    continue;
+                }
+                MergeComponentValue(
+                    part,
+                    std::string(),
+                    field.value,
+                    0U,
+                    values);
+            }
+        }
+        if (m_resource_limit)
+        {
+            return;
+        }
+        m_components.reserve(values.size());
+        for (std::map<std::string, JBeamExpressionValue>::
+                 const_iterator iterator = values.begin();
+             iterator != values.end();
+             ++iterator)
+        {
+            JBeamExpressionVariable variable;
+            variable.name = "$components." + iterator->first;
+            variable.value = iterator->second;
+            std::size_t bytes = variable.name.size();
+            if (variable.value.type ==
+                JBeamExpressionValueType::STRING)
+            {
+                const std::size_t string_bytes =
+                    variable.value.string_value.size();
+                if (string_bytes >
+                        m_limits.expression_limits.max_string_bytes ||
+                    string_bytes >
+                        m_limits.expression_limits.
+                            max_environment_string_bytes -
+                            std::min(
+                                m_component_string_bytes,
+                                m_limits.expression_limits.
+                                    max_environment_string_bytes))
+                {
+                    Push(
+                        JBeamStructuralDiagnosticCode::
+                            EXPRESSION_LIMIT,
+                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralProvenance(),
+                        "components",
+                        0U,
+                        variable.name,
+                        "Flattened component strings exceed the "
+                        "configured expression-environment limit");
+                    m_resource_limit = true;
+                    return;
+                }
+                if (!AddSize(string_bytes, bytes))
+                {
+                    RejectRetained();
+                    return;
+                }
+                m_component_string_bytes += string_bytes;
+            }
+            if (!ReserveSemantic(bytes))
+            {
+                return;
+            }
+            m_components.push_back(variable);
+        }
+    }
+
+    void BuildPartVariableEnvironments()
+    {
+        for (std::size_t part_index = 0U;
+             part_index < m_parts.size() && !m_resource_limit;
+             ++part_index)
+        {
+            PartContext& part = m_parts[part_index];
+            const std::vector<JBeamVariableAssignment>& authored =
+                part.node->inherited_variables;
+            if (authored.size() >
+                m_limits.expression_limits.max_variables -
+                    std::min(
+                        m_components.size(),
+                        m_limits.expression_limits.max_variables))
+            {
+                Push(
+                    JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
+                    JBeamStructuralSeverity::ERROR,
+                    part.provenance,
+                    "variables",
+                    0U,
+                    std::string(),
+                    "Resolved part expression environment exceeds the "
+                    "configured variable limit");
+                m_resource_limit = true;
+                return;
+            }
+            part.variables->reserve(authored.size());
+            std::size_t environment_string_bytes =
+                m_component_string_bytes;
+            for (std::size_t i = 0U;
+                 i < authored.size() && !m_resource_limit;
+                 ++i)
+            {
+                const JBeamVariableAssignment& assignment =
+                    authored[i];
+                const JBeamStructuralProvenance provenance =
+                    ProvenanceWithSpan(
+                        part.provenance, assignment.span);
+                if (!IsSimpleExpressionVariableName(
+                        assignment.name))
+                {
+                    Push(
+                        JBeamStructuralDiagnosticCode::
+                            INVALID_VARIABLE_VALUE,
+                        JBeamStructuralSeverity::ERROR,
+                        provenance,
+                        "variables",
+                        i,
+                        assignment.name,
+                        "Resolved variable name is not accepted by the "
+                        "allowlisted evaluator");
+                    continue;
+                }
+                JBeamExpressionValue value;
+                if (!ResolveScalarValue(
+                        assignment.value,
+                        *part.variables,
+                        provenance,
+                        "variables",
+                        i,
+                        assignment.name,
+                        value))
+                {
+                    if (assignment.value.type ==
+                            JBeamValueType::ARRAY ||
+                        assignment.value.type ==
+                            JBeamValueType::OBJECT)
+                    {
+                        Push(
+                            JBeamStructuralDiagnosticCode::
+                                INVALID_VARIABLE_VALUE,
+                            JBeamStructuralSeverity::ERROR,
+                            provenance,
+                            "variables",
+                            i,
+                            assignment.name,
+                            "Resolved expression variables must be "
+                            "scalar values");
+                    }
+                    continue;
+                }
+                JBeamExpressionVariable variable;
+                variable.name = assignment.name;
+                variable.value = value;
+                std::size_t bytes = variable.name.size();
+                if (variable.value.type ==
+                    JBeamExpressionValueType::STRING)
+                {
+                    const std::size_t string_bytes =
+                        variable.value.string_value.size();
+                    if (string_bytes >
+                            m_limits.expression_limits.max_string_bytes ||
+                        string_bytes >
+                            m_limits.expression_limits.
+                                max_environment_string_bytes -
+                                std::min(
+                                    environment_string_bytes,
+                                    m_limits.expression_limits.
+                                        max_environment_string_bytes))
+                    {
+                        Push(
+                            JBeamStructuralDiagnosticCode::
+                                EXPRESSION_LIMIT,
+                            JBeamStructuralSeverity::ERROR,
+                            provenance,
+                            "variables",
+                            i,
+                            assignment.name,
+                            "Resolved variable strings exceed the "
+                            "configured expression-environment limit");
+                        m_resource_limit = true;
+                        return;
+                    }
+                    if (!AddSize(string_bytes, bytes))
+                    {
+                        RejectRetained();
+                        return;
+                    }
+                    environment_string_bytes += string_bytes;
+                }
+                if (!ReserveSemantic(bytes))
+                {
+                    return;
+                }
+                part.variables->push_back(variable);
             }
         }
     }
@@ -1596,6 +2796,21 @@ private:
         }
     }
 
+    const std::vector<JBeamExpressionVariable>& VariablesFor(
+        const JBeamStructuralProvenance& provenance) const
+    {
+        static const std::vector<JBeamExpressionVariable> empty;
+        if (!provenance.part ||
+            provenance.PartPreorderIndex() >= m_parts.size())
+        {
+            return empty;
+        }
+        const std::shared_ptr<std::vector<JBeamExpressionVariable> >&
+            variables =
+                m_parts[provenance.PartPreorderIndex()].variables;
+        return variables ? *variables : empty;
+    }
+
     bool ReadRequiredString(
         const JBeamNormalizedDataRow& row,
         const JBeamStructuralProvenance& provenance,
@@ -1641,32 +2856,35 @@ private:
                 "Required string field is missing");
             return false;
         }
-        if (IsExpressionString(*assignment->value))
-        {
-            Push(
-                JBeamStructuralDiagnosticCode::EXPRESSION_DISABLED,
-                JBeamStructuralSeverity::ERROR,
-                ProvenanceWithSpan(provenance, assignment->span),
+        const JBeamStructuralProvenance field_provenance =
+            ProvenanceWithSpan(provenance, assignment->span);
+        JBeamExpressionValue resolved;
+        if (!ResolveScalarValue(
+                *assignment->value,
+                VariablesFor(provenance),
+                field_provenance,
                 section,
                 row_index,
                 primary,
-                "Expressions and variable references are inert in J2");
+                resolved))
+        {
             return false;
         }
-        if (assignment->value->type != JBeamValueType::STRING ||
-            assignment->value->scalar_text.empty())
+        if (resolved.type != JBeamExpressionValueType::STRING ||
+            resolved.string_value.empty())
         {
             Push(
                 JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
                 JBeamStructuralSeverity::ERROR,
-                ProvenanceWithSpan(provenance, assignment->span),
+                field_provenance,
                 section,
                 row_index,
                 primary,
-                "Required node identifier must be a non-empty string");
+                "Required identifier expression must resolve to a "
+                "non-empty string");
             return false;
         }
-        output = assignment->value->scalar_text;
+        output = resolved.string_value;
         return true;
     }
 
@@ -1696,43 +2914,33 @@ private:
                 "Required numeric field is missing");
             return false;
         }
-        if (IsExpressionString(*assignment->value))
-        {
-            Push(
-                JBeamStructuralDiagnosticCode::EXPRESSION_DISABLED,
-                JBeamStructuralSeverity::ERROR,
-                ProvenanceWithSpan(provenance, assignment->span),
+        const JBeamStructuralProvenance field_provenance =
+            ProvenanceWithSpan(provenance, assignment->span);
+        JBeamExpressionValue resolved;
+        if (!ResolveScalarValue(
+                *assignment->value,
+                VariablesFor(provenance),
+                field_provenance,
                 section,
                 row_index,
                 name,
-                "Expressions and variable references are inert in J2");
+                resolved))
+        {
             return false;
         }
-        if (assignment->value->type != JBeamValueType::NUMBER)
+        if (resolved.type != JBeamExpressionValueType::NUMBER)
         {
             Push(
                 JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
                 JBeamStructuralSeverity::ERROR,
-                ProvenanceWithSpan(provenance, assignment->span),
+                field_provenance,
                 section,
                 row_index,
                 name,
-                "Field must be numeric");
+                "Field expression must resolve to a number");
             return false;
         }
-        if (!IsFiniteDouble(assignment->value->number_value))
-        {
-            Push(
-                JBeamStructuralDiagnosticCode::NON_FINITE_NUMBER,
-                JBeamStructuralSeverity::ERROR,
-                ProvenanceWithSpan(provenance, assignment->span),
-                section,
-                row_index,
-                name,
-                "Non-finite structural numbers are rejected");
-            return false;
-        }
-        output = assignment->value->number_value;
+        output = resolved.number_value;
         return true;
     }
 
@@ -1813,20 +3021,45 @@ private:
         {
             return true;
         }
-        if (!assignment->value ||
-            assignment->value->type != JBeamValueType::BOOLEAN)
+        if (!assignment->value)
         {
             Push(
                 JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
                 JBeamStructuralSeverity::ERROR,
-                ProvenanceWithSpan(provenance, assignment->span),
+                provenance,
                 section,
                 row_index,
                 name,
-                "Field must be Boolean");
+                "Field expression must resolve to a Boolean");
             return false;
         }
-        output = assignment->value->boolean_value;
+        const JBeamStructuralProvenance field_provenance =
+            ProvenanceWithSpan(provenance, assignment->span);
+        JBeamExpressionValue resolved;
+        if (!ResolveScalarValue(
+                *assignment->value,
+                VariablesFor(provenance),
+                field_provenance,
+                section,
+                row_index,
+                name,
+                resolved))
+        {
+            return false;
+        }
+        if (resolved.type != JBeamExpressionValueType::BOOLEAN)
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
+                JBeamStructuralSeverity::ERROR,
+                field_provenance,
+                section,
+                row_index,
+                name,
+                "Field expression must resolve to a Boolean");
+            return false;
+        }
+        output = resolved.boolean_value;
         return true;
     }
 
@@ -1849,9 +3082,7 @@ private:
         {
             return true;
         }
-        if (!assignment->value ||
-            assignment->value->type != JBeamValueType::STRING ||
-            assignment->value->scalar_text.empty())
+        if (!assignment->value)
         {
             Push(
                 JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
@@ -1866,7 +3097,35 @@ private:
                 "beamType must be a non-empty string");
             return false;
         }
-        output = assignment->value->scalar_text;
+        const JBeamStructuralProvenance field_provenance =
+            ProvenanceWithSpan(provenance, assignment->span);
+        JBeamExpressionValue resolved;
+        if (!ResolveScalarValue(
+                *assignment->value,
+                VariablesFor(provenance),
+                field_provenance,
+                "beams",
+                row_index,
+                "beamType",
+                resolved))
+        {
+            return false;
+        }
+        if (resolved.type != JBeamExpressionValueType::STRING ||
+            resolved.string_value.empty())
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
+                JBeamStructuralSeverity::ERROR,
+                field_provenance,
+                "beams",
+                row_index,
+                "beamType",
+                "beamType expression must resolve to a non-empty "
+                "string");
+            return false;
+        }
+        output = resolved.string_value;
         std::string normalized = output;
         if (!normalized.empty() && normalized[0] == '|')
         {
@@ -3602,6 +4861,10 @@ JBeamStructuralLimits::JBeamStructuralLimits()
     , max_retained_bytes(64U * 1024U * 1024U)
     , max_preserved_value_work_units(1000000U)
     , max_preserved_value_depth(256U)
+    , max_expression_evaluations(1000000U)
+    , max_expression_work_units(268435456U)
+    , max_component_nodes(16384U)
+    , max_component_depth(64U)
     , max_canonical_output_bytes(256U * 1024U * 1024U)
     , max_canonical_work_units(4000000U)
 {
@@ -3915,8 +5178,18 @@ const char* JBeamStructuralDiagnosticCodeToString(
         return "ambiguous-required-field";
     case JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE:
         return "invalid-field-type";
+    case JBeamStructuralDiagnosticCode::EXPRESSION_ERROR:
+        return "expression-error";
+    case JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT:
+        return "expression-limit";
     case JBeamStructuralDiagnosticCode::EXPRESSION_DISABLED:
         return "expression-disabled";
+    case JBeamStructuralDiagnosticCode::UNSUPPORTED_COMPONENT_VALUE:
+        return "unsupported-component-value";
+    case JBeamStructuralDiagnosticCode::INVALID_COMPONENT_PATH:
+        return "invalid-component-path";
+    case JBeamStructuralDiagnosticCode::INVALID_VARIABLE_VALUE:
+        return "invalid-variable-value";
     case JBeamStructuralDiagnosticCode::NON_FINITE_NUMBER:
         return "non-finite-number";
     case JBeamStructuralDiagnosticCode::INVALID_NODE_WEIGHT:

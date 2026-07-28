@@ -602,7 +602,41 @@ and duplicate-preserving, source-spanned AST. It accepts documented comments,
 optional/trailing commas, strict finite scalars, UTF-8/Unicode escapes, and
 normalizes table headers, inherited defaults, positional cells, trailing row
 dictionaries, malformed rows, and effective last-write lookup without erasing
-raw input. Variables and `$=` expressions remain inert.
+raw input. Variables and `$=` expressions remain inert in this syntax AST and
+in the part resolver.
+
+The independent J1 expression core now evaluates a strict documented scalar
+subset with typed variables and flattened scalar `$components` paths. It
+implements finite decimal arithmetic, comparisons, Lua-style
+`and`/`or`/`not` and their short-circuit ternary idiom, Boolean
+three-argument `case`, string concatenation/length, explicit precedence, and
+source-independent canonical scalar results. Input, token, recursion, work,
+string, output, and environment quotas are deterministic; non-finite values
+fail closed under strict and fast-math builds. It does not execute Lua or expose
+host functions. Numeric-selector `case`, other built-ins, table-valued
+components, and numeric-to-string concatenation remain unsupported.
+
+`ParseJBeam` and `JBeamPartResolver` deliberately retain expressions as inert,
+duplicate-preserving source data. The J2 structural semantic pass now invokes
+the core only at its explicit scalar-field readers. It builds each part's
+environment from effective configuration/slot variables plus deterministically
+merged scalar component leaves, resolves standalone variables, `$=`
+expressions, and `$.name` namespace strings, then enforces the destination
+field's number/Boolean/string policy. Missing variables remain `nil` for
+documented existence checks; a final `nil` in a typed structural field fails
+closed. Expression diagnostics retain the field source span and decoded byte
+offset.
+
+Table-valued and expression-valued components remain preserved-but-disabled,
+and no unknown field or section is evaluated. Per-expression quotas are backed
+by aggregate evaluation/work, component node/depth, environment, and retained
+memory gates. Clean-room end-to-end tests cover configuration and slot
+variables, namespace expansion, scalar components, missing-variable
+short-circuiting, forbidden host calls, quotas, and representative
+FormulaCOUPE v0.9.7 arithmetic shapes such as node mass scaling and
+beam-precompression tuning. Full table components, authored tuning-variable
+default tables, the broader documented math function set, and semantic
+evaluation for non-structural sections remain open J1/J2 work.
 
 The bounded resolver indexes parts independently of archive enumeration order,
 selects the sole `main` root or requires an explicit root when a package exposes
@@ -612,9 +646,9 @@ variable inheritance. It rejects duplicate definitions, ambiguous parts,
 cycles, invalid slot tables, and resource-limit overflow with canonical source
 diagnostics. Canonical index and resolved-graph identities retain the full
 duplicate assignment/body history and source spans. Per-`vehicles/<id>` part
-namespaces, allowlisted expression evaluation, field-specific semantic
-validation beyond the structural subset, coordinate lowering into `RigDef`, and
-the complete vehicle IR remain open J1/J2 work.
+namespaces beyond the structural field gate, field-specific semantic validation
+beyond the structural subset, coordinate lowering into `RigDef`, and the
+complete vehicle IR remain open J1/J2 work.
 
 The first J2 kernel locks the vehicle-basis conversion as the exact,
 handedness-preserving permutation
