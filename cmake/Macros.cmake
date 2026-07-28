@@ -11,7 +11,7 @@ endmacro(get_sub_dirs)
 
 function(recursive_zip_folder in_dir out_dir)
     get_filename_component(FROM_DIR_NAME ${in_dir} NAME)
-    set(TMP_FILE_DIR ${CMAKE_BINARY_DIR}/tmp/${name})
+    set(TMP_FILE_DIR ${CMAKE_BINARY_DIR}/tmp/recursive_zip_${FROM_DIR_NAME})
     get_sub_dirs(SUB_DIRS "${in_dir}")
     file(MAKE_DIRECTORY ${out_dir})
 
@@ -20,18 +20,35 @@ function(recursive_zip_folder in_dir out_dir)
             continue()
         endif ()
 
-        file(GLOB_RECURSE ZIP_FILES LIST_DIRECTORIES FALSE "${in_dir}/${ZIP_DIR}/*")
+        set(ZIP_ROOT "${in_dir}/${ZIP_DIR}")
 
-        set(ZIP_FILES_TXT "")
+        # Feed the archiver only the immediate children. Directory arguments
+        # are traversed by `cmake -E tar`, which emits the explicit directory
+        # records expected by OGRE's ZipArchive while adding every descendant
+        # exactly once. Listing both directories and their descendants would
+        # create duplicate ZIP entries.
+        file(GLOB ZIP_ENTRIES
+            LIST_DIRECTORIES TRUE
+            RELATIVE "${ZIP_ROOT}"
+            "${ZIP_ROOT}/*")
+        list(SORT ZIP_ENTRIES)
+
+        set(ZIP_ENTRIES_TXT "")
+        foreach (ZIP_ENTRY IN LISTS ZIP_ENTRIES)
+            string(APPEND ZIP_ENTRIES_TXT "${ZIP_ENTRY}\n")
+        endforeach ()
+        file(WRITE "${TMP_FILE_DIR}/${ZIP_DIR}-filelist.txt" "${ZIP_ENTRIES_TXT}")
+
+        # Retain every regular file as a build dependency so edits anywhere
+        # below a packaged directory regenerate the archive.
+        file(GLOB_RECURSE ZIP_FILES LIST_DIRECTORIES FALSE "${ZIP_ROOT}/*")
+        list(SORT ZIP_FILES)
         set(ZIP_FILES_DEP "")
         foreach (ZIP_FILE ${ZIP_FILES})
-            file(RELATIVE_PATH REL_PATH "${in_dir}/${ZIP_DIR}" "${ZIP_FILE}")
-            set(ZIP_FILES_TXT "${ZIP_FILES_TXT}${REL_PATH}\n")
             if (NOT IS_DIRECTORY ${ZIP_FILE})
                 list(APPEND ZIP_FILES_DEP ${ZIP_FILE})
             endif ()
         endforeach ()
-        file(WRITE "${TMP_FILE_DIR}/${ZIP_DIR}-filelist.txt" ${ZIP_FILES_TXT})
 
         set(ZIP_NAME "${out_dir}/${ZIP_DIR}.zip")
         add_custom_command(

@@ -122,6 +122,40 @@ jobs:
                 in_build_version && $1 == "minos" { print $2; exit }
               '
           )" = "11.0"
+          executable_rpaths="$(
+            otool -l "$executable" |
+              awk '
+                $1 == "cmd" && $2 == "LC_RPATH" {
+                  in_rpath = 1
+                  next
+                }
+                in_rpath && $1 == "path" {
+                  print $2
+                  in_rpath = 0
+                }
+              '
+          )"
+          test "$executable_rpaths" = "$(
+            printf '%s\n%s' \
+              '@executable_path/../Frameworks' \
+              '@executable_path/../PlugIns'
+          )"
+          while IFS= read -r -d '' binary; do
+            test "$(lipo -archs "$binary")" = "arm64"
+            test "$(
+              otool -l "$binary" |
+                awk '
+                  /LC_BUILD_VERSION/ { in_build_version = 1; next }
+                  in_build_version && $1 == "minos" { print $2; exit }
+                '
+            )" = "11.0"
+          done < <(
+            printf '%s\0' "$executable"
+            find \
+              "$app/Contents/PlugIns" \
+              "$app/Contents/Frameworks" \
+              -type f -name '*.dylib' -print0
+          )
 
           codesign --verify --deep --strict --verbose=2 "$app"
           plutil -lint "$app/Contents/Info.plist"
@@ -132,8 +166,36 @@ jobs:
           test -L "$app/Contents/MacOS/plugins.cfg"
           test ! -e "$app/Contents/MacOS/config"
 
+          diff -qr \
+            build-macos-ogre14/bin/resources/ogre14 \
+            "$app/Contents/Resources/OGRE"
+          test -f \
+            "$app/Contents/Resources/OGRE/RTShaderLib/FFPLib_Transform.glsl"
+          test -f \
+            "$app/Contents/Resources/OGRE/RTShaderLib/RTSLib_Lighting.glsl"
+          test -f \
+            "$app/Contents/Resources/OGRE/Terrain/TerrainSurface.glsl"
+
           controller_map="config/SDL_GameController_v1.macos.map"
           skeleton="$app/Contents/Resources/resources/skeleton.zip"
+          unzip -tqq "$skeleton"
+          skeleton_entry_count="$(unzip -Z1 "$skeleton" | wc -l | tr -d ' ')"
+          skeleton_unique_entry_count="$(
+            unzip -Z1 "$skeleton" | LC_ALL=C sort -u | wc -l | tr -d ' '
+          )"
+          test "$skeleton_entry_count" = "$skeleton_unique_entry_count"
+          for directory in \
+            cache/ \
+            config/ \
+            logs/ \
+            mods/ \
+            repo_attachments/ \
+            savegames/ \
+            screenshots/ \
+            thumbnails/
+          do
+            unzip -Z1 "$skeleton" | grep -Fx "$directory"
+          done
           unzip -Z1 "$skeleton" | grep -Fx "$controller_map"
           unzip -p "$skeleton" "$controller_map" |
             cmp - "resources/skeleton/$controller_map"
@@ -155,7 +217,35 @@ jobs:
               tr -d ' '
           )" = "9"
 
-      - name: Launch application bundle and shut down cleanly
+      - name: Build macOS GL3 capability probe
+        shell: bash
+        run: |
+          xcrun clang++ \
+            -std=c++17 \
+            -arch arm64 \
+            -mmacosx-version-min=11.0 \
+            -fobjc-arc \
+            -Wall \
+            -Wextra \
+            -Werror \
+            -Wno-deprecated-declarations \
+            -framework AppKit \
+            -framework CoreGraphics \
+            -framework OpenGL \
+            tools/macos_gl3_capability_probe.mm \
+            -o "$RUNNER_TEMP/ror-macos-gl3-capability-probe"
+          test "$(
+            lipo -archs "$RUNNER_TEMP/ror-macos-gl3-capability-probe"
+          )" = "arm64"
+          test "$(
+            otool -l "$RUNNER_TEMP/ror-macos-gl3-capability-probe" |
+              awk '
+                /LC_BUILD_VERSION/ { in_build_version = 1; next }
+                in_build_version && $1 == "minos" { print $2; exit }
+              '
+          )" = "11.0"
+
+      - name: Exercise application bundle and renderer when available
         shell: bash
         env:
           ALSOFT_DRIVERS: "null"
@@ -164,11 +254,18 @@ jobs:
           app="build-macos-ogre14/bin/RoR.app"
           executable="$app/Contents/MacOS/RoR"
           output="$RUNNER_TEMP/ror-bundle-smoke.stdout"
+          pre_render_log="$RUNNER_TEMP/ror-bundle-pre-render.log"
+          probe_log="$RUNNER_TEMP/ror-macos-gl3-capability.log"
           log="$HOME/Library/Logs/Rigs of Rods/RoR.log"
           script_log="$HOME/Library/Logs/Rigs of Rods/Angelscript.log"
 
           dump_smoke_logs() {
-            for diagnostic in "$output" "$log" "$script_log"; do
+            for diagnostic in \
+              "$pre_render_log" \
+              "$probe_log" \
+              "$output" \
+              "$log" \
+              "$script_log"; do
               if test -f "$diagnostic"; then
                 echo "::group::$diagnostic"
                 tail -n 200 "$diagnostic"
@@ -178,51 +275,15 @@ jobs:
           }
           trap 'status=$?; if test "$status" -ne 0; then dump_smoke_logs; fi' EXIT
 
-          python3 - "$executable" "$output" <<'PY'
-          import pathlib
-          import subprocess
-          import sys
-
-          executable = pathlib.Path(sys.argv[1])
-          output = pathlib.Path(sys.argv[2])
-          with output.open("wb") as stream:
-              try:
-                  result = subprocess.run(
-                      [
-                          str(executable),
-                          "-runscript",
-                          "example_ci_bundle_smoke.as",
-                      ],
-                      stdout=stream,
-                      stderr=subprocess.STDOUT,
-                      timeout=90,
-                      check=False,
-                  )
-              except subprocess.TimeoutExpired:
-                  raise SystemExit(
-                      "RoR bundle smoke did not shut down within 90 seconds"
-                  )
-          if result.returncode != 0:
-              raise SystemExit(
-                  f"RoR bundle smoke exited with {result.returncode}"
-              )
-          PY
-
-          test -f "$log"
-          test -f "$script_log"
-          grep -F "[RoR|Startup|Rendering] Creating SDL host" "$log"
-          grep -F "OpenGL 3+ Renderer Started" "$log"
-          grep -F "SoundManager: OpenAL renderer is: OpenAL Soft" "$log"
-          grep -F "[RoR|CI|BundleSmoke] START" "$script_log"
-          grep -F "[RoR|CI|BundleSmoke] PASS frames=10" "$script_log"
-          grep -F "*-*-* OGRE Shutdown" "$log"
-
-          if grep -E \
-            "RenderingAPIException|OGRE EXCEPTION|An exception.*occured|EXC_BAD_ACCESS|Segmentation fault" \
-            "$log" "$script_log" "$output"; then
-            echo "A fatal renderer/runtime diagnostic was logged" >&2
-            exit 1
-          fi
+          python3 tools/macos_bundle_smoke.py \
+            --executable "$executable" \
+            --probe "$RUNNER_TEMP/ror-macos-gl3-capability-probe" \
+            --runtime-stdout "$output" \
+            --engine-log "$log" \
+            --script-log "$script_log" \
+            --pre-render-log "$pre_render_log" \
+            --probe-log "$probe_log" \
+            --timeout 90
 
       - name: Upload bundle-smoke diagnostics
         if: always()
@@ -231,6 +292,8 @@ jobs:
           name: Rigs-of-Rods-macOS-arm64-smoke-logs
           path: |
             ${{ runner.temp }}/ror-bundle-smoke.stdout
+            ${{ runner.temp }}/ror-bundle-pre-render.log
+            ${{ runner.temp }}/ror-macos-gl3-capability.log
             ~/Library/Logs/Rigs of Rods/RoR.log
             ~/Library/Logs/Rigs of Rods/Angelscript.log
           if-no-files-found: warn
