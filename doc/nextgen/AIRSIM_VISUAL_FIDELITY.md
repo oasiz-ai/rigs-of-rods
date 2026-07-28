@@ -56,6 +56,20 @@ Every imported source must pass `CONTENT_PROVENANCE.md`. Unknown, engine-only,
 or binary-only rights fail closed. AirSim screenshots and videos may be stored
 as local benchmark evidence when permitted, but are not project content.
 
+The direct-import decision is therefore:
+
+| Source | RoR use | Decision |
+| --- | --- | --- |
+| AirSim simulator source at the pinned commit | API and sensor behavior reference; MIT-licensed code may be reused with its notice | Allowed where it provides an actual RoR capability, but it does not supply Unreal visual fidelity |
+| Bundled Blocks `.uasset`/`.umap` files | Basic qualitative test-map reference | Capture-only by default; the map is intentionally low-detail and is neither the fidelity target nor a portable source format |
+| AirSim release environments such as AirSimNH, Africa, and LandscapeMountains | High-detail qualitative comparison | No import; the release states that proprietary assets prevent source-project distribution |
+| Independently authored or separately licensed glTF source | Shared benchmark and showcase environment | Preferred import path after provenance and deterministic compiler gates pass |
+
+RoR will not add an Unreal package reader or treat the AirSim repository's MIT
+license as a blanket grant for third-party environment content. If an exact
+AirSim-adjacent asset later has independently verified portable rights, it
+enters through the same glTF and provenance boundary as every other source.
+
 ## Shared source scene
 
 The benchmark scene is authored independently of both engines and contains:

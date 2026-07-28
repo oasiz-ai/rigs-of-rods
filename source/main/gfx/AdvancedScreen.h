@@ -24,7 +24,7 @@
 
 #include "Application.h"
 
-#include <thread>
+#include <future>
 
 #define SET_BIT(var, pos)   ((var) |= (1<<(pos)))
 #define CLEAR_BIT(var, pos) ((var) &= ~(1<<(pos)))
@@ -32,11 +32,20 @@
 #define CLEAR_LSB(var)      ((var) &= ~1)
 #define CHECK_BIT(var,pos)  ((var) & (1<<(pos)))
 
-void save(Ogre::uchar* data, Ogre::uchar* databuf, int mWidth, int mHeight, Ogre::PixelFormat pf, Ogre::String filename)
+inline void SaveAdvancedScreenshot(Ogre::uchar* data, Ogre::uchar* databuf, int mWidth, int mHeight, Ogre::PixelFormat pf, Ogre::String filename)
 {
-    Ogre::Image img;
-    img.loadDynamicImage(data, mWidth, mHeight, 1, pf, false, 1, 0);
-    img.save(filename);
+    try
+    {
+        Ogre::Image img;
+        img.loadDynamicImage(data, mWidth, mHeight, 1, pf, false, 1, 0);
+        img.save(filename);
+    }
+    catch (...)
+    {
+        OGRE_FREE(data, Ogre::MEMCATEGORY_RENDERSYS);
+        OGRE_FREE(databuf, Ogre::MEMCATEGORY_RENDERSYS);
+        throw;
+    }
 
     OGRE_FREE(data, Ogre::MEMCATEGORY_RENDERSYS);
     OGRE_FREE(databuf, Ogre::MEMCATEGORY_RENDERSYS);
@@ -65,7 +74,7 @@ public:
         map[name] = value;
     }
 
-    void write()
+    std::future<void> write()
     {
         // please do not misinterpret this feature
         // its used in the forums like an EXTIF data to display things beside the screenshots
@@ -117,7 +126,15 @@ public:
             }
         }
 
-        std::thread(save, data, databuf, mWidth, mHeight, pf, filename).detach();
+        return std::async(
+            std::launch::async,
+            SaveAdvancedScreenshot,
+            data,
+            databuf,
+            mWidth,
+            mHeight,
+            pf,
+            filename);
     }
 
 protected:

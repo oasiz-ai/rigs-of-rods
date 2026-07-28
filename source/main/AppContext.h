@@ -33,6 +33,8 @@
 #include <Ogre.h>
 #include <OIS.h>
 
+#include <future>
+
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
 struct SDL_Window;
 #endif
@@ -117,6 +119,7 @@ private:
 
     // Rendering and window management
     void                 SetRenderWindowIcon(Ogre::RenderWindow* rw);
+    void                 FinishPendingScreenshot() noexcept;
 #if OGRE_VERSION_MAJOR >= 14
     bool                 SetUpRTShaderSystem();
     void                 ShutDownRTShaderSystem();
@@ -141,6 +144,7 @@ private:
 
     std::time_t          m_prev_screenshot_time;
     int                  m_prev_screenshot_index = 1;
+    std::future<void>    m_screenshot_write;
 
     RoR::ForceFeedback   m_force_feedback;
 

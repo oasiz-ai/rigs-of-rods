@@ -74,6 +74,8 @@ using namespace RoR;
 
 AppContext::~AppContext()
 {
+    this->FinishPendingScreenshot();
+
 #if OGRE_VERSION_MAJOR >= 14
     this->ShutDownRTShaderSystem();
 
@@ -856,6 +858,10 @@ Ogre::RenderWindow* AppContext::CreateCustomRenderWindow(std::string const& wind
 
 void AppContext::CaptureScreenshot()
 {
+    // Bound screenshot concurrency to one encoder and surface any previous
+    // write failure on the main thread before reusing codec/runtime state.
+    this->FinishPendingScreenshot();
+
     const std::time_t time = std::time(nullptr);
     const int index = (time == m_prev_screenshot_time) ? m_prev_screenshot_index+1 : 1;
 
@@ -887,7 +893,7 @@ void AppContext::CaptureScreenshot()
             png.addData("MP_ServerName", App::mp_server_host->getStr());
         }
 
-        png.write();
+        m_screenshot_write = png.write();
     }
     else
     {
@@ -899,6 +905,35 @@ void AppContext::CaptureScreenshot()
 
     m_prev_screenshot_time = time;
     m_prev_screenshot_index = index;
+}
+
+void AppContext::FinishPendingScreenshot() noexcept
+{
+    if (!m_screenshot_write.valid())
+    {
+        return;
+    }
+
+    try
+    {
+        m_screenshot_write.get();
+    }
+    catch (const Ogre::Exception& e)
+    {
+        LOG(fmt::format(
+            "[RoR|Screenshot] Asynchronous PNG write failed: {}",
+            e.getDescription()));
+    }
+    catch (const std::exception& e)
+    {
+        LOG(fmt::format(
+            "[RoR|Screenshot] Asynchronous PNG write failed: {}",
+            e.what()));
+    }
+    catch (...)
+    {
+        LOG("[RoR|Screenshot] Asynchronous PNG write failed with an unknown exception");
+    }
 }
 
 void AppContext::ActivateFullscreen(bool val)
