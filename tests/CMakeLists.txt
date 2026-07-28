@@ -81,6 +81,11 @@ add_executable(
 )
 
 add_executable(
+    ror_shader_compatibility_policy_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/ShaderCompatibilityPolicyTests.cpp"
+)
+
+add_executable(
     ror_beamng_package_manifest_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/BeamNGPackageManifestTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGPackageManifest.cpp"
@@ -141,6 +146,12 @@ target_include_directories(
     ror_beamng_package_manifest_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+target_include_directories(
+    ror_shader_compatibility_policy_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources"
 )
 
 target_include_directories(
@@ -319,6 +330,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_state_trace_tests
     ror_state_trace
     ror_hydro_actuator_response_tests
+    ror_shader_compatibility_policy_tests
     ror_jbeam_advanced_structure_ir_tests
     ror_jbeam_coordinate_transform_tests
     ror_jbeam_part_resolver_tests
@@ -426,6 +438,11 @@ add_test(
 add_test(
     NAME hydro_actuator_response
     COMMAND ror_hydro_actuator_response_tests
+)
+
+add_test(
+    NAME shader_compatibility_policy
+    COMMAND ror_shader_compatibility_policy_tests
 )
 
 add_test(

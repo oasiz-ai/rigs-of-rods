@@ -1427,6 +1427,9 @@ void CacheSystem::LoadAssetPack(CacheEntryPtr& target_entry, Ogre::String const 
                 target_entry->resource_group, // resGroup (target)
                 false, // recursive
                 assetpack_entry->resource_bundle_type != "FileSystem"); // readOnly
+            App::GetContentManager()->RegisterPackageResourceLocation(
+                target_entry->resource_group,
+                assetpack_entry->resource_bundle_path);
 
             // This is messy but there's no other way - OGRE resource groups cannot update incrementally.
             Ogre::ResourceGroupManager::getSingleton().clearResourceGroup(target_entry->resource_group);
@@ -1606,6 +1609,9 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
             App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::MATERIALS, group);
             App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::MESHES, group);
         }
+
+        App::GetContentManager()->RegisterPackageResourceLocation(
+            group, entry->resource_bundle_path);
 
         // Initialize resource group
         ResourceGroupManager::getSingleton().initialiseResourceGroup(group);

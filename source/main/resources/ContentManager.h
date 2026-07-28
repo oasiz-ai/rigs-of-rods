@@ -29,14 +29,20 @@
 #include <OgreResourceGroupManager.h>
 #include <OgreScriptCompiler.h>
 #include <rapidjson/document.h>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace RoR {
 
 class ContentManager:
     public Ogre::ResourceLoadingListener, // Ogre::ResourceGroupManager::getSingleton().setLoadingListener()
-    public Ogre::ScriptCompilerListener   // Ogre::ScriptCompilerManager::getSingleton().setListener()
+    public Ogre::ScriptCompilerListener,  // Ogre::ScriptCompilerManager::getSingleton().setListener()
+    private Ogre::ResourceGroupListener
 {
 public:
+
+    ContentManager();
+    ~ContentManager() override;
 
     struct ResourcePack
     {
@@ -77,6 +83,7 @@ public:
                        /// @param override_rg If not set, the ResourcePack's RG is used -> resources won't unload until shutdown
     void               AddResourcePack(ResourcePack const& resource_pack, std::string const& override_rgn = "");
     void               InitManagedMaterials(std::string const & rg_name);
+    void               RegisterPackageResourceLocation(const Ogre::String& resource_group, const Ogre::String& archive_name);
     void               InitContentManager();
     void               InitModCache(CacheValidity validity);
     void               LoadGameplayResources();  //!< Checks GVar settings and loads required resources.
@@ -89,6 +96,15 @@ public:
 
 private:
 
+    void EnsureResourceGroupListener();
+    void ApplyShaderCompatibilityFallbacks(const Ogre::String& resource_group);
+
+    // Ogre::ResourceGroupListener
+    void resourceGroupScriptingStarted(const Ogre::String& group_name, size_t script_count) override;
+    void scriptParseStarted(const Ogre::String& script_name, bool& skip_this_script) override;
+    void scriptParseEnded(const Ogre::String& script_name, bool skipped) override;
+    void resourceGroupScriptingEnded(const Ogre::String& group_name) override;
+
     // Ogre::ResourceLoadingListener
     Ogre::DataStreamPtr resourceLoading(const Ogre::String& name, const Ogre::String& group, Ogre::Resource* resource) override;
     void resourceStreamOpened(const Ogre::String& name, const Ogre::String& group, Ogre::Resource* resource, Ogre::DataStreamPtr& dataStream) override;
@@ -98,6 +114,15 @@ private:
     bool handleEvent(Ogre::ScriptCompiler *compiler, Ogre::ScriptCompilerEvent *evt, void *retval) override;
 
     bool              m_base_resource_loaded;
+    bool              m_resource_group_listener_registered;
+    std::unordered_map<Ogre::String, std::unordered_set<Ogre::String>>
+        m_package_archives_by_group;
+    std::unordered_map<Ogre::String, std::unordered_set<Ogre::String>>
+        m_package_materials_by_group;
+    std::unordered_map<Ogre::String, std::size_t> m_script_occurrences;
+    Ogre::String      m_scripting_resource_group;
+    Ogre::String      m_current_script_name;
+    bool              m_current_script_package_owned = false;
 };
 
 } // namespace RoR

@@ -33,6 +33,7 @@
 #include "SkinFileFormat.h"
 #include "Language.h"
 #include "PlatformUtils.h"
+#include "ShaderCompatibilityPolicy.h"
 
 #include "CacheSystem.h"
 
@@ -50,7 +51,14 @@
 
 #include "Utils.h"
 
+#include <OgreArchive.h>
 #include <OgreFileSystem.h>
+#include <OgreGpuProgram.h>
+#include <OgreMaterialManager.h>
+#include <OgrePass.h>
+#include <OgreRenderSystem.h>
+#include <OgreRenderSystemCapabilities.h>
+#include <OgreRoot.h>
 #include <regex>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -59,6 +67,387 @@
 
 using namespace Ogre;
 using namespace RoR;
+
+ContentManager::ContentManager():
+    m_base_resource_loaded(false),
+    m_resource_group_listener_registered(false)
+{
+}
+
+ContentManager::~ContentManager()
+{
+    if (m_resource_group_listener_registered &&
+        Ogre::ResourceGroupManager::getSingletonPtr() != nullptr)
+    {
+        Ogre::ResourceGroupManager::getSingleton().removeResourceGroupListener(this);
+    }
+}
+
+void ContentManager::EnsureResourceGroupListener()
+{
+    if (!m_resource_group_listener_registered)
+    {
+        Ogre::ResourceGroupManager::getSingleton().addResourceGroupListener(this);
+        m_resource_group_listener_registered = true;
+    }
+}
+
+void ContentManager::RegisterPackageResourceLocation(
+    const Ogre::String& resource_group,
+    const Ogre::String& archive_name)
+{
+    m_package_archives_by_group[resource_group].insert(archive_name);
+}
+
+void ContentManager::resourceGroupScriptingStarted(
+    const Ogre::String& group_name,
+    size_t script_count)
+{
+    (void)script_count;
+    m_scripting_resource_group = group_name;
+    m_script_occurrences.clear();
+    m_current_script_name.clear();
+    m_current_script_package_owned = false;
+    m_package_materials_by_group[group_name].clear();
+}
+
+void ContentManager::scriptParseStarted(
+    const Ogre::String& script_name,
+    bool& skip_this_script)
+{
+    m_current_script_name = script_name;
+    m_current_script_package_owned = false;
+    if (skip_this_script || m_scripting_resource_group.empty())
+    {
+        return;
+    }
+
+    const auto package_group =
+        m_package_archives_by_group.find(m_scripting_resource_group);
+    if (package_group == m_package_archives_by_group.end())
+    {
+        return;
+    }
+
+    // OGRE reports only the script name here. Match this callback to the
+    // corresponding archive by following the same ordered resource-location
+    // traversal used by parseResourceGroupScripts(). This remains exact when
+    // a built-in script and a package script happen to share a filename.
+    const std::size_t wanted_occurrence =
+        m_script_occurrences[script_name]++;
+    const Ogre::ResourceGroupManager::LocationList& locations =
+        Ogre::ResourceGroupManager::getSingleton().getResourceLocationList(
+            m_scripting_resource_group);
+    std::vector<ScriptArchiveState> archive_states;
+    archive_states.reserve(locations.size());
+    for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+         locations)
+    {
+        std::size_t matching_script_count = 0;
+        if (location.archive != nullptr)
+        {
+            const Ogre::FileInfoListPtr matching_scripts =
+                location.archive->findFileInfo(
+                    script_name, location.recursive, false);
+            if (matching_scripts)
+            {
+                matching_script_count = matching_scripts->size();
+            }
+        }
+        archive_states.push_back({
+            matching_script_count,
+            location.archive != nullptr &&
+                package_group->second.count(location.archive->getName()) != 0});
+    }
+    m_current_script_package_owned = IsPackageOwnedScriptOccurrence(
+        archive_states, wanted_occurrence);
+}
+
+void ContentManager::scriptParseEnded(
+    const Ogre::String& script_name,
+    bool skipped)
+{
+    (void)script_name;
+    (void)skipped;
+    m_current_script_name.clear();
+    m_current_script_package_owned = false;
+}
+
+void ContentManager::resourceGroupScriptingEnded(
+    const Ogre::String& group_name)
+{
+    this->ApplyShaderCompatibilityFallbacks(group_name);
+    m_scripting_resource_group.clear();
+    m_script_occurrences.clear();
+    m_current_script_name.clear();
+    m_current_script_package_owned = false;
+}
+
+void ContentManager::ApplyShaderCompatibilityFallbacks(
+    const Ogre::String& resource_group)
+{
+#if OGRE_VERSION_MAJOR >= 14
+    if (Ogre::MaterialManager::getSingletonPtr() == nullptr)
+    {
+        return;
+    }
+
+    // Only repair materials whose CreateMaterial event was attributed to a
+    // registered package archive. Shared engine templates are mixed into the
+    // same resource group, and changing those here would hide their legacy
+    // programs from ActorSpawner's purpose-built RTSS material fallback.
+    const auto package_material_group =
+        m_package_materials_by_group.find(resource_group);
+    if (package_material_group == m_package_materials_by_group.end() ||
+        package_material_group->second.empty())
+    {
+        return;
+    }
+
+    std::size_t repaired_materials = 0;
+    std::size_t repaired_passes = 0;
+    bool renderer_requires_complete_graphics_pipeline = false;
+    if (Ogre::Root::getSingletonPtr() != nullptr &&
+        Ogre::Root::getSingleton().getRenderSystem() != nullptr &&
+        Ogre::Root::getSingleton().getRenderSystem()->getCapabilities() !=
+            nullptr)
+    {
+        renderer_requires_complete_graphics_pipeline =
+            !Ogre::Root::getSingleton()
+                 .getRenderSystem()
+                 ->getCapabilities()
+                 ->hasCapability(Ogre::RSC_FIXED_FUNCTION);
+    }
+
+    Ogre::ResourceManager::ResourceMapIterator resources =
+        Ogre::MaterialManager::getSingleton().getResourceIterator();
+    while (resources.hasMoreElements())
+    {
+        Ogre::MaterialPtr material =
+            Ogre::static_pointer_cast<Ogre::Material>(resources.getNext());
+        if (!material || material->getGroup() != resource_group)
+        {
+            continue;
+        }
+        if (package_material_group->second.count(material->getName()) == 0)
+        {
+            continue;
+        }
+
+        auto find_incompatible_programs =
+            [renderer_requires_complete_graphics_pipeline](
+               Ogre::Pass* pass,
+               Ogre::StringVector* incompatible_programs) -> bool
+        {
+            bool found_incompatible_program = false;
+            for (int program_index = 0;
+                 program_index < Ogre::GPT_COUNT;
+                 ++program_index)
+            {
+                const Ogre::GpuProgramType program_type =
+                    static_cast<Ogre::GpuProgramType>(program_index);
+                if (!pass->hasGpuProgram(program_type))
+                {
+                    continue;
+                }
+
+                Ogre::GpuProgramPtr program;
+                bool resolution_failed = false;
+                try
+                {
+                    program = pass->getGpuProgram(program_type);
+                }
+                catch (const Ogre::Exception&)
+                {
+                    // Some third-party scripts leave a program usage behind
+                    // even when its named resource could not be resolved.
+                    // Treat that stage exactly like an unavailable program.
+                    resolution_failed = true;
+                }
+
+                bool load_failed = false;
+                if (!resolution_failed && program &&
+                    program->isSupported() &&
+                    !program->hasCompileError())
+                {
+                    try
+                    {
+                        // A declaration can pass the initial renderer/profile
+                        // check while its source is absent or fails only when
+                        // the backend compiles it. Force that validation while
+                        // the package is being initialized.
+                        program->load();
+                    }
+                    catch (const Ogre::Exception&)
+                    {
+                        load_failed = true;
+                    }
+                }
+
+                const ExplicitGpuProgramState state = {
+                    true,
+                    !resolution_failed && static_cast<bool>(program),
+                    !resolution_failed && !load_failed && program &&
+                        program->isSupported(),
+                    !resolution_failed && program &&
+                        (load_failed || program->hasCompileError())};
+                if (!NeedsGeneratedShaderFallback(state))
+                {
+                    continue;
+                }
+
+                found_incompatible_program = true;
+                if (incompatible_programs != nullptr)
+                {
+                    const Ogre::String& program_name =
+                        pass->getGpuProgramName(program_type);
+                    incompatible_programs->push_back(
+                        !program_name.empty()
+                            ? program_name
+                            : Ogre::GpuProgram::getProgramTypeName(
+                                  program_type));
+                }
+            }
+
+            const ExplicitGraphicsProgramBindings bindings = {
+                pass->isProgrammable(),
+                pass->hasGpuProgram(Ogre::GPT_VERTEX_PROGRAM),
+                pass->hasGpuProgram(Ogre::GPT_FRAGMENT_PROGRAM),
+                pass->hasGpuProgram(Ogre::GPT_GEOMETRY_PROGRAM),
+                pass->hasGpuProgram(Ogre::GPT_MESH_PROGRAM),
+                pass->hasGpuProgram(Ogre::GPT_COMPUTE_PROGRAM)};
+            if (NeedsGeneratedShaderFallbackForIncompletePipeline(
+                    renderer_requires_complete_graphics_pipeline,
+                    bindings))
+            {
+                found_incompatible_program = true;
+                if (incompatible_programs != nullptr)
+                {
+                    incompatible_programs->push_back(
+                        "incomplete graphics program pipeline");
+                }
+            }
+            return found_incompatible_program;
+        };
+
+        bool has_compatible_technique = false;
+        for (std::size_t technique_index = 0;
+             technique_index < material->getNumTechniques();
+             ++technique_index)
+        {
+            Ogre::Technique* technique =
+                material->getTechnique(
+                    static_cast<unsigned short>(technique_index));
+            bool technique_is_compatible =
+                technique->getNumPasses() != 0;
+            for (std::size_t pass_index = 0;
+                 pass_index < technique->getNumPasses();
+                 ++pass_index)
+            {
+                Ogre::Pass* pass =
+                    technique->getPass(
+                        static_cast<unsigned short>(pass_index));
+                if (find_incompatible_programs(pass, nullptr))
+                {
+                    technique_is_compatible = false;
+                    break;
+                }
+            }
+
+            if (technique_is_compatible)
+            {
+                has_compatible_technique = true;
+                break;
+            }
+        }
+
+        bool repaired_material = false;
+        for (std::size_t technique_index = 0;
+             technique_index < material->getNumTechniques();
+             ++technique_index)
+        {
+            Ogre::Technique* technique =
+                material->getTechnique(static_cast<unsigned short>(technique_index));
+            for (std::size_t pass_index = 0;
+                 pass_index < technique->getNumPasses();
+                 ++pass_index)
+            {
+                Ogre::Pass* pass =
+                    technique->getPass(static_cast<unsigned short>(pass_index));
+                Ogre::StringVector incompatible_programs;
+                const bool pass_has_incompatible_program =
+                    find_incompatible_programs(
+                        pass, &incompatible_programs);
+                if (!ShouldRepairIncompatibleShaderPass(
+                        has_compatible_technique,
+                        pass_has_incompatible_program))
+                {
+                    continue;
+                }
+
+                // A programmable pass must use one coherent pipeline. Keeping
+                // a supported stage beside a missing/unsupported stage would
+                // still leave the pass unusable, so hand the complete pass to
+                // RTShaderSystem while retaining its authored render state and
+                // texture units.
+                for (int program_index = 0;
+                     program_index < Ogre::GPT_COUNT;
+                     ++program_index)
+                {
+                    const Ogre::GpuProgramType program_type =
+                        static_cast<Ogre::GpuProgramType>(program_index);
+                    if (pass->hasGpuProgram(program_type))
+                    {
+                        pass->setGpuProgram(
+                            program_type, Ogre::GpuProgramPtr(), true);
+                    }
+                }
+
+                std::stringstream program_list;
+                for (std::size_t program_index = 0;
+                     program_index < incompatible_programs.size();
+                     ++program_index)
+                {
+                    if (program_index != 0)
+                    {
+                        program_list << ", ";
+                    }
+                    program_list << incompatible_programs[program_index];
+                }
+                LOG(fmt::format(
+                    "[RoR|ContentManager] Material '{}' in group '{}', "
+                    "technique {}, pass {} bound an unavailable shader "
+                    "pipeline ({}); preserving its material state and using "
+                    "RTShaderSystem generation",
+                    material->getName(),
+                    resource_group,
+                    technique_index,
+                    pass_index,
+                    program_list.str()));
+                repaired_material = true;
+                ++repaired_passes;
+            }
+        }
+
+        if (repaired_material)
+        {
+            ++repaired_materials;
+        }
+    }
+
+    if (repaired_materials != 0)
+    {
+        LOG(fmt::format(
+            "[RoR|ContentManager] Shader compatibility repaired {} "
+            "material(s), {} pass(es) in resource group '{}'",
+            repaired_materials,
+            repaired_passes,
+            resource_group));
+    }
+#else
+    (void)resource_group;
+#endif
+}
 
 // ================================================================================
 // Static variables
@@ -97,6 +486,8 @@ DECLARE_RESOURCE_PACK( SKYX,                  "SkyX",                 "SkyXRG");
 
 void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::string const& override_rgn)
 {
+    this->EnsureResourceGroupListener();
+
     Ogre::ResourceGroupManager& rgm = Ogre::ResourceGroupManager::getSingleton();
 
     Ogre::String rg_name;
@@ -146,6 +537,8 @@ void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::str
 
 void ContentManager::InitContentManager()
 {
+    this->EnsureResourceGroupListener();
+
     ResourceGroupManager::getSingleton().addResourceLocation(
         App::sys_config_dir->getStr(), "FileSystem", RGN_CONFIG, /*recursive=*/false, /*readOnly=*/false);
     ResourceGroupManager::getSingleton().addResourceLocation(
@@ -359,6 +752,24 @@ bool ContentManager::handleEvent(ScriptCompiler *compiler, ScriptCompilerEvent *
             //   with message "failed to find or create material" [in MaterialTranslator::translate()]
             return true;
         }
+
+#if OGRE_VERSION_MAJOR >= 14
+        const Ogre::MaterialPtr existing_material =
+            Ogre::MaterialManager::getSingleton().getByName(
+                matEvent->mName, matEvent->mResourceGroup);
+        if (m_current_script_package_owned &&
+            matEvent->mResourceGroup == m_scripting_resource_group &&
+            matEvent->mFile == m_current_script_name &&
+            (!existing_material ||
+             existing_material->getGroup() != matEvent->mResourceGroup))
+        {
+            // Record the accepted first definition only. Later scripts with a
+            // colliding material name are rejected by resourceCollision(), so
+            // they must not change the original material's package ownership.
+            m_package_materials_by_group[matEvent->mResourceGroup].insert(
+                matEvent->mName);
+        }
+#endif
     }
     else if (evt->mType == CreateParticleSystemScriptCompilerEvent::eventType)
     {
