@@ -174,6 +174,7 @@ public:
 
 private:
     void SetupImGui();
+    void SyncDisplayMetrics();
 
     void eventRequestTag(const MyGUI::UString& _tag, MyGUI::UString& _result);
 

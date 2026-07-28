@@ -20,6 +20,11 @@ option(
 find_package(Threads REQUIRED)
 
 add_executable(
+    ror_render_display_metrics_tests
+    "${CMAKE_CURRENT_LIST_DIR}/platform/RenderDisplayMetricsTests.cpp"
+)
+
+add_executable(
     ror_beam_axial_response_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/BeamAxialResponseTests.cpp"
 )
@@ -314,6 +319,12 @@ target_include_directories(
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
 )
 
+target_include_directories(
+    ror_render_display_metrics_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+)
+
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_compile_definitions(
         ror_jbeam_to_rigdef_tests
@@ -436,6 +447,7 @@ target_link_libraries(
 )
 
 set(ROR_PHYSICS_TEST_TARGETS
+    ror_render_display_metrics_tests
     ror_beam_axial_response_tests
     ror_beam_rest_length_scale_tests
     ror_beamng_material_inventory_tests
@@ -526,6 +538,11 @@ set_target_properties(
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
+)
+
+add_test(
+    NAME render_display_metrics
+    COMMAND ror_render_display_metrics_tests
 )
 
 add_test(

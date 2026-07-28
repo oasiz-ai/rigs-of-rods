@@ -77,8 +77,12 @@ GUIManager::GUIManager()
         mygui_logpath);
     auto mygui = new MyGUI::Gui();
 
+    m_mygui_platform = mygui_platform;
+    m_mygui = mygui;
+
     // empty init
     mygui->initialise("");
+    this->SyncDisplayMetrics();
 
     // add layer factory
     MyGUI::FactoryManager::getInstance().registerFactory<RTTLayer>("Layer");
@@ -88,8 +92,6 @@ GUIManager::GUIManager()
 
     MyGUI::ResourceManager::getInstance().load("MyGUI_FontsEnglish.xml");
 
-    m_mygui_platform = mygui_platform;
-    m_mygui = mygui;
     MyGUI::PointerManager::getInstance().setVisible(false); // RoR is using mouse cursor drawn by DearIMGUI.
 
 #ifdef _WIN32
@@ -324,6 +326,7 @@ void GUIManager::UpdateMouseCursorVisibility()
 
 void GUIManager::NewImGuiFrame(float dt)
 {
+    this->SyncDisplayMetrics();
     ImGuiIO& io = ImGui::GetIO();
 
     // Read modifiers through InputEngine so SDL-owned macOS windows use the
@@ -348,6 +351,27 @@ void GUIManager::NewImGuiFrame(float dt)
 
     // Reset state
     m_gui_kb_capture_queued = false;
+}
+
+void GUIManager::SyncDisplayMetrics()
+{
+    if (m_mygui_platform == nullptr)
+    {
+        return;
+    }
+
+    const RenderDisplayMetrics& metrics =
+        App::GetAppContext()->GetRenderDisplayMetrics();
+    MyGUI::OgreRenderManager* render_manager =
+        m_mygui_platform->getRenderManagerPtr();
+    const MyGUI::IntSize current = render_manager->getViewSize();
+    const int logical_width = static_cast<int>(metrics.logical_width);
+    const int logical_height = static_cast<int>(metrics.logical_height);
+    if (current.width != logical_width ||
+        current.height != logical_height)
+    {
+        render_manager->setViewSize(logical_width, logical_height);
+    }
 }
 
 void GUIManager::SetupImGui()

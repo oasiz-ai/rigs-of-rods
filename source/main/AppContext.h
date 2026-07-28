@@ -28,6 +28,7 @@
 
 #include "Application.h"
 #include "ForceFeedback.h"
+#include "RenderDisplayMetrics.h"
 
 #include <Bites/OgreWindowEventUtilities.h>
 #include <Ogre.h>
@@ -93,6 +94,8 @@ public:
     Ogre::Root*          GetOgreRoot() { return m_ogre_root; }
     Ogre::Viewport*      GetViewport() { return m_viewport; }
     Ogre::RenderWindow*  GetRenderWindow() { return m_render_window; }
+    const RenderDisplayMetrics& GetRenderDisplayMetrics() const { return m_display_metrics; }
+    float                GetDisplayPixelRatio() const { return m_display_metrics.GetFontRasterScale(); }
     RoR::ForceFeedback&  GetForceFeedback() { return m_force_feedback; }
     std::thread::id      GetMainThreadID() { return m_mainthread_id; }
 
@@ -119,6 +122,7 @@ private:
 
     // Rendering and window management
     void                 SetRenderWindowIcon(Ogre::RenderWindow* rw);
+    void                 RefreshRenderDisplayMetrics(bool log_change);
     void                 FinishPendingScreenshot() noexcept;
 #if OGRE_VERSION_MAJOR >= 14
     bool                 SetUpRTShaderSystem();
@@ -130,6 +134,7 @@ private:
     Ogre::Root*          m_ogre_root     = nullptr;
     Ogre::RenderWindow*  m_render_window = nullptr;
     Ogre::Viewport*      m_viewport      = nullptr;
+    RenderDisplayMetrics m_display_metrics;
 #if OGRE_VERSION_MAJOR >= 14
     Ogre::RTShader::ShaderGenerator*          m_shader_generator = nullptr;
     OgreBites::SGTechniqueResolverListener*   m_rtshader_material_listener = nullptr;

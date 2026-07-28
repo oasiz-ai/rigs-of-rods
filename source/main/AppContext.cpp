@@ -236,6 +236,7 @@ bool AppContext::povMoved(const OIS::JoyStickEvent& arg, int)       { App::GetIn
 
 void AppContext::windowResized(Ogre::RenderWindow* rw)
 {
+    this->RefreshRenderDisplayMetrics(/*log_change=*/true);
     App::GetInputEngine()->windowResized(rw); // Update mouse area
     if (App::GetOverlayWrapper())
     {
@@ -485,8 +486,18 @@ bool AppContext::SetUpRendering()
         m_owns_sdl_video = true;
     }
 
-    Uint32 sdl_window_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI;
     const bool full_screen = ropts["Full Screen"].currentValue == "Yes";
+    Ogre::Real content_scale = SanitizeRequestedContentScale(
+        Ogre::StringConverter::parseReal(
+            miscParams["contentScalingFactor"], 1.0f));
+    miscParams["contentScalingFactor"] =
+        Ogre::StringConverter::toString(content_scale);
+
+    Uint32 sdl_window_flags = SDL_WINDOW_SHOWN;
+    if (ShouldRequestHighPixelDensity(content_scale))
+    {
+        sdl_window_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
+    }
     if (full_screen)
     {
         sdl_window_flags |= SDL_WINDOW_FULLSCREEN;
@@ -498,20 +509,10 @@ bool AppContext::SetUpRendering()
 
     const Ogre::String window_title =
         "Rigs of Rods version " + Ogre::String(ROR_VERSION_STRING);
-    Ogre::Real content_scale = Ogre::StringConverter::parseReal(
-        miscParams["contentScalingFactor"], 1.0f);
-    if (content_scale < 1.0f)
-    {
-        content_scale = 1.0f;
-    }
-    const int logical_width = full_screen
-        ? static_cast<int>(width)
-        : static_cast<int>(std::ceil(
-            static_cast<Ogre::Real>(width) / content_scale));
-    const int logical_height = full_screen
-        ? static_cast<int>(height)
-        : static_cast<int>(std::ceil(
-            static_cast<Ogre::Real>(height) / content_scale));
+    const int logical_width = static_cast<int>(
+        LogicalExtentForBacking(width, content_scale));
+    const int logical_height = static_cast<int>(
+        LogicalExtentForBacking(height, content_scale));
     LOG(fmt::format(
         "[RoR|Startup|Rendering] Creating SDL host at {}x{} logical points "
         "for {}x{} backing pixels (scale {:.1f})",
@@ -577,6 +578,7 @@ bool AppContext::SetUpRendering()
     // Create viewport (without camera)
     m_viewport = m_render_window->addViewport(/*camera=*/nullptr);
     m_viewport->setBackgroundColour(Ogre::ColourValue::Black);
+    this->RefreshRenderDisplayMetrics(/*log_change=*/true);
 
 #if OGRE_VERSION_MAJOR >= 14
     if (!this->SetUpRTShaderSystem())
@@ -586,6 +588,76 @@ bool AppContext::SetUpRendering()
 #endif
 
     return true;
+}
+
+void AppContext::RefreshRenderDisplayMetrics(bool log_change)
+{
+    if (m_render_window == nullptr)
+    {
+        return;
+    }
+
+    const Ogre::uint32 backing_width = m_viewport != nullptr
+        ? m_viewport->getActualWidth()
+        : m_render_window->getWidth();
+    const Ogre::uint32 backing_height = m_viewport != nullptr
+        ? m_viewport->getActualHeight()
+        : m_render_window->getHeight();
+    Ogre::uint32 logical_width = backing_width;
+    Ogre::uint32 logical_height = backing_height;
+
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    if (m_sdl_window != nullptr)
+    {
+        int host_width = 0;
+        int host_height = 0;
+        SDL_GetWindowSize(m_sdl_window, &host_width, &host_height);
+        if (host_width > 0 && host_height > 0)
+        {
+            logical_width = static_cast<Ogre::uint32>(host_width);
+            logical_height = static_cast<Ogre::uint32>(host_height);
+        }
+    }
+#endif
+
+    const RenderDisplayMetrics next = ResolveRenderDisplayMetrics(
+        backing_width,
+        backing_height,
+        logical_width,
+        logical_height);
+    const bool changed =
+        next.logical_width != m_display_metrics.logical_width ||
+        next.logical_height != m_display_metrics.logical_height ||
+        next.backing_width != m_display_metrics.backing_width ||
+        next.backing_height != m_display_metrics.backing_height ||
+        next.valid != m_display_metrics.valid;
+    m_display_metrics = next;
+
+    if (log_change && changed)
+    {
+#if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
+        const char* backend = "windows";
+#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+        const char* backend = "macos";
+#elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX
+        const char* backend = "linux";
+#else
+        const char* backend = "other";
+#endif
+        LOG(fmt::format(
+            "[RoR|DisplayMetrics] backend={} logical={}x{} backing={}x{} "
+            "scale={:.3f}x{:.3f} viewport={}x{} valid={}",
+            backend,
+            m_display_metrics.logical_width,
+            m_display_metrics.logical_height,
+            m_display_metrics.backing_width,
+            m_display_metrics.backing_height,
+            m_display_metrics.framebuffer_scale_x,
+            m_display_metrics.framebuffer_scale_y,
+            backing_width,
+            backing_height,
+            m_display_metrics.valid ? 1 : 0));
+    }
 }
 
 void AppContext::ProcessWindowEvents()

@@ -40,6 +40,8 @@ void OgreImGui::Init()
     m_imgui_overlay = std::unique_ptr<Ogre::ImGuiOverlay>(new Ogre::ImGuiOverlay());
 
     ImGuiIO& io = ImGui::GetIO();
+    const float font_raster_scale =
+        App::GetAppContext()->GetDisplayPixelRatio();
 
     // Disable 'imgui.ini' - we don't need to persist window positions.
     io.IniFilename = nullptr;
@@ -77,8 +79,11 @@ void OgreImGui::Init()
     io.KeyMap[ImGuiKey_Slash] = OIS::KC_SLASH;
 
     // Load font
-    m_imgui_overlay->addFont("rigsofrods/fonts/Roboto-Medium",
-        ContentManager::ResourcePack::FONTS.resource_group_name);
+    io.FontGlobalScale = 1.0f / font_raster_scale;
+    m_imgui_overlay->addFont(
+        "rigsofrods/fonts/Roboto-Medium",
+        ContentManager::ResourcePack::FONTS.resource_group_name,
+        font_raster_scale);
 
     // Start rendering
     m_imgui_overlay->setZOrder(300);

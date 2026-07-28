@@ -4,6 +4,10 @@
 
 #include <imgui.h>
 
+#include "AppContext.h"
+
+#include <cmath>
+
 #include <OgreImGuiOverlay.h>
 #include <OgreHardwareBufferManager.h>
 #include <OgreHardwarePixelBuffer.h>
@@ -74,7 +78,10 @@ void ImGuiOverlay::ImGUIRenderable::createMaterial()
     mMaterial->setDepthCheckEnabled(false);
 }
 
-ImFont* ImGuiOverlay::addFont(const String& name, const String& group)
+ImFont* ImGuiOverlay::addFont(
+    const String& name,
+    const String& group,
+    float rasterScale)
 {
     FontPtr font = FontManager::getSingleton().getByName(name, group);
     OgreAssert(font, "font does not exist");
@@ -103,7 +110,8 @@ ImFont* ImGuiOverlay::addFont(const String& name, const String& group)
 
     ImFontConfig cfg;
     strncpy(cfg.Name, name.c_str(), 40);
-    return io.Fonts->AddFontFromMemoryTTF(ttfchunk.getPtr(), (int)ttfchunk.size(), font->getTrueTypeSize(), &cfg,
+    return io.Fonts->AddFontFromMemoryTTF(ttfchunk.getPtr(), (int)ttfchunk.size(),
+                                          font->getTrueTypeSize() * rasterScale, &cfg,
                                           cprangePtr);
 }
 
@@ -130,10 +138,15 @@ void ImGuiOverlay::NewFrame(const FrameEvent& evt)
         evt.timeSinceLastFrame,
         1e-4f); // see https://github.com/ocornut/imgui/commit/3c07ec6a6126fb6b98523a9685d1f0f78ca3c40c
 
-    OverlayManager& oMgr = OverlayManager::getSingleton();
-
     // Setup display size (every frame to accommodate for window resizing)
-    io.DisplaySize = ImVec2(oMgr.getViewportWidth(), oMgr.getViewportHeight());
+    const RoR::RenderDisplayMetrics& metrics =
+        RoR::App::GetAppContext()->GetRenderDisplayMetrics();
+    io.DisplaySize = ImVec2(
+        static_cast<float>(metrics.logical_width),
+        static_cast<float>(metrics.logical_height));
+    io.DisplayFramebufferScale = ImVec2(
+        metrics.framebuffer_scale_x,
+        metrics.framebuffer_scale_y);
 
     // Start the frame
     ImGui::NewFrame();
@@ -147,7 +160,7 @@ void ImGuiOverlay::ImGUIRenderable::_update()
     }
 
     RenderSystem* rSys = Root::getSingleton().getRenderSystem();
-    OverlayManager& oMgr = OverlayManager::getSingleton();
+    const ImGuiIO& io = ImGui::GetIO();
 
     // Construct projection matrix, taking texel offset corrections in account (important for DirectX9)
     // See also:
@@ -157,9 +170,9 @@ void ImGuiOverlay::ImGUIRenderable::_update()
     float texelOffsetX = rSys->getHorizontalTexelOffset();
     float texelOffsetY = rSys->getVerticalTexelOffset();
     float L = texelOffsetX;
-    float R = oMgr.getViewportWidth() + texelOffsetX;
+    float R = io.DisplaySize.x + texelOffsetX;
     float T = texelOffsetY;
-    float B = oMgr.getViewportHeight() + texelOffsetY;
+    float B = io.DisplaySize.y + texelOffsetY;
 
     mXform = Matrix4(2.0f / (R - L), 0.0f, 0.0f, (L + R) / (L - R), 0.0f, -2.0f / (B - T), 0.0f,
                      (T + B) / (B - T), 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
@@ -174,6 +187,10 @@ bool ImGuiOverlay::ImGUIRenderable::preRender(SceneManager* sm, RenderSystem* rs
     // ... Commentary on OGRE forums: http://www.ogre3d.org/forums/viewtopic.php?f=5&t=89081#p531059
     ImGui::Render();
     ImDrawData* draw_data = ImGui::GetDrawData();
+    if (draw_data == nullptr)
+    {
+        return false;
+    }
     int vpWidth = vp->getActualWidth();
     int vpHeight = vp->getActualHeight();
 
@@ -192,11 +209,32 @@ bool ImGuiOverlay::ImGUIRenderable::preRender(SceneManager* sm, RenderSystem* rs
             const ImDrawCmd* drawCmd = &draw_list->CmdBuffer[j];
 
             // Set scissoring
-            Rect scissor(drawCmd->ClipRect.x, drawCmd->ClipRect.y, drawCmd->ClipRect.z,
-                          drawCmd->ClipRect.w);
+            const float clip_left =
+                (drawCmd->ClipRect.x - draw_data->DisplayPos.x) *
+                draw_data->FramebufferScale.x;
+            const float clip_top =
+                (drawCmd->ClipRect.y - draw_data->DisplayPos.y) *
+                draw_data->FramebufferScale.y;
+            const float clip_right =
+                (drawCmd->ClipRect.z - draw_data->DisplayPos.x) *
+                draw_data->FramebufferScale.x;
+            const float clip_bottom =
+                (drawCmd->ClipRect.w - draw_data->DisplayPos.y) *
+                draw_data->FramebufferScale.y;
+            Rect scissor(
+                static_cast<long>(std::floor(clip_left)),
+                static_cast<long>(std::floor(clip_top)),
+                static_cast<long>(std::ceil(clip_right)),
+                static_cast<long>(std::ceil(clip_bottom)));
 
             // Clamp bounds to viewport dimensions
             scissor = scissor.intersect(Rect(0, 0, vpWidth, vpHeight));
+            if (scissor.right <= scissor.left ||
+                scissor.bottom <= scissor.top)
+            {
+                startIdx += drawCmd->ElemCount;
+                continue;
+            }
 
             if (drawCmd->TextureId)
             {

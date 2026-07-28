@@ -733,8 +733,10 @@ OIS::MouseState InputEngine::getMouseState()
     // To work around, we keep internal button states and pay attention not to get them polluted by OIS.
     // -----------------------------------------------------------------------------------------------------
 
-    mouseState.width = (int)App::GetAppContext()->GetRenderWindow()->getWidth();
-    mouseState.height = (int)App::GetAppContext()->GetRenderWindow()->getHeight();
+    const RenderDisplayMetrics& metrics =
+        App::GetAppContext()->GetRenderDisplayMetrics();
+    mouseState.width = static_cast<int>(metrics.logical_width);
+    mouseState.height = static_cast<int>(metrics.logical_height);
 
     return mouseState;
 }
@@ -776,17 +778,12 @@ void InputEngine::Capture()
 void InputEngine::windowResized(Ogre::RenderWindow* rw)
 {
     //update mouse area
-    unsigned int width, height;
-    int left, top;
-#if OGRE_VERSION_MAJOR >= 14
-    rw->getMetrics(width, height, left, top);
-#else
-    unsigned int depth;
-    rw->getMetrics(width, height, depth, left, top);
-#endif
+    (void)rw;
+    const RenderDisplayMetrics& metrics =
+        App::GetAppContext()->GetRenderDisplayMetrics();
     const OIS::MouseState& ms = mMouse->getMouseState();
-    ms.width = width;
-    ms.height = height;
+    ms.width = static_cast<int>(metrics.logical_width);
+    ms.height = static_cast<int>(metrics.logical_height);
 }
 
 void InputEngine::SetKeyboardListener(OIS::KeyListener* keyboard_listener)

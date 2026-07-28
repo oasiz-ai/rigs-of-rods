@@ -35,6 +35,7 @@ set(SOURCE_FILES
         gfx/GfxActor.{h,cpp}
         gfx/GfxData.{h,cpp}
         gfx/GfxScene.{h,cpp}
+        gfx/RenderDisplayMetrics.h
         gfx/HydraxWater.{h,cpp}
         gfx/IGfxWater.h
         gfx/MovableText.{h,cpp}

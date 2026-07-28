@@ -628,13 +628,28 @@ without a new crash report. The guard is renderer-version-specific rather than
 OS-specific; native Linux and Windows execution remains part of the
 three-platform R0 gate.
 
+The macOS host now treats logical window points and renderer backing pixels as
+one explicit platform-neutral display contract. At 1x, the isolated
+two-truck scene reported 1280x720 logical and backing extents and completed all
+1,000 deterministic steps. At 2x, the signed bundle reported a 1280x832
+logical host, 2560x1664 backing viewport, and 2.0 framebuffer scale, then
+loaded and rendered the ten-frame bundle smoke without a renderer diagnostic.
+SDL high-pixel-density mode is requested only for a configured scale above 1x;
+mouse bounds, MyGUI view size, Dear ImGui projection/scissors, and its
+high-resolution font atlas share the resolved metrics. The dependency-free
+contract test covers 1x, 2x, fractional/non-uniform, zero, hostile, NaN, and
+infinite inputs under the project's Release fast-math flags. All 40 configured
+native CTests pass, with the user-supplied FormulaCOUPE fixture skipped as
+designed. The window was visually inspected at 2x to confirm UI retained its
+logical size instead of doubling with the backing viewport.
+
 This is meaningful R0 progress, not completion. The remaining gates include:
 
-- Prove logical-point/backing-pixel/UI scaling across explicit 1x and 2x modes,
-  extend the zero-GL-diagnostic proof across every validation scene, and prove
-  PSSM with controlled occluder captures; then cover dynamic cubemaps, water,
-  sky, vegetation, particles, UI, mirrors, screenshots, and hot-load against
-  recorded baselines.
+- Extend the display-metrics proof to native Windows/Linux, window resize and
+  cross-monitor density transitions. Extend the zero-GL-diagnostic proof
+  across every validation scene, and prove PSSM with controlled occluder
+  captures; then cover dynamic cubemaps, water, sky, vegetation, particles,
+  UI, mirrors, screenshots, and hot-load against recorded baselines.
 - Verify real controller enumeration, hot-plugging, representative vendor
   mappings, and force feedback on physical hardware. Add a native
   force-feedback path rather than silently presenting the OIS device API as
