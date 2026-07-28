@@ -81,6 +81,20 @@ void MeshObject::createEntity(Ogre::String meshName, Ogre::String entityRG, Ogre
         {
             m_mesh = Ogre::MeshManager::getSingleton().load(meshName, entityRG);
 
+#if OGRE_VERSION_MAJOR >= 14
+            // RoR exposes only texture shadows (PSSM) or no shadows, so legacy
+            // stencil-shadow edge lists are unused. Some large v1.40 meshes
+            // contain a serialized base edge list; OGRE's LOD generator sees
+            // it, frees it, then attempts to rebuild edge data for every
+            // generated LOD. The rebuild can read outside the generated
+            // vertex buffers (CityWorld's 203k-vertex section B is a
+            // reproducible example). Discarding the unused imported edge list
+            // before LOD generation prevents that unsafe rebuild while
+            // preserving both authored and generated mesh LOD levels.
+            m_mesh->freeEdgeList();
+            m_mesh->setAutoBuildEdgeLists(false);
+#endif
+
             // important: you need to add the LODs before creating the entity
             // now find possible LODs, needs to be done before calling createEntity()
             String basename, ext;

@@ -62,6 +62,7 @@ the repository level. Keep this exact revision in automated comparisons.
 | Articulation baseline | DAF semi + `b6b0UID-semi.trailer` and `b6b0UID-semiflat.trailer` | Inter-actor beams, contact ordering, hooks, and deterministic multi-body replay |
 | BeamNG vehicle import (local opt-in) | User-supplied [GD808 FormulaCOUPE v0.9.7][formulacoupe], resource `M764KYBVX` | Safe package inventory, 39 configurations, deterministic `FC-A7-01` resolution, structural/drivable/visual tier reports, and explicit advanced-feature diagnostics |
 | AirSim visual floor | Pinned AirSim v1.8.1 plus one shared rights-cleared glTF scene | Same-scene PBR/HDR/shadow/AA/atmosphere/temporal comparison against offline path-traced truth |
+| Legacy OGRE content smoke (local opt-in) | User-supplied `CityWorld.zip` + `CityWorld.terrn2` | Large v1.40 mesh loading, generated LOD safety, missing-material diagnostics, and clean terrain unload |
 
 The Agora L definition has 151 authored nodes, 675 beams, and 222 cab triangles.
 Its six legacy wheels and two cinecams bring the spawned actor to 297 runtime
@@ -88,6 +89,13 @@ DDS resource at about 838.735:1, so the default ratio ceiling is 1,024:1 while
 the independent 1 GiB per-entry and 4 GiB total-expanded ceilings remain
 mandatory. The archive is a local validation input only and is not tracked or
 redistributed.
+
+CityWorld is likewise a local compatibility fixture rather than project
+content. The archive tested on 2026-07-28 is 158,845,395 bytes with SHA-256
+`ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3`.
+Do not track or redistribute it. Its legacy material-definition errors remain
+content-fidelity diagnostics rather than renderer success, and must not be
+hidden by the crash gate.
 
 ## Measurement contract
 
@@ -606,6 +614,19 @@ regenerating the locked dependency graph and relinking, the same 1,000-step
 PSSM capture logs no sampler-validation failure or `GL_INVALID_*`, exits
 cleanly, and fully decodes. The deterministic scene runner now rejects either
 diagnostic. These findings do not close the broader R0 visual-parity gate.
+
+The same bundle reproduced a CityWorld load crash in OGRE 14's
+`EdgeListBuilder::buildTrianglesEdges()` while
+`MeshLodGenerator::_configureMeshLodUsage()` rebuilt edge data for the
+203,593-vertex `NeoQ2-0main-city-section-B.mesh`. RoR exposes texture shadows
+or no shadows, so `MeshObject` now discards imported stencil-shadow edge lists
+and disables automatic edge-list rebuilding on OGRE 14 before preserving or
+generating mesh LODs. The pinned local archive then loaded through
+`===== TERRAIN LOADING DONE CityWorld.terrn2`, rendered ten frames, emitted
+`[RoR|CI|BundleSmoke] PASS frames=10`, unloaded, and exited with status zero
+without a new crash report. The guard is renderer-version-specific rather than
+OS-specific; native Linux and Windows execution remains part of the
+three-platform R0 gate.
 
 This is meaningful R0 progress, not completion. The remaining gates include:
 
