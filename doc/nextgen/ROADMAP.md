@@ -364,12 +364,32 @@ every single-bit mutation, strict/fast-math/sanitizer builds, segmented writes,
 worker-bucket ordering, and a 10,000-step fixed-seed continuation fixture lock
 the dependency-free kernel.
 
+The version-1 deterministic-input runtime now supplies the bounded lifecycle
+around that byte contract. Recording and replay have explicit
+idle/running/paused/finished/faulted states, accept only contiguous fixed-step
+keys, and call their source or sink exactly once for an accepted step. Device
+aggregation remains outside the dependency-free kernel: a collector admits
+only strictly ordered, unique `(target, control)` keys and distinguishes
+persistent deltas from one-step impulses. Replay authenticates the complete
+trace before it can inject any batch, reconstructs the sorted persistent
+control state at every step, and stops permanently on a rejected or throwing
+sink. Version-1 continuations retain the immutable identity, tightened quotas,
+complete authenticated trace, processed-step count, digest, and next step.
+Their canonical integrity envelope also binds mode, lifecycle, quotas, cursor,
+and trace identity, so internally consistent cursor or policy edits fail
+closed; hostile savegames still require authentication by their owning
+container because this digest is not a keyed MAC.
+Export/import deliberately costs `O(trace)` so a savegame cannot resume from an
+unauthenticated internal hash or stream cursor. Strict, fast-math, sanitizer,
+hostile-I/O, hostile-source/sink, quota, corruption, frame-regrouping,
+continuation, and 10,000-step fixtures lock the contract.
+
 Production input-map capture and replay injection, lifecycle/error CVars,
 scenario-assigned IDs independent of runtime actor indexes, savegame ownership
-of the input reader/writer continuation, a runtime trace lifecycle fixture, the
-pinned one/eight-worker scene runs, and TSan soak are still open. The kernel and
-live state capture make those comparisons possible, but are not by themselves
-runtime determinism evidence.
+of the input runtime continuation, the pinned one/eight-worker scene runs, and
+TSan soak are still open. The kernel, runtime, and live state capture make
+those comparisons possible, but are not by themselves runtime determinism
+evidence.
 
 For a local kernel stress pass, run
 `ROR_PHYSICS_TEST_REPEAT=30 tools/run-physics-tests.sh`, then repeat with
