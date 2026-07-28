@@ -232,6 +232,15 @@ void TestHostilePathsFailClosed()
     CheckPathError(
         "vehicles/com1.txt/main.jbeam",
         ManifestErrorCode::WINDOWS_RESERVED_NAME);
+    CheckPathError(
+        "vehicles/CON .txt/main.jbeam",
+        ManifestErrorCode::WINDOWS_RESERVED_NAME);
+    CheckPathError(
+        "vehicles/conin$/main.jbeam",
+        ManifestErrorCode::WINDOWS_RESERVED_NAME);
+    CheckPathError(
+        "vehicles/CONOUT$.log/main.jbeam",
+        ManifestErrorCode::WINDOWS_RESERVED_NAME);
 
     std::string embedded_nul("vehicles/a", 10);
     embedded_nul.push_back('\0');
@@ -344,6 +353,29 @@ void TestMetadataAndResourceLimits()
         ErrorFor(File("vehicles/test/")) ==
         ManifestErrorCode::DIRECTORY_MARKER_MISMATCH);
 
+    {
+        const PackageScanLimits defaults;
+        CHECK(defaults.max_compression_ratio == UINT64_C(1024));
+        CHECK(
+            RoR::BeamNG::BuildPackageManifest(
+                std::vector<PackageEntryInput>(
+                    1,
+                    File(
+                        "vehicles/test/uniform.data.dds",
+                        UINT64_C(3334),
+                        UINT64_C(2796344))),
+                defaults).IsValid());
+        CHECK(
+            RoR::BeamNG::BuildPackageManifest(
+                std::vector<PackageEntryInput>(
+                    1,
+                    File(
+                        "vehicles/test/ratio-over-limit.bin",
+                        UINT64_C(1000),
+                        UINT64_C(1024001))),
+                defaults).error.code ==
+            ManifestErrorCode::COMPRESSION_RATIO_LIMIT);
+    }
     {
         PackageScanLimits limits;
         limits.max_entries = 1;

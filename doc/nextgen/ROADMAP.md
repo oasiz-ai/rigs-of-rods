@@ -72,10 +72,21 @@ FormulaCOUPE is a manual interoperability fixture, not project content. The
 v0.9.7 metadata above was audited on 2026-07-27. The importer never downloads
 it, and its archive, extracted files, conversions, screenshots, and golden
 assets remain outside the repository and distributable builds. An opt-in test
-records the user-supplied ZIP's SHA-256, detected version, resource ID, importer
-version, and selected configuration; it reports `SKIP` when the archive is
-absent and version drift when those values change. Public CI uses small,
-original clean-room JBeam fixtures with explicit licenses.
+checks the user-supplied ZIP's pinned SHA-256, J0 format profiles, archive and
+expanded byte counts, entry count, and 39 `.pc` files; it reports `SKIP` when
+the archive is absent and fails explicitly on version drift. J1 must extend
+that record with importer version and selected configuration. Public CI uses
+small, original clean-room JBeam fixtures with explicit licenses.
+
+The current v0.9.7 archive was also inspected locally through the J0
+metadata-only boundary: SHA-256
+`f0ecff776eeb8962ed039ca02695713972f1839d754edd3385d47bb597a2cbcd`,
+223,853,684 archive bytes, 460 entries, 642,023,303 declared expanded bytes,
+and 39 `.pc` configurations. Its most compressible declared entry is a uniform
+DDS resource at about 838.735:1, so the default ratio ceiling is 1,024:1 while
+the independent 1 GiB per-entry and 4 GiB total-expanded ceilings remain
+mandatory. The archive is a local validation input only and is not tracked or
+redistributed.
 
 ## Measurement contract
 

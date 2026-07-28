@@ -97,6 +97,20 @@ add_executable(
 )
 
 add_executable(
+    ror_beamng_zip_archive_index_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/BeamNGZipArchiveIndexTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGZipArchiveIndex.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGPackageManifest.cpp"
+)
+
+add_executable(
+    ror_beamng_zip_index
+    "${ROR_REPOSITORY_ROOT}/tools/ror_beamng_zip_index.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGZipArchiveIndex.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGPackageManifest.cpp"
+)
+
+add_executable(
     ror_jbeam_syntax_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamSyntaxTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
@@ -149,6 +163,18 @@ add_executable(
 
 target_include_directories(
     ror_beamng_package_manifest_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+target_include_directories(
+    ror_beamng_zip_archive_index_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+target_include_directories(
+    ror_beamng_zip_index
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
 )
@@ -332,6 +358,8 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_beam_axial_response_tests
     ror_beam_rest_length_scale_tests
     ror_beamng_package_manifest_tests
+    ror_beamng_zip_archive_index_tests
+    ror_beamng_zip_index
     ror_calibrated_beam_material_adapter_tests
     ror_calibrated_beam_material_tests
     ror_rigdef_calibrated_beam_material_tests
@@ -475,6 +503,31 @@ add_test(
 add_test(
     NAME beamng_package_manifest
     COMMAND ror_beamng_package_manifest_tests
+)
+
+add_test(
+    NAME beamng_zip_archive_index
+    COMMAND ror_beamng_zip_archive_index_tests
+)
+
+add_test(
+    NAME beamng_zip_index_help
+    COMMAND ror_beamng_zip_index --help
+)
+
+add_test(
+    NAME beamng_formulacoupe_opt_in
+    COMMAND
+        "${CMAKE_COMMAND}"
+        "-DROR_BEAMNG_ZIP_INDEX_TOOL=$<TARGET_FILE:ror_beamng_zip_index>"
+        -P
+        "${CMAKE_CURRENT_LIST_DIR}/resources/FormulaCoupeOptIn.cmake"
+)
+set_tests_properties(
+    beamng_formulacoupe_opt_in
+    PROPERTIES
+        SKIP_REGULAR_EXPRESSION
+            "SKIP: FormulaCOUPE fixture is not explicitly supplied"
 )
 
 add_test(

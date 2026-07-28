@@ -85,6 +85,18 @@ case-fold collisions, symlinks, encrypted entries, unsafe compression ratios,
 and quota violations are rejected before extraction. Importing performs no
 network access and never executes package content.
 
+The first J0 container boundary is implemented as a bounded, metadata-only
+classic ZIP index pinned to
+[PKWARE APPNOTE 6.3.10](https://pkware.cachefly.net/webdocs/APPNOTE/APPNOTE-6.3.10.TXT).
+It validates the EOCD,
+central and local records, optional data descriptors, record coverage, file
+types, and package-manifest policy without decompressing payloads. ZIP64,
+spanned, encrypted, self-extracting, symlink/special-file, overlapping,
+alternate-name/stream, and hidden-gap variants fail with distinct diagnostics.
+Compression methods are recorded but are not decoder claims. Use
+`ror_beamng_zip_index PACKAGE.zip` to emit a compact JSON validity summary; the
+tool reads an explicitly supplied local archive only.
+
 ## JBeam syntax and resolution
 
 The [JBeam syntax][jbeam-syntax] is JSON-derived but is not strict JSON. The

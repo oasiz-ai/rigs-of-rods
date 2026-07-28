@@ -192,6 +192,7 @@ set(SOURCE_FILES
         resources/CacheSystem.{h,cpp}
         resources/ContentManager.{h,cpp}
         resources/beamng/BeamNGPackageManifest.{h,cpp}
+        resources/beamng/BeamNGZipArchiveIndex.{h,cpp}
         resources/beamng/JBeamAdvancedStructureIR.{h,cpp}
         resources/beamng/JBeamCoordinateTransform.h
         resources/beamng/JBeamPartResolver.{h,cpp}

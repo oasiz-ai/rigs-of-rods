@@ -96,10 +96,21 @@ PackageContentRoot ClassifyContentRoot(const std::string& path)
 bool IsWindowsReservedName(const std::string& segment)
 {
     const std::size_t extension_separator = segment.find('.');
-    const std::string basename = AsciiLowercase(
-        segment.substr(0, extension_separator));
+    std::string basename = segment.substr(0, extension_separator);
+    // Win32 device-name matching ignores an extension and trailing spaces or
+    // dots in the basename. Reject those aliases even when the complete
+    // segment itself does not end in a dot or space (for example "CON .txt").
+    while (!basename.empty() &&
+           (basename[basename.size() - 1] == '.' ||
+            basename[basename.size() - 1] == ' '))
+    {
+        basename.resize(basename.size() - 1);
+    }
+    basename = AsciiLowercase(basename);
 
     if (basename == "con" ||
+        basename == "conin$" ||
+        basename == "conout$" ||
         basename == "prn" ||
         basename == "aux" ||
         basename == "nul" ||
@@ -315,7 +326,11 @@ PackageScanLimits::PackageScanLimits() :
     max_path_depth(32),
     max_entry_expanded_bytes(UINT64_C(1073741824)),
     max_total_expanded_bytes(UINT64_C(4294967296)),
-    max_compression_ratio(200)
+    // Highly uniform DDS data in the pinned FormulaCOUPE interoperability
+    // fixture reaches 838.735:1 under ordinary DEFLATE. Keep the ratio guard
+    // above that measured legitimate case while the independent 1 GiB entry
+    // and 4 GiB package expansion ceilings remain hard bounds.
+    max_compression_ratio(1024)
 {
 }
 

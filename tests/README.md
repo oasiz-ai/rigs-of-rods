@@ -140,6 +140,31 @@ material configuration yet. Savegame/replay restoration, authored calibration
 data, mesh-refinement/localization gates, step-size comparison, starter-content
 calibration, and the Agora impact regression remain separate P1 gates.
 
+## BeamNG ZIP package index
+
+`BeamNGZipArchiveIndex` implements the metadata-only J0 container boundary for
+classic single-disk ZIPs. It validates central/local headers, descriptors,
+record coverage, filesystem types, and the existing canonical package manifest
+without extraction or decompression. Dedicated errors distinguish unsupported
+ZIP64, spanning, encryption, alternate names/streams, SFX prefixes, symlinks,
+special files, overlaps, and hidden data from malformed records.
+
+The dependency-free suite checks every prefix truncation and 5,000 fixed-seed
+mutations under strict, fast-math, and address/undefined-sanitizer builds. With
+`ROR_BUILD_TESTS=ON`, inspect an explicitly supplied local package using:
+
+```sh
+ror_beamng_zip_index PACKAGE.zip
+```
+
+The command emits a compact JSON result and exits `0` for a valid bounded
+manifest, `1` for a rejected archive, and `2` for usage, I/O, or resource
+failure. It records compression methods but does not claim decoder support.
+The `beamng_formulacoupe_opt_in` CTest reads only
+`ROR_BEAMNG_FORMULACOUPE_ZIP`; it skips when unset and otherwise requires the
+pinned v0.9.7 SHA-256 plus the audited J0 byte, entry, expanded-size, and
+39-configuration counts.
+
 ## Bounded hydro actuator response
 
 The dependency-free hydro kernel implements the documented length-factor
