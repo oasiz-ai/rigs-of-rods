@@ -11,6 +11,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 #include <vector>
 
 namespace RoR
@@ -38,6 +39,12 @@ struct ExplicitGraphicsProgramBindings
     bool has_geometry;
     bool has_mesh;
     bool has_compute;
+};
+
+struct ShaderTechniqueCompatibility
+{
+    std::string scheme_name;
+    bool is_compatible;
 };
 
 /// ResourceGroupListener identifies scripts only by filename. Resolve repeated
@@ -91,13 +98,32 @@ inline bool NeedsGeneratedShaderFallbackForIncompletePipeline(
          !bindings.has_fragment);
 }
 
-/// Do not replace a renderer-specific technique when the same material already
-/// provides another technique the active renderer can execute.
+/// An alternate technique can suppress repair only within the same material
+/// scheme. OGRE's RTShader resolver generates its active viewport technique
+/// from the Default scheme; a compatible shadow/depth/custom scheme therefore
+/// cannot make an incompatible Default source usable.
+inline bool HasCompatibleShaderTechniqueForScheme(
+    const std::vector<ShaderTechniqueCompatibility>& techniques,
+    const std::string& scheme_name)
+{
+    for (const ShaderTechniqueCompatibility& technique : techniques)
+    {
+        if (technique.scheme_name == scheme_name &&
+            technique.is_compatible)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Do not replace a renderer-specific technique when the same material scheme
+/// already provides another technique the active renderer can execute.
 inline bool ShouldRepairIncompatibleShaderPass(
-    bool material_has_compatible_technique,
+    bool scheme_has_compatible_technique,
     bool pass_has_incompatible_program)
 {
-    return !material_has_compatible_technique &&
+    return !scheme_has_compatible_technique &&
         pass_has_incompatible_program;
 }
 

@@ -330,7 +330,9 @@ void ContentManager::ApplyShaderCompatibilityFallbacks(
             return found_incompatible_program;
         };
 
-        bool has_compatible_technique = false;
+        std::vector<ShaderTechniqueCompatibility>
+            technique_compatibilities;
+        technique_compatibilities.reserve(material->getNumTechniques());
         for (std::size_t technique_index = 0;
              technique_index < material->getNumTechniques();
              ++technique_index)
@@ -354,11 +356,9 @@ void ContentManager::ApplyShaderCompatibilityFallbacks(
                 }
             }
 
-            if (technique_is_compatible)
-            {
-                has_compatible_technique = true;
-                break;
-            }
+            technique_compatibilities.push_back({
+                technique->getSchemeName(),
+                technique_is_compatible});
         }
 
         bool repaired_material = false;
@@ -368,6 +368,10 @@ void ContentManager::ApplyShaderCompatibilityFallbacks(
         {
             Ogre::Technique* technique =
                 material->getTechnique(static_cast<unsigned short>(technique_index));
+            const bool scheme_has_compatible_technique =
+                HasCompatibleShaderTechniqueForScheme(
+                    technique_compatibilities,
+                    technique->getSchemeName());
             for (std::size_t pass_index = 0;
                  pass_index < technique->getNumPasses();
                  ++pass_index)
@@ -379,7 +383,7 @@ void ContentManager::ApplyShaderCompatibilityFallbacks(
                     find_incompatible_programs(
                         pass, &incompatible_programs);
                 if (!ShouldRepairIncompatibleShaderPass(
-                        has_compatible_technique,
+                        scheme_has_compatible_technique,
                         pass_has_incompatible_program))
                 {
                     continue;

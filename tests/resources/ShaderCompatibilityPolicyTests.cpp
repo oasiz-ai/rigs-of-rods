@@ -60,11 +60,38 @@ void TestIncompleteGraphicsPipelinesUseGeneratedShaders()
         false, {true, true, false, false, false, false}));
 }
 
-void TestCompatibleAlternateTechniqueIsPreserved()
+void TestCompatibleTechniqueOnlySuppressesItsOwnScheme()
 {
+    const std::vector<RoR::ShaderTechniqueCompatibility> techniques = {
+        {"Default", false},
+        {"ShadowCaster", true},
+        {"Default", true}};
+
+    CHECK(RoR::HasCompatibleShaderTechniqueForScheme(
+        techniques, "Default"));
+    CHECK(RoR::HasCompatibleShaderTechniqueForScheme(
+        techniques, "ShadowCaster"));
+    CHECK(!RoR::HasCompatibleShaderTechniqueForScheme(
+        techniques, "DepthOnly"));
+
     CHECK(!RoR::ShouldRepairIncompatibleShaderPass(true, true));
     CHECK(!RoR::ShouldRepairIncompatibleShaderPass(false, false));
     CHECK(RoR::ShouldRepairIncompatibleShaderPass(false, true));
+}
+
+void TestAlternateSchemeCannotHideBrokenDefaultSource()
+{
+    const std::vector<RoR::ShaderTechniqueCompatibility> techniques = {
+        {"Default", false},
+        {"ShadowCaster", true},
+        {"HydraxDepth", true}};
+
+    const bool default_has_compatible_technique =
+        RoR::HasCompatibleShaderTechniqueForScheme(
+            techniques, "Default");
+    CHECK(!default_has_compatible_technique);
+    CHECK(RoR::ShouldRepairIncompatibleShaderPass(
+        default_has_compatible_technique, true));
 }
 
 void TestScriptOwnershipFollowsOrderedArchiveOccurrences()
@@ -90,7 +117,8 @@ int main()
     TestMissingOrUnsupportedProgramsUseGeneratedShaders();
     TestCompileErrorsDoNotAffectUnboundStages();
     TestIncompleteGraphicsPipelinesUseGeneratedShaders();
-    TestCompatibleAlternateTechniqueIsPreserved();
+    TestCompatibleTechniqueOnlySuppressesItsOwnScheme();
+    TestAlternateSchemeCannotHideBrokenDefaultSource();
     TestScriptOwnershipFollowsOrderedArchiveOccurrences();
     return EXIT_SUCCESS;
 }
