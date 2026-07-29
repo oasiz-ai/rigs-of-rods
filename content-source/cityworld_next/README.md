@@ -100,7 +100,23 @@ invent runtime material switching:
 - runtime-neutral interchange and contract:
   `../../resources/nextgen/cityworld/fixtures/led_streetlight/`.
 
-Regenerate with Blender 4.0 or newer:
+The raised corridor uses a separate
+`rorng_city_led_streetlight_bridge` variant. Its 0.4 m bridge flange fits the
+0.45 m native parapet, while the render ladder and inward-facing luminaire
+retain the checked streetlight proportions. The `static-visual-v1` profile
+requires an explicit empty collision list: the native procedural parapet
+remains the only collision authority. Each compiled ODEF carries one bounded
+24 m warm point light at the lens, so sixteen alternating 40 m placements
+brighten the flat raised deck without changing road physics:
+
+- editable source:
+  `fixtures/led_streetlight_bridge/rorng_city_led_streetlight_bridge.blend`;
+- authoring preview:
+  `fixtures/led_streetlight_bridge/rorng_city_led_streetlight_bridge_preview.png`;
+- runtime-neutral interchange and contract:
+  `../../resources/nextgen/cityworld/fixtures/led_streetlight_bridge/`.
+
+Regenerate with the pinned Blender 5.2 LTS authoring version:
 
 ```sh
 blender --background --factory-startup \
@@ -117,6 +133,9 @@ blender --background --factory-startup \
   --output-root "$PWD"
 blender --background --factory-startup \
   --python tools/blender/cityworld_next/generate_led_streetlight.py -- \
+  --output-root "$PWD"
+blender --background --factory-startup \
+  --python tools/blender/cityworld_next/generate_bridge_streetlight.py -- \
   --output-root "$PWD"
 ```
 
@@ -144,6 +163,17 @@ python3 tools/compile_cityworld_asset.py \
   --converter /absolute/path/to/OgreXMLConverter
 python3 tools/compile_cityworld_asset.py \
   resources/nextgen/cityworld/fixtures/led_streetlight/rorng_city_led_streetlight.asset.json \
+  --repo-root . \
+  --validate-checked
+python3 tools/validate_cityworld_asset.py \
+  resources/nextgen/cityworld/fixtures/led_streetlight_bridge/rorng_city_led_streetlight_bridge.asset.json \
+  --repo-root .
+python3 tools/compile_cityworld_asset.py \
+  resources/nextgen/cityworld/fixtures/led_streetlight_bridge/rorng_city_led_streetlight_bridge.asset.json \
+  --repo-root . \
+  --converter /absolute/path/to/OgreXMLConverter
+python3 tools/compile_cityworld_asset.py \
+  resources/nextgen/cityworld/fixtures/led_streetlight_bridge/rorng_city_led_streetlight_bridge.asset.json \
   --repo-root . \
   --validate-checked
 python3 tools/solve_cityworld_bridge_corridor.py \
@@ -187,7 +217,7 @@ python3 tools/build_cityworld_local_overlay.py \
 ```
 
 The output path must not already exist and must be outside this repository.
-The current 32-entry deterministic ZIP references the separately installed
+The current eight-entry deterministic ZIP references the separately installed
 original `CityWorld.otc` and `CityWorld.tobj`; it does not copy either file or
 any original map asset. Overlay v2 authenticates the two source road-object
 placements and replaces the incomplete 192 m prototype with a continuous
@@ -198,15 +228,17 @@ raises the central deck 8 m, enables continuous collision, and requests 47
 terrain-reaching pillar stations.
 
 Its inventory is the generated descriptor, merged material script, procedural
-placement, canonical local-only provenance report, and 28 checked
-project-owned ODEF/render/collision resources for the four corridor modules.
-Those four Blender-authored module families are packaged and validated as
-candidates for the next visual pass but are explicitly reported as unplaced;
-the v2 route currently uses RoR's native procedural road, barriers and pillars.
-The building-overlapping gateway is not placed. The standalone LED streetlight
-remains a checked asset, but is not placed or packaged until a collision-safe
-fixture-mount contract lands. The source archive stays byte-identical and the
-generated package is explicitly not for redistribution or shipping.
+placement, canonical local-only provenance report, and four collisionless
+runtime resources for the placed bridge streetlight. The four Blender-authored
+module families remain validated and reported but are unplaced and excluded
+from the runtime payload because their existing ODEFs own collision. The v2
+route continues to use RoR's native procedural road, barriers and
+terrain-reaching pillars as the sole corridor collision authority. The
+building-overlapping gateway is not placed. Sixteen alternating bridge
+fixtures are mounted from station 220 m through 820 m, with exact inward
+transforms and one checked warm point light per instance. The source archive
+stays byte-identical and the generated package is explicitly not for
+redistribution or shipping.
 
 The generated descriptor mounts the original archive through:
 

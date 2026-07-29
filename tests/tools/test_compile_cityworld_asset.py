@@ -60,6 +60,15 @@ STREETLIGHT_COMPILED_PATH = (
     REPOSITORY_ROOT
     / "resources/nextgen/cityworld/fixtures/led_streetlight/compiled"
 )
+BRIDGE_STREETLIGHT_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/fixtures/led_streetlight_bridge/"
+    "rorng_city_led_streetlight_bridge.asset.json"
+)
+BRIDGE_STREETLIGHT_COMPILED_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/fixtures/led_streetlight_bridge/compiled"
+)
 
 SPEC = importlib.util.spec_from_file_location("compile_cityworld_asset", TOOL_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -511,6 +520,74 @@ class CityWorldSceneCompilerTests(unittest.TestCase):
             "endmesh\n"
             "\n"
             "end\n",
+        )
+
+    def test_bridge_streetlight_package_is_collisionless_and_lit(self) -> None:
+        compiler = self.compiler(BRIDGE_STREETLIGHT_MANIFEST_PATH)
+        report = COMPILER_MODULE.validate_checked_outputs(
+            compiler,
+            BRIDGE_STREETLIGHT_COMPILED_PATH,
+        )
+        self.assertEqual(
+            report["source_stats"],
+            {
+                "indices": 15228,
+                "materials": 4,
+                "meshes": 3,
+                "primitives": 12,
+                "vertices": 11687,
+            },
+        )
+        self.assertEqual(compiler.connector_runtime_contract(), [])
+        self.assertEqual(
+            compiler.runtime_light_contract(),
+            [
+                {
+                    "color_linear": [1.0, 0.72, 0.3],
+                    "id": "rorng_bridge_streetlight_warm",
+                    "position_ogre_y_up_m": [0.0, 7.12, -1.58],
+                    "range_m": 24.0,
+                    "type": "point",
+                }
+            ],
+        )
+        self.assertEqual(
+            [output["role"] for output in report["outputs"]],
+            [
+                "material-fallback",
+                "terrain-object",
+                "render-lod0",
+                "render-lod1",
+                "render-lod2",
+            ],
+        )
+        values = {
+            item.path: item.data
+            for item in compiler.intermediates()
+        }
+        self.assertEqual(
+            sorted(
+                name
+                for name in values
+                if name.endswith(".mesh.xml")
+            ),
+            [
+                "rorng_city_led_streetlight_bridge_lod0.mesh.xml",
+                "rorng_city_led_streetlight_bridge_lod1.mesh.xml",
+                "rorng_city_led_streetlight_bridge_lod2.mesh.xml",
+            ],
+        )
+        odef = values[
+            "rorng_city_led_streetlight_bridge.odef"
+        ].decode("utf-8")
+        self.assertNotIn("beginmesh", odef)
+        self.assertNotIn("stdfriction", odef)
+        self.assertEqual(odef.splitlines()[2], "standard")
+        self.assertEqual(odef.count("\npointlight "), 1)
+        self.assertIn(
+            "pointlight 0, 7.12, -1.58, 0, -1, 0, "
+            "1, 0.72, 0.3, 24",
+            odef,
         )
 
     def test_intermediates_are_byte_deterministic(self) -> None:

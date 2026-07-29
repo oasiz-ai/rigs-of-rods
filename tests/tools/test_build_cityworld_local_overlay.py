@@ -182,6 +182,81 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             )
         return tuple(assets)
 
+    def fake_streetlight_asset(self) -> object:
+        asset_id = BUILDER.LED_STREETLIGHT_ASSET_ID
+        odef_payload = (
+            f"{asset_id}_lod0.mesh\n"
+            "1, 1, 1\n"
+            "standard\n\n"
+            "pointlight 0, 7.12, -1.58, 0, -1, 0, 1, 0.72, 0.3, 24\n\n"
+            "end\n"
+        ).encode()
+        material_payload = (
+            "material rorng_bridge_streetlight_test\n"
+            "{\n"
+            "  technique\n"
+            "  {\n"
+            "    pass\n"
+            "    {\n"
+            "      emissive 1 0.72 0.3\n"
+            "    }\n"
+            "  }\n"
+            "}\n"
+        ).encode()
+        runtime_files = (
+            BUILDER.RuntimeFile(
+                package_path=f"{asset_id}.odef",
+                repository_path=f"fixtures/{asset_id}.odef",
+                role="terrain-object",
+                sha256=hashlib.sha256(odef_payload).hexdigest(),
+                size=len(odef_payload),
+                payload=odef_payload,
+            ),
+            BUILDER.RuntimeFile(
+                package_path=f"{asset_id}.material",
+                repository_path=f"fixtures/{asset_id}.material",
+                role="material-fallback",
+                sha256=hashlib.sha256(material_payload).hexdigest(),
+                size=len(material_payload),
+                payload=material_payload,
+            ),
+        )
+        return BUILDER.PreparedAsset(
+            asset_id=asset_id,
+            centerline_length_m=None,
+            manifest_path=BUILDER.LED_STREETLIGHT_MANIFEST,
+            profile=None,
+            provenance={
+                "asset": {
+                    "id": asset_id,
+                    "license": "GPL-3.0-or-later",
+                    "profile": "static-visual-v1",
+                },
+                "generator": {},
+                "manifest": {
+                    "path": BUILDER.LED_STREETLIGHT_MANIFEST,
+                    "sha256": "2" * 64,
+                },
+                "runtime_files": [
+                    {
+                        "package_path": item.package_path,
+                        "path": item.repository_path,
+                        "role": item.role,
+                        "sha256": item.sha256,
+                        "size": item.size,
+                    }
+                    for item in runtime_files
+                ],
+                "runtime_lights": [
+                    {
+                        "id": "rorng_bridge_streetlight_warm",
+                        "type": "point",
+                    }
+                ],
+            },
+            runtime_files=runtime_files,
+        )
+
     def replace_material(
         self,
         asset: object,
@@ -230,6 +305,11 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 "prepare_assets",
                 return_value=self.fake_assets(),
             ),
+            mock.patch.object(
+                BUILDER,
+                "prepare_streetlight_asset",
+                return_value=self.fake_streetlight_asset(),
+            ),
         ):
             result = BUILDER.build_local_overlay(
                 archive_path=archive,
@@ -262,6 +342,23 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             ),
             8,
         )
+        streetlight = BUILDER.prepare_streetlight_asset(REPOSITORY_ROOT)
+        self.assertEqual(
+            streetlight.asset_id,
+            BUILDER.LED_STREETLIGHT_ASSET_ID,
+        )
+        self.assertEqual(len(streetlight.runtime_files), 5)
+        self.assertEqual(len(streetlight.provenance["runtime_lights"]), 1)
+        streetlight_odef = next(
+            item
+            for item in streetlight.runtime_files
+            if item.role == "terrain-object"
+        ).payload.decode("utf-8")
+        self.assertNotIn("beginmesh", streetlight_odef)
+        self.assertNotIn("stdfriction", streetlight_odef)
+        self.assertIn("pointlight ", streetlight_odef)
+        self.assertIsNone(streetlight.centerline_length_m)
+        self.assertIsNone(streetlight.profile)
 
     def test_repeated_builds_are_byte_identical_with_fixed_zip_metadata(
         self,
@@ -451,6 +548,58 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 supports["maximum_station_spacing_m"],
                 BUILDER.ROUTE_SAMPLE_SPACING_M,
             )
+            fixtures = corridor["fixtures"]
+            self.assertEqual(
+                fixtures["format"],
+                "ror-cityworld-streetlight-placement-v1",
+            )
+            self.assertEqual(
+                fixtures["asset_id"],
+                BUILDER.LED_STREETLIGHT_ASSET_ID,
+            )
+            self.assertFalse(fixtures["paired"])
+            self.assertEqual(fixtures["station_spacing_m"], 40.0)
+            self.assertEqual(fixtures["station_count"], 16)
+            self.assertEqual(fixtures["instance_count"], 16)
+            self.assertEqual(fixtures["lateral_mount_offset_m"], 4.675)
+            self.assertEqual(fixtures["mount_elevation_above_road_m"], 0.95)
+            self.assertEqual(fixtures["runtime_point_lights_per_instance"], 1)
+            self.assertEqual(
+                fixtures["collision_authority"],
+                "native-procedural-road-v2",
+            )
+            self.assertEqual(
+                [item["station_m"] for item in fixtures["stations"]],
+                [float(value) for value in range(220, 821, 40)],
+            )
+            self.assertEqual(
+                [item["side"] for item in fixtures["stations"]],
+                ["left", "right"] * 8,
+            )
+            for fixture in fixtures["stations"]:
+                center = fixture["centerline_position_m"]
+                placement = fixture["placement_position_m"]
+                offset_x = placement[0] - center[0]
+                offset_z = placement[2] - center[2]
+                offset_length = math.hypot(offset_x, offset_z)
+                self.assertAlmostEqual(offset_length, 4.675, places=8)
+                self.assertAlmostEqual(
+                    placement[1] - center[1],
+                    0.95,
+                    places=8,
+                )
+                yaw = math.radians(
+                    fixture["rotation_degrees"][1]
+                )
+                arm_x = -math.sin(yaw)
+                arm_z = -math.cos(yaw)
+                inward_x = -offset_x / offset_length
+                inward_z = -offset_z / offset_length
+                self.assertAlmostEqual(
+                    arm_x * inward_x + arm_z * inward_z,
+                    1.0,
+                    places=8,
+                )
             self.assertEqual(
                 report["source"]["references"],
                 {
@@ -466,7 +615,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 len(report["source"]["archive"]["members"]),
                 3,
             )
-            self.assertEqual(len(report["assets"]), 4)
+            self.assertEqual(len(report["assets"]), 5)
             self.assertTrue(
                 all("manifest" in asset for asset in report["assets"])
             )
@@ -474,16 +623,30 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 report["visual_asset_usage"],
                 {
                     "corridor_placement_mode":
-                        "native-procedural-construction-alignment-v1",
+                        "native-procedural-v2-with-blender-fixtures-v1",
                     "packaged_asset_ids": [
+                        "rorng_city_led_streetlight_bridge",
+                    ],
+                    "placed_asset_ids": [
+                        "rorng_city_led_streetlight_bridge",
+                    ],
+                    "unplaced_asset_ids": [
                         "rorng_city_gateway_block_40m",
                         "rorng_city_bridge_transition_12m",
                         "rorng_city_bridge_curve_left_15deg_20m",
                         "rorng_city_bridge_span_20m",
                     ],
-                    "placed_asset_ids": [],
+                    "validated_asset_ids": [
+                        "rorng_city_gateway_block_40m",
+                        "rorng_city_bridge_transition_12m",
+                        "rorng_city_bridge_curve_left_15deg_20m",
+                        "rorng_city_bridge_span_20m",
+                        "rorng_city_led_streetlight_bridge",
+                    ],
                     "purpose":
-                        "validated candidates for the subsequent Blender visual pass",
+                        "route-safe first Blender visual pass; bridge modules "
+                        "remain validated candidates for deck and abutment "
+                        "replacement",
                 },
             )
             self.assertIn(
@@ -497,6 +660,20 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             self.assertIn("collision_enabled true", placement_text)
             self.assertGreater(placement_text.count(", bridge\n"), 40)
             self.assertNotIn("rorng_city_gateway_block_40m -", placement_text)
+            self.assertEqual(
+                placement_text.count(
+                    f"{BUILDER.LED_STREETLIGHT_ASSET_ID} - "
+                ),
+                16,
+            )
+            self.assertIn(
+                "cityworld_next_led_0220_left",
+                placement_text,
+            )
+            self.assertIn(
+                "cityworld_next_led_0820_right",
+                placement_text,
+            )
             self.assertIn(
                 "494.8491, 0.1, 370, 0, 0, 0, 8.9, 1, 0.15, flat",
                 placement_text,
@@ -556,6 +733,11 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                             "prepare_assets",
                             return_value=self.fake_assets(),
                         ),
+                        mock.patch.object(
+                            BUILDER,
+                            "prepare_streetlight_asset",
+                            return_value=self.fake_streetlight_asset(),
+                        ),
                         self.assertRaisesRegex(
                             BUILDER.OverlayFailure,
                             message,
@@ -611,12 +793,21 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             )
             merged_material = payloads[BUILDER.MERGED_MATERIAL_NAME].decode()
             self.assertEqual(
-                merged_material.count("material rorng_shared_surface\n"),
+                merged_material.count(
+                    "material rorng_bridge_streetlight_test\n"
+                ),
                 1,
             )
+            self.assertNotIn("rorng_shared_surface", merged_material)
             self.assertTrue(
                 all(
                     f"{asset.asset_id}.material" not in names
+                    for asset in self.fake_assets()
+                )
+            )
+            self.assertTrue(
+                all(
+                    f"{asset.asset_id}.odef" not in names
                     for asset in self.fake_assets()
                 )
             )
@@ -639,7 +830,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     for runtime_file in asset["runtime_files"]
                     if runtime_file["role"] == "material-fallback"
                 ),
-                4,
+                5,
             )
             self.assertEqual(
                 report["rights"],
@@ -778,6 +969,11 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             cases = (
                 existing,
                 root / "not-a-package.txt",
+                root / "CON.zip",
+                root / "CON.overlay.zip",
+                root / "AUX..zip",
+                root / "com1.zip",
+                root / "LPT1.backup.zip",
                 REPOSITORY_ROOT / "forbidden-local-overlay.zip",
             )
             for output in cases:
@@ -943,7 +1139,7 @@ material rorng_unique
 
     def test_conflicting_same_name_materials_fail_before_publish(self) -> None:
         shared = b"""\
-material rorng_shared
+material rorng_bridge_streetlight_test
 {
  technique
  {
@@ -955,11 +1151,10 @@ material rorng_shared
 }
 """
         conflict = shared.replace(b"0.1 0.2 0.3", b"0.9 0.8 0.7")
-        assets = [
-            self.replace_material(asset, shared)
-            for asset in self.fake_assets()
-        ]
-        assets[1] = self.replace_material(assets[1], conflict)
+        streetlight = self.replace_material(
+            self.fake_streetlight_asset(),
+            shared + b"\n" + conflict,
+        )
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -974,11 +1169,17 @@ material rorng_shared
                 mock.patch.object(
                     BUILDER,
                     "prepare_assets",
-                    return_value=tuple(assets),
+                    return_value=self.fake_assets(),
+                ),
+                mock.patch.object(
+                    BUILDER,
+                    "prepare_streetlight_asset",
+                    return_value=streetlight,
                 ),
                 self.assertRaisesRegex(
                     BUILDER.OverlayFailure,
-                    r"conflicting material definition 'rorng_shared'.*"
+                    r"conflicting material definition "
+                    r"'rorng_bridge_streetlight_test'.*"
                     r"\.material.*\.material",
                 ),
             ):
@@ -1005,6 +1206,11 @@ material rorng_shared
                     BUILDER,
                     "prepare_assets",
                     return_value=self.fake_assets(),
+                ),
+                mock.patch.object(
+                    BUILDER,
+                    "prepare_streetlight_asset",
+                    return_value=self.fake_streetlight_asset(),
                 ),
                 mock.patch.object(
                     BUILDER,
@@ -1046,6 +1252,11 @@ material rorng_shared
                     BUILDER,
                     "prepare_assets",
                     return_value=self.fake_assets(),
+                ),
+                mock.patch.object(
+                    BUILDER,
+                    "prepare_streetlight_asset",
+                    return_value=self.fake_streetlight_asset(),
                 ),
                 mock.patch.object(
                     BUILDER,

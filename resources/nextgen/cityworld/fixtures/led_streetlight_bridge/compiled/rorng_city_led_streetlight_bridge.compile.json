@@ -1,0 +1,137 @@
+{
+  "asset": {
+    "id": "rorng_city_led_streetlight_bridge",
+    "version": 1
+  },
+  "basis": {
+    "authoring": "blender-z-up-metres",
+    "authoring_to_interchange": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        -1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "compiler_transform": "identity",
+    "interchange": "gltf-y-up-metres",
+    "runtime": "ogre-y-up-metres"
+  },
+  "compiler": {
+    "format": "ror-cityworld-scene-compiler-v1",
+    "path": "tools/compile_cityworld_asset.py",
+    "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059"
+  },
+  "connectors": [],
+  "format": "ror-cityworld-scene-compile-report-v1",
+  "inputs": {
+    "asset_contract_sha256": "bf9a5fd6a5ff2a8505f6b000330cdc84b791111c254dc29674ef29ab12aed664",
+    "glb": {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight_bridge/rorng_city_led_streetlight_bridge.glb",
+      "sha256": "82e98ac7844e0cb060d69e678bbce58097d824a4e1b52329a01583250d3a0663"
+    }
+  },
+  "limits": {
+    "indices": 12000000,
+    "materials": 4096,
+    "meshes": 4096,
+    "nodes": 4096,
+    "primitives": 8192,
+    "vertices": 4000000
+  },
+  "material_model": "ogre-rtss-metallic-roughness-fallback-v1",
+  "mesh_format": "MeshSerializer_v1.100-little-endian",
+  "ogre_converter": {
+    "executable": "OgreXMLConverter",
+    "sha256": "01f80e0400688d899e8934335678ea9875089d3715543f63f7b69f24f1b93ce3",
+    "version": "OgreXMLConverter Tsathoggua (14.5.2)"
+  },
+  "options": {
+    "colour_packing": "gl",
+    "endian": "little",
+    "lod_distances_m": [
+      80.0,
+      180.0
+    ],
+    "transforms": "applied-only"
+  },
+  "outputs": [
+    {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight_bridge/compiled/rorng_city_led_streetlight_bridge.material",
+      "role": "material-fallback",
+      "sha256": "0ef7a31fee0366430e3bfa96cf4bda7e66e5f32e341e1899f581c6e8ce17018d",
+      "size": 924
+    },
+    {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight_bridge/compiled/rorng_city_led_streetlight_bridge.odef",
+      "role": "terrain-object",
+      "sha256": "39d76b823896a363c183c07f089d89bb901ee9383e354b1fe247d1ae9a785ba9",
+      "size": 121
+    },
+    {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight_bridge/compiled/rorng_city_led_streetlight_bridge_lod0.mesh",
+      "role": "render-lod0",
+      "sha256": "9657f2fa1fb90d2ed6817e9937879a869acaf7886cc47d8d281836de3ad89b1c",
+      "size": 544544
+    },
+    {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight_bridge/compiled/rorng_city_led_streetlight_bridge_lod1.mesh",
+      "role": "render-lod1",
+      "sha256": "a2566821a0a477baad281d6f0416ed097775c8c7b4621275e62418f97bb60988",
+      "size": 36476
+    },
+    {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight_bridge/compiled/rorng_city_led_streetlight_bridge_lod2.mesh",
+      "role": "render-lod2",
+      "sha256": "fcd7fdeb6c587d20dd68fea674595cff1d6930bbda083e91d4d69ff6d734b12b",
+      "size": 13196
+    }
+  ],
+  "runtime_lights": [
+    {
+      "color_linear": [
+        1.0,
+        0.72,
+        0.3
+      ],
+      "id": "rorng_bridge_streetlight_warm",
+      "position_ogre_y_up_m": [
+        0.0,
+        7.12,
+        -1.58
+      ],
+      "range_m": 24.0,
+      "type": "point"
+    }
+  ],
+  "source_stats": {
+    "indices": 15228,
+    "materials": 4,
+    "meshes": 3,
+    "primitives": 12,
+    "vertices": 11687
+  },
+  "xml_intermediate_sha256": {
+    "rorng_city_led_streetlight_bridge_lod0.mesh.xml": "223376f760ab68fe1d34e7eb90deefca98cf5eb7d7af2beaf3a80c1214318b60",
+    "rorng_city_led_streetlight_bridge_lod1.mesh.xml": "d6c330dd1ddf03928d4e2b98b248eae8762a75978ed104bd3dcfea6f036b1791",
+    "rorng_city_led_streetlight_bridge_lod2.mesh.xml": "ce0f9ac29a514cac7d6af924622db81294c28298716c6a96b6491aa626d6c99e"
+  }
+}

@@ -740,6 +740,16 @@ Blender-to-OGRE coordinate conversion and ODEF lowering. Runtime creation is
 logged, emissive lenses remain active, and the local lights do not alter the
 global PSSM configuration.
 
+The corrected full CityWorld link now has its first topology-safe Blender
+visual layer. Sixteen collisionless, parapet-mounted LED fixtures alternate at
+40 m stations along the flat raised deck, point inward, and each instantiate a
+validated 24 m warm point light. The procedural 1,060.599 m road, exact city
+seams, 7.5 percent grade ceiling, continuous collision surface, and 47
+terrain-reaching pillar requests remain authoritative. The cross-platform
+provenance matrix now executes the overlay builder under normal and optimized
+Python on macOS, Linux, and Windows; native full-map Windows/Linux driving is
+still an open runtime gate.
+
 A portable runtime gate assembles an isolated native fixture from the pinned
 content submodule. On macOS arm64, the DAF drove 137.569 metres through three
 curves, the transition, and the gateway in 30,580 deterministic physics steps.

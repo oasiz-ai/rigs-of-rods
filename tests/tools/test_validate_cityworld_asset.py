@@ -50,6 +50,14 @@ FIXTURE_MANIFEST_PATH = (
 FIXTURE_MANIFEST_RELATIVE = FIXTURE_MANIFEST_PATH.relative_to(
     REPOSITORY_ROOT
 )
+BRIDGE_FIXTURE_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/fixtures/led_streetlight_bridge/"
+    "rorng_city_led_streetlight_bridge.asset.json"
+)
+BRIDGE_FIXTURE_MANIFEST_RELATIVE = (
+    BRIDGE_FIXTURE_MANIFEST_PATH.relative_to(REPOSITORY_ROOT)
+)
 BASE_GENERATOR_PATH = (
     REPOSITORY_ROOT
     / "tools/blender/cityworld_next/generate_bridge_kit.py"
@@ -264,6 +272,103 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 "triangles": 5120,
                 "valid": True,
             },
+        )
+
+    def test_checked_in_bridge_streetlight_is_collisionless_and_lit(
+        self,
+    ) -> None:
+        result, report = self.run_validator(
+            REPOSITORY_ROOT,
+            BRIDGE_FIXTURE_MANIFEST_PATH,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(report["diagnostics"], [])
+        self.assertEqual(
+            report["summary"],
+            {
+                "collision_objects": 0,
+                "errors": 0,
+                "glb_materials": 4,
+                "glb_nodes": 3,
+                "lod_objects": 3,
+                "runtime_lights": 1,
+                "triangles": 5076,
+                "valid": True,
+            },
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path = self.copy_fixture(
+                root,
+                BRIDGE_FIXTURE_MANIFEST_RELATIVE,
+            )
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            manifest["collision"]["profile"] = "wrong-profile"
+            manifest_path.write_text(
+                json.dumps(manifest),
+                encoding="utf-8",
+            )
+            hostile_result, hostile_report = self.run_validator(
+                root,
+                manifest_path,
+            )
+            self.assertNotEqual(hostile_result.returncode, 0)
+            self.assertIn(
+                "COLLISION_PROFILE",
+                self.codes(hostile_report),
+            )
+
+    def test_bridge_streetlight_evidence_has_portable_metadata(self) -> None:
+        manifest = json.loads(
+            BRIDGE_FIXTURE_MANIFEST_PATH.read_text(encoding="utf-8")
+        )
+        blend_path = (
+            REPOSITORY_ROOT / manifest["artifacts"]["blend"]["path"]
+        )
+        preview_path = (
+            REPOSITORY_ROOT / manifest["artifacts"]["preview"]["path"]
+        )
+        blend = blend_path.read_bytes()
+        self.assertIn(
+            b"//rorng_city_led_streetlight_bridge_preview.png",
+            blend,
+        )
+        for marker in (
+            str(REPOSITORY_ROOT).encode("utf-8"),
+            b"/private/tmp/",
+            b"/Users/",
+            b"\\Users\\",
+        ):
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, blend)
+
+        preview = preview_path.read_bytes()
+        self.assertTrue(preview.startswith(b"\x89PNG\r\n\x1a\n"))
+        chunk_types = []
+        offset = 8
+        while offset < len(preview):
+            self.assertGreaterEqual(len(preview) - offset, 12)
+            length = struct.unpack_from(">I", preview, offset)[0]
+            end = offset + 12 + length
+            self.assertLessEqual(end, len(preview))
+            chunk_type = preview[offset + 4 : offset + 8]
+            chunk_types.append(chunk_type)
+            offset = end
+        self.assertEqual(offset, len(preview))
+        self.assertEqual(chunk_types[0], b"IHDR")
+        self.assertEqual(chunk_types[-1], b"IEND")
+        self.assertIn(b"IDAT", chunk_types)
+        self.assertTrue(
+            {
+                b"eXIf",
+                b"iTXt",
+                b"tEXt",
+                b"tIME",
+                b"zTXt",
+            }.isdisjoint(chunk_types)
         )
 
     def test_checked_in_curved_bridge_asset_passes_full_gate(self) -> None:
@@ -889,6 +994,18 @@ class CityWorldAssetValidationTests(unittest.TestCase):
             (
                 lambda manifest: manifest["runtime_lights"]["lights"][0].update(
                     {"position_blender_z_up_m": ["-3.95", 5.2, 12.6]}
+                ),
+                "RUNTIME_LIGHT_POSITION",
+            ),
+            (
+                lambda manifest: manifest["runtime_lights"]["lights"][0].update(
+                    {"position_blender_z_up_m": [1e308, 0.0, 0.0]}
+                ),
+                "RUNTIME_LIGHT_POSITION",
+            ),
+            (
+                lambda manifest: manifest["runtime_lights"]["lights"][0].update(
+                    {"position_blender_z_up_m": [500.0, 0.0, 0.0]}
                 ),
                 "RUNTIME_LIGHT_POSITION",
             ),

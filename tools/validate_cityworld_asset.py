@@ -33,12 +33,18 @@ MAX_GLB_BYTES = 128 * 1024 * 1024
 MAX_SOURCE_BYTES = 512 * 1024 * 1024
 POSITION_EPSILON = 1e-6
 MAX_RUNTIME_LIGHTS = 32
+MAX_RUNTIME_LIGHT_LOCAL_COORDINATE_M = 1000.0
 RUNTIME_LIGHT_ID_PATTERN = re.compile(r"rorng_[a-z0-9_]+")
 CORRIDOR_ASSET_PROFILE = "corridor-module-v1"
 FIXTURE_ASSET_PROFILE = "static-fixture-v1"
+STATIC_VISUAL_ASSET_PROFILE = "static-visual-v1"
+STATIC_ASSET_PROFILES = {
+    FIXTURE_ASSET_PROFILE,
+    STATIC_VISUAL_ASSET_PROFILE,
+}
 SUPPORTED_ASSET_PROFILES = {
     CORRIDOR_ASSET_PROFILE,
-    FIXTURE_ASSET_PROFILE,
+    *STATIC_ASSET_PROFILES,
 }
 
 COMPONENT_TYPES: dict[int, tuple[str, int]] = {
@@ -1289,9 +1295,18 @@ class Validator:
             return
         objects = collision.get("objects")
         profile = asset_profile(self.manifest)
-        expected_count = 1 if profile == FIXTURE_ASSET_PROFILE else 3
+        expected_count = (
+            0
+            if profile == STATIC_VISUAL_ASSET_PROFILE
+            else 1
+            if profile == FIXTURE_ASSET_PROFILE
+            else 3
+        )
         if not isinstance(objects, list) or len(objects) != expected_count:
             requirement = (
+                "collisionless visual assets require an explicit empty object list"
+                if profile == STATIC_VISUAL_ASSET_PROFILE
+                else
                 "one fixture collision proxy is required"
                 if profile == FIXTURE_ASSET_PROFILE
                 else "road plus left/right barrier collision objects are required"
@@ -1302,6 +1317,15 @@ class Validator:
                 requirement,
             )
             return
+        if (
+            profile == STATIC_VISUAL_ASSET_PROFILE
+            and collision.get("profile") != "collisionless-visual-v1"
+        ):
+            self.add(
+                "COLLISION_PROFILE",
+                "$.collision.profile",
+                "static visuals must use the collisionless visual profile",
+            )
         if (
             profile == FIXTURE_ASSET_PROFILE
             and collision.get("profile") != "single-watertight-proxy-v1"
@@ -1404,12 +1428,12 @@ class Validator:
                 "geometry declaration must be an object",
             )
             return
-        if profile == FIXTURE_ASSET_PROFILE:
+        if profile in STATIC_ASSET_PROFILES:
             if connectors != []:
                 self.add(
                     "FIXTURE_CONNECTORS",
                     "$.connectors",
-                    "static fixtures require an explicit empty connector list",
+                    "static assets require an explicit empty connector list",
                 )
             height = geometry.get("fixture_height_m")
             footprint = geometry.get("footprint_diameter_m")
@@ -1588,6 +1612,51 @@ class Validator:
             )
             return
 
+        geometry = self.manifest.get("geometry")
+        lods = geometry.get("lods") if isinstance(geometry, dict) else None
+        lod0_records = (
+            [
+                entry
+                for entry in lods
+                if isinstance(entry, dict) and entry.get("lod") == 0
+            ]
+            if isinstance(lods, list)
+            else []
+        )
+        light_bounds: tuple[tuple[float, ...], tuple[float, ...]] | None = None
+        if len(lod0_records) == 1:
+            bounds = lod0_records[0].get("bounds_blender_z_up")
+            minimum = bounds.get("min") if isinstance(bounds, dict) else None
+            maximum = bounds.get("max") if isinstance(bounds, dict) else None
+            if (
+                isinstance(minimum, list)
+                and isinstance(maximum, list)
+                and len(minimum) == 3
+                and len(maximum) == 3
+                and all(
+                    not isinstance(value, bool)
+                    and isinstance(value, (int, float))
+                    and math.isfinite(float(value))
+                    and abs(float(value))
+                    <= MAX_RUNTIME_LIGHT_LOCAL_COORDINATE_M
+                    for value in minimum + maximum
+                )
+                and all(
+                    float(minimum[axis]) <= float(maximum[axis])
+                    for axis in range(3)
+                )
+            ):
+                light_bounds = (
+                    tuple(float(value) for value in minimum),
+                    tuple(float(value) for value in maximum),
+                )
+        if light_bounds is None:
+            self.add(
+                "RUNTIME_LIGHT_BOUNDS",
+                "$.geometry.lods",
+                "runtime lights require one finite bounded LOD0 AABB",
+            )
+
         identifiers: set[str] = set()
         for index, light in enumerate(lights):
             pointer = f"$.runtime_lights.lights[{index}]"
@@ -1637,20 +1706,25 @@ class Validator:
 
             position = light.get("position_blender_z_up_m")
             color = light.get("color_linear")
-            if (
+            position_is_valid = not (
                 not isinstance(position, list)
                 or len(position) != 3
                 or any(
                     isinstance(value, bool)
                     or not isinstance(value, (int, float))
                     or not math.isfinite(float(value))
+                    or abs(float(value))
+                    > MAX_RUNTIME_LIGHT_LOCAL_COORDINATE_M
                     for value in position
                 )
-            ):
+            )
+            if not position_is_valid:
                 self.add(
                     "RUNTIME_LIGHT_POSITION",
                     f"{pointer}.position_blender_z_up_m",
-                    "runtime light position must contain three finite metres",
+                    "runtime light position must contain three finite local "
+                    f"metres within +/-"
+                    f"{MAX_RUNTIME_LIGHT_LOCAL_COORDINATE_M:g}",
                 )
             if (
                 not isinstance(color, list)
@@ -1670,17 +1744,37 @@ class Validator:
                     "runtime light color must contain three finite values from 0 to 16",
                 )
             range_value = light.get("range_m")
-            if (
+            range_is_valid = not (
                 isinstance(range_value, bool)
                 or not isinstance(range_value, (int, float))
                 or not math.isfinite(float(range_value))
                 or not 0.1 <= float(range_value) <= 100.0
-            ):
+            )
+            if not range_is_valid:
                 self.add(
                     "RUNTIME_LIGHT_RANGE",
                     f"{pointer}.range_m",
                     "runtime light range must be from 0.1 to 100 metres",
                 )
+            if (
+                position_is_valid
+                and range_is_valid
+                and light_bounds is not None
+            ):
+                minimum, maximum = light_bounds
+                margin = float(range_value)
+                if any(
+                    not minimum[axis] - margin
+                    <= float(position[axis])
+                    <= maximum[axis] + margin
+                    for axis in range(3)
+                ):
+                    self.add(
+                        "RUNTIME_LIGHT_POSITION",
+                        f"{pointer}.position_blender_z_up_m",
+                        "runtime light position must remain within one light "
+                        "range of the LOD0 asset bounds",
+                    )
         self.stats["runtime_lights"] = len(lights)
 
     def validate(self) -> dict[str, Any]:

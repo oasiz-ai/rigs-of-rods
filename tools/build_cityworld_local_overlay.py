@@ -76,6 +76,14 @@ MAX_SOURCE_PLACEMENTS = 50_000
 MAX_MATERIAL_DEFINITIONS = 512
 MAX_MATERIAL_TOKENS = 100_000
 OUTPUT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.zip$")
+WINDOWS_RESERVED_BASENAMES = {
+    "aux",
+    "con",
+    "nul",
+    "prn",
+    *(f"com{index}" for index in range(1, 10)),
+    *(f"lpt{index}" for index in range(1, 10)),
+}
 MATERIAL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_./-]+$")
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 ZIP_MODE = 0o100644
@@ -88,6 +96,8 @@ ROUTE_DECK_CLEARANCE_M = 8.0
 ROUTE_WIDTH_M = 8.9
 ROUTE_BRIDGE_BORDER_WIDTH_M = 0.45
 ROUTE_BRIDGE_BORDER_HEIGHT_M = 0.95
+ROUTE_STREETLIGHT_SPACING_M = 40.0
+ROUTE_STREETLIGHT_DECK_MARGIN_M = 20.0
 ROUTE_FLAT_BORDER_WIDTH_M = 1.0
 ROUTE_FLAT_BORDER_HEIGHT_M = 0.15
 ROUTE_ARC_TABLE_STEPS = 8192
@@ -127,6 +137,11 @@ TANGENT_MANIFEST = (
     "resources/nextgen/cityworld/bridge/"
     "rorng_city_bridge_span_20m.asset.json"
 )
+LED_STREETLIGHT_MANIFEST = (
+    "resources/nextgen/cityworld/fixtures/led_streetlight_bridge/"
+    "rorng_city_led_streetlight_bridge.asset.json"
+)
+LED_STREETLIGHT_ASSET_ID = "rorng_city_led_streetlight_bridge"
 ASSET_MANIFESTS = (
     GATEWAY_MANIFEST,
     TRANSITION_MANIFEST,
@@ -176,9 +191,9 @@ class RuntimeFile:
 @dataclass(frozen=True)
 class PreparedAsset:
     asset_id: str
-    centerline_length_m: float
+    centerline_length_m: float | None
     manifest_path: str
-    profile: AssetProfile
+    profile: AssetProfile | None
     provenance: dict[str, Any]
     runtime_files: tuple[RuntimeFile, ...]
 
@@ -202,6 +217,18 @@ class ProceduralRoutePoint:
     width_m: float
     border_width_m: float
     border_height_m: float
+
+
+@dataclass(frozen=True)
+class TerrainObjectPlacement:
+    station_m: float
+    side: str
+    x: float
+    y: float
+    z: float
+    yaw_degrees: float
+    asset_id: str
+    instance_name: str
 
 
 @dataclass(frozen=True)
@@ -317,6 +344,9 @@ def validate_output_path(repository: Path, path: Path) -> Path:
         raise OverlayFailure(
             "output must be an explicit portable .zip filename"
         )
+    windows_device_basename = path.name.split(".", 1)[0].casefold()
+    if windows_device_basename in WINDOWS_RESERVED_BASENAMES:
+        raise OverlayFailure("output filename is reserved on Windows")
     try:
         parent = path.parent.resolve(strict=True)
     except OSError as error:
@@ -596,7 +626,52 @@ def read_runtime_file(
     )
 
 
-def prepare_asset(repository: Path, manifest_relative: str) -> PreparedAsset:
+def expected_runtime_role_counts(
+    manifest: dict[str, Any],
+) -> dict[str, int]:
+    expected = {
+        "material-fallback": 1,
+        "render-lod0": 1,
+        "render-lod1": 1,
+        "render-lod2": 1,
+        "terrain-object": 1,
+    }
+    collision = manifest.get("collision")
+    collision_objects = (
+        collision.get("objects")
+        if isinstance(collision, dict)
+        else None
+    )
+    if not isinstance(collision_objects, list):
+        raise OverlayFailure("asset manifest has no collision object contract")
+    if not collision_objects:
+        asset = manifest.get("asset")
+        if (
+            not isinstance(asset, dict)
+            or asset.get("profile") != "static-visual-v1"
+            or collision.get("profile") != "collisionless-visual-v1"
+        ):
+            raise OverlayFailure(
+                "collisionless asset does not use the static visual contract"
+            )
+    for collision_object in collision_objects:
+        role = (
+            collision_object.get("role")
+            if isinstance(collision_object, dict)
+            else None
+        )
+        if not isinstance(role, str) or not role.startswith("collision-"):
+            raise OverlayFailure("asset manifest has an invalid collision role")
+        expected[role] = expected.get(role, 0) + 1
+    return expected
+
+
+def prepare_asset(
+    repository: Path,
+    manifest_relative: str,
+    *,
+    corridor_module: bool = True,
+) -> PreparedAsset:
     manifest_path = (repository / safe_package_path(manifest_relative)).resolve()
     try:
         manifest_path.relative_to(repository)
@@ -629,15 +704,8 @@ def prepare_asset(repository: Path, manifest_relative: str) -> PreparedAsset:
     role_counts: dict[str, int] = {}
     for runtime_file in runtime_files:
         role_counts[runtime_file.role] = role_counts.get(runtime_file.role, 0) + 1
-    if role_counts != {
-        "collision-barrier": 2,
-        "collision-road": 1,
-        "material-fallback": 1,
-        "render-lod0": 1,
-        "render-lod1": 1,
-        "render-lod2": 1,
-        "terrain-object": 1,
-    }:
+    expected_role_counts = expected_runtime_role_counts(compiler.manifest)
+    if role_counts != expected_role_counts:
         raise OverlayFailure(
             f"compiled runtime role set is incomplete for {compiler.asset_id}"
         )
@@ -667,12 +735,20 @@ def prepare_asset(repository: Path, manifest_relative: str) -> PreparedAsset:
         report_path,
         max_bytes=4 * 1024 * 1024,
     )
-    profile = load_asset_profile(repository, manifest_relative)
+    profile = (
+        load_asset_profile(repository, manifest_relative)
+        if corridor_module
+        else None
+    )
     return PreparedAsset(
         asset_id=compiler.asset_id,
-        centerline_length_m=asset_centerline_length(
-            compiler.manifest,
-            compiler.asset_id,
+        centerline_length_m=(
+            asset_centerline_length(
+                compiler.manifest,
+                compiler.asset_id,
+            )
+            if corridor_module
+            else None
         ),
         manifest_path=manifest_relative,
         profile=profile,
@@ -718,6 +794,23 @@ def prepare_assets(repository: Path) -> tuple[PreparedAsset, ...]:
     if set(identifiers) != set(MODULE_ASSET_IDS):
         raise OverlayFailure("asset manifests do not match the pinned module sequence")
     return assets
+
+
+def prepare_streetlight_asset(repository: Path) -> PreparedAsset:
+    asset = prepare_asset(
+        repository,
+        LED_STREETLIGHT_MANIFEST,
+        corridor_module=False,
+    )
+    profile = asset.provenance.get("asset", {}).get("profile")
+    if (
+        asset.asset_id != LED_STREETLIGHT_ASSET_ID
+        or profile != "static-visual-v1"
+        or asset.centerline_length_m is not None
+        or asset.profile is not None
+    ):
+        raise OverlayFailure("streetlight asset does not match its pinned fixture contract")
+    return asset
 
 
 def tokenize_material_script(
@@ -1526,6 +1619,132 @@ def build_intercity_route(
     return tuple(points), report
 
 
+def build_streetlight_placements(
+    points: Sequence[ProceduralRoutePoint],
+) -> tuple[tuple[TerrainObjectPlacement, ...], dict[str, Any]]:
+    if len(points) < 2:
+        raise OverlayFailure("streetlight placement requires a complete route")
+    total_length_m = points[-1].station_m
+    full_deck_start_m = (
+        ROUTE_GROUND_LEAD_M
+        + ROUTE_RAMP_LENGTH_M
+        + ROUTE_STREETLIGHT_DECK_MARGIN_M
+    )
+    full_deck_end_m = total_length_m - full_deck_start_m
+    selected_points: list[ProceduralRoutePoint] = []
+    for point in points:
+        station_multiple = round(
+            (
+                point.station_m
+                - full_deck_start_m
+            )
+            / ROUTE_STREETLIGHT_SPACING_M
+        )
+        aligned_station = (
+            full_deck_start_m
+            + station_multiple * ROUTE_STREETLIGHT_SPACING_M
+        )
+        if (
+            full_deck_start_m - POSITION_EPSILON
+            <= point.station_m
+            <= full_deck_end_m + POSITION_EPSILON
+            and abs(point.station_m - aligned_station) <= POSITION_EPSILON
+        ):
+            if point.road_type != "bridge":
+                raise OverlayFailure(
+                    "streetlight station is not on the raised bridge deck"
+                )
+            selected_points.append(point)
+    if not selected_points:
+        raise OverlayFailure("intercity route has no valid streetlight stations")
+    if any(
+        abs(second.station_m - first.station_m - ROUTE_STREETLIGHT_SPACING_M)
+        > POSITION_EPSILON
+        for first, second in zip(selected_points, selected_points[1:])
+    ):
+        raise OverlayFailure("streetlight stations are not evenly spaced")
+
+    placements: list[TerrainObjectPlacement] = []
+    for index, point in enumerate(selected_points):
+        yaw_radians = math.radians(point.yaw_degrees)
+        left_normal_x = math.sin(yaw_radians)
+        left_normal_z = math.cos(yaw_radians)
+        lateral_offset_m = (
+            point.width_m / 2.0 + point.border_width_m / 2.0
+        )
+        mount_y = point.y + point.border_height_m
+        station_label = f"{int(round(point.station_m)):04d}"
+        side = "left" if index % 2 == 0 else "right"
+        multiplier = 1.0 if side == "left" else -1.0
+        yaw_offset = 0.0 if side == "left" else 180.0
+        placements.append(
+            TerrainObjectPlacement(
+                station_m=point.station_m,
+                side=side,
+                x=point.x + multiplier * left_normal_x * lateral_offset_m,
+                y=mount_y,
+                z=point.z + multiplier * left_normal_z * lateral_offset_m,
+                yaw_degrees=normalized_degrees(
+                    point.yaw_degrees + yaw_offset
+                ),
+                asset_id=LED_STREETLIGHT_ASSET_ID,
+                instance_name=(
+                    f"cityworld_next_led_{station_label}_{side}"
+                ),
+            )
+        )
+
+    if len({item.instance_name for item in placements}) != len(placements):
+        raise OverlayFailure("streetlight instance names are not unique")
+    station_records = []
+    for point, placement in zip(selected_points, placements):
+        station_records.append(
+            {
+                "centerline_position_m": [
+                    round(point.x, 9),
+                    round(point.y, 9),
+                    round(point.z, 9),
+                ],
+                "instance_name": placement.instance_name,
+                "placement_position_m": [
+                    round(placement.x, 9),
+                    round(placement.y, 9),
+                    round(placement.z, 9),
+                ],
+                "rotation_degrees": [
+                    0.0,
+                    round(placement.yaw_degrees, 9),
+                    0.0,
+                ],
+                "side": placement.side,
+                "station_m": round(point.station_m, 9),
+            }
+        )
+
+    lateral_offset_m = (
+        selected_points[0].width_m / 2.0
+        + selected_points[0].border_width_m / 2.0
+    )
+    report = {
+        "arm_orientation": "alternating-inward-over-roadway",
+        "asset_id": LED_STREETLIGHT_ASSET_ID,
+        "collision_authority": "native-procedural-road-v2",
+        "format": "ror-cityworld-streetlight-placement-v1",
+        "instance_count": len(placements),
+        "lateral_mount_offset_m": round(lateral_offset_m, 9),
+        "mount_elevation_above_road_m": round(
+            selected_points[0].border_height_m,
+            9,
+        ),
+        "paired": False,
+        "runtime_point_lights_per_instance": 1,
+        "station_count": len(selected_points),
+        "station_spacing_m": ROUTE_STREETLIGHT_SPACING_M,
+        "stations": station_records,
+    }
+    return tuple(placements), report
+
+
 def procedural_route_text(points: Sequence[ProceduralRoutePoint]) -> str:
     if len(points) < 2:
         raise OverlayFailure("intercity route requires at least two waypoints")
@@ -1555,6 +1774,35 @@ def procedural_route_text(points: Sequence[ProceduralRoutePoint]) -> str:
             )
         )
     lines.append("end_procedural_roads")
+    return "\n".join(lines) + "\n"
+
+
+def terrain_object_placement_text(
+    placements: Sequence[TerrainObjectPlacement],
+) -> str:
+    if not placements:
+        return ""
+    lines = [
+        "",
+        "// Blender-authored bridge fixtures mounted outside the carriageway.",
+    ]
+    for placement in placements:
+        lines.append(
+            ", ".join(
+                (
+                    stable_float(placement.x),
+                    stable_float(placement.y),
+                    stable_float(placement.z),
+                    "0",
+                    stable_float(placement.yaw_degrees),
+                    "0",
+                    (
+                        f"{placement.asset_id} - "
+                        f"{placement.instance_name}"
+                    ),
+                )
+            )
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -1588,6 +1836,11 @@ def solve_segment(
         raise OverlayFailure(
             f"module sequence asset is missing: {error.args[0]}"
         ) from error
+    if any(
+        asset.profile is None or asset.centerline_length_m is None
+        for asset in ordered_assets
+    ):
+        raise OverlayFailure("module sequence contains a non-corridor asset")
     profiles = tuple(asset.profile for asset in ordered_assets)
     target_dx = destination[0] - source[0]
     target_dz = destination[2] - source[2]
@@ -1728,12 +1981,17 @@ def terrain_descriptor(
 
 def overlay_placement(
     route_points: Sequence[ProceduralRoutePoint],
+    terrain_objects: Sequence[TerrainObjectPlacement],
 ) -> bytes:
     header = (
         "// LOCAL-ONLY: requires the pinned user-supplied CityWorld.zip.\n"
         "// Redistribution and shipping are disabled.\n"
     )
-    return (header + procedural_route_text(route_points)).encode("utf-8")
+    return (
+        header
+        + procedural_route_text(route_points)
+        + terrain_object_placement_text(terrain_objects)
+    ).encode("utf-8")
 
 
 def add_payload(
@@ -1813,12 +2071,20 @@ def build_local_overlay(
     exact_telepoint(audit, DESTINATION_TELEPOINT)
     source = tuple(ROUTE_SOURCE_ANCHOR["connection_position_m"])
     destination = tuple(ROUTE_DESTINATION_ANCHOR["connection_position_m"])
-    assets = prepare_assets(repository)
+    corridor_assets = prepare_assets(repository)
+    streetlight_asset = prepare_streetlight_asset(repository)
+    assets = (*corridor_assets, streetlight_asset)
+    if len({asset.asset_id for asset in assets}) != len(assets):
+        raise OverlayFailure("overlay assets contain duplicate identifiers")
     route_points, segment = build_intercity_route(
         source=source,
         destination=destination,
         surface_offset_m=surface_offset_m,
     )
+    streetlight_placements, streetlight_report = (
+        build_streetlight_placements(route_points)
+    )
+    segment["fixtures"] = streetlight_report
     segment["source"]["authenticated_placement"] = anchor_evidence["source"]
     segment["destination"]["authenticated_placement"] = (
         anchor_evidence["destination"]
@@ -1836,15 +2102,19 @@ def build_local_overlay(
         source_telepoint,
         0.0,
     )
-    placement = overlay_placement(route_points)
-    merged_material = merge_material_scripts(assets)
+    placement = overlay_placement(
+        route_points,
+        streetlight_placements,
+    )
+    runtime_assets = (streetlight_asset,)
+    merged_material = merge_material_scripts(runtime_assets)
     payloads: dict[str, bytes] = {}
     package_roles: dict[str, str] = {}
     add_payload(payloads, TERRAIN_NAME, descriptor)
     package_roles[TERRAIN_NAME] = "derived-terrain"
     add_payload(payloads, OVERLAY_NAME, placement)
     package_roles[OVERLAY_NAME] = "overlay-placement"
-    for asset in assets:
+    for asset in runtime_assets:
         for runtime_file in asset.runtime_files:
             if runtime_file.role == "material-fallback":
                 continue
@@ -1898,11 +2168,23 @@ def build_local_overlay(
         },
         "visual_asset_usage": {
             "corridor_placement_mode":
-                "native-procedural-construction-alignment-v1",
-            "packaged_asset_ids": [asset.asset_id for asset in assets],
-            "placed_asset_ids": [],
+                "native-procedural-v2-with-blender-fixtures-v1",
+            "packaged_asset_ids": [
+                asset.asset_id
+                for asset in runtime_assets
+            ],
+            "placed_asset_ids": [LED_STREETLIGHT_ASSET_ID],
+            "unplaced_asset_ids": [
+                asset.asset_id
+                for asset in corridor_assets
+            ],
+            "validated_asset_ids": [
+                asset.asset_id
+                for asset in assets
+            ],
             "purpose":
-                "validated candidates for the subsequent Blender visual pass",
+                "route-safe first Blender visual pass; bridge modules remain "
+                "validated candidates for deck and abutment replacement",
         },
         "source": {
             "archive": {

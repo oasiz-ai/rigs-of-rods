@@ -72,11 +72,13 @@ python3 tools/build_cityworld_local_overlay.py \
 The builder requires the exact pinned archive hash, audits ZIP paths and
 telepoints without extracting the archive, authenticates both road-object
 placements and rotations in `CityWorld.tobj`, verifies that the open intercity
-placement-origin window remains empty, validates all four asset manifests and
+placement-origin window remains empty, validates all five asset manifests and
 checked compiler outputs, and writes through a temporary sibling before an
 atomic no-overwrite publish. The ZIP contains a derived terrain descriptor, a
-project-owned overlay TOBJ, 28 packaged candidate runtime resources, one merged
-material script, and one canonical report. It
+project-owned overlay TOBJ, four placed collisionless streetlight resources,
+one merged material script, and one canonical report. The four earlier
+Blender-authored corridor module families remain validated and reported but
+are excluded from the runtime payload while their ODEFs still own collision. It
 contains no original CityWorld geometry, placement, texture, object, or
 archive payload. The descriptor references `CityWorld.otc` and
 `CityWorld.tobj`, so the original `CityWorld.zip` must remain installed
@@ -120,9 +122,20 @@ The former gateway is not placed: its audited footprint intersected
 `officeblock04`. The route leaves the Penguinville edge road, crosses the
 source archive's empty intercity placement-origin window, and joins
 NeoQueretaro's western T-junction carriageway. The checked Blender bridge
-family remains packaged and provenance-validated but is explicitly reported
-as unplaced; it is the candidate visual kit for the next pass, not evidence
-that the construction alignment already uses high-detail meshes.
+family remains provenance-validated and reported but is unplaced and excluded
+from the runtime payload; it is the candidate visual kit for the next pass,
+not evidence that the construction alignment already uses high-detail deck
+meshes.
+
+The first route-safe Blender visual pass places sixteen
+`rorng_city_led_streetlight_bridge` instances at 40 m spacing from station
+220 m through 820 m, alternating sides and rotating each local `-Z` arm toward
+the carriageway. Their 0.4 m flange fits the 0.45 m native parapet. The
+`static-visual-v1` contract requires zero collision meshes, so the procedural
+road and parapet remain the sole collision authority. Each ODEF carries one
+validated warm point light with a 24 m range; the generated report records
+every placement transform, light count, lateral offset, and collision
+authority.
 
 Fixed ZIP order, timestamps, permissions, and stored payloads make repeated
 builds byte-identical. The embedded report marks redistribution and shipping
@@ -131,7 +144,9 @@ tool/generator hashes, asset/compile provenance, measured endpoint errors,
 grade, waypoints, support stations, target distance, and covered length.
 Normal and optimized Python tests cover deterministic builds, hostile anchor
 drift, occupied-gap rejection, seam closure, OGRE yaw orthogonality, ramps,
-pillars, and no-overwrite publication.
+pillars, inward fixture orientation, collisionless ODEFs, Windows-reserved
+output names, and no-overwrite publication. Those overlay tests now run in the
+Linux, Windows, and macOS provenance matrix.
 
 On the macOS arm64 rolling app, the installed v2 package reaches
 `TERRAIN LOADING DONE`, passes the 10-frame bundle smoke, and shuts OGRE down
@@ -231,6 +246,12 @@ a variant toggle or synthesize runtime switching. Adding variants requires a
 new versioned compiler and runtime contract. Reproduction, validation, and
 offline compilation commands are recorded in the
 [editable-source README](../../content-source/cityworld_next/README.md).
+
+The bridge-mounted derivative is implemented as
+`rorng_city_led_streetlight_bridge`. It retains the three render LODs and warm
+emissive lens, narrows the base to a parapet-safe flange, removes the collision
+proxy entirely, and adds one checked 24 m point light. This is a distinct
+`static-visual-v1` asset because the native bridge parapet owns collision.
 
 The first bounded local-light slice is attached to the project-owned gateway
 block: eight versioned warm point lights share the eight emissive luminaires.
