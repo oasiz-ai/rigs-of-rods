@@ -21,6 +21,7 @@ source/main/physics/flex/FlexBody.cpp whitespace=cr-at-eol
 source/main/resources/ContentManager.cpp whitespace=cr-at-eol
 source/main/resources/ContentManager.h whitespace=cr-at-eol
 source/main/resources/CacheSystem.cpp whitespace=cr-at-eol
+source/main/resources/CacheSystem.h whitespace=cr-at-eol
 source/main/gui/DashBoardManager.cpp whitespace=cr-at-eol
 source/main/gui/RTTLayer.cpp whitespace=cr-at-eol
 source/main/scripting/ScriptEngine.cpp whitespace=cr-at-eol

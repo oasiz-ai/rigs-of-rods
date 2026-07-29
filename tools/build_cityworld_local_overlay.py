@@ -59,6 +59,7 @@ BUILD_RESULT_FORMAT = "ror-cityworld-local-overlay-build-result-v1"
 PINNED_ARCHIVE_SHA256 = (
     "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3"
 )
+RESOURCE_BUNDLE_IDENTITY = "CityWorld.zip:CityWorld.terrn2"
 SOURCE_TELEPOINT = "Penguinville Spawn"
 DESTINATION_TELEPOINT = "NeoQueretaro Spawn"
 SOURCE_MEMBERS = ("CityWorld.terrn2", "CityWorld.otc", "CityWorld.tobj")
@@ -116,6 +117,12 @@ TOOL_PATHS = (
 
 class OverlayFailure(RuntimeError):
     """A stable failure caused by an unsafe or stale overlay input."""
+
+
+def resource_bundle_dependency() -> str:
+    """Return the authenticated direct-mount identity for CityWorld.zip."""
+
+    return f"{RESOURCE_BUNDLE_IDENTITY}:{PINNED_ARCHIVE_SHA256}"
 
 
 @dataclass(frozen=True)
@@ -708,6 +715,9 @@ def terrain_descriptor(
         "CityWorld.tobj =",
         f"{OVERLAY_NAME} =",
         "",
+        "[ResourceBundles]",
+        f"Dependency = {resource_bundle_dependency()}",
+        "",
         "[Scripts]",
         "",
     ]
@@ -888,6 +898,8 @@ def build_local_overlay(
                 "geometry_config": "CityWorld.otc",
                 "original_placements": "CityWorld.tobj",
                 "overlay_placements": OVERLAY_NAME,
+                "resource_bundle_dependency":
+                    resource_bundle_dependency(),
             },
         },
         "tools": tool_provenance(repository, assets),

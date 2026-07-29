@@ -1849,12 +1849,26 @@ int main(int argc, char *argv[])
                         if (all_clear)
                         {
                             // Nobody uses the RG anymore -> destroy it.
-                            App::GetCacheSystem()->UnLoadResource(*entry_ptr);
+                            if (App::GetCacheSystem()->UnLoadResource(
+                                    *entry_ptr))
+                            {
+                                TRIGGER_EVENT_ASYNC(
+                                    SE_GENERIC_MODCACHE_ACTIVITY,
+                                    /*ints*/
+                                    MODCACHEACTIVITY_BUNDLE_UNLOADED,
+                                    (*entry_ptr)->number,
+                                    0,
+                                    0);
 
-                            TRIGGER_EVENT_ASYNC(SE_GENERIC_MODCACHE_ACTIVITY,  
-                                /*ints*/ MODCACHEACTIVITY_BUNDLE_UNLOADED, (*entry_ptr)->number, 0, 0);
-
-                            delete entry_ptr;
+                                delete entry_ptr;
+                            }
+                            else
+                            {
+                                // Keep the owner discoverable and retry after
+                                // OGRE releases the resource group.
+                                App::GetGameContext()->PushMessage(m);
+                                failed_m = true;
+                            }
                         }
                         else
                         {
@@ -1881,23 +1895,34 @@ int main(int argc, char *argv[])
                             break; // nothing to do
                         }
 
-                        // make sure the bundle is unloaded
-                        bool all_clear = true;
-                        for (const CacheEntryPtr& entry: App::GetCacheSystem()->GetEntries())
+                        // A bundle can be mounted as a dependency inside a
+                        // different bundle's resource group. Unload every
+                        // live owner group before removing the archive.
+                        const std::vector<CacheEntryPtr> loaded_owners =
+                            App::GetCacheSystem()->
+                                FindLoadedResourceGroupOwnersUsingBundlePath(
+                                    bundle_filepath);
+                        const bool all_clear = loaded_owners.empty();
+                        for (const CacheEntryPtr& owner: loaded_owners)
                         {
-                            if (entry->resource_bundle_path == bundle_filepath && entry->resource_group != "")
-                            {
-                                App::GetGameContext()->PushMessage(Message(MSG_EDI_UNLOAD_BUNDLE_REQUESTED, static_cast<void*>(new CacheEntryPtr(entry))));
-                                all_clear = false;
-                            }
+                            App::GetGameContext()->PushMessage(
+                                Message(
+                                    MSG_EDI_UNLOAD_BUNDLE_REQUESTED,
+                                    static_cast<void*>(
+                                        new CacheEntryPtr(owner))));
                         }
 
                         if (all_clear)
                         {
                             std::string bundle_basename, bundle_dirpath;
                             Ogre::StringUtil::splitFilename(bundle_filepath, bundle_basename, bundle_dirpath);
-                            App::GetCacheSystem()->DeleteResourceBundleByFilename(bundle_basename);
-                            App::GetGuiManager()->RepositorySelector.NotifyRepoFileUninstalled(bundle_basename);
+                            if (App::GetCacheSystem()->
+                                    DeleteResourceBundleByFilename(
+                                        bundle_basename))
+                            {
+                                App::GetGuiManager()->RepositorySelector.
+                                    NotifyRepoFileUninstalled(bundle_basename);
+                            }
                         }
                         else
                         {

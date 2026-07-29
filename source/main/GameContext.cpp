@@ -43,12 +43,54 @@
 #include "SkyXManager.h"
 #include "SoundScriptManager.h"
 #include "Terrain.h"
+#include "TerrainBundleDependency.h"
 #include "Terrn2FileFormat.h"
 #include "TuneupFileFormat.h"
 #include "Utils.h"
 #include "VehicleAI.h"
 
 using namespace RoR;
+
+namespace {
+
+class TerrainResourceLoadTransaction
+{
+public:
+    explicit TerrainResourceLoadTransaction(CacheEntryPtr entry):
+        m_entry(entry),
+        m_active(true)
+    {
+    }
+
+    ~TerrainResourceLoadTransaction() noexcept
+    {
+        if (!m_active ||
+            !m_entry ||
+            m_entry->resource_group.empty())
+        {
+            return;
+        }
+        const std::string resource_group = m_entry->resource_group;
+        if (!App::GetCacheSystem()->UnLoadResource(m_entry))
+        {
+            RoR::LogFormat(
+                "[RoR|Terrain] Failed to roll back terrain resource "
+                "group '%s'; ownership was retained for retry",
+                resource_group.c_str());
+        }
+    }
+
+    void Dismiss()
+    {
+        m_active = false;
+    }
+
+private:
+    CacheEntryPtr m_entry;
+    bool m_active;
+};
+
+} // namespace
 
 GameContext::GameContext()
 {
@@ -125,13 +167,30 @@ bool GameContext::LoadTerrain(std::string const& filename_part)
 
     // Init resources
     App::GetCacheSystem()->LoadResource(terrn_entry);
+    TerrainResourceLoadTransaction resource_load_transaction(terrn_entry);
+    Ogre::ResourceGroupManager& resource_manager =
+        Ogre::ResourceGroupManager::getSingleton();
+    if (terrn_entry->resource_group.empty() ||
+        !resource_manager.resourceGroupExists(terrn_entry->resource_group))
+    {
+        const std::string message = fmt::format(
+            "Could not load the resource group for terrain '{}'.",
+            terrn_entry->fname);
+        RoR::Log(message.c_str());
+        App::GetGuiManager()->ShowMessageBox(
+            _L("Terrain loading error"),
+            message.c_str());
+        return false;
+    }
 
     // Load the terrain def file
     Terrn2DocumentPtr terrn2;
     std::string const& filename = terrn_entry->fname;
     try
     {
-        Ogre::DataStreamPtr stream = Ogre::ResourceGroupManager::getSingleton().openResource(filename);
+        Ogre::DataStreamPtr stream = resource_manager.openResource(
+            filename,
+            terrn_entry->resource_group);
         LOG(" ===== LOADING TERRAIN " + filename);
         Terrn2Parser parser;
         terrn2 = parser.LoadTerrn2(stream);
@@ -143,6 +202,45 @@ bool GameContext::LoadTerrain(std::string const& filename_part)
     catch (Ogre::Exception& e)
     {
         App::GetGuiManager()->ShowMessageBox(_L("Terrain loading error"), e.getFullDescription().c_str());
+        return false;
+    }
+
+    const std::vector<std::string> authored_dependencies(
+        terrn2->resource_bundle_dependencies.begin(),
+        terrn2->resource_bundle_dependencies.end());
+    const TerrainBundleDependencyPlan dependency_plan =
+        BuildTerrainBundleDependencyPlan(authored_dependencies);
+    if (!dependency_plan.IsValid())
+    {
+        const TerrainBundleDependencyDiagnostic& diagnostic =
+            dependency_plan.diagnostics.front();
+        const std::string message = fmt::format(
+            "Invalid terrain resource bundle dependency {} "
+            "({}): {}",
+            diagnostic.dependency_index,
+            TerrainBundleDependencyDiagnosticCodeToString(
+                diagnostic.code),
+            diagnostic.detail);
+        RoR::Log(message.c_str());
+        App::GetGuiManager()->ShowMessageBox(
+            _L("Terrain loading error"),
+            message.c_str());
+        return false;
+    }
+
+    std::string dependency_error;
+    if (!App::GetCacheSystem()->LoadTerrainResourceBundleDependencies(
+            terrn_entry,
+            dependency_plan.dependencies,
+            dependency_error))
+    {
+        const std::string message = fmt::format(
+            "Could not load terrain resource bundle dependencies: {}",
+            dependency_error);
+        RoR::Log(message.c_str());
+        App::GetGuiManager()->ShowMessageBox(
+            _L("Terrain loading error"),
+            message.c_str());
         return false;
     }
     terrn_entry->terrn2_def = terrn2;
@@ -164,6 +262,7 @@ bool GameContext::LoadTerrain(std::string const& filename_part)
         m_terrain = nullptr; // release local reference - object will be deleted when all references are released.
         return false; // Message box already displayed
     }
+    resource_load_transaction.Dismiss();
 
     // Initialize envmap textures by rendering center of map
     Ogre::Vector3 center = m_terrain->getMaxTerrainSize() / 2;

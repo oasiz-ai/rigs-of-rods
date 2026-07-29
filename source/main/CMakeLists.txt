@@ -222,6 +222,8 @@ set(SOURCE_FILES
         resources/rig_def_fileformat/RigDef_Serializer.{h,cpp}
         resources/rig_def_fileformat/RigDef_Validator.{h,cpp}
         resources/skin_fileformat/SkinFileFormat.{h,cpp}
+        resources/terrn2_fileformat/TerrainBundleArchiveVerifier.{h,cpp}
+        resources/terrn2_fileformat/TerrainBundleDependency.{h,cpp}
         resources/terrn2_fileformat/Terrn2FileFormat.{h,cpp}
         resources/tobj_fileformat/TObjFileFormat.{h,cpp}
         resources/tuneup_fileformat/TuneupFileFormat.{h,cpp}
@@ -506,6 +508,7 @@ target_link_libraries(${BINNAME} PRIVATE
         ois::ois
         fmt::fmt
         MyGUI::MyGUI
+        OpenSSL::Crypto
         )
 if (ROR_OGRE14)
     # TerrainMaterialGeneratorA consumes RTShaderSystem directly.

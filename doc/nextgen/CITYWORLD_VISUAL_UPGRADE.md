@@ -73,6 +73,31 @@ archive payload. The descriptor references `CityWorld.otc` and
 `CityWorld.tobj`, so the original `CityWorld.zip` must remain installed
 separately.
 
+The generated descriptor also declares the direct runtime mount explicitly:
+
+```ini
+[ResourceBundles]
+Dependency = CityWorld.zip:CityWorld.terrn2:ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3
+```
+
+`Dependency` values use an exact
+`bundle.zip:terrain.terrn2:<64-lowercase-hex-sha256>` identity. Unhashed,
+uppercase, malformed, and mismatched digests fail closed. Each member must be
+a non-deleted, root-level terrain entry in a ZIP; partial and path-based
+lookups are rejected. Immediately before each read-only mount, RoR streams the
+resolved archive through SHA-256 and compares it with the authored digest. A
+descriptor may declare at most eight dependencies, each at most 512 bytes and
+at most 2,048 bytes in aggregate. Read failures, hash mismatches, missing,
+ambiguous, duplicate, self-referential, unsafe, or unsupported dependencies
+fail terrain loading before `Terrain::initialize()`.
+
+The named terrain member is a selection anchor, not a recursively loaded
+descriptor. Only its containing archive is mounted, so dependencies do not
+form transitive chains or cycles. The original terrain archive remains a
+separately installed, read-only local source and is appended to the derived
+terrain's resource group. The derived overlay location therefore keeps
+precedence if both archives contain the same resource name.
+
 The first bounded segment is gateway, transition, three 15-degree curves, and
 four 20 m tangent spans. Its 192 m centreline starts at Penguinville at
 source Y plus the explicit bounded offset. The initial heading compensates for

@@ -42,6 +42,7 @@
 #include "RigDef_Parser.h"
 #include "ScriptEngine.h"
 #include "SkinFileFormat.h"
+#include "TerrainBundleArchiveVerifier.h"
 #include "Terrain.h"
 #include "Terrn2FileFormat.h"
 #include "TuneupFileFormat.h"
@@ -54,6 +55,7 @@
 #include <rapidjson/istreamwrapper.h>
 #include <rapidjson/ostreamwrapper.h>
 #include <rapidjson/writer.h>
+#include <exception>
 #include <fstream>
 
 using namespace Ogre;
@@ -468,8 +470,12 @@ void CacheSystem::ClearResourceGroups()
         String group = entry->resource_group;
         if (!group.empty())
         {
+            App::GetContentManager()->
+                UnregisterPackageResourceGroup(group);
             if (ResourceGroupManager::getSingleton().resourceGroupExists(group))
+            {
                 ResourceGroupManager::getSingleton().destroyResourceGroup(group);
+            }
         }
     }
 }
@@ -717,8 +723,12 @@ void CacheSystem::ClearCache()
         String group = entry->resource_group;
         if (!group.empty())
         {
+            App::GetContentManager()->
+                UnregisterPackageResourceGroup(group);
             if (ResourceGroupManager::getSingleton().resourceGroupExists(group))
+            {
                 ResourceGroupManager::getSingleton().destroyResourceGroup(group);
+            }
         }
         this->RemoveFileCache(entry);
     }
@@ -1448,6 +1458,241 @@ void CacheSystem::LoadAssetPack(CacheEntryPtr& target_entry, Ogre::String const 
     }
 }
 
+bool CacheSystem::LoadTerrainResourceBundleDependencies(
+    CacheEntryPtr& target_entry,
+    const std::vector<TerrainBundleDependency>& dependencies,
+    std::string& out_error)
+{
+    out_error.clear();
+    if (dependencies.empty())
+    {
+        return true;
+    }
+    if (!target_entry ||
+        target_entry->deleted ||
+        target_entry->resource_group.empty())
+    {
+        out_error =
+            "target terrain resource group is not available";
+        return false;
+    }
+
+    ResourceGroupManager& resource_manager =
+        ResourceGroupManager::getSingleton();
+    const std::string resource_group = target_entry->resource_group;
+    if (!resource_manager.resourceGroupExists(resource_group))
+    {
+        out_error =
+            "target terrain resource group does not exist";
+        return false;
+    }
+
+    const std::string target_path = target_entry->resource_bundle_path;
+    std::set<std::string> resolved_paths;
+    std::vector<CacheEntryPtr> resolved_entries;
+    resolved_entries.reserve(dependencies.size());
+
+    for (const TerrainBundleDependency& dependency: dependencies)
+    {
+        std::string folded_bundle = dependency.bundle_name;
+        std::string folded_terrain = dependency.terrain_filename;
+        StringUtil::toLowerCase(folded_bundle);
+        StringUtil::toLowerCase(folded_terrain);
+
+        CacheEntryPtr resolved_entry;
+        for (const CacheEntryPtr& candidate: m_entries)
+        {
+            if (!candidate ||
+                candidate->deleted ||
+                candidate->fext != "terrn2" ||
+                !candidate->fpath.empty())
+            {
+                continue;
+            }
+            std::string candidate_filename = candidate->fname;
+            std::string candidate_bundle;
+            std::string candidate_directory;
+            StringUtil::splitFilename(
+                candidate->resource_bundle_path,
+                candidate_bundle,
+                candidate_directory);
+            StringUtil::toLowerCase(candidate_filename);
+            StringUtil::toLowerCase(candidate_bundle);
+            if (candidate_filename == folded_terrain &&
+                candidate_bundle == folded_bundle)
+            {
+                if (resolved_entry)
+                {
+                    out_error = fmt::format(
+                        "terrain dependency '{}' is ambiguous",
+                        dependency.authored_name);
+                    return false;
+                }
+                resolved_entry = candidate;
+            }
+        }
+
+        if (!resolved_entry)
+        {
+            out_error = fmt::format(
+                "terrain dependency '{}' was not found exactly",
+                dependency.authored_name);
+            return false;
+        }
+        if (resolved_entry->resource_bundle_type != "Zip")
+        {
+            out_error = fmt::format(
+                "terrain dependency '{}' did not resolve to a ZIP",
+                dependency.authored_name);
+            return false;
+        }
+
+        const std::string& dependency_path =
+            resolved_entry->resource_bundle_path;
+        if (dependency_path == target_path)
+        {
+            out_error = fmt::format(
+                "terrain dependency '{}' resolves to its own bundle",
+                dependency.authored_name);
+            return false;
+        }
+        if (!resolved_paths.insert(dependency_path).second)
+        {
+            out_error = fmt::format(
+                "terrain dependency '{}' repeats a resolved bundle",
+                dependency.authored_name);
+            return false;
+        }
+        resolved_entries.push_back(resolved_entry);
+    }
+
+    const auto abandon_target_group =
+        [&](const std::string& failure)
+        {
+            out_error = failure;
+            try
+            {
+                if (resource_manager.resourceGroupExists(resource_group))
+                {
+                    resource_manager.destroyResourceGroup(resource_group);
+                }
+                if (resource_manager.resourceGroupExists(resource_group))
+                {
+                    out_error +=
+                        "; target resource group still exists after destroy";
+                    return;
+                }
+            }
+            catch (const std::exception& destroy_error)
+            {
+                out_error += fmt::format(
+                    "; failed to destroy target resource group: {}",
+                    destroy_error.what());
+                return;
+            }
+            catch (...)
+            {
+                out_error +=
+                    "; failed to destroy target resource group";
+                return;
+            }
+            App::GetContentManager()->UnregisterPackageResourceGroup(
+                resource_group);
+            for (CacheEntryPtr& entry: m_entries)
+            {
+                if (entry->resource_group == resource_group)
+                {
+                    entry->actor_def = nullptr;
+                    entry->skin_def = nullptr;
+                    entry->tuneup_def = nullptr;
+                    entry->terrn2_def = nullptr;
+                    entry->resource_group.clear();
+                }
+            }
+        };
+
+    bool added_any = false;
+    try
+    {
+        for (std::size_t index = 0U;
+             index < resolved_entries.size();
+             ++index)
+        {
+            const CacheEntryPtr& dependency_entry =
+                resolved_entries[index];
+            const TerrainBundleDependency& dependency =
+                dependencies[index];
+            std::string observed_sha256;
+            std::string verification_error;
+            if (!VerifyTerrainBundleArchiveSha256(
+                    dependency_entry->resource_bundle_path,
+                    dependency.expected_archive_sha256,
+                    observed_sha256,
+                    verification_error))
+            {
+                std::string failure = fmt::format(
+                    "terrain dependency '{}' failed archive SHA-256 "
+                    "verification: {}",
+                    dependency.authored_name,
+                    verification_error);
+                if (!observed_sha256.empty())
+                {
+                    failure += fmt::format(
+                        " (expected {}, observed {})",
+                        dependency.expected_archive_sha256,
+                        observed_sha256);
+                }
+                abandon_target_group(failure);
+                return false;
+            }
+            if (resource_manager.resourceLocationExists(
+                    dependency_entry->resource_bundle_path,
+                    resource_group))
+            {
+                continue;
+            }
+            resource_manager.addResourceLocation(
+                dependency_entry->resource_bundle_path,
+                dependency_entry->resource_bundle_type,
+                resource_group,
+                false,
+                true);
+            added_any = true;
+            App::GetContentManager()->RegisterPackageResourceLocation(
+                resource_group,
+                dependency_entry->resource_bundle_path);
+        }
+
+        if (added_any)
+        {
+            resource_manager.clearResourceGroup(resource_group);
+            resource_manager.initialiseResourceGroup(resource_group);
+        }
+    }
+    catch (const std::exception& error)
+    {
+        abandon_target_group(fmt::format(
+            "failed to mount terrain resource bundle dependencies: {}",
+            error.what()));
+        return false;
+    }
+    catch (...)
+    {
+        abandon_target_group(
+            "failed to mount terrain resource bundle dependencies");
+        return false;
+    }
+
+    for (const CacheEntryPtr& dependency_entry: resolved_entries)
+    {
+        RoR::LogFormat(
+            "[RoR|TerrainDependency] Mounted '%s' into '%s'",
+            dependency_entry->resource_bundle_path.c_str(),
+            resource_group.c_str());
+    }
+    return true;
+}
+
 static bool CheckAndReplacePathIgnoreCase(const CacheEntryPtr& entry, CVar* dir, const std::string& dir_label, std::string& out_rgname)
 {
     // Helper for `ComposeResourceGroupName()`
@@ -1632,6 +1877,8 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
     {
         RoR::LogFormat("[RoR] Error while loading '%s', message: %s",
             entry->resource_bundle_path.c_str(), e.getFullDescription().c_str());
+        App::GetContentManager()->
+            UnregisterPackageResourceGroup(group);
         if (ResourceGroupManager::getSingleton().resourceGroupExists(group))
         {
             ResourceGroupManager::getSingleton().destroyResourceGroup(group);
@@ -1648,20 +1895,58 @@ void CacheSystem::ReLoadResource(CacheEntryPtr& entry)
 
     // IMPORTANT! No actors must use the bundle while reloading, use RoR::MsgType::MSG_EDI_RELOAD_BUNDLE_REQUESTED
 
-    this->UnLoadResource(entry);
+    if (!this->UnLoadResource(entry))
+    {
+        return;
+    }
     this->LoadResource(entry); // Will create the same resource group again
 }
 
-void CacheSystem::UnLoadResource(CacheEntryPtr& entry)
+bool CacheSystem::UnLoadResource(CacheEntryPtr& entry)
 {
-    if (entry->resource_group == "")
+    if (!entry || entry->resource_group == "")
     {
-        return; // Not loaded - nothing to do
+        return true; // Not loaded - nothing to do
     }
 
     // IMPORTANT! No actors must use the bundle after reloading, use RoR::MsgType::MSG_EDI_RELOAD_BUNDLE_REQUESTED
 
-    std::string resource_group = entry->resource_group; // Keep local copy, the CacheEntry will be blanked!
+    const std::string resource_group = entry->resource_group;
+    try
+    {
+        Ogre::ResourceGroupManager& resource_manager =
+            Ogre::ResourceGroupManager::getSingleton();
+        if (resource_manager.resourceGroupExists(resource_group))
+        {
+            resource_manager.destroyResourceGroup(resource_group);
+        }
+        if (resource_manager.resourceGroupExists(resource_group))
+        {
+            RoR::LogFormat(
+                "[RoR|ModCache] Failed to unload resource group '%s': "
+                "group still exists after destroy",
+                resource_group.c_str());
+            return false;
+        }
+    }
+    catch (const std::exception& error)
+    {
+        RoR::LogFormat(
+            "[RoR|ModCache] Failed to unload resource group '%s': %s",
+            resource_group.c_str(),
+            error.what());
+        return false;
+    }
+    catch (...)
+    {
+        RoR::LogFormat(
+            "[RoR|ModCache] Failed to unload resource group '%s'",
+            resource_group.c_str());
+        return false;
+    }
+
+    App::GetContentManager()->UnregisterPackageResourceGroup(
+        resource_group);
     for (CacheEntryPtr& i_entry: m_entries)
     {
         if (i_entry->resource_group == resource_group)
@@ -1670,12 +1955,12 @@ void CacheSystem::UnLoadResource(CacheEntryPtr& entry)
             i_entry->actor_def = nullptr;
             i_entry->tuneup_def = nullptr;
             i_entry->skin_def = nullptr;
+            i_entry->terrn2_def = nullptr;
             // Mark as unloaded
             i_entry->resource_group = "";
         }
     }
-
-    Ogre::ResourceGroupManager::getSingleton().destroyResourceGroup(resource_group);
+    return true;
 }
 
 CacheEntryPtr CacheSystem::FetchSkinByName(std::string const & skin_name)
@@ -2264,7 +2549,19 @@ void CacheSystem::ModifyProject(ModifyProjectRequest* request)
 void CacheSystem::DeleteProject(CacheEntryPtr& entry)
 {
 
-        this->UnLoadResource(entry);
+        if (!this->UnLoadResource(entry))
+        {
+            App::GetConsole()->putMessage(
+                Console::CONSOLE_MSGTYPE_INFO,
+                Console::CONSOLE_SYSTEM_ERROR,
+                fmt::format(
+                    _LC(
+                        "CacheSystem",
+                        "Problem deleting project '{}' - its resource "
+                        "group could not be unloaded"),
+                    entry->fname));
+            return;
+        }
 
         // Delete the files, one by one
         const std::string DELETEPROJ_TEMP_RG = "DeleteProjectTempRG";
@@ -2470,18 +2767,55 @@ bool CacheQueryResult::operator<(CacheQueryResult const& other) const
     return cqr_score < other.cqr_score;
 }
 
-void CacheSystem::DeleteResourceBundleByFilename(const std::string& bundle_filename)
+bool CacheSystem::DeleteResourceBundleByFilename(const std::string& bundle_filename)
 {
     std::string bundle_path;
     if (!this->IsRepoFileInstalled(bundle_filename, bundle_path))
     {
         App::GetConsole()->putMessage(Console::CONSOLE_MSGTYPE_INFO, Console::CONSOLE_SYSTEM_WARNING,
             fmt::format(_LC("CacheSystem", "Could not delete resource bundle '{}': not found in mod cache."), bundle_filename));
-        return;
+        return false;
     }
 
-    // Delete (flag 'deleted') all individual cache entries that belong to this bundle
-    for (const CacheEntryPtr& entry: App::GetCacheSystem()->GetEntries())
+    const std::vector<CacheEntryPtr> loaded_owners =
+        this->FindLoadedResourceGroupOwnersUsingBundlePath(bundle_path);
+    if (!loaded_owners.empty())
+    {
+        App::GetConsole()->putMessage(
+            Console::CONSOLE_MSGTYPE_INFO,
+            Console::CONSOLE_SYSTEM_ERROR,
+            fmt::format(
+                _LC(
+                    "CacheSystem",
+                    "Could not delete resource bundle '{}': it is mounted "
+                    "by {} loaded resource group(s)."),
+                bundle_filename,
+                loaded_owners.size()));
+        return false;
+    }
+
+    // Delete the physical bundle before mutating the cache. If this fails,
+    // every CacheEntry remains available for a later retry.
+    try
+    {
+        Ogre::ArchiveManager::getSingleton().unload(bundle_path);
+        if (!Ogre::FileSystemLayer::removeFile(bundle_path))
+        {
+            App::GetConsole()->putMessage(Console::CONSOLE_MSGTYPE_INFO, Console::CONSOLE_SYSTEM_ERROR,
+                fmt::format(_LC("CacheSystem", "Could not delete resource bundle file '{}' from disk."), bundle_filename));
+            return false;
+        }
+    }
+    catch (Ogre::Exception& oex)
+    {
+        App::GetConsole()->putMessage(Console::CONSOLE_MSGTYPE_INFO, Console::CONSOLE_SYSTEM_ERROR,
+            fmt::format(_LC("CacheSystem", "Could not delete resource bundle '{}', message: {}."), bundle_filename, oex.getDescription()));
+        return false;
+    }
+
+    // Delete (flag 'deleted') all individual cache entries that belonged to
+    // this bundle only after the disk operation succeeded.
+    for (const CacheEntryPtr& entry: m_entries)
     {
         if (entry->resource_bundle_path == bundle_path)
         {
@@ -2492,29 +2826,12 @@ void CacheSystem::DeleteResourceBundleByFilename(const std::string& bundle_filen
                 fmt::format(_LC("CacheSystem", "Deleted {} '{}' because bundle {} is being removed."), entry->fext, entry->dname, bundle_filename));
         }
     }
-
-    // Erase the 'deleted' entries from memory
     RoR::EraseIf(m_entries, [](CacheEntryPtr& e) { return e->deleted; });
 
-    // Actually delete the bundle from disk
-    try
-    {
-        Ogre::ArchiveManager::getSingleton().unload(bundle_path);
-        if (!Ogre::FileSystemLayer::removeFile(bundle_path))
-        {
-            App::GetConsole()->putMessage(Console::CONSOLE_MSGTYPE_INFO, Console::CONSOLE_SYSTEM_ERROR,
-                fmt::format(_LC("CacheSystem", "Could not delete resource bundle file '{}' from disk."), bundle_filename));
-            return;
-        }
-        TRIGGER_EVENT_ASYNC(SE_GENERIC_MODCACHE_ACTIVITY,
-            /*ints*/ MODCACHEACTIVITY_BUNDLE_DELETED, 0, 0, 0,
-            /*strings*/ bundle_filename);
-    }
-    catch (Ogre::Exception& oex)
-    {
-        App::GetConsole()->putMessage(Console::CONSOLE_MSGTYPE_INFO, Console::CONSOLE_SYSTEM_ERROR,
-            fmt::format(_LC("CacheSystem", "Could not delete resource bundle '{}', message: {}."), bundle_filename, oex.getDescription()));
-    }
+    TRIGGER_EVENT_ASYNC(SE_GENERIC_MODCACHE_ACTIVITY,
+        /*ints*/ MODCACHEACTIVITY_BUNDLE_DELETED, 0, 0, 0,
+        /*strings*/ bundle_filename);
+    return true;
 }
 
 bool CacheSystem::IsRepoFileInstalled(const std::string& repo_filename, std::string& out_filepath)
@@ -2530,4 +2847,57 @@ bool CacheSystem::IsRepoFileInstalled(const std::string& repo_filename, std::str
         }
     }
     return false;
+}
+
+std::vector<CacheEntryPtr>
+CacheSystem::FindLoadedResourceGroupOwnersUsingBundlePath(
+    const std::string& bundle_path) const
+{
+    std::vector<CacheEntryPtr> owners;
+    Ogre::ResourceGroupManager* resource_manager =
+        Ogre::ResourceGroupManager::getSingletonPtr();
+    if (resource_manager == nullptr)
+    {
+        return owners;
+    }
+
+    std::set<std::string> inspected_groups;
+    for (const CacheEntryPtr& entry: m_entries)
+    {
+        if (!entry || entry->resource_group.empty() ||
+            !inspected_groups.insert(entry->resource_group).second)
+        {
+            continue;
+        }
+
+        const std::string& resource_group = entry->resource_group;
+        if (!resource_manager->resourceGroupExists(resource_group))
+        {
+            continue;
+        }
+
+        try
+        {
+            const Ogre::ResourceGroupManager::LocationList& locations =
+                resource_manager->getResourceLocationList(resource_group);
+            for (const Ogre::ResourceGroupManager::ResourceLocation& location:
+                 locations)
+            {
+                if (location.archive != nullptr &&
+                    location.archive->getName() == bundle_path)
+                {
+                    owners.push_back(entry);
+                    break;
+                }
+            }
+        }
+        catch (...)
+        {
+            // If a live group cannot be inspected, treat it as a consumer.
+            // Unloading an unrelated group is recoverable; deleting an archive
+            // which that group may still own is not.
+            owners.push_back(entry);
+        }
+    }
+    return owners;
 }

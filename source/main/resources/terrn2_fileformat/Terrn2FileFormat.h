@@ -64,6 +64,7 @@ struct Terrn2Document
     std::list<std::string>   tobj_files;
     std::list<std::string>   as_files;
     std::list<std::string>   assetpack_files;
+    std::list<std::string>   resource_bundle_dependencies;
     std::list<std::string>   ai_presets_files;
     std::list<Terrn2Telepoint> telepoints;
     std::string              caelum_config;

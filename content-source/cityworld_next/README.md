@@ -147,6 +147,24 @@ the gateway lights), and a canonical local-only provenance report. The source
 archive stays byte-identical and the generated package is explicitly not for
 redistribution or shipping.
 
+The generated descriptor mounts the original archive through:
+
+```ini
+[ResourceBundles]
+Dependency = CityWorld.zip:CityWorld.terrn2:ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3
+```
+
+This is an authenticated, direct, read-only runtime mount. Every dependency
+must include a pinned 64-character lowercase SHA-256; unhashed dependencies are
+rejected. The exact root-level terrain member selects one installed ZIP; it is
+not parsed recursively. RoR streams and verifies the resolved archive
+immediately before mounting it, and a read error or hash mismatch aborts before
+terrain initialization. RoR also rejects missing, ambiguous, duplicate,
+self-referential, unsafe, or non-ZIP dependencies, with limits of eight
+entries, 512 bytes per entry, and 2,048 bytes total. The overlay's own resource
+location remains first, so its project-owned resources win name collisions
+while `CityWorld.zip` stays separate and unchanged.
+
 The GLB is the canonical geometry interchange output and is expected to remain
 byte-deterministic for the pinned Blender generator. `.blend` files and
 rendered previews are editable/evidence artifacts whose exact bytes may change

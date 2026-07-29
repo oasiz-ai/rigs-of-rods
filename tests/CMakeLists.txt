@@ -2,6 +2,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     cmake_minimum_required(VERSION 3.16)
     project(RoRPhysicsTests LANGUAGES CXX)
     enable_testing()
+    find_package(OpenSSL REQUIRED)
     find_package(RapidJSON QUIET)
 endif ()
 
@@ -180,6 +181,44 @@ add_executable(
 )
 
 add_executable(
+    ror_terrain_bundle_dependency_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/TerrainBundleDependencyTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp"
+)
+
+add_executable(
+    ror_terrain_bundle_archive_verifier_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/TerrainBundleArchiveVerifierTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
+)
+target_link_libraries(
+    ror_terrain_bundle_archive_verifier_tests
+    PRIVATE OpenSSL::Crypto
+)
+
+if (NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    add_executable(
+        ror_terrain_bundle_config_syntax_tests
+        "${CMAKE_CURRENT_LIST_DIR}/resources/TerrainBundleConfigSyntaxTests.cpp"
+    )
+    target_include_directories(
+        ror_terrain_bundle_config_syntax_tests
+        SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
+    )
+    if (TARGET OgreMain)
+        target_link_libraries(
+            ror_terrain_bundle_config_syntax_tests
+            PRIVATE OgreMain
+        )
+    else ()
+        target_link_libraries(
+            ror_terrain_bundle_config_syntax_tests
+            PRIVATE ${OGRE_LIBRARIES}
+        )
+    endif ()
+endif ()
+
+add_executable(
     ror_beamng_package_manifest_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/BeamNGPackageManifestTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGPackageManifest.cpp"
@@ -294,6 +333,18 @@ target_include_directories(
     ror_shader_compatibility_policy_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources"
+)
+
+target_include_directories(
+    ror_terrain_bundle_dependency_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat"
+)
+
+target_include_directories(
+    ror_terrain_bundle_archive_verifier_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat"
 )
 
 target_include_directories(
@@ -517,6 +568,8 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_state_trace
     ror_hydro_actuator_response_tests
     ror_shader_compatibility_policy_tests
+    ror_terrain_bundle_archive_verifier_tests
+    ror_terrain_bundle_dependency_tests
     ror_jbeam_advanced_structure_ir_tests
     ror_jbeam_coordinate_transform_tests
     ror_jbeam_expression_evaluator_tests
@@ -526,6 +579,11 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_jbeam_syntax_tests
     ror_jbeam_to_rigdef_tests
 )
+
+if (TARGET ror_terrain_bundle_config_syntax_tests)
+    list(APPEND ROR_PHYSICS_TEST_TARGETS
+        ror_terrain_bundle_config_syntax_tests)
+endif ()
 
 if (TARGET ror_calibrated_beam_savegame_json_tests)
     list(APPEND ROR_PHYSICS_TEST_TARGETS
@@ -711,6 +769,23 @@ add_test(
     NAME shader_compatibility_policy
     COMMAND ror_shader_compatibility_policy_tests
 )
+
+add_test(
+    NAME terrain_bundle_archive_verifier
+    COMMAND ror_terrain_bundle_archive_verifier_tests
+)
+
+add_test(
+    NAME terrain_bundle_dependency
+    COMMAND ror_terrain_bundle_dependency_tests
+)
+
+if (TARGET ror_terrain_bundle_config_syntax_tests)
+    add_test(
+        NAME terrain_bundle_config_syntax
+        COMMAND ror_terrain_bundle_config_syntax_tests
+    )
+endif ()
 
 add_test(
     NAME beamng_package_manifest

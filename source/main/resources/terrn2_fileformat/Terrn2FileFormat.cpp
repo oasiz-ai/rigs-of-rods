@@ -126,6 +126,30 @@ Terrn2DocumentPtr Terrn2Parser::LoadTerrn2(Ogre::DataStreamPtr &ds)
         }
     }
 
+    if (file.HasSection("ResourceBundles"))
+    {
+        for (auto& dependency: file.getSettings("ResourceBundles"))
+        {
+            if (dependency.first != "Dependency")
+            {
+                Str<500> msg;
+                msg << "Error in file '" << ds->getName()
+                    << "': ResourceBundles only accepts "
+                    << "'Dependency = "
+                    << "bundle.zip:terrain.terrn2:<sha256>'";
+                App::GetConsole()->putMessage(
+                    Console::CONSOLE_MSGTYPE_TERRN,
+                    Console::CONSOLE_SYSTEM_ERROR,
+                    msg.ToCStr());
+                return nullptr;
+            }
+            Ogre::String dependency_name =
+                SanitizeUtf8String(dependency.second);
+            def->resource_bundle_dependencies.push_back(
+                TrimStr(dependency_name));
+        }
+    }
+
     if (file.HasSection("AI Presets"))
     {
         for (auto& presets: file.getSettings("AI Presets"))

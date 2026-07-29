@@ -296,6 +296,9 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     "geometry_config": "CityWorld.otc",
                     "original_placements": "CityWorld.tobj",
                     "overlay_placements": BUILDER.OVERLAY_NAME,
+                    "resource_bundle_dependency":
+                        "CityWorld.zip:CityWorld.terrn2:"
+                        + report["source"]["archive"]["expected_sha256"],
                 },
             )
             self.assertEqual(
@@ -333,12 +336,24 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 self.assertFalse(
                     any(marker in payload for payload in payloads.values())
                 )
+            report = json.loads(payloads[BUILDER.REPORT_NAME])
+            expected_dependency = (
+                "CityWorld.zip:CityWorld.terrn2:"
+                + report["source"]["archive"]["expected_sha256"]
+            )
             descriptor = payloads[BUILDER.TERRAIN_NAME].decode()
             self.assertIn("GeometryConfig = CityWorld.otc", descriptor)
             self.assertIn("CityWorld.tobj =", descriptor)
             self.assertIn(f"{BUILDER.OVERLAY_NAME} =", descriptor)
+            self.assertIn(
+                f"Dependency = {expected_dependency}",
+                descriptor,
+            )
+            self.assertNotIn(
+                "Dependency = CityWorld.zip:CityWorld.terrn2\n",
+                descriptor,
+            )
             self.assertIn("Redistribution and shipping", descriptor)
-            report = json.loads(payloads[BUILDER.REPORT_NAME])
             self.assertEqual(
                 report["rights"],
                 {

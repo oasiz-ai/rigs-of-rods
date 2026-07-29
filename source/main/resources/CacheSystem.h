@@ -32,11 +32,13 @@
 #include "RefCountingObjectPtr.h"
 #include "RigDef_File.h"
 #include "SimData.h"
+#include "TerrainBundleDependency.h"
 
 #include <Ogre.h>
 #include <rapidjson/document.h>
 #include <string>
 #include <set>
+#include <vector>
 
 #define CACHE_FILE "mods.cache"
 #define CACHE_FILE_FORMAT 14
@@ -301,15 +303,21 @@ public:
     CacheEntryPtr         FetchSkinByName(std::string const & skin_name);
     size_t                Query(CacheQuery& query);
     bool                  IsRepoFileInstalled(const std::string& repo_filename, std::string& out_filepath); //!< Checks whether a ZIP archive from the online repository is installed in the local modcache.
+    std::vector<CacheEntryPtr> FindLoadedResourceGroupOwnersUsingBundlePath(
+                              const std::string& bundle_path) const; //!< One owning cache entry per loaded resource group which mounts this exact physical bundle path.
     /// @}
 
     /// @name Loading
     /// @{
     void                  LoadResource(CacheEntryPtr& t); //!< Loads the associated resource bundle if not already done.
     void                  ReLoadResource(CacheEntryPtr& t); //!< Forces reloading the associated bundle.
-    void                  UnLoadResource(CacheEntryPtr& t); //!< Unloads associated bundle, destroying all spawned actors.
+    bool                  UnLoadResource(CacheEntryPtr& t); //!< Unloads associated bundle after its resource group is destroyed; false retains ownership for retry.
     void                  LoadSupplementaryDocuments(CacheEntryPtr& t); //!< Loads the associated .truck*, .skin and .tuneup files.
     void                  LoadAssetPack(CacheEntryPtr& t_dest, Ogre::String const & assetpack_filename); //!< Adds asset pack to the requesting cache entry's resource group.
+    bool                  LoadTerrainResourceBundleDependencies(
+                              CacheEntryPtr& target,
+                              const std::vector<TerrainBundleDependency>& dependencies,
+                              std::string& out_error); //!< Mounts exact ZIP terrain dependencies into a terrain's resource group.
     /// @}
 
     /// @name Projects
@@ -327,7 +335,7 @@ public:
 
     const std::vector<std::string>& GetContentDirs() const { return m_content_dirs; }
 
-    void DeleteResourceBundleByFilename(const std::string& bundle_filename); //!< Deletes all CacheEntries which share the given resource bundle (ZIP or directory).
+    bool DeleteResourceBundleByFilename(const std::string& bundle_filename); //!< Deletes all CacheEntries which share the given resource bundle (ZIP or directory); fails while any loaded group mounts it.
     void ParseSingleZip(Ogre::String path);
 
 private:

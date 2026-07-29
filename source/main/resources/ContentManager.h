@@ -84,6 +84,7 @@ public:
     void               AddResourcePack(ResourcePack const& resource_pack, std::string const& override_rgn = "");
     void               InitManagedMaterials(std::string const & rg_name);
     void               RegisterPackageResourceLocation(const Ogre::String& resource_group, const Ogre::String& archive_name);
+    void               UnregisterPackageResourceGroup(const Ogre::String& resource_group);
     void               InitContentManager();
     void               InitModCache(CacheValidity validity);
     void               LoadGameplayResources();  //!< Checks GVar settings and loads required resources.

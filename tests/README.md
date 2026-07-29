@@ -316,6 +316,18 @@ off until the CVar is disabled, while physics continues normally.
 Automated runtime lifecycle coverage, input recording, pause/load
 continuation, and runtime TSan coverage remain separate runtime gates.
 
+## Terrain resource bundle dependencies
+
+`ror_terrain_bundle_dependency_tests` locks the dependency validator's exact
+ZIP/member/SHA-256 syntax, portable root-name policy, rejection of unhashed
+dependencies, duplicate handling, and bounded count and byte quotas without
+requiring OGRE. `ror_terrain_bundle_archive_verifier_tests` exercises streaming
+OpenSSL SHA-256 verification for matching, mismatched, malformed, and missing
+archives. In a full RoR build, `ror_terrain_bundle_config_syntax_tests` loads a
+real in-memory descriptor through `Ogre::ConfigFile` with the production
+separators and proves that the fully authenticated colon-qualified values
+survive parsing intact.
+
 ## Deterministic two-truck runtime scene
 
 `tools/run_deterministic_scene.py` drives the pinned D0 production scene

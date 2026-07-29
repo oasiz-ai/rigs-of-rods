@@ -99,6 +99,20 @@ void ContentManager::RegisterPackageResourceLocation(
     m_package_archives_by_group[resource_group].insert(archive_name);
 }
 
+void ContentManager::UnregisterPackageResourceGroup(
+    const Ogre::String& resource_group)
+{
+    m_package_archives_by_group.erase(resource_group);
+    m_package_materials_by_group.erase(resource_group);
+    if (m_scripting_resource_group == resource_group)
+    {
+        m_scripting_resource_group.clear();
+        m_current_script_name.clear();
+        m_current_script_package_owned = false;
+        m_script_occurrences.clear();
+    }
+}
+
 void ContentManager::resourceGroupScriptingStarted(
     const Ogre::String& group_name,
     size_t script_count)
