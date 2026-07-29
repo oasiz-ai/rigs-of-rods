@@ -91,7 +91,7 @@ class CityWorldVisualAuditTests(unittest.TestCase):
             report = AUDITOR.audit_archive(archive)
 
         self.assertTrue(report["ok"])
-        self.assertEqual(report["format"], "ror-cityworld-visual-audit-v1")
+        self.assertEqual(report["format"], "ror-cityworld-visual-audit-v2")
         self.assertEqual(report["placements"]["total"], 6)
         self.assertEqual(report["placements"]["commented_placements"], 1)
         self.assertEqual(report["placements"]["malformed"], 1)
@@ -111,6 +111,26 @@ class CityWorldVisualAuditTests(unittest.TestCase):
         self.assertEqual(report["assets"]["material_files"], 1)
         self.assertEqual(report["assets"]["texture_files"], 1)
         self.assertEqual(
+            report["lighting"]["object_definitions"],
+            {
+                "collision_definitions": 0,
+                "definitions": 4,
+                "definitions_with_lod": 0,
+                "point_light_directives": 0,
+                "source_pole_definitions": [
+                    {"available": False, "family": "luminariaLQr"},
+                    {"available": False, "family": "luminariaQr"},
+                    {"available": False, "family": "luminariaYQr"},
+                ],
+                "spot_light_directives": 0,
+            },
+        )
+        self.assertFalse(
+            report["lighting"]["neoq_core_relight"][
+                "source_telepoint_available"
+            ]
+        )
+        self.assertEqual(
             report["intercity_links"],
             [
                 {
@@ -127,6 +147,85 @@ class CityWorldVisualAuditTests(unittest.TestCase):
         self.assertNotIn(
             "PLACEMENT_DEFINITION_UNRESOLVED",
             [warning["code"] for warning in report["warnings"]],
+        )
+
+    def test_neoq_relight_audit_is_bounded_and_fail_closed(self) -> None:
+        terrain = TERRAIN.replace(
+            "Telepoint2/Name=East City",
+            "Telepoint2/Name=NeoQueretaro Spawn",
+        )
+        placements = (
+            "1000, 0, 0, 0, 0, 0, luminariaLQr\n"
+            "1200, 0, 0, 0, 0, 0, luminariaQr\n"
+            "1400.001, 0, 0, 0, 0, 0, luminariaYQr\n"
+            "1000, 0, 0, 0, 0, 0, officeblockQr\n"
+        )
+        entries = [
+            ("CityWorld.terrn2", terrain.encode()),
+            ("CityWorld.tobj", placements.encode()),
+            (
+                "luminariaLQr.odef",
+                b"luminariaLQr.mesh\n1,1,1\nbeginmesh\n"
+                b"mesh luminariaQrCol.mesh\nendmesh\nend\n",
+            ),
+            (
+                "luminariaQr.odef",
+                b"luminariaQr.mesh\n1,1,1\npointlight "
+                b"0,0,9,0,0,0,1,1,1,24\nend\n",
+            ),
+            (
+                "luminariaYQr.odef",
+                b"luminariaYQr.mesh\n1,1,1\nbeginlodmesh\n"
+                b"mesh luminariaYQr_lod.mesh\nend\n",
+            ),
+            ("officeblockQr.odef", b"officeblockQr.mesh\n1,1,1\nend\n"),
+        ]
+        with tempfile.TemporaryDirectory() as temp_directory:
+            archive = self.make_archive(
+                Path(temp_directory),
+                entries=entries,
+            )
+            report = AUDITOR.audit_archive(archive)
+
+        relight = report["lighting"]["neoq_core_relight"]
+        self.assertEqual(
+            relight["format"],
+            "ror-cityworld-neoq-relight-audit-v1",
+        )
+        self.assertEqual(
+            relight["map_family_counts"],
+            {
+                "luminariaLQr": 1,
+                "luminariaQr": 1,
+                "luminariaYQr": 1,
+            },
+        )
+        self.assertEqual(
+            relight["candidate_family_counts"],
+            {
+                "luminariaLQr": 1,
+                "luminariaQr": 1,
+                "luminariaYQr": 0,
+            },
+        )
+        self.assertEqual(relight["candidate_poles"], 2)
+        self.assertEqual(relight["candidate_runtime_point_lights"], 2)
+        self.assertEqual(relight["hard_max_range_m"], 24.0)
+        self.assertFalse(relight["activation_enabled"])
+        self.assertEqual(
+            report["placements"]["category_counts"],
+            {"building": 1, "fixture": 3},
+        )
+        capabilities = report["lighting"]["object_definitions"]
+        self.assertEqual(capabilities["collision_definitions"], 1)
+        self.assertEqual(capabilities["definitions_with_lod"], 1)
+        self.assertEqual(capabilities["point_light_directives"], 1)
+        self.assertEqual(capabilities["spot_light_directives"], 0)
+        self.assertTrue(
+            all(
+                definition["available"]
+                for definition in capabilities["source_pole_definitions"]
+            )
         )
 
     def test_output_is_deterministic_and_contains_no_host_path(self) -> None:

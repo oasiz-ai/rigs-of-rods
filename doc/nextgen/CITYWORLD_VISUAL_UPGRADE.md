@@ -22,9 +22,11 @@ The 2026-07-28 baseline contains:
 - 1,411 archive entries, 499 model files, 266 object definitions, 20 material
   scripts, and 618 textures;
 - 1,922 active placements using 211 unique placement records;
-- 39 bridge/elevated-road, 397 fixture, 31 vegetation, 106 building, and 405
-  road placements under the first version of the explicit name classifier;
-- 22 bridge, 86 fixture, 16 vegetation, and 93 building model files;
+- 39 bridge/elevated-road, 1,176 fixture, 31 vegetation, 156 building, and 405
+  road placements under the second version of the explicit name classifier;
+- 22 bridge, 96 fixture, 16 vegetation, and 146 building model files;
+- 213 object definitions with collision blocks, 50 with authored LOD blocks,
+  and zero authored point- or spot-light directives;
 - one unresolved placed object definition, `pantallaQr`, which is content debt
   rather than a renderer failure.
 
@@ -79,7 +81,8 @@ placement-origin window remains empty, validates all five asset manifests and
 checked compiler outputs, and writes through a temporary sibling before an
 atomic no-overwrite publish. The ZIP contains a derived terrain descriptor, a
 project-owned overlay TOBJ, four placed collisionless streetlight resources,
-one merged material script, and one canonical report. The four earlier
+one disabled NeoQueretaro light-candidate manifest, one merged material
+script, and one canonical report. The four earlier
 Blender-authored corridor module families remain validated and reported but
 are excluded from the runtime payload while their ODEFs still own collision. It
 contains no original CityWorld geometry, placement, texture, object, or
@@ -112,7 +115,8 @@ separately installed, read-only local source and is appended to the derived
 terrain's resource group. The derived overlay location therefore keeps
 precedence if both archives contain the same resource name.
 
-Overlay v3 replaces the incomplete 192 m prototype placement with a continuous
+Overlay v4 retains the v3 runtime corridor that replaced the incomplete 192 m
+prototype placement with a continuous
 1,075.448 m, 8.9 m-wide construction alignment. At Penguinville, a
 14.8491 m collision-authoritative asphalt apron begins at the legacy road
 surface height of 0.198 m, rises to 0.31 m over 10 m, and crosses the decoded
@@ -149,6 +153,37 @@ validated warm point light with a 24 m range; the generated report records
 every placement transform, light count, lateral offset, and collision
 authority.
 
+### NeoQueretaro core relighting gate
+
+Overlay v4 adds the first deterministic full-map relighting content slice
+without changing runtime lighting yet. The v2 archive audit identifies all
+779 explicit NeoQueretaro pole placements: 528 `luminariaLQr`, 239
+`luminariaQr`, and 12 `luminariaYQr`. Exactly 67 poles lie within 400 m of the
+authenticated `NeoQueretaro Spawn`: 42 single-arm and 25 dual-arm poles. The
+three source ODEFs contain collision meshes, no authored LOD, and no point or
+spot lights, so adding replacement pole objects would duplicate both visual
+geometry and collision.
+
+The local-only package therefore contains
+`cityworld_next_neoq_core_lights.candidates.json`. It records one bounded warm
+point-light candidate per existing pole, preserves the exact source transform,
+uses a hard 24 m range ceiling, requests no shadow casting, and specifies a
+future legacy-Z-up ODEF adapter whose mesh header is `none`. No adapter ODEF,
+candidate placement, source mesh, or source texture is emitted. The report
+records 67 derived placement records and continues to mark the package
+nonredistributable and non-shippable.
+
+Activation fails closed. Overlay v4 emits zero NeoQueretaro runtime point
+lights until the renderer exposes both the
+`ror-cityworld-local-light-budget-v1` bounded-light policy and a runtime proof
+that local shadow casters equal zero. The candidate-family and whole-map
+family counts are authenticated during every build; moving one pole across
+the 400 m boundary or changing a family count aborts publication. Promotion
+also requires a UI-free fixed-camera RGB comparison, frame-time measurements,
+and native macOS, Windows, and Linux loading. Until those gates close, this is
+a reproducible activation-ready content contract, not evidence of completed
+relighting or ray tracing.
+
 Fixed ZIP order, timestamps, permissions, and stored payloads make repeated
 builds byte-identical. The embedded report marks redistribution and shipping
 false and records source/member hashes, authenticated anchor evidence,
@@ -160,7 +195,7 @@ pillars, inward fixture orientation, collisionless ODEFs, Windows-reserved
 output names, and no-overwrite publication. Those overlay tests now run in the
 Linux, Windows, and macOS provenance matrix.
 
-On the macOS arm64 rolling app, the installed v3 package reaches
+On the macOS arm64 rolling app, the installed v3 runtime package reaches
 `TERRAIN LOADING DONE`, passes the 10-frame bundle smoke, and shuts OGRE down
 cleanly. A UI-free 1280x720 capture verifies a continuous asphalt mouth across
 the original sidewalk and curb, with the curb retained only beside the road.

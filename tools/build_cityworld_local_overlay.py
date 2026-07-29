@@ -30,6 +30,11 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from audit_cityworld_visuals import (  # noqa: E402
     AuditFailure,
+    NEOQ_LIGHT_RANGE_LIMIT_M,
+    NEOQ_LUMINARIA_FAMILIES,
+    NEOQ_RELIGHT_FORMAT,
+    NEOQ_RELIGHT_RADIUS_M,
+    NEOQ_RELIGHT_TELEPOINT,
     READ_CHUNK_BYTES,
     archive_sha256,
     audit_archive,
@@ -54,8 +59,8 @@ from solve_cityworld_bridge_corridor import (  # noqa: E402
 from validate_cityworld_asset import Validator  # noqa: E402
 
 
-FORMAT = "ror-cityworld-local-overlay-v3"
-BUILD_RESULT_FORMAT = "ror-cityworld-local-overlay-build-result-v3"
+FORMAT = "ror-cityworld-local-overlay-v4"
+BUILD_RESULT_FORMAT = "ror-cityworld-local-overlay-build-result-v4"
 PINNED_ARCHIVE_SHA256 = (
     "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3"
 )
@@ -67,6 +72,40 @@ TERRAIN_NAME = "CityWorldNextLocalOverlay.terrn2"
 OVERLAY_NAME = "cityworld_next_local_overlay.tobj"
 REPORT_NAME = "cityworld_next_local_overlay.report.json"
 MERGED_MATERIAL_NAME = "cityworld_next_local_overlay.material"
+NEOQ_LIGHT_CANDIDATE_NAME = (
+    "cityworld_next_neoq_core_lights.candidates.json"
+)
+NEOQ_LIGHT_CANDIDATE_FORMAT = (
+    "ror-cityworld-neoq-core-light-candidates-v1"
+)
+NEOQ_LIGHT_POLICY_ID = "ror-cityworld-local-light-budget-v1"
+NEOQ_EXPECTED_MAP_FAMILY_COUNTS = {
+    "luminariaLQr": 528,
+    "luminariaQr": 239,
+    "luminariaYQr": 12,
+}
+NEOQ_EXPECTED_CANDIDATE_FAMILY_COUNTS = {
+    "luminariaLQr": 42,
+    "luminariaQr": 25,
+    "luminariaYQr": 0,
+}
+NEOQ_LIGHT_ADAPTERS = {
+    "luminariaLQr": {
+        "future_object_definition":
+            "rorng_city_neoq_luminaria_l_lightonly",
+        "local_position_m": (-2.75, 0.0, 9.7),
+    },
+    "luminariaQr": {
+        "future_object_definition":
+            "rorng_city_neoq_luminaria_dual_lightonly",
+        "local_position_m": (0.0, 0.0, 9.7),
+    },
+    "luminariaYQr": {
+        "future_object_definition":
+            "rorng_city_neoq_luminaria_triple_lightonly",
+        "local_position_m": (0.0, 0.0, 9.7),
+    },
+}
 MIN_SURFACE_OFFSET_M = -2.0
 MAX_SURFACE_OFFSET_M = 20.0
 MAX_RUNTIME_FILE_BYTES = 256 * 1024 * 1024
@@ -490,6 +529,189 @@ def source_placements(archive_path: Path) -> tuple[SourcePlacement, ...]:
         if len(placements) > MAX_SOURCE_PLACEMENTS:
             raise OverlayFailure("CityWorld.tobj exceeds the placement limit")
     return tuple(placements)
+
+
+def neoq_light_candidate_manifest(
+    placements: Sequence[SourcePlacement],
+    telepoint: tuple[float, float, float],
+) -> dict[str, Any]:
+    map_counts = {family: 0 for family in NEOQ_LUMINARIA_FAMILIES}
+    candidates: list[dict[str, Any]] = []
+    candidate_counts = {
+        family: 0 for family in NEOQ_LUMINARIA_FAMILIES
+    }
+
+    for placement in placements:
+        family = placement.object_name
+        if family not in map_counts:
+            continue
+        map_counts[family] += 1
+        distance = math.hypot(
+            placement.position[0] - telepoint[0],
+            placement.position[2] - telepoint[2],
+        )
+        if distance > NEOQ_RELIGHT_RADIUS_M:
+            continue
+        candidate_counts[family] += 1
+        adapter = NEOQ_LIGHT_ADAPTERS[family]
+        candidates.append(
+            {
+                "adapter": {
+                    "coordinate_system": "legacy-odef-local-z-up",
+                    "future_object_definition":
+                        adapter["future_object_definition"],
+                    "light_only_mesh_header": "none",
+                    "local_light_position_m": [
+                        round(float(value), 9)
+                        for value in adapter["local_position_m"]
+                    ],
+                    "runtime_definition_emitted": False,
+                },
+                "candidate_id":
+                    f"neoq-core-light-line-{placement.line_number:06d}",
+                "light": {
+                    "color_rgb": [1.0, 0.72, 0.3],
+                    "hard_max_range_m": NEOQ_LIGHT_RANGE_LIMIT_M,
+                    "representative_lights": 1,
+                    "shadow_casting_requested": False,
+                    "type": "point",
+                },
+                "source": {
+                    "distance_from_telepoint_m": round(distance, 9),
+                    "line": placement.line_number,
+                    "object": family,
+                    "position_m": [
+                        round(float(value), 9)
+                        for value in placement.position
+                    ],
+                    "rotation_degrees": [
+                        round(float(value), 9)
+                        for value in placement.rotation_degrees
+                    ],
+                },
+            }
+        )
+
+    if map_counts != NEOQ_EXPECTED_MAP_FAMILY_COUNTS:
+        raise OverlayFailure(
+            "authenticated CityWorld luminaria family counts changed: "
+            f"expected {NEOQ_EXPECTED_MAP_FAMILY_COUNTS}, found {map_counts}"
+        )
+    if candidate_counts != NEOQ_EXPECTED_CANDIDATE_FAMILY_COUNTS:
+        raise OverlayFailure(
+            "authenticated NeoQueretaro core luminaria counts changed: "
+            f"expected {NEOQ_EXPECTED_CANDIDATE_FAMILY_COUNTS}, "
+            f"found {candidate_counts}"
+        )
+    expected_candidate_count = sum(
+        NEOQ_EXPECTED_CANDIDATE_FAMILY_COUNTS.values()
+    )
+    if len(candidates) != expected_candidate_count:
+        raise OverlayFailure(
+            "authenticated NeoQueretaro light candidate total changed"
+        )
+    candidate_ids = [candidate["candidate_id"] for candidate in candidates]
+    if len(set(candidate_ids)) != len(candidate_ids):
+        raise OverlayFailure(
+            "NeoQueretaro light candidates contain duplicate source lines"
+        )
+
+    return {
+        "activation": {
+            "blockers": [
+                "renderer-local-light-budget-policy-unavailable",
+                "zero-local-shadow-runtime-contract-unavailable",
+                "neoq-fixed-camera-runtime-visual-gate-unavailable",
+            ],
+            "enabled": False,
+            "fail_closed": True,
+            "runtime_adapter_definitions_emitted": 0,
+            "runtime_candidate_placements_emitted": 0,
+            "runtime_point_lights_emitted": 0,
+            "status": "blocked",
+        },
+        "candidate_family_counts": candidate_counts,
+        "candidate_poles": len(candidates),
+        "candidate_runtime_point_lights": len(candidates),
+        "candidates": candidates,
+        "format": NEOQ_LIGHT_CANDIDATE_FORMAT,
+        "policy_contract": {
+            "hard_max_range_m": NEOQ_LIGHT_RANGE_LIMIT_M,
+            "maximum_candidate_lights": len(candidates),
+            "policy_id": NEOQ_LIGHT_POLICY_ID,
+            "required_local_shadow_casters": 0,
+            "sampling_strategy":
+                "one-bounded-representative-light-per-existing-pole",
+        },
+        "scope": {
+            "map_family_counts": map_counts,
+            "radius_m": NEOQ_RELIGHT_RADIUS_M,
+            "source_telepoint": NEOQ_RELIGHT_TELEPOINT,
+            "source_telepoint_position_m": [
+                round(float(value), 9) for value in telepoint
+            ],
+        },
+        "visual_geometry": {
+            "duplicate_pole_geometry_emitted": False,
+            "existing_cityworld_poles_reused": True,
+            "future_adapter_mesh_header": "none",
+        },
+    }
+
+
+def authenticate_neoq_light_audit(
+    audit: dict[str, Any],
+    manifest: dict[str, Any],
+) -> list[dict[str, Any]]:
+    lighting = audit.get("lighting")
+    relight = (
+        lighting.get("neoq_core_relight")
+        if isinstance(lighting, dict)
+        else None
+    )
+    definitions = (
+        lighting.get("object_definitions")
+        if isinstance(lighting, dict)
+        else None
+    )
+    if (
+        not isinstance(relight, dict)
+        or relight.get("format") != NEOQ_RELIGHT_FORMAT
+    ):
+        raise OverlayFailure(
+            "CityWorld audit has no supported NeoQueretaro relight section"
+        )
+    expected_fields = {
+        "activation_enabled": False,
+        "candidate_family_counts": manifest["candidate_family_counts"],
+        "candidate_poles": manifest["candidate_poles"],
+        "candidate_runtime_point_lights":
+            manifest["candidate_runtime_point_lights"],
+        "hard_max_range_m": NEOQ_LIGHT_RANGE_LIMIT_M,
+        "map_family_counts": manifest["scope"]["map_family_counts"],
+        "radius_m": NEOQ_RELIGHT_RADIUS_M,
+        "source_telepoint": NEOQ_RELIGHT_TELEPOINT,
+        "source_telepoint_available": True,
+        "source_visual_geometry_replicated": False,
+        "source_visual_geometry_reused": True,
+        "zero_local_shadow_contract_required": True,
+    }
+    for field, expected in expected_fields.items():
+        if relight.get(field) != expected:
+            raise OverlayFailure(
+                f"CityWorld NeoQueretaro relight audit field {field!r} "
+                "does not match the authenticated candidate derivation"
+            )
+    pole_definitions = (
+        definitions.get("source_pole_definitions")
+        if isinstance(definitions, dict)
+        else None
+    )
+    if not isinstance(pole_definitions, list):
+        raise OverlayFailure(
+            "CityWorld audit has no source-pole definition inventory"
+        )
+    return pole_definitions
 
 
 def authenticate_route_anchors(
@@ -1121,7 +1343,7 @@ def merge_material_scripts(
         )
 
     rendered = [
-        "// Generated by ror-cityworld-local-overlay-v3.",
+        "// Generated by ror-cityworld-local-overlay-v4.",
         "// Canonical merged material script; duplicate definitions removed.",
         "",
     ]
@@ -2074,8 +2296,8 @@ def terrain_descriptor(
         f"StartRotation = {stable_float(initial_heading)}",
         "Gravity = -9.81",
         "CategoryID = 129",
-        "Version = 3",
-        "GUID = rorng-cityworld-next-local-overlay-v3",
+        "Version = 4",
+        "GUID = rorng-cityworld-next-local-overlay-v4",
         "",
         "[Authors]",
         "overlay = Oasiz AI and Rigs of Rods contributors",
@@ -2189,7 +2411,16 @@ def build_local_overlay(
     anchor_evidence = authenticate_route_anchors(legacy_placements)
     open_gap_audit = audit_open_intercity_gap(legacy_placements)
     source_telepoint = exact_telepoint(audit, SOURCE_TELEPOINT)
-    exact_telepoint(audit, DESTINATION_TELEPOINT)
+    destination_telepoint = exact_telepoint(audit, DESTINATION_TELEPOINT)
+    light_candidates = neoq_light_candidate_manifest(
+        legacy_placements,
+        destination_telepoint,
+    )
+    source_pole_definitions = authenticate_neoq_light_audit(
+        audit,
+        light_candidates,
+    )
+    light_candidate_payload = canonical_json_bytes(light_candidates)
     source = tuple(ROUTE_SOURCE_ANCHOR["connection_position_m"])
     destination = tuple(ROUTE_DESTINATION_ANCHOR["connection_position_m"])
     corridor_assets = prepare_assets(repository)
@@ -2247,6 +2478,14 @@ def build_local_overlay(
             package_roles[runtime_file.package_path] = runtime_file.role
     add_payload(payloads, MERGED_MATERIAL_NAME, merged_material)
     package_roles[MERGED_MATERIAL_NAME] = "material-fallback"
+    add_payload(
+        payloads,
+        NEOQ_LIGHT_CANDIDATE_NAME,
+        light_candidate_payload,
+    )
+    package_roles[NEOQ_LIGHT_CANDIDATE_NAME] = (
+        "disabled-light-candidate-manifest"
+    )
 
     source_member_hashes = {
         record["sha256"] for record in member_records
@@ -2266,8 +2505,28 @@ def build_local_overlay(
         for name, payload in sorted(payloads.items())
     ]
     audit_payload = canonical_json_bytes(audit)
+    light_candidate_record = payload_record(
+        NEOQ_LIGHT_CANDIDATE_NAME,
+        light_candidate_payload,
+        "disabled-light-candidate-manifest",
+    )
     report = {
         "assets": [asset.provenance for asset in assets],
+        "city_lighting": {
+            "neoq_core": {
+                "activation": light_candidates["activation"],
+                "candidate_family_counts":
+                    light_candidates["candidate_family_counts"],
+                "candidate_manifest": light_candidate_record,
+                "candidate_poles": light_candidates["candidate_poles"],
+                "candidate_runtime_point_lights":
+                    light_candidates["candidate_runtime_point_lights"],
+                "policy_contract": light_candidates["policy_contract"],
+                "scope": light_candidates["scope"],
+                "source_pole_definitions": source_pole_definitions,
+                "visual_geometry": light_candidates["visual_geometry"],
+            },
+        },
         "corridor": segment,
         "format": FORMAT,
         "package": {
@@ -2284,12 +2543,19 @@ def build_local_overlay(
             "source_archive_copied": False,
             "source_geometry_copied": False,
             "source_objects_copied": False,
+            "source_placement_payload_copied": False,
             "source_placements_copied": False,
+            "source_placement_records_derived": True,
+            "derived_source_placement_record_count":
+                light_candidates["candidate_poles"],
             "source_textures_copied": False,
         },
         "visual_asset_usage": {
             "corridor_placement_mode":
                 "native-procedural-v3-curb-cut-with-blender-fixtures-v1",
+            "disabled_light_candidate_manifest":
+                NEOQ_LIGHT_CANDIDATE_NAME,
+            "neoq_core_runtime_light_activation": "blocked-fail-closed",
             "packaged_asset_ids": [
                 asset.asset_id
                 for asset in runtime_assets
@@ -2305,7 +2571,9 @@ def build_local_overlay(
             ],
             "purpose":
                 "curb-free Penguinville overlap apron plus route-safe Blender "
-                "lighting; bridge modules remain validated candidates for "
+                "lighting; deterministic NeoQueretaro pole-light candidates "
+                "remain disabled pending the renderer budget and zero-shadow "
+                "contracts; bridge modules remain validated candidates for "
                 "deck and abutment replacement",
         },
         "source": {
@@ -2366,7 +2634,11 @@ def build_local_overlay(
 
     return {
         "format": BUILD_RESULT_FORMAT,
-        "generated": [descriptor_record, placement_record],
+        "generated": [
+            descriptor_record,
+            placement_record,
+            light_candidate_record,
+        ],
         "output": {
             "entries": len(payloads),
             "name": output.name,

@@ -110,12 +110,16 @@ connectors, standard glTF interchange artifacts, and a full A0 release-gate
 provenance inventory. The curve adds an integrated pier/bearings, expansion
 joints, four LED fixtures, and an emissive material lowered into OGRE.
 Dependency-free validation runs on macOS, Linux, and Windows CI. The offline
-glTF-to-runtime compiler has landed. The local-only v3 corridor overlay now
+glTF-to-runtime compiler has landed. The local-only v4 overlay retains the v3
+corridor runtime and now
 starts inside Penguinville's authenticated east carriageway, clears its curb
 with a 14.8491 m collision-authoritative overlap, and joins NeoQueretaro's west
 road with a continuous 1,075.448 m collision surface, destination seam closure,
 160 m eased ramps, an 8 m raised deck, and 47 native terrain-reaching support
-stations. The building-overlapping prototype gateway is no longer placed.
+stations. It also derives a disabled, non-shipping manifest for the 67
+authenticated luminaria poles within 400 m of NeoQueretaro Spawn, capped at
+one representative 24 m light per existing pole with no duplicate geometry.
+The building-overlapping prototype gateway is no longer placed.
 
 Both modules now compile through the first production
 [`ror_scene_compiler` boundary](CITYWORLD_SCENE_COMPILER.md). Each package owns
@@ -756,6 +760,28 @@ terrain-reaching pillar requests remain authoritative. The cross-platform
 provenance matrix now executes the overlay builder under normal and optimized
 Python on macOS, Linux, and Windows; native full-map Windows/Linux driving is
 still an open runtime gate.
+
+Overlay v4 establishes the first deterministic existing-city relighting gate.
+The v2 archive audit classifies luminaria as fixtures and proves that the
+pinned map contains 528 `luminariaLQr`, 239 `luminariaQr`, and 12
+`luminariaYQr` placements. Within 400 m of the authenticated NeoQueretaro spawn
+there are exactly 42 single-arm and 25 dual-arm poles. Their three source ODEFs
+are collision-bearing and contain neither LOD nor local-light directives, so
+the generator reuses the existing pole geometry and emits only a local,
+nonredistributable candidate manifest. Each of its 67 records specifies one
+representative warm point light, a hard 24 m range ceiling, no requested
+shadow casting, and a future light-only `none`-mesh adapter in the legacy
+Z-up ODEF basis.
+
+This slice is intentionally runtime-disabled and emits zero NeoQueretaro
+lights. Activation remains fail-closed until the renderer provides both the
+`ror-cityworld-local-light-budget-v1` policy and a verifiable zero-local-shadow
+contract, followed by UI-free fixed-camera visual comparison and frame-time
+gates on macOS, Windows, and Linux. The build rejects family-count or 400 m
+scope drift, and its canonical report exposes the candidate payload hash,
+derived-record count, zero runtime emission, and non-shipping rights state.
+It is activation-ready content provenance, not a claim that whole-map
+relighting or ray tracing is complete.
 
 The full-map acceptance gate remains open. The v3 macOS arm64 diagnostic starts
 the packaged DAF at station -9.99478 inside Penguinville, crosses the

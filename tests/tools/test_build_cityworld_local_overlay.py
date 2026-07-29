@@ -54,12 +54,45 @@ Telepoint2/Position=2425,0.30000000149,1013
 
 # SOURCE_TERRAIN_PAYLOAD_MUST_NOT_LEAK
 """
-PLACEMENTS = """\
+BASE_PLACEMENTS = """\
 // SOURCE_PLACEMENTS_PAYLOAD_MUST_NOT_LEAK
 1, 2, 3, 0, 0, 0, source_only_object
 485, 0.1, 370, 0, 90, 0, troadavenuesidewalk
 1460.966797, 0.1, 903.098389, 0, -180, 0, crucetQr
 """
+
+
+def luminaria_fixture_placements() -> str:
+    lines: list[str] = []
+    for index in range(42):
+        lines.append(
+            f"{2300 + (index % 7) * 15}, 0.1, "
+            f"{900 + (index // 7) * 20}, 0, 0, 0, luminariaLQr"
+        )
+    for index in range(25):
+        lines.append(
+            f"{2450 + (index % 5) * 20}, 0.1, "
+            f"{1050 + (index // 5) * 20}, 0, 0, 0, luminariaQr"
+        )
+    for index in range(528 - 42):
+        lines.append(
+            f"{2900 + (index % 20) * 3}, 0.1, "
+            f"{1500 + (index // 20) * 3}, 0, 0, 0, luminariaLQr"
+        )
+    for index in range(239 - 25):
+        lines.append(
+            f"{3100 + (index % 20) * 3}, 0.1, "
+            f"{1700 + (index // 20) * 3}, 0, 0, 0, luminariaQr"
+        )
+    for index in range(12):
+        lines.append(
+            f"{3300 + index * 3}, 0.1, 1900, "
+            "0, 0, 0, luminariaYQr"
+        )
+    return "\n".join(lines) + "\n"
+
+
+PLACEMENTS = BASE_PLACEMENTS + luminaria_fixture_placements()
 
 
 class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
@@ -661,6 +694,10 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 {
                     "corridor_placement_mode":
                         "native-procedural-v3-curb-cut-with-blender-fixtures-v1",
+                    "disabled_light_candidate_manifest":
+                        BUILDER.NEOQ_LIGHT_CANDIDATE_NAME,
+                    "neoq_core_runtime_light_activation":
+                        "blocked-fail-closed",
                     "packaged_asset_ids": [
                         "rorng_city_led_streetlight_bridge",
                     ],
@@ -682,8 +719,11 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     ],
                     "purpose":
                         "curb-free Penguinville overlap apron plus route-safe "
-                        "Blender lighting; bridge modules remain validated "
-                        "candidates for deck and abutment replacement",
+                        "Blender lighting; deterministic NeoQueretaro "
+                        "pole-light candidates remain disabled pending the "
+                        "renderer budget and zero-shadow contracts; bridge "
+                        "modules remain validated candidates for deck and "
+                        "abutment replacement",
                 },
             )
             self.assertIn(
@@ -731,6 +771,132 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 result["report"]["sha256"],
                 hashlib.sha256(report_payload).hexdigest(),
             )
+
+    def test_neoq_light_candidates_are_deterministic_bounded_and_disabled(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _, output, result = self.build_fixture(Path(directory))
+            report = self.read_report(output)
+            with zipfile.ZipFile(output) as package:
+                manifest_payload = package.read(
+                    BUILDER.NEOQ_LIGHT_CANDIDATE_NAME
+                )
+                manifest = json.loads(manifest_payload)
+                placement_text = package.read(BUILDER.OVERLAY_NAME).decode()
+                descriptor = package.read(BUILDER.TERRAIN_NAME).decode()
+
+        self.assertEqual(
+            result["format"],
+            "ror-cityworld-local-overlay-build-result-v4",
+        )
+        self.assertEqual(
+            manifest["format"],
+            "ror-cityworld-neoq-core-light-candidates-v1",
+        )
+        self.assertEqual(manifest["candidate_poles"], 67)
+        self.assertEqual(manifest["candidate_runtime_point_lights"], 67)
+        self.assertEqual(
+            manifest["candidate_family_counts"],
+            {
+                "luminariaLQr": 42,
+                "luminariaQr": 25,
+                "luminariaYQr": 0,
+            },
+        )
+        self.assertFalse(manifest["activation"]["enabled"])
+        self.assertTrue(manifest["activation"]["fail_closed"])
+        self.assertEqual(
+            manifest["activation"]["runtime_point_lights_emitted"],
+            0,
+        )
+        self.assertEqual(
+            manifest["activation"]["blockers"],
+            [
+                "renderer-local-light-budget-policy-unavailable",
+                "zero-local-shadow-runtime-contract-unavailable",
+                "neoq-fixed-camera-runtime-visual-gate-unavailable",
+            ],
+        )
+        self.assertEqual(
+            manifest["policy_contract"],
+            {
+                "hard_max_range_m": 24.0,
+                "maximum_candidate_lights": 67,
+                "policy_id": "ror-cityworld-local-light-budget-v1",
+                "required_local_shadow_casters": 0,
+                "sampling_strategy":
+                    "one-bounded-representative-light-per-existing-pole",
+            },
+        )
+        candidates = manifest["candidates"]
+        self.assertEqual(len(candidates), 67)
+        self.assertEqual(
+            len({candidate["candidate_id"] for candidate in candidates}),
+            67,
+        )
+        self.assertTrue(
+            all(
+                candidate["source"]["distance_from_telepoint_m"] <= 400.0
+                and candidate["light"]["hard_max_range_m"] == 24.0
+                and not candidate["light"]["shadow_casting_requested"]
+                and not candidate["adapter"]["runtime_definition_emitted"]
+                and candidate["adapter"]["light_only_mesh_header"] == "none"
+                for candidate in candidates
+            )
+        )
+        self.assertTrue(
+            manifest["visual_geometry"]["existing_cityworld_poles_reused"]
+        )
+        self.assertFalse(
+            manifest["visual_geometry"]["duplicate_pole_geometry_emitted"]
+        )
+        self.assertNotIn("rorng_city_neoq_luminaria", placement_text)
+        self.assertIn("Version = 4", descriptor)
+        self.assertIn(
+            "GUID = rorng-cityworld-next-local-overlay-v4",
+            descriptor,
+        )
+        lighting_report = report["city_lighting"]["neoq_core"]
+        self.assertEqual(lighting_report["candidate_poles"], 67)
+        self.assertEqual(
+            lighting_report["candidate_manifest"]["sha256"],
+            hashlib.sha256(manifest_payload).hexdigest(),
+        )
+        self.assertEqual(
+            lighting_report["candidate_manifest"]["role"],
+            "disabled-light-candidate-manifest",
+        )
+
+    def test_neoq_light_candidate_scope_drift_fails_closed(self) -> None:
+        changed_placements = PLACEMENTS.replace(
+            "2300, 0.1, 900, 0, 0, 0, luminariaLQr",
+            "2900, 0.1, 2200, 0, 0, 0, luminariaLQr",
+            1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive, digest = self.make_archive(
+                root,
+                placements=changed_placements,
+            )
+            with (
+                mock.patch.object(
+                    BUILDER,
+                    "PINNED_ARCHIVE_SHA256",
+                    digest,
+                ),
+                self.assertRaisesRegex(
+                    BUILDER.OverlayFailure,
+                    "core luminaria counts changed",
+                ),
+            ):
+                BUILDER.build_local_overlay(
+                    archive_path=archive,
+                    repository_path=REPOSITORY_ROOT,
+                    output_path=root / "overlay.zip",
+                    surface_offset_m=0.08,
+                )
 
     def test_route_anchor_and_open_gap_drift_fail_closed(self) -> None:
         cases = (
@@ -886,7 +1052,10 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     "source_archive_copied": False,
                     "source_geometry_copied": False,
                     "source_objects_copied": False,
+                    "source_placement_payload_copied": False,
                     "source_placements_copied": False,
+                    "source_placement_records_derived": True,
+                    "derived_source_placement_record_count": 67,
                     "source_textures_copied": False,
                 },
             )

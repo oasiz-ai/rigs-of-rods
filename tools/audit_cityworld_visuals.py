@@ -21,7 +21,16 @@ import unicodedata
 import zipfile
 
 
-REPORT_FORMAT = "ror-cityworld-visual-audit-v1"
+REPORT_FORMAT = "ror-cityworld-visual-audit-v2"
+NEOQ_RELIGHT_FORMAT = "ror-cityworld-neoq-relight-audit-v1"
+NEOQ_RELIGHT_TELEPOINT = "NeoQueretaro Spawn"
+NEOQ_RELIGHT_RADIUS_M = 400.0
+NEOQ_LUMINARIA_FAMILIES = (
+    "luminariaLQr",
+    "luminariaQr",
+    "luminariaYQr",
+)
+NEOQ_LIGHT_RANGE_LIMIT_M = 24.0
 READ_CHUNK_BYTES = 1024 * 1024
 MAX_ENTRIES = 50_000
 MAX_ENTRY_BYTES = 2 * 1024 * 1024 * 1024
@@ -54,7 +63,7 @@ CATEGORY_PATTERNS = (
         re.compile(
             r"semaforo|trafficlight|lamp|lightpole|streetlight|busstop|"
             r"parabus|telefon|sign|hydrant|bench|billboard|pantalla|"
-            r"precaucion|tope",
+            r"precaucion|tope|luminaria",
             re.IGNORECASE,
         ),
     ),
@@ -65,7 +74,7 @@ CATEGORY_PATTERNS = (
             r"station|school|colegio|university|universidad|garage|"
             r"hangar|firehouse|insurance|airport|aeropuerto|prison|cereso|"
             r"estadio|stadium|bank|banco|tower|torre|factory|warehouse|"
-            r"store|shop",
+            r"store|shop|officeblock|manzana|fraccionamiento",
             re.IGNORECASE,
         ),
     ),
@@ -179,6 +188,10 @@ def read_text_member(
         raise AuditFailure(
             f"short read for ZIP member: {info.filename!r}"
         )
+    return decode_text_payload(payload, info.filename)
+
+
+def decode_text_payload(payload: bytes, filename: str) -> str:
     try:
         return payload.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -186,7 +199,7 @@ def read_text_member(
             return payload.decode("cp1252")
         except UnicodeDecodeError as exc:
             raise AuditFailure(
-                f"text member is not UTF-8 or CP1252: {info.filename!r}"
+                f"text member is not UTF-8 or CP1252: {filename!r}"
             ) from exc
 
 
@@ -465,6 +478,170 @@ def intercity_links(
     )
 
 
+def placement_object_token(name: object) -> str:
+    text = str(name).strip()
+    return text.split()[0] if text else ""
+
+
+def neoq_relight_audit(
+    records: list[dict[str, object]],
+    telepoints: list[dict[str, object]],
+) -> dict[str, object]:
+    family_counts = Counter(
+        placement_object_token(record["object"])
+        for record in records
+        if placement_object_token(record["object"]) in NEOQ_LUMINARIA_FAMILIES
+    )
+    matches = [
+        point
+        for point in telepoints
+        if str(point.get("name", "")) == NEOQ_RELIGHT_TELEPOINT
+    ]
+    result: dict[str, object] = {
+        "activation_enabled": False,
+        "activation_status": "blocked-fail-closed",
+        "candidate_family_counts": {
+            family: 0 for family in NEOQ_LUMINARIA_FAMILIES
+        },
+        "candidate_poles": 0,
+        "candidate_runtime_point_lights": 0,
+        "format": NEOQ_RELIGHT_FORMAT,
+        "hard_max_range_m": NEOQ_LIGHT_RANGE_LIMIT_M,
+        "map_family_counts": {
+            family: family_counts[family]
+            for family in NEOQ_LUMINARIA_FAMILIES
+        },
+        "radius_m": NEOQ_RELIGHT_RADIUS_M,
+        "sampling_strategy":
+            "one-bounded-representative-light-per-existing-pole",
+        "source_telepoint": NEOQ_RELIGHT_TELEPOINT,
+        "source_telepoint_available": len(matches) == 1,
+        "source_visual_geometry_reused": True,
+        "source_visual_geometry_replicated": False,
+        "zero_local_shadow_contract_required": True,
+    }
+    if len(matches) != 1:
+        return result
+
+    origin = matches[0].get("position")
+    if not isinstance(origin, list) or len(origin) != 3:
+        return result
+    candidate_counts: Counter[str] = Counter()
+    candidate_count = 0
+    for record in records:
+        family = placement_object_token(record["object"])
+        if family not in NEOQ_LUMINARIA_FAMILIES:
+            continue
+        position = record["position"]
+        distance = math.hypot(
+            float(position[0]) - float(origin[0]),
+            float(position[2]) - float(origin[2]),
+        )
+        if distance <= NEOQ_RELIGHT_RADIUS_M:
+            candidate_counts[family] += 1
+            candidate_count += 1
+    result["candidate_family_counts"] = {
+        family: candidate_counts[family]
+        for family in NEOQ_LUMINARIA_FAMILIES
+    }
+    result["candidate_poles"] = candidate_count
+    result["candidate_runtime_point_lights"] = candidate_count
+    return result
+
+
+def object_definition_capabilities(
+    archive: zipfile.ZipFile,
+    infos: list[zipfile.ZipInfo],
+) -> dict[str, object]:
+    collision_definitions = 0
+    lod_definitions = 0
+    point_light_directives = 0
+    spot_light_directives = 0
+    pole_definitions: dict[str, dict[str, object]] = {}
+
+    for info in infos:
+        path = PurePosixPath(info.filename)
+        if info.is_dir() or path.suffix.casefold() != ".odef":
+            continue
+        if info.file_size > MAX_TEXT_BYTES:
+            raise AuditFailure(
+                f"text member exceeds read limit: {info.filename!r}"
+            )
+        payload = archive.read(info)
+        if len(payload) != info.file_size:
+            raise AuditFailure(
+                f"short read for ZIP member: {info.filename!r}"
+            )
+        text = decode_text_payload(payload, info.filename)
+        directives = [
+            line.split("//", 1)[0].strip().casefold()
+            for line in text.splitlines()
+        ]
+        has_collision = any(
+            line.startswith(("beginbox", "beginmesh"))
+            for line in directives
+        )
+        has_lod = any(
+            line in {"lod", "beginlodmesh"}
+            or line.startswith(("lod ", "lod\t"))
+            for line in directives
+        )
+        point_lights = sum(
+            line.startswith(("pointlight ", "pointlight\t"))
+            for line in directives
+        )
+        spot_lights = sum(
+            line.startswith(("spotlight ", "spotlight\t"))
+            for line in directives
+        )
+        collision_definitions += int(has_collision)
+        lod_definitions += int(has_lod)
+        point_light_directives += point_lights
+        spot_light_directives += spot_lights
+
+        family = next(
+            (
+                candidate
+                for candidate in NEOQ_LUMINARIA_FAMILIES
+                if path.stem == candidate
+            ),
+            None,
+        )
+        if family is not None:
+            pole_definitions[family] = {
+                "bytes": info.file_size,
+                "collision_geometry": has_collision,
+                "definition": info.filename,
+                "lod": has_lod,
+                "point_light_directives": point_lights,
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "spot_light_directives": spot_lights,
+            }
+
+    return {
+        "collision_definitions": collision_definitions,
+        "definitions": sum(
+            1
+            for info in infos
+            if (
+                not info.is_dir()
+                and PurePosixPath(info.filename).suffix.casefold() == ".odef"
+            )
+        ),
+        "definitions_with_lod": lod_definitions,
+        "point_light_directives": point_light_directives,
+        "source_pole_definitions": [
+            {
+                "available": family in pole_definitions,
+                "family": family,
+                **pole_definitions.get(family, {}),
+            }
+            for family in NEOQ_LUMINARIA_FAMILIES
+        ],
+        "spot_light_directives": spot_light_directives,
+    }
+
+
 def asset_inventory(infos: list[zipfile.ZipInfo]) -> dict[str, object]:
     suffix_counts: Counter[str] = Counter()
     model_categories: Counter[str] = Counter()
@@ -519,6 +696,10 @@ def audit_archive(
             placements = parse_placements(
                 read_text_member(archive, placement_info)
             )
+            definition_capabilities = object_definition_capabilities(
+                archive,
+                infos,
+            )
     except zipfile.BadZipFile as exc:
         raise AuditFailure("input is not a valid ZIP archive") from exc
 
@@ -558,6 +739,13 @@ def audit_archive(
         ),
         "format": REPORT_FORMAT,
         "intercity_links": intercity_links(telepoints),
+        "lighting": {
+            "neoq_core_relight": neoq_relight_audit(
+                placements["records"],
+                telepoints,
+            ),
+            "object_definitions": definition_capabilities,
+        },
         "ok": True,
         "placements": {
             "bounds": placements["bounds"],
