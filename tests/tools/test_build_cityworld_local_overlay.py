@@ -133,16 +133,23 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             "w",
             compression=zipfile.ZIP_STORED,
         ) as archive:
-            archive.writestr("CityWorld.terrn2", terrain.encode("utf-8"))
-            archive.writestr(
-                otc_name,
-                SOURCE_MARKERS["CityWorld.otc"],
-            )
-            archive.writestr("CityWorld.tobj", placements.encode("utf-8"))
+            def write_entry(name: str, payload: bytes) -> None:
+                info = zipfile.ZipInfo(
+                    name,
+                    date_time=BUILDER.ZIP_TIMESTAMP,
+                )
+                info.compress_type = zipfile.ZIP_STORED
+                info.create_system = 3
+                info.external_attr = BUILDER.ZIP_MODE << 16
+                archive.writestr(info, payload)
+
+            write_entry("CityWorld.terrn2", terrain.encode("utf-8"))
+            write_entry(otc_name, SOURCE_MARKERS["CityWorld.otc"])
+            write_entry("CityWorld.tobj", placements.encode("utf-8"))
             for name, payload in pole_definitions:
-                archive.writestr(name, payload)
+                write_entry(name, payload)
             for name, payload in extra_entries:
-                archive.writestr(name, payload)
+                write_entry(name, payload)
         digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
         return archive_path, digest
 
