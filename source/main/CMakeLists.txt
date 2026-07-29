@@ -46,6 +46,8 @@ set(SOURCE_FILES
         gfx/SkyXManager.{h,cpp}
         gfx/SurveyMapTextureCreator.{h,cpp}
         gfx/GfxWater.{h,cpp}
+        resources/LegacyMaterialCompatibilityPlan.{h,cpp}
+        resources/LegacyMaterialScriptSanitizer.{h,cpp}
         gfx/camera/CameraManager.{h,cpp}
         gfx/camera/PerVehicleCameraContext.h
         gfx/hydrax/CfgFileManager.{h,cpp}

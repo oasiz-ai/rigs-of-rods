@@ -27,8 +27,11 @@
 #include "Application.h"
 
 #include <OgreResourceGroupManager.h>
+#include <OgreMeshSerializer.h>
 #include <OgreScriptCompiler.h>
 #include <rapidjson/document.h>
+#include <cstdint>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -37,6 +40,7 @@ namespace RoR {
 class ContentManager:
     public Ogre::ResourceLoadingListener, // Ogre::ResourceGroupManager::getSingleton().setLoadingListener()
     public Ogre::ScriptCompilerListener,  // Ogre::ScriptCompilerManager::getSingleton().setListener()
+    private Ogre::MeshSerializerListener,
     private Ogre::ResourceGroupListener
 {
 public:
@@ -84,6 +88,10 @@ public:
     void               AddResourcePack(ResourcePack const& resource_pack, std::string const& override_rgn = "");
     void               InitManagedMaterials(std::string const & rg_name);
     void               RegisterPackageResourceLocation(const Ogre::String& resource_group, const Ogre::String& archive_name);
+    void               RegisterAuthenticatedPackageResourceLocation(
+                           const Ogre::String& resource_group,
+                           const Ogre::String& archive_name,
+                           const std::string& archive_sha256);
     void               UnregisterPackageResourceGroup(const Ogre::String& resource_group);
     void               InitContentManager();
     void               InitModCache(CacheValidity validity);
@@ -105,6 +113,12 @@ private:
     void scriptParseStarted(const Ogre::String& script_name, bool& skip_this_script) override;
     void scriptParseEnded(const Ogre::String& script_name, bool skipped) override;
     void resourceGroupScriptingEnded(const Ogre::String& group_name) override;
+    void resourceRemove(const Ogre::ResourcePtr& resource) override;
+
+    // Ogre::MeshSerializerListener
+    void processMaterialName(Ogre::Mesh* mesh, Ogre::String* name) override;
+    void processSkeletonName(Ogre::Mesh* mesh, Ogre::String* name) override;
+    void processMeshCompleted(Ogre::Mesh* mesh) override;
 
     // Ogre::ResourceLoadingListener
     Ogre::DataStreamPtr resourceLoading(const Ogre::String& name, const Ogre::String& group, Ogre::Resource* resource) override;
@@ -114,16 +128,65 @@ private:
     // Ogre::ScriptCompilerListener
     bool handleEvent(Ogre::ScriptCompiler *compiler, Ogre::ScriptCompilerEvent *evt, void *retval) override;
 
+    struct AuthenticatedMeshBinding
+    {
+        Ogre::String group;
+        Ogre::String mesh_group;
+        Ogre::String name;
+        Ogre::ResourceHandle handle = 0U;
+        std::size_t state_count = 0U;
+        std::uint64_t group_generation = 0U;
+        std::string archive_sha256;
+    };
+
+    void EraseAuthenticatedMeshBindingsForGroupLocked(
+        const Ogre::String& resource_group);
+    std::uint64_t AdvanceLegacyMaterialGroupGenerationLocked(
+        const Ogre::String& resource_group);
+
     bool              m_base_resource_loaded;
     bool              m_resource_group_listener_registered;
+    bool              m_mesh_serializer_listener_registered = false;
+    std::mutex        m_legacy_material_archive_io_mutex;
+    std::mutex        m_legacy_material_state_mutex;
+    std::mutex        m_legacy_material_resolution_mutex;
+    std::uint64_t     m_next_legacy_material_group_generation = 0U;
+    std::unordered_map<Ogre::String, std::uint64_t>
+        m_legacy_material_group_generations;
     std::unordered_map<Ogre::String, std::unordered_set<Ogre::String>>
         m_package_archives_by_group;
+    std::unordered_map<
+        Ogre::String,
+        std::unordered_map<Ogre::String, std::string>>
+        m_authenticated_package_archives_by_group;
     std::unordered_map<Ogre::String, std::unordered_set<Ogre::String>>
         m_package_materials_by_group;
-    std::unordered_map<Ogre::String, std::size_t> m_script_occurrences;
+    std::unordered_map<
+        Ogre::String,
+        std::unordered_map<std::string, std::unordered_set<Ogre::String>>>
+        m_authenticated_materials_by_group;
+    std::unordered_map<const Ogre::Resource*, AuthenticatedMeshBinding>
+        m_authenticated_mesh_bindings;
+    std::unordered_map<
+        Ogre::String,
+        std::unordered_map<
+            std::string,
+            std::unordered_map<Ogre::String, Ogre::String>>>
+        m_generated_material_fallbacks_by_group;
+    std::unordered_map<Ogre::String, std::unordered_set<Ogre::String>>
+        m_generated_material_names_by_group;
+    std::unordered_map<Ogre::String, std::unordered_set<Ogre::String>>
+        m_reported_material_resolutions_by_group;
+    std::unordered_map<
+        Ogre::String,
+        std::unordered_map<Ogre::String, std::string>>
+        m_authorized_texture_fallbacks_by_group;
+    std::unordered_map<Ogre::String, std::unordered_set<Ogre::String>>
+        m_reported_texture_fallbacks_by_group;
     Ogre::String      m_scripting_resource_group;
     Ogre::String      m_current_script_name;
     bool              m_current_script_package_owned = false;
+    std::string       m_current_script_authenticated_sha256;
 };
 
 } // namespace RoR

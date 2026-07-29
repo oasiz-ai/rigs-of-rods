@@ -1658,9 +1658,10 @@ bool CacheSystem::LoadTerrainResourceBundleDependencies(
                 false,
                 true);
             added_any = true;
-            App::GetContentManager()->RegisterPackageResourceLocation(
+            App::GetContentManager()->RegisterAuthenticatedPackageResourceLocation(
                 resource_group,
-                dependency_entry->resource_bundle_path);
+                dependency_entry->resource_bundle_path,
+                dependency.expected_archive_sha256);
         }
 
         if (added_any)

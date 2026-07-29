@@ -181,6 +181,18 @@ add_executable(
 )
 
 add_executable(
+    ror_legacy_material_script_sanitizer_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/LegacyMaterialScriptSanitizerTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/LegacyMaterialScriptSanitizer.cpp"
+)
+
+add_executable(
+    ror_legacy_material_compatibility_plan_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/LegacyMaterialCompatibilityPlanTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/LegacyMaterialCompatibilityPlan.cpp"
+)
+
+add_executable(
     ror_terrain_bundle_dependency_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/TerrainBundleDependencyTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp"
@@ -331,6 +343,18 @@ target_include_directories(
 
 target_include_directories(
     ror_shader_compatibility_policy_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources"
+)
+
+target_include_directories(
+    ror_legacy_material_compatibility_plan_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources"
+)
+
+target_include_directories(
+    ror_legacy_material_script_sanitizer_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources"
 )
@@ -567,6 +591,8 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_state_trace_tests
     ror_state_trace
     ror_hydro_actuator_response_tests
+    ror_legacy_material_compatibility_plan_tests
+    ror_legacy_material_script_sanitizer_tests
     ror_shader_compatibility_policy_tests
     ror_terrain_bundle_archive_verifier_tests
     ror_terrain_bundle_dependency_tests
@@ -768,6 +794,16 @@ add_test(
 add_test(
     NAME shader_compatibility_policy
     COMMAND ror_shader_compatibility_policy_tests
+)
+
+add_test(
+    NAME legacy_material_script_sanitizer
+    COMMAND ror_legacy_material_script_sanitizer_tests
+)
+
+add_test(
+    NAME legacy_material_compatibility_plan
+    COMMAND ror_legacy_material_compatibility_plan_tests
 )
 
 add_test(

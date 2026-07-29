@@ -95,11 +95,12 @@ redistributed.
 CityWorld is likewise a local compatibility fixture rather than project
 content. The archive tested on 2026-07-28 is 158,845,395 bytes with SHA-256
 `ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3`.
-Do not track or redistribute it. Its legacy material-definition errors remain
-content-fidelity diagnostics rather than renderer success, and must not be
-hidden by the crash gate. The measured fixtures, bridge corridors, Blender/glTF
-authoring contract, LOD/collision requirements, and visual acceptance gates are
-tracked in the
+Do not track or redistribute it. Its reviewed legacy material defects are
+handled by a hash-pinned, fail-closed compatibility path rather than by
+modifying the archive or globally suppressing diagnostics. Unknown archive or
+script revisions retain their original diagnostics. The measured fixtures,
+bridge corridors, Blender/glTF authoring contract, LOD/collision requirements,
+and visual acceptance gates are tracked in the
 [CityWorld visual-upgrade specification](CITYWORLD_VISUAL_UPGRADE.md).
 
 The first rights-cleared CityWorld Next content family is now present without
@@ -684,6 +685,25 @@ frame after a 120-frame warmup, exited at frame 180 with the declared pass
 marker, and persisted `Sky effects=Sandstorm (fastest)`. The capture confirms
 direct sun and ambient response; it also keeps CityWorld's missing-material
 messages visible as the separate content-authoring failures they are.
+
+The authenticated CityWorld material-compatibility gate now resolves those
+reviewed content failures without altering or redistributing the original ZIP.
+The OGRE 14 resource listener matches the opened script bytes to an exact
+member of the SHA-256-authenticated archive, then applies seven exact
+archive-and-script-hash plans with 1, 1, 2, 4, 2, 30, and 5 line edits, for 45
+edits total. Mesh requests follow OGRE's exact-case archive precedence and are
+opened from the selected authenticated ZIP before the listener maps 23 exact
+legacy names to target materials parsed from that same archive SHA or creates
+11 explicitly reviewed lit fallbacks. Seven exact missing `.dds` directives
+may use collision-resistant deterministic 4x4 DDS resources, while the missing
+JPEG reference is converted to a texture-free lit pass instead of receiving
+bytes from the wrong codec. A macOS arm64 load of the local overlay reached
+`TERRAIN LOADING DONE`, used GL3Plus RTSS programs, emitted no CityWorld script
+or missing-material diagnostic, made no JPEG request, and shut OGRE down
+cleanly. The only two missing-material warnings were pre-existing `MeshesRG`
+resources outside the authenticated CityWorld group. All 47 configured native
+CTests passed, with FormulaCOUPE still skipped by default. Linux and Windows
+share the OGRE 14 code path, but their native runtime gate remains open.
 
 The first original Blender-authored CityWorld Next bridge-to-city family now
 crosses the offline/runtime boundary. A fail-closed glTF compiler lowers its

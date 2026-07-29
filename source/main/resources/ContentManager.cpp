@@ -21,6 +21,7 @@
 
 #include "ContentManager.h"
 
+#include <algorithm>
 
 #include <Overlay/OgreOverlayManager.h>
 #include <Overlay/OgreOverlay.h>
@@ -29,9 +30,11 @@
 #include "Application.h"
 #include "ColoredTextAreaOverlayElementFactory.h"
 #include "ErrorUtils.h"
+#include "LegacyMaterialCompatibilityPlan.h"
 #include "SoundScriptManager.h"
 #include "SkinFileFormat.h"
 #include "Language.h"
+#include "LegacyMaterialScriptSanitizer.h"
 #include "PlatformUtils.h"
 #include "ShaderCompatibilityPolicy.h"
 
@@ -52,13 +55,18 @@
 #include "Utils.h"
 
 #include <OgreArchive.h>
+#include <OgreDataStream.h>
 #include <OgreFileSystem.h>
 #include <OgreGpuProgram.h>
 #include <OgreMaterialManager.h>
+#include <OgreMeshManager.h>
 #include <OgrePass.h>
 #include <OgreRenderSystem.h>
 #include <OgreRenderSystemCapabilities.h>
 #include <OgreRoot.h>
+#include <array>
+#include <cstdint>
+#include <openssl/evp.h>
 #include <regex>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -68,6 +76,102 @@
 using namespace Ogre;
 using namespace RoR;
 
+namespace
+{
+
+std::string Sha256Bytes(const std::string& payload)
+{
+    std::array<unsigned char, EVP_MAX_MD_SIZE> digest;
+    unsigned int digest_size = 0U;
+    if (EVP_Digest(
+            payload.data(),
+            payload.size(),
+            digest.data(),
+            &digest_size,
+            EVP_sha256(),
+            nullptr) != 1 ||
+        digest_size != 32U)
+    {
+        return std::string();
+    }
+
+    static const char HEX_DIGITS[] = "0123456789abcdef";
+    std::string result(digest_size * 2U, '0');
+    for (std::size_t index = 0U; index < digest_size; ++index)
+    {
+        result[index * 2U] = HEX_DIGITS[digest[index] >> 4U];
+        result[index * 2U + 1U] =
+            HEX_DIGITS[digest[index] & 0x0fU];
+    }
+    return result;
+}
+
+void AppendLittleEndian32(
+    std::vector<unsigned char>& bytes,
+    std::uint32_t value)
+{
+    bytes.push_back(static_cast<unsigned char>(value & 0xffU));
+    bytes.push_back(static_cast<unsigned char>((value >> 8U) & 0xffU));
+    bytes.push_back(static_cast<unsigned char>((value >> 16U) & 0xffU));
+    bytes.push_back(static_cast<unsigned char>((value >> 24U) & 0xffU));
+}
+
+std::vector<unsigned char> BuildProceduralFallbackDds(
+    const LegacyMaterialColor& color)
+{
+    const std::uint32_t width = 4U;
+    const std::uint32_t height = 4U;
+    std::vector<unsigned char> bytes;
+    bytes.reserve(128U + width * height * 4U);
+    bytes.push_back('D');
+    bytes.push_back('D');
+    bytes.push_back('S');
+    bytes.push_back(' ');
+    AppendLittleEndian32(bytes, 124U);
+    AppendLittleEndian32(bytes, 0x0000100fU);
+    AppendLittleEndian32(bytes, height);
+    AppendLittleEndian32(bytes, width);
+    AppendLittleEndian32(bytes, width * 4U);
+    AppendLittleEndian32(bytes, 0U);
+    AppendLittleEndian32(bytes, 0U);
+    for (std::size_t index = 0U; index < 11U; ++index)
+    {
+        AppendLittleEndian32(bytes, 0U);
+    }
+    AppendLittleEndian32(bytes, 32U);
+    AppendLittleEndian32(bytes, 0x00000041U);
+    AppendLittleEndian32(bytes, 0U);
+    AppendLittleEndian32(bytes, 32U);
+    AppendLittleEndian32(bytes, 0x00ff0000U);
+    AppendLittleEndian32(bytes, 0x0000ff00U);
+    AppendLittleEndian32(bytes, 0x000000ffU);
+    AppendLittleEndian32(bytes, 0xff000000U);
+    AppendLittleEndian32(bytes, 0x00001000U);
+    AppendLittleEndian32(bytes, 0U);
+    AppendLittleEndian32(bytes, 0U);
+    AppendLittleEndian32(bytes, 0U);
+    AppendLittleEndian32(bytes, 0U);
+
+    for (std::uint32_t y = 0U; y < height; ++y)
+    {
+        for (std::uint32_t x = 0U; x < width; ++x)
+        {
+            const bool dark = ((x / 2U) + (y / 2U)) % 2U != 0U;
+            const unsigned int scale = dark ? 3U : 4U;
+            bytes.push_back(static_cast<unsigned char>(
+                static_cast<unsigned int>(color.blue) * scale / 4U));
+            bytes.push_back(static_cast<unsigned char>(
+                static_cast<unsigned int>(color.green) * scale / 4U));
+            bytes.push_back(static_cast<unsigned char>(
+                static_cast<unsigned int>(color.red) * scale / 4U));
+            bytes.push_back(255U);
+        }
+    }
+    return bytes;
+}
+
+} // namespace
+
 ContentManager::ContentManager():
     m_base_resource_loaded(false),
     m_resource_group_listener_registered(false)
@@ -76,6 +180,12 @@ ContentManager::ContentManager():
 
 ContentManager::~ContentManager()
 {
+    if (m_mesh_serializer_listener_registered &&
+        Ogre::MeshManager::getSingletonPtr() != nullptr &&
+        Ogre::MeshManager::getSingleton().getListener() == this)
+    {
+        Ogre::MeshManager::getSingleton().setListener(nullptr);
+    }
     if (m_resource_group_listener_registered &&
         Ogre::ResourceGroupManager::getSingletonPtr() != nullptr)
     {
@@ -92,24 +202,84 @@ void ContentManager::EnsureResourceGroupListener()
     }
 }
 
+void ContentManager::EraseAuthenticatedMeshBindingsForGroupLocked(
+    const Ogre::String& resource_group)
+{
+    for (auto binding = m_authenticated_mesh_bindings.begin();
+         binding != m_authenticated_mesh_bindings.end();)
+    {
+        if (binding->second.group == resource_group)
+        {
+            binding = m_authenticated_mesh_bindings.erase(binding);
+        }
+        else
+        {
+            ++binding;
+        }
+    }
+}
+
+std::uint64_t ContentManager::AdvanceLegacyMaterialGroupGenerationLocked(
+    const Ogre::String& resource_group)
+{
+    ++m_next_legacy_material_group_generation;
+    if (m_next_legacy_material_group_generation == 0U)
+    {
+        ++m_next_legacy_material_group_generation;
+    }
+    m_legacy_material_group_generations[resource_group] =
+        m_next_legacy_material_group_generation;
+    this->EraseAuthenticatedMeshBindingsForGroupLocked(resource_group);
+    return m_next_legacy_material_group_generation;
+}
+
 void ContentManager::RegisterPackageResourceLocation(
     const Ogre::String& resource_group,
     const Ogre::String& archive_name)
 {
+    std::scoped_lock<std::mutex, std::mutex> legacy_material_lock(
+        m_legacy_material_resolution_mutex,
+        m_legacy_material_state_mutex);
     m_package_archives_by_group[resource_group].insert(archive_name);
+    this->AdvanceLegacyMaterialGroupGenerationLocked(resource_group);
+}
+
+void ContentManager::RegisterAuthenticatedPackageResourceLocation(
+    const Ogre::String& resource_group,
+    const Ogre::String& archive_name,
+    const std::string& archive_sha256)
+{
+    std::scoped_lock<std::mutex, std::mutex> legacy_material_lock(
+        m_legacy_material_resolution_mutex,
+        m_legacy_material_state_mutex);
+    m_package_archives_by_group[resource_group].insert(archive_name);
+    m_authenticated_package_archives_by_group[resource_group][archive_name] =
+        archive_sha256;
+    this->AdvanceLegacyMaterialGroupGenerationLocked(resource_group);
 }
 
 void ContentManager::UnregisterPackageResourceGroup(
     const Ogre::String& resource_group)
 {
+    std::scoped_lock<std::mutex, std::mutex> legacy_material_lock(
+        m_legacy_material_resolution_mutex,
+        m_legacy_material_state_mutex);
+    this->AdvanceLegacyMaterialGroupGenerationLocked(resource_group);
     m_package_archives_by_group.erase(resource_group);
+    m_authenticated_package_archives_by_group.erase(resource_group);
     m_package_materials_by_group.erase(resource_group);
+    m_authenticated_materials_by_group.erase(resource_group);
+    m_generated_material_fallbacks_by_group.erase(resource_group);
+    m_generated_material_names_by_group.erase(resource_group);
+    m_reported_material_resolutions_by_group.erase(resource_group);
+    m_authorized_texture_fallbacks_by_group.erase(resource_group);
+    m_reported_texture_fallbacks_by_group.erase(resource_group);
     if (m_scripting_resource_group == resource_group)
     {
         m_scripting_resource_group.clear();
         m_current_script_name.clear();
         m_current_script_package_owned = false;
-        m_script_occurrences.clear();
+        m_current_script_authenticated_sha256.clear();
     }
 }
 
@@ -118,63 +288,33 @@ void ContentManager::resourceGroupScriptingStarted(
     size_t script_count)
 {
     (void)script_count;
+    std::scoped_lock<std::mutex, std::mutex> legacy_material_lock(
+        m_legacy_material_resolution_mutex,
+        m_legacy_material_state_mutex);
+    this->AdvanceLegacyMaterialGroupGenerationLocked(group_name);
     m_scripting_resource_group = group_name;
-    m_script_occurrences.clear();
     m_current_script_name.clear();
     m_current_script_package_owned = false;
+    m_current_script_authenticated_sha256.clear();
     m_package_materials_by_group[group_name].clear();
+    m_authenticated_materials_by_group[group_name].clear();
+    m_generated_material_fallbacks_by_group.erase(group_name);
+    m_generated_material_names_by_group.erase(group_name);
+    m_reported_material_resolutions_by_group.erase(group_name);
+    m_authorized_texture_fallbacks_by_group.erase(group_name);
+    m_reported_texture_fallbacks_by_group.erase(group_name);
 }
 
 void ContentManager::scriptParseStarted(
     const Ogre::String& script_name,
     bool& skip_this_script)
 {
+    std::lock_guard<std::mutex> state_lock(
+        m_legacy_material_state_mutex);
     m_current_script_name = script_name;
     m_current_script_package_owned = false;
-    if (skip_this_script || m_scripting_resource_group.empty())
-    {
-        return;
-    }
-
-    const auto package_group =
-        m_package_archives_by_group.find(m_scripting_resource_group);
-    if (package_group == m_package_archives_by_group.end())
-    {
-        return;
-    }
-
-    // OGRE reports only the script name here. Match this callback to the
-    // corresponding archive by following the same ordered resource-location
-    // traversal used by parseResourceGroupScripts(). This remains exact when
-    // a built-in script and a package script happen to share a filename.
-    const std::size_t wanted_occurrence =
-        m_script_occurrences[script_name]++;
-    const Ogre::ResourceGroupManager::LocationList& locations =
-        Ogre::ResourceGroupManager::getSingleton().getResourceLocationList(
-            m_scripting_resource_group);
-    std::vector<ScriptArchiveState> archive_states;
-    archive_states.reserve(locations.size());
-    for (const Ogre::ResourceGroupManager::ResourceLocation& location :
-         locations)
-    {
-        std::size_t matching_script_count = 0;
-        if (location.archive != nullptr)
-        {
-            const Ogre::FileInfoListPtr matching_scripts =
-                location.archive->findFileInfo(
-                    script_name, location.recursive, false);
-            if (matching_scripts)
-            {
-                matching_script_count = matching_scripts->size();
-            }
-        }
-        archive_states.push_back({
-            matching_script_count,
-            location.archive != nullptr &&
-                package_group->second.count(location.archive->getName()) != 0});
-    }
-    m_current_script_package_owned = IsPackageOwnedScriptOccurrence(
-        archive_states, wanted_occurrence);
+    m_current_script_authenticated_sha256.clear();
+    (void)skip_this_script;
 }
 
 void ContentManager::scriptParseEnded(
@@ -183,18 +323,276 @@ void ContentManager::scriptParseEnded(
 {
     (void)script_name;
     (void)skipped;
+    std::lock_guard<std::mutex> state_lock(
+        m_legacy_material_state_mutex);
     m_current_script_name.clear();
     m_current_script_package_owned = false;
+    m_current_script_authenticated_sha256.clear();
 }
 
 void ContentManager::resourceGroupScriptingEnded(
     const Ogre::String& group_name)
 {
     this->ApplyShaderCompatibilityFallbacks(group_name);
+    std::lock_guard<std::mutex> state_lock(
+        m_legacy_material_state_mutex);
     m_scripting_resource_group.clear();
-    m_script_occurrences.clear();
     m_current_script_name.clear();
     m_current_script_package_owned = false;
+    m_current_script_authenticated_sha256.clear();
+}
+
+void ContentManager::resourceRemove(const Ogre::ResourcePtr& resource)
+{
+#if OGRE_VERSION_MAJOR >= 14
+    if (resource &&
+        Ogre::MeshManager::getSingletonPtr() != nullptr &&
+        resource->getCreator() == Ogre::MeshManager::getSingletonPtr())
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        m_authenticated_mesh_bindings.erase(resource.get());
+    }
+#else
+    (void)resource;
+#endif
+}
+
+void ContentManager::processMaterialName(
+    Ogre::Mesh* mesh,
+    Ogre::String* name)
+{
+#if OGRE_VERSION_MAJOR >= 14
+    if (mesh == nullptr ||
+        name == nullptr ||
+        name->empty() ||
+        Ogre::MaterialManager::getSingletonPtr() == nullptr)
+    {
+        return;
+    }
+
+    // OGRE may deserialize multiple meshes in parallel. Serialize material
+    // lookup/creation and the accompanying generated-name caches as one
+    // transaction, while keeping archive I/O outside this critical section.
+    std::lock_guard<std::mutex> resolution_lock(
+        m_legacy_material_resolution_mutex);
+
+    Ogre::String group;
+    std::string resolution_archive_sha256;
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        const auto authenticated_mesh =
+            m_authenticated_mesh_bindings.find(mesh);
+        if (authenticated_mesh == m_authenticated_mesh_bindings.end())
+        {
+            return;
+        }
+        const auto current_generation =
+            m_legacy_material_group_generations.find(
+                authenticated_mesh->second.group);
+        if (
+            current_generation ==
+                m_legacy_material_group_generations.end() ||
+            !mesh->isLoading() ||
+            authenticated_mesh->second.mesh_group !=
+                mesh->getGroup() ||
+            authenticated_mesh->second.name != mesh->getName() ||
+            authenticated_mesh->second.handle != mesh->getHandle() ||
+            authenticated_mesh->second.state_count !=
+                mesh->getStateCount() ||
+            authenticated_mesh->second.group_generation !=
+                current_generation->second)
+        {
+            if (authenticated_mesh !=
+                m_authenticated_mesh_bindings.end())
+            {
+                m_authenticated_mesh_bindings.erase(authenticated_mesh);
+            }
+            return;
+        }
+        group = authenticated_mesh->second.group;
+        resolution_archive_sha256 =
+            authenticated_mesh->second.archive_sha256;
+    }
+
+    if (Ogre::MaterialManager::getSingleton().getByName(*name, group))
+    {
+        return;
+    }
+
+    const LegacyMaterialReferenceResolution resolution =
+        ResolveLegacyMaterialReference(
+            resolution_archive_sha256, *name);
+    if (resolution.disposition ==
+        LegacyMaterialReferenceDisposition::NONE)
+    {
+        return;
+    }
+
+    const Ogre::String requested = *name;
+    Ogre::String resolved_name;
+    if (resolution.disposition ==
+        LegacyMaterialReferenceDisposition::ALIAS)
+    {
+        bool target_is_authenticated = false;
+        {
+            std::lock_guard<std::mutex> state_lock(
+                m_legacy_material_state_mutex);
+            const auto material_group =
+                m_authenticated_materials_by_group.find(group);
+            if (material_group !=
+                m_authenticated_materials_by_group.end())
+            {
+                const auto material_archive =
+                    material_group->second.find(
+                        resolution_archive_sha256);
+                target_is_authenticated =
+                    material_archive != material_group->second.end() &&
+                    material_archive->second.count(
+                        resolution.target_material) != 0U;
+            }
+        }
+        if (!target_is_authenticated ||
+            !Ogre::MaterialManager::getSingleton().getByName(
+                resolution.target_material, group))
+        {
+            LOG(fmt::format(
+                "[RoR|ContentManager|LegacyMaterialResolver] Material '{}' "
+                "in group '{}' rejected alias '{}' because the exact "
+                "authenticated target is unavailable "
+                "(archive_sha256={})",
+                requested,
+                group,
+                resolution.target_material,
+                resolution_archive_sha256));
+            return;
+        }
+        resolved_name = resolution.target_material;
+    }
+    else
+    {
+        auto& generated_by_request =
+            m_generated_material_fallbacks_by_group[
+                group][resolution_archive_sha256];
+        const auto existing_generated =
+            generated_by_request.find(requested);
+        if (existing_generated != generated_by_request.end())
+        {
+            resolved_name = existing_generated->second;
+        }
+        else
+        {
+            resolved_name = BuildLegacyMaterialFallbackResourceName(
+                resolution_archive_sha256, requested);
+            Ogre::MaterialPtr material =
+                Ogre::MaterialManager::getSingleton().getByName(
+                    resolved_name, group);
+            if (material &&
+                m_generated_material_names_by_group[group].count(
+                    resolved_name) == 0U)
+            {
+                LOG(fmt::format(
+                    "[RoR|ContentManager|LegacyMaterialResolver] Generated "
+                    "fallback name '{}' collides with package content in "
+                    "group '{}'; preserving material '{}' unchanged",
+                    resolved_name,
+                    group,
+                    requested));
+                return;
+            }
+            if (!material)
+            {
+                material = Ogre::MaterialManager::getSingleton().create(
+                    resolved_name, group);
+                if (!material ||
+                    material->getNumTechniques() == 0U ||
+                    material->getTechnique(0U)->getNumPasses() == 0U)
+                {
+                    LOG(fmt::format(
+                        "[RoR|ContentManager|LegacyMaterialResolver] Could "
+                        "not create generated fallback '{}' in group '{}'; "
+                        "preserving material '{}' unchanged",
+                        resolved_name,
+                        group,
+                        requested));
+                    return;
+                }
+                Ogre::Pass* pass =
+                    material->getTechnique(0U)->getPass(0U);
+                const float red =
+                    static_cast<float>(resolution.color.red) / 255.0f;
+                const float green =
+                    static_cast<float>(resolution.color.green) / 255.0f;
+                const float blue =
+                    static_cast<float>(resolution.color.blue) / 255.0f;
+                pass->setLightingEnabled(true);
+                pass->setAmbient(
+                    red * 0.45f,
+                    green * 0.45f,
+                    blue * 0.45f);
+                pass->setDiffuse(red, green, blue, 1.0f);
+                if (resolution.color.high_specular)
+                {
+                    pass->setSpecular(0.75f, 0.78f, 0.82f, 1.0f);
+                    pass->setShininess(72.0f);
+                }
+                else
+                {
+                    pass->setSpecular(0.08f, 0.08f, 0.08f, 1.0f);
+                    pass->setShininess(8.0f);
+                }
+                material->setReceiveShadows(true);
+                m_generated_material_names_by_group[group].insert(
+                    resolved_name);
+            }
+            generated_by_request[requested] = resolved_name;
+        }
+    }
+
+    *name = resolved_name;
+    if (m_reported_material_resolutions_by_group[group].insert(requested).second)
+    {
+        LOG(fmt::format(
+            "[RoR|ContentManager|LegacyMaterialResolver] Material '{}' in "
+            "mesh '{}' group '{}' resolved to '{}' via {} "
+            "(archive_sha256={})",
+            requested,
+            mesh->getName(),
+            group,
+            resolved_name,
+            resolution.disposition ==
+                    LegacyMaterialReferenceDisposition::ALIAS
+                ? "reviewed alias"
+                : "generated lit fallback",
+            resolution_archive_sha256));
+    }
+#else
+    (void)mesh;
+    (void)name;
+#endif
+}
+
+void ContentManager::processSkeletonName(
+    Ogre::Mesh* mesh,
+    Ogre::String* name)
+{
+    (void)mesh;
+    (void)name;
+}
+
+void ContentManager::processMeshCompleted(Ogre::Mesh* mesh)
+{
+#if OGRE_VERSION_MAJOR >= 14
+    if (mesh != nullptr)
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        m_authenticated_mesh_bindings.erase(mesh);
+    }
+#else
+    (void)mesh;
+#endif
 }
 
 void ContentManager::ApplyShaderCompatibilityFallbacks(
@@ -206,16 +604,25 @@ void ContentManager::ApplyShaderCompatibilityFallbacks(
         return;
     }
 
+    std::lock_guard<std::mutex> resolution_lock(
+        m_legacy_material_resolution_mutex);
+
     // Only repair materials whose CreateMaterial event was attributed to a
     // registered package archive. Shared engine templates are mixed into the
     // same resource group, and changing those here would hide their legacy
     // programs from ActorSpawner's purpose-built RTSS material fallback.
-    const auto package_material_group =
-        m_package_materials_by_group.find(resource_group);
-    if (package_material_group == m_package_materials_by_group.end() ||
-        package_material_group->second.empty())
+    std::unordered_set<Ogre::String> package_materials;
     {
-        return;
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        const auto package_material_group =
+            m_package_materials_by_group.find(resource_group);
+        if (package_material_group == m_package_materials_by_group.end() ||
+            package_material_group->second.empty())
+        {
+            return;
+        }
+        package_materials = package_material_group->second;
     }
 
     std::size_t repaired_materials = 0;
@@ -243,7 +650,7 @@ void ContentManager::ApplyShaderCompatibilityFallbacks(
         {
             continue;
         }
-        if (package_material_group->second.count(material->getName()) == 0)
+        if (package_materials.count(material->getName()) == 0)
         {
             continue;
         }
@@ -557,6 +964,24 @@ void ContentManager::InitContentManager()
 {
     this->EnsureResourceGroupListener();
 
+    if (Ogre::MeshManager::getSingletonPtr() != nullptr)
+    {
+        Ogre::MeshSerializerListener* existing_listener =
+            Ogre::MeshManager::getSingleton().getListener();
+        if (existing_listener == nullptr || existing_listener == this)
+        {
+            Ogre::MeshManager::getSingleton().setListener(this);
+            m_mesh_serializer_listener_registered = true;
+        }
+        else
+        {
+            LOG(
+                "[RoR|ContentManager|LegacyMaterialResolver] An existing "
+                "mesh serializer listener prevented authenticated legacy "
+                "material compatibility registration");
+        }
+    }
+
     ResourceGroupManager::getSingleton().addResourceLocation(
         App::sys_config_dir->getStr(), "FileSystem", RGN_CONFIG, /*recursive=*/false, /*readOnly=*/false);
     ResourceGroupManager::getSingleton().addResourceLocation(
@@ -736,11 +1161,676 @@ void ContentManager::InitModCache(CacheValidity validity)
 
 Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, const Ogre::String& group, Ogre::Resource* resource)
 {
+    std::string resolution_archive_sha256;
+    std::uint64_t group_generation = 0U;
+    std::unordered_map<Ogre::String, std::string>
+        authenticated_archives;
+    std::unordered_map<
+        Ogre::String,
+        std::unordered_map<Ogre::String, std::string>>
+        authenticated_archive_groups;
+    std::unordered_map<Ogre::String, std::uint64_t>
+        group_generations;
+    const bool uses_autodetect_group =
+        group ==
+        Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME;
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        if (uses_autodetect_group)
+        {
+            authenticated_archive_groups =
+                m_authenticated_package_archives_by_group;
+            group_generations =
+                m_legacy_material_group_generations;
+        }
+        else
+        {
+            const auto current_generation =
+                m_legacy_material_group_generations.find(group);
+            if (current_generation !=
+                m_legacy_material_group_generations.end())
+            {
+                group_generation = current_generation->second;
+            }
+            const auto authenticated_group =
+                m_authenticated_package_archives_by_group.find(group);
+            if (authenticated_group !=
+                m_authenticated_package_archives_by_group.end())
+            {
+                authenticated_archives =
+                    authenticated_group->second;
+            }
+        }
+
+        const auto authorized_group =
+            m_authorized_texture_fallbacks_by_group.find(group);
+        if (authorized_group !=
+            m_authorized_texture_fallbacks_by_group.end())
+        {
+            const auto authorized_texture =
+                authorized_group->second.find(name);
+            if (authorized_texture != authorized_group->second.end())
+            {
+                resolution_archive_sha256 =
+                    authorized_texture->second;
+            }
+        }
+    }
+
+    if (!resolution_archive_sha256.empty())
+    {
+        bool packaged_resource_exists = false;
+        {
+            std::lock_guard<std::mutex> archive_lock(
+                m_legacy_material_archive_io_mutex);
+            packaged_resource_exists =
+                Ogre::ResourceGroupManager::getSingleton().resourceExists(
+                    group, name);
+        }
+        if (!packaged_resource_exists)
+        {
+            LegacyMaterialColor color = {0U, 0U, 0U, false};
+            if (ResolveLegacyMissingTexture(
+                    resolution_archive_sha256, name, color))
+            {
+                const std::vector<unsigned char> dds =
+                    BuildProceduralFallbackDds(color);
+                bool report_fallback = false;
+                {
+                    std::lock_guard<std::mutex> state_lock(
+                        m_legacy_material_state_mutex);
+                    const auto authorized_group =
+                        m_authorized_texture_fallbacks_by_group.find(group);
+                    if (authorized_group ==
+                        m_authorized_texture_fallbacks_by_group.end())
+                    {
+                        return Ogre::DataStreamPtr();
+                    }
+                    const auto authorized_texture =
+                        authorized_group->second.find(name);
+                    const auto current_generation =
+                        m_legacy_material_group_generations.find(group);
+                    if (authorized_texture ==
+                            authorized_group->second.end() ||
+                        authorized_texture->second !=
+                            resolution_archive_sha256 ||
+                        current_generation ==
+                            m_legacy_material_group_generations.end() ||
+                        current_generation->second != group_generation)
+                    {
+                        return Ogre::DataStreamPtr();
+                    }
+                    report_fallback =
+                        m_reported_texture_fallbacks_by_group[group]
+                            .insert(name)
+                            .second;
+                }
+
+                Ogre::MemoryDataStream* replacement =
+                    OGRE_NEW Ogre::MemoryDataStream(
+                        name, dds.size(), true, false);
+                replacement->write(dds.data(), dds.size());
+                replacement->seek(0U);
+                if (report_fallback)
+                {
+                    LOG(fmt::format(
+                        "[RoR|ContentManager|LegacyTextureResolver] "
+                        "Texture '{}' in group '{}' used a procedural 4x4 "
+                        "compatibility fallback (archive_sha256={})",
+                        name,
+                        group,
+                        resolution_archive_sha256));
+                }
+                return Ogre::DataStreamPtr(replacement);
+            }
+        }
+    }
+
+#if OGRE_VERSION_MAJOR >= 14
+    // OGRE 14 documents ZipArchive::open() as non-thread-safe, while its
+    // default thread-support mode 3 compiles the archive mutexes out. Open
+    // every resource selected from an authenticated package here so all such
+    // ZIP access is serialized. Returning the stream also prevents
+    // ResourceGroupManager from reopening the same archive behind the
+    // listener.
+    if (resource == nullptr ||
+        (!uses_autodetect_group &&
+         (authenticated_archives.empty() ||
+          group_generation == 0U)) ||
+        (uses_autodetect_group &&
+         authenticated_archive_groups.empty()))
+    {
+        return Ogre::DataStreamPtr();
+    }
+
+    Ogre::String effective_group = group;
+    Ogre::DataStreamPtr authenticated_stream;
+    Ogre::String selected_archive_name;
+    std::string selected_archive_sha256;
+    bool change_resource_group = false;
+    {
+        std::lock_guard<std::mutex> archive_lock(
+            m_legacy_material_archive_io_mutex);
+        if (uses_autodetect_group)
+        {
+            try
+            {
+                effective_group =
+                    Ogre::ResourceGroupManager::getSingleton()
+                        .findGroupContainingResource(name);
+            }
+            catch (const Ogre::Exception&)
+            {
+                return Ogre::DataStreamPtr();
+            }
+            const auto authenticated_group =
+                authenticated_archive_groups.find(effective_group);
+            const auto effective_generation =
+                group_generations.find(effective_group);
+            if (authenticated_group ==
+                    authenticated_archive_groups.end() ||
+                effective_generation == group_generations.end())
+            {
+                return Ogre::DataStreamPtr();
+            }
+            authenticated_archives =
+                authenticated_group->second;
+            group_generation =
+                effective_generation->second;
+            // Resource::load() resolves OgreAutodetect after prepareImpl().
+            // Because returning a stream here bypasses ResourceGroupManager's
+            // normal selection branch, mirror that eventual ownership
+            // transition now for both private and global-pool groups.
+            change_resource_group = true;
+        }
+
+        // Mirror ResourceGroupManager's exact-case index preference before
+        // its case-insensitive fallback. Authenticated terrain dependencies
+        // are ZIP archives, whose exists() lookup is case-sensitive even on
+        // Windows. Only enumerate the archive index for the uncommon
+        // case-insensitive fallback.
+        const Ogre::ResourceGroupManager::LocationList& locations =
+            Ogre::ResourceGroupManager::getSingleton()
+                .getResourceLocationList(effective_group);
+        const Ogre::Archive* selected_archive = nullptr;
+        for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+             locations)
+        {
+            if (location.archive != nullptr &&
+                location.archive->exists(name))
+            {
+                selected_archive = location.archive;
+                break;
+            }
+        }
+#if !OGRE_RESOURCEMANAGER_STRICT
+        if (selected_archive == nullptr)
+        {
+            Ogre::String folded_name = name;
+            Ogre::StringUtil::toLowerCase(folded_name);
+            for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+                 locations)
+            {
+                if (location.archive == nullptr)
+                {
+                    continue;
+                }
+                const Ogre::FileInfoListPtr indexed_files =
+                    location.archive->findFileInfo(
+                        "*", location.recursive, false);
+                if (!indexed_files)
+                {
+                    continue;
+                }
+                for (const Ogre::FileInfo& indexed_file : *indexed_files)
+                {
+                    Ogre::String folded_candidate =
+                        indexed_file.filename;
+                    Ogre::StringUtil::toLowerCase(folded_candidate);
+                    if (folded_candidate == folded_name)
+                    {
+                        selected_archive = location.archive;
+                        break;
+                    }
+                }
+                if (selected_archive != nullptr)
+                {
+                    break;
+                }
+            }
+        }
+#endif
+        if (selected_archive == nullptr)
+        {
+            return Ogre::DataStreamPtr();
+        }
+
+        selected_archive_name = selected_archive->getName();
+        const auto authenticated_archive =
+            authenticated_archives.find(selected_archive_name);
+        if (authenticated_archive == authenticated_archives.end())
+        {
+            // Preserve OGRE's first-location-wins behavior. A same-named
+            // resource from an earlier untrusted location must never inherit
+            // the later authenticated package's compatibility policy.
+            return Ogre::DataStreamPtr();
+        }
+        selected_archive_sha256 =
+            authenticated_archive->second;
+        authenticated_stream = selected_archive->open(name);
+    }
+
+    if (!authenticated_stream)
+    {
+        return Ogre::DataStreamPtr();
+    }
+    if (change_resource_group)
+    {
+        resource->changeGroupOwnership(effective_group);
+    }
+    const Ogre::String expected_mesh_group =
+        change_resource_group ? effective_group : group;
+
+    static const std::size_t MAX_AUTHENTICATED_MESH_BYTES =
+        512U * 1024U * 1024U;
+    if (Ogre::MeshManager::getSingletonPtr() != nullptr &&
+        resource->getCreator() ==
+            Ogre::MeshManager::getSingletonPtr() &&
+        authenticated_stream->size() <=
+            MAX_AUTHENTICATED_MESH_BYTES)
+    {
+        Ogre::Mesh* mesh = static_cast<Ogre::Mesh*>(resource);
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        const auto current_generation =
+            m_legacy_material_group_generations.find(
+                effective_group);
+        const auto current_authenticated_group =
+            m_authenticated_package_archives_by_group.find(
+                effective_group);
+        if (current_generation !=
+                m_legacy_material_group_generations.end() &&
+            current_generation->second == group_generation &&
+            current_authenticated_group !=
+                m_authenticated_package_archives_by_group.end())
+        {
+            const auto current_archive =
+                current_authenticated_group->second.find(
+                    selected_archive_name);
+            if (current_archive !=
+                    current_authenticated_group->second.end() &&
+                current_archive->second ==
+                    selected_archive_sha256 &&
+                mesh->getName() == name &&
+                mesh->getGroup() == expected_mesh_group)
+            {
+                m_authenticated_mesh_bindings[resource] = {
+                    effective_group,
+                    expected_mesh_group,
+                    name,
+                    mesh->getHandle(),
+                    mesh->getStateCount(),
+                    group_generation,
+                    selected_archive_sha256};
+            }
+        }
+    }
+    return authenticated_stream;
+#else
+    (void)resource;
     return Ogre::DataStreamPtr();
+#endif
 }
 
 void ContentManager::resourceStreamOpened(const Ogre::String& name, const Ogre::String& group, Ogre::Resource* resource, Ogre::DataStreamPtr& dataStream)
 {
+    static const std::size_t MAX_PACKAGE_MATERIAL_SCRIPT_BYTES =
+        16U * 1024U * 1024U;
+
+#if OGRE_VERSION_MAJOR >= 14
+    if (resource != nullptr &&
+        Ogre::MeshManager::getSingletonPtr() != nullptr &&
+        resource->getCreator() == Ogre::MeshManager::getSingletonPtr())
+    {
+        // Authenticated package resources are returned directly from
+        // resourceLoading(), so reaching this callback means OGRE selected an
+        // untrusted or shadowing location. Erase any stale pointer reuse and
+        // keep the authored material references unchanged.
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        m_authenticated_mesh_bindings.erase(resource);
+        return;
+    }
+#endif
+
+    if (resource != nullptr ||
+        !dataStream ||
+        !Ogre::StringUtil::endsWith(name, ".material", true))
+    {
+        return;
+    }
+
+    std::unordered_set<Ogre::String> package_archives;
+    std::unordered_map<Ogre::String, std::string>
+        authenticated_archives;
+    std::uint64_t group_generation = 0U;
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        if (group != m_scripting_resource_group ||
+            name != m_current_script_name)
+        {
+            return;
+        }
+        const auto package_group =
+            m_package_archives_by_group.find(group);
+        const auto current_generation =
+            m_legacy_material_group_generations.find(group);
+        if (package_group == m_package_archives_by_group.end() ||
+            current_generation ==
+                m_legacy_material_group_generations.end())
+        {
+            return;
+        }
+        package_archives = package_group->second;
+        group_generation = current_generation->second;
+        const auto authenticated_group =
+            m_authenticated_package_archives_by_group.find(group);
+        if (authenticated_group !=
+            m_authenticated_package_archives_by_group.end())
+        {
+            authenticated_archives = authenticated_group->second;
+        }
+    }
+
+    if (dataStream->size() > MAX_PACKAGE_MATERIAL_SCRIPT_BYTES)
+    {
+        LOG(fmt::format(
+            "[RoR|ContentManager|LegacyMaterialSanitizer] Package material "
+            "script '{}' in group '{}' exceeds the {} byte identity and "
+            "repair limit; preserving the original stream",
+            name,
+            group,
+            MAX_PACKAGE_MATERIAL_SCRIPT_BYTES));
+        return;
+    }
+
+    const std::string original = dataStream->getAsString();
+    dataStream->seek(0U);
+
+    // OGRE's script callbacks expose the script filename but not the FileInfo
+    // (and exact-name lookups are not valid while its prebuilt script list is
+    // being consumed). Authenticate the opened stream by comparing it with
+    // the same member opened directly from each registered package archive.
+    // This remains fail-closed for duplicate filenames and never trusts the
+    // resource-location iteration order.
+    std::vector<std::string> authenticated_archive_hashes;
+    bool package_owned = false;
+    {
+        std::lock_guard<std::mutex> archive_lock(
+            m_legacy_material_archive_io_mutex);
+        const Ogre::ResourceGroupManager::LocationList& locations =
+            Ogre::ResourceGroupManager::getSingleton()
+                .getResourceLocationList(group);
+        for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+             locations)
+        {
+            if (location.archive == nullptr)
+            {
+                continue;
+            }
+            const Ogre::String archive_name =
+                location.archive->getName();
+            if (package_archives.count(archive_name) == 0U ||
+                !location.archive->exists(name))
+            {
+                continue;
+            }
+
+            try
+            {
+                const Ogre::DataStreamPtr package_stream =
+                    location.archive->open(name);
+                if (!package_stream ||
+                    package_stream->size() != original.size() ||
+                    package_stream->getAsString() != original)
+                {
+                    continue;
+                }
+            }
+            catch (...)
+            {
+                continue;
+            }
+
+            package_owned = true;
+            const auto authenticated_archive =
+                authenticated_archives.find(archive_name);
+            if (authenticated_archive !=
+                authenticated_archives.end())
+            {
+                authenticated_archive_hashes.push_back(
+                    authenticated_archive->second);
+            }
+        }
+    }
+
+    std::sort(
+        authenticated_archive_hashes.begin(),
+        authenticated_archive_hashes.end());
+    authenticated_archive_hashes.erase(
+        std::unique(
+            authenticated_archive_hashes.begin(),
+            authenticated_archive_hashes.end()),
+        authenticated_archive_hashes.end());
+    const std::string authenticated_archive_sha256 =
+        authenticated_archive_hashes.size() == 1U
+            ? authenticated_archive_hashes.front()
+            : std::string();
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        const auto current_generation =
+            m_legacy_material_group_generations.find(group);
+        if (current_generation ==
+                m_legacy_material_group_generations.end() ||
+            current_generation->second != group_generation ||
+            group != m_scripting_resource_group ||
+            name != m_current_script_name)
+        {
+            return;
+        }
+        m_current_script_package_owned = package_owned;
+        m_current_script_authenticated_sha256 =
+            authenticated_archive_sha256;
+    }
+
+    if (authenticated_archive_hashes.size() > 1U)
+    {
+        LOG(fmt::format(
+            "[RoR|ContentManager|LegacyMaterialSanitizer] Material script "
+            "'{}' in group '{}' matched {} authenticated package archives; "
+            "preserving the original stream",
+            name,
+            group,
+            authenticated_archive_hashes.size()));
+        return;
+    }
+
+    if (authenticated_archive_sha256.empty())
+    {
+        return;
+    }
+
+    const LegacyMaterialScriptEditPlan* edit_plan =
+        FindLegacyMaterialScriptEditPlan(
+            authenticated_archive_sha256,
+            name);
+    if (edit_plan == nullptr)
+    {
+        return;
+    }
+
+    const std::string observed_script_sha256 = Sha256Bytes(original);
+    if (observed_script_sha256.empty())
+    {
+        LOG(fmt::format(
+            "[RoR|ContentManager|LegacyMaterialSanitizer] Authenticated "
+            "material script '{}' in group '{}' was not repaired because "
+            "SHA-256 could not be computed "
+            "(archive_sha256={})",
+            name,
+            group,
+            authenticated_archive_sha256));
+        return;
+    }
+
+    const LegacyMaterialScriptPlanApplication patched =
+        ApplyLegacyMaterialScriptEditPlan(
+            *edit_plan,
+            observed_script_sha256,
+            original);
+    if (!patched.safe)
+    {
+        LOG(fmt::format(
+            "[RoR|ContentManager|LegacyMaterialSanitizer] Authenticated "
+            "material script '{}' in group '{}' rejected its exact repair "
+            "plan: {} (archive_sha256={}, script_sha256={})",
+            name,
+            group,
+            patched.rejection_reason,
+            authenticated_archive_sha256,
+            observed_script_sha256));
+        return;
+    }
+
+    std::vector<Ogre::String> texture_fallback_names;
+    for (std::size_t edit_index = 0U;
+         edit_index < edit_plan->edit_count;
+         ++edit_index)
+    {
+        const char* replacement_token =
+            edit_plan->edits[edit_index].replacement;
+        if (replacement_token == nullptr)
+        {
+            continue;
+        }
+        const std::string replacement(replacement_token);
+        static const std::string TEXTURE_DIRECTIVE_PREFIX = "texture ";
+        if (replacement.compare(
+                0U,
+                TEXTURE_DIRECTIVE_PREFIX.size(),
+                TEXTURE_DIRECTIVE_PREFIX) != 0)
+        {
+            continue;
+        }
+
+        const Ogre::String fallback_name =
+            replacement.substr(TEXTURE_DIRECTIVE_PREFIX.size());
+        LegacyMaterialColor fallback_color = {0U, 0U, 0U, false};
+        if (!ResolveLegacyMissingTexture(
+                authenticated_archive_sha256,
+                fallback_name,
+                fallback_color))
+        {
+            continue;
+        }
+
+        bool conflicting_authorization = false;
+        {
+            std::lock_guard<std::mutex> state_lock(
+                m_legacy_material_state_mutex);
+            const auto authorized_group =
+                m_authorized_texture_fallbacks_by_group.find(group);
+            if (authorized_group !=
+                m_authorized_texture_fallbacks_by_group.end())
+            {
+                const auto existing_fallback =
+                    authorized_group->second.find(fallback_name);
+                conflicting_authorization =
+                    existing_fallback !=
+                        authorized_group->second.end() &&
+                    existing_fallback->second !=
+                        authenticated_archive_sha256;
+            }
+        }
+        if (Ogre::ResourceGroupManager::getSingleton().resourceExists(
+                group, fallback_name) ||
+            conflicting_authorization)
+        {
+            LOG(fmt::format(
+                "[RoR|ContentManager|LegacyTextureResolver] Authenticated "
+                "material script '{}' in group '{}' rejected its exact "
+                "repair plan because generated texture '{}' collides with "
+                "existing content or another archive identity",
+                name,
+                group,
+                fallback_name));
+            return;
+        }
+        texture_fallback_names.push_back(fallback_name);
+    }
+
+    Ogre::DataStreamPtr replacement(
+        OGRE_NEW Ogre::MemoryDataStream(
+            name,
+            patched.payload.size(),
+            true,
+            false));
+    if (!patched.payload.empty())
+    {
+        replacement->write(
+            patched.payload.data(),
+            patched.payload.size());
+    }
+    replacement->seek(0U);
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        const auto current_generation =
+            m_legacy_material_group_generations.find(group);
+        if (current_generation ==
+                m_legacy_material_group_generations.end() ||
+            current_generation->second != group_generation ||
+            group != m_scripting_resource_group ||
+            name != m_current_script_name ||
+            m_current_script_authenticated_sha256 !=
+                authenticated_archive_sha256)
+        {
+            return;
+        }
+
+        auto& authorized_fallbacks =
+            m_authorized_texture_fallbacks_by_group[group];
+        for (const Ogre::String& fallback_name : texture_fallback_names)
+        {
+            const auto existing_fallback =
+                authorized_fallbacks.find(fallback_name);
+            if (existing_fallback != authorized_fallbacks.end() &&
+                existing_fallback->second !=
+                    authenticated_archive_sha256)
+            {
+                return;
+            }
+        }
+        for (const Ogre::String& fallback_name : texture_fallback_names)
+        {
+            authorized_fallbacks[fallback_name] =
+                authenticated_archive_sha256;
+        }
+    }
+    dataStream = replacement;
+
+    LOG(fmt::format(
+        "[RoR|ContentManager|LegacyMaterialSanitizer] Authenticated "
+        "material script '{}' in group '{}' applied {} exact compatibility "
+        "edit(s) (archive_sha256={}, script_sha256={})",
+        name,
+        group,
+        patched.applied_edit_count,
+        authenticated_archive_sha256,
+        observed_script_sha256));
 }
 
 bool ContentManager::resourceCollision(Ogre::Resource* resource, Ogre::ResourceManager* resourceManager)
@@ -772,20 +1862,36 @@ bool ContentManager::handleEvent(ScriptCompiler *compiler, ScriptCompilerEvent *
         }
 
 #if OGRE_VERSION_MAJOR >= 14
+        std::lock_guard<std::mutex> resolution_lock(
+            m_legacy_material_resolution_mutex);
         const Ogre::MaterialPtr existing_material =
             Ogre::MaterialManager::getSingleton().getByName(
                 matEvent->mName, matEvent->mResourceGroup);
-        if (m_current_script_package_owned &&
-            matEvent->mResourceGroup == m_scripting_resource_group &&
-            matEvent->mFile == m_current_script_name &&
-            (!existing_material ||
-             existing_material->getGroup() != matEvent->mResourceGroup))
         {
-            // Record the accepted first definition only. Later scripts with a
-            // colliding material name are rejected by resourceCollision(), so
-            // they must not change the original material's package ownership.
-            m_package_materials_by_group[matEvent->mResourceGroup].insert(
-                matEvent->mName);
+            std::lock_guard<std::mutex> state_lock(
+                m_legacy_material_state_mutex);
+            if (m_current_script_package_owned &&
+                matEvent->mResourceGroup == m_scripting_resource_group &&
+                matEvent->mFile == m_current_script_name &&
+                (!existing_material ||
+                 existing_material->getGroup() !=
+                     matEvent->mResourceGroup))
+            {
+                // Record the accepted first definition only. Later scripts
+                // with a colliding material name are rejected by
+                // resourceCollision(), so they must not change the original
+                // material's package ownership.
+                m_package_materials_by_group[
+                    matEvent->mResourceGroup]
+                    .insert(matEvent->mName);
+                if (!m_current_script_authenticated_sha256.empty())
+                {
+                    m_authenticated_materials_by_group[
+                        matEvent->mResourceGroup]
+                        [m_current_script_authenticated_sha256]
+                            .insert(matEvent->mName);
+                }
+            }
         }
 #endif
     }
@@ -981,4 +2087,3 @@ bool ContentManager::DeleteDiskFile(std::string const& filename, std::string con
         return false;
     }
 }
-
