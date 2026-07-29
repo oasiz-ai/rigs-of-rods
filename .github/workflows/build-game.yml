@@ -111,7 +111,7 @@ jobs:
           rem dependency graph on the last compatible language mode while RoR
           rem itself continues to compile as required C++17.
           cmake . -GNinja -DCMAKE_BUILD_TYPE=Release -Bbuild -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake -DCONAN_INSTALL_ARGS:STRING="--build=missing;-s:h=compiler.cppstd=14" -DCMAKE_INSTALL_PREFIX=redist -DCREATE_CONTENT_FOLDER=ON
-          findstr /C:"compiler.cppstd=14" build\conan_host_profile
+          findstr /C:"compiler.cppstd=14" build\CMakeCache.txt
         shell: cmd
 
       - name: Build

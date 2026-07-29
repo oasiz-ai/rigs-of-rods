@@ -980,13 +980,31 @@ std::string ReadFile(const std::filesystem::path& path)
         std::istreambuf_iterator<char>());
 }
 
+std::string ReadEnvironment(const char* name)
+{
+#if defined(_MSC_VER)
+    char* value = NULL;
+    std::size_t length = 0U;
+    if (_dupenv_s(&value, &length, name) != 0 || value == NULL)
+    {
+        return std::string();
+    }
+    const std::string result(value);
+    std::free(value);
+    return result;
+#else
+    const char* const value = std::getenv(name);
+    return value == NULL ? std::string() : std::string(value);
+#endif
+}
+
 void TestFormulaCoupeOptIn()
 {
-    const char* root_env =
-        std::getenv("ROR_FORMULACOUPE_MATERIAL_ROOT");
-    const char* entry_list_env =
-        std::getenv("ROR_FORMULACOUPE_ENTRY_LIST");
-    if (root_env == NULL || entry_list_env == NULL)
+    const std::string root_env =
+        ReadEnvironment("ROR_FORMULACOUPE_MATERIAL_ROOT");
+    const std::string entry_list_env =
+        ReadEnvironment("ROR_FORMULACOUPE_ENTRY_LIST");
+    if (root_env.empty() || entry_list_env.empty())
     {
         std::cout
             << "FormulaCOUPE material inventory opt-in skipped; set "
@@ -995,7 +1013,7 @@ void TestFormulaCoupeOptIn()
         return;
     }
 
-    std::ifstream entry_list(entry_list_env);
+    std::ifstream entry_list(entry_list_env.c_str());
     CHECK(static_cast<bool>(entry_list));
     if (!entry_list)
     {

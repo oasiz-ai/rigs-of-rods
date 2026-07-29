@@ -57,8 +57,16 @@ std::uint64_t DoubleBits(double value)
 
 double DoubleFromBits(std::uint64_t bits)
 {
+    // Preserve hostile IEEE-754 payloads even when the test is compiled with
+    // the game's -ffast-math floating-point mode. A plain memcpy can be
+    // optimized as an ordinary floating assignment after constant folding.
     double value = 0.0;
-    std::memcpy(&value, &bits, sizeof(value));
+    const volatile unsigned char* const source =
+        reinterpret_cast<const volatile unsigned char*>(&bits);
+    unsigned char* const destination =
+        reinterpret_cast<unsigned char*>(&value);
+    for (std::size_t index = 0U; index < sizeof(value); ++index)
+        destination[index] = source[index];
     return value;
 }
 
