@@ -50,6 +50,11 @@ python3 tools/validate_cityworld_asset.py \
 python3 tools/validate_cityworld_asset.py \
   resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
   --repo-root .
+python3 tools/solve_cityworld_bridge_corridor.py \
+  --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
+  --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
+  --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
+  --entry-x 512 --entry-z 482 --heading-degrees 0 --format tobj
 python3 tools/build_cityworld_next_provenance.py --repo-root .
 python3 tools/build_cityworld_next_provenance.py --repo-root . --check
 python3 tools/content_provenance_audit.py \

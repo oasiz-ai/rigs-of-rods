@@ -141,8 +141,34 @@ the vehicle, and all six bridge materials had generated GL3Plus RTSS programs.
 Native Windows and Linux executions remain required before the gate is promoted
 from macOS-first proof to three-platform release coverage.
 
+`tools/solve_cityworld_bridge_corridor.py` now consumes the runtime connector
+positions and directions rather than relying on hand-authored offsets. For the
+checked curved fixture it places three 15-degree modules at 7.5, 22.5, and
+37.5-degree yaw, with exactly zero position and tangent error at both seams.
+The resulting path starts at heading 0 degrees and exits at 45 degrees.
+
+`tools/run_cityworld_curved_bridge_scene.py` verifies the checked `.tobj` is
+byte-identical to that solve, then runs the same isolated native profile and
+RGB decoder. The first signed macOS arm64 run on 2026-07-28 drove the DAF
+87.572 m through all three modules in 21,860 deterministic physics steps. It
+crossed both seams, held maximum radial path error to 1.41593 m and actor height
+to 0.805754–0.866494 m, and reached the near-exit gate at 14.5303 m/s. All
+seven visible materials, including `rorng_city_lamp_emissive`, received GL3Plus
+RTSS programs, and the 1280x720 UI-free frame passed full PNG/pixel decoding.
+The report pins the solver, straight runner shared core, curve runner, compiled
+asset, content commit, runtime pack, executable, vehicle archive, placement
+report, logs, metrics, and RGB evidence.
+
+Run the curved gate against a packaged build:
+
+```sh
+python3 tools/run_cityworld_curved_bridge_scene.py \
+  --executable /absolute/path/to/RoR \
+  --artifact-dir /absolute/path/to/fresh-artifacts
+```
+
 Texture ingestion/transcoding, material textures, instancing, nested applied
-scene graphs, terrain tiles, multi-piece curved-span placement solving, and the
-full PBR runtime material path remain later compiler-profile revisions. They
-must be added one bounded feature at a time with hostile-input and
-byte-determinism tests.
+scene graphs, terrain tiles, mixed-module overlay placement, and the full PBR
+runtime material path remain later compiler-profile revisions. They must be
+added one bounded feature at a time with hostile-input and byte-determinism
+tests.

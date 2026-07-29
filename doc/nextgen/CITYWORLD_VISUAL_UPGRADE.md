@@ -125,8 +125,11 @@ cross-version byte-canonical formats.
 ![First project-owned CityWorld curved bridge span](../../content-source/cityworld_next/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m_preview.png)
 
 These are the first CW2 modules, not completion of the intercity corridor.
-Abutments, retaining walls, transitions, deterministic multi-piece placement,
-curved vehicle clearance/contact tests, fixed-camera captures, and the
+The checked connector solver now assembles three curve modules with exact
+position/tangent continuity, and the signed macOS arm64 app physically drove
+the DAF through the 45-degree corridor with 1.41593 m maximum path error.
+Abutments, retaining walls, transitions, mixed-module map placement,
+Windows/Linux physical execution, production fixed-camera captures, and the
 declared frame-time gates remain required.
 
 Both spans pass the production offline scene-compiler boundary. Each checked

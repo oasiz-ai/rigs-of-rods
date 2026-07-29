@@ -47,6 +47,13 @@ FIXTURE_FILES = (
 )
 TERRAIN = "cityworld_bridge_runtime.terrn2"
 RUNTIME_PACK = "cityworld-next-bridge-runtime.zip"
+REPORT_FORMAT = "ror-cityworld-bridge-runtime-report-v1"
+RGB_ARTIFACT_NAME = "cityworld_bridge_rgb.png"
+SUCCESS_PREFIX = "CityWorld bridge runtime gate passed"
+DEVIATION_METRIC_KEY = "lateral_error_m"
+DEVIATION_LABEL = "lateral"
+RUNNER_PATHS = ("tools/run_cityworld_bridge_scene.py",)
+EXTRA_REPORT_FIELDS: dict[str, object] = {}
 VEHICLE_ARCHIVE = "dafsemi.zip"
 VEHICLE_ENTRY = "b6b0UID-semi.truck"
 EXPECTED_WIDTH = 1280
@@ -793,7 +800,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     stdout_path = diagnostics / "runtime.stdout"
     copied_engine_log = diagnostics / "RoR.log"
     copied_script_log = diagnostics / "Angelscript.log"
-    copied_screenshot = rgb_directory / "cityworld_bridge_rgb.png"
+    copied_screenshot = rgb_directory / RGB_ARTIFACT_NAME
     stdout_path.write_text(stdout, encoding="utf-8")
     copied_engine_log.write_text(engine_log, encoding="utf-8")
     copied_script_log.write_text(script_log, encoding="utf-8")
@@ -803,7 +810,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     report: dict[str, object] = {
         "artifacts": {
             "engine_log": "diagnostics/RoR.log",
-            "rgb": "rgb/cityworld_bridge_rgb.png",
+            "rgb": f"rgb/{RGB_ARTIFACT_NAME}",
             "script_log": "diagnostics/Angelscript.log",
             "stdout": "diagnostics/runtime.stdout",
         },
@@ -814,7 +821,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "content_commit": CONTENT_COMMIT,
         "executable": str(executable),
         "executable_sha256": sha256_file(executable),
-        "format": "ror-cityworld-bridge-runtime-report-v1",
+        "format": REPORT_FORMAT,
         "machine": platform.machine(),
         "metrics": metrics,
         "platform": platform.platform(),
@@ -826,11 +833,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             "sha256": pack_sha,
             "size": pack_path.stat().st_size,
         },
+        "runners": {
+            relative: {
+                "path": relative,
+                "sha256": sha256_file(repository / relative),
+            }
+            for relative in RUNNER_PATHS
+        },
         "vehicle_archive": {
             "path": str(vehicle_archive),
             "sha256": sha256_file(vehicle_archive),
         },
     }
+    overlapping_report_fields = set(report).intersection(EXTRA_REPORT_FIELDS)
+    if overlapping_report_fields:
+        raise BridgeSceneFailure(
+            "runtime report extension collides with core fields: "
+            + ", ".join(sorted(overlapping_report_fields))
+        )
+    report.update(EXTRA_REPORT_FIELDS)
     report_path = artifact_dir / "report.json"
     temporary = artifact_dir / "report.json.tmp"
     temporary.write_text(
@@ -839,9 +860,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     os.replace(temporary, report_path)
     print(
-        "CityWorld bridge runtime gate passed: "
+        SUCCESS_PREFIX
+        + ": "
         f"distance={metrics['distance_m']:.3f}m "
-        f"lateral={metrics['lateral_error_m']:.3f}m "
+        f"{DEVIATION_LABEL}={metrics[DEVIATION_METRIC_KEY]:.3f}m "
         f"steps={metrics['physics_steps']} "
         f"rgb={image_record['sha256']} report={report_path}"
     )

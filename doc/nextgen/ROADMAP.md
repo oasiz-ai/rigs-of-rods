@@ -699,8 +699,11 @@ RTSS programs for all six bridge materials, and fully decoded a UI-free
 1280x720 RGB proof. A compiled 15-degree curved module now adds exact
 tangent-aware connectors, a support pier, bearings, four fixtures, and
 core-glTF-to-OGRE emissive lowering. Windows and Linux runtime execution, the
-curved multi-piece traversal/clearance gate, abutments, and insertion into the
-rights-cleared CityWorld overlay remain open.
+abutments, and insertion into the rights-cleared CityWorld overlay remain
+open. The connector-solved curved traversal is now proven on the signed arm64
+app: three modules produce zero mathematical seam gap, the DAF crossed both
+physical seams with 1.41593 m maximum path error and 0.805754–0.866494 m actor
+height, and all seven materials plus a decoded 1280x720 RGB frame passed.
 
 This is meaningful R0 progress, not completion. The remaining gates include:
 
@@ -1171,9 +1174,9 @@ Gate A0:
    gates before expanding the asset library or publishing compatibility demos.
 10. The project-owned CityWorld tangent and 15-degree curved spans are compiled
     through the fail-closed glTF boundary; tangent in-game lane/collision
-    continuity is proven on macOS arm64. Next prove a connector-solved curved
-    traversal, then add abutments and the first intercity overlay before
-    starting the longer corridor.
+    continuity and a connector-solved three-curve traversal are proven on
+    macOS arm64. Next add abutments, transitions, and the first intercity
+    overlay before starting the longer corridor.
 
 A next-generation preview is ready only when the pinned four-scene suite passes
 on Windows, Linux, and macOS; one-worker and eight-worker physics hashes match;

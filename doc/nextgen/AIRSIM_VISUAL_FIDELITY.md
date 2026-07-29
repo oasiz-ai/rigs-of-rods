@@ -127,7 +127,10 @@ That first slice is executable rather than a package-only proof. The macOS
 arm64 runtime gate requires all render/collision meshes to load, RTShaderSystem
 programs for every bridge material, a collision-enabled three-span vehicle
 traversal through both connector seams, and a fully decoded UI-free RGB frame.
-This proves the asset/compiler/runtime seam only; it does not yet satisfy the
+The curved companion gate additionally solves connector transforms from the
+asset contract and physically follows a three-module, 45-degree arc within a
+bounded radial error. These prove the asset/compiler/runtime seam only; they do
+not yet satisfy the
 shared AirSim-reference perceptual, HDR, temporal, vegetation, reflection,
 shadow, or performance gates below.
 
