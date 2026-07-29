@@ -34,6 +34,18 @@ overlay tracks/NeedlesOverlay
 		}
 
 
+	// OGRE overlays may only attach containers at the top level. A viewport-sized
+	// panel preserves the existing right/bottom-relative coordinates of the text.
+	overlay_element tracks/NeedlesTextContainer Panel
+		{
+			metrics_mode relative
+			horz_align left
+			vert_align top
+			left 0
+			top 0
+			width 1
+			height 1
+
 	overlay_element tracks/Gear TextArea
 		{
 			metrics_mode relative
@@ -132,5 +144,5 @@ overlay tracks/NeedlesOverlay
 			colour_bottom 0.6 0.6 0.6
 		}
 
-	
+		}
 }
