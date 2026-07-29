@@ -1,0 +1,21 @@
+[General]
+Name = CityWorld Next LED Streetlight Runtime Gate
+GeometryConfig = simple2.otc
+Water = 0
+AmbientColor = 0.72, 0.72, 0.72
+StartPosition = 512, 2, 466
+StartRotation = 180
+Gravity = -9.81
+CategoryID = 129
+Version = 2
+GUID = a3615588-f63a-467b-a3e5-b9fd0b122db7
+TractionMap = simple2_landuse.cfg
+
+[Authors]
+terrain = Oasiz AI and Rigs of Rods contributors
+
+[Objects]
+cityworld_led_streetlight_runtime.tobj =
+
+[Scripts]
+cityworld_led_streetlight_runtime.as =
