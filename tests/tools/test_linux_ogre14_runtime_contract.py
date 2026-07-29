@@ -139,6 +139,10 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
                 result = validate_config(config)
                 self.assertNotEqual(result.returncode, 0)
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "Linux plugin SONAME chain execution runs in the Linux lane",
+    )
     def test_plugin_resolution_follows_only_a_contained_symlink_chain(
         self,
     ) -> None:
@@ -302,6 +306,10 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
                 ),
             )
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "Linux SONAME chain execution runs in the Linux lane",
+    )
     def test_dependency_copy_roots_preserve_the_complete_soname_chain(
         self,
     ) -> None:
