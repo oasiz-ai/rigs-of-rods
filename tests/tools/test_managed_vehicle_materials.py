@@ -25,6 +25,12 @@ MANAGED_SUBMESH = (
     / "managed_materials"
     / "managed_submesh.material"
 )
+NICEMETAL = (
+    REPOSITORY_ROOT
+    / "resources"
+    / "managed_materials"
+    / "managed_mats_vehicles_nicemetal.material"
+)
 TRANSPARENT_NICEMETAL = (
     REPOSITORY_ROOT
     / "resources"
@@ -58,13 +64,14 @@ class ManagedVehicleMaterialTests(unittest.TestCase):
         self.assertNotIn("normalise_normals", script)
         self.assertEqual(script.count("material RoR/Submesh/"), 4)
 
-    def test_texture_aliases_have_only_the_supported_alias_argument(self) -> None:
-        script = TRANSPARENT_NICEMETAL.read_text(encoding="utf-8")
-        aliases = re.findall(r"^\s*texture_alias\s+(\S+)(.*)$", script, re.MULTILINE)
+    def test_nicemetal_dynamic_units_use_assignable_placeholders(self) -> None:
+        for material_path in (NICEMETAL, TRANSPARENT_NICEMETAL):
+            with self.subTest(material=material_path.name):
+                script = material_path.read_text(encoding="utf-8")
 
-        self.assertEqual(len(aliases), 6)
-        self.assertEqual({name for name, _ in aliases}, {"specular_tex"})
-        self.assertTrue(all(not suffix.strip() for _, suffix in aliases))
+                self.assertNotIn("texture_alias", script)
+                self.assertEqual(script.count("texture unknown.dds"), 10)
+                self.assertEqual(script.count("texture_unit Specular_Map"), 6)
 
     def test_dynamic_diffuse_units_keep_their_script_names(self) -> None:
         script = VEHICLE_MATERIALS.read_text(encoding="utf-8")

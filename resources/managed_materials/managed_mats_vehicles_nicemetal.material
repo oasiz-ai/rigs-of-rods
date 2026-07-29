@@ -28,7 +28,7 @@ material managed/flexmesh_standard/specularonly_nicemetal
             texture_unit Specular_Map
             {
                 // This pass will use this 2D texture as its input
-                texture_alias specular_tex
+                texture unknown.dds
                 tex_coord_set 1
             }
         }
@@ -48,12 +48,12 @@ material managed/flexmesh_standard/specularonly_nicemetal
               texture_unit Specular_Map
               {
                   // This pass will use this 2D texture as its input
-                  texture_alias specular_tex
+                  texture unknown.dds
                   tex_coord_set 0
               }
               texture_unit envmaptex
               {
-                  cubic_texture EnvironmentTexture combinedUVW
+                  texture EnvironmentTexture cubic 0 PF_R8G8B8
                   tex_address_mode clamp
                   tex_coord_set 1
               }
@@ -89,7 +89,7 @@ material managed/flexmesh_standard/speculardamage_nicemetal
             texture_unit Specular_Map
             {
                 // This pass will use this 2D texture as its input
-                texture_alias specular_tex
+                texture unknown.dds
                 tex_coord_set 1
             }
             texture_unit Dmg_Diffuse_Map
@@ -115,12 +115,12 @@ material managed/flexmesh_standard/speculardamage_nicemetal
               texture_unit Specular_Map
               {
                   // This pass will use this 2D texture as its input
-                  texture_alias specular_tex
+                  texture unknown.dds
                   tex_coord_set 0
               }
               texture_unit envmaptex
               {
-                  cubic_texture EnvironmentTexture combinedUVW
+                  texture EnvironmentTexture cubic 0 PF_R8G8B8
                   tex_address_mode clamp
                   tex_coord_set 1
               }
@@ -148,13 +148,13 @@ material managed/mesh_standard/specular_nicemetal
            texture_unit Diffuse_Map
             {
                 // This pass will use this 2D texture as its input
-                texture_alias unknown.dds
+                texture unknown.dds
                 tex_coord_set 0
             }
             texture_unit Specular_Map
             {
                 // This pass will use this 2D texture as its input
-                texture_alias specular_tex
+                texture unknown.dds
                 tex_coord_set 1
             }
         }
@@ -173,12 +173,12 @@ material managed/mesh_standard/specular_nicemetal
               texture_unit Specular_Map
               {
                   // This pass will use this 2D texture as its input
-                  texture_alias specular_tex
+                  texture unknown.dds
                   tex_coord_set 0
               }
               texture_unit envmaptex
               {
-                  cubic_texture EnvironmentTexture combinedUVW
+                  texture EnvironmentTexture cubic 0 PF_R8G8B8
                   tex_address_mode clamp
                   tex_coord_set 1
               }

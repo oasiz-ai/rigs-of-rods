@@ -37,7 +37,6 @@ material tracks/bigsign/empty
 			scene_blend alpha_blend
 			alpha_rejection greater 0
 			cull_hardware none
-			cull_software none
 
 			texture_unit
 			{
@@ -56,7 +55,6 @@ material tracks/bigsign/town
 			scene_blend alpha_blend
 			alpha_rejection greater 0
 			cull_hardware none
-			cull_software none
 
 			texture_unit
 			{
@@ -218,12 +216,11 @@ material tracks/EnvMapDebug
 			lighting off
 			depth_write off
 			depth_check off
-			cull_software none
 			cull_hardware none
 
 			texture_unit
 			{
-				cubic_texture EnvironmentTexture combinedUVW
+				texture EnvironmentTexture cubic 0 PF_R8G8B8
 			}
 		}
 	}
@@ -239,7 +236,7 @@ material tracks/Chrome
 			texture_unit
 			{
 				//texture Chrome.dds
-				cubic_texture EnvironmentTexture combinedUVW
+				texture EnvironmentTexture cubic 0 PF_R8G8B8
 				env_map cubic_reflection 
 			}
 		}
@@ -256,7 +253,7 @@ material tracks/chrome
 			texture_unit
 			{
 				//texture Chrome.dds
-				cubic_texture EnvironmentTexture combinedUVW
+				texture EnvironmentTexture cubic 0 PF_R8G8B8
 				env_map cubic_reflection 
 			}
 		}
@@ -1892,7 +1889,6 @@ material tracks/abflame
 			alpha_rejection greater 2
 			depth_write off
      	    cull_hardware none
-		    cull_software none
 			texture_unit
 			{
 				texture abflame.dds
@@ -2111,7 +2107,6 @@ material tracks/seabottom
 			depth_bias -20
 
 			cull_hardware none
-			cull_software none
 			
 			texture_unit
 			{
@@ -2167,7 +2162,6 @@ material tracks/spinprop
 		{
 			lighting on
      	   cull_hardware none
-		   cull_software none
 			scene_blend alpha_blend
 			alpha_rejection greater 2
 			depth_write off
@@ -2837,7 +2831,6 @@ material tracks/endlessbasicwater
 		   scene_blend modulate
 		   // double-sided
 		   cull_hardware none
-		   cull_software none
 		   depth_write off
 		   texture_unit
 		   {
@@ -2851,7 +2844,6 @@ material tracks/endlessbasicwater
 		   scene_blend add
 		   // double-sided
 		   cull_hardware none
-		   cull_software none
 		   depth_write off
 		   texture_unit
 		   {
@@ -2873,7 +2865,6 @@ material tracks/basicwater
 		   scene_blend modulate
 		   // double-sided
 		   cull_hardware none
-		   cull_software none
 		   depth_write off
 		   texture_unit
 		   {
@@ -2888,7 +2879,6 @@ material tracks/basicwater
 		   scene_blend add
 		   // double-sided
 		   cull_hardware none
-		   cull_software none
 		   depth_write off
 		   texture_unit
 		   {
