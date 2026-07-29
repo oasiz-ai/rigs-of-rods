@@ -774,14 +774,20 @@ shadow casting, and a future light-only `none`-mesh adapter in the legacy
 Z-up ODEF basis.
 
 This slice is intentionally runtime-disabled and emits zero NeoQueretaro
-lights. Activation remains fail-closed until the renderer provides both the
-`ror-cityworld-local-light-budget-v1` policy and a verifiable zero-local-shadow
-contract, followed by UI-free fixed-camera visual comparison and frame-time
-gates on macOS, Windows, and Linux. The build rejects family-count or 400 m
-scope drift, and its canonical report exposes the candidate payload hash,
-derived-record count, zero runtime emission, and non-shipping rights state.
-It is activation-ready content provenance, not a claim that whole-map
-relighting or ray tracing is complete.
+lights. The terrain-object path now disables shadow casting for all local
+point and spot lights and reports `local_shadow_casters=0`, so the manifest
+records the zero-local-shadow contract as satisfied. Activation remains
+fail-closed until the renderer provides the
+`ror-cityworld-local-light-budget-v1` policy, followed by UI-free fixed-camera
+visual comparison and frame-time gates on macOS, Windows, and Linux. The build
+rejects family-count, 400 m scope, or exact source-ODEF drift, and its canonical
+report exposes the candidate payload hash, derived-record count, zero runtime
+emission, and non-shipping rights state. It is activation-ready content
+provenance, not a claim that whole-map relighting or ray tracing is complete.
+The corridor runner now consumes report v4, authenticates every candidate and
+source-pole definition, rejects any emitted adapter/placement, and requires a
+byte-identical nine-entry rebuild before it runs the unchanged v3 road
+diagnostic.
 
 The full-map acceptance gate remains open. The v3 macOS arm64 diagnostic starts
 the packaged DAF at station -9.99478 inside Penguinville, crosses the

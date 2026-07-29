@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Diagnose the reported v3 curb-clearing route with the packaged DAF.
+"""Diagnose the v4 overlay's v3 curb-clearing route with the packaged DAF.
 
 CityWorld is third-party content and is intentionally absent from this
 repository. This diagnostic accepts the authenticated original and locally
@@ -52,6 +52,105 @@ CITYWORLD_SHA256 = (
 CITYWORLD_NAME = "CityWorld.zip"
 OVERLAY_NAME = "CityWorldNextLocalOverlay.zip"
 OVERLAY_REPORT_MEMBER = "cityworld_next_local_overlay.report.json"
+OVERLAY_PLACEMENT_MEMBER = "cityworld_next_local_overlay.tobj"
+OVERLAY_REPORT_FORMAT = "ror-cityworld-local-overlay-v4"
+NEOQ_LIGHT_CANDIDATE_MEMBER = (
+    "cityworld_next_neoq_core_lights.candidates.json"
+)
+NEOQ_LIGHT_CANDIDATE_FORMAT = (
+    "ror-cityworld-neoq-core-light-candidates-v1"
+)
+NEOQ_LIGHT_POLICY_ID = "ror-cityworld-local-light-budget-v1"
+NEOQ_LIGHT_RADIUS_M = 400.0
+NEOQ_LIGHT_RANGE_M = 24.0
+NEOQ_LIGHT_TELEPOINT = "NeoQueretaro Spawn"
+NEOQ_LIGHT_TELEPOINT_POSITION_M = [2425.0, 0.300000001, 1013.0]
+NEOQ_CANDIDATE_FAMILY_COUNTS = {
+    "luminariaLQr": 42,
+    "luminariaQr": 25,
+    "luminariaYQr": 0,
+}
+NEOQ_MAP_FAMILY_COUNTS = {
+    "luminariaLQr": 528,
+    "luminariaQr": 239,
+    "luminariaYQr": 12,
+}
+NEOQ_LIGHT_ADAPTERS = {
+    "luminariaLQr": {
+        "future_object_definition":
+            "rorng_city_neoq_luminaria_l_lightonly",
+        "local_light_position_m": [-2.75, 0.0, 9.7],
+    },
+    "luminariaQr": {
+        "future_object_definition":
+            "rorng_city_neoq_luminaria_dual_lightonly",
+        "local_light_position_m": [0.0, 0.0, 9.7],
+    },
+    "luminariaYQr": {
+        "future_object_definition":
+            "rorng_city_neoq_luminaria_triple_lightonly",
+        "local_light_position_m": [0.0, 0.0, 9.7],
+    },
+}
+NEOQ_SOURCE_POLE_DEFINITIONS = [
+    {
+        "available": True,
+        "bytes": 77,
+        "collision_geometry": True,
+        "definition": "luminariaLQr.odef",
+        "family": "luminariaLQr",
+        "lod": False,
+        "point_light_directives": 0,
+        "sha256":
+            "d14535992b54e9b49255a257808df79dea7baaaf986dcbb613e3976cc730bfb7",
+        "spot_light_directives": 0,
+    },
+    {
+        "available": True,
+        "bytes": 74,
+        "collision_geometry": True,
+        "definition": "luminariaQr.odef",
+        "family": "luminariaQr",
+        "lod": False,
+        "point_light_directives": 0,
+        "sha256":
+            "bf79b0aee0321a69a79fafed67a00b2d788e8caf0c5aba0bf487338281728f13",
+        "spot_light_directives": 0,
+    },
+    {
+        "available": True,
+        "bytes": 77,
+        "collision_geometry": True,
+        "definition": "luminariaYQr.odef",
+        "family": "luminariaYQr",
+        "lod": False,
+        "point_light_directives": 0,
+        "sha256":
+            "b6d01408ea3002c447d21f55911567e1b6c7d1dc24ca573a321322f559891958",
+        "spot_light_directives": 0,
+    },
+]
+NEOQ_ACTIVATION_CONTRACT = {
+    "blockers": [
+        "renderer-local-light-budget-policy-unavailable",
+        "neoq-fixed-camera-runtime-visual-gate-unavailable",
+    ],
+    "contracts": {
+        "zero_local_shadow": {
+            "required_local_shadow_casters": 0,
+            "runtime_marker_field": "local_shadow_casters=0",
+            "satisfied": True,
+            "satisfied_by":
+                "TerrainObjectManager local-light creation policy",
+        },
+    },
+    "enabled": False,
+    "fail_closed": True,
+    "runtime_adapter_definitions_emitted": 0,
+    "runtime_candidate_placements_emitted": 0,
+    "runtime_point_lights_emitted": 0,
+    "status": "blocked",
+}
 OVERLAY_TERRAIN = "CityWorldNextLocalOverlay"
 FIXTURE_PATH = (
     "tests/fixtures/cityworld_corridor_runtime/"
@@ -66,6 +165,7 @@ VEHICLE_ENTRY_SHA256 = (
 REPORT_FORMAT = "ror-cityworld-corridor-runtime-report-v1"
 RGB_NAME = "cityworld_corridor_rgb.png"
 MAX_REPORT_BYTES = 4 * 1024 * 1024
+MAX_CANDIDATE_BYTES = 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 64
 MAX_OVERLAY_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_OVERLAY_TOTAL_BYTES = 128 * 1024 * 1024
@@ -81,6 +181,12 @@ EXPECTED_UNPLACED_ASSETS = [
     "rorng_city_bridge_curve_left_15deg_20m",
     "rorng_city_bridge_span_20m",
 ]
+EXPECTED_VISUAL_PURPOSE = (
+    "curb-free Penguinville overlap apron plus route-safe Blender lighting; "
+    "deterministic NeoQueretaro pole-light candidates remain disabled pending "
+    "the bounded renderer light budget and fixed-camera visual gate; bridge "
+    "modules remain validated candidates for deck and abutment replacement"
+)
 REQUIRED_OVERLAY_TOOLS = frozenset(
     (
         "tools/audit_cityworld_visuals.py",
@@ -220,6 +326,244 @@ def exact_list(value: object, label: str) -> list[object]:
     return value
 
 
+def require_exact_json(
+    actual: object,
+    expected: object,
+    label: str,
+) -> None:
+    if type(actual) is not type(expected):
+        raise CorridorSceneFailure(f"{label} has the wrong JSON type")
+    if isinstance(expected, dict):
+        if set(actual) != set(expected):
+            raise CorridorSceneFailure(f"{label} fields drifted")
+        for key, expected_value in expected.items():
+            require_exact_json(
+                actual[key],
+                expected_value,
+                f"{label}.{key}",
+            )
+        return
+    if isinstance(expected, list):
+        if len(actual) != len(expected):
+            raise CorridorSceneFailure(f"{label} length drifted")
+        for index, (actual_value, expected_value) in enumerate(
+            zip(actual, expected)
+        ):
+            require_exact_json(
+                actual_value,
+                expected_value,
+                f"{label}[{index}]",
+            )
+        return
+    if actual != expected:
+        raise CorridorSceneFailure(f"{label} value drifted")
+
+
+def validate_neoq_light_candidates(manifest: object) -> dict[str, object]:
+    candidate_manifest = exact_dict(
+        manifest,
+        "NeoQueretaro light candidate manifest",
+    )
+    expected_keys = {
+        "activation",
+        "candidate_family_counts",
+        "candidate_poles",
+        "candidate_runtime_point_lights",
+        "candidates",
+        "format",
+        "policy_contract",
+        "scope",
+        "visual_geometry",
+    }
+    if set(candidate_manifest) != expected_keys:
+        raise CorridorSceneFailure(
+            "NeoQueretaro light candidate manifest fields drifted"
+        )
+    require_exact_json(
+        candidate_manifest.get("format"),
+        NEOQ_LIGHT_CANDIDATE_FORMAT,
+        "NeoQueretaro light candidate format",
+    )
+    require_exact_json(
+        candidate_manifest.get("activation"),
+        NEOQ_ACTIVATION_CONTRACT,
+        "NeoQueretaro light activation",
+    )
+    require_exact_json(
+        candidate_manifest.get("candidate_family_counts"),
+        NEOQ_CANDIDATE_FAMILY_COUNTS,
+        "NeoQueretaro candidate family counts",
+    )
+    require_exact_json(
+        candidate_manifest.get("candidate_poles"),
+        67,
+        "NeoQueretaro candidate pole count",
+    )
+    require_exact_json(
+        candidate_manifest.get("candidate_runtime_point_lights"),
+        67,
+        "NeoQueretaro candidate light count",
+    )
+    require_exact_json(
+        candidate_manifest.get("policy_contract"),
+        {
+            "hard_max_range_m": NEOQ_LIGHT_RANGE_M,
+            "maximum_candidate_lights": 67,
+            "policy_id": NEOQ_LIGHT_POLICY_ID,
+            "required_local_shadow_casters": 0,
+            "sampling_strategy":
+                "one-bounded-representative-light-per-existing-pole",
+        },
+        "NeoQueretaro light policy",
+    )
+    require_exact_json(
+        candidate_manifest.get("scope"),
+        {
+            "map_family_counts": NEOQ_MAP_FAMILY_COUNTS,
+            "radius_m": NEOQ_LIGHT_RADIUS_M,
+            "source_telepoint": NEOQ_LIGHT_TELEPOINT,
+            "source_telepoint_position_m":
+                NEOQ_LIGHT_TELEPOINT_POSITION_M,
+        },
+        "NeoQueretaro light scope",
+    )
+    require_exact_json(
+        candidate_manifest.get("visual_geometry"),
+        {
+            "duplicate_pole_geometry_emitted": False,
+            "existing_cityworld_poles_reused": True,
+            "future_adapter_mesh_header": "none",
+        },
+        "NeoQueretaro light visual geometry",
+    )
+
+    candidates = exact_list(
+        candidate_manifest.get("candidates"),
+        "NeoQueretaro light candidates",
+    )
+    if len(candidates) != 67:
+        raise CorridorSceneFailure(
+            "NeoQueretaro light candidate record count drifted"
+        )
+    family_counts = {
+        family: 0 for family in NEOQ_CANDIDATE_FAMILY_COUNTS
+    }
+    previous_line = 0
+    candidate_ids: set[str] = set()
+    for index, value in enumerate(candidates):
+        candidate = exact_dict(value, f"light candidate {index}")
+        if set(candidate) != {"adapter", "candidate_id", "light", "source"}:
+            raise CorridorSceneFailure(
+                f"light candidate {index} fields drifted"
+            )
+        source = exact_dict(
+            candidate.get("source"),
+            f"light candidate {index} source",
+        )
+        if set(source) != {
+            "distance_from_telepoint_m",
+            "line",
+            "object",
+            "position_m",
+            "rotation_degrees",
+        }:
+            raise CorridorSceneFailure(
+                f"light candidate {index} source fields drifted"
+            )
+        line = exact_int(
+            source.get("line"),
+            f"light candidate {index} source line",
+        )
+        if line <= previous_line:
+            raise CorridorSceneFailure(
+                "NeoQueretaro light source lines are not increasing"
+            )
+        previous_line = line
+        candidate_id = candidate.get("candidate_id")
+        if (
+            type(candidate_id) is not str
+            or candidate_id != f"neoq-core-light-line-{line:06d}"
+            or candidate_id in candidate_ids
+        ):
+            raise CorridorSceneFailure(
+                f"light candidate {index} identifier drifted"
+            )
+        candidate_ids.add(candidate_id)
+        family = source.get("object")
+        if type(family) is not str or family not in family_counts:
+            raise CorridorSceneFailure(
+                f"light candidate {index} family drifted"
+            )
+        family_counts[family] += 1
+        distance = finite_number(
+            source.get("distance_from_telepoint_m"),
+            f"light candidate {index} distance",
+        )
+        if distance < 0.0 or distance > NEOQ_LIGHT_RADIUS_M:
+            raise CorridorSceneFailure(
+                f"light candidate {index} lies outside the scope"
+            )
+        for vector_name in ("position_m", "rotation_degrees"):
+            vector = exact_list(
+                source.get(vector_name),
+                f"light candidate {index} {vector_name}",
+            )
+            if len(vector) != 3:
+                raise CorridorSceneFailure(
+                    f"light candidate {index} {vector_name} is not 3D"
+                )
+            for component in vector:
+                finite_number(
+                    component,
+                    f"light candidate {index} {vector_name} component",
+                )
+        position = exact_list(
+            source.get("position_m"),
+            f"light candidate {index} position",
+        )
+        calculated_distance = math.hypot(
+            finite_number(position[0], "candidate position x")
+            - NEOQ_LIGHT_TELEPOINT_POSITION_M[0],
+            finite_number(position[2], "candidate position z")
+            - NEOQ_LIGHT_TELEPOINT_POSITION_M[2],
+        )
+        if abs(round(calculated_distance, 9) - distance) > 1.0e-9:
+            raise CorridorSceneFailure(
+                f"light candidate {index} distance is inconsistent"
+            )
+        adapter = NEOQ_LIGHT_ADAPTERS[family]
+        require_exact_json(
+            candidate.get("adapter"),
+            {
+                "coordinate_system": "legacy-odef-local-z-up",
+                "future_object_definition":
+                    adapter["future_object_definition"],
+                "light_only_mesh_header": "none",
+                "local_light_position_m":
+                    adapter["local_light_position_m"],
+                "runtime_definition_emitted": False,
+            },
+            f"light candidate {index} adapter",
+        )
+        require_exact_json(
+            candidate.get("light"),
+            {
+                "color_rgb": [1.0, 0.72, 0.3],
+                "hard_max_range_m": NEOQ_LIGHT_RANGE_M,
+                "representative_lights": 1,
+                "shadow_casting_requested": False,
+                "type": "point",
+            },
+            f"light candidate {index} light",
+        )
+    require_exact_json(
+        family_counts,
+        NEOQ_CANDIDATE_FAMILY_COUNTS,
+        "derived NeoQueretaro candidate family counts",
+    )
+    return candidate_manifest
+
+
 def validate_cityworld_archive(path: Path) -> dict[str, object]:
     digest = sha256_file(path)
     if digest != CITYWORLD_SHA256:
@@ -255,6 +599,8 @@ def validate_overlay_archive(
 ) -> tuple[dict[str, object], dict[str, object]]:
     repository = repository.resolve()
     overlay_sha = sha256_file(path)
+    candidate_record: dict[str, object] | None = None
+    candidate_manifest: dict[str, object] | None = None
     try:
         with zipfile.ZipFile(path, "r") as archive:
             infos = archive.infolist()
@@ -308,7 +654,7 @@ def validate_overlay_archive(
                     f"overlay report is invalid JSON: {error}"
                 ) from error
             report = exact_dict(report, "overlay report")
-            if report.get("format") != "ror-cityworld-local-overlay-v3":
+            if report.get("format") != OVERLAY_REPORT_FORMAT:
                 raise CorridorSceneFailure("overlay report format is unsupported")
 
             source = exact_dict(report.get("source"), "overlay source")
@@ -333,20 +679,27 @@ def validate_overlay_archive(
                 "source_archive_copied": False,
                 "source_geometry_copied": False,
                 "source_objects_copied": False,
+                "source_placement_payload_copied": False,
+                "source_placement_records_derived": True,
                 "source_placements_copied": False,
+                "derived_source_placement_record_count": 67,
                 "source_textures_copied": False,
             }
-            for key, expected in required_rights.items():
-                if rights.get(key) is not expected:
-                    raise CorridorSceneFailure(
-                        f"overlay rights contract drifted: {key}"
-                    )
+            require_exact_json(
+                rights,
+                required_rights,
+                "overlay rights contract",
+            )
 
             package = exact_dict(report.get("package"), "overlay package")
             package_files = exact_list(package.get("files"), "package files")
             expected_names = {OVERLAY_REPORT_MEMBER}
             for index, value in enumerate(package_files):
                 record = exact_dict(value, f"package file {index}")
+                if set(record) != {"path", "role", "sha256", "size"}:
+                    raise CorridorSceneFailure(
+                        "package file record fields drifted"
+                    )
                 name = record.get("path")
                 if not isinstance(name, str) or PurePosixPath(name).name != name:
                     raise CorridorSceneFailure("package file path is unsafe")
@@ -361,6 +714,16 @@ def validate_overlay_archive(
                     raise CorridorSceneFailure(
                         f"overlay payload differs from report: {name}"
                     )
+                if name == NEOQ_LIGHT_CANDIDATE_MEMBER:
+                    if (
+                        candidate_record is not None
+                        or record.get("role")
+                        != "disabled-light-candidate-manifest"
+                    ):
+                        raise CorridorSceneFailure(
+                            "NeoQueretaro candidate inventory drifted"
+                        )
+                    candidate_record = record
                 expected_names.add(name)
             if (
                 exact_int(package.get("entries"), "package entries")
@@ -368,6 +731,57 @@ def validate_overlay_archive(
                 or expected_names != set(names)
             ):
                 raise CorridorSceneFailure("overlay member inventory drifted")
+            if candidate_record is None:
+                raise CorridorSceneFailure(
+                    "NeoQueretaro candidate manifest is missing"
+                )
+            candidate_info = archive.getinfo(NEOQ_LIGHT_CANDIDATE_MEMBER)
+            if not 1 <= candidate_info.file_size <= MAX_CANDIDATE_BYTES:
+                raise CorridorSceneFailure(
+                    "NeoQueretaro candidate manifest size is invalid"
+                )
+            candidate_payload = archive.read(NEOQ_LIGHT_CANDIDATE_MEMBER)
+            try:
+                decoded_candidate_manifest = json.loads(
+                    candidate_payload.decode("utf-8"),
+                    object_pairs_hook=reject_duplicate_keys,
+                )
+            except (
+                DuplicateKeyError,
+                RecursionError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+            ) as error:
+                raise CorridorSceneFailure(
+                    "NeoQueretaro candidate manifest is invalid JSON: "
+                    f"{error}"
+                ) from error
+            candidate_manifest = validate_neoq_light_candidates(
+                decoded_candidate_manifest
+            )
+            if references.get("overlay_placements") != (
+                OVERLAY_PLACEMENT_MEMBER
+            ):
+                raise CorridorSceneFailure(
+                    "overlay placement reference drifted"
+                )
+            placement_payload = archive.read(OVERLAY_PLACEMENT_MEMBER)
+            try:
+                placement_text = placement_payload.decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise CorridorSceneFailure(
+                    "overlay placement is not UTF-8"
+                ) from error
+            if "rorng_city_neoq_luminaria" in placement_text:
+                raise CorridorSceneFailure(
+                    "NeoQueretaro candidate lights were activated"
+                )
+            for adapter in NEOQ_LIGHT_ADAPTERS.values():
+                definition = adapter["future_object_definition"] + ".odef"
+                if definition in names:
+                    raise CorridorSceneFailure(
+                        "NeoQueretaro candidate adapter was emitted"
+                    )
 
             tools = exact_list(report.get("tools"), "overlay tools")
             tool_paths: set[str] = set()
@@ -405,6 +819,34 @@ def validate_overlay_archive(
         zlib.error,
     ) as error:
         raise CorridorSceneFailure(f"cannot read overlay archive: {error}") from error
+
+    if candidate_record is None or candidate_manifest is None:
+        raise CorridorSceneFailure(
+            "NeoQueretaro candidate validation did not complete"
+        )
+    lighting = exact_dict(report.get("city_lighting"), "overlay city lighting")
+    if set(lighting) != {"neoq_core"}:
+        raise CorridorSceneFailure("overlay city-lighting fields drifted")
+    neoq_lighting = exact_dict(
+        lighting.get("neoq_core"),
+        "NeoQueretaro lighting report",
+    )
+    require_exact_json(
+        neoq_lighting,
+        {
+            "activation": candidate_manifest["activation"],
+            "candidate_family_counts":
+                candidate_manifest["candidate_family_counts"],
+            "candidate_manifest": candidate_record,
+            "candidate_poles": 67,
+            "candidate_runtime_point_lights": 67,
+            "policy_contract": candidate_manifest["policy_contract"],
+            "scope": candidate_manifest["scope"],
+            "source_pole_definitions": NEOQ_SOURCE_POLE_DEFINITIONS,
+            "visual_geometry": candidate_manifest["visual_geometry"],
+        },
+        "NeoQueretaro lighting report",
+    )
 
     corridor = exact_dict(report.get("corridor"), "overlay corridor")
     if corridor.get("format") != "ror-cityworld-intercity-corridor-v3":
@@ -564,30 +1006,24 @@ def validate_overlay_archive(
         report.get("visual_asset_usage"),
         "overlay visual asset usage",
     )
-    if usage.get("collision_authority") is not None:
-        raise CorridorSceneFailure(
-            "visual asset usage cannot override collision authority"
-        )
-    if (
-        usage.get("purpose")
-        != (
-            "curb-free Penguinville overlap apron plus route-safe Blender "
-            "lighting; bridge modules remain validated candidates for deck "
-            "and abutment replacement"
-        )
-        or usage.get("corridor_placement_mode")
-        != "native-procedural-v3-curb-cut-with-blender-fixtures-v1"
-        or usage.get("packaged_asset_ids")
-        != ["rorng_city_led_streetlight_bridge"]
-        or usage.get("placed_asset_ids")
-        != ["rorng_city_led_streetlight_bridge"]
-        or usage.get("unplaced_asset_ids") != EXPECTED_UNPLACED_ASSETS
-        or usage.get("validated_asset_ids")
-        != EXPECTED_UNPLACED_ASSETS + ["rorng_city_led_streetlight_bridge"]
-    ):
-        raise CorridorSceneFailure(
-            "diagnostic only supports the known incomplete v3 visual pass"
-        )
+    require_exact_json(
+        usage,
+        {
+            "corridor_placement_mode":
+                "native-procedural-v3-curb-cut-with-blender-fixtures-v1",
+            "disabled_light_candidate_manifest":
+                NEOQ_LIGHT_CANDIDATE_MEMBER,
+            "neoq_core_runtime_light_activation": "blocked-fail-closed",
+            "packaged_asset_ids": ["rorng_city_led_streetlight_bridge"],
+            "placed_asset_ids": ["rorng_city_led_streetlight_bridge"],
+            "purpose": EXPECTED_VISUAL_PURPOSE,
+            "unplaced_asset_ids": EXPECTED_UNPLACED_ASSETS,
+            "validated_asset_ids":
+                EXPECTED_UNPLACED_ASSETS
+                + ["rorng_city_led_streetlight_bridge"],
+        },
+        "overlay visual asset usage",
+    )
     return report, {
         "name": OVERLAY_NAME,
         "report_sha256": sha256_bytes(report_payload),
@@ -907,7 +1343,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         parser.error("--timeout must be positive")
     if not args.diagnostic_allow_incomplete_overlay:
         parser.error(
-            "the current v3 overlay is incomplete; explicitly pass "
+            "the v4 overlay's v3 corridor is incomplete; explicitly pass "
             "--diagnostic-allow-incomplete-overlay for a non-acceptance run"
         )
     return args
@@ -1054,7 +1490,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     report: dict[str, object] = {
         "acceptance": {
             "city_road_surface_connection_verified": False,
-            "status": "diagnostic-only-current-v3",
+            "status": "diagnostic-only-v4-overlay-v3-corridor",
             "swept_visual_clearance_verified": False,
             "visible_bridge_modules_verified": False,
             "visible_supports_verified": False,

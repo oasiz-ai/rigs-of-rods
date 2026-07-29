@@ -109,6 +109,91 @@ def report_matching_script() -> dict[str, object]:
     }
 
 
+def synthetic_light_candidate_manifest() -> dict[str, object]:
+    families = (
+        ["luminariaLQr"] * 42
+        + ["luminariaQr"] * 25
+    )
+    candidates = []
+    for index, family in enumerate(families):
+        line = 100 + index
+        adapter = SCENE.NEOQ_LIGHT_ADAPTERS[family]
+        candidates.append(
+            {
+                "adapter": {
+                    "coordinate_system": "legacy-odef-local-z-up",
+                    "future_object_definition":
+                        adapter["future_object_definition"],
+                    "light_only_mesh_header": "none",
+                    "local_light_position_m":
+                        adapter["local_light_position_m"],
+                    "runtime_definition_emitted": False,
+                },
+                "candidate_id": f"neoq-core-light-line-{line:06d}",
+                "light": {
+                    "color_rgb": [1.0, 0.72, 0.3],
+                    "hard_max_range_m": 24.0,
+                    "representative_lights": 1,
+                    "shadow_casting_requested": False,
+                    "type": "point",
+                },
+                "source": {
+                    "distance_from_telepoint_m": round(index * 0.1, 9),
+                    "line": line,
+                    "object": family,
+                    "position_m": [
+                        2425.0 + index * 0.1,
+                        0.3,
+                        1013.0,
+                    ],
+                    "rotation_degrees": [0.0, 0.0, 0.0],
+                },
+            }
+        )
+    return {
+        "activation": copy.deepcopy(SCENE.NEOQ_ACTIVATION_CONTRACT),
+        "candidate_family_counts":
+            copy.deepcopy(SCENE.NEOQ_CANDIDATE_FAMILY_COUNTS),
+        "candidate_poles": 67,
+        "candidate_runtime_point_lights": 67,
+        "candidates": candidates,
+        "format": SCENE.NEOQ_LIGHT_CANDIDATE_FORMAT,
+        "policy_contract": {
+            "hard_max_range_m": 24.0,
+            "maximum_candidate_lights": 67,
+            "policy_id": SCENE.NEOQ_LIGHT_POLICY_ID,
+            "required_local_shadow_casters": 0,
+            "sampling_strategy":
+                "one-bounded-representative-light-per-existing-pole",
+        },
+        "scope": {
+            "map_family_counts":
+                copy.deepcopy(SCENE.NEOQ_MAP_FAMILY_COUNTS),
+            "radius_m": 400.0,
+            "source_telepoint": SCENE.NEOQ_LIGHT_TELEPOINT,
+            "source_telepoint_position_m":
+                SCENE.NEOQ_LIGHT_TELEPOINT_POSITION_M,
+        },
+        "visual_geometry": {
+            "duplicate_pole_geometry_emitted": False,
+            "existing_cityworld_poles_reused": True,
+            "future_adapter_mesh_header": "none",
+        },
+    }
+
+
+def synthetic_light_candidate_payload() -> bytes:
+    return (
+        json.dumps(
+            synthetic_light_candidate_manifest(),
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
 def synthetic_overlay_report(
     repository: Path,
     payload: bytes,
@@ -126,11 +211,20 @@ def synthetic_overlay_report(
         )
     covered = 1075.447727259
     waypoints = report_matching_script()["corridor"]["waypoints"]
+    candidate_manifest = synthetic_light_candidate_manifest()
+    candidate_payload = synthetic_light_candidate_payload()
+    candidate_record = {
+        "path": SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER,
+        "role": "disabled-light-candidate-manifest",
+        "sha256": hashlib.sha256(candidate_payload).hexdigest(),
+        "size": len(candidate_payload),
+    }
     return {
-        "format": "ror-cityworld-local-overlay-v3",
+        "format": SCENE.OVERLAY_REPORT_FORMAT,
         "source": {
             "archive": {"sha256": SCENE.CITYWORLD_SHA256},
             "references": {
+                "overlay_placements": SCENE.OVERLAY_PLACEMENT_MEMBER,
                 "resource_bundle_dependency": (
                     "CityWorld.zip:CityWorld.terrn2:"
                     + SCENE.CITYWORLD_SHA256
@@ -144,20 +238,40 @@ def synthetic_overlay_report(
             "source_archive_copied": False,
             "source_geometry_copied": False,
             "source_objects_copied": False,
+            "source_placement_payload_copied": False,
+            "source_placement_records_derived": True,
             "source_placements_copied": False,
+            "derived_source_placement_record_count": 67,
             "source_textures_copied": False,
         },
         "package": {
-            "entries": 2,
+            "entries": 3,
             "files": [
                 {
-                    "path": "payload.bin",
+                    "path": SCENE.OVERLAY_PLACEMENT_MEMBER,
+                    "role": "overlay-placement",
                     "sha256": hashlib.sha256(payload).hexdigest(),
                     "size": len(payload),
-                }
+                },
+                candidate_record,
             ],
         },
         "tools": tool_records,
+        "city_lighting": {
+            "neoq_core": {
+                "activation": candidate_manifest["activation"],
+                "candidate_family_counts":
+                    candidate_manifest["candidate_family_counts"],
+                "candidate_manifest": candidate_record,
+                "candidate_poles": 67,
+                "candidate_runtime_point_lights": 67,
+                "policy_contract": candidate_manifest["policy_contract"],
+                "scope": candidate_manifest["scope"],
+                "source_pole_definitions":
+                    copy.deepcopy(SCENE.NEOQ_SOURCE_POLE_DEFINITIONS),
+                "visual_geometry": candidate_manifest["visual_geometry"],
+            }
+        },
         "corridor": {
             "format": "ror-cityworld-intercity-corridor-v3",
             "covered_centerline_length_m": covered,
@@ -202,11 +316,10 @@ def synthetic_overlay_report(
         "visual_asset_usage": {
             "corridor_placement_mode":
                 "native-procedural-v3-curb-cut-with-blender-fixtures-v1",
-            "purpose": (
-                "curb-free Penguinville overlap apron plus route-safe Blender "
-                "lighting; bridge modules remain validated candidates for "
-                "deck and abutment replacement"
-            ),
+            "disabled_light_candidate_manifest":
+                SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER,
+            "neoq_core_runtime_light_activation": "blocked-fail-closed",
+            "purpose": SCENE.EXPECTED_VISUAL_PURPOSE,
             "packaged_asset_ids": ["rorng_city_led_streetlight_bridge"],
             "placed_asset_ids": ["rorng_city_led_streetlight_bridge"],
             "unplaced_asset_ids": SCENE.EXPECTED_UNPLACED_ASSETS,
@@ -224,7 +337,11 @@ def write_overlay(path: Path, report: dict[str, object], payload: bytes) -> None
             SCENE.OVERLAY_REPORT_MEMBER,
             json.dumps(report, sort_keys=True, separators=(",", ":")),
         )
-        archive.writestr("payload.bin", payload)
+        archive.writestr(SCENE.OVERLAY_PLACEMENT_MEMBER, payload)
+        archive.writestr(
+            SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER,
+            synthetic_light_candidate_payload(),
+        )
 
 
 class CityWorldCorridorSceneTests(unittest.TestCase):
@@ -372,6 +489,69 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
             write_overlay(archive, changed, payload)
             with self.assertRaises(SCENE.CorridorSceneFailure):
                 SCENE.validate_overlay_archive(archive, repository)
+
+            changed = copy.deepcopy(report)
+            changed["city_lighting"]["neoq_core"][
+                "source_pole_definitions"
+            ][0]["sha256"] = "0" * 64
+            write_overlay(archive, changed, payload)
+            with self.assertRaises(SCENE.CorridorSceneFailure):
+                SCENE.validate_overlay_archive(archive, repository)
+
+            changed = copy.deepcopy(report)
+            changed["visual_asset_usage"]["purpose"] = "stale v3 purpose"
+            write_overlay(archive, changed, payload)
+            with self.assertRaises(SCENE.CorridorSceneFailure):
+                SCENE.validate_overlay_archive(archive, repository)
+
+    def test_neoq_candidate_manifest_is_exact_and_fail_closed(self) -> None:
+        manifest = synthetic_light_candidate_manifest()
+        validated = SCENE.validate_neoq_light_candidates(manifest)
+        self.assertEqual(validated["candidate_poles"], 67)
+        self.assertTrue(
+            validated["activation"]["contracts"]["zero_local_shadow"][
+                "satisfied"
+            ]
+        )
+        cases: list[tuple[str, dict[str, object]]] = []
+
+        changed = copy.deepcopy(manifest)
+        changed["activation"]["enabled"] = True
+        cases.append(("activation", changed))
+        changed = copy.deepcopy(manifest)
+        changed["activation"]["contracts"]["zero_local_shadow"][
+            "satisfied"
+        ] = False
+        cases.append(("zero-shadow", changed))
+        changed = copy.deepcopy(manifest)
+        changed["candidates"][0]["light"]["hard_max_range_m"] = 24.001
+        cases.append(("range", changed))
+        changed = copy.deepcopy(manifest)
+        changed["candidates"][0]["light"][
+            "shadow_casting_requested"
+        ] = True
+        cases.append(("shadow-request", changed))
+        changed = copy.deepcopy(manifest)
+        changed["candidates"][0]["adapter"][
+            "runtime_definition_emitted"
+        ] = True
+        cases.append(("adapter-emission", changed))
+        changed = copy.deepcopy(manifest)
+        changed["candidates"][1]["source"]["line"] = (
+            changed["candidates"][0]["source"]["line"]
+        )
+        cases.append(("duplicate-line", changed))
+        changed = copy.deepcopy(manifest)
+        changed["candidates"][0]["source"]["object"] = "luminariaYQr"
+        cases.append(("family-count", changed))
+        changed = copy.deepcopy(manifest)
+        changed["unexpected"] = True
+        cases.append(("unexpected-field", changed))
+
+        for name, changed in cases:
+            with self.subTest(name=name):
+                with self.assertRaises(SCENE.CorridorSceneFailure):
+                    SCENE.validate_neoq_light_candidates(changed)
 
     def test_cityworld_and_vehicle_archives_are_authenticated(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

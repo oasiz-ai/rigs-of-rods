@@ -89,6 +89,44 @@ NEOQ_EXPECTED_CANDIDATE_FAMILY_COUNTS = {
     "luminariaQr": 25,
     "luminariaYQr": 0,
 }
+NEOQ_EXPECTED_POLE_DEFINITIONS = {
+    "luminariaLQr": {
+        "available": True,
+        "bytes": 77,
+        "collision_geometry": True,
+        "definition": "luminariaLQr.odef",
+        "family": "luminariaLQr",
+        "lod": False,
+        "point_light_directives": 0,
+        "sha256":
+            "d14535992b54e9b49255a257808df79dea7baaaf986dcbb613e3976cc730bfb7",
+        "spot_light_directives": 0,
+    },
+    "luminariaQr": {
+        "available": True,
+        "bytes": 74,
+        "collision_geometry": True,
+        "definition": "luminariaQr.odef",
+        "family": "luminariaQr",
+        "lod": False,
+        "point_light_directives": 0,
+        "sha256":
+            "bf79b0aee0321a69a79fafed67a00b2d788e8caf0c5aba0bf487338281728f13",
+        "spot_light_directives": 0,
+    },
+    "luminariaYQr": {
+        "available": True,
+        "bytes": 77,
+        "collision_geometry": True,
+        "definition": "luminariaYQr.odef",
+        "family": "luminariaYQr",
+        "lod": False,
+        "point_light_directives": 0,
+        "sha256":
+            "b6d01408ea3002c447d21f55911567e1b6c7d1dc24ca573a321322f559891958",
+        "spot_light_directives": 0,
+    },
+}
 NEOQ_LIGHT_ADAPTERS = {
     "luminariaLQr": {
         "future_object_definition":
@@ -620,9 +658,17 @@ def neoq_light_candidate_manifest(
         "activation": {
             "blockers": [
                 "renderer-local-light-budget-policy-unavailable",
-                "zero-local-shadow-runtime-contract-unavailable",
                 "neoq-fixed-camera-runtime-visual-gate-unavailable",
             ],
+            "contracts": {
+                "zero_local_shadow": {
+                    "required_local_shadow_casters": 0,
+                    "runtime_marker_field": "local_shadow_casters=0",
+                    "satisfied": True,
+                    "satisfied_by":
+                        "TerrainObjectManager local-light creation policy",
+                },
+            },
             "enabled": False,
             "fail_closed": True,
             "runtime_adapter_definitions_emitted": 0,
@@ -711,7 +757,49 @@ def authenticate_neoq_light_audit(
         raise OverlayFailure(
             "CityWorld audit has no source-pole definition inventory"
         )
-    return pole_definitions
+    if len(pole_definitions) != len(NEOQ_EXPECTED_POLE_DEFINITIONS):
+        raise OverlayFailure(
+            "CityWorld source-pole definition inventory count drifted"
+        )
+    authenticated: dict[str, dict[str, Any]] = {}
+    for index, value in enumerate(pole_definitions):
+        if not isinstance(value, dict):
+            raise OverlayFailure(
+                "CityWorld source-pole definition inventory is malformed"
+            )
+        family = value.get("family")
+        if (
+            type(family) is not str
+            or family not in NEOQ_EXPECTED_POLE_DEFINITIONS
+            or family in authenticated
+        ):
+            raise OverlayFailure(
+                "CityWorld source-pole definition families drifted"
+            )
+        expected = NEOQ_EXPECTED_POLE_DEFINITIONS[family]
+        if set(value) != set(expected):
+            raise OverlayFailure(
+                f"CityWorld source-pole definition {index} fields drifted"
+            )
+        for field, expected_value in expected.items():
+            actual = value.get(field)
+            if (
+                type(actual) is not type(expected_value)
+                or actual != expected_value
+            ):
+                raise OverlayFailure(
+                    "CityWorld source-pole definition "
+                    f"{family!r} field {field!r} drifted"
+                )
+        authenticated[family] = value
+    if set(authenticated) != set(NEOQ_EXPECTED_POLE_DEFINITIONS):
+        raise OverlayFailure(
+            "CityWorld source-pole definition families are incomplete"
+        )
+    return [
+        authenticated[family]
+        for family in NEOQ_LUMINARIA_FAMILIES
+    ]
 
 
 def authenticate_route_anchors(
@@ -2572,9 +2660,9 @@ def build_local_overlay(
             "purpose":
                 "curb-free Penguinville overlap apron plus route-safe Blender "
                 "lighting; deterministic NeoQueretaro pole-light candidates "
-                "remain disabled pending the renderer budget and zero-shadow "
-                "contracts; bridge modules remain validated candidates for "
-                "deck and abutment replacement",
+                "remain disabled pending the bounded renderer light budget "
+                "and fixed-camera visual gate; bridge modules remain "
+                "validated candidates for deck and abutment replacement",
         },
         "source": {
             "archive": {

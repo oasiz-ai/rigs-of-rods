@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib.util
 import json
@@ -36,6 +37,23 @@ SOURCE_MARKERS = {
     "CityWorld.otc": b"SOURCE_GEOMETRY_PAYLOAD_MUST_NOT_LEAK",
     "CityWorld.tobj": b"SOURCE_PLACEMENTS_PAYLOAD_MUST_NOT_LEAK",
 }
+AUTHENTIC_POLE_DEFINITIONS = (
+    (
+        "luminariaLQr.odef",
+        b"luminariaLQr.mesh\r\n1,1,1\r\nbeginmesh\r\n"
+        b"mesh luminariaQrCol.mesh\r\nendmesh\r\nend\r\n",
+    ),
+    (
+        "luminariaQr.odef",
+        b"luminariaQr.mesh\r\n1,1,1\r\nbeginmesh\r\n"
+        b"mesh luminariaQrCol.mesh\r\nendmesh\r\nend",
+    ),
+    (
+        "luminariaYQr.odef",
+        b"luminariaYQr.mesh\r\n1,1,1\r\nbeginmesh\r\n"
+        b"mesh luminariaQrCol.mesh\r\nendmesh\r\nend\r\n",
+    ),
+)
 TERRAIN = """\
 [General]
 Name = Synthetic pinned CityWorld
@@ -104,6 +122,9 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
         placements: str = PLACEMENTS,
         otc_name: str = "CityWorld.otc",
         archive_name: str = "CityWorld.zip",
+        pole_definitions: tuple[tuple[str, bytes], ...] = (
+            AUTHENTIC_POLE_DEFINITIONS
+        ),
         extra_entries: tuple[tuple[str, bytes], ...] = (),
     ) -> tuple[Path, str]:
         archive_path = root / archive_name
@@ -118,6 +139,8 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 SOURCE_MARKERS["CityWorld.otc"],
             )
             archive.writestr("CityWorld.tobj", placements.encode("utf-8"))
+            for name, payload in pole_definitions:
+                archive.writestr(name, payload)
             for name, payload in extra_entries:
                 archive.writestr(name, payload)
         digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
@@ -721,9 +744,9 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                         "curb-free Penguinville overlap apron plus route-safe "
                         "Blender lighting; deterministic NeoQueretaro "
                         "pole-light candidates remain disabled pending the "
-                        "renderer budget and zero-shadow contracts; bridge "
-                        "modules remain validated candidates for deck and "
-                        "abutment replacement",
+                        "bounded renderer light budget and fixed-camera visual "
+                        "gate; bridge modules remain validated candidates for "
+                        "deck and abutment replacement",
                 },
             )
             self.assertIn(
@@ -814,9 +837,18 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             manifest["activation"]["blockers"],
             [
                 "renderer-local-light-budget-policy-unavailable",
-                "zero-local-shadow-runtime-contract-unavailable",
                 "neoq-fixed-camera-runtime-visual-gate-unavailable",
             ],
+        )
+        self.assertEqual(
+            manifest["activation"]["contracts"]["zero_local_shadow"],
+            {
+                "required_local_shadow_casters": 0,
+                "runtime_marker_field": "local_shadow_casters=0",
+                "satisfied": True,
+                "satisfied_by":
+                    "TerrainObjectManager local-light creation policy",
+            },
         )
         self.assertEqual(
             manifest["policy_contract"],
@@ -897,6 +929,135 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     output_path=root / "overlay.zip",
                     surface_offset_m=0.08,
                 )
+
+    def test_neoq_source_pole_definitions_are_exactly_authenticated(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive, _ = self.make_archive(root)
+            audit = BUILDER.audit_archive(archive)
+            placements = BUILDER.source_placements(archive)
+            telepoint = BUILDER.exact_telepoint(
+                audit,
+                BUILDER.DESTINATION_TELEPOINT,
+            )
+            manifest = BUILDER.neoq_light_candidate_manifest(
+                placements,
+                telepoint,
+            )
+
+        authenticated = BUILDER.authenticate_neoq_light_audit(
+            audit,
+            manifest,
+        )
+        self.assertEqual(
+            authenticated,
+            [
+                BUILDER.NEOQ_EXPECTED_POLE_DEFINITIONS[family]
+                for family in BUILDER.NEOQ_LUMINARIA_FAMILIES
+            ],
+        )
+
+        missing = copy.deepcopy(audit)
+        missing["lighting"]["object_definitions"][
+            "source_pole_definitions"
+        ].pop()
+        duplicate = copy.deepcopy(audit)
+        duplicate_definitions = duplicate["lighting"][
+            "object_definitions"
+        ]["source_pole_definitions"]
+        duplicate_definitions[2] = copy.deepcopy(duplicate_definitions[1])
+        cases: list[tuple[str, dict[str, object]]] = [
+            ("missing", missing),
+            ("duplicate", duplicate),
+        ]
+        mutations = (
+            ("available", False),
+            ("collision_geometry", False),
+            ("lod", True),
+            ("point_light_directives", 1),
+            ("spot_light_directives", 1),
+            ("sha256", "0" * 64),
+            ("definition", "changed.odef"),
+            ("bytes", 76),
+        )
+        for field, value in mutations:
+            changed = copy.deepcopy(audit)
+            changed["lighting"]["object_definitions"][
+                "source_pole_definitions"
+            ][0][field] = value
+            cases.append((field, changed))
+        hostile_types = copy.deepcopy(audit)
+        hostile_types["lighting"]["object_definitions"][
+            "source_pole_definitions"
+        ][0]["point_light_directives"] = False
+        cases.append(("hostile-type", hostile_types))
+
+        for name, changed in cases:
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(
+                    BUILDER.OverlayFailure,
+                    "source-pole definition",
+                ):
+                    BUILDER.authenticate_neoq_light_audit(
+                        changed,
+                        manifest,
+                    )
+
+    def test_neoq_source_pole_archive_drift_fails_before_assets(self) -> None:
+        mutated = list(AUTHENTIC_POLE_DEFINITIONS)
+        mutated[0] = (mutated[0][0], mutated[0][1] + b" ")
+        cases = (
+            (
+                "missing",
+                AUTHENTIC_POLE_DEFINITIONS[:-1],
+                BUILDER.OverlayFailure,
+                "source-pole definition",
+            ),
+            (
+                "mutated",
+                tuple(mutated),
+                BUILDER.OverlayFailure,
+                "source-pole definition",
+            ),
+            (
+                "duplicate",
+                AUTHENTIC_POLE_DEFINITIONS
+                + (
+                    (
+                        "nested/luminariaLQr.odef",
+                        AUTHENTIC_POLE_DEFINITIONS[0][1],
+                    ),
+                ),
+                BUILDER.AuditFailure,
+                "duplicate NeoQueretaro source-pole definition family",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            for name, pole_definitions, exception, message in cases:
+                with self.subTest(name=name):
+                    root = parent / name
+                    root.mkdir()
+                    archive, digest = self.make_archive(
+                        root,
+                        pole_definitions=pole_definitions,
+                    )
+                    with (
+                        mock.patch.object(
+                            BUILDER,
+                            "PINNED_ARCHIVE_SHA256",
+                            digest,
+                        ),
+                        self.assertRaisesRegex(exception, message),
+                    ):
+                        BUILDER.build_local_overlay(
+                            archive_path=archive,
+                            repository_path=REPOSITORY_ROOT,
+                            output_path=root / "overlay.zip",
+                            surface_offset_m=0.08,
+                        )
 
     def test_route_anchor_and_open_gap_drift_fail_closed(self) -> None:
         cases = (

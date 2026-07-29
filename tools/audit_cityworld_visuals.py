@@ -608,6 +608,11 @@ def object_definition_capabilities(
             None,
         )
         if family is not None:
+            if family in pole_definitions:
+                raise AuditFailure(
+                    "duplicate NeoQueretaro source-pole definition family: "
+                    f"{family}"
+                )
             pole_definitions[family] = {
                 "bytes": info.file_size,
                 "collision_geometry": has_collision,

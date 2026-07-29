@@ -174,15 +174,22 @@ records 67 derived placement records and continues to mark the package
 nonredistributable and non-shippable.
 
 Activation fails closed. Overlay v4 emits zero NeoQueretaro runtime point
-lights until the renderer exposes both the
-`ror-cityworld-local-light-budget-v1` bounded-light policy and a runtime proof
-that local shadow casters equal zero. The candidate-family and whole-map
-family counts are authenticated during every build; moving one pole across
-the 400 m boundary or changing a family count aborts publication. Promotion
-also requires a UI-free fixed-camera RGB comparison, frame-time measurements,
-and native macOS, Windows, and Linux loading. Until those gates close, this is
-a reproducible activation-ready content contract, not evidence of completed
-relighting or ray tracing.
+lights until the renderer exposes the `ror-cityworld-local-light-budget-v1`
+bounded-light policy. The shared terrain-object path now explicitly disables
+shadow casting on every point and spot light and reports
+`local_shadow_casters=0`; the v4 manifest records that zero-local-shadow
+contract as satisfied. The candidate-family and whole-map family counts are
+authenticated during every build; moving one pole across the 400 m boundary,
+changing a family count, or changing any of the three exact collision-bearing
+source ODEFs aborts publication. Promotion also requires a UI-free fixed-camera
+RGB comparison, frame-time measurements, and native macOS, Windows, and Linux
+loading. Until those gates close, this is a reproducible activation-ready
+content contract, not evidence of completed relighting or ray tracing.
+The corridor diagnostic accepts overlay report v4, independently validates all
+67 candidate records and three pinned source-ODEF hashes, proves that no
+candidate adapter or placement entered the runtime payload, and rebuilds the
+complete nine-entry ZIP byte for byte before launching the unchanged v3
+corridor traversal.
 
 Fixed ZIP order, timestamps, permissions, and stored payloads make repeated
 builds byte-identical. The embedded report marks redistribution and shipping
