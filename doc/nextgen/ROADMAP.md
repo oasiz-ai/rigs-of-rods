@@ -696,7 +696,10 @@ copy of the `concretorojo` block at original lines 1772-1784 and preserves its
 first definition at lines 1698-1710. Its four additional exact edits convert
 the legacy environment-map pairs to OGRE 14 syntax, removing the blank
 environment layers from `parabus` and `semaforogris3` and eliminating both
-associated deprecation warnings. Mesh requests follow OGRE's exact-case
+associated deprecation warnings. The replacement declarations explicitly
+match RoR's manually created cube, zero-mipmap, `PF_R8G8B8`
+`EnvironmentTexture`, preventing OGRE 14 from treating the shared render
+target as a conflicting redeclaration. Mesh requests follow OGRE's exact-case
 archive precedence and are opened from the selected authenticated ZIP before
 the listener maps 23 exact
 legacy names to target materials parsed from that same archive SHA or creates

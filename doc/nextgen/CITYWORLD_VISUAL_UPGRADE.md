@@ -139,7 +139,10 @@ The current macOS arm64 runtime gate applies exact edit counts of 1, 1, 2, 4,
 definition at lines 1698-1710. It also converts the two authenticated legacy
 environment-map pairs to OGRE 14 syntax, removing the blank environment layers
 from `parabus` and `semaforogris3` and eliminating both associated deprecation
-warnings. It then resolves
+warnings. The replacement declarations retain the cube type, zero mipmaps,
+and `PF_R8G8B8` format of RoR's manually created `EnvironmentTexture` render
+target, so they do not redeclare that shared texture with conflicting
+parameters. It then resolves
 23 reviewed aliases, creates 11 reviewed lit fallbacks, loads the one generated
 4x4 DDS resource demanded by this terrain path, and uses GL3Plus RTSS programs.
 The local overlay reaches `TERRAIN LOADING DONE` with zero CityWorld script

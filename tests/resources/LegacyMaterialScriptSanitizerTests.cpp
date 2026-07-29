@@ -163,9 +163,9 @@ void TestPinnedPlanMetadataIsExact()
         "cubic_texture EnvironmentTexture combinedUVW",
         "env_map planar"};
     const char* environment_replacements[] = {
-        "texture EnvironmentTexture cubic",
+        "texture EnvironmentTexture cubic 0 PF_R8G8B8",
         "env_map cubic_reflection",
-        "texture EnvironmentTexture cubic",
+        "texture EnvironmentTexture cubic 0 PF_R8G8B8",
         "env_map cubic_reflection"};
     for (std::size_t index = 0U;
          index < sizeof(environment_lines) / sizeof(environment_lines[0]);
@@ -442,7 +442,7 @@ void TestLegacyEnvironmentMapConversionIsTransactional()
         {RoR::LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
          9U,
          "cubic_texture EnvironmentTexture combinedUVW",
-         "texture EnvironmentTexture cubic"},
+         "texture EnvironmentTexture cubic 0 PF_R8G8B8"},
         {RoR::LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
          10U,
          "env_map planar",
@@ -450,7 +450,7 @@ void TestLegacyEnvironmentMapConversionIsTransactional()
         {RoR::LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
          14U,
          "cubic_texture EnvironmentTexture combinedUVW",
-         "texture EnvironmentTexture cubic"},
+         "texture EnvironmentTexture cubic 0 PF_R8G8B8"},
         {RoR::LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
          15U,
          "env_map planar",
@@ -478,12 +478,12 @@ void TestLegacyEnvironmentMapConversionIsTransactional()
         "    {\n"
         "      texture_unit\n"
         "      {\n"
-        "        texture EnvironmentTexture cubic\n"
+        "        texture EnvironmentTexture cubic 0 PF_R8G8B8\n"
         "        env_map cubic_reflection\n"
         "      }\n"
         "      texture_unit\n"
         "      {\n"
-        "        texture EnvironmentTexture cubic\n"
+        "        texture EnvironmentTexture cubic 0 PF_R8G8B8\n"
         "        env_map cubic_reflection\n"
         "      }\n"
         "    }\n"
