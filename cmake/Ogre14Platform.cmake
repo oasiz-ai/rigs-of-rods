@@ -39,10 +39,7 @@ function(ror_ogre14_runtime_contract output_prefix system_name processor)
             AND _ror_processor MATCHES "^(x86_64|amd64)$")
         set(_ror_package_plugin_subdir "lib/OGRE")
         set(_ror_renderer_plugin "RenderSystem_GL3Plus")
-        # The existing Linux install contract stages runtime shared objects
-        # flat under <prefix>/lib. Keep the generated config truthful until
-        # the dedicated relocatable plugin-binary closure lands.
-        set(_ror_install_plugin_folder "lib")
+        set(_ror_install_plugin_folder "lib/OGRE")
         set(_ror_plugin_binaries_use_debug_suffix OFF)
     elseif (_ror_system STREQUAL "windows"
             AND _ror_processor MATCHES "^(x86_64|amd64)$")

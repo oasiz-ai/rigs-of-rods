@@ -352,6 +352,17 @@ endif ()
 set(BINNAME "RoR")
 add_executable(${BINNAME} ${SOURCE_FILES})
 
+if (ROR_OGRE14 AND UNIX AND NOT APPLE)
+    # Keep both direct dependencies and explicitly loaded OGRE plugins
+    # discoverable when the installed tree moves. Dependency libraries and
+    # plugins carry their own package-relative $ORIGIN paths.
+    set_target_properties(
+        ${BINNAME}
+        PROPERTIES
+            INSTALL_RPATH "$ORIGIN/lib;$ORIGIN/lib/OGRE"
+            INSTALL_RPATH_USE_LINK_PATH FALSE)
+endif ()
+
 if (ROR_BUILD_TESTS)
     target_compile_definitions(
         ${BINNAME}
@@ -865,18 +876,62 @@ elseif (APPLE)
             file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX}/lib FOLLOW_SYMLINK_CHAIN)"
             COMPONENT "Base_Game")
 else ()
-    if (NOT ROR_OGRE14)
+    if (ROR_OGRE14)
+        install(
+            FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg
+            DESTINATION .
+            RENAME plugins.cfg
+            COMPONENT "Base_Game")
+        install(
+            FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install-d.cfg
+            DESTINATION .
+            RENAME plugins_d.cfg
+            COMPONENT "Base_Game")
+        install(
+            PROGRAMS ${CMAKE_SOURCE_DIR}/tools/linux/RunRoR-ogre14
+            DESTINATION .
+            RENAME RunRoR
+            COMPONENT "Base_Game")
+        install(
+            FILES ${CMAKE_SOURCE_DIR}/tools/linux/.itch.toml
+            DESTINATION .
+            COMPONENT "Base_Game")
+
+        set(_ror_linux_install_root_code
+[=[set(ROR_LINUX_INSTALL_ROOT "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+]=])
+        string(CONCAT
+            _ror_linux_runtime_install_code
+            "set(ROR_LINUX_BUILD_EXECUTABLE "
+                "\"$<TARGET_FILE:${BINNAME}>\")\n"
+            "${_ror_linux_install_root_code}"
+            "set(ROR_LINUX_PLUGIN_DIR "
+                "\"$<IF:$<CONFIG:Debug>,"
+                "${_ror_ogre14_plugin_dir_DEBUG},"
+                "${_ror_ogre14_plugin_dir_RELEASE}>\")\n"
+            "set(ROR_LINUX_PLUGINS_CFG "
+                "\"${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg\")\n"
+            "set(ROR_LINUX_RUNTIME_SEARCH_DIRS "
+                "\"${CONAN_RUNTIME_LIB_DIRS}\")\n"
+            "set(ROR_LINUX_INSTALL_PLUGIN_FOLDER "
+                "\"${_ror_ogre14_runtime_INSTALL_PLUGIN_FOLDER}\")\n"
+            "set(ROR_LINUX_CONTRACT_MODULE "
+                "\"${CMAKE_SOURCE_DIR}/cmake/linux/"
+                "LinuxRuntimeContract.cmake\")\n"
+            "include(\"${CMAKE_SOURCE_DIR}/cmake/linux/"
+                "StageLinuxRuntime.cmake\")\n")
+        install(
+            CODE "${_ror_linux_runtime_install_code}"
+            COMPONENT "Base_Game")
+    else ()
         set(PLUGINS_FOLDER "lib")
         configure_file(plugins.cfg.in ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg)
+        install(FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg DESTINATION . RENAME plugins.cfg)
+        install(PROGRAMS ${CMAKE_SOURCE_DIR}/tools/linux/RunRoR DESTINATION .)
+        install(FILES ${CMAKE_SOURCE_DIR}/tools/linux/.itch.toml DESTINATION .)
+        install(CODE "file(GLOB_RECURSE files ${RUNTIME_OUTPUT_DIRECTORY}/*.so)
+                file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX}/lib FOLLOW_SYMLINK_CHAIN)")
     endif ()
-    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg DESTINATION . RENAME plugins.cfg)
-    if (ROR_OGRE14)
-        install(FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install-d.cfg DESTINATION . RENAME plugins_d.cfg)
-    endif ()
-    install(PROGRAMS ${CMAKE_SOURCE_DIR}/tools/linux/RunRoR DESTINATION .)
-    install(FILES ${CMAKE_SOURCE_DIR}/tools/linux/.itch.toml DESTINATION .)
-    install(CODE "file(GLOB_RECURSE files ${RUNTIME_OUTPUT_DIRECTORY}/*.so)
-            file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX}/lib FOLLOW_SYMLINK_CHAIN)")
 endif ()
 
 if (ROR_OGRE14)
@@ -892,6 +947,8 @@ if (ROR_OGRE14)
     unset(_ror_ogre14_terrain_media)
     unset(_ror_ogre14_multi_config)
     unset(_ror_ogre14_build_plugin_folder)
+    unset(_ror_linux_install_root_code)
+    unset(_ror_linux_runtime_install_code)
     unset(_ror_ogre14_runtime_PACKAGE_PLUGIN_SUBDIR)
     unset(_ror_ogre14_runtime_RENDERER_PLUGIN)
     unset(_ror_ogre14_runtime_INSTALL_PLUGIN_FOLDER)

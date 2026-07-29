@@ -277,12 +277,12 @@ class Ogre14PlatformContractTests(unittest.TestCase):
             (
                 "Linux",
                 "x86_64",
-                ("lib/OGRE", "RenderSystem_GL3Plus", "lib", "OFF"),
+                ("lib/OGRE", "RenderSystem_GL3Plus", "lib/OGRE", "OFF"),
             ),
             (
                 "Linux",
                 "AMD64",
-                ("lib/OGRE", "RenderSystem_GL3Plus", "lib", "OFF"),
+                ("lib/OGRE", "RenderSystem_GL3Plus", "lib/OGRE", "OFF"),
             ),
             (
                 "Windows",
@@ -341,7 +341,7 @@ class Ogre14PlatformContractTests(unittest.TestCase):
             (
                 "Linux",
                 "x86_64",
-                "lib",
+                "lib/OGRE",
                 "RenderSystem_GL3Plus",
                 False,
             ),

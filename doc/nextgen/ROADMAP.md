@@ -767,8 +767,26 @@ configurations, package-root selection, and unsupported targets fail closed.
 The full macOS arm64 application rebuilt, all 41 configured CTests passed, and
 the stager produced a deep-valid signed bundle containing the expected four
 plugins under the contract-owned `../PlugIns` folder. Linux shared-object
-staging, Windows DLL closure, native Debug and relocated smoke tests, and native
-CI remain open.
+staging now has an implementation contract but still requires native proof;
+Windows DLL closure, native Debug and relocated smoke tests, and native CI
+remain open.
+
+The Linux x86_64 OGRE 14 install contract places its four config-selected
+plugins under `lib/OGRE`, gives the executable only package-relative
+`$ORIGIN/lib` and `$ORIGIN/lib/OGRE` search paths, and generates identical
+unsuffixed Release and Debug plugin tokens. Its install-time stager resolves
+the ELF closure from the build executable and exact active plugin modules,
+accepts non-system libraries only from Conan's declared runtime roots, follows
+complete SONAME symlink chains, and explicitly excludes the distribution-owned
+`/lib`, `/lib64`, `/usr/lib`, and `/usr/lib64` roots. Unresolved dependencies,
+basename conflicts, unexpected plugins, absolute or escaping symlinks,
+non-x86_64 ELF inputs, absolute loader metadata, and build/cache paths all fail
+closed. A separate launcher resolves the package from its own location instead
+of the caller's working directory. Dependency-free CMake tests cover the
+parser, package boundary, loader metadata, symlink closure, hostile paths, and
+legacy install separation on non-Linux hosts. A native Linux build followed by
+a relocated clean-environment launch is still required before this contract is
+called proven.
 
 The legacy OGRE 1.11 Windows build also keeps RoR in C++17 while consuming
 Caelum/PagedGeometry headers that still expose `std::auto_ptr`. MSVC now enables
