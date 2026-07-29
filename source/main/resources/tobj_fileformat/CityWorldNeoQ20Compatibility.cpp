@@ -22,6 +22,10 @@ const char PINNED_TOBJ_NAME[] = "CityWorld.tobj";
 const char PINNED_TOBJ_SHA256[] =
     "1cdc57dc59c4c0f403f621ad31afc301436af70c813b2e0dd01ffb0cd54f0b48";
 const char TELEPOINT_NAME[] = "NeoQ2.0 Spawn";
+const char* const GROUNDED_SERVICE_INSTANCE_NAMES[] = {
+    "spawnZone_neoq20_truckshop_2",
+    "spawnZone_neoq20_load-spawner_3",
+    "spawnZone_neoq20_load-spawner_4"};
 
 struct ExpectedPlacement
 {
@@ -30,6 +34,20 @@ struct ExpectedPlacement
     const char* type;
     const char* instance_name;
     float position_x;
+    float position_z;
+    float rotation_x;
+    float rotation_y;
+    float rotation_z;
+};
+
+struct ExpectedDuplicateServicePlacement
+{
+    std::size_t source_line;
+    const char* object_definition;
+    const char* type;
+    const char* instance_name;
+    float position_x;
+    float position_y;
     float position_z;
     float rotation_x;
     float rotation_y;
@@ -140,6 +158,18 @@ const ExpectedPlacement EXPECTED_PLACEMENTS[] = {
      "auto^CityWorld.tobj(line:1248)",
      7000.0f, 6000.0f, 90.0f, 0.0f, 0.0f}};
 
+// These earlier NeoQueretaro service objects use the same authored instance
+// names as NeoQ2.0 lines 1214-1216. Collisions::getBox()/getPosition() scan
+// event sources from the beginning, so keeping the duplicate names on the
+// grounded objects would resolve queries to these earlier objects.
+const ExpectedDuplicateServicePlacement EXPECTED_DUPLICATE_SERVICES[] = {
+    {387U, "truckshop", "shop", "spawnZone_truckshop_2",
+     2440.896973f, 0.85f, 1020.876587f, 0.0f, 0.0f, 0.0f},
+    {388U, "load-spawner", "sale", "spawnZone_load-spawner_3",
+     2402.270020f, 0.351947f, 1079.235352f, 0.0f, 0.0f, 0.0f},
+    {389U, "load-spawner", "sale", "spawnZone_load-spawner_4",
+     2402.270020f, 0.351947f, 1039.235352f, 0.0f, 0.0f, 0.0f}};
+
 CityWorldNeoQ20CompatibilityResult Rejected(
     bool applicable,
     const char* reason)
@@ -178,6 +208,22 @@ bool Matches(
         instance_name_matches &&
         observed.position_x == expected.position_x &&
         observed.position_y == 50.0f &&
+        observed.position_z == expected.position_z &&
+        observed.rotation_x == expected.rotation_x &&
+        observed.rotation_y == expected.rotation_y &&
+        observed.rotation_z == expected.rotation_z;
+}
+
+bool MatchesDuplicateService(
+    const CityWorldNeoQ20Placement& observed,
+    const ExpectedDuplicateServicePlacement& expected)
+{
+    return observed.source_line == expected.source_line &&
+        observed.object_definition == expected.object_definition &&
+        observed.type == expected.type &&
+        observed.instance_name == expected.instance_name &&
+        observed.position_x == expected.position_x &&
+        observed.position_y == expected.position_y &&
         observed.position_z == expected.position_z &&
         observed.rotation_x == expected.rotation_x &&
         observed.rotation_y == expected.rotation_y &&
@@ -231,11 +277,12 @@ std::string ComputeCityWorldNeoQ20Sha256(const std::string& payload)
     return result;
 }
 
-CityWorldNeoQ20CompatibilityResult ApplyCityWorldNeoQ20Grounding(
+CityWorldNeoQ20CompatibilityResult ApplyCityWorldNeoQ20Compatibility(
     const std::vector<std::string>& authored_dependencies,
     const std::string& tobj_name,
     const std::string& observed_tobj_sha256,
-    std::vector<CityWorldNeoQ20Placement>& placements)
+    std::vector<CityWorldNeoQ20Placement>& placements,
+    std::vector<CityWorldNeoQ20Telepoint>& telepoints)
 {
     if (!HasCityWorldNeoQ20PinnedDependency(authored_dependencies))
     {
@@ -254,6 +301,11 @@ CityWorldNeoQ20CompatibilityResult ApplyCityWorldNeoQ20Grounding(
         sizeof(EXPECTED_PLACEMENTS) / sizeof(EXPECTED_PLACEMENTS[0])>
         selected_indexes;
     selected_indexes.fill(placements.size());
+    std::array<std::size_t,
+        sizeof(EXPECTED_DUPLICATE_SERVICES) /
+            sizeof(EXPECTED_DUPLICATE_SERVICES[0])>
+        duplicate_service_indexes;
+    duplicate_service_indexes.fill(placements.size());
 
     std::size_t source_range_count = 0U;
     for (std::size_t placement_index = 0U;
@@ -262,22 +314,51 @@ CityWorldNeoQ20CompatibilityResult ApplyCityWorldNeoQ20Grounding(
     {
         const CityWorldNeoQ20Placement& placement =
             placements[placement_index];
-        if (placement.source_line < 1214U ||
-            placement.source_line > 1248U)
+        if (placement.source_line >= 1214U &&
+            placement.source_line <= 1248U)
         {
-            continue;
+            ++source_range_count;
+            const std::size_t expected_index =
+                placement.source_line - 1214U;
+            if (expected_index >= selected_indexes.size() ||
+                selected_indexes[expected_index] != placements.size())
+            {
+                return Rejected(
+                    true,
+                    "NeoQ2.0 source line is duplicated or outside the plan");
+            }
+            selected_indexes[expected_index] = placement_index;
         }
-        ++source_range_count;
-        const std::size_t expected_index =
-            placement.source_line - 1214U;
-        if (expected_index >= selected_indexes.size() ||
-            selected_indexes[expected_index] != placements.size())
+
+        for (std::size_t duplicate_index = 0U;
+             duplicate_index < duplicate_service_indexes.size();
+             ++duplicate_index)
         {
-            return Rejected(
-                true,
-                "NeoQ2.0 source line is duplicated or outside the plan");
+            if (placement.source_line !=
+                EXPECTED_DUPLICATE_SERVICES[duplicate_index].source_line)
+            {
+                continue;
+            }
+            if (duplicate_service_indexes[duplicate_index] !=
+                placements.size())
+            {
+                return Rejected(
+                    true,
+                    "earlier duplicate service source line is duplicated");
+            }
+            duplicate_service_indexes[duplicate_index] = placement_index;
         }
-        selected_indexes[expected_index] = placement_index;
+
+        for (const char* grounded_name :
+             GROUNDED_SERVICE_INSTANCE_NAMES)
+        {
+            if (placement.instance_name == grounded_name)
+            {
+                return Rejected(
+                    true,
+                    "grounded service instance name is already in use");
+            }
+        }
     }
     if (source_range_count != selected_indexes.size())
     {
@@ -303,54 +384,41 @@ CityWorldNeoQ20CompatibilityResult ApplyCityWorldNeoQ20Grounding(
         }
     }
 
-    for (const std::size_t placement_index : selected_indexes)
+    for (std::size_t duplicate_index = 0U;
+         duplicate_index < duplicate_service_indexes.size();
+         ++duplicate_index)
     {
-        placements[placement_index].position_y = 0.0f;
+        const std::size_t placement_index =
+            duplicate_service_indexes[duplicate_index];
+        if (placement_index >= placements.size() ||
+            !MatchesDuplicateService(
+                placements[placement_index],
+                EXPECTED_DUPLICATE_SERVICES[duplicate_index]))
+        {
+            return Rejected(
+                true,
+                "earlier duplicate service does not match the exact source");
+        }
     }
 
-    CityWorldNeoQ20CompatibilityResult result;
-    result.applicable = true;
-    result.applied = true;
-    result.changed_count = selected_indexes.size();
-    return result;
-}
-
-CityWorldNeoQ20CompatibilityResult ApplyCityWorldNeoQ20TelepointGrounding(
-    bool placement_grounding_applied,
-    std::vector<CityWorldNeoQ20Telepoint>& telepoints)
-{
-    if (!placement_grounding_applied)
-    {
-        return Rejected(
-            false,
-            "placement grounding did not authenticate and complete");
-    }
-
-    std::size_t match_index = telepoints.size();
+    std::size_t telepoint_index = telepoints.size();
     for (std::size_t index = 0U; index < telepoints.size(); ++index)
     {
         if (telepoints[index].name != TELEPOINT_NAME)
         {
             continue;
         }
-        if (match_index != telepoints.size())
+        if (telepoint_index != telepoints.size())
         {
             return Rejected(true, "NeoQ2.0 telepoint is duplicated");
         }
-        match_index = index;
+        telepoint_index = index;
     }
 
-    if (match_index == telepoints.size())
+    if (telepoint_index != telepoints.size())
     {
-        telepoints.push_back({
-            TELEPOINT_NAME,
-            6773.92f,
-            0.0f,
-            4216.68f});
-    }
-    else
-    {
-        CityWorldNeoQ20Telepoint& telepoint = telepoints[match_index];
+        const CityWorldNeoQ20Telepoint& telepoint =
+            telepoints[telepoint_index];
         if (telepoint.position_x != 6773.92f ||
             telepoint.position_y != 50.0f ||
             telepoint.position_z != 4216.68f)
@@ -359,13 +427,51 @@ CityWorldNeoQ20CompatibilityResult ApplyCityWorldNeoQ20TelepointGrounding(
                 true,
                 "NeoQ2.0 telepoint does not match the exact source");
         }
-        telepoint.position_y = 0.0f;
     }
+
+    // Allocate and populate both commit candidates before mutating either
+    // caller-owned vector. The two final swaps are non-throwing.
+    std::vector<CityWorldNeoQ20Placement> committed_placements =
+        placements;
+    std::vector<CityWorldNeoQ20Telepoint> committed_telepoints =
+        telepoints;
+    for (const std::size_t placement_index : selected_indexes)
+    {
+        committed_placements[placement_index].position_y = 0.0f;
+    }
+    for (std::size_t service_index = 0U;
+         service_index <
+            sizeof(GROUNDED_SERVICE_INSTANCE_NAMES) /
+                sizeof(GROUNDED_SERVICE_INSTANCE_NAMES[0]);
+         ++service_index)
+    {
+        committed_placements[selected_indexes[service_index]]
+            .instance_name =
+            GROUNDED_SERVICE_INSTANCE_NAMES[service_index];
+    }
+    if (telepoint_index == telepoints.size())
+    {
+        committed_telepoints.push_back({
+            TELEPOINT_NAME,
+            6773.92f,
+            0.0f,
+            4216.68f});
+    }
+    else
+    {
+        committed_telepoints[telepoint_index].position_y = 0.0f;
+    }
+    placements.swap(committed_placements);
+    telepoints.swap(committed_telepoints);
 
     CityWorldNeoQ20CompatibilityResult result;
     result.applicable = true;
     result.applied = true;
-    result.changed_count = 1U;
+    result.placement_changed_count = selected_indexes.size();
+    result.renamed_instance_count =
+        sizeof(GROUNDED_SERVICE_INSTANCE_NAMES) /
+        sizeof(GROUNDED_SERVICE_INSTANCE_NAMES[0]);
+    result.telepoint_changed_count = 1U;
     return result;
 }
 

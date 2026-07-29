@@ -64,7 +64,8 @@ void main()
     console.cVarSet("ui_hide_gui", "true");
     game.log(
         "[RoR|CW2|NeoQ20Runtime] START cameras=4 "
-        "telepoint=6773.92,0,4216.68 grounding=35");
+        "placements=35 renames=3 telepoints=1 "
+        "telepoint_position=6773.92,0,4216.68");
 }
 
 void frameStep(float dt)
@@ -101,6 +102,7 @@ void frameStep(float dt)
     Finish();
     game.log(
         "[RoR|CW2|NeoQ20Runtime] PASS cameras=4 frames=" +
-        gReadyFrames + " physics_steps=" + steps);
+        gReadyFrames + " physics_steps=" + steps +
+        " placements=35 renames=3 telepoints=1");
     game.quitGame();
 }

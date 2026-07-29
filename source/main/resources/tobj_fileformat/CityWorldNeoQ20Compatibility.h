@@ -82,7 +82,9 @@ struct CityWorldNeoQ20CompatibilityResult
 {
     bool applicable = false;
     bool applied = false;
-    std::size_t changed_count = 0U;
+    std::size_t placement_changed_count = 0U;
+    std::size_t renamed_instance_count = 0U;
+    std::size_t telepoint_changed_count = 0U;
     std::string rejection_reason;
 };
 
@@ -98,20 +100,16 @@ bool HasCityWorldNeoQ20PinnedDependency(
 /// Compute a lowercase SHA-256 digest for exact TOBJ authentication.
 std::string ComputeCityWorldNeoQ20Sha256(const std::string& payload);
 
-/// Transactionally lower all 35 authenticated NeoQ2.0 source placements from
-/// y=50 to the CityWorld flat-terrain plane at y=0. On any mismatch the input
-/// vector is returned byte-for-byte equivalent.
-CityWorldNeoQ20CompatibilityResult ApplyCityWorldNeoQ20Grounding(
+/// Validate and commit the complete NeoQ2.0 compatibility transaction:
+/// lower all 35 authenticated placements to y=0, give the three duplicated
+/// service placements unique runtime instance names, and ground or add the
+/// telepoint. Any placement, duplicate-service, or telepoint mismatch leaves
+/// both input vectors byte-for-byte equivalent.
+CityWorldNeoQ20CompatibilityResult ApplyCityWorldNeoQ20Compatibility(
     const std::vector<std::string>& authored_dependencies,
     const std::string& tobj_name,
     const std::string& observed_tobj_sha256,
-    std::vector<CityWorldNeoQ20Placement>& placements);
-
-/// Lower the exact source telepoint, or add its grounded counterpart when an
-/// authenticated overlay intentionally has no NeoQ2.0 telepoint of its own.
-/// This is called only after the complete placement transaction succeeds.
-CityWorldNeoQ20CompatibilityResult ApplyCityWorldNeoQ20TelepointGrounding(
-    bool placement_grounding_applied,
+    std::vector<CityWorldNeoQ20Placement>& placements,
     std::vector<CityWorldNeoQ20Telepoint>& telepoints);
 
 } // namespace RoR

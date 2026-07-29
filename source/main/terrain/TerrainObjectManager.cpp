@@ -51,6 +51,10 @@
 #include <RTShaderSystem/OgreRTShaderSystem.h>
 #include <Overlay/OgreFontManager.h>
 
+#include <cstring>
+#include <list>
+#include <stdexcept>
+
 #ifdef USE_ANGELSCRIPT
 #    include "ExtinguishableFireAffector.h"
 #endif // USE_ANGELSCRIPT
@@ -201,16 +205,58 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                     entry.rotation.y,
                     entry.rotation.z});
             }
+            std::vector<CityWorldNeoQ20Telepoint> telepoints;
+            telepoints.reserve(
+                terrainManager->GetDef()->telepoints.size());
+            for (const Terrn2Telepoint& source :
+                 terrainManager->GetDef()->telepoints)
+            {
+                telepoints.push_back({
+                    source.name,
+                    source.position.x,
+                    source.position.y,
+                    source.position.z});
+            }
 
             const CityWorldNeoQ20CompatibilityResult grounding =
-                ApplyCityWorldNeoQ20Grounding(
+                ApplyCityWorldNeoQ20Compatibility(
                     authored_dependencies,
                     tobj_name,
                     observed_tobj_sha256,
-                    placements);
+                    placements,
+                    telepoints);
             if (grounding.applied)
             {
                 ROR_ASSERT(placements.size() == tobj->objects.size());
+                bool instance_names_fit = true;
+                for (const CityWorldNeoQ20Placement& placement :
+                     placements)
+                {
+                    instance_names_fit &=
+                        placement.instance_name.size() < TObj::STR_LEN;
+                }
+                if (!instance_names_fit)
+                {
+                    throw std::runtime_error(
+                        "NeoQ2.0 committed instance name exceeds "
+                        "TObj::STR_LEN");
+                }
+
+                // Finish all potentially allocating work before mutating the
+                // TObjDocument or terrain definition.
+                std::list<Terrn2Telepoint> committed_telepoints;
+                for (const CityWorldNeoQ20Telepoint& source :
+                     telepoints)
+                {
+                    Terrn2Telepoint telepoint;
+                    telepoint.name = source.name;
+                    telepoint.position = Ogre::Vector3(
+                        source.position_x,
+                        source.position_y,
+                        source.position_z);
+                    committed_telepoints.push_back(telepoint);
+                }
+
                 for (std::size_t index = 0U;
                      index < placements.size();
                      ++index)
@@ -220,13 +266,25 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                     // collision primitive receive one identical transform.
                     tobj->objects[index].position.y =
                         placements[index].position_y;
+                    std::memset(
+                        tobj->objects[index].instance_name,
+                        0,
+                        TObj::STR_LEN);
+                    std::memcpy(
+                        tobj->objects[index].instance_name,
+                        placements[index].instance_name.data(),
+                        placements[index].instance_name.size());
                 }
-                m_cityworld_neoq20_grounding_applied = true;
+                terrainManager->GetDef()->telepoints.swap(
+                    committed_telepoints);
                 LOG(fmt::format(
-                    "[RoR|CityWorld|NeoQ20Grounding] Applied {} exact "
-                    "placement transforms from y=50 to y=0 "
+                    "[RoR|CityWorld|NeoQ20Grounding] Applied "
+                    "placements={} renames={} telepoints={} "
+                    "transactionally before object instantiation "
                     "(tobj_sha256={})",
-                    grounding.changed_count,
+                    grounding.placement_changed_count,
+                    grounding.renamed_instance_count,
+                    grounding.telepoint_changed_count,
                     observed_tobj_sha256));
             }
             else
@@ -1108,48 +1166,6 @@ void TerrainObjectManager::UpdateParticleEffectObjects()
 
 void TerrainObjectManager::LoadTelepoints()
 {
-    if (m_cityworld_neoq20_grounding_applied)
-    {
-        std::vector<CityWorldNeoQ20Telepoint> telepoints;
-        telepoints.reserve(terrainManager->GetDef()->telepoints.size());
-        for (const Terrn2Telepoint& source :
-             terrainManager->GetDef()->telepoints)
-        {
-            telepoints.push_back({
-                source.name,
-                source.position.x,
-                source.position.y,
-                source.position.z});
-        }
-        const CityWorldNeoQ20CompatibilityResult grounding =
-            ApplyCityWorldNeoQ20TelepointGrounding(
-                true,
-                telepoints);
-        if (grounding.applied)
-        {
-            terrainManager->GetDef()->telepoints.clear();
-            for (const CityWorldNeoQ20Telepoint& source : telepoints)
-            {
-                Terrn2Telepoint telepoint;
-                telepoint.name = source.name;
-                telepoint.position = Ogre::Vector3(
-                    source.position_x,
-                    source.position_y,
-                    source.position_z);
-                terrainManager->GetDef()->telepoints.push_back(telepoint);
-            }
-            LOG(
-                "[RoR|CityWorld|NeoQ20Grounding] Grounded authenticated "
-                "NeoQ2.0 telepoint at y=0");
-        }
-        else
-        {
-            LOG(fmt::format(
-                "[RoR|CityWorld|NeoQ20Grounding] Preserved telepoints: {}",
-                grounding.rejection_reason));
-        }
-    }
-
     for (Terrn2Telepoint& telepoint: terrainManager->GetDef()->telepoints)
     {
         m_map_entities.push_back(SurveyMapEntity("telepoint", telepoint.name, "icon_telepoint.dds", /*resource_group:*/"", telepoint.position, Ogre::Radian(0), -1));

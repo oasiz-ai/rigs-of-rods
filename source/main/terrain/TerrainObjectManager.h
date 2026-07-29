@@ -165,7 +165,6 @@ protected:
     std::size_t                           m_last_logged_local_light_active = static_cast<std::size_t>(-1);
     std::vector<MeshObject*>              m_mesh_objects;
     SurveyMapEntityVec                    m_map_entities;
-    bool                                  m_cityworld_neoq20_grounding_applied = false;
     Terrain*                  terrainManager = nullptr;
     ProceduralManagerPtr      m_procedural_manager;
     int                       m_entity_counter = 0;
