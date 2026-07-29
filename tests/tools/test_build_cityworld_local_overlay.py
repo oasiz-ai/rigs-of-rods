@@ -412,7 +412,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             corridor = report["corridor"]
             self.assertEqual(
                 corridor["format"],
-                "ror-cityworld-intercity-corridor-v2",
+                "ror-cityworld-intercity-corridor-v3",
             )
             self.assertEqual(
                 corridor["source"]["connection"],
@@ -451,7 +451,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 corridor["profile"],
                 {
                     "connection_surface_y_m": 0.1,
-                    "connection_taper_grade": 0.003,
+                    "connection_taper_grade": 0.0112,
                     "connection_taper_length_m": 40.0,
                     "deck_clearance_m": 8.0,
                     "flat_lead_length_m": 40.0,
@@ -483,11 +483,23 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 obstacle_audit["swept_mesh_clearance"],
                 "native-visual-and-drive-gate-required",
             )
+            self.assertEqual(
+                obstacle_audit["intentional_source_overlap_m"],
+                14.8491,
+            )
             waypoints = corridor["waypoints"]
             self.assertGreater(len(waypoints), 50)
             self.assertEqual(
                 waypoints[0]["position_m"],
-                [494.8491, 0.1, 370.0],
+                [480.0, 0.198, 370.0],
+            )
+            self.assertEqual(
+                waypoints[1]["position_m"],
+                [490.0, 0.31, 370.0],
+            )
+            self.assertEqual(
+                waypoints[2]["position_m"],
+                [494.8491, 0.31, 370.0],
             )
             self.assertEqual(
                 waypoints[-1]["position_m"],
@@ -506,6 +518,25 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 "crucetQr",
             )
             self.assertEqual(
+                corridor["source"]["apron"],
+                {
+                    "collision_authority": "native-procedural-road-v3",
+                    "curb_clearance_m": 0.01,
+                    "curb_top_y_m": 0.3,
+                    "legacy_collision_mesh":
+                        "troadavenuesidewalkbox.mesh",
+                    "legacy_road_surface_y_m": 0.198,
+                    "overlap_length_m": 14.8491,
+                    "plateau_y_m": 0.31,
+                    "rise_length_m": 10.0,
+                    "surface_continuous": True,
+                },
+            )
+            self.assertGreater(
+                waypoints[2]["position_m"][1],
+                corridor["source"]["apron"]["curb_top_y_m"],
+            )
+            self.assertEqual(
                 max(point["position_m"][1] for point in waypoints),
                 8.18,
             )
@@ -519,12 +550,15 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             destination = tuple(
                 BUILDER.ROUTE_DESTINATION_ANCHOR["connection_position_m"]
             )
+            apron_length = (
+                source[0] - BUILDER.ROUTE_SOURCE_APRON_START_X_M
+            )
             control_points = BUILDER.route_control_points(source, destination)
             arc_table = BUILDER.route_arc_table(control_points)
-            for waypoint in waypoints:
+            for waypoint in waypoints[2:]:
                 parameter = BUILDER.parameter_at_station(
                     arc_table,
-                    waypoint["station_m"],
+                    max(0.0, waypoint["station_m"] - apron_length),
                 )
                 tangent_x, tangent_z = BUILDER.cubic_bezier_derivative(
                     control_points,
@@ -566,11 +600,14 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             self.assertEqual(fixtures["runtime_point_lights_per_instance"], 1)
             self.assertEqual(
                 fixtures["collision_authority"],
-                "native-procedural-road-v2",
+                "native-procedural-road-v3",
             )
             self.assertEqual(
                 [item["station_m"] for item in fixtures["stations"]],
-                [float(value) for value in range(220, 821, 40)],
+                [
+                    round(apron_length + value, 9)
+                    for value in range(220, 821, 40)
+                ],
             )
             self.assertEqual(
                 [item["side"] for item in fixtures["stations"]],
@@ -623,7 +660,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 report["visual_asset_usage"],
                 {
                     "corridor_placement_mode":
-                        "native-procedural-v2-with-blender-fixtures-v1",
+                        "native-procedural-v3-curb-cut-with-blender-fixtures-v1",
                     "packaged_asset_ids": [
                         "rorng_city_led_streetlight_bridge",
                     ],
@@ -644,9 +681,9 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                         "rorng_city_led_streetlight_bridge",
                     ],
                     "purpose":
-                        "route-safe first Blender visual pass; bridge modules "
-                        "remain validated candidates for deck and abutment "
-                        "replacement",
+                        "curb-free Penguinville overlap apron plus route-safe "
+                        "Blender lighting; bridge modules remain validated "
+                        "candidates for deck and abutment replacement",
                 },
             )
             self.assertIn(
@@ -667,15 +704,23 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 16,
             )
             self.assertIn(
-                "cityworld_next_led_0220_left",
+                "cityworld_next_led_0235_left",
                 placement_text,
             )
             self.assertIn(
-                "cityworld_next_led_0820_right",
+                "cityworld_next_led_0835_right",
                 placement_text,
             )
             self.assertIn(
-                "494.8491, 0.1, 370, 0, 0, 0, 8.9, 1, 0.15, flat",
+                "480, 0.198, 370, 0, 0, 0, 8.9, 1, 0.15, flat",
+                placement_text,
+            )
+            self.assertIn(
+                "490, 0.31, 370, 0, 0, 0, 8.9, 1, 0.15, flat",
+                placement_text,
+            )
+            self.assertIn(
+                "494.8491, 0.31, 370, 0, 0, 0, 8.9, 1, 0.15, flat",
                 placement_text,
             )
             self.assertIn(

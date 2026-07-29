@@ -1,5 +1,5 @@
-/// \title CityWorld Next v2 procedural-route diagnostic
-/// \brief Drives the pinned DAF along the reported v2 centreline.
+/// \title CityWorld Next v3 curb-clearing route diagnostic
+/// \brief Drives the pinned DAF from Penguinville across the v3 apron.
 
 const int APP_STATE_SIMULATION = 2;
 const int SIM_STATE_PAUSED = 2;
@@ -7,21 +7,23 @@ const int64 ACTOR_ID = 2026072901;
 const uint64 MAX_PHYSICS_STEPS = 240000;
 const string VEHICLE = "b6b0UID-semi.truck";
 
-const float SOURCE_SEAM_STATION = 0.0f;
-const float MIDPOINT_STATION = 540.0f;
-const float DESTINATION_SEAM_STATION = 1060.598627259f;
-const float PASS_STATION = 1072.0f;
+const float SOURCE_SEAM_STATION = 14.8491f;
+const float MIDPOINT_STATION = 554.8491f;
+const float DESTINATION_SEAM_STATION = 1075.447727259f;
+const float PASS_STATION = 1087.447727259f;
 const float LOOKAHEAD_M = 24.0f;
 const float MAX_PATH_ERROR_M = 4.0f;
 const float MAX_VERTICAL_ERROR_M = 3.5f;
 
-// The two 20 m extensions continue the report-declared endpoint tangents.
-// Samples 1..57 are the exact v2 overlay-report waypoints. This diagnostic
-// does not independently prove connection to the original road surfaces.
+// The 10 m source and 20 m destination extensions continue the endpoint
+// tangents. Samples 1..59 are the exact v3 overlay-report waypoints. The
+// source seam is the authenticated curb edge crossed by the raised apron.
 array<vector3> gPath = {
-    vector3(474.849100000f, 0.100000000f, 370.000000000f),
-    vector3(494.849100000f, 0.100000000f, 370.000000000f),
-    vector3(514.671323004f, 0.140000000f, 372.361372062f),
+    vector3(470.000000000f, 0.198000000f, 370.000000000f),
+    vector3(480.000000000f, 0.198000000f, 370.000000000f),
+    vector3(490.000000000f, 0.310000000f, 370.000000000f),
+    vector3(494.849100000f, 0.310000000f, 370.000000000f),
+    vector3(514.671323004f, 0.245000000f, 372.361372062f),
     vector3(533.892142129f, 0.180000000f, 377.847501062f),
     vector3(552.520727095f, 0.523750000f, 385.113320905f),
     vector3(570.667427185f, 1.430000000f, 393.516299503f),
@@ -81,65 +83,67 @@ array<vector3> gPath = {
 };
 
 array<float> gStation = {
-    -20.000000000f,
+    -10.000000000f,
     0.000000000f,
-    20.000000000f,
-    40.000000000f,
-    60.000000000f,
-    80.000000000f,
-    100.000000000f,
-    120.000000000f,
-    140.000000000f,
-    160.000000000f,
-    180.000000000f,
-    200.000000000f,
-    220.000000000f,
-    240.000000000f,
-    260.000000000f,
-    280.000000000f,
-    300.000000000f,
-    320.000000000f,
-    340.000000000f,
-    360.000000000f,
-    380.000000000f,
-    400.000000000f,
-    420.000000000f,
-    440.000000000f,
-    460.000000000f,
-    480.000000000f,
-    500.000000000f,
-    520.000000000f,
-    540.000000000f,
-    560.000000000f,
-    580.000000000f,
-    600.000000000f,
-    620.000000000f,
-    640.000000000f,
-    660.000000000f,
-    680.000000000f,
-    700.000000000f,
-    720.000000000f,
-    740.000000000f,
-    760.000000000f,
-    780.000000000f,
-    800.000000000f,
-    820.000000000f,
-    840.000000000f,
-    860.000000000f,
-    860.598627259f,
-    880.000000000f,
-    900.000000000f,
-    920.000000000f,
-    940.000000000f,
-    960.000000000f,
-    980.000000000f,
-    1000.000000000f,
-    1020.000000000f,
-    1020.598627259f,
-    1040.000000000f,
-    1060.000000000f,
-    1060.598627259f,
-    1080.598627259f
+    10.000000000f,
+    14.849100000f,
+    34.849100000f,
+    54.849100000f,
+    74.849100000f,
+    94.849100000f,
+    114.849100000f,
+    134.849100000f,
+    154.849100000f,
+    174.849100000f,
+    194.849100000f,
+    214.849100000f,
+    234.849100000f,
+    254.849100000f,
+    274.849100000f,
+    294.849100000f,
+    314.849100000f,
+    334.849100000f,
+    354.849100000f,
+    374.849100000f,
+    394.849100000f,
+    414.849100000f,
+    434.849100000f,
+    454.849100000f,
+    474.849100000f,
+    494.849100000f,
+    514.849100000f,
+    534.849100000f,
+    554.849100000f,
+    574.849100000f,
+    594.849100000f,
+    614.849100000f,
+    634.849100000f,
+    654.849100000f,
+    674.849100000f,
+    694.849100000f,
+    714.849100000f,
+    734.849100000f,
+    754.849100000f,
+    774.849100000f,
+    794.849100000f,
+    814.849100000f,
+    834.849100000f,
+    854.849100000f,
+    874.849100000f,
+    875.447727259f,
+    894.849100000f,
+    914.849100000f,
+    934.849100000f,
+    954.849100000f,
+    974.849100000f,
+    994.849100000f,
+    1014.849100000f,
+    1034.849100000f,
+    1035.447727259f,
+    1054.849100000f,
+    1074.849100000f,
+    1075.447727259f,
+    1095.447727259f
 };
 
 enum RuntimeState
@@ -163,15 +167,15 @@ bool gDestinationSeam = false;
 bool gHasLastPosition = false;
 uint gDrivingFrames = 0;
 float gDistance = 0.0f;
-float gClosestStation = -20.0f;
+float gClosestStation = -10.0f;
 float gClosestCrossTrack = 0.0f;
-float gClosestSurfaceY = 0.1f;
+float gClosestSurfaceY = 0.198f;
 float gReferenceCrossTrack = 0.0f;
 float gReferenceHeight = 0.0f;
 float gMaximumPathError = 0.0f;
 float gMaximumVerticalError = 0.0f;
 float gMaximumRegression = 0.0f;
-float gPreviousProgress = -20.0f;
+float gPreviousProgress = -10.0f;
 vector3 gLastPosition;
 
 float Clamp(float value, float minimum, float maximum)
@@ -306,7 +310,7 @@ void Fail(const string &in reason)
 
 void main()
 {
-    if (gPath.length() != gStation.length() || gPath.length() != 59)
+    if (gPath.length() != gStation.length() || gPath.length() != 61)
     {
         Fail("path-contract-invalid");
         return;
@@ -325,8 +329,8 @@ void main()
     console.cVarSet("ui_hide_gui", "true");
     game.registerForEvent(SE_GENERIC_NEW_TRUCK);
     game.log(
-        "[RoR|CW2|CorridorRuntime] START route_m=1060.598627259 "
-        "waypoints=57 vehicle=b6b0UID-semi.truck batch=20");
+        "[RoR|CW2|CorridorRuntime] START route_m=1075.447727259 "
+        "waypoints=59 vehicle=b6b0UID-semi.truck batch=20");
 }
 
 void eventCallbackEx(
@@ -359,7 +363,7 @@ bool SpawnActor()
             {"instance_id", ACTOR_ID},
             {"free_position", true},
             {"enter", false},
-            {"position", vector3(480.0f, 2.1f, 370.0f)},
+            {"position", vector3(470.0f, 2.1f, 370.0f)},
             // The DAF's physical forward axis is -X. A 180 degree Y rotation
             // aligns it with the source road and the first corridor tangent.
             {"rotation", quaternion(
@@ -499,7 +503,7 @@ void UpdateTraversal()
             Fail("route-regression-" + gMaximumRegression);
             return;
         }
-        if (gDistance < 1040.0f || gDistance > 1160.0f)
+        if (gDistance < 1070.0f || gDistance > 1180.0f)
         {
             Fail("distance-" + gDistance);
             return;
@@ -508,7 +512,7 @@ void UpdateTraversal()
         console.cVarSet("ui_hide_gui", "false");
         gState = FINISHED;
         game.log(
-            "[RoR|CW2|CorridorRuntime] PASS seams=2 route_m=1060.598627259 "
+            "[RoR|CW2|CorridorRuntime] PASS seams=2 route_m=1075.447727259 "
             "distance_m=" + gDistance +
             " path_error_m=" + gMaximumPathError +
             " vertical_error_m=" + gMaximumVerticalError +
@@ -567,7 +571,7 @@ void frameStep(float dt)
             gActor.parkingbrakeToggle();
         const vector3 position = gActor.getPosition();
         FindClosestPath(position);
-        if (gClosestStation < -20.0f || gClosestStation > -10.0f)
+        if (gClosestStation < -10.0f || gClosestStation > -3.0f)
         {
             Fail("spawn-not-inside-penguinville-road-" + gClosestStation);
             return;

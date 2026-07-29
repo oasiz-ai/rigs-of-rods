@@ -219,25 +219,29 @@ python3 tools/build_cityworld_local_overlay.py \
 The output path must not already exist and must be outside this repository.
 The current eight-entry deterministic ZIP references the separately installed
 original `CityWorld.otc` and `CityWorld.tobj`; it does not copy either file or
-any original map asset. Overlay v2 authenticates the two source road-object
+any original map asset. Overlay v3 authenticates the two source road-object
 placements and replaces the incomplete 192 m prototype with a continuous
-1,060.599 m native construction alignment from Penguinville's east
-T-junction to NeoQueretaro's west carriageway. It closes at the real road
-height and heading, eases the surface offset over 40 m, uses two 160 m ramps,
-raises the central deck 8 m, enables continuous collision, and requests 47
-terrain-reaching pillar stations.
+1,075.448 m native construction alignment. It starts 14.8491 m inside
+Penguinville's east carriageway, rises from the decoded 0.198 m road surface
+to 0.31 m over 10 m, clears the decoded 0.30 m curb by 1 cm across the full
+8.9 m driven mouth, and ends on NeoQueretaro's west carriageway. It closes at
+the destination road height and heading, eases the surface offset over 40 m,
+uses two 160 m ramps, raises the central deck 8 m, enables continuous
+collision, and requests 47 terrain-reaching pillar stations. The overlap
+functionally removes the curb from the connection without copying or modifying
+the original private city mesh.
 
 Its inventory is the generated descriptor, merged material script, procedural
 placement, canonical local-only provenance report, and four collisionless
 runtime resources for the placed bridge streetlight. The four Blender-authored
 module families remain validated and reported but are unplaced and excluded
-from the runtime payload because their existing ODEFs own collision. The v2
+from the runtime payload because their existing ODEFs own collision. The v3
 route continues to use RoR's native procedural road, barriers and
 terrain-reaching pillars as the sole corridor collision authority. The
 building-overlapping gateway is not placed. Sixteen alternating bridge
-fixtures are mounted from station 220 m through 820 m, with exact inward
-transforms and one checked warm point light per instance. The source archive
-stays byte-identical and the generated package is explicitly not for
+fixtures are mounted from station 234.8491 m through 834.8491 m, with exact
+inward transforms and one checked warm point light per instance. The source
+archive stays byte-identical and the generated package is explicitly not for
 redistribution or shipping.
 
 The generated descriptor mounts the original archive through:

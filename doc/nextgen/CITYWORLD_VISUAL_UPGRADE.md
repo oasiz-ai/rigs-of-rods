@@ -35,14 +35,17 @@ distances:
 2. NeoQueretaro to NeoQ2.0: 5,401.543 metres.
 
 The first physical road link does not use those spawn positions as endpoints.
-It joins the authenticated Penguinville east T-junction seam at
-`(494.8491, 0.1, 370)` to the authenticated NeoQueretaro west carriageway seam
-at `(1380.966797, 0.1, 936.098389)`. Those road edges are 1,051.509 metres
-apart. The generated centreline is 1,060.599 metres because it preserves east
-tangents at both cities. The direct Penguinville-to-NeoQ2.0 distance is
-7,374.342 metres and is not the first construction target. A link is a road
-corridor with bridge or elevated spans where the terrain requires them, not a
-single multi-kilometre mesh.
+It starts on the authenticated Penguinville east carriageway at
+`(480, 0.198, 370)`, overlaps 14.8491 m of the existing road and curb, and
+continues from the authenticated curb edge at `(494.8491, 0.1, 370)` to the
+authenticated NeoQueretaro west carriageway seam at
+`(1380.966797, 0.1, 936.098389)`. The new source and destination surface points
+are 1,064.053 metres apart. The generated centreline is 1,075.448 metres
+because it preserves east tangents at both cities and includes the source
+overlap. The direct Penguinville-to-NeoQ2.0 distance is 7,374.342 metres and is
+not the first construction target. A link is a road corridor with bridge or
+elevated spans where the terrain requires them, not a single multi-kilometre
+mesh.
 
 Run the local audit with:
 
@@ -109,14 +112,23 @@ separately installed, read-only local source and is appended to the derived
 terrain's resource group. The derived overlay location therefore keeps
 precedence if both archives contain the same resource name.
 
-Overlay v2 replaces the incomplete 192 m prototype placement with a continuous
-1,060.599 m, 8.9 m-wide construction alignment. Its endpoints close at the
-exact existing-road height and heading with zero reported three-dimensional
-gap. The 0.08 m anti-z-fighting surface offset eases in and out over 40 m
-rather than creating a lip. Two 160 m smoothstep ramps hold the analytic grade
-to 7.5 percent, the central deck is raised 8 m, and 47 bridge stations request
-RoR's terrain-reaching native pillars at no more than 20 m spacing. Collision
-generation is enabled for the complete procedural road.
+Overlay v3 replaces the incomplete 192 m prototype placement with a continuous
+1,075.448 m, 8.9 m-wide construction alignment. At Penguinville, a
+14.8491 m collision-authoritative asphalt apron begins at the legacy road
+surface height of 0.198 m, rises to 0.31 m over 10 m, and crosses the decoded
+0.30 m curb top with 1 cm clearance. The apron therefore removes the curb from
+the driven bridge mouth without modifying or redistributing the private source
+mesh; the original sidewalk and curb remain visible and collidable on either
+side of the 8.9 m opening. A later rights-cleared direct-city pass may bake this
+cut into an editable city mesh.
+
+The destination closes at the exact existing-road height and heading with zero
+reported three-dimensional gap. The 0.08 m anti-z-fighting surface offset
+eases out over 40 m rather than creating a lip. Two 160 m smoothstep ramps hold
+the analytic grade to 7.5 percent, the central deck is raised 8 m, and 47
+bridge stations request RoR's terrain-reaching native pillars at no more than
+20 m spacing. Collision generation is enabled for the complete procedural
+road.
 
 The former gateway is not placed: its audited footprint intersected
 `officeblock04`. The route leaves the Penguinville edge road, crosses the
@@ -129,8 +141,8 @@ meshes.
 
 The first route-safe Blender visual pass places sixteen
 `rorng_city_led_streetlight_bridge` instances at 40 m spacing from station
-220 m through 820 m, alternating sides and rotating each local `-Z` arm toward
-the carriageway. Their 0.4 m flange fits the 0.45 m native parapet. The
+234.8491 m through 834.8491 m, alternating sides and rotating each local `-Z`
+arm toward the carriageway. Their 0.4 m flange fits the 0.45 m native parapet. The
 `static-visual-v1` contract requires zero collision meshes, so the procedural
 road and parapet remain the sole collision authority. Each ODEF carries one
 validated warm point light with a 24 m range; the generated report records
@@ -148,28 +160,39 @@ pillars, inward fixture orientation, collisionless ODEFs, Windows-reserved
 output names, and no-overwrite publication. Those overlay tests now run in the
 Linux, Windows, and macOS provenance matrix.
 
-On the macOS arm64 rolling app, the installed v2 package reaches
+On the macOS arm64 rolling app, the installed v3 package reaches
 `TERRAIN LOADING DONE`, passes the 10-frame bundle smoke, and shuts OGRE down
-cleanly. A deterministic full-vehicle end-to-end acceptance traversal and
-native Windows/Linux repetitions remain open.
+cleanly. A UI-free 1280x720 capture verifies a continuous asphalt mouth across
+the original sidewalk and curb, with the curb retained only beside the road.
+A deterministic full-vehicle end-to-end acceptance traversal and native
+Windows/Linux repetitions remain open.
 
-An exploratory private-content diagnostic arms the packaged DAF at the
-report-declared Penguinville endpoint tangent and follows all 57 procedural
-centreline samples. One macOS arm64 run covered 1,086.34 m in 170,960
-fixed-batch physics steps, held maximum centreline error to 0.912104 m, and
-decoded one UI-free 1280x720 RGB capture. This proves only that a vehicle can
-follow the generated collision spline. It does not prove that either endpoint
-joins an original CityWorld road surface, that the swept roadway clears visible
-buildings and curbs, or that the 47 requested supports were visibly
-instantiated.
+The v2 exploratory private-content diagnostic armed the packaged DAF at the
+former report-declared Penguinville endpoint tangent and followed all 57
+procedural centreline samples. That macOS arm64 run covered 1,086.34 m in
+170,960 fixed-batch physics steps and held maximum centreline error to
+0.912104 m.
 
-The installed v2 report explicitly identifies the package as a route-safe
-first visual pass. The bridge transition, curve, span, and gateway assets are
-unplaced; only the LED streetlight is packaged and placed. Therefore the
-user-visible disconnected-road, building-clearance, and apron defects are
-current-content blockers, not evidence of an old installed package. A manual
-underside capture shows native procedural pillars, but the diagnostic does not
-verify their count, terrain contact, or integration with an authored deck.
+The v3 diagnostic now starts the packaged DAF at station -9.99478 inside
+Penguinville, follows 59 exact report waypoints plus two road extensions, and
+crosses the authenticated curb edge at station 14.8491. The macOS arm64 run
+covered 1,096.82 m in 171,020 fixed-batch physics steps, held maximum
+centreline error to 1.12854 m and maximum vertical error to 0.725408 m, rebuilt
+the tested overlay byte for byte, and decoded one UI-free 1280x720 RGB capture.
+This directly exercises the original-carriageway approach and curb-clearing
+ascent, but remains diagnostic rather than acceptance evidence because it does
+not independently identify every supporting collision face or prove the
+destination-road turn.
+
+The installed v3 report explicitly identifies the package as a curb-free
+Penguinville overlap apron plus a route-safe first visual pass. The source curb
+blocker is closed for the driven width, but the bridge transition, curve, span,
+and gateway assets remain unplaced; only the LED streetlight is packaged and
+placed. The destination-network, independent building-clearance, and authored
+bridge blockers remain current-content work, not evidence of an old installed
+package. A manual underside capture shows native procedural pillars, but the
+diagnostic does not verify their count, terrain contact, or integration with an
+authored deck.
 Do not promote it to an acceptance gate until independent geometry/collision
 audits and runtime object evidence cover those properties. In particular, the
 destination is the west leg of a T-junction. Acceptance must cross the seam,
@@ -192,7 +215,7 @@ python3 tools/run_cityworld_corridor_scene.py \
 ```
 
 The diagnostic validates every overlay payload, independently rebuilds the
-overlay byte for byte with the current generator, proves the 57 report
+overlay byte for byte with the current generator, proves the 59 report
 waypoints match the script, authenticates the packaged DAF entry, and uses an
 ephemeral RoR home. It re-hashes every staged input before launch and publishes
 the artifact directory atomically only after its report is complete. Its report
@@ -326,14 +349,14 @@ new kit uses project-owned names and geometry. The longer
 NeoQueretaro-to-NeoQ2.0 corridor starts only after the first link passes
 collision, navigation, visual, and performance gates.
 
-The first-link topology is now complete as the v2 native procedural
+The first-link topology is now complete as the v3 native procedural
 construction alignment described above. That deliberately separates two
 risks: exact road-to-road connectivity, elevation, collision and support
 placement can be driven and reviewed now, while Blender-authored ramp, pier,
 deck-detail, fixture and building-adjacency meshes replace the generic
 construction visuals without changing the authenticated route. The visual pass
-must preserve the v2 centreline, lane width, zero-gap seams, maximum grade and
-continuous collision surface.
+must preserve the v3 centreline, lane width, curb-free source overlap,
+destination seam, maximum grade and continuous collision surface.
 
 The first project-owned tangent module is checked in as
 `rorng_city_bridge_span_20m`, and the first curve as

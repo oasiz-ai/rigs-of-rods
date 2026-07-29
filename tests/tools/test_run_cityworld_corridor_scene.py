@@ -57,14 +57,14 @@ def valid_logs() -> tuple[str, str]:
         (
             SCENE.SCRIPT_MARKERS[0],
             "[RoR|CW2|CorridorRuntime] ARMED actor=2026072901 "
-            "heading=1.5708 station=-14.8439 cross_track=0.65625 "
+            "heading=1.5708 station=-9.8439 cross_track=0.65625 "
             "height=1.50233",
             SCENE.SCRIPT_MARKERS[2],
             SCENE.SCRIPT_MARKERS[3],
             SCENE.SCRIPT_MARKERS[4],
             SCENE.SCRIPT_MARKERS[5],
             "[RoR|CW2|CorridorRuntime] PASS seams=2 "
-            "route_m=1060.598627259 distance_m=1086.34 "
+            "route_m=1075.447727259 distance_m=1097.64 "
             "path_error_m=0.912104 vertical_error_m=0.772327 "
             "regression_m=0.00750732 speed_mps=14.3433 "
             "physics_steps=170960",
@@ -124,23 +124,10 @@ def synthetic_overlay_report(
                 "sha256": hashlib.sha256(tool.read_bytes()).hexdigest(),
             }
         )
-    covered = 1060.598627259
-    waypoints = []
-    for index in range(SCENE.EXPECTED_WAYPOINTS):
-        fraction = index / (SCENE.EXPECTED_WAYPOINTS - 1)
-        waypoints.append(
-            {
-                "index": index,
-                "position_m": [
-                    494.8491 + (1380.966797 - 494.8491) * fraction,
-                    0.1,
-                    370.0 + (936.098389 - 370.0) * fraction,
-                ],
-                "station_m": covered * fraction,
-            }
-        )
+    covered = 1075.447727259
+    waypoints = report_matching_script()["corridor"]["waypoints"]
     return {
-        "format": "ror-cityworld-local-overlay-v2",
+        "format": "ror-cityworld-local-overlay-v3",
         "source": {
             "archive": {"sha256": SCENE.CITYWORLD_SHA256},
             "references": {
@@ -172,7 +159,7 @@ def synthetic_overlay_report(
         },
         "tools": tool_records,
         "corridor": {
-            "format": "ror-cityworld-intercity-corridor-v2",
+            "format": "ror-cityworld-intercity-corridor-v3",
             "covered_centerline_length_m": covered,
             "waypoints": waypoints,
             "connection": {
@@ -184,7 +171,7 @@ def synthetic_overlay_report(
             "fixtures": {
                 "instance_count": SCENE.EXPECTED_LIGHTS,
                 "runtime_point_lights_per_instance": 1,
-                "collision_authority": "native-procedural-road-v2",
+                "collision_authority": "native-procedural-road-v3",
             },
             "profile": {
                 "width_m": 8.9,
@@ -196,15 +183,37 @@ def synthetic_overlay_report(
                 "requested_count": 47,
                 "terrain_contact_resolved_at_runtime": True,
             },
+            "source": {
+                "position_m": [480.0, 0.198, 370.0],
+                "apron": {
+                    "collision_authority": "native-procedural-road-v3",
+                    "curb_clearance_m": 0.01,
+                    "curb_top_y_m": 0.3,
+                    "legacy_collision_mesh":
+                        "troadavenuesidewalkbox.mesh",
+                    "legacy_road_surface_y_m": 0.198,
+                    "overlap_length_m": 14.8491,
+                    "plateau_y_m": 0.31,
+                    "rise_length_m": 10.0,
+                    "surface_continuous": True,
+                },
+            },
         },
         "visual_asset_usage": {
+            "corridor_placement_mode":
+                "native-procedural-v3-curb-cut-with-blender-fixtures-v1",
             "purpose": (
-                "route-safe first Blender visual pass; bridge modules remain "
-                "validated candidates for deck and abutment replacement"
+                "curb-free Penguinville overlap apron plus route-safe Blender "
+                "lighting; bridge modules remain validated candidates for "
+                "deck and abutment replacement"
             ),
             "packaged_asset_ids": ["rorng_city_led_streetlight_bridge"],
             "placed_asset_ids": ["rorng_city_led_streetlight_bridge"],
             "unplaced_asset_ids": SCENE.EXPECTED_UNPLACED_ASSETS,
+            "validated_asset_ids": (
+                SCENE.EXPECTED_UNPLACED_ASSETS
+                + ["rorng_city_led_streetlight_bridge"]
+            ),
         },
     }
 
@@ -224,8 +233,8 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
     ) -> None:
         engine, script = valid_logs()
         metrics = SCENE.validate_runtime_logs(0, "", engine, script)
-        self.assertAlmostEqual(metrics["armed_station_m"], -14.8439)
-        self.assertAlmostEqual(metrics["distance_m"], 1086.34)
+        self.assertAlmostEqual(metrics["armed_station_m"], -9.8439)
+        self.assertAlmostEqual(metrics["distance_m"], 1097.64)
         self.assertAlmostEqual(metrics["path_error_m"], 0.912104)
         self.assertEqual(metrics["physics_steps"], 170960)
         for marker in SCENE.SCRIPT_MARKERS:
@@ -241,8 +250,8 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
     def test_runtime_log_gate_rejects_shortcut_and_unstable_metrics(self) -> None:
         engine, script = valid_logs()
         replacements = (
-            ("station=-14.8439", "station=-5"),
-            ("distance_m=1086.34", "distance_m=800"),
+            ("station=-9.8439", "station=-2"),
+            ("distance_m=1097.64", "distance_m=800"),
             ("path_error_m=0.912104", "path_error_m=2.1"),
             ("vertical_error_m=0.772327", "vertical_error_m=1.6"),
             ("regression_m=0.00750732", "regression_m=1.1"),
@@ -262,10 +271,10 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
     def test_fixture_route_matches_overlay_waypoint_contract(self) -> None:
         report = report_matching_script()
         record = SCENE.validate_script_route(FIXTURE_PATH, report)
-        self.assertEqual(record["samples"], 59)
+        self.assertEqual(record["samples"], 61)
         self.assertEqual(record["path"], SCENE.FIXTURE_PATH)
         changed = copy.deepcopy(report)
-        changed["corridor"]["waypoints"][28]["position_m"][0] += 0.01
+        changed["corridor"]["waypoints"][30]["position_m"][0] += 0.01
         with self.assertRaises(SCENE.CorridorSceneFailure):
             SCENE.validate_script_route(FIXTURE_PATH, changed)
         script = FIXTURE_PATH.read_text(encoding="utf-8")
@@ -274,7 +283,8 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
             '"sim_deterministic_fixed_steps_per_frame", "20"',
             '"sim_no_collisions", "false"',
             '"sim_no_self_collisions", "false"',
-            '{"position", vector3(480.0f, 2.1f, 370.0f)}',
+            '{"position", vector3(470.0f, 2.1f, 370.0f)}',
+            "const float SOURCE_SEAM_STATION = 14.8491f;",
             'Fail("spawn-not-inside-penguinville-road-"',
             "gClosestStation >= DESTINATION_SEAM_STATION",
         ):
@@ -306,6 +316,18 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
 
             changed = copy.deepcopy(report)
             changed["corridor"]["connection"]["source_position_gap_m"] = 0.1
+            write_overlay(archive, changed, payload)
+            with self.assertRaises(SCENE.CorridorSceneFailure):
+                SCENE.validate_overlay_archive(archive, repository)
+
+            changed = copy.deepcopy(report)
+            changed["corridor"]["source"]["apron"]["curb_clearance_m"] = 0.0
+            write_overlay(archive, changed, payload)
+            with self.assertRaises(SCENE.CorridorSceneFailure):
+                SCENE.validate_overlay_archive(archive, repository)
+
+            changed = copy.deepcopy(report)
+            changed["corridor"]["waypoints"][2]["position_m"][1] = 0.3
             write_overlay(archive, changed, payload)
             with self.assertRaises(SCENE.CorridorSceneFailure):
                 SCENE.validate_overlay_archive(archive, repository)

@@ -110,12 +110,12 @@ connectors, standard glTF interchange artifacts, and a full A0 release-gate
 provenance inventory. The curve adds an integrated pier/bearings, expansion
 joints, four LED fixtures, and an emissive material lowered into OGRE.
 Dependency-free validation runs on macOS, Linux, and Windows CI. The offline
-glTF-to-runtime compiler has landed. The local-only v2 corridor overlay now
-authenticates and joins Penguinville's east road to NeoQueretaro's west road
-with a continuous 1,060.599 m collision surface, zero-gap seam heights and
-headings, 160 m eased ramps, an 8 m raised deck, and 47 native
-terrain-reaching support stations. The building-overlapping prototype gateway
-is no longer placed.
+glTF-to-runtime compiler has landed. The local-only v3 corridor overlay now
+starts inside Penguinville's authenticated east carriageway, clears its curb
+with a 14.8491 m collision-authoritative overlap, and joins NeoQueretaro's west
+road with a continuous 1,075.448 m collision surface, destination seam closure,
+160 m eased ramps, an 8 m raised deck, and 47 native terrain-reaching support
+stations. The building-overlapping prototype gateway is no longer placed.
 
 Both modules now compile through the first production
 [`ror_scene_compiler` boundary](CITYWORLD_SCENE_COMPILER.md). Each package owns
@@ -125,8 +125,9 @@ ODEF, a generated material fallback, and a canonical report. OGRE 14.5.2,
 basis, source/intermediate/output hashes, bounded counts, and stable
 object/material traversal are enforced. The same standard-library validation
 runs under normal and optimized Python on Windows, Linux, and macOS. The
-macOS arm64 rolling app has cleanly loaded and visually checked both v2 city
-seams, the raised deck collision and visible pillars. Replacing the generic
+macOS arm64 rolling app has cleanly loaded and visually checked the v3
+Penguinville curb-free overlap, destination seam, raised deck collision and
+visible pillars. Replacing the generic
 construction alignment with the checked Blender ramp/deck/pier kit, then
 running a deterministic full-corridor vehicle traversal on macOS, Windows and
 Linux, is the next CW2 gate.
@@ -743,28 +744,39 @@ global PSSM configuration.
 The corrected full CityWorld link now has its first topology-safe Blender
 visual layer. Sixteen collisionless, parapet-mounted LED fixtures alternate at
 40 m stations along the flat raised deck, point inward, and each instantiate a
-validated 24 m warm point light. The procedural 1,060.599 m road, exact city
-seams, 7.5 percent grade ceiling, continuous collision surface, and 47
+validated 24 m warm point light. Overlay v3 extends the procedural road to
+1,075.448 m with a 14.8491 m source overlap: it begins on Penguinville's
+authenticated carriageway surface, rises 11.2 cm over 10 m, and clears the
+decoded 0.30 m curb by 1 cm across the full 8.9 m bridge mouth. This
+collision-authoritative apron functionally removes the curb from the driven
+connection while leaving the private original city archive unchanged; a later
+rights-cleared direct-city pass may bake the cut into an editable mesh. The
+7.5 percent grade ceiling, continuous collision surface, and 47
 terrain-reaching pillar requests remain authoritative. The cross-platform
 provenance matrix now executes the overlay builder under normal and optimized
 Python on macOS, Linux, and Windows; native full-map Windows/Linux driving is
 still an open runtime gate.
 
-The full-map acceptance gate remains open. An exploratory macOS arm64
-diagnostic drove the packaged DAF for 1,086.34 m along the exact procedural
-centreline and decoded a UI-free 1280x720 RGB proof, but that self-referential
-route test cannot certify an original-road surface join, visible-mesh
-clearance, authored bridge modules, or visible supports. The installed v2
-package is current and explicitly leaves the transition, curve, span, and
-gateway assets unplaced; its 47 supports are requests rather than runtime
-object evidence in this automated diagnostic. Manual captures show native
-procedural pillars, but not a completed authored deck/abutment system or a
-verified support count. Redesign both city connections, clear the visible
-building/curb conflict, integrate the deck/abutments/supports, add independent
-geometry and runtime-object assertions, and extend the drive through a
-commanded turn at the destination T-junction followed by substantial travel on
-the independently derived road network. Then repeat the full traversal on
-macOS, Windows, and Linux.
+The full-map acceptance gate remains open. The v3 macOS arm64 diagnostic starts
+the packaged DAF at station -9.99478 inside Penguinville, crosses the
+authenticated curb edge at station 14.8491, and drives 1,096.82 m over all 59
+reported route waypoints in 171,020 fixed-batch physics steps. It held maximum
+centreline error to 1.12854 m, maximum vertical error to 0.725408 m, rebuilt the
+overlay byte for byte, and decoded a UI-free 1280x720 RGB proof. This closes the
+driven curb obstruction and directly exercises the original-carriageway
+approach, but the diagnostic still cannot independently identify every
+supporting collision face, visible-mesh clearance, authored bridge module, or
+visible support.
+
+The transition, curve, span, and gateway assets remain unplaced; the 47
+supports are requests rather than runtime object evidence in this automated
+diagnostic. Manual captures show native procedural pillars, but not a completed
+authored deck/abutment system or a verified support count. Independently audit
+the remaining swept building clearance, integrate the
+deck/abutments/supports, add runtime-object assertions, and extend the drive
+through a commanded turn at the destination T-junction followed by substantial
+travel on the independently derived road network. Then repeat the full
+traversal on macOS, Windows, and Linux.
 
 A portable runtime gate assembles an isolated native fixture from the pinned
 content submodule. On macOS arm64, the DAF drove 137.569 metres through three
@@ -1360,9 +1372,10 @@ Gate A0:
 10. The project-owned CityWorld tangent and 15-degree curved spans are compiled
     through the fail-closed glTF boundary; tangent in-game lane/collision
     continuity and a connector-solved three-curve traversal are proven on
-    macOS arm64. The first intercity construction alignment now closes both
-    authenticated city-road seams with ramps, collision and terrain-reaching
-    supports. Next replace its generic visuals with the Blender
+    macOS arm64. The first intercity construction alignment now starts inside
+    Penguinville's authenticated carriageway, clears its curb with a continuous
+    collision apron, and closes the NeoQueretaro seam with ramps, collision and
+    terrain-reaching supports. Next replace its generic visuals with the Blender
     abutment/transition/deck/pier kit and pass the full-corridor three-platform
     drive gate before starting the longer corridor.
 

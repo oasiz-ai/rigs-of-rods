@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Diagnose the reported v2 procedural route with the packaged DAF.
+"""Diagnose the reported v3 curb-clearing route with the packaged DAF.
 
 CityWorld is third-party content and is intentionally absent from this
 repository. This diagnostic accepts the authenticated original and locally
@@ -69,7 +69,7 @@ MAX_REPORT_BYTES = 4 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 64
 MAX_OVERLAY_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_OVERLAY_TOTAL_BYTES = 128 * 1024 * 1024
-EXPECTED_WAYPOINTS = 57
+EXPECTED_WAYPOINTS = 59
 EXPECTED_LIGHTS = 16
 MAX_PHYSICS_STEPS = 240000
 EXPECTED_UNPLACED_ASSETS = [
@@ -89,13 +89,13 @@ REQUIRED_OVERLAY_TOOLS = frozenset(
 )
 
 SCRIPT_MARKERS = (
-    "[RoR|CW2|CorridorRuntime] START route_m=1060.598627259",
+    "[RoR|CW2|CorridorRuntime] START route_m=1075.447727259",
     "[RoR|CW2|CorridorRuntime] ARMED actor=2026072901",
     "[RoR|CW2|CorridorRuntime] SOURCE_SEAM",
     "[RoR|CW2|CorridorRuntime] MIDPOINT",
     "[RoR|CW2|CorridorRuntime] CAPTURE",
     "[RoR|CW2|CorridorRuntime] DESTINATION_SEAM",
-    "[RoR|CW2|CorridorRuntime] PASS seams=2 route_m=1060.598627259",
+    "[RoR|CW2|CorridorRuntime] PASS seams=2 route_m=1075.447727259",
 )
 ENGINE_MARKERS = (
     "===== TERRAIN LOADING DONE CityWorldNextLocalOverlay.terrn2",
@@ -119,7 +119,7 @@ ARMED_PATTERN = re.compile(
 )
 PASS_PATTERN = re.compile(
     r"\[RoR\|CW2\|CorridorRuntime\] PASS seams=2 "
-    r"route_m=1060\.598627259 "
+    r"route_m=1075\.447727259 "
     r"distance_m=(?P<distance>-?[0-9.eE+]+) "
     r"path_error_m=(?P<path>-?[0-9.eE+]+) "
     r"vertical_error_m=(?P<vertical>-?[0-9.eE+]+) "
@@ -304,7 +304,7 @@ def validate_overlay_archive(
                     f"overlay report is invalid JSON: {error}"
                 ) from error
             report = exact_dict(report, "overlay report")
-            if report.get("format") != "ror-cityworld-local-overlay-v2":
+            if report.get("format") != "ror-cityworld-local-overlay-v3":
                 raise CorridorSceneFailure("overlay report format is unsupported")
 
             source = exact_dict(report.get("source"), "overlay source")
@@ -403,7 +403,7 @@ def validate_overlay_archive(
         raise CorridorSceneFailure(f"cannot read overlay archive: {error}") from error
 
     corridor = exact_dict(report.get("corridor"), "overlay corridor")
-    if corridor.get("format") != "ror-cityworld-intercity-corridor-v2":
+    if corridor.get("format") != "ror-cityworld-intercity-corridor-v3":
         raise CorridorSceneFailure("corridor format is unsupported")
     waypoints = exact_list(corridor.get("waypoints"), "corridor waypoints")
     if len(waypoints) != EXPECTED_WAYPOINTS:
@@ -423,7 +423,7 @@ def validate_overlay_archive(
             raise CorridorSceneFailure("corridor stations are not increasing")
         previous_station = station
     endpoint_contracts = (
-        (waypoints[0], (494.8491, 0.1, 370.0), "source"),
+        (waypoints[0], (480.0, 0.198, 370.0), "source"),
         (
             waypoints[-1],
             (1380.966797, 0.1, 936.098389),
@@ -441,11 +441,39 @@ def validate_overlay_archive(
             for actual, target in zip(position, expected)
         ):
             raise CorridorSceneFailure(f"{label} road seam drifted")
+    expected_apron_waypoints = (
+        ((480.0, 0.198, 370.0), 0.0),
+        ((490.0, 0.31, 370.0), 10.0),
+        ((494.8491, 0.31, 370.0), 14.8491),
+    )
+    for index, (expected_position, expected_station) in enumerate(
+        expected_apron_waypoints
+    ):
+        waypoint = exact_dict(waypoints[index], f"apron waypoint {index}")
+        position = exact_list(
+            waypoint.get("position_m"),
+            f"apron waypoint {index} position",
+        )
+        station = finite_number(
+            waypoint.get("station_m"),
+            f"apron waypoint {index} station",
+        )
+        if (
+            abs(station - expected_station) > 1.0e-6
+            or any(
+                abs(finite_number(actual, "apron position") - expected)
+                > 1.0e-6
+                for actual, expected in zip(position, expected_position)
+            )
+        ):
+            raise CorridorSceneFailure(
+                f"Penguinville curb apron drifted at waypoint {index}"
+            )
     covered = finite_number(
         corridor.get("covered_centerline_length_m"),
         "covered centerline length",
     )
-    if abs(covered - 1060.598627259) > 1.0e-6:
+    if abs(covered - 1075.447727259) > 1.0e-6:
         raise CorridorSceneFailure("corridor length drifted")
     if abs(previous_station - covered) > 1.0e-6:
         raise CorridorSceneFailure("last station differs from corridor length")
@@ -458,6 +486,46 @@ def validate_overlay_archive(
     ):
         if abs(finite_number(connection.get(key), key)) > 1.0e-9:
             raise CorridorSceneFailure(f"corridor connection is open: {key}")
+    source = exact_dict(corridor.get("source"), "corridor source")
+    apron = exact_dict(source.get("apron"), "corridor source apron")
+    if (
+        apron.get("collision_authority") != "native-procedural-road-v3"
+        or apron.get("legacy_collision_mesh")
+        != "troadavenuesidewalkbox.mesh"
+        or apron.get("surface_continuous") is not True
+    ):
+        raise CorridorSceneFailure("Penguinville curb apron contract drifted")
+    apron_numbers = {
+        "curb_clearance_m": 0.01,
+        "curb_top_y_m": 0.3,
+        "legacy_road_surface_y_m": 0.198,
+        "overlap_length_m": 14.8491,
+        "plateau_y_m": 0.31,
+        "rise_length_m": 10.0,
+    }
+    for key, expected in apron_numbers.items():
+        actual = finite_number(apron.get(key), f"source apron {key}")
+        if abs(actual - expected) > 1.0e-9:
+            raise CorridorSceneFailure(
+                f"Penguinville curb apron contract drifted: {key}"
+            )
+    if (
+        abs(
+            finite_number(apron.get("plateau_y_m"), "apron plateau")
+            - finite_number(apron.get("curb_top_y_m"), "apron curb top")
+            - finite_number(apron.get("curb_clearance_m"), "apron clearance")
+        )
+        > 1.0e-9
+        or finite_number(
+            exact_list(
+                exact_dict(waypoints[2], "curb waypoint").get("position_m"),
+                "curb waypoint position",
+            )[1],
+            "curb waypoint height",
+        )
+        <= finite_number(apron.get("curb_top_y_m"), "apron curb top")
+    ):
+        raise CorridorSceneFailure("Penguinville curb is not physically cleared")
     fixtures = exact_dict(corridor.get("fixtures"), "corridor fixtures")
     if (
         exact_int(fixtures.get("instance_count"), "fixture count")
@@ -467,7 +535,7 @@ def validate_overlay_archive(
             "fixture light count",
         )
         != 1
-        or fixtures.get("collision_authority") != "native-procedural-road-v2"
+        or fixtures.get("collision_authority") != "native-procedural-road-v3"
     ):
         raise CorridorSceneFailure("corridor lighting contract drifted")
     profile = exact_dict(corridor.get("profile"), "corridor profile")
@@ -499,17 +567,22 @@ def validate_overlay_archive(
     if (
         usage.get("purpose")
         != (
-            "route-safe first Blender visual pass; bridge modules remain "
-            "validated candidates for deck and abutment replacement"
+            "curb-free Penguinville overlap apron plus route-safe Blender "
+            "lighting; bridge modules remain validated candidates for deck "
+            "and abutment replacement"
         )
+        or usage.get("corridor_placement_mode")
+        != "native-procedural-v3-curb-cut-with-blender-fixtures-v1"
         or usage.get("packaged_asset_ids")
         != ["rorng_city_led_streetlight_bridge"]
         or usage.get("placed_asset_ids")
         != ["rorng_city_led_streetlight_bridge"]
         or usage.get("unplaced_asset_ids") != EXPECTED_UNPLACED_ASSETS
+        or usage.get("validated_asset_ids")
+        != EXPECTED_UNPLACED_ASSETS + ["rorng_city_led_streetlight_bridge"]
     ):
         raise CorridorSceneFailure(
-            "diagnostic only supports the known incomplete v2 visual pass"
+            "diagnostic only supports the known incomplete v3 visual pass"
         )
     return report, {
         "name": OVERLAY_NAME,
@@ -571,8 +644,8 @@ def validate_script_route(
                 f"corridor script station drifted at waypoint {index}"
             )
     expected_extensions = (
-        ((474.8491, 0.1, 370.0), -20.0),
-        ((1400.966797, 0.1, 936.098389), 1080.598627259),
+        ((470.0, 0.198, 370.0), -10.0),
+        ((1400.966797, 0.1, 936.098389), 1095.447727259),
     )
     actual_extensions = (
         (vectors[0], stations[0]),
@@ -760,7 +833,7 @@ def validate_runtime_logs(
     armed = {key: float(value) for key, value in armed_matches[0].groupdict().items()}
     if not all(math.isfinite(value) for value in armed.values()):
         raise CorridorSceneFailure("ARMED metrics are non-finite")
-    if not -20.0 <= armed["station"] <= -10.0:
+    if not -10.0 <= armed["station"] <= -3.0:
         raise CorridorSceneFailure(
             "DAF was not armed inside the Penguinville source road"
         )
@@ -785,7 +858,7 @@ def validate_runtime_logs(
         if isinstance(value, float)
     ):
         raise CorridorSceneFailure("PASS metrics are non-finite")
-    if not 1060.0 <= metrics["distance_m"] <= 1110.0:
+    if not 1075.0 <= metrics["distance_m"] <= 1130.0:
         raise CorridorSceneFailure("physical traversal distance is invalid")
     if not 0.0 <= metrics["path_error_m"] <= 2.0:
         raise CorridorSceneFailure("corridor path error is excessive")
@@ -826,7 +899,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         parser.error("--timeout must be positive")
     if not args.diagnostic_allow_incomplete_overlay:
         parser.error(
-            "the current v2 overlay is incomplete; explicitly pass "
+            "the current v3 overlay is incomplete; explicitly pass "
             "--diagnostic-allow-incomplete-overlay for a non-acceptance run"
         )
     return args
@@ -973,7 +1046,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     report: dict[str, object] = {
         "acceptance": {
             "city_road_surface_connection_verified": False,
-            "status": "diagnostic-only-current-v2",
+            "status": "diagnostic-only-current-v3",
             "swept_visual_clearance_verified": False,
             "visible_bridge_modules_verified": False,
             "visible_supports_verified": False,
