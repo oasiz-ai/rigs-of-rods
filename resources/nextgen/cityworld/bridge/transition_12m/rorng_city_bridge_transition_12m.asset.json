@@ -2,15 +2,15 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/bridge/transition_12m/rorng_city_bridge_transition_12m.blend",
-      "sha256": "56715b4ff76660b83a02b4be3c69745763cfe4c9d4b2a0dd349b058919e2e772"
+      "sha256": "ff168c9ebaad697eeecee2e85f45780b89b5a4f240af99d69d6402cdb4de8d40"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/rorng_city_bridge_transition_12m.glb",
-      "sha256": "86e40f010f145f03dbf7cb70e38f8087e7c47e7675011551d6b1a5188469ea71"
+      "sha256": "547aaa785b9d17f6ebc85de90bac92ae8bcecdcddddfbe22ad01f9190a802b3e"
     },
     "preview": {
       "path": "content-source/cityworld_next/bridge/transition_12m/rorng_city_bridge_transition_12m_preview.png",
-      "sha256": "b0b7910cf0511b941b19d295f83ba8bddf025423d2d2fd9b3db35851392772e0"
+      "sha256": "e6d04608992b81570dce017995f721366c5815a9b627fd7623f255e04d2bdc0e"
     }
   },
   "asset": {
@@ -18,7 +18,7 @@
     "id": "rorng_city_bridge_transition_12m",
     "license": "GPL-3.0-or-later",
     "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
-    "version": 1
+    "version": 2
   },
   "authoring": {
     "axis": "blender-z-up",
@@ -30,9 +30,9 @@
           "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
         }
       ],
-      "format": "ror-cityworld-bridge-transition-generator-v1",
+      "format": "ror-cityworld-bridge-transition-generator-v2",
       "path": "tools/blender/cityworld_next/generate_bridge_transition.py",
-      "sha256": "c10b59626f2238bec956d1446427deaa67f223ee0d09997ba2242693aff406a4"
+      "sha256": "c172d2c533b2745af7a3397f092f4eb4ab5e00c879f764586bf406f72d18b4ba"
     },
     "transforms_applied": true,
     "units": "metres"
@@ -118,8 +118,8 @@
       {
         "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.material",
         "role": "material-fallback",
-        "sha256": "94e291f8332c2e0ee2048f29bca17fc05aaad8cb7900a554e4a4e8b74979e1f7",
-        "size": 1449
+        "sha256": "aa017874fb402a2677975399c58f369cc11ec3015122cbb71adfe86275384e26",
+        "size": 2205
       },
       {
         "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.odef",
@@ -148,25 +148,25 @@
       {
         "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "6e6329014c5c8e6a5e86d4a898253728af2f35db8e823f60a3a67264734908d2",
-        "size": 176191
+        "sha256": "d2de549ca9a161ad466a2fb0226fad4d96e42004e99872ea622a07ce3e711e21",
+        "size": 2767733
       },
       {
         "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "003bcd9b5941cedc5bf5e7d6409d0ff9a996b9e9c0745fd618aa347ea1f6ac41",
-        "size": 23096
+        "sha256": "fe0695dc1804e1fb8e5dac8b266db6bfafce8b35186993afc086769be6eebf02",
+        "size": 34519
       },
       {
         "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "6f7e003eaea074355350ad464380fa81abd8d6308182e00c2d501ec8cc4c15d0",
-        "size": 10258
+        "sha256": "78b1114c4acfbc1ad7d2137d5ce60991876306e5ae9b292677ec08234f8c2045",
+        "size": 16580
       }
     ],
     "report": {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.compile.json",
-      "sha256": "756d4a1ea90680b8fc43b2a6b21d6e23677f6c259a7e30ddec823091ab60eed2"
+      "sha256": "5e338a4f6ab648ecf15c34de7e069fb40820ed2cd3ec9711ad706430257cb6d5"
     }
   },
   "connectors": [
@@ -233,53 +233,53 @@
       {
         "bounds_blender_z_up": {
           "max": [
-            5.805,
+            6.339931,
             6.0,
-            1.0
+            1.01
           ],
           "min": [
-            -5.805,
-            -6.15,
+            -6.339931,
+            -6.0,
             -4.88
           ]
         },
         "lod": 0,
         "name": "rorng_city_bridge_transition_12m_lod0",
-        "triangles": 1372
+        "triangles": 20392
       },
       {
         "bounds_blender_z_up": {
           "max": [
-            5.805,
+            6.343764,
             6.0,
-            0.88
+            0.89
           ],
           "min": [
-            -5.805,
-            -6.15,
+            -6.343764,
+            -6.0,
             -4.88
           ]
         },
         "lod": 1,
         "name": "rorng_city_bridge_transition_12m_lod1",
-        "triangles": 216
+        "triangles": 324
       },
       {
         "bounds_blender_z_up": {
           "max": [
-            5.49,
+            6.110066,
             6.0,
-            0.88
+            0.89
           ],
           "min": [
-            -5.49,
-            -6.15,
+            -6.110066,
+            -6.0,
             -4.88
           ]
         },
         "lod": 2,
         "name": "rorng_city_bridge_transition_12m_lod2",
-        "triangles": 96
+        "triangles": 156
       }
     ],
     "road_width_m": 8.9
@@ -323,6 +323,30 @@
     },
     {
       "base_color_factor_linear": [
+        0.39,
+        0.42,
+        0.44,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_transition_concrete_edge",
+      "roughness_factor": 0.76
+    },
+    {
+      "base_color_factor_linear": [
+        0.16,
+        0.185,
+        0.2,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_transition_concrete_weathered",
+      "roughness_factor": 0.95
+    },
+    {
+      "base_color_factor_linear": [
         0.035,
         0.047,
         0.058,
@@ -347,6 +371,18 @@
     },
     {
       "base_color_factor_linear": [
+        0.008,
+        0.011,
+        0.014,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_transition_joint_rubber",
+      "roughness_factor": 0.82
+    },
+    {
+      "base_color_factor_linear": [
         0.82,
         0.84,
         0.79,
@@ -368,6 +404,18 @@
       "metallic_factor": 0.0,
       "name": "rorng_transition_lane_yellow",
       "roughness_factor": 0.6
+    },
+    {
+      "base_color_factor_linear": [
+        1.0,
+        0.34,
+        0.025,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_transition_reflector_amber",
+      "roughness_factor": 0.34
     }
   ]
 }

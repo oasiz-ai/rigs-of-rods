@@ -30,10 +30,15 @@ separate swept road/barrier collision shells:
 - runtime-neutral interchange and contract:
   `../../resources/nextgen/cityworld/bridge/curve_left_15deg/`.
 
-The transition module closes a bridge corridor against terrain with a
-continuous drivable slab, expansion joint, drains, bearing shelf, backwall,
-flared wing walls, retaining toes, three render LODs, and separate road and
-barrier collision meshes:
+The v2 transition module closes a bridge corridor against terrain with a
+continuous drivable slab, anchored modular expansion joint, framed drain
+grates and underside scuppers, bearing pads and fasteners, panelled backwall,
+truly flared wing walls, retaining toes, and material-factor weathering.
+Guardrail posts expose their base plates, anchor heads, and reflectors while
+the unchanged road and barrier collision proxies remain low-poly and
+watertight. The deterministic 20,392 / 324 / 156 triangle render ladder keeps
+all three LODs below their declared limits, and a wider studio camera shows the
+whole transition without changing runtime lighting:
 
 - editable source:
   `bridge/transition_12m/rorng_city_bridge_transition_12m.blend`;

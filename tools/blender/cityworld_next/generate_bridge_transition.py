@@ -26,8 +26,8 @@ BASE = importlib.util.module_from_spec(BASE_SPEC)
 BASE_SPEC.loader.exec_module(BASE)
 
 ASSET_ID = "rorng_city_bridge_transition_12m"
-ASSET_VERSION = 1
-GENERATOR_ID = "ror-cityworld-bridge-transition-generator-v1"
+ASSET_VERSION = 2
+GENERATOR_ID = "ror-cityworld-bridge-transition-generator-v2"
 LENGTH_M = 12.0
 WIDTH_M = 10.0
 ROAD_WIDTH_M = 8.9
@@ -85,6 +85,18 @@ def make_materials() -> dict[str, bpy.types.Material]:
             metallic=0.0,
             roughness=0.8,
         ),
+        "concrete_edge": BASE.make_material(
+            "rorng_transition_concrete_edge",
+            (0.39, 0.42, 0.44, 1.0),
+            metallic=0.0,
+            roughness=0.76,
+        ),
+        "concrete_weathered": BASE.make_material(
+            "rorng_transition_concrete_weathered",
+            (0.16, 0.185, 0.2, 1.0),
+            metallic=0.0,
+            roughness=0.95,
+        ),
         "dark_steel": BASE.make_material(
             "rorng_transition_dark_steel",
             (0.035, 0.047, 0.058, 1.0),
@@ -102,6 +114,18 @@ def make_materials() -> dict[str, bpy.types.Material]:
             (0.93, 0.58, 0.035, 1.0),
             metallic=0.0,
             roughness=0.6,
+        ),
+        "reflector": BASE.make_material(
+            "rorng_transition_reflector_amber",
+            (1.0, 0.34, 0.025, 1.0),
+            metallic=0.0,
+            roughness=0.34,
+        ),
+        "rubber": BASE.make_material(
+            "rorng_transition_joint_rubber",
+            (0.008, 0.011, 0.014, 1.0),
+            metallic=0.0,
+            roughness=0.82,
         ),
         "preview_ground": BASE.make_material(
             "rorng_preview_ground",
@@ -138,6 +162,60 @@ def box(
             collection=collection,
             bevel=bevel,
             bevel_segments=bevel_segments,
+        )
+    )
+
+
+def rotated_box(
+    parts: list[bpy.types.Object],
+    name: str,
+    dimensions: tuple[float, float, float],
+    location: tuple[float, float, float],
+    rotation_z: float,
+    material: bpy.types.Material,
+    collection: bpy.types.Collection,
+    *,
+    bevel: float = 0.0,
+    bevel_segments: int = 1,
+) -> None:
+    obj = BASE.make_box(
+        name,
+        dimensions=dimensions,
+        location=location,
+        material=material,
+        collection=collection,
+        bevel=bevel,
+        bevel_segments=bevel_segments,
+    )
+    obj.rotation_euler[2] = rotation_z
+    BASE.apply_transform(obj)
+    parts.append(obj)
+
+
+def cylinder(
+    parts: list[bpy.types.Object],
+    name: str,
+    radius: float,
+    depth: float,
+    location: tuple[float, float, float],
+    rotation: tuple[float, float, float],
+    vertices: int,
+    material: bpy.types.Material,
+    collection: bpy.types.Collection,
+    *,
+    bevel: float = 0.0,
+) -> None:
+    parts.append(
+        BASE.make_cylinder(
+            name,
+            radius=radius,
+            depth=depth,
+            location=location,
+            rotation=rotation,
+            vertices=vertices,
+            material=material,
+            collection=collection,
+            bevel=bevel,
         )
     )
 
@@ -180,6 +258,40 @@ def build_render_lod(
             bevel=0.035 if lod == 0 else 0.0,
             bevel_segments=2,
         )
+        box(
+            parts,
+            f"{prefix}_barrier_cap_{label}",
+            (0.47, LENGTH_M - 0.12, 0.1),
+            (side * 4.72, 0.0, 0.96 if lod == 0 else 0.84),
+            materials["concrete_edge"],
+            collection,
+            bevel=0.025 if lod == 0 else 0.0,
+            bevel_segments=2,
+        )
+        if lod < 2:
+            box(
+                parts,
+                f"{prefix}_guardrail_{label}",
+                (0.1, LENGTH_M - 0.3, 0.14),
+                (side * 4.5, 0.0, 0.76 if lod == 0 else 0.69),
+                materials["steel"],
+                collection,
+                bevel=0.025 if lod == 0 else 0.0,
+                bevel_segments=2,
+            )
+
+    if lod < 2:
+        for side in (-1.0, 1.0):
+            label = "left" if side < 0.0 else "right"
+            box(
+                parts,
+                f"{prefix}_deck_fascia_{label}",
+                (0.1, LENGTH_M - 0.18, 0.24),
+                (side * 4.96, 0.0, -0.5),
+                materials["concrete_edge"],
+                collection,
+                bevel=0.018 if lod == 0 else 0.0,
+            )
 
     # The terrain-facing end is a complete abutment: backwall, bearing shelf,
     # flared wing walls, and retaining toes. These stay below road level and
@@ -206,26 +318,50 @@ def build_render_lod(
     )
     for side in (-1.0, 1.0):
         label = "left" if side < 0.0 else "right"
-        box(
+        wing_rotation = math.radians(side * 5.5)
+        rotated_box(
             parts,
             f"{prefix}_wingwall_{label}",
             (0.62, 5.2, 3.4),
             (side * 5.18, -3.55, -2.0),
+            wing_rotation,
             materials["concrete"],
             collection,
             bevel=0.07 if lod == 0 else 0.0,
             bevel_segments=2,
         )
         if lod < 2:
-            box(
+            rotated_box(
                 parts,
                 f"{prefix}_retaining_toe_{label}",
                 (1.25, 4.8, 0.36),
                 (side * 5.18, -3.5, -3.82),
+                wing_rotation,
                 materials["concrete"],
                 collection,
                 bevel=0.04 if lod == 0 else 0.0,
             )
+        rotated_box(
+            parts,
+            f"{prefix}_wingwall_cap_{label}",
+            (0.74, 5.12, 0.16),
+            (side * 5.18, -3.55, -0.27),
+            wing_rotation,
+            materials["concrete_edge"],
+            collection,
+            bevel=0.035 if lod == 0 else 0.0,
+        )
+
+    box(
+        parts,
+        f"{prefix}_backwall_coping",
+        (11.05, 0.82, 0.22),
+        (0.0, -5.45, -0.32),
+        materials["concrete_edge"],
+        collection,
+        bevel=0.045 if lod == 0 else 0.0,
+        bevel_segments=2,
+    )
 
     if lod < 2:
         for index, lateral in enumerate((-3.25, -1.1, 1.1, 3.25)):
@@ -249,28 +385,229 @@ def build_render_lod(
                 parts,
                 f"{prefix}_lane_{name}",
                 (width, LENGTH_M - 0.4, 0.014),
-                (lateral, 0.0, 0.011),
+                (lateral, -0.12, 0.011),
                 material,
                 collection,
             )
     if lod == 0:
+        # The modular joint uses two anchored steel edge rails around a narrow
+        # elastomer seal. Lane paint stops short so the joint reads cleanly.
         box(
             parts,
-            f"{prefix}_expansion_joint",
-            (9.15, 0.18, 0.032),
-            (0.0, 5.82, 0.016),
-            materials["dark_steel"],
+            f"{prefix}_expansion_joint_rubber",
+            (9.15, 0.065, 0.026),
+            (0.0, 5.81, 0.013),
+            materials["rubber"],
             collection,
         )
-        for side in (-1.0, 1.0):
-            label = "left" if side < 0.0 else "right"
+        for rail_index, y_position in enumerate((5.735, 5.885)):
             box(
                 parts,
-                f"{prefix}_drain_{label}",
-                (0.28, 0.5, 0.026),
-                (side * 4.25, 4.65, 0.013),
-                materials["steel"],
+                f"{prefix}_expansion_joint_rail_{rail_index}",
+                (9.18, 0.075, 0.035),
+                (0.0, y_position, 0.018),
+                materials["dark_steel"],
                 collection,
+                bevel=0.008,
+            )
+            for bolt_index, lateral in enumerate(
+                (-4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0)
+            ):
+                cylinder(
+                    parts,
+                    (
+                        f"{prefix}_expansion_joint_bolt_"
+                        f"{rail_index}_{bolt_index}"
+                    ),
+                    radius=0.028,
+                    depth=0.024,
+                    location=(lateral, y_position, 0.04),
+                    rotation=(0.0, 0.0, 0.0),
+                    vertices=8,
+                    material=materials["steel"],
+                    collection=collection,
+                    bevel=0.004,
+                )
+
+        # Galvanized guardrail posts, base plates, fasteners, and reflectors
+        # expose the anchoring rather than leaving a monolithic parapet.
+        for side in (-1.0, 1.0):
+            label = "left" if side < 0.0 else "right"
+            for post_index, y_position in enumerate(
+                (-5.0, -3.0, -1.0, 1.0, 3.0, 5.0)
+            ):
+                box(
+                    parts,
+                    f"{prefix}_guardrail_post_{label}_{post_index}",
+                    (0.12, 0.16, 0.68),
+                    (side * 4.5, y_position, 0.43),
+                    materials["steel"],
+                    collection,
+                    bevel=0.018,
+                    bevel_segments=2,
+                )
+                box(
+                    parts,
+                    f"{prefix}_guardrail_base_{label}_{post_index}",
+                    (0.3, 0.34, 0.035),
+                    (side * 4.49, y_position, 0.045),
+                    materials["dark_steel"],
+                    collection,
+                    bevel=0.008,
+                )
+                for bolt_index, longitudinal in enumerate((-0.105, 0.105)):
+                    cylinder(
+                        parts,
+                        (
+                            f"{prefix}_guardrail_anchor_"
+                            f"{label}_{post_index}_{bolt_index}"
+                        ),
+                        radius=0.026,
+                        depth=0.035,
+                        location=(
+                            side * 4.37,
+                            y_position + longitudinal,
+                            0.074,
+                        ),
+                        rotation=(0.0, 0.0, 0.0),
+                        vertices=8,
+                        material=materials["dark_steel"],
+                        collection=collection,
+                        bevel=0.003,
+                    )
+                box(
+                    parts,
+                    f"{prefix}_reflector_{label}_{post_index}",
+                    (0.025, 0.16, 0.085),
+                    (side * 4.435, y_position, 0.78),
+                    materials["reflector"],
+                    collection,
+                    bevel=0.008,
+                )
+
+        # Six framed drain grates lead to visible underside scuppers.
+        for drain_index, y_position in enumerate((-3.6, 0.45, 4.35)):
+            for side in (-1.0, 1.0):
+                label = "left" if side < 0.0 else "right"
+                drain_x = side * 4.23
+                box(
+                    parts,
+                    f"{prefix}_drain_frame_{label}_{drain_index}",
+                    (0.38, 0.68, 0.025),
+                    (drain_x, y_position, 0.014),
+                    materials["dark_steel"],
+                    collection,
+                    bevel=0.012,
+                )
+                for slat_index, offset in enumerate(
+                    (-0.12, -0.06, 0.0, 0.06, 0.12)
+                ):
+                    box(
+                        parts,
+                        (
+                            f"{prefix}_drain_slat_{label}_"
+                            f"{drain_index}_{slat_index}"
+                        ),
+                        (0.025, 0.54, 0.012),
+                        (drain_x + offset, y_position, 0.032),
+                        materials["steel"],
+                        collection,
+                        bevel=0.004,
+                    )
+                cylinder(
+                    parts,
+                    f"{prefix}_scupper_{label}_{drain_index}",
+                    radius=0.075,
+                    depth=0.68,
+                    location=(side * 4.67, y_position, -0.76),
+                    rotation=(0.0, 0.0, 0.0),
+                    vertices=12,
+                    material=materials["dark_steel"],
+                    collection=collection,
+                    bevel=0.01,
+                )
+
+        # The abutment face gets construction joints, drainage outlets, and a
+        # weathered splash band. All are surface detail, never collision.
+        box(
+            parts,
+            f"{prefix}_backwall_weathering",
+            (10.35, 0.035, 0.5),
+            (0.0, -5.812, -4.25),
+            materials["concrete_weathered"],
+            collection,
+        )
+        for reveal_index, lateral in enumerate((-4.3, -2.15, 0.0, 2.15, 4.3)):
+            box(
+                parts,
+                f"{prefix}_backwall_reveal_{reveal_index}",
+                (0.055, 0.035, 3.55),
+                (lateral, -5.815, -2.45),
+                materials["concrete_weathered"],
+                collection,
+                bevel=0.008,
+            )
+        for outlet_index, lateral in enumerate((-3.2, 0.0, 3.2)):
+            cylinder(
+                parts,
+                f"{prefix}_weep_outlet_{outlet_index}",
+                radius=0.08,
+                depth=0.06,
+                location=(lateral, -5.84, -2.85),
+                rotation=(math.radians(90.0), 0.0, 0.0),
+                vertices=12,
+                material=materials["rubber"],
+                collection=collection,
+                bevel=0.01,
+            )
+
+        # Bearing pads and anchor heads clarify the deck load path.
+        for bearing_index, lateral in enumerate((-3.25, -1.1, 1.1, 3.25)):
+            box(
+                parts,
+                f"{prefix}_bearing_pad_{bearing_index}",
+                (0.56, 0.66, 0.055),
+                (lateral, -4.62, -0.825),
+                materials["rubber"],
+                collection,
+                bevel=0.012,
+            )
+            for bolt_index, offset in enumerate((-0.17, 0.17)):
+                cylinder(
+                    parts,
+                    f"{prefix}_bearing_anchor_{bearing_index}_{bolt_index}",
+                    radius=0.03,
+                    depth=0.035,
+                    location=(lateral + offset, -4.42, -0.61),
+                    rotation=(0.0, 0.0, 0.0),
+                    vertices=8,
+                    material=materials["dark_steel"],
+                    collection=collection,
+                    bevel=0.004,
+                )
+
+        box(
+            parts,
+            f"{prefix}_abutment_crossbeam",
+            (8.65, 0.3, 0.38),
+            (0.0, 4.82, -0.94),
+            materials["dark_steel"],
+            collection,
+            bevel=0.035,
+            bevel_segments=2,
+        )
+        for conduit_index, lateral in enumerate((-2.65, 2.65)):
+            cylinder(
+                parts,
+                f"{prefix}_service_conduit_{conduit_index}",
+                radius=0.075,
+                depth=10.4,
+                location=(lateral, 0.25, -1.34),
+                rotation=(math.radians(90.0), 0.0, 0.0),
+                vertices=12,
+                material=materials["dark_steel"],
+                collection=collection,
+                bevel=0.01,
             )
     return BASE.join_components(
         parts,
@@ -325,7 +662,7 @@ def add_preview_scene(
 ) -> None:
     ground = BASE.make_box(
         "preview_ground",
-        dimensions=(32.0, 34.0, 0.25),
+        dimensions=(40.0, 44.0, 0.25),
         location=(0.0, 0.0, -4.15),
         material=materials["preview_ground"],
         collection=collection,
@@ -333,11 +670,11 @@ def add_preview_scene(
         bevel_segments=2,
     )
     ground["rorng_role"] = "preview-only"
-    bpy.ops.object.camera_add(location=(15.5, -16.0, 8.0))
+    bpy.ops.object.camera_add(location=(18.5, -22.5, 10.5))
     camera = bpy.context.object
     camera.name = "preview_camera"
-    camera.data.lens = 52.0
-    BASE.point_camera(camera, (0.0, -1.0, -1.15))
+    camera.data.lens = 50.0
+    BASE.point_camera(camera, (0.0, -0.35, -1.25))
     BASE.move_to_collection(camera, collection)
     bpy.context.scene.camera = camera
 
@@ -349,23 +686,32 @@ def add_preview_scene(
         math.radians(-24.0),
         math.radians(-36.0),
     )
-    sun.data.energy = 3.2
-    sun.data.angle = math.radians(3.0)
+    sun.data.energy = 3.5
+    sun.data.angle = math.radians(4.0)
     BASE.move_to_collection(sun, collection)
-    bpy.ops.object.light_add(type="AREA", location=(-7.0, -6.0, 8.0))
+    bpy.ops.object.light_add(type="AREA", location=(-9.0, -10.0, 11.0))
     fill = bpy.context.object
     fill.name = "preview_fill"
-    fill.data.energy = 1_500.0
+    fill.data.energy = 2_200.0
     fill.data.shape = "DISK"
-    fill.data.size = 7.0
-    BASE.point_camera(fill, (0.0, -1.0, -1.2))
+    fill.data.size = 8.5
+    BASE.point_camera(fill, (0.0, -1.0, -1.5))
     BASE.move_to_collection(fill, collection)
+    bpy.ops.object.light_add(type="AREA", location=(8.0, 5.0, 7.5))
+    rim = bpy.context.object
+    rim.name = "preview_rim"
+    rim.data.energy = 1_350.0
+    rim.data.shape = "RECTANGLE"
+    rim.data.size = 6.0
+    rim.data.size_y = 6.0
+    BASE.point_camera(rim, (0.0, 0.5, -0.8))
+    BASE.move_to_collection(rim, collection)
 
     world = bpy.context.scene.world
     world.use_nodes = True
     background = world.node_tree.nodes.get("Background")
-    background.inputs["Color"].default_value = (0.035, 0.05, 0.08, 1.0)
-    background.inputs["Strength"].default_value = 0.28
+    background.inputs["Color"].default_value = (0.065, 0.085, 0.12, 1.0)
+    background.inputs["Strength"].default_value = 0.42
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_EEVEE"
     scene.render.resolution_x = 1280
@@ -376,6 +722,7 @@ def add_preview_scene(
     scene.render.image_settings.color_depth = "8"
     scene.render.filepath = str(preview_path)
     scene.view_settings.look = "AgX - Medium High Contrast"
+    scene.view_settings.exposure = 0.55
 
 
 def main() -> int:

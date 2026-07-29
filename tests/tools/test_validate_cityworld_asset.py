@@ -280,11 +280,11 @@ class CityWorldAssetValidationTests(unittest.TestCase):
             {
                 "collision_objects": 3,
                 "errors": 0,
-                "glb_materials": 7,
+                "glb_materials": 11,
                 "glb_nodes": 6,
                 "lod_objects": 3,
                 "runtime_lights": 0,
-                "triangles": 1720,
+                "triangles": 20908,
                 "valid": True,
             },
         )

@@ -1,7 +1,7 @@
 {
   "asset": {
     "id": "rorng_city_bridge_transition_12m",
-    "version": 1
+    "version": 2
   },
   "basis": {
     "authoring": "blender-z-up-metres",
@@ -70,10 +70,10 @@
   ],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "caa677476144281dca1dcbae70cb8b4889558c293992875220b63f8b0da42c3a",
+    "asset_contract_sha256": "485b2ab6c252123bba8da285fe703eb6391ae208ab30f9383647401771c19b75",
     "glb": {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/rorng_city_bridge_transition_12m.glb",
-      "sha256": "86e40f010f145f03dbf7cb70e38f8087e7c47e7675011551d6b1a5188469ea71"
+      "sha256": "547aaa785b9d17f6ebc85de90bac92ae8bcecdcddddfbe22ad01f9190a802b3e"
     }
   },
   "limits": {
@@ -104,8 +104,8 @@
     {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.material",
       "role": "material-fallback",
-      "sha256": "94e291f8332c2e0ee2048f29bca17fc05aaad8cb7900a554e4a4e8b74979e1f7",
-      "size": 1449
+      "sha256": "aa017874fb402a2677975399c58f369cc11ec3015122cbb71adfe86275384e26",
+      "size": 2205
     },
     {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.odef",
@@ -134,36 +134,36 @@
     {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_lod0.mesh",
       "role": "render-lod0",
-      "sha256": "6e6329014c5c8e6a5e86d4a898253728af2f35db8e823f60a3a67264734908d2",
-      "size": 176191
+      "sha256": "d2de549ca9a161ad466a2fb0226fad4d96e42004e99872ea622a07ce3e711e21",
+      "size": 2767733
     },
     {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_lod1.mesh",
       "role": "render-lod1",
-      "sha256": "003bcd9b5941cedc5bf5e7d6409d0ff9a996b9e9c0745fd618aa347ea1f6ac41",
-      "size": 23096
+      "sha256": "fe0695dc1804e1fb8e5dac8b266db6bfafce8b35186993afc086769be6eebf02",
+      "size": 34519
     },
     {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_lod2.mesh",
       "role": "render-lod2",
-      "sha256": "6f7e003eaea074355350ad464380fa81abd8d6308182e00c2d501ec8cc4c15d0",
-      "size": 10258
+      "sha256": "78b1114c4acfbc1ad7d2137d5ce60991876306e5ae9b292677ec08234f8c2045",
+      "size": 16580
     }
   ],
   "runtime_lights": [],
   "source_stats": {
-    "indices": 5160,
-    "materials": 7,
+    "indices": 62724,
+    "materials": 11,
     "meshes": 6,
-    "primitives": 16,
-    "vertices": 4166
+    "primitives": 23,
+    "vertices": 56098
   },
   "xml_intermediate_sha256": {
     "rorng_city_bridge_transition_12m_collision_barrier_left.mesh.xml": "88c50805f029fe76e6a83b9b2d2395c83ba5f42a705b35f10dfcf9f3e158a3c5",
     "rorng_city_bridge_transition_12m_collision_barrier_right.mesh.xml": "697250ae02e2d84947a944273436e598e1fa84c56530b310cd64d2d4f376f4a6",
     "rorng_city_bridge_transition_12m_collision_road.mesh.xml": "fd64a51938e4d21bee49f481bc95cc50aa34ecf03d14955f47ea1c1dfd989d25",
-    "rorng_city_bridge_transition_12m_lod0.mesh.xml": "83daebae6f5985479a7f5fa726c56d0e74815e0775db64dbae0638722e87ee8f",
-    "rorng_city_bridge_transition_12m_lod1.mesh.xml": "6af3af0939f81154384caa674b46b175d21ece06eb4d541ab912356dee5197d6",
-    "rorng_city_bridge_transition_12m_lod2.mesh.xml": "d878604fc010fc71799843df416584c54f6526a4cde09c5dbba17a1f36def6cc"
+    "rorng_city_bridge_transition_12m_lod0.mesh.xml": "3eb4c043a84b85428308fd013d560d6c87ebee591f74c5cf72625319bbc76879",
+    "rorng_city_bridge_transition_12m_lod1.mesh.xml": "dbbada2c604aa81956728da6cfd4d75fc643abcadc2b9e1209311ca07648d0a8",
+    "rorng_city_bridge_transition_12m_lod2.mesh.xml": "4bdafbf757893b6b724955e10256d1fc2d9bd3cff62171684f1cf25687f0a5a9"
   }
 }

@@ -40,6 +40,32 @@ material rorng_transition_asphalt
   }
 }
 
+material rorng_transition_concrete_edge
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.39 0.42 0.44 1
+      diffuse 0.39 0.42 0.44 1
+      specular 0.04 0.04 0.04 1 3.99481281
+    }
+  }
+}
+
+material rorng_transition_galvanized_steel
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.23 0.29 0.34 1
+      diffuse 0.23 0.29 0.34 1
+      specular 0.1768 0.22 0.256 1 128
+    }
+  }
+}
+
 material rorng_transition_dark_steel
 {
   technique
@@ -79,15 +105,41 @@ material rorng_transition_lane_yellow
   }
 }
 
-material rorng_transition_galvanized_steel
+material rorng_transition_joint_rubber
 {
   technique
   {
     pass
     {
-      ambient 0.23 0.29 0.34 1
-      diffuse 0.23 0.29 0.34 1
-      specular 0.1768 0.22 0.256 1 128
+      ambient 0.008 0.011 0.014 1
+      diffuse 0.008 0.011 0.014 1
+      specular 0.04 0.04 0.04 1 2.42358713
+    }
+  }
+}
+
+material rorng_transition_reflector_amber
+{
+  technique
+  {
+    pass
+    {
+      ambient 1 0.34 0.025 1
+      diffuse 1 0.34 0.025 1
+      specular 0.04 0.04 0.04 1 128
+    }
+  }
+}
+
+material rorng_transition_concrete_weathered
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.16 0.185 0.2 1
+      diffuse 0.16 0.185 0.2 1
+      specular 0.04 0.04 0.04 1 1
     }
   }
 }

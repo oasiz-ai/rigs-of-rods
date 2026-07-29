@@ -258,11 +258,11 @@ class CityWorldSceneCompilerTests(unittest.TestCase):
         self.assertEqual(
             report["source_stats"],
             {
-                "indices": 5160,
-                "materials": 7,
+                "indices": 62724,
+                "materials": 11,
                 "meshes": 6,
-                "primitives": 16,
-                "vertices": 4166,
+                "primitives": 23,
+                "vertices": 56098,
             },
         )
         self.assertEqual(
