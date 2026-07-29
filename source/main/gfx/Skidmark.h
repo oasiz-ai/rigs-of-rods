@@ -27,6 +27,8 @@
 #include <OgreVector2.h>
 #include <OgreVector3.h>
 
+#include <queue>
+
 namespace RoR {
 
 class SkidmarkConfig //!< Skidmark config file parser and data container
