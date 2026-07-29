@@ -152,7 +152,36 @@ void TestPinnedPlanMetadataIsExact()
             plan->archive_sha256,
             "NeoQueretaro.material");
     CHECK(city_plan != nullptr);
-    CHECK(city_plan->edit_count == 43U);
+    CHECK(city_plan->edit_count == 47U);
+    const std::size_t environment_edit_indexes[] = {
+        11U, 12U, 24U, 25U};
+    const std::size_t environment_lines[] = {
+        512U, 513U, 1627U, 1628U};
+    const char* environment_anchors[] = {
+        "cubic_texture EnvironmentTexture combinedUVW",
+        "env_map planar",
+        "cubic_texture EnvironmentTexture combinedUVW",
+        "env_map planar"};
+    const char* environment_replacements[] = {
+        "texture EnvironmentTexture cubic",
+        "env_map cubic_reflection",
+        "texture EnvironmentTexture cubic",
+        "env_map cubic_reflection"};
+    for (std::size_t index = 0U;
+         index < sizeof(environment_lines) / sizeof(environment_lines[0]);
+         ++index)
+    {
+        const RoR::LegacyMaterialScriptEdit& edit =
+            city_plan->edits[environment_edit_indexes[index]];
+        CHECK(
+            edit.kind ==
+            RoR::LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE);
+        CHECK(edit.line == environment_lines[index]);
+        CHECK(std::string(edit.expected) == environment_anchors[index]);
+        CHECK(
+            std::string(edit.replacement) ==
+            environment_replacements[index]);
+    }
     const std::size_t duplicate_lines[] = {
         1772U,
         1773U,
@@ -181,7 +210,7 @@ void TestPinnedPlanMetadataIsExact()
         "}",
         "}",
         "}"};
-    const std::size_t duplicate_edit_begin = 23U;
+    const std::size_t duplicate_edit_begin = 27U;
     for (std::size_t index = 0U;
          index < sizeof(duplicate_lines) / sizeof(duplicate_lines[0]);
          ++index)
@@ -197,6 +226,12 @@ void TestPinnedPlanMetadataIsExact()
     }
     for (std::size_t index = 0U; index < city_plan->edit_count; ++index)
     {
+        if (index > 0U)
+        {
+            CHECK(
+                city_plan->edits[index - 1U].line <
+                city_plan->edits[index].line);
+        }
         CHECK(
             city_plan->edits[index].line < 1698U ||
             city_plan->edits[index].line > 1710U);
@@ -381,6 +416,105 @@ void TestDuplicateMaterialBlockRemovalIsTransactional()
     CHECK(!rejected.rejection_reason.empty());
 }
 
+void TestLegacyEnvironmentMapConversionIsTransactional()
+{
+    const std::string input =
+        "material environment\n"
+        "{\n"
+        "  technique\n"
+        "  {\n"
+        "    pass\n"
+        "    {\n"
+        "      texture_unit\n"
+        "      {\n"
+        "        cubic_texture EnvironmentTexture combinedUVW\n"
+        "        env_map planar\n"
+        "      }\n"
+        "      texture_unit\n"
+        "      {\n"
+        "        cubic_texture EnvironmentTexture combinedUVW\n"
+        "        env_map planar\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n";
+    const RoR::LegacyMaterialScriptEdit edits[] = {
+        {RoR::LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+         9U,
+         "cubic_texture EnvironmentTexture combinedUVW",
+         "texture EnvironmentTexture cubic"},
+        {RoR::LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+         10U,
+         "env_map planar",
+         "env_map cubic_reflection"},
+        {RoR::LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+         14U,
+         "cubic_texture EnvironmentTexture combinedUVW",
+         "texture EnvironmentTexture cubic"},
+        {RoR::LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+         15U,
+         "env_map planar",
+         "env_map cubic_reflection"}};
+    const RoR::LegacyMaterialScriptEditPlan plan = {
+        "archive",
+        "fixture.material",
+        "fixture-script",
+        edits,
+        sizeof(edits) / sizeof(edits[0])};
+
+    const RoR::LegacyMaterialScriptPlanApplication applied =
+        RoR::ApplyLegacyMaterialScriptEditPlan(
+            plan, "fixture-script", input);
+    CHECK(applied.applicable);
+    CHECK(applied.safe);
+    CHECK(applied.applied_edit_count == 4U);
+    CHECK(
+        applied.payload ==
+        "material environment\n"
+        "{\n"
+        "  technique\n"
+        "  {\n"
+        "    pass\n"
+        "    {\n"
+        "      texture_unit\n"
+        "      {\n"
+        "        texture EnvironmentTexture cubic\n"
+        "        env_map cubic_reflection\n"
+        "      }\n"
+        "      texture_unit\n"
+        "      {\n"
+        "        texture EnvironmentTexture cubic\n"
+        "        env_map cubic_reflection\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n");
+
+    std::string changed = input;
+    const std::size_t first_environment =
+        changed.find(
+            "cubic_texture EnvironmentTexture combinedUVW");
+    CHECK(first_environment != std::string::npos);
+    const std::size_t second_environment =
+        changed.find(
+            "cubic_texture EnvironmentTexture combinedUVW",
+            first_environment + 1U);
+    CHECK(second_environment != std::string::npos);
+    changed.replace(
+        second_environment,
+        std::string(
+            "cubic_texture EnvironmentTexture combinedUVW").size(),
+        "cubic_texture ChangedEnvironment combinedUVW");
+    const RoR::LegacyMaterialScriptPlanApplication rejected =
+        RoR::ApplyLegacyMaterialScriptEditPlan(
+            plan, "fixture-script", changed);
+    CHECK(rejected.applicable);
+    CHECK(!rejected.safe);
+    CHECK(rejected.payload == changed);
+    CHECK(rejected.applied_edit_count == 0U);
+    CHECK(!rejected.rejection_reason.empty());
+}
+
 } // namespace
 
 int main()
@@ -394,5 +528,6 @@ int main()
     TestPinnedPlanMetadataIsExact();
     TestExactPlanAppliesTransactionally();
     TestDuplicateMaterialBlockRemovalIsTransactional();
+    TestLegacyEnvironmentMapConversionIsTransactional();
     return EXIT_SUCCESS;
 }

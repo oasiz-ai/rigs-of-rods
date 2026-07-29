@@ -690,10 +690,13 @@ The authenticated CityWorld material-compatibility gate now resolves those
 reviewed content failures without altering or redistributing the original ZIP.
 The OGRE 14 resource listener matches the opened script bytes to an exact
 member of the SHA-256-authenticated archive, then applies seven exact
-archive-and-script-hash plans with 1, 1, 2, 4, 2, 43, and 5 line edits, for 58
+archive-and-script-hash plans with 1, 1, 2, 4, 2, 47, and 5 line edits, for 62
 edits total. The `NeoQueretaro.material` plan clears the authenticated second
 copy of the `concretorojo` block at original lines 1772-1784 and preserves its
-first definition at lines 1698-1710. Mesh requests follow OGRE's exact-case
+first definition at lines 1698-1710. Its four additional exact edits convert
+the legacy environment-map pairs to OGRE 14 syntax, removing the blank
+environment layers from `parabus` and `semaforogris3` and eliminating both
+associated deprecation warnings. Mesh requests follow OGRE's exact-case
 archive precedence and are opened from the selected authenticated ZIP before
 the listener maps 23 exact
 legacy names to target materials parsed from that same archive SHA or creates
