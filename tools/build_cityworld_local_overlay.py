@@ -54,8 +54,8 @@ from solve_cityworld_bridge_corridor import (  # noqa: E402
 from validate_cityworld_asset import Validator  # noqa: E402
 
 
-FORMAT = "ror-cityworld-local-overlay-v1"
-BUILD_RESULT_FORMAT = "ror-cityworld-local-overlay-build-result-v1"
+FORMAT = "ror-cityworld-local-overlay-v2"
+BUILD_RESULT_FORMAT = "ror-cityworld-local-overlay-build-result-v2"
 PINNED_ARCHIVE_SHA256 = (
     "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3"
 )
@@ -71,12 +71,45 @@ MIN_SURFACE_OFFSET_M = -2.0
 MAX_SURFACE_OFFSET_M = 20.0
 MAX_RUNTIME_FILE_BYTES = 256 * 1024 * 1024
 MAX_MATERIAL_SCRIPT_BYTES = 4 * 1024 * 1024
+MAX_SOURCE_TOBJ_BYTES = 32 * 1024 * 1024
+MAX_SOURCE_PLACEMENTS = 50_000
 MAX_MATERIAL_DEFINITIONS = 512
 MAX_MATERIAL_TOKENS = 100_000
 OUTPUT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.zip$")
 MATERIAL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_./-]+$")
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 ZIP_MODE = 0o100644
+POSITION_EPSILON = 1e-6
+ROUTE_SAMPLE_SPACING_M = 20.0
+ROUTE_TANGENT_HANDLE_M = 160.0
+ROUTE_GROUND_LEAD_M = 40.0
+ROUTE_RAMP_LENGTH_M = 160.0
+ROUTE_DECK_CLEARANCE_M = 8.0
+ROUTE_WIDTH_M = 8.9
+ROUTE_BRIDGE_BORDER_WIDTH_M = 0.45
+ROUTE_BRIDGE_BORDER_HEIGHT_M = 0.95
+ROUTE_FLAT_BORDER_WIDTH_M = 1.0
+ROUTE_FLAT_BORDER_HEIGHT_M = 0.15
+ROUTE_ARC_TABLE_STEPS = 8192
+ROUTE_EXPECTED_PROCEDURAL_YAW_DEGREES = 0.0
+ROUTE_MAX_CONNECTION_TAPER_GRADE = 0.02
+ROUTE_OPEN_GAP_BOUNDS_XZ_M = (500.0, 1380.0, 400.0, 1000.0)
+ROUTE_SOURCE_ANCHOR = {
+    "city": "Penguinville",
+    "connection": "east T-junction",
+    "connection_position_m": (494.8491, 0.1, 370.0),
+    "object": "troadavenuesidewalk",
+    "placement_position_m": (485.0, 0.1, 370.0),
+    "rotation_degrees": (0.0, 90.0, 0.0),
+}
+ROUTE_DESTINATION_ANCHOR = {
+    "city": "NeoQueretaro",
+    "connection": "west perimeter T-junction carriageway",
+    "connection_position_m": (1380.966797, 0.1, 936.098389),
+    "object": "crucetQr",
+    "placement_position_m": (1460.966797, 0.1, 903.098389),
+    "rotation_degrees": (0.0, -180.0, 0.0),
+}
 
 GATEWAY_MANIFEST = (
     "resources/nextgen/cityworld/streetscape/gateway_block_40m/"
@@ -148,6 +181,27 @@ class PreparedAsset:
     profile: AssetProfile
     provenance: dict[str, Any]
     runtime_files: tuple[RuntimeFile, ...]
+
+
+@dataclass(frozen=True)
+class SourcePlacement:
+    line_number: int
+    position: tuple[float, float, float]
+    rotation_degrees: tuple[float, float, float]
+    object_name: str
+
+
+@dataclass(frozen=True)
+class ProceduralRoutePoint:
+    station_m: float
+    x: float
+    y: float
+    z: float
+    yaw_degrees: float
+    road_type: str
+    width_m: float
+    border_width_m: float
+    border_height_m: float
 
 
 @dataclass(frozen=True)
@@ -340,6 +394,142 @@ def source_member_provenance(archive_path: Path) -> list[dict[str, Any]]:
             return result
     except zipfile.BadZipFile as error:
         raise OverlayFailure("input is not a valid ZIP archive") from error
+
+
+def source_placements(archive_path: Path) -> tuple[SourcePlacement, ...]:
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            _, names = validate_archive_members(archive.infolist())
+            info = names.get("cityworld.tobj")
+            if (
+                info is None
+                or info.filename != "CityWorld.tobj"
+                or info.is_dir()
+            ):
+                raise OverlayFailure(
+                    "archive must contain the exact member CityWorld.tobj"
+                )
+            if info.file_size > MAX_SOURCE_TOBJ_BYTES:
+                raise OverlayFailure("CityWorld.tobj exceeds the read limit")
+            payload = archive.read(info)
+            if len(payload) != info.file_size:
+                raise OverlayFailure("short read for CityWorld.tobj")
+    except zipfile.BadZipFile as error:
+        raise OverlayFailure("input is not a valid ZIP archive") from error
+
+    try:
+        text = payload.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            text = payload.decode("cp1252")
+        except UnicodeDecodeError as error:
+            raise OverlayFailure(
+                "CityWorld.tobj is not UTF-8 or CP1252"
+            ) from error
+
+    placements: list[SourcePlacement] = []
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        fields = raw_line.split(",", 6)
+        if len(fields) != 7:
+            continue
+        try:
+            values = tuple(float(field.strip()) for field in fields[:6])
+        except ValueError:
+            continue
+        if not all(math.isfinite(value) for value in values):
+            raise OverlayFailure(
+                f"CityWorld.tobj line {line_number} has non-finite placement"
+            )
+        object_field = fields[6].strip()
+        if not object_field:
+            continue
+        object_name = object_field.split()[0]
+        placements.append(
+            SourcePlacement(
+                line_number=line_number,
+                position=(values[0], values[1], values[2]),
+                rotation_degrees=(values[3], values[4], values[5]),
+                object_name=object_name,
+            )
+        )
+        if len(placements) > MAX_SOURCE_PLACEMENTS:
+            raise OverlayFailure("CityWorld.tobj exceeds the placement limit")
+    return tuple(placements)
+
+
+def authenticate_route_anchors(
+    placements: Sequence[SourcePlacement],
+) -> dict[str, dict[str, Any]]:
+    evidence: dict[str, dict[str, Any]] = {}
+    for label, expected in (
+        ("source", ROUTE_SOURCE_ANCHOR),
+        ("destination", ROUTE_DESTINATION_ANCHOR),
+    ):
+        expected_position = tuple(expected["placement_position_m"])
+        expected_rotation = tuple(expected["rotation_degrees"])
+        expected_object = str(expected["object"])
+        matches = [
+            placement
+            for placement in placements
+            if (
+                placement.object_name == expected_object
+                and all(
+                    abs(actual - authored) <= POSITION_EPSILON
+                    for actual, authored in zip(
+                        placement.position,
+                        expected_position,
+                    )
+                )
+                and all(
+                    angular_error_degrees(actual, authored)
+                    <= POSITION_EPSILON
+                    for actual, authored in zip(
+                        placement.rotation_degrees,
+                        expected_rotation,
+                    )
+                )
+            )
+        ]
+        if len(matches) != 1:
+            raise OverlayFailure(
+                f"expected exactly one authenticated {label} road placement; "
+                f"found {len(matches)}"
+            )
+        match = matches[0]
+        evidence[label] = {
+            "line_number": match.line_number,
+            "member": "CityWorld.tobj",
+            "object": match.object_name,
+            "position_m": list(match.position),
+            "rotation_degrees": list(match.rotation_degrees),
+        }
+    return evidence
+
+
+def audit_open_intercity_gap(
+    placements: Sequence[SourcePlacement],
+) -> dict[str, Any]:
+    min_x, max_x, min_z, max_z = ROUTE_OPEN_GAP_BOUNDS_XZ_M
+    matches = [
+        placement
+        for placement in placements
+        if (
+            min_x < placement.position[0] < max_x
+            and min_z < placement.position[2] < max_z
+        )
+    ]
+    if matches:
+        first = matches[0]
+        raise OverlayFailure(
+            "intercity placement-origin gap is no longer empty: "
+            f"{first.object_name} at CityWorld.tobj line {first.line_number}"
+        )
+    return {
+        "bounds_xz_m": [min_x, max_x, min_z, max_z],
+        "member": "CityWorld.tobj",
+        "placement_origin_count": 0,
+        "verified": True,
+    }
 
 
 def finite_positive(value: Any, label: str) -> float:
@@ -833,7 +1023,7 @@ def merge_material_scripts(
         )
 
     rendered = [
-        "// Generated by ror-cityworld-local-overlay-v1.",
+        "// Generated by ror-cityworld-local-overlay-v2.",
         "// Canonical merged material script; duplicate definitions removed.",
         "",
     ]
@@ -888,6 +1078,484 @@ def normalized_degrees(value: float) -> float:
 
 def angular_error_degrees(left: float, right: float) -> float:
     return abs(normalized_degrees(left - right))
+
+
+def smoothstep(value: float) -> float:
+    if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+        raise OverlayFailure("smoothstep input must be finite and within [0, 1]")
+    return value * value * (3.0 - 2.0 * value)
+
+
+def cubic_bezier(
+    control_points: Sequence[tuple[float, float]],
+    parameter: float,
+) -> tuple[float, float]:
+    if len(control_points) != 4:
+        raise OverlayFailure("intercity route requires four Bezier control points")
+    t = float(parameter)
+    if not math.isfinite(t) or not 0.0 <= t <= 1.0:
+        raise OverlayFailure("Bezier parameter must be finite and within [0, 1]")
+    inverse = 1.0 - t
+    weights = (
+        inverse * inverse * inverse,
+        3.0 * inverse * inverse * t,
+        3.0 * inverse * t * t,
+        t * t * t,
+    )
+    return (
+        sum(weights[index] * control_points[index][0] for index in range(4)),
+        sum(weights[index] * control_points[index][1] for index in range(4)),
+    )
+
+
+def cubic_bezier_derivative(
+    control_points: Sequence[tuple[float, float]],
+    parameter: float,
+) -> tuple[float, float]:
+    if len(control_points) != 4:
+        raise OverlayFailure("intercity route requires four Bezier control points")
+    t = float(parameter)
+    if not math.isfinite(t) or not 0.0 <= t <= 1.0:
+        raise OverlayFailure("Bezier parameter must be finite and within [0, 1]")
+    inverse = 1.0 - t
+    return (
+        3.0
+        * (
+            inverse * inverse
+            * (control_points[1][0] - control_points[0][0])
+            + 2.0
+            * inverse
+            * t
+            * (control_points[2][0] - control_points[1][0])
+            + t * t * (control_points[3][0] - control_points[2][0])
+        ),
+        3.0
+        * (
+            inverse * inverse
+            * (control_points[1][1] - control_points[0][1])
+            + 2.0
+            * inverse
+            * t
+            * (control_points[2][1] - control_points[1][1])
+            + t * t * (control_points[3][1] - control_points[2][1])
+        ),
+    )
+
+
+def route_control_points(
+    source: tuple[float, float, float],
+    destination: tuple[float, float, float],
+) -> tuple[tuple[float, float], ...]:
+    if destination[0] - source[0] <= 2.0 * ROUTE_TANGENT_HANDLE_M:
+        raise OverlayFailure("intercity road anchors are too close for safe approaches")
+    if destination[2] <= source[2]:
+        raise OverlayFailure("intercity road anchors have an unsupported ordering")
+    return (
+        (source[0], source[2]),
+        (source[0] + ROUTE_TANGENT_HANDLE_M, source[2]),
+        (destination[0] - ROUTE_TANGENT_HANDLE_M, destination[2]),
+        (destination[0], destination[2]),
+    )
+
+
+def route_arc_table(
+    control_points: Sequence[tuple[float, float]],
+) -> tuple[tuple[float, float], ...]:
+    if (
+        isinstance(ROUTE_ARC_TABLE_STEPS, bool)
+        or not isinstance(ROUTE_ARC_TABLE_STEPS, int)
+        or ROUTE_ARC_TABLE_STEPS < 1024
+        or ROUTE_ARC_TABLE_STEPS > 65536
+    ):
+        raise OverlayFailure("route arc table resolution is unsafe")
+    result: list[tuple[float, float]] = [(0.0, 0.0)]
+    previous = cubic_bezier(control_points, 0.0)
+    accumulated = 0.0
+    for index in range(1, ROUTE_ARC_TABLE_STEPS + 1):
+        parameter = index / ROUTE_ARC_TABLE_STEPS
+        current = cubic_bezier(control_points, parameter)
+        segment = math.hypot(
+            current[0] - previous[0],
+            current[1] - previous[1],
+        )
+        if not math.isfinite(segment) or segment <= 0.0:
+            raise OverlayFailure("intercity route is not strictly traversable")
+        accumulated += segment
+        result.append((parameter, accumulated))
+        previous = current
+    if (
+        not math.isfinite(accumulated)
+        or accumulated
+        <= 2.0 * (ROUTE_GROUND_LEAD_M + ROUTE_RAMP_LENGTH_M)
+    ):
+        raise OverlayFailure("intercity route is too short for two safe approaches")
+    return tuple(result)
+
+
+def parameter_at_station(
+    arc_table: Sequence[tuple[float, float]],
+    station_m: float,
+) -> float:
+    if len(arc_table) < 2:
+        raise OverlayFailure("route arc table is incomplete")
+    total = arc_table[-1][1]
+    station = float(station_m)
+    if not math.isfinite(station) or not 0.0 <= station <= total:
+        raise OverlayFailure("route station lies outside the corridor")
+    low = 0
+    high = len(arc_table) - 1
+    while low + 1 < high:
+        middle = (low + high) // 2
+        if arc_table[middle][1] < station:
+            low = middle
+        else:
+            high = middle
+    first_parameter, first_station = arc_table[low]
+    second_parameter, second_station = arc_table[high]
+    if station == first_station:
+        return first_parameter
+    if station == second_station:
+        return second_parameter
+    span = second_station - first_station
+    if span <= 0.0:
+        raise OverlayFailure("route arc table is not strictly increasing")
+    blend = (station - first_station) / span
+    return first_parameter + blend * (second_parameter - first_parameter)
+
+
+def route_elevation(
+    station_m: float,
+    total_length_m: float,
+    road_y_m: float,
+    surface_offset_m: float,
+) -> float:
+    station = float(station_m)
+    total = float(total_length_m)
+    road_y = float(road_y_m)
+    surface_offset = float(surface_offset_m)
+    if not all(
+        math.isfinite(value)
+        for value in (station, total, road_y, surface_offset)
+    ):
+        raise OverlayFailure("route elevation inputs must be finite")
+    if not 0.0 <= station <= total:
+        raise OverlayFailure("route elevation station lies outside the corridor")
+
+    ascent_start = ROUTE_GROUND_LEAD_M
+    ascent_end = ascent_start + ROUTE_RAMP_LENGTH_M
+    descent_start = total - ascent_end
+    descent_end = total - ascent_start
+    if station < ascent_start:
+        baseline = road_y + surface_offset * smoothstep(
+            station / ROUTE_GROUND_LEAD_M
+        )
+    elif station > descent_end:
+        baseline = road_y + surface_offset * smoothstep(
+            (total - station) / ROUTE_GROUND_LEAD_M
+        )
+    else:
+        baseline = road_y + surface_offset
+
+    if station <= ascent_start or station >= descent_end:
+        return baseline
+    if station < ascent_end:
+        progress = (station - ascent_start) / ROUTE_RAMP_LENGTH_M
+        return baseline + ROUTE_DECK_CLEARANCE_M * smoothstep(progress)
+    if station <= descent_start:
+        return baseline + ROUTE_DECK_CLEARANCE_M
+    progress = (station - descent_start) / ROUTE_RAMP_LENGTH_M
+    return baseline + ROUTE_DECK_CLEARANCE_M * (1.0 - smoothstep(progress))
+
+
+def route_stations(total_length_m: float) -> tuple[float, ...]:
+    total = float(total_length_m)
+    if not math.isfinite(total) or total <= 0.0:
+        raise OverlayFailure("route length must be finite and positive")
+    values = {
+        0.0,
+        total,
+        ROUTE_GROUND_LEAD_M,
+        ROUTE_GROUND_LEAD_M + ROUTE_RAMP_LENGTH_M,
+        total - ROUTE_GROUND_LEAD_M,
+        total - ROUTE_GROUND_LEAD_M - ROUTE_RAMP_LENGTH_M,
+    }
+    count = int(math.floor(total / ROUTE_SAMPLE_SPACING_M))
+    values.update(
+        index * ROUTE_SAMPLE_SPACING_M
+        for index in range(1, count + 1)
+        if index * ROUTE_SAMPLE_SPACING_M < total
+    )
+    stations = tuple(sorted(values))
+    if any(
+        second - first > ROUTE_SAMPLE_SPACING_M + 1e-6
+        for first, second in zip(stations, stations[1:])
+    ):
+        raise OverlayFailure("route sampling exceeds the support-spacing limit")
+    return stations
+
+
+def build_intercity_route(
+    *,
+    source: tuple[float, float, float],
+    destination: tuple[float, float, float],
+    surface_offset_m: float,
+) -> tuple[tuple[ProceduralRoutePoint, ...], dict[str, Any]]:
+    if (
+        isinstance(surface_offset_m, bool)
+        or not isinstance(surface_offset_m, (int, float))
+        or not math.isfinite(float(surface_offset_m))
+        or not MIN_SURFACE_OFFSET_M
+        <= float(surface_offset_m)
+        <= MAX_SURFACE_OFFSET_M
+    ):
+        raise OverlayFailure(
+            "surface offset must be finite and between "
+            f"{MIN_SURFACE_OFFSET_M:g} and {MAX_SURFACE_OFFSET_M:g} metres"
+        )
+    if abs(source[1] - destination[1]) > POSITION_EPSILON:
+        raise OverlayFailure("intercity road anchors must share a road elevation")
+    control_points = route_control_points(source, destination)
+    arc_table = route_arc_table(control_points)
+    total_length = arc_table[-1][1]
+    stations = route_stations(total_length)
+    road_y = source[1]
+    surface_y = road_y + float(surface_offset_m)
+    connection_taper_grade = (
+        1.5 * abs(float(surface_offset_m)) / ROUTE_GROUND_LEAD_M
+    )
+    if connection_taper_grade > ROUTE_MAX_CONNECTION_TAPER_GRADE:
+        raise OverlayFailure(
+            "surface offset exceeds the safe connection-taper grade"
+        )
+    points: list[ProceduralRoutePoint] = []
+    for station in stations:
+        parameter = parameter_at_station(arc_table, station)
+        x, z = cubic_bezier(control_points, parameter)
+        derivative_x, derivative_z = cubic_bezier_derivative(
+            control_points,
+            parameter,
+        )
+        derivative_length = math.hypot(derivative_x, derivative_z)
+        if not math.isfinite(derivative_length) or derivative_length <= 0.0:
+            raise OverlayFailure("intercity route has an invalid tangent")
+        # RoR's procedural-road cross-section is local +Z. Positive OGRE yaw
+        # rotates +Z toward +X, so the authored rotation is the negative of
+        # the mathematical XZ tangent angle.
+        yaw = -math.degrees(math.atan2(derivative_z, derivative_x))
+        road_type = (
+            "flat"
+            if (
+                station <= ROUTE_GROUND_LEAD_M
+                or station >= total_length - ROUTE_GROUND_LEAD_M
+            )
+            else "bridge"
+        )
+        point = ProceduralRoutePoint(
+            station_m=station,
+            x=x,
+            y=route_elevation(
+                station,
+                total_length,
+                road_y,
+                float(surface_offset_m),
+            ),
+            z=z,
+            yaw_degrees=normalized_degrees(yaw),
+            road_type=road_type,
+            width_m=ROUTE_WIDTH_M,
+            border_width_m=(
+                ROUTE_FLAT_BORDER_WIDTH_M
+                if road_type == "flat"
+                else ROUTE_BRIDGE_BORDER_WIDTH_M
+            ),
+            border_height_m=(
+                ROUTE_FLAT_BORDER_HEIGHT_M
+                if road_type == "flat"
+                else ROUTE_BRIDGE_BORDER_HEIGHT_M
+            ),
+        )
+        if points and point.x <= points[-1].x:
+            raise OverlayFailure("intercity route must leave both city envelopes")
+        points.append(point)
+
+    source_gap = math.dist(
+        (points[0].x, points[0].y, points[0].z),
+        source,
+    )
+    destination_gap = math.dist(
+        (points[-1].x, points[-1].y, points[-1].z),
+        destination,
+    )
+    if source_gap > POSITION_EPSILON or destination_gap > POSITION_EPSILON:
+        raise OverlayFailure("intercity route does not close against its road anchors")
+    if any(
+        point.x < source[0] - POSITION_EPSILON
+        or point.x > destination[0] + POSITION_EPSILON
+        for point in points
+    ):
+        raise OverlayFailure("intercity route enters an existing city envelope")
+
+    support_points = [
+        point
+        for point in points
+        if point.road_type == "bridge"
+        and point.y - surface_y >= 1.0
+    ]
+    bridge_spacing = max(
+        (
+            second.station_m - first.station_m
+            for first, second in zip(support_points, support_points[1:])
+        ),
+        default=0.0,
+    )
+    ramp_grade = 1.5 * ROUTE_DECK_CLEARANCE_M / ROUTE_RAMP_LENGTH_M
+    sampled_max_grade = max(
+        (
+            abs(second.y - first.y)
+            / (second.station_m - first.station_m)
+            for first, second in zip(points, points[1:])
+        ),
+        default=0.0,
+    )
+    straight_distance = math.hypot(
+        destination[0] - source[0],
+        destination[2] - source[2],
+    )
+    source_heading_error = angular_error_degrees(
+        points[0].yaw_degrees,
+        ROUTE_EXPECTED_PROCEDURAL_YAW_DEGREES,
+    )
+    destination_heading_error = angular_error_degrees(
+        points[-1].yaw_degrees,
+        ROUTE_EXPECTED_PROCEDURAL_YAW_DEGREES,
+    )
+    report = {
+        "connection": {
+            "destination_heading_error_degrees": round(
+                destination_heading_error,
+                9,
+            ),
+            "destination_position_gap_m": round(destination_gap, 9),
+            "source_heading_error_degrees": round(
+                source_heading_error,
+                9,
+            ),
+            "source_position_gap_m": round(source_gap, 9),
+        },
+        "control_points_xz_m": [
+            [round(x, 9), round(z, 9)]
+            for x, z in control_points
+        ],
+        "covered_centerline_length_m": round(total_length, 9),
+        "destination": {
+            **ROUTE_DESTINATION_ANCHOR,
+            "position_m": [
+                round(destination[0], 9),
+                round(destination[1], 9),
+                round(destination[2], 9),
+            ],
+        },
+        "format": "ror-cityworld-intercity-corridor-v2",
+        "obstacle_avoidance": {
+            "derivation": "strictly-monotonic-x-between-authenticated-city-edge-roads",
+            "destination_city_min_x_m": round(destination[0], 9),
+            "source_city_max_x_m": round(source[0], 9),
+            "centerline_monotonic_x": True,
+        },
+        "profile": {
+            "connection_surface_y_m": round(road_y, 9),
+            "connection_taper_grade": round(connection_taper_grade, 9),
+            "connection_taper_length_m": ROUTE_GROUND_LEAD_M,
+            "deck_clearance_m": ROUTE_DECK_CLEARANCE_M,
+            "flat_lead_length_m": ROUTE_GROUND_LEAD_M,
+            "maximum_grade": round(
+                max(ramp_grade, connection_taper_grade),
+                9,
+            ),
+            "ramp_length_m": ROUTE_RAMP_LENGTH_M,
+            "rotation_convention":
+                "ogre-yaw-local-plus-z-cross-section",
+            "sampled_maximum_grade": round(sampled_max_grade, 9),
+            "sample_spacing_limit_m": ROUTE_SAMPLE_SPACING_M,
+            "surface_offset_m": round(float(surface_offset_m), 9),
+            "surface_y_m": round(surface_y, 9),
+            "width_m": ROUTE_WIDTH_M,
+        },
+        "remaining_straight_line_distance_m": round(
+            math.hypot(
+                points[-1].x - destination[0],
+                points[-1].z - destination[2],
+            ),
+            9,
+        ),
+        "source": {
+            **ROUTE_SOURCE_ANCHOR,
+            "position_m": [
+                round(source[0], 9),
+                round(source[1], 9),
+                round(source[2], 9),
+            ],
+        },
+        "supports": {
+            "enabled": True,
+            "maximum_station_spacing_m": round(bridge_spacing, 9),
+            "requested_count": len(support_points),
+            "stations_m": [
+                round(point.station_m, 9)
+                for point in support_points
+            ],
+            "style": "ror-native-procedural-bridge-pillar-v1",
+            "terrain_contact_resolved_at_runtime": True,
+        },
+        "target_distance_m": round(straight_distance, 9),
+        "waypoints": [
+            {
+                "index": index,
+                "position_m": [
+                    round(point.x, 9),
+                    round(point.y, 9),
+                    round(point.z, 9),
+                ],
+                "road_type": point.road_type,
+                "station_m": round(point.station_m, 9),
+                "yaw_degrees": round(point.yaw_degrees, 9),
+            }
+            for index, point in enumerate(points)
+        ],
+    }
+    return tuple(points), report
+
+
+def procedural_route_text(points: Sequence[ProceduralRoutePoint]) -> str:
+    if len(points) < 2:
+        raise OverlayFailure("intercity route requires at least two waypoints")
+    lines = [
+        "// Generated full Penguinville-to-NeoQueretaro intercity road.",
+        "// Endpoints are authenticated perimeter roads; bridge points request pillars.",
+        "begin_procedural_roads",
+        "    smoothing_num_splits 0",
+        "    collision_enabled true",
+    ]
+    for point in points:
+        lines.append(
+            "    "
+            + ", ".join(
+                (
+                    stable_float(point.x),
+                    stable_float(point.y),
+                    stable_float(point.z),
+                    "0",
+                    stable_float(point.yaw_degrees),
+                    "0",
+                    stable_float(point.width_m),
+                    stable_float(point.border_width_m),
+                    stable_float(point.border_height_m),
+                    point.road_type,
+                )
+            )
+        )
+    lines.append("end_procedural_roads")
+    return "\n".join(lines) + "\n"
 
 
 def solve_segment(
@@ -1040,7 +1708,7 @@ def terrain_descriptor(
         "Gravity = -9.81",
         "CategoryID = 129",
         "Version = 2",
-        "GUID = rorng-cityworld-next-local-overlay-v1",
+        "GUID = rorng-cityworld-next-local-overlay-v2",
         "",
         "[Authors]",
         "overlay = Oasiz AI and Rigs of Rods contributors",
@@ -1059,15 +1727,13 @@ def terrain_descriptor(
 
 
 def overlay_placement(
-    placements: Sequence[Placement],
-    *,
-    surface_y: float,
+    route_points: Sequence[ProceduralRoutePoint],
 ) -> bytes:
     header = (
         "// LOCAL-ONLY: requires the pinned user-supplied CityWorld.zip.\n"
         "// Redistribution and shipping are disabled.\n"
     )
-    return (header + tobj_text(placements, surface_y=surface_y)).encode("utf-8")
+    return (header + procedural_route_text(route_points)).encode("utf-8")
 
 
 def add_payload(
@@ -1140,24 +1806,37 @@ def build_local_overlay(
     if audit.get("ok") is not True:
         raise OverlayFailure("CityWorld archive audit did not pass")
     member_records = source_member_provenance(source_archive)
-    source = exact_telepoint(audit, SOURCE_TELEPOINT)
-    destination = exact_telepoint(audit, DESTINATION_TELEPOINT)
+    legacy_placements = source_placements(source_archive)
+    anchor_evidence = authenticate_route_anchors(legacy_placements)
+    open_gap_audit = audit_open_intercity_gap(legacy_placements)
+    source_telepoint = exact_telepoint(audit, SOURCE_TELEPOINT)
+    exact_telepoint(audit, DESTINATION_TELEPOINT)
+    source = tuple(ROUTE_SOURCE_ANCHOR["connection_position_m"])
+    destination = tuple(ROUTE_DESTINATION_ANCHOR["connection_position_m"])
     assets = prepare_assets(repository)
-    profiles, placements, surface_y, segment = solve_segment(
-        assets,
-        source,
-        destination,
-        surface_offset_m,
+    route_points, segment = build_intercity_route(
+        source=source,
+        destination=destination,
+        surface_offset_m=surface_offset_m,
     )
-    if len(profiles) != len(MODULE_ASSET_IDS):
-        raise OverlayFailure("corridor module count is stale")
+    segment["source"]["authenticated_placement"] = anchor_evidence["source"]
+    segment["destination"]["authenticated_placement"] = (
+        anchor_evidence["destination"]
+    )
+    segment["obstacle_avoidance"]["city_edge_seams_authenticated"] = True
+    segment["obstacle_avoidance"]["open_gap_placement_origin_audit"] = (
+        open_gap_audit
+    )
+    segment["obstacle_avoidance"]["swept_mesh_clearance"] = (
+        "native-visual-and-drive-gate-required"
+    )
 
     descriptor = terrain_descriptor(
         audit,
-        source,
-        segment["heading"]["initial_heading_degrees"],
+        source_telepoint,
+        0.0,
     )
-    placement = overlay_placement(placements, surface_y=surface_y)
+    placement = overlay_placement(route_points)
     merged_material = merge_material_scripts(assets)
     payloads: dict[str, bytes] = {}
     package_roles: dict[str, str] = {}
@@ -1216,6 +1895,14 @@ def build_local_overlay(
             "source_objects_copied": False,
             "source_placements_copied": False,
             "source_textures_copied": False,
+        },
+        "visual_asset_usage": {
+            "corridor_placement_mode":
+                "native-procedural-construction-alignment-v1",
+            "packaged_asset_ids": [asset.asset_id for asset in assets],
+            "placed_asset_ids": [],
+            "purpose":
+                "validated candidates for the subsequent Blender visual pass",
         },
         "source": {
             "archive": {

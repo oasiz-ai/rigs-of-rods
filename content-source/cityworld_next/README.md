@@ -189,13 +189,24 @@ python3 tools/build_cityworld_local_overlay.py \
 The output path must not already exist and must be outside this repository.
 The current 32-entry deterministic ZIP references the separately installed
 original `CityWorld.otc` and `CityWorld.tobj`; it does not copy either file or
-any original map asset. Its inventory is the generated descriptor, merged
-material script, placement, canonical local-only provenance report, and 28
-checked project-owned ODEF/render/collision resources for the four corridor
-modules. The standalone LED streetlight remains a checked asset, but is not
-placed or packaged until a collision-safe fixture-mount contract lands. The
-source archive stays byte-identical and the generated package is explicitly
-not for redistribution or shipping.
+any original map asset. Overlay v2 authenticates the two source road-object
+placements and replaces the incomplete 192 m prototype with a continuous
+1,060.599 m native construction alignment from Penguinville's east
+T-junction to NeoQueretaro's west carriageway. It closes at the real road
+height and heading, eases the surface offset over 40 m, uses two 160 m ramps,
+raises the central deck 8 m, enables continuous collision, and requests 47
+terrain-reaching pillar stations.
+
+Its inventory is the generated descriptor, merged material script, procedural
+placement, canonical local-only provenance report, and 28 checked
+project-owned ODEF/render/collision resources for the four corridor modules.
+Those four Blender-authored module families are packaged and validated as
+candidates for the next visual pass but are explicitly reported as unplaced;
+the v2 route currently uses RoR's native procedural road, barriers and pillars.
+The building-overlapping gateway is not placed. The standalone LED streetlight
+remains a checked asset, but is not placed or packaged until a collision-safe
+fixture-mount contract lands. The source archive stays byte-identical and the
+generated package is explicitly not for redistribution or shipping.
 
 The generated descriptor mounts the original archive through:
 

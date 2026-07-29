@@ -57,6 +57,8 @@ Telepoint2/Position=2425,0.30000000149,1013
 PLACEMENTS = """\
 // SOURCE_PLACEMENTS_PAYLOAD_MUST_NOT_LEAK
 1, 2, 3, 0, 0, 0, source_only_object
+485, 0.1, 370, 0, 90, 0, troadavenuesidewalk
+1460.966797, 0.1, 903.098389, 0, -180, 0, crucetQr
 """
 
 
@@ -66,6 +68,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
         root: Path,
         *,
         terrain: str = TERRAIN,
+        placements: str = PLACEMENTS,
         otc_name: str = "CityWorld.otc",
         archive_name: str = "CityWorld.zip",
         extra_entries: tuple[tuple[str, bytes], ...] = (),
@@ -81,7 +84,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 otc_name,
                 SOURCE_MARKERS["CityWorld.otc"],
             )
-            archive.writestr("CityWorld.tobj", PLACEMENTS.encode("utf-8"))
+            archive.writestr("CityWorld.tobj", placements.encode("utf-8"))
             for name, payload in extra_entries:
                 archive.writestr(name, payload)
         digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
@@ -303,7 +306,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     )
                 )
 
-    def test_corridor_order_exact_seams_heading_surface_and_provenance(
+    def test_full_corridor_closes_at_edge_roads_with_ramps_and_pillars(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -311,45 +314,142 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             report = self.read_report(output)
             corridor = report["corridor"]
             self.assertEqual(
-                [module["asset_id"] for module in corridor["modules"]],
-                list(BUILDER.MODULE_ASSET_IDS),
-            )
-            self.assertEqual(len(corridor["modules"]), 9)
-            self.assertEqual(
-                [module["centerline_length_m"] for module in corridor["modules"]],
-                [40.0, 12.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
-            )
-            self.assertEqual(corridor["covered_centerline_length_m"], 192.0)
-            self.assertEqual(corridor["target_distance_m"], 2067.757541396)
-            self.assertEqual(
-                corridor["heading"]["derivation"],
-                "degrees(atan2(destination_x-source_x,destination_z-source_z))",
-            )
-            self.assertEqual(corridor["heading"]["final_error_degrees"], 0.0)
-            self.assertAlmostEqual(
-                corridor["heading"]["initial_heading_degrees"],
-                corridor["heading"]["target_heading_degrees"]
-                - corridor["heading"]["module_heading_change_degrees"],
-                places=8,
+                corridor["format"],
+                "ror-cityworld-intercity-corridor-v2",
             )
             self.assertEqual(
-                corridor["exit"]["heading_degrees"],
-                corridor["heading"]["target_heading_degrees"],
+                corridor["source"]["connection"],
+                "east T-junction",
+            )
+            self.assertEqual(
+                corridor["destination"]["connection"],
+                "west perimeter T-junction carriageway",
+            )
+            self.assertEqual(
+                corridor["source"]["object"],
+                "troadavenuesidewalk",
+            )
+            self.assertEqual(
+                corridor["destination"]["object"],
+                "crucetQr",
+            )
+            self.assertTrue(
+                corridor["covered_centerline_length_m"]
+                > corridor["target_distance_m"]
+            )
+            self.assertEqual(
+                corridor["remaining_straight_line_distance_m"],
+                0.0,
+            )
+            self.assertEqual(
+                corridor["connection"],
+                {
+                    "destination_heading_error_degrees": 0.0,
+                    "destination_position_gap_m": 0.0,
+                    "source_heading_error_degrees": 0.0,
+                    "source_position_gap_m": 0.0,
+                },
+            )
+            self.assertEqual(
+                corridor["profile"],
+                {
+                    "connection_surface_y_m": 0.1,
+                    "connection_taper_grade": 0.003,
+                    "connection_taper_length_m": 40.0,
+                    "deck_clearance_m": 8.0,
+                    "flat_lead_length_m": 40.0,
+                    "maximum_grade": 0.075,
+                    "ramp_length_m": 160.0,
+                    "rotation_convention":
+                        "ogre-yaw-local-plus-z-cross-section",
+                    "sampled_maximum_grade": 0.073573604,
+                    "sample_spacing_limit_m": 20.0,
+                    "surface_offset_m": 0.08,
+                    "surface_y_m": 0.18,
+                    "width_m": 8.9,
+                },
+            )
+            obstacle_audit = corridor["obstacle_avoidance"]
+            self.assertTrue(
+                obstacle_audit["city_edge_seams_authenticated"]
+            )
+            self.assertTrue(
+                obstacle_audit["open_gap_placement_origin_audit"]["verified"]
+            )
+            self.assertEqual(
+                obstacle_audit["open_gap_placement_origin_audit"][
+                    "placement_origin_count"
+                ],
+                0,
+            )
+            self.assertEqual(
+                obstacle_audit["swept_mesh_clearance"],
+                "native-visual-and-drive-gate-required",
+            )
+            waypoints = corridor["waypoints"]
+            self.assertGreater(len(waypoints), 50)
+            self.assertEqual(
+                waypoints[0]["position_m"],
+                [494.8491, 0.1, 370.0],
+            )
+            self.assertEqual(
+                waypoints[-1]["position_m"],
+                [1380.966797, 0.1, 936.098389],
+            )
+            self.assertEqual(waypoints[0]["yaw_degrees"], 0.0)
+            self.assertEqual(waypoints[-1]["yaw_degrees"], 0.0)
+            self.assertEqual(waypoints[0]["road_type"], "flat")
+            self.assertEqual(waypoints[-1]["road_type"], "flat")
+            self.assertEqual(
+                corridor["source"]["authenticated_placement"]["object"],
+                "troadavenuesidewalk",
+            )
+            self.assertEqual(
+                corridor["destination"]["authenticated_placement"]["object"],
+                "crucetQr",
+            )
+            self.assertEqual(
+                max(point["position_m"][1] for point in waypoints),
+                8.18,
             )
             self.assertTrue(
                 all(
-                    seam
-                    == {
-                        "heading_error_degrees": 0.0,
-                        "index": index,
-                        "position_gap_m": 0.0,
-                    }
-                    for index, seam in enumerate(corridor["seams"])
+                    first["position_m"][0] < second["position_m"][0]
+                    for first, second in zip(waypoints, waypoints[1:])
                 )
             )
-            self.assertEqual(
-                corridor["surface"],
-                {"offset_m": 0.08, "source_y_m": 0.1, "y_m": 0.18},
+            source = tuple(BUILDER.ROUTE_SOURCE_ANCHOR["connection_position_m"])
+            destination = tuple(
+                BUILDER.ROUTE_DESTINATION_ANCHOR["connection_position_m"]
+            )
+            control_points = BUILDER.route_control_points(source, destination)
+            arc_table = BUILDER.route_arc_table(control_points)
+            for waypoint in waypoints:
+                parameter = BUILDER.parameter_at_station(
+                    arc_table,
+                    waypoint["station_m"],
+                )
+                tangent_x, tangent_z = BUILDER.cubic_bezier_derivative(
+                    control_points,
+                    parameter,
+                )
+                yaw = math.radians(waypoint["yaw_degrees"])
+                cross_section_x = math.sin(yaw)
+                cross_section_z = math.cos(yaw)
+                self.assertLess(
+                    abs(
+                        tangent_x * cross_section_x
+                        + tangent_z * cross_section_z
+                    )
+                    / math.hypot(tangent_x, tangent_z),
+                    1e-8,
+                )
+            supports = corridor["supports"]
+            self.assertTrue(supports["enabled"])
+            self.assertGreater(supports["requested_count"], 40)
+            self.assertLessEqual(
+                supports["maximum_station_spacing_m"],
+                BUILDER.ROUTE_SAMPLE_SPACING_M,
             )
             self.assertEqual(
                 report["source"]["references"],
@@ -370,16 +470,103 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             self.assertTrue(
                 all("manifest" in asset for asset in report["assets"])
             )
+            self.assertEqual(
+                report["visual_asset_usage"],
+                {
+                    "corridor_placement_mode":
+                        "native-procedural-construction-alignment-v1",
+                    "packaged_asset_ids": [
+                        "rorng_city_gateway_block_40m",
+                        "rorng_city_bridge_transition_12m",
+                        "rorng_city_bridge_curve_left_15deg_20m",
+                        "rorng_city_bridge_span_20m",
+                    ],
+                    "placed_asset_ids": [],
+                    "purpose":
+                        "validated candidates for the subsequent Blender visual pass",
+                },
+            )
             self.assertIn(
                 "tools/build_cityworld_local_overlay.py",
                 [tool["path"] for tool in report["tools"]],
             )
             with zipfile.ZipFile(output) as package:
                 report_payload = package.read(BUILDER.REPORT_NAME)
+                placement_text = package.read(BUILDER.OVERLAY_NAME).decode()
+            self.assertIn("begin_procedural_roads", placement_text)
+            self.assertIn("collision_enabled true", placement_text)
+            self.assertGreater(placement_text.count(", bridge\n"), 40)
+            self.assertNotIn("rorng_city_gateway_block_40m -", placement_text)
+            self.assertIn(
+                "494.8491, 0.1, 370, 0, 0, 0, 8.9, 1, 0.15, flat",
+                placement_text,
+            )
+            self.assertIn(
+                "1380.966797, 0.1, 936.098389, 0, 0, 0, 8.9, 1, 0.15, flat",
+                placement_text,
+            )
             self.assertEqual(
                 result["report"]["sha256"],
                 hashlib.sha256(report_payload).hexdigest(),
             )
+
+    def test_route_anchor_and_open_gap_drift_fail_closed(self) -> None:
+        cases = (
+            (
+                "missing-source",
+                PLACEMENTS.replace(
+                    "485, 0.1, 370, 0, 90, 0, troadavenuesidewalk\n",
+                    "",
+                ),
+                "authenticated source road placement",
+            ),
+            (
+                "changed-destination-rotation",
+                PLACEMENTS.replace(
+                    "1460.966797, 0.1, 903.098389, 0, -180, 0, crucetQr",
+                    "1460.966797, 0.1, 903.098389, 0, -175, 0, crucetQr",
+                ),
+                "authenticated destination road placement",
+            ),
+            (
+                "occupied-open-gap",
+                PLACEMENTS
+                + "900, 0.1, 700, 0, 0, 0, unexpected_building\n",
+                "intercity placement-origin gap is no longer empty",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            for name, placements, message in cases:
+                with self.subTest(name=name):
+                    root = parent / name
+                    root.mkdir()
+                    archive, digest = self.make_archive(
+                        root,
+                        placements=placements,
+                    )
+                    with (
+                        mock.patch.object(
+                            BUILDER,
+                            "PINNED_ARCHIVE_SHA256",
+                            digest,
+                        ),
+                        mock.patch.object(
+                            BUILDER,
+                            "prepare_assets",
+                            return_value=self.fake_assets(),
+                        ),
+                        self.assertRaisesRegex(
+                            BUILDER.OverlayFailure,
+                            message,
+                        ),
+                    ):
+                        BUILDER.build_local_overlay(
+                            archive_path=archive,
+                            repository_path=REPOSITORY_ROOT,
+                            output_path=root / "overlay.zip",
+                            surface_offset_m=0.08,
+                        )
 
     def test_package_references_but_never_copies_original_payloads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

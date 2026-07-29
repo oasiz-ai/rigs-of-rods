@@ -110,8 +110,12 @@ connectors, standard glTF interchange artifacts, and a full A0 release-gate
 provenance inventory. The curve adds an integrated pier/bearings, expansion
 joints, four LED fixtures, and an emissive material lowered into OGRE.
 Dependency-free validation runs on macOS, Linux, and Windows CI. The offline
-glTF-to-runtime compiler has landed; the deterministic corridor overlay has
-not, so this is not yet a replacement placed in the local CityWorld map.
+glTF-to-runtime compiler has landed. The local-only v2 corridor overlay now
+authenticates and joins Penguinville's east road to NeoQueretaro's west road
+with a continuous 1,060.599 m collision surface, zero-gap seam heights and
+headings, 160 m eased ramps, an 8 m raised deck, and 47 native
+terrain-reaching support stations. The building-overlapping prototype gateway
+is no longer placed.
 
 Both modules now compile through the first production
 [`ror_scene_compiler` boundary](CITYWORLD_SCENE_COMPILER.md). Each package owns
@@ -120,9 +124,12 @@ ODEF, a generated material fallback, and a canonical report. OGRE 14.5.2,
 `MeshSerializer_v1.100`, little-endian output, the Blender/glTF/OGRE coordinate
 basis, source/intermediate/output hashes, bounded counts, and stable
 object/material traversal are enforced. The same standard-library validation
-runs under normal and optimized Python on Windows, Linux, and macOS; the
-connector-solved curved placement and driven continuity test is the next CW2
-gate.
+runs under normal and optimized Python on Windows, Linux, and macOS. The
+macOS arm64 rolling app has cleanly loaded and visually checked both v2 city
+seams, the raised deck collision and visible pillars. Replacing the generic
+construction alignment with the checked Blender ramp/deck/pier kit, then
+running a deterministic full-corridor vehicle traversal on macOS, Windows and
+Linux, is the next CW2 gate.
 
 ## Measurement contract
 
@@ -1327,8 +1334,11 @@ Gate A0:
 10. The project-owned CityWorld tangent and 15-degree curved spans are compiled
     through the fail-closed glTF boundary; tangent in-game lane/collision
     continuity and a connector-solved three-curve traversal are proven on
-    macOS arm64. Next add abutments, transitions, and the first intercity
-    overlay before starting the longer corridor.
+    macOS arm64. The first intercity construction alignment now closes both
+    authenticated city-road seams with ramps, collision and terrain-reaching
+    supports. Next replace its generic visuals with the Blender
+    abutment/transition/deck/pier kit and pass the full-corridor three-platform
+    drive gate before starting the longer corridor.
 
 A next-generation preview is ready only when the pinned four-scene suite passes
 on Windows, Linux, and macOS; one-worker and eight-worker physics hashes match;

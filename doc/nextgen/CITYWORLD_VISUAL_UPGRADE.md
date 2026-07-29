@@ -28,14 +28,21 @@ The 2026-07-28 baseline contains:
 - one unresolved placed object definition, `pantallaQr`, which is content debt
   rather than a renderer failure.
 
-The three authored teleport anchors give two useful staged transport links:
+The three authored teleport anchors give two useful city-to-city planning
+distances:
 
 1. Penguinville to NeoQueretaro: 2,067.758 metres.
 2. NeoQueretaro to NeoQ2.0: 5,401.543 metres.
 
-The direct Penguinville-to-NeoQ2.0 distance is 7,374.342 metres and is not the
-first construction target. A link is a road corridor with bridge or elevated
-spans where the terrain requires them, not a single multi-kilometre mesh.
+The first physical road link does not use those spawn positions as endpoints.
+It joins the authenticated Penguinville east T-junction seam at
+`(494.8491, 0.1, 370)` to the authenticated NeoQueretaro west carriageway seam
+at `(1380.966797, 0.1, 936.098389)`. Those road edges are 1,051.509 metres
+apart. The generated centreline is 1,060.599 metres because it preserves east
+tangents at both cities. The direct Penguinville-to-NeoQ2.0 distance is
+7,374.342 metres and is not the first construction target. A link is a road
+corridor with bridge or elevated spans where the terrain requires them, not a
+single multi-kilometre mesh.
 
 Run the local audit with:
 
@@ -63,11 +70,13 @@ python3 tools/build_cityworld_local_overlay.py \
 ```
 
 The builder requires the exact pinned archive hash, audits ZIP paths and
-telepoints without extracting the archive, validates all four asset manifests
-and checked compiler outputs, and writes through a temporary sibling before an
+telepoints without extracting the archive, authenticates both road-object
+placements and rotations in `CityWorld.tobj`, verifies that the open intercity
+placement-origin window remains empty, validates all four asset manifests and
+checked compiler outputs, and writes through a temporary sibling before an
 atomic no-overwrite publish. The ZIP contains a derived terrain descriptor, a
-project-owned overlay TOBJ, 32 required runtime resources, and one canonical
-report. It
+project-owned overlay TOBJ, 28 packaged candidate runtime resources, one merged
+material script, and one canonical report. It
 contains no original CityWorld geometry, placement, texture, object, or
 archive payload. The descriptor references `CityWorld.otc` and
 `CityWorld.tobj`, so the original `CityWorld.zip` must remain installed
@@ -98,15 +107,38 @@ separately installed, read-only local source and is appended to the derived
 terrain's resource group. The derived overlay location therefore keeps
 precedence if both archives contain the same resource name.
 
-The first bounded segment is gateway, transition, three 15-degree curves, and
-four 20 m tangent spans. Its 192 m centreline starts at Penguinville at
-source Y plus the explicit bounded offset. The initial heading compensates for
-the curves so the final tangent points at NeoQueretaro; all eight seams are
-exact. Fixed ZIP order, timestamps, permissions, and stored payloads make
-repeated builds byte-identical. The embedded report marks redistribution and
-shipping false and records source/member hashes, tool and generator hashes,
-asset/compile provenance, runtime lights, module transforms, seam errors,
-target distance, and covered length.
+Overlay v2 replaces the incomplete 192 m prototype placement with a continuous
+1,060.599 m, 8.9 m-wide construction alignment. Its endpoints close at the
+exact existing-road height and heading with zero reported three-dimensional
+gap. The 0.08 m anti-z-fighting surface offset eases in and out over 40 m
+rather than creating a lip. Two 160 m smoothstep ramps hold the analytic grade
+to 7.5 percent, the central deck is raised 8 m, and 47 bridge stations request
+RoR's terrain-reaching native pillars at no more than 20 m spacing. Collision
+generation is enabled for the complete procedural road.
+
+The former gateway is not placed: its audited footprint intersected
+`officeblock04`. The route leaves the Penguinville edge road, crosses the
+source archive's empty intercity placement-origin window, and joins
+NeoQueretaro's western T-junction carriageway. The checked Blender bridge
+family remains packaged and provenance-validated but is explicitly reported
+as unplaced; it is the candidate visual kit for the next pass, not evidence
+that the construction alignment already uses high-detail meshes.
+
+Fixed ZIP order, timestamps, permissions, and stored payloads make repeated
+builds byte-identical. The embedded report marks redistribution and shipping
+false and records source/member hashes, authenticated anchor evidence,
+tool/generator hashes, asset/compile provenance, measured endpoint errors,
+grade, waypoints, support stations, target distance, and covered length.
+Normal and optimized Python tests cover deterministic builds, hostile anchor
+drift, occupied-gap rejection, seam closure, OGRE yaw orthogonality, ramps,
+pillars, and no-overwrite publication.
+
+On the macOS arm64 rolling app, the installed v2 package reaches
+`TERRAIN LOADING DONE`, passes the 10-frame bundle smoke, and shuts OGRE down
+cleanly. Visual captures verify both city junctions, visible terrain-reaching
+pillars, and a character settling on the raised collision deck. A deterministic
+full-vehicle end-to-end traversal and native Windows/Linux repetitions remain
+open acceptance gates.
 
 ### Authenticated legacy material compatibility
 
@@ -226,6 +258,15 @@ compatibility references, not sources for a redistributable replacement. The
 new kit uses project-owned names and geometry. The longer
 NeoQueretaro-to-NeoQ2.0 corridor starts only after the first link passes
 collision, navigation, visual, and performance gates.
+
+The first-link topology is now complete as the v2 native procedural
+construction alignment described above. That deliberately separates two
+risks: exact road-to-road connectivity, elevation, collision and support
+placement can be driven and reviewed now, while Blender-authored ramp, pier,
+deck-detail, fixture and building-adjacency meshes replace the generic
+construction visuals without changing the authenticated route. The visual pass
+must preserve the v2 centreline, lane width, zero-gap seams, maximum grade and
+continuous collision surface.
 
 The first project-owned tangent module is checked in as
 `rorng_city_bridge_span_20m`, and the first curve as
