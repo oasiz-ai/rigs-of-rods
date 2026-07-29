@@ -1,0 +1,10 @@
+# CityWorld Bridge Streetlight Runtime Fixture
+
+The fixture-authored `.terrn2`, `.tobj`, and AngelScript files in this
+directory are Copyright 2026 Oasiz AI and Rigs of Rods contributors and are
+licensed under GPL-3.0-or-later.
+
+The runtime pack builder combines them only for native testing with the pinned
+Rigs of Rods `content` submodule and the project-owned collisionless bridge
+streetlight package. It does not copy or modify the local `CityWorld.zip`
+compatibility fixture.

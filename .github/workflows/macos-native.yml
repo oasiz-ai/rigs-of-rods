@@ -313,6 +313,20 @@ jobs:
             2>&1 | tee \
               "$RUNNER_TEMP/ror-cityworld-led-streetlight-macos-arm64.driver.log"
 
+      - name: Render CityWorld Bridge streetlight with macOS arm64 GL3Plus
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          app="build-macos-ogre14/bin/RoR.app"
+          python3 tools/run_cityworld_bridge_streetlight_scene.py \
+            --executable "$app/Contents/MacOS/RoR" \
+            --repository "$GITHUB_WORKSPACE" \
+            --runtime-content "$app/Contents/Resources/content" \
+            --artifact-dir "$RUNNER_TEMP/ror-cityworld-bridge-streetlight-macos-arm64" \
+            --timeout 360 \
+            2>&1 | tee \
+              "$RUNNER_TEMP/ror-cityworld-bridge-streetlight-macos-arm64.driver.log"
+
       - name: Upload CityWorld LED streetlight diagnostics
         if: always()
         uses: actions/upload-artifact@v7
@@ -321,6 +335,17 @@ jobs:
           path: |
             ${{ runner.temp }}/ror-cityworld-led-streetlight-macos-arm64
             ${{ runner.temp }}/ror-cityworld-led-streetlight-macos-arm64.driver.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload CityWorld bridge streetlight diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Rigs-of-Rods-macOS-arm64-CityWorld-bridge-streetlight
+          path: |
+            ${{ runner.temp }}/ror-cityworld-bridge-streetlight-macos-arm64
+            ${{ runner.temp }}/ror-cityworld-bridge-streetlight-macos-arm64.driver.log
           if-no-files-found: warn
           retention-days: 14
 

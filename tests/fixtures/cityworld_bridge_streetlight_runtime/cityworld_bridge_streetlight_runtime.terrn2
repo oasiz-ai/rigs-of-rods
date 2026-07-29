@@ -1,0 +1,21 @@
+[General]
+Name = CityWorld Next Collisionless Bridge Streetlight Runtime Gate
+GeometryConfig = simple2.otc
+Water = 0
+AmbientColor = 0.24, 0.24, 0.24
+StartPosition = 512, 2, 480
+StartRotation = 180
+Gravity = -9.81
+CategoryID = 129
+Version = 2
+GUID = bca706ec-af6a-44b9-bc9c-14b880240ed8
+TractionMap = simple2_landuse.cfg
+
+[Authors]
+terrain = Oasiz AI and Rigs of Rods contributors
+
+[Objects]
+cityworld_bridge_streetlight_runtime.tobj =
+
+[Scripts]
+cityworld_bridge_streetlight_runtime.as =
