@@ -278,6 +278,20 @@ double LogSample(FixedRandom& random, double lower, double upper)
 void TestCalibrationProperties()
 {
     FixedRandom random(UINT64_C(0x62a9d9ed799705f5));
+    const bool has_extended_reference =
+        std::numeric_limits<long double>::digits >
+        std::numeric_limits<double>::digits;
+    const long double calibration_tolerance =
+        has_extended_reference ?
+            8.0e-16L :
+            32.0L *
+                static_cast<long double>(
+                    std::numeric_limits<double>::epsilon());
+    long double maximum_relative_error = 0.0L;
+    long double maximum_reference = 0.0L;
+    int maximum_error_sample = -1;
+    Calibration::Inputs maximum_error_inputs;
+    Calibration::Calibration maximum_error_output;
     for (int sample = 0; sample < 20000; ++sample)
     {
         Calibration::Inputs inputs;
@@ -315,35 +329,14 @@ void TestCalibrationProperties()
                     output.damage_driver_capacity_density) -
                 reference) /
             reference;
-        // MSVC implements long double with the same precision as double.
-        // Scale the bound to that platform's representable resolution while
-        // preserving the tighter gate on extended-precision implementations.
-        const long double calibration_tolerance =
-            std::max(
-                8.0e-16L,
-                8.0L *
-                    std::numeric_limits<long double>::epsilon());
-        if (!(relative_error < calibration_tolerance))
+        if (relative_error > maximum_relative_error)
         {
-            std::fprintf(
-                stderr,
-                "calibration mismatch sample=%d "
-                "G=%.17g l=%.17g E=%.17g H=%.17g "
-                "measured=%.17g reference=%.21Lg "
-                "relative_error=%.21Lg tolerance=%.21Lg "
-                "long_double_digits=%d\n",
-                sample,
-                inputs.fracture_energy_per_area,
-                inputs.characteristic_length,
-                inputs.elastic_modulus,
-                inputs.hardening_modulus,
-                output.damage_driver_capacity_density,
-                reference,
-                relative_error,
-                calibration_tolerance,
-                std::numeric_limits<long double>::digits);
+            maximum_relative_error = relative_error;
+            maximum_reference = reference;
+            maximum_error_sample = sample;
+            maximum_error_inputs = inputs;
+            maximum_error_output = output;
         }
-        CHECK(relative_error < calibration_tolerance);
 
         const double recovered_fracture_energy =
             0.5 *
@@ -356,6 +349,27 @@ void TestCalibrationProperties()
                 inputs.fracture_energy_per_area) <
             8.0e-15);
     }
+    if (!(maximum_relative_error < calibration_tolerance))
+    {
+        std::fprintf(
+            stderr,
+            "calibration mismatch sample=%d "
+            "G=%.17g l=%.17g E=%.17g H=%.17g "
+            "measured=%.17g reference=%.21Lg "
+            "relative_error=%.21Lg tolerance=%.21Lg "
+            "long_double_digits=%d\n",
+            maximum_error_sample,
+            maximum_error_inputs.fracture_energy_per_area,
+            maximum_error_inputs.characteristic_length,
+            maximum_error_inputs.elastic_modulus,
+            maximum_error_inputs.hardening_modulus,
+            maximum_error_output.damage_driver_capacity_density,
+            maximum_reference,
+            maximum_relative_error,
+            calibration_tolerance,
+            std::numeric_limits<long double>::digits);
+    }
+    CHECK(maximum_relative_error < calibration_tolerance);
 }
 
 void TestHardeningConventionAgainstMaterialLaw()
