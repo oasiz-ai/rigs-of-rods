@@ -4,14 +4,16 @@ CityWorld Next content is authored in Blender, exported through a bounded glTF
 2.0 interchange profile, and compiled offline. The game does not parse Blender
 files or arbitrary glTF at runtime.
 
-The first production fixture is
-`rorng_city_bridge_span_20m`. Its checked package contains:
+The first production fixtures are the tangent
+`rorng_city_bridge_span_20m` and the 15-degree left curve
+`rorng_city_bridge_curve_left_15deg_20m`. Their checked packages contain:
 
 - three render meshes with authored LOD0, LOD1, and LOD2 geometry;
 - one road and two barrier collision meshes, separate from render geometry;
 - a RoR ODEF that binds the visible LOD0 mesh to all collision meshes;
 - a deterministic, RTShader-compatible material fallback generated from the
-  declared linear base colour, metallic, and roughness factors; and
+  declared linear base colour, metallic, roughness, and optional core-glTF
+  emissive factors; and
 - a canonical conversion report with source, compiler, converter, options,
   intermediate, output, and connector hashes.
 
@@ -75,6 +77,13 @@ python3 tools/compile_cityworld_asset.py \
   --validate-checked
 ```
 
+The curved fixture uses the same commands with:
+`resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json`.
+Its 20 m centreline is a 15-degree arc with a 76.394372684 m radius and a
+19.942933147 m connector chord. The runtime connector report preserves both
+end positions exactly, while the asset contract retains centreline length,
+radius, angle, road width, and tangent directions for placement.
+
 The production command requires an explicit converter; it never searches
 `PATH` or silently chooses a host tool. Output is written through a
 repository-local staging directory, unexpected files fail the compile, and a
@@ -133,7 +142,7 @@ Native Windows and Linux executions remain required before the gate is promoted
 from macOS-first proof to three-platform release coverage.
 
 Texture ingestion/transcoding, material textures, instancing, nested applied
-scene graphs, terrain tiles, curved-span connector solving, and the full PBR
-runtime material path remain later compiler-profile revisions. They must be
-added one bounded feature at a time with hostile-input and byte-determinism
-tests.
+scene graphs, terrain tiles, multi-piece curved-span placement solving, and the
+full PBR runtime material path remain later compiler-profile revisions. They
+must be added one bounded feature at a time with hostile-input and
+byte-determinism tests.

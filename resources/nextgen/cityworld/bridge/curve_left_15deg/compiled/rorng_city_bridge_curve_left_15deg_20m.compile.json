@@ -1,0 +1,168 @@
+{
+  "asset": {
+    "id": "rorng_city_bridge_curve_left_15deg_20m",
+    "version": 1
+  },
+  "basis": {
+    "authoring": "blender-z-up-metres",
+    "authoring_to_interchange": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        -1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "compiler_transform": "identity",
+    "interchange": "gltf-y-up-metres",
+    "runtime": "ogre-y-up-metres"
+  },
+  "compiler": {
+    "format": "ror-cityworld-scene-compiler-v1",
+    "path": "tools/compile_cityworld_asset.py",
+    "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa"
+  },
+  "connectors": [
+    {
+      "id": "end",
+      "lane_centres_x_m": [
+        -1.75,
+        1.75
+      ],
+      "position_ogre_y_up_m": [
+        0.653564449,
+        0.0,
+        -9.971466573
+      ],
+      "road_width_m": 8.9
+    },
+    {
+      "id": "start",
+      "lane_centres_x_m": [
+        -1.75,
+        1.75
+      ],
+      "position_ogre_y_up_m": [
+        0.653564449,
+        0.0,
+        9.971466573
+      ],
+      "road_width_m": 8.9
+    }
+  ],
+  "format": "ror-cityworld-scene-compile-report-v1",
+  "inputs": {
+    "asset_contract_sha256": "b92542254d41b8aa03a237a99b34f8c792a1e0221fb200559d79c268575a32de",
+    "glb": {
+      "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.glb",
+      "sha256": "ac6942d869385eb2fe129174d91bdaa01d09170df1de3d742f98695d58852378"
+    }
+  },
+  "limits": {
+    "indices": 12000000,
+    "materials": 4096,
+    "meshes": 4096,
+    "nodes": 4096,
+    "primitives": 8192,
+    "vertices": 4000000
+  },
+  "material_model": "ogre-rtss-metallic-roughness-fallback-v1",
+  "mesh_format": "MeshSerializer_v1.100-little-endian",
+  "ogre_converter": {
+    "executable": "OgreXMLConverter",
+    "sha256": "01f80e0400688d899e8934335678ea9875089d3715543f63f7b69f24f1b93ce3",
+    "version": "OgreXMLConverter Tsathoggua (14.5.2)"
+  },
+  "options": {
+    "colour_packing": "gl",
+    "endian": "little",
+    "lod_distances_m": [
+      80.0,
+      180.0
+    ],
+    "transforms": "applied-only"
+  },
+  "outputs": [
+    {
+      "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m.material",
+      "role": "material-fallback",
+      "sha256": "295f2931a9492a91a148d0e27d21eee92fc75f00705369634e4868a6796171a7",
+      "size": 1612
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m.odef",
+      "role": "terrain-object",
+      "sha256": "d061ae5bf62c69e7f2451f3ef9cb6bdf2b29387a214477d9629c0ed5eb2456db",
+      "size": 399
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_collision_barrier_left.mesh",
+      "role": "collision-barrier",
+      "sha256": "e64d3167e7344bcefb28c1b9b86595433e77652494eb1f83b1cabe7e49d7809a",
+      "size": 14490
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_collision_barrier_right.mesh",
+      "role": "collision-barrier",
+      "sha256": "3efac7900f756c8d83ed01ad7ec6b2007bfa90f352c3b669d0ae8acb40d85c41",
+      "size": 14683
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_collision_road.mesh",
+      "role": "collision-road",
+      "sha256": "6e8eca4159cb35a9a11996f1bf7e34db96f16c16b9e2d8e39055ad4b7933d7e0",
+      "size": 14482
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_lod0.mesh",
+      "role": "render-lod0",
+      "sha256": "a893667c9b99dc69addb6f021abaa911a3ed41c31eaacef5f0dbc9fe40aa8413",
+      "size": 699197
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_lod1.mesh",
+      "role": "render-lod1",
+      "sha256": "7efee0b0f5d8b358a5a0067aea7ac790844251e69c51828dd715990444942888",
+      "size": 130862
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_lod2.mesh",
+      "role": "render-lod2",
+      "sha256": "a99f361907545bc55f2d54586a9f8562658e2239e4cf0d11408686415beec4f3",
+      "size": 42946
+    }
+  ],
+  "source_stats": {
+    "indices": 25428,
+    "materials": 8,
+    "meshes": 6,
+    "primitives": 17,
+    "vertices": 18752
+  },
+  "xml_intermediate_sha256": {
+    "rorng_city_bridge_curve_left_15deg_20m_collision_barrier_left.mesh.xml": "e25e6a3652df00022f91b25f2cf8a82994a48b7fb24019df90d2d2cbf0715209",
+    "rorng_city_bridge_curve_left_15deg_20m_collision_barrier_right.mesh.xml": "6dbd381e590b2ee646cff6069eb7bc44afc7f45495d2c8cde6d6df4d3c873faf",
+    "rorng_city_bridge_curve_left_15deg_20m_collision_road.mesh.xml": "e59c01b5e68f7f9363df448a9d0cacd3427c0e4f615375799c419b675c528c3f",
+    "rorng_city_bridge_curve_left_15deg_20m_lod0.mesh.xml": "a21051f81ea17f5c3c661b9bba80e734d024835d20bedfff4f7acbd0645d759f",
+    "rorng_city_bridge_curve_left_15deg_20m_lod1.mesh.xml": "9a31a47e7fa90955efe03c35ad4fa21cc06a5e08fad58d60d30dfefc05af98ab",
+    "rorng_city_bridge_curve_left_15deg_20m_lod2.mesh.xml": "ac713732b2c384894449fefd2f8dca53e740339c0ac4bc9e555e986d8ed378d5"
+  }
+}

@@ -2,7 +2,7 @@
   "files": [
     {
       "path": "bridge/compiled/rorng_city_bridge_span_20m.compile.json",
-      "sha256": "655512deaaff1c1a933cdad3d9a262b5e427f575d9496da963aae27c86c0fbbb",
+      "sha256": "02f444a7119f52a06220be8befe00a859fb6f4ea14725c8e0dfa5838d18d4b26",
       "size": 5113,
       "type": "file"
     },
@@ -55,8 +55,74 @@
       "type": "file"
     },
     {
+      "path": "bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m.compile.json",
+      "sha256": "78b3e822d360ee68240b8178071a29318962582096c4505b2a1b2523256393e6",
+      "size": 5496,
+      "type": "file"
+    },
+    {
+      "path": "bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m.material",
+      "sha256": "295f2931a9492a91a148d0e27d21eee92fc75f00705369634e4868a6796171a7",
+      "size": 1612,
+      "type": "file"
+    },
+    {
+      "path": "bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m.odef",
+      "sha256": "d061ae5bf62c69e7f2451f3ef9cb6bdf2b29387a214477d9629c0ed5eb2456db",
+      "size": 399,
+      "type": "file"
+    },
+    {
+      "path": "bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_collision_barrier_left.mesh",
+      "sha256": "e64d3167e7344bcefb28c1b9b86595433e77652494eb1f83b1cabe7e49d7809a",
+      "size": 14490,
+      "type": "file"
+    },
+    {
+      "path": "bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_collision_barrier_right.mesh",
+      "sha256": "3efac7900f756c8d83ed01ad7ec6b2007bfa90f352c3b669d0ae8acb40d85c41",
+      "size": 14683,
+      "type": "file"
+    },
+    {
+      "path": "bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_collision_road.mesh",
+      "sha256": "6e8eca4159cb35a9a11996f1bf7e34db96f16c16b9e2d8e39055ad4b7933d7e0",
+      "size": 14482,
+      "type": "file"
+    },
+    {
+      "path": "bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_lod0.mesh",
+      "sha256": "a893667c9b99dc69addb6f021abaa911a3ed41c31eaacef5f0dbc9fe40aa8413",
+      "size": 699197,
+      "type": "file"
+    },
+    {
+      "path": "bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_lod1.mesh",
+      "sha256": "7efee0b0f5d8b358a5a0067aea7ac790844251e69c51828dd715990444942888",
+      "size": 130862,
+      "type": "file"
+    },
+    {
+      "path": "bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_lod2.mesh",
+      "sha256": "a99f361907545bc55f2d54586a9f8562658e2239e4cf0d11408686415beec4f3",
+      "size": 42946,
+      "type": "file"
+    },
+    {
+      "path": "bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json",
+      "sha256": "05655424c1e5b91dad2776464f03463cadd152fc07cc2f58c7e254c2cb7724a2",
+      "size": 10255,
+      "type": "file"
+    },
+    {
+      "path": "bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.glb",
+      "sha256": "ac6942d869385eb2fe129174d91bdaa01d09170df1de3d742f98695d58852378",
+      "size": 970440,
+      "type": "file"
+    },
+    {
       "path": "bridge/rorng_city_bridge_span_20m.asset.json",
-      "sha256": "bee8204706de736dcebcbcecb62fa3365d22db4fa7b6c7878ce1a08e9baf2e17",
+      "sha256": "7e069d2459214c84702fe9e5dbd26bcbefc21190430a70d53db1165f836cb4fd",
       "size": 9213,
       "type": "file"
     },

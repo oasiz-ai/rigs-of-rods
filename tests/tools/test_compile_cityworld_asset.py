@@ -24,6 +24,15 @@ MANIFEST_PATH = REPOSITORY_ROOT / MANIFEST_RELATIVE
 COMPILED_RELATIVE = Path(
     "resources/nextgen/cityworld/bridge/compiled"
 )
+CURVED_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/bridge/curve_left_15deg/"
+    "rorng_city_bridge_curve_left_15deg_20m.asset.json"
+)
+CURVED_COMPILED_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled"
+)
 
 SPEC = importlib.util.spec_from_file_location("compile_cityworld_asset", TOOL_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -33,10 +42,10 @@ SPEC.loader.exec_module(COMPILER_MODULE)
 
 
 class CityWorldSceneCompilerTests(unittest.TestCase):
-    def compiler(self) -> object:
+    def compiler(self, manifest_path: Path = MANIFEST_PATH) -> object:
         compiler = COMPILER_MODULE.SceneCompiler(
             REPOSITORY_ROOT,
-            MANIFEST_PATH,
+            manifest_path,
         )
         compiler.prepare()
         return compiler
@@ -176,6 +185,51 @@ class CityWorldSceneCompilerTests(unittest.TestCase):
         self.assertEqual(odef.count("beginmesh\n"), 3)
         self.assertEqual(odef.count("stdfriction concrete"), 2)
         self.assertEqual(odef.count("stdfriction asphalt"), 1)
+
+    def test_curved_bridge_compiles_with_connectors_and_emissive_fixture(self) -> None:
+        compiler = self.compiler(CURVED_MANIFEST_PATH)
+        report = COMPILER_MODULE.validate_checked_outputs(
+            compiler,
+            CURVED_COMPILED_PATH,
+        )
+        self.assertEqual(
+            report["source_stats"],
+            {
+                "indices": 25428,
+                "materials": 8,
+                "meshes": 6,
+                "primitives": 17,
+                "vertices": 18752,
+            },
+        )
+        self.assertEqual(
+            compiler.connector_runtime_contract(),
+            [
+                {
+                    "id": "end",
+                    "lane_centres_x_m": [-1.75, 1.75],
+                    "position_ogre_y_up_m": [
+                        0.653564449,
+                        0.0,
+                        -9.971466573,
+                    ],
+                    "road_width_m": 8.9,
+                },
+                {
+                    "id": "start",
+                    "lane_centres_x_m": [-1.75, 1.75],
+                    "position_ogre_y_up_m": [
+                        0.653564449,
+                        0.0,
+                        9.971466573,
+                    ],
+                    "road_width_m": 8.9,
+                },
+            ],
+        )
+        material = compiler._material_bytes().decode("utf-8")
+        self.assertIn("material rorng_city_lamp_emissive", material)
+        self.assertIn("      emissive 1 0.72 0.28", material)
 
     def test_intermediates_are_byte_deterministic(self) -> None:
         first = self.intermediates()

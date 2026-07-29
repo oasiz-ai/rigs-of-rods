@@ -489,6 +489,11 @@ class Validator:
             declared_base_color = declaration.get("base_color_factor_linear")
             declared_metallic = declaration.get("metallic_factor")
             declared_roughness = declaration.get("roughness_factor")
+            resolved_emissive = material.get("emissiveFactor", [0.0, 0.0, 0.0])
+            declared_emissive = declaration.get(
+                "emissive_factor_linear",
+                [0.0, 0.0, 0.0],
+            )
             if (
                 not isinstance(resolved_base_color, list)
                 or not isinstance(declared_base_color, list)
@@ -502,6 +507,17 @@ class Validator:
                 or abs(float(resolved_metallic) - float(declared_metallic)) > POSITION_EPSILON
                 or not isinstance(declared_roughness, (int, float))
                 or abs(float(resolved_roughness) - float(declared_roughness)) > POSITION_EPSILON
+                or not isinstance(resolved_emissive, list)
+                or not isinstance(declared_emissive, list)
+                or len(resolved_emissive) != 3
+                or len(declared_emissive) != 3
+                or any(
+                    abs(float(actual) - float(expected)) > POSITION_EPSILON
+                    for actual, expected in zip(
+                        resolved_emissive,
+                        declared_emissive,
+                    )
+                )
             ):
                 self.add(
                     "MATERIAL_FACTOR",
@@ -512,6 +528,12 @@ class Validator:
                 self.add("MATERIAL_COLOR_SPACE", pointer, "factor colour space must be explicit")
             if any(key.endswith("Texture") for key in pbr):
                 self.add("MATERIAL_TEXTURE", pointer, "initial texture-free profile has a PBR texture")
+            if "emissiveTexture" in material:
+                self.add(
+                    "MATERIAL_TEXTURE",
+                    pointer,
+                    "initial texture-free profile has an emissive texture",
+                )
         actual_names = {name for name in by_name if isinstance(name, str)}
         if actual_names != declared_names:
             self.add(
@@ -635,16 +657,14 @@ class Validator:
         unique_positions: dict[tuple[int, int, int], tuple[float, float, float]] = {}
         for key, position in zip(keys, positions):
             unique_positions.setdefault(key, position)
-        center = (
-            sum(position[0] for position in unique_positions.values()) / len(unique_positions),
-            sum(position[1] for position in unique_positions.values()) / len(unique_positions),
-            sum(position[2] for position in unique_positions.values()) / len(unique_positions),
-        )
-
         edge_counts: Counter[tuple[tuple[int, int, int], tuple[int, int, int]]] = Counter()
+        edge_orientations: dict[
+            tuple[tuple[int, int, int], tuple[int, int, int]],
+            list[tuple[tuple[int, int, int], tuple[int, int, int]]],
+        ] = defaultdict(list)
         adjacency: dict[tuple[int, int, int], set[tuple[int, int, int]]] = defaultdict(set)
         degenerate = 0
-        inward = 0
+        signed_six_volume = 0.0
         for triangle in triangles:
             try:
                 indices = (triangle[0], triangle[1], triangle[2])
@@ -658,13 +678,10 @@ class Validator:
             normal = vector_cross(edge_a, edge_b)
             if vector_length(normal) <= POSITION_EPSILON:
                 degenerate += 1
-            centroid = (
-                (points[0][0] + points[1][0] + points[2][0]) / 3.0,
-                (points[0][1] + points[1][1] + points[2][1]) / 3.0,
-                (points[0][2] + points[1][2] + points[2][2]) / 3.0,
+            signed_six_volume += vector_dot(
+                points[0],
+                vector_cross(points[1], points[2]),
             )
-            if vector_dot(normal, vector_sub(centroid, center)) <= POSITION_EPSILON:
-                inward += 1
             for start, end in (
                 (triangle_keys[0], triangle_keys[1]),
                 (triangle_keys[1], triangle_keys[2]),
@@ -675,6 +692,7 @@ class Validator:
                     continue
                 edge = tuple(sorted((start, end)))
                 edge_counts[edge] += 1
+                edge_orientations[edge].append((start, end))
                 adjacency[start].add(end)
                 adjacency[end].add(start)
 
@@ -687,8 +705,23 @@ class Validator:
                 pointer,
                 f"{open_or_nonmanifold} welded edges do not have exactly two faces",
             )
-        if inward:
-            self.add("COLLISION_WINDING", pointer, f"{inward} triangle windings are not outward")
+        inconsistent_winding = sum(
+            1
+            for orientations in edge_orientations.values()
+            if len(orientations) == 2 and orientations[0] == orientations[1]
+        )
+        if inconsistent_winding:
+            self.add(
+                "COLLISION_WINDING",
+                pointer,
+                f"{inconsistent_winding} shared edges have inconsistent winding",
+            )
+        elif not open_or_nonmanifold and signed_six_volume <= POSITION_EPSILON:
+            self.add(
+                "COLLISION_WINDING",
+                pointer,
+                "closed collision mesh has non-positive signed volume",
+            )
 
         start = next(iter(unique_positions))
         visited = {start}
@@ -801,9 +834,73 @@ class Validator:
             if not isinstance(forward, list) or len(forward) != 3:
                 self.add("CONNECTOR_FORWARD", f"$.connectors.{connector_id}", "forward vector is invalid")
                 continue
-            length = math.sqrt(sum(float(value) ** 2 for value in forward))
+            try:
+                length = math.sqrt(sum(float(value) ** 2 for value in forward))
+            except (TypeError, ValueError):
+                self.add(
+                    "CONNECTOR_FORWARD",
+                    f"$.connectors.{connector_id}",
+                    "forward vector is invalid",
+                )
+                continue
             if abs(length - 1.0) > POSITION_EPSILON:
                 self.add("CONNECTOR_FORWARD", f"$.connectors.{connector_id}", "forward vector is not unit")
+
+        geometry = self.manifest.get("geometry", {})
+        curve_keys = (
+            "centerline_length_m",
+            "curve_radius_m",
+            "turn_angle_degrees",
+        )
+        present_curve_keys = [key for key in curve_keys if key in geometry]
+        if not present_curve_keys:
+            return
+        if len(present_curve_keys) != len(curve_keys):
+            self.add(
+                "CURVE_GEOMETRY",
+                "$.geometry",
+                "curved assets require centreline length, radius, and turn angle",
+            )
+            return
+        try:
+            centerline = float(geometry["centerline_length_m"])
+            radius = float(geometry["curve_radius_m"])
+            angle_degrees = float(geometry["turn_angle_degrees"])
+            angle_radians = math.radians(abs(angle_degrees))
+        except (TypeError, ValueError):
+            self.add(
+                "CURVE_GEOMETRY",
+                "$.geometry",
+                "curve geometry values are invalid",
+            )
+            return
+        if (
+            not all(math.isfinite(value) for value in (
+                centerline,
+                radius,
+                angle_degrees,
+            ))
+            or centerline <= 0.0
+            or radius <= 0.0
+            or not 0.0 < angle_radians < math.pi
+        ):
+            self.add(
+                "CURVE_GEOMETRY",
+                "$.geometry",
+                "curve geometry values are outside the supported range",
+            )
+            return
+        expected_chord = 2.0 * radius * math.sin(angle_radians / 2.0)
+        if (
+            abs(centerline - radius * angle_radians) > POSITION_EPSILON
+            or not isinstance(expected_length, (int, float))
+            or abs(float(expected_length) - expected_chord) > POSITION_EPSILON
+        ):
+            self.add(
+                "CURVE_GEOMETRY",
+                "$.geometry",
+                "centreline, radius, angle, and connector chord disagree",
+            )
 
     def validate(self) -> dict[str, Any]:
         self.load_manifest()

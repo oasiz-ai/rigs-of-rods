@@ -773,6 +773,13 @@ class SceneCompiler:
             color = [float(value) for value in material["base_color_factor_linear"]]
             metallic = float(material["metallic_factor"])
             roughness = float(material["roughness_factor"])
+            emissive = [
+                float(value)
+                for value in material.get(
+                    "emissive_factor_linear",
+                    [0.0, 0.0, 0.0],
+                )
+            ]
             dielectric = 0.04
             specular = [
                 dielectric * (1.0 - metallic) + color[index] * metallic
@@ -797,6 +804,16 @@ class SceneCompiler:
                     + stable_float(color[3])
                     + " "
                     + stable_float(shininess),
+                    *(
+                        [
+                            "      emissive "
+                            + " ".join(
+                                stable_float(value) for value in emissive
+                            )
+                        ]
+                        if any(value > 0.0 for value in emissive)
+                        else []
+                    ),
                     "    }",
                     "  }",
                     "}",

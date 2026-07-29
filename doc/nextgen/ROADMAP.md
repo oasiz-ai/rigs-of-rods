@@ -100,23 +100,26 @@ authoring contract, LOD/collision requirements, and visual acceptance gates are
 tracked in the
 [CityWorld visual-upgrade specification](CITYWORLD_VISUAL_UPGRADE.md).
 
-The first rights-cleared CityWorld Next content slice is now present without
-modifying that archive: a Blender-generated 20 m tangent bridge span with three
-render LODs, separate validated collision, lane connectors, a standard glTF
-interchange artifact, and a full A0 release-gate provenance inventory.
+The first rights-cleared CityWorld Next content family is now present without
+modifying that archive: Blender-generated 20 m tangent and 15-degree curved
+bridge spans with three render LODs, separate validated collision, lane
+connectors, standard glTF interchange artifacts, and a full A0 release-gate
+provenance inventory. The curve adds an integrated pier/bearings, expansion
+joints, four LED fixtures, and an emissive material lowered into OGRE.
 Dependency-free validation runs on macOS, Linux, and Windows CI. The offline
 glTF-to-runtime compiler has landed; the deterministic corridor overlay has
 not, so this is not yet a replacement placed in the local CityWorld map.
 
-That span now compiles through the first production
-[`ror_scene_compiler` boundary](CITYWORLD_SCENE_COMPILER.md). The package owns
-three manual render LOD meshes, separate road/barrier collision meshes, an ODEF,
-a generated material fallback, and a canonical report. OGRE 14.5.2,
+Both modules now compile through the first production
+[`ror_scene_compiler` boundary](CITYWORLD_SCENE_COMPILER.md). Each package owns
+three manual render LOD meshes, separate road/barrier collision meshes, an
+ODEF, a generated material fallback, and a canonical report. OGRE 14.5.2,
 `MeshSerializer_v1.100`, little-endian output, the Blender/glTF/OGRE coordinate
 basis, source/intermediate/output hashes, bounded counts, and stable
 object/material traversal are enforced. The same standard-library validation
-runs under normal and optimized Python on Windows, Linux, and macOS; runtime
-placement and driven seam continuity remain the next CW2 gate.
+runs under normal and optimized Python on Windows, Linux, and macOS; the
+connector-solved curved placement and driven continuity test is the next CW2
+gate.
 
 ## Measurement contract
 
@@ -680,9 +683,9 @@ marker, and persisted `Sky effects=Sandstorm (fastest)`. The capture confirms
 direct sun and ambient response; it also keeps CityWorld's missing-material
 messages visible as the separate content-authoring failures they are.
 
-The first original Blender-authored CityWorld Next bridge now crosses the
-offline/runtime boundary. A fail-closed glTF compiler lowers its applied,
-bounded static scene into deterministic OGRE 1.100 little-endian meshes, manual
+The first original Blender-authored CityWorld Next bridge family now crosses
+the offline/runtime boundary. A fail-closed glTF compiler lowers its applied,
+bounded static scenes into deterministic OGRE 1.100 little-endian meshes, manual
 80/180 metre render LODs, separate asphalt/barrier collision meshes, an
 RTShaderSystem material fallback, and an ODEF that preserves the Y-up basis.
 The checked package and provenance cover every output byte. A portable runtime
@@ -693,8 +696,11 @@ The first arm64 run traversed 90.1281 metres and both seams in 20,260
 deterministic physics steps, held lateral drift to 0.640167 metres and height to
 0.69451–1.50233 metres, loaded every render/collision mesh, generated GL3Plus
 RTSS programs for all six bridge materials, and fully decoded a UI-free
-1280x720 RGB proof. Windows and Linux runtime execution, curved modules,
-supports, and insertion into the rights-cleared CityWorld overlay remain open.
+1280x720 RGB proof. A compiled 15-degree curved module now adds exact
+tangent-aware connectors, a support pier, bearings, four fixtures, and
+core-glTF-to-OGRE emissive lowering. Windows and Linux runtime execution, the
+curved multi-piece traversal/clearance gate, abutments, and insertion into the
+rights-cleared CityWorld overlay remain open.
 
 This is meaningful R0 progress, not completion. The remaining gates include:
 
@@ -1163,10 +1169,11 @@ Gate A0:
    feature at a time; never make controller execution a dependency.
 9. Ship the A0 DAF/asphalt vertical slice and pass imported-content provenance
    gates before expanding the asset library or publishing compatibility demos.
-10. The project-owned CityWorld tangent span is compiled through the first
-    fail-closed glTF boundary. Next prove in-game lane/collision continuity,
-    then expand CW2 to curved spans, supports, and the first intercity overlay
-    before starting the longer corridor.
+10. The project-owned CityWorld tangent and 15-degree curved spans are compiled
+    through the fail-closed glTF boundary; tangent in-game lane/collision
+    continuity is proven on macOS arm64. Next prove a connector-solved curved
+    traversal, then add abutments and the first intercity overlay before
+    starting the longer corridor.
 
 A next-generation preview is ready only when the pinned four-scene suite passes
 on Windows, Linux, and macOS; one-worker and eight-worker physics hashes match;

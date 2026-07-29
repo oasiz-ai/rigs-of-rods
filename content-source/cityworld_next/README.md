@@ -4,7 +4,8 @@ This directory contains project-authored source and evidence for the
 rights-cleared CityWorld visual upgrade. It does not contain or derive geometry
 from the user-supplied `CityWorld.zip`.
 
-The first asset is the 20 m tangent bridge span:
+The first bridge family contains a 20 m tangent span and a 20 m-centreline,
+15-degree left curve:
 
 - editable source:
   `bridge/rorng_city_bridge_span_20m.blend`;
@@ -18,11 +19,25 @@ The first asset is the 20 m tangent bridge span:
   `provenance/cityworld_next.manifest.json` and
   `provenance/cityworld_next.inventory.json`.
 
+The curved module adds a 76.394 m radius, exact tangent-aware connectors, an
+integrated pier and bearings, four LED fixtures, three render LODs, and
+separate swept road/barrier collision shells:
+
+- editable source:
+  `bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.blend`;
+- authoring preview:
+  `bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m_preview.png`;
+- runtime-neutral interchange and contract:
+  `../../resources/nextgen/cityworld/bridge/curve_left_15deg/`.
+
 Regenerate with Blender 4.0 or newer:
 
 ```sh
 blender --background --factory-startup \
   --python tools/blender/cityworld_next/generate_bridge_kit.py -- \
+  --output-root "$PWD"
+blender --background --factory-startup \
+  --python tools/blender/cityworld_next/generate_curved_bridge.py -- \
   --output-root "$PWD"
 ```
 
@@ -31,6 +46,9 @@ Validate the authored output and rebuild provenance:
 ```sh
 python3 tools/validate_cityworld_asset.py \
   resources/nextgen/cityworld/bridge/rorng_city_bridge_span_20m.asset.json \
+  --repo-root .
+python3 tools/validate_cityworld_asset.py \
+  resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
   --repo-root .
 python3 tools/build_cityworld_next_provenance.py --repo-root .
 python3 tools/build_cityworld_next_provenance.py --repo-root . --check

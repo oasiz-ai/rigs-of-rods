@@ -1,21 +1,21 @@
 {
   "artifacts": {
     "blend": {
-      "path": "content-source/cityworld_next/bridge/rorng_city_bridge_span_20m.blend",
-      "sha256": "b382e1f92bda4c4bad07e852bfd2e888dcde4be44918a9de206f44999d423463"
+      "path": "content-source/cityworld_next/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.blend",
+      "sha256": "07076b901acc8085adc6ead17f0c1a6289823fbf085afca73a3137c4dbe21d27"
     },
     "glb": {
-      "path": "resources/nextgen/cityworld/bridge/rorng_city_bridge_span_20m.glb",
-      "sha256": "d658272799f6369abb6339a6eb6b52e13862098ff81737f76df6bd45a2eaa3c3"
+      "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.glb",
+      "sha256": "ac6942d869385eb2fe129174d91bdaa01d09170df1de3d742f98695d58852378"
     },
     "preview": {
-      "path": "content-source/cityworld_next/bridge/rorng_city_bridge_span_20m_preview.png",
-      "sha256": "edb902dc32480f2205aabfbcc2e64bd84a280cbd4148c3c364167de7906d9867"
+      "path": "content-source/cityworld_next/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m_preview.png",
+      "sha256": "de56a993fa01ffa35d79a5e3a9d9bb5875c0f803827f48312cacfe610581f1d6"
     }
   },
   "asset": {
     "author": "Oasiz AI and Rigs of Rods contributors",
-    "id": "rorng_city_bridge_span_20m",
+    "id": "rorng_city_bridge_curve_left_15deg_20m",
     "license": "GPL-3.0-or-later",
     "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
     "version": 1
@@ -24,9 +24,9 @@
     "axis": "blender-z-up",
     "blender_version": "5.2.0 LTS",
     "generator": {
-      "format": "ror-cityworld-blender-generator-v1",
-      "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
-      "sha256": "4910be675d50da85f0dc9ad49bf5e21c0f6d3a4277c65993860389acbc5bee9c"
+      "format": "ror-cityworld-curved-bridge-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_curved_bridge.py",
+      "sha256": "bf9860269e29f36f844d832d47295f86e2c8fab4cc5ba87c04492aefb103d7d9"
     },
     "transforms_applied": true,
     "units": "metres"
@@ -36,17 +36,17 @@
       {
         "bounds_blender_z_up": {
           "max": [
-            4.45,
-            10.0,
+            5.065494,
+            10.552308,
             0.0
           ],
           "min": [
             -4.45,
-            -10.0,
+            -10.552308,
             -0.12
           ]
         },
-        "name": "rorng_city_bridge_span_20m_collision_road",
+        "name": "rorng_city_bridge_curve_left_15deg_20m_collision_road",
         "role": "collision-road",
         "topology": {
           "connected_components": 1,
@@ -54,22 +54,22 @@
           "outward_winding": true,
           "watertight": true
         },
-        "triangles": 12
+        "triangles": 260
       },
       {
         "bounds_blender_z_up": {
           "max": [
-            -4.49,
-            10.0,
+            -3.798023,
+            10.596687,
             1.06
           ],
           "min": [
             -4.79,
-            -10.0,
+            -10.596687,
             0.02
           ]
         },
-        "name": "rorng_city_bridge_span_20m_collision_barrier_left",
+        "name": "rorng_city_bridge_curve_left_15deg_20m_collision_barrier_left",
         "role": "collision-barrier",
         "topology": {
           "connected_components": 1,
@@ -77,22 +77,22 @@
           "outward_winding": true,
           "watertight": true
         },
-        "triangles": 12
+        "triangles": 260
       },
       {
         "bounds_blender_z_up": {
           "max": [
-            4.79,
-            10.0,
+            5.402586,
+            9.385404,
             1.06
           ],
           "min": [
             4.49,
-            -10.0,
+            -9.385404,
             0.02
           ]
         },
-        "name": "rorng_city_bridge_span_20m_collision_barrier_right",
+        "name": "rorng_city_bridge_curve_left_15deg_20m_collision_barrier_right",
         "role": "collision-barrier",
         "topology": {
           "connected_components": 1,
@@ -100,7 +100,7 @@
           "outward_winding": true,
           "watertight": true
         },
-        "triangles": 12
+        "triangles": 260
       }
     ],
     "road_surface_z_m": 0.0,
@@ -110,65 +110,65 @@
     "format": "ror-cityworld-compiled-asset-v1",
     "outputs": [
       {
-        "path": "resources/nextgen/cityworld/bridge/compiled/rorng_city_bridge_span_20m.material",
+        "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m.material",
         "role": "material-fallback",
-        "sha256": "a53683499a34dbc24e674c88b1ab9e942d9efafc488fb541e92984209e5ab401",
-        "size": 1407
+        "sha256": "295f2931a9492a91a148d0e27d21eee92fc75f00705369634e4868a6796171a7",
+        "size": 1612
       },
       {
-        "path": "resources/nextgen/cityworld/bridge/compiled/rorng_city_bridge_span_20m.odef",
+        "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m.odef",
         "role": "terrain-object",
-        "sha256": "dca3be2776c0ebb688306b1ea802826b380f648b862d1fa23e90c34dbe23f334",
-        "size": 351
+        "sha256": "d061ae5bf62c69e7f2451f3ef9cb6bdf2b29387a214477d9629c0ed5eb2456db",
+        "size": 399
       },
       {
-        "path": "resources/nextgen/cityworld/bridge/compiled/rorng_city_bridge_span_20m_collision_barrier_left.mesh",
+        "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_collision_barrier_left.mesh",
         "role": "collision-barrier",
-        "sha256": "4fbf12bbd9cd586754b3d569d47345039a4be109c5e5003eae7952e2b70beaca",
-        "size": 894
+        "sha256": "e64d3167e7344bcefb28c1b9b86595433e77652494eb1f83b1cabe7e49d7809a",
+        "size": 14490
       },
       {
-        "path": "resources/nextgen/cityworld/bridge/compiled/rorng_city_bridge_span_20m_collision_barrier_right.mesh",
+        "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_collision_barrier_right.mesh",
         "role": "collision-barrier",
-        "sha256": "fbae6abc376f15318219f1cb79e125a830638391e7c14b857d8a845fa775bf1e",
-        "size": 895
+        "sha256": "3efac7900f756c8d83ed01ad7ec6b2007bfa90f352c3b669d0ae8acb40d85c41",
+        "size": 14683
       },
       {
-        "path": "resources/nextgen/cityworld/bridge/compiled/rorng_city_bridge_span_20m_collision_road.mesh",
+        "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_collision_road.mesh",
         "role": "collision-road",
-        "sha256": "a05880fddfb5610c82cec8b5e86a19a9b8aae8afe91612c29fc26ecc51839759",
-        "size": 886
+        "sha256": "6e8eca4159cb35a9a11996f1bf7e34db96f16c16b9e2d8e39055ad4b7933d7e0",
+        "size": 14482
       },
       {
-        "path": "resources/nextgen/cityworld/bridge/compiled/rorng_city_bridge_span_20m_lod0.mesh",
+        "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "12d5b1a2362babd37a04b556e03ab15bd4b0947c89067e552a97d6d48aa07f7b",
-        "size": 591403
+        "sha256": "a893667c9b99dc69addb6f021abaa911a3ed41c31eaacef5f0dbc9fe40aa8413",
+        "size": 699197
       },
       {
-        "path": "resources/nextgen/cityworld/bridge/compiled/rorng_city_bridge_span_20m_lod1.mesh",
+        "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "c86e6a9c837a6eb50cd780831cbadbeb91e98a5f9b8571e6b06ee929af6b6561",
-        "size": 39290
+        "sha256": "7efee0b0f5d8b358a5a0067aea7ac790844251e69c51828dd715990444942888",
+        "size": 130862
       },
       {
-        "path": "resources/nextgen/cityworld/bridge/compiled/rorng_city_bridge_span_20m_lod2.mesh",
+        "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "83752f5a27bfeab30adde124ad9c370c006f0d23f301c1e635a63ae4ac59ec8d",
-        "size": 5338
+        "sha256": "a99f361907545bc55f2d54586a9f8562658e2239e4cf0d11408686415beec4f3",
+        "size": 42946
       }
     ],
     "report": {
-      "path": "resources/nextgen/cityworld/bridge/compiled/rorng_city_bridge_span_20m.compile.json",
-      "sha256": "02f444a7119f52a06220be8befe00a859fb6f4ea14725c8e0dfa5838d18d4b26"
+      "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m.compile.json",
+      "sha256": "78b3e822d360ee68240b8178071a29318962582096c4505b2a1b2523256393e6"
     }
   },
   "connectors": [
     {
       "forward": [
-        0.0,
-        -1.0,
-        0.0
+        0.130526192,
+        -0.991444861,
+        -0.0
       ],
       "id": "start",
       "lane_centres_x_m": [
@@ -176,16 +176,16 @@
         1.75
       ],
       "position_blender_z_up_m": [
-        0.0,
-        -10.0,
+        0.653564449,
+        -9.971466573,
         0.0
       ],
       "road_width_m": 8.9
     },
     {
       "forward": [
-        0.0,
-        1.0,
+        0.130526192,
+        0.991444861,
         0.0
       ],
       "id": "end",
@@ -194,8 +194,8 @@
         1.75
       ],
       "position_blender_z_up_m": [
-        0.0,
-        10.0,
+        0.653564449,
+        9.971466573,
         0.0
       ],
       "road_width_m": 8.9
@@ -217,8 +217,10 @@
   },
   "format": "ror-cityworld-asset-v1",
   "geometry": {
-    "bridge_length_m": 20.0,
+    "bridge_length_m": 19.942933147,
     "bridge_width_m": 10.0,
+    "centerline_length_m": 20.0,
+    "curve_radius_m": 76.394372684,
     "lane_width_m": 3.5,
     "lod0_triangle_ceiling": 60000,
     "lod1_max_ratio": 0.35,
@@ -227,56 +229,57 @@
       {
         "bounds_blender_z_up": {
           "max": [
-            5.0,
-            10.0,
-            1.085
+            5.610789,
+            10.64794,
+            4.2
           ],
           "min": [
             -5.0,
-            -10.0,
-            -1.515
+            -10.64794,
+            -9.05
           ]
         },
         "lod": 0,
-        "name": "rorng_city_bridge_span_20m_lod0",
-        "triangles": 4636
+        "name": "rorng_city_bridge_curve_left_15deg_20m_lod0",
+        "triangles": 6120
       },
       {
         "bounds_blender_z_up": {
           "max": [
-            5.0,
-            10.0,
-            0.98
+            5.610789,
+            10.624098,
+            0.92
           ],
           "min": [
             -5.0,
-            -10.0,
-            -1.32
+            -10.624098,
+            -9.05
           ]
         },
         "lod": 1,
-        "name": "rorng_city_bridge_span_20m_lod1",
-        "triangles": 300
+        "name": "rorng_city_bridge_curve_left_15deg_20m_lod1",
+        "triangles": 1216
       },
       {
         "bounds_blender_z_up": {
           "max": [
-            5.0,
-            10.0,
-            0.86
+            5.610789,
+            10.624098,
+            0.92
           ],
           "min": [
             -5.0,
-            -10.0,
-            -0.72
+            -10.624098,
+            -9.05
           ]
         },
         "lod": 2,
-        "name": "rorng_city_bridge_span_20m_lod2",
-        "triangles": 48
+        "name": "rorng_city_bridge_curve_left_15deg_20m_lod2",
+        "triangles": 360
       }
     ],
-    "road_width_m": 8.9
+    "road_width_m": 8.9,
+    "turn_angle_degrees": 15.0
   },
   "materials": [
     {
@@ -326,6 +329,23 @@
       "metallic_factor": 0.72,
       "name": "rorng_city_galvanized_steel",
       "roughness_factor": 0.34
+    },
+    {
+      "base_color_factor_linear": [
+        0.95,
+        0.74,
+        0.31,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "emissive_factor_linear": [
+        1.0,
+        0.72,
+        0.28
+      ],
+      "metallic_factor": 0.0,
+      "name": "rorng_city_lamp_emissive",
+      "roughness_factor": 0.28
     },
     {
       "base_color_factor_linear": [

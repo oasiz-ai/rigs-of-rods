@@ -19,6 +19,12 @@ MANIFEST_RELATIVE = Path(
     "rorng_city_bridge_span_20m.asset.json"
 )
 MANIFEST_PATH = REPOSITORY_ROOT / MANIFEST_RELATIVE
+CURVED_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/bridge/curve_left_15deg/"
+    "rorng_city_bridge_curve_left_15deg_20m.asset.json"
+)
+CURVED_MANIFEST_RELATIVE = CURVED_MANIFEST_PATH.relative_to(REPOSITORY_ROOT)
 
 
 class CityWorldAssetValidationTests(unittest.TestCase):
@@ -48,10 +54,15 @@ class CityWorldAssetValidationTests(unittest.TestCase):
         )
         return result, json.loads(result.stdout)
 
-    def copy_fixture(self, root: Path) -> Path:
-        manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    def copy_fixture(
+        self,
+        root: Path,
+        manifest_relative: Path = MANIFEST_RELATIVE,
+    ) -> Path:
+        source_manifest = REPOSITORY_ROOT / manifest_relative
+        manifest = json.loads(source_manifest.read_text(encoding="utf-8"))
         relative_paths = {
-            MANIFEST_RELATIVE.as_posix(),
+            manifest_relative.as_posix(),
             manifest["artifacts"]["blend"]["path"],
             manifest["artifacts"]["glb"]["path"],
             manifest["artifacts"]["preview"]["path"],
@@ -62,7 +73,7 @@ class CityWorldAssetValidationTests(unittest.TestCase):
             destination = root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
-        return root / MANIFEST_RELATIVE
+        return root / manifest_relative
 
     @staticmethod
     def codes(report: dict[str, object]) -> set[str]:
@@ -86,6 +97,26 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 "glb_nodes": 6,
                 "lod_objects": 3,
                 "triangles": 5020,
+                "valid": True,
+            },
+        )
+
+    def test_checked_in_curved_bridge_asset_passes_full_gate(self) -> None:
+        result, report = self.run_validator(
+            REPOSITORY_ROOT,
+            CURVED_MANIFEST_PATH,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(report["diagnostics"], [])
+        self.assertEqual(
+            report["summary"],
+            {
+                "collision_objects": 3,
+                "errors": 0,
+                "glb_materials": 8,
+                "glb_nodes": 6,
+                "lod_objects": 3,
+                "triangles": 8476,
                 "valid": True,
             },
         )
@@ -136,6 +167,27 @@ class CityWorldAssetValidationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("CONNECTOR_LENGTH", self.codes(report))
         self.assertIn("LOD1_RATIO", self.codes(report))
+
+    def test_curve_geometry_and_non_numeric_forward_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            manifest_path = self.copy_fixture(
+                root,
+                CURVED_MANIFEST_RELATIVE,
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["geometry"]["curve_radius_m"] *= 2.0
+            manifest["connectors"][0]["forward"][0] = "not-a-number"
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            result, report = self.run_validator(root, manifest_path)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("CURVE_GEOMETRY", self.codes(report))
+        self.assertIn("CONNECTOR_FORWARD", self.codes(report))
 
     def test_material_contract_must_exactly_cover_glb(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

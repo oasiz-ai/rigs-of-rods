@@ -93,8 +93,9 @@ new kit uses project-owned names and geometry. The longer
 NeoQueretaro-to-NeoQ2.0 corridor starts only after the first link passes
 collision, navigation, visual, and performance gates.
 
-The first project-owned tangent module is now checked in as
-`rorng_city_bridge_span_20m`. Its Blender 5.2 generator produces:
+The first project-owned tangent module is checked in as
+`rorng_city_bridge_span_20m`, and the first curve as
+`rorng_city_bridge_curve_left_15deg_20m`. Their Blender 5.2 generators produce:
 
 - an editable, metre-scale Blender source and a 1280x720 authoring preview;
 - one standard Y-up glTF 2.0 GLB with applied transforms and no imported
@@ -103,8 +104,11 @@ The first project-owned tangent module is now checked in as
 - a continuous watertight road collision box and separate watertight left and
   right barrier collision boxes, all with outward winding and non-overlapping
   bounds;
-- exact start/end connector metadata for a 20 m span, 8.9 m road width, and
-  two 3.5 m lanes; and
+- exact start/end connector metadata, an 8.9 m road width, and two 3.5 m
+  lanes; the curve additionally pins a 20 m centreline, 15-degree heading
+  change, 76.394372684 m radius, and 19.942933147 m chord;
+- an integrated reinforced-concrete pier, hammerhead, bearings, expansion
+  joints, four LED fixtures, and an emissive material on the curved span; and
 - a canonical asset manifest plus A0 release-gate provenance for the GLB and
   manifest.
 
@@ -118,15 +122,18 @@ cross-version byte-canonical formats.
 
 ![First project-owned CityWorld bridge span](../../content-source/cityworld_next/bridge/rorng_city_bridge_span_20m_preview.png)
 
-This is the first CW2 asset, not completion of the intercity corridor. Curved
-spans, piers, abutments, retaining walls, transitions, deterministic placement,
-vehicle clearance/contact tests, fixed-camera captures, and the declared
-frame-time gates remain required.
+![First project-owned CityWorld curved bridge span](../../content-source/cityworld_next/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m_preview.png)
 
-The tangent span now also passes the first production offline scene-compiler
-boundary. The checked runtime package contains three OGRE render LOD meshes,
-three separate collision meshes, an ODEF, deterministic material fallback, and
-a canonical conversion report. The compiler pins OGRE 14.5.2, little-endian
+These are the first CW2 modules, not completion of the intercity corridor.
+Abutments, retaining walls, transitions, deterministic multi-piece placement,
+curved vehicle clearance/contact tests, fixed-camera captures, and the
+declared frame-time gates remain required.
+
+Both spans pass the production offline scene-compiler boundary. Each checked
+runtime package contains three OGRE render LOD meshes, three separate collision
+meshes, an ODEF, deterministic material fallback, and a canonical conversion
+report. The curve's LED lens is carried through core glTF `emissiveFactor` into
+the generated OGRE `emissive` pass. The compiler pins OGRE 14.5.2, little-endian
 `MeshSerializer_v1.100`, stable submesh/material identifiers, explicit
 80 m/180 m manual LOD distances, and the tested Blender-to-glTF-to-OGRE basis.
 Cross-platform CI regenerates and hashes the deterministic XML lowering,

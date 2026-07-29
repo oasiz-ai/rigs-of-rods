@@ -38,7 +38,7 @@
   "compiler": {
     "format": "ror-cityworld-scene-compiler-v1",
     "path": "tools/compile_cityworld_asset.py",
-    "sha256": "c97e787cddd5bdcd1cf23ec6e6fc51f57b43b9c357e0fe138a6bce59b5274d02"
+    "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa"
   },
   "connectors": [
     {
