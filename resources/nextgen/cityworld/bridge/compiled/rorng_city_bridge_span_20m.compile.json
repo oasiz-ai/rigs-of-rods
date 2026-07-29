@@ -38,7 +38,7 @@
   "compiler": {
     "format": "ror-cityworld-scene-compiler-v1",
     "path": "tools/compile_cityworld_asset.py",
-    "sha256": "664da81fbbff3d78df7a6b6da4d15f683bbed8a96ef0a5069190fc5c06d1cf57"
+    "sha256": "c97e787cddd5bdcd1cf23ec6e6fc51f57b43b9c357e0fe138a6bce59b5274d02"
   },
   "connectors": [
     {
@@ -110,8 +110,8 @@
     {
       "path": "resources/nextgen/cityworld/bridge/compiled/rorng_city_bridge_span_20m.odef",
       "role": "terrain-object",
-      "sha256": "9504168120d4264e64e6a30e84faf5b9ba0b914b14c886f04097096600fe465d",
-      "size": 342
+      "sha256": "dca3be2776c0ebb688306b1ea802826b380f648b862d1fa23e90c34dbe23f334",
+      "size": 351
     },
     {
       "path": "resources/nextgen/cityworld/bridge/compiled/rorng_city_bridge_span_20m_collision_barrier_left.mesh",

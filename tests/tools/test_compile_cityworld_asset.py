@@ -167,7 +167,11 @@ class CityWorldSceneCompilerTests(unittest.TestCase):
         self.assertIn("material rorng_city_galvanized_steel", material)
         odef = values["rorng_city_bridge_span_20m.odef"]
         self.assertTrue(
-            odef.startswith("rorng_city_bridge_span_20m_lod0.mesh\n1, 1, 1\n")
+            odef.startswith(
+                "rorng_city_bridge_span_20m_lod0.mesh\n"
+                "1, 1, 1\n"
+                "standard\n"
+            )
         )
         self.assertEqual(odef.count("beginmesh\n"), 3)
         self.assertEqual(odef.count("stdfriction concrete"), 2)

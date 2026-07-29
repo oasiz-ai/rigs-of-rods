@@ -813,6 +813,7 @@ class SceneCompiler:
         lines = [
             f"{self.asset_id}_lod0.mesh",
             "1, 1, 1",
+            "standard",
             "",
         ]
         for entry in collision_entries:

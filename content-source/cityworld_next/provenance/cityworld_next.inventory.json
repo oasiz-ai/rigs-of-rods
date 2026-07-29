@@ -2,7 +2,7 @@
   "files": [
     {
       "path": "bridge/compiled/rorng_city_bridge_span_20m.compile.json",
-      "sha256": "aeae8b802faa514175da3c6bd6dd57ffed9a30899dc5759c3b3149632e1b06eb",
+      "sha256": "655512deaaff1c1a933cdad3d9a262b5e427f575d9496da963aae27c86c0fbbb",
       "size": 5113,
       "type": "file"
     },
@@ -14,8 +14,8 @@
     },
     {
       "path": "bridge/compiled/rorng_city_bridge_span_20m.odef",
-      "sha256": "9504168120d4264e64e6a30e84faf5b9ba0b914b14c886f04097096600fe465d",
-      "size": 342,
+      "sha256": "dca3be2776c0ebb688306b1ea802826b380f648b862d1fa23e90c34dbe23f334",
+      "size": 351,
       "type": "file"
     },
     {
@@ -56,7 +56,7 @@
     },
     {
       "path": "bridge/rorng_city_bridge_span_20m.asset.json",
-      "sha256": "695c146dd53680841043591896a55876553c543a3440a204984b3c4994200f76",
+      "sha256": "bee8204706de736dcebcbcecb62fa3365d22db4fa7b6c7878ce1a08e9baf2e17",
       "size": 9213,
       "type": "file"
     },

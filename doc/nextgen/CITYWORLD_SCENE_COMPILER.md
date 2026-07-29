@@ -85,7 +85,10 @@ failed converter does not produce an accepted report.
 The generated ODEF loads
 `rorng_city_bridge_span_20m_lod0.mesh`. Its manual mesh LOD table switches to
 LOD1 at 80 metres and LOD2 at 180 metres. Collision uses the three generated
-meshes with asphalt road friction and concrete barrier friction.
+meshes with asphalt road friction and concrete barrier friction. The ODEF
+declares `standard` so RoR's legacy terrain-object loader cancels its historical
+minus-90-degree import pitch; the already Y-up render and collision meshes
+therefore enter the scene without a second rotation.
 
 The compiled resource is now package-ready, but the CW2 integration gate still
 requires a rights-cleared terrain overlay that places repeated spans, fixed
