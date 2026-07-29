@@ -187,13 +187,15 @@ python3 tools/build_cityworld_local_overlay.py \
 ```
 
 The output path must not already exist and must be outside this repository.
-The 35-entry deterministic ZIP references the separately installed original
-`CityWorld.otc` and `CityWorld.tobj`; it does not copy either file or any
-original map asset. It packages only the generated descriptor and placement,
-the checked project-owned render/collision meshes, materials, ODEFs (including
-the gateway lights), and a canonical local-only provenance report. The source
-archive stays byte-identical and the generated package is explicitly not for
-redistribution or shipping.
+The current 32-entry deterministic ZIP references the separately installed
+original `CityWorld.otc` and `CityWorld.tobj`; it does not copy either file or
+any original map asset. Its inventory is the generated descriptor, merged
+material script, placement, canonical local-only provenance report, and 28
+checked project-owned ODEF/render/collision resources for the four corridor
+modules. The standalone LED streetlight remains a checked asset, but is not
+placed or packaged until a collision-safe fixture-mount contract lands. The
+source archive stays byte-identical and the generated package is explicitly
+not for redistribution or shipping.
 
 The generated descriptor mounts the original archive through:
 
