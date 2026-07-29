@@ -112,6 +112,13 @@ PASS_PATTERN = re.compile(
     r"speed=(?P<speed>-?[0-9.eE+]+) "
     r"physics_steps=(?P<steps>[0-9]+)"
 )
+PERFORMANCE_PATTERN = re.compile(
+    r"\[RoR\|CW2\|GatewayRuntime\] PERF "
+    r"samples=(?P<samples>[0-9]+) "
+    r"mean_ms=(?P<mean>-?[0-9.eE+]+) "
+    r"p95_ms=(?P<p95>-?[0-9.eE+]+) "
+    r"max_ms=(?P<maximum>-?[0-9.eE+]+)"
+)
 
 
 def validate_runtime_logs(
@@ -151,10 +158,21 @@ def validate_runtime_logs(
             f"expected exactly one gateway PASS record, found {len(matches)}"
         )
     record = matches[0].groupdict()
+    performance_matches = list(PERFORMANCE_PATTERN.finditer(script_log))
+    if len(performance_matches) != 1:
+        raise BASE.BridgeSceneFailure(
+            "expected exactly one gateway PERF record, found "
+            f"{len(performance_matches)}"
+        )
+    performance = performance_matches[0].groupdict()
     metrics: dict[str, float | int] = {
         "distance_m": float(record["distance"]),
         "exit_x": float(record["exit_x"]),
         "exit_z": float(record["exit_z"]),
+        "frame_max_ms": float(performance["maximum"]),
+        "frame_mean_ms": float(performance["mean"]),
+        "frame_p95_ms": float(performance["p95"]),
+        "frame_samples": int(performance["samples"]),
         "max_path_error_m": float(record["path_error"]),
         "max_y": float(record["max_y"]),
         "min_y": float(record["min_y"]),
@@ -198,6 +216,18 @@ def validate_runtime_logs(
     if not 1 <= metrics["physics_steps"] <= 48000:
         raise BASE.BridgeSceneFailure(
             "gateway physics-step count is outside its gate"
+        )
+    if not 500 <= metrics["frame_samples"] <= 4096:
+        raise BASE.BridgeSceneFailure(
+            "gateway performance sample count is outside its gate"
+        )
+    if not (
+        0.0 < metrics["frame_mean_ms"] <=
+        metrics["frame_p95_ms"] <=
+        metrics["frame_max_ms"] < 1000.0
+    ):
+        raise BASE.BridgeSceneFailure(
+            "gateway frame-time telemetry is invalid"
         )
     return metrics
 
@@ -270,7 +300,7 @@ def configure_base(repository: Path, corridor: dict[str, object]) -> None:
     BASE.ENGINE_MARKERS = ENGINE_MARKERS
     BASE.FATAL_MARKERS = FATAL_MARKERS
     BASE.PASS_PATTERN = PASS_PATTERN
-    BASE.REPORT_FORMAT = "ror-cityworld-gateway-runtime-report-v1"
+    BASE.REPORT_FORMAT = "ror-cityworld-gateway-runtime-report-v2"
     BASE.RGB_ARTIFACT_NAME = "cityworld_gateway_rgb.png"
     BASE.SUCCESS_PREFIX = "CityWorld gateway runtime gate passed"
     BASE.DEVIATION_METRIC_KEY = "max_path_error_m"

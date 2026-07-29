@@ -25,6 +25,8 @@ const float STRAIGHT_DIR_X = 0.707106781f;
 const float STRAIGHT_DIR_Z = 0.707106781f;
 const float ACTOR_REFERENCE_CROSS_TRACK = 1.75f;
 const float PASS_PROGRESS = 35.0f;
+const uint PERFORMANCE_WARMUP_FRAMES = 120;
+const uint MIN_PERFORMANCE_SAMPLES = 500;
 
 enum RuntimeState
 {
@@ -54,6 +56,8 @@ float gMaxY = -100000.0f;
 float gMaxPathError = 0.0f;
 float gDistance = 0.0f;
 vector3 gLastPosition;
+uint gDrivingFrames = 0;
+array<float> gFrameTimesMs;
 
 float Clamp(float value, float minimum, float maximum)
 {
@@ -107,6 +111,36 @@ void ClearControls()
     if (@gActor == null)
         return;
     gActor.clearEventSimulatedValues();
+}
+
+bool RecordPerformanceSample(float dt)
+{
+    gDrivingFrames++;
+    if (dt <= 0.0f || dt >= 1.0f)
+        return false;
+    if (gDrivingFrames <= PERFORMANCE_WARMUP_FRAMES)
+        return true;
+    gFrameTimesMs.insertLast(dt * 1000.0f);
+    return true;
+}
+
+bool LogPerformanceSummary()
+{
+    if (gFrameTimesMs.length() < MIN_PERFORMANCE_SAMPLES)
+        return false;
+    gFrameTimesMs.sortAsc();
+    float total = 0.0f;
+    for (uint index = 0; index < gFrameTimesMs.length(); index++)
+        total += gFrameTimesMs[index];
+    uint p95Index =
+        (95 * gFrameTimesMs.length() + 99) / 100 - 1;
+    game.log(
+        "[RoR|CW2|GatewayRuntime] PERF samples=" +
+        gFrameTimesMs.length() +
+        " mean_ms=" + total / float(gFrameTimesMs.length()) +
+        " p95_ms=" + gFrameTimesMs[p95Index] +
+        " max_ms=" + gFrameTimesMs[gFrameTimesMs.length() - 1]);
+    return true;
 }
 
 void Fail(const string &in reason)
@@ -314,6 +348,11 @@ void UpdateTraversal()
             Fail("vertical-envelope-" + gMinY + "-" + gMaxY);
             return;
         }
+        if (!LogPerformanceSummary())
+        {
+            Fail("insufficient-performance-samples-" + gFrameTimesMs.length());
+            return;
+        }
         console.cVarSet("sim_deterministic_fixed_steps_per_frame", "0");
         console.cVarSet("ui_hide_gui", "false");
         gState = FINISHED;
@@ -336,6 +375,11 @@ void frameStep(float dt)
     if (gState == FINISHED)
         return;
     gFrames++;
+    if (gState == DRIVING && !RecordPerformanceSample(dt))
+    {
+        Fail("invalid-frame-time-" + dt);
+        return;
+    }
     HoldCamera();
     if (gState == WAITING_FOR_TERRAIN)
     {

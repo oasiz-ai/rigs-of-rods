@@ -123,6 +123,10 @@ int ShadowManager::updateShadowTechnique()
 void ShadowManager::processPSSM()
 {
 #if OGRE_VERSION_MAJOR >= 14
+    bool rtss_receiver_ready = m_rtss_shadow_mapping != nullptr;
+#endif
+
+#if OGRE_VERSION_MAJOR >= 14
     // OGRE 14's programmable-only renderers integrate shadow sampling into
     // the native RTSS lighting shaders. This keeps legacy fixed-function
     // materials renderable without relying on the retired Cg plugin.
@@ -198,7 +202,15 @@ void ShadowManager::processPSSM()
 
         PSSM_Shadows.mPSSMSetup.bind(pssmSetup);
 
+#if OGRE_VERSION_MAJOR < 14
+        //Send split info to managed materials
+        setManagedMaterialSplitPoints(pssmSetup->getSplitPoints());
+#endif
+    }
+
 #if OGRE_VERSION_MAJOR >= 14
+    if (m_rtss_shadow_mapping == nullptr)
+    {
         Ogre::RTShader::ShaderGenerator* shader_generator =
             Ogre::RTShader::ShaderGenerator::getSingletonPtr();
         if (shader_generator != nullptr)
@@ -210,17 +222,56 @@ void ShadowManager::processPSSM()
                 shader_generator->createSubRenderState(
                     Ogre::RTShader::SRS_SHADOW_MAPPING);
             m_rtss_shadow_mapping->setParameter(
-                "split_points", pssmSetup->getSplitPoints());
+                "split_points",
+                static_cast<Ogre::PSSMShadowCameraSetup*>(
+                    PSSM_Shadows.mPSSMSetup.get())->getSplitPoints());
             render_state->addTemplateSubRenderState(m_rtss_shadow_mapping);
             shader_generator->invalidateScheme(
                 Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
         }
-#else
-        //Send split info to managed materials
-        setManagedMaterialSplitPoints(pssmSetup->getSplitPoints());
-#endif
     }
+    rtss_receiver_ready = m_rtss_shadow_mapping != nullptr;
+#endif
+
     App::GetGfxScene()->GetSceneManager()->setShadowCameraSetup(PSSM_Shadows.mPSSMSetup);
+
+    const Ogre::PSSMShadowCameraSetup::SplitPointList& split_points =
+        static_cast<Ogre::PSSMShadowCameraSetup*>(
+            PSSM_Shadows.mPSSMSetup.get())->getSplitPoints();
+    const Ogre::ShadowTextureConfigList& texture_config =
+        App::GetGfxScene()
+            ->GetSceneManager()
+            ->getShadowTextureConfigList();
+    if (split_points.size() == 4 &&
+        texture_config.size() >=
+            static_cast<std::size_t>(PSSM_Shadows.ShadowsTextureNum))
+    {
+        LOG(fmt::format(
+            "[RoR|Shadow|PSSM] enabled quality={} cascades=3 "
+            "rtss_receiver={} format={} sizes={}x{}/{}x{}/{}x{} "
+            "lambda={:.6f} near={:.6f} far={:.6f} "
+            "splits={:.6f}/{:.6f}/{:.6f}/{:.6f}",
+            PSSM_Shadows.Quality,
+#if OGRE_VERSION_MAJOR >= 14
+            rtss_receiver_ready ? 1 : 0,
+#else
+            1,
+#endif
+            Ogre::PixelUtil::getFormatName(texture_config[0].format),
+            texture_config[0].width,
+            texture_config[0].height,
+            texture_config[1].width,
+            texture_config[1].height,
+            texture_config[2].width,
+            texture_config[2].height,
+            PSSM_Shadows.lambda,
+            App::GetCameraManager()->GetCamera()->getNearClipDistance(),
+            App::GetGfxScene()->GetSceneManager()->getShadowFarDistance(),
+            split_points[0],
+            split_points[1],
+            split_points[2],
+            split_points[3]));
+    }
 }
 
 void ShadowManager::updatePSSM()

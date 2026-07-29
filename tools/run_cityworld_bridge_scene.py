@@ -61,6 +61,39 @@ EXPECTED_WIDTH = 1280
 EXPECTED_HEIGHT = 720
 MAX_SCREENSHOT_BYTES = 32 * 1024 * 1024
 MAX_PACK_MEMBER_BYTES = 64 * 1024 * 1024
+MAX_CONFIG_BYTES = 1024 * 1024
+PSSM_PREFIX = "[RoR|Shadow|PSSM] enabled"
+PSSM_PATTERN = re.compile(
+    r"\[RoR\|Shadow\|PSSM\] enabled "
+    r"quality=(?P<quality>[0-3]) "
+    r"cascades=(?P<cascades>[0-9]+) "
+    r"rtss_receiver=(?P<receiver>[01]) "
+    r"format=(?P<format>[A-Za-z0-9_]+) "
+    r"sizes=(?P<w0>[0-9]+)x(?P<h0>[0-9]+)/"
+    r"(?P<w1>[0-9]+)x(?P<h1>[0-9]+)/"
+    r"(?P<w2>[0-9]+)x(?P<h2>[0-9]+) "
+    r"lambda=(?P<lambda>-?[0-9.eE+]+) "
+    r"near=(?P<near>-?[0-9.eE+]+) "
+    r"far=(?P<far>-?[0-9.eE+]+) "
+    r"splits=(?P<s0>-?[0-9.eE+]+)/"
+    r"(?P<s1>-?[0-9.eE+]+)/"
+    r"(?P<s2>-?[0-9.eE+]+)/"
+    r"(?P<s3>-?[0-9.eE+]+)"
+)
+PSSM_QUALITY_PROFILES = {
+    0: (((1024, 1024), (1024, 1024), (512, 512)), 0.98),
+    1: (((2048, 2048), (1024, 1024), (1024, 1024)), 0.975),
+    2: (((3072, 3072), (2048, 2048), (2048, 2048)), 0.97),
+    3: (((4096, 4096), (3072, 3072), (2048, 2048)), 0.965),
+}
+RENDERER_IDENTITY_PATTERNS = {
+    "api_version": re.compile(r"GL_VERSION = (?P<value>[^\r\n]+)"),
+    "device": re.compile(r"Device Name: (?P<value>[^\r\n]+)"),
+    "render_system": re.compile(
+        r"RenderSystem Name: (?P<value>[^\r\n]+)"
+    ),
+    "vendor": re.compile(r"GPU Vendor: (?P<value>[^\r\n]+)"),
+}
 
 SIMPLE2_FILES = (
     "simple2-asphalt_diffusespecular.dds",
@@ -464,7 +497,17 @@ def runtime_layout(isolated_home: Path, target_platform: str) -> dict[str, Path]
     }
 
 
-def write_runtime_config(config_directory: Path) -> tuple[Path, Path]:
+def write_runtime_config(
+    config_directory: Path,
+    shadow_mode: str = "none",
+    shadow_quality: int = 2,
+) -> tuple[Path, Path]:
+    if shadow_mode not in ("none", "pssm"):
+        raise BridgeSceneFailure(f"unsupported shadow mode: {shadow_mode}")
+    if not 0 <= shadow_quality <= 3:
+        raise BridgeSceneFailure(
+            f"shadow quality is outside 0..3: {shadow_quality}"
+        )
     config_directory.mkdir(parents=True, exist_ok=True)
     ror_config = config_directory / "RoR.cfg"
     ror_config.write_text(
@@ -478,7 +521,13 @@ def write_runtime_config(config_directory: Path) -> tuple[Path, Path]:
                 "app_force_cache_update=true",
                 "audio_master_volume=0",
                 "gfx_fps_limit=0",
-                "gfx_shadow_type=0",
+                "gfx_shadow_type="
+                + (
+                    "Parallel-split Shadow Maps"
+                    if shadow_mode == "pssm"
+                    else "No shadows (fastest)"
+                ),
+                "gfx_shadow_quality=" + str(shadow_quality),
                 "gfx_sky_mode=0",
                 "gfx_water_mode=1",
                 "",
@@ -526,6 +575,121 @@ def read_required(path: Path, label: str) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError as error:
         raise BridgeSceneFailure(f"{label} was not created: {path}") from error
+
+
+def read_required_config(path: Path, label: str) -> bytes:
+    if not path.is_file() or path.is_symlink():
+        raise BridgeSceneFailure(f"{label} was not created: {path}")
+    size = path.stat().st_size
+    if size <= 0 or size > MAX_CONFIG_BYTES:
+        raise BridgeSceneFailure(f"{label} has an invalid size: {size}")
+    return path.read_bytes()
+
+
+def validate_pssm_log(
+    engine_log: str,
+    shadow_mode: str,
+    shadow_quality: int,
+) -> dict[str, object] | None:
+    marker_count = engine_log.count(PSSM_PREFIX)
+    matches = list(PSSM_PATTERN.finditer(engine_log))
+    if shadow_mode == "none":
+        if marker_count != 0 or matches:
+            raise BridgeSceneFailure(
+                "shadow-disabled run unexpectedly enabled PSSM"
+            )
+        return None
+    if shadow_mode != "pssm":
+        raise BridgeSceneFailure(f"unsupported shadow mode: {shadow_mode}")
+    if marker_count != 1 or len(matches) != 1:
+        raise BridgeSceneFailure(
+            "PSSM run must emit exactly one complete renderer marker"
+        )
+
+    fields = matches[0].groupdict()
+    sizes = tuple(
+        (
+            int(fields[f"w{index}"]),
+            int(fields[f"h{index}"]),
+        )
+        for index in range(3)
+    )
+    split_points = tuple(float(fields[f"s{index}"]) for index in range(4))
+    near = float(fields["near"])
+    far = float(fields["far"])
+    split_lambda = float(fields["lambda"])
+    numeric_values = (*split_points, near, far, split_lambda)
+    if not all(math.isfinite(value) for value in numeric_values):
+        raise BridgeSceneFailure("PSSM marker contains non-finite values")
+    if shadow_quality not in PSSM_QUALITY_PROFILES:
+        raise BridgeSceneFailure(
+            f"shadow quality is outside 0..3: {shadow_quality}"
+        )
+    expected_sizes, expected_lambda = PSSM_QUALITY_PROFILES[shadow_quality]
+    if int(fields["quality"]) != shadow_quality:
+        raise BridgeSceneFailure("PSSM marker quality differs from requested")
+    if int(fields["cascades"]) != 3:
+        raise BridgeSceneFailure("PSSM marker has the wrong cascade count")
+    if int(fields["receiver"]) != 1:
+        raise BridgeSceneFailure("PSSM RTSS receiver is not active")
+    if fields["format"] != "PF_DEPTH16":
+        raise BridgeSceneFailure("PSSM depth texture format is not PF_DEPTH16")
+    if sizes != expected_sizes:
+        raise BridgeSceneFailure("PSSM texture sizes differ from quality profile")
+    if abs(split_lambda - expected_lambda) > 1.0e-6:
+        raise BridgeSceneFailure("PSSM split lambda differs from quality profile")
+    if not (
+        near > 0.0
+        and abs(split_points[0] - near) <= 1.0e-6
+        and split_points[0] < split_points[1] < split_points[2] < split_points[3]
+        and abs(split_points[3] - far) <= 1.0e-6
+        and abs(far - 350.0) <= 1.0e-3
+    ):
+        raise BridgeSceneFailure("PSSM split points are inconsistent")
+    return {
+        "cascades": 3,
+        "far": far,
+        "format": fields["format"],
+        "lambda": split_lambda,
+        "near": near,
+        "rtss_receiver": True,
+        "sizes": [list(size) for size in sizes],
+        "split_points": list(split_points),
+    }
+
+
+def parse_renderer_identity(engine_log: str) -> dict[str, str]:
+    identity: dict[str, str] = {}
+    for field, pattern in RENDERER_IDENTITY_PATTERNS.items():
+        values = [
+            match.group("value").strip()
+            for match in pattern.finditer(engine_log)
+        ]
+        if len(values) != 1 or not values[0]:
+            raise BridgeSceneFailure(
+                f"expected exactly one renderer identity value: {field}"
+            )
+        identity[field] = values[0]
+    return identity
+
+
+def normalize_shadow_config(payload: bytes) -> bytes:
+    text = payload.decode("utf-8")
+    lines = text.splitlines(keepends=True)
+    matches = 0
+    normalized: list[str] = []
+    for line in lines:
+        if line.startswith("gfx_shadow_type="):
+            ending = "\n" if line.endswith("\n") else ""
+            normalized.append("gfx_shadow_type=<paired-shadow-mode>" + ending)
+            matches += 1
+        else:
+            normalized.append(line)
+    if matches != 1:
+        raise BridgeSceneFailure(
+            "RoR configuration must contain exactly one shadow-mode setting"
+        )
+    return "".join(normalized).encode("utf-8")
 
 
 def validate_runtime_logs(
@@ -597,7 +761,7 @@ def paeth_predictor(left: int, above: int, upper_left: int) -> int:
     return upper_left
 
 
-def validate_rgb_png(path: Path) -> dict[str, object]:
+def decode_rgb_png(path: Path) -> tuple[dict[str, object], bytes]:
     if not path.is_file() or path.is_symlink():
         raise BridgeSceneFailure(f"RGB screenshot is missing: {path}")
     payload = path.read_bytes()
@@ -709,7 +873,7 @@ def validate_rgb_png(path: Path) -> dict[str, object]:
         raise BridgeSceneFailure("RGB screenshot is visually degenerate")
     if not 5.0 < mean < 250.0:
         raise BridgeSceneFailure("RGB screenshot luminance is degenerate")
-    return {
+    record = {
         "channel_max": maximum,
         "channel_mean": round(mean, 6),
         "channel_min": minimum,
@@ -719,6 +883,12 @@ def validate_rgb_png(path: Path) -> dict[str, object]:
         "size": len(payload),
         "width": width,
     }
+    return record, bytes(pixels)
+
+
+def validate_rgb_png(path: Path) -> dict[str, object]:
+    record, _ = decode_rgb_png(path)
+    return record
 
 
 def find_single_screenshot(directory: Path) -> Path:
@@ -742,6 +912,17 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--runtime-content", type=Path)
     parser.add_argument("--artifact-dir", required=True, type=Path)
     parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument(
+        "--shadow-mode",
+        choices=("none", "pssm"),
+        default="none",
+    )
+    parser.add_argument(
+        "--shadow-quality",
+        type=int,
+        choices=range(4),
+        default=2,
+    )
     args = parser.parse_args(argv)
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
@@ -785,7 +966,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     layout = runtime_layout(isolated_home, sys.platform)
     for key in ("logs", "mods", "screenshots"):
         layout[key].mkdir(parents=True, exist_ok=True)
-    write_runtime_config(layout["config"])
+    ror_config_path, ogre_config_path = write_runtime_config(
+        layout["config"],
+        args.shadow_mode,
+        args.shadow_quality,
+    )
+    requested_configs = {
+        "RoR.cfg": read_required_config(
+            ror_config_path,
+            "requested RoR configuration",
+        ),
+        "ogre.cfg": read_required_config(
+            ogre_config_path,
+            "requested OGRE configuration",
+        ),
+    }
     pack_path = layout["mods"] / RUNTIME_PACK
     pack_inventory, pack_sha = build_runtime_pack(
         repository,
@@ -816,6 +1011,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         engine_log,
         script_log,
     )
+    pssm_record = validate_pssm_log(
+        engine_log,
+        args.shadow_mode,
+        args.shadow_quality,
+    )
+    renderer_identity = parse_renderer_identity(engine_log)
+    effective_configs = {
+        "RoR.cfg": read_required_config(
+            ror_config_path,
+            "effective RoR configuration",
+        ),
+        "ogre.cfg": read_required_config(
+            ogre_config_path,
+            "effective OGRE configuration",
+        ),
+    }
     screenshot = find_single_screenshot(layout["screenshots"])
     image_record = validate_rgb_png(screenshot)
 
@@ -827,15 +1038,45 @@ def main(argv: Sequence[str] | None = None) -> int:
     copied_engine_log = diagnostics / "RoR.log"
     copied_script_log = diagnostics / "Angelscript.log"
     copied_screenshot = rgb_directory / RGB_ARTIFACT_NAME
+    copied_configs: dict[str, dict[str, object]] = {}
     stdout_path.write_text(stdout, encoding="utf-8")
     copied_engine_log.write_text(engine_log, encoding="utf-8")
     copied_script_log.write_text(script_log, encoding="utf-8")
     shutil.copy2(screenshot, copied_screenshot)
+    for name in sorted(requested_configs):
+        copied_configs[name] = {}
+        for phase, payload in (
+            ("requested", requested_configs[name]),
+            ("effective", effective_configs[name]),
+        ):
+            artifact_name = phase + "-" + name
+            copied = diagnostics / artifact_name
+            copied.write_bytes(payload)
+            copied_configs[name][phase] = {
+                "artifact": "diagnostics/" + artifact_name,
+                "sha256": sha256_bytes(payload),
+                "size": len(payload),
+            }
+        if name == "RoR.cfg":
+            copied_configs[name][
+                "requested_shadow_normalized_sha256"
+            ] = sha256_bytes(
+                normalize_shadow_config(requested_configs[name])
+            )
+            copied_configs[name][
+                "effective_shadow_normalized_sha256"
+            ] = sha256_bytes(
+                normalize_shadow_config(effective_configs[name])
+            )
 
     repository_commit = git_output(repository, ("rev-parse", "HEAD"))
     report: dict[str, object] = {
         "artifacts": {
+            "effective_ogre_config": "diagnostics/effective-ogre.cfg",
+            "effective_ror_config": "diagnostics/effective-RoR.cfg",
             "engine_log": "diagnostics/RoR.log",
+            "requested_ogre_config": "diagnostics/requested-ogre.cfg",
+            "requested_ror_config": "diagnostics/requested-RoR.cfg",
             "rgb": f"rgb/{RGB_ARTIFACT_NAME}",
             "script_log": "diagnostics/Angelscript.log",
             "stdout": "diagnostics/runtime.stdout",
@@ -851,6 +1092,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         "machine": platform.machine(),
         "metrics": metrics,
         "platform": platform.platform(),
+        "rendering": {
+            "configs": copied_configs,
+            "device": renderer_identity,
+            "height": EXPECTED_HEIGHT,
+            "pssm": pssm_record,
+            "shadow_mode": args.shadow_mode,
+            "shadow_quality": args.shadow_quality,
+            "width": EXPECTED_WIDTH,
+        },
         "repository_commit": repository_commit,
         "rgb": image_record,
         "runtime_content": str(runtime_content),

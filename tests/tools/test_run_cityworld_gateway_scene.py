@@ -29,6 +29,8 @@ def valid_logs() -> tuple[str, str]:
     script = "\n".join(
         (
             *SCENE.SCRIPT_MARKERS[:-1],
+            "[RoR|CW2|GatewayRuntime] PERF samples=1200 "
+            "mean_ms=5.2 p95_ms=6.4 max_ms=15.0",
             "[RoR|CW2|GatewayRuntime] PASS modules=5 seams=4 "
             "turn_degrees=45 distance_m=136 min_y=0.7 max_y=1.6 "
             "path_error=1.4 exit_x=566 exit_z=570.5 speed=10 "
@@ -63,6 +65,8 @@ class CityWorldGatewaySceneTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["distance_m"], 136.0)
         self.assertAlmostEqual(metrics["max_path_error_m"], 1.4)
         self.assertEqual(metrics["physics_steps"], 30000)
+        self.assertEqual(metrics["frame_samples"], 1200)
+        self.assertAlmostEqual(metrics["frame_p95_ms"], 6.4)
         for marker in SCENE.ENGINE_MARKERS:
             with self.subTest(engine_marker=marker):
                 with self.assertRaises(SCENE.BASE.BridgeSceneFailure):
@@ -93,6 +97,8 @@ class CityWorldGatewaySceneTests(unittest.TestCase):
             ("exit_z=570.5", "exit_z=590"),
             ("speed=10", "speed=0"),
             ("physics_steps=30000", "physics_steps=48001"),
+            ("samples=1200", "samples=499"),
+            ("mean_ms=5.2", "mean_ms=7.0"),
         )
         for old, new in replacements:
             with self.subTest(value=new):
@@ -128,6 +134,10 @@ class CityWorldGatewaySceneTests(unittest.TestCase):
         for marker in (
             "const uint64 MAX_PHYSICS_STEPS = 48000;",
             '"sim_deterministic_fixed_steps_per_frame", "20"',
+            "const uint PERFORMANCE_WARMUP_FRAMES = 120;",
+            "const uint MIN_PERFORMANCE_SAMPLES = 500;",
+            "(95 * gFrameTimesMs.length() + 99) / 100 - 1",
+            'Fail("invalid-frame-time-" + dt);',
             '"sim_no_collisions", "false"',
             '"sim_no_self_collisions", "false"',
             "GATEWAY_ENTRY_X = 542.860675053f",
@@ -135,6 +145,7 @@ class CityWorldGatewaySceneTests(unittest.TestCase):
             "gatewayProgress >= 8.0f",
             "PASS_PROGRESS = 35.0f",
             "MSG_APP_SCREENSHOT_REQUESTED",
+            "PERF samples=",
         ):
             with self.subTest(script_marker=marker):
                 self.assertIn(marker, script)

@@ -78,6 +78,16 @@ def valid_logs() -> tuple[str, str]:
     return engine, script
 
 
+def valid_pssm_marker() -> str:
+    return (
+        "[RoR|Shadow|PSSM] enabled quality=2 cascades=3 "
+        "rtss_receiver=1 format=PF_DEPTH16 "
+        "sizes=3072x3072/2048x2048/2048x2048 "
+        "lambda=0.970000 near=0.500000 far=350.000000 "
+        "splits=0.500000/7.816331/45.241116/350.000000"
+    )
+
+
 class CityWorldBridgeSceneTests(unittest.TestCase):
     def test_runtime_log_gate_requires_mesh_shader_and_physics_evidence(
         self,
@@ -130,6 +140,10 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
             self.assertEqual(record["width"], 1280)
             self.assertEqual(record["height"], 720)
             self.assertGreater(record["sampled_colours"], 16)
+            decoded_record, pixels = SCENE.decode_rgb_png(image)
+            self.assertEqual(decoded_record, record)
+            self.assertEqual(len(pixels), 1280 * 720 * 3)
+            self.assertEqual(pixels[:6], bytes((0, 0, 0, 1, 0, 3)))
 
             corrupted = bytearray(image.read_bytes())
             corrupted[-1] ^= 0xFF
@@ -229,16 +243,119 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory)
             ror, ogre = SCENE.write_runtime_config(config)
+            ror_text = ror.read_text(encoding="utf-8")
             self.assertIn(
                 "app_force_cache_update=true",
-                ror.read_text(encoding="utf-8"),
+                ror_text,
             )
+            self.assertIn(
+                "gfx_shadow_type=No shadows (fastest)",
+                ror_text,
+            )
+            self.assertIn("gfx_shadow_quality=2", ror_text)
             ogre_text = ogre.read_text(encoding="utf-8")
             self.assertIn("Content Scaling Factor=1", ogre_text)
             self.assertIn("Video Mode=1280 x 720", ogre_text)
             self.assertIn(
                 "Render System=OpenGL 3+ Rendering Subsystem", ogre_text
             )
+
+    def test_generated_config_can_lock_high_quality_pssm(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory)
+            ror, _ = SCENE.write_runtime_config(
+                config,
+                shadow_mode="pssm",
+                shadow_quality=2,
+            )
+            ror_text = ror.read_text(encoding="utf-8")
+            self.assertIn(
+                "gfx_shadow_type=Parallel-split Shadow Maps",
+                ror_text,
+            )
+            self.assertIn("gfx_shadow_quality=2", ror_text)
+            with self.assertRaises(SCENE.BridgeSceneFailure):
+                SCENE.write_runtime_config(
+                    config / "bad-mode",
+                    shadow_mode="raytraced",
+                )
+            with self.assertRaises(SCENE.BridgeSceneFailure):
+                SCENE.write_runtime_config(
+                    config / "bad-quality",
+                    shadow_mode="pssm",
+                    shadow_quality=4,
+                )
+
+    def test_pssm_marker_gate_checks_complete_effective_configuration(
+        self,
+    ) -> None:
+        marker = valid_pssm_marker()
+        record = SCENE.validate_pssm_log(marker, "pssm", 2)
+        self.assertIsNotNone(record)
+        self.assertEqual(record["format"], "PF_DEPTH16")
+        self.assertEqual(
+            record["sizes"],
+            [[3072, 3072], [2048, 2048], [2048, 2048]],
+        )
+        self.assertEqual(
+            SCENE.validate_pssm_log("", "none", 2),
+            None,
+        )
+        invalid_markers = (
+            marker.replace("rtss_receiver=1", "rtss_receiver=0"),
+            marker.replace("PF_DEPTH16", "PF_FLOAT32_R"),
+            marker.replace("3072x3072", "2048x2048"),
+            marker.replace("lambda=0.970000", "lambda=0.500000"),
+            marker.replace("45.241116", "7.000000"),
+            marker + "\n" + marker,
+            marker.replace("format=PF_DEPTH16 ", ""),
+        )
+        for invalid in invalid_markers:
+            with self.subTest(marker=invalid):
+                with self.assertRaises(SCENE.BridgeSceneFailure):
+                    SCENE.validate_pssm_log(invalid, "pssm", 2)
+        with self.assertRaises(SCENE.BridgeSceneFailure):
+            SCENE.validate_pssm_log(marker, "none", 2)
+
+    def test_renderer_identity_and_shadow_config_are_fail_closed(self) -> None:
+        engine_log = "\n".join(
+            (
+                "GL_VERSION = 4.1.0.0",
+                "RenderSystem Name: OpenGL 3+ Rendering Subsystem",
+                "GPU Vendor: apple",
+                "Device Name: Apple M5",
+            )
+        )
+        self.assertEqual(
+            SCENE.parse_renderer_identity(engine_log),
+            {
+                "api_version": "4.1.0.0",
+                "device": "Apple M5",
+                "render_system": "OpenGL 3+ Rendering Subsystem",
+                "vendor": "apple",
+            },
+        )
+        with self.assertRaises(SCENE.BridgeSceneFailure):
+            SCENE.parse_renderer_identity(engine_log + "\nDevice Name: other")
+        with self.assertRaises(SCENE.BridgeSceneFailure):
+            SCENE.parse_renderer_identity(
+                engine_log.replace("GL_VERSION = 4.1.0.0\n", "")
+            )
+
+        no_shadows = (
+            b"gfx_shadow_type=No shadows (fastest)\n"
+            b"gfx_shadow_quality=2\n"
+        )
+        pssm = (
+            b"gfx_shadow_type=Parallel-split Shadow Maps\n"
+            b"gfx_shadow_quality=2\n"
+        )
+        self.assertEqual(
+            SCENE.normalize_shadow_config(no_shadows),
+            SCENE.normalize_shadow_config(pssm),
+        )
+        with self.assertRaises(SCENE.BridgeSceneFailure):
+            SCENE.normalize_shadow_config(b"gfx_shadow_quality=2\n")
 
     def test_fixture_locks_exact_connectors_and_collision_run(self) -> None:
         script = (FIXTURE_ROOT / "cityworld_bridge_runtime.as").read_text(
