@@ -1,0 +1,457 @@
+{
+  "artifacts": {
+    "blend": {
+      "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
+      "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+    },
+    "glb": {
+      "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.glb",
+      "sha256": "0e7c06346a1cb6c638487b8a0f8d49a535361456e3350939eeeb7c704f541b82"
+    },
+    "preview": {
+      "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m_preview.png",
+      "sha256": "5060655249bc85888de3805d5934961e3d403980ecf904912839e501455fc952"
+    }
+  },
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_gateway_block_40m",
+    "license": "GPL-3.0-or-later",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "axis": "blender-z-up",
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "format": "ror-cityworld-gateway-block-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_gateway_block.py",
+      "sha256": "077f469b90a4408c7bfcd2ee0ac2f79f0aebb8106164fb6aa4271b316dbe6e39"
+    },
+    "transforms_applied": true,
+    "units": "metres"
+  },
+  "collision": {
+    "objects": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            4.45,
+            20.0,
+            0.0
+          ],
+          "min": [
+            -4.45,
+            -20.0,
+            -0.12
+          ]
+        },
+        "name": "rorng_city_gateway_block_40m_collision_road",
+        "role": "collision-road",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -4.55,
+            20.0,
+            22.0
+          ],
+          "min": [
+            -16.900002,
+            -20.0,
+            0.0
+          ]
+        },
+        "name": "rorng_city_gateway_block_40m_collision_barrier_left",
+        "role": "collision-barrier",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            16.900002,
+            20.0,
+            22.0
+          ],
+          "min": [
+            4.55,
+            -20.0,
+            0.0
+          ]
+        },
+        "name": "rorng_city_gateway_block_40m_collision_barrier_right",
+        "role": "collision-barrier",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      }
+    ],
+    "road_surface_z_m": 0.0,
+    "separate_from_render_mesh": true
+  },
+  "compiled": {
+    "format": "ror-cityworld-compiled-asset-v1",
+    "outputs": [
+      {
+        "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.material",
+        "role": "material-fallback",
+        "sha256": "0b93fd353fc873bef94ec858e77597182c4f22f0aa77b18749756301c1deed78",
+        "size": 2740
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.odef",
+        "role": "terrain-object",
+        "sha256": "f1ce5067d29e6c2ab8fa9fcacea8fce9770de11a883005a5224d9ee87a34b737",
+        "size": 359
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_collision_barrier_left.mesh",
+        "role": "collision-barrier",
+        "sha256": "9fe421322b65afbb04c7a523899864b40bba583eccde50348d47d46edf0bdcd9",
+        "size": 904
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_collision_barrier_right.mesh",
+        "role": "collision-barrier",
+        "sha256": "7560cafea6c77cef6e310acce634a635fd14d7d17122d2ca7db3e4f57245d2a6",
+        "size": 905
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_collision_road.mesh",
+        "role": "collision-road",
+        "sha256": "cad5170a2bef8f76fb4c08a140e392b9d6df58c4c2f12066b95588a1eb2394cc",
+        "size": 896
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_lod0.mesh",
+        "role": "render-lod0",
+        "sha256": "8c0bd3de5f83dadc65a4493c1bb7075148cf8187a151960ce06cb16301fc0615",
+        "size": 1516256
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_lod1.mesh",
+        "role": "render-lod1",
+        "sha256": "eb58a452f5d3159ac3cb0601698c51c519d170a3e2c63067f4fa59df259054bf",
+        "size": 226899
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_lod2.mesh",
+        "role": "render-lod2",
+        "sha256": "38fd91179afea95db342d7e4d6f9d4cb016d4030c052f7a1de4ca3d65124f1b2",
+        "size": 19581
+      }
+    ],
+    "report": {
+      "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.compile.json",
+      "sha256": "c4e1879c67b866ab0cf69841f8b2f363f2900d5215373dd7c2de0478e34f9bfe"
+    }
+  },
+  "connectors": [
+    {
+      "forward": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "id": "start",
+      "lane_centres_x_m": [
+        -1.75,
+        1.75
+      ],
+      "position_blender_z_up_m": [
+        0.0,
+        -20.0,
+        0.0
+      ],
+      "road_width_m": 8.9
+    },
+    {
+      "forward": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "id": "end",
+      "lane_centres_x_m": [
+        -1.75,
+        1.75
+      ],
+      "position_blender_z_up_m": [
+        0.0,
+        20.0,
+        0.0
+      ],
+      "road_width_m": 8.9
+    }
+  ],
+  "export": {
+    "allowlisted_extensions": [],
+    "animations": false,
+    "apply_modifiers": true,
+    "cameras": false,
+    "format": "glb",
+    "lights": false,
+    "materials": "export",
+    "profile": "gltf-2.0",
+    "selection_only": true,
+    "tangents": true,
+    "textures": [],
+    "y_up": true
+  },
+  "format": "ror-cityworld-asset-v1",
+  "geometry": {
+    "asset_family": "city-gateway-streetscape",
+    "bridge_length_m": 40.0,
+    "bridge_width_m": 34.0,
+    "lane_width_m": 3.5,
+    "lod0_triangle_ceiling": 60000,
+    "lod1_max_ratio": 0.35,
+    "lod2_max_ratio": 0.1,
+    "lods": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            15.59,
+            20.0,
+            21.119999
+          ],
+          "min": [
+            -15.59,
+            -20.0,
+            -0.12
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_gateway_block_40m_lod0",
+        "triangles": 12420
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            15.5,
+            20.0,
+            20.0
+          ],
+          "min": [
+            -15.5,
+            -20.0,
+            -0.12
+          ]
+        },
+        "lod": 1,
+        "name": "rorng_city_gateway_block_40m_lod1",
+        "triangles": 2284
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            15.5,
+            20.0,
+            20.0
+          ],
+          "min": [
+            -15.5,
+            -20.0,
+            -0.12
+          ]
+        },
+        "lod": 2,
+        "name": "rorng_city_gateway_block_40m_lod2",
+        "triangles": 180
+      }
+    ],
+    "road_width_m": 8.9
+  },
+  "materials": [
+    {
+      "base_color_factor_linear": [
+        0.42,
+        0.43,
+        0.41,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_gateway_architectural_concrete",
+      "roughness_factor": 0.72
+    },
+    {
+      "base_color_factor_linear": [
+        0.032,
+        0.038,
+        0.045,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_gateway_asphalt",
+      "roughness_factor": 0.91
+    },
+    {
+      "base_color_factor_linear": [
+        0.29,
+        0.075,
+        0.045,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_gateway_brick",
+      "roughness_factor": 0.82
+    },
+    {
+      "base_color_factor_linear": [
+        0.8,
+        0.04,
+        0.03,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_gateway_collision_debug",
+      "roughness_factor": 1.0
+    },
+    {
+      "base_color_factor_linear": [
+        0.055,
+        0.16,
+        0.24,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.28,
+      "name": "rorng_gateway_glass_blue",
+      "roughness_factor": 0.16
+    },
+    {
+      "base_color_factor_linear": [
+        1.0,
+        0.69,
+        0.25,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "emissive_factor_linear": [
+        1.0,
+        0.69,
+        0.25
+      ],
+      "metallic_factor": 0.0,
+      "name": "rorng_gateway_lamp_emissive",
+      "roughness_factor": 0.22
+    },
+    {
+      "base_color_factor_linear": [
+        0.82,
+        0.84,
+        0.79,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_gateway_lane_white",
+      "roughness_factor": 0.66
+    },
+    {
+      "base_color_factor_linear": [
+        0.93,
+        0.58,
+        0.035,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_gateway_lane_yellow",
+      "roughness_factor": 0.6
+    },
+    {
+      "base_color_factor_linear": [
+        0.035,
+        0.16,
+        0.045,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_gateway_leaf_dark",
+      "roughness_factor": 0.88
+    },
+    {
+      "base_color_factor_linear": [
+        0.08,
+        0.28,
+        0.075,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_gateway_leaf_light",
+      "roughness_factor": 0.84
+    },
+    {
+      "base_color_factor_linear": [
+        0.025,
+        0.035,
+        0.045,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.8,
+      "name": "rorng_gateway_powdercoat_metal",
+      "roughness_factor": 0.27
+    },
+    {
+      "base_color_factor_linear": [
+        0.32,
+        0.34,
+        0.35,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_gateway_sidewalk",
+      "roughness_factor": 0.86
+    },
+    {
+      "base_color_factor_linear": [
+        0.27,
+        0.25,
+        0.22,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_gateway_stone",
+      "roughness_factor": 0.78
+    },
+    {
+      "base_color_factor_linear": [
+        0.13,
+        0.065,
+        0.025,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_gateway_tree_bark",
+      "roughness_factor": 0.96
+    }
+  ]
+}

@@ -692,6 +692,237 @@
         "sha256": "8ed128bef09f95fb0683f5256199b73e7276397eec9ecf83b168ff14986fc15e",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
+        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.compile.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "c4e1879c67b866ab0cf69841f8b2f363f2900d5215373dd7c2de0478e34f9bfe",
+      "source": {
+        "kind": "generator",
+        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
+        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.material",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "0b93fd353fc873bef94ec858e77597182c4f22f0aa77b18749756301c1deed78",
+      "source": {
+        "kind": "generator",
+        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
+        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.odef",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "f1ce5067d29e6c2ab8fa9fcacea8fce9770de11a883005a5224d9ee87a34b737",
+      "source": {
+        "kind": "generator",
+        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
+        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_collision_barrier_left.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "9fe421322b65afbb04c7a523899864b40bba583eccde50348d47d46edf0bdcd9",
+      "source": {
+        "kind": "generator",
+        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
+        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_collision_barrier_right.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "7560cafea6c77cef6e310acce634a635fd14d7d17122d2ca7db3e4f57245d2a6",
+      "source": {
+        "kind": "generator",
+        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
+        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_collision_road.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "cad5170a2bef8f76fb4c08a140e392b9d6df58c4c2f12066b95588a1eb2394cc",
+      "source": {
+        "kind": "generator",
+        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
+        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_lod0.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "8c0bd3de5f83dadc65a4493c1bb7075148cf8187a151960ce06cb16301fc0615",
+      "source": {
+        "kind": "generator",
+        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
+        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_lod1.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "eb58a452f5d3159ac3cb0601698c51c519d170a3e2c63067f4fa59df259054bf",
+      "source": {
+        "kind": "generator",
+        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
+        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_lod2.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "38fd91179afea95db342d7e4d6f9d4cb016d4030c052f7a1de4ca3d65124f1b2",
+      "source": {
+        "kind": "generator",
+        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "tools/blender/cityworld_next/generate_gateway_block.py",
+        "sha256": "077f469b90a4408c7bfcd2ee0ac2f79f0aebb8106164fb6aa4271b316dbe6e39"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "streetscape/gateway_block_40m/rorng_city_gateway_block_40m.asset.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "01984f09baa8997ce94c54dd79e554618c7c30dcb0cb985bc1abc522d04d3fc7",
+      "source": {
+        "kind": "generator",
+        "sha256": "077f469b90a4408c7bfcd2ee0ac2f79f0aebb8106164fb6aa4271b316dbe6e39",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
+        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "streetscape/gateway_block_40m/rorng_city_gateway_block_40m.glb",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "0e7c06346a1cb6c638487b8a0f8d49a535361456e3350939eeeb7c704f541b82",
+      "source": {
+        "kind": "generator",
+        "sha256": "077f469b90a4408c7bfcd2ee0ac2f79f0aebb8106164fb6aa4271b316dbe6e39",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
     }
   ],
   "format": "ror-content-provenance-v1",

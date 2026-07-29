@@ -42,6 +42,15 @@ TRANSITION_COMPILED_PATH = (
     REPOSITORY_ROOT
     / "resources/nextgen/cityworld/bridge/transition_12m/compiled"
 )
+GATEWAY_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/streetscape/gateway_block_40m/"
+    "rorng_city_gateway_block_40m.asset.json"
+)
+GATEWAY_COMPILED_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled"
+)
 
 SPEC = importlib.util.spec_from_file_location("compile_cityworld_asset", TOOL_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -276,6 +285,48 @@ class CityWorldSceneCompilerTests(unittest.TestCase):
         material = compiler._material_bytes().decode("utf-8")
         self.assertIn("material rorng_transition_concrete", material)
         self.assertIn("material rorng_transition_galvanized_steel", material)
+
+    def test_gateway_block_compiles_with_city_detail_and_emissive_lamps(
+        self,
+    ) -> None:
+        compiler = self.compiler(GATEWAY_MANIFEST_PATH)
+        report = COMPILER_MODULE.validate_checked_outputs(
+            compiler,
+            GATEWAY_COMPILED_PATH,
+        )
+        self.assertEqual(
+            report["source_stats"],
+            {
+                "indices": 44760,
+                "materials": 14,
+                "meshes": 6,
+                "primitives": 34,
+                "vertices": 34804,
+            },
+        )
+        self.assertEqual(
+            compiler.connector_runtime_contract(),
+            [
+                {
+                    "id": "end",
+                    "lane_centres_x_m": [-1.75, 1.75],
+                    "position_ogre_y_up_m": [0.0, 0.0, -20.0],
+                    "road_width_m": 8.9,
+                },
+                {
+                    "id": "start",
+                    "lane_centres_x_m": [-1.75, 1.75],
+                    "position_ogre_y_up_m": [0.0, 0.0, 20.0],
+                    "road_width_m": 8.9,
+                },
+            ],
+        )
+        material = compiler._material_bytes().decode("utf-8")
+        self.assertIn("material rorng_gateway_glass_blue", material)
+        self.assertIn("material rorng_gateway_tree_bark", material)
+        self.assertIn("material rorng_gateway_leaf_light", material)
+        self.assertIn("material rorng_gateway_lamp_emissive", material)
+        self.assertIn("      emissive 1 0.69 0.25", material)
 
     def test_intermediates_are_byte_deterministic(self) -> None:
         first = self.intermediates()

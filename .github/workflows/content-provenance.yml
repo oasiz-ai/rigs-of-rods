@@ -74,6 +74,13 @@ jobs:
             resources/nextgen/cityworld/bridge/transition_12m/rorng_city_bridge_transition_12m.asset.json \
             --repo-root . \
             --validate-checked
+          python tools/validate_cityworld_asset.py \
+            resources/nextgen/cityworld/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.asset.json \
+            --repo-root .
+          python tools/compile_cityworld_asset.py \
+            resources/nextgen/cityworld/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.asset.json \
+            --repo-root . \
+            --validate-checked
           python tools/content_provenance_audit.py \
             --manifest content-source/cityworld_next/provenance/cityworld_next.manifest.json \
             --inventory content-source/cityworld_next/provenance/cityworld_next.inventory.json \

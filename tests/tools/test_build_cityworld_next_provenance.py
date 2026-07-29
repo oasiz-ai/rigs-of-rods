@@ -76,9 +76,9 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
         self.assertEqual(
             json.loads(result.stdout),
             {
-                "assets": 33,
+                "assets": 44,
                 "format": "ror-cityworld-provenance-build-v1",
-                "inventory_files": 33,
+                "inventory_files": 44,
                 "mode": "check",
             },
         )
@@ -208,7 +208,7 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
         report = json.loads(result.stdout)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(report["ok"])
-        self.assertEqual(report["summary"]["checksum_matched_files"], 33)
+        self.assertEqual(report["summary"]["checksum_matched_files"], 44)
 
 
 if __name__ == "__main__":

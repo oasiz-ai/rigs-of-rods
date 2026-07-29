@@ -42,6 +42,19 @@ barrier collision meshes:
 - runtime-neutral interchange and contract:
   `../../resources/nextgen/cityworld/bridge/transition_12m/`.
 
+The first city-side gateway block is a connector-compatible 40 m streetscape
+with four detailed mid-rise façades, individual windows and ground-floor
+glazing, roof trim and HVAC equipment, eight procedural trees, eight emissive
+streetlights, sidewalks, curbs, three render LODs, and conservative building
+collision proxies:
+
+- editable source:
+  `streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend`;
+- authoring preview:
+  `streetscape/gateway_block_40m/rorng_city_gateway_block_40m_preview.png`;
+- runtime-neutral interchange and contract:
+  `../../resources/nextgen/cityworld/streetscape/gateway_block_40m/`.
+
 Regenerate with Blender 4.0 or newer:
 
 ```sh
@@ -53,6 +66,9 @@ blender --background --factory-startup \
   --output-root "$PWD"
 blender --background --factory-startup \
   --python tools/blender/cityworld_next/generate_bridge_transition.py -- \
+  --output-root "$PWD"
+blender --background --factory-startup \
+  --python tools/blender/cityworld_next/generate_gateway_block.py -- \
   --output-root "$PWD"
 ```
 
@@ -67,6 +83,9 @@ python3 tools/validate_cityworld_asset.py \
   --repo-root .
 python3 tools/validate_cityworld_asset.py \
   resources/nextgen/cityworld/bridge/transition_12m/rorng_city_bridge_transition_12m.asset.json \
+  --repo-root .
+python3 tools/validate_cityworld_asset.py \
+  resources/nextgen/cityworld/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.asset.json \
   --repo-root .
 python3 tools/solve_cityworld_bridge_corridor.py \
   --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \

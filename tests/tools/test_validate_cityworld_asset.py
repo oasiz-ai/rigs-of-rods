@@ -30,6 +30,11 @@ TRANSITION_MANIFEST_PATH = (
     / "resources/nextgen/cityworld/bridge/transition_12m/"
     "rorng_city_bridge_transition_12m.asset.json"
 )
+GATEWAY_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/streetscape/gateway_block_40m/"
+    "rorng_city_gateway_block_40m.asset.json"
+)
 
 
 class CityWorldAssetValidationTests(unittest.TestCase):
@@ -142,6 +147,26 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 "glb_nodes": 6,
                 "lod_objects": 3,
                 "triangles": 1720,
+                "valid": True,
+            },
+        )
+
+    def test_checked_in_gateway_block_asset_passes_full_gate(self) -> None:
+        result, report = self.run_validator(
+            REPOSITORY_ROOT,
+            GATEWAY_MANIFEST_PATH,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(report["diagnostics"], [])
+        self.assertEqual(
+            report["summary"],
+            {
+                "collision_objects": 3,
+                "errors": 0,
+                "glb_materials": 14,
+                "glb_nodes": 6,
+                "lod_objects": 3,
+                "triangles": 14920,
                 "valid": True,
             },
         )
