@@ -143,6 +143,7 @@ protected:
         Ogre::BillboardSet* flare,
         Ogre::SceneNode* light_node,
         Ogre::SceneNode* owner_node);
+    void DestroyAllRegisteredLocalLights();
     void UnregisterLocalLightsForOwner(Ogre::SceneNode* owner_node);
 
     // Variables

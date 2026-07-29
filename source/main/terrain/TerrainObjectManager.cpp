@@ -89,6 +89,7 @@ TerrainObjectManager::~TerrainObjectManager()
     }
 #endif //USE_PAGED
 
+    this->DestroyAllRegisteredLocalLights();
     App::GetGfxScene()->GetSceneManager()->destroyAllEntities();
 
     App::GetGfxScene()->GetSceneManager()->destroySceneNode(m_terrn2_grouping_node);
@@ -1143,6 +1144,22 @@ void TerrainObjectManager::RegisterLocalLight(
     m_local_light_candidates.resize(m_registered_local_lights.size());
     m_local_light_rank_scratch.resize(m_registered_local_lights.size());
     m_local_light_selection.resize(m_registered_local_lights.size());
+}
+
+void TerrainObjectManager::DestroyAllRegisteredLocalLights()
+{
+    Ogre::SceneManager* scene_manager =
+        App::GetGfxScene()->GetSceneManager();
+    for (RegisteredLocalLight& registered : m_registered_local_lights)
+    {
+        scene_manager->destroyMovableObject(registered.light);
+        scene_manager->destroyMovableObject(registered.flare);
+        scene_manager->destroySceneNode(registered.light_node);
+    }
+    m_registered_local_lights.clear();
+    m_local_light_candidates.clear();
+    m_local_light_rank_scratch.clear();
+    m_local_light_selection.clear();
 }
 
 void TerrainObjectManager::UnregisterLocalLightsForOwner(
