@@ -72,8 +72,12 @@ double DoubleFromBits(std::uint64_t bits)
 
 double F32(double value)
 {
-    return static_cast<double>(
-        static_cast<float>(value));
+    // Force the same binary32 storage boundary used by Actor/Engine. With
+    // MSVC /fp:fast, a nested cast expression may keep the intermediate in a
+    // wider register and make this test accidentally provide a binary64-only
+    // value to the deliberately strict production adapter.
+    volatile float narrowed = static_cast<float>(value);
+    return static_cast<double>(narrowed);
 }
 
 bool SameSnapshot(
@@ -240,6 +244,30 @@ bool RecordSnapshots(
                 first_step + index,
                 source))
         {
+            const Input::RuntimeStatus& runtime_status =
+                runtime.GetStatus();
+            const Vehicle::Status& source_status =
+                source.GetStatus();
+            std::fprintf(
+                stderr,
+                "record failure index=%zu step=%llu "
+                "runtime=%s trace=%s vehicle=%s control=%u "
+                "provider_calls=%zu provider_next=%zu "
+                "runtime_next=%llu processed=%llu\n",
+                index,
+                static_cast<unsigned long long>(
+                    first_step + index),
+                Input::ToString(runtime_status.error),
+                Input::ToString(
+                    runtime_status.trace_status.error),
+                Vehicle::ToString(source_status.error),
+                source_status.control_id,
+                provider.calls,
+                provider.next,
+                static_cast<unsigned long long>(
+                    runtime.GetNextPhysicsStep()),
+                static_cast<unsigned long long>(
+                    runtime.GetProcessedStepCount()));
             return false;
         }
     }
@@ -285,6 +313,9 @@ void TestRegistryAndValidation()
             Vehicle::RegistryManifest(),
             "1024..1107=command_key_1..84[0,1]\n") !=
         nullptr);
+    CHECK(
+        DoubleBits(F32(0.4)) ==
+        UINT64_C(0x3fd99999a0000000));
     Input::Metadata registry_metadata = ValidMetadata(0, 7);
     CHECK(Vehicle::IsRegistryMetadata(registry_metadata, 7));
     CHECK(!Vehicle::IsRegistryMetadata(registry_metadata, 8));
@@ -508,9 +539,38 @@ void TestAuthenticatedRoundTrip()
         index < snapshots.size();
         ++index)
     {
-        CHECK(recorder.RecordFixedStep(
+        const bool recorded = recorder.RecordFixedStep(
             first_step + index,
-            source));
+            source);
+        if (!recorded)
+        {
+            const Input::RuntimeStatus& runtime_status =
+                recorder.GetStatus();
+            const Vehicle::Status& source_status =
+                source.GetStatus();
+            std::fprintf(
+                stderr,
+                "round-trip record failure index=%zu step=%llu "
+                "runtime=%s trace=%s vehicle=%s control=%u "
+                "provider_calls=%zu provider_next=%zu "
+                "runtime_next=%llu processed=%llu\n",
+                index,
+                static_cast<unsigned long long>(
+                    first_step + index),
+                Input::ToString(runtime_status.error),
+                Input::ToString(
+                    runtime_status.trace_status.error),
+                Vehicle::ToString(source_status.error),
+                source_status.control_id,
+                provider.calls,
+                provider.next,
+                static_cast<unsigned long long>(
+                    recorder.GetNextPhysicsStep()),
+                static_cast<unsigned long long>(
+                    recorder.GetProcessedStepCount()));
+            CHECK(recorded);
+            return;
+        }
     }
     CHECK(provider.calls == snapshots.size());
     CHECK(provider.next == snapshots.size());

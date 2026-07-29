@@ -323,6 +323,26 @@ void TestCalibrationProperties()
                 8.0e-16L,
                 8.0L *
                     std::numeric_limits<long double>::epsilon());
+        if (!(relative_error < calibration_tolerance))
+        {
+            std::fprintf(
+                stderr,
+                "calibration mismatch sample=%d "
+                "G=%.17g l=%.17g E=%.17g H=%.17g "
+                "measured=%.17g reference=%.21Lg "
+                "relative_error=%.21Lg tolerance=%.21Lg "
+                "long_double_digits=%d\n",
+                sample,
+                inputs.fracture_energy_per_area,
+                inputs.characteristic_length,
+                inputs.elastic_modulus,
+                inputs.hardening_modulus,
+                output.damage_driver_capacity_density,
+                reference,
+                relative_error,
+                calibration_tolerance,
+                std::numeric_limits<long double>::digits);
+        }
         CHECK(relative_error < calibration_tolerance);
 
         const double recovered_fracture_energy =
