@@ -324,8 +324,24 @@ void RoR::Terrain::initLight()
     {
         // screw caelum, we will roll our own light
 
+        // The terrain definition supplies the fallback sky tint, but older
+        // code only applied it to the directional light. Keep a bounded
+        // ambient contribution so surfaces facing away from the sun do not
+        // render against OGRE's black default ambient.
+        constexpr float FALLBACK_AMBIENT_SCALE = 0.35f;
+        const ColourValue fallback_ambient(
+            std::clamp(m_def->ambient_color.r, 0.0f, 1.0f)
+                * FALLBACK_AMBIENT_SCALE,
+            std::clamp(m_def->ambient_color.g, 0.0f, 1.0f)
+                * FALLBACK_AMBIENT_SCALE,
+            std::clamp(m_def->ambient_color.b, 0.0f, 1.0f)
+                * FALLBACK_AMBIENT_SCALE);
+        SceneManager* scene_manager =
+            App::GetGfxScene()->GetSceneManager();
+        scene_manager->setAmbientLight(fallback_ambient);
+
         // Create a light
-        m_main_light = App::GetGfxScene()->GetSceneManager()->createLight("MainLight");
+        m_main_light = scene_manager->createLight("MainLight");
         //directional light for shadow
         m_main_light->setType(Light::LT_DIRECTIONAL);
         m_main_light->setDirection(Ogre::Vector3(0.785, -0.423, 0.453).normalisedCopy());
@@ -335,6 +351,15 @@ void RoR::Terrain::initLight()
         m_main_light->setCastShadows(true);
         m_main_light->setShadowFarDistance(1000.0f);
         m_main_light->setShadowNearClipDistance(-1);
+        LOG(fmt::format(
+            "[RoR|Terrain|Lighting] policy=fallback-v1 "
+            "ambient_scale={:.3f} directional_shadow_casters={} "
+            "ambient_rgb={:.3f},{:.3f},{:.3f}",
+            FALLBACK_AMBIENT_SCALE,
+            m_main_light->getCastShadows() ? 1 : 0,
+            fallback_ambient.r,
+            fallback_ambient.g,
+            fallback_ambient.b));
     }
 }
 

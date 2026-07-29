@@ -327,8 +327,12 @@ block: eight versioned warm point lights share the eight emissive luminaires.
 The offline validator rejects unknown types, duplicate identifiers, non-finite
 positions or colours, out-of-range colours, unsafe ranges, and more than 32
 lights per asset. The compiler records the Blender-to-OGRE transform and emits
-stable ODEF point-light records; the runtime logs the created count without
-changing the global PSSM shadow configuration.
+stable ODEF point-light records. The dependency-free sky applies a bounded
+ambient contribution equal to 0.35 times the terrain ambient tint. ODEF point
+and spot lights are explicitly unshadowed, leaving the directional sun as the
+sole PSSM shadow caster. Runtime markers report both the fallback lighting
+policy and the observed local shadow-caster count so native GL3Plus and D3D11
+scene gates fail if that contract regresses.
 
 ### CW2 — Intercity corridor and bridge kit
 

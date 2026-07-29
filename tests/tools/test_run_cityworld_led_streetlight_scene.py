@@ -72,6 +72,22 @@ def copy_contract_inputs(destination: Path) -> None:
 
 
 class CityWorldLedStreetlightSceneTests(unittest.TestCase):
+    def test_fallback_lighting_policy_marker_is_pinned(self) -> None:
+        self.assertEqual(
+            SCENE.BASE.FALLBACK_LIGHTING_MARKER,
+            "[RoR|Terrain|Lighting] policy=fallback-v1 "
+            "ambient_scale=0.350 directional_shadow_casters=1 "
+            "ambient_rgb=0.252,0.252,0.252",
+        )
+        self.assertIn(
+            SCENE.BASE.FALLBACK_LIGHTING_MARKER,
+            SCENE.ENGINE_MARKERS,
+        )
+        self.assertIn(
+            SCENE.BASE.FALLBACK_LIGHTING_MARKER,
+            SCENE.ENGINE_SINGLETON_MARKERS,
+        )
+
     def test_runtime_log_gate_requires_render_and_collision_evidence(
         self,
     ) -> None:

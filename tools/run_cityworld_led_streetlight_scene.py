@@ -84,13 +84,17 @@ ENGINE_MARKERS = (
     "Parsing script rorng_city_led_streetlight.material",
     "Mesh: Loading rorng_city_led_streetlight_lod0.mesh.",
     "Mesh: Loading rorng_city_led_streetlight_collision_fixture.mesh.",
+    BASE.FALLBACK_LIGHTING_MARKER,
     "Pass 0 of 'rorng_fixture_precast_concrete'",
     "Pass 0 of 'rorng_fixture_galvanized_steel'",
     "Pass 0 of 'rorng_fixture_powdercoat_graphite'",
     "Pass 0 of 'rorng_fixture_lens_gasket'",
     "Pass 0 of 'rorng_fixture_led_lens_emissive'",
 )
-ENGINE_SINGLETON_MARKERS = ENGINE_MARKERS[:3]
+ENGINE_SINGLETON_MARKERS = (
+    *ENGINE_MARKERS[:3],
+    BASE.FALLBACK_LIGHTING_MARKER,
+)
 FATAL_MARKERS = (
     "[RoR|CW1|StreetlightRuntime] FAIL",
     "[ODEF] Could not find rorng_city_led_streetlight",

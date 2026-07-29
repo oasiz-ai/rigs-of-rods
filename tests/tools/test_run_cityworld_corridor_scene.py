@@ -41,7 +41,7 @@ def valid_logs() -> tuple[str, str]:
     light_marker = (
         "[RoR|TerrainObject|Lights] "
         "odef=rorng_city_led_streetlight_bridge.odef "
-        "spotlights=0 point_lights=1"
+        "spotlights=0 point_lights=1 local_shadow_casters=0"
     )
     engine = "\n".join(
         (
@@ -228,6 +228,47 @@ def write_overlay(path: Path, report: dict[str, object], payload: bytes) -> None
 
 
 class CityWorldCorridorSceneTests(unittest.TestCase):
+    def test_lighting_policy_markers_are_fail_closed(self) -> None:
+        engine, script = valid_logs()
+        self.assertEqual(
+            SCENE.CITYWORLD_FALLBACK_LIGHTING_MARKER,
+            "[RoR|Terrain|Lighting] policy=fallback-v1 "
+            "ambient_scale=0.350 directional_shadow_casters=1 "
+            "ambient_rgb=0.326,0.301,0.266",
+        )
+        self.assertIn(SCENE.CITYWORLD_FALLBACK_LIGHTING_MARKER, engine)
+        self.assertEqual(
+            engine.count("local_shadow_casters=0"),
+            SCENE.EXPECTED_LIGHTS,
+        )
+        with self.assertRaises(SCENE.CorridorSceneFailure):
+            SCENE.validate_runtime_logs(
+                0,
+                "",
+                engine.replace(
+                    SCENE.CITYWORLD_FALLBACK_LIGHTING_MARKER,
+                    "",
+                ),
+                script,
+            )
+        with self.assertRaises(SCENE.CorridorSceneFailure):
+            SCENE.validate_runtime_logs(
+                0,
+                "",
+                engine + "\n" + SCENE.CITYWORLD_FALLBACK_LIGHTING_MARKER,
+                script,
+            )
+        with self.assertRaises(SCENE.CorridorSceneFailure):
+            SCENE.validate_runtime_logs(
+                0,
+                "",
+                engine.replace(
+                    "local_shadow_casters=0",
+                    "local_shadow_casters=1",
+                ),
+                script,
+            )
+
     def test_runtime_log_gate_requires_both_seams_and_physical_bounds(
         self,
     ) -> None:

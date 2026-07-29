@@ -41,6 +41,32 @@ def valid_logs() -> tuple[str, str]:
 
 
 class CityWorldGatewaySceneTests(unittest.TestCase):
+    def test_lighting_policy_markers_are_pinned(self) -> None:
+        self.assertEqual(
+            SCENE.BASE.FALLBACK_LIGHTING_MARKER,
+            "[RoR|Terrain|Lighting] policy=fallback-v1 "
+            "ambient_scale=0.350 directional_shadow_casters=1 "
+            "ambient_rgb=0.252,0.252,0.252",
+        )
+        self.assertIn(
+            SCENE.BASE.FALLBACK_LIGHTING_MARKER,
+            SCENE.ENGINE_MARKERS,
+        )
+        self.assertIn(
+            SCENE.LOCAL_LIGHTING_MARKER,
+            SCENE.ENGINE_MARKERS,
+        )
+        engine, script = valid_logs()
+        for marker in SCENE.LIGHTING_MARKERS:
+            with self.subTest(duplicate=marker):
+                with self.assertRaises(SCENE.BASE.BridgeSceneFailure):
+                    SCENE.validate_runtime_logs(
+                        0,
+                        "",
+                        engine + "\n" + marker,
+                        script,
+                    )
+
     def test_checked_gateway_corridor_is_exact(self) -> None:
         corridor = SCENE.verify_corridor_fixture(REPOSITORY_ROOT)
         self.assertEqual(corridor["format"], "ror-cityworld-bridge-corridor-v1")

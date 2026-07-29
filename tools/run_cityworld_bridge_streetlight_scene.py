@@ -81,6 +81,9 @@ EXPECTED_RUNTIME_LIGHT = {
     "range_m": 24.0,
     "type": "point",
 }
+FALLBACK_LIGHTING_MARKER = BASE.fallback_lighting_marker(
+    (0.24, 0.24, 0.24)
+)
 
 SCRIPT_MARKERS = (
     "[RoR|CW1|BridgeStreetlightRuntime] START fixtures=1 "
@@ -96,13 +99,14 @@ ENGINE_MARKERS = (
     "Mesh: Loading rorng_city_led_streetlight_bridge_lod0.mesh.",
     "[RoR|TerrainObject|Lights] "
     "odef=rorng_city_led_streetlight_bridge.odef "
-    "spotlights=0 point_lights=1",
+    "spotlights=0 point_lights=1 local_shadow_casters=0",
+    FALLBACK_LIGHTING_MARKER,
     "Pass 0 of 'rorng_fixture_galvanized_steel'",
     "Pass 0 of 'rorng_fixture_led_lens_emissive'",
     "Pass 0 of 'rorng_fixture_lens_gasket'",
     "Pass 0 of 'rorng_fixture_powdercoat_graphite'",
 )
-ENGINE_SINGLETON_MARKERS = ENGINE_MARKERS[:3]
+ENGINE_SINGLETON_MARKERS = ENGINE_MARKERS[:4]
 FATAL_MARKERS = (
     "[RoR|CW1|BridgeStreetlightRuntime] FAIL",
     "[ODEF] Could not find rorng_city_led_streetlight_bridge",

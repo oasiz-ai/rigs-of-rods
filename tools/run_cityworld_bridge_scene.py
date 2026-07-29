@@ -62,6 +62,25 @@ EXPECTED_HEIGHT = 720
 MAX_SCREENSHOT_BYTES = 32 * 1024 * 1024
 MAX_PACK_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_CONFIG_BYTES = 1024 * 1024
+FALLBACK_AMBIENT_SCALE = 0.35
+
+
+def fallback_lighting_marker(
+    terrain_ambient_rgb: tuple[float, float, float],
+) -> str:
+    ambient_rgb = tuple(
+        max(0.0, min(1.0, channel)) * FALLBACK_AMBIENT_SCALE
+        for channel in terrain_ambient_rgb
+    )
+    return (
+        "[RoR|Terrain|Lighting] policy=fallback-v1 "
+        "ambient_scale=0.350 directional_shadow_casters=1 "
+        f"ambient_rgb={ambient_rgb[0]:.3f},"
+        f"{ambient_rgb[1]:.3f},{ambient_rgb[2]:.3f}"
+    )
+
+
+FALLBACK_LIGHTING_MARKER = fallback_lighting_marker((0.72, 0.72, 0.72))
 PSSM_PREFIX = "[RoR|Shadow|PSSM] enabled"
 PSSM_PATTERN = re.compile(
     r"\[RoR\|Shadow\|PSSM\] enabled "

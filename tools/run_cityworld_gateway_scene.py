@@ -67,15 +67,23 @@ SCRIPT_MARKERS = (
     "[RoR|CW2|GatewayRuntime] EXIT",
     "[RoR|CW2|GatewayRuntime] PASS modules=5 seams=4 turn_degrees=45",
 )
+LOCAL_LIGHTING_MARKER = (
+    "[RoR|TerrainObject|Lights] "
+    "odef=rorng_city_gateway_block_40m.odef spotlights=0 point_lights=8 "
+    "local_shadow_casters=0"
+)
+LIGHTING_MARKERS = (
+    BASE.FALLBACK_LIGHTING_MARKER,
+    LOCAL_LIGHTING_MARKER,
+)
 ENGINE_MARKERS = (
     *TRANSITION.ENGINE_MARKERS,
+    *LIGHTING_MARKERS,
     "Parsing script rorng_city_gateway_block_40m.material",
     "Mesh: Loading rorng_city_gateway_block_40m_lod0.mesh.",
     "Mesh: Loading rorng_city_gateway_block_40m_collision_barrier_left.mesh.",
     "Mesh: Loading rorng_city_gateway_block_40m_collision_barrier_right.mesh.",
     "Mesh: Loading rorng_city_gateway_block_40m_collision_road.mesh.",
-    "[RoR|TerrainObject|Lights] "
-    "odef=rorng_city_gateway_block_40m.odef spotlights=0 point_lights=8",
     "Pass 0 of 'rorng_gateway_architectural_concrete'",
     "Pass 0 of 'rorng_gateway_asphalt'",
     "Pass 0 of 'rorng_gateway_tree_bark'",
@@ -144,6 +152,11 @@ def validate_runtime_logs(
         if marker not in engine_log:
             raise BASE.BridgeSceneFailure(
                 f"engine log missed marker: {marker}"
+            )
+    for marker in LIGHTING_MARKERS:
+        if engine_log.count(marker) != 1:
+            raise BASE.BridgeSceneFailure(
+                "gateway lighting marker must appear exactly once: " + marker
             )
     combined = "\n".join((stdout, engine_log, script_log))
     for marker in FATAL_MARKERS:

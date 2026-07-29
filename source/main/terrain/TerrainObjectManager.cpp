@@ -918,17 +918,20 @@ bool TerrainObjectManager::LoadTerrainObject(const Ogre::String& name, const Ogr
         mo->getEntity()->setMaterialName(String(tmpMatName));
     }
 
+    size_t local_shadow_casters = 0;
     for (ODefSpotlight& spotl: odef->spotlights)
     {
         Light* spotLight = App::GetGfxScene()->GetSceneManager()->createLight();
 
         spotLight->setType(Light::LT_SPOTLIGHT);
+        spotLight->setCastShadows(false);
         spotLight->setPosition(spotl.pos);
         spotLight->setDirection(spotl.dir);
         spotLight->setAttenuation(spotl.range, 1.0, 0.3, 0.0);
         spotLight->setDiffuseColour(spotl.color);
         spotLight->setSpecularColour(spotl.color);
         spotLight->setSpotlightRange(Degree(spotl.angle_inner), Degree(spotl.angle_outer));
+        local_shadow_casters += spotLight->getCastShadows() ? 1 : 0;
 
         BillboardSet* lflare = App::GetGfxScene()->GetSceneManager()->createBillboardSet(1);
         lflare->createBillboard(spotl.pos, spotl.color);
@@ -948,11 +951,13 @@ bool TerrainObjectManager::LoadTerrainObject(const Ogre::String& name, const Ogr
         Light* pointlight = App::GetGfxScene()->GetSceneManager()->createLight();
 
         pointlight->setType(Light::LT_POINT);
+        pointlight->setCastShadows(false);
         pointlight->setPosition(plight.pos);
         pointlight->setDirection(plight.dir);
         pointlight->setAttenuation(plight.range, 1.0, 0.3, 0.0);
         pointlight->setDiffuseColour(plight.color);
         pointlight->setSpecularColour(plight.color);
+        local_shadow_casters += pointlight->getCastShadows() ? 1 : 0;
 
         BillboardSet* lflare = App::GetGfxScene()->GetSceneManager()->createBillboardSet(1);
         lflare->createBillboard(plight.pos, plight.color);
@@ -969,10 +974,12 @@ bool TerrainObjectManager::LoadTerrainObject(const Ogre::String& name, const Ogr
     if (!odef->spotlights.empty() || !odef->point_lights.empty())
     {
         LOG(fmt::format(
-            "[RoR|TerrainObject|Lights] odef={} spotlights={} point_lights={}",
+            "[RoR|TerrainObject|Lights] odef={} spotlights={} "
+            "point_lights={} local_shadow_casters={}",
             odefname,
             odef->spotlights.size(),
-            odef->point_lights.size()));
+            odef->point_lights.size(),
+            local_shadow_casters));
     }
 
     return true;

@@ -72,6 +72,9 @@ MAX_OVERLAY_TOTAL_BYTES = 128 * 1024 * 1024
 EXPECTED_WAYPOINTS = 59
 EXPECTED_LIGHTS = 16
 MAX_PHYSICS_STEPS = 240000
+CITYWORLD_FALLBACK_LIGHTING_MARKER = base.fallback_lighting_marker(
+    (0.93, 0.86, 0.76)
+)
 EXPECTED_UNPLACED_ASSETS = [
     "rorng_city_gateway_block_40m",
     "rorng_city_bridge_transition_12m",
@@ -98,6 +101,7 @@ SCRIPT_MARKERS = (
     "[RoR|CW2|CorridorRuntime] PASS seams=2 route_m=1075.447727259",
 )
 ENGINE_MARKERS = (
+    CITYWORLD_FALLBACK_LIGHTING_MARKER,
     "===== TERRAIN LOADING DONE CityWorldNextLocalOverlay.terrn2",
     "===== LOADING VEHICLE: b6b0UID-semi.truck",
 )
@@ -802,6 +806,10 @@ def validate_runtime_logs(
     for marker in ENGINE_MARKERS:
         if marker not in engine_log:
             raise CorridorSceneFailure(f"engine marker is missing: {marker}")
+    if engine_log.count(CITYWORLD_FALLBACK_LIGHTING_MARKER) != 1:
+        raise CorridorSceneFailure(
+            "fallback lighting marker must appear exactly once"
+        )
     dependency_matches = list(DEPENDENCY_PATTERN.finditer(engine_log))
     if len(dependency_matches) != 1:
         raise CorridorSceneFailure(
@@ -815,7 +823,7 @@ def validate_runtime_logs(
     light_marker = (
         "[RoR|TerrainObject|Lights] "
         "odef=rorng_city_led_streetlight_bridge.odef "
-        "spotlights=0 point_lights=1"
+        "spotlights=0 point_lights=1 local_shadow_casters=0"
     )
     if engine_log.count(light_marker) != EXPECTED_LIGHTS:
         raise CorridorSceneFailure("runtime light instance count drifted")
