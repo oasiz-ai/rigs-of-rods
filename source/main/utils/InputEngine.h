@@ -551,6 +551,7 @@ public:
     /// @{
                         ///valueSource: IST_ANY=digital and analog devices, IST_DIGITAL=only digital, IST_ANALOG=only analog
     float               getEventValue(int eventID, bool pure = false, InputSourceType valueSource = InputSourceType::IST_ANY);
+    bool                hasEventSimulatedValue(int eventID) const;         //!< True when the global scripted/policy override can affect this event.
     bool                getEventBoolValue(int eventID);
     bool                isEventAnalog(int eventID);
     bool                getEventBoolValueBounce(int eventID, float time = 0.2f);

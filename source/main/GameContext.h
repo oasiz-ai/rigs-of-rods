@@ -177,6 +177,12 @@ public:
     void                UpdateAirplaneInputEvents(float dt, ActorPtr airplane);
     void                UpdateBoatInputEvents(float dt, ActorPtr boat);
     void                UpdateTruckInputEvents(float dt, ActorPtr truck);
+    /// Shared continuous driving-control resolver used by both the normal
+    /// frame path and exact world-model capture batches.
+    bool                ResolveTruckDrivingInputs(float dt, ActorPtr truck);
+    /// Shared parking-brake command application. Kept separate so capture
+    /// does not invoke unrelated frame-level truck side effects.
+    bool                ApplyTruckParkingBrakeInput(ActorPtr truck);
 
     /// @}
 

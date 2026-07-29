@@ -167,6 +167,7 @@ set(SOURCE_FILES
         physics/DeterministicStateDigest.{h,cpp}
         physics/DeterministicStateTrace.{h,cpp}
         physics/DeterministicStateTraceCli.{h,cpp}
+        physics/FixedStepCaptureBridge.h
         physics/HydroActuatorResponse.h
         physics/ActorManager.{h,cpp}
         physics/ActorSlideNode.cpp
@@ -264,6 +265,22 @@ set(SOURCE_FILES
         utils/memory/RefCountingObject.h
         utils/memory/RefCountingObjectPtr.h
         utils/bbcode/BBDocument.{h,cpp}
+        worldmodel/EpisodeArtifacts.{h,cpp}
+        worldmodel/EpisodeCaptureSink.{h,cpp}
+        worldmodel/EpisodeFormat.{h,cpp}
+        worldmodel/EpisodeProvenance.{h,cpp}
+        worldmodel/EpisodeValidator.{h,cpp}
+        worldmodel/EpisodeWriter.{h,cpp}
+        worldmodel/ObservationScheduler.{h,cpp}
+        worldmodel/RoRRuntimeCaptureProvider.{h,cpp}
+        worldmodel/RoRWorldModelRuntimeAdapter.{h,cpp}
+        worldmodel/WorldModelCaptureContract.{h,cpp}
+        worldmodel/WorldModelCaptureEncoding.{h,cpp}
+        worldmodel/WorldModelLiveCaptureConfig.{h,cpp}
+        worldmodel/WorldModelLiveCaptureController.{h,cpp}
+        worldmodel/WorldModelCaptureSession.{h,cpp}
+        worldmodel/WorldModelRuntimeBackend.{h,cpp}
+        worldmodel/WorldModelTelemetry.{h,cpp}
         )
 
 if (APPLE AND ROR_OGRE14)
@@ -339,6 +356,31 @@ else ()
             COMPILE_OPTIONS "-fno-fast-math"
             SKIP_PRECOMPILE_HEADERS ON
             )
+endif ()
+
+# The game uses fast-math in optimized builds, but recorder admission depends
+# on IEEE NaN/Inf and signed-zero checks. Keep the validation boundary strict
+# in every configuration so a release build cannot serialize hostile values.
+set(WORLDMODEL_STRICT_FP_SOURCES
+        worldmodel/RoRRuntimeCaptureProvider.cpp
+        worldmodel/WorldModelCaptureSession.cpp
+        worldmodel/WorldModelCaptureEncoding.cpp
+        worldmodel/WorldModelTelemetry.cpp
+        )
+if (MSVC)
+    set_source_files_properties(
+        ${WORLDMODEL_STRICT_FP_SOURCES}
+        PROPERTIES
+            COMPILE_OPTIONS "/fp:strict"
+            SKIP_PRECOMPILE_HEADERS ON
+    )
+else ()
+    set_source_files_properties(
+        ${WORLDMODEL_STRICT_FP_SOURCES}
+        PROPERTIES
+            COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off"
+            SKIP_PRECOMPILE_HEADERS ON
+    )
 endif ()
 
 # Generate source groups for use in IDEs
@@ -466,6 +508,7 @@ target_include_directories(${BINNAME} PRIVATE
         utils
         utils/memory
         utils/bbcode
+        worldmodel
         )
 
 

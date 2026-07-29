@@ -357,6 +357,105 @@ void GfxScene::ForceUpdateSingleGfxActor(RoR::GfxActor* gfx_actor)
     gfx_actor->FinishFlexbodyTasks();
 }
 
+bool GfxScene::ForceUpdateSingleGfxActorForCapture(
+    RoR::GfxActor* gfx_actor,
+    float dt,
+    const Ogre::Vector3& camera_position,
+    const Ogre::Quaternion& camera_orientation)
+{
+    if (gfx_actor == nullptr ||
+        !std::isfinite(dt) ||
+        dt < 0.0f ||
+        App::GetCameraManager() == nullptr ||
+        App::GetCameraManager()->GetCameraNode() == nullptr ||
+        App::gfx_particles_mode == nullptr ||
+        App::gfx_flares_mode == nullptr ||
+        App::gfx_enable_videocams == nullptr ||
+        App::gfx_particles_mode->getInt() != 0 ||
+        App::gfx_flares_mode->getEnum<GfxFlaresMode>() !=
+            GfxFlaresMode::NONE ||
+        App::gfx_enable_videocams->getBool())
+    {
+        return false;
+    }
+
+    Ogre::SceneNode* const display_camera_node =
+        App::GetCameraManager()->GetCameraNode();
+    const Ogre::Vector3 saved_position =
+        display_camera_node->getPosition();
+    const Ogre::Quaternion saved_orientation =
+        display_camera_node->getOrientation();
+    const int saved_cinecam =
+        gfx_actor->GetSimDataBuffer().simbuf_cur_cinecam;
+
+    struct RestoreCaptureOverrides
+    {
+        Ogre::SceneNode* node;
+        Ogre::Vector3 position;
+        Ogre::Quaternion orientation;
+        ActorSB* sim_buffer;
+        int cinecam;
+
+        ~RestoreCaptureOverrides()
+        {
+            if (sim_buffer != nullptr)
+                sim_buffer->simbuf_cur_cinecam = cinecam;
+            if (node != nullptr)
+            {
+                node->setPosition(position);
+                node->setOrientation(orientation);
+            }
+        }
+    } restore = {
+        display_camera_node,
+        saved_position,
+        saved_orientation,
+        &gfx_actor->GetSimDataBuffer(),
+        saved_cinecam};
+
+    try
+    {
+        display_camera_node->setPosition(camera_position);
+        display_camera_node->setOrientation(camera_orientation);
+        // Schema 1 always renders cinecam 0 visibility, regardless of what
+        // the interactive display currently shows.
+        gfx_actor->GetSimDataBuffer().simbuf_cur_cinecam = 0;
+
+        gfx_actor->UpdateFlexbodies();
+        gfx_actor->UpdateWheelVisuals();
+
+        // Particle, flare and render-to-texture video-camera state advances on
+        // the display frame. The capture profile rejects those systems rather
+        // than inheriting their most recently displayed state.
+        gfx_actor->UpdateRods();
+        gfx_actor->UpdateCabMesh();
+        gfx_actor->UpdateWingMeshes();
+        gfx_actor->UpdateAirbrakes();
+        gfx_actor->UpdateAeroEngines();
+        gfx_actor->UpdatePropAnimations(dt);
+        gfx_actor->UpdateProps(0.0f, true);
+
+        // A driver character may be visible inside the truck. Synchronize it
+        // from the joined simulation buffer instead of rendering whichever
+        // pose the interactive display happened to update last.
+        for (GfxCharacter* character : m_all_gfx_characters)
+        {
+            if (character == nullptr)
+                return false;
+            character->BufferSimulationData();
+            character->UpdateCharacterInScene();
+        }
+
+        gfx_actor->FinishWheelUpdates();
+        gfx_actor->FinishFlexbodyTasks();
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 void GfxScene::RegisterGfxCharacter(RoR::GfxCharacter* gfx_character)
 {
     m_all_gfx_characters.push_back(gfx_character);

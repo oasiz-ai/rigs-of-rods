@@ -342,7 +342,12 @@ public:
     void              calculateAveragePosition();
     void              UpdatePhysicsOrigin();
     void              SoftReset();
-    void              SyncReset(bool reset_position);      //!< this one should be called only synchronously (without physics running in background)
+    void              SyncReset(bool reset_position, bool emit_script_event = true); //!< call only synchronously (without physics running in background)
+    /// Fail-closed zero-step reset used before live world-model capture owns
+    /// the scheduler. Installs the episode-derived counter-noise seed and a
+    /// fixed running-engine/controller baseline; never call with physics live.
+    bool              PrepareWorldModelCaptureReset(std::uint64_t reset_seed);
+    std::uint64_t     GetWorldModelDeterministicSeed() const { return m_deterministic_seed; }
     void              WriteDiagnosticDump(std::string const& filename);
     Ogre::Vector3     GetCameraDir()                    { return (ar_nodes[ar_main_camera_node_pos].RelPosition - ar_nodes[ar_main_camera_node_dir].RelPosition).normalisedCopy(); }
     Ogre::Vector3     GetCameraRoll()                   { return (ar_nodes[ar_main_camera_node_pos].RelPosition - ar_nodes[ar_main_camera_node_roll].RelPosition).normalisedCopy(); }

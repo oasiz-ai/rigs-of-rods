@@ -1897,6 +1897,12 @@ const ActorPtr& ActorManager::FetchRescueVehicle()
 
 void ActorManager::UpdateActors(ActorPtr player_actor)
 {
+    // An exact-step capture runtime is the sole scheduler while it owns this
+    // manager. Input/render work may continue on the main thread, but normal
+    // wall-clock physics must not race or interleave with authored batches.
+    if (m_fixed_step_capture_owner != nullptr)
+        return;
+
     float dt = m_simulation_time;
 
     std::uint32_t fixed_steps_per_frame = 0U;
@@ -1958,6 +1964,140 @@ void ActorManager::UpdateActors(ActorPtr player_actor)
         dt = PHYSICS_DT * m_physics_steps;
     }
 
+    this->RunPhysicsStepBatch(
+        player_actor,
+        dt,
+        nullptr,
+        false);
+}
+
+bool ActorManager::AcquireFixedStepCaptureOwnership(
+    const void* owner_token,
+    ActorPtr player_actor)
+{
+    if (owner_token == nullptr || player_actor == nullptr)
+        return false;
+
+    // Establish ownership only from a fully joined boundary.
+    this->SyncWithSimThread();
+    GameContext* const context = App::GetGameContext();
+    if (m_fixed_step_capture_owner != nullptr ||
+        context == nullptr ||
+        context->GetActorManager() != this ||
+        context->GetPlayerActor() != player_actor)
+    {
+        return false;
+    }
+
+    m_fixed_step_capture_player = player_actor;
+    m_fixed_step_capture_owner = owner_token;
+    return true;
+}
+
+void ActorManager::ReleaseFixedStepCaptureOwnership(
+    const void* owner_token) noexcept
+{
+    if (owner_token == nullptr ||
+        m_fixed_step_capture_owner != owner_token)
+    {
+        return;
+    }
+
+    // The adapter cannot release the scheduling gate while one of its own
+    // physics batches is still in flight.
+    this->SyncWithSimThread();
+    m_fixed_step_capture_player = nullptr;
+    m_fixed_step_capture_owner = nullptr;
+}
+
+FixedStepCaptureBridge::BatchResult
+ActorManager::AdvanceFixedStepsForCapture(
+    const void* owner_token,
+    ActorPtr player_actor,
+    std::uint32_t fixed_step_count,
+    FixedStepCaptureBridge::AppliedInputObserver& observer)
+{
+    // The current asynchronous frame, if any, owns m_physics_steps and actor
+    // state until it joins. Validate against the canonical post-join boundary.
+    this->SyncWithSimThread();
+
+    GameContext* const context = App::GetGameContext();
+    if (!this->HasFixedStepCaptureOwnership(owner_token) ||
+        player_actor == nullptr ||
+        player_actor != m_fixed_step_capture_player ||
+        context == nullptr ||
+        context->GetActorManager() != this ||
+        context->GetPlayerActor() != player_actor)
+    {
+        return FixedStepCaptureBridge::
+            BatchResult::CAPTURE_OWNERSHIP_REQUIRED;
+    }
+
+    const std::uint64_t first_completed_physics_step =
+        m_completed_physics_steps;
+    const FixedStepCaptureBridge::BatchResult validation =
+        FixedStepCaptureBridge::ValidateBatch(
+            first_completed_physics_step,
+            fixed_step_count);
+    if (validation !=
+        FixedStepCaptureBridge::BatchResult::COMPLETED)
+    {
+        return validation;
+    }
+
+    const float dt =
+        PHYSICS_DT * static_cast<float>(fixed_step_count);
+    // Preserve the normal GameContext ordering while excluding unrelated
+    // frame/UI work. Raw devices were sampled once by the owning main-frame
+    // path. Advance edge timers exactly once for this authored batch, then
+    // resolve steering/Engine controls and the parking-brake edge.
+    if (App::GetInputEngine() == nullptr)
+    {
+        return FixedStepCaptureBridge::
+            BatchResult::INPUT_RESOLUTION_REJECTED;
+    }
+    App::GetInputEngine()->updateKeyBounces(dt);
+    if (!context->ResolveTruckDrivingInputs(dt, player_actor) ||
+        !context->ApplyTruckParkingBrakeInput(player_actor))
+    {
+        return FixedStepCaptureBridge::
+            BatchResult::INPUT_RESOLUTION_REJECTED;
+    }
+
+    m_physics_steps = static_cast<int>(fixed_step_count);
+    FixedStepCaptureBridge::ObservationBatch observation_batch(
+        first_completed_physics_step,
+        fixed_step_count,
+        observer);
+    this->RunPhysicsStepBatch(
+        player_actor,
+        dt,
+        &observation_batch,
+        true);
+
+    const std::uint64_t expected_completed_physics_step =
+        first_completed_physics_step +
+        static_cast<std::uint64_t>(fixed_step_count);
+    if (m_completed_physics_steps !=
+        expected_completed_physics_step)
+    {
+        return FixedStepCaptureBridge::
+            BatchResult::PHYSICS_STEP_MISMATCH;
+    }
+    if (!observation_batch.Succeeded())
+    {
+        return FixedStepCaptureBridge::
+            BatchResult::OBSERVER_REJECTED;
+    }
+    return FixedStepCaptureBridge::BatchResult::COMPLETED;
+}
+
+void ActorManager::RunPhysicsStepBatch(
+    ActorPtr player_actor,
+    float dt,
+    FixedStepCaptureBridge::ObservationBatch* observation_batch,
+    bool force_join)
+{
     this->SyncWithSimThread();
 
     this->UpdateSleepingState(player_actor, dt);
@@ -2050,15 +2190,18 @@ void ActorManager::UpdateActors(ActorPtr player_actor)
         }
     }
 
-    auto func = std::function<void()>([this]()
+    auto func = std::function<void()>(
+        [this,
+         observation_batch]()
         {
-            this->UpdatePhysicsSimulation();
+            this->UpdatePhysicsSimulation(
+                observation_batch);
         });
     m_sim_task = m_sim_thread_pool->RunTask(func);
 
     m_total_sim_time += dt;
 
-    if (!App::app_async_physics->getBool())
+    if (force_join || !App::app_async_physics->getBool())
         m_sim_task->join();
 }
 
@@ -2076,12 +2219,26 @@ const ActorPtr& ActorManager::GetActorById(ActorInstanceID_t actor_id)
 
 void ActorManager::UpdatePhysicsSimulation()
 {
+    this->UpdatePhysicsSimulation(
+        nullptr);
+}
+
+void ActorManager::UpdatePhysicsSimulation(
+    FixedStepCaptureBridge::ObservationBatch* observation_batch)
+{
     for (ActorPtr& actor: m_actors)
     {
         actor->UpdatePhysicsOrigin();
     }
     for (int i = 0; i < m_physics_steps; i++)
     {
+        if (observation_batch != nullptr)
+        {
+            observation_batch->ObserveFixedStepStart(
+                m_completed_physics_steps,
+                static_cast<std::uint32_t>(i));
+        }
+
         const bool capture_deterministic_state =
             this->PrepareDeterministicStateTraceStep();
         std::vector<

@@ -116,6 +116,18 @@ CVar* sim_deterministic_state_trace;
 CVar* sim_deterministic_state_trace_scenario_id;
 CVar* sim_deterministic_state_trace_step_limit;
 CVar* sim_deterministic_fixed_steps_per_frame;
+CVar* wm_capture_enabled;
+CVar* wm_capture_output_root;
+CVar* wm_capture_root_seed;
+CVar* wm_capture_episode_ordinal;
+CVar* wm_capture_transition_count;
+CVar* wm_capture_rgb_width;
+CVar* wm_capture_rgb_height;
+CVar* wm_capture_rights_manifest_path;
+CVar* wm_capture_rights_manifest_sha256;
+CVar* wm_capture_data_source_id;
+CVar* wm_capture_participant_release_id;
+CVar* wm_capture_allowed_use_id;
 
 // Multiplayer
 CVar* mp_state;

@@ -76,6 +76,10 @@ public:
     bool           GetEditorObjectFlagRotYXZ(TerrainEditorObjectPtr const& object);
     void           LoadPredefinedActors();
     bool           HasPredefinedActors() { return m_has_predefined_actors; };
+    /// Canonical world-model RGB capture rejects terrain visuals whose state
+    /// advances on the asynchronous display frame rather than the joined
+    /// physics boundary.
+    bool           HasTimeVaryingVisuals() const;
     bool           UpdateTerrainObjects(float dt);
 
     void ProcessTree(

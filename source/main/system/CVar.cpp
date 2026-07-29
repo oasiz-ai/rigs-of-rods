@@ -85,6 +85,66 @@ void Console::cVarSetupBuiltins()
         "Deterministic fixed physics steps per rendered frame",
         CVAR_ARCHIVE | CVAR_TYPE_INT,
         "0");
+    App::wm_capture_enabled = this->cVarCreate(
+        "wm_capture_enabled",
+        "Enable one fail-closed native world-model episode",
+        CVAR_TYPE_BOOL,
+        "false");
+    App::wm_capture_output_root = this->cVarCreate(
+        "wm_capture_output_root",
+        "Native world-model episode output root",
+        0,
+        "");
+    App::wm_capture_root_seed = this->cVarCreate(
+        "wm_capture_root_seed",
+        "Native world-model root seed (canonical uint64)",
+        0,
+        "");
+    App::wm_capture_episode_ordinal = this->cVarCreate(
+        "wm_capture_episode_ordinal",
+        "Native world-model episode ordinal (canonical uint64)",
+        0,
+        "0");
+    App::wm_capture_transition_count = this->cVarCreate(
+        "wm_capture_transition_count",
+        "Native world-model bounded transition count",
+        0,
+        "");
+    App::wm_capture_rgb_width = this->cVarCreate(
+        "wm_capture_rgb_width",
+        "Native world-model RGB width",
+        CVAR_TYPE_INT,
+        "1920");
+    App::wm_capture_rgb_height = this->cVarCreate(
+        "wm_capture_rgb_height",
+        "Native world-model RGB height",
+        CVAR_TYPE_INT,
+        "1080");
+    App::wm_capture_rights_manifest_path = this->cVarCreate(
+        "wm_capture_rights_manifest_path",
+        "Explicit rights manifest file",
+        0,
+        "");
+    App::wm_capture_rights_manifest_sha256 = this->cVarCreate(
+        "wm_capture_rights_manifest_sha256",
+        "Explicit rights manifest SHA-256",
+        0,
+        "");
+    App::wm_capture_data_source_id = this->cVarCreate(
+        "wm_capture_data_source_id",
+        "Explicit canonical data source id",
+        0,
+        "");
+    App::wm_capture_participant_release_id = this->cVarCreate(
+        "wm_capture_participant_release_id",
+        "Explicit canonical participant release id",
+        0,
+        "");
+    App::wm_capture_allowed_use_id = this->cVarCreate(
+        "wm_capture_allowed_use_id",
+        "Explicit canonical allowed-use id",
+        0,
+        "");
 
     App::mp_state                = this->cVarCreate("mp_state",                "",                                          CVAR_TYPE_INT,     "0"/*(int)MpState::DISABLED*/);
     App::mp_join_on_startup      = this->cVarCreate("mp_join_on_startup",      "Auto connect",               CVAR_ARCHIVE | CVAR_TYPE_BOOL,    "false");
