@@ -1925,6 +1925,18 @@ AngelScript::CScriptArray* getElementTemplatesHelper(Ogre::OverlayManager* self)
     catch (...) { App::GetScriptEngine()->forwardExceptionAsScriptEvent("Ogre::OverlayManager::getTemplates()"); return (CScriptArray*)nullptr; }
 }
 
+bool isElementTemplateHelper(Ogre::OverlayManager* self, const std::string& name)
+{
+    try {
+#if OGRE_VERSION_MAJOR >= 14
+        return self->hasOverlayElement(name);
+#else
+        return self->isTemplate(name);
+#endif
+    }
+    catch (...) { App::GetScriptEngine()->forwardExceptionAsScriptEvent("Ogre::OverlayManager::isTemplate()"); return false; }
+}
+
 void registerOgreOverlay(AngelScript::asIScriptEngine* engine)
 {
     engine->SetDefaultNamespace("Ogre");
@@ -2069,13 +2081,7 @@ void registerOgreOverlay(AngelScript::asIScriptEngine* engine)
         catch(...) {App::GetScriptEngine()->forwardExceptionAsScriptEvent("Ogre::OverlayManager::cloneOverlayElementFromTemplate()"); return (Ogre::OverlayElement*)nullptr;}}, (Ogre::OverlayManager*, const std::string&, const std::string&), Ogre::OverlayElement*), asCALL_CDECL_OBJFIRST);
     //    NOTE: we have `getTemplates()` instead of `getTemplateIterator()`
     engine->RegisterObjectMethod("OverlayManager", "array<OverlayElement@>@ getTemplates()", asFUNCTION(getElementTemplatesHelper), asCALL_CDECL_OBJFIRST);
-    engine->RegisterObjectMethod("OverlayManager", "bool isTemplate(const string&in)", asFUNCTIONPR([](Ogre::OverlayManager* self, const std::string& name) {
-#if OGRE_VERSION_MAJOR >= 14
-        try {return self->hasOverlayElement(name);}
-#else
-        try {return self->isTemplate(name);}
-#endif
-        catch(...) {App::GetScriptEngine()->forwardExceptionAsScriptEvent("Ogre::OverlayManager::isTemplate()"); return false;}}, (Ogre::OverlayManager*, const std::string&), bool), asCALL_CDECL_OBJFIRST);
+    engine->RegisterObjectMethod("OverlayManager", "bool isTemplate(const string&in)", asFUNCTIONPR(isElementTemplateHelper, (Ogre::OverlayManager*, const std::string&), bool), asCALL_CDECL_OBJFIRST);
 
 
     engine->SetDefaultNamespace("Ogre::OverlayManager");
