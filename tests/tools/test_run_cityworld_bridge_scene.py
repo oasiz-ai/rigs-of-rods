@@ -9,6 +9,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 import zlib
 
@@ -28,6 +29,50 @@ if SPEC is None or SPEC.loader is None:
     raise RuntimeError("could not load CityWorld bridge runtime tool")
 SCENE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SCENE)
+
+EXPECTED_GL3PLUS_CONFIG = "\n".join(
+    (
+        "Render System=OpenGL 3+ Rendering Subsystem",
+        "",
+        "[OpenGL 3+ Rendering Subsystem]",
+        "Colour Depth=32",
+        "Content Scaling Factor=1",
+        "Debug Layer=Off",
+        "Display Frequency=N/A",
+        "FSAA= 0",
+        "Full Screen=No",
+        "Reversed Z-Buffer=No",
+        "Separate Shader Objects=Yes",
+        "VSync=No",
+        "VSync Interval=1",
+        "Video Mode=1280 x 720",
+        "sRGB Gamma Conversion=No",
+        "",
+    )
+)
+EXPECTED_D3D11_CONFIG = "\n".join(
+    (
+        "Render System=Direct3D11 Rendering Subsystem",
+        "",
+        "[Direct3D11 Rendering Subsystem]",
+        "Allow NVPerfHUD=No",
+        "Debug Layer=Off",
+        "Driver type=Hardware",
+        "FSAA=1",
+        "Full Screen=No",
+        "Information Queue Exceptions Bottom Level="
+        "No information queue exceptions",
+        "Max Requested Feature Levels=11.0",
+        "Min Requested Feature Levels=9.1",
+        "Rendering Device=(default)",
+        "Reversed Z-Buffer=No",
+        "VSync=No",
+        "VSync Interval=1",
+        "Video Mode=1280 x 720 @ 32-bit colour",
+        "sRGB Gamma Conversion=No",
+        "",
+    )
+)
 
 
 def png_chunk(kind: bytes, payload: bytes) -> bytes:
@@ -238,52 +283,118 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         for layout in (mac, linux, windows):
             for path in layout.values():
                 self.assertTrue(path.is_relative_to(root))
+        with self.assertRaisesRegex(
+            SCENE.BridgeSceneFailure,
+            "unsupported CityWorld runtime platform",
+        ):
+            SCENE.runtime_layout(root, "freebsd14")
+
+    def test_main_rejects_unknown_platform_before_creating_artifacts(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact_dir = root / "artifacts"
+            with mock.patch.object(SCENE.sys, "platform", "freebsd14"):
+                with self.assertRaisesRegex(
+                    SCENE.BridgeSceneFailure,
+                    "unsupported CityWorld runtime platform",
+                ):
+                    SCENE.main(
+                        (
+                            "--executable",
+                            str(root / "missing-ror"),
+                            "--artifact-dir",
+                            str(artifact_dir),
+                        )
+                    )
+            self.assertFalse(artifact_dir.exists())
 
     def test_generated_config_locks_resolution_and_renderer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            config = Path(directory)
-            ror, ogre = SCENE.write_runtime_config(config)
-            ror_text = ror.read_text(encoding="utf-8")
-            self.assertIn(
-                "app_force_cache_update=true",
-                ror_text,
+            root = Path(directory)
+            ror_payloads: list[str] = []
+            for target_platform in ("darwin", "linux"):
+                with self.subTest(target_platform=target_platform):
+                    ror, ogre = SCENE.write_runtime_config(
+                        root / target_platform,
+                        target_platform=target_platform,
+                    )
+                    ror_text = ror.read_text(encoding="utf-8")
+                    ror_payloads.append(ror_text)
+                    self.assertIn(
+                        "app_force_cache_update=true",
+                        ror_text,
+                    )
+                    self.assertIn(
+                        "gfx_shadow_type=No shadows (fastest)",
+                        ror_text,
+                    )
+                    self.assertIn("gfx_shadow_quality=2", ror_text)
+                    self.assertEqual(
+                        ogre.read_text(encoding="utf-8"),
+                        EXPECTED_GL3PLUS_CONFIG,
+                    )
+
+            windows_ror, windows_ogre = SCENE.write_runtime_config(
+                root / "win32",
+                target_platform="win32",
             )
-            self.assertIn(
-                "gfx_shadow_type=No shadows (fastest)",
-                ror_text,
+            ror_payloads.append(
+                windows_ror.read_text(encoding="utf-8")
             )
-            self.assertIn("gfx_shadow_quality=2", ror_text)
-            ogre_text = ogre.read_text(encoding="utf-8")
-            self.assertIn("Content Scaling Factor=1", ogre_text)
-            self.assertIn("Video Mode=1280 x 720", ogre_text)
-            self.assertIn(
-                "Render System=OpenGL 3+ Rendering Subsystem", ogre_text
-            )
+            d3d11_text = windows_ogre.read_text(encoding="utf-8")
+            self.assertEqual(d3d11_text, EXPECTED_D3D11_CONFIG)
+            for gl_only_option in (
+                "Colour Depth=",
+                "Content Scaling Factor=",
+                "Display Frequency=",
+                "Separate Shader Objects=",
+            ):
+                with self.subTest(gl_only_option=gl_only_option):
+                    self.assertNotIn(gl_only_option, d3d11_text)
+            self.assertEqual(len(set(ror_payloads)), 1)
+
+            unsupported = root / "freebsd14"
+            with self.assertRaisesRegex(
+                SCENE.BridgeSceneFailure,
+                "unsupported CityWorld runtime platform",
+            ):
+                SCENE.write_runtime_config(
+                    unsupported,
+                    target_platform="freebsd14",
+                )
+            self.assertFalse(unsupported.exists())
 
     def test_generated_config_can_lock_high_quality_pssm(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            config = Path(directory)
-            ror, _ = SCENE.write_runtime_config(
-                config,
-                shadow_mode="pssm",
-                shadow_quality=2,
-            )
-            ror_text = ror.read_text(encoding="utf-8")
-            self.assertIn(
-                "gfx_shadow_type=Parallel-split Shadow Maps",
-                ror_text,
-            )
-            self.assertIn("gfx_shadow_quality=2", ror_text)
+            root = Path(directory)
+            for target_platform in ("darwin", "linux", "win32"):
+                with self.subTest(target_platform=target_platform):
+                    ror, _ = SCENE.write_runtime_config(
+                        root / target_platform,
+                        shadow_mode="pssm",
+                        shadow_quality=2,
+                        target_platform=target_platform,
+                    )
+                    ror_text = ror.read_text(encoding="utf-8")
+                    self.assertIn(
+                        "gfx_shadow_type=Parallel-split Shadow Maps",
+                        ror_text,
+                    )
+                    self.assertIn("gfx_shadow_quality=2", ror_text)
             with self.assertRaises(SCENE.BridgeSceneFailure):
                 SCENE.write_runtime_config(
-                    config / "bad-mode",
+                    root / "bad-mode",
                     shadow_mode="raytraced",
+                    target_platform="darwin",
                 )
             with self.assertRaises(SCENE.BridgeSceneFailure):
                 SCENE.write_runtime_config(
-                    config / "bad-quality",
+                    root / "bad-quality",
                     shadow_mode="pssm",
                     shadow_quality=4,
+                    target_platform="win32",
                 )
 
     def test_pssm_marker_gate_checks_complete_effective_configuration(
@@ -318,7 +429,7 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
             SCENE.validate_pssm_log(marker, "none", 2)
 
     def test_renderer_identity_and_shadow_config_are_fail_closed(self) -> None:
-        engine_log = "\n".join(
+        gl3plus_log = "\n".join(
             (
                 "GL_VERSION = 4.1.0.0",
                 "RenderSystem Name: OpenGL 3+ Rendering Subsystem",
@@ -327,7 +438,7 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
             )
         )
         self.assertEqual(
-            SCENE.parse_renderer_identity(engine_log),
+            SCENE.parse_renderer_identity(gl3plus_log, "darwin"),
             {
                 "api_version": "4.1.0.0",
                 "device": "Apple M5",
@@ -335,12 +446,91 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                 "vendor": "apple",
             },
         )
-        with self.assertRaises(SCENE.BridgeSceneFailure):
-            SCENE.parse_renderer_identity(engine_log + "\nDevice Name: other")
-        with self.assertRaises(SCENE.BridgeSceneFailure):
-            SCENE.parse_renderer_identity(
-                engine_log.replace("GL_VERSION = 4.1.0.0\n", "")
+        self.assertEqual(
+            SCENE.parse_renderer_identity(gl3plus_log, "linux"),
+            {
+                "api_version": "4.1.0.0",
+                "device": "Apple M5",
+                "render_system": "OpenGL 3+ Rendering Subsystem",
+                "vendor": "apple",
+            },
+        )
+        d3d11_log = "\n".join(
+            (
+                'D3D11: Requested "(default)", selected '
+                '"NVIDIA GeForce RTX 4070"',
+                "D3D11: Device Feature Level 11.0",
+                "RenderSystem Name: Direct3D11 Rendering Subsystem",
+                "GPU Vendor: nvidia",
+                "Device Name: NVIDIA GeForce RTX 4070",
             )
+        )
+        self.assertEqual(
+            SCENE.parse_renderer_identity(d3d11_log, "win32"),
+            {
+                "api_version": "11.0",
+                "device": "NVIDIA GeForce RTX 4070",
+                "render_system": "Direct3D11 Rendering Subsystem",
+                "vendor": "nvidia",
+            },
+        )
+
+        invalid_renderer_logs = (
+            (
+                "duplicate GL API",
+                gl3plus_log + "\nGL_VERSION = 4.1.0.0",
+                "darwin",
+            ),
+            (
+                "duplicate GL device",
+                gl3plus_log + "\nDevice Name: other",
+                "linux",
+            ),
+            (
+                "missing GL API",
+                gl3plus_log.replace("GL_VERSION = 4.1.0.0\n", ""),
+                "darwin",
+            ),
+            (
+                "wrong GL renderer",
+                gl3plus_log.replace(
+                    "OpenGL 3+ Rendering Subsystem",
+                    "Direct3D11 Rendering Subsystem",
+                ),
+                "linux",
+            ),
+            (
+                "duplicate D3D feature level",
+                d3d11_log + "\nD3D11: Device Feature Level 11.0",
+                "win32",
+            ),
+            (
+                "missing D3D feature level",
+                d3d11_log.replace(
+                    "D3D11: Device Feature Level 11.0\n",
+                    "",
+                ),
+                "win32",
+            ),
+            (
+                "wrong D3D renderer",
+                d3d11_log.replace(
+                    "Direct3D11 Rendering Subsystem",
+                    "OpenGL 3+ Rendering Subsystem",
+                ),
+                "win32",
+            ),
+        )
+        for name, engine_log, target_platform in invalid_renderer_logs:
+            with self.subTest(name=name):
+                with self.assertRaises(SCENE.BridgeSceneFailure):
+                    SCENE.parse_renderer_identity(
+                        engine_log,
+                        target_platform,
+                    )
+
+        with self.assertRaises(SCENE.BridgeSceneFailure):
+            SCENE.parse_renderer_identity(gl3plus_log, "freebsd14")
 
         no_shadows = (
             b"gfx_shadow_type=No shadows (fastest)\n"

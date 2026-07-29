@@ -24,7 +24,7 @@ import shutil
 import struct
 import subprocess
 import sys
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Mapping, NamedTuple, Sequence
 import zipfile
 import zlib
 
@@ -86,8 +86,77 @@ PSSM_QUALITY_PROFILES = {
     2: (((3072, 3072), (2048, 2048), (2048, 2048)), 0.97),
     3: (((4096, 4096), (3072, 3072), (2048, 2048)), 0.965),
 }
+
+
+class RendererContract(NamedTuple):
+    """Exact OGRE renderer contract for one supported host platform."""
+
+    backend: str
+    render_system: str
+    api_version_pattern: re.Pattern[str]
+    config_lines: tuple[str, ...]
+
+
+GL3PLUS_CONTRACT = RendererContract(
+    backend="gl3plus",
+    render_system="OpenGL 3+ Rendering Subsystem",
+    api_version_pattern=re.compile(
+        r"GL_VERSION = (?P<value>[^\r\n]+)"
+    ),
+    config_lines=(
+        "Render System=OpenGL 3+ Rendering Subsystem",
+        "",
+        "[OpenGL 3+ Rendering Subsystem]",
+        "Colour Depth=32",
+        "Content Scaling Factor=1",
+        "Debug Layer=Off",
+        "Display Frequency=N/A",
+        "FSAA= 0",
+        "Full Screen=No",
+        "Reversed Z-Buffer=No",
+        "Separate Shader Objects=Yes",
+        "VSync=No",
+        "VSync Interval=1",
+        f"Video Mode={EXPECTED_WIDTH} x {EXPECTED_HEIGHT}",
+        "sRGB Gamma Conversion=No",
+        "",
+    ),
+)
+D3D11_CONTRACT = RendererContract(
+    backend="d3d11",
+    render_system="Direct3D11 Rendering Subsystem",
+    api_version_pattern=re.compile(
+        r"D3D11: Device Feature Level "
+        r"(?P<value>[0-9]+\.[0-9]+)"
+    ),
+    config_lines=(
+        "Render System=Direct3D11 Rendering Subsystem",
+        "",
+        "[Direct3D11 Rendering Subsystem]",
+        "Allow NVPerfHUD=No",
+        "Debug Layer=Off",
+        "Driver type=Hardware",
+        "FSAA=1",
+        "Full Screen=No",
+        "Information Queue Exceptions Bottom Level="
+        "No information queue exceptions",
+        "Max Requested Feature Levels=11.0",
+        "Min Requested Feature Levels=9.1",
+        "Rendering Device=(default)",
+        "Reversed Z-Buffer=No",
+        "VSync=No",
+        "VSync Interval=1",
+        f"Video Mode={EXPECTED_WIDTH} x {EXPECTED_HEIGHT} @ 32-bit colour",
+        "sRGB Gamma Conversion=No",
+        "",
+    ),
+)
+RENDERER_CONTRACTS = {
+    "darwin": GL3PLUS_CONTRACT,
+    "linux": GL3PLUS_CONTRACT,
+    "win32": D3D11_CONTRACT,
+}
 RENDERER_IDENTITY_PATTERNS = {
-    "api_version": re.compile(r"GL_VERSION = (?P<value>[^\r\n]+)"),
     "device": re.compile(r"Device Name: (?P<value>[^\r\n]+)"),
     "render_system": re.compile(
         r"RenderSystem Name: (?P<value>[^\r\n]+)"
@@ -473,7 +542,17 @@ def infer_runtime_content(executable: Path) -> Path:
     )
 
 
+def renderer_contract(target_platform: str) -> RendererContract:
+    try:
+        return RENDERER_CONTRACTS[target_platform]
+    except KeyError as error:
+        raise BridgeSceneFailure(
+            f"unsupported CityWorld runtime platform: {target_platform}"
+        ) from error
+
+
 def runtime_layout(isolated_home: Path, target_platform: str) -> dict[str, Path]:
+    renderer_contract(target_platform)
     if target_platform == "darwin":
         user = (
             isolated_home
@@ -485,9 +564,13 @@ def runtime_layout(isolated_home: Path, target_platform: str) -> dict[str, Path]
     elif target_platform == "win32":
         user = isolated_home / "My Games" / "Rigs of Rods"
         logs = user / "logs"
-    else:
+    elif target_platform == "linux":
         user = isolated_home / ".rigsofrods"
         logs = user / "logs"
+    else:
+        raise BridgeSceneFailure(
+            f"unsupported CityWorld runtime platform: {target_platform}"
+        )
     return {
         "config": user / "config",
         "logs": logs,
@@ -501,6 +584,8 @@ def write_runtime_config(
     config_directory: Path,
     shadow_mode: str = "none",
     shadow_quality: int = 2,
+    *,
+    target_platform: str = sys.platform,
 ) -> tuple[Path, Path]:
     if shadow_mode not in ("none", "pssm"):
         raise BridgeSceneFailure(f"unsupported shadow mode: {shadow_mode}")
@@ -508,6 +593,7 @@ def write_runtime_config(
         raise BridgeSceneFailure(
             f"shadow quality is outside 0..3: {shadow_quality}"
         )
+    contract = renderer_contract(target_platform)
     config_directory.mkdir(parents=True, exist_ok=True)
     ror_config = config_directory / "RoR.cfg"
     ror_config.write_text(
@@ -537,26 +623,7 @@ def write_runtime_config(
     )
     ogre_config = config_directory / "ogre.cfg"
     ogre_config.write_text(
-        "\n".join(
-            (
-                "Render System=OpenGL 3+ Rendering Subsystem",
-                "",
-                "[OpenGL 3+ Rendering Subsystem]",
-                "Colour Depth=32",
-                "Content Scaling Factor=1",
-                "Debug Layer=Off",
-                "Display Frequency=N/A",
-                "FSAA= 0",
-                "Full Screen=No",
-                "Reversed Z-Buffer=No",
-                "Separate Shader Objects=Yes",
-                "VSync=No",
-                "VSync Interval=1",
-                f"Video Mode={EXPECTED_WIDTH} x {EXPECTED_HEIGHT}",
-                "sRGB Gamma Conversion=No",
-                "",
-            )
-        ),
+        "\n".join(contract.config_lines),
         encoding="utf-8",
     )
     return ror_config, ogre_config
@@ -658,9 +725,17 @@ def validate_pssm_log(
     }
 
 
-def parse_renderer_identity(engine_log: str) -> dict[str, str]:
+def parse_renderer_identity(
+    engine_log: str,
+    target_platform: str,
+) -> dict[str, str]:
+    contract = renderer_contract(target_platform)
     identity: dict[str, str] = {}
-    for field, pattern in RENDERER_IDENTITY_PATTERNS.items():
+    patterns = {
+        "api_version": contract.api_version_pattern,
+        **RENDERER_IDENTITY_PATTERNS,
+    }
+    for field, pattern in patterns.items():
         values = [
             match.group("value").strip()
             for match in pattern.finditer(engine_log)
@@ -670,6 +745,12 @@ def parse_renderer_identity(engine_log: str) -> dict[str, str]:
                 f"expected exactly one renderer identity value: {field}"
             )
         identity[field] = values[0]
+    if identity["render_system"] != contract.render_system:
+        raise BridgeSceneFailure(
+            "renderer identity differs from the platform contract: "
+            f"expected {contract.render_system}, "
+            f"got {identity['render_system']}"
+        )
     return identity
 
 
@@ -931,6 +1012,8 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
+    target_platform = sys.platform
+    renderer_contract(target_platform)
     repository = args.repository.resolve()
     executable = args.executable.resolve()
     artifact_dir = args.artifact_dir.resolve()
@@ -942,7 +1025,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{artifact_dir}"
         )
     artifact_dir.mkdir(parents=True)
-    if sys.platform != "darwin" and (executable.parent / "config").is_dir():
+    if target_platform != "darwin" and (executable.parent / "config").is_dir():
         raise BridgeSceneFailure(
             "portable executable config would bypass the isolated scene home"
         )
@@ -963,13 +1046,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     vehicle_archive = verify_vehicle_archive(source_content, runtime_content)
 
     isolated_home = artifact_dir / "work" / "scene-home"
-    layout = runtime_layout(isolated_home, sys.platform)
+    layout = runtime_layout(isolated_home, target_platform)
     for key in ("logs", "mods", "screenshots"):
         layout[key].mkdir(parents=True, exist_ok=True)
     ror_config_path, ogre_config_path = write_runtime_config(
         layout["config"],
         args.shadow_mode,
         args.shadow_quality,
+        target_platform=target_platform,
     )
     requested_configs = {
         "RoR.cfg": read_required_config(
@@ -1016,7 +1100,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.shadow_mode,
         args.shadow_quality,
     )
-    renderer_identity = parse_renderer_identity(engine_log)
+    renderer_identity = parse_renderer_identity(engine_log, target_platform)
     effective_configs = {
         "RoR.cfg": read_required_config(
             ror_config_path,

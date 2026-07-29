@@ -297,6 +297,19 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             "--timeout 120",
             "+extension GLX +render -noreset",
             "native-runtime-smoke-${{ matrix.platform }}",
+            "tools/run_cityworld_bridge_scene.py",
+            "Drive CityWorld bridge with relocated Linux GL3Plus",
+            "Drive CityWorld bridge with relocated Windows D3D11",
+            '--executable "${GITHUB_WORKSPACE}/artifacts/runtime-'
+            '${{ matrix.platform }}/RunRoR"',
+            '--executable "${GITHUB_WORKSPACE}/artifacts/runtime-'
+            '${{ matrix.platform }}/RoR.exe"',
+            '--runtime-content "${GITHUB_WORKSPACE}/artifacts/runtime-'
+            '${{ matrix.platform }}/content"',
+            '--artifact-dir "${GITHUB_WORKSPACE}/artifacts/'
+            'cityworld-bridge-${{ matrix.platform }}"',
+            "--timeout 300",
+            "do not constitute physical GPU or vendor performance",
         )
         for contract in required:
             with self.subTest(contract=contract):
@@ -305,6 +318,27 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             text.count("python tools/ogre14_native_runtime_smoke.py"),
             2,
         )
+        self.assertEqual(
+            text.count("python tools/run_cityworld_bridge_scene.py"),
+            2,
+        )
+        linux_scene_start = text.index(
+            "Drive CityWorld bridge with relocated Linux GL3Plus"
+        )
+        windows_scene_start = text.index(
+            "Drive CityWorld bridge with relocated Windows D3D11"
+        )
+        upload_start = text.index(
+            "Upload runtime, audit, and diagnostics",
+            windows_scene_start,
+        )
+        linux_scene = text[linux_scene_start:windows_scene_start]
+        windows_scene = text[windows_scene_start:upload_start]
+        self.assertIn("xvfb-run -a", linux_scene)
+        self.assertIn("GALLIUM_DRIVER: llvmpipe", linux_scene)
+        self.assertIn('LIBGL_ALWAYS_SOFTWARE: "1"', linux_scene)
+        self.assertNotIn("xvfb-run", windows_scene)
+        self.assertNotIn("GALLIUM_DRIVER", windows_scene)
         self.assertNotIn("MESA_LOADER_DRIVER_OVERRIDE", text)
         self.assertNotIn("continue-on-error:", text)
         self.assertNotRegex(
@@ -350,6 +384,14 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertIn("runtime-audit.json", text)
         self.assertIn("runtime-audit.log", text)
         self.assertIn("native-runtime-smoke-${{ matrix.platform }}", text)
+        self.assertIn(
+            "cityworld-bridge-${{ matrix.platform }}",
+            text,
+        )
+        self.assertIn(
+            "cityworld-bridge-${{ matrix.platform }}.driver.log",
+            text,
+        )
         self.assertIn("conan-graph.json", text)
         self.assertIn("LastTest.log", text)
         self.assertIn("retention-days: 14", text)

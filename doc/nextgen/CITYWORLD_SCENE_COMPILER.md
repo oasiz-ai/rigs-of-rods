@@ -132,10 +132,15 @@ python3 tools/run_cityworld_bridge_scene.py \
 
 The runner uses native macOS, Linux, and Windows profile layouts. The
 `ROR_D0_SCENE_HOME` diagnostic override is absolute-path-only on all three
-platforms, so tests never write into a developer's normal profile. The
-deterministic archive, executable, vehicle archive, compile report, repository
-and content commits, logs, traversal metrics, and decoded RGB properties are
-recorded in `ror-cityworld-bridge-runtime-report-v1`.
+platforms, so tests never write into a developer's normal profile. Renderer
+selection is also platform-bound and fail-closed: macOS and Linux use the exact
+GL3Plus configuration, while Windows uses a D3D11-only configuration with a
+hardware driver request and a 1x FSAA 1280x720 32-bit mode. The runtime report
+requires the corresponding `GL_VERSION` or D3D11 feature-level marker plus the
+exact active render-system name. The deterministic archive, executable, vehicle
+archive, compile report, repository and content commits, logs, traversal
+metrics, and decoded RGB properties are recorded in
+`ror-cityworld-bridge-runtime-report-v1`.
 
 The first macOS arm64 run on 2026-07-28 passed three spans and both exact
 connector seams over 90.1281 metres. Maximum lateral drift was 0.640167 metres;
@@ -143,8 +148,12 @@ the vehicle's average-node height remained between 0.69451 and 1.50233 metres;
 exit speed was 16.9444 m/s after 20,260 deterministic physics steps. The
 1,280x720 UI-free RGB frame fully decoded, contained all bridge geometry and
 the vehicle, and all six bridge materials had generated GL3Plus RTSS programs.
-Native Windows and Linux executions remain required before the gate is promoted
-from macOS-first proof to three-platform release coverage.
+The native workflow executes this gate under hosted Linux GL3Plus/llvmpipe and
+Windows D3D11 after relocating each package. Those results establish native API
+coverage only after the hosted jobs pass; they do not establish physical GPU,
+vendor-hardware, or performance acceptance. Successful native runs remain
+required before the gate is promoted from macOS-first proof to three-platform
+release coverage.
 
 `tools/solve_cityworld_bridge_corridor.py` now consumes the runtime connector
 positions and directions rather than relying on hand-authored offsets. For the

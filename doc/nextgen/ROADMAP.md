@@ -827,11 +827,15 @@ package from outside its build tree. The Linux lane validates the complete ELF
 closure and loads the exact GL3Plus plugin set under Xvfb with llvmpipe; the
 Windows lane validates an AMD64 PE/DLL closure and loads the exact D3D11 plugin
 set from the flat application directory. Both lanes run working-directory-
-independent help and version smokes and preserve the runtime plus diagnostics
-as CI artifacts. The workflow and its hostile-input contract tests are checked
-in, but native parity is not called proven until both hosted jobs pass on the
-committed revision. Renderer/scene startup, GPU timing, physical input, and
-Debug packages remain separate acceptance gates.
+independent help and version smokes. They now also drive the deterministic
+CityWorld bridge scene at 1280x720 using a fail-closed GL3Plus configuration on
+Linux and D3D11 configuration on Windows, preserving the runtime, decoded RGB,
+requested/effective configurations, reports, and diagnostics as CI artifacts.
+The workflow and its hostile-input contract tests are checked in, but native
+parity is not called proven until both hosted jobs pass on the committed
+revision. Hosted llvmpipe/D3D11 execution proves native API behavior, not a
+physical GPU, vendor-hardware performance, physical input, or Debug package;
+those remain separate acceptance gates.
 
 The legacy OGRE 1.11 Windows build also keeps RoR in C++17 while consuming
 Caelum/PagedGeometry headers that still expose `std::auto_ptr`. MSVC now enables
