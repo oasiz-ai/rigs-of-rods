@@ -108,12 +108,6 @@ void RoR::Terrain::dispose()
         SkyX_manager = nullptr;
     }
 
-    if (m_main_light != nullptr)
-    {
-        App::GetGfxScene()->GetSceneManager()->destroyAllLights();
-        m_main_light = nullptr;
-    }
-
     if (m_hydrax_water != nullptr)
     {
         m_gfx_water.reset(); // TODO: Currently needed - research and get rid of this ~ only_a_ptr, 08/2018
@@ -123,6 +117,15 @@ void RoR::Terrain::dispose()
     {
         delete(m_object_manager);
         m_object_manager = nullptr;
+    }
+
+    // TerrainObjectManager owns every light created by an ODEF. Release those
+    // registered lights before the scene-wide cleanup invalidates their
+    // pointers; otherwise terrain unload double-destroys local lights.
+    if (m_main_light != nullptr)
+    {
+        App::GetGfxScene()->GetSceneManager()->destroyAllLights();
+        m_main_light = nullptr;
     }
 
     if (m_geometry_manager != nullptr)
