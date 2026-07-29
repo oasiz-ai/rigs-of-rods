@@ -78,6 +78,13 @@ class CityWorldAssetValidationTests(unittest.TestCase):
             manifest["artifacts"]["preview"]["path"],
             manifest["authoring"]["generator"]["path"],
         }
+        relative_paths.update(
+            dependency["path"]
+            for dependency in manifest["authoring"]["generator"].get(
+                "dependencies",
+                [],
+            )
+        )
         for relative in sorted(relative_paths):
             source = REPOSITORY_ROOT / relative
             destination = root / relative
@@ -170,8 +177,56 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 "glb_nodes": 6,
                 "lod_objects": 3,
                 "runtime_lights": 8,
-                "triangles": 14920,
+                "triangles": 36000,
                 "valid": True,
+            },
+        )
+        manifest = json.loads(
+            GATEWAY_MANIFEST_PATH.read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["asset"]["version"], 2)
+        self.assertEqual(
+            manifest["authoring"]["generator"]["format"],
+            "ror-cityworld-gateway-block-generator-v2",
+        )
+        dependency = manifest["authoring"]["generator"]["dependencies"]
+        self.assertEqual(len(dependency), 1)
+        self.assertEqual(
+            dependency[0]["path"],
+            "tools/blender/cityworld_next/generate_bridge_kit.py",
+        )
+        self.assertRegex(dependency[0]["sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            manifest["authoring"]["procedural_provenance"],
+            {
+                "external_geometry": False,
+                "external_textures": False,
+                "method": "deterministic-project-authored-blender-python",
+                "rights_basis": (
+                    "GPL-3.0-or-later project-authored source"
+                ),
+            },
+        )
+        self.assertEqual(
+            [
+                entry["triangles"]
+                for entry in manifest["geometry"]["lods"]
+            ],
+            [32092, 3596, 276],
+        )
+        self.assertEqual(
+            manifest["geometry"]["detail_profile"],
+            {
+                "building_facades": (
+                    "recessed-glazing-frames-doors-balconies-stepped-roofs"
+                ),
+                "collision_revision": 1,
+                "lod_policy": (
+                    "authored-three-level-silhouette-preserving"
+                ),
+                "tree_canopies": (
+                    "branched-varied-six-lobe-close-three-lobe-medium"
+                ),
             },
         )
 
@@ -188,6 +243,82 @@ class CityWorldAssetValidationTests(unittest.TestCase):
         self.assertEqual(normal_result.returncode, 0)
         self.assertEqual(optimized_result.returncode, 0)
         self.assertEqual(normal, optimized)
+
+    def test_generator_dependency_hash_is_fail_closed(self) -> None:
+        gateway_relative = GATEWAY_MANIFEST_PATH.relative_to(REPOSITORY_ROOT)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            manifest_path = self.copy_fixture(root, gateway_relative)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            dependency_path = (
+                root
+                / manifest["authoring"]["generator"]["dependencies"][0]["path"]
+            )
+            dependency_path.write_bytes(
+                dependency_path.read_bytes() + b"\n# stale helper\n"
+            )
+
+            result, report = self.run_validator(root, manifest_path)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("GENERATOR_DEPENDENCY_STALE", self.codes(report))
+
+    def test_generator_dependency_records_reject_hostile_shapes(self) -> None:
+        gateway_relative = GATEWAY_MANIFEST_PATH.relative_to(REPOSITORY_ROOT)
+        mutations = (
+            lambda manifest: manifest["authoring"]["generator"].update(
+                {"dependencies": "not-a-list"}
+            ),
+            lambda manifest: manifest["authoring"]["generator"].update(
+                {"dependencies": [None]}
+            ),
+            lambda manifest: manifest["authoring"]["generator"].update(
+                {
+                    "dependencies": [
+                        {
+                            "path": "../escape.py",
+                            "sha256": "0" * 64,
+                        }
+                    ]
+                }
+            ),
+            lambda manifest: manifest["authoring"]["generator"].update(
+                {
+                    "dependencies": [
+                        {
+                            "path": manifest["authoring"]["generator"]["path"],
+                            "sha256": manifest["authoring"]["generator"][
+                                "sha256"
+                            ],
+                        }
+                    ]
+                }
+            ),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    manifest_path = self.copy_fixture(
+                        root,
+                        gateway_relative,
+                    )
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    mutate(manifest)
+                    manifest_path.write_text(
+                        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+
+                    result, report = self.run_validator(root, manifest_path)
+
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(
+                    "GENERATOR_DEPENDENCY_RECORD",
+                    self.codes(report),
+                )
 
     def test_artifact_corruption_is_both_stale_and_invalid(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

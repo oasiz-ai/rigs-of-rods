@@ -143,6 +143,28 @@ rights-cleared map-overlay placement, Windows/Linux physical execution, the
 remaining production camera anchors, and declared frame-time gates are still
 required.
 
+The gateway's bounded v2 art pass raises close-range depth without changing
+that runtime contract. Its four façades now include exterior window frames,
+storefront doors and mullions, balconies, pilasters, bands, parapets, and
+stepped rooftop penthouses. The eight deterministic tree instances use three
+shape variants, tapered trunk sections, radial branches, and varied lobed
+canopies instead of stacked cylinders. LOD0/LOD1/LOD2 contain 32,092, 3,596,
+and 276 triangles: 53.5% of the declared close-detail ceiling, then 11.2% and
+0.86% of LOD0. The three collision meshes, exact connectors, and eight point
+lights remain unchanged. A balanced preview-only fill makes the branch and
+street-level depth legible without changing runtime PSSM. No external geometry
+or textures are used, and this is a reproducible CityWorld milestone rather
+than a claim of AirSim parity.
+
+The Blender 5.2 exporter can share accessors and vary same-material component
+order, so the v2 generator closes that authoring nondeterminism before hashing
+the GLB. It rebuilds independent accessors per primitive, retains a one-to-one
+mapping for every referenced vertex, preserves raw positions and accessor
+bounds, and only cyclically rotates triangles before stable sorting, which
+preserves winding. Two consecutive full generations produced byte-identical
+GLB output; the asset validator then rechecked LOD budgets, render attributes,
+collision manifoldness/winding, connectors, materials, and runtime lights.
+
 Both spans pass the production offline scene-compiler boundary. Each checked
 runtime package contains three OGRE render LOD meshes, three separate collision
 meshes, an ODEF, deterministic material fallback, and a canonical conversion

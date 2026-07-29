@@ -421,6 +421,61 @@ class Validator:
                     )
             except (OSError, ValueError) as error:
                 self.add("GENERATOR_READ", "$.authoring.generator.path", str(error))
+        dependencies = generator.get("dependencies", [])
+        if not isinstance(dependencies, list):
+            self.add(
+                "GENERATOR_DEPENDENCY_RECORD",
+                "$.authoring.generator.dependencies",
+                "generator dependencies must be a list",
+            )
+        else:
+            declared_paths = {relative} if relative is not None else set()
+            for index, dependency in enumerate(dependencies):
+                pointer = f"$.authoring.generator.dependencies[{index}]"
+                if not isinstance(dependency, dict):
+                    self.add(
+                        "GENERATOR_DEPENDENCY_RECORD",
+                        pointer,
+                        "generator dependency must be an object",
+                    )
+                    continue
+                dependency_relative = safe_relative_path(
+                    dependency.get("path")
+                )
+                dependency_hash = dependency.get("sha256")
+                if (
+                    dependency_relative is None
+                    or not is_sha256(dependency_hash)
+                    or dependency_relative in declared_paths
+                ):
+                    self.add(
+                        "GENERATOR_DEPENDENCY_RECORD",
+                        pointer,
+                        "invalid or duplicate generator dependency",
+                    )
+                    continue
+                declared_paths.add(dependency_relative)
+                try:
+                    dependency_path = resolve_beneath(
+                        self.repo_root,
+                        dependency_relative,
+                    )
+                    actual_hash = sha256_file(
+                        dependency_path,
+                        max_bytes=MAX_SOURCE_BYTES,
+                    )
+                    if actual_hash != dependency_hash:
+                        self.add(
+                            "GENERATOR_DEPENDENCY_STALE",
+                            f"{pointer}.sha256",
+                            "generator dependency SHA-256 does not match",
+                        )
+                except (OSError, ValueError) as error:
+                    self.add(
+                        "GENERATOR_DEPENDENCY_READ",
+                        f"{pointer}.path",
+                        str(error),
+                    )
 
     def load_glb(self) -> None:
         if self.glb_path is None:

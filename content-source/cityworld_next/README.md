@@ -42,14 +42,27 @@ barrier collision meshes:
 - runtime-neutral interchange and contract:
   `../../resources/nextgen/cityworld/bridge/transition_12m/`.
 
-The first city-side gateway block is a connector-compatible 40 m streetscape
-with four detailed mid-rise façades, individual windows and ground-floor
-glazing, roof trim and HVAC equipment, eight procedural trees, eight emissive
-streetlights, eight bounded dynamic point lights, sidewalks, curbs, three
-render LODs, and conservative building collision proxies. The compiler lowers
-the versioned light declarations into portable ODEF records; their ranges,
-linear colours, identifiers, coordinate transform, and maximum count are
-validated before runtime:
+The v2 city-side gateway block is a connector-compatible 40 m streetscape
+with four project-authored mid-rises. Recessed glazing, exterior frames,
+storefront doors and mullions, balconies, façade bands, pilasters, parapets,
+roof penthouses, and HVAC silhouettes provide close-range depth without
+entering the collision meshes. Eight deterministic three-shape trees replace
+the original cylindrical crowns with tapered two-part trunks, visible branch
+structure, and varied six-lobe close / three-lobe medium canopies. The
+32,092 / 3,596 / 276 triangle render ladder consumes 53.5% of the 60,000
+triangle LOD0 ceiling while retaining the skyline in all three LODs.
+
+Eight emissive streetlights and their eight bounded dynamic point lights keep
+the original identifiers, positions, colours, ranges, and ODEF contract.
+Road, connector, and three conservative collision objects are unchanged.
+The generator imports no geometry or textures. Its canonical GLB rebuild gives
+every primitive independent accessors, preserves all source vertices and
+triangle winding, and rejects unreferenced vertices; consecutive Blender 5.2
+generations are byte-identical. The asset contract pins both the v2 entrypoint
+and its shared bridge-kit helper, and validation fails if either source changes
+without regeneration. The brighter authoring preview uses
+preview-only fill and exposure and does not alter RoR's runtime PSSM or local
+light behavior:
 
 - editable source:
   `streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend`;

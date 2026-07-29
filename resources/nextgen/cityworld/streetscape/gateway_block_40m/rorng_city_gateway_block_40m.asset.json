@@ -2,15 +2,15 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
-      "sha256": "16b7b4e3b9a8821ee20059ed1575b3ec8e2bf3145af21aaadfe1664407caeb7e"
+      "sha256": "b0c483ca758df6dd9eb465156b72f63920da3d791a243dad69f9076c9d69be8b"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.glb",
-      "sha256": "0e7c06346a1cb6c638487b8a0f8d49a535361456e3350939eeeb7c704f541b82"
+      "sha256": "d1d1db743a58316465460cc52b8522cdcc2995e2e1fc58a58b686ae681efc96e"
     },
     "preview": {
       "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m_preview.png",
-      "sha256": "7cad071e01cd306fb8fc3e7e2e5fb8678bf928e29e418b9d3a91f92f9f4f6e68"
+      "sha256": "ba4ae527dea7e155d0aac48ec0aba0535ba19008d836e8dca43f0135b700638a"
     }
   },
   "asset": {
@@ -18,15 +18,27 @@
     "id": "rorng_city_gateway_block_40m",
     "license": "GPL-3.0-or-later",
     "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
-    "version": 1
+    "version": 2
   },
   "authoring": {
     "axis": "blender-z-up",
     "blender_version": "5.2.0 LTS",
     "generator": {
-      "format": "ror-cityworld-gateway-block-generator-v1",
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "4910be675d50da85f0dc9ad49bf5e21c0f6d3a4277c65993860389acbc5bee9c"
+        }
+      ],
+      "format": "ror-cityworld-gateway-block-generator-v2",
       "path": "tools/blender/cityworld_next/generate_gateway_block.py",
-      "sha256": "bb70d21b793fc394adf714fc1b303ff448ccaea8ced358780f72c21342f2f4b4"
+      "sha256": "46cef11ca0e00c6752d28ebdcc14d5ed9aee3c9e67256b7dcae736766a8df127"
+    },
+    "procedural_provenance": {
+      "external_geometry": false,
+      "external_textures": false,
+      "method": "deterministic-project-authored-blender-python",
+      "rights_basis": "GPL-3.0-or-later project-authored source"
     },
     "transforms_applied": true,
     "units": "metres"
@@ -112,7 +124,7 @@
       {
         "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.material",
         "role": "material-fallback",
-        "sha256": "0b93fd353fc873bef94ec858e77597182c4f22f0aa77b18749756301c1deed78",
+        "sha256": "3ace2b5ed86c34df9114831db49ea4f817058ba6b42112a827980f5a31ff80e5",
         "size": 2740
       },
       {
@@ -124,43 +136,43 @@
       {
         "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_collision_barrier_left.mesh",
         "role": "collision-barrier",
-        "sha256": "9fe421322b65afbb04c7a523899864b40bba583eccde50348d47d46edf0bdcd9",
+        "sha256": "6b4de2c75349362cc08abc87fba39f0ae17052af39e22cc11a9fc14736b4baa3",
         "size": 904
       },
       {
         "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_collision_barrier_right.mesh",
         "role": "collision-barrier",
-        "sha256": "7560cafea6c77cef6e310acce634a635fd14d7d17122d2ca7db3e4f57245d2a6",
+        "sha256": "c8106e52045dd8bfb80131a3489d0a0576bc4ca033f1665f4181a1f678305207",
         "size": 905
       },
       {
         "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_collision_road.mesh",
         "role": "collision-road",
-        "sha256": "cad5170a2bef8f76fb4c08a140e392b9d6df58c4c2f12066b95588a1eb2394cc",
+        "sha256": "6b96473c0131b6d749eb0849afd5cf61b2fb506dd3b829df37248e0691f12aab",
         "size": 896
       },
       {
         "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "8c0bd3de5f83dadc65a4493c1bb7075148cf8187a151960ce06cb16301fc0615",
-        "size": 1516256
+        "sha256": "12565bb3ee49265f6ff49e53aa27518f80954428585362803f71a05eb23815f2",
+        "size": 3203888
       },
       {
         "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "eb58a452f5d3159ac3cb0601698c51c519d170a3e2c63067f4fa59df259054bf",
-        "size": 226899
+        "sha256": "0a45ccb00892ca23f43977859a0188d2be4a6e25fadf5d8a2676c80eb0833e07",
+        "size": 307971
       },
       {
         "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "38fd91179afea95db342d7e4d6f9d4cb016d4030c052f7a1de4ca3d65124f1b2",
-        "size": 19581
+        "sha256": "e9487f155123571e6c7c24556af3e83b9827daa19eaeac011dc1fb61a820719f",
+        "size": 29571
       }
     ],
     "report": {
       "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.compile.json",
-      "sha256": "f2ab0d173390ab79a002967dbac650d61207fd958dbc556f54d8f0aa735211ba"
+      "sha256": "c18454b13eeae571d5d9c1e346019f770b3b7c3c2144c6645fa9c578efb8bdd1"
     }
   },
   "connectors": [
@@ -220,6 +232,12 @@
     "asset_family": "city-gateway-streetscape",
     "bridge_length_m": 40.0,
     "bridge_width_m": 34.0,
+    "detail_profile": {
+      "building_facades": "recessed-glazing-frames-doors-balconies-stepped-roofs",
+      "collision_revision": 1,
+      "lod_policy": "authored-three-level-silhouette-preserving",
+      "tree_canopies": "branched-varied-six-lobe-close-three-lobe-medium"
+    },
     "lane_width_m": 3.5,
     "lod0_triangle_ceiling": 60000,
     "lod1_max_ratio": 0.35,
@@ -230,7 +248,24 @@
           "max": [
             15.59,
             20.0,
-            21.119999
+            21.470001
+          ],
+          "min": [
+            -15.59,
+            -20.0,
+            -0.74
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_gateway_block_40m_lod0",
+        "triangles": 32092
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            15.59,
+            20.0,
+            21.470001
           ],
           "min": [
             -15.59,
@@ -238,43 +273,26 @@
             -0.12
           ]
         },
-        "lod": 0,
-        "name": "rorng_city_gateway_block_40m_lod0",
-        "triangles": 12420
-      },
-      {
-        "bounds_blender_z_up": {
-          "max": [
-            15.5,
-            20.0,
-            20.0
-          ],
-          "min": [
-            -15.5,
-            -20.0,
-            -0.12
-          ]
-        },
         "lod": 1,
         "name": "rorng_city_gateway_block_40m_lod1",
-        "triangles": 2284
+        "triangles": 3596
       },
       {
         "bounds_blender_z_up": {
           "max": [
-            15.5,
+            15.59,
             20.0,
-            20.0
+            21.470001
           ],
           "min": [
-            -15.5,
+            -15.59,
             -20.0,
             -0.12
           ]
         },
         "lod": 2,
         "name": "rorng_city_gateway_block_40m_lod2",
-        "triangles": 180
+        "triangles": 276
       }
     ],
     "road_width_m": 8.9

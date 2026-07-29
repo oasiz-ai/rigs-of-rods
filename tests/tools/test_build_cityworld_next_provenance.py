@@ -186,6 +186,61 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("stale generator hash", result.stderr)
 
+    def test_generator_dependencies_fail_closed_on_hostile_records(
+        self,
+    ) -> None:
+        cases = (
+            ("not-a-list", "invalid generator dependencies"),
+            ([None], "invalid generator dependency"),
+            (
+                [{"path": "../escape.py", "sha256": "0" * 64}],
+                "unsafe declared path",
+            ),
+            ("self", "duplicate generator dependency"),
+            (
+                [
+                    {
+                        "path": "tools/compile_cityworld_asset.py",
+                        "sha256": "0" * 64,
+                    }
+                ],
+                "stale generator dependency",
+            ),
+        )
+        for dependencies, expected in cases:
+            with self.subTest(expected=expected):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    self.copy_fixture(root)
+                    manifest_path = (
+                        root
+                        / ASSET_MANIFEST.relative_to(REPOSITORY_ROOT)
+                    )
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    if dependencies == "self":
+                        generator = manifest["authoring"]["generator"]
+                        generator["dependencies"] = [
+                            {
+                                "path": generator["path"],
+                                "sha256": generator["sha256"],
+                            }
+                        ]
+                    else:
+                        manifest["authoring"]["generator"][
+                            "dependencies"
+                        ] = dependencies
+                    manifest_path.write_text(
+                        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+
+                    result = self.run_tool(root)
+
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(expected, result.stderr)
+
     def test_generated_documents_pass_release_provenance_gate(self) -> None:
         result = subprocess.run(
             [

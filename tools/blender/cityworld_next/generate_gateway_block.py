@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Generate a detailed 40 m CityWorld gateway streetscape module."""
+"""Generate the detailed v2 40 m CityWorld gateway streetscape module."""
 
 from __future__ import annotations
 
@@ -9,9 +9,12 @@ import importlib.util
 import json
 import math
 from pathlib import Path
+import struct
 import sys
 
+import bmesh
 import bpy
+from mathutils import Vector
 
 
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
@@ -26,12 +29,293 @@ BASE = importlib.util.module_from_spec(BASE_SPEC)
 BASE_SPEC.loader.exec_module(BASE)
 
 ASSET_ID = "rorng_city_gateway_block_40m"
-ASSET_VERSION = 1
-GENERATOR_ID = "ror-cityworld-gateway-block-generator-v1"
+ASSET_VERSION = 2
+GENERATOR_ID = "ror-cityworld-gateway-block-generator-v2"
 LENGTH_M = 40.0
 WIDTH_M = 34.0
 ROAD_WIDTH_M = 8.9
 ROAD_SURFACE_Z_M = 0.0
+
+
+def rounded_component(value: float, digits: int) -> float:
+    rounded = round(float(value), digits)
+    return 0.0 if rounded == 0.0 else rounded
+
+
+def normalized_vector(
+    values: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    canonical = tuple(rounded_component(value, 3) for value in values)
+    length = math.sqrt(sum(value * value for value in canonical))
+    if abs(length - 1.0) > 2e-3:
+        raise RuntimeError("canonical direction is not unit length")
+    return canonical
+
+
+def canonical_tangent(
+    values: tuple[float, float, float, float],
+    normal: tuple[float, float, float],
+) -> tuple[float, float, float, float]:
+    tangent = normalized_vector(values[:3])
+    projection = abs(
+        sum(tangent[axis] * normal[axis] for axis in range(3))
+    )
+    if projection > 2e-3:
+        raise RuntimeError("canonical tangent is not orthogonal")
+    return (*tangent, -1.0 if values[3] < 0.0 else 1.0)
+
+
+def canonicalize_glb_geometry(path: Path) -> None:
+    """Canonicalize exported static geometry without changing its topology."""
+
+    contents = bytearray(path.read_bytes())
+    if len(contents) < 28:
+        raise RuntimeError("exported GLB is truncated")
+    magic, version, declared_length = struct.unpack_from("<4sII", contents, 0)
+    if magic != b"glTF" or version != 2 or declared_length != len(contents):
+        raise RuntimeError("exported GLB header is invalid")
+    json_length, json_type = struct.unpack_from("<II", contents, 12)
+    if json_type != 0x4E4F534A:
+        raise RuntimeError("exported GLB has no JSON chunk")
+    json_start = 20
+    json_end = json_start + json_length
+    document = json.loads(
+        bytes(contents[json_start:json_end]).rstrip(b" \x00")
+    )
+    binary_header = json_end
+    binary_length, binary_type = struct.unpack_from(
+        "<II",
+        contents,
+        binary_header,
+    )
+    if binary_type != 0x004E4942:
+        raise RuntimeError("exported GLB has no binary chunk")
+    binary_start = binary_header + 8
+    if binary_start + binary_length != len(contents):
+        raise RuntimeError("exported GLB binary chunk is truncated")
+
+    component_formats = {
+        5123: ("H", 2),
+        5125: ("I", 4),
+        5126: ("f", 4),
+    }
+    component_widths = {
+        "SCALAR": 1,
+        "VEC2": 2,
+        "VEC3": 3,
+        "VEC4": 4,
+    }
+
+    def accessor_layout(
+        accessor_index: int,
+    ) -> tuple[dict[str, object], int, str, int, int]:
+        accessor = document["accessors"][accessor_index]
+        view = document["bufferViews"][accessor["bufferView"]]
+        component_type = accessor["componentType"]
+        accessor_type = accessor["type"]
+        if (
+            component_type not in component_formats
+            or accessor_type not in component_widths
+        ):
+            raise RuntimeError("unsupported canonical GLB accessor")
+        format_code, component_size = component_formats[component_type]
+        width = component_widths[accessor_type]
+        packed_size = component_size * width
+        stride = view.get("byteStride", packed_size)
+        if stride != packed_size:
+            raise RuntimeError("canonical GLB accessors must be packed")
+        offset = (
+            binary_start
+            + view.get("byteOffset", 0)
+            + accessor.get("byteOffset", 0)
+        )
+        return accessor, offset, format_code, width, packed_size
+
+    def read_accessor(accessor_index: int) -> list[tuple[float, ...]]:
+        accessor, offset, format_code, width, packed_size = accessor_layout(
+            accessor_index
+        )
+        unpack_format = "<" + format_code * width
+        return [
+            struct.unpack_from(
+                unpack_format,
+                contents,
+                offset + index * packed_size,
+            )
+            for index in range(accessor["count"])
+        ]
+
+    canonical_binary = bytearray()
+    canonical_views: list[dict[str, object]] = []
+    canonical_accessors: list[dict[str, object]] = []
+
+    def append_accessor(
+        original_index: int,
+        values: list[tuple[float, ...]],
+    ) -> int:
+        original = document["accessors"][original_index]
+        original_view = document["bufferViews"][original["bufferView"]]
+        _accessor, _offset, format_code, width, packed_size = (
+            accessor_layout(original_index)
+        )
+        if len(values) != original["count"]:
+            raise RuntimeError("canonical accessor count changed")
+        while len(canonical_binary) % 4:
+            canonical_binary.append(0)
+        byte_offset = len(canonical_binary)
+        pack_format = "<" + format_code * width
+        for value in values:
+            canonical_binary.extend(struct.pack(pack_format, *value))
+        byte_length = len(values) * packed_size
+        view = {
+            "buffer": 0,
+            "byteLength": byte_length,
+            "byteOffset": byte_offset,
+        }
+        if "target" in original_view:
+            view["target"] = original_view["target"]
+        canonical_views.append(view)
+        accessor = {
+            key: value
+            for key, value in original.items()
+            if key not in {"bufferView", "byteOffset"}
+        }
+        accessor["bufferView"] = len(canonical_views) - 1
+        canonical_accessors.append(accessor)
+        return len(canonical_accessors) - 1
+
+    for mesh in document["meshes"]:
+        for primitive in mesh["primitives"]:
+            attributes = primitive["attributes"]
+            if set(attributes) != {
+                "NORMAL",
+                "POSITION",
+                "TANGENT",
+                "TEXCOORD_0",
+            }:
+                raise RuntimeError("unexpected static GLB attribute profile")
+            raw = {
+                name: read_accessor(accessor_index)
+                for name, accessor_index in attributes.items()
+            }
+            count = len(raw["POSITION"])
+            if any(len(values) != count for values in raw.values()):
+                raise RuntimeError("mismatched static GLB attribute counts")
+
+            canonical: dict[str, list[tuple[float, ...]]] = {
+                name: [] for name in sorted(attributes)
+            }
+            for index in range(count):
+                normal = normalized_vector(raw["NORMAL"][index])
+                canonical["NORMAL"].append(normal)
+                canonical["POSITION"].append(
+                    tuple(float(value) for value in raw["POSITION"][index])
+                )
+                canonical["TANGENT"].append(
+                    canonical_tangent(raw["TANGENT"][index], normal)
+                )
+                canonical["TEXCOORD_0"].append(
+                    tuple(
+                        rounded_component(value, 6)
+                        for value in raw["TEXCOORD_0"][index]
+                    )
+                )
+
+            attribute_names = sorted(canonical)
+            records = []
+            for index in range(count):
+                key = tuple(
+                    component
+                    for name in attribute_names
+                    for component in canonical[name][index]
+                )
+                records.append(
+                    (
+                        key,
+                        index,
+                        tuple(canonical[name][index] for name in attribute_names),
+                    )
+                )
+            records.sort(key=lambda item: (item[0], item[1]))
+            new_index_by_old: dict[int, int] = {}
+            sorted_attributes: dict[str, list[tuple[float, ...]]] = {
+                name: [] for name in attribute_names
+            }
+            for new_index, (_key, old_index, values) in enumerate(records):
+                new_index_by_old[old_index] = new_index
+                for name, value in zip(attribute_names, values):
+                    sorted_attributes[name].append(value)
+
+            raw_indices = [
+                int(value[0])
+                for value in read_accessor(primitive["indices"])
+            ]
+            if len(raw_indices) % 3 != 0:
+                raise RuntimeError("canonical GLB indices are not triangles")
+            if set(raw_indices) != set(range(count)):
+                raise RuntimeError("canonical GLB has unreferenced vertices")
+            triangles = []
+            for offset in range(0, len(raw_indices), 3):
+                triangle = tuple(
+                    new_index_by_old[index]
+                    for index in raw_indices[offset : offset + 3]
+                )
+                triangles.append(
+                    min(
+                        triangle,
+                        (triangle[1], triangle[2], triangle[0]),
+                        (triangle[2], triangle[0], triangle[1]),
+                    )
+                )
+            triangles.sort()
+            canonical_indices = [
+                (index,)
+                for triangle in triangles
+                for index in triangle
+            ]
+            if (
+                len(canonical_indices) != len(raw_indices)
+                or set(index[0] for index in canonical_indices)
+                != set(range(count))
+            ):
+                raise RuntimeError("canonical GLB topology changed")
+            primitive["attributes"] = {
+                name: append_accessor(
+                    attributes[name],
+                    sorted_attributes[name],
+                )
+                for name in attribute_names
+            }
+            primitive["indices"] = append_accessor(
+                primitive["indices"],
+                canonical_indices,
+            )
+
+    document["accessors"] = canonical_accessors
+    document["bufferViews"] = canonical_views
+    document["buffers"] = [{"byteLength": len(canonical_binary)}]
+    json_payload = json.dumps(
+        document,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    json_payload += b" " * (-len(json_payload) % 4)
+    binary_payload = bytes(canonical_binary)
+    binary_payload += b"\x00" * (-len(binary_payload) % 4)
+    total_length = (
+        12
+        + 8
+        + len(json_payload)
+        + 8
+        + len(binary_payload)
+    )
+    output = bytearray(struct.pack("<4sII", b"glTF", 2, total_length))
+    output.extend(struct.pack("<II", len(json_payload), 0x4E4F534A))
+    output.extend(json_payload)
+    output.extend(struct.pack("<II", len(binary_payload), 0x004E4942))
+    output.extend(binary_payload)
+    path.write_bytes(output)
 
 
 def parse_args() -> argparse.Namespace:
@@ -195,6 +479,7 @@ def add_cylinder(
     vertices: int,
     material: bpy.types.Material,
     collection: bpy.types.Collection,
+    rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> None:
     parts.append(
         BASE.make_cylinder(
@@ -202,13 +487,131 @@ def add_cylinder(
             radius=radius,
             depth=depth,
             location=location,
-            rotation=(0.0, 0.0, 0.0),
+            rotation=rotation,
             vertices=vertices,
             material=material,
             collection=collection,
             bevel=0.0,
         )
     )
+
+
+def add_cylinder_between(
+    parts: list[bpy.types.Object],
+    name: str,
+    *,
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    radius: float,
+    vertices: int,
+    material: bpy.types.Material,
+    collection: bpy.types.Collection,
+) -> None:
+    start_point = Vector(start)
+    end_point = Vector(end)
+    direction = end_point - start_point
+    if direction.length <= 0.0:
+        raise RuntimeError(f"zero-length cylinder requested for {name}")
+    rotation = direction.to_track_quat("Z", "Y").to_euler()
+    add_cylinder(
+        parts,
+        name,
+        radius=radius,
+        depth=direction.length,
+        location=tuple((start_point + end_point) * 0.5),
+        rotation=tuple(rotation),
+        vertices=vertices,
+        material=material,
+        collection=collection,
+    )
+
+
+def add_canopy_lobe(
+    parts: list[bpy.types.Object],
+    name: str,
+    *,
+    location: tuple[float, float, float],
+    scale: tuple[float, float, float],
+    segments: int,
+    ring_count: int,
+    material: bpy.types.Material,
+    collection: bpy.types.Collection,
+) -> None:
+    bpy.ops.mesh.primitive_uv_sphere_add(
+        segments=segments,
+        ring_count=ring_count,
+        radius=1.0,
+        location=location,
+    )
+    obj = bpy.context.object
+    obj.name = name
+    obj.scale = scale
+    BASE.apply_transform(obj)
+    for polygon in obj.data.polygons:
+        polygon.use_smooth = True
+    BASE.assign_material(obj, material)
+    BASE.move_to_collection(obj, collection)
+    parts.append(obj)
+
+
+def join_render_components_deterministically(
+    components: list[bpy.types.Object],
+    *,
+    name: str,
+    lod: int,
+) -> bpy.types.Object:
+    if not components:
+        raise RuntimeError(f"no render components supplied for {name}")
+    collection = components[0].users_collection[0]
+    merged = bmesh.new()
+    materials: list[bpy.types.Material] = []
+    material_indices: dict[str, int] = {}
+    try:
+        for component in components:
+            source_materials = list(component.data.materials)
+            if not source_materials:
+                raise RuntimeError(
+                    f"render component has no material: {component.name}"
+                )
+            previous_face_count = len(merged.faces)
+            merged.from_mesh(component.data)
+            merged.faces.ensure_lookup_table()
+            new_faces = list(merged.faces)[previous_face_count:]
+            for face in new_faces:
+                if face.material_index >= len(source_materials):
+                    raise RuntimeError(
+                        f"invalid material slot on {component.name}"
+                    )
+                material = source_materials[face.material_index]
+                if material.name not in material_indices:
+                    material_indices[material.name] = len(materials)
+                    materials.append(material)
+                face.material_index = material_indices[material.name]
+
+        mesh = bpy.data.meshes.new(f"{name}_mesh")
+        merged.to_mesh(mesh)
+    finally:
+        merged.free()
+
+    for material in materials:
+        mesh.materials.append(material)
+    obj = bpy.data.objects.new(name, mesh)
+    collection.objects.link(obj)
+    for component in components:
+        bpy.data.objects.remove(component, do_unlink=True)
+
+    obj["rorng_asset_id"] = ASSET_ID
+    obj["rorng_role"] = "render"
+    obj["rorng_units"] = "metres"
+    obj["rorng_lod"] = lod
+    modifier = obj.modifiers.new(name="rorng_triangulate", type="TRIANGULATE")
+    modifier.keep_custom_normals = True
+    bpy.ops.object.select_all(action="DESELECT")
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bpy.ops.object.modifier_apply(modifier=modifier.name)
+    obj.select_set(False)
+    return obj
 
 
 def add_tree(
@@ -220,36 +623,359 @@ def add_tree(
     collection: bpy.types.Collection,
     materials: dict[str, bpy.types.Material],
     detail: int,
+    variant: int,
 ) -> None:
-    add_cylinder(
+    lean_x, lean_y, height_scale = (
+        (-0.12, 0.08, 0.96),
+        (0.1, -0.05, 1.04),
+        (0.04, 0.13, 1.0),
+    )[variant % 3]
+    trunk_mid = (
+        x + lean_x * 0.45,
+        y + lean_y * 0.45,
+        2.05 * height_scale,
+    )
+    trunk_top = (
+        x + lean_x,
+        y + lean_y,
+        3.65 * height_scale,
+    )
+    if detail == 0:
+        add_cylinder(
+            parts,
+            f"{prefix}_root_flare",
+            radius=0.34,
+            depth=0.38,
+            location=(x, y, 0.19),
+            vertices=12,
+            material=materials["bark"],
+            collection=collection,
+        )
+    add_cylinder_between(
         parts,
-        f"{prefix}_trunk",
-        radius=0.22 if detail == 0 else 0.2,
-        depth=3.4 if detail == 0 else 3.0,
-        location=(x, y, 1.7 if detail == 0 else 1.5),
+        f"{prefix}_trunk_lower",
+        start=(x, y, 0.1),
+        end=trunk_mid,
+        radius=0.24 if detail == 0 else 0.21,
         vertices=12 if detail == 0 else 8,
         material=materials["bark"],
         collection=collection,
     )
-    crown_layers = (
-        ((1.5, 1.8, 3.4), (1.85, 1.65, 4.65), (1.35, 1.4, 5.75))
-        if detail == 0
-        else ((1.45, 1.7, 3.5), (1.25, 1.45, 4.75))
+    add_cylinder_between(
+        parts,
+        f"{prefix}_trunk_upper",
+        start=trunk_mid,
+        end=trunk_top,
+        radius=0.17 if detail == 0 else 0.15,
+        vertices=10 if detail == 0 else 7,
+        material=materials["bark"],
+        collection=collection,
     )
-    for index, (radius, depth, z) in enumerate(crown_layers):
-        add_cylinder(
+
+    branch_angles = (
+        (18.0, 91.0, 166.0, 238.0, 311.0)
+        if detail == 0
+        else (38.0, 218.0)
+    )
+    canopy_centres: list[tuple[float, float, float]] = []
+    for index, angle_degrees in enumerate(branch_angles):
+        angle = math.radians(angle_degrees + variant * 17.0)
+        reach = (
+            (1.14, 1.34, 1.08, 1.28, 1.18)[index]
+            if detail == 0
+            else (0.95, 1.0)[index]
+        )
+        branch_start_z = 2.35 + (index % 2) * 0.32
+        branch_start = (
+            x + lean_x * 0.62,
+            y + lean_y * 0.62,
+            branch_start_z * height_scale,
+        )
+        branch_end = (
+            trunk_top[0] + math.cos(angle) * reach,
+            trunk_top[1] + math.sin(angle) * reach,
+            (3.95 + (index % 3) * 0.37) * height_scale,
+        )
+        add_cylinder_between(
             parts,
-            f"{prefix}_crown_{index}",
-            radius=radius,
-            depth=depth,
-            location=(x, y, z),
-            vertices=12 if detail == 0 else 8,
+            f"{prefix}_branch_{index}",
+            start=branch_start,
+            end=branch_end,
+            radius=0.095 if detail == 0 else 0.08,
+            vertices=8 if detail == 0 else 6,
+            material=materials["bark"],
+            collection=collection,
+        )
+        canopy_centres.append(branch_end)
+
+    central_canopy = (
+        trunk_top[0] - lean_x * 0.35,
+        trunk_top[1] - lean_y * 0.35,
+        4.65 * height_scale,
+    )
+    lobe_specs = (
+        [
+            (central_canopy, (1.35, 1.2, 1.42)),
+            *[
+                (
+                    (
+                        centre[0],
+                        centre[1],
+                        centre[2] + 0.36 + 0.08 * (index % 2),
+                    ),
+                    (
+                        1.02 + 0.1 * (index % 2),
+                        0.94 + 0.08 * ((index + variant) % 3),
+                        1.08 + 0.06 * ((index + 1) % 2),
+                    ),
+                )
+                for index, centre in enumerate(canopy_centres)
+            ],
+        ]
+        if detail == 0
+        else [
+            (central_canopy, (1.42, 1.28, 1.38)),
+            (
+                (
+                    canopy_centres[0][0],
+                    canopy_centres[0][1],
+                    canopy_centres[0][2] + 0.32,
+                ),
+                (1.05, 1.0, 1.12),
+            ),
+            (
+                (
+                    canopy_centres[1][0],
+                    canopy_centres[1][1],
+                    canopy_centres[1][2] + 0.32,
+                ),
+                (1.02, 1.04, 1.08),
+            ),
+        ]
+    )
+    for index, (centre, scale) in enumerate(lobe_specs):
+        add_canopy_lobe(
+            parts,
+            f"{prefix}_canopy_lobe_{index}",
+            location=centre,
+            scale=scale,
+            segments=12 if detail == 0 else 8,
+            ring_count=6 if detail == 0 else 4,
             material=(
-                materials["leaf_dark"]
-                if index % 2 == 0
-                else materials["leaf_light"]
+                materials["leaf_light"]
+                if (index + variant) % 3 == 1
+                else materials["leaf_dark"]
             ),
             collection=collection,
+        )
+
+
+def add_facade_window_frame(
+    parts: list[bpy.types.Object],
+    *,
+    prefix: str,
+    side: float,
+    facade_x: float,
+    y: float,
+    z: float,
+    opening_width: float,
+    material: bpy.types.Material,
+    collection: bpy.types.Collection,
+) -> None:
+    frame_x = facade_x - side * 0.055
+    border = 0.085
+    for label, local_y, local_z, width, height in (
+        ("left", y - opening_width / 2.0, z, border, 1.48),
+        ("right", y + opening_width / 2.0, z, border, 1.48),
+        ("top", y, z + 0.7, opening_width, border),
+        ("sill", y, z - 0.7, opening_width, 0.11),
+    ):
+        add_box(
+            parts,
+            f"{prefix}_frame_{label}",
+            (0.1, width, height),
+            (frame_x, local_y, local_z),
+            material,
+            collection,
+        )
+    if opening_width > 1.05:
+        add_box(
+            parts,
+            f"{prefix}_frame_mullion",
+            (0.105, 0.065, 1.36),
+            (frame_x - side * 0.004, y, z),
+            material,
+            collection,
+        )
+
+
+def add_end_window_frame(
+    parts: list[bpy.types.Object],
+    *,
+    prefix: str,
+    x: float,
+    facade_y: float,
+    z: float,
+    opening_width: float,
+    material: bpy.types.Material,
+    collection: bpy.types.Collection,
+) -> None:
+    frame_y = facade_y - 0.055
+    border = 0.085
+    for label, local_x, local_z, width, height in (
+        ("left", x - opening_width / 2.0, z, border, 1.48),
+        ("right", x + opening_width / 2.0, z, border, 1.48),
+        ("top", x, z + 0.7, opening_width, border),
+        ("sill", x, z - 0.7, opening_width, 0.11),
+    ):
+        add_box(
+            parts,
+            f"{prefix}_frame_{label}",
+            (width, 0.1, height),
+            (local_x, frame_y, local_z),
+            material,
+            collection,
+        )
+    if opening_width > 1.05:
+        add_box(
+            parts,
+            f"{prefix}_frame_mullion",
+            (0.065, 0.105, 1.36),
+            (x, frame_y - 0.004, z),
+            material,
+            collection,
+        )
+
+
+def add_balcony(
+    parts: list[bpy.types.Object],
+    *,
+    prefix: str,
+    side: float,
+    facade_x: float,
+    y: float,
+    z: float,
+    collection: bpy.types.Collection,
+    materials: dict[str, bpy.types.Material],
+) -> None:
+    slab_centre_x = facade_x - side * 0.38
+    rail_x = facade_x - side * 0.76
+    add_box(
+        parts,
+        f"{prefix}_slab",
+        (0.82, 4.35, 0.16),
+        (slab_centre_x, y, z),
+        materials["concrete"],
+        collection,
+        bevel=0.025,
+    )
+    add_box(
+        parts,
+        f"{prefix}_front_rail",
+        (0.065, 4.25, 0.82),
+        (rail_x, y, z + 0.48),
+        materials["metal"],
+        collection,
+    )
+    for end_label, end_y in (
+        ("near", y - 2.12),
+        ("far", y + 2.12),
+    ):
+        add_box(
+            parts,
+            f"{prefix}_{end_label}_rail",
+            (0.72, 0.065, 0.82),
+            (slab_centre_x, end_y, z + 0.48),
+            materials["metal"],
+            collection,
+        )
+
+
+def add_roof_silhouette(
+    parts: list[bpy.types.Object],
+    *,
+    prefix: str,
+    x: float,
+    y: float,
+    height: float,
+    depth_x: float,
+    width_y: float,
+    style: int,
+    lod: int,
+    collection: bpy.types.Collection,
+    materials: dict[str, bpy.types.Material],
+) -> None:
+    add_box(
+        parts,
+        f"{prefix}_roof_trim",
+        (depth_x + 0.18, width_y + 0.18, 0.32),
+        (x, y, height + 0.16),
+        materials["stone"],
+        collection,
+        bevel=0.035 if lod == 0 else 0.0,
+    )
+    penthouse_width = 3.1 + 0.35 * (style % 2)
+    penthouse_depth = 3.6 + 0.4 * ((style + 1) % 2)
+    penthouse_height = 1.15 if height >= 19.5 else 1.35
+    add_box(
+        parts,
+        f"{prefix}_roof_penthouse",
+        (penthouse_depth, penthouse_width, penthouse_height),
+        (
+            x + (0.45 if style % 2 == 0 else -0.55),
+            y + (0.9 if style < 2 else -0.8),
+            height + 0.32 + penthouse_height / 2.0,
+        ),
+        materials["metal"] if style == 2 else materials["concrete"],
+        collection,
+        bevel=0.045 if lod == 0 else 0.0,
+    )
+    if lod != 0:
+        return
+    parapet_height = 0.48
+    for label, dimensions, location in (
+        (
+            "street",
+            (0.18, width_y, parapet_height),
+            (x - math.copysign(depth_x / 2.0, x), y, height + 0.5),
+        ),
+        (
+            "outer",
+            (0.18, width_y, parapet_height),
+            (x + math.copysign(depth_x / 2.0, x), y, height + 0.5),
+        ),
+        (
+            "near",
+            (depth_x, 0.18, parapet_height),
+            (x, y - width_y / 2.0, height + 0.5),
+        ),
+        (
+            "far",
+            (depth_x, 0.18, parapet_height),
+            (x, y + width_y / 2.0, height + 0.5),
+        ),
+    ):
+        add_box(
+            parts,
+            f"{prefix}_parapet_{label}",
+            dimensions,
+            location,
+            materials["stone"],
+            collection,
+        )
+    for unit in (-1.0, 1.0):
+        add_box(
+            parts,
+            f"{prefix}_hvac_{'a' if unit < 0 else 'b'}",
+            (1.3, 1.05, 0.62),
+            (
+                x - 0.65,
+                y + unit * width_y * 0.22,
+                height + 0.63,
+            ),
+            materials["metal"],
+            collection,
+            bevel=0.035,
         )
 
 
@@ -307,6 +1033,7 @@ def add_building(
     collection: bpy.types.Collection,
     materials: dict[str, bpy.types.Material],
     lod: int,
+    style: int,
 ) -> None:
     x = side * 11.2
     depth_x = 8.6
@@ -321,9 +1048,25 @@ def add_building(
         bevel_segments=2 if lod == 0 else 1,
     )
     if lod == 2:
+        add_roof_silhouette(
+            parts,
+            prefix=prefix,
+            x=x,
+            y=y,
+            height=height,
+            depth_x=depth_x,
+            width_y=width_y,
+            style=style,
+            lod=lod,
+            collection=collection,
+            materials=materials,
+        )
         return
 
     facade_x = x - side * (depth_x / 2.0 + 0.025)
+    frame_material = (
+        materials["stone"] if style in (0, 3) else materials["metal"]
+    )
     floor_count = max(2, int((height - 2.6) // 2.7))
     window_columns = max(2, int(width_y // 2.1))
     end_columns = max(2, int(depth_x // 2.2))
@@ -349,6 +1092,18 @@ def add_building(
                 collection,
                 bevel=0.018 if lod == 0 else 0.0,
             )
+            if lod == 0:
+                add_facade_window_frame(
+                    parts,
+                    prefix=f"{prefix}_window_{floor}_{column}",
+                    side=side,
+                    facade_x=facade_x,
+                    y=local_y,
+                    z=z,
+                    opening_width=width_y / window_columns * 0.62,
+                    material=frame_material,
+                    collection=collection,
+                )
         front_y = y - width_y / 2.0 - 0.025
         for column in range(end_columns):
             local_x = (
@@ -364,6 +1119,31 @@ def add_building(
                 collection,
                 bevel=0.018 if lod == 0 else 0.0,
             )
+            if lod == 0:
+                add_end_window_frame(
+                    parts,
+                    prefix=f"{prefix}_front_window_{floor}_{column}",
+                    x=local_x,
+                    facade_y=front_y,
+                    z=z,
+                    opening_width=depth_x / end_columns * 0.62,
+                    material=frame_material,
+                    collection=collection,
+                )
+
+    add_roof_silhouette(
+        parts,
+        prefix=prefix,
+        x=x,
+        y=y,
+        height=height,
+        depth_x=depth_x,
+        width_y=width_y,
+        style=style,
+        lod=lod,
+        collection=collection,
+        materials=materials,
+    )
     if lod == 1:
         return
 
@@ -376,6 +1156,53 @@ def add_building(
         collection,
         bevel=0.025,
     )
+    storefront_width = width_y * 0.52
+    for index in range(5):
+        mullion_y = y - storefront_width / 2.0 + index * storefront_width / 4.0
+        add_box(
+            parts,
+            f"{prefix}_storefront_mullion_{index}",
+            (0.11, 0.065, 2.05),
+            (facade_x - side * 0.06, mullion_y, 1.32),
+            materials["metal"],
+            collection,
+        )
+    entrance_y = y + (0.85 if style % 2 == 0 else -0.85)
+    add_box(
+        parts,
+        f"{prefix}_entrance_door",
+        (0.115, 1.0, 2.15),
+        (facade_x - side * 0.075, entrance_y, 1.18),
+        materials["glass"],
+        collection,
+        bevel=0.018,
+    )
+    for label, door_y, door_z, width, height in (
+        ("left", entrance_y - 0.55, 1.18, 0.08, 2.28),
+        ("right", entrance_y + 0.55, 1.18, 0.08, 2.28),
+        ("header", entrance_y, 2.28, 1.18, 0.1),
+    ):
+        add_box(
+            parts,
+            f"{prefix}_entrance_frame_{label}",
+            (0.125, width, height),
+            (facade_x - side * 0.09, door_y, door_z),
+            materials["metal"],
+            collection,
+        )
+    add_box(
+        parts,
+        f"{prefix}_entrance_handle",
+        (0.145, 0.035, 0.5),
+        (
+            facade_x - side * 0.16,
+            entrance_y - 0.29,
+            1.18,
+        ),
+        materials["metal"],
+        collection,
+        bevel=0.008,
+    )
     add_box(
         parts,
         f"{prefix}_front_ground_glass",
@@ -385,6 +1212,44 @@ def add_building(
         collection,
         bevel=0.025,
     )
+    front_storefront_width = depth_x * 0.46
+    front_storefront_y = y - width_y / 2.0 - 0.085
+    for index in range(5):
+        mullion_x = (
+            x - front_storefront_width / 2.0
+            + index * front_storefront_width / 4.0
+        )
+        add_box(
+            parts,
+            f"{prefix}_front_storefront_mullion_{index}",
+            (0.065, 0.11, 2.05),
+            (mullion_x, front_storefront_y, 1.32),
+            materials["metal"],
+            collection,
+        )
+    front_door_x = x + (0.7 if style % 2 == 0 else -0.7)
+    add_box(
+        parts,
+        f"{prefix}_front_entrance_door",
+        (0.92, 0.12, 2.12),
+        (front_door_x, front_storefront_y - 0.015, 1.17),
+        materials["glass"],
+        collection,
+        bevel=0.018,
+    )
+    for label, door_x, door_z, width, height in (
+        ("left", front_door_x - 0.5, 1.17, 0.08, 2.25),
+        ("right", front_door_x + 0.5, 1.17, 0.08, 2.25),
+        ("header", front_door_x, 2.27, 1.08, 0.1),
+    ):
+        add_box(
+            parts,
+            f"{prefix}_front_entrance_frame_{label}",
+            (width, 0.13, height),
+            (door_x, front_storefront_y - 0.025, door_z),
+            materials["metal"],
+            collection,
+        )
     add_box(
         parts,
         f"{prefix}_awning",
@@ -394,25 +1259,42 @@ def add_building(
         collection,
         bevel=0.025,
     )
-    add_box(
-        parts,
-        f"{prefix}_roof_trim",
-        (depth_x + 0.18, width_y + 0.18, 0.32),
-        (x, y, height + 0.16),
-        materials["stone"],
-        collection,
-        bevel=0.035,
-    )
-    for unit in (-1.0, 1.0):
+    for pilaster_y in (y - width_y * 0.42, y + width_y * 0.42):
         add_box(
             parts,
-            f"{prefix}_hvac_{'a' if unit < 0 else 'b'}",
-            (1.6, 1.35, 0.8),
-            (x, y + unit * width_y * 0.22, height + 0.72),
-            materials["metal"],
+            f"{prefix}_facade_pilaster_{'near' if pilaster_y < y else 'far'}",
+            (0.14, 0.24, height - 0.75),
+            (
+                facade_x - side * 0.055,
+                pilaster_y,
+                height / 2.0 + 0.1,
+            ),
+            frame_material,
             collection,
-            bevel=0.04,
         )
+    if style in (1, 2):
+        for balcony_index, balcony_z in enumerate((5.75, 8.3)):
+            if balcony_z + 0.9 < height:
+                add_balcony(
+                    parts,
+                    prefix=f"{prefix}_balcony_{balcony_index}",
+                    side=side,
+                    facade_x=facade_x,
+                    y=y + (1.3 if balcony_index == 0 else -1.2),
+                    z=balcony_z,
+                    collection=collection,
+                    materials=materials,
+                )
+    else:
+        for band_index, band_z in enumerate((2.72, height - 0.75)):
+            add_box(
+                parts,
+                f"{prefix}_facade_band_{band_index}",
+                (0.15, width_y + 0.08, 0.18),
+                (facade_x - side * 0.055, y, band_z),
+                frame_material,
+                collection,
+            )
 
 
 def build_render_lod(
@@ -487,6 +1369,7 @@ def build_render_lod(
             collection=collection,
             materials=materials,
             lod=lod,
+            style=index,
         )
 
     if lod < 2:
@@ -502,6 +1385,7 @@ def build_render_lod(
                     collection=collection,
                     materials=materials,
                     detail=lod,
+                    variant=(index + (0 if side < 0.0 else 2)) % 3,
                 )
                 add_streetlight(
                     parts,
@@ -525,10 +1409,9 @@ def build_render_lod(
                     collection,
                 )
 
-    return BASE.join_components(
+    return join_render_components_deterministically(
         parts,
         name=f"{ASSET_ID}_lod{lod}",
-        role="render",
         lod=lod,
     )
 
@@ -587,11 +1470,11 @@ def add_preview_scene(
     )
     ground["rorng_role"] = "preview-only"
 
-    bpy.ops.object.camera_add(location=(0.0, -65.0, 18.0))
+    bpy.ops.object.camera_add(location=(0.0, -62.0, 13.5))
     camera = bpy.context.object
     camera.name = "preview_camera"
-    camera.data.lens = 50.0
-    BASE.point_camera(camera, (0.0, 0.0, 7.0))
+    camera.data.lens = 46.0
+    BASE.point_camera(camera, (0.0, 0.0, 6.8))
     BASE.move_to_collection(camera, collection)
     bpy.context.scene.camera = camera
 
@@ -616,11 +1499,20 @@ def add_preview_scene(
     BASE.point_camera(fill, (0.0, 0.0, 6.0))
     BASE.move_to_collection(fill, collection)
 
+    bpy.ops.object.light_add(type="AREA", location=(13.0, -26.0, 14.0))
+    canyon_fill = bpy.context.object
+    canyon_fill.name = "preview_canyon_fill"
+    canyon_fill.data.energy = 2_600.0
+    canyon_fill.data.shape = "DISK"
+    canyon_fill.data.size = 11.0
+    BASE.point_camera(canyon_fill, (0.0, -1.0, 5.3))
+    BASE.move_to_collection(canyon_fill, collection)
+
     world = bpy.context.scene.world
     world.use_nodes = True
     background = world.node_tree.nodes.get("Background")
     background.inputs["Color"].default_value = (0.055, 0.08, 0.13, 1.0)
-    background.inputs["Strength"].default_value = 0.42
+    background.inputs["Strength"].default_value = 0.62
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_EEVEE"
     scene.render.resolution_x = 1280
@@ -630,6 +1522,7 @@ def add_preview_scene(
     scene.render.image_settings.color_mode = "RGBA"
     scene.render.image_settings.color_depth = "8"
     scene.render.filepath = str(preview_path)
+    scene.view_settings.exposure = 0.45
     scene.view_settings.look = "AgX - Medium High Contrast"
 
 
@@ -703,6 +1596,7 @@ def main() -> int:
         use_selection=True,
         use_visible=False,
     )
+    canonicalize_glb_geometry(glb_path)
     for obj in [lod_objects[1], lod_objects[2], *collision_objects]:
         obj.hide_render = True
         obj.hide_set(True)
@@ -723,6 +1617,18 @@ def main() -> int:
         materials=materials,
     )
     manifest["authoring"]["generator"]["format"] = GENERATOR_ID
+    manifest["authoring"]["generator"]["dependencies"] = [
+        {
+            "path": BASE_GENERATOR_PATH.relative_to(root).as_posix(),
+            "sha256": BASE.sha256_file(BASE_GENERATOR_PATH),
+        },
+    ]
+    manifest["authoring"]["procedural_provenance"] = {
+        "external_geometry": False,
+        "external_textures": False,
+        "method": "deterministic-project-authored-blender-python",
+        "rights_basis": "GPL-3.0-or-later project-authored source",
+    }
     manifest["connectors"] = [
         {
             "forward": [0.0, -1.0, 0.0],
@@ -740,6 +1646,14 @@ def main() -> int:
         },
     ]
     manifest["geometry"]["asset_family"] = "city-gateway-streetscape"
+    manifest["geometry"]["detail_profile"] = {
+        "building_facades": (
+            "recessed-glazing-frames-doors-balconies-stepped-roofs"
+        ),
+        "collision_revision": 1,
+        "lod_policy": "authored-three-level-silhouette-preserving",
+        "tree_canopies": "branched-varied-six-lobe-close-three-lobe-medium",
+    }
     manifest["runtime_lights"] = {
         "lights": [
             {

@@ -105,19 +105,6 @@ material rorng_gateway_glass_blue
   }
 }
 
-material rorng_gateway_powdercoat_metal
-{
-  technique
-  {
-    pass
-    {
-      ambient 0.025 0.035 0.045 1
-      diffuse 0.025 0.035 0.045 1
-      specular 0.028 0.036 0.044 1 128
-    }
-  }
-}
-
 material rorng_gateway_stone
 {
   technique
@@ -127,6 +114,19 @@ material rorng_gateway_stone
       ambient 0.27 0.25 0.22 1
       diffuse 0.27 0.25 0.22 1
       specular 0.04 0.04 0.04 1 3.40320674
+    }
+  }
+}
+
+material rorng_gateway_powdercoat_metal
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.025 0.035 0.045 1
+      diffuse 0.025 0.035 0.045 1
+      specular 0.028 0.036 0.044 1 128
     }
   }
 }

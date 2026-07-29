@@ -297,12 +297,51 @@ class CityWorldSceneCompilerTests(unittest.TestCase):
         self.assertEqual(
             report["source_stats"],
             {
-                "indices": 44760,
+                "indices": 108000,
                 "materials": 14,
                 "meshes": 6,
-                "primitives": 34,
-                "vertices": 34804,
+                "primitives": 35,
+                "vertices": 69221,
             },
+        )
+        assert compiler.glb is not None
+        accessor_references = []
+        for mesh in compiler.glb.document["meshes"]:
+            for primitive in mesh["primitives"]:
+                references = [
+                    *primitive["attributes"].values(),
+                    primitive["indices"],
+                ]
+                accessor_references.extend(references)
+                positions = compiler.glb.accessor(
+                    primitive["attributes"]["POSITION"]
+                )
+                position_accessor = compiler.glb.document["accessors"][
+                    primitive["attributes"]["POSITION"]
+                ]
+                self.assertEqual(
+                    tuple(float(value) for value in position_accessor["min"]),
+                    tuple(
+                        min(float(position[axis]) for position in positions)
+                        for axis in range(3)
+                    ),
+                )
+                self.assertEqual(
+                    tuple(float(value) for value in position_accessor["max"]),
+                    tuple(
+                        max(float(position[axis]) for position in positions)
+                        for axis in range(3)
+                    ),
+                )
+                indices = compiler.glb.accessor(primitive["indices"])
+                self.assertEqual(
+                    {int(value) for value in indices},
+                    set(range(len(positions))),
+                )
+        self.assertEqual(len(accessor_references), 175)
+        self.assertEqual(
+            len(set(accessor_references)),
+            len(accessor_references),
         )
         self.assertEqual(
             compiler.connector_runtime_contract(),

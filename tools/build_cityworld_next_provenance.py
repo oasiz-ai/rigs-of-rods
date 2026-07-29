@@ -131,6 +131,33 @@ def build_documents(repo_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         glb_path = resolve_declared(repo_root, glb.get("path"))
         if sha256_file(generator_path) != generator.get("sha256"):
             raise BuildFailure(f"stale generator hash: {asset_manifest_path.name}")
+        dependencies = generator.get("dependencies", [])
+        if not isinstance(dependencies, list):
+            raise BuildFailure(
+                f"invalid generator dependencies: {asset_manifest_path.name}"
+            )
+        dependency_paths = {generator_path}
+        for index, dependency in enumerate(dependencies):
+            if not isinstance(dependency, dict):
+                raise BuildFailure(
+                    f"invalid generator dependency {index}: "
+                    f"{asset_manifest_path.name}"
+                )
+            dependency_path = resolve_declared(
+                repo_root,
+                dependency.get("path"),
+            )
+            if dependency_path in dependency_paths:
+                raise BuildFailure(
+                    f"duplicate generator dependency {index}: "
+                    f"{asset_manifest_path.name}"
+                )
+            dependency_paths.add(dependency_path)
+            if sha256_file(dependency_path) != dependency.get("sha256"):
+                raise BuildFailure(
+                    f"stale generator dependency {index}: "
+                    f"{asset_manifest_path.name}"
+                )
         if sha256_file(blend_path) != blend.get("sha256"):
             raise BuildFailure(f"stale Blender source hash: {asset_manifest_path.name}")
         if sha256_file(glb_path) != glb.get("sha256"):
