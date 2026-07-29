@@ -1276,6 +1276,16 @@ material rorng_bridge_streetlight_test
                 [],
             )
 
+    def test_regular_file_sync_uses_writable_binary_descriptor(self) -> None:
+        path = mock.MagicMock(spec=Path)
+        stream = mock.MagicMock()
+        path.open.return_value.__enter__.return_value = stream
+        with mock.patch.object(BUILDER.os, "fsync") as fsync:
+            BUILDER.sync_regular_file(path)
+        path.open.assert_called_once_with("r+b")
+        stream.flush.assert_called_once_with()
+        fsync.assert_called_once_with(stream.fileno.return_value)
+
     def test_target_appearing_during_publish_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

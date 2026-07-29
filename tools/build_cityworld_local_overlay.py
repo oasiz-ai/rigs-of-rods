@@ -2148,6 +2148,13 @@ def write_deterministic_zip(path: Path, payloads: dict[str, bytes]) -> None:
             archive.writestr(info, payloads[name])
 
 
+def sync_regular_file(path: Path) -> None:
+    """Flush a file via writable binary I/O, as required by Windows fsync."""
+    with path.open("r+b") as stream:
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
 def publish_no_replace(temporary_path: Path, output: Path) -> None:
     """Atomically publish a completed sibling file without replacing a target."""
     try:
@@ -2349,8 +2356,7 @@ def build_local_overlay(
         if archive_sha256(source_archive) != PINNED_ARCHIVE_SHA256:
             raise OverlayFailure("source CityWorld.zip changed during package write")
         temporary_path.chmod(0o644)
-        with temporary_path.open("rb") as stream:
-            os.fsync(stream.fileno())
+        sync_regular_file(temporary_path)
         publish_no_replace(temporary_path, output)
     finally:
         try:

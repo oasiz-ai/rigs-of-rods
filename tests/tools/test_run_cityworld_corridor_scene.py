@@ -486,7 +486,7 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
             self.assertEqual(
                 SCENE.build_command(executable),
                 (
-                    "/runtime/RoR",
+                    str(executable),
                     "-ApplePersistenceIgnoreState",
                     "YES",
                     "-map",
@@ -501,7 +501,7 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
                     self.assertEqual(
                         SCENE.build_command(executable),
                         (
-                            "/runtime/RoR",
+                            str(executable),
                             "-map",
                             SCENE.OVERLAY_TERRAIN,
                             "-runscript",
