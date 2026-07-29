@@ -127,6 +127,26 @@ python3 tools/content_provenance_audit.py \
   --editable-root .
 ```
 
+Build the local-only Penguinville-to-NeoQueretaro overlay after those checks:
+
+```sh
+mkdir -p /tmp/ror-cityworld-local
+python3 tools/build_cityworld_local_overlay.py \
+  --archive "$HOME/Library/Application Support/Rigs of Rods/mods/CityWorld.zip" \
+  --repo-root "$PWD" \
+  --output /tmp/ror-cityworld-local/CityWorldNextLocalOverlay.zip \
+  --surface-offset-m 0.08
+```
+
+The output path must not already exist and must be outside this repository.
+The 35-entry deterministic ZIP references the separately installed original
+`CityWorld.otc` and `CityWorld.tobj`; it does not copy either file or any
+original map asset. It packages only the generated descriptor and placement,
+the checked project-owned render/collision meshes, materials, ODEFs (including
+the gateway lights), and a canonical local-only provenance report. The source
+archive stays byte-identical and the generated package is explicitly not for
+redistribution or shipping.
+
 The GLB is the canonical geometry interchange output and is expected to remain
 byte-deterministic for the pinned Blender generator. `.blend` files and
 rendered previews are editable/evidence artifacts whose exact bytes may change

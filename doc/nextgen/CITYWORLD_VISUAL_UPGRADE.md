@@ -47,6 +47,42 @@ python3 tools/audit_cityworld_visuals.py \
   --pretty --output /tmp/cityworld-visual-audit.json
 ```
 
+### Local overlay package
+
+`tools/build_cityworld_local_overlay.py` turns the pinned, user-supplied
+archive and the checked project modules into one deterministic local test ZIP.
+The output must be a new path outside the repository:
+
+```bash
+mkdir -p /tmp/ror-cityworld-local
+python3 tools/build_cityworld_local_overlay.py \
+  --archive "$HOME/Library/Application Support/Rigs of Rods/mods/CityWorld.zip" \
+  --repo-root "$PWD" \
+  --output /tmp/ror-cityworld-local/CityWorldNextLocalOverlay.zip \
+  --surface-offset-m 0.08
+```
+
+The builder requires the exact pinned archive hash, audits ZIP paths and
+telepoints without extracting the archive, validates all four asset manifests
+and checked compiler outputs, and writes through a temporary sibling before an
+atomic no-overwrite publish. The ZIP contains a derived terrain descriptor, a
+project-owned overlay TOBJ, 32 required runtime resources, and one canonical
+report. It
+contains no original CityWorld geometry, placement, texture, object, or
+archive payload. The descriptor references `CityWorld.otc` and
+`CityWorld.tobj`, so the original `CityWorld.zip` must remain installed
+separately.
+
+The first bounded segment is gateway, transition, three 15-degree curves, and
+four 20 m tangent spans. Its 192 m centreline starts at Penguinville at
+source Y plus the explicit bounded offset. The initial heading compensates for
+the curves so the final tangent points at NeoQueretaro; all eight seams are
+exact. Fixed ZIP order, timestamps, permissions, and stored payloads make
+repeated builds byte-identical. The embedded report marks redistribution and
+shipping false and records source/member hashes, tool and generator hashes,
+asset/compile provenance, runtime lights, module transforms, seam errors,
+target distance, and covered length.
+
 ## Delivery order
 
 ### CW0 — Stable light and capture baseline
