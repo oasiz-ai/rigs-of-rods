@@ -1,0 +1,228 @@
+{
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_neoq_tree_family",
+    "license": "GPL-3.0-or-later",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "format": "ror-cityworld-neoq-tree-family-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_neoq_tree_family.py",
+      "sha256": "ae37842c513d9d1c394b355325fd672985c024ca93ab7b52d1597cca0adbc32b"
+    },
+    "procedural_provenance": {
+      "external_geometry": false,
+      "external_textures": false,
+      "method": "deterministic-project-authored-blender-python",
+      "rights_basis": "GPL-3.0-or-later project-authored source"
+    }
+  },
+  "format": "ror-cityworld-tree-family-v1",
+  "impostor": {
+    "alpha": {
+      "coverage_preserving_mips": true,
+      "edge_dilation_px": 8,
+      "mode": "mask"
+    },
+    "atlas_resolution_px": [
+      4096,
+      4096
+    ],
+    "azimuth_degrees": [
+      0,
+      45,
+      90,
+      135,
+      180,
+      225,
+      270,
+      315
+    ],
+    "compiler_emits": false,
+    "elevation_degrees": [
+      0,
+      20,
+      40
+    ],
+    "format": "ror-cityworld-vegetation-impostor-contract-v1",
+    "frame_count": 24,
+    "pivot": "trunk-ground-centre",
+    "status": "contract-only"
+  },
+  "placement_target": {
+    "integration_status": "asset-ready-placement-deferred",
+    "legacy_object": "arbol1Qr",
+    "map": "CityWorld/NeoQueretaro",
+    "placement_count": 18
+  },
+  "selector": {
+    "algorithm": "sha256-little-endian-modulo-v1",
+    "assignments": [
+      {
+        "digest_sha256": "d3deaee676af5895309e2eaf38f6cee0af694bc20813940dbed34022062fc5a9",
+        "placement_ordinal": 0,
+        "scale": 1.02212,
+        "variant": "rorng_city_neoq_tree_windswept",
+        "yaw_degrees": 222.451
+      },
+      {
+        "digest_sha256": "3a35dea215184c3888d97587310010f1c120701c7a5aae2b17eee8ef0c9d6e67",
+        "placement_ordinal": 1,
+        "scale": 1.0035,
+        "variant": "rorng_city_neoq_tree_round",
+        "yaw_degrees": 305.903
+      },
+      {
+        "digest_sha256": "77e59e140ed9a3a545b88a1d74ba4e94ae7162f5e59fbc3c1736d441ccc2cff2",
+        "placement_ordinal": 2,
+        "scale": 0.95385,
+        "variant": "rorng_city_neoq_tree_windswept",
+        "yaw_degrees": 259.129
+      },
+      {
+        "digest_sha256": "0356d40b5d8e87a5d9454249c60115cae5c5f271e86e1a3c1f67a6147170c1c8",
+        "placement_ordinal": 3,
+        "scale": 0.97434,
+        "variant": "rorng_city_neoq_tree_columnar",
+        "yaw_degrees": 98.223
+      },
+      {
+        "digest_sha256": "95707908b4abf3b702810e79b46faf73b98c427e949b058cef53386ab4b980e0",
+        "placement_ordinal": 4,
+        "scale": 0.99675,
+        "variant": "rorng_city_neoq_tree_round",
+        "yaw_degrees": 181.417
+      },
+      {
+        "digest_sha256": "b5abc9b08e8a59eed6a80a6f5d4bdebc2f8e8b546538e92bd31cc9491444f12c",
+        "placement_ordinal": 5,
+        "scale": 0.99205,
+        "variant": "rorng_city_neoq_tree_columnar",
+        "yaw_degrees": 237.426
+      },
+      {
+        "digest_sha256": "e9370e4afb467acc96e1ecb09d2a79ef65d74a1c735450c86abd4c3253a3c59a",
+        "placement_ordinal": 6,
+        "scale": 1.02293,
+        "variant": "rorng_city_neoq_tree_round",
+        "yaw_degrees": 317.23
+      },
+      {
+        "digest_sha256": "b5050d70deaa21d90e66086f9a161174402de99ad75a3584009a5acc46a7994f",
+        "placement_ordinal": 7,
+        "scale": 0.99205,
+        "variant": "rorng_city_neoq_tree_windswept",
+        "yaw_degrees": 143.514
+      },
+      {
+        "digest_sha256": "88505d0be19cdfd9e55dbbfbc1e023a32d9bbdd23b5cca9be702e7b18f6007b8",
+        "placement_ordinal": 8,
+        "scale": 1.058,
+        "variant": "rorng_city_neoq_tree_columnar",
+        "yaw_degrees": 132.039
+      },
+      {
+        "digest_sha256": "dbbbdfc3d0e3935684064b6e648e37c0ee75439b4da16779a8c06c9cddaf4b0a",
+        "placement_ordinal": 9,
+        "scale": 0.9917,
+        "variant": "rorng_city_neoq_tree_columnar",
+        "yaw_degrees": 9.163
+      },
+      {
+        "digest_sha256": "2a95b8af31224acf26bb202316c696c72790dec590d89d8a7e39a7b8aa199e8f",
+        "placement_ordinal": 10,
+        "scale": 0.95647,
+        "variant": "rorng_city_neoq_tree_windswept",
+        "yaw_degrees": 263.177
+      },
+      {
+        "digest_sha256": "c3ff4a10583499636bc4c6f4fcb4b033b564255c28469a3d7eda68ea6b87eb3f",
+        "placement_ordinal": 11,
+        "scale": 1.05474,
+        "variant": "rorng_city_neoq_tree_windswept",
+        "yaw_degrees": 276.213
+      },
+      {
+        "digest_sha256": "8ce640a2e966b1eb1687e56241f6d4ba0276062a12d63b1d3ae9feed58d3f22a",
+        "placement_ordinal": 12,
+        "scale": 0.98636,
+        "variant": "rorng_city_neoq_tree_windswept",
+        "yaw_degrees": 189.965
+      },
+      {
+        "digest_sha256": "8544138bbaa80d592c74ad21b0d436b09ac821825a799086a1338662dbc3a140",
+        "placement_ordinal": 13,
+        "scale": 0.95579,
+        "variant": "rorng_city_neoq_tree_windswept",
+        "yaw_degrees": 163.367
+      },
+      {
+        "digest_sha256": "35001de56dafc1739738bbdc6b947115a0706142650610406c0f4bc3940bf742",
+        "placement_ordinal": 14,
+        "scale": 1.04347,
+        "variant": "rorng_city_neoq_tree_round",
+        "yaw_degrees": 79.579
+      },
+      {
+        "digest_sha256": "12cbd4dbdabe9aed645aee9a284a544a7516b97a4049ea39729bc0a5235290ba",
+        "placement_ordinal": 15,
+        "scale": 1.01262,
+        "variant": "rorng_city_neoq_tree_windswept",
+        "yaw_degrees": 127.112
+      },
+      {
+        "digest_sha256": "e755153201a76a7019537899c48fcf29c5f25d89243f1c9ab4347c7fb1745a23",
+        "placement_ordinal": 16,
+        "scale": 1.01194,
+        "variant": "rorng_city_neoq_tree_windswept",
+        "yaw_degrees": 116.856
+      },
+      {
+        "digest_sha256": "fff8a5ec7201b3940f86fc688ddf622ea34ed94f203fb321c2950e30b9b779c2",
+        "placement_ordinal": 17,
+        "scale": 0.98921,
+        "variant": "rorng_city_neoq_tree_windswept",
+        "yaw_degrees": 188.52
+      }
+    ],
+    "namespace": "cityworld:neoqueretaro:arbol1qr:v1"
+  },
+  "variants": [
+    {
+      "asset_id": "rorng_city_neoq_tree_round",
+      "manifest": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_round/rorng_city_neoq_tree_round.asset.json",
+      "silhouette": "round",
+      "weight": 1
+    },
+    {
+      "asset_id": "rorng_city_neoq_tree_columnar",
+      "manifest": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_columnar/rorng_city_neoq_tree_columnar.asset.json",
+      "silhouette": "columnar",
+      "weight": 1
+    },
+    {
+      "asset_id": "rorng_city_neoq_tree_windswept",
+      "manifest": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/rorng_city_neoq_tree_windswept.asset.json",
+      "silhouette": "windswept",
+      "weight": 1
+    }
+  ],
+  "wind": {
+    "anchor_height_m": 0.65,
+    "canopy_start_height_m": 2.5,
+    "format": "ror-cityworld-vegetation-wind-v1",
+    "max_tip_displacement_m": 0.48,
+    "node_extras": [
+      "rorng_wind_format",
+      "rorng_wind_anchor_height_m",
+      "rorng_wind_canopy_start_height_m",
+      "rorng_wind_max_tip_displacement_m",
+      "rorng_wind_phase_source"
+    ],
+    "phase_source": "instance-hash",
+    "runtime_consumes": false
+  }
+}

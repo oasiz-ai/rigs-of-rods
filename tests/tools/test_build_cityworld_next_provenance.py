@@ -27,7 +27,7 @@ INVENTORY = (
     REPOSITORY_ROOT
     / "content-source/cityworld_next/provenance/cityworld_next.inventory.json"
 )
-PACKAGE_FILE_COUNT = 61
+PACKAGE_FILE_COUNT = 88
 STREETLIGHT_PACKAGE_PATHS = {
     "fixtures/led_streetlight/compiled/"
     "rorng_city_led_streetlight.compile.json",
@@ -65,6 +65,25 @@ BRIDGE_STREETLIGHT_PACKAGE_PATHS = {
     "rorng_city_led_streetlight_bridge.asset.json",
     "fixtures/led_streetlight_bridge/"
     "rorng_city_led_streetlight_bridge.glb",
+}
+TREE_PACKAGE_PATHS = {
+    path
+    for asset_id in (
+        "rorng_city_neoq_tree_round",
+        "rorng_city_neoq_tree_columnar",
+        "rorng_city_neoq_tree_windswept",
+    )
+    for path in (
+        f"vegetation/{asset_id}/compiled/{asset_id}.compile.json",
+        f"vegetation/{asset_id}/compiled/{asset_id}.material",
+        f"vegetation/{asset_id}/compiled/{asset_id}.odef",
+        f"vegetation/{asset_id}/compiled/{asset_id}_collision_fixture.mesh",
+        f"vegetation/{asset_id}/compiled/{asset_id}_lod0.mesh",
+        f"vegetation/{asset_id}/compiled/{asset_id}_lod1.mesh",
+        f"vegetation/{asset_id}/compiled/{asset_id}_lod2.mesh",
+        f"vegetation/{asset_id}/{asset_id}.asset.json",
+        f"vegetation/{asset_id}/{asset_id}.glb",
+    )
 }
 
 
@@ -144,6 +163,16 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
         )
         self.assertTrue(
             BRIDGE_STREETLIGHT_PACKAGE_PATHS.issubset(
+                item["path"] for item in inventory["files"]
+            )
+        )
+        self.assertTrue(
+            TREE_PACKAGE_PATHS.issubset(
+                asset["path"] for asset in manifest["assets"]
+            )
+        )
+        self.assertTrue(
+            TREE_PACKAGE_PATHS.issubset(
                 item["path"] for item in inventory["files"]
             )
         )

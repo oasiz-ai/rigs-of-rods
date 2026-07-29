@@ -1,0 +1,128 @@
+{
+  "asset": {
+    "id": "rorng_city_neoq_tree_columnar",
+    "version": 1
+  },
+  "basis": {
+    "authoring": "blender-z-up-metres",
+    "authoring_to_interchange": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        -1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "compiler_transform": "identity",
+    "interchange": "gltf-y-up-metres",
+    "runtime": "ogre-y-up-metres"
+  },
+  "compiler": {
+    "format": "ror-cityworld-scene-compiler-v1",
+    "path": "tools/compile_cityworld_asset.py",
+    "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059"
+  },
+  "connectors": [],
+  "format": "ror-cityworld-scene-compile-report-v1",
+  "inputs": {
+    "asset_contract_sha256": "d3f1076aaf94628d87aeeb14f7174ee61d8ff274849a67b76027f86b898ea1d0",
+    "glb": {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_columnar/rorng_city_neoq_tree_columnar.glb",
+      "sha256": "940a639e902a24f879218c66d71c5af272e6868834d2eba7eebf51c20b7c46fa"
+    }
+  },
+  "limits": {
+    "indices": 12000000,
+    "materials": 4096,
+    "meshes": 4096,
+    "nodes": 4096,
+    "primitives": 8192,
+    "vertices": 4000000
+  },
+  "material_model": "ogre-rtss-metallic-roughness-fallback-v1",
+  "mesh_format": "MeshSerializer_v1.100-little-endian",
+  "ogre_converter": {
+    "executable": "OgreXMLConverter",
+    "sha256": "8ef66df8af0cced52ffada42b5e81e36d1e027a4215c3ae4604c47630eeaeb8b",
+    "version": "OgreXMLConverter Tsathoggua (14.5.2)"
+  },
+  "options": {
+    "colour_packing": "gl",
+    "endian": "little",
+    "lod_distances_m": [
+      80.0,
+      180.0
+    ],
+    "transforms": "applied-only"
+  },
+  "outputs": [
+    {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar.material",
+      "role": "material-fallback",
+      "sha256": "1232d66d4eb5147c33648728ed71e3b91ad5a4abd9fc68779d041d36e0e65526",
+      "size": 933
+    },
+    {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar.odef",
+      "role": "terrain-object",
+      "sha256": "ed08b8721704bdc46748f2196312061b903e96c76d488c579f2f0971b000fced",
+      "size": 160
+    },
+    {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar_collision_fixture.mesh",
+      "role": "collision-fixture",
+      "sha256": "08bcc76f46b9f28d13a99cd0ef14a424d73e084bb6642bf3bb24eb893894cb03",
+      "size": 2260
+    },
+    {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar_lod0.mesh",
+      "role": "render-lod0",
+      "sha256": "86f004c4d263507a1e4721630710a10f28fad610eea983e310824ba9c48f16d0",
+      "size": 868519
+    },
+    {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar_lod1.mesh",
+      "role": "render-lod1",
+      "sha256": "2678baeeb5d6c13bbee2b1d0a8d81e31ce1031faadb6279d1c8955bcec92d7eb",
+      "size": 88467
+    },
+    {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar_lod2.mesh",
+      "role": "render-lod2",
+      "sha256": "0fa809d97879d1ef976fa8845af29785710f9cfd3e0592ed938db7d2fc99c478",
+      "size": 14259
+    }
+  ],
+  "runtime_lights": [],
+  "source_stats": {
+    "indices": 70308,
+    "materials": 4,
+    "meshes": 4,
+    "primitives": 10,
+    "vertices": 17336
+  },
+  "xml_intermediate_sha256": {
+    "rorng_city_neoq_tree_columnar_collision_fixture.mesh.xml": "1012dee8fae1eb7cbe86e622cc04dca7c0a95ddc54126625edbfe8d1eae1051a",
+    "rorng_city_neoq_tree_columnar_lod0.mesh.xml": "c85bd367adbc15444cf6993a79be303f3af0d5f944696434ff45b13c0dde4684",
+    "rorng_city_neoq_tree_columnar_lod1.mesh.xml": "3a509b530cafcc4f1a54bcd1d5e3deb1e95053fd4846cee52cc35cafb7ff6b06",
+    "rorng_city_neoq_tree_columnar_lod2.mesh.xml": "4b525ac0cc72fda4f90a6258282a21a37cf9793201ca7f3dc0a78432c8c59a98"
+  }
+}

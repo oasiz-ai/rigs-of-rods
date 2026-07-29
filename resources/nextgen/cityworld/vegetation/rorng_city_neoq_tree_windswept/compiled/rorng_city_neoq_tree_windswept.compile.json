@@ -1,0 +1,128 @@
+{
+  "asset": {
+    "id": "rorng_city_neoq_tree_windswept",
+    "version": 1
+  },
+  "basis": {
+    "authoring": "blender-z-up-metres",
+    "authoring_to_interchange": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        -1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "compiler_transform": "identity",
+    "interchange": "gltf-y-up-metres",
+    "runtime": "ogre-y-up-metres"
+  },
+  "compiler": {
+    "format": "ror-cityworld-scene-compiler-v1",
+    "path": "tools/compile_cityworld_asset.py",
+    "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059"
+  },
+  "connectors": [],
+  "format": "ror-cityworld-scene-compile-report-v1",
+  "inputs": {
+    "asset_contract_sha256": "5e87e859448f61089943f6ddb54048b33eba4fc9774e563bba2229b5ff18c29a",
+    "glb": {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/rorng_city_neoq_tree_windswept.glb",
+      "sha256": "2040a7f66b4e1e871d97d4e036f3db34e3ef4cf63d6785ee3a41a855c5560d8a"
+    }
+  },
+  "limits": {
+    "indices": 12000000,
+    "materials": 4096,
+    "meshes": 4096,
+    "nodes": 4096,
+    "primitives": 8192,
+    "vertices": 4000000
+  },
+  "material_model": "ogre-rtss-metallic-roughness-fallback-v1",
+  "mesh_format": "MeshSerializer_v1.100-little-endian",
+  "ogre_converter": {
+    "executable": "OgreXMLConverter",
+    "sha256": "8ef66df8af0cced52ffada42b5e81e36d1e027a4215c3ae4604c47630eeaeb8b",
+    "version": "OgreXMLConverter Tsathoggua (14.5.2)"
+  },
+  "options": {
+    "colour_packing": "gl",
+    "endian": "little",
+    "lod_distances_m": [
+      80.0,
+      180.0
+    ],
+    "transforms": "applied-only"
+  },
+  "outputs": [
+    {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept.material",
+      "role": "material-fallback",
+      "sha256": "eabe4f5a21f74afe0d5b25c66e7a5b44d7ef8567e5871b18f9e06cc7ede0c67d",
+      "size": 937
+    },
+    {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept.odef",
+      "role": "terrain-object",
+      "sha256": "81742d6bd05b101ba9145a8b4ed339b47f8e9035e9f74efd92b64a869c5b1ec1",
+      "size": 162
+    },
+    {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept_collision_fixture.mesh",
+      "role": "collision-fixture",
+      "sha256": "6bda146d5143f44332231b749c2dc0df05a435b88992ae90f99acd3fb6416193",
+      "size": 2262
+    },
+    {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept_lod0.mesh",
+      "role": "render-lod0",
+      "sha256": "2a6b2045ef1ae7a9ab2f376a8944359f1073b71cc4c92c9991557f88b8293376",
+      "size": 868671
+    },
+    {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept_lod1.mesh",
+      "role": "render-lod1",
+      "sha256": "a5bb35bb204476443c3e87b758ee75011f2a217842fc1c9f38e55026fe9719ba",
+      "size": 88473
+    },
+    {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept_lod2.mesh",
+      "role": "render-lod2",
+      "sha256": "f3a509dfa78ed4f6e9aa648e0bc7651ae1c41835897819316b3ab032c5207a91",
+      "size": 14265
+    }
+  ],
+  "runtime_lights": [],
+  "source_stats": {
+    "indices": 70308,
+    "materials": 4,
+    "meshes": 4,
+    "primitives": 10,
+    "vertices": 17339
+  },
+  "xml_intermediate_sha256": {
+    "rorng_city_neoq_tree_windswept_collision_fixture.mesh.xml": "8685dacda381ba8beaf440875e0c358b5ac1360a9fe0ddb1848b4f6d3a00ce82",
+    "rorng_city_neoq_tree_windswept_lod0.mesh.xml": "6fdbc427b143c410e3779d0ba72c2a7c5869bd546be877b87c38737c64c99cba",
+    "rorng_city_neoq_tree_windswept_lod1.mesh.xml": "12a9ebc697a9a4662f4f7c5ecd535e7811c666914f1bcd6e58b021c0d8026655",
+    "rorng_city_neoq_tree_windswept_lod2.mesh.xml": "c216e395b63811d414a423b9637b39d0fd696f7a76d46fbeed445ec00227d236"
+  }
+}

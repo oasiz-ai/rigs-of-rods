@@ -365,6 +365,168 @@
       "sha256": "d1d1db743a58316465460cc52b8522cdcc2995e2e1fc58a58b686ae681efc96e",
       "size": 3574756,
       "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar.compile.json",
+      "sha256": "6a76bec09e99cfe6dd6ccf6552e9b2507068ccd5f859a1471a91ab73c3499b15",
+      "size": 4208,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar.material",
+      "sha256": "1232d66d4eb5147c33648728ed71e3b91ad5a4abd9fc68779d041d36e0e65526",
+      "size": 933,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar.odef",
+      "sha256": "ed08b8721704bdc46748f2196312061b903e96c76d488c579f2f0971b000fced",
+      "size": 160,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar_collision_fixture.mesh",
+      "sha256": "08bcc76f46b9f28d13a99cd0ef14a424d73e084bb6642bf3bb24eb893894cb03",
+      "size": 2260,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar_lod0.mesh",
+      "sha256": "86f004c4d263507a1e4721630710a10f28fad610eea983e310824ba9c48f16d0",
+      "size": 868519,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar_lod1.mesh",
+      "sha256": "2678baeeb5d6c13bbee2b1d0a8d81e31ce1031faadb6279d1c8955bcec92d7eb",
+      "size": 88467,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar_lod2.mesh",
+      "sha256": "0fa809d97879d1ef976fa8845af29785710f9cfd3e0592ed938db7d2fc99c478",
+      "size": 14259,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_columnar/rorng_city_neoq_tree_columnar.asset.json",
+      "sha256": "42fca27e6edfeaad53d085afe9639ba008a4819fe78757b10e5c0979e1fe13e5",
+      "size": 8204,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_columnar/rorng_city_neoq_tree_columnar.glb",
+      "sha256": "940a639e902a24f879218c66d71c5af272e6868834d2eba7eebf51c20b7c46fa",
+      "size": 985444,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_round/compiled/rorng_city_neoq_tree_round.compile.json",
+      "sha256": "d6e87160afcb8e0bbb0a974dd605750e9a2ef6fc645e035de0a6b5d4f510dad3",
+      "size": 4151,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_round/compiled/rorng_city_neoq_tree_round.material",
+      "sha256": "1088ec17bf92b9657715b23a8b0b9a580747d03814d9f0f638600ba5f401c07e",
+      "size": 921,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_round/compiled/rorng_city_neoq_tree_round.odef",
+      "sha256": "9b4e255870b6e4ba6da46bb47088266b4b983ce9639a315900b274ea0a428ec2",
+      "size": 154,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_round/compiled/rorng_city_neoq_tree_round_collision_fixture.mesh",
+      "sha256": "c5a9783922cc1d55b423bb87fd2c11ef6d90515742f6412fc5c738b7780b7b15",
+      "size": 2254,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_round/compiled/rorng_city_neoq_tree_round_lod0.mesh",
+      "sha256": "a7ea0d2ab9fa6cb4ebd39572e9a1fb39ee4fd0c3179274df478a10264027907b",
+      "size": 868447,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_round/compiled/rorng_city_neoq_tree_round_lod1.mesh",
+      "sha256": "4caebe480a2c28c3a155f5dc23f7aa806f9f533db27891e27780ea9386606503",
+      "size": 88449,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_round/compiled/rorng_city_neoq_tree_round_lod2.mesh",
+      "sha256": "b868e994cb1459e2eb396f34a3a3195b6f49e8df8b3b54f12225ca83f10f20b3",
+      "size": 14241,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_round/rorng_city_neoq_tree_round.asset.json",
+      "sha256": "b1815ccf57c8406b1442ade9b9b8b3b54598a0b5b91ee93899a834bf5b0113e6",
+      "size": 8111,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_round/rorng_city_neoq_tree_round.glb",
+      "sha256": "00636d6ab7911775af20a38cc6c1ceffcd9c58fc934271033a84e3c2ae6095bd",
+      "size": 985340,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept.compile.json",
+      "sha256": "b070f004e077ef4ea3fe4b556685fe7ae5ced6b7fdbfac92a0bbfa2ac063caad",
+      "size": 4227,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept.material",
+      "sha256": "eabe4f5a21f74afe0d5b25c66e7a5b44d7ef8567e5871b18f9e06cc7ede0c67d",
+      "size": 937,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept.odef",
+      "sha256": "81742d6bd05b101ba9145a8b4ed339b47f8e9035e9f74efd92b64a869c5b1ec1",
+      "size": 162,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept_collision_fixture.mesh",
+      "sha256": "6bda146d5143f44332231b749c2dc0df05a435b88992ae90f99acd3fb6416193",
+      "size": 2262,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept_lod0.mesh",
+      "sha256": "2a6b2045ef1ae7a9ab2f376a8944359f1073b71cc4c92c9991557f88b8293376",
+      "size": 868671,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept_lod1.mesh",
+      "sha256": "a5bb35bb204476443c3e87b758ee75011f2a217842fc1c9f38e55026fe9719ba",
+      "size": 88473,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept_lod2.mesh",
+      "sha256": "f3a509dfa78ed4f6e9aa648e0bc7651ae1c41835897819316b3ab032c5207a91",
+      "size": 14265,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_windswept/rorng_city_neoq_tree_windswept.asset.json",
+      "sha256": "9637427192094ef43e0c35563e53465981e70e045eaa69042419567b6a2bab37",
+      "size": 8223,
+      "type": "file"
+    },
+    {
+      "path": "vegetation/rorng_city_neoq_tree_windswept/rorng_city_neoq_tree_windswept.glb",
+      "sha256": "2040a7f66b4e1e871d97d4e036f3db34e3ef4cf63d6785ee3a41a855c5560d8a",
+      "size": 985604,
+      "type": "file"
     }
   ],
   "format": "ror-distributable-inventory-v1"

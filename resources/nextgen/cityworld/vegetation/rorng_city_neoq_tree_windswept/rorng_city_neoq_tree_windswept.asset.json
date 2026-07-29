@@ -1,0 +1,275 @@
+{
+  "artifacts": {
+    "blend": {
+      "path": "content-source/cityworld_next/vegetation/rorng_city_neoq_tree_windswept/rorng_city_neoq_tree_windswept.blend",
+      "sha256": "c428a11afd2bb5ab3953f8a15c09815e9a2be1d5e30f29368f60c3a926732b63"
+    },
+    "glb": {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/rorng_city_neoq_tree_windswept.glb",
+      "sha256": "2040a7f66b4e1e871d97d4e036f3db34e3ef4cf63d6785ee3a41a855c5560d8a"
+    },
+    "preview": {
+      "path": "content-source/cityworld_next/vegetation/rorng_city_neoq_tree_windswept/rorng_city_neoq_tree_windswept_preview.png",
+      "sha256": "76c6ff9ce4a02e78757e75a66c84bdaefd3b4e7c770af77671f8f34eb40a29fc"
+    }
+  },
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_neoq_tree_windswept",
+    "license": "GPL-3.0-or-later",
+    "profile": "static-fixture-v1",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "axis": "blender-z-up",
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        },
+        {
+          "path": "tools/blender/cityworld_next/canonicalize_static_glb.py",
+          "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
+        }
+      ],
+      "format": "ror-cityworld-neoq-tree-family-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_neoq_tree_family.py",
+      "sha256": "ae37842c513d9d1c394b355325fd672985c024ca93ab7b52d1597cca0adbc32b"
+    },
+    "procedural_provenance": {
+      "external_geometry": false,
+      "external_textures": false,
+      "method": "deterministic-project-authored-blender-python",
+      "rights_basis": "GPL-3.0-or-later project-authored source"
+    },
+    "transforms_applied": true,
+    "units": "metres"
+  },
+  "collision": {
+    "objects": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            0.54,
+            0.54,
+            3.45
+          ],
+          "min": [
+            -0.54,
+            -0.54,
+            0.0
+          ]
+        },
+        "name": "rorng_city_neoq_tree_windswept_collision_fixture",
+        "role": "collision-fixture",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 44
+      }
+    ],
+    "profile": "single-watertight-proxy-v1",
+    "purpose": "trunk-only-vehicle-contact",
+    "separate_from_render_mesh": true
+  },
+  "compiled": {
+    "format": "ror-cityworld-compiled-asset-v1",
+    "outputs": [
+      {
+        "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept.material",
+        "role": "material-fallback",
+        "sha256": "eabe4f5a21f74afe0d5b25c66e7a5b44d7ef8567e5871b18f9e06cc7ede0c67d",
+        "size": 937
+      },
+      {
+        "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept.odef",
+        "role": "terrain-object",
+        "sha256": "81742d6bd05b101ba9145a8b4ed339b47f8e9035e9f74efd92b64a869c5b1ec1",
+        "size": 162
+      },
+      {
+        "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept_collision_fixture.mesh",
+        "role": "collision-fixture",
+        "sha256": "6bda146d5143f44332231b749c2dc0df05a435b88992ae90f99acd3fb6416193",
+        "size": 2262
+      },
+      {
+        "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept_lod0.mesh",
+        "role": "render-lod0",
+        "sha256": "2a6b2045ef1ae7a9ab2f376a8944359f1073b71cc4c92c9991557f88b8293376",
+        "size": 868671
+      },
+      {
+        "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept_lod1.mesh",
+        "role": "render-lod1",
+        "sha256": "a5bb35bb204476443c3e87b758ee75011f2a217842fc1c9f38e55026fe9719ba",
+        "size": 88473
+      },
+      {
+        "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept_lod2.mesh",
+        "role": "render-lod2",
+        "sha256": "f3a509dfa78ed4f6e9aa648e0bc7651ae1c41835897819316b3ab032c5207a91",
+        "size": 14265
+      }
+    ],
+    "report": {
+      "path": "resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/compiled/rorng_city_neoq_tree_windswept.compile.json",
+      "sha256": "b070f004e077ef4ea3fe4b556685fe7ae5ced6b7fdbfac92a0bbfa2ac063caad"
+    }
+  },
+  "connectors": [],
+  "export": {
+    "allowlisted_extensions": [],
+    "animations": false,
+    "apply_modifiers": true,
+    "cameras": false,
+    "format": "glb",
+    "lights": false,
+    "materials": "export",
+    "profile": "gltf-2.0",
+    "selection_only": true,
+    "tangents": true,
+    "textures": [],
+    "y_up": true
+  },
+  "format": "ror-cityworld-asset-v1",
+  "geometry": {
+    "fixture_height_m": 8.9,
+    "footprint_diameter_m": 7.7,
+    "lod0_triangle_ceiling": 35000,
+    "lod1_max_ratio": 0.4,
+    "lod2_max_ratio": 0.12,
+    "lods": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            5.420925,
+            3.112452,
+            7.562837
+          ],
+          "min": [
+            -3.223627,
+            -3.2506,
+            0.0
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_neoq_tree_windswept_lod0",
+        "triangles": 21136
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            4.489523,
+            2.610397,
+            7.517186
+          ],
+          "min": [
+            -3.138736,
+            -3.431328,
+            -0.062333
+          ]
+        },
+        "lod": 1,
+        "name": "rorng_city_neoq_tree_windswept_lod1",
+        "triangles": 1988
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            3.677238,
+            2.235492,
+            7.932329
+          ],
+          "min": [
+            -2.852059,
+            -3.53505,
+            -0.067508
+          ]
+        },
+        "lod": 2,
+        "name": "rorng_city_neoq_tree_windswept_lod2",
+        "triangles": 268
+      }
+    ]
+  },
+  "materials": [
+    {
+      "base_color_factor_linear": [
+        0.17,
+        0.095,
+        0.045,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_neoq_tree_windswept_bark",
+      "roughness_factor": 0.91
+    },
+    {
+      "base_color_factor_linear": [
+        0.82,
+        0.03,
+        0.025,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_neoq_tree_windswept_collision_debug",
+      "roughness_factor": 1.0
+    },
+    {
+      "base_color_factor_linear": [
+        0.045,
+        0.19,
+        0.052,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_neoq_tree_windswept_foliage_dark",
+      "roughness_factor": 0.83
+    },
+    {
+      "base_color_factor_linear": [
+        0.11,
+        0.32,
+        0.075,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_neoq_tree_windswept_foliage_light",
+      "roughness_factor": 0.78
+    }
+  ],
+  "vegetation": {
+    "family": "rorng_city_neoq_tree_family",
+    "foliage": {
+      "alpha_mode": "opaque-geometry",
+      "mip_safe": true,
+      "texture_dependencies": []
+    },
+    "impostor": {
+      "compiler_emits": false,
+      "format": "ror-cityworld-vegetation-impostor-contract-v1",
+      "status": "contract-only"
+    },
+    "silhouette_variant": "windswept",
+    "wind": {
+      "anchor_height_m": 0.65,
+      "canopy_start_height_m": 2.5,
+      "format": "ror-cityworld-vegetation-wind-v1",
+      "max_tip_displacement_m": 0.48,
+      "node_extras": true,
+      "phase_source": "instance-hash",
+      "runtime_consumes": false
+    }
+  }
+}

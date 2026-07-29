@@ -32,6 +32,7 @@ jobs:
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py
+          tests/tools/test_cityworld_tree_family.py
           tests/tools/test_compile_cityworld_asset.py
           tests/tools/test_run_cityworld_bridge_scene.py
           tests/tools/test_run_cityworld_corridor_scene.py
@@ -50,6 +51,7 @@ jobs:
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py
+          tests/tools/test_cityworld_tree_family.py
           tests/tools/test_compile_cityworld_asset.py
           tests/tools/test_run_cityworld_bridge_scene.py
           tests/tools/test_run_cityworld_corridor_scene.py
@@ -105,6 +107,30 @@ jobs:
             --repo-root .
           python tools/compile_cityworld_asset.py \
             resources/nextgen/cityworld/fixtures/led_streetlight_bridge/rorng_city_led_streetlight_bridge.asset.json \
+            --repo-root . \
+            --validate-checked
+          python tools/validate_cityworld_tree_family.py \
+            content-source/cityworld_next/vegetation/rorng_city_neoq_tree_family.v1.json \
+            --repo-root .
+          python tools/validate_cityworld_asset.py \
+            resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_round/rorng_city_neoq_tree_round.asset.json \
+            --repo-root .
+          python tools/compile_cityworld_asset.py \
+            resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_round/rorng_city_neoq_tree_round.asset.json \
+            --repo-root . \
+            --validate-checked
+          python tools/validate_cityworld_asset.py \
+            resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_columnar/rorng_city_neoq_tree_columnar.asset.json \
+            --repo-root .
+          python tools/compile_cityworld_asset.py \
+            resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_columnar/rorng_city_neoq_tree_columnar.asset.json \
+            --repo-root . \
+            --validate-checked
+          python tools/validate_cityworld_asset.py \
+            resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/rorng_city_neoq_tree_windswept.asset.json \
+            --repo-root .
+          python tools/compile_cityworld_asset.py \
+            resources/nextgen/cityworld/vegetation/rorng_city_neoq_tree_windswept/rorng_city_neoq_tree_windswept.asset.json \
             --repo-root . \
             --validate-checked
           python tools/content_provenance_audit.py \
