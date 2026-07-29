@@ -6,17 +6,29 @@ from conan.tools.build import can_run
 from conan.tools.cmake import CMake, cmake_layout
 
 
-EXPECTED_ARCHIVES = (
-    "libMyGUI.OgrePlatform.a",
-    "libMyGUIEngineStatic.a",
-)
-EXPECTED_TRANSITIVE_ARCHIVES = (
-    "libfreetype.a",
-)
-EXPECTED_LIBRARIES = (
+BASE_LIBRARIES = (
     "MyGUI.OgrePlatform",
     "MyGUIEngineStatic",
 )
+EXPECTED_REQUIREMENTS = (
+    "ogre3d::Main",
+    "freetype::freetype",
+)
+
+
+def expected_libraries(os_name, build_type):
+    debug_suffix = (
+        "_d"
+        if str(build_type) == "Debug" and str(os_name) != "Macos"
+        else ""
+    )
+    return tuple(f"{library}{debug_suffix}" for library in BASE_LIBRARIES)
+
+
+def expected_static_archives(os_name, libraries):
+    if str(os_name) == "Windows":
+        return tuple(f"{library}.lib" for library in libraries)
+    return tuple(f"lib{library}.a" for library in libraries)
 
 
 class MyGUITestPackage(ConanFile):
@@ -31,28 +43,42 @@ class MyGUITestPackage(ConanFile):
         cmake_layout(self)
 
     def build(self):
+        expected_library_names = expected_libraries(
+            self.settings.os,
+            self.settings.build_type,
+        )
+        expected_archives = expected_static_archives(
+            self.settings.os,
+            expected_library_names,
+        )
         dependency = self.dependencies["mygui"]
         represented_libraries = tuple(dependency.cpp_info.libs)
-        for expected_library in EXPECTED_LIBRARIES:
+        for expected_library in expected_library_names:
             if expected_library not in represented_libraries:
                 raise ConanException(
                     f"MyGUI package metadata omits {expected_library}: "
                     f"{represented_libraries!r}"
                 )
-
-        package_folder = dependency.package_folder
-        for expected_archive in EXPECTED_ARCHIVES:
-            archive_path = os.path.join(
-                package_folder,
-                "lib",
-                expected_archive,
-            )
-            if not os.path.isfile(archive_path):
+        represented_requirements = tuple(dependency.cpp_info.requires)
+        for expected_requirement in EXPECTED_REQUIREMENTS:
+            if expected_requirement not in represented_requirements:
                 raise ConanException(
-                    f"MyGUI package omits static archive {expected_archive}"
+                    "MyGUI package metadata omits transitive requirement "
+                    f"{expected_requirement}: {represented_requirements!r}"
+                )
+
+        for expected_archive in expected_archives:
+            archive_paths = [
+                os.path.join(library_directory, expected_archive)
+                for library_directory in dependency.cpp_info.libdirs
+            ]
+            if not any(os.path.isfile(path) for path in archive_paths):
+                raise ConanException(
+                    "MyGUI package metadata cannot resolve static archive "
+                    f"{expected_archive}: {archive_paths!r}"
                 )
         incomplete_pc = os.path.join(
-            package_folder,
+            dependency.package_folder,
             "lib",
             "pkgconfig",
             "MYGUIStatic.pc",
@@ -65,27 +91,6 @@ class MyGUITestPackage(ConanFile):
         cmake = CMake(self)
         cmake.configure()
         cmake.build()
-
-        link_commands = []
-        for root, _, filenames in os.walk(self.build_folder):
-            if "link.txt" not in filenames:
-                continue
-            link_path = os.path.join(root, "link.txt")
-            with open(link_path, encoding="utf-8") as link_file:
-                link_commands.append(link_file.read())
-        complete_link_command = "\n".join(link_commands)
-        for expected_archive in EXPECTED_ARCHIVES:
-            if expected_archive not in complete_link_command:
-                raise ConanException(
-                    "Consumer link command omits static archive "
-                    f"{expected_archive}"
-                )
-        for expected_archive in EXPECTED_TRANSITIVE_ARCHIVES:
-            if expected_archive not in complete_link_command:
-                raise ConanException(
-                    "MyGUI::MyGUI omits transitive static archive "
-                    f"{expected_archive}"
-                )
 
     def test(self):
         if not can_run(self):

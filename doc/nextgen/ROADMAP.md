@@ -30,9 +30,11 @@ BeamNG-derived product name without written permission, in accordance with
   complete dynamic vertex buffers to the GPU. Simulation nodes remain the
   authoritative geometry.
 - The compatibility build remains pinned to OGRE `1.11.6.1`, while the opt-in
-  native macOS path pins OGRE `14.5.2`, GL3Plus, and RTShaderSystem. The OGRE 14
-  dependency and application bundle have no Cg package or runtime plugin;
-  Windows/Linux migration and measured renderer parity remain open.
+  graph pins OGRE `14.5.2` and the current MyGUI recipe for exact native macOS
+  arm64, Linux x86_64, and Windows x86_64 targets. The macOS application uses
+  GL3Plus and RTShaderSystem, and the OGRE 14 graph has no Cg package or runtime
+  plugin. Linux/Windows runtime packaging, native application execution, and
+  measured renderer parity remain open.
 - Three-cascade PSSM shadows, terrain normal/specular/height inputs, dynamic
   cubemaps, Caelum/SkyX, Hydrax, vegetation, particles, and reflection/refraction
   water already exist. There is no general HDR, PBR, FXAA, bloom, SSAO, or TAA
@@ -726,6 +728,24 @@ pixels. Across 1,410 post-warmup samples, PSSM measured 1.99006 ms mean and
 3.44846 ms p95, adding 0.72936 ms mean and 1.24438 ms p95 over the control.
 The parent report hashes every child report, RGB proof, and stdout artifact.
 
+The first three-platform OGRE 14 dependency foundation is now checked in
+separately from runtime support. Exact release profiles and application locks
+cover macOS arm64, Linux x86_64, and Windows x86_64; unsupported operating
+system and architecture tuples fail closed before Conan runs. The graph selects
+GL3Plus on macOS/Linux and D3D11 on Windows, uses OIS 1.5.1 on all three OGRE 14
+targets, preserves the upstream Windows MyGUI configuration-library layout, and
+keeps the legacy graph unchanged. A lock auditor exports the current local
+recipes and verifies the exact OGRE revision
+`68db16985fa623986379d2b9422d0dce`, MyGUI revision
+`a8b971a8ab16d2deb80ee5ea91cf023b`, target identity, options, and
+platform-specific dependency closure. The audited application graphs contain
+62 macOS, 199 Linux, and 47 Windows references. A fresh locked macOS arm64
+provider configure built all 352 targets, the MyGUI consumer probe linked and
+ran, and all 41 configured CTests passed. This proves the cross-platform
+dependency contracts and current macOS realization; platform-aware plugin
+staging, relocatable Linux/Windows packages, native application builds, and
+runtime smoke tests remain required.
+
 This is meaningful R0 progress, not completion. The remaining gates include:
 
 - Extend the display-metrics proof to native Windows/Linux, window resize and
@@ -744,9 +764,9 @@ This is meaningful R0 progress, not completion. The remaining gates include:
 - Decide and prove the production Metal material path. RoR media still has no
   authored MSL pipeline; the current application path intentionally uses
   GL3Plus.
-- Build and test the full OGRE 14 application on Windows and Linux, add the
-  three-platform native CI matrix, and measure the declared CPU/GPU frame-time
-  budgets.
+- Complete platform-aware OGRE plugin and runtime staging, build and test the
+  full OGRE 14 application on Windows and Linux, add the three-platform native
+  CI matrix, and measure the declared CPU/GPU frame-time budgets.
 
 Merely changing version strings is still an explicitly rejected milestone.
 

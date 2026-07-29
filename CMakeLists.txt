@@ -41,14 +41,20 @@ option(ROR_BUILD_DOC_DOXYGEN "Build documentation from sources with Doxygen" OFF
 option(ROR_BUILD_TESTS "Build deterministic dependency-free physics tests" OFF)
 option(ROR_USE_PCH "Use a Precompiled header for speeding up the build" ON)
 option(ROR_CREATE_CONTENT_FOLDER "Create the base content folder" ON)
-option(ROR_OGRE14 "Opt in to the native macOS OGRE 14 bring-up" OFF)
+option(ROR_OGRE14 "Opt in to the cross-platform OGRE 14 bring-up" OFF)
 set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to the dependencies")
 
-if (ROR_OGRE14 AND NOT APPLE)
-    message(FATAL_ERROR "ROR_OGRE14 currently supports native macOS only")
-endif ()
-
 if (ROR_OGRE14)
+    include(Ogre14Platform)
+    ror_select_ogre14_lockfile(
+        _ror_ogre14_lockfile
+        "${CMAKE_SYSTEM_NAME}"
+        "${CMAKE_SYSTEM_PROCESSOR}"
+    )
+    if (NOT EXISTS "${CMAKE_SOURCE_DIR}/${_ror_ogre14_lockfile}")
+        message(FATAL_ERROR
+            "Pinned OGRE 14 lockfile is missing: ${_ror_ogre14_lockfile}")
+    endif ()
     find_program(CONAN_COMMAND "conan" REQUIRED)
     foreach (_ror_recipe IN ITEMS ogre3d mygui)
         if (_ror_recipe STREQUAL "ogre3d")
@@ -73,7 +79,7 @@ if (ROR_OGRE14)
 
     set(_ror_ogre14_conan_args
         "-o=&:ogre14=True"
-        "--lockfile=${CMAKE_SOURCE_DIR}/cmake/conan/locks/ror-ogre14-macos-arm64-release.lock"
+        "--lockfile=${CMAKE_SOURCE_DIR}/${_ror_ogre14_lockfile}"
         "-c:h=tools.cmake:configure_args=[\"-DCMAKE_POLICY_VERSION_MINIMUM=3.5\"]"
     )
     foreach (_ror_conan_arg IN LISTS _ror_ogre14_conan_args)
@@ -87,6 +93,7 @@ if (ROR_OGRE14)
     unset(_ror_ogre14_conan_args)
     unset(_ror_conan_arg)
     unset(_ror_conan_arg_index)
+    unset(_ror_ogre14_lockfile)
 endif ()
 
 set(ROR_BUILD_INSTALLER "Off" CACHE STRING
