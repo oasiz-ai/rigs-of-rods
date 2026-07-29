@@ -225,6 +225,7 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                     observed_tobj_sha256,
                     placements,
                     telepoints);
+            bool tobj_cached = false;
             if (grounding.applied)
             {
                 ROR_ASSERT(placements.size() == tobj->objects.size());
@@ -257,35 +258,58 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                     committed_telepoints.push_back(telepoint);
                 }
 
-                for (std::size_t index = 0U;
-                     index < placements.size();
-                     ++index)
-                {
-                    // The same transformed entry is passed to
-                    // LoadTerrainObject() below, so ODEF visuals and every
-                    // collision primitive receive one identical transform.
-                    tobj->objects[index].position.y =
-                        placements[index].position_y;
-                    std::memset(
-                        tobj->objects[index].instance_name,
-                        0,
-                        TObj::STR_LEN);
-                    std::memcpy(
-                        tobj->objects[index].instance_name,
-                        placements[index].instance_name.data(),
-                        placements[index].instance_name.size());
-                }
-                terrainManager->GetDef()->telepoints.swap(
-                    committed_telepoints);
-                LOG(fmt::format(
-                    "[RoR|CityWorld|NeoQ20Grounding] Applied "
-                    "placements={} renames={} telepoints={} "
-                    "transactionally before object instantiation "
-                    "(tobj_sha256={})",
-                    grounding.placement_changed_count,
-                    grounding.renamed_instance_count,
-                    grounding.telepoint_changed_count,
-                    observed_tobj_sha256));
+                const Terrn2DocumentPtr terrain_definition =
+                    terrainManager->GetDef();
+                CommitCityWorldNeoQ20RuntimeState(
+                    [&]()
+                    {
+                        return fmt::format(
+                            "[RoR|CityWorld|NeoQ20Grounding] Applied "
+                            "placements={} renames={} telepoints={} "
+                            "transactionally before object instantiation "
+                            "(tobj_sha256={})",
+                            grounding.placement_changed_count,
+                            grounding.renamed_instance_count,
+                            grounding.telepoint_changed_count,
+                            observed_tobj_sha256);
+                    },
+                    [&]()
+                    {
+                        // Cache insertion is the final potentially allocating
+                        // prerequisite for the object-loading loops below. If
+                        // reserve or insertion throws, the surrounding catch
+                        // returns while authoritative state is untouched.
+                        m_tobj_cache.reserve(m_tobj_cache.size() + 1U);
+                        m_tobj_cache.push_back(tobj);
+                    },
+                    [&]() noexcept
+                    {
+                        // The same transformed entry is passed to
+                        // LoadTerrainObject() below, so ODEF visuals and every
+                        // collision primitive receive one identical transform.
+                        for (std::size_t index = 0U;
+                             index < placements.size();
+                             ++index)
+                        {
+                            tobj->objects[index].position.y =
+                                placements[index].position_y;
+                            std::memset(
+                                tobj->objects[index].instance_name,
+                                0,
+                                TObj::STR_LEN);
+                            std::memcpy(
+                                tobj->objects[index].instance_name,
+                                placements[index].instance_name.data(),
+                                placements[index].instance_name.size());
+                        }
+                        terrain_definition->telepoints.swap(
+                            committed_telepoints);
+                    },
+                    [](const std::string& message)
+                    {
+                        LOG(message);
+                    });
+                tobj_cached = true;
             }
             else
             {
@@ -298,8 +322,15 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                         ? "unavailable"
                         : observed_tobj_sha256));
             }
+            if (!tobj_cached)
+            {
+                m_tobj_cache.push_back(tobj);
+            }
         }
-        m_tobj_cache.push_back(tobj);
+        else
+        {
+            m_tobj_cache.push_back(tobj);
+        }
     }
     catch (...)
     {

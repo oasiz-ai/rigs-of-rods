@@ -13,6 +13,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace RoR
@@ -87,6 +89,37 @@ struct CityWorldNeoQ20CompatibilityResult
     std::size_t telepoint_changed_count = 0U;
     std::string rejection_reason;
 };
+
+/// Publish every potentially throwing runtime prerequisite before committing
+/// the already-validated TOBJ and terrain-definition state. The final state
+/// callback is required to be non-throwing, and diagnostics are best-effort so
+/// a logger failure cannot turn a completed commit into a partial load.
+template <
+    typename PrepareDiagnostic,
+    typename PublishCache,
+    typename CommitState,
+    typename LogDiagnostic>
+void CommitCityWorldNeoQ20RuntimeState(
+    PrepareDiagnostic&& prepare_diagnostic,
+    PublishCache&& publish_cache,
+    CommitState&& commit_state,
+    LogDiagnostic&& log_diagnostic)
+{
+    static_assert(
+        noexcept(std::declval<CommitState&>()()),
+        "NeoQ2.0 authoritative state commit must be non-throwing");
+
+    auto diagnostic = prepare_diagnostic();
+    publish_cache();
+    commit_state();
+    try
+    {
+        log_diagnostic(diagnostic);
+    }
+    catch (...)
+    {
+    }
+}
 
 /// Return the exact authenticated dependency which selects this compatibility
 /// policy. CacheSystem verifies the archive bytes before it mounts this entry.

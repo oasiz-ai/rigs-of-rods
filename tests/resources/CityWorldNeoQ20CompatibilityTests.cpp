@@ -484,6 +484,124 @@ void TestAuthenticationMismatchPreservesBothInputs()
     }
 }
 
+struct InjectedCommitBoundaryFailure
+{
+};
+
+void TestRuntimeCommitFailureBoundary()
+{
+    {
+        int phase = 0;
+        bool cache_published = false;
+        bool state_committed = false;
+        bool failure_observed = false;
+        try
+        {
+            RoR::CommitCityWorldNeoQ20RuntimeState(
+                [&]() -> std::string
+                {
+                    phase = 1;
+                    throw InjectedCommitBoundaryFailure();
+                },
+                [&]()
+                {
+                    cache_published = true;
+                },
+                [&]() noexcept
+                {
+                    state_committed = true;
+                },
+                [](const std::string&)
+                {
+                });
+        }
+        catch (const InjectedCommitBoundaryFailure&)
+        {
+            failure_observed = true;
+        }
+        CHECK(failure_observed);
+        CHECK(phase == 1);
+        CHECK(!cache_published);
+        CHECK(!state_committed);
+    }
+
+    {
+        int phase = 0;
+        bool state_committed = false;
+        bool failure_observed = false;
+        try
+        {
+            RoR::CommitCityWorldNeoQ20RuntimeState(
+                [&]()
+                {
+                    phase = 1;
+                    return std::string("prepared");
+                },
+                [&]()
+                {
+                    CHECK(phase == 1);
+                    phase = 2;
+                    throw InjectedCommitBoundaryFailure();
+                },
+                [&]() noexcept
+                {
+                    state_committed = true;
+                },
+                [](const std::string&)
+                {
+                });
+        }
+        catch (const InjectedCommitBoundaryFailure&)
+        {
+            failure_observed = true;
+        }
+        CHECK(failure_observed);
+        CHECK(phase == 2);
+        CHECK(!state_committed);
+    }
+
+    {
+        int phase = 0;
+        bool failure_escaped = false;
+        try
+        {
+            RoR::CommitCityWorldNeoQ20RuntimeState(
+                [&]()
+                {
+                    phase = 1;
+                    return std::string("prepared");
+                },
+                [&]()
+                {
+                    if (phase != 1)
+                    {
+                        phase = -1;
+                        return;
+                    }
+                    phase = 2;
+                },
+                [&]() noexcept
+                {
+                    phase = phase == 2 ? 3 : -1;
+                },
+                [&](const std::string& diagnostic)
+                {
+                    if (phase != 3 || diagnostic != "prepared")
+                    {
+                        phase = -1;
+                    }
+                    throw InjectedCommitBoundaryFailure();
+                });
+        }
+        catch (...)
+        {
+            failure_escaped = true;
+        }
+        CHECK(!failure_escaped);
+        CHECK(phase == 3);
+    }
+}
+
 } // namespace
 
 int main()
@@ -494,6 +612,7 @@ int main()
     TestTelepointFailurePreservesAllPlacements();
     TestPlacementFailurePreservesTelepointAndAllOtherPlacements();
     TestAuthenticationMismatchPreservesBothInputs();
+    TestRuntimeCommitFailureBoundary();
 
     if (failures != 0)
     {
