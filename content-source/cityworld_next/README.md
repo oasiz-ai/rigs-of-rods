@@ -97,6 +97,10 @@ python3 tools/run_cityworld_bridge_transition_scene.py \
   --executable /Applications/RoR.app/Contents/MacOS/RoR \
   --runtime-content build-macos-ogre14-roadmap/bin/content \
   --artifact-dir /tmp/cityworld-bridge-transition-runtime
+python3 tools/run_cityworld_gateway_scene.py \
+  --executable /Applications/RoR.app/Contents/MacOS/RoR \
+  --runtime-content build-macos-ogre14-roadmap/bin/content \
+  --artifact-dir /tmp/cityworld-gateway-runtime
 python3 tools/build_cityworld_next_provenance.py --repo-root .
 python3 tools/build_cityworld_next_provenance.py --repo-root . --check
 python3 tools/content_provenance_audit.py \

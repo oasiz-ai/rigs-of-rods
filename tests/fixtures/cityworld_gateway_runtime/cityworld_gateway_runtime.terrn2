@@ -1,0 +1,21 @@
+[General]
+Name = CityWorld Next Gateway Runtime Gate
+GeometryConfig = simple2.otc
+Water = 0
+AmbientColor = 0.72, 0.72, 0.72
+StartPosition = 512, 2, 448
+StartRotation = 180
+Gravity = -9.81
+CategoryID = 129
+Version = 2
+GUID = cfe27ee1-c727-4594-be30-1916aa02ca1a
+TractionMap = simple2_landuse.cfg
+
+[Authors]
+terrain = Oasiz AI and Rigs of Rods contributors
+
+[Objects]
+cityworld_gateway_runtime.tobj =
+
+[Scripts]
+cityworld_gateway_runtime.as =
