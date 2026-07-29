@@ -42,6 +42,14 @@ GATEWAY_MANIFEST_PATH = (
     / "resources/nextgen/cityworld/streetscape/gateway_block_40m/"
     "rorng_city_gateway_block_40m.asset.json"
 )
+FIXTURE_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/fixtures/led_streetlight/"
+    "rorng_city_led_streetlight.asset.json"
+)
+FIXTURE_MANIFEST_RELATIVE = FIXTURE_MANIFEST_PATH.relative_to(
+    REPOSITORY_ROOT
+)
 BASE_GENERATOR_PATH = (
     REPOSITORY_ROOT
     / "tools/blender/cityworld_next/generate_bridge_kit.py"
@@ -51,6 +59,8 @@ DERIVED_GENERATOR_PATHS = (
     / "tools/blender/cityworld_next/generate_curved_bridge.py",
     REPOSITORY_ROOT
     / "tools/blender/cityworld_next/generate_bridge_transition.py",
+    REPOSITORY_ROOT
+    / "tools/blender/cityworld_next/generate_led_streetlight.py",
 )
 
 
@@ -235,6 +245,27 @@ class CityWorldAssetValidationTests(unittest.TestCase):
             },
         )
 
+    def test_checked_in_led_streetlight_passes_full_gate(self) -> None:
+        result, report = self.run_validator(
+            REPOSITORY_ROOT,
+            FIXTURE_MANIFEST_PATH,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(report["diagnostics"], [])
+        self.assertEqual(
+            report["summary"],
+            {
+                "collision_objects": 1,
+                "errors": 0,
+                "glb_materials": 6,
+                "glb_nodes": 4,
+                "lod_objects": 3,
+                "runtime_lights": 0,
+                "triangles": 5120,
+                "valid": True,
+            },
+        )
+
     def test_checked_in_curved_bridge_asset_passes_full_gate(self) -> None:
         result, report = self.run_validator(
             REPOSITORY_ROOT,
@@ -383,6 +414,254 @@ class CityWorldAssetValidationTests(unittest.TestCase):
         self.assertEqual(normal_result.returncode, 0)
         self.assertEqual(optimized_result.returncode, 0)
         self.assertEqual(normal, optimized)
+
+    def test_fixture_hostile_record_shapes_fail_closed_in_all_modes(
+        self,
+    ) -> None:
+        mutations = (
+            (
+                "profile-list",
+                lambda manifest: manifest["asset"].update(
+                    {"profile": []}
+                ),
+                {"ASSET_PROFILE"},
+            ),
+            (
+                "profile-object",
+                lambda manifest: manifest["asset"].update(
+                    {"profile": {}}
+                ),
+                {"ASSET_PROFILE"},
+            ),
+            (
+                "geometry-list",
+                lambda manifest: manifest.update({"geometry": []}),
+                {"GEOMETRY_RECORD", "LOD_MANIFEST"},
+            ),
+            (
+                "collision-list",
+                lambda manifest: manifest.update({"collision": []}),
+                {"COLLISION_MANIFEST"},
+            ),
+            (
+                "collision-bounds-list",
+                lambda manifest: manifest["collision"]["objects"][0].update(
+                    {"bounds_blender_z_up": []}
+                ),
+                {"COLLISION_BOUNDS"},
+            ),
+        )
+        for name, mutate, expected_codes in mutations:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    manifest_path = self.copy_fixture(
+                        root,
+                        FIXTURE_MANIFEST_RELATIVE,
+                    )
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    mutate(manifest)
+                    manifest_path.write_text(
+                        json.dumps(
+                            manifest,
+                            indent=2,
+                            sort_keys=True,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+
+                    normal_result, normal = self.run_validator(
+                        root,
+                        manifest_path,
+                    )
+                    optimized_result, optimized = self.run_validator(
+                        root,
+                        manifest_path,
+                        optimized=True,
+                    )
+
+                self.assertEqual(normal_result.returncode, 1)
+                self.assertEqual(optimized_result.returncode, 1)
+                self.assertEqual(normal, optimized)
+                self.assertTrue(
+                    expected_codes.issubset(self.codes(normal)),
+                    normal,
+                )
+
+    def test_enclosing_records_fail_closed_exactly_in_all_modes(
+        self,
+    ) -> None:
+        cases = (
+            (
+                "asset",
+                {
+                    "ASSET_PROFILE",
+                    "ASSET_RECORD",
+                    "COLLISION_MANIFEST",
+                    "CONNECTOR_COUNT",
+                    "GLTF_SCENE_EXTRAS_CONTRACT",
+                },
+            ),
+            (
+                "artifacts",
+                {
+                    "ARTIFACT_MISSING",
+                    "ARTIFACTS_RECORD",
+                },
+            ),
+            (
+                "authoring",
+                {
+                    "AUTHORING_RECORD",
+                    "GENERATOR_RECORD",
+                    "GLTF_SCENE_EXTRAS_CONTRACT",
+                },
+            ),
+            (
+                "export",
+                {"EXPORT_RECORD"},
+            ),
+        )
+        for record, expected_codes in cases:
+            with self.subTest(record=record):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    manifest_path = self.copy_fixture(
+                        root,
+                        FIXTURE_MANIFEST_RELATIVE,
+                    )
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    manifest[record] = []
+                    manifest_path.write_text(
+                        json.dumps(
+                            manifest,
+                            indent=2,
+                            sort_keys=True,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+
+                    normal_result, normal = self.run_validator(
+                        root,
+                        manifest_path,
+                    )
+                    optimized_result, optimized = self.run_validator(
+                        root,
+                        manifest_path,
+                        optimized=True,
+                    )
+
+                self.assertEqual(normal_result.returncode, 1)
+                self.assertEqual(optimized_result.returncode, 1)
+                self.assertEqual(normal, optimized)
+                self.assertEqual(self.codes(normal), expected_codes)
+
+    def test_nested_glb_records_fail_closed_exactly_in_all_modes(
+        self,
+    ) -> None:
+        cases = (
+            (
+                "asset-list",
+                lambda document: document.update({"asset": []}),
+                "GLTF_ASSET_RECORD",
+            ),
+            (
+                "node-list",
+                lambda document: document["nodes"].__setitem__(0, []),
+                "GLTF_NODE_RECORD",
+            ),
+            (
+                "material-list",
+                lambda document: document["materials"].__setitem__(
+                    0,
+                    [],
+                ),
+                "GLTF_MATERIAL_RECORD",
+            ),
+            (
+                "mesh-list",
+                lambda document: document["meshes"].__setitem__(0, []),
+                "GLTF_MESH_RECORD",
+            ),
+            (
+                "primitive-list",
+                lambda document: document["meshes"][0][
+                    "primitives"
+                ].__setitem__(0, []),
+                "GLTF_PRIMITIVE_RECORD",
+            ),
+            (
+                "attributes-list",
+                lambda document: document["meshes"][0]["primitives"][
+                    0
+                ].update({"attributes": []}),
+                "GLTF_ATTRIBUTES_RECORD",
+            ),
+            (
+                "extensions-used-list",
+                lambda document: document.update(
+                    {"extensionsUsed": [[]]}
+                ),
+                "GLTF_EXTENSION_RECORD",
+            ),
+            (
+                "extensions-required-list",
+                lambda document: document.update(
+                    {"extensionsRequired": [[]]}
+                ),
+                "GLTF_EXTENSION_RECORD",
+            ),
+        )
+        for name, mutate, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    manifest_path = self.copy_fixture(
+                        root,
+                        FIXTURE_MANIFEST_RELATIVE,
+                    )
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    glb_path = (
+                        root / manifest["artifacts"]["glb"]["path"]
+                    )
+                    mutate_glb_document(glb_path, mutate)
+                    manifest["artifacts"]["glb"][
+                        "sha256"
+                    ] = hashlib.sha256(
+                        glb_path.read_bytes()
+                    ).hexdigest()
+                    manifest_path.write_text(
+                        json.dumps(
+                            manifest,
+                            indent=2,
+                            sort_keys=True,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+
+                    normal_result, normal = self.run_validator(
+                        root,
+                        manifest_path,
+                    )
+                    optimized_result, optimized = self.run_validator(
+                        root,
+                        manifest_path,
+                        optimized=True,
+                    )
+
+                self.assertEqual(normal_result.returncode, 1)
+                self.assertEqual(optimized_result.returncode, 1)
+                self.assertEqual(normal, optimized)
+                self.assertEqual(self.codes(normal), {expected_code})
 
     def test_generator_dependency_hash_is_fail_closed(self) -> None:
         gateway_relative = GATEWAY_MANIFEST_PATH.relative_to(REPOSITORY_ROOT)

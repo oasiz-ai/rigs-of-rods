@@ -27,6 +27,27 @@ INVENTORY = (
     REPOSITORY_ROOT
     / "content-source/cityworld_next/provenance/cityworld_next.inventory.json"
 )
+PACKAGE_FILE_COUNT = 53
+STREETLIGHT_PACKAGE_PATHS = {
+    "fixtures/led_streetlight/compiled/"
+    "rorng_city_led_streetlight.compile.json",
+    "fixtures/led_streetlight/compiled/"
+    "rorng_city_led_streetlight.material",
+    "fixtures/led_streetlight/compiled/"
+    "rorng_city_led_streetlight.odef",
+    "fixtures/led_streetlight/compiled/"
+    "rorng_city_led_streetlight_collision_fixture.mesh",
+    "fixtures/led_streetlight/compiled/"
+    "rorng_city_led_streetlight_lod0.mesh",
+    "fixtures/led_streetlight/compiled/"
+    "rorng_city_led_streetlight_lod1.mesh",
+    "fixtures/led_streetlight/compiled/"
+    "rorng_city_led_streetlight_lod2.mesh",
+    "fixtures/led_streetlight/"
+    "rorng_city_led_streetlight.asset.json",
+    "fixtures/led_streetlight/"
+    "rorng_city_led_streetlight.glb",
+}
 
 
 class CityWorldNextProvenanceBuildTests(unittest.TestCase):
@@ -76,11 +97,27 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
         self.assertEqual(
             json.loads(result.stdout),
             {
-                "assets": 44,
+                "assets": PACKAGE_FILE_COUNT,
                 "format": "ror-cityworld-provenance-build-v1",
-                "inventory_files": 44,
+                "inventory_files": PACKAGE_FILE_COUNT,
                 "mode": "check",
             },
+        )
+        manifest = json.loads(
+            PROVENANCE_MANIFEST.read_text(encoding="utf-8")
+        )
+        inventory = json.loads(INVENTORY.read_text(encoding="utf-8"))
+        self.assertEqual(len(manifest["assets"]), PACKAGE_FILE_COUNT)
+        self.assertEqual(len(inventory["files"]), PACKAGE_FILE_COUNT)
+        self.assertTrue(
+            STREETLIGHT_PACKAGE_PATHS.issubset(
+                asset["path"] for asset in manifest["assets"]
+            )
+        )
+        self.assertTrue(
+            STREETLIGHT_PACKAGE_PATHS.issubset(
+                item["path"] for item in inventory["files"]
+            )
         )
 
     def test_write_is_deterministic_and_exactly_covers_package(self) -> None:
@@ -263,7 +300,10 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
         report = json.loads(result.stdout)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(report["ok"])
-        self.assertEqual(report["summary"]["checksum_matched_files"], 44)
+        self.assertEqual(
+            report["summary"]["checksum_matched_files"],
+            PACKAGE_FILE_COUNT,
+        )
 
 
 if __name__ == "__main__":

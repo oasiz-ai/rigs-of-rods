@@ -76,6 +76,30 @@ light behavior:
 - runtime-neutral interchange and contract:
   `../../resources/nextgen/cityworld/streetscape/gateway_block_40m/`.
 
+The first standalone CW1 fixture is the original, project-owned
+`rorng_city_led_streetlight`. Its 4,548 / 396 / 132 triangle render ladder
+provides three distinct LODs under the street-fixture budget. A separate,
+simplified, welded watertight proxy encloses the foundation and pole for
+collision. Texture-free PBR factors distinguish precast concrete, galvanized
+steel, graphite powder coat, the lens gasket, and the warm emissive LED lens.
+The export contains no runtime lights: the lens emits visually through its
+material factor but does not synthesize a point light or change global
+lighting.
+
+The generator canonicalizes the exported GLB into stable primitive, accessor,
+vertex, and triangle order, making the GLB byte-deterministic for the pinned
+generator and Blender version. Compiler profile v1 supports one static factor
+set per material only. Day, dusk, and night instance-material variants are
+therefore unsupported; use the single checked warm emissive factor and never
+invent runtime material switching:
+
+- editable source:
+  `fixtures/led_streetlight/rorng_city_led_streetlight.blend`;
+- authoring preview:
+  `fixtures/led_streetlight/rorng_city_led_streetlight_preview.png`;
+- runtime-neutral interchange and contract:
+  `../../resources/nextgen/cityworld/fixtures/led_streetlight/`.
+
 Regenerate with Blender 4.0 or newer:
 
 ```sh
@@ -90,6 +114,9 @@ blender --background --factory-startup \
   --output-root "$PWD"
 blender --background --factory-startup \
   --python tools/blender/cityworld_next/generate_gateway_block.py -- \
+  --output-root "$PWD"
+blender --background --factory-startup \
+  --python tools/blender/cityworld_next/generate_led_streetlight.py -- \
   --output-root "$PWD"
 ```
 
@@ -108,6 +135,17 @@ python3 tools/validate_cityworld_asset.py \
 python3 tools/validate_cityworld_asset.py \
   resources/nextgen/cityworld/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.asset.json \
   --repo-root .
+python3 tools/validate_cityworld_asset.py \
+  resources/nextgen/cityworld/fixtures/led_streetlight/rorng_city_led_streetlight.asset.json \
+  --repo-root .
+python3 tools/compile_cityworld_asset.py \
+  resources/nextgen/cityworld/fixtures/led_streetlight/rorng_city_led_streetlight.asset.json \
+  --repo-root . \
+  --converter /absolute/path/to/OgreXMLConverter
+python3 tools/compile_cityworld_asset.py \
+  resources/nextgen/cityworld/fixtures/led_streetlight/rorng_city_led_streetlight.asset.json \
+  --repo-root . \
+  --validate-checked
 python3 tools/solve_cityworld_bridge_corridor.py \
   --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
   --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
@@ -131,6 +169,11 @@ python3 tools/content_provenance_audit.py \
   --package-root resources/nextgen/cityworld \
   --editable-root .
 ```
+
+Production compilation requires the pinned `OgreXMLConverter` executable at
+the explicit absolute path; the compiler never searches `PATH`. The
+`--validate-checked` command revalidates the committed portable package without
+executing a host converter.
 
 Build the local-only Penguinville-to-NeoQueretaro overlay after those checks:
 

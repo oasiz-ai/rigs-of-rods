@@ -199,6 +199,60 @@
       "type": "file"
     },
     {
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight.compile.json",
+      "sha256": "02169c60f75e52b765ee5d0734e8b44ac3251c0e52915ff962977c0117142aa5",
+      "size": 4061,
+      "type": "file"
+    },
+    {
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight.material",
+      "sha256": "89b0c5ee73b5c431ec3dd849a88bf185caed7bdcdecbc2f1b3b401352a55415a",
+      "size": 1292,
+      "type": "file"
+    },
+    {
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight.odef",
+      "sha256": "cfc49bfa7572f079e1f75e92fef082b49d52051dfab187474d1295257538389c",
+      "size": 154,
+      "type": "file"
+    },
+    {
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight_collision_fixture.mesh",
+      "sha256": "30d74933c51c4662c9c256c449e865b590b24844b857842ca83f2c5268add616",
+      "size": 2241,
+      "type": "file"
+    },
+    {
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight_lod0.mesh",
+      "sha256": "a3ad77fbac5bb901b0f0e285fbdcc7eebf63aa23def5718b0680c6dda31c9a79",
+      "size": 547386,
+      "type": "file"
+    },
+    {
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight_lod1.mesh",
+      "sha256": "60f5d536502e5be8da9d01f3aaf50d601ffea6edac03d3dec8d5d25664d4af71",
+      "size": 36644,
+      "type": "file"
+    },
+    {
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight_lod2.mesh",
+      "sha256": "76c710b290efbf171bc062936c74096fbd8def5e8126edc14a24fcaca32f36b1",
+      "size": 13364,
+      "type": "file"
+    },
+    {
+      "path": "fixtures/led_streetlight/rorng_city_led_streetlight.asset.json",
+      "sha256": "b68c21c3394e55d6222fedd95c52c22fb24bdb98f244d24e0be8e82c05a76254",
+      "size": 7775,
+      "type": "file"
+    },
+    {
+      "path": "fixtures/led_streetlight/rorng_city_led_streetlight.glb",
+      "sha256": "2969de83a071a8214530ed84e4c31cc7063deec513a7d787790259da35ee02d0",
+      "size": 615040,
+      "type": "file"
+    },
+    {
       "path": "streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.compile.json",
       "sha256": "73aee4ddc9cde7895c43d4a2efd0a5f6fe736f83c56f7a597da285c8e781c1e0",
       "size": 7415,

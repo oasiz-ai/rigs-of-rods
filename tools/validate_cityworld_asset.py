@@ -34,6 +34,12 @@ MAX_SOURCE_BYTES = 512 * 1024 * 1024
 POSITION_EPSILON = 1e-6
 MAX_RUNTIME_LIGHTS = 32
 RUNTIME_LIGHT_ID_PATTERN = re.compile(r"rorng_[a-z0-9_]+")
+CORRIDOR_ASSET_PROFILE = "corridor-module-v1"
+FIXTURE_ASSET_PROFILE = "static-fixture-v1"
+SUPPORTED_ASSET_PROFILES = {
+    CORRIDOR_ASSET_PROFILE,
+    FIXTURE_ASSET_PROFILE,
+}
 
 COMPONENT_TYPES: dict[int, tuple[str, int]] = {
     5120: ("b", 1),
@@ -130,6 +136,16 @@ def finite_numbers(value: Any, *, pointer: str = "$") -> Iterable[tuple[str, flo
     if isinstance(value, dict):
         for key in sorted(value):
             yield from finite_numbers(value[key], pointer=f"{pointer}.{key}")
+
+
+def asset_profile(manifest: dict[str, Any]) -> str | None:
+    asset = manifest.get("asset")
+    if not isinstance(asset, dict):
+        return None
+    profile = asset.get("profile")
+    if profile is None:
+        return CORRIDOR_ASSET_PROFILE
+    return profile if isinstance(profile, str) else None
 
 
 def vector_sub(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
@@ -481,13 +497,37 @@ class Validator:
             return
         if self.manifest.get("format") != ASSET_FORMAT:
             self.add("MANIFEST_FORMAT", "$.format", f"expected {ASSET_FORMAT}")
+        for key, code in (
+            ("asset", "ASSET_RECORD"),
+            ("artifacts", "ARTIFACTS_RECORD"),
+            ("authoring", "AUTHORING_RECORD"),
+            ("export", "EXPORT_RECORD"),
+        ):
+            if not isinstance(self.manifest.get(key), dict):
+                self.add(
+                    code,
+                    f"$.{key}",
+                    f"{key} declaration must be an object",
+                )
+        profile = asset_profile(self.manifest)
+        if profile not in SUPPORTED_ASSET_PROFILES:
+            self.add(
+                "ASSET_PROFILE",
+                "$.asset.profile",
+                "unsupported CityWorld asset profile",
+            )
         for pointer, number in finite_numbers(self.manifest):
             if not math.isfinite(number):
                 self.add("NONFINITE_NUMBER", pointer, "number must be finite")
 
     def artifact_path(self, name: str) -> Path | None:
         assert self.manifest is not None
-        entry = self.manifest.get("artifacts", {}).get(name)
+        artifacts = self.manifest.get("artifacts")
+        entry = (
+            artifacts.get(name)
+            if isinstance(artifacts, dict)
+            else None
+        )
         pointer = f"$.artifacts.{name}"
         if not isinstance(entry, dict):
             self.add("ARTIFACT_MISSING", pointer, "artifact record is required")
@@ -547,7 +587,18 @@ class Validator:
             except OSError as error:
                 self.add("PREVIEW_READ", "$.artifacts.preview", str(error))
 
-        generator = self.manifest.get("authoring", {}).get("generator", {})
+        authoring_record = self.manifest.get("authoring")
+        authoring = (
+            authoring_record
+            if isinstance(authoring_record, dict)
+            else {}
+        )
+        generator_record = authoring.get("generator")
+        generator = (
+            generator_record
+            if isinstance(generator_record, dict)
+            else {}
+        )
         relative = safe_relative_path(generator.get("path"))
         expected_hash = generator.get("sha256")
         generator_path: Path | None = None
@@ -653,11 +704,152 @@ class Validator:
             self.add("GLB_INVALID", "$.artifacts.glb", str(error))
             return
         document = self.glb.document
+        shape_valid = True
+
+        def invalid_record(
+            code: str,
+            path: str,
+            message: str,
+        ) -> None:
+            nonlocal shape_valid
+            shape_valid = False
+            self.add(code, path, message)
+
+        if not isinstance(document.get("asset"), dict):
+            invalid_record(
+                "GLTF_ASSET_RECORD",
+                "$.glb.asset",
+                "glTF asset declaration must be an object",
+            )
+
+        nodes = document.get("nodes", [])
+        if not isinstance(nodes, list):
+            invalid_record(
+                "GLTF_NODES_RECORD",
+                "$.glb.nodes",
+                "glTF nodes must be an array",
+            )
+        else:
+            for index, node in enumerate(nodes):
+                if not isinstance(node, dict):
+                    invalid_record(
+                        "GLTF_NODE_RECORD",
+                        f"$.glb.nodes[{index}]",
+                        "glTF node must be an object",
+                    )
+
+        materials = document.get("materials", [])
+        if not isinstance(materials, list):
+            invalid_record(
+                "GLTF_MATERIALS_RECORD",
+                "$.glb.materials",
+                "glTF materials must be an array",
+            )
+        else:
+            for index, material in enumerate(materials):
+                if not isinstance(material, dict):
+                    invalid_record(
+                        "GLTF_MATERIAL_RECORD",
+                        f"$.glb.materials[{index}]",
+                        "glTF material must be an object",
+                    )
+
+        meshes = document.get("meshes", [])
+        if not isinstance(meshes, list):
+            invalid_record(
+                "GLTF_MESHES_RECORD",
+                "$.glb.meshes",
+                "glTF meshes must be an array",
+            )
+        else:
+            for mesh_index, mesh in enumerate(meshes):
+                mesh_path = f"$.glb.meshes[{mesh_index}]"
+                if not isinstance(mesh, dict):
+                    invalid_record(
+                        "GLTF_MESH_RECORD",
+                        mesh_path,
+                        "glTF mesh must be an object",
+                    )
+                    continue
+                primitives = mesh.get("primitives")
+                if not isinstance(primitives, list):
+                    invalid_record(
+                        "GLTF_PRIMITIVES_RECORD",
+                        f"{mesh_path}.primitives",
+                        "glTF mesh primitives must be an array",
+                    )
+                    continue
+                for primitive_index, primitive in enumerate(primitives):
+                    primitive_path = (
+                        f"{mesh_path}.primitives[{primitive_index}]"
+                    )
+                    if not isinstance(primitive, dict):
+                        invalid_record(
+                            "GLTF_PRIMITIVE_RECORD",
+                            primitive_path,
+                            "glTF primitive must be an object",
+                        )
+                        continue
+                    if not isinstance(
+                        primitive.get("attributes"),
+                        dict,
+                    ):
+                        invalid_record(
+                            "GLTF_ATTRIBUTES_RECORD",
+                            f"{primitive_path}.attributes",
+                            "glTF primitive attributes must be an object",
+                        )
+
+        for key in ("extensionsUsed", "extensionsRequired"):
+            extensions = document.get(key, [])
+            if not isinstance(extensions, list):
+                invalid_record(
+                    "GLTF_EXTENSIONS_RECORD",
+                    f"$.glb.{key}",
+                    "glTF extensions must be an array",
+                )
+                continue
+            for index, extension in enumerate(extensions):
+                if not isinstance(extension, str):
+                    invalid_record(
+                        "GLTF_EXTENSION_RECORD",
+                        f"$.glb.{key}[{index}]",
+                        "glTF extension name must be a string",
+                    )
+
+        if not shape_valid:
+            self.glb = None
+            return
+
         self.stats["glb_materials"] = len(document.get("materials", []))
         self.stats["glb_nodes"] = len(document.get("nodes", []))
         if document.get("asset", {}).get("version") != "2.0":
             self.add("GLTF_VERSION", "$.glb.asset.version", "glTF asset version must be 2.0")
-        allowlisted = set(self.manifest.get("export", {}).get("allowlisted_extensions", []))
+        export_record = self.manifest.get("export")
+        export_declaration = (
+            export_record
+            if isinstance(export_record, dict)
+            else {}
+        )
+        declared_extensions = export_declaration.get(
+            "allowlisted_extensions",
+            [],
+        )
+        if (
+            not isinstance(declared_extensions, list)
+            or any(
+                not isinstance(extension, str)
+                for extension in declared_extensions
+            )
+        ):
+            self.add(
+                "EXPORT_EXTENSIONS",
+                "$.export.allowlisted_extensions",
+                "allowlisted extensions must be an array of strings",
+            )
+            allowlisted: set[str] = set()
+        else:
+            allowlisted = set(declared_extensions)
         used = set(document.get("extensionsUsed", []))
         required = set(document.get("extensionsRequired", []))
         if used - allowlisted or required - allowlisted:
@@ -670,10 +862,14 @@ class Validator:
             self.add(
                 "GLTF_EMBEDDED_TEXTURE",
                 "$.glb",
-                "initial bridge profile must not embed image or texture payloads",
+                "initial texture-free profile cannot embed images or textures",
             )
         if document.get("animations") or document.get("skins"):
-            self.add("GLTF_ANIMATION", "$.glb", "static bridge asset cannot contain animation or skins")
+            self.add(
+                "GLTF_ANIMATION",
+                "$.glb",
+                "static CityWorld asset cannot contain animation or skins",
+            )
         if document.get("cameras"):
             self.add("GLTF_CAMERA", "$.glb.cameras", "preview cameras cannot enter the GLB")
         for pointer, number in finite_numbers(document, pointer="$.glb"):
@@ -698,10 +894,26 @@ class Validator:
             )
             return
 
-        asset = self.manifest.get("asset", {})
-        authoring = self.manifest.get("authoring", {})
-        generator = authoring.get("generator", {})
-        geometry = self.manifest.get("geometry", {})
+        asset_record = self.manifest.get("asset")
+        asset = asset_record if isinstance(asset_record, dict) else {}
+        authoring_record = self.manifest.get("authoring")
+        authoring = (
+            authoring_record
+            if isinstance(authoring_record, dict)
+            else {}
+        )
+        generator_record = authoring.get("generator")
+        generator = (
+            generator_record
+            if isinstance(generator_record, dict)
+            else {}
+        )
+        geometry_record = self.manifest.get("geometry")
+        geometry = (
+            geometry_record
+            if isinstance(geometry_record, dict)
+            else {}
+        )
         generator_format = generator.get("format")
         asset_id = asset.get("id")
         asset_version = asset.get("version")
@@ -726,6 +938,9 @@ class Validator:
             "rorng_interchange_axis": "gltf-y-up",
             "rorng_units": "metres",
         }
+        profile = asset_profile(self.manifest)
+        if profile != CORRIDOR_ASSET_PROFILE:
+            expected["rorng_asset_profile"] = profile
         curve_keys = (
             "centerline_length_m",
             "curve_radius_m",
@@ -874,7 +1089,14 @@ class Validator:
 
     def validate_lods(self) -> None:
         assert self.manifest is not None and self.glb is not None
-        geometry = self.manifest.get("geometry", {})
+        geometry = self.manifest.get("geometry")
+        if not isinstance(geometry, dict):
+            self.add(
+                "LOD_MANIFEST",
+                "$.geometry",
+                "geometry declaration must be an object",
+            )
+            return
         lods = geometry.get("lods")
         if not isinstance(lods, list) or len(lods) != 3:
             self.add("LOD_MANIFEST", "$.geometry.lods", "exactly LOD0, LOD1 and LOD2 are required")
@@ -1057,14 +1279,38 @@ class Validator:
 
     def validate_collisions(self) -> None:
         assert self.manifest is not None and self.glb is not None
-        objects = self.manifest.get("collision", {}).get("objects")
-        if not isinstance(objects, list) or len(objects) != 3:
+        collision = self.manifest.get("collision")
+        if not isinstance(collision, dict):
+            self.add(
+                "COLLISION_MANIFEST",
+                "$.collision",
+                "collision declaration must be an object",
+            )
+            return
+        objects = collision.get("objects")
+        profile = asset_profile(self.manifest)
+        expected_count = 1 if profile == FIXTURE_ASSET_PROFILE else 3
+        if not isinstance(objects, list) or len(objects) != expected_count:
+            requirement = (
+                "one fixture collision proxy is required"
+                if profile == FIXTURE_ASSET_PROFILE
+                else "road plus left/right barrier collision objects are required"
+            )
             self.add(
                 "COLLISION_MANIFEST",
                 "$.collision.objects",
-                "road plus left/right barrier collision objects are required",
+                requirement,
             )
             return
+        if (
+            profile == FIXTURE_ASSET_PROFILE
+            and collision.get("profile") != "single-watertight-proxy-v1"
+        ):
+            self.add(
+                "COLLISION_PROFILE",
+                "$.collision.profile",
+                "fixture collision must use the single watertight proxy profile",
+            )
         bounds: list[tuple[str, list[float], list[float]]] = []
         for index, entry in enumerate(objects):
             pointer = f"$.collision.objects[{index}]"
@@ -1083,6 +1329,15 @@ class Validator:
             role = entry.get("role")
             if extras.get("rorng_role") != role or not str(role).startswith("collision-"):
                 self.add("COLLISION_EXTRAS", pointer, "collision role metadata does not match")
+            if (
+                profile == FIXTURE_ASSET_PROFILE
+                and role != "collision-fixture"
+            ):
+                self.add(
+                    "COLLISION_ROLE",
+                    f"{pointer}.role",
+                    "fixture collision role must be collision-fixture",
+                )
             self.validate_collision_mesh(node=node, pointer=pointer)
             try:
                 mesh = self.glb.mesh_for_node(node)
@@ -1092,7 +1347,14 @@ class Validator:
                 self.stats["triangles"] += triangles
             except ValueError as error:
                 self.add("COLLISION_TRIANGLES", pointer, str(error))
-            declared_bounds = entry.get("bounds_blender_z_up", {})
+            declared_bounds = entry.get("bounds_blender_z_up")
+            if not isinstance(declared_bounds, dict):
+                self.add(
+                    "COLLISION_BOUNDS",
+                    f"{pointer}.bounds_blender_z_up",
+                    "collision bounds must be an object",
+                )
+                continue
             minimum = declared_bounds.get("min")
             maximum = declared_bounds.get("max")
             if (
@@ -1100,8 +1362,19 @@ class Validator:
                 and isinstance(maximum, list)
                 and len(minimum) == 3
                 and len(maximum) == 3
+                and all(
+                    not isinstance(value, bool)
+                    and isinstance(value, (int, float))
+                    for value in minimum + maximum
+                )
             ):
                 bounds.append((name, [float(v) for v in minimum], [float(v) for v in maximum]))
+            else:
+                self.add(
+                    "COLLISION_BOUNDS",
+                    f"{pointer}.bounds_blender_z_up",
+                    "collision bounds require numeric min and max vectors",
+                )
 
         self.stats["collision_objects"] = len(objects)
         for first_index, (first_name, first_min, first_max) in enumerate(bounds):
@@ -1122,6 +1395,63 @@ class Validator:
     def validate_connectors(self) -> None:
         assert self.manifest is not None
         connectors = self.manifest.get("connectors")
+        profile = asset_profile(self.manifest)
+        geometry = self.manifest.get("geometry")
+        if not isinstance(geometry, dict):
+            self.add(
+                "GEOMETRY_RECORD",
+                "$.geometry",
+                "geometry declaration must be an object",
+            )
+            return
+        if profile == FIXTURE_ASSET_PROFILE:
+            if connectors != []:
+                self.add(
+                    "FIXTURE_CONNECTORS",
+                    "$.connectors",
+                    "static fixtures require an explicit empty connector list",
+                )
+            height = geometry.get("fixture_height_m")
+            footprint = geometry.get("footprint_diameter_m")
+            if (
+                isinstance(height, bool)
+                or not isinstance(height, (int, float))
+                or not 0.1 <= float(height) <= 50.0
+            ):
+                self.add(
+                    "FIXTURE_HEIGHT",
+                    "$.geometry.fixture_height_m",
+                    "fixture height must be from 0.1 to 50 metres",
+                )
+            if (
+                isinstance(footprint, bool)
+                or not isinstance(footprint, (int, float))
+                or not 0.01 <= float(footprint) <= 20.0
+            ):
+                self.add(
+                    "FIXTURE_FOOTPRINT",
+                    "$.geometry.footprint_diameter_m",
+                    "fixture footprint must be from 0.01 to 20 metres",
+                )
+            forbidden = sorted(
+                {
+                    "bridge_length_m",
+                    "bridge_width_m",
+                    "centerline_length_m",
+                    "curve_radius_m",
+                    "road_width_m",
+                    "turn_angle_degrees",
+                }
+                & set(geometry)
+            )
+            if forbidden:
+                self.add(
+                    "FIXTURE_GEOMETRY",
+                    "$.geometry",
+                    "static fixture declares corridor geometry: "
+                    + ", ".join(forbidden),
+                )
+            return
         if not isinstance(connectors, list) or len(connectors) != 2:
             self.add("CONNECTOR_COUNT", "$.connectors", "start and end connectors are required")
             return
@@ -1142,7 +1472,7 @@ class Validator:
         except (KeyError, TypeError, ValueError):
             self.add("CONNECTOR_POSITION", "$.connectors", "connector positions are invalid")
             return
-        expected_length = self.manifest.get("geometry", {}).get("bridge_length_m")
+        expected_length = geometry.get("bridge_length_m")
         if not isinstance(expected_length, (int, float)) or abs(separation - expected_length) > POSITION_EPSILON:
             self.add("CONNECTOR_LENGTH", "$.connectors", "connector separation is not bridge length")
         if start.get("lane_centres_x_m") != end.get("lane_centres_x_m"):
@@ -1166,7 +1496,6 @@ class Validator:
             if abs(length - 1.0) > POSITION_EPSILON:
                 self.add("CONNECTOR_FORWARD", f"$.connectors.{connector_id}", "forward vector is not unit")
 
-        geometry = self.manifest.get("geometry", {})
         curve_keys = (
             "centerline_length_m",
             "curve_radius_m",

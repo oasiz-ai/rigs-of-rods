@@ -697,6 +697,195 @@
       "author": "Oasiz AI and Rigs of Rods contributors",
       "classification": "generated",
       "editable_source": {
+        "path": "content-source/cityworld_next/fixtures/led_streetlight/rorng_city_led_streetlight.blend",
+        "sha256": "2872e4cc20df1878bb68d79f20c591a908913f1cf259822b66cb0177d754acb0"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight.compile.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "02169c60f75e52b765ee5d0734e8b44ac3251c0e52915ff962977c0117142aa5",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/fixtures/led_streetlight/rorng_city_led_streetlight.blend",
+        "sha256": "2872e4cc20df1878bb68d79f20c591a908913f1cf259822b66cb0177d754acb0"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight.material",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "89b0c5ee73b5c431ec3dd849a88bf185caed7bdcdecbc2f1b3b401352a55415a",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/fixtures/led_streetlight/rorng_city_led_streetlight.blend",
+        "sha256": "2872e4cc20df1878bb68d79f20c591a908913f1cf259822b66cb0177d754acb0"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight.odef",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "cfc49bfa7572f079e1f75e92fef082b49d52051dfab187474d1295257538389c",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/fixtures/led_streetlight/rorng_city_led_streetlight.blend",
+        "sha256": "2872e4cc20df1878bb68d79f20c591a908913f1cf259822b66cb0177d754acb0"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight_collision_fixture.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "30d74933c51c4662c9c256c449e865b590b24844b857842ca83f2c5268add616",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/fixtures/led_streetlight/rorng_city_led_streetlight.blend",
+        "sha256": "2872e4cc20df1878bb68d79f20c591a908913f1cf259822b66cb0177d754acb0"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight_lod0.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "a3ad77fbac5bb901b0f0e285fbdcc7eebf63aa23def5718b0680c6dda31c9a79",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/fixtures/led_streetlight/rorng_city_led_streetlight.blend",
+        "sha256": "2872e4cc20df1878bb68d79f20c591a908913f1cf259822b66cb0177d754acb0"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight_lod1.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "60f5d536502e5be8da9d01f3aaf50d601ffea6edac03d3dec8d5d25664d4af71",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/fixtures/led_streetlight/rorng_city_led_streetlight.blend",
+        "sha256": "2872e4cc20df1878bb68d79f20c591a908913f1cf259822b66cb0177d754acb0"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "fixtures/led_streetlight/compiled/rorng_city_led_streetlight_lod2.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "76c710b290efbf171bc062936c74096fbd8def5e8126edc14a24fcaca32f36b1",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "tools/blender/cityworld_next/generate_led_streetlight.py",
+        "sha256": "e77427afa0d59bea6b287e8a3f41bb138dda571395bbc1ef51ae37c2bc0cadcb"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "fixtures/led_streetlight/rorng_city_led_streetlight.asset.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "b68c21c3394e55d6222fedd95c52c22fb24bdb98f244d24e0be8e82c05a76254",
+      "source": {
+        "kind": "generator",
+        "sha256": "e77427afa0d59bea6b287e8a3f41bb138dda571395bbc1ef51ae37c2bc0cadcb",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/fixtures/led_streetlight/rorng_city_led_streetlight.blend",
+        "sha256": "2872e4cc20df1878bb68d79f20c591a908913f1cf259822b66cb0177d754acb0"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "fixtures/led_streetlight/rorng_city_led_streetlight.glb",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "2969de83a071a8214530ed84e4c31cc7063deec513a7d787790259da35ee02d0",
+      "source": {
+        "kind": "generator",
+        "sha256": "e77427afa0d59bea6b287e8a3f41bb138dda571395bbc1ef51ae37c2bc0cadcb",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
         "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
         "sha256": "b0c483ca758df6dd9eb465156b72f63920da3d791a243dad69f9076c9d69be8b"
       },

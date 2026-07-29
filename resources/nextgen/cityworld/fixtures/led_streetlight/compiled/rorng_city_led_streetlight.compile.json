@@ -1,0 +1,128 @@
+{
+  "asset": {
+    "id": "rorng_city_led_streetlight",
+    "version": 1
+  },
+  "basis": {
+    "authoring": "blender-z-up-metres",
+    "authoring_to_interchange": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        -1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "compiler_transform": "identity",
+    "interchange": "gltf-y-up-metres",
+    "runtime": "ogre-y-up-metres"
+  },
+  "compiler": {
+    "format": "ror-cityworld-scene-compiler-v1",
+    "path": "tools/compile_cityworld_asset.py",
+    "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059"
+  },
+  "connectors": [],
+  "format": "ror-cityworld-scene-compile-report-v1",
+  "inputs": {
+    "asset_contract_sha256": "4bcee1aadaa28cd185d0950ada85c59dfcd0e145c0db12f9bace331e27a5ad50",
+    "glb": {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight/rorng_city_led_streetlight.glb",
+      "sha256": "2969de83a071a8214530ed84e4c31cc7063deec513a7d787790259da35ee02d0"
+    }
+  },
+  "limits": {
+    "indices": 12000000,
+    "materials": 4096,
+    "meshes": 4096,
+    "nodes": 4096,
+    "primitives": 8192,
+    "vertices": 4000000
+  },
+  "material_model": "ogre-rtss-metallic-roughness-fallback-v1",
+  "mesh_format": "MeshSerializer_v1.100-little-endian",
+  "ogre_converter": {
+    "executable": "OgreXMLConverter",
+    "sha256": "01f80e0400688d899e8934335678ea9875089d3715543f63f7b69f24f1b93ce3",
+    "version": "OgreXMLConverter Tsathoggua (14.5.2)"
+  },
+  "options": {
+    "colour_packing": "gl",
+    "endian": "little",
+    "lod_distances_m": [
+      80.0,
+      180.0
+    ],
+    "transforms": "applied-only"
+  },
+  "outputs": [
+    {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight.material",
+      "role": "material-fallback",
+      "sha256": "89b0c5ee73b5c431ec3dd849a88bf185caed7bdcdecbc2f1b3b401352a55415a",
+      "size": 1292
+    },
+    {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight.odef",
+      "role": "terrain-object",
+      "sha256": "cfc49bfa7572f079e1f75e92fef082b49d52051dfab187474d1295257538389c",
+      "size": 154
+    },
+    {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight_collision_fixture.mesh",
+      "role": "collision-fixture",
+      "sha256": "30d74933c51c4662c9c256c449e865b590b24844b857842ca83f2c5268add616",
+      "size": 2241
+    },
+    {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight_lod0.mesh",
+      "role": "render-lod0",
+      "sha256": "a3ad77fbac5bb901b0f0e285fbdcc7eebf63aa23def5718b0680c6dda31c9a79",
+      "size": 547386
+    },
+    {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight_lod1.mesh",
+      "role": "render-lod1",
+      "sha256": "60f5d536502e5be8da9d01f3aaf50d601ffea6edac03d3dec8d5d25664d4af71",
+      "size": 36644
+    },
+    {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight_lod2.mesh",
+      "role": "render-lod2",
+      "sha256": "76c710b290efbf171bc062936c74096fbd8def5e8126edc14a24fcaca32f36b1",
+      "size": 13364
+    }
+  ],
+  "runtime_lights": [],
+  "source_stats": {
+    "indices": 15360,
+    "materials": 6,
+    "meshes": 4,
+    "primitives": 16,
+    "vertices": 11815
+  },
+  "xml_intermediate_sha256": {
+    "rorng_city_led_streetlight_collision_fixture.mesh.xml": "a0db5c97f465a217cafbb257f4bd0e53bc156ed86257eb18bc96fb73771c955e",
+    "rorng_city_led_streetlight_lod0.mesh.xml": "b5329b64ef8eb1577eb7fab3eeb71f6be1ec767635e04b1bcf3bc5b621386cd0",
+    "rorng_city_led_streetlight_lod1.mesh.xml": "d0e352eab2b59b4bc4821dd0613f6a5ef7672f972fced7ad8612093e2d350257",
+    "rorng_city_led_streetlight_lod2.mesh.xml": "40902e2d46acc12c8d4ef9323b160f7664a168a4ccc5393873ce5df5c8af454e"
+  }
+}

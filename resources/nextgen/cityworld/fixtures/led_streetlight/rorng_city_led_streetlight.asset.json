@@ -1,0 +1,280 @@
+{
+  "artifacts": {
+    "blend": {
+      "path": "content-source/cityworld_next/fixtures/led_streetlight/rorng_city_led_streetlight.blend",
+      "sha256": "2872e4cc20df1878bb68d79f20c591a908913f1cf259822b66cb0177d754acb0"
+    },
+    "glb": {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight/rorng_city_led_streetlight.glb",
+      "sha256": "2969de83a071a8214530ed84e4c31cc7063deec513a7d787790259da35ee02d0"
+    },
+    "preview": {
+      "path": "content-source/cityworld_next/fixtures/led_streetlight/rorng_city_led_streetlight_preview.png",
+      "sha256": "e6cc31cb2cf5f455f6592cfa436eea5e32888bb71e01eb22cb09f9529579ab63"
+    }
+  },
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_led_streetlight",
+    "license": "GPL-3.0-or-later",
+    "profile": "static-fixture-v1",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "axis": "blender-z-up",
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        },
+        {
+          "path": "tools/blender/cityworld_next/canonicalize_static_glb.py",
+          "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
+        }
+      ],
+      "format": "ror-cityworld-led-streetlight-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_led_streetlight.py",
+      "sha256": "e77427afa0d59bea6b287e8a3f41bb138dda571395bbc1ef51ae37c2bc0cadcb"
+    },
+    "procedural_provenance": {
+      "external_geometry": false,
+      "external_textures": false,
+      "method": "deterministic-project-authored-blender-python",
+      "rights_basis": "GPL-3.0-or-later project-authored source"
+    },
+    "transforms_applied": true,
+    "units": "metres"
+  },
+  "collision": {
+    "objects": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            0.34,
+            0.34,
+            7.2
+          ],
+          "min": [
+            -0.34,
+            -0.34,
+            0.0
+          ]
+        },
+        "name": "rorng_city_led_streetlight_collision_fixture",
+        "role": "collision-fixture",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 44
+      }
+    ],
+    "profile": "single-watertight-proxy-v1",
+    "separate_from_render_mesh": true
+  },
+  "compiled": {
+    "format": "ror-cityworld-compiled-asset-v1",
+    "outputs": [
+      {
+        "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight.material",
+        "role": "material-fallback",
+        "sha256": "89b0c5ee73b5c431ec3dd849a88bf185caed7bdcdecbc2f1b3b401352a55415a",
+        "size": 1292
+      },
+      {
+        "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight.odef",
+        "role": "terrain-object",
+        "sha256": "cfc49bfa7572f079e1f75e92fef082b49d52051dfab187474d1295257538389c",
+        "size": 154
+      },
+      {
+        "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight_collision_fixture.mesh",
+        "role": "collision-fixture",
+        "sha256": "30d74933c51c4662c9c256c449e865b590b24844b857842ca83f2c5268add616",
+        "size": 2241
+      },
+      {
+        "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight_lod0.mesh",
+        "role": "render-lod0",
+        "sha256": "a3ad77fbac5bb901b0f0e285fbdcc7eebf63aa23def5718b0680c6dda31c9a79",
+        "size": 547386
+      },
+      {
+        "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight_lod1.mesh",
+        "role": "render-lod1",
+        "sha256": "60f5d536502e5be8da9d01f3aaf50d601ffea6edac03d3dec8d5d25664d4af71",
+        "size": 36644
+      },
+      {
+        "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight_lod2.mesh",
+        "role": "render-lod2",
+        "sha256": "76c710b290efbf171bc062936c74096fbd8def5e8126edc14a24fcaca32f36b1",
+        "size": 13364
+      }
+    ],
+    "report": {
+      "path": "resources/nextgen/cityworld/fixtures/led_streetlight/compiled/rorng_city_led_streetlight.compile.json",
+      "sha256": "02169c60f75e52b765ee5d0734e8b44ac3251c0e52915ff962977c0117142aa5"
+    }
+  },
+  "connectors": [],
+  "export": {
+    "allowlisted_extensions": [],
+    "animations": false,
+    "apply_modifiers": true,
+    "cameras": false,
+    "format": "glb",
+    "lights": false,
+    "materials": "export",
+    "profile": "gltf-2.0",
+    "selection_only": true,
+    "tangents": true,
+    "textures": [],
+    "y_up": true
+  },
+  "format": "ror-cityworld-asset-v1",
+  "geometry": {
+    "fixture_height_m": 7.58,
+    "footprint_diameter_m": 0.76,
+    "lod0_triangle_ceiling": 12000,
+    "lod1_max_ratio": 0.35,
+    "lod2_max_ratio": 0.1,
+    "lods": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            0.38,
+            2.115,
+            7.4725
+          ],
+          "min": [
+            -0.38,
+            -0.38,
+            0.0
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_led_streetlight_lod0",
+        "triangles": 4548
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            0.38,
+            2.09,
+            7.325
+          ],
+          "min": [
+            -0.38,
+            -0.38,
+            0.0
+          ]
+        },
+        "lod": 1,
+        "name": "rorng_city_led_streetlight_lod1",
+        "triangles": 396
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            0.38,
+            2.09,
+            7.325
+          ],
+          "min": [
+            -0.38,
+            -0.38,
+            0.0
+          ]
+        },
+        "lod": 2,
+        "name": "rorng_city_led_streetlight_lod2",
+        "triangles": 132
+      }
+    ]
+  },
+  "materials": [
+    {
+      "base_color_factor_linear": [
+        0.8,
+        0.04,
+        0.03,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_fixture_collision_debug",
+      "roughness_factor": 1.0
+    },
+    {
+      "base_color_factor_linear": [
+        0.24,
+        0.28,
+        0.31,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.72,
+      "name": "rorng_fixture_galvanized_steel",
+      "roughness_factor": 0.36
+    },
+    {
+      "base_color_factor_linear": [
+        1.0,
+        0.74,
+        0.34,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "emissive_factor_linear": [
+        1.0,
+        0.72,
+        0.3
+      ],
+      "metallic_factor": 0.0,
+      "name": "rorng_fixture_led_lens_emissive",
+      "roughness_factor": 0.22
+    },
+    {
+      "base_color_factor_linear": [
+        0.008,
+        0.011,
+        0.014,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_fixture_lens_gasket",
+      "roughness_factor": 0.82
+    },
+    {
+      "base_color_factor_linear": [
+        0.035,
+        0.045,
+        0.055,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.82,
+      "name": "rorng_fixture_powdercoat_graphite",
+      "roughness_factor": 0.28
+    },
+    {
+      "base_color_factor_linear": [
+        0.28,
+        0.3,
+        0.31,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_fixture_precast_concrete",
+      "roughness_factor": 0.9
+    }
+  ]
+}

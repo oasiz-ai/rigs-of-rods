@@ -51,6 +51,15 @@ GATEWAY_COMPILED_PATH = (
     REPOSITORY_ROOT
     / "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled"
 )
+STREETLIGHT_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/fixtures/led_streetlight/"
+    "rorng_city_led_streetlight.asset.json"
+)
+STREETLIGHT_COMPILED_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/fixtures/led_streetlight/compiled"
+)
 
 SPEC = importlib.util.spec_from_file_location("compile_cityworld_asset", TOOL_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -385,6 +394,123 @@ class CityWorldSceneCompilerTests(unittest.TestCase):
             "pointlight -3.95, 5.2, 12.6, 0, -1, 0, "
             "1, 0.62, 0.22, 13",
             odef,
+        )
+
+    def test_led_streetlight_checked_fixture_package_is_complete(self) -> None:
+        compiler = self.compiler(STREETLIGHT_MANIFEST_PATH)
+        report = COMPILER_MODULE.validate_checked_outputs(
+            compiler,
+            STREETLIGHT_COMPILED_PATH,
+        )
+        self.assertEqual(
+            report["source_stats"],
+            {
+                "indices": 15360,
+                "materials": 6,
+                "meshes": 4,
+                "primitives": 16,
+                "vertices": 11815,
+            },
+        )
+        self.assertEqual(compiler.connector_runtime_contract(), [])
+        self.assertEqual(compiler.runtime_light_contract(), [])
+        self.assertEqual(report["connectors"], [])
+        self.assertEqual(report["runtime_lights"], [])
+
+        manifest = json.loads(
+            STREETLIGHT_MANIFEST_PATH.read_text(encoding="utf-8")
+        )
+        self.assertEqual(report["outputs"], manifest["compiled"]["outputs"])
+        self.assertEqual(
+            [output["role"] for output in report["outputs"]],
+            [
+                "material-fallback",
+                "terrain-object",
+                "collision-fixture",
+                "render-lod0",
+                "render-lod1",
+                "render-lod2",
+            ],
+        )
+        self.assertEqual(
+            [
+                Path(output["path"]).name
+                for output in report["outputs"]
+                if output["role"].startswith("render-lod")
+            ],
+            [
+                "rorng_city_led_streetlight_lod0.mesh",
+                "rorng_city_led_streetlight_lod1.mesh",
+                "rorng_city_led_streetlight_lod2.mesh",
+            ],
+        )
+        for output in report["outputs"]:
+            path = REPOSITORY_ROOT / output["path"]
+            data = path.read_bytes()
+            self.assertEqual(len(data), output["size"])
+            self.assertEqual(
+                COMPILER_MODULE.sha256_bytes(data),
+                output["sha256"],
+            )
+
+        values = {
+            item.path: item.data
+            for item in compiler.intermediates()
+        }
+        lod0 = ET.fromstring(
+            values["rorng_city_led_streetlight_lod0.mesh.xml"]
+        )
+        self.assertEqual(
+            [entry.attrib for entry in lod0.find("levelofdetail")],
+            [
+                {
+                    "meshname": "rorng_city_led_streetlight_lod1.mesh",
+                    "value": "80",
+                },
+                {
+                    "meshname": "rorng_city_led_streetlight_lod2.mesh",
+                    "value": "180",
+                },
+            ],
+        )
+        collision = ET.fromstring(
+            values[
+                "rorng_city_led_streetlight_collision_fixture.mesh.xml"
+            ]
+        )
+        self.assertEqual(len(collision.find("submeshes")), 1)
+
+        material = values[
+            "rorng_city_led_streetlight.material"
+        ].decode("utf-8")
+        self.assertEqual(material.count("\nmaterial rorng_"), 6)
+        self.assertIn(
+            "material rorng_fixture_galvanized_steel",
+            material,
+        )
+        self.assertIn(
+            "material rorng_fixture_powdercoat_graphite",
+            material,
+        )
+        self.assertIn(
+            "material rorng_fixture_led_lens_emissive",
+            material,
+        )
+        self.assertIn("      emissive 1 0.72 0.3", material)
+
+        odef = values["rorng_city_led_streetlight.odef"].decode("utf-8")
+        self.assertEqual(
+            odef,
+            "rorng_city_led_streetlight_lod0.mesh\n"
+            "1, 1, 1\n"
+            "standard\n"
+            "\n"
+            "beginmesh\n"
+            "mesh rorng_city_led_streetlight_collision_fixture.mesh\n"
+            "stdfriction concrete\n"
+            "endmesh\n"
+            "\n"
+            "end\n",
         )
 
     def test_intermediates_are_byte_deterministic(self) -> None:

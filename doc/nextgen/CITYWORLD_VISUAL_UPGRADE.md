@@ -161,7 +161,8 @@ Author a compact, project-owned kit before changing placement density:
   collision;
 - one traffic-signal family with shared pole and signal-head materials;
 - one bus shelter, bench, bollard, hydrant, and wayfinding-sign family;
-- day, dusk, and night material variants without embedded runtime scripts.
+- future day, dusk, and night material variants without embedded runtime
+  scripts, after a versioned compiler/runtime contract supports them.
 
 The existing map has 71 `parabusQr`, 39 `fancytrafficlight5`, 31
 `fancytrafficlight`, and 26 `busstopNJT` placements, so replacements for those
@@ -169,6 +170,26 @@ families have high visual leverage. Until PSSM-compatible local light casting
 is implemented, fixtures use physically plausible emissive surfaces and the
 directional sun; they must not disable global shadows merely to cast a point
 light.
+
+The first bounded CW1 asset is implemented as the original, project-owned
+`rorng_city_led_streetlight`. Its metre-scale Blender source and deterministic
+GLB contain LOD0/LOD1/LOD2 render objects at 4,548, 396, and 132 triangles,
+plus one separate simplified, welded watertight collision proxy. Texture-free
+PBR factors cover precast concrete, galvanized steel, graphite powder coat, a
+lens gasket, and a warm emissive LED lens. The export declares no runtime
+lights; the emissive lens is a surface material, not an implicit point light.
+The generator canonicalizes primitive, accessor, vertex, and triangle ordering,
+and consecutive runs with the pinned generator and Blender version produce the
+same GLB bytes.
+
+Compiler profile v1 accepts exactly one static factor set per material.
+Day/dusk/night instance variants and runtime material switching are not
+supported by that contract. This fixture therefore uses one checked warm
+emissive factor in every context; loaders and placement code must never invent
+a variant toggle or synthesize runtime switching. Adding variants requires a
+new versioned compiler and runtime contract. Reproduction, validation, and
+offline compilation commands are recorded in the
+[editable-source README](../../content-source/cityworld_next/README.md).
 
 The first bounded local-light slice is attached to the project-owned gateway
 block: eight versioned warm point lights share the eight emissive luminaires.
