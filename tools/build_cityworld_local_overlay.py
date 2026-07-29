@@ -57,6 +57,10 @@ from solve_cityworld_bridge_corridor import (  # noqa: E402
     tobj_text,
 )
 from validate_cityworld_asset import Validator  # noqa: E402
+from validate_cityworld_tree_family import (  # noqa: E402
+    FamilyValidator,
+    load_json as load_tree_family_json,
+)
 
 
 FORMAT = "ror-cityworld-local-overlay-v4"
@@ -77,6 +81,12 @@ NEOQ_LIGHT_CANDIDATE_NAME = (
 )
 NEOQ_LIGHT_CANDIDATE_FORMAT = (
     "ror-cityworld-neoq-core-light-candidates-v1"
+)
+NEOQ_TREE_REPLACEMENT_NAME = (
+    "cityworld_next_neoq_tree_replacements.v1.json"
+)
+NEOQ_TREE_REPLACEMENT_FORMAT = (
+    "ror-cityworld-neoq-tree-replacements-v1"
 )
 NEOQ_LIGHT_POLICY_ID = "ror-cityworld-local-light-budget-v1"
 NEOQ_EXPECTED_MAP_FAMILY_COUNTS = {
@@ -162,6 +172,17 @@ WINDOWS_RESERVED_BASENAMES = {
     *(f"lpt{index}" for index in range(1, 10)),
 }
 MATERIAL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_./-]+$")
+TREE_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9_]+$")
+TREE_PLAN_FLOAT = r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?"
+TREE_PLAN_LINE_PATTERN = re.compile(
+    rf"^CITYWORLD_NEOQ_TREE_REPLACEMENT\("
+    rf"([0-9]+)U, "
+    rf"({TREE_PLAN_FLOAT})f, ({TREE_PLAN_FLOAT})f, "
+    rf"({TREE_PLAN_FLOAT})f, ({TREE_PLAN_FLOAT})f, "
+    rf"({TREE_PLAN_FLOAT})f, ({TREE_PLAN_FLOAT})f, "
+    rf'"([a-z0-9_]+)", ({TREE_PLAN_FLOAT})f, '
+    rf'"([a-z0-9_]+)", ({TREE_PLAN_FLOAT})f\)$'
+)
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 ZIP_MODE = 0o100644
 POSITION_EPSILON = 1e-6
@@ -224,6 +245,14 @@ LED_STREETLIGHT_MANIFEST = (
     "rorng_city_led_streetlight_bridge.asset.json"
 )
 LED_STREETLIGHT_ASSET_ID = "rorng_city_led_streetlight_bridge"
+NEOQ_TREE_FAMILY_MANIFEST = (
+    "content-source/cityworld_next/vegetation/"
+    "rorng_city_neoq_tree_family.v1.json"
+)
+NEOQ_TREE_NATIVE_PLAN = (
+    "source/main/resources/tobj_fileformat/"
+    "CityWorldNeoQTreePlan.inc"
+)
 ASSET_MANIFESTS = (
     GATEWAY_MANIFEST,
     TRANSITION_MANIFEST,
@@ -247,6 +276,7 @@ TOOL_PATHS = (
     "tools/compile_cityworld_asset.py",
     "tools/solve_cityworld_bridge_corridor.py",
     "tools/validate_cityworld_asset.py",
+    "tools/validate_cityworld_tree_family.py",
 )
 
 
@@ -278,6 +308,26 @@ class PreparedAsset:
     profile: AssetProfile | None
     provenance: dict[str, Any]
     runtime_files: tuple[RuntimeFile, ...]
+
+
+@dataclass(frozen=True)
+class NativeTreePlanEntry:
+    ordinal: int
+    source_line: int
+    position: tuple[float, float, float]
+    original_rotation_degrees: tuple[float, float, float]
+    variant: str
+    scale: float
+    object_definition: str
+    yaw_degrees: float
+
+
+@dataclass(frozen=True)
+class PreparedTreeFamily:
+    assets: tuple[PreparedAsset, ...]
+    family_provenance: dict[str, Any]
+    replacements: tuple[NativeTreePlanEntry, ...]
+    wrappers: tuple[RuntimeFile, ...]
 
 
 @dataclass(frozen=True)
@@ -567,6 +617,114 @@ def source_placements(archive_path: Path) -> tuple[SourcePlacement, ...]:
         if len(placements) > MAX_SOURCE_PLACEMENTS:
             raise OverlayFailure("CityWorld.tobj exceeds the placement limit")
     return tuple(placements)
+
+
+def read_native_tree_plan(
+    repository: Path,
+) -> tuple[NativeTreePlanEntry, ...]:
+    plan_path = (
+        repository / safe_package_path(NEOQ_TREE_NATIVE_PLAN)
+    ).resolve()
+    try:
+        plan_path.relative_to(repository)
+        text = plan_path.read_text(encoding="ascii")
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        raise OverlayFailure("native NeoQ tree plan is unavailable") from error
+    if len(text.encode("ascii")) > 64 * 1024:
+        raise OverlayFailure("native NeoQ tree plan exceeds the read limit")
+
+    entries: list[NativeTreePlanEntry] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if not line or line.startswith("//"):
+            continue
+        match = TREE_PLAN_LINE_PATTERN.fullmatch(line)
+        if match is None:
+            raise OverlayFailure(
+                f"native NeoQ tree plan line {line_number} is invalid"
+            )
+        values = tuple(float(match.group(index)) for index in range(2, 8))
+        scale = float(match.group(9))
+        yaw = float(match.group(11))
+        if not all(math.isfinite(value) for value in (*values, scale, yaw)):
+            raise OverlayFailure("native NeoQ tree plan contains non-finite values")
+        entries.append(
+            NativeTreePlanEntry(
+                ordinal=len(entries),
+                source_line=int(match.group(1)),
+                position=(values[0], values[1], values[2]),
+                original_rotation_degrees=(
+                    values[3],
+                    values[4],
+                    values[5],
+                ),
+                variant=match.group(8),
+                scale=scale,
+                object_definition=match.group(10),
+                yaw_degrees=yaw,
+            )
+        )
+
+    if len(entries) != 18:
+        raise OverlayFailure("native NeoQ tree plan does not contain 18 entries")
+    if [entry.source_line for entry in entries] != list(range(9, 27)):
+        raise OverlayFailure("native NeoQ tree plan source lines are not 9-26")
+    if len({entry.object_definition.casefold() for entry in entries}) != 18:
+        raise OverlayFailure("native NeoQ tree wrapper names are not unique")
+    for entry in entries:
+        expected_name = f"rorng_city_neoq_tree_instance_{entry.ordinal:02d}"
+        if (
+            entry.object_definition != expected_name
+            or TREE_IDENTIFIER_PATTERN.fullmatch(
+                entry.object_definition
+            )
+            is None
+        ):
+            raise OverlayFailure(
+                "native NeoQ tree wrapper name is not canonical"
+            )
+    return tuple(entries)
+
+
+def authenticate_neoq_tree_placements(
+    placements: Sequence[SourcePlacement],
+    plan: Sequence[NativeTreePlanEntry],
+) -> tuple[SourcePlacement, ...]:
+    legacy = tuple(
+        placement
+        for placement in placements
+        if placement.object_name == "arbol1Qr"
+    )
+    if len(legacy) != 18:
+        raise OverlayFailure(
+            "expected exactly 18 legacy arbol1Qr placements"
+        )
+    by_line: dict[int, SourcePlacement] = {}
+    for placement in placements:
+        if placement.line_number < 9 or placement.line_number > 26:
+            continue
+        if placement.line_number in by_line:
+            raise OverlayFailure("NeoQ tree source line is duplicated")
+        by_line[placement.line_number] = placement
+    if set(by_line) != set(range(9, 27)):
+        raise OverlayFailure(
+            "NeoQ tree source lines 9-26 are incomplete"
+        )
+
+    authenticated: list[SourcePlacement] = []
+    for entry in plan:
+        observed = by_line[entry.source_line]
+        if (
+            observed.object_name != "arbol1Qr"
+            or observed.position != entry.position
+            or observed.rotation_degrees
+            != entry.original_rotation_degrees
+        ):
+            raise OverlayFailure(
+                f"CityWorld.tobj line {entry.source_line} does not "
+                "match the exact NeoQ tree plan"
+            )
+        authenticated.append(observed)
+    return tuple(authenticated)
 
 
 def neoq_light_candidate_manifest(
@@ -1128,6 +1286,281 @@ def prepare_streetlight_asset(repository: Path) -> PreparedAsset:
     return asset
 
 
+def tree_scale_wrapper(
+    asset: PreparedAsset,
+    entry: NativeTreePlanEntry,
+) -> RuntimeFile:
+    terrain_objects = tuple(
+        runtime_file
+        for runtime_file in asset.runtime_files
+        if runtime_file.role == "terrain-object"
+    )
+    if len(terrain_objects) != 1:
+        raise OverlayFailure(
+            f"{asset.asset_id} has no unique terrain-object definition"
+        )
+    source = terrain_objects[0]
+    try:
+        lines = source.payload.decode("utf-8").splitlines()
+    except UnicodeDecodeError as error:
+        raise OverlayFailure(
+            f"{source.package_path} is not UTF-8"
+        ) from error
+    expected_render_mesh = f"{asset.asset_id}_lod0.mesh"
+    expected_collision_mesh = (
+        f"mesh {asset.asset_id}_collision_fixture.mesh"
+    )
+    if (
+        len(lines) < 8
+        or lines[0] != expected_render_mesh
+        or [part.strip() for part in lines[1].split(",")]
+        != ["1", "1", "1"]
+        or lines.count("beginmesh") != 1
+        or lines.count("endmesh") != 1
+        or expected_collision_mesh not in lines
+        or lines[-1] != "end"
+    ):
+        raise OverlayFailure(
+            f"{source.package_path} cannot be scaled by a safe wrapper"
+        )
+    scale = stable_float(entry.scale)
+    lines[1] = f"{scale}, {scale}, {scale}"
+    payload = ("\n".join(lines) + "\n").encode("utf-8")
+    package_path = f"{entry.object_definition}.odef"
+    return RuntimeFile(
+        package_path=package_path,
+        repository_path=NEOQ_TREE_NATIVE_PLAN,
+        role="terrain-object-scale-wrapper",
+        sha256=sha256_bytes(payload),
+        size=len(payload),
+        payload=payload,
+    )
+
+
+def prepare_tree_family(
+    repository: Path,
+    plan: Sequence[NativeTreePlanEntry],
+) -> PreparedTreeFamily:
+    family_path = (
+        repository / safe_package_path(NEOQ_TREE_FAMILY_MANIFEST)
+    ).resolve()
+    try:
+        family_path.relative_to(repository)
+    except ValueError as error:
+        raise OverlayFailure(
+            "NeoQ tree family manifest escapes the repository"
+        ) from error
+
+    validation = FamilyValidator(repository, family_path).validate()
+    if validation.get("summary", {}).get("valid") is not True:
+        codes = sorted(
+            {
+                diagnostic.get("code", "UNKNOWN")
+                for diagnostic in validation.get("diagnostics", [])
+                if isinstance(diagnostic, dict)
+            }
+        )
+        raise OverlayFailure(
+            "NeoQ tree family validation failed: " + ", ".join(codes)
+        )
+    try:
+        family = load_tree_family_json(family_path)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise OverlayFailure("NeoQ tree family manifest is unreadable") from error
+
+    asset_identity = family.get("asset")
+    placement_target = family.get("placement_target")
+    selector = family.get("selector")
+    variants = family.get("variants")
+    if (
+        not isinstance(asset_identity, dict)
+        or asset_identity.get("id") != "rorng_city_neoq_tree_family"
+        or asset_identity.get("license") != "GPL-3.0-or-later"
+        or placement_target
+        != {
+            "integration_status": "asset-ready-placement-deferred",
+            "legacy_object": "arbol1Qr",
+            "map": "CityWorld/NeoQueretaro",
+            "placement_count": 18,
+        }
+        or not isinstance(selector, dict)
+        or selector.get("algorithm")
+        != "sha256-little-endian-modulo-v1"
+        or not isinstance(variants, list)
+    ):
+        raise OverlayFailure("NeoQ tree family integration contract is invalid")
+
+    assignments = selector.get("assignments")
+    if not isinstance(assignments, list) or len(assignments) != len(plan):
+        raise OverlayFailure("NeoQ tree family selector is incomplete")
+    for entry, assignment in zip(plan, assignments):
+        if (
+            not isinstance(assignment, dict)
+            or assignment.get("placement_ordinal") != entry.ordinal
+            or assignment.get("variant") != entry.variant
+            or assignment.get("scale") != entry.scale
+            or assignment.get("yaw_degrees") != entry.yaw_degrees
+        ):
+            raise OverlayFailure(
+                "native NeoQ tree plan disagrees with the family selector"
+            )
+
+    manifest_by_id: dict[str, str] = {}
+    for variant in variants:
+        if not isinstance(variant, dict):
+            raise OverlayFailure("NeoQ tree family has an invalid variant")
+        asset_id = variant.get("asset_id")
+        manifest = variant.get("manifest")
+        if (
+            not isinstance(asset_id, str)
+            or not isinstance(manifest, str)
+            or asset_id in manifest_by_id
+        ):
+            raise OverlayFailure("NeoQ tree family variant is not unique")
+        manifest_by_id[asset_id] = manifest
+    if set(manifest_by_id) != {entry.variant for entry in plan}:
+        raise OverlayFailure(
+            "native NeoQ tree plan does not use the exact family variants"
+        )
+
+    assets = tuple(
+        prepare_asset(
+            repository,
+            manifest_by_id[variant["asset_id"]],
+            corridor_module=False,
+        )
+        for variant in variants
+    )
+    for asset in assets:
+        if (
+            asset.provenance.get("asset", {}).get("profile")
+            != "static-fixture-v1"
+            or asset.centerline_length_m is not None
+            or asset.profile is not None
+            or asset.provenance.get("runtime_lights") != []
+        ):
+            raise OverlayFailure(
+                f"{asset.asset_id} does not match the tree runtime profile"
+            )
+    by_id = {asset.asset_id: asset for asset in assets}
+    wrappers = tuple(
+        tree_scale_wrapper(by_id[entry.variant], entry)
+        for entry in plan
+    )
+    if len({wrapper.package_path.casefold() for wrapper in wrappers}) != 18:
+        raise OverlayFailure("NeoQ tree scale-wrapper paths are not unique")
+
+    return PreparedTreeFamily(
+        assets=assets,
+        family_provenance={
+            "asset": asset_identity,
+            "family_manifest": {
+                "path": NEOQ_TREE_FAMILY_MANIFEST,
+                "sha256": sha256_regular_file(
+                    family_path,
+                    max_bytes=4 * 1024 * 1024,
+                ),
+            },
+            "native_plan": {
+                "path": NEOQ_TREE_NATIVE_PLAN,
+                "sha256": sha256_regular_file(
+                    repository / NEOQ_TREE_NATIVE_PLAN,
+                    max_bytes=64 * 1024,
+                ),
+            },
+            "selector": {
+                "algorithm": selector["algorithm"],
+                "namespace": selector["namespace"],
+            },
+            "validation": {
+                "format": validation["format"],
+                "summary": validation["summary"],
+            },
+        },
+        replacements=tuple(plan),
+        wrappers=wrappers,
+    )
+
+
+def neoq_tree_replacement_manifest(
+    tree_family: PreparedTreeFamily,
+    authenticated: Sequence[SourcePlacement],
+    source_tobj_sha256: str,
+) -> dict[str, Any]:
+    if (
+        len(authenticated) != 18
+        or len(tree_family.replacements) != 18
+        or len(tree_family.wrappers) != 18
+    ):
+        raise OverlayFailure("NeoQ tree replacement set is incomplete")
+    replacements: list[dict[str, Any]] = []
+    for source, entry, wrapper in zip(
+        authenticated,
+        tree_family.replacements,
+        tree_family.wrappers,
+    ):
+        if source.line_number != entry.source_line:
+            raise OverlayFailure("NeoQ tree replacement ordering drifted")
+        replacements.append(
+            {
+                "legacy_object": source.object_name,
+                "object_definition": entry.object_definition,
+                "ordinal": entry.ordinal,
+                "position_m": [
+                    round(value, 9)
+                    for value in source.position
+                ],
+                "position_preserved": True,
+                "rotation_degrees": [
+                    round(entry.original_rotation_degrees[0], 9),
+                    round(entry.yaw_degrees, 9),
+                    round(entry.original_rotation_degrees[2], 9),
+                ],
+                "scale": round(entry.scale, 9),
+                "source_line": entry.source_line,
+                "source_rotation_degrees": [
+                    round(value, 9)
+                    for value in source.rotation_degrees
+                ],
+                "variant": entry.variant,
+                "wrapper": {
+                    "path": wrapper.package_path,
+                    "sha256": wrapper.sha256,
+                    "size": wrapper.size,
+                },
+            }
+        )
+    return {
+        "activation": {
+            "duplicate_placements_emitted": 0,
+            "fail_closed": True,
+            "mode": "native-authenticated-in-place-replacement-v1",
+            "requires_exact_archive_dependency": True,
+            "requires_exact_tobj_sha256": True,
+            "runtime_resource_preflight": "all-18-scale-wrapper-odefs",
+        },
+        "family": tree_family.family_provenance,
+        "format": NEOQ_TREE_REPLACEMENT_FORMAT,
+        "replacements": replacements,
+        "source": {
+            "legacy_object": "arbol1Qr",
+            "placement_count": 18,
+            "source_lines": [9, 26],
+            "tobj": "CityWorld.tobj",
+            "tobj_sha256": source_tobj_sha256,
+        },
+        "summary": {
+            "collision_scale_matches_visual_scale": True,
+            "positions_preserved": 18,
+            "replacement_count": 18,
+            "unique_scale_wrappers": 18,
+            "variants": sorted(
+                {entry.variant for entry in tree_family.replacements}
+            ),
+        },
+    }
+
+
 def tokenize_material_script(
     runtime_file: RuntimeFile,
 ) -> tuple[MaterialToken, ...]:
@@ -1448,7 +1881,7 @@ def tool_provenance(
     repository: Path,
     assets: Sequence[PreparedAsset],
 ) -> list[dict[str, str]]:
-    paths = set(TOOL_PATHS)
+    paths = {*TOOL_PATHS, NEOQ_TREE_NATIVE_PLAN}
     for asset in assets:
         generator = asset.provenance.get("generator", {})
         if isinstance(generator, dict):
@@ -2495,9 +2928,27 @@ def build_local_overlay(
     if audit.get("ok") is not True:
         raise OverlayFailure("CityWorld archive audit did not pass")
     member_records = source_member_provenance(source_archive)
+    source_tobj_records = [
+        record
+        for record in member_records
+        if record.get("name") == "CityWorld.tobj"
+    ]
+    if (
+        len(source_tobj_records) != 1
+        or not isinstance(source_tobj_records[0].get("sha256"), str)
+    ):
+        raise OverlayFailure(
+            "CityWorld.tobj has no unique source provenance record"
+        )
+    source_tobj_sha256 = source_tobj_records[0]["sha256"]
     legacy_placements = source_placements(source_archive)
     anchor_evidence = authenticate_route_anchors(legacy_placements)
     open_gap_audit = audit_open_intercity_gap(legacy_placements)
+    native_tree_plan = read_native_tree_plan(repository)
+    authenticated_tree_placements = authenticate_neoq_tree_placements(
+        legacy_placements,
+        native_tree_plan,
+    )
     source_telepoint = exact_telepoint(audit, SOURCE_TELEPOINT)
     destination_telepoint = exact_telepoint(audit, DESTINATION_TELEPOINT)
     light_candidates = neoq_light_candidate_manifest(
@@ -2513,7 +2964,18 @@ def build_local_overlay(
     destination = tuple(ROUTE_DESTINATION_ANCHOR["connection_position_m"])
     corridor_assets = prepare_assets(repository)
     streetlight_asset = prepare_streetlight_asset(repository)
-    assets = (*corridor_assets, streetlight_asset)
+    tree_family = prepare_tree_family(repository, native_tree_plan)
+    tree_replacements = neoq_tree_replacement_manifest(
+        tree_family,
+        authenticated_tree_placements,
+        source_tobj_sha256,
+    )
+    tree_replacement_payload = canonical_json_bytes(tree_replacements)
+    assets = (
+        *corridor_assets,
+        streetlight_asset,
+        *tree_family.assets,
+    )
     if len({asset.asset_id for asset in assets}) != len(assets):
         raise OverlayFailure("overlay assets contain duplicate identifiers")
     route_points, segment = build_intercity_route(
@@ -2546,7 +3008,10 @@ def build_local_overlay(
         route_points,
         streetlight_placements,
     )
-    runtime_assets = (streetlight_asset,)
+    runtime_assets = (
+        streetlight_asset,
+        *tree_family.assets,
+    )
     merged_material = merge_material_scripts(runtime_assets)
     payloads: dict[str, bytes] = {}
     package_roles: dict[str, str] = {}
@@ -2564,6 +3029,13 @@ def build_local_overlay(
                 runtime_file.payload,
             )
             package_roles[runtime_file.package_path] = runtime_file.role
+    for wrapper in tree_family.wrappers:
+        add_payload(
+            payloads,
+            wrapper.package_path,
+            wrapper.payload,
+        )
+        package_roles[wrapper.package_path] = wrapper.role
     add_payload(payloads, MERGED_MATERIAL_NAME, merged_material)
     package_roles[MERGED_MATERIAL_NAME] = "material-fallback"
     add_payload(
@@ -2573,6 +3045,14 @@ def build_local_overlay(
     )
     package_roles[NEOQ_LIGHT_CANDIDATE_NAME] = (
         "disabled-light-candidate-manifest"
+    )
+    add_payload(
+        payloads,
+        NEOQ_TREE_REPLACEMENT_NAME,
+        tree_replacement_payload,
+    )
+    package_roles[NEOQ_TREE_REPLACEMENT_NAME] = (
+        "authenticated-in-place-tree-replacement-plan"
     )
 
     source_member_hashes = {
@@ -2598,6 +3078,11 @@ def build_local_overlay(
         light_candidate_payload,
         "disabled-light-candidate-manifest",
     )
+    tree_replacement_record = payload_record(
+        NEOQ_TREE_REPLACEMENT_NAME,
+        tree_replacement_payload,
+        "authenticated-in-place-tree-replacement-plan",
+    )
     report = {
         "assets": [asset.provenance for asset in assets],
         "city_lighting": {
@@ -2613,6 +3098,15 @@ def build_local_overlay(
                 "scope": light_candidates["scope"],
                 "source_pole_definitions": source_pole_definitions,
                 "visual_geometry": light_candidates["visual_geometry"],
+            },
+        },
+        "city_visuals": {
+            "neoq_trees": {
+                "activation": tree_replacements["activation"],
+                "family": tree_replacements["family"],
+                "replacement_manifest": tree_replacement_record,
+                "source": tree_replacements["source"],
+                "summary": tree_replacements["summary"],
             },
         },
         "corridor": segment,
@@ -2635,7 +3129,7 @@ def build_local_overlay(
             "source_placements_copied": False,
             "source_placement_records_derived": True,
             "derived_source_placement_record_count":
-                light_candidates["candidate_poles"],
+                light_candidates["candidate_poles"] + 18,
             "source_textures_copied": False,
         },
         "visual_asset_usage": {
@@ -2648,7 +3142,13 @@ def build_local_overlay(
                 asset.asset_id
                 for asset in runtime_assets
             ],
-            "placed_asset_ids": [LED_STREETLIGHT_ASSET_ID],
+            "placed_asset_ids": [
+                LED_STREETLIGHT_ASSET_ID,
+                *[
+                    asset.asset_id
+                    for asset in tree_family.assets
+                ],
+            ],
             "unplaced_asset_ids": [
                 asset.asset_id
                 for asset in corridor_assets
@@ -2659,10 +3159,13 @@ def build_local_overlay(
             ],
             "purpose":
                 "curb-free Penguinville overlap apron plus route-safe Blender "
-                "lighting; deterministic NeoQueretaro pole-light candidates "
-                "remain disabled pending the bounded renderer light budget "
-                "and fixed-camera visual gate; bridge modules remain "
-                "validated candidates for deck and abutment replacement",
+                "lighting; all 18 authenticated legacy NeoQueretaro trees are "
+                "replaced in place by the rights-cleared three-variant family "
+                "with per-instance visual/collision scale wrappers; "
+                "deterministic NeoQueretaro pole-light candidates remain "
+                "disabled pending the bounded renderer light budget and "
+                "fixed-camera visual gate; bridge modules remain validated "
+                "candidates for deck and abutment replacement",
         },
         "source": {
             "archive": {
@@ -2677,6 +3180,8 @@ def build_local_overlay(
                 "geometry_config": "CityWorld.otc",
                 "original_placements": "CityWorld.tobj",
                 "overlay_placements": OVERLAY_NAME,
+                "tree_replacement_manifest":
+                    NEOQ_TREE_REPLACEMENT_NAME,
                 "resource_bundle_dependency":
                     resource_bundle_dependency(),
             },
@@ -2726,6 +3231,7 @@ def build_local_overlay(
             descriptor_record,
             placement_record,
             light_candidate_record,
+            tree_replacement_record,
         ],
         "output": {
             "entries": len(payloads),

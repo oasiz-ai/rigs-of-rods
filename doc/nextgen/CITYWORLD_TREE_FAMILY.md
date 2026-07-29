@@ -2,8 +2,9 @@
 
 The first project-owned CityWorld vegetation family replaces the visual
 contract for the 18 individually placed `arbol1Qr` objects in NeoQueretaro.
-Placement is deliberately deferred so the map overlay can integrate all 18
-instances atomically after fixed-camera and frame-time gates are ready.
+Overlay v4 integrates all 18 atomically through an exact in-place compatibility
+plan: no second TOBJ placement is emitted, so legacy and replacement trees
+cannot coexist.
 
 The family contains round, columnar, and windswept urban broadleaf silhouettes.
 The stable SHA-256 selector assigns every legacy placement ordinal to one of
@@ -27,6 +28,21 @@ in the current bounded compiler. LOD0, LOD1, and LOD2 contain 21,136, 1,988,
 and 268 triangles respectively. The reductions are 9.41% and 1.27% of LOD0,
 below the hero-tree limits of 40% and 12%. A separate 44-triangle watertight
 trunk proxy handles vehicle contact without colliding against the canopy.
+
+`CityWorldNeoQTreePlan.inc` is the shared native/package placement authority.
+The overlay builder parses it strictly and proves that source lines 9–26,
+positions, and original rotations match the exact pinned `CityWorld.tobj`, and
+that variant, yaw, and scale agree with the family selector. It emits 18 unique
+portable ODEF wrappers. Each wrapper changes only the ODEF's uniform scale, so
+the render node and watertight trunk collision proxy receive the same
+per-instance transform on macOS, Linux, and Windows.
+
+At runtime the native compatibility path requires both the authenticated
+`CityWorld.zip` dependency and exact `CityWorld.tobj` SHA-256. It preflights all
+18 wrapper ODEFs before committing any change, then replaces the original ODEF
+and Y rotation in place while preserving exact X/Y/Z, X/Z rotation, type,
+instance identity, and rendering distance. Any archive, TOBJ, placement,
+selector, name, or resource drift leaves all legacy trees untouched.
 
 The family and every render LOD carry:
 
@@ -70,6 +86,18 @@ checks the rights and scale envelope, invokes the complete glTF asset validator,
 requires exact wind/impostor node metadata, verifies trunk-only collision, and
 hashes every compiled runtime output. The existing compiler's
 `--validate-checked` mode independently verifies the deterministic OGRE package.
+`tools/build_cityworld_local_overlay.py` additionally emits
+`cityworld_next_neoq_tree_replacements.v1.json`, hashes every wrapper, records
+zero duplicate placements, and produces byte-identical archives under normal
+and optimized Python.
+
+`tests/fixtures/cityworld_neoq_tree_runtime/cityworld_neoq_tree_runtime.as`
+provides the native visual gate. It hides UI, advances an exact fixed-step
+schedule, and captures both rows plus oblique and overhead context before
+quitting with a machine-readable PASS record. Acceptance requires the
+transaction marker with `tree_replacements=18`, all three render/collision
+families and nine tree materials to load, four 1280x720 captures, and no
+tree-specific missing-material or renderer-fatal record.
 
 ## Current renderer limitations
 
@@ -77,4 +105,5 @@ The v1 scene compiler carries wind and impostor metadata but does not yet emit
 an impostor atlas or a vegetation wind shader. Runtime assets therefore use
 geometry foliage at all three current LODs; the explicit contract prevents
 silently claiming those two enrichments are active. Texture-backed leaf cards,
-seasonal instance tint, animation, and map placement remain follow-up work.
+seasonal instance tint, animation, and replacement of the larger grouped tree
+meshes remain follow-up work.

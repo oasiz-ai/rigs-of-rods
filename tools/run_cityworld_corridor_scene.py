@@ -60,6 +60,29 @@ NEOQ_LIGHT_CANDIDATE_MEMBER = (
 NEOQ_LIGHT_CANDIDATE_FORMAT = (
     "ror-cityworld-neoq-core-light-candidates-v1"
 )
+NEOQ_TREE_REPLACEMENT_MEMBER = (
+    "cityworld_next_neoq_tree_replacements.v1.json"
+)
+NEOQ_TREE_REPLACEMENT_FORMAT = (
+    "ror-cityworld-neoq-tree-replacements-v1"
+)
+NEOQ_TREE_NATIVE_PLAN = (
+    "source/main/resources/tobj_fileformat/"
+    "CityWorldNeoQTreePlan.inc"
+)
+NEOQ_TREE_FAMILY_MANIFEST = (
+    "content-source/cityworld_next/vegetation/"
+    "rorng_city_neoq_tree_family.v1.json"
+)
+NEOQ_TREE_SOURCE_TOBJ_SHA256 = (
+    "1cdc57dc59c4c0f403f621ad31afc301436af70c813b2e0dd01ffb0cd54f0b48"
+)
+NEOQ_TREE_COUNT = 18
+NEOQ_TREE_VARIANTS = [
+    "rorng_city_neoq_tree_columnar",
+    "rorng_city_neoq_tree_round",
+    "rorng_city_neoq_tree_windswept",
+]
 NEOQ_LIGHT_POLICY_ID = "ror-cityworld-local-light-budget-v1"
 NEOQ_LIGHT_RADIUS_M = 400.0
 NEOQ_LIGHT_RANGE_M = 24.0
@@ -166,6 +189,7 @@ REPORT_FORMAT = "ror-cityworld-corridor-runtime-report-v1"
 RGB_NAME = "cityworld_corridor_rgb.png"
 MAX_REPORT_BYTES = 4 * 1024 * 1024
 MAX_CANDIDATE_BYTES = 1024 * 1024
+MAX_TREE_REPLACEMENT_BYTES = 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 64
 MAX_OVERLAY_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_OVERLAY_TOTAL_BYTES = 128 * 1024 * 1024
@@ -183,17 +207,27 @@ EXPECTED_UNPLACED_ASSETS = [
 ]
 EXPECTED_VISUAL_PURPOSE = (
     "curb-free Penguinville overlap apron plus route-safe Blender lighting; "
+    "all 18 authenticated legacy NeoQueretaro trees are replaced in place "
+    "by the rights-cleared three-variant family with per-instance "
+    "visual/collision scale wrappers; "
     "deterministic NeoQueretaro pole-light candidates remain disabled pending "
     "the bounded renderer light budget and fixed-camera visual gate; bridge "
     "modules remain validated candidates for deck and abutment replacement"
 )
+EXPECTED_TREE_ASSET_IDS = [
+    "rorng_city_neoq_tree_round",
+    "rorng_city_neoq_tree_columnar",
+    "rorng_city_neoq_tree_windswept",
+]
 REQUIRED_OVERLAY_TOOLS = frozenset(
     (
+        NEOQ_TREE_NATIVE_PLAN,
         "tools/audit_cityworld_visuals.py",
         "tools/build_cityworld_local_overlay.py",
         "tools/compile_cityworld_asset.py",
         "tools/solve_cityworld_bridge_corridor.py",
         "tools/validate_cityworld_asset.py",
+        "tools/validate_cityworld_tree_family.py",
     )
 )
 
@@ -208,6 +242,9 @@ SCRIPT_MARKERS = (
 )
 ENGINE_MARKERS = (
     CITYWORLD_FALLBACK_LIGHTING_MARKER,
+    "[RoR|CityWorld|NeoQ20Grounding] Applied placements=35 renames=3 "
+    "telepoints=1 tree_replacements=18 transactionally before object "
+    "instantiation (tobj_sha256=" + NEOQ_TREE_SOURCE_TOBJ_SHA256 + ")",
     "===== TERRAIN LOADING DONE CityWorldNextLocalOverlay.terrn2",
     "===== LOADING VEHICLE: b6b0UID-semi.truck",
 )
@@ -249,6 +286,16 @@ VECTOR_PATTERN = re.compile(
     r"(?P<z>-?[0-9.]+)f\s*\)"
 )
 FLOAT_PATTERN = re.compile(r"(?<![A-Za-z0-9_])-?[0-9]+(?:\.[0-9]+)?f")
+TREE_PLAN_FLOAT = r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?"
+TREE_PLAN_PATTERN = re.compile(
+    rf"^CITYWORLD_NEOQ_TREE_REPLACEMENT\("
+    rf"([0-9]+)U, "
+    rf"({TREE_PLAN_FLOAT})f, ({TREE_PLAN_FLOAT})f, "
+    rf"({TREE_PLAN_FLOAT})f, ({TREE_PLAN_FLOAT})f, "
+    rf"({TREE_PLAN_FLOAT})f, ({TREE_PLAN_FLOAT})f, "
+    rf'"([a-z0-9_]+)", ({TREE_PLAN_FLOAT})f, '
+    rf'"([a-z0-9_]+)", ({TREE_PLAN_FLOAT})f\)$'
+)
 
 
 class CorridorSceneFailure(RuntimeError):
@@ -357,6 +404,370 @@ def require_exact_json(
         return
     if actual != expected:
         raise CorridorSceneFailure(f"{label} value drifted")
+
+
+def read_neoq_tree_native_plan(
+    repository: Path,
+) -> list[dict[str, object]]:
+    repository = repository.resolve()
+    unresolved_path = repository / NEOQ_TREE_NATIVE_PLAN
+    if unresolved_path.is_symlink():
+        raise CorridorSceneFailure("NeoQ tree native plan is a symlink")
+    path = unresolved_path.resolve()
+    try:
+        path.relative_to(repository)
+    except ValueError as error:
+        raise CorridorSceneFailure("NeoQ tree plan escapes repository") from error
+    if not path.is_file() or path.is_symlink():
+        raise CorridorSceneFailure("NeoQ tree native plan is missing")
+    if not 1 <= path.stat().st_size <= 64 * 1024:
+        raise CorridorSceneFailure("NeoQ tree native plan size is invalid")
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError) as error:
+        raise CorridorSceneFailure(
+            f"cannot read NeoQ tree native plan: {error}"
+        ) from error
+
+    result: list[dict[str, object]] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//"):
+            continue
+        match = TREE_PLAN_PATTERN.fullmatch(stripped)
+        if match is None:
+            raise CorridorSceneFailure("NeoQ tree native plan syntax drifted")
+        groups = match.groups()
+        ordinal = len(result)
+        source_line = int(groups[0])
+        object_definition = groups[9]
+        if (
+            source_line != 9 + ordinal
+            or object_definition
+            != f"rorng_city_neoq_tree_instance_{ordinal:02d}"
+        ):
+            raise CorridorSceneFailure("NeoQ tree native plan ordering drifted")
+        result.append(
+            {
+                "object_definition": object_definition,
+                "position_m": [float(value) for value in groups[1:4]],
+                "rotation_degrees": [float(value) for value in groups[4:7]],
+                "scale": float(groups[8]),
+                "source_line": source_line,
+                "variant": groups[7],
+                "yaw_degrees": float(groups[10]),
+            }
+        )
+    if (
+        len(result) != NEOQ_TREE_COUNT
+        or sorted({item["variant"] for item in result})
+        != NEOQ_TREE_VARIANTS
+    ):
+        raise CorridorSceneFailure("NeoQ tree native plan inventory drifted")
+    return result
+
+
+def validate_neoq_tree_replacements(
+    manifest: object,
+    repository: Path,
+    package_payloads: Mapping[str, bytes],
+    package_records: Mapping[str, Mapping[str, object]],
+) -> dict[str, object]:
+    repository = repository.resolve()
+    tree_manifest = exact_dict(manifest, "NeoQ tree replacement manifest")
+    if set(tree_manifest) != {
+        "activation",
+        "family",
+        "format",
+        "replacements",
+        "source",
+        "summary",
+    }:
+        raise CorridorSceneFailure(
+            "NeoQ tree replacement manifest fields drifted"
+        )
+    require_exact_json(
+        tree_manifest.get("format"),
+        NEOQ_TREE_REPLACEMENT_FORMAT,
+        "NeoQ tree replacement format",
+    )
+    require_exact_json(
+        tree_manifest.get("activation"),
+        {
+            "duplicate_placements_emitted": 0,
+            "fail_closed": True,
+            "mode": "native-authenticated-in-place-replacement-v1",
+            "requires_exact_archive_dependency": True,
+            "requires_exact_tobj_sha256": True,
+            "runtime_resource_preflight": "all-18-scale-wrapper-odefs",
+        },
+        "NeoQ tree activation contract",
+    )
+    require_exact_json(
+        tree_manifest.get("source"),
+        {
+            "legacy_object": "arbol1Qr",
+            "placement_count": NEOQ_TREE_COUNT,
+            "source_lines": [9, 26],
+            "tobj": "CityWorld.tobj",
+            "tobj_sha256": NEOQ_TREE_SOURCE_TOBJ_SHA256,
+        },
+        "NeoQ tree source contract",
+    )
+    require_exact_json(
+        tree_manifest.get("summary"),
+        {
+            "collision_scale_matches_visual_scale": True,
+            "positions_preserved": NEOQ_TREE_COUNT,
+            "replacement_count": NEOQ_TREE_COUNT,
+            "unique_scale_wrappers": NEOQ_TREE_COUNT,
+            "variants": NEOQ_TREE_VARIANTS,
+        },
+        "NeoQ tree replacement summary",
+    )
+
+    native_plan = read_neoq_tree_native_plan(repository)
+    unresolved_family_path = repository / NEOQ_TREE_FAMILY_MANIFEST
+    if unresolved_family_path.is_symlink():
+        raise CorridorSceneFailure("NeoQ tree family manifest is a symlink")
+    family_path = unresolved_family_path.resolve()
+    try:
+        family_path.relative_to(repository)
+    except ValueError as error:
+        raise CorridorSceneFailure(
+            "NeoQ tree family manifest escapes repository"
+        ) from error
+    if (
+        not family_path.is_file()
+        or family_path.is_symlink()
+        or family_path.stat().st_size > 1024 * 1024
+    ):
+        raise CorridorSceneFailure("NeoQ tree family manifest is missing")
+    family = exact_dict(tree_manifest.get("family"), "NeoQ tree family")
+    require_exact_json(
+        family,
+        {
+            "asset": {
+                "author": "Oasiz AI and Rigs of Rods contributors",
+                "id": "rorng_city_neoq_tree_family",
+                "license": "GPL-3.0-or-later",
+                "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+                "version": 1,
+            },
+            "family_manifest": {
+                "path": NEOQ_TREE_FAMILY_MANIFEST,
+                "sha256": sha256_file(family_path),
+            },
+            "native_plan": {
+                "path": NEOQ_TREE_NATIVE_PLAN,
+                "sha256": sha256_file(repository / NEOQ_TREE_NATIVE_PLAN),
+            },
+            "selector": {
+                "algorithm": "sha256-little-endian-modulo-v1",
+                "namespace": "cityworld:neoqueretaro:arbol1qr:v1",
+            },
+            "validation": {
+                "format": "ror-cityworld-tree-family-validation-v1",
+                "summary": {
+                    "assets": 3,
+                    "compiled_outputs": 18,
+                    "errors": 0,
+                    "placements": NEOQ_TREE_COUNT,
+                    "silhouettes": 3,
+                    "valid": True,
+                },
+            },
+        },
+        "NeoQ tree family contract",
+    )
+
+    replacements = exact_list(
+        tree_manifest.get("replacements"),
+        "NeoQ tree replacements",
+    )
+    if len(replacements) != NEOQ_TREE_COUNT:
+        raise CorridorSceneFailure("NeoQ tree replacement count drifted")
+    wrapper_names: set[str] = set()
+    for ordinal, (value, expected) in enumerate(
+        zip(replacements, native_plan)
+    ):
+        replacement = exact_dict(value, f"NeoQ tree replacement {ordinal}")
+        if set(replacement) != {
+            "legacy_object",
+            "object_definition",
+            "ordinal",
+            "position_m",
+            "position_preserved",
+            "rotation_degrees",
+            "scale",
+            "source_line",
+            "source_rotation_degrees",
+            "variant",
+            "wrapper",
+        }:
+            raise CorridorSceneFailure(
+                f"NeoQ tree replacement {ordinal} fields drifted"
+            )
+        if (
+            exact_int(replacement.get("ordinal"), "tree ordinal") != ordinal
+            or exact_int(
+                replacement.get("source_line"),
+                "tree source line",
+            )
+            != expected["source_line"]
+            or replacement.get("legacy_object") != "arbol1Qr"
+            or replacement.get("object_definition")
+            != expected["object_definition"]
+            or replacement.get("variant") != expected["variant"]
+            or replacement.get("position_preserved") is not True
+        ):
+            raise CorridorSceneFailure(
+                f"NeoQ tree replacement {ordinal} identity drifted"
+            )
+        vectors = (
+            (
+                replacement.get("position_m"),
+                expected["position_m"],
+                "position",
+            ),
+            (
+                replacement.get("source_rotation_degrees"),
+                expected["rotation_degrees"],
+                "source rotation",
+            ),
+            (
+                replacement.get("rotation_degrees"),
+                [0.0, expected["yaw_degrees"], 0.0],
+                "replacement rotation",
+            ),
+        )
+        for actual_value, expected_value, label in vectors:
+            actual = exact_list(actual_value, f"tree {ordinal} {label}")
+            if (
+                len(actual) != 3
+                or any(
+                    abs(finite_number(item, label) - target) > 1.0e-9
+                    for item, target in zip(actual, expected_value)
+                )
+            ):
+                raise CorridorSceneFailure(
+                    f"NeoQ tree replacement {ordinal} {label} drifted"
+                )
+        scale = finite_number(replacement.get("scale"), "tree scale")
+        if abs(scale - expected["scale"]) > 1.0e-9:
+            raise CorridorSceneFailure(
+                f"NeoQ tree replacement {ordinal} scale drifted"
+            )
+        wrapper = exact_dict(
+            replacement.get("wrapper"),
+            f"tree {ordinal} wrapper",
+        )
+        wrapper_name = (
+            f"rorng_city_neoq_tree_instance_{ordinal:02d}.odef"
+        )
+        record = package_records.get(wrapper_name)
+        payload = package_payloads.get(wrapper_name)
+        if (
+            wrapper_name in wrapper_names
+            or record is None
+            or payload is None
+            or record.get("role") != "terrain-object-scale-wrapper"
+        ):
+            raise CorridorSceneFailure(
+                f"NeoQ tree replacement {ordinal} wrapper inventory drifted"
+            )
+        wrapper_names.add(wrapper_name)
+        require_exact_json(
+            wrapper,
+            {
+                "path": wrapper_name,
+                "sha256": sha256_bytes(payload),
+                "size": len(payload),
+            },
+            f"NeoQ tree replacement {ordinal} wrapper",
+        )
+        try:
+            wrapper_lines = payload.decode("utf-8").splitlines()
+        except UnicodeDecodeError as error:
+            raise CorridorSceneFailure(
+                f"NeoQ tree wrapper {ordinal} is not UTF-8"
+            ) from error
+        if (
+            len(wrapper_lines) != 10
+            or wrapper_lines[0] != expected["variant"] + "_lod0.mesh"
+            or wrapper_lines[2:] != [
+                "standard",
+                "",
+                "beginmesh",
+                "mesh "
+                + expected["variant"]
+                + "_collision_fixture.mesh",
+                "stdfriction concrete",
+                "endmesh",
+                "",
+                "end",
+            ]
+        ):
+            raise CorridorSceneFailure(
+                f"NeoQ tree wrapper {ordinal} structure drifted"
+            )
+        try:
+            wrapper_scale = [
+                float(component.strip())
+                for component in wrapper_lines[1].split(",")
+            ]
+        except ValueError as error:
+            raise CorridorSceneFailure(
+                f"NeoQ tree wrapper {ordinal} scale is invalid"
+            ) from error
+        if (
+            len(wrapper_scale) != 3
+            or any(
+                abs(component - scale) > 1.0e-9
+                for component in wrapper_scale
+            )
+        ):
+            raise CorridorSceneFailure(
+                f"NeoQ tree wrapper {ordinal} visual/collision scale drifted"
+            )
+
+    material_payload = package_payloads.get(
+        "cityworld_next_local_overlay.material"
+    )
+    if material_payload is None:
+        raise CorridorSceneFailure("overlay merged material is missing")
+    try:
+        material_text = material_payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise CorridorSceneFailure("overlay merged material is not UTF-8") from error
+    for variant in NEOQ_TREE_VARIANTS:
+        required_resources = {
+            variant + ".odef": "terrain-object",
+            variant + "_collision_fixture.mesh": "collision-fixture",
+            variant + "_lod0.mesh": "render-lod0",
+            variant + "_lod1.mesh": "render-lod1",
+            variant + "_lod2.mesh": "render-lod2",
+        }
+        for name, role in required_resources.items():
+            if (
+                name not in package_payloads
+                or package_records.get(name, {}).get("role") != role
+            ):
+                raise CorridorSceneFailure(
+                    f"NeoQ tree runtime resource is missing: {name}"
+                )
+        for suffix in ("bark", "foliage_dark", "foliage_light"):
+            material_name = variant + "_" + suffix
+            if re.search(
+                r"(?m)^material[ \t]+"
+                + re.escape(material_name)
+                + r"(?:[ \t]*$|[ \t]+)",
+                material_text,
+            ) is None:
+                raise CorridorSceneFailure(
+                    f"NeoQ tree material is missing: {material_name}"
+                )
+    return tree_manifest
 
 
 def validate_neoq_light_candidates(manifest: object) -> dict[str, object]:
@@ -601,6 +1012,10 @@ def validate_overlay_archive(
     overlay_sha = sha256_file(path)
     candidate_record: dict[str, object] | None = None
     candidate_manifest: dict[str, object] | None = None
+    tree_record: dict[str, object] | None = None
+    tree_manifest: dict[str, object] | None = None
+    package_payloads: dict[str, bytes] = {}
+    package_records: dict[str, dict[str, object]] = {}
     try:
         with zipfile.ZipFile(path, "r") as archive:
             infos = archive.infolist()
@@ -682,7 +1097,7 @@ def validate_overlay_archive(
                 "source_placement_payload_copied": False,
                 "source_placement_records_derived": True,
                 "source_placements_copied": False,
-                "derived_source_placement_record_count": 67,
+                "derived_source_placement_record_count": 85,
                 "source_textures_copied": False,
             }
             require_exact_json(
@@ -706,6 +1121,8 @@ def validate_overlay_archive(
                 if name in expected_names or name not in names:
                     raise CorridorSceneFailure("package inventory is inconsistent")
                 payload = archive.read(name)
+                package_payloads[name] = payload
+                package_records[name] = record
                 if (
                     record.get("sha256") != sha256_bytes(payload)
                     or exact_int(record.get("size"), "package file size")
@@ -724,6 +1141,16 @@ def validate_overlay_archive(
                             "NeoQueretaro candidate inventory drifted"
                         )
                     candidate_record = record
+                if name == NEOQ_TREE_REPLACEMENT_MEMBER:
+                    if (
+                        tree_record is not None
+                        or record.get("role")
+                        != "authenticated-in-place-tree-replacement-plan"
+                    ):
+                        raise CorridorSceneFailure(
+                            "NeoQ tree replacement inventory drifted"
+                        )
+                    tree_record = record
                 expected_names.add(name)
             if (
                 exact_int(package.get("entries"), "package entries")
@@ -759,11 +1186,47 @@ def validate_overlay_archive(
             candidate_manifest = validate_neoq_light_candidates(
                 decoded_candidate_manifest
             )
+            if tree_record is None:
+                raise CorridorSceneFailure(
+                    "NeoQ tree replacement manifest is missing"
+                )
+            tree_info = archive.getinfo(NEOQ_TREE_REPLACEMENT_MEMBER)
+            if not 1 <= tree_info.file_size <= MAX_TREE_REPLACEMENT_BYTES:
+                raise CorridorSceneFailure(
+                    "NeoQ tree replacement manifest size is invalid"
+                )
+            tree_payload = archive.read(NEOQ_TREE_REPLACEMENT_MEMBER)
+            try:
+                decoded_tree_manifest = json.loads(
+                    tree_payload.decode("utf-8"),
+                    object_pairs_hook=reject_duplicate_keys,
+                )
+            except (
+                DuplicateKeyError,
+                RecursionError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+            ) as error:
+                raise CorridorSceneFailure(
+                    f"NeoQ tree replacement manifest is invalid JSON: {error}"
+                ) from error
+            tree_manifest = validate_neoq_tree_replacements(
+                decoded_tree_manifest,
+                repository,
+                package_payloads,
+                package_records,
+            )
             if references.get("overlay_placements") != (
                 OVERLAY_PLACEMENT_MEMBER
             ):
                 raise CorridorSceneFailure(
                     "overlay placement reference drifted"
+                )
+            if references.get("tree_replacement_manifest") != (
+                NEOQ_TREE_REPLACEMENT_MEMBER
+            ):
+                raise CorridorSceneFailure(
+                    "NeoQ tree replacement reference drifted"
                 )
             placement_payload = archive.read(OVERLAY_PLACEMENT_MEMBER)
             try:
@@ -775,6 +1238,13 @@ def validate_overlay_archive(
             if "rorng_city_neoq_luminaria" in placement_text:
                 raise CorridorSceneFailure(
                     "NeoQueretaro candidate lights were activated"
+                )
+            if (
+                "arbol1Qr" in placement_text
+                or "rorng_city_neoq_tree_instance_" in placement_text
+            ):
+                raise CorridorSceneFailure(
+                    "NeoQ trees were duplicated in overlay placements"
                 )
             for adapter in NEOQ_LIGHT_ADAPTERS.values():
                 definition = adapter["future_object_definition"] + ".odef"
@@ -820,9 +1290,14 @@ def validate_overlay_archive(
     ) as error:
         raise CorridorSceneFailure(f"cannot read overlay archive: {error}") from error
 
-    if candidate_record is None or candidate_manifest is None:
+    if (
+        candidate_record is None
+        or candidate_manifest is None
+        or tree_record is None
+        or tree_manifest is None
+    ):
         raise CorridorSceneFailure(
-            "NeoQueretaro candidate validation did not complete"
+            "NeoQueretaro visual validation did not complete"
         )
     lighting = exact_dict(report.get("city_lighting"), "overlay city lighting")
     if set(lighting) != {"neoq_core"}:
@@ -846,6 +1321,23 @@ def validate_overlay_archive(
             "visual_geometry": candidate_manifest["visual_geometry"],
         },
         "NeoQueretaro lighting report",
+    )
+    city_visuals = exact_dict(
+        report.get("city_visuals"),
+        "overlay city visuals",
+    )
+    if set(city_visuals) != {"neoq_trees"}:
+        raise CorridorSceneFailure("overlay city-visual fields drifted")
+    require_exact_json(
+        city_visuals.get("neoq_trees"),
+        {
+            "activation": tree_manifest["activation"],
+            "family": tree_manifest["family"],
+            "replacement_manifest": tree_record,
+            "source": tree_manifest["source"],
+            "summary": tree_manifest["summary"],
+        },
+        "NeoQ tree visual report",
     )
 
     corridor = exact_dict(report.get("corridor"), "overlay corridor")
@@ -1014,13 +1506,22 @@ def validate_overlay_archive(
             "disabled_light_candidate_manifest":
                 NEOQ_LIGHT_CANDIDATE_MEMBER,
             "neoq_core_runtime_light_activation": "blocked-fail-closed",
-            "packaged_asset_ids": ["rorng_city_led_streetlight_bridge"],
-            "placed_asset_ids": ["rorng_city_led_streetlight_bridge"],
+            "packaged_asset_ids": [
+                "rorng_city_led_streetlight_bridge",
+                *EXPECTED_TREE_ASSET_IDS,
+            ],
+            "placed_asset_ids": [
+                "rorng_city_led_streetlight_bridge",
+                *EXPECTED_TREE_ASSET_IDS,
+            ],
             "purpose": EXPECTED_VISUAL_PURPOSE,
             "unplaced_asset_ids": EXPECTED_UNPLACED_ASSETS,
             "validated_asset_ids":
                 EXPECTED_UNPLACED_ASSETS
-                + ["rorng_city_led_streetlight_bridge"],
+                + [
+                    "rorng_city_led_streetlight_bridge",
+                    *EXPECTED_TREE_ASSET_IDS,
+                ],
         },
         "overlay visual asset usage",
     )

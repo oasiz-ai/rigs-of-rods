@@ -77,6 +77,28 @@ BASE_PLACEMENTS = """\
 1, 2, 3, 0, 0, 0, source_only_object
 485, 0.1, 370, 0, 90, 0, troadavenuesidewalk
 1460.966797, 0.1, 903.098389, 0, -180, 0, crucetQr
+// NeoQ authenticated tree family fixture
+//
+//
+//
+1777.425049, 0.100000, 2232.668945, 0.000000, 90.000000, -0.000000, arbol1Qr
+1760.757202, 0.100000, 2232.668945, 0.000000, -158.000000, 0.000000, arbol1Qr
+1742.089355, 0.100000, 2232.668945, -0.000000, -139.500000, 0.000000, arbol1Qr
+1721.921509, 0.100000, 2232.668945, -0.000000, 80.000000, -0.000000, arbol1Qr
+1703.253662, 0.100000, 2232.668945, -0.000000, 21.500000, -0.000000, arbol1Qr
+1683.585815, 0.100000, 2232.668945, -0.000000, -109.500000, 0.000000, arbol1Qr
+1666.417969, 0.100000, 2232.668945, -0.000000, -116.500000, 0.000000, arbol1Qr
+1645.750122, 0.100000, 2232.668945, -0.000000, 25.000000, 0.000000, arbol1Qr
+1626.582275, 0.100000, 2232.668945, 0.000000, -116.000000, -0.000000, arbol1Qr
+1777.425049, 0.100000, 2046.000977, 0.000000, -180.000000, -0.000000, arbol1Qr
+1760.757202, 0.100000, 2046.000977, 0.000000, -154.500000, -0.000000, arbol1Qr
+1742.089355, 0.100000, 2046.000977, -0.000000, -94.500000, 0.000000, arbol1Qr
+1703.253662, 0.100000, 2046.000977, -0.000000, 137.000000, -0.000000, arbol1Qr
+1683.585815, 0.100000, 2046.000977, 0.000000, 108.500000, 0.000000, arbol1Qr
+1666.417969, 0.100000, 2046.000977, 0.000000, -153.500000, -0.000000, arbol1Qr
+1645.750122, 0.100000, 2046.000977, -0.000000, 43.000000, -0.000000, arbol1Qr
+1722.910278, -0.054961, 2044.339844, 0.000000, 64.000000, -0.000000, arbol1Qr
+1629.423096, -0.074142, 2046.764160, 0.000000, -72.000000, -0.000000, arbol1Qr
 """
 
 
@@ -423,6 +445,205 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
         self.assertIsNone(streetlight.centerline_length_m)
         self.assertIsNone(streetlight.profile)
 
+        tree_plan = BUILDER.read_native_tree_plan(REPOSITORY_ROOT)
+        tree_family = BUILDER.prepare_tree_family(
+            REPOSITORY_ROOT,
+            tree_plan,
+        )
+        self.assertEqual(len(tree_plan), 18)
+        self.assertEqual(len(tree_family.wrappers), 18)
+        self.assertEqual(
+            [asset.asset_id for asset in tree_family.assets],
+            [
+                "rorng_city_neoq_tree_round",
+                "rorng_city_neoq_tree_columnar",
+                "rorng_city_neoq_tree_windswept",
+            ],
+        )
+        self.assertTrue(
+            all(len(asset.runtime_files) == 6 for asset in tree_family.assets)
+        )
+        self.assertTrue(
+            all(
+                asset.provenance["runtime_lights"] == []
+                for asset in tree_family.assets
+            )
+        )
+
+    def test_neoq_tree_replacement_is_exact_scaled_and_duplicate_free(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            archive, output, _ = self.build_fixture(Path(directory))
+            source_placements = BUILDER.source_placements(archive)
+            plan = BUILDER.read_native_tree_plan(REPOSITORY_ROOT)
+            authenticated = BUILDER.authenticate_neoq_tree_placements(
+                source_placements,
+                plan,
+            )
+            with zipfile.ZipFile(output) as package:
+                names = package.namelist()
+                replacement_payload = package.read(
+                    BUILDER.NEOQ_TREE_REPLACEMENT_NAME
+                )
+                replacement = json.loads(replacement_payload)
+                report = json.loads(package.read(BUILDER.REPORT_NAME))
+                overlay_text = package.read(BUILDER.OVERLAY_NAME).decode()
+
+                self.assertEqual(len(names), len({name.casefold() for name in names}))
+                self.assertEqual(names, sorted(names))
+                self.assertTrue(
+                    all(
+                        "\\" not in name
+                        and BUILDER.safe_package_path(name) == name
+                        for name in names
+                    )
+                )
+                self.assertNotIn("arbol1Qr", overlay_text)
+                self.assertNotIn("rorng_city_neoq_tree_instance_", overlay_text)
+
+                self.assertEqual(
+                    replacement["format"],
+                    BUILDER.NEOQ_TREE_REPLACEMENT_FORMAT,
+                )
+                self.assertEqual(
+                    replacement["activation"],
+                    {
+                        "duplicate_placements_emitted": 0,
+                        "fail_closed": True,
+                        "mode":
+                            "native-authenticated-in-place-replacement-v1",
+                        "requires_exact_archive_dependency": True,
+                        "requires_exact_tobj_sha256": True,
+                        "runtime_resource_preflight":
+                            "all-18-scale-wrapper-odefs",
+                    },
+                )
+                self.assertEqual(
+                    [item["source_line"] for item in replacement["replacements"]],
+                    list(range(9, 27)),
+                )
+                self.assertEqual(
+                    [item["ordinal"] for item in replacement["replacements"]],
+                    list(range(18)),
+                )
+                self.assertEqual(
+                    [item["position_m"] for item in replacement["replacements"]],
+                    [
+                        [round(value, 9) for value in source.position]
+                        for source in authenticated
+                    ],
+                )
+                self.assertTrue(
+                    all(
+                        item["position_preserved"]
+                        for item in replacement["replacements"]
+                    )
+                )
+                self.assertEqual(
+                    len(
+                        {
+                            item["object_definition"]
+                            for item in replacement["replacements"]
+                        }
+                    ),
+                    18,
+                )
+
+                for item, entry in zip(
+                    replacement["replacements"],
+                    plan,
+                ):
+                    self.assertEqual(item["variant"], entry.variant)
+                    self.assertEqual(item["scale"], entry.scale)
+                    self.assertEqual(
+                        item["rotation_degrees"][1],
+                        entry.yaw_degrees,
+                    )
+                    wrapper = item["wrapper"]
+                    wrapper_payload = package.read(wrapper["path"])
+                    self.assertEqual(
+                        hashlib.sha256(wrapper_payload).hexdigest(),
+                        wrapper["sha256"],
+                    )
+                    self.assertEqual(len(wrapper_payload), wrapper["size"])
+                    wrapper_lines = wrapper_payload.decode().splitlines()
+                    expected_scale = BUILDER.stable_float(entry.scale)
+                    self.assertEqual(
+                        wrapper_lines[1],
+                        f"{expected_scale}, {expected_scale}, {expected_scale}",
+                    )
+                    self.assertEqual(
+                        wrapper_lines[0],
+                        f"{entry.variant}_lod0.mesh",
+                    )
+                    self.assertIn(
+                        f"mesh {entry.variant}_collision_fixture.mesh",
+                        wrapper_lines,
+                    )
+
+            source_tobj = next(
+                record
+                for record in report["source"]["archive"]["members"]
+                if record["name"] == "CityWorld.tobj"
+            )
+            self.assertEqual(
+                replacement["source"]["tobj_sha256"],
+                source_tobj["sha256"],
+            )
+            report_tree = report["city_visuals"]["neoq_trees"]
+            self.assertEqual(
+                report_tree["replacement_manifest"]["sha256"],
+                hashlib.sha256(replacement_payload).hexdigest(),
+            )
+            self.assertEqual(
+                report_tree["summary"]["replacement_count"],
+                18,
+            )
+
+    def test_neoq_tree_source_and_selector_drift_fail_closed(self) -> None:
+        placements = PLACEMENTS.replace(
+            "1777.425049, 0.100000, 2232.668945",
+            "1777.425149, 0.100000, 2232.668945",
+            1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive, digest = self.make_archive(
+                root,
+                placements=placements,
+            )
+            output = root / "overlay.zip"
+            with (
+                mock.patch.object(
+                    BUILDER,
+                    "PINNED_ARCHIVE_SHA256",
+                    digest,
+                ),
+                mock.patch.object(BUILDER, "prepare_assets") as prepare_assets,
+                self.assertRaisesRegex(
+                    BUILDER.OverlayFailure,
+                    "line 9 does not match the exact NeoQ tree plan",
+                ),
+            ):
+                BUILDER.build_local_overlay(
+                    archive_path=archive,
+                    repository_path=REPOSITORY_ROOT,
+                    output_path=output,
+                    surface_offset_m=0.08,
+                )
+            prepare_assets.assert_not_called()
+            self.assertFalse(output.exists())
+            self.assertEqual(list(root.glob(".*.tmp-*.part")), [])
+
+        plan = list(BUILDER.read_native_tree_plan(REPOSITORY_ROOT))
+        plan[0] = replace(plan[0], scale=plan[0].scale + 0.001)
+        with self.assertRaisesRegex(
+            BUILDER.OverlayFailure,
+            "disagrees with the family selector",
+        ):
+            BUILDER.prepare_tree_family(REPOSITORY_ROOT, plan)
+
     def test_repeated_builds_are_byte_identical_with_fixed_zip_metadata(
         self,
     ) -> None:
@@ -706,6 +927,8 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     "geometry_config": "CityWorld.otc",
                     "original_placements": "CityWorld.tobj",
                     "overlay_placements": BUILDER.OVERLAY_NAME,
+                    "tree_replacement_manifest":
+                        BUILDER.NEOQ_TREE_REPLACEMENT_NAME,
                     "resource_bundle_dependency":
                         "CityWorld.zip:CityWorld.terrn2:"
                         + report["source"]["archive"]["expected_sha256"],
@@ -715,7 +938,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 len(report["source"]["archive"]["members"]),
                 3,
             )
-            self.assertEqual(len(report["assets"]), 5)
+            self.assertEqual(len(report["assets"]), 8)
             self.assertTrue(
                 all("manifest" in asset for asset in report["assets"])
             )
@@ -730,9 +953,15 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                         "blocked-fail-closed",
                     "packaged_asset_ids": [
                         "rorng_city_led_streetlight_bridge",
+                        "rorng_city_neoq_tree_round",
+                        "rorng_city_neoq_tree_columnar",
+                        "rorng_city_neoq_tree_windswept",
                     ],
                     "placed_asset_ids": [
                         "rorng_city_led_streetlight_bridge",
+                        "rorng_city_neoq_tree_round",
+                        "rorng_city_neoq_tree_columnar",
+                        "rorng_city_neoq_tree_windswept",
                     ],
                     "unplaced_asset_ids": [
                         "rorng_city_gateway_block_40m",
@@ -746,14 +975,20 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                         "rorng_city_bridge_curve_left_15deg_20m",
                         "rorng_city_bridge_span_20m",
                         "rorng_city_led_streetlight_bridge",
+                        "rorng_city_neoq_tree_round",
+                        "rorng_city_neoq_tree_columnar",
+                        "rorng_city_neoq_tree_windswept",
                     ],
                     "purpose":
                         "curb-free Penguinville overlap apron plus route-safe "
-                        "Blender lighting; deterministic NeoQueretaro "
-                        "pole-light candidates remain disabled pending the "
-                        "bounded renderer light budget and fixed-camera visual "
-                        "gate; bridge modules remain validated candidates for "
-                        "deck and abutment replacement",
+                        "Blender lighting; all 18 authenticated legacy "
+                        "NeoQueretaro trees are replaced in place by the "
+                        "rights-cleared three-variant family with per-instance "
+                        "visual/collision scale wrappers; deterministic "
+                        "NeoQueretaro pole-light candidates remain disabled "
+                        "pending the bounded renderer light budget and "
+                        "fixed-camera visual gate; bridge modules remain "
+                        "validated candidates for deck and abutment replacement",
                 },
             )
             self.assertIn(
@@ -1209,7 +1444,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     for runtime_file in asset["runtime_files"]
                     if runtime_file["role"] == "material-fallback"
                 ),
-                5,
+                8,
             )
             self.assertEqual(
                 report["rights"],
@@ -1223,7 +1458,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     "source_placement_payload_copied": False,
                     "source_placements_copied": False,
                     "source_placement_records_derived": True,
-                    "derived_source_placement_record_count": 67,
+                    "derived_source_placement_record_count": 85,
                     "source_textures_copied": False,
                 },
             )

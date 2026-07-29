@@ -640,6 +640,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_terrain_bundle_archive_verifier_tests
     ror_terrain_bundle_dependency_tests
     ror_cityworld_neoq20_compatibility_tests
+    ror_cityworld_neoq_tree_compatibility_tests
     ror_jbeam_advanced_structure_ir_tests
     ror_jbeam_coordinate_transform_tests
     ror_jbeam_expression_evaluator_tests

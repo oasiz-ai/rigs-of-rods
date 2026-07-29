@@ -250,9 +250,9 @@ python3 tools/build_cityworld_local_overlay.py \
 ```
 
 The output path must not already exist and must be outside this repository.
-The current eight-entry deterministic ZIP references the separately installed
+The current 43-entry deterministic ZIP references the separately installed
 original `CityWorld.otc` and `CityWorld.tobj`; it does not copy either file or
-any original map asset. Overlay v3 authenticates the two source road-object
+any original map asset. Overlay v4 authenticates the two source road-object
 placements and replaces the incomplete 192 m prototype with a continuous
 1,075.448 m native construction alignment. It starts 14.8491 m inside
 Penguinville's east carriageway, rises from the decoded 0.198 m road surface
@@ -265,17 +265,29 @@ functionally removes the curb from the connection without copying or modifying
 the original private city mesh.
 
 Its inventory is the generated descriptor, merged material script, procedural
-placement, canonical local-only provenance report, and four collisionless
-runtime resources for the placed bridge streetlight. The four Blender-authored
-module families remain validated and reported but are unplaced and excluded
-from the runtime payload because their existing ODEFs own collision. The v3
-route continues to use RoR's native procedural road, barriers and
-terrain-reaching pillars as the sole corridor collision authority. The
+placement, canonical local-only provenance report, disabled light-candidate
+manifest, authenticated tree-replacement manifest, four collisionless runtime
+resources for the placed bridge streetlight, 18 scale wrappers, and 15
+precompiled tree runtime resources: three ODEFs plus 12 render/collision meshes.
+The four Blender-authored module families remain validated and reported but are
+unplaced and excluded from the runtime payload because their existing ODEFs own
+collision. The v4 route continues to use RoR's native procedural road, barriers,
+and terrain-reaching pillars as the sole corridor collision authority. The
 building-overlapping gateway is not placed. Sixteen alternating bridge
 fixtures are mounted from station 234.8491 m through 834.8491 m, with exact
 inward transforms and one checked warm point light per instance. The source
 archive stays byte-identical and the generated package is explicitly not for
 redistribution or shipping.
+
+The same overlay replaces exactly the 18 authenticated `arbol1Qr` records at
+`CityWorld.tobj` source lines 9–26. The native policy edits each legacy record
+in place only after archive, TOBJ, placement, selector, and all-wrapper
+preflights pass, preserving its exact position while applying the checked
+three-variant yaw/scale assignment. No replacement placement is added to the
+overlay TOBJ. Each generated ODEF wrapper applies one uniform scale to both the
+precompiled OGRE render LODs and the watertight trunk collision proxy, and the
+machine-readable replacement manifest records every source line, transform,
+asset, wrapper hash, and zero-duplicate contract.
 
 The generated descriptor mounts the original archive through:
 

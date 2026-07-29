@@ -27,6 +27,7 @@
 #include "CacheSystem.h"
 #include "CameraManager.h"
 #include "CityWorldNeoQ20Compatibility.h"
+#include "CityWorldNeoQTreeCompatibility.h"
 #include "Collisions.h"
 #include "Console.h"
 #include "ErrorUtils.h"
@@ -225,21 +226,54 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                     observed_tobj_sha256,
                     placements,
                     telepoints);
-            bool tobj_cached = false;
-            if (grounding.applied)
+            const CityWorldNeoQTreeCompatibilityResult tree_replacement =
+                ApplyCityWorldNeoQTreeCompatibility(
+                    authored_dependencies,
+                    tobj_name,
+                    observed_tobj_sha256,
+                    placements);
+            bool tree_resources_available = tree_replacement.applied;
+            std::size_t tree_resource_count = 0U;
+            if (tree_resources_available)
             {
-                ROR_ASSERT(placements.size() == tobj->objects.size());
-                bool instance_names_fit = true;
+                const std::string resource_group =
+                    terrainManager->getTerrainFileResourceGroup();
                 for (const CityWorldNeoQ20Placement& placement :
                      placements)
                 {
-                    instance_names_fit &=
-                        placement.instance_name.size() < TObj::STR_LEN;
+                    if (placement.source_line < 9U ||
+                        placement.source_line > 26U)
+                    {
+                        continue;
+                    }
+                    ++tree_resource_count;
+                    tree_resources_available &=
+                        ResourceGroupManager::getSingleton().resourceExists(
+                            resource_group,
+                            placement.object_definition + ".odef");
                 }
-                if (!instance_names_fit)
+                tree_resources_available &=
+                    tree_resource_count ==
+                        tree_replacement.replacement_count;
+            }
+            bool tobj_cached = false;
+            if (grounding.applied &&
+                tree_replacement.applied &&
+                tree_resources_available)
+            {
+                ROR_ASSERT(placements.size() == tobj->objects.size());
+                bool names_fit = true;
+                for (const CityWorldNeoQ20Placement& placement :
+                     placements)
+                {
+                    names_fit &=
+                        placement.instance_name.size() < TObj::STR_LEN &&
+                        placement.object_definition.size() < TObj::STR_LEN;
+                }
+                if (!names_fit)
                 {
                     throw std::runtime_error(
-                        "NeoQ2.0 committed instance name exceeds "
+                        "NeoQ compatibility committed name exceeds "
                         "TObj::STR_LEN");
                 }
 
@@ -266,11 +300,13 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                         return fmt::format(
                             "[RoR|CityWorld|NeoQ20Grounding] Applied "
                             "placements={} renames={} telepoints={} "
-                            "transactionally before object instantiation "
+                            "tree_replacements={} transactionally before "
+                            "object instantiation "
                             "(tobj_sha256={})",
                             grounding.placement_changed_count,
                             grounding.renamed_instance_count,
                             grounding.telepoint_changed_count,
+                            tree_replacement.replacement_count,
                             observed_tobj_sha256);
                     },
                     [&]()
@@ -293,6 +329,22 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                         {
                             tobj->objects[index].position.y =
                                 placements[index].position_y;
+                            tobj->objects[index].rotation.x =
+                                placements[index].rotation_x;
+                            tobj->objects[index].rotation.y =
+                                placements[index].rotation_y;
+                            tobj->objects[index].rotation.z =
+                                placements[index].rotation_z;
+                            std::memset(
+                                tobj->objects[index].odef_name,
+                                0,
+                                TObj::STR_LEN);
+                            std::memcpy(
+                                tobj->objects[index].odef_name,
+                                placements[index]
+                                    .object_definition.data(),
+                                placements[index]
+                                    .object_definition.size());
                             std::memset(
                                 tobj->objects[index].instance_name,
                                 0,
@@ -314,10 +366,19 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
             else
             {
                 LOG(fmt::format(
-                    "[RoR|CityWorld|NeoQ20Grounding] Preserved "
-                    "CityWorld.tobj without a partial transform: {} "
+                    "[RoR|CityWorld|NeoQCompatibility] Preserved "
+                    "CityWorld.tobj without a partial transform: "
+                    "grounding='{}' trees='{}' tree_resources={} "
                     "(tobj_sha256={})",
-                    grounding.rejection_reason,
+                    grounding.applied
+                        ? "ready"
+                        : grounding.rejection_reason,
+                    tree_replacement.applied
+                        ? "ready"
+                        : tree_replacement.rejection_reason,
+                    tree_resources_available
+                        ? "ready"
+                        : "missing-or-incomplete",
                     observed_tobj_sha256.empty()
                         ? "unavailable"
                         : observed_tobj_sha256));

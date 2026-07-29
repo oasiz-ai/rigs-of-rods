@@ -493,8 +493,13 @@ library. Each species has:
 - seasonal/tint variation driven by instance data rather than copied textures.
 
 The first replacement target is the 18 individually placed `arbol1Qr` objects,
-followed by the larger grouped tree meshes. Vegetation instancing and temporal
-stability must be measured before placement density rises.
+which overlay v4 now replaces atomically in place with the checked round,
+columnar, and windswept family. Exact archive and TOBJ authentication plus an
+all-wrapper runtime preflight preserve the 18 source positions and prevent
+legacy/replacement duplicates. Each deterministic selector scale is applied to
+both render and trunk collision through a portable ODEF wrapper. The larger
+grouped tree meshes follow. Vegetation instancing and temporal stability must
+be measured before placement density rises.
 
 ### CW4 — Buildings
 
