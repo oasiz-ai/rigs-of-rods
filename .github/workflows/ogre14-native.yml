@@ -1,0 +1,291 @@
+name: OGRE 14 native Release
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ogre14-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-release:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64 (GCC 11)
+            runner: ubuntu-22.04
+            platform: linux-x86_64
+            profile: cmake/conan/profiles/linux-x86_64-release
+            compiler: gcc11
+            cc: gcc-11
+            cxx: g++-11
+            artifact: Rigs-of-Rods-Linux-x86_64-OGRE14
+          - name: Windows x64 (MSVC 19.44)
+            runner: windows-2025
+            platform: windows-x86_64
+            profile: cmake/conan/profiles/windows-x86_64-release
+            compiler: msvc1944
+            cc: cl
+            cxx: cl
+            artifact: Rigs-of-Rods-Windows-x64-OGRE14
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      CMAKE_BUILD_PARALLEL_LEVEL: "3"
+      CONAN_HOME: ${{ github.workspace }}/.ci-conan/${{ matrix.platform }}
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Enable the pinned MSVC x64 toolset
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          toolset: "14.44"
+
+      - name: Install Linux build and software-rendering prerequisites
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            binutils \
+            file \
+            gcc-11 \
+            g++-11 \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libx11-dev \
+            libxaw7-dev \
+            libxrandr-dev \
+            mesa-utils \
+            xauth \
+            xvfb
+
+      - name: Install pinned Conan and Ninja clients
+        shell: bash
+        run: >-
+          python -m pip install
+          --disable-pip-version-check
+          conan==2.31.1
+          ninja==1.13.0
+
+      - name: Restore isolated Conan packages
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.CONAN_HOME }}
+          key: ogre14-native-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.platform }}-release-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/profiles/*', 'cmake/conan/recipes/**') }}
+
+      - name: Configure isolated Conan client
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          home = Path(os.environ["CONAN_HOME"])
+          home.mkdir(parents=True, exist_ok=True)
+          (home / "global.conf").write_text(
+              "tools.system.package_manager:mode=install\n"
+              "tools.system.package_manager:sudo=True\n",
+              encoding="utf-8",
+          )
+          PY
+          conan remote add \
+            conancenter https://center2.conan.io --force
+          conan remote add \
+            rigs-of-rods-deps \
+            https://nexus.anotherfoxguy.com/repository/rigs-of-rods/ \
+            --force
+          conan --version
+          ninja --version
+
+      - name: Verify native compiler identity
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test "$(uname -m)" = "x86_64"
+          test "$(gcc-11 -dumpfullversion | cut -d. -f1)" = "11"
+          test "$(g++-11 -dumpfullversion | cut -d. -f1)" = "11"
+          gcc-11 --version
+          g++-11 --version
+
+      - name: Verify native compiler identity
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cmake -E make_directory artifacts
+          cl 2>&1 | tee artifacts/msvc-version.txt || true
+          grep -E "Version 19\\.44\\." artifacts/msvc-version.txt
+
+      - name: Run fail-closed platform contract tests
+        shell: bash
+        run: |
+          python -m unittest discover \
+            -s tests/tools \
+            -p 'test_*ogre14*.py'
+          python -O -m unittest discover \
+            -s tests/tools \
+            -p 'test_*ogre14*.py'
+
+      - name: Verify the locked native Conan graph
+        shell: bash
+        run: |
+          cmake -E make_directory artifacts
+          python tests/tools/assert_ogre14_app_graph.py \
+            --platform "${{ matrix.platform }}" \
+            | tee "artifacts/${{ matrix.platform }}-conan-graph.json"
+
+      - name: Configure native OGRE 14 Release
+        shell: bash
+        run: |
+          cmake \
+            -S . \
+            -B "build-ogre14-${{ matrix.platform }}" \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/stage-ogre14-${{ matrix.platform }}" \
+            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
+            -DCONAN_HOST_PROFILE="${GITHUB_WORKSPACE}/${{ matrix.profile }}" \
+            -DCONAN_BUILD_PROFILE="${GITHUB_WORKSPACE}/${{ matrix.profile }}" \
+            -DROR_BUILD_TESTS=ON \
+            -DROR_CREATE_CONTENT_FOLDER=ON \
+            -DROR_OGRE14=ON
+
+      - name: Build native application and tests
+        shell: bash
+        run: >-
+          cmake
+          --build "build-ogre14-${{ matrix.platform }}"
+          --target all
+          --config Release
+
+      - name: Run native test suite
+        shell: bash
+        run: >-
+          ctest
+          --test-dir "build-ogre14-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+
+      - name: Install and relocate native runtime
+        shell: bash
+        run: |
+          cmake --install \
+            "build-ogre14-${{ matrix.platform }}" \
+            --config Release \
+            --prefix "${GITHUB_WORKSPACE}/stage-ogre14-${{ matrix.platform }}"
+          cmake -E make_directory artifacts
+          cmake -E rename \
+            "stage-ogre14-${{ matrix.platform }}" \
+            "artifacts/runtime-${{ matrix.platform }}"
+
+      - name: Audit relocated Linux runtime
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          xvfb-run -a -s "-screen 0 1280x720x24" \
+            python tools/ogre14_runtime_audit.py \
+              --root "artifacts/runtime-${{ matrix.platform }}" \
+              --platform "${{ matrix.platform }}" \
+              --forbidden-prefix "$GITHUB_WORKSPACE" \
+              --forbidden-prefix "$CONAN_HOME" \
+              --load-plugins \
+              --smoke \
+              --log-dir "artifacts/logs-${{ matrix.platform }}" \
+              --report "artifacts/${{ matrix.platform }}-runtime-audit.json" \
+            2>&1 | tee \
+              "artifacts/${{ matrix.platform }}-runtime-audit.log"
+
+      - name: Audit relocated Windows runtime
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          python tools/ogre14_runtime_audit.py \
+            --root "artifacts/runtime-${{ matrix.platform }}" \
+            --platform "${{ matrix.platform }}" \
+            --forbidden-prefix "$GITHUB_WORKSPACE" \
+            --forbidden-prefix "$CONAN_HOME" \
+            --load-plugins \
+            --smoke \
+            --log-dir "artifacts/logs-${{ matrix.platform }}" \
+            --report "artifacts/${{ matrix.platform }}-runtime-audit.json" \
+            2>&1 | tee \
+              "artifacts/${{ matrix.platform }}-runtime-audit.log"
+
+      - name: Render ten frames with relocated Linux GL3Plus
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          ROR_D0_SCENE_HOME: ${{ github.workspace }}/artifacts/native-runtime-smoke-${{ matrix.platform }}
+        run: |
+          cmake -E make_directory "$ROR_D0_SCENE_HOME"
+          xvfb-run -a \
+            -s "-screen 0 1280x720x24 +extension GLX +render -noreset" \
+            python tools/ogre14_native_runtime_smoke.py \
+              --root "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}" \
+              --platform "${{ matrix.platform }}" \
+              --log-root "$ROR_D0_SCENE_HOME" \
+              --timeout 120 \
+            2>&1 | tee "$ROR_D0_SCENE_HOME/driver.log"
+
+      - name: Render ten frames with relocated Windows D3D11
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          ROR_D0_SCENE_HOME: ${{ github.workspace }}/artifacts/native-runtime-smoke-${{ matrix.platform }}
+        run: |
+          cmake -E make_directory "$ROR_D0_SCENE_HOME"
+          python tools/ogre14_native_runtime_smoke.py \
+            --root "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}" \
+            --platform "${{ matrix.platform }}" \
+            --log-root "$ROR_D0_SCENE_HOME" \
+            --timeout 120 \
+            2>&1 | tee "$ROR_D0_SCENE_HOME/driver.log"
+
+      - name: Upload runtime, audit, and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            artifacts/runtime-${{ matrix.platform }}
+            artifacts/logs-${{ matrix.platform }}
+            artifacts/native-runtime-smoke-${{ matrix.platform }}
+            artifacts/${{ matrix.platform }}-conan-graph.json
+            artifacts/${{ matrix.platform }}-runtime-audit.json
+            artifacts/${{ matrix.platform }}-runtime-audit.log
+            artifacts/msvc-version.txt
+            build-ogre14-${{ matrix.platform }}/CMakeCache.txt
+            build-ogre14-${{ matrix.platform }}/CMakeFiles/CMakeConfigureLog.yaml
+            build-ogre14-${{ matrix.platform }}/Testing/Temporary/LastTest.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Remove transient Conan build material
+        if: always()
+        shell: bash
+        run: conan cache clean "*" --source --build --download

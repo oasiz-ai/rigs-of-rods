@@ -788,6 +788,20 @@ legacy install separation on non-Linux hosts. A native Linux build followed by
 a relocated clean-environment launch is still required before this contract is
 called proven.
 
+An isolated native Release workflow now supplies that execution boundary for
+Linux x86_64/GCC 11 and Windows x64/MSVC 19.44. Each job verifies its compiler,
+resolves the exact checked-in Conan 2.31.1 profile and lock, builds and runs
+CTest, installs into a fresh prefix, relocates the result, and audits the
+package from outside its build tree. The Linux lane validates the complete ELF
+closure and loads the exact GL3Plus plugin set under Xvfb with llvmpipe; the
+Windows lane validates an AMD64 PE/DLL closure and loads the exact D3D11 plugin
+set from the flat application directory. Both lanes run working-directory-
+independent help and version smokes and preserve the runtime plus diagnostics
+as CI artifacts. The workflow and its hostile-input contract tests are checked
+in, but native parity is not called proven until both hosted jobs pass on the
+committed revision. Renderer/scene startup, GPU timing, physical input, and
+Debug packages remain separate acceptance gates.
+
 The legacy OGRE 1.11 Windows build also keeps RoR in C++17 while consuming
 Caelum/PagedGeometry headers that still expose `std::auto_ptr`. MSVC now enables
 its documented `_HAS_AUTO_PTR_ETC=1` transition surface only on the RoR target
