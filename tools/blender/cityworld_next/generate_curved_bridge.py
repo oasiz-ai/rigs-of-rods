@@ -88,6 +88,7 @@ def reset_scene_fully() -> None:
     ):
         for datablock in list(datablocks):
             datablocks.remove(datablock)
+    BASE.GENERATOR_ID = GENERATOR_ID
     BASE.reset_scene()
 
 
@@ -660,8 +661,7 @@ def main() -> int:
     BASE.ASSET_VERSION = ASSET_VERSION
     reset_scene_fully()
     scene = bpy.context.scene
-    scene[GENERATOR_ID] = ASSET_VERSION
-    scene["rorng_curve_radius_m"] = CURVE_RADIUS_M
+    scene["rorng_curve_radius_m"] = round(CURVE_RADIUS_M, 9)
     scene["rorng_turn_angle_degrees"] = TURN_ANGLE_DEGREES
 
     render_collection = BASE.make_collection("rorng_city_bridge_curve_render")
@@ -721,6 +721,12 @@ def main() -> int:
         materials=materials,
     )
     manifest["authoring"]["generator"]["format"] = GENERATOR_ID
+    manifest["authoring"]["generator"]["dependencies"] = [
+        {
+            "path": BASE_GENERATOR_PATH.relative_to(root).as_posix(),
+            "sha256": BASE.sha256_file(BASE_GENERATOR_PATH),
+        },
+    ]
     manifest["connectors"] = [
         connector_record("start", -ARC_LENGTH_M / 2.0, False),
         connector_record("end", ARC_LENGTH_M / 2.0, True),

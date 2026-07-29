@@ -27,7 +27,7 @@
       "dependencies": [
         {
           "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
-          "sha256": "4910be675d50da85f0dc9ad49bf5e21c0f6d3a4277c65993860389acbc5bee9c"
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
         }
       ],
       "format": "ror-cityworld-gateway-block-generator-v2",
@@ -172,7 +172,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.compile.json",
-      "sha256": "c18454b13eeae571d5d9c1e346019f770b3b7c3c2144c6645fa9c578efb8bdd1"
+      "sha256": "73aee4ddc9cde7895c43d4a2efd0a5f6fe736f83c56f7a597da285c8e781c1e0"
     }
   },
   "connectors": [

@@ -2,11 +2,11 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/bridge/transition_12m/rorng_city_bridge_transition_12m.blend",
-      "sha256": "f904e5b1a9f63fd23cfb7a176cb212e16f8b29778046b3ae4121cac7f9e87a52"
+      "sha256": "56715b4ff76660b83a02b4be3c69745763cfe4c9d4b2a0dd349b058919e2e772"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/rorng_city_bridge_transition_12m.glb",
-      "sha256": "fa3cd69d4bee278b3384866920e663efc35688a380164c1ffafebd4367100a7a"
+      "sha256": "86e40f010f145f03dbf7cb70e38f8087e7c47e7675011551d6b1a5188469ea71"
     },
     "preview": {
       "path": "content-source/cityworld_next/bridge/transition_12m/rorng_city_bridge_transition_12m_preview.png",
@@ -24,9 +24,15 @@
     "axis": "blender-z-up",
     "blender_version": "5.2.0 LTS",
     "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        }
+      ],
       "format": "ror-cityworld-bridge-transition-generator-v1",
       "path": "tools/blender/cityworld_next/generate_bridge_transition.py",
-      "sha256": "8ed128bef09f95fb0683f5256199b73e7276397eec9ecf83b168ff14986fc15e"
+      "sha256": "c10b59626f2238bec956d1446427deaa67f223ee0d09997ba2242693aff406a4"
     },
     "transforms_applied": true,
     "units": "metres"
@@ -160,7 +166,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.compile.json",
-      "sha256": "bfcfa51883d1314952270bb4cb14fccbd38bb2478e7b6112520f9bfc6a5b0f04"
+      "sha256": "756d4a1ea90680b8fc43b2a6b21d6e23677f6c259a7e30ddec823091ab60eed2"
     }
   },
   "connectors": [

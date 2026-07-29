@@ -83,6 +83,9 @@ def reset_scene() -> None:
                 datablocks.remove(datablock)
 
     scene = bpy.context.scene
+    for key in tuple(scene.keys()):
+        if key.startswith("rorng_") or key.startswith("ror-cityworld-"):
+            del scene[key]
     scene.unit_settings.system = "METRIC"
     scene.unit_settings.scale_length = 1.0
     scene.render.film_transparent = False

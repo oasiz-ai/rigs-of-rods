@@ -70,10 +70,10 @@
   ],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "e67ab4e7658fd08a1cbdf2f230697918dc18398e1a0dc98ae43d64d95a1393f0",
+    "asset_contract_sha256": "caa677476144281dca1dcbae70cb8b4889558c293992875220b63f8b0da42c3a",
     "glb": {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/rorng_city_bridge_transition_12m.glb",
-      "sha256": "fa3cd69d4bee278b3384866920e663efc35688a380164c1ffafebd4367100a7a"
+      "sha256": "86e40f010f145f03dbf7cb70e38f8087e7c47e7675011551d6b1a5188469ea71"
     }
   },
   "limits": {

@@ -3,13 +3,17 @@
 
 from __future__ import annotations
 
+import ast
+import hashlib
 import json
 from pathlib import Path
 import shutil
 import subprocess
+import struct
 import sys
 import tempfile
 import unittest
+from typing import Any, Callable
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -30,11 +34,55 @@ TRANSITION_MANIFEST_PATH = (
     / "resources/nextgen/cityworld/bridge/transition_12m/"
     "rorng_city_bridge_transition_12m.asset.json"
 )
+TRANSITION_MANIFEST_RELATIVE = TRANSITION_MANIFEST_PATH.relative_to(
+    REPOSITORY_ROOT
+)
 GATEWAY_MANIFEST_PATH = (
     REPOSITORY_ROOT
     / "resources/nextgen/cityworld/streetscape/gateway_block_40m/"
     "rorng_city_gateway_block_40m.asset.json"
 )
+BASE_GENERATOR_PATH = (
+    REPOSITORY_ROOT
+    / "tools/blender/cityworld_next/generate_bridge_kit.py"
+)
+DERIVED_GENERATOR_PATHS = (
+    REPOSITORY_ROOT
+    / "tools/blender/cityworld_next/generate_curved_bridge.py",
+    REPOSITORY_ROOT
+    / "tools/blender/cityworld_next/generate_bridge_transition.py",
+)
+
+
+def mutate_glb_document(
+    path: Path,
+    mutate: Callable[[dict[str, Any]], None],
+) -> None:
+    data = path.read_bytes()
+    magic, version, _ = struct.unpack_from("<4sII", data, 0)
+    chunks: list[tuple[int, bytes]] = []
+    offset = 12
+    while offset < len(data):
+        length, chunk_type = struct.unpack_from("<II", data, offset)
+        offset += 8
+        chunks.append((chunk_type, data[offset : offset + length]))
+        offset += length
+    document = json.loads(chunks[0][1].rstrip(b" \t\r\n\x00"))
+    mutate(document)
+    json_payload = json.dumps(
+        document,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    json_payload += b" " * (-len(json_payload) % 4)
+    chunks[0] = (chunks[0][0], json_payload)
+    payload = b"".join(
+        struct.pack("<II", len(chunk), chunk_type) + chunk
+        for chunk_type, chunk in chunks
+    )
+    path.write_bytes(
+        struct.pack("<4sII", magic, version, 12 + len(payload)) + payload
+    )
 
 
 class CityWorldAssetValidationTests(unittest.TestCase):
@@ -98,6 +146,74 @@ class CityWorldAssetValidationTests(unittest.TestCase):
         assert isinstance(diagnostics, list)
         return {item["code"] for item in diagnostics}
 
+    def test_base_generator_owns_scene_metadata_sanitation(self) -> None:
+        base_tree = ast.parse(
+            BASE_GENERATOR_PATH.read_text(encoding="utf-8")
+        )
+        reset = next(
+            node
+            for node in base_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "reset_scene"
+        )
+        string_constants = {
+            node.value
+            for node in ast.walk(reset)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+        }
+        self.assertIn("rorng_", string_constants)
+        self.assertIn("ror-cityworld-", string_constants)
+        self.assertTrue(
+            any(isinstance(node, ast.Delete) for node in ast.walk(reset))
+        )
+
+        for generator_path in DERIVED_GENERATOR_PATHS:
+            with self.subTest(generator=generator_path.name):
+                tree = ast.parse(
+                    generator_path.read_text(encoding="utf-8")
+                )
+                derived_reset = next(
+                    node
+                    for node in tree.body
+                    if isinstance(node, ast.FunctionDef)
+                    and node.name == "reset_scene_fully"
+                )
+                constants = {
+                    node.value
+                    for node in ast.walk(derived_reset)
+                    if isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                }
+                self.assertNotIn("rorng_", constants)
+                self.assertNotIn("ror-cityworld-", constants)
+                generator_assignment = next(
+                    node
+                    for node in derived_reset.body
+                    if isinstance(node, ast.Assign)
+                    and any(
+                        isinstance(target, ast.Attribute)
+                        and isinstance(target.value, ast.Name)
+                        and target.value.id == "BASE"
+                        and target.attr == "GENERATOR_ID"
+                        for target in node.targets
+                    )
+                )
+                reset_call = next(
+                    node
+                    for node in derived_reset.body
+                    if isinstance(node, ast.Expr)
+                    and isinstance(node.value, ast.Call)
+                    and isinstance(node.value.func, ast.Attribute)
+                    and isinstance(node.value.func.value, ast.Name)
+                    and node.value.func.value.id == "BASE"
+                    and node.value.func.attr == "reset_scene"
+                )
+                self.assertLess(
+                    generator_assignment.lineno,
+                    reset_call.lineno,
+                )
+
     def test_checked_in_bridge_asset_passes_full_gate(self) -> None:
         result, report = self.run_validator(
             REPOSITORY_ROOT,
@@ -139,6 +255,18 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 "valid": True,
             },
         )
+        manifest = json.loads(
+            CURVED_MANIFEST_PATH.read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            [
+                dependency["path"]
+                for dependency in manifest["authoring"]["generator"][
+                    "dependencies"
+                ]
+            ],
+            ["tools/blender/cityworld_next/generate_bridge_kit.py"],
+        )
 
     def test_checked_in_transition_asset_passes_full_gate(self) -> None:
         result, report = self.run_validator(
@@ -159,6 +287,18 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 "triangles": 1720,
                 "valid": True,
             },
+        )
+        manifest = json.loads(
+            TRANSITION_MANIFEST_PATH.read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            [
+                dependency["path"]
+                for dependency in manifest["authoring"]["generator"][
+                    "dependencies"
+                ]
+            ],
+            ["tools/blender/cityworld_next/generate_bridge_kit.py"],
         )
 
     def test_checked_in_gateway_block_asset_passes_full_gate(self) -> None:
@@ -263,6 +403,30 @@ class CityWorldAssetValidationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("GENERATOR_DEPENDENCY_STALE", self.codes(report))
 
+    def test_imported_generator_dependency_must_be_declared(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            manifest_path = self.copy_fixture(
+                root,
+                CURVED_MANIFEST_RELATIVE,
+            )
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            manifest["authoring"]["generator"]["dependencies"] = []
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            result, report = self.run_validator(root, manifest_path)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "GENERATOR_DEPENDENCY_UNDECLARED",
+            self.codes(report),
+        )
+
     def test_generator_dependency_records_reject_hostile_shapes(self) -> None:
         gateway_relative = GATEWAY_MANIFEST_PATH.relative_to(REPOSITORY_ROOT)
         mutations = (
@@ -334,6 +498,42 @@ class CityWorldAssetValidationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("ARTIFACT_STALE", self.codes(report))
         self.assertIn("GLB_INVALID", self.codes(report))
+
+    def test_scene_extras_are_an_exact_fail_closed_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            manifest_path = self.copy_fixture(
+                root,
+                TRANSITION_MANIFEST_RELATIVE,
+            )
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            glb_path = root / manifest["artifacts"]["glb"]["path"]
+
+            def mutate(document: dict[str, object]) -> None:
+                scene = document["scenes"][document["scene"]]
+                extras = scene["extras"]
+                extras["rorng_stale_asset_metadata"] = True
+                extras["rorng_asset_id"] = "rorng_wrong_asset"
+                del extras["rorng_units"]
+
+            mutate_glb_document(glb_path, mutate)
+            manifest["artifacts"]["glb"]["sha256"] = hashlib.sha256(
+                glb_path.read_bytes()
+            ).hexdigest()
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            result, report = self.run_validator(root, manifest_path)
+
+        self.assertEqual(result.returncode, 1)
+        codes = self.codes(report)
+        self.assertIn("GLTF_SCENE_EXTRAS_UNKNOWN", codes)
+        self.assertIn("GLTF_SCENE_EXTRAS_MISSING", codes)
+        self.assertIn("GLTF_SCENE_EXTRAS_VALUE", codes)
 
     def test_connector_and_lod_contract_mutations_fail(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

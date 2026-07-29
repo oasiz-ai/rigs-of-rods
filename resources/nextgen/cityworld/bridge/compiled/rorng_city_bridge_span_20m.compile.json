@@ -70,7 +70,7 @@
   ],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "39c1ccaabcd598c84ac1334a0e63c567c4751b45091e895c776c3899ef187982",
+    "asset_contract_sha256": "e0f23665987d1975da0d5f161ac0a994ed72a81d87d6a24c20f4e055b9f36477",
     "glb": {
       "path": "resources/nextgen/cityworld/bridge/rorng_city_bridge_span_20m.glb",
       "sha256": "d658272799f6369abb6339a6eb6b52e13862098ff81737f76df6bd45a2eaa3c3"

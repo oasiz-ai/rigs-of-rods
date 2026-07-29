@@ -70,7 +70,7 @@
   ],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "b301da5ecd547fe5b8dc3735f55f44d2c7bf798ccf204d9ec18c03034ff42d19",
+    "asset_contract_sha256": "bf46d5f066cd5300704b0137275137646cf78d26f3f67c0f5b597795e0075034",
     "glb": {
       "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.glb",
       "sha256": "d1d1db743a58316465460cc52b8522cdcc2995e2e1fc58a58b686ae681efc96e"

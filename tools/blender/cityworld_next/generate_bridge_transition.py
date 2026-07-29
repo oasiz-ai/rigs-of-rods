@@ -61,6 +61,7 @@ def reset_scene_fully() -> None:
     ):
         for datablock in list(datablocks):
             datablocks.remove(datablock)
+    BASE.GENERATOR_ID = GENERATOR_ID
     BASE.reset_scene()
 
 
@@ -403,8 +404,6 @@ def main() -> int:
     BASE.ASSET_ID = ASSET_ID
     BASE.ASSET_VERSION = ASSET_VERSION
     reset_scene_fully()
-    scene = bpy.context.scene
-    scene[GENERATOR_ID] = ASSET_VERSION
     render_collection = BASE.make_collection("rorng_bridge_transition_render")
     collision_collection = BASE.make_collection("rorng_bridge_transition_collision")
     preview_collection = BASE.make_collection("rorng_bridge_transition_preview")
@@ -461,6 +460,12 @@ def main() -> int:
         materials=materials,
     )
     manifest["authoring"]["generator"]["format"] = GENERATOR_ID
+    manifest["authoring"]["generator"]["dependencies"] = [
+        {
+            "path": BASE_GENERATOR_PATH.relative_to(root).as_posix(),
+            "sha256": BASE.sha256_file(BASE_GENERATOR_PATH),
+        },
+    ]
     manifest["connectors"] = [
         {
             "forward": [0.0, -1.0, 0.0],

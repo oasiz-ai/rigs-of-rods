@@ -2,11 +2,11 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.blend",
-      "sha256": "07076b901acc8085adc6ead17f0c1a6289823fbf085afca73a3137c4dbe21d27"
+      "sha256": "acde475aab34ac7fe0d2508c6931d0ee11fe74b7635d0d2be95f6570ff124f8a"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.glb",
-      "sha256": "ac6942d869385eb2fe129174d91bdaa01d09170df1de3d742f98695d58852378"
+      "sha256": "12790ad67c63208eb8a810ee55f6da966677d8e9875ed74d4a0349fd6a7242a4"
     },
     "preview": {
       "path": "content-source/cityworld_next/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m_preview.png",
@@ -24,9 +24,15 @@
     "axis": "blender-z-up",
     "blender_version": "5.2.0 LTS",
     "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        }
+      ],
       "format": "ror-cityworld-curved-bridge-generator-v1",
       "path": "tools/blender/cityworld_next/generate_curved_bridge.py",
-      "sha256": "bf9860269e29f36f844d832d47295f86e2c8fab4cc5ba87c04492aefb103d7d9"
+      "sha256": "9e595c51cb95bfaaa542d3f2d705147d5c798c2572c4d9f5fb631759252b5739"
     },
     "transforms_applied": true,
     "units": "metres"
@@ -160,7 +166,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/bridge/curve_left_15deg/compiled/rorng_city_bridge_curve_left_15deg_20m.compile.json",
-      "sha256": "1758bf05fb971095b852be5f5bc29e2ae3db57cdfcbb26265e5812b1837dabb8"
+      "sha256": "f4f1fe2c4496f091061c3574565b9bca3d4d8c93fc1f7445d29b0190136a587e"
     }
   },
   "connectors": [

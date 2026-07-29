@@ -10,6 +10,7 @@ coverage, render LODs, connector continuity, and welded collision topology.
 from __future__ import annotations
 
 import argparse
+import ast
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 import hashlib
@@ -149,6 +150,148 @@ def vector_dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> 
 
 def vector_length(value: tuple[float, float, float]) -> float:
     return math.sqrt(vector_dot(value, value))
+
+
+def evaluate_generator_path_expression(
+    node: ast.AST,
+    assignments: dict[str, ast.AST],
+    generator_path: Path,
+    *,
+    depth: int = 0,
+) -> Path:
+    if depth > 16:
+        raise ValueError("generator dependency path expression is too deep")
+    if isinstance(node, ast.Name):
+        if node.id == "__file__":
+            return generator_path
+        value = assignments.get(node.id)
+        if value is None:
+            raise ValueError(
+                f"generator dependency path uses unknown name {node.id}"
+            )
+        return evaluate_generator_path_expression(
+            value,
+            assignments,
+            generator_path,
+            depth=depth + 1,
+        )
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return Path(node.value)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        left = evaluate_generator_path_expression(
+            node.left,
+            assignments,
+            generator_path,
+            depth=depth + 1,
+        )
+        right = evaluate_generator_path_expression(
+            node.right,
+            assignments,
+            generator_path,
+            depth=depth + 1,
+        )
+        return left / right
+    if isinstance(node, ast.Attribute) and node.attr == "parent":
+        return evaluate_generator_path_expression(
+            node.value,
+            assignments,
+            generator_path,
+            depth=depth + 1,
+        ).parent
+    if isinstance(node, ast.Call):
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "Path"
+            and len(node.args) == 1
+            and not node.keywords
+        ):
+            return Path(
+                evaluate_generator_path_expression(
+                    node.args[0],
+                    assignments,
+                    generator_path,
+                    depth=depth + 1,
+                )
+            )
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "resolve"
+            and not node.args
+            and not node.keywords
+        ):
+            return evaluate_generator_path_expression(
+                node.func.value,
+                assignments,
+                generator_path,
+                depth=depth + 1,
+            ).resolve()
+    raise ValueError("generator dependency path expression is unsupported")
+
+
+def imported_generator_dependencies(
+    generator_path: Path,
+    repo_root: Path,
+) -> set[str]:
+    if generator_path.stat().st_size > MAX_SOURCE_BYTES:
+        raise ValueError(
+            f"generator exceeds {MAX_SOURCE_BYTES} byte limit"
+        )
+    try:
+        source = generator_path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=generator_path.name)
+    except (OSError, UnicodeDecodeError, SyntaxError) as error:
+        raise ValueError(f"cannot scan generator imports: {error}") from error
+
+    assignments: dict[str, ast.AST] = {}
+    for statement in tree.body:
+        if (
+            isinstance(statement, (ast.Assign, ast.AnnAssign))
+            and isinstance(statement.value, ast.AST)
+        ):
+            targets = (
+                statement.targets
+                if isinstance(statement, ast.Assign)
+                else [statement.target]
+            )
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    assignments[target.id] = statement.value
+
+    dependencies: set[str] = set()
+    for call in (
+        node for node in ast.walk(tree) if isinstance(node, ast.Call)
+    ):
+        function_name = (
+            call.func.attr
+            if isinstance(call.func, ast.Attribute)
+            else call.func.id
+            if isinstance(call.func, ast.Name)
+            else ""
+        )
+        location: ast.AST | None = None
+        if function_name == "spec_from_file_location" and len(call.args) >= 2:
+            location = call.args[1]
+        elif function_name == "run_path" and call.args:
+            location = call.args[0]
+        if location is None:
+            continue
+        dependency_path = evaluate_generator_path_expression(
+            location,
+            assignments,
+            generator_path,
+        )
+        if not dependency_path.is_absolute():
+            dependency_path = generator_path.parent / dependency_path
+        dependency_path = dependency_path.resolve()
+        try:
+            relative = dependency_path.relative_to(repo_root)
+        except ValueError as error:
+            raise ValueError(
+                "generator dynamically imports a path outside repository root"
+            ) from error
+        if dependency_path != generator_path:
+            dependencies.add(relative.as_posix())
+    return dependencies
 
 
 class Glb:
@@ -407,6 +550,7 @@ class Validator:
         generator = self.manifest.get("authoring", {}).get("generator", {})
         relative = safe_relative_path(generator.get("path"))
         expected_hash = generator.get("sha256")
+        generator_path: Path | None = None
         if relative is None or not is_sha256(expected_hash):
             self.add("GENERATOR_RECORD", "$.authoring.generator", "invalid generator record")
         else:
@@ -422,6 +566,7 @@ class Validator:
             except (OSError, ValueError) as error:
                 self.add("GENERATOR_READ", "$.authoring.generator.path", str(error))
         dependencies = generator.get("dependencies", [])
+        declared_dependency_paths: set[str] = set()
         if not isinstance(dependencies, list):
             self.add(
                 "GENERATOR_DEPENDENCY_RECORD",
@@ -455,6 +600,7 @@ class Validator:
                     )
                     continue
                 declared_paths.add(dependency_relative)
+                declared_dependency_paths.add(dependency_relative)
                 try:
                     dependency_path = resolve_beneath(
                         self.repo_root,
@@ -476,6 +622,27 @@ class Validator:
                         f"{pointer}.path",
                         str(error),
                     )
+        if generator_path is not None:
+            try:
+                imported_paths = imported_generator_dependencies(
+                    generator_path,
+                    self.repo_root,
+                )
+                for imported_path in sorted(
+                    imported_paths - declared_dependency_paths
+                ):
+                    self.add(
+                        "GENERATOR_DEPENDENCY_UNDECLARED",
+                        "$.authoring.generator.dependencies",
+                        "generator imports undeclared repository helper "
+                        f"{imported_path}",
+                    )
+            except (OSError, ValueError) as error:
+                self.add(
+                    "GENERATOR_IMPORT_SCAN",
+                    "$.authoring.generator.path",
+                    str(error),
+                )
 
     def load_glb(self) -> None:
         if self.glb_path is None:
@@ -512,6 +679,100 @@ class Validator:
         for pointer, number in finite_numbers(document, pointer="$.glb"):
             if not math.isfinite(number):
                 self.add("GLTF_NONFINITE", pointer, "number must be finite")
+
+    def validate_scene_extras(self) -> None:
+        assert self.manifest is not None and self.glb is not None
+        document = self.glb.document
+        scenes = document.get("scenes")
+        scene_index = document.get("scene")
+        if (
+            not isinstance(scenes, list)
+            or not isinstance(scene_index, int)
+            or not 0 <= scene_index < len(scenes)
+            or not isinstance(scenes[scene_index], dict)
+        ):
+            self.add(
+                "GLTF_SCENE_EXTRAS_MISSING",
+                "$.glb.scenes",
+                "default scene is unavailable for metadata validation",
+            )
+            return
+
+        asset = self.manifest.get("asset", {})
+        authoring = self.manifest.get("authoring", {})
+        generator = authoring.get("generator", {})
+        geometry = self.manifest.get("geometry", {})
+        generator_format = generator.get("format")
+        asset_id = asset.get("id")
+        asset_version = asset.get("version")
+        if (
+            not isinstance(generator_format, str)
+            or not generator_format.startswith("ror-cityworld-")
+            or not isinstance(asset_id, str)
+            or isinstance(asset_version, bool)
+            or not isinstance(asset_version, int)
+        ):
+            self.add(
+                "GLTF_SCENE_EXTRAS_CONTRACT",
+                "$.authoring.generator",
+                "asset and generator metadata cannot define scene extras",
+            )
+            return
+
+        expected: dict[str, Any] = {
+            generator_format: asset_version,
+            "rorng_asset_id": asset_id,
+            "rorng_authoring_axis": "blender-z-up",
+            "rorng_interchange_axis": "gltf-y-up",
+            "rorng_units": "metres",
+        }
+        curve_keys = (
+            "centerline_length_m",
+            "curve_radius_m",
+            "turn_angle_degrees",
+        )
+        if all(key in geometry for key in curve_keys):
+            expected["rorng_curve_radius_m"] = geometry[
+                "curve_radius_m"
+            ]
+            expected["rorng_turn_angle_degrees"] = geometry[
+                "turn_angle_degrees"
+            ]
+
+        actual = scenes[scene_index].get("extras")
+        if not isinstance(actual, dict):
+            self.add(
+                "GLTF_SCENE_EXTRAS_MISSING",
+                f"$.glb.scenes[{scene_index}].extras",
+                "scene extras must be an exact metadata object",
+            )
+            return
+        unknown = sorted(set(actual) - set(expected))
+        missing = sorted(set(expected) - set(actual))
+        mismatched = sorted(
+            key
+            for key in set(actual) & set(expected)
+            if actual[key] != expected[key]
+        )
+        if unknown:
+            self.add(
+                "GLTF_SCENE_EXTRAS_UNKNOWN",
+                f"$.glb.scenes[{scene_index}].extras",
+                "unknown scene metadata keys: " + ", ".join(unknown),
+            )
+        if missing:
+            self.add(
+                "GLTF_SCENE_EXTRAS_MISSING",
+                f"$.glb.scenes[{scene_index}].extras",
+                "missing scene metadata keys: " + ", ".join(missing),
+            )
+        if mismatched:
+            self.add(
+                "GLTF_SCENE_EXTRAS_VALUE",
+                f"$.glb.scenes[{scene_index}].extras",
+                "scene metadata values do not match manifest: "
+                + ", ".join(mismatched),
+            )
 
     def validate_materials(self) -> None:
         assert self.manifest is not None and self.glb is not None
@@ -1099,6 +1360,7 @@ class Validator:
             self.validate_artifacts()
             self.load_glb()
         if self.manifest is not None and self.glb is not None:
+            self.validate_scene_extras()
             self.validate_materials()
             self.validate_lods()
             self.validate_collisions()
