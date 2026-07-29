@@ -31,6 +31,12 @@ EXPECTED_PLUGINS = (
 )
 
 
+def native_path_text(value: str | Path) -> str:
+    """Normalize CMake's slash style to the current host path syntax."""
+
+    return os.path.normcase(os.path.normpath(os.fspath(value)))
+
+
 def active_config(
     *,
     folder: str = "lib/OGRE",
@@ -161,12 +167,22 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
                 msg=result.stdout + result.stderr,
             )
             self.assertEqual(
-                output.read_text(encoding="utf-8").splitlines()[0].split(";"),
-                [str(unversioned), str(versioned)],
+                [
+                    native_path_text(value)
+                    for value in output.read_text(
+                        encoding="utf-8"
+                    ).splitlines()[0].split(";")
+                ],
+                [
+                    native_path_text(unversioned),
+                    native_path_text(versioned),
+                ],
             )
             self.assertEqual(
-                output.read_text(encoding="utf-8").splitlines()[1],
-                str(versioned.resolve()),
+                native_path_text(
+                    output.read_text(encoding="utf-8").splitlines()[1]
+                ),
+                native_path_text(versioned.resolve()),
             )
 
             outside = root / "outside.so.14.5"
@@ -248,8 +264,8 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
                 msg=valid.stdout + valid.stderr,
             )
             self.assertEqual(
-                output.read_text(encoding="utf-8"),
-                str(dependency),
+                native_path_text(output.read_text(encoding="utf-8")),
+                native_path_text(dependency),
             )
 
             outside = root / "host" / "libInjected.so"
@@ -310,8 +326,17 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
                 msg=result.stdout + result.stderr,
             )
             self.assertEqual(
-                set(output.read_text(encoding="utf-8").split(";")),
-                {str(real), str(abi), str(unversioned)},
+                {
+                    native_path_text(value)
+                    for value in output.read_text(
+                        encoding="utf-8"
+                    ).split(";")
+                },
+                {
+                    native_path_text(real),
+                    native_path_text(abi),
+                    native_path_text(unversioned),
+                },
             )
 
     def test_installed_tree_rejects_absolute_and_escaping_symlinks(
@@ -530,6 +555,10 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
     def test_ogre14_launcher_is_cwd_independent_and_preserves_arguments(
         self,
     ) -> None:
+        if os.name == "nt":
+            self.skipTest(
+                "the POSIX launcher execution contract runs in the Linux lane"
+            )
         syntax = subprocess.run(
             ["sh", "-n", str(OGRE14_LAUNCHER)],
             check=False,

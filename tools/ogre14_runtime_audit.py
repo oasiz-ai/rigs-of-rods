@@ -134,13 +134,16 @@ def assert_clean_text(
     for prefix in forbidden_prefixes:
         if not prefix:
             continue
-        normalized_prefix = normalized_text(
-            os.path.abspath(os.path.expanduser(prefix))
-        ).rstrip("/")
-        if normalized_prefix and normalized_prefix in normalized:
-            raise AuditError(
-                f"{context} retains forbidden prefix {prefix!r}"
-            )
+        expanded_prefix = os.path.expanduser(prefix)
+        normalized_prefixes = {
+            normalized_text(expanded_prefix).rstrip("/"),
+            normalized_text(os.path.abspath(expanded_prefix)).rstrip("/"),
+        }
+        for normalized_prefix in normalized_prefixes:
+            if normalized_prefix and normalized_prefix in normalized:
+                raise AuditError(
+                    f"{context} retains forbidden prefix {prefix!r}"
+                )
 
 
 def parse_plugins_config(

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,6 +13,12 @@ import unittest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PLATFORM_MODULE = REPOSITORY_ROOT / "cmake" / "Ogre14Platform.cmake"
 PLUGIN_TEMPLATE = REPOSITORY_ROOT / "source" / "main" / "plugins.cfg.in"
+
+
+def native_path_text(value: str | Path) -> str:
+    """Normalize CMake's slash style to the current host path syntax."""
+
+    return os.path.normcase(os.path.normpath(os.fspath(value)))
 
 
 def select_lockfile(system_name: str, processor: str) -> subprocess.CompletedProcess:
@@ -178,16 +185,19 @@ def select_package_roots(
             text=True,
         )
         result.package_paths = {
-            label: str(path)
+            label: native_path_text(path)
             for label, path in package_paths.items()
         }
         result.package_file_paths = {
-            label: str(path)
+            label: native_path_text(path)
             for label, path in file_paths.items()
         }
         if result.returncode == 0:
             result.package_roots = tuple(
-                output_path.read_text(encoding="utf-8").splitlines()
+                native_path_text(value)
+                for value in output_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
             )
         return result
 
