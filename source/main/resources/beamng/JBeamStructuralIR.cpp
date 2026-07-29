@@ -1489,6 +1489,9 @@ private:
                         JBeamExpressionDiagnosticCode::WORK_LIMIT ||
                  diagnostic->code ==
                         JBeamExpressionDiagnosticCode::
+                            FUNCTION_ARGUMENT_LIMIT ||
+                 diagnostic->code ==
+                        JBeamExpressionDiagnosticCode::
                             STRING_SIZE_LIMIT ||
                  diagnostic->code ==
                         JBeamExpressionDiagnosticCode::

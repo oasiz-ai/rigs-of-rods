@@ -117,17 +117,22 @@ front end must support and test:
 The dependency-light expression-evaluator core now accepts a documented pure
 scalar subset behind the mandatory `$=` prefix: finite decimal arithmetic,
 comparisons, Lua-style `and`/`or`/`not`, the Boolean three-argument `case`
-form, string concatenation/length, typed `$variables`, and flattened scalar
-[`$components`][components] paths. Missing variables evaluate to `nil`.
-Expression bytes, tokens, recursion, deterministic work, strings, output, and
-environment size are bounded. Non-finite input or output fails closed even
-under the game's fast-math mode, and canonical values are independent of
-source spelling.
+form, string concatenation/length, numeric `abs`, `square`, `clamp`, and
+one-to-64-argument `min`/`max`, typed `$variables`, and flattened scalar
+[`$components`][components] paths. Scalar-call arguments are eager and
+numeric-only. `clamp` rejects reversed bounds, and `square` rejects overflow.
+Missing variables evaluate to `nil`. Expression bytes, tokens, recursion,
+function arguments, deterministic work, strings, output, and environment size
+are bounded. Non-finite input or output fails closed even under the game's
+fast-math mode, and canonical values are independent of source spelling.
 
 This core is not a Lua interpreter and exposes no host, filesystem, network,
-clock, or random functions. Numeric-selector `case`, other built-in functions,
-numeric-to-string concatenation, component tables, indexing, and method calls
-remain unsupported. `ParseJBeam` and `JBeamPartResolver` retain authored
+clock, or random functions. Numeric-selector `case`, every function outside
+Boolean `case` and the five-name numeric allowlist, numeric-to-string
+concatenation, component tables, indexing, and method calls remain unsupported.
+The functions above are an independent implementation of public format
+behavior; they do not reuse BeamNG code or assets. `ParseJBeam` and
+`JBeamPartResolver` retain authored
 expression strings as inert source values so syntax and graph identity never
 depend on execution. The J2 structural semantic pass now constructs a bounded
 environment from each resolved part's effective configuration/slot variables
@@ -144,6 +149,12 @@ environment-count, environment-string, and structural retained-byte limits.
 An absent variable is a valid `nil` expression operand, but a final `nil` in a
 field that requires a number, Boolean, or string fails that field closed with
 its source span.
+
+The local, opt-in FormulaCOUPE v0.9.7 audit found no scalar built-in calls in
+its 84 `.jbeam` files. `FC-A7-01` resolution therefore does not depend on this
+function slice; the broader function allowlist improves documented-format
+coverage without turning that third-party archive into project content or a
+public test dependency.
 
 The [part/slot system][slots] is a recursive tree, not a flat list. `slotType:
 "main"` identifies a root part. The resolver applies the chosen `.pc` parts and

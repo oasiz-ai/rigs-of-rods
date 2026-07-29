@@ -64,21 +64,26 @@ physics lowering remains a separate J2 gate.
 requires the documented `$=` prefix and supports finite decimal arithmetic,
 comparisons, Lua-style `and`/`or`/`not` with short-circuit operand-returning
 semantics, Boolean three-argument `case`, string concatenation/byte length,
-typed variables, and flattened scalar `$components` paths. Missing variables
-evaluate to `nil`, duplicate environment assignments use last-write semantics,
-and canonical results normalize the sign of zero and length-prefix strings.
+numeric `abs`, `square`, `clamp`, and bounded variadic `min`/`max`, typed
+variables, and flattened scalar `$components` paths. Missing variables evaluate
+to `nil`, duplicate environment assignments use last-write semantics, and
+canonical results normalize the sign of zero and length-prefix strings.
 
 The clean-room suite covers precedence, variables, eager `case` versus
-short-circuit logic, malformed and unsupported syntax, hostile binary input,
-every quota, overflow and non-finite values, UTF-8, deterministic repeats, and
+short-circuit logic, eager numeric function arguments, nesting, arity and type
+failures, invalid clamp bounds, square overflow, malformed and unsupported
+syntax, hostile binary input, every quota, UTF-8, deterministic repeats, and
 canonical collisions. It runs in strict, fast-math, and sanitizer builds.
-Expression source size, token count, recursion depth, deterministic work,
-literal/output strings, variable count/name size, and environment strings are
-all bounded.
+Expression source size, token count, recursion depth, function arguments,
+deterministic work, literal/output strings, variable count/name size, and
+environment strings are all bounded. Function calls never allocate
+argument-proportional storage: `min` and `max` reduce at parse time and accept
+one through 64 numeric arguments.
 
 This evaluator does not execute Lua and has no host, file, network, clock, or
-random access. It rejects numeric-selector `case`, all other built-in functions,
-numeric-to-string concatenation, table values, indexing, and method calls.
+random access. It rejects numeric-selector `case`, every function outside
+Boolean `case` and the five-name numeric allowlist, numeric-to-string
+concatenation, table values, indexing, and method calls.
 `ParseJBeam` and `JBeamPartResolver` still preserve expression strings as inert
 data. The structural semantic pass now constructs the scalar environment from
 resolved configuration/slot variables and merged scalar component leaves, then

@@ -461,7 +461,8 @@ void TestResolvedExpressionsVariablesAndComponents()
         "\"nodes\":["
         "[\"id\",\"posX\",\"posY\",\"posZ\",\"nodeWeight\"],"
         "[\"$=$components.geometry.reference\","
-        "\"$=$components.geometry.x+$offset\","
+        "\"$=clamp(max(abs(-($components.geometry.x+$offset)),"
+        "square(0)),0,min(1,2))\","
         "\"$=$missing == nil and 0 or $missing\",0,"
         "\"$lanceMass\"],"
         "[\"back\",1,1,0,1],"
@@ -661,6 +662,90 @@ void TestExpressionFailuresAndAggregateLimits()
             "vehicles/clean/main.jbeam");
         CHECK(expression_error->detail.find("decoded byte") !=
             std::string::npos);
+    }
+
+    const JBeamStructuralIR invalid_function_argument =
+        RoR::BeamNG::BuildJBeamStructuralIR(ResolveSingle(
+            "\"nodes\":["
+            "[\"id\",\"posX\",\"posY\",\"posZ\"],"
+            "[\"ref\",\"$=clamp(1,2,-2)\",0,0],"
+            "[\"back\",0,1,0],"
+            "[\"left\",1,0,0],"
+            "[\"up\",0,0,1],"
+            "[\"leftCorner\",1,-1,0],"
+            "[\"rightCorner\",-1,-1,0]"
+            "],"
+            "\"refNodes\":["
+            "[\"ref:\",\"back:\",\"left:\",\"up:\","
+            "\"leftCorner:\",\"rightCorner:\"],"
+            "[\"ref\",\"back\",\"left\",\"up\","
+            "\"leftCorner\",\"rightCorner\"]"
+            "]"));
+    CHECK(!invalid_function_argument.IsValid());
+    CHECK(CountDiagnostic(
+        invalid_function_argument,
+        JBeamStructuralDiagnosticCode::EXPRESSION_ERROR) == 1U);
+    const JBeamStructuralDiagnostic* invalid_function_error =
+        FindDiagnostic(
+            invalid_function_argument,
+            JBeamStructuralDiagnosticCode::EXPRESSION_ERROR);
+    CHECK(invalid_function_error != NULL);
+    if (invalid_function_error != NULL)
+    {
+        CHECK(invalid_function_error->section == "nodes");
+        CHECK(invalid_function_error->field_name == "posX");
+        CHECK(invalid_function_error->provenance.SourceName() ==
+            "vehicles/clean/main.jbeam");
+        CHECK(invalid_function_error->detail.find(
+            "decoded byte 2 (invalid-function-argument)") !=
+            std::string::npos);
+    }
+
+    std::string too_many_arguments = "$=max(";
+    for (std::size_t index = 0U; index < 65U; ++index)
+    {
+        if (index != 0U)
+        {
+            too_many_arguments.push_back(',');
+        }
+        too_many_arguments.push_back('1');
+    }
+    too_many_arguments.push_back(')');
+    const std::string function_limit_body =
+        "\"nodes\":["
+        "[\"id\",\"posX\",\"posY\",\"posZ\"],"
+        "[\"ref\",\"" + too_many_arguments + "\",0,0],"
+        "[\"back\",0,1,0],"
+        "[\"left\",1,0,0],"
+        "[\"up\",0,0,1],"
+        "[\"leftCorner\",1,-1,0],"
+        "[\"rightCorner\",-1,-1,0]"
+        "],"
+        "\"refNodes\":["
+        "[\"ref:\",\"back:\",\"left:\",\"up:\","
+        "\"leftCorner:\",\"rightCorner:\"],"
+        "[\"ref\",\"back\",\"left\",\"up\","
+        "\"leftCorner\",\"rightCorner\"]"
+        "]";
+    const JBeamStructuralIR function_limit =
+        RoR::BeamNG::BuildJBeamStructuralIR(
+            ResolveSingle(function_limit_body));
+    CHECK(!function_limit.IsValid());
+    CHECK(CountDiagnostic(
+        function_limit,
+        JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT) == 1U);
+    CHECK(CountDiagnostic(
+        function_limit,
+        JBeamStructuralDiagnosticCode::EXPRESSION_ERROR) == 0U);
+    const JBeamStructuralDiagnostic* function_limit_error =
+        FindDiagnostic(
+            function_limit,
+            JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT);
+    CHECK(function_limit_error != NULL);
+    if (function_limit_error != NULL)
+    {
+        CHECK(function_limit_error->detail.find(
+            "function-argument-limit") != std::string::npos);
     }
 
     const JBeamStructuralIR table_component =

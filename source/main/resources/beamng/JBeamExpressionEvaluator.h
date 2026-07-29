@@ -71,6 +71,9 @@ struct JBeamExpressionLimits
     std::size_t max_expression_bytes;
     std::size_t max_tokens;
     std::size_t max_depth;
+    /// Per-call argument ceiling. The evaluator also enforces an immutable
+    /// allowlist ceiling of 64 arguments even if a caller raises this value.
+    std::size_t max_function_arguments;
     /// Deterministic work charged for input bytes, emitted/consumed tokens,
     /// environment validation/lookups, and evaluated operations.
     std::size_t max_work_units;
@@ -109,7 +112,10 @@ enum class JBeamExpressionDiagnosticCode
     TYPE_MISMATCH,
     DIVISION_BY_ZERO,
     NON_DETERMINISTIC_OPERAND,
-    NON_FINITE_RESULT
+    NON_FINITE_RESULT,
+    FUNCTION_ARITY,
+    FUNCTION_ARGUMENT_LIMIT,
+    INVALID_FUNCTION_ARGUMENT
 };
 
 struct JBeamExpressionDiagnostic
@@ -145,17 +151,20 @@ struct JBeamExpressionResult
 ///   * Lua-style and/or/not (including their short-circuit, operand-returning
 ///     ternary idiom), string-string "..", and byte length "#";
 ///   * the documented Boolean case(selector, trueValue, falseValue) form.
+///   * numeric abs(value), square(value), clamp(value, lower, upper), and
+///     one-to-64-argument min(...) and max(...) calls.
 ///
 /// The evaluator is not Lua. Dotted component paths perform no dynamic lookup:
 /// they are opaque keys in the caller-provided environment. The evaluator
 /// deliberately rejects assignment, table values, bracket indexing, method
 /// calls, numeric-selector case(), every other function, and all host, file,
-/// network, random, clock, and runtime access. case() evaluates all three
-/// operands, matching the documentation's warning that it cannot protect
-/// arithmetic on nil arguments. and/or do short-circuit. To keep canonical
-/// binary64 identities independent of the host C library, `%` only accepts
-/// exact integers in the inclusive range [-2^53, 2^53], and `^` only accepts
-/// exact integer exponents in the inclusive range [-1024, 1024].
+/// network, random, clock, and runtime access. Allowlisted function arguments
+/// and case() operands are eager, matching the documentation's warning that
+/// case cannot protect arithmetic on nil arguments. and/or do short-circuit.
+/// To keep canonical binary64 identities independent of the host C library,
+/// `%` only accepts exact integers in the inclusive range [-2^53, 2^53], and
+/// `^` only accepts exact integer exponents in the inclusive range
+/// [-1024, 1024].
 JBeamExpressionResult EvaluateJBeamExpression(
     const std::string& expression,
     const JBeamExpressionEnvironment& environment =

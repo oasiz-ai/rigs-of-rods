@@ -1042,6 +1042,8 @@ public:
     }
 
 private:
+    static const std::size_t MAX_ALLOWLISTED_FUNCTION_ARGUMENTS = 64U;
+
     const Token& Current() const
     {
         return m_tokens[m_index];
@@ -1435,6 +1437,11 @@ private:
         case TokenKind::CASE_VALUE:
             return ParseCase(evaluate, output);
         case TokenKind::IDENTIFIER:
+            if (Next().kind == TokenKind::LEFT_PAREN &&
+                IsAllowlistedScalarFunction(token.text))
+            {
+                return ParseScalarFunction(evaluate, output);
+            }
             return m_runtime.Fail(
                 Next().kind == TokenKind::LEFT_PAREN
                     ? JBeamExpressionDiagnosticCode::UNSUPPORTED_FUNCTION
@@ -1451,6 +1458,202 @@ private:
         }
     }
 
+    bool IsAllowlistedScalarFunction(const std::string& name) const
+    {
+        return name == "abs" ||
+            name == "square" ||
+            name == "clamp" ||
+            name == "min" ||
+            name == "max";
+    }
+
+    bool ParseScalarFunction(
+        bool evaluate,
+        JBeamExpressionValue& output)
+    {
+        const Token function = Current();
+        if (!Consume() ||
+            !Expect(
+                TokenKind::LEFT_PAREN,
+                "Expected '(' after JBeam scalar function") ||
+            !BeginDepth(function.begin))
+        {
+            return false;
+        }
+
+        const std::size_t argument_limit =
+            m_limits.max_function_arguments <
+                    MAX_ALLOWLISTED_FUNCTION_ARGUMENTS
+                ? m_limits.max_function_arguments
+                : MAX_ALLOWLISTED_FUNCTION_ARGUMENTS;
+        const bool unary =
+            function.text == "abs" || function.text == "square";
+        const bool variadic =
+            function.text == "min" || function.text == "max";
+        std::size_t argument_count = 0U;
+        bool all_numeric = true;
+        JBeamExpressionValue fixed_arguments[3];
+        double extremum = 0.0;
+        bool have_extremum = false;
+        bool parsed = true;
+        if (Current().kind != TokenKind::RIGHT_PAREN)
+        {
+            while (parsed)
+            {
+                if (argument_count >= argument_limit)
+                {
+                    parsed = m_runtime.Fail(
+                        JBeamExpressionDiagnosticCode::
+                            FUNCTION_ARGUMENT_LIMIT,
+                        Current().begin,
+                        "JBeam function argument count exceeds the "
+                        "configured or allowlisted limit");
+                    break;
+                }
+
+                JBeamExpressionValue argument;
+                parsed = ParseOr(evaluate, argument);
+                if (!parsed)
+                {
+                    break;
+                }
+                if (evaluate)
+                {
+                    if (argument.type !=
+                        JBeamExpressionValueType::NUMBER)
+                    {
+                        all_numeric = false;
+                    }
+                    else if (variadic)
+                    {
+                        if (!have_extremum)
+                        {
+                            extremum = argument.number_value;
+                            have_extremum = true;
+                        }
+                        else if (
+                            (function.text == "min" &&
+                             argument.number_value < extremum) ||
+                            (function.text == "max" &&
+                             argument.number_value > extremum))
+                        {
+                            extremum = argument.number_value;
+                        }
+                    }
+                    else if (argument_count < 3U)
+                    {
+                        fixed_arguments[argument_count] = argument;
+                    }
+                }
+                ++argument_count;
+                if (Current().kind != TokenKind::COMMA)
+                {
+                    break;
+                }
+                parsed = Consume();
+            }
+        }
+        if (parsed)
+        {
+            parsed = Expect(
+                TokenKind::RIGHT_PAREN,
+                "Expected ')' after JBeam scalar function arguments");
+        }
+        EndDepth();
+        if (!parsed)
+        {
+            return false;
+        }
+
+        const bool valid_arity =
+            (unary && argument_count == 1U) ||
+            (function.text == "clamp" && argument_count == 3U) ||
+            (variadic &&
+             argument_count >= 1U &&
+             argument_count <=
+                 MAX_ALLOWLISTED_FUNCTION_ARGUMENTS);
+        if (!valid_arity)
+        {
+            return m_runtime.Fail(
+                JBeamExpressionDiagnosticCode::FUNCTION_ARITY,
+                function.begin,
+                "JBeam scalar function has an invalid argument count");
+        }
+        if (!evaluate)
+        {
+            output = JBeamExpressionValue::Nil();
+            return true;
+        }
+        if (!m_runtime.Charge(
+                1U + argument_count, function.begin))
+        {
+            return false;
+        }
+        if (!all_numeric)
+        {
+            return m_runtime.Fail(
+                JBeamExpressionDiagnosticCode::TYPE_MISMATCH,
+                function.begin,
+                "JBeam scalar function arguments must all be numbers");
+        }
+
+        double result = 0.0;
+        if (function.text == "abs")
+        {
+            volatile double observed =
+                fixed_arguments[0].number_value;
+            result = observed < 0.0 ? -observed : observed;
+        }
+        else if (function.text == "square")
+        {
+            result = MultiplyNumbers(
+                fixed_arguments[0].number_value,
+                fixed_arguments[0].number_value);
+            if (!IsFiniteNumber(result))
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::NON_FINITE_RESULT,
+                    function.begin,
+                    "JBeam square function produced a non-finite value");
+            }
+        }
+        else if (function.text == "clamp")
+        {
+            const double value =
+                fixed_arguments[0].number_value;
+            const double lower =
+                fixed_arguments[1].number_value;
+            const double upper =
+                fixed_arguments[2].number_value;
+            if (lower > upper)
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::
+                        INVALID_FUNCTION_ARGUMENT,
+                    function.begin,
+                    "JBeam clamp lower bound must not exceed its "
+                    "upper bound");
+            }
+            result = value < lower
+                ? lower
+                : (value > upper ? upper : value);
+        }
+        else
+        {
+            result = extremum;
+        }
+        if (!IsFiniteNumber(result))
+        {
+            return m_runtime.Fail(
+                JBeamExpressionDiagnosticCode::NON_FINITE_RESULT,
+                function.begin,
+                "JBeam scalar function produced a non-finite value");
+        }
+        output = JBeamExpressionValue::Number(
+            NormalizeNumber(result));
+        return true;
+    }
+
     bool ParseCase(bool evaluate, JBeamExpressionValue& output)
     {
         const Token function = Current();
@@ -1461,6 +1664,14 @@ private:
             !BeginDepth(function.begin))
         {
             return false;
+        }
+        if (m_limits.max_function_arguments < 3U)
+        {
+            EndDepth();
+            return m_runtime.Fail(
+                JBeamExpressionDiagnosticCode::FUNCTION_ARGUMENT_LIMIT,
+                function.begin,
+                "JBeam case argument count exceeds the configured limit");
         }
         JBeamExpressionValue selector;
         JBeamExpressionValue when_true;
@@ -2054,6 +2265,7 @@ JBeamExpressionLimits::JBeamExpressionLimits()
     : max_expression_bytes(65536U)
     , max_tokens(4096U)
     , max_depth(128U)
+    , max_function_arguments(64U)
     , max_work_units(4194304U)
     , max_string_bytes(65536U)
     , max_output_string_bytes(65536U)
@@ -2260,6 +2472,12 @@ const char* JBeamExpressionDiagnosticCodeToString(
         return "trailing-content";
     case JBeamExpressionDiagnosticCode::UNSUPPORTED_FUNCTION:
         return "unsupported-function";
+    case JBeamExpressionDiagnosticCode::FUNCTION_ARITY:
+        return "function-arity";
+    case JBeamExpressionDiagnosticCode::FUNCTION_ARGUMENT_LIMIT:
+        return "function-argument-limit";
+    case JBeamExpressionDiagnosticCode::INVALID_FUNCTION_ARGUMENT:
+        return "invalid-function-argument";
     case JBeamExpressionDiagnosticCode::UNSUPPORTED_CASE_SIGNATURE:
         return "unsupported-case-signature";
     case JBeamExpressionDiagnosticCode::TYPE_MISMATCH:

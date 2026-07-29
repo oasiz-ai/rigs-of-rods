@@ -1017,12 +1017,18 @@ The independent J1 expression core now evaluates a strict documented scalar
 subset with typed variables and flattened scalar `$components` paths. It
 implements finite decimal arithmetic, comparisons, Lua-style
 `and`/`or`/`not` and their short-circuit ternary idiom, Boolean
-three-argument `case`, string concatenation/length, explicit precedence, and
-source-independent canonical scalar results. Input, token, recursion, work,
+three-argument `case`, string concatenation/length, numeric `abs`, `square`,
+`clamp`, and bounded variadic `min`/`max`, explicit precedence, and
+source-independent canonical scalar results. Function arguments are eager and
+numeric-only; `min`/`max` reduce without argument-proportional storage and have
+a hard 64-argument ceiling. Input, token, recursion, function-argument, work,
 string, output, and environment quotas are deterministic; non-finite values
 fail closed under strict and fast-math builds. It does not execute Lua or expose
-host functions. Numeric-selector `case`, other built-ins, table-valued
-components, and numeric-to-string concatenation remain unsupported.
+host functions. Numeric-selector `case`, every function outside Boolean `case`
+and the five-name numeric allowlist, table-valued components, and
+numeric-to-string concatenation remain unsupported. This is an independent
+implementation of public format behavior and does not reuse BeamNG code or
+assets.
 
 `ParseJBeam` and `JBeamPartResolver` deliberately retain expressions as inert,
 duplicate-preserving source data. The J2 structural semantic pass now invokes
@@ -1042,9 +1048,11 @@ memory gates. Clean-room end-to-end tests cover configuration and slot
 variables, namespace expansion, scalar components, missing-variable
 short-circuiting, forbidden host calls, quotas, and representative
 FormulaCOUPE v0.9.7 arithmetic shapes such as node mass scaling and
-beam-precompression tuning. Full table components, authored tuning-variable
-default tables, the broader documented math function set, and semantic
-evaluation for non-structural sections remain open J1/J2 work.
+beam-precompression tuning. A local scan found no scalar built-in calls in the
+fixture's 84 `.jbeam` files, so `FC-A7-01` is not blocked by the remaining
+function set. Full table components, authored tuning-variable default tables,
+the remaining documented math functions, and semantic evaluation for
+non-structural sections remain open J1/J2 work.
 
 The bounded resolver indexes parts independently of archive enumeration order,
 selects the sole `main` root or requires an explicit root when a package exposes

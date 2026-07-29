@@ -255,6 +255,252 @@ void TestLogicalTernaryAndCase()
         JBeamExpressionDiagnosticCode::UNSUPPORTED_CASE_SIGNATURE));
 }
 
+std::string VariadicCall(
+    const std::string& name,
+    std::size_t argument_count)
+{
+    std::string expression = "$=" + name + "(";
+    for (std::size_t index = 0U;
+         index < argument_count;
+         ++index)
+    {
+        if (index != 0U)
+        {
+            expression.push_back(',');
+        }
+        expression.append("1");
+    }
+    expression.push_back(')');
+    return expression;
+}
+
+void TestDeterministicScalarFunctions()
+{
+    CheckNumber("$=abs(-3)", 3.0);
+    CheckNumber("$=abs(3)", 3.0);
+    CheckNumber("$=square(-3)", 9.0);
+    CheckNumber("$=clamp(-2,-1,1)", -1.0);
+    CheckNumber("$=clamp(0,-1,1)", 0.0);
+    CheckNumber("$=clamp(2,-1,1)", 1.0);
+    CheckNumber("$=min(4)", 4.0);
+    CheckNumber("$=min(4,-2,3,-1)", -2.0);
+    CheckNumber("$=max(4)", 4.0);
+    CheckNumber("$=max(4,-2,8,-1)", 8.0);
+    CheckNumber(
+        "$=clamp(max(abs(-3),square(2)),min(0,1),max(5,4))",
+        4.0);
+    CheckNumber(VariadicCall("min", 64U), 1.0);
+
+    JBeamExpressionEnvironment environment;
+    environment.variables.push_back(
+        Variable("$x", JBeamExpressionValue::Number(-4.0)));
+    environment.variables.push_back(
+        Variable("$lo", JBeamExpressionValue::Number(2.0)));
+    environment.variables.push_back(
+        Variable("$hi", JBeamExpressionValue::Number(10.0)));
+    const JBeamExpressionResult variables = EvaluateJBeamExpression(
+        "$=clamp(square(abs($x)),$lo,$hi)",
+        environment);
+    CHECK(variables.IsValid());
+    CHECK(variables.value.type == JBeamExpressionValueType::NUMBER);
+    CHECK(variables.value.number_value == 10.0);
+
+    const char* invalid_arity[] = {
+        "$=abs()",
+        "$=abs(1,2)",
+        "$=square()",
+        "$=square(1,2)",
+        "$=clamp(1,2)",
+        "$=clamp(1,2,3,4)",
+        "$=min()",
+        "$=max()"
+    };
+    const std::size_t invalid_arity_count =
+        sizeof(invalid_arity) / sizeof(invalid_arity[0]);
+    for (std::size_t index = 0U;
+         index < invalid_arity_count;
+         ++index)
+    {
+        const JBeamExpressionResult result =
+            EvaluateJBeamExpression(invalid_arity[index]);
+        CHECK(!result.IsValid());
+        CHECK(HasCode(
+            result,
+            JBeamExpressionDiagnosticCode::FUNCTION_ARITY));
+    }
+
+    const char* invalid_types[] = {
+        "$=abs('x')",
+        "$=square(true)",
+        "$=clamp(1,0,'x')",
+        "$=min(1,'x',2)",
+        "$=max(nil,2)"
+    };
+    const std::size_t invalid_type_count =
+        sizeof(invalid_types) / sizeof(invalid_types[0]);
+    for (std::size_t index = 0U;
+         index < invalid_type_count;
+         ++index)
+    {
+        const JBeamExpressionResult result =
+            EvaluateJBeamExpression(invalid_types[index]);
+        CHECK(!result.IsValid());
+        CHECK(HasCode(
+            result,
+            JBeamExpressionDiagnosticCode::TYPE_MISMATCH));
+    }
+
+    const JBeamExpressionResult invalid_bounds =
+        EvaluateJBeamExpression("$=clamp(1,2,-2)");
+    CHECK(!invalid_bounds.IsValid());
+    CHECK(HasCode(
+        invalid_bounds,
+        JBeamExpressionDiagnosticCode::INVALID_FUNCTION_ARGUMENT));
+    CHECK(!invalid_bounds.diagnostics.empty());
+    if (!invalid_bounds.diagnostics.empty())
+    {
+        CHECK(invalid_bounds.diagnostics[0].byte_offset == 2U);
+    }
+
+    const JBeamExpressionResult square_overflow =
+        EvaluateJBeamExpression("$=square(1e308)");
+    CHECK(!square_overflow.IsValid());
+    CHECK(HasCode(
+        square_overflow,
+        JBeamExpressionDiagnosticCode::NON_FINITE_RESULT));
+
+    // Function calls evaluate every argument before validating the signature
+    // and numeric types. They cannot hide a failing argument.
+    const JBeamExpressionResult eager =
+        EvaluateJBeamExpression("$=min(1,'not-a-number',1/0)");
+    CHECK(!eager.IsValid());
+    CHECK(HasCode(
+        eager, JBeamExpressionDiagnosticCode::DIVISION_BY_ZERO));
+    const JBeamExpressionResult eager_arity =
+        EvaluateJBeamExpression("$=abs(1,1/0)");
+    CHECK(!eager_arity.IsValid());
+    CHECK(HasCode(
+        eager_arity, JBeamExpressionDiagnosticCode::DIVISION_BY_ZERO));
+    const JBeamExpressionResult eager_clamp =
+        EvaluateJBeamExpression("$=clamp(1,2,1/0)");
+    CHECK(!eager_clamp.IsValid());
+    CHECK(HasCode(
+        eager_clamp, JBeamExpressionDiagnosticCode::DIVISION_BY_ZERO));
+
+    JBeamExpressionLimits limits;
+    CHECK(limits.max_function_arguments == 64U);
+    limits.max_function_arguments = 2U;
+    JBeamExpressionResult result = EvaluateJBeamExpression(
+        "$=min(3,2,1)",
+        JBeamExpressionEnvironment(),
+        limits);
+    CHECK(!result.IsValid());
+    CHECK(HasCode(
+        result,
+        JBeamExpressionDiagnosticCode::FUNCTION_ARGUMENT_LIMIT));
+    result = EvaluateJBeamExpression(
+        "$=case(true,1,2)",
+        JBeamExpressionEnvironment(),
+        limits);
+    CHECK(!result.IsValid());
+    CHECK(HasCode(
+        result,
+        JBeamExpressionDiagnosticCode::FUNCTION_ARGUMENT_LIMIT));
+    limits = JBeamExpressionLimits();
+    limits.max_function_arguments = 1000U;
+    result = EvaluateJBeamExpression(
+        VariadicCall("max", 65U),
+        JBeamExpressionEnvironment(),
+        limits);
+    CHECK(!result.IsValid());
+    CHECK(HasCode(
+        result,
+        JBeamExpressionDiagnosticCode::FUNCTION_ARGUMENT_LIMIT));
+
+    const JBeamExpressionResult charged =
+        EvaluateJBeamExpression("$=min(3,2,1)");
+    CHECK(charged.IsValid());
+    CHECK(charged.work_units > 0U);
+    limits = JBeamExpressionLimits();
+    limits.max_work_units = charged.work_units - 1U;
+    result = EvaluateJBeamExpression(
+        "$=min(3,2,1)",
+        JBeamExpressionEnvironment(),
+        limits);
+    CHECK(!result.IsValid());
+    CHECK(HasCode(
+        result, JBeamExpressionDiagnosticCode::WORK_LIMIT));
+
+    CheckCanonicalNumber(
+        "$=abs(-0)",
+        "jbeam-expression-value-v1:number:0000000000000000");
+    CheckCanonicalNumber(
+        "$=square(-0)",
+        "jbeam-expression-value-v1:number:0000000000000000");
+    CheckCanonicalNumber(
+        "$=clamp(-0,-1,1)",
+        "jbeam-expression-value-v1:number:0000000000000000");
+
+    const std::string repeated_source =
+        "$=max(abs(-3),square(2),clamp(9,0,5))";
+    const JBeamExpressionResult expected =
+        EvaluateJBeamExpression(repeated_source);
+    CHECK(expected.IsValid());
+    for (std::size_t iteration = 0U; iteration < 100U; ++iteration)
+    {
+        const JBeamExpressionResult repeated =
+            EvaluateJBeamExpression(repeated_source);
+        CHECK(repeated.IsValid());
+        CHECK(repeated.token_count == expected.token_count);
+        CHECK(repeated.work_units == expected.work_units);
+        CHECK(
+            SerializeCanonicalJBeamExpressionValue(repeated.value) ==
+            SerializeCanonicalJBeamExpressionValue(expected.value));
+    }
+
+    const char* unsupported[] = {
+        "$=floor(1)",
+        "$=round(1)",
+        "$=randomseed(1)",
+        "$=load(1)",
+        "$=Abs(1)"
+    };
+    const std::size_t unsupported_count =
+        sizeof(unsupported) / sizeof(unsupported[0]);
+    for (std::size_t index = 0U;
+         index < unsupported_count;
+         ++index)
+    {
+        result = EvaluateJBeamExpression(unsupported[index]);
+        CHECK(!result.IsValid());
+        CHECK(HasCode(
+            result,
+            JBeamExpressionDiagnosticCode::UNSUPPORTED_FUNCTION));
+    }
+    result = EvaluateJBeamExpression("$=math.abs(1)");
+    CHECK(!result.IsValid());
+    CHECK(HasCode(
+        result, JBeamExpressionDiagnosticCode::INVALID_CHARACTER));
+
+    CHECK(
+        std::string(
+            RoR::BeamNG::JBeamExpressionDiagnosticCodeToString(
+                JBeamExpressionDiagnosticCode::FUNCTION_ARITY)) ==
+        "function-arity");
+    CHECK(
+        std::string(
+            RoR::BeamNG::JBeamExpressionDiagnosticCodeToString(
+                JBeamExpressionDiagnosticCode::
+                    FUNCTION_ARGUMENT_LIMIT)) ==
+        "function-argument-limit");
+    CHECK(
+        std::string(
+            RoR::BeamNG::JBeamExpressionDiagnosticCodeToString(
+                JBeamExpressionDiagnosticCode::
+                    INVALID_FUNCTION_ARGUMENT)) ==
+        "invalid-function-argument");
+}
+
 void TestStrings()
 {
     CheckString("$='my_'..'group'", "my_group");
@@ -725,6 +971,7 @@ int main()
     TestArithmeticAndPrecedence();
     TestDeterministicPowerAndModuloIdentities();
     TestLogicalTernaryAndCase();
+    TestDeterministicScalarFunctions();
     TestStrings();
     TestTypedEnvironment();
     TestMalformedAndHostileSyntax();
