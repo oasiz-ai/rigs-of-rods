@@ -260,6 +260,7 @@ jobs:
           )" = "11.0"
 
       - name: Exercise application bundle and renderer when available
+        id: renderer_capability
         shell: bash
         env:
           ALSOFT_DRIVERS: "null"
@@ -298,8 +299,16 @@ jobs:
             --pre-render-log "$pre_render_log" \
             --probe-log "$probe_log" \
             --timeout 90
+          if grep -q \
+            '^ROR_MACOS_GL3_CAPABILITY=available ' \
+            "$probe_log"; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Drive CityWorld LED streetlight with macOS arm64 GL3Plus
+        if: steps.renderer_capability.outputs.available == 'true'
         timeout-minutes: 10
         shell: bash
         run: |
@@ -314,6 +323,7 @@ jobs:
               "$RUNNER_TEMP/ror-cityworld-led-streetlight-macos-arm64.driver.log"
 
       - name: Render CityWorld Bridge streetlight with macOS arm64 GL3Plus
+        if: steps.renderer_capability.outputs.available == 'true'
         timeout-minutes: 10
         shell: bash
         run: |

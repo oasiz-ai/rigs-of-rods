@@ -133,6 +133,41 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             with self.subTest(workflow=workflow):
                 self.assert_conan_source_fallback_contract(text)
 
+    def test_macos_cityworld_scenes_require_verified_gl3_capability(
+        self,
+    ) -> None:
+        text = self.macos_text
+        capability_id = "id: renderer_capability"
+        capability_gate = (
+            "if: steps.renderer_capability.outputs.available == 'true'"
+        )
+        available_marker = (
+            "^ROR_MACOS_GL3_CAPABILITY=available "
+        )
+        self.assertEqual(text.count(capability_id), 1)
+        self.assertEqual(text.count(capability_gate), 2)
+        self.assertEqual(text.count(available_marker), 1)
+        self.assertIn(
+            'echo "available=true" >> "$GITHUB_OUTPUT"',
+            text,
+        )
+        self.assertIn(
+            'echo "available=false" >> "$GITHUB_OUTPUT"',
+            text,
+        )
+        self.assertLess(
+            text.index(capability_id),
+            text.index(
+                "Drive CityWorld LED streetlight with macOS arm64 GL3Plus"
+            ),
+        )
+        self.assertLess(
+            text.index(capability_id),
+            text.index(
+                "Render CityWorld Bridge streetlight with macOS arm64 GL3Plus"
+            ),
+        )
+
     def test_conan_source_fallback_rejects_unsafe_variants(self) -> None:
         unsafe_variants = {
             "backup before origin": CONAN_SOURCE_FALLBACK.replace(
