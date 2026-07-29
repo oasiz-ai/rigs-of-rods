@@ -1337,14 +1337,11 @@ bool Runtime::FinalizeRecording(std::ostream& output)
     const std::size_t max_stream_chunk =
         static_cast<std::size_t>(
             std::numeric_limits<std::streamsize>::max());
+    static_assert(
+        std::numeric_limits<std::streamsize>::max() > 0,
+        "std::streamsize must represent positive write sizes");
     const std::size_t output_chunk_size =
         std::min<std::size_t>(UINT32_C(65536), max_stream_chunk);
-    if (output_chunk_size == 0)
-    {
-        return m_impl->Fail(
-            RuntimeError::IO_FAILURE,
-            GetNextPhysicsStep());
-    }
 
     try
     {
