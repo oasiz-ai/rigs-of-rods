@@ -680,6 +680,22 @@ marker, and persisted `Sky effects=Sandstorm (fastest)`. The capture confirms
 direct sun and ambient response; it also keeps CityWorld's missing-material
 messages visible as the separate content-authoring failures they are.
 
+The first original Blender-authored CityWorld Next bridge now crosses the
+offline/runtime boundary. A fail-closed glTF compiler lowers its applied,
+bounded static scene into deterministic OGRE 1.100 little-endian meshes, manual
+80/180 metre render LODs, separate asphalt/barrier collision meshes, an
+RTShaderSystem material fallback, and an ODEF that preserves the Y-up basis.
+The checked package and provenance cover every output byte. A portable runtime
+gate assembles a deterministic local fixture from the pinned content submodule,
+uses an isolated native profile on macOS/Linux/Windows, and drives the pinned
+DAF across three exactly coincident 20 metre modules with collision enabled.
+The first arm64 run traversed 90.1281 metres and both seams in 20,260
+deterministic physics steps, held lateral drift to 0.640167 metres and height to
+0.69451–1.50233 metres, loaded every render/collision mesh, generated GL3Plus
+RTSS programs for all six bridge materials, and fully decoded a UI-free
+1280x720 RGB proof. Windows and Linux runtime execution, curved modules,
+supports, and insertion into the rights-cleared CityWorld overlay remain open.
+
 This is meaningful R0 progress, not completion. The remaining gates include:
 
 - Extend the display-metrics proof to native Windows/Linux, window resize and

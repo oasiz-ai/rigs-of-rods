@@ -1,0 +1,4 @@
+// Three 20 m spans. Adjacent connector planes are exactly coincident.
+512, 0.08, 492, 0, 0, 0, rorng_city_bridge_span_20m - bridge_span_00
+512, 0.08, 512, 0, 0, 0, rorng_city_bridge_span_20m - bridge_span_01
+512, 0.08, 532, 0, 0, 0, rorng_city_bridge_span_20m - bridge_span_02

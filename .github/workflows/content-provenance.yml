@@ -31,6 +31,7 @@ jobs:
           tests/tools/test_content_provenance_audit.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_compile_cityworld_asset.py
+          tests/tools/test_run_cityworld_bridge_scene.py
           tests/tools/test_validate_cityworld_asset.py
 
       - name: Run optimized standard-library provenance and CityWorld asset tests
@@ -39,6 +40,7 @@ jobs:
           tests/tools/test_content_provenance_audit.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_compile_cityworld_asset.py
+          tests/tools/test_run_cityworld_bridge_scene.py
           tests/tools/test_validate_cityworld_asset.py
 
       - name: Verify checked-in CityWorld provenance and release gate

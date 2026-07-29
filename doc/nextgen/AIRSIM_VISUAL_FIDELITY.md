@@ -122,6 +122,14 @@ entire source/profile/output contract without depending on Blender or a
 platform OGRE tool. See
 [CityWorld Next offline scene compiler](CITYWORLD_SCENE_COMPILER.md).
 
+That first slice is executable rather than a package-only proof. The macOS
+arm64 runtime gate requires all render/collision meshes to load, RTShaderSystem
+programs for every bridge material, a collision-enabled three-span vehicle
+traversal through both connector seams, and a fully decoded UI-free RGB frame.
+This proves the asset/compiler/runtime seam only; it does not yet satisfy the
+shared AirSim-reference perceptual, HDR, temporal, vegetation, reflection,
+shadow, or performance gates below.
+
 ## Capture contract
 
 Both engines render the shared camera path under equivalent conditions:

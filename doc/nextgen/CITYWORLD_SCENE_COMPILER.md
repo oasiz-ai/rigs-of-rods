@@ -80,7 +80,7 @@ The production command requires an explicit converter; it never searches
 repository-local staging directory, unexpected files fail the compile, and a
 failed converter does not produce an accepted report.
 
-## Runtime contract and next gate
+## Runtime contract and physical scene gate
 
 The generated ODEF loads
 `rorng_city_bridge_span_20m_lod0.mesh`. Its manual mesh LOD table switches to
@@ -90,15 +90,47 @@ declares `standard` so RoR's legacy terrain-object loader cancels its historical
 minus-90-degree import pitch; the already Y-up render and collision meshes
 therefore enter the scene without a second rotation.
 
-The compiled resource is now package-ready, but the CW2 integration gate still
-requires a rights-cleared terrain overlay that places repeated spans, fixed
-approach/deck cameras, and automated vehicle traversals. That test must prove:
+`tools/run_cityworld_bridge_scene.py` builds a deterministic, flat runtime pack
+without downloading or modifying CityWorld. It combines only the checked
+compiled outputs, the pinned `content` submodule's simple2 terrain inputs, and
+the project-owned runtime fixture. It verifies that the packaged DAF rig is
+byte-identical to the pinned source, launches RoR under an isolated user
+profile, and requires:
 
 - connector positions, lane centres, width, and surface height are continuous;
 - collision seams neither snag a tyre nor permit tunnelling;
-- visual and collision LODs do not disappear or change alignment;
-- no missing material or shader diagnostic is emitted; and
-- macOS arm64 passes first, followed by native Windows and Linux validation.
+- the render and all three collision meshes load;
+- every bridge material receives an RTShaderSystem vertex/fragment program;
+- no bridge-specific missing material, ODEF, GL, or renderer diagnostic occurs;
+- exactly one UI-free 1280x720 true-colour screenshot has valid PNG structure,
+  chunk CRCs, bounded decompression, valid filtering, and non-degenerate decoded
+  pixels; and
+- the scripted vehicle reaches the exit inside bounded vertical, lateral,
+  velocity, distance, and physics-step envelopes.
+
+Run it against a packaged build:
+
+```sh
+python3 tools/run_cityworld_bridge_scene.py \
+  --executable /absolute/path/to/RoR \
+  --artifact-dir /absolute/path/to/fresh-artifacts
+```
+
+The runner uses native macOS, Linux, and Windows profile layouts. The
+`ROR_D0_SCENE_HOME` diagnostic override is absolute-path-only on all three
+platforms, so tests never write into a developer's normal profile. The
+deterministic archive, executable, vehicle archive, compile report, repository
+and content commits, logs, traversal metrics, and decoded RGB properties are
+recorded in `ror-cityworld-bridge-runtime-report-v1`.
+
+The first macOS arm64 run on 2026-07-28 passed three spans and both exact
+connector seams over 90.1281 metres. Maximum lateral drift was 0.640167 metres;
+the vehicle's average-node height remained between 0.69451 and 1.50233 metres;
+exit speed was 16.9444 m/s after 20,260 deterministic physics steps. The
+1,280x720 UI-free RGB frame fully decoded, contained all bridge geometry and
+the vehicle, and all six bridge materials had generated GL3Plus RTSS programs.
+Native Windows and Linux executions remain required before the gate is promoted
+from macOS-first proof to three-platform release coverage.
 
 Texture ingestion/transcoding, material textures, instancing, nested applied
 scene graphs, terrain tiles, curved-span connector solving, and the full PBR

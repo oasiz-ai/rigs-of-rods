@@ -146,6 +146,13 @@ bool IsAbsolutePath(const char* path)
 
 std::string GetUserHomeDirectory()
 {
+    // Runtime scene gates use the same isolated-home contract on every
+    // platform. Accept only a native absolute path so ordinary launches and
+    // malformed environments always fall back to the Windows known folder.
+    const char* d0_scene_home = getenv("ROR_D0_SCENE_HOME");
+    if (d0_scene_home != nullptr && IsAbsolutePath(d0_scene_home))
+        return std::string(d0_scene_home);
+
     std::wstring out_wstr(MAX_PATH, 0); // Length limit imposed by the function, see https://msdn.microsoft.com/en-us/library/windows/desktop/bb762181(v=vs.85).aspx
     HRESULT hres = SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, SHGFP_TYPE_CURRENT, &out_wstr[0]);
     if (hres != S_OK)

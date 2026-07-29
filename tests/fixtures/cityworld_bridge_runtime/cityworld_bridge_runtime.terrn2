@@ -1,0 +1,21 @@
+[General]
+Name = CityWorld Next Bridge Runtime Gate
+GeometryConfig = simple2.otc
+Water = 0
+AmbientColor = 0.72, 0.72, 0.72
+StartPosition = 512, 2, 454
+StartRotation = 180
+Gravity = -9.81
+CategoryID = 129
+Version = 2
+GUID = 9e479d77-e973-46f1-afe0-2aa6db5526f0
+TractionMap = simple2_landuse.cfg
+
+[Authors]
+terrain = Oasiz AI and Rigs of Rods contributors
+
+[Objects]
+cityworld_bridge_runtime.tobj =
+
+[Scripts]
+cityworld_bridge_runtime.as =
