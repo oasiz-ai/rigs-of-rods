@@ -66,10 +66,15 @@ SOURCE_MEMBERS = ("CityWorld.terrn2", "CityWorld.otc", "CityWorld.tobj")
 TERRAIN_NAME = "CityWorldNextLocalOverlay.terrn2"
 OVERLAY_NAME = "cityworld_next_local_overlay.tobj"
 REPORT_NAME = "cityworld_next_local_overlay.report.json"
+MERGED_MATERIAL_NAME = "cityworld_next_local_overlay.material"
 MIN_SURFACE_OFFSET_M = -2.0
 MAX_SURFACE_OFFSET_M = 20.0
 MAX_RUNTIME_FILE_BYTES = 256 * 1024 * 1024
+MAX_MATERIAL_SCRIPT_BYTES = 4 * 1024 * 1024
+MAX_MATERIAL_DEFINITIONS = 512
+MAX_MATERIAL_TOKENS = 100_000
 OUTPUT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.zip$")
+MATERIAL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_./-]+$")
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 ZIP_MODE = 0o100644
 
@@ -143,6 +148,19 @@ class PreparedAsset:
     profile: AssetProfile
     provenance: dict[str, Any]
     runtime_files: tuple[RuntimeFile, ...]
+
+
+@dataclass(frozen=True)
+class MaterialToken:
+    kind: str
+    value: str
+
+
+@dataclass(frozen=True)
+class MaterialDefinition:
+    name: str
+    origin: str
+    tokens: tuple[MaterialToken, ...]
 
 
 def canonical_json_bytes(value: Any) -> bytes:
@@ -512,6 +530,322 @@ def prepare_assets(repository: Path) -> tuple[PreparedAsset, ...]:
     return assets
 
 
+def tokenize_material_script(
+    runtime_file: RuntimeFile,
+) -> tuple[MaterialToken, ...]:
+    if len(runtime_file.payload) > MAX_MATERIAL_SCRIPT_BYTES:
+        raise OverlayFailure(
+            f"material script exceeds byte limit: {runtime_file.package_path}"
+        )
+    try:
+        text = runtime_file.payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise OverlayFailure(
+            f"material script is not UTF-8: {runtime_file.package_path}"
+        ) from error
+    if "\x00" in text:
+        raise OverlayFailure(
+            f"material script contains a null byte: {runtime_file.package_path}"
+        )
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    tokens: list[MaterialToken] = []
+    index = 0
+
+    def append_token(kind: str, value: str) -> None:
+        if len(tokens) >= MAX_MATERIAL_TOKENS:
+            raise OverlayFailure(
+                f"material script exceeds token limit: "
+                f"{runtime_file.package_path}"
+            )
+        tokens.append(MaterialToken(kind, value))
+
+    while index < len(text):
+        character = text[index]
+        if character in " \t\f\v":
+            index += 1
+            continue
+        if character == "\n":
+            append_token("newline", "\n")
+            index += 1
+            continue
+        if text.startswith("//", index):
+            newline = text.find("\n", index + 2)
+            index = len(text) if newline < 0 else newline
+            continue
+        if text.startswith("/*", index):
+            comment_end = text.find("*/", index + 2)
+            if comment_end < 0:
+                raise OverlayFailure(
+                    f"unterminated material comment: "
+                    f"{runtime_file.package_path}"
+                )
+            for _ in range(text.count("\n", index, comment_end + 2)):
+                append_token("newline", "\n")
+            index = comment_end + 2
+            continue
+        if character in "{}:":
+            append_token("symbol", character)
+            index += 1
+            continue
+        if character in "\"'":
+            quote = character
+            start = index
+            index += 1
+            while index < len(text):
+                if text[index] == "\\":
+                    index += 2
+                    continue
+                if text[index] == quote:
+                    index += 1
+                    break
+                if text[index] == "\n":
+                    raise OverlayFailure(
+                        f"unterminated material string: "
+                        f"{runtime_file.package_path}"
+                    )
+                index += 1
+            else:
+                raise OverlayFailure(
+                    f"unterminated material string: "
+                    f"{runtime_file.package_path}"
+                )
+            append_token("string", text[start:index])
+            continue
+
+        start = index
+        while index < len(text):
+            if text[index].isspace() or text[index] in "{}:\"'":
+                break
+            if text.startswith("//", index) or text.startswith("/*", index):
+                break
+            index += 1
+        if index == start:
+            raise OverlayFailure(
+                f"unsupported material token in "
+                f"{runtime_file.package_path}"
+            )
+        append_token("word", text[start:index])
+    return tuple(tokens)
+
+
+def normalize_material_definition_tokens(
+    tokens: Sequence[MaterialToken],
+) -> tuple[MaterialToken, ...]:
+    following_non_newline: list[MaterialToken | None] = [None] * len(tokens)
+    following: MaterialToken | None = None
+    for index in range(len(tokens) - 1, -1, -1):
+        following_non_newline[index] = following
+        if tokens[index].kind != "newline":
+            following = tokens[index]
+
+    normalized: list[MaterialToken] = []
+    previous: MaterialToken | None = None
+    for index, token in enumerate(tokens):
+        if token.kind != "newline":
+            normalized.append(token)
+            previous = token
+            continue
+        following = following_non_newline[index]
+        if (
+            previous is None
+            or following is None
+            or (normalized and normalized[-1].kind == "newline")
+            or previous.value in "{}"
+            or following.value in "{}"
+        ):
+            continue
+        normalized.append(MaterialToken("newline", "\n"))
+    while normalized and normalized[-1].kind == "newline":
+        normalized.pop()
+    return tuple(normalized)
+
+
+def parse_material_definitions(
+    runtime_file: RuntimeFile,
+) -> tuple[MaterialDefinition, ...]:
+    tokens = tokenize_material_script(runtime_file)
+    definitions: list[MaterialDefinition] = []
+    cursor = 0
+    while cursor < len(tokens):
+        while cursor < len(tokens) and tokens[cursor].kind == "newline":
+            cursor += 1
+        if cursor == len(tokens):
+            break
+        start = cursor
+        if tokens[cursor] != MaterialToken("word", "material"):
+            raise OverlayFailure(
+                f"unsupported top-level material statement in "
+                f"{runtime_file.package_path}: {tokens[cursor].value!r}"
+            )
+        cursor += 1
+        while cursor < len(tokens) and tokens[cursor].kind == "newline":
+            cursor += 1
+        if (
+            cursor == len(tokens)
+            or tokens[cursor].kind != "word"
+            or MATERIAL_NAME_PATTERN.fullmatch(tokens[cursor].value) is None
+        ):
+            raise OverlayFailure(
+                f"material declaration has an invalid name in "
+                f"{runtime_file.package_path}"
+            )
+        material_name = tokens[cursor].value
+        cursor += 1
+        while cursor < len(tokens) and tokens[cursor].value != "{":
+            if tokens[cursor].value == "}":
+                raise OverlayFailure(
+                    f"material declaration has no opening brace: "
+                    f"{material_name}"
+                )
+            cursor += 1
+        if cursor == len(tokens):
+            raise OverlayFailure(
+                f"material declaration has no opening brace: "
+                f"{material_name}"
+            )
+
+        depth = 0
+        while cursor < len(tokens):
+            if tokens[cursor].value == "{":
+                depth += 1
+            elif tokens[cursor].value == "}":
+                depth -= 1
+                if depth < 0:
+                    raise OverlayFailure(
+                        f"material declaration has an unmatched brace: "
+                        f"{material_name}"
+                    )
+                if depth == 0:
+                    cursor += 1
+                    break
+            cursor += 1
+        if depth != 0:
+            raise OverlayFailure(
+                f"material declaration has an unterminated block: "
+                f"{material_name}"
+            )
+        definitions.append(
+            MaterialDefinition(
+                name=material_name,
+                origin=runtime_file.package_path,
+                tokens=normalize_material_definition_tokens(
+                    tokens[start:cursor]
+                ),
+            )
+        )
+        if len(definitions) > MAX_MATERIAL_DEFINITIONS:
+            raise OverlayFailure(
+                f"material definition count exceeds limit in "
+                f"{runtime_file.package_path}"
+            )
+    if not definitions:
+        raise OverlayFailure(
+            f"material script defines no materials: "
+            f"{runtime_file.package_path}"
+        )
+    return tuple(definitions)
+
+
+def render_material_definition(tokens: Sequence[MaterialToken]) -> str:
+    lines: list[str] = []
+    line_tokens: list[str] = []
+    depth = 0
+
+    def flush_line() -> None:
+        if line_tokens:
+            lines.append("  " * depth + " ".join(line_tokens))
+            line_tokens.clear()
+
+    for token in tokens:
+        if token.kind == "newline":
+            flush_line()
+        elif token.value == "{":
+            flush_line()
+            lines.append("  " * depth + "{")
+            depth += 1
+        elif token.value == "}":
+            flush_line()
+            depth -= 1
+            if depth < 0:
+                raise OverlayFailure(
+                    "internal material merge produced an invalid brace depth"
+                )
+            lines.append("  " * depth + "}")
+        else:
+            line_tokens.append(token.value)
+    flush_line()
+    if depth != 0:
+        raise OverlayFailure(
+            "internal material merge produced an invalid brace depth"
+        )
+    return "\n".join(lines)
+
+
+def merge_material_scripts(
+    assets: Sequence[PreparedAsset],
+) -> bytes:
+    material_files: list[RuntimeFile] = []
+    for asset in assets:
+        for runtime_file in asset.runtime_files:
+            is_material_path = runtime_file.package_path.endswith(".material")
+            is_material_role = runtime_file.role == "material-fallback"
+            if is_material_path != is_material_role:
+                raise OverlayFailure(
+                    f"material runtime role/path mismatch: "
+                    f"{runtime_file.package_path}"
+                )
+            if is_material_role:
+                material_files.append(runtime_file)
+    if not material_files:
+        raise OverlayFailure("overlay assets define no material scripts")
+
+    definitions: dict[str, MaterialDefinition] = {}
+    folded_names: dict[str, str] = {}
+    for runtime_file in sorted(
+        material_files,
+        key=lambda item: (
+            item.package_path.casefold(),
+            item.package_path,
+            item.sha256,
+        ),
+    ):
+        for definition in parse_material_definitions(runtime_file):
+            folded = definition.name.casefold()
+            prior_spelling = folded_names.get(folded)
+            if prior_spelling is not None and prior_spelling != definition.name:
+                raise OverlayFailure(
+                    "material names differ only by case: "
+                    f"{prior_spelling!r} and {definition.name!r}"
+                )
+            folded_names[folded] = definition.name
+            prior = definitions.get(definition.name)
+            if prior is None:
+                definitions[definition.name] = definition
+            elif prior.tokens != definition.tokens:
+                raise OverlayFailure(
+                    f"conflicting material definition "
+                    f"{definition.name!r} in {prior.origin} and "
+                    f"{definition.origin}"
+                )
+    if len(definitions) > MAX_MATERIAL_DEFINITIONS:
+        raise OverlayFailure(
+            "merged material definition count exceeds limit"
+        )
+
+    rendered = [
+        "// Generated by ror-cityworld-local-overlay-v1.",
+        "// Canonical merged material script; duplicate definitions removed.",
+        "",
+    ]
+    for name in sorted(definitions):
+        rendered.append(render_material_definition(definitions[name].tokens))
+        rendered.append("")
+    payload = "\n".join(rendered).encode("utf-8")
+    if len(payload) > MAX_MATERIAL_SCRIPT_BYTES:
+        raise OverlayFailure("merged material script exceeds byte limit")
+    return payload
+
+
 def tool_provenance(
     repository: Path,
     assets: Sequence[PreparedAsset],
@@ -824,16 +1158,25 @@ def build_local_overlay(
         segment["heading"]["initial_heading_degrees"],
     )
     placement = overlay_placement(placements, surface_y=surface_y)
+    merged_material = merge_material_scripts(assets)
     payloads: dict[str, bytes] = {}
+    package_roles: dict[str, str] = {}
     add_payload(payloads, TERRAIN_NAME, descriptor)
+    package_roles[TERRAIN_NAME] = "derived-terrain"
     add_payload(payloads, OVERLAY_NAME, placement)
+    package_roles[OVERLAY_NAME] = "overlay-placement"
     for asset in assets:
         for runtime_file in asset.runtime_files:
+            if runtime_file.role == "material-fallback":
+                continue
             add_payload(
                 payloads,
                 runtime_file.package_path,
                 runtime_file.payload,
             )
+            package_roles[runtime_file.package_path] = runtime_file.role
+    add_payload(payloads, MERGED_MATERIAL_NAME, merged_material)
+    package_roles[MERGED_MATERIAL_NAME] = "material-fallback"
 
     source_member_hashes = {
         record["sha256"] for record in member_records
@@ -848,18 +1191,7 @@ def build_local_overlay(
         payload_record(
             name,
             payload,
-            (
-                "derived-terrain"
-                if name == TERRAIN_NAME
-                else "overlay-placement"
-                if name == OVERLAY_NAME
-                else next(
-                    runtime_file.role
-                    for asset in assets
-                    for runtime_file in asset.runtime_files
-                    if runtime_file.package_path == name
-                )
-            ),
+            package_roles[name],
         )
         for name, payload in sorted(payloads.items())
     ]

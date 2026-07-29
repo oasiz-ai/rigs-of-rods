@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 import runpy
 import subprocess
@@ -112,6 +113,37 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 size=len(payload),
                 payload=payload,
             )
+            material_payload = (
+                "// Synthetic standalone asset material script.\n"
+                "material rorng_shared_surface\n"
+                "{\n"
+                "  technique\n"
+                "  {\n"
+                "    pass\n"
+                "    {\n"
+                "      ambient 0.1 0.2 0.3 1\n"
+                "    }\n"
+                "  }\n"
+                "}\n\n"
+                f"material {asset_id}_surface\n"
+                "{\n"
+                "  technique\n"
+                "  {\n"
+                "    pass\n"
+                "    {\n"
+                "      ambient 0.2 0.3 0.4 1\n"
+                "    }\n"
+                "  }\n"
+                "}\n"
+            ).encode()
+            material = BUILDER.RuntimeFile(
+                package_path=f"{asset_id}.material",
+                repository_path=f"fixtures/{asset_id}.material",
+                role="material-fallback",
+                sha256=hashlib.sha256(material_payload).hexdigest(),
+                size=len(material_payload),
+                payload=material_payload,
+            )
             assets.append(
                 BUILDER.PreparedAsset(
                     asset_id=asset_id,
@@ -133,18 +165,47 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                         },
                         "runtime_files": [
                             {
-                                "package_path": runtime.package_path,
-                                "path": runtime.repository_path,
-                                "role": runtime.role,
-                                "sha256": runtime.sha256,
-                                "size": runtime.size,
+                                "package_path": item.package_path,
+                                "path": item.repository_path,
+                                "role": item.role,
+                                "sha256": item.sha256,
+                                "size": item.size,
                             }
+                            for item in (runtime, material)
                         ],
                     },
-                    runtime_files=(runtime,),
+                    runtime_files=(runtime, material),
                 )
             )
         return tuple(assets)
+
+    def replace_material(
+        self,
+        asset: object,
+        payload: bytes,
+    ) -> object:
+        original = next(
+            runtime_file
+            for runtime_file in asset.runtime_files
+            if runtime_file.role == "material-fallback"
+        )
+        material = BUILDER.RuntimeFile(
+            package_path=original.package_path,
+            repository_path=original.repository_path,
+            role=original.role,
+            sha256=hashlib.sha256(payload).hexdigest(),
+            size=len(payload),
+            payload=payload,
+        )
+        return replace(
+            asset,
+            runtime_files=tuple(
+                material
+                if runtime_file.role == "material-fallback"
+                else runtime_file
+                for runtime_file in asset.runtime_files
+            ),
+        )
 
     def build_fixture(
         self,
@@ -354,6 +415,45 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 descriptor,
             )
             self.assertIn("Redistribution and shipping", descriptor)
+            material_names = sorted(
+                name for name in names if name.endswith(".material")
+            )
+            self.assertEqual(
+                material_names,
+                [BUILDER.MERGED_MATERIAL_NAME],
+            )
+            merged_material = payloads[BUILDER.MERGED_MATERIAL_NAME].decode()
+            self.assertEqual(
+                merged_material.count("material rorng_shared_surface\n"),
+                1,
+            )
+            self.assertTrue(
+                all(
+                    f"{asset.asset_id}.material" not in names
+                    for asset in self.fake_assets()
+                )
+            )
+            material_record = next(
+                record
+                for record in report["package"]["files"]
+                if record["path"] == BUILDER.MERGED_MATERIAL_NAME
+            )
+            self.assertEqual(material_record["role"], "material-fallback")
+            self.assertEqual(
+                material_record["sha256"],
+                hashlib.sha256(
+                    payloads[BUILDER.MERGED_MATERIAL_NAME]
+                ).hexdigest(),
+            )
+            self.assertEqual(
+                sum(
+                    1
+                    for asset in report["assets"]
+                    for runtime_file in asset["runtime_files"]
+                    if runtime_file["role"] == "material-fallback"
+                ),
+                4,
+            )
             self.assertEqual(
                 report["rights"],
                 {
@@ -589,6 +689,119 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             "unsafe generated package path",
         ):
             BUILDER.add_payload({}, "../escape.mesh", b"bad")
+
+    def test_material_merge_deduplicates_byte_and_semantic_equivalents(
+        self,
+    ) -> None:
+        exact = b"""\
+// First source comment.
+material rorng_shared
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.1 0.2 0.3 1
+    }
+  }
+}
+"""
+        semantic = b"""\
+/* Formatting and comments do not alter this definition. */
+material   rorng_shared {
+ technique {
+  pass {
+   ambient   0.1  0.2 0.3 1
+  }
+ }
+}
+
+material rorng_unique
+{
+ technique
+ {
+  pass
+  {
+   ambient 0.4 0.5 0.6 1
+  }
+ }
+}
+"""
+        assets = list(self.fake_assets())
+        assets[0] = self.replace_material(assets[0], exact)
+        assets[1] = self.replace_material(assets[1], exact)
+        assets[2] = self.replace_material(assets[2], semantic)
+        assets[3] = self.replace_material(assets[3], exact)
+        original_runtime_files = tuple(
+            asset.runtime_files for asset in assets
+        )
+
+        merged = BUILDER.merge_material_scripts(assets)
+        reversed_merge = BUILDER.merge_material_scripts(
+            tuple(reversed(assets))
+        )
+        text = merged.decode()
+
+        self.assertEqual(merged, reversed_merge)
+        self.assertEqual(text.count("material rorng_shared\n"), 1)
+        self.assertEqual(text.count("material rorng_unique\n"), 1)
+        self.assertLess(
+            text.index("material rorng_shared\n"),
+            text.index("material rorng_unique\n"),
+        )
+        self.assertEqual(
+            tuple(asset.runtime_files for asset in assets),
+            original_runtime_files,
+        )
+
+    def test_conflicting_same_name_materials_fail_before_publish(self) -> None:
+        shared = b"""\
+material rorng_shared
+{
+ technique
+ {
+  pass
+  {
+   ambient 0.1 0.2 0.3 1
+  }
+ }
+}
+"""
+        conflict = shared.replace(b"0.1 0.2 0.3", b"0.9 0.8 0.7")
+        assets = [
+            self.replace_material(asset, shared)
+            for asset in self.fake_assets()
+        ]
+        assets[1] = self.replace_material(assets[1], conflict)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive, digest = self.make_archive(root)
+            output = root / "CityWorldNextLocalOverlay.zip"
+            with (
+                mock.patch.object(
+                    BUILDER,
+                    "PINNED_ARCHIVE_SHA256",
+                    digest,
+                ),
+                mock.patch.object(
+                    BUILDER,
+                    "prepare_assets",
+                    return_value=tuple(assets),
+                ),
+                self.assertRaisesRegex(
+                    BUILDER.OverlayFailure,
+                    r"conflicting material definition 'rorng_shared'.*"
+                    r"\.material.*\.material",
+                ),
+            ):
+                BUILDER.build_local_overlay(
+                    archive_path=archive,
+                    repository_path=REPOSITORY_ROOT,
+                    output_path=output,
+                    surface_offset_m=0.08,
+                )
+            self.assertFalse(output.exists())
 
     def test_transaction_cleans_temporary_output_on_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
