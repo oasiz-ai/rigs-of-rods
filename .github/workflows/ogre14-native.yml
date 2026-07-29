@@ -272,6 +272,39 @@ jobs:
       # Hosted runners prove the native renderer/API and deterministic scene
       # contract. They do not constitute physical GPU or vendor performance
       # acceptance.
+      - name: Drive CityWorld LED streetlight with relocated Linux GL3Plus
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        shell: bash
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          xvfb-run -a \
+            -s "-screen 0 1280x720x24 +extension GLX +render -noreset" \
+            python tools/run_cityworld_led_streetlight_scene.py \
+              --executable "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}/RunRoR" \
+              --repository "${GITHUB_WORKSPACE}" \
+              --runtime-content "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}/content" \
+              --artifact-dir "${GITHUB_WORKSPACE}/artifacts/cityworld-led-streetlight-${{ matrix.platform }}" \
+              --timeout 360 \
+            2>&1 | tee \
+              "artifacts/cityworld-led-streetlight-${{ matrix.platform }}.driver.log"
+
+      - name: Drive CityWorld LED streetlight with relocated Windows D3D11
+        if: runner.os == 'Windows'
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          python tools/run_cityworld_led_streetlight_scene.py \
+            --executable "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}/RoR.exe" \
+            --repository "${GITHUB_WORKSPACE}" \
+            --runtime-content "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}/content" \
+            --artifact-dir "${GITHUB_WORKSPACE}/artifacts/cityworld-led-streetlight-${{ matrix.platform }}" \
+            --timeout 360 \
+            2>&1 | tee \
+              "artifacts/cityworld-led-streetlight-${{ matrix.platform }}.driver.log"
+
       - name: Drive CityWorld bridge with relocated Linux GL3Plus
         if: runner.os == 'Linux'
         shell: bash
@@ -312,6 +345,8 @@ jobs:
             artifacts/runtime-${{ matrix.platform }}
             artifacts/logs-${{ matrix.platform }}
             artifacts/native-runtime-smoke-${{ matrix.platform }}
+            artifacts/cityworld-led-streetlight-${{ matrix.platform }}
+            artifacts/cityworld-led-streetlight-${{ matrix.platform }}.driver.log
             artifacts/cityworld-bridge-${{ matrix.platform }}
             artifacts/cityworld-bridge-${{ matrix.platform }}.driver.log
             artifacts/${{ matrix.platform }}-conan-graph.json
