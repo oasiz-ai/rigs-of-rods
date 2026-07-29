@@ -31,7 +31,9 @@ jobs:
             cxx: g++-11
             artifact: Rigs-of-Rods-Linux-x86_64-OGRE14
           - name: Windows x64 (MSVC 19.44)
-            runner: windows-2025
+            # VS 17 is required by pinned v143 Conan recipes. GitHub's
+            # windows-2025 label moved to the VS 18 image in June 2026.
+            runner: windows-2022
             platform: windows-x86_64
             profile: cmake/conan/profiles/windows-x86_64-release
             compiler: msvc1944

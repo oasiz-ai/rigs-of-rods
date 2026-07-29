@@ -70,7 +70,7 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             "compiler: gcc11",
             "cc: gcc-11",
             "cxx: g++-11",
-            "runner: windows-2025",
+            "runner: windows-2022",
             "platform: windows-x86_64",
             "profile: cmake/conan/profiles/windows-x86_64-release",
             "compiler: msvc1944",
@@ -81,6 +81,7 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         for contract in required:
             with self.subTest(contract=contract):
                 self.assertIn(contract, text)
+        self.assertNotIn("runner: windows-2025", text)
 
     def test_conan_graph_and_cache_are_locked_and_platform_isolated(
         self,
