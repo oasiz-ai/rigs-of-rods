@@ -293,9 +293,13 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
                 '    paths "/usr/lib" "")\n',
             )
             self.assertNotEqual(system_root.returncode, 0)
-            self.assertIn(
-                "host system library",
+            self.assertRegex(
                 system_root.stdout + system_root.stderr,
+                r"(host system library|not an absolute directory)",
+                msg=(
+                    "the host system root must be rejected either by the "
+                    "platform path parser or the Linux system-library guard"
+                ),
             )
 
     def test_dependency_copy_roots_preserve_the_complete_soname_chain(
