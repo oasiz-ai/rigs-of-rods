@@ -124,8 +124,11 @@ to reviewed identities and fails closed:
   authenticated archive SHA, and generated material fallbacks use stable names;
 - procedural texture data is limited to seven exact archive-, script-, and
   directive-bound `.dds` replacements with collision-resistant generated
-  resource names. The missing `parabusimagenlateral.jpg` reference is repaired
-  into a texture-free lit pass so a JPEG request can never receive DDS bytes;
+  resource names. Once authorized, those names are always served from the
+  in-memory procedural payload and never delegated to a later resource
+  location; stale or changed authorization aborts the load. The missing
+  `parabusimagenlateral.jpg` reference is repaired into a texture-free lit
+  pass so a JPEG request can never receive DDS bytes;
 - the compatibility path performs no fuzzy matching, disk rewrite, or global
   diagnostic suppression.
 

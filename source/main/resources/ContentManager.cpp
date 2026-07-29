@@ -56,6 +56,7 @@
 
 #include <OgreArchive.h>
 #include <OgreDataStream.h>
+#include <OgreException.h>
 #include <OgreFileSystem.h>
 #include <OgreGpuProgram.h>
 #include <OgreMaterialManager.h>
@@ -1220,71 +1221,86 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
 
     if (!resolution_archive_sha256.empty())
     {
-        bool packaged_resource_exists = false;
+        LegacyMaterialColor color = {0U, 0U, 0U, false};
+        if (!ResolveLegacyMissingTexture(
+                resolution_archive_sha256, name, color))
         {
-            std::lock_guard<std::mutex> archive_lock(
-                m_legacy_material_archive_io_mutex);
-            packaged_resource_exists =
-                Ogre::ResourceGroupManager::getSingleton().resourceExists(
-                    group, name);
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                fmt::format(
+                    "Authorized procedural texture '{}' in group '{}' no "
+                    "longer matches its authenticated compatibility plan",
+                    name,
+                    group),
+                "ContentManager::resourceLoading");
         }
-        if (!packaged_resource_exists)
-        {
-            LegacyMaterialColor color = {0U, 0U, 0U, false};
-            if (ResolveLegacyMissingTexture(
-                    resolution_archive_sha256, name, color))
-            {
-                const std::vector<unsigned char> dds =
-                    BuildProceduralFallbackDds(color);
-                bool report_fallback = false;
-                {
-                    std::lock_guard<std::mutex> state_lock(
-                        m_legacy_material_state_mutex);
-                    const auto authorized_group =
-                        m_authorized_texture_fallbacks_by_group.find(group);
-                    if (authorized_group ==
-                        m_authorized_texture_fallbacks_by_group.end())
-                    {
-                        return Ogre::DataStreamPtr();
-                    }
-                    const auto authorized_texture =
-                        authorized_group->second.find(name);
-                    const auto current_generation =
-                        m_legacy_material_group_generations.find(group);
-                    if (authorized_texture ==
-                            authorized_group->second.end() ||
-                        authorized_texture->second !=
-                            resolution_archive_sha256 ||
-                        current_generation ==
-                            m_legacy_material_group_generations.end() ||
-                        current_generation->second != group_generation)
-                    {
-                        return Ogre::DataStreamPtr();
-                    }
-                    report_fallback =
-                        m_reported_texture_fallbacks_by_group[group]
-                            .insert(name)
-                            .second;
-                }
 
-                Ogre::MemoryDataStream* replacement =
-                    OGRE_NEW Ogre::MemoryDataStream(
-                        name, dds.size(), true, false);
-                replacement->write(dds.data(), dds.size());
-                replacement->seek(0U);
-                if (report_fallback)
-                {
-                    LOG(fmt::format(
-                        "[RoR|ContentManager|LegacyTextureResolver] "
-                        "Texture '{}' in group '{}' used a procedural 4x4 "
-                        "compatibility fallback (archive_sha256={})",
+        const std::vector<unsigned char> dds =
+            BuildProceduralFallbackDds(color);
+        bool report_fallback = false;
+        {
+            std::lock_guard<std::mutex> state_lock(
+                m_legacy_material_state_mutex);
+            const auto authorized_group =
+                m_authorized_texture_fallbacks_by_group.find(group);
+            if (authorized_group ==
+                m_authorized_texture_fallbacks_by_group.end())
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Authorization for procedural texture '{}' in group "
+                        "'{}' was revoked while the resource was loading",
                         name,
-                        group,
-                        resolution_archive_sha256));
-                }
-                return Ogre::DataStreamPtr(replacement);
+                        group),
+                    "ContentManager::resourceLoading");
             }
+            const auto authorized_texture =
+                authorized_group->second.find(name);
+            const auto current_generation =
+                m_legacy_material_group_generations.find(group);
+            if (authorized_texture ==
+                    authorized_group->second.end() ||
+                authorized_texture->second !=
+                    resolution_archive_sha256 ||
+                current_generation ==
+                    m_legacy_material_group_generations.end() ||
+                current_generation->second != group_generation)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Authorization for procedural texture '{}' in group "
+                        "'{}' changed while the resource was loading",
+                        name,
+                        group),
+                    "ContentManager::resourceLoading");
+            }
+            report_fallback =
+                m_reported_texture_fallbacks_by_group[group]
+                    .insert(name)
+                    .second;
         }
+
+        // An authenticated script already selected this generated name. Never
+        // delegate it back to OGRE's resource lookup: a later same-named
+        // untrusted location must not replace the authorized procedural bytes.
+        Ogre::MemoryDataStream* replacement =
+            OGRE_NEW Ogre::MemoryDataStream(
+                name, dds.size(), true, false);
+        replacement->write(dds.data(), dds.size());
+        replacement->seek(0U);
+        if (report_fallback)
+        {
+            LOG(fmt::format(
+                "[RoR|ContentManager|LegacyTextureResolver] "
+                "Texture '{}' in group '{}' used a procedural 4x4 "
+                "compatibility fallback (archive_sha256={})",
+                name,
+                group,
+                resolution_archive_sha256));
+        }
+        return Ogre::DataStreamPtr(replacement);
     }
 
 #if OGRE_VERSION_MAJOR >= 14

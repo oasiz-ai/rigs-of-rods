@@ -695,7 +695,9 @@ edits total. Mesh requests follow OGRE's exact-case archive precedence and are
 opened from the selected authenticated ZIP before the listener maps 23 exact
 legacy names to target materials parsed from that same archive SHA or creates
 11 explicitly reviewed lit fallbacks. Seven exact missing `.dds` directives
-may use collision-resistant deterministic 4x4 DDS resources, while the missing
+may use collision-resistant deterministic 4x4 DDS resources. Once authorized,
+those names are always served from the in-memory payload and never delegated
+to later resource locations; stale authorization aborts the load. The missing
 JPEG reference is converted to a texture-free lit pass instead of receiving
 bytes from the wrong codec. A macOS arm64 load of the local overlay reached
 `TERRAIN LOADING DONE`, used GL3Plus RTSS programs, emitted no CityWorld script
