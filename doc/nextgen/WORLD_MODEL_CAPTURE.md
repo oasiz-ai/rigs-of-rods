@@ -199,14 +199,17 @@ The refinery handoff is exercised in three fail-closed stages:
 
 ```sh
 python3 outputs/gameplay-data-demo/qa/refinery_cli.py verify-ror \
-  --episode /capture-root/episode-<uuid>
+  --episode /capture-root/episode-<uuid> \
+  --policy /policies/ror-admission-policy.json
 
 python3 outputs/gameplay-data-demo/qa/refinery_cli.py export-ror \
   --episode /capture-root/episode-<uuid> \
-  --output /training-root/ror-<uuid>
+  --output /training-root/ror-<uuid> \
+  --policy /policies/ror-admission-policy.json
 
 python3 outputs/gameplay-data-demo/qa/refinery_cli.py verify-ror-export \
-  --package /training-root/ror-<uuid>
+  --package /training-root/ror-<uuid> \
+  --policy /policies/ror-admission-policy.json
 ```
 
 `verify-ror` is the semantic admission gate. `export-ror` writes the exact
@@ -215,7 +218,8 @@ python3 outputs/gameplay-data-demo/qa/refinery_cli.py verify-ror-export \
 row preserves the complete native source/target telemetry and transition
 payload, plus the authenticated provenance object; the training manifest also
 binds that object and its source hash. Training must admit only packages whose
-`verify-ror-export` verdict is `pass`.
+`verify-ror-export` verdict is `pass`. The same immutable, operator-owned policy
+file must be supplied to all three stages; the refinery has no implicit policy.
 
 ## Opt-in live capture
 
@@ -257,7 +261,14 @@ non-archived `wm_capture_rgb_width` and `wm_capture_rgb_height` CVars. Capture r
 relative/root output paths, a missing or mismatched rights file, unknown
 provenance, a scene that has already advanced, multiple or linked Actors,
 multiplayer, scripts, water, dynamic sky time, non-automatic gearbox mode, or
-arcade controls.
+arcade controls. Schema 1 also refuses section configurations, tuneups, skins,
+addon parts, and asset packs until their active selection has an authenticated
+reproducible encoding. Spawned collision/replay state and the simulation CVars
+which construct it must match the canonical profile encoded by
+`config_sha256`; changing a CVar after loading cannot make a noncanonical
+vehicle or terrain eligible. The analog smoothing and sensitivity values are
+sealed at activation and rechecked before every transition; mid-episode drift
+faults and quarantines the episode.
 
 The log prints the exact `.partial` directory when capture starts. On success it
 prints the final `episode-<uuid>` directory after validation and atomic sealing.

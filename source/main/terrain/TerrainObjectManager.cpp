@@ -1487,6 +1487,9 @@ bool TerrainObjectManager::HasTimeVaryingVisuals() const
 
 void TerrainObjectManager::ProcessODefCollisionBoxes(TerrainEditorObjectPtr obj, ODefDocument* odef, const TerrainEditorObjectPtr& params, bool race_event)
 {
+    if (race_event && !App::sim_races_enabled->getBool())
+        m_worldmodel_collision_profile_canonical = false;
+
     for (ODefCollisionBox& cbox : odef->collision_boxes)
     {
         if (params->enable_collisions && (App::sim_races_enabled->getBool() || !race_event))

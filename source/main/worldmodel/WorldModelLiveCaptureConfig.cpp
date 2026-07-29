@@ -7,6 +7,7 @@
 
 #include "WorldModelTelemetry.h"
 
+#include <cmath>
 #include <filesystem>
 #include <limits>
 #include <sstream>
@@ -165,6 +166,113 @@ bool ValidateLiveCaptureActivationConfig(
     return true;
 }
 
+bool ValidateLiveCaptureRuntimeState(
+    const LiveCaptureRuntimeState& state,
+    std::string* error)
+{
+    if (state.has_section_config)
+    {
+        return Fail(
+            error,
+            "schema 1 does not admit vehicle section configurations");
+    }
+    if (state.has_working_tuneup)
+        return Fail(error, "schema 1 does not admit vehicle tuneups");
+    if (state.has_skin)
+        return Fail(error, "schema 1 does not admit vehicle skins");
+    if (state.addonpart_count != 0U)
+        return Fail(error, "schema 1 does not admit vehicle addon parts");
+    if (state.assetpack_count != 0U)
+        return Fail(error, "schema 1 does not admit vehicle asset packs");
+    if (!state.has_inter_point_collision_detector)
+    {
+        return Fail(
+            error,
+            "schema 1 requires the spawned inter-actor collision detector");
+    }
+    if (!state.has_intra_point_collision_detector)
+    {
+        return Fail(
+            error,
+            "schema 1 requires the spawned self-collision detector");
+    }
+    if (state.has_replay_handler)
+        return Fail(error, "schema 1 does not admit a spawned replay handler");
+    if (!state.terrain_collision_profile_canonical)
+    {
+        return Fail(
+            error,
+            "schema 1 requires terrain race collisions loaded under the "
+            "canonical policy");
+    }
+
+    if (!state.sim_spawn_running)
+        return Fail(error, "schema 1 requires sim_spawn_running=true");
+    if (state.sim_replay_enabled)
+        return Fail(error, "schema 1 requires sim_replay_enabled=false");
+    if (state.sim_realistic_commands)
+    {
+        return Fail(
+            error,
+            "schema 1 requires sim_realistic_commands=false");
+    }
+    if (!state.sim_races_enabled)
+        return Fail(error, "schema 1 requires sim_races_enabled=true");
+    if (state.sim_no_collisions)
+        return Fail(error, "schema 1 requires sim_no_collisions=false");
+    if (state.sim_no_self_collisions)
+    {
+        return Fail(
+            error,
+            "schema 1 requires sim_no_self_collisions=false");
+    }
+    if (!state.sim_deterministic_sleeping_engine)
+    {
+        return Fail(
+            error,
+            "schema 1 requires sim_deterministic_sleeping_engine=true");
+    }
+    if (state.sim_deterministic_fixed_steps_per_frame != 0)
+    {
+        return Fail(
+            error,
+            "schema 1 requires "
+            "sim_deterministic_fixed_steps_per_frame=0");
+    }
+    return true;
+}
+
+bool ValidateLiveCaptureAnalogInputState(
+    float expected_smoothing,
+    float expected_sensitivity,
+    float current_smoothing,
+    float current_sensitivity,
+    std::string* error)
+{
+    if (!std::isfinite(expected_smoothing) ||
+        !std::isfinite(expected_sensitivity) ||
+        !std::isfinite(current_smoothing) ||
+        !std::isfinite(current_sensitivity))
+    {
+        return Fail(
+            error,
+            "schema-1 analog input parameters must be finite");
+    }
+    if (current_smoothing != expected_smoothing)
+    {
+        return Fail(
+            error,
+            "io_analog_smoothing changed after capture provenance was sealed");
+    }
+    if (current_sensitivity != expected_sensitivity)
+    {
+        return Fail(
+            error,
+            "io_analog_sensitivity changed after capture provenance was sealed");
+    }
+    return true;
+}
+
 const std::vector<std::string>& LiveCaptureControlIds()
 {
     static const std::vector<std::string> IDS = {
@@ -197,6 +305,22 @@ std::string CanonicalLiveCaptureConfig(
         << "scripts=disabled\n"
         << "multiplayer=disabled\n"
         << "dynamic_world=disabled\n"
+        << "vehicle_section_config=forbidden\n"
+        << "vehicle_tuneup=forbidden\n"
+        << "vehicle_skin=forbidden\n"
+        << "vehicle_addonparts=forbidden\n"
+        << "vehicle_assetpacks=forbidden\n"
+        << "spawned_point_collision_detectors=required\n"
+        << "spawned_replay_handler=forbidden\n"
+        << "terrain_race_collisions=enabled-at-load\n"
+        << "sim_spawn_running=1\n"
+        << "sim_replay_enabled=0\n"
+        << "sim_realistic_commands=0\n"
+        << "sim_races_enabled=1\n"
+        << "sim_no_collisions=0\n"
+        << "sim_no_self_collisions=0\n"
+        << "sim_deterministic_sleeping_engine=1\n"
+        << "sim_deterministic_fixed_steps_per_frame=0\n"
         << "rights_manifest_sha256="
         << config.rights_manifest_sha256 << '\n'
         << "data_source_id=" << config.data_source_id << '\n'

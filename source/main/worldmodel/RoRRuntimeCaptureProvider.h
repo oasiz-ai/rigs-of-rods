@@ -36,6 +36,8 @@ struct RoRRuntimeCaptureConfig
     std::uint64_t state_digest_scenario_id = 0U;
     std::uint32_t rgb_width = 1920U;
     std::uint32_t rgb_height = 1080U;
+    float analog_smoothing = 1.0f;
+    float analog_sensitivity = 1.0f;
 };
 
 /// Content-addressed identity recomputed from the resources that are actually
@@ -62,6 +64,14 @@ struct RoRRuntimeCaptureDescriptor
     std::string camera_profile_id;
     std::string camera_profile_sha256;
 };
+
+/// Validates the loaded actor's optional-content and simulation-CVar profile
+/// against the schema-1 fail-closed policy. This is checked before identity
+/// inspection and again at every capture boundary.
+bool ValidateCurrentRoRLiveCaptureRuntimeState(
+    const ActorPtr& player_actor,
+    Terrain* terrain,
+    std::string* error = nullptr);
 
 /// Recomputes current loaded-resource identity from OGRE resource bytes. This
 /// is the source for live provenance; callers must not invent these fields.

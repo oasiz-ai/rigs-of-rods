@@ -398,6 +398,13 @@ public:
                     "capture requires exactly one powered local player truck";
             return false;
         }
+        if (!ValidateCurrentRoRLiveCaptureRuntimeState(
+                player,
+                App::GetGameContext()->GetTerrain().GetRef(),
+                error))
+        {
+            return false;
+        }
         if (!player->ar_linked_actors.empty() ||
             !manager->inter_actor_links.empty() ||
             !manager->GetFreeForces().empty())
@@ -532,6 +539,10 @@ public:
         runtime_config.state_digest_scenario_id = reset_seed;
         runtime_config.rgb_width = activation.rgb_width;
         runtime_config.rgb_height = activation.rgb_height;
+        runtime_config.analog_smoothing =
+            App::io_analog_smoothing->getFloat();
+        runtime_config.analog_sensitivity =
+            App::io_analog_sensitivity->getFloat();
 
         runtime = CreateCurrentRoRWorldModelRuntime(
             runtime_config,

@@ -41,6 +41,18 @@ RoR::WorldModel::LiveCaptureActivationConfig GoodConfig()
     return config;
 }
 
+RoR::WorldModel::LiveCaptureRuntimeState GoodRuntimeState()
+{
+    RoR::WorldModel::LiveCaptureRuntimeState state;
+    state.has_inter_point_collision_detector = true;
+    state.has_intra_point_collision_detector = true;
+    state.terrain_collision_profile_canonical = true;
+    state.sim_spawn_running = true;
+    state.sim_races_enabled = true;
+    state.sim_deterministic_sleeping_engine = true;
+    return state;
+}
+
 } // namespace
 
 int main()
@@ -75,6 +87,103 @@ int main()
     Check(canonical.find("allowed_use_id=world-model-training\n") !=
             std::string::npos,
         "config does not bind allowed use");
+    Check(canonical.find("vehicle_tuneup=forbidden\n") !=
+            std::string::npos,
+        "config does not seal optional vehicle-content policy");
+    Check(canonical.find("sim_no_self_collisions=0\n") !=
+            std::string::npos,
+        "config does not seal self-collision policy");
+
+    LiveCaptureRuntimeState runtime_state = GoodRuntimeState();
+    Check(ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        error.c_str());
+
+    runtime_state = GoodRuntimeState();
+    runtime_state.has_section_config = true;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "vehicle section configuration accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.has_working_tuneup = true;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "vehicle tuneup accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.has_skin = true;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "vehicle skin accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.addonpart_count = 1U;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "vehicle addon part accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.assetpack_count = 1U;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "vehicle asset pack accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.has_inter_point_collision_detector = false;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "missing spawned inter-actor collision detector accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.has_intra_point_collision_detector = false;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "missing spawned self-collision detector accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.has_replay_handler = true;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "spawned replay handler accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.terrain_collision_profile_canonical = false;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "terrain collision world loaded under a noncanonical policy accepted");
+
+    runtime_state = GoodRuntimeState();
+    runtime_state.sim_spawn_running = false;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "noncanonical engine spawn state accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.sim_replay_enabled = true;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "replay-enabled runtime accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.sim_realistic_commands = true;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "realistic-command runtime accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.sim_races_enabled = false;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "terrain race-collision policy drift accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.sim_no_collisions = true;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "disabled inter-actor collisions accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.sim_no_self_collisions = true;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "disabled self collisions accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.sim_deterministic_sleeping_engine = false;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "nondeterministic sleeping-engine cadence accepted");
+    runtime_state = GoodRuntimeState();
+    runtime_state.sim_deterministic_fixed_steps_per_frame = 1;
+    Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
+        "competing fixed-step scheduler accepted");
+
+    Check(ValidateLiveCaptureAnalogInputState(
+            1.0f, 1.0f, 1.0f, 1.0f, &error),
+        error.c_str());
+    Check(!ValidateLiveCaptureAnalogInputState(
+            1.0f, 1.0f, 1.25f, 1.0f, &error),
+        "analog smoothing drift accepted");
+    Check(!ValidateLiveCaptureAnalogInputState(
+            1.0f, 1.0f, 1.0f, 0.75f, &error),
+        "analog sensitivity drift accepted");
+    Check(!ValidateLiveCaptureAnalogInputState(
+            std::numeric_limits<float>::quiet_NaN(),
+            1.0f,
+            std::numeric_limits<float>::quiet_NaN(),
+            1.0f,
+            &error),
+        "non-finite analog input parameter accepted");
 
     config.rights_manifest_sha256 = std::string(64U, '0');
     Check(!ValidateLiveCaptureActivationConfig(config, &error),

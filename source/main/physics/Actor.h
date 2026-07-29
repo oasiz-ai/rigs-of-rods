@@ -316,6 +316,10 @@ public:
     CacheEntryPtrVec& getUsedAddonpartEntries();
     CacheEntryPtrVec& getUsedAssetpackEntries();
     TuneupDefPtr&     getWorkingTuneupDef();
+    bool              hasInterPointCollisionDetector() const
+                      { return m_inter_point_col_detector != nullptr; }
+    bool              hasIntraPointCollisionDetector() const
+                      { return m_intra_point_col_detector != nullptr; }
     void              ensureWorkingTuneupDef(); //!< Creates a working tuneup def if it doesn't exist yet.
     void              removeWorkingTuneupDef(); //!< Deletes the working tuneup def object if it exists.
     bool              isPreloadedWithTerrain() const { return m_preloaded_with_terrain; };

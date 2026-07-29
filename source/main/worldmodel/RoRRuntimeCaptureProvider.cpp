@@ -21,6 +21,7 @@
 #include "Terrain.h"
 #include "TerrainObjectManager.h"
 #include "WorldModelCaptureEncoding.h"
+#include "WorldModelLiveCaptureConfig.h"
 
 #include <OgreCamera.h>
 #include <OgreColourValue.h>
@@ -411,6 +412,11 @@ bool ValidateConfig(
     }
     if (config.state_digest_scenario_id == 0U)
         return fail("state_digest_scenario_id must be nonzero");
+    if (!std::isfinite(config.analog_smoothing) ||
+        !std::isfinite(config.analog_sensitivity))
+    {
+        return fail("runtime analog input parameters must be finite");
+    }
     if (config.rgb_width == 0U || config.rgb_height == 0U ||
         config.rgb_width >
             std::numeric_limits<std::uint32_t>::max() / 3U)
@@ -1120,6 +1126,27 @@ public:
         };
         if (!BoundResourcesLive(false, error))
             return false;
+        if (!ValidateCurrentRoRLiveCaptureRuntimeState(
+                player_actor,
+                bound_terrain,
+                error))
+        {
+            return false;
+        }
+        if (App::io_analog_smoothing == nullptr ||
+            App::io_analog_sensitivity == nullptr)
+        {
+            return fail("schema-1 analog input CVars are unavailable");
+        }
+        if (!ValidateLiveCaptureAnalogInputState(
+                config.analog_smoothing,
+                config.analog_sensitivity,
+                App::io_analog_smoothing->getFloat(),
+                App::io_analog_sensitivity->getFloat(),
+                error))
+        {
+            return false;
+        }
         if (config.weather_id != SCHEMA1_WEATHER_ID)
             return fail("capture weather profile changed");
         if (bound_scene_manager == nullptr ||
@@ -2380,6 +2407,7 @@ bool RoRRuntimeCaptureProvider::CaptureCompletedTransition(
 {
     if (m_impl == nullptr ||
         !m_impl->BoundActorReady() ||
+        !m_impl->CaptureEnvironmentReady() ||
         !m_impl->transition_active ||
         expected_transition != m_impl->active_transition)
     {
@@ -2507,6 +2535,85 @@ public:
     RuntimeCaptureBackend backend;
 };
 
+bool ValidateCurrentRoRLiveCaptureRuntimeState(
+    const ActorPtr& player_actor,
+    Terrain* terrain,
+    std::string* error)
+{
+    try
+    {
+        if (player_actor == nullptr || terrain == nullptr ||
+            terrain->getObjectManager() == nullptr)
+        {
+            if (error != nullptr)
+            {
+                *error =
+                    "schema-1 runtime player Actor/Terrain is unavailable";
+            }
+            return false;
+        }
+        if (App::sim_spawn_running == nullptr ||
+            App::sim_replay_enabled == nullptr ||
+            App::sim_realistic_commands == nullptr ||
+            App::sim_races_enabled == nullptr ||
+            App::sim_no_collisions == nullptr ||
+            App::sim_no_self_collisions == nullptr ||
+            App::sim_deterministic_sleeping_engine == nullptr ||
+            App::sim_deterministic_fixed_steps_per_frame == nullptr)
+        {
+            if (error != nullptr)
+                *error = "schema-1 simulation CVars are unavailable";
+            return false;
+        }
+
+        LiveCaptureRuntimeState state;
+        state.has_section_config =
+            !player_actor->getSectionConfig().empty();
+        state.has_working_tuneup =
+            player_actor->getWorkingTuneupDef() != nullptr;
+        state.has_skin =
+            player_actor->getUsedSkinEntry() != nullptr;
+        state.addonpart_count =
+            static_cast<std::uint64_t>(
+                player_actor->getUsedAddonpartEntries().size());
+        state.assetpack_count =
+            static_cast<std::uint64_t>(
+                player_actor->getUsedAssetpackEntries().size());
+        state.has_inter_point_collision_detector =
+            player_actor->hasInterPointCollisionDetector();
+        state.has_intra_point_collision_detector =
+            player_actor->hasIntraPointCollisionDetector();
+        state.has_replay_handler =
+            player_actor->getReplay() != nullptr;
+        state.terrain_collision_profile_canonical =
+            terrain->getObjectManager()->
+                HasCanonicalWorldModelCollisionProfile();
+        state.sim_spawn_running =
+            App::sim_spawn_running->getBool();
+        state.sim_replay_enabled =
+            App::sim_replay_enabled->getBool();
+        state.sim_realistic_commands =
+            App::sim_realistic_commands->getBool();
+        state.sim_races_enabled =
+            App::sim_races_enabled->getBool();
+        state.sim_no_collisions =
+            App::sim_no_collisions->getBool();
+        state.sim_no_self_collisions =
+            App::sim_no_self_collisions->getBool();
+        state.sim_deterministic_sleeping_engine =
+            App::sim_deterministic_sleeping_engine->getBool();
+        state.sim_deterministic_fixed_steps_per_frame =
+            App::sim_deterministic_fixed_steps_per_frame->getInt();
+        return ValidateLiveCaptureRuntimeState(state, error);
+    }
+    catch (...)
+    {
+        if (error != nullptr)
+            *error = "schema-1 runtime-state inspection failed";
+        return false;
+    }
+}
+
 bool InspectCurrentRoRRuntimeResourceIdentity(
     RoRRuntimeResourceIdentity& identity,
     std::string* error)
@@ -2527,6 +2634,13 @@ bool InspectCurrentRoRRuntimeResourceIdentity(
             return false;
         }
         context->GetActorManager()->SyncWithSimThread();
+        if (!ValidateCurrentRoRLiveCaptureRuntimeState(
+                context->GetPlayerActor(),
+                context->GetTerrain().GetRef(),
+                error))
+        {
+            return false;
+        }
         RoRRuntimeResourceIdentity candidate;
         if (!InspectRuntimeResourceIdentity(
                 context->GetPlayerActor(),
