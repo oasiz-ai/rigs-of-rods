@@ -55,7 +55,15 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
             asset["artifacts"]["blend"]["path"],
             asset["artifacts"]["glb"]["path"],
             asset["authoring"]["generator"]["path"],
+            asset["compiled"]["report"]["path"],
         }
+        paths.update(output["path"] for output in asset["compiled"]["outputs"])
+        report = json.loads(
+            (REPOSITORY_ROOT / asset["compiled"]["report"]["path"]).read_text(
+                encoding="utf-8"
+            )
+        )
+        paths.add(report["compiler"]["path"])
         for relative in sorted(paths):
             source = REPOSITORY_ROOT / relative
             destination = root / relative
@@ -68,9 +76,9 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
         self.assertEqual(
             json.loads(result.stdout),
             {
-                "assets": 2,
+                "assets": 11,
                 "format": "ror-cityworld-provenance-build-v1",
-                "inventory_files": 2,
+                "inventory_files": 11,
                 "mode": "check",
             },
         )
@@ -104,6 +112,15 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
         self.assertEqual(
             [asset["path"] for asset in manifest["assets"]],
             [
+                "bridge/compiled/rorng_city_bridge_span_20m.compile.json",
+                "bridge/compiled/rorng_city_bridge_span_20m.material",
+                "bridge/compiled/rorng_city_bridge_span_20m.odef",
+                "bridge/compiled/rorng_city_bridge_span_20m_collision_barrier_left.mesh",
+                "bridge/compiled/rorng_city_bridge_span_20m_collision_barrier_right.mesh",
+                "bridge/compiled/rorng_city_bridge_span_20m_collision_road.mesh",
+                "bridge/compiled/rorng_city_bridge_span_20m_lod0.mesh",
+                "bridge/compiled/rorng_city_bridge_span_20m_lod1.mesh",
+                "bridge/compiled/rorng_city_bridge_span_20m_lod2.mesh",
                 "bridge/rorng_city_bridge_span_20m.asset.json",
                 "bridge/rorng_city_bridge_span_20m.glb",
             ],
@@ -111,6 +128,15 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
         self.assertEqual(
             [item["path"] for item in inventory["files"]],
             [
+                "bridge/compiled/rorng_city_bridge_span_20m.compile.json",
+                "bridge/compiled/rorng_city_bridge_span_20m.material",
+                "bridge/compiled/rorng_city_bridge_span_20m.odef",
+                "bridge/compiled/rorng_city_bridge_span_20m_collision_barrier_left.mesh",
+                "bridge/compiled/rorng_city_bridge_span_20m_collision_barrier_right.mesh",
+                "bridge/compiled/rorng_city_bridge_span_20m_collision_road.mesh",
+                "bridge/compiled/rorng_city_bridge_span_20m_lod0.mesh",
+                "bridge/compiled/rorng_city_bridge_span_20m_lod1.mesh",
+                "bridge/compiled/rorng_city_bridge_span_20m_lod2.mesh",
                 "bridge/rorng_city_bridge_span_20m.asset.json",
                 "bridge/rorng_city_bridge_span_20m.glb",
             ],
@@ -182,7 +208,7 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
         report = json.loads(result.stdout)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(report["ok"])
-        self.assertEqual(report["summary"]["checksum_matched_files"], 2)
+        self.assertEqual(report["summary"]["checksum_matched_files"], 11)
 
 
 if __name__ == "__main__":

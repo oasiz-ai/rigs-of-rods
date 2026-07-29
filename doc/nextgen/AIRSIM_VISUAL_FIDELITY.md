@@ -113,6 +113,15 @@ arbitrary host formats. Its input boundary must:
 The runtime loads only the bounded compiled package. It never executes imported
 scripts, shaders, Blueprints, Lua, or host-engine metadata.
 
+The first compiler profile and production fixture are implemented for the
+project-owned CityWorld tangent bridge. It lowers validated GLB render LODs and
+collision objects into pinned little-endian OGRE 14 meshes, emits stable
+material and ODEF records, and records both the non-packaged XML-intermediate
+hashes and checked runtime-output hashes. The portable CI gate revalidates the
+entire source/profile/output contract without depending on Blender or a
+platform OGRE tool. See
+[CityWorld Next offline scene compiler](CITYWORLD_SCENE_COMPILER.md).
+
 ## Capture contract
 
 Both engines render the shared camera path under equivalent conditions:

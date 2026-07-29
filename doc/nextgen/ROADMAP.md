@@ -104,10 +104,19 @@ The first rights-cleared CityWorld Next content slice is now present without
 modifying that archive: a Blender-generated 20 m tangent bridge span with three
 render LODs, separate validated collision, lane connectors, a standard glTF
 interchange artifact, and a full A0 release-gate provenance inventory.
-Dependency-free validation runs on macOS, Linux, and Windows CI. It is an
-authoring/compiler fixture until the offline glTF-to-runtime compiler and
-deterministic corridor overlay land; it is not yet a replacement placed in the
-local CityWorld map.
+Dependency-free validation runs on macOS, Linux, and Windows CI. The offline
+glTF-to-runtime compiler has landed; the deterministic corridor overlay has
+not, so this is not yet a replacement placed in the local CityWorld map.
+
+That span now compiles through the first production
+[`ror_scene_compiler` boundary](CITYWORLD_SCENE_COMPILER.md). The package owns
+three manual render LOD meshes, separate road/barrier collision meshes, an ODEF,
+a generated material fallback, and a canonical report. OGRE 14.5.2,
+`MeshSerializer_v1.100`, little-endian output, the Blender/glTF/OGRE coordinate
+basis, source/intermediate/output hashes, bounded counts, and stable
+object/material traversal are enforced. The same standard-library validation
+runs under normal and optimized Python on Windows, Linux, and macOS; runtime
+placement and driven seam continuity remain the next CW2 gate.
 
 ## Measurement contract
 
@@ -1138,10 +1147,10 @@ Gate A0:
    feature at a time; never make controller execution a dependency.
 9. Ship the A0 DAF/asphalt vertical slice and pass imported-content provenance
    gates before expanding the asset library or publishing compatibility demos.
-10. Compile the project-owned CityWorld tangent span through the same
-    fail-closed glTF boundary, prove in-game lane/collision continuity, then
-    expand CW2 to curved spans, supports, and the first intercity overlay before
-    starting the longer corridor.
+10. The project-owned CityWorld tangent span is compiled through the first
+    fail-closed glTF boundary. Next prove in-game lane/collision continuity,
+    then expand CW2 to curved spans, supports, and the first intercity overlay
+    before starting the longer corridor.
 
 A next-generation preview is ready only when the pinned four-scene suite passes
 on Windows, Linux, and macOS; one-worker and eight-worker physics hashes match;

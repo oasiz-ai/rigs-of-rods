@@ -30,6 +30,7 @@ jobs:
           python -m unittest -v
           tests/tools/test_content_provenance_audit.py
           tests/tools/test_build_cityworld_next_provenance.py
+          tests/tools/test_compile_cityworld_asset.py
           tests/tools/test_validate_cityworld_asset.py
 
       - name: Run optimized standard-library provenance and CityWorld asset tests
@@ -37,6 +38,7 @@ jobs:
           python -O -m unittest -v
           tests/tools/test_content_provenance_audit.py
           tests/tools/test_build_cityworld_next_provenance.py
+          tests/tools/test_compile_cityworld_asset.py
           tests/tools/test_validate_cityworld_asset.py
 
       - name: Verify checked-in CityWorld provenance and release gate
@@ -46,6 +48,10 @@ jobs:
           python tools/validate_cityworld_asset.py \
             resources/nextgen/cityworld/bridge/rorng_city_bridge_span_20m.asset.json \
             --repo-root .
+          python tools/compile_cityworld_asset.py \
+            resources/nextgen/cityworld/bridge/rorng_city_bridge_span_20m.asset.json \
+            --repo-root . \
+            --validate-checked
           python tools/content_provenance_audit.py \
             --manifest content-source/cityworld_next/provenance/cityworld_next.manifest.json \
             --inventory content-source/cityworld_next/provenance/cityworld_next.inventory.json \

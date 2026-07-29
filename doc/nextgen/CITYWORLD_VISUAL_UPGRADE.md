@@ -120,8 +120,19 @@ cross-version byte-canonical formats.
 
 This is the first CW2 asset, not completion of the intercity corridor. Curved
 spans, piers, abutments, retaining walls, transitions, deterministic placement,
-RoR runtime compilation, vehicle clearance/contact tests, fixed-camera
-captures, and the declared frame-time gates remain required.
+vehicle clearance/contact tests, fixed-camera captures, and the declared
+frame-time gates remain required.
+
+The tangent span now also passes the first production offline scene-compiler
+boundary. The checked runtime package contains three OGRE render LOD meshes,
+three separate collision meshes, an ODEF, deterministic material fallback, and
+a canonical conversion report. The compiler pins OGRE 14.5.2, little-endian
+`MeshSerializer_v1.100`, stable submesh/material identifiers, explicit
+80 m/180 m manual LOD distances, and the tested Blender-to-glTF-to-OGRE basis.
+Cross-platform CI regenerates and hashes the deterministic XML lowering,
+validates the checked binary/package records without executing a host converter,
+and fails on stale or unknown files. See
+[CityWorld Next offline scene compiler](CITYWORLD_SCENE_COMPILER.md).
 
 ### CW3 — Vegetation
 
@@ -175,6 +186,13 @@ headlessly from checked-in scripts and manifests.
 - Record Blender version, generator revision, source hash, export settings,
   compiler revision, output hashes, author, license, and redistribution
   evidence for every asset.
+
+The current compiler profile intentionally requires every object transform to
+be applied and rejects hierarchy, extensions, animation, morph targets, unknown
+attributes, malformed accessors, and any unowned output. The glTF export already
+performs Blender's `(x, y, z) -> (x, z, -y)` rotation; glTF and OGRE are both
+Y-up, so the compiler asserts an identity interchange-to-runtime transform
+instead of applying the axis swap twice.
 
 The current official Blender mesh guide is written around Blender 2.79 and
 points newer Blender users to `blender2ogre`; this project instead treats glTF

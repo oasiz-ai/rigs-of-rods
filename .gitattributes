@@ -36,8 +36,12 @@ cmake/conan/recipes/mygui/patches/3.4.0/ogre14-api.patch -whitespace
 # authored and generated text files identical on Windows, macOS, and Linux.
 tools/blender/cityworld_next/*.py text eol=lf
 tools/build_cityworld_next_provenance.py text eol=lf
+tools/compile_cityworld_asset.py text eol=lf
 tools/validate_cityworld_asset.py text eol=lf
 tests/tools/test_build_cityworld_next_provenance.py text eol=lf
+tests/tools/test_compile_cityworld_asset.py text eol=lf
 tests/tools/test_validate_cityworld_asset.py text eol=lf
 resources/nextgen/cityworld/**/*.json text eol=lf
+resources/nextgen/cityworld/**/*.material text eol=lf
+resources/nextgen/cityworld/**/*.odef text eol=lf
 content-source/cityworld_next/provenance/*.json text eol=lf

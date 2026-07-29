@@ -20,6 +20,9 @@ from typing import Any
 
 PROVENANCE_FORMAT = "ror-content-provenance-v1"
 INVENTORY_FORMAT = "ror-distributable-inventory-v1"
+COMPILED_FORMAT = "ror-cityworld-compiled-asset-v1"
+COMPILE_REPORT_FORMAT = "ror-cityworld-scene-compile-report-v1"
+COMPILER_FORMAT = "ror-cityworld-scene-compiler-v1"
 SPDX_LIST_VERSION = "3.28.0"
 MAX_FILE_BYTES = 512 * 1024 * 1024
 
@@ -107,6 +110,7 @@ def build_documents(repo_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         raise BuildFailure("CityWorld Next package has no asset manifests")
 
     owners: dict[Path, tuple[dict[str, Any], Path]] = {}
+    generated_by: dict[Path, dict[str, str]] = {}
     for asset_manifest_path in asset_manifest_paths:
         asset_manifest = load_json(asset_manifest_path)
         if asset_manifest.get("format") != "ror-cityworld-asset-v1":
@@ -136,10 +140,98 @@ def build_documents(repo_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         except ValueError as error:
             raise BuildFailure(f"GLB is outside the package: {asset_manifest_path.name}") from error
 
-        for owned_path in (asset_manifest_path.resolve(), glb_path):
+        compiled = asset_manifest.get("compiled")
+        if (
+            not isinstance(compiled, dict)
+            or compiled.get("format") != COMPILED_FORMAT
+        ):
+            raise BuildFailure(
+                f"missing compiled asset record: {asset_manifest_path.name}"
+            )
+        report_record = compiled.get("report")
+        compiled_outputs = compiled.get("outputs")
+        if not isinstance(report_record, dict) or not isinstance(compiled_outputs, list):
+            raise BuildFailure(
+                f"incomplete compiled asset record: {asset_manifest_path.name}"
+            )
+        report_path = resolve_declared(repo_root, report_record.get("path"))
+        if sha256_file(report_path) != report_record.get("sha256"):
+            raise BuildFailure(f"stale compile report: {asset_manifest_path.name}")
+        report = load_json(report_path)
+        if report.get("format") != COMPILE_REPORT_FORMAT:
+            raise BuildFailure(
+                f"unsupported compile report: {asset_manifest_path.name}"
+            )
+        compiler = report.get("compiler")
+        if (
+            not isinstance(compiler, dict)
+            or compiler.get("format") != COMPILER_FORMAT
+        ):
+            raise BuildFailure(
+                f"invalid scene compiler identity: {asset_manifest_path.name}"
+            )
+        compiler_path = resolve_declared(repo_root, compiler.get("path"))
+        if sha256_file(compiler_path) != compiler.get("sha256"):
+            raise BuildFailure(
+                f"stale scene compiler identity: {asset_manifest_path.name}"
+            )
+        report_outputs = report.get("outputs")
+        if report_outputs != compiled_outputs:
+            raise BuildFailure(
+                f"compile outputs disagree with asset manifest: {asset_manifest_path.name}"
+            )
+
+        compiled_paths: list[Path] = []
+        for index, output in enumerate(compiled_outputs):
+            if not isinstance(output, dict):
+                raise BuildFailure(
+                    f"invalid compiled output {index}: {asset_manifest_path.name}"
+                )
+            output_path = resolve_declared(repo_root, output.get("path"))
+            if (
+                sha256_file(output_path) != output.get("sha256")
+                or output_path.stat().st_size != output.get("size")
+            ):
+                raise BuildFailure(
+                    f"stale compiled output {index}: {asset_manifest_path.name}"
+                )
+            if not isinstance(output.get("role"), str) or not output["role"]:
+                raise BuildFailure(
+                    f"compiled output has no role: {asset_manifest_path.name}"
+                )
+            compiled_paths.append(output_path)
+
+        owned_paths = (
+            asset_manifest_path.resolve(),
+            glb_path,
+            report_path,
+            *compiled_paths,
+        )
+        for owned_path in owned_paths:
+            try:
+                owned_path.relative_to(package_root)
+            except ValueError as error:
+                raise BuildFailure(
+                    f"package output is outside package: {owned_path.name}"
+                ) from error
             if owned_path in owners:
                 raise BuildFailure(f"package file has multiple owners: {owned_path.name}")
             owners[owned_path] = (asset_manifest, asset_manifest_path)
+        generator_source = {
+            "kind": "generator",
+            "sha256": generator["sha256"],
+            "uri": asset.get("source_uri"),
+        }
+        compiler_source = {
+            "kind": "generator",
+            "sha256": compiler["sha256"],
+            "uri": asset.get("source_uri"),
+        }
+        generated_by[asset_manifest_path.resolve()] = generator_source
+        generated_by[glb_path] = generator_source
+        generated_by[report_path] = compiler_source
+        for compiled_path in compiled_paths:
+            generated_by[compiled_path] = compiler_source
 
     unknown = [path for path in package_files if path.resolve() not in owners]
     if unknown:
@@ -193,11 +285,7 @@ def build_documents(repo_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
                     "evidence": source_uri,
                 },
                 "sha256": digest,
-                "source": {
-                    "kind": "generator",
-                    "sha256": generator["sha256"],
-                    "uri": source_uri,
-                },
+                "source": generated_by[package_path.resolve()],
             }
         )
 
