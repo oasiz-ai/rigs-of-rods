@@ -299,4 +299,8 @@ The GLB is the canonical geometry interchange output and is expected to remain
 byte-deterministic for the pinned Blender generator. `.blend` files and
 rendered previews are editable/evidence artifacts whose exact bytes may change
 between Blender sessions or versions; their current hashes are always pinned
-by the asset and provenance manifests.
+by the asset and provenance manifests. The storefront generator authenticates
+the checked paths and SHA-256 values before retaining those session-dependent
+artifacts. A mismatch fails closed instead of being rehashed. Its GLB and
+compiled runtime outputs can be compared across two clean roots with
+`tools/compare_cityworld_storefront_reproducibility.py`.

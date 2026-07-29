@@ -32,6 +32,7 @@ import bpy
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 BASE_GENERATOR_PATH = SCRIPT_DIRECTORY / "generate_bridge_kit.py"
 CANONICALIZER_PATH = SCRIPT_DIRECTORY / "canonicalize_static_glb.py"
+RETENTION_CONTRACT_PATH = SCRIPT_DIRECTORY / "artifact_retention_contract.py"
 BASE_SPEC = importlib.util.spec_from_file_location(
     "rorng_storefront_helpers",
     BASE_GENERATOR_PATH,
@@ -48,6 +49,20 @@ if CANONICALIZER_SPEC is None or CANONICALIZER_SPEC.loader is None:
     raise RuntimeError("cannot load the static GLB canonicalizer")
 CANONICALIZER = importlib.util.module_from_spec(CANONICALIZER_SPEC)
 CANONICALIZER_SPEC.loader.exec_module(CANONICALIZER)
+RETENTION_SPEC = importlib.util.spec_from_file_location(
+    "rorng_storefront_artifact_retention",
+    RETENTION_CONTRACT_PATH,
+)
+if RETENTION_SPEC is None or RETENTION_SPEC.loader is None:
+    raise RuntimeError("cannot load the storefront artifact retention contract")
+RETENTION = importlib.util.module_from_spec(RETENTION_SPEC)
+RETENTION_SPEC.loader.exec_module(RETENTION)
+
+AUTHORING_DEPENDENCY_PATHS = (
+    BASE_GENERATOR_PATH,
+    CANONICALIZER_PATH,
+    RETENTION_CONTRACT_PATH,
+)
 
 ASSET_VERSION = 1
 ASSET_PROFILE = "static-building-v1"
@@ -1245,25 +1260,40 @@ def generate_variant(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
             "path": dependency.relative_to(root).as_posix(),
             "sha256": BASE.sha256_file(dependency),
         }
-        for dependency in (BASE_GENERATOR_PATH, CANONICALIZER_PATH)
+        for dependency in AUTHORING_DEPENDENCY_PATHS
     ]
-    previous_glb_hash = (
-        BASE.sha256_file(paths["glb"])
-        if paths["glb"].is_file() and not paths["glb"].is_symlink()
-        else None
+    generator_record = {
+        "dependencies": dependencies,
+        "format": GENERATOR_ID,
+        "path": generator_path.relative_to(root).as_posix(),
+        "sha256": generator_hash,
+    }
+    previous_manifest = RETENTION.load_previous_manifest(paths["manifest"])
+    retain_authenticated_artifacts = (
+        previous_manifest is not None
+        and RETENTION.generator_identity_matches(
+            previous_manifest,
+            blender_version=bpy.app.version_string,
+            generator=generator_record,
+        )
     )
-    previous_authoring: dict[str, Any] = {}
-    if paths["manifest"].is_file() and not paths["manifest"].is_symlink():
-        try:
-            previous_authoring = json.loads(
-                paths["manifest"].read_text(encoding="utf-8")
-            ).get("authoring", {})
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            previous_authoring = {}
+    authenticated_hashes: dict[str, str] = {}
+    if retain_authenticated_artifacts:
+        authenticated_hashes = RETENTION.authenticate_retained_artifacts(
+            previous_manifest,
+            repo_root=root,
+            expected_paths={
+                "blend": paths["blend"],
+                "glb": paths["glb"],
+                "preview": paths["preview"],
+            },
+        )
 
     candidate_blend = paths["blend"].with_name(f".{asset_id}.candidate.blend")
+    candidate_glb = paths["glb"].with_name(f".{asset_id}.candidate.glb")
     candidate_preview = paths["preview"].with_name(f".{asset_id}.candidate.png")
     candidate_blend.unlink(missing_ok=True)
+    candidate_glb.unlink(missing_ok=True)
     candidate_preview.unlink(missing_ok=True)
     reset_scene_fully(asset_id)
     render_collection = BASE.make_collection(f"{asset_id}_render")
@@ -1291,7 +1321,7 @@ def generate_variant(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
         obj.select_set(True)
     bpy.context.view_layer.objects.active = lod_objects[0]
     bpy.ops.export_scene.gltf(
-        filepath=str(paths["glb"]),
+        filepath=str(candidate_glb),
         check_existing=False,
         export_animations=False,
         export_apply=True,
@@ -1308,8 +1338,8 @@ def generate_variant(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
         use_selection=True,
         use_visible=False,
     )
-    CANONICALIZER.canonicalize_glb_geometry(paths["glb"])
-    canonicalize_textureless_texcoords(paths["glb"])
+    CANONICALIZER.canonicalize_glb_geometry(candidate_glb)
+    canonicalize_textureless_texcoords(candidate_glb)
 
     for obj in [lod_objects[1], lod_objects[2], *collision_objects]:
         obj.hide_render = True
@@ -1324,22 +1354,22 @@ def generate_variant(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
     )
     bpy.ops.wm.save_as_mainfile(filepath=str(candidate_blend), compress=False)
     bpy.ops.render.render(write_still=True)
-    previous_generator = previous_authoring.get("generator", {})
-    preserve_checked_source = (
-        previous_glb_hash == BASE.sha256_file(paths["glb"])
-        and previous_generator.get("sha256") == generator_hash
-        and previous_generator.get("dependencies") == dependencies
-        and previous_authoring.get("blender_version") == bpy.app.version_string
-        and paths["blend"].is_file()
-        and not paths["blend"].is_symlink()
-        and paths["preview"].is_file()
-        and not paths["preview"].is_symlink()
-    )
-    if preserve_checked_source:
+    candidate_glb_hash = BASE.sha256_file(candidate_glb)
+    if retain_authenticated_artifacts:
+        if candidate_glb_hash != authenticated_hashes["glb"]:
+            candidate_blend.unlink(missing_ok=True)
+            candidate_glb.unlink(missing_ok=True)
+            candidate_preview.unlink(missing_ok=True)
+            raise RETENTION.ArtifactContractError(
+                "deterministic storefront GLB changed under the same generator, "
+                "dependencies, and Blender version"
+            )
         candidate_blend.unlink()
+        candidate_glb.unlink()
         candidate_preview.unlink()
     else:
         os.replace(candidate_blend, paths["blend"])
+        os.replace(candidate_glb, paths["glb"])
         os.replace(candidate_preview, paths["preview"])
 
     manifest = BASE.make_manifest(
@@ -1353,8 +1383,12 @@ def generate_variant(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
         materials=materials,
     )
     manifest["asset"]["profile"] = ASSET_PROFILE
-    manifest["authoring"]["generator"]["format"] = GENERATOR_ID
-    manifest["authoring"]["generator"]["dependencies"] = dependencies
+    manifest["authoring"]["artifact_reproducibility"] = {
+        "blend": "authenticated-retained-session-metadata-bearing",
+        "glb": "byte-deterministic-pinned-toolchain",
+        "preview": "authenticated-retained-render-metadata-bearing",
+    }
+    manifest["authoring"]["generator"] = generator_record
     manifest["authoring"]["procedural_provenance"] = {
         "external_geometry": False,
         "external_materials": False,
@@ -1483,7 +1517,7 @@ def write_family_contract(
                         "path": dependency.relative_to(root).as_posix(),
                         "sha256": BASE.sha256_file(dependency),
                     }
-                    for dependency in (BASE_GENERATOR_PATH, CANONICALIZER_PATH)
+                    for dependency in AUTHORING_DEPENDENCY_PATHS
                 ],
                 "format": GENERATOR_ID,
                 "path": generator_path.relative_to(root).as_posix(),
@@ -1500,6 +1534,11 @@ def write_family_contract(
                 ],
                 "method": "deterministic-project-authored-blender-python",
                 "rights_basis": "GPL-3.0-or-later project-authored source",
+            },
+            "artifact_reproducibility": {
+                "blend": "authenticated-retained-session-metadata-bearing",
+                "glb": "byte-deterministic-pinned-toolchain",
+                "preview": "authenticated-retained-render-metadata-bearing",
             },
         },
         "format": FAMILY_FORMAT,

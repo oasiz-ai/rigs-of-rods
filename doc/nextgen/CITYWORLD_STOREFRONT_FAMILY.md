@@ -124,10 +124,35 @@ do
 done
 ```
 
-Two consecutive full Blender generations followed by full OGRE compilation
-must produce byte-identical `.blend`, preview, GLB, manifest, material, ODEF,
-mesh, and compile-report files. The normal and `python -O` family suites must
-both pass.
+The canonical GLB and all six compiled runtime outputs per variant are the
+byte-reproducible contract. Compare two independently generated and compiled
+clean checkouts with:
+
+```sh
+python3 tools/compare_cityworld_storefront_reproducibility.py \
+  --left-root /absolute/path/to/clean-build-a \
+  --right-root /absolute/path/to/clean-build-b
+```
+
+The comparison covers each GLB, material fallback, ODEF, collision fixture,
+and three render LOD meshes. Both roots must authenticate their own manifest
+hashes before their outputs are compared.
+
+Blender `.blend` files and PNG previews are editable/evidence artifacts.
+Blender project/session metadata and PNG render metadata are not claimed to be
+byte-reproducible across independent authoring sessions. When the generator,
+its declared dependencies, and Blender version are unchanged, the generator
+retains these files only after their exact paths and SHA-256 values authenticate
+against the previous manifest. Any mismatch fails before candidate output is
+created; it is never silently rehashed. A generator, dependency, or Blender
+version change is the explicit regeneration boundary and writes newly pinned
+source/evidence hashes.
+
+The normal and `python -O` family suites must both pass, including the real
+filesystem tamper and clean-root binary comparison regressions. When pinned
+Blender 5.2.0 LTS is present, the suite also runs the generator in a copied
+clean root and proves a modified retained `.blend` aborts without changing the
+manifest or GLB.
 
 ## Placement acceptance gate
 

@@ -7,6 +7,11 @@
     "version": 1
   },
   "authoring": {
+    "artifact_reproducibility": {
+      "blend": "authenticated-retained-session-metadata-bearing",
+      "glb": "byte-deterministic-pinned-toolchain",
+      "preview": "authenticated-retained-render-metadata-bearing"
+    },
     "blender_version": "5.2.0 LTS",
     "generator": {
       "dependencies": [
@@ -17,11 +22,15 @@
         {
           "path": "tools/blender/cityworld_next/canonicalize_static_glb.py",
           "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
+        },
+        {
+          "path": "tools/blender/cityworld_next/artifact_retention_contract.py",
+          "sha256": "159a7b186fc94135754c3a460c7122d6aed73036d6166e1a54ec576830bd29e6"
         }
       ],
       "format": "ror-cityworld-storefront-family-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
-      "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a"
+      "sha256": "cf79789bf94612b9f585414fc701c85f228b50096b9a64ee02016aece395647d"
     },
     "procedural_provenance": {
       "external_geometry": false,

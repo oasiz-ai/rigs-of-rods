@@ -40,6 +40,11 @@ EXPECTED_COMPILED_ROLES = {
     "render-lod1",
     "render-lod2",
 }
+ARTIFACT_REPRODUCIBILITY = {
+    "blend": "authenticated-retained-session-metadata-bearing",
+    "glb": "byte-deterministic-pinned-toolchain",
+    "preview": "authenticated-retained-render-metadata-bearing",
+}
 EXPECTED_VARIANTS: tuple[dict[str, Any], ...] = (
     {
         "asset_id": "rorng_city_storefront_corner_20x20",
@@ -290,6 +295,17 @@ class FamilyValidator:
                 "$.authoring.procedural_provenance",
                 "project-authored rights record is incomplete",
             )
+        reproducibility = (
+            authoring.get("artifact_reproducibility")
+            if isinstance(authoring, dict)
+            else None
+        )
+        if reproducibility != ARTIFACT_REPRODUCIBILITY:
+            self.add(
+                "FAMILY_REPRODUCIBILITY",
+                "$.authoring.artifact_reproducibility",
+                "artifact retention and deterministic output policy is incomplete",
+            )
 
     def validate_legacy_audit(self) -> None:
         assert self.family is not None
@@ -379,11 +395,22 @@ class FamilyValidator:
         asset = manifest.get("asset", {})
         geometry = manifest.get("geometry", {})
         storefront = manifest.get("storefront", {})
+        authoring = manifest.get("authoring", {})
         if asset.get("profile") != "static-building-v1":
             self.add(
                 "VARIANT_PROFILE",
                 f"{pointer}.manifest",
                 "asset must use the static-building-v1 profile",
+            )
+        if (
+            not isinstance(authoring, dict)
+            or authoring.get("artifact_reproducibility")
+            != ARTIFACT_REPRODUCIBILITY
+        ):
+            self.add(
+                "VARIANT_REPRODUCIBILITY",
+                f"{pointer}.manifest",
+                "asset does not pin the authenticated retention policy",
             )
         if (
             geometry.get("asset_family") != FAMILY_ID

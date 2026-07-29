@@ -2,7 +2,7 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.blend",
-      "sha256": "a07a265b66c3c8c13bc98106abec474641a9d7b7b0b8f066e77de1d7d45bf62f"
+      "sha256": "71e15cd2108d353a893b1dea750c7d90a7ecd1960bd9d600cc0d6187ff61c260"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.glb",
@@ -10,7 +10,7 @@
     },
     "preview": {
       "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30_preview.png",
-      "sha256": "f6d38f71e5201aee963061432ce50acc8d8e1b8f3fc3c808528a6eb9004c02ae"
+      "sha256": "b101e7231e6258a5c4172b180cd7281ecc5909b13132dcfdec9308acd84ea582"
     }
   },
   "asset": {
@@ -22,6 +22,11 @@
     "version": 1
   },
   "authoring": {
+    "artifact_reproducibility": {
+      "blend": "authenticated-retained-session-metadata-bearing",
+      "glb": "byte-deterministic-pinned-toolchain",
+      "preview": "authenticated-retained-render-metadata-bearing"
+    },
     "axis": "blender-z-up",
     "blender_version": "5.2.0 LTS",
     "generator": {
@@ -33,11 +38,15 @@
         {
           "path": "tools/blender/cityworld_next/canonicalize_static_glb.py",
           "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
+        },
+        {
+          "path": "tools/blender/cityworld_next/artifact_retention_contract.py",
+          "sha256": "159a7b186fc94135754c3a460c7122d6aed73036d6166e1a54ec576830bd29e6"
         }
       ],
       "format": "ror-cityworld-storefront-family-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
-      "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a"
+      "sha256": "cf79789bf94612b9f585414fc701c85f228b50096b9a64ee02016aece395647d"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -126,7 +135,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_heritage_20x30/compiled/rorng_city_storefront_heritage_20x30.compile.json",
-      "sha256": "ed2ce066a49e30fe69ca41bb18b109541549ec4b4df25b82fc6da87ee894fdc1"
+      "sha256": "535e78c34b53d6bd5a71d2b7723b68468b0f0bad26289d651235aca34e00004b"
     }
   },
   "connectors": [],

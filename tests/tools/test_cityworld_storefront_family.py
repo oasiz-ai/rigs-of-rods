@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 from collections import Counter
+import hashlib
+import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,6 +31,30 @@ GENERATOR_PATH = (
     REPOSITORY_ROOT
     / "tools/blender/cityworld_next/generate_cityworld_storefront_family.py"
 )
+RETENTION_CONTRACT_PATH = (
+    REPOSITORY_ROOT
+    / "tools/blender/cityworld_next/artifact_retention_contract.py"
+)
+REPRODUCIBILITY_TOOL_PATH = (
+    REPOSITORY_ROOT
+    / "tools/compare_cityworld_storefront_reproducibility.py"
+)
+
+
+def load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load test dependency: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+RETENTION = load_module("storefront_retention_test", RETENTION_CONTRACT_PATH)
+REPRODUCIBILITY = load_module(
+    "storefront_reproducibility_test",
+    REPRODUCIBILITY_TOOL_PATH,
+)
 
 
 class CityWorldStorefrontFamilyTests(unittest.TestCase):
@@ -39,6 +67,33 @@ class CityWorldStorefrontFamilyTests(unittest.TestCase):
             REPOSITORY_ROOT / variant["manifest"]
             for variant in self.family()["variants"]
         ]
+
+    @staticmethod
+    def copy_repo_file(source: Path, target_root: Path) -> Path:
+        relative = source.relative_to(REPOSITORY_ROOT)
+        target = target_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        return target
+
+    @staticmethod
+    def blender_executable() -> Path | None:
+        configured = os.environ.get("BLENDER_BIN")
+        candidates = [
+            Path(configured) if configured else None,
+            Path(shutil.which("blender")) if shutil.which("blender") else None,
+            Path("/Applications/Blender.app/Contents/MacOS/Blender"),
+        ]
+        return next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate is not None
+                and candidate.is_file()
+                and not candidate.is_symlink()
+            ),
+            None,
+        )
 
     def run_family(
         self,
@@ -255,6 +310,195 @@ class CityWorldStorefrontFamilyTests(unittest.TestCase):
                 "canonical-zero-textureless-v1",
             )
         self.assertEqual(len(styles), 5)
+
+    def test_retention_contract_rejects_real_blender_artifact_tamper(self) -> None:
+        manifest_path = self.manifests()[0]
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for tampered_role in ("blend", "preview"):
+            with (
+                self.subTest(tampered_role=tampered_role),
+                tempfile.TemporaryDirectory(
+                    prefix=f"storefront-retention-{tampered_role}-"
+                ) as directory,
+            ):
+                clean_root = Path(directory)
+                copied_manifest = self.copy_repo_file(manifest_path, clean_root)
+                expected_paths = {
+                    role: self.copy_repo_file(
+                        REPOSITORY_ROOT / manifest["artifacts"][role]["path"],
+                        clean_root,
+                    )
+                    for role in ("blend", "glb", "preview")
+                }
+                checked_document = RETENTION.load_previous_manifest(copied_manifest)
+                authenticated = RETENTION.authenticate_retained_artifacts(
+                    checked_document,
+                    repo_root=clean_root,
+                    expected_paths=expected_paths,
+                )
+                self.assertEqual(
+                    authenticated,
+                    {
+                        role: manifest["artifacts"][role]["sha256"]
+                        for role in ("blend", "glb", "preview")
+                    },
+                )
+
+                manifest_before = copied_manifest.read_bytes()
+                with expected_paths[tampered_role].open("ab") as handle:
+                    handle.write(b"\nstorefront-tamper-regression\n")
+                with self.assertRaisesRegex(
+                    RETENTION.ArtifactContractError,
+                    f"retained {tampered_role} artifact SHA-256 mismatch",
+                ):
+                    RETENTION.authenticate_retained_artifacts(
+                        checked_document,
+                        repo_root=clean_root,
+                        expected_paths=expected_paths,
+                    )
+                self.assertEqual(copied_manifest.read_bytes(), manifest_before)
+
+    def test_clean_roots_compare_actual_glb_and_compiled_outputs(self) -> None:
+        manifest_path = self.manifests()[0]
+        manifest_relative = manifest_path.relative_to(REPOSITORY_ROOT).as_posix()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        records = [
+            manifest["artifacts"]["glb"],
+            *manifest["compiled"]["outputs"],
+        ]
+        with (
+            tempfile.TemporaryDirectory(prefix="storefront-clean-left-") as left,
+            tempfile.TemporaryDirectory(prefix="storefront-clean-right-") as right,
+        ):
+            roots = (Path(left), Path(right))
+            for root in roots:
+                self.copy_repo_file(manifest_path, root)
+                for record in records:
+                    self.copy_repo_file(REPOSITORY_ROOT / record["path"], root)
+
+            report = REPRODUCIBILITY.compare_roots(
+                roots[0],
+                roots[1],
+                [manifest_relative],
+            )
+            self.assertTrue(report["valid"])
+            self.assertEqual(report["outputs"], 7)
+
+            right_manifest_path = roots[1] / manifest_relative
+            right_manifest = json.loads(
+                right_manifest_path.read_text(encoding="utf-8")
+            )
+            collision = next(
+                output
+                for output in right_manifest["compiled"]["outputs"]
+                if output["role"] == "collision-fixture"
+            )
+            collision_path = roots[1] / collision["path"]
+            with collision_path.open("ab") as handle:
+                handle.write(b"\nclean-room-output-drift\n")
+            collision["sha256"] = hashlib.sha256(
+                collision_path.read_bytes()
+            ).hexdigest()
+            collision["size"] = collision_path.stat().st_size
+            right_manifest_path.write_text(
+                json.dumps(
+                    right_manifest,
+                    indent=2,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            drift_report = REPRODUCIBILITY.compare_roots(
+                roots[0],
+                roots[1],
+                [manifest_relative],
+            )
+            self.assertFalse(drift_report["valid"])
+            self.assertEqual(
+                {
+                    (item["asset_id"], item["role"])
+                    for item in drift_report["mismatches"]
+                },
+                {
+                    (
+                        manifest["asset"]["id"],
+                        "collision-fixture",
+                    )
+                },
+            )
+
+    def test_blender_generator_fails_closed_in_tampered_clean_room(self) -> None:
+        blender = self.blender_executable()
+        if blender is None:
+            self.skipTest("Blender is unavailable")
+        version = subprocess.run(
+            [str(blender), "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if version.returncode != 0 or "Blender 5.2.0 LTS" not in version.stdout:
+            self.skipTest("the pinned Blender 5.2.0 LTS is unavailable")
+
+        manifest_path = self.manifests()[0]
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="storefront-blender-tamper-") as directory:
+            clean_root = Path(directory)
+            (clean_root / ".git").mkdir()
+            for source in (
+                GENERATOR_PATH,
+                RETENTION_CONTRACT_PATH,
+                GENERATOR_PATH.parent / "generate_bridge_kit.py",
+                GENERATOR_PATH.parent / "canonicalize_static_glb.py",
+                manifest_path,
+                *(
+                    REPOSITORY_ROOT / manifest["artifacts"][role]["path"]
+                    for role in ("blend", "glb", "preview")
+                ),
+            ):
+                self.copy_repo_file(source, clean_root)
+
+            copied_manifest = clean_root / manifest_path.relative_to(REPOSITORY_ROOT)
+            copied_blend = clean_root / manifest["artifacts"]["blend"]["path"]
+            copied_glb = clean_root / manifest["artifacts"]["glb"]["path"]
+            manifest_before = copied_manifest.read_bytes()
+            glb_before = copied_glb.read_bytes()
+            with copied_blend.open("ab") as handle:
+                handle.write(b"\nblender-clean-room-tamper\n")
+
+            result = subprocess.run(
+                [
+                    str(blender),
+                    "--background",
+                    "--factory-startup",
+                    "--python-exit-code",
+                    "1",
+                    "--python",
+                    str(clean_root / GENERATOR_PATH.relative_to(REPOSITORY_ROOT)),
+                    "--",
+                    "--output-root",
+                    str(clean_root),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn(
+                "retained blend artifact SHA-256 mismatch",
+                result.stdout + result.stderr,
+            )
+            self.assertEqual(copied_manifest.read_bytes(), manifest_before)
+            self.assertEqual(copied_glb.read_bytes(), glb_before)
+            self.assertFalse(
+                any(clean_root.rglob(".*.candidate.*")),
+                "authentication must fail before creating candidate outputs",
+            )
 
     def test_mutated_audit_selector_and_grounding_fail_closed(self) -> None:
         cases = (
