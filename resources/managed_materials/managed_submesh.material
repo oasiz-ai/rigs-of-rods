@@ -22,7 +22,6 @@ material RoR/Submesh/Body :  RoR/Managed_Mats/Base
             light_clip_planes off
             light_scissor off
             lighting on
-            normalise_normals on
             polygon_mode solid
             //scene_blend one zero
             //scene_blend_op add
@@ -128,7 +127,6 @@ material RoR/Submesh/Body/Alpha :  RoR/Managed_Mats/Base
             light_clip_planes off
             light_scissor off
             lighting on
-            normalise_normals on
             polygon_mode solid
             //scene_blend one zero
             //scene_blend_op add
@@ -234,7 +232,6 @@ material RoR/Submesh/Wheels:  RoR/Managed_Mats/Base
             light_clip_planes off
             light_scissor off
             lighting on
-            normalise_normals on
             polygon_mode solid
             //scene_blend one zero
             //scene_blend_op add
@@ -339,7 +336,6 @@ material RoR/Submesh/Wheels/Alpha :  RoR/Managed_Mats/Base
             light_clip_planes off
             light_scissor off
             lighting on
-            normalise_normals on
             polygon_mode solid
             //scene_blend one zero
             //scene_blend_op add

@@ -19,6 +19,18 @@ TEXTURE_MANAGER = (
     / "texture"
     / "texture_manager.material"
 )
+MANAGED_SUBMESH = (
+    REPOSITORY_ROOT
+    / "resources"
+    / "managed_materials"
+    / "managed_submesh.material"
+)
+TRANSPARENT_NICEMETAL = (
+    REPOSITORY_ROOT
+    / "resources"
+    / "managed_materials"
+    / "managed_mats_vehicles_transparent_nicemetal.material"
+)
 
 
 def texture_unit_body(script: str, unit_name: str) -> str:
@@ -40,6 +52,20 @@ def texture_unit_body(script: str, unit_name: str) -> str:
 
 
 class ManagedVehicleMaterialTests(unittest.TestCase):
+    def test_managed_submesh_uses_no_removed_normalise_directive(self) -> None:
+        script = MANAGED_SUBMESH.read_text(encoding="utf-8")
+
+        self.assertNotIn("normalise_normals", script)
+        self.assertEqual(script.count("material RoR/Submesh/"), 4)
+
+    def test_texture_aliases_have_only_the_supported_alias_argument(self) -> None:
+        script = TRANSPARENT_NICEMETAL.read_text(encoding="utf-8")
+        aliases = re.findall(r"^\s*texture_alias\s+(\S+)(.*)$", script, re.MULTILINE)
+
+        self.assertEqual(len(aliases), 6)
+        self.assertEqual({name for name, _ in aliases}, {"specular_tex"})
+        self.assertTrue(all(not suffix.strip() for _, suffix in aliases))
+
     def test_dynamic_diffuse_units_keep_their_script_names(self) -> None:
         script = VEHICLE_MATERIALS.read_text(encoding="utf-8")
 
