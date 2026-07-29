@@ -150,10 +150,56 @@ Linux, Windows, and macOS provenance matrix.
 
 On the macOS arm64 rolling app, the installed v2 package reaches
 `TERRAIN LOADING DONE`, passes the 10-frame bundle smoke, and shuts OGRE down
-cleanly. Visual captures verify both city junctions, visible terrain-reaching
-pillars, and a character settling on the raised collision deck. A deterministic
-full-vehicle end-to-end traversal and native Windows/Linux repetitions remain
-open acceptance gates.
+cleanly. A deterministic full-vehicle end-to-end acceptance traversal and
+native Windows/Linux repetitions remain open.
+
+An exploratory private-content diagnostic arms the packaged DAF at the
+report-declared Penguinville endpoint tangent and follows all 57 procedural
+centreline samples. One macOS arm64 run covered 1,086.34 m in 170,960
+fixed-batch physics steps, held maximum centreline error to 0.912104 m, and
+decoded one UI-free 1280x720 RGB capture. This proves only that a vehicle can
+follow the generated collision spline. It does not prove that either endpoint
+joins an original CityWorld road surface, that the swept roadway clears visible
+buildings and curbs, or that the 47 requested supports were visibly
+instantiated.
+
+The installed v2 report explicitly identifies the package as a route-safe
+first visual pass. The bridge transition, curve, span, and gateway assets are
+unplaced; only the LED streetlight is packaged and placed. Therefore the
+user-visible disconnected-road, building-clearance, and apron defects are
+current-content blockers, not evidence of an old installed package. A manual
+underside capture shows native procedural pillars, but the diagnostic does not
+verify their count, terrain contact, or integration with an authored deck.
+Do not promote it to an acceptance gate until independent geometry/collision
+audits and runtime object evidence cover those properties. In particular, the
+destination is the west leg of a T-junction. Acceptance must cross the seam,
+command the required turn through that junction, and continue a substantial
+independently derived distance on the genuine destination road network; the
+current 11.4 m straight report-tangent extension is insufficient.
+
+Run the rights-preserving diagnostic only with the explicit incomplete-content
+acknowledgement:
+
+```bash
+python3 tools/run_cityworld_corridor_scene.py \
+  --executable /Applications/RoR.app/Contents/MacOS/RoR \
+  --cityworld-archive \
+    "$HOME/Library/Application Support/Rigs of Rods/mods/CityWorld.zip" \
+  --overlay-archive \
+    "$HOME/Library/Application Support/Rigs of Rods/mods/CityWorldNextLocalOverlay.zip" \
+  --artifact-dir /tmp/cityworld-corridor-runtime \
+  --diagnostic-allow-incomplete-overlay
+```
+
+The diagnostic validates every overlay payload, independently rebuilds the
+overlay byte for byte with the current generator, proves the 57 report
+waypoints match the script, authenticates the packaged DAF entry, and uses an
+ephemeral RoR home. It re-hashes every staged input before launch and publishes
+the artifact directory atomically only after its report is complete. Its report
+permanently records all four missing acceptance properties as false. Neither
+private ZIP is retained in the artifact directory. Its standard-library
+contract tests run under normal and optimized Python on Linux, Windows, and
+macOS.
 
 ### Authenticated legacy material compatibility
 

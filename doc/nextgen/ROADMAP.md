@@ -750,6 +750,22 @@ provenance matrix now executes the overlay builder under normal and optimized
 Python on macOS, Linux, and Windows; native full-map Windows/Linux driving is
 still an open runtime gate.
 
+The full-map acceptance gate remains open. An exploratory macOS arm64
+diagnostic drove the packaged DAF for 1,086.34 m along the exact procedural
+centreline and decoded a UI-free 1280x720 RGB proof, but that self-referential
+route test cannot certify an original-road surface join, visible-mesh
+clearance, authored bridge modules, or visible supports. The installed v2
+package is current and explicitly leaves the transition, curve, span, and
+gateway assets unplaced; its 47 supports are requests rather than runtime
+object evidence in this automated diagnostic. Manual captures show native
+procedural pillars, but not a completed authored deck/abutment system or a
+verified support count. Redesign both city connections, clear the visible
+building/curb conflict, integrate the deck/abutments/supports, add independent
+geometry and runtime-object assertions, and extend the drive through a
+commanded turn at the destination T-junction followed by substantial travel on
+the independently derived road network. Then repeat the full traversal on
+macOS, Windows, and Linux.
+
 A portable runtime gate assembles an isolated native fixture from the pinned
 content submodule. On macOS arm64, the DAF drove 137.569 metres through three
 curves, the transition, and the gateway in 30,580 deterministic physics steps.
