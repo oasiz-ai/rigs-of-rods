@@ -53,12 +53,19 @@ function(ror_ogre14_runtime_contract output_prefix system_name processor)
             "${system_name}/${processor}")
     endif ()
 
+    set(_ror_active_plugins
+        Codec_FreeImage
+        ${_ror_renderer_plugin}
+        Plugin_ParticleFX
+        Plugin_OctreeSceneManager)
     set(${output_prefix}_PACKAGE_PLUGIN_SUBDIR
         "${_ror_package_plugin_subdir}" PARENT_SCOPE)
     set(${output_prefix}_RENDERER_PLUGIN
         "${_ror_renderer_plugin}" PARENT_SCOPE)
     set(${output_prefix}_INSTALL_PLUGIN_FOLDER
         "${_ror_install_plugin_folder}" PARENT_SCOPE)
+    set(${output_prefix}_ACTIVE_PLUGINS
+        "${_ror_active_plugins}" PARENT_SCOPE)
     # OGRE appends this physical Windows Debug suffix itself. Plugin config
     # tokens remain unsuffixed on every platform.
     set(${output_prefix}_PLUGIN_BINARIES_USE_DEBUG_SUFFIX

@@ -7,3 +7,6 @@ patches:
     - patch_file: "patches/3.4.0/ogre14-api.patch"
       patch_description: "Use OGRE 14 sampler API and removed viewport orientation fallback"
       patch_type: "compatibility"
+    - patch_file: "patches/3.4.0/honor-toolchain-cxx-standard.patch"
+      patch_description: "Preserve the Conan toolchain C++ standard required by OGRE 14 headers"
+      patch_type: "portability"

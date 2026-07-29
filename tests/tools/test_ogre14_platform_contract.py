@@ -59,6 +59,7 @@ def select_runtime_contract(
             '    "${runtime_PACKAGE_PLUGIN_SUBDIR}\\n"\n'
             '    "${runtime_RENDERER_PLUGIN}\\n"\n'
             '    "${runtime_INSTALL_PLUGIN_FOLDER}\\n"\n'
+            '    "${runtime_ACTIVE_PLUGINS}\\n"\n'
             '    "${runtime_PLUGIN_BINARIES_USE_DEBUG_SUFFIX}\\n")\n',
             encoding="utf-8",
         )
@@ -74,6 +75,7 @@ def select_runtime_contract(
                 result.package_plugin_subdir,
                 result.renderer_plugin,
                 result.install_plugin_folder,
+                result.active_plugins,
                 result.plugin_binaries_use_debug_suffix,
             ) = output_path.read_text(encoding="utf-8").splitlines()
         return result
@@ -277,32 +279,86 @@ class Ogre14PlatformContractTests(unittest.TestCase):
             (
                 "Darwin",
                 "arm64",
-                ("lib/OGRE", "RenderSystem_GL3Plus", "../PlugIns", "OFF"),
+                (
+                    "lib/OGRE",
+                    "RenderSystem_GL3Plus",
+                    "../PlugIns",
+                    (
+                        "Codec_FreeImage;RenderSystem_GL3Plus;"
+                        "Plugin_ParticleFX;Plugin_OctreeSceneManager"
+                    ),
+                    "OFF",
+                ),
             ),
             (
                 "Darwin",
                 "aarch64",
-                ("lib/OGRE", "RenderSystem_GL3Plus", "../PlugIns", "OFF"),
+                (
+                    "lib/OGRE",
+                    "RenderSystem_GL3Plus",
+                    "../PlugIns",
+                    (
+                        "Codec_FreeImage;RenderSystem_GL3Plus;"
+                        "Plugin_ParticleFX;Plugin_OctreeSceneManager"
+                    ),
+                    "OFF",
+                ),
             ),
             (
                 "Linux",
                 "x86_64",
-                ("lib/OGRE", "RenderSystem_GL3Plus", "lib/OGRE", "OFF"),
+                (
+                    "lib/OGRE",
+                    "RenderSystem_GL3Plus",
+                    "lib/OGRE",
+                    (
+                        "Codec_FreeImage;RenderSystem_GL3Plus;"
+                        "Plugin_ParticleFX;Plugin_OctreeSceneManager"
+                    ),
+                    "OFF",
+                ),
             ),
             (
                 "Linux",
                 "AMD64",
-                ("lib/OGRE", "RenderSystem_GL3Plus", "lib/OGRE", "OFF"),
+                (
+                    "lib/OGRE",
+                    "RenderSystem_GL3Plus",
+                    "lib/OGRE",
+                    (
+                        "Codec_FreeImage;RenderSystem_GL3Plus;"
+                        "Plugin_ParticleFX;Plugin_OctreeSceneManager"
+                    ),
+                    "OFF",
+                ),
             ),
             (
                 "Windows",
                 "AMD64",
-                ("bin", "RenderSystem_Direct3D11", ".", "ON"),
+                (
+                    "bin",
+                    "RenderSystem_Direct3D11",
+                    ".",
+                    (
+                        "Codec_FreeImage;RenderSystem_Direct3D11;"
+                        "Plugin_ParticleFX;Plugin_OctreeSceneManager"
+                    ),
+                    "ON",
+                ),
             ),
             (
                 "Windows",
                 "x86_64",
-                ("bin", "RenderSystem_Direct3D11", ".", "ON"),
+                (
+                    "bin",
+                    "RenderSystem_Direct3D11",
+                    ".",
+                    (
+                        "Codec_FreeImage;RenderSystem_Direct3D11;"
+                        "Plugin_ParticleFX;Plugin_OctreeSceneManager"
+                    ),
+                    "ON",
+                ),
             ),
         )
         for system_name, processor, expected in cases:
@@ -317,6 +373,7 @@ class Ogre14PlatformContractTests(unittest.TestCase):
                     result.package_plugin_subdir,
                     result.renderer_plugin,
                     result.install_plugin_folder,
+                    result.active_plugins,
                     result.plugin_binaries_use_debug_suffix,
                 )
                 self.assertEqual(actual, expected)

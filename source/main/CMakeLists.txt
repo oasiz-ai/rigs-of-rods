@@ -850,8 +850,24 @@ if (WIN32)
         install(FILES ${RUNTIME_OUTPUT_DIRECTORY}/plugins.cfg DESTINATION . COMPONENT "Base_Game")
     endif ()
     install(FILES ${CMAKE_SOURCE_DIR}/tools/windows/.itch.toml DESTINATION . COMPONENT "Base_Game")
-    install(CODE "file(GLOB files ${RUNTIME_OUTPUT_DIRECTORY}/*.dll)
-            file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX})" COMPONENT "Base_Game")
+    if (ROR_OGRE14)
+        string(CONCAT
+            _ror_windows_runtime_install_code
+            "set(ROR_WINDOWS_RUNTIME_OUTPUT_DIRECTORY "
+                "\"${RUNTIME_OUTPUT_DIRECTORY}\")\n"
+            "set(ROR_WINDOWS_EXPECTED_PLUGINS "
+                "\"${_ror_ogre14_runtime_ACTIVE_PLUGINS}\")\n"
+            "set(ROR_WINDOWS_PLUGIN_BINARIES_USE_DEBUG_SUFFIX "
+                "\"${_ror_ogre14_runtime_PLUGIN_BINARIES_USE_DEBUG_SUFFIX}\")\n"
+            "include(\"${CMAKE_SOURCE_DIR}/cmake/windows/"
+                "StageWindowsRuntime.cmake\")\n")
+        install(
+            CODE "${_ror_windows_runtime_install_code}"
+            COMPONENT "Base_Game")
+    else ()
+        install(CODE "file(GLOB files ${RUNTIME_OUTPUT_DIRECTORY}/*.dll)
+                file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX})" COMPONENT "Base_Game")
+    endif ()
     install(CODE "file(GLOB files ${RUNTIME_OUTPUT_DIRECTORY}/*.exe)
             file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX})" COMPONENT "Base_Game")
 elseif (APPLE)
@@ -959,7 +975,9 @@ if (ROR_OGRE14)
     unset(_ror_ogre14_runtime_PACKAGE_PLUGIN_SUBDIR)
     unset(_ror_ogre14_runtime_RENDERER_PLUGIN)
     unset(_ror_ogre14_runtime_INSTALL_PLUGIN_FOLDER)
+    unset(_ror_ogre14_runtime_ACTIVE_PLUGINS)
     unset(_ror_ogre14_runtime_PLUGIN_BINARIES_USE_DEBUG_SUFFIX)
+    unset(_ror_windows_runtime_install_code)
     unset(_ror_ogre14_plugin_comments_D3D9)
     unset(_ror_ogre14_plugin_comments_D3D11)
     unset(_ror_ogre14_plugin_comments_GL)

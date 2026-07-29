@@ -266,6 +266,10 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
                 "defer-glsl-program-validation.patch"
             ),
             "cmake/conan/recipes/mygui/patches/3.4.0/ogre14-api.patch",
+            (
+                "cmake/conan/recipes/mygui/patches/3.4.0/"
+                "honor-toolchain-cxx-standard.patch"
+            ),
         )
         for relative_path in active_patches:
             with self.subTest(patch=relative_path):
@@ -291,6 +295,30 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
                     f"{relative_path}: whitespace: unset",
                     result.stdout,
                 )
+
+    def test_mygui_preserves_the_pinned_toolchain_cpp_standard(self) -> None:
+        recipe_dir = (
+            REPOSITORY_ROOT / "cmake" / "conan" / "recipes" / "mygui"
+        )
+        conandata = (recipe_dir / "conandata.yml").read_text(encoding="utf-8")
+        patch = (
+            recipe_dir
+            / "patches"
+            / "3.4.0"
+            / "honor-toolchain-cxx-standard.patch"
+        ).read_text(encoding="utf-8")
+        patch_path = (
+            'patch_file: "patches/3.4.0/'
+            'honor-toolchain-cxx-standard.patch"'
+        )
+        self.assertEqual(conandata.count(patch_path), 1)
+        self.assertIn("-SET(CMAKE_CXX_STANDARD 11)", patch)
+        self.assertIn(
+            "if (NOT DEFINED CMAKE_CXX_STANDARD "
+            "OR CMAKE_CXX_STANDARD LESS 14)",
+            patch,
+        )
+        self.assertIn("+set(CMAKE_CXX_STANDARD_REQUIRED ON)", patch)
 
     def test_build_install_relocation_and_audit_are_mandatory(self) -> None:
         text = self.text
