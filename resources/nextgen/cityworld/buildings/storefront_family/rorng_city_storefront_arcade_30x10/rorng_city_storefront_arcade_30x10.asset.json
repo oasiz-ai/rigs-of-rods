@@ -1,0 +1,366 @@
+{
+  "artifacts": {
+    "blend": {
+      "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.blend",
+      "sha256": "cfc72b0b64b0c3d5ff8bc6d962ce6c7afb657712d88fc4ac0c6c19715de40be4"
+    },
+    "glb": {
+      "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.glb",
+      "sha256": "dcda161d217eb2c8fda0f23e51226df1046f0fa677096b1dc1e621b9afeddd70"
+    },
+    "preview": {
+      "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10_preview.png",
+      "sha256": "a840f415697a462f60f709fce1fa2bdfefcf4af058cf4cdb3ef558f58f913580"
+    }
+  },
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_storefront_arcade_30x10",
+    "license": "GPL-3.0-or-later",
+    "profile": "static-building-v1",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "axis": "blender-z-up",
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        },
+        {
+          "path": "tools/blender/cityworld_next/canonicalize_static_glb.py",
+          "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
+        }
+      ],
+      "format": "ror-cityworld-storefront-family-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
+      "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a"
+    },
+    "procedural_provenance": {
+      "external_geometry": false,
+      "external_materials": false,
+      "external_textures": false,
+      "legacy_facts_only": [
+        "placement-count",
+        "axis-aligned-bounds",
+        "source-yaw"
+      ],
+      "method": "deterministic-project-authored-blender-python",
+      "rights_basis": "GPL-3.0-or-later project-authored source"
+    },
+    "transforms_applied": true,
+    "units": "metres"
+  },
+  "collision": {
+    "objects": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            14.83,
+            4.83,
+            10.35
+          ],
+          "min": [
+            -14.83,
+            -4.83,
+            0.0
+          ]
+        },
+        "name": "rorng_city_storefront_arcade_30x10_collision_fixture",
+        "role": "collision-fixture",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      }
+    ],
+    "profile": "single-watertight-proxy-v1",
+    "purpose": "conservative-building-envelope",
+    "separate_from_render_mesh": true
+  },
+  "compiled": {
+    "format": "ror-cityworld-compiled-asset-v1",
+    "outputs": [
+      {
+        "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10.material",
+        "role": "material-fallback",
+        "sha256": "95fa92056a5be9600fc0fb16bc45a1dc1e406daaebd7f273ab3bc2b092841711",
+        "size": 2265
+      },
+      {
+        "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10.odef",
+        "role": "terrain-object",
+        "sha256": "3d29e55e20ddbe3b2728a3cd9a388f4b8eb9aaf43647270968baddf4accb1dfd",
+        "size": 170
+      },
+      {
+        "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_collision_fixture.mesh",
+        "role": "collision-fixture",
+        "sha256": "2e0c1652800c63a6e38fb2636f71a308d7d7dbac120d013838f78d9c8109243e",
+        "size": 926
+      },
+      {
+        "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_lod0.mesh",
+        "role": "render-lod0",
+        "sha256": "cac85001e07c06fa10d811c28a7a6707c25b803f02a9dfabd03c2a3185fb4633",
+        "size": 3033753
+      },
+      {
+        "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_lod1.mesh",
+        "role": "render-lod1",
+        "sha256": "265916e44473c5642ff830a7cf0ddbb21e42cd23d96a22e526d724c29426f1e4",
+        "size": 94177
+      },
+      {
+        "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_lod2.mesh",
+        "role": "render-lod2",
+        "sha256": "5ca15b01c36d7ef3b269269ac3e72ed6501fa62cd27dd53c9b56ed31f96115ca",
+        "size": 13624
+      }
+    ],
+    "report": {
+      "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10.compile.json",
+      "sha256": "ccffe08f66fe063daababfb328a3a9f40cc193e86b15934b99f2b491d8628659"
+    }
+  },
+  "connectors": [],
+  "export": {
+    "allowlisted_extensions": [],
+    "animations": false,
+    "apply_modifiers": true,
+    "cameras": false,
+    "format": "glb",
+    "lights": false,
+    "materials": "export",
+    "profile": "gltf-2.0",
+    "selection_only": true,
+    "tangents": true,
+    "textures": [],
+    "y_up": true
+  },
+  "format": "ror-cityworld-asset-v1",
+  "geometry": {
+    "asset_family": "rorng_city_storefront_family",
+    "detail_profile": {
+      "facade": "recessed-glazing-frames-mullions-doors-canopy-signage-pilasters-cornice",
+      "roof": "parapet-hvac-fans-drainage-or-authored-gable",
+      "runtime_materials": "portable-factor-lit-rtshader-compatible"
+    },
+    "footprint_m": [
+      30.0,
+      10.0
+    ],
+    "ground_plane_z_m": 0.0,
+    "height_limit_m": 12.3121,
+    "legacy_object": "store06",
+    "lod0_triangle_ceiling": 70000,
+    "lod1_max_ratio": 0.35,
+    "lod2_max_ratio": 0.12,
+    "lods": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            15.0,
+            5.0,
+            12.2421
+          ],
+          "min": [
+            -15.01,
+            -5.17,
+            0.0
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_storefront_arcade_30x10_lod0",
+        "triangles": 22828
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            15.0,
+            5.0,
+            12.1821
+          ],
+          "min": [
+            -15.0,
+            -5.17,
+            0.0
+          ]
+        },
+        "lod": 1,
+        "name": "rorng_city_storefront_arcade_30x10_lod1",
+        "triangles": 772
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            15.0,
+            5.0,
+            11.07
+          ],
+          "min": [
+            -15.0,
+            -5.005,
+            0.0
+          ]
+        },
+        "lod": 2,
+        "name": "rorng_city_storefront_arcade_30x10_lod2",
+        "triangles": 120
+      }
+    ],
+    "style_variant": "industrial-arcade",
+    "texcoord_policy": "canonical-zero-textureless-v1"
+  },
+  "materials": [
+    {
+      "base_color_factor_linear": [
+        0.31,
+        0.34,
+        0.34,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_storefront_arcade_30x10_architectural_trim",
+      "roughness_factor": 0.59
+    },
+    {
+      "base_color_factor_linear": [
+        0.82,
+        0.03,
+        0.025,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_storefront_arcade_30x10_collision_debug",
+      "roughness_factor": 1.0
+    },
+    {
+      "base_color_factor_linear": [
+        0.29,
+        0.075,
+        0.04,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_storefront_arcade_30x10_facade",
+      "roughness_factor": 0.78
+    },
+    {
+      "base_color_factor_linear": [
+        0.055,
+        0.065,
+        0.07,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_storefront_arcade_30x10_facade_accent",
+      "roughness_factor": 0.68
+    },
+    {
+      "base_color_factor_linear": [
+        0.035,
+        0.11,
+        0.16,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.16,
+      "name": "rorng_city_storefront_arcade_30x10_glass",
+      "roughness_factor": 0.16
+    },
+    {
+      "base_color_factor_linear": [
+        0.42,
+        0.22,
+        0.075,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "emissive_factor_linear": [
+        0.684,
+        0.3312,
+        0.0864
+      ],
+      "metallic_factor": 0.0,
+      "name": "rorng_city_storefront_arcade_30x10_glass_warm_interior",
+      "roughness_factor": 0.3
+    },
+    {
+      "base_color_factor_linear": [
+        0.32,
+        0.33,
+        0.31,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_storefront_arcade_30x10_grounded_concrete",
+      "roughness_factor": 0.86
+    },
+    {
+      "base_color_factor_linear": [
+        0.025,
+        0.035,
+        0.045,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.68,
+      "name": "rorng_city_storefront_arcade_30x10_powdercoat_metal",
+      "roughness_factor": 0.3
+    },
+    {
+      "base_color_factor_linear": [
+        0.065,
+        0.075,
+        0.08,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.38,
+      "name": "rorng_city_storefront_arcade_30x10_roof",
+      "roughness_factor": 0.52
+    },
+    {
+      "base_color_factor_linear": [
+        0.065,
+        0.07,
+        0.075,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.12,
+      "name": "rorng_city_storefront_arcade_30x10_signage",
+      "roughness_factor": 0.38
+    }
+  ],
+  "storefront": {
+    "emissive_policy": {
+      "day_safe": true,
+      "material": "rorng_city_storefront_arcade_30x10_glass_warm_interior",
+      "purpose": "selected-occupied-interior-windows-only",
+      "runtime_point_lights": 0
+    },
+    "family": "rorng_city_storefront_family",
+    "grounding": {
+      "foundation_below_ground_m": 0.0,
+      "minimum_collision_z_m": 0.0,
+      "minimum_render_z_m": 0.0,
+      "placement_vertical_offset_m": 0.0
+    },
+    "legacy_object": "store06",
+    "placement_integration": "deferred",
+    "style": "industrial"
+  }
+}

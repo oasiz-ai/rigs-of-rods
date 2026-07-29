@@ -27,7 +27,7 @@ INVENTORY = (
     REPOSITORY_ROOT
     / "content-source/cityworld_next/provenance/cityworld_next.inventory.json"
 )
-PACKAGE_FILE_COUNT = 88
+PACKAGE_FILE_COUNT = 133
 STREETLIGHT_PACKAGE_PATHS = {
     "fixtures/led_streetlight/compiled/"
     "rorng_city_led_streetlight.compile.json",

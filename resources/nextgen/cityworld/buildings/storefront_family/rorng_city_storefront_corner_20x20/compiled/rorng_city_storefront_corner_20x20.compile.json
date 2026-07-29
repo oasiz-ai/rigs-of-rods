@@ -1,0 +1,128 @@
+{
+  "asset": {
+    "id": "rorng_city_storefront_corner_20x20",
+    "version": 1
+  },
+  "basis": {
+    "authoring": "blender-z-up-metres",
+    "authoring_to_interchange": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        -1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "compiler_transform": "identity",
+    "interchange": "gltf-y-up-metres",
+    "runtime": "ogre-y-up-metres"
+  },
+  "compiler": {
+    "format": "ror-cityworld-scene-compiler-v1",
+    "path": "tools/compile_cityworld_asset.py",
+    "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059"
+  },
+  "connectors": [],
+  "format": "ror-cityworld-scene-compile-report-v1",
+  "inputs": {
+    "asset_contract_sha256": "09dc2624ebecc90a7a3c68f486021468ce1ca8a8135b2ab1c5249e84493ad7af",
+    "glb": {
+      "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.glb",
+      "sha256": "8a21ef432a970cddf5b2e357f6edca517c0eba715c1034eaaa1b1bd0524b987c"
+    }
+  },
+  "limits": {
+    "indices": 12000000,
+    "materials": 4096,
+    "meshes": 4096,
+    "nodes": 4096,
+    "primitives": 8192,
+    "vertices": 4000000
+  },
+  "material_model": "ogre-rtss-metallic-roughness-fallback-v1",
+  "mesh_format": "MeshSerializer_v1.100-little-endian",
+  "ogre_converter": {
+    "executable": "OgreXMLConverter",
+    "sha256": "50b375974784925e8a180ca886f849b78ff61a3f94fa5e4b8abea710d800264a",
+    "version": "OgreXMLConverter Tsathoggua (14.5.2)"
+  },
+  "options": {
+    "colour_packing": "gl",
+    "endian": "little",
+    "lod_distances_m": [
+      80.0,
+      180.0
+    ],
+    "transforms": "applied-only"
+  },
+  "outputs": [
+    {
+      "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20.material",
+      "role": "material-fallback",
+      "sha256": "ecc180d82f0961edb7b70e2cd950b0462bc3d4b398b22f66e02fb92776766f57",
+      "size": 2257
+    },
+    {
+      "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20.odef",
+      "role": "terrain-object",
+      "sha256": "de8b7ab6eae381520eb84e5d0560bb3ca83a7ed5010b74a9e161e6961a413610",
+      "size": 170
+    },
+    {
+      "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20_collision_fixture.mesh",
+      "role": "collision-fixture",
+      "sha256": "493c78e7530c90594a1c0b24158e25101bafbe9cc0e6e86a1d5f1c73e5f29faf",
+      "size": 926
+    },
+    {
+      "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20_lod0.mesh",
+      "role": "render-lod0",
+      "sha256": "3aaa02c89461ab33b7d9aa247ff205ec7edc9c94756c7cb57211d7c2b9dd5a69",
+      "size": 2705313
+    },
+    {
+      "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20_lod1.mesh",
+      "role": "render-lod1",
+      "sha256": "7022728e28a30cc5e0fe58dd6813a0077922dfe1f8b4bf795127d466a7e9c549",
+      "size": 81343
+    },
+    {
+      "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20_lod2.mesh",
+      "role": "render-lod2",
+      "sha256": "04287b2d2f20a77469e3cf60980f263e13d6c618c09d61c823181664f10eeea0",
+      "size": 13624
+    }
+  ],
+  "runtime_lights": [],
+  "source_stats": {
+    "indices": 63264,
+    "materials": 10,
+    "meshes": 4,
+    "primitives": 24,
+    "vertices": 55616
+  },
+  "xml_intermediate_sha256": {
+    "rorng_city_storefront_corner_20x20_collision_fixture.mesh.xml": "9e3e7814aa3fd86479654789880d6ac489330f38a1985efa70898907b7d54a2f",
+    "rorng_city_storefront_corner_20x20_lod0.mesh.xml": "2c40b52a84dd9c90f6e7dae854e3ab4627d87720842b5a8a09f9a3a27a893ce7",
+    "rorng_city_storefront_corner_20x20_lod1.mesh.xml": "c094cf20fadcc25fdc1c9503f504ea58753ac2ec9e5cedc03eed52fe5b2b8e04",
+    "rorng_city_storefront_corner_20x20_lod2.mesh.xml": "91e6489c649c6103bf013f2c1e004442346f0a6a967e81460aec339ec93a31b3"
+  }
+}

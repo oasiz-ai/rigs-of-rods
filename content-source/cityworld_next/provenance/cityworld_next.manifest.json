@@ -697,6 +697,951 @@
       "author": "Oasiz AI and Rigs of Rods contributors",
       "classification": "generated",
       "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.blend",
+        "sha256": "cfc72b0b64b0c3d5ff8bc6d962ce6c7afb657712d88fc4ac0c6c19715de40be4"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10.compile.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "ccffe08f66fe063daababfb328a3a9f40cc193e86b15934b99f2b491d8628659",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.blend",
+        "sha256": "cfc72b0b64b0c3d5ff8bc6d962ce6c7afb657712d88fc4ac0c6c19715de40be4"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10.material",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "95fa92056a5be9600fc0fb16bc45a1dc1e406daaebd7f273ab3bc2b092841711",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.blend",
+        "sha256": "cfc72b0b64b0c3d5ff8bc6d962ce6c7afb657712d88fc4ac0c6c19715de40be4"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10.odef",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "3d29e55e20ddbe3b2728a3cd9a388f4b8eb9aaf43647270968baddf4accb1dfd",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.blend",
+        "sha256": "cfc72b0b64b0c3d5ff8bc6d962ce6c7afb657712d88fc4ac0c6c19715de40be4"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_collision_fixture.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "2e0c1652800c63a6e38fb2636f71a308d7d7dbac120d013838f78d9c8109243e",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.blend",
+        "sha256": "cfc72b0b64b0c3d5ff8bc6d962ce6c7afb657712d88fc4ac0c6c19715de40be4"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_lod0.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "cac85001e07c06fa10d811c28a7a6707c25b803f02a9dfabd03c2a3185fb4633",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.blend",
+        "sha256": "cfc72b0b64b0c3d5ff8bc6d962ce6c7afb657712d88fc4ac0c6c19715de40be4"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_lod1.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "265916e44473c5642ff830a7cf0ddbb21e42cd23d96a22e526d724c29426f1e4",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.blend",
+        "sha256": "cfc72b0b64b0c3d5ff8bc6d962ce6c7afb657712d88fc4ac0c6c19715de40be4"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_lod2.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "5ca15b01c36d7ef3b269269ac3e72ed6501fa62cd27dd53c9b56ed31f96115ca",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.asset.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "e3db15e1992cd6c59c5077ce04c0a6bded96172784d70fbf2c37c7b42ab9b8d9",
+      "source": {
+        "kind": "generator",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.blend",
+        "sha256": "cfc72b0b64b0c3d5ff8bc6d962ce6c7afb657712d88fc4ac0c6c19715de40be4"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.glb",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "dcda161d217eb2c8fda0f23e51226df1046f0fa677096b1dc1e621b9afeddd70",
+      "source": {
+        "kind": "generator",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.blend",
+        "sha256": "0ea3d71066623ea8b52c4c8fa41dd7df340bb7d8e33c3a0a5367c8598887cbfd"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20.compile.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "35303884ec82ebd54fd213103a827e6b9c93a311d0ee5bff1a65940bef97dabd",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.blend",
+        "sha256": "0ea3d71066623ea8b52c4c8fa41dd7df340bb7d8e33c3a0a5367c8598887cbfd"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20.material",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "ecc180d82f0961edb7b70e2cd950b0462bc3d4b398b22f66e02fb92776766f57",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.blend",
+        "sha256": "0ea3d71066623ea8b52c4c8fa41dd7df340bb7d8e33c3a0a5367c8598887cbfd"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20.odef",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "de8b7ab6eae381520eb84e5d0560bb3ca83a7ed5010b74a9e161e6961a413610",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.blend",
+        "sha256": "0ea3d71066623ea8b52c4c8fa41dd7df340bb7d8e33c3a0a5367c8598887cbfd"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20_collision_fixture.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "493c78e7530c90594a1c0b24158e25101bafbe9cc0e6e86a1d5f1c73e5f29faf",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.blend",
+        "sha256": "0ea3d71066623ea8b52c4c8fa41dd7df340bb7d8e33c3a0a5367c8598887cbfd"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20_lod0.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "3aaa02c89461ab33b7d9aa247ff205ec7edc9c94756c7cb57211d7c2b9dd5a69",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.blend",
+        "sha256": "0ea3d71066623ea8b52c4c8fa41dd7df340bb7d8e33c3a0a5367c8598887cbfd"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20_lod1.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "7022728e28a30cc5e0fe58dd6813a0077922dfe1f8b4bf795127d466a7e9c549",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.blend",
+        "sha256": "0ea3d71066623ea8b52c4c8fa41dd7df340bb7d8e33c3a0a5367c8598887cbfd"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20_lod2.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "04287b2d2f20a77469e3cf60980f263e13d6c618c09d61c823181664f10eeea0",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.asset.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "b583a5012bdf1e29f7bacaf3e90e591c27e5ab77f4038af1d1372f3191b41fe9",
+      "source": {
+        "kind": "generator",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.blend",
+        "sha256": "0ea3d71066623ea8b52c4c8fa41dd7df340bb7d8e33c3a0a5367c8598887cbfd"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.glb",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "8a21ef432a970cddf5b2e357f6edca517c0eba715c1034eaaa1b1bd0524b987c",
+      "source": {
+        "kind": "generator",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_gabled_20x10/rorng_city_storefront_gabled_20x10.blend",
+        "sha256": "774f00a1c86c21327f1112a42e5e8d768a31903efc93b38c99f7df9d66a8e116"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_gabled_20x10/compiled/rorng_city_storefront_gabled_20x10.compile.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "d77230ad4a7f0521dfd25123e6a5596d1e427e12c62e0392cd8b3191f94de89a",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_gabled_20x10/rorng_city_storefront_gabled_20x10.blend",
+        "sha256": "774f00a1c86c21327f1112a42e5e8d768a31903efc93b38c99f7df9d66a8e116"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_gabled_20x10/compiled/rorng_city_storefront_gabled_20x10.material",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "ebab3ce686148d0a7c25c16fafcfab2a3de56f8405ba9a195b175c6cbb6c3603",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_gabled_20x10/rorng_city_storefront_gabled_20x10.blend",
+        "sha256": "774f00a1c86c21327f1112a42e5e8d768a31903efc93b38c99f7df9d66a8e116"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_gabled_20x10/compiled/rorng_city_storefront_gabled_20x10.odef",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "16626e1d607c4be4c5f02ef9f72b5e52a4d5349a76faf3c5d02ade29aca6a1b4",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_gabled_20x10/rorng_city_storefront_gabled_20x10.blend",
+        "sha256": "774f00a1c86c21327f1112a42e5e8d768a31903efc93b38c99f7df9d66a8e116"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_gabled_20x10/compiled/rorng_city_storefront_gabled_20x10_collision_fixture.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "2856d03c2b6166ad3b09f51c77a1159a7325b681d16c27c1c3f245cc083bc9b5",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_gabled_20x10/rorng_city_storefront_gabled_20x10.blend",
+        "sha256": "774f00a1c86c21327f1112a42e5e8d768a31903efc93b38c99f7df9d66a8e116"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_gabled_20x10/compiled/rorng_city_storefront_gabled_20x10_lod0.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "dd901885b592381d98e931d1934bb7a70b1944a74f6d9e2684917ec3e2effa59",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_gabled_20x10/rorng_city_storefront_gabled_20x10.blend",
+        "sha256": "774f00a1c86c21327f1112a42e5e8d768a31903efc93b38c99f7df9d66a8e116"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_gabled_20x10/compiled/rorng_city_storefront_gabled_20x10_lod1.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "29bf6d419d4dff7e15e1ca0fada88651da07124e9e40d65d6cf865c02719cb6e",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_gabled_20x10/rorng_city_storefront_gabled_20x10.blend",
+        "sha256": "774f00a1c86c21327f1112a42e5e8d768a31903efc93b38c99f7df9d66a8e116"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_gabled_20x10/compiled/rorng_city_storefront_gabled_20x10_lod2.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "81c09c39f305ef4ca962438992b71a03abe5579d3f3237728ae72df679ce62e7",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_gabled_20x10/rorng_city_storefront_gabled_20x10.asset.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "a796155a87e5fa1d7231faa7db18dad569ef60c7043c1eef08224dfe35e6c7a4",
+      "source": {
+        "kind": "generator",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_gabled_20x10/rorng_city_storefront_gabled_20x10.blend",
+        "sha256": "774f00a1c86c21327f1112a42e5e8d768a31903efc93b38c99f7df9d66a8e116"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_gabled_20x10/rorng_city_storefront_gabled_20x10.glb",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "c2b5c660916573a2331c9b03be1281bd4baba0147946833665f4da7de9ce4516",
+      "source": {
+        "kind": "generator",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.blend",
+        "sha256": "a07a265b66c3c8c13bc98106abec474641a9d7b7b0b8f066e77de1d7d45bf62f"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_heritage_20x30/compiled/rorng_city_storefront_heritage_20x30.compile.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "ed2ce066a49e30fe69ca41bb18b109541549ec4b4df25b82fc6da87ee894fdc1",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.blend",
+        "sha256": "a07a265b66c3c8c13bc98106abec474641a9d7b7b0b8f066e77de1d7d45bf62f"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_heritage_20x30/compiled/rorng_city_storefront_heritage_20x30.material",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "2b20b76d04411a0fbe3041af1a69c969760f1e2dbfc7a5f72e3902e9caa25dd1",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.blend",
+        "sha256": "a07a265b66c3c8c13bc98106abec474641a9d7b7b0b8f066e77de1d7d45bf62f"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_heritage_20x30/compiled/rorng_city_storefront_heritage_20x30.odef",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "ced84cac8fc51f82823f53293e74892e969213637d4e7c63f6da41d17e664148",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.blend",
+        "sha256": "a07a265b66c3c8c13bc98106abec474641a9d7b7b0b8f066e77de1d7d45bf62f"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_heritage_20x30/compiled/rorng_city_storefront_heritage_20x30_collision_fixture.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "e291f4620bff9577cac9faa879249c5e2c370fcd2a5ab7744ec542356137d1ef",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.blend",
+        "sha256": "a07a265b66c3c8c13bc98106abec474641a9d7b7b0b8f066e77de1d7d45bf62f"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_heritage_20x30/compiled/rorng_city_storefront_heritage_20x30_lod0.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "1ddc238686f92be1a2db6b91770fc3b84d47cc92fd3207f30aa68f9d95f0b286",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.blend",
+        "sha256": "a07a265b66c3c8c13bc98106abec474641a9d7b7b0b8f066e77de1d7d45bf62f"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_heritage_20x30/compiled/rorng_city_storefront_heritage_20x30_lod1.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "26a5c12b5d3989fd9936dd6440845ca15a1856ba6b54a7ff10f45a68e9aeadc4",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.blend",
+        "sha256": "a07a265b66c3c8c13bc98106abec474641a9d7b7b0b8f066e77de1d7d45bf62f"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_heritage_20x30/compiled/rorng_city_storefront_heritage_20x30_lod2.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "b692f42768a9930b1e2a5a3eb0a1745661c6cb91fc1b96e17dc9afa027a40583",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.asset.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "fdef83a646f6b8803f281d4e44b900979d81d39c98efdf7b4388fbf2b7bffab8",
+      "source": {
+        "kind": "generator",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.blend",
+        "sha256": "a07a265b66c3c8c13bc98106abec474641a9d7b7b0b8f066e77de1d7d45bf62f"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.glb",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "fb297993acc1498032d9405ed1d056f37f2651bcba82897e1c408ccf2fe792ee",
+      "source": {
+        "kind": "generator",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.blend",
+        "sha256": "e422e7b2c032e0feb7196b1f4888b5c19beea307d7937fc706e1cde7e3d2f376"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50.compile.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "62b76fefc0e1ed2c75f78621a76bea53cd6ac060948483af6461abe36926de90",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.blend",
+        "sha256": "e422e7b2c032e0feb7196b1f4888b5c19beea307d7937fc706e1cde7e3d2f376"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50.material",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "a36459aeb3f03f1c4d1f47dfb1a46f78b6661469284be8e1af6074fc9b80b851",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.blend",
+        "sha256": "e422e7b2c032e0feb7196b1f4888b5c19beea307d7937fc706e1cde7e3d2f376"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50.odef",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "6939aca7d792ee08b44eae9530adab50e288610ad88dc94501b24655c64296b3",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.blend",
+        "sha256": "e422e7b2c032e0feb7196b1f4888b5c19beea307d7937fc706e1cde7e3d2f376"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50_collision_fixture.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "39252b850b8af38ad2555a4da959654bf9249c3276e40dbc90ef5c99467c2320",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.blend",
+        "sha256": "e422e7b2c032e0feb7196b1f4888b5c19beea307d7937fc706e1cde7e3d2f376"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50_lod0.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "1c5a407832129f0f3a49e9fdb0afea7c0545f23d726dbdcb63983e2a48028872",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.blend",
+        "sha256": "e422e7b2c032e0feb7196b1f4888b5c19beea307d7937fc706e1cde7e3d2f376"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50_lod1.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "7ea4fc65e9d62b3ad23274995cdcc5a35b84af0a6ee08a244b766cdd00a08bb7",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.blend",
+        "sha256": "e422e7b2c032e0feb7196b1f4888b5c19beea307d7937fc706e1cde7e3d2f376"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50_lod2.mesh",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "8d30ae12353dd9e648eb1705e171fc3b8c5a8c0e59d57a9a546d549a02bd0119",
+      "source": {
+        "kind": "generator",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.asset.json",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "e40ee6b5739ea408260481775310eba5756f797e518865187104f6f941c0b8f9",
+      "source": {
+        "kind": "generator",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
+        "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.blend",
+        "sha256": "e422e7b2c032e0feb7196b1f4888b5c19beea307d7937fc706e1cde7e3d2f376"
+      },
+      "license": "GPL-3.0-or-later",
+      "modified": true,
+      "path": "buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.glb",
+      "redistribution": {
+        "allowed": true,
+        "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
+      },
+      "sha256": "898080520f740fc5c67d76918e26bed87d9e3ffe143d52a21690e1db1415db2f",
+      "source": {
+        "kind": "generator",
+        "sha256": "e4db00356f8a16c3b83fd569b925d77aeb92b0a14e0f1692129208c3de65602a",
+        "uri": "https://github.com/oasiz-ai/rigs-of-rods"
+      }
+    },
+    {
+      "author": "Oasiz AI and Rigs of Rods contributors",
+      "classification": "generated",
+      "editable_source": {
         "path": "content-source/cityworld_next/fixtures/led_streetlight/rorng_city_led_streetlight.blend",
         "sha256": "2872e4cc20df1878bb68d79f20c591a908913f1cf259822b66cb0177d754acb0"
       },

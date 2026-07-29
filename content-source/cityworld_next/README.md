@@ -116,6 +116,26 @@ brighten the flat raised deck without changing road physics:
 - runtime-neutral interchange and contract:
   `../../resources/nextgen/cityworld/fixtures/led_streetlight_bridge/`.
 
+The first project-authored building family covers the 40 highest-reuse
+Penguinville storefront placements (`store02`, `store03`, `store05`, `store06`,
+and `store08`) without placing them yet. Five exact-footprint variants provide
+contemporary, heritage, market-hall, industrial-arcade, and gabled-townhouse
+silhouettes. Each includes real-scale recessed glazing, frames and mullions,
+doors, canopy, abstract project-owned signage, facade articulation, roof/HVAC
+detail, three LODs, and a separate watertight collision envelope. Every render
+and collision LOD begins at Z=0; the audited legacy one-metre subgrade envelope
+is not reproduced. Exactly one selected-occupied-window material is emissive,
+with no runtime point lights:
+
+- family and read-only compatibility audit:
+  `buildings/storefront_family/rorng_city_storefront_family.v1.json`;
+- editable sources and previews:
+  `buildings/storefront_family/rorng_city_storefront_*/`;
+- runtime-neutral interchange, contracts, and compiled OGRE packages:
+  `../../resources/nextgen/cityworld/buildings/storefront_family/`;
+- detailed workflow and future placement gate:
+  `../../doc/nextgen/CITYWORLD_STOREFRONT_FAMILY.md`.
+
 Regenerate with the pinned Blender 5.2 LTS authoring version:
 
 ```sh
@@ -136,6 +156,9 @@ blender --background --factory-startup \
   --output-root "$PWD"
 blender --background --factory-startup \
   --python tools/blender/cityworld_next/generate_bridge_streetlight.py -- \
+  --output-root "$PWD"
+blender --background --factory-startup \
+  --python tools/blender/cityworld_next/generate_cityworld_storefront_family.py -- \
   --output-root "$PWD"
 ```
 
@@ -176,6 +199,16 @@ python3 tools/compile_cityworld_asset.py \
   resources/nextgen/cityworld/fixtures/led_streetlight_bridge/rorng_city_led_streetlight_bridge.asset.json \
   --repo-root . \
   --validate-checked
+python3 tools/validate_cityworld_storefront_family.py \
+  content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_family.v1.json \
+  --repo-root .
+for manifest in \
+  resources/nextgen/cityworld/buildings/storefront_family/*/*.asset.json
+do
+  python3 tools/validate_cityworld_asset.py "$manifest" --repo-root .
+  python3 tools/compile_cityworld_asset.py "$manifest" \
+    --repo-root . --validate-checked
+done
 python3 tools/solve_cityworld_bridge_corridor.py \
   --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
   --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \

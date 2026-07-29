@@ -512,6 +512,16 @@ The first high-reuse targets are the store and townhouse families. High-rise
 and skyscraper replacements follow once the material pipeline can render their
 glass, metal, emissive windows, and reflections consistently.
 
+The first low-rise family is now asset-ready but deliberately unplaced. It
+audits the 40 combined `store02`, `store03`, `store05`, `store06`, and `store08`
+placements and supplies five independently authored exact-footprint variants.
+The 20,296–62,416 triangle LOD0 range preserves close facade depth, while
+LOD1/LOD2 fall to 660–792 and 120–276 triangles. All render and collision
+objects begin at Z=0, so the legacy one-metre subgrade envelope is not carried
+forward. The family has no runtime lights; only selected occupied windows use
+the portable core emissive factor. See
+[CityWorld Next storefront family](CITYWORLD_STOREFRONT_FAMILY.md).
+
 ## Blender and interchange contract
 
 Blender is an authoring tool, not a runtime dependency. The Blender MCP may
