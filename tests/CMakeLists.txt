@@ -350,6 +350,22 @@ target_link_libraries(
     PRIVATE OpenSSL::Crypto
 )
 
+add_executable(
+    ror_cityworld_neoq_tree_compatibility_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/CityWorldNeoQTreeCompatibilityTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/tobj_fileformat/CityWorldNeoQ20Compatibility.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/tobj_fileformat/CityWorldNeoQTreeCompatibility.cpp"
+)
+target_include_directories(
+    ror_cityworld_neoq_tree_compatibility_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/tobj_fileformat"
+)
+target_link_libraries(
+    ror_cityworld_neoq_tree_compatibility_tests
+    PRIVATE OpenSSL::Crypto
+)
+
 if (NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(
         ror_terrain_bundle_config_syntax_tests
@@ -747,6 +763,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_terrain_bundle_archive_verifier_tests
     ror_terrain_bundle_dependency_tests
     ror_cityworld_neoq20_compatibility_tests
+    ror_cityworld_neoq_tree_compatibility_tests
     ror_jbeam_advanced_structure_ir_tests
     ror_jbeam_coordinate_transform_tests
     ror_jbeam_expression_evaluator_tests
@@ -1025,6 +1042,11 @@ add_test(
 add_test(
     NAME cityworld_neoq20_compatibility
     COMMAND ror_cityworld_neoq20_compatibility_tests
+)
+
+add_test(
+    NAME cityworld_neoq_tree_compatibility
+    COMMAND ror_cityworld_neoq_tree_compatibility_tests
 )
 
 if (TARGET ror_terrain_bundle_config_syntax_tests)

@@ -1,0 +1,375 @@
+{
+  "artifacts": {
+    "blend": {
+      "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.blend",
+      "sha256": "3b8f78cb2bbd0507f10d689307dc31edcc5a663d655d680a97beada3192b1ece"
+    },
+    "glb": {
+      "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.glb",
+      "sha256": "898080520f740fc5c67d76918e26bed87d9e3ffe143d52a21690e1db1415db2f"
+    },
+    "preview": {
+      "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50_preview.png",
+      "sha256": "b6cc4efbf84117601e3335f3e7c641891fec4c42dff18369a4582753c38a0752"
+    }
+  },
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_storefront_market_20x50",
+    "license": "GPL-3.0-or-later",
+    "profile": "static-building-v1",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "artifact_reproducibility": {
+      "blend": "authenticated-retained-session-metadata-bearing",
+      "glb": "byte-deterministic-pinned-toolchain",
+      "preview": "authenticated-retained-render-metadata-bearing"
+    },
+    "axis": "blender-z-up",
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        },
+        {
+          "path": "tools/blender/cityworld_next/canonicalize_static_glb.py",
+          "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
+        },
+        {
+          "path": "tools/blender/cityworld_next/artifact_retention_contract.py",
+          "sha256": "159a7b186fc94135754c3a460c7122d6aed73036d6166e1a54ec576830bd29e6"
+        }
+      ],
+      "format": "ror-cityworld-storefront-family-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
+      "sha256": "cf79789bf94612b9f585414fc701c85f228b50096b9a64ee02016aece395647d"
+    },
+    "procedural_provenance": {
+      "external_geometry": false,
+      "external_materials": false,
+      "external_textures": false,
+      "legacy_facts_only": [
+        "placement-count",
+        "axis-aligned-bounds",
+        "source-yaw"
+      ],
+      "method": "deterministic-project-authored-blender-python",
+      "rights_basis": "GPL-3.0-or-later project-authored source"
+    },
+    "transforms_applied": true,
+    "units": "metres"
+  },
+  "collision": {
+    "objects": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            9.83,
+            24.83,
+            18.1
+          ],
+          "min": [
+            -9.83,
+            -24.83,
+            0.0
+          ]
+        },
+        "name": "rorng_city_storefront_market_20x50_collision_fixture",
+        "role": "collision-fixture",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      }
+    ],
+    "profile": "single-watertight-proxy-v1",
+    "purpose": "conservative-building-envelope",
+    "separate_from_render_mesh": true
+  },
+  "compiled": {
+    "format": "ror-cityworld-compiled-asset-v1",
+    "outputs": [
+      {
+        "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50.material",
+        "role": "material-fallback",
+        "sha256": "a36459aeb3f03f1c4d1f47dfb1a46f78b6661469284be8e1af6074fc9b80b851",
+        "size": 2262
+      },
+      {
+        "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50.odef",
+        "role": "terrain-object",
+        "sha256": "6939aca7d792ee08b44eae9530adab50e288610ad88dc94501b24655c64296b3",
+        "size": 170
+      },
+      {
+        "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50_collision_fixture.mesh",
+        "role": "collision-fixture",
+        "sha256": "39252b850b8af38ad2555a4da959654bf9249c3276e40dbc90ef5c99467c2320",
+        "size": 926
+      },
+      {
+        "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50_lod0.mesh",
+        "role": "render-lod0",
+        "sha256": "1c5a407832129f0f3a49e9fdb0afea7c0545f23d726dbdcb63983e2a48028872",
+        "size": 8833377
+      },
+      {
+        "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50_lod1.mesh",
+        "role": "render-lod1",
+        "sha256": "7ea4fc65e9d62b3ad23274995cdcc5a35b84af0a6ee08a244b766cdd00a08bb7",
+        "size": 92335
+      },
+      {
+        "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50_lod2.mesh",
+        "role": "render-lod2",
+        "sha256": "8d30ae12353dd9e648eb1705e171fc3b8c5a8c0e59d57a9a546d549a02bd0119",
+        "size": 13624
+      }
+    ],
+    "report": {
+      "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50.compile.json",
+      "sha256": "c08cbed62087ffc0f4b46796d6fa47b1ced021c6a558b103ad0dd643d8b233db"
+    }
+  },
+  "connectors": [],
+  "export": {
+    "allowlisted_extensions": [],
+    "animations": false,
+    "apply_modifiers": true,
+    "cameras": false,
+    "format": "glb",
+    "lights": false,
+    "materials": "export",
+    "profile": "gltf-2.0",
+    "selection_only": true,
+    "tangents": true,
+    "textures": [],
+    "y_up": true
+  },
+  "format": "ror-cityworld-asset-v1",
+  "geometry": {
+    "asset_family": "rorng_city_storefront_family",
+    "detail_profile": {
+      "facade": "recessed-glazing-frames-mullions-doors-canopy-signage-pilasters-cornice",
+      "roof": "parapet-hvac-fans-drainage-or-authored-gable",
+      "runtime_materials": "portable-factor-lit-rtshader-compatible"
+    },
+    "footprint_m": [
+      20.0,
+      50.0
+    ],
+    "ground_plane_z_m": 0.0,
+    "height_limit_m": 20.5984,
+    "legacy_object": "store05",
+    "lod0_triangle_ceiling": 70000,
+    "lod1_max_ratio": 0.35,
+    "lod2_max_ratio": 0.12,
+    "lods": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            10.0,
+            25.0,
+            20.16
+          ],
+          "min": [
+            -10.01,
+            -25.164999,
+            0.0
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_storefront_market_20x50_lod0",
+        "triangles": 62416
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            10.0,
+            25.0,
+            19.970001
+          ],
+          "min": [
+            -10.0,
+            -25.045,
+            0.0
+          ]
+        },
+        "lod": 1,
+        "name": "rorng_city_storefront_market_20x50_lod1",
+        "triangles": 748
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            10.0,
+            25.0,
+            18.82
+          ],
+          "min": [
+            -10.0,
+            -25.004999,
+            0.0
+          ]
+        },
+        "lod": 2,
+        "name": "rorng_city_storefront_market_20x50_lod2",
+        "triangles": 120
+      }
+    ],
+    "style_variant": "market-hall",
+    "texcoord_policy": "canonical-zero-textureless-v1"
+  },
+  "materials": [
+    {
+      "base_color_factor_linear": [
+        0.63,
+        0.59,
+        0.47,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_storefront_market_20x50_architectural_trim",
+      "roughness_factor": 0.59
+    },
+    {
+      "base_color_factor_linear": [
+        0.82,
+        0.03,
+        0.025,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_storefront_market_20x50_collision_debug",
+      "roughness_factor": 1.0
+    },
+    {
+      "base_color_factor_linear": [
+        0.26,
+        0.285,
+        0.29,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_storefront_market_20x50_facade",
+      "roughness_factor": 0.78
+    },
+    {
+      "base_color_factor_linear": [
+        0.52,
+        0.19,
+        0.055,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_storefront_market_20x50_facade_accent",
+      "roughness_factor": 0.68
+    },
+    {
+      "base_color_factor_linear": [
+        0.035,
+        0.11,
+        0.16,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.16,
+      "name": "rorng_city_storefront_market_20x50_glass",
+      "roughness_factor": 0.16
+    },
+    {
+      "base_color_factor_linear": [
+        0.42,
+        0.22,
+        0.075,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "emissive_factor_linear": [
+        0.684,
+        0.3312,
+        0.0864
+      ],
+      "metallic_factor": 0.0,
+      "name": "rorng_city_storefront_market_20x50_glass_warm_interior",
+      "roughness_factor": 0.3
+    },
+    {
+      "base_color_factor_linear": [
+        0.32,
+        0.33,
+        0.31,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_storefront_market_20x50_grounded_concrete",
+      "roughness_factor": 0.86
+    },
+    {
+      "base_color_factor_linear": [
+        0.025,
+        0.035,
+        0.045,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.68,
+      "name": "rorng_city_storefront_market_20x50_powdercoat_metal",
+      "roughness_factor": 0.3
+    },
+    {
+      "base_color_factor_linear": [
+        0.065,
+        0.075,
+        0.08,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.38,
+      "name": "rorng_city_storefront_market_20x50_roof",
+      "roughness_factor": 0.52
+    },
+    {
+      "base_color_factor_linear": [
+        0.62,
+        0.22,
+        0.045,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.12,
+      "name": "rorng_city_storefront_market_20x50_signage",
+      "roughness_factor": 0.38
+    }
+  ],
+  "storefront": {
+    "emissive_policy": {
+      "day_safe": true,
+      "material": "rorng_city_storefront_market_20x50_glass_warm_interior",
+      "purpose": "selected-occupied-interior-windows-only",
+      "runtime_point_lights": 0
+    },
+    "family": "rorng_city_storefront_family",
+    "grounding": {
+      "foundation_below_ground_m": 0.0,
+      "minimum_collision_z_m": 0.0,
+      "minimum_render_z_m": 0.0,
+      "placement_vertical_offset_m": 0.0
+    },
+    "legacy_object": "store05",
+    "placement_integration": "deferred",
+    "style": "market"
+  }
+}

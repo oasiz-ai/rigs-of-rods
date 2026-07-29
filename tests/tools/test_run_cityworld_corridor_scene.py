@@ -197,38 +197,198 @@ def synthetic_light_candidate_payload() -> bytes:
 def synthetic_overlay_report(
     repository: Path,
     payload: bytes,
-) -> dict[str, object]:
+) -> tuple[dict[str, object], dict[str, bytes]]:
     tool_records = []
     for relative in sorted(SCENE.REQUIRED_OVERLAY_TOOLS):
         tool = repository / relative
         tool.parent.mkdir(parents=True, exist_ok=True)
-        tool.write_bytes(("project-owned " + relative + "\n").encode())
+        if relative == SCENE.NEOQ_TREE_NATIVE_PLAN:
+            tool.write_bytes((REPOSITORY_ROOT / relative).read_bytes())
+        else:
+            tool.write_bytes(("project-owned " + relative + "\n").encode())
         tool_records.append(
             {
                 "path": relative,
                 "sha256": hashlib.sha256(tool.read_bytes()).hexdigest(),
             }
         )
+    family_path = repository / SCENE.NEOQ_TREE_FAMILY_MANIFEST
+    family_path.parent.mkdir(parents=True, exist_ok=True)
+    family_path.write_bytes(
+        (REPOSITORY_ROOT / SCENE.NEOQ_TREE_FAMILY_MANIFEST).read_bytes()
+    )
     covered = 1075.447727259
     waypoints = report_matching_script()["corridor"]["waypoints"]
     candidate_manifest = synthetic_light_candidate_manifest()
     candidate_payload = synthetic_light_candidate_payload()
-    candidate_record = {
-        "path": SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER,
-        "role": "disabled-light-candidate-manifest",
-        "sha256": hashlib.sha256(candidate_payload).hexdigest(),
-        "size": len(candidate_payload),
+    native_plan = SCENE.read_neoq_tree_native_plan(repository)
+    package_payloads = {
+        SCENE.OVERLAY_PLACEMENT_MEMBER: payload,
+        SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER: candidate_payload,
     }
-    return {
+    package_roles = {
+        SCENE.OVERLAY_PLACEMENT_MEMBER: "overlay-placement",
+        SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER:
+            "disabled-light-candidate-manifest",
+    }
+    material_lines = ["// synthetic merged material"]
+    for variant in SCENE.NEOQ_TREE_VARIANTS:
+        package_payloads[variant + ".odef"] = b"synthetic tree odef\n"
+        package_roles[variant + ".odef"] = "terrain-object"
+        for suffix, role in (
+            ("_collision_fixture.mesh", "collision-fixture"),
+            ("_lod0.mesh", "render-lod0"),
+            ("_lod1.mesh", "render-lod1"),
+            ("_lod2.mesh", "render-lod2"),
+        ):
+            name = variant + suffix
+            package_payloads[name] = ("synthetic " + name + "\n").encode()
+            package_roles[name] = role
+        for suffix in ("bark", "foliage_dark", "foliage_light"):
+            material_lines.extend(
+                ("material " + variant + "_" + suffix, "{", "}", "")
+            )
+    material_name = "cityworld_next_local_overlay.material"
+    package_payloads[material_name] = (
+        "\n".join(material_lines) + "\n"
+    ).encode()
+    package_roles[material_name] = "material-fallback"
+
+    replacements = []
+    for ordinal, plan in enumerate(native_plan):
+        scale = plan["scale"]
+        variant = plan["variant"]
+        wrapper_name = f"rorng_city_neoq_tree_instance_{ordinal:02d}.odef"
+        wrapper_payload = (
+            variant
+            + "_lod0.mesh\n"
+            + f"{scale}, {scale}, {scale}\n"
+            + "standard\n\nbeginmesh\nmesh "
+            + variant
+            + "_collision_fixture.mesh\n"
+            + "stdfriction concrete\nendmesh\n\nend\n"
+        ).encode()
+        package_payloads[wrapper_name] = wrapper_payload
+        package_roles[wrapper_name] = "terrain-object-scale-wrapper"
+        replacements.append(
+            {
+                "legacy_object": "arbol1Qr",
+                "object_definition": plan["object_definition"],
+                "ordinal": ordinal,
+                "position_m": plan["position_m"],
+                "position_preserved": True,
+                "rotation_degrees": [0.0, plan["yaw_degrees"], 0.0],
+                "scale": scale,
+                "source_line": plan["source_line"],
+                "source_rotation_degrees": plan["rotation_degrees"],
+                "variant": variant,
+                "wrapper": {
+                    "path": wrapper_name,
+                    "sha256": hashlib.sha256(wrapper_payload).hexdigest(),
+                    "size": len(wrapper_payload),
+                },
+            }
+        )
+    tree_manifest = {
+        "activation": {
+            "duplicate_placements_emitted": 0,
+            "fail_closed": True,
+            "mode": "native-authenticated-in-place-replacement-v1",
+            "requires_exact_archive_dependency": True,
+            "requires_exact_tobj_sha256": True,
+            "runtime_resource_preflight": "all-18-scale-wrapper-odefs",
+        },
+        "family": {
+            "asset": {
+                "author": "Oasiz AI and Rigs of Rods contributors",
+                "id": "rorng_city_neoq_tree_family",
+                "license": "GPL-3.0-or-later",
+                "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+                "version": 1,
+            },
+            "family_manifest": {
+                "path": SCENE.NEOQ_TREE_FAMILY_MANIFEST,
+                "sha256": hashlib.sha256(family_path.read_bytes()).hexdigest(),
+            },
+            "native_plan": {
+                "path": SCENE.NEOQ_TREE_NATIVE_PLAN,
+                "sha256": hashlib.sha256(
+                    (repository / SCENE.NEOQ_TREE_NATIVE_PLAN).read_bytes()
+                ).hexdigest(),
+            },
+            "selector": {
+                "algorithm": "sha256-little-endian-modulo-v1",
+                "namespace": "cityworld:neoqueretaro:arbol1qr:v1",
+            },
+            "validation": {
+                "format": "ror-cityworld-tree-family-validation-v1",
+                "summary": {
+                    "assets": 3,
+                    "compiled_outputs": 18,
+                    "errors": 0,
+                    "placements": 18,
+                    "silhouettes": 3,
+                    "valid": True,
+                },
+            },
+        },
+        "format": SCENE.NEOQ_TREE_REPLACEMENT_FORMAT,
+        "replacements": replacements,
+        "source": {
+            "legacy_object": "arbol1Qr",
+            "placement_count": 18,
+            "source_lines": [9, 26],
+            "tobj": "CityWorld.tobj",
+            "tobj_sha256": SCENE.NEOQ_TREE_SOURCE_TOBJ_SHA256,
+        },
+        "summary": {
+            "collision_scale_matches_visual_scale": True,
+            "positions_preserved": 18,
+            "replacement_count": 18,
+            "unique_scale_wrappers": 18,
+            "variants": SCENE.NEOQ_TREE_VARIANTS,
+        },
+    }
+    tree_payload = (
+        json.dumps(
+            tree_manifest,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode()
+    package_payloads[SCENE.NEOQ_TREE_REPLACEMENT_MEMBER] = tree_payload
+    package_roles[SCENE.NEOQ_TREE_REPLACEMENT_MEMBER] = (
+        "authenticated-in-place-tree-replacement-plan"
+    )
+    package_records = [
+        {
+            "path": name,
+            "role": package_roles[name],
+            "sha256": hashlib.sha256(package_payload).hexdigest(),
+            "size": len(package_payload),
+        }
+        for name, package_payload in sorted(package_payloads.items())
+    ]
+    records_by_name = {
+        record["path"]: record
+        for record in package_records
+    }
+    candidate_record = records_by_name[SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER]
+    tree_record = records_by_name[SCENE.NEOQ_TREE_REPLACEMENT_MEMBER]
+    report = {
         "format": SCENE.OVERLAY_REPORT_FORMAT,
         "source": {
             "archive": {"sha256": SCENE.CITYWORLD_SHA256},
             "references": {
                 "overlay_placements": SCENE.OVERLAY_PLACEMENT_MEMBER,
+                "tree_replacement_manifest":
+                    SCENE.NEOQ_TREE_REPLACEMENT_MEMBER,
                 "resource_bundle_dependency": (
                     "CityWorld.zip:CityWorld.terrn2:"
                     + SCENE.CITYWORLD_SHA256
-                )
+                ),
             },
         },
         "rights": {
@@ -241,20 +401,12 @@ def synthetic_overlay_report(
             "source_placement_payload_copied": False,
             "source_placement_records_derived": True,
             "source_placements_copied": False,
-            "derived_source_placement_record_count": 67,
+            "derived_source_placement_record_count": 85,
             "source_textures_copied": False,
         },
         "package": {
-            "entries": 3,
-            "files": [
-                {
-                    "path": SCENE.OVERLAY_PLACEMENT_MEMBER,
-                    "role": "overlay-placement",
-                    "sha256": hashlib.sha256(payload).hexdigest(),
-                    "size": len(payload),
-                },
-                candidate_record,
-            ],
+            "entries": len(package_payloads) + 1,
+            "files": package_records,
         },
         "tools": tool_records,
         "city_lighting": {
@@ -271,6 +423,15 @@ def synthetic_overlay_report(
                     copy.deepcopy(SCENE.NEOQ_SOURCE_POLE_DEFINITIONS),
                 "visual_geometry": candidate_manifest["visual_geometry"],
             }
+        },
+        "city_visuals": {
+            "neoq_trees": {
+                "activation": tree_manifest["activation"],
+                "family": tree_manifest["family"],
+                "replacement_manifest": tree_record,
+                "source": tree_manifest["source"],
+                "summary": tree_manifest["summary"],
+            },
         },
         "corridor": {
             "format": "ror-cityworld-intercity-corridor-v3",
@@ -320,28 +481,39 @@ def synthetic_overlay_report(
                 SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER,
             "neoq_core_runtime_light_activation": "blocked-fail-closed",
             "purpose": SCENE.EXPECTED_VISUAL_PURPOSE,
-            "packaged_asset_ids": ["rorng_city_led_streetlight_bridge"],
-            "placed_asset_ids": ["rorng_city_led_streetlight_bridge"],
+            "packaged_asset_ids": [
+                "rorng_city_led_streetlight_bridge",
+                *SCENE.EXPECTED_TREE_ASSET_IDS,
+            ],
+            "placed_asset_ids": [
+                "rorng_city_led_streetlight_bridge",
+                *SCENE.EXPECTED_TREE_ASSET_IDS,
+            ],
             "unplaced_asset_ids": SCENE.EXPECTED_UNPLACED_ASSETS,
             "validated_asset_ids": (
                 SCENE.EXPECTED_UNPLACED_ASSETS
-                + ["rorng_city_led_streetlight_bridge"]
+                + [
+                    "rorng_city_led_streetlight_bridge",
+                    *SCENE.EXPECTED_TREE_ASSET_IDS,
+                ]
             ),
         },
     }
+    return report, package_payloads
 
 
-def write_overlay(path: Path, report: dict[str, object], payload: bytes) -> None:
+def write_overlay(
+    path: Path,
+    report: dict[str, object],
+    package_payloads: dict[str, bytes],
+) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
             SCENE.OVERLAY_REPORT_MEMBER,
             json.dumps(report, sort_keys=True, separators=(",", ":")),
         )
-        archive.writestr(SCENE.OVERLAY_PLACEMENT_MEMBER, payload)
-        archive.writestr(
-            SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER,
-            synthetic_light_candidate_payload(),
-        )
+        for name, package_payload in package_payloads.items():
+            archive.writestr(name, package_payload)
 
 
 class CityWorldCorridorSceneTests(unittest.TestCase):
@@ -455,9 +627,12 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
             repository = root / "repository"
             repository.mkdir()
             payload = b"compiled overlay payload"
-            report = synthetic_overlay_report(repository, payload)
+            report, package_payloads = synthetic_overlay_report(
+                repository,
+                payload,
+            )
             archive = root / SCENE.OVERLAY_NAME
-            write_overlay(archive, report, payload)
+            write_overlay(archive, report, package_payloads)
             validated, record = SCENE.validate_overlay_archive(
                 archive,
                 repository,
@@ -468,25 +643,25 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
 
             changed = copy.deepcopy(report)
             changed["package"]["files"][0]["sha256"] = "0" * 64
-            write_overlay(archive, changed, payload)
+            write_overlay(archive, changed, package_payloads)
             with self.assertRaises(SCENE.CorridorSceneFailure):
                 SCENE.validate_overlay_archive(archive, repository)
 
             changed = copy.deepcopy(report)
             changed["corridor"]["connection"]["source_position_gap_m"] = 0.1
-            write_overlay(archive, changed, payload)
+            write_overlay(archive, changed, package_payloads)
             with self.assertRaises(SCENE.CorridorSceneFailure):
                 SCENE.validate_overlay_archive(archive, repository)
 
             changed = copy.deepcopy(report)
             changed["corridor"]["source"]["apron"]["curb_clearance_m"] = 0.0
-            write_overlay(archive, changed, payload)
+            write_overlay(archive, changed, package_payloads)
             with self.assertRaises(SCENE.CorridorSceneFailure):
                 SCENE.validate_overlay_archive(archive, repository)
 
             changed = copy.deepcopy(report)
             changed["corridor"]["waypoints"][2]["position_m"][1] = 0.3
-            write_overlay(archive, changed, payload)
+            write_overlay(archive, changed, package_payloads)
             with self.assertRaises(SCENE.CorridorSceneFailure):
                 SCENE.validate_overlay_archive(archive, repository)
 
@@ -494,15 +669,67 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
             changed["city_lighting"]["neoq_core"][
                 "source_pole_definitions"
             ][0]["sha256"] = "0" * 64
-            write_overlay(archive, changed, payload)
+            write_overlay(archive, changed, package_payloads)
             with self.assertRaises(SCENE.CorridorSceneFailure):
                 SCENE.validate_overlay_archive(archive, repository)
 
             changed = copy.deepcopy(report)
             changed["visual_asset_usage"]["purpose"] = "stale v3 purpose"
-            write_overlay(archive, changed, payload)
+            write_overlay(archive, changed, package_payloads)
             with self.assertRaises(SCENE.CorridorSceneFailure):
                 SCENE.validate_overlay_archive(archive, repository)
+
+    def test_neoq_tree_manifest_and_wrappers_are_exact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            repository.mkdir()
+            report, package_payloads = synthetic_overlay_report(
+                repository,
+                b"overlay placements without tree duplicates",
+            )
+            records = {
+                record["path"]: record
+                for record in report["package"]["files"]
+            }
+            tree_manifest = json.loads(
+                package_payloads[
+                    SCENE.NEOQ_TREE_REPLACEMENT_MEMBER
+                ].decode("utf-8")
+            )
+            validated = SCENE.validate_neoq_tree_replacements(
+                tree_manifest,
+                repository,
+                package_payloads,
+                records,
+            )
+            self.assertEqual(
+                validated["summary"]["replacement_count"],
+                SCENE.NEOQ_TREE_COUNT,
+            )
+
+            changed = copy.deepcopy(tree_manifest)
+            changed["replacements"][0]["scale"] += 0.01
+            with self.assertRaises(SCENE.CorridorSceneFailure):
+                SCENE.validate_neoq_tree_replacements(
+                    changed,
+                    repository,
+                    package_payloads,
+                    records,
+                )
+
+            changed_payloads = dict(package_payloads)
+            wrapper = "rorng_city_neoq_tree_instance_00.odef"
+            changed_payloads[wrapper] = changed_payloads[wrapper].replace(
+                b"1.02212, 1.02212, 1.02212",
+                b"1.02212, 1.02212, 1.5",
+            )
+            with self.assertRaises(SCENE.CorridorSceneFailure):
+                SCENE.validate_neoq_tree_replacements(
+                    tree_manifest,
+                    repository,
+                    changed_payloads,
+                    records,
+                )
 
     def test_neoq_candidate_manifest_is_exact_and_fail_closed(self) -> None:
         manifest = synthetic_light_candidate_manifest()

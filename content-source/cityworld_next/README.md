@@ -116,6 +116,26 @@ brighten the flat raised deck without changing road physics:
 - runtime-neutral interchange and contract:
   `../../resources/nextgen/cityworld/fixtures/led_streetlight_bridge/`.
 
+The first project-authored building family covers the 40 highest-reuse
+Penguinville storefront placements (`store02`, `store03`, `store05`, `store06`,
+and `store08`) without placing them yet. Five exact-footprint variants provide
+contemporary, heritage, market-hall, industrial-arcade, and gabled-townhouse
+silhouettes. Each includes real-scale recessed glazing, frames and mullions,
+doors, canopy, abstract project-owned signage, facade articulation, roof/HVAC
+detail, three LODs, and a separate watertight collision envelope. Every render
+and collision LOD begins at Z=0; the audited legacy one-metre subgrade envelope
+is not reproduced. Exactly one selected-occupied-window material is emissive,
+with no runtime point lights:
+
+- family and read-only compatibility audit:
+  `buildings/storefront_family/rorng_city_storefront_family.v1.json`;
+- editable sources and previews:
+  `buildings/storefront_family/rorng_city_storefront_*/`;
+- runtime-neutral interchange, contracts, and compiled OGRE packages:
+  `../../resources/nextgen/cityworld/buildings/storefront_family/`;
+- detailed workflow and future placement gate:
+  `../../doc/nextgen/CITYWORLD_STOREFRONT_FAMILY.md`.
+
 Regenerate with the pinned Blender 5.2 LTS authoring version:
 
 ```sh
@@ -136,6 +156,9 @@ blender --background --factory-startup \
   --output-root "$PWD"
 blender --background --factory-startup \
   --python tools/blender/cityworld_next/generate_bridge_streetlight.py -- \
+  --output-root "$PWD"
+blender --background --factory-startup \
+  --python tools/blender/cityworld_next/generate_cityworld_storefront_family.py -- \
   --output-root "$PWD"
 ```
 
@@ -176,6 +199,16 @@ python3 tools/compile_cityworld_asset.py \
   resources/nextgen/cityworld/fixtures/led_streetlight_bridge/rorng_city_led_streetlight_bridge.asset.json \
   --repo-root . \
   --validate-checked
+python3 tools/validate_cityworld_storefront_family.py \
+  content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_family.v1.json \
+  --repo-root .
+for manifest in \
+  resources/nextgen/cityworld/buildings/storefront_family/*/*.asset.json
+do
+  python3 tools/validate_cityworld_asset.py "$manifest" --repo-root .
+  python3 tools/compile_cityworld_asset.py "$manifest" \
+    --repo-root . --validate-checked
+done
 python3 tools/solve_cityworld_bridge_corridor.py \
   --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
   --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
@@ -217,9 +250,9 @@ python3 tools/build_cityworld_local_overlay.py \
 ```
 
 The output path must not already exist and must be outside this repository.
-The current eight-entry deterministic ZIP references the separately installed
+The current 43-entry deterministic ZIP references the separately installed
 original `CityWorld.otc` and `CityWorld.tobj`; it does not copy either file or
-any original map asset. Overlay v3 authenticates the two source road-object
+any original map asset. Overlay v4 authenticates the two source road-object
 placements and replaces the incomplete 192 m prototype with a continuous
 1,075.448 m native construction alignment. It starts 14.8491 m inside
 Penguinville's east carriageway, rises from the decoded 0.198 m road surface
@@ -232,17 +265,29 @@ functionally removes the curb from the connection without copying or modifying
 the original private city mesh.
 
 Its inventory is the generated descriptor, merged material script, procedural
-placement, canonical local-only provenance report, and four collisionless
-runtime resources for the placed bridge streetlight. The four Blender-authored
-module families remain validated and reported but are unplaced and excluded
-from the runtime payload because their existing ODEFs own collision. The v3
-route continues to use RoR's native procedural road, barriers and
-terrain-reaching pillars as the sole corridor collision authority. The
+placement, canonical local-only provenance report, disabled light-candidate
+manifest, authenticated tree-replacement manifest, four collisionless runtime
+resources for the placed bridge streetlight, 18 scale wrappers, and 15
+precompiled tree runtime resources: three ODEFs plus 12 render/collision meshes.
+The four Blender-authored module families remain validated and reported but are
+unplaced and excluded from the runtime payload because their existing ODEFs own
+collision. The v4 route continues to use RoR's native procedural road, barriers,
+and terrain-reaching pillars as the sole corridor collision authority. The
 building-overlapping gateway is not placed. Sixteen alternating bridge
 fixtures are mounted from station 234.8491 m through 834.8491 m, with exact
 inward transforms and one checked warm point light per instance. The source
 archive stays byte-identical and the generated package is explicitly not for
 redistribution or shipping.
+
+The same overlay replaces exactly the 18 authenticated `arbol1Qr` records at
+`CityWorld.tobj` source lines 9–26. The native policy edits each legacy record
+in place only after archive, TOBJ, placement, selector, and all-wrapper
+preflights pass, preserving its exact position while applying the checked
+three-variant yaw/scale assignment. No replacement placement is added to the
+overlay TOBJ. Each generated ODEF wrapper applies one uniform scale to both the
+precompiled OGRE render LODs and the watertight trunk collision proxy, and the
+machine-readable replacement manifest records every source line, transform,
+asset, wrapper hash, and zero-duplicate contract.
 
 The generated descriptor mounts the original archive through:
 
@@ -266,4 +311,9 @@ The GLB is the canonical geometry interchange output and is expected to remain
 byte-deterministic for the pinned Blender generator. `.blend` files and
 rendered previews are editable/evidence artifacts whose exact bytes may change
 between Blender sessions or versions; their current hashes are always pinned
-by the asset and provenance manifests.
+by the asset and provenance manifests. The storefront generator authenticates
+the checked paths and SHA-256 values before retaining those session-dependent
+artifacts. A mismatch fails closed instead of being rehashed. Its GLB and
+compiled runtime outputs are independently rebuilt from two artifact-free roots
+by `tools/verify_cityworld_storefront_clean_reproducibility.py`; the lower-level
+root comparator is `tools/compare_cityworld_storefront_reproducibility.py`.

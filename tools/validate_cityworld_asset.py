@@ -38,9 +38,15 @@ RUNTIME_LIGHT_ID_PATTERN = re.compile(r"rorng_[a-z0-9_]+")
 CORRIDOR_ASSET_PROFILE = "corridor-module-v1"
 FIXTURE_ASSET_PROFILE = "static-fixture-v1"
 STATIC_VISUAL_ASSET_PROFILE = "static-visual-v1"
+STATIC_BUILDING_ASSET_PROFILE = "static-building-v1"
 STATIC_ASSET_PROFILES = {
+    STATIC_BUILDING_ASSET_PROFILE,
     FIXTURE_ASSET_PROFILE,
     STATIC_VISUAL_ASSET_PROFILE,
+}
+COLLIDING_STATIC_ASSET_PROFILES = {
+    STATIC_BUILDING_ASSET_PROFILE,
+    FIXTURE_ASSET_PROFILE,
 }
 SUPPORTED_ASSET_PROFILES = {
     CORRIDOR_ASSET_PROFILE,
@@ -1299,7 +1305,7 @@ class Validator:
             0
             if profile == STATIC_VISUAL_ASSET_PROFILE
             else 1
-            if profile == FIXTURE_ASSET_PROFILE
+            if profile in COLLIDING_STATIC_ASSET_PROFILES
             else 3
         )
         if not isinstance(objects, list) or len(objects) != expected_count:
@@ -1307,8 +1313,8 @@ class Validator:
                 "collisionless visual assets require an explicit empty object list"
                 if profile == STATIC_VISUAL_ASSET_PROFILE
                 else
-                "one fixture collision proxy is required"
-                if profile == FIXTURE_ASSET_PROFILE
+                "one static collision proxy is required"
+                if profile in COLLIDING_STATIC_ASSET_PROFILES
                 else "road plus left/right barrier collision objects are required"
             )
             self.add(
@@ -1327,7 +1333,7 @@ class Validator:
                 "static visuals must use the collisionless visual profile",
             )
         if (
-            profile == FIXTURE_ASSET_PROFILE
+            profile in COLLIDING_STATIC_ASSET_PROFILES
             and collision.get("profile") != "single-watertight-proxy-v1"
         ):
             self.add(
@@ -1354,13 +1360,13 @@ class Validator:
             if extras.get("rorng_role") != role or not str(role).startswith("collision-"):
                 self.add("COLLISION_EXTRAS", pointer, "collision role metadata does not match")
             if (
-                profile == FIXTURE_ASSET_PROFILE
+                profile in COLLIDING_STATIC_ASSET_PROFILES
                 and role != "collision-fixture"
             ):
                 self.add(
                     "COLLISION_ROLE",
                     f"{pointer}.role",
-                    "fixture collision role must be collision-fixture",
+                    "static collision role must be collision-fixture",
                 )
             self.validate_collision_mesh(node=node, pointer=pointer)
             try:
@@ -1401,6 +1407,26 @@ class Validator:
                 )
 
         self.stats["collision_objects"] = len(objects)
+        if profile == STATIC_BUILDING_ASSET_PROFILE:
+            geometry = self.manifest.get("geometry", {})
+            height = geometry.get("height_limit_m")
+            for name, minimum, maximum in bounds:
+                if minimum[2] != 0.0:
+                    self.add(
+                        "BUILDING_COLLISION_GROUND",
+                        "$.collision.objects",
+                        f"{name} must begin at exactly ground Z=0",
+                    )
+                if (
+                    isinstance(height, (int, float))
+                    and not isinstance(height, bool)
+                    and maximum[2] > float(height) + POSITION_EPSILON
+                ):
+                    self.add(
+                        "BUILDING_COLLISION_HEIGHT",
+                        "$.collision.objects",
+                        f"{name} exceeds the declared building height",
+                    )
         for first_index, (first_name, first_min, first_max) in enumerate(bounds):
             for second_name, second_min, second_max in bounds[first_index + 1 :]:
                 overlaps = all(
@@ -1435,6 +1461,109 @@ class Validator:
                     "$.connectors",
                     "static assets require an explicit empty connector list",
                 )
+            if profile == STATIC_BUILDING_ASSET_PROFILE:
+                footprint = geometry.get("footprint_m")
+                height = geometry.get("height_limit_m")
+                ground = geometry.get("ground_plane_z_m")
+                if (
+                    not isinstance(footprint, list)
+                    or len(footprint) != 2
+                    or any(
+                        isinstance(value, bool)
+                        or not isinstance(value, (int, float))
+                        or not 1.0 <= float(value) <= 100.0
+                        for value in footprint
+                    )
+                ):
+                    self.add(
+                        "BUILDING_FOOTPRINT",
+                        "$.geometry.footprint_m",
+                        "building footprint must contain two dimensions from 1 to 100 metres",
+                    )
+                if (
+                    isinstance(height, bool)
+                    or not isinstance(height, (int, float))
+                    or not 2.0 <= float(height) <= 100.0
+                ):
+                    self.add(
+                        "BUILDING_HEIGHT",
+                        "$.geometry.height_limit_m",
+                        "building height must be from 2 to 100 metres",
+                    )
+                if (
+                    isinstance(ground, bool)
+                    or not isinstance(ground, (int, float))
+                    or float(ground) != 0.0
+                ):
+                    self.add(
+                        "BUILDING_GROUND",
+                        "$.geometry.ground_plane_z_m",
+                        "building ground plane must be exactly zero metres",
+                    )
+                lods = geometry.get("lods")
+                if isinstance(lods, list):
+                    for index, lod in enumerate(lods):
+                        bounds = (
+                            lod.get("bounds_blender_z_up")
+                            if isinstance(lod, dict)
+                            else None
+                        )
+                        minimum = (
+                            bounds.get("min")
+                            if isinstance(bounds, dict)
+                            else None
+                        )
+                        maximum = (
+                            bounds.get("max")
+                            if isinstance(bounds, dict)
+                            else None
+                        )
+                        if (
+                            not isinstance(minimum, list)
+                            or len(minimum) != 3
+                            or minimum[2] != 0.0
+                        ):
+                            self.add(
+                                "BUILDING_RENDER_GROUND",
+                                f"$.geometry.lods[{index}]",
+                                "building render LOD must begin at ground Z=0",
+                            )
+                        if (
+                            isinstance(height, (int, float))
+                            and not isinstance(height, bool)
+                            and (
+                                not isinstance(maximum, list)
+                                or len(maximum) != 3
+                                or not isinstance(maximum[2], (int, float))
+                                or isinstance(maximum[2], bool)
+                                or float(maximum[2])
+                                > float(height) + POSITION_EPSILON
+                            )
+                        ):
+                            self.add(
+                                "BUILDING_RENDER_HEIGHT",
+                                f"$.geometry.lods[{index}]",
+                                "building render LOD exceeds declared height",
+                            )
+                forbidden = sorted(
+                    {
+                        "bridge_length_m",
+                        "bridge_width_m",
+                        "centerline_length_m",
+                        "curve_radius_m",
+                        "road_width_m",
+                        "turn_angle_degrees",
+                    }
+                    & set(geometry)
+                )
+                if forbidden:
+                    self.add(
+                        "BUILDING_GEOMETRY",
+                        "$.geometry",
+                        "static building declares corridor geometry: "
+                        + ", ".join(forbidden),
+                    )
+                return
             height = geometry.get("fixture_height_m")
             footprint = geometry.get("footprint_diameter_m")
             if (

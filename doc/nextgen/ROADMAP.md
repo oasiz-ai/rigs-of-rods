@@ -119,6 +119,12 @@ road with a continuous 1,075.448 m collision surface, destination seam closure,
 stations. It also derives a disabled, non-shipping manifest for the 67
 authenticated luminaria poles within 400 m of NeoQueretaro Spawn, capped at
 one representative 24 m light per existing pole with no duplicate geometry.
+The same overlay now packages the first completed CW3 placement slice: exactly
+18 authenticated `arbol1Qr` records are replaced in place by the project-owned
+round, columnar, and windswept family. A shared native/package plan preserves
+every source position, applies deterministic yaw and uniform render/collision
+scale through 18 unique ODEF wrappers, emits no duplicate TOBJ placements, and
+fails closed on archive, TOBJ, selector, source-record, or resource drift.
 The building-overlapping prototype gateway is no longer placed.
 
 Both modules now compile through the first production
