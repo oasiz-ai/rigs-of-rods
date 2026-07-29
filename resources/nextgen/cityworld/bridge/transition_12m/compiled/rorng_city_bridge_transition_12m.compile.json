@@ -1,0 +1,168 @@
+{
+  "asset": {
+    "id": "rorng_city_bridge_transition_12m",
+    "version": 1
+  },
+  "basis": {
+    "authoring": "blender-z-up-metres",
+    "authoring_to_interchange": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        -1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "compiler_transform": "identity",
+    "interchange": "gltf-y-up-metres",
+    "runtime": "ogre-y-up-metres"
+  },
+  "compiler": {
+    "format": "ror-cityworld-scene-compiler-v1",
+    "path": "tools/compile_cityworld_asset.py",
+    "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa"
+  },
+  "connectors": [
+    {
+      "id": "end",
+      "lane_centres_x_m": [
+        -1.75,
+        1.75
+      ],
+      "position_ogre_y_up_m": [
+        0.0,
+        0.0,
+        -6.0
+      ],
+      "road_width_m": 8.9
+    },
+    {
+      "id": "start",
+      "lane_centres_x_m": [
+        -1.75,
+        1.75
+      ],
+      "position_ogre_y_up_m": [
+        0.0,
+        0.0,
+        6.0
+      ],
+      "road_width_m": 8.9
+    }
+  ],
+  "format": "ror-cityworld-scene-compile-report-v1",
+  "inputs": {
+    "asset_contract_sha256": "e67ab4e7658fd08a1cbdf2f230697918dc18398e1a0dc98ae43d64d95a1393f0",
+    "glb": {
+      "path": "resources/nextgen/cityworld/bridge/transition_12m/rorng_city_bridge_transition_12m.glb",
+      "sha256": "fa3cd69d4bee278b3384866920e663efc35688a380164c1ffafebd4367100a7a"
+    }
+  },
+  "limits": {
+    "indices": 12000000,
+    "materials": 4096,
+    "meshes": 4096,
+    "nodes": 4096,
+    "primitives": 8192,
+    "vertices": 4000000
+  },
+  "material_model": "ogre-rtss-metallic-roughness-fallback-v1",
+  "mesh_format": "MeshSerializer_v1.100-little-endian",
+  "ogre_converter": {
+    "executable": "OgreXMLConverter",
+    "sha256": "01f80e0400688d899e8934335678ea9875089d3715543f63f7b69f24f1b93ce3",
+    "version": "OgreXMLConverter Tsathoggua (14.5.2)"
+  },
+  "options": {
+    "colour_packing": "gl",
+    "endian": "little",
+    "lod_distances_m": [
+      80.0,
+      180.0
+    ],
+    "transforms": "applied-only"
+  },
+  "outputs": [
+    {
+      "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.material",
+      "role": "material-fallback",
+      "sha256": "94e291f8332c2e0ee2048f29bca17fc05aaad8cb7900a554e4a4e8b74979e1f7",
+      "size": 1449
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.odef",
+      "role": "terrain-object",
+      "sha256": "efc34693487511b67d603ac0422c40c5383f441d769f6f43d792a296fe2dc434",
+      "size": 375
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_collision_barrier_left.mesh",
+      "role": "collision-barrier",
+      "sha256": "e1d58abfc794bab711bc9f8090f59bd148a98c2bf909b10c76b8340b6dd88770",
+      "size": 911
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_collision_barrier_right.mesh",
+      "role": "collision-barrier",
+      "sha256": "4f457c388795e120ebbd1e89795a4e06ee8850281d2645ed5117114fc0b4ac58",
+      "size": 912
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_collision_road.mesh",
+      "role": "collision-road",
+      "sha256": "69df36443df4ae87bb9d1c33a3ea03cabd1c395c7a4204c2fe576bef6a71dd24",
+      "size": 903
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_lod0.mesh",
+      "role": "render-lod0",
+      "sha256": "6e6329014c5c8e6a5e86d4a898253728af2f35db8e823f60a3a67264734908d2",
+      "size": 176191
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_lod1.mesh",
+      "role": "render-lod1",
+      "sha256": "003bcd9b5941cedc5bf5e7d6409d0ff9a996b9e9c0745fd618aa347ea1f6ac41",
+      "size": 23096
+    },
+    {
+      "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_lod2.mesh",
+      "role": "render-lod2",
+      "sha256": "6f7e003eaea074355350ad464380fa81abd8d6308182e00c2d501ec8cc4c15d0",
+      "size": 10258
+    }
+  ],
+  "source_stats": {
+    "indices": 5160,
+    "materials": 7,
+    "meshes": 6,
+    "primitives": 16,
+    "vertices": 4166
+  },
+  "xml_intermediate_sha256": {
+    "rorng_city_bridge_transition_12m_collision_barrier_left.mesh.xml": "88c50805f029fe76e6a83b9b2d2395c83ba5f42a705b35f10dfcf9f3e158a3c5",
+    "rorng_city_bridge_transition_12m_collision_barrier_right.mesh.xml": "697250ae02e2d84947a944273436e598e1fa84c56530b310cd64d2d4f376f4a6",
+    "rorng_city_bridge_transition_12m_collision_road.mesh.xml": "fd64a51938e4d21bee49f481bc95cc50aa34ecf03d14955f47ea1c1dfd989d25",
+    "rorng_city_bridge_transition_12m_lod0.mesh.xml": "83daebae6f5985479a7f5fa726c56d0e74815e0775db64dbae0638722e87ee8f",
+    "rorng_city_bridge_transition_12m_lod1.mesh.xml": "6af3af0939f81154384caa674b46b175d21ece06eb4d541ab912356dee5197d6",
+    "rorng_city_bridge_transition_12m_lod2.mesh.xml": "d878604fc010fc71799843df416584c54f6526a4cde09c5dbba17a1f36def6cc"
+  }
+}

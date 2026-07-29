@@ -25,6 +25,11 @@ CURVED_MANIFEST_PATH = (
     "rorng_city_bridge_curve_left_15deg_20m.asset.json"
 )
 CURVED_MANIFEST_RELATIVE = CURVED_MANIFEST_PATH.relative_to(REPOSITORY_ROOT)
+TRANSITION_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/bridge/transition_12m/"
+    "rorng_city_bridge_transition_12m.asset.json"
+)
 
 
 class CityWorldAssetValidationTests(unittest.TestCase):
@@ -117,6 +122,26 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 "glb_nodes": 6,
                 "lod_objects": 3,
                 "triangles": 8476,
+                "valid": True,
+            },
+        )
+
+    def test_checked_in_transition_asset_passes_full_gate(self) -> None:
+        result, report = self.run_validator(
+            REPOSITORY_ROOT,
+            TRANSITION_MANIFEST_PATH,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(report["diagnostics"], [])
+        self.assertEqual(
+            report["summary"],
+            {
+                "collision_objects": 3,
+                "errors": 0,
+                "glb_materials": 7,
+                "glb_nodes": 6,
+                "lod_objects": 3,
+                "triangles": 1720,
                 "valid": True,
             },
         )

@@ -131,6 +131,72 @@
       "sha256": "d658272799f6369abb6339a6eb6b52e13862098ff81737f76df6bd45a2eaa3c3",
       "size": 653584,
       "type": "file"
+    },
+    {
+      "path": "bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.compile.json",
+      "sha256": "16b859c061088a5e52c331c1091aaa251f36562044695e4e738288135309fcd3",
+      "size": 5341,
+      "type": "file"
+    },
+    {
+      "path": "bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.material",
+      "sha256": "94e291f8332c2e0ee2048f29bca17fc05aaad8cb7900a554e4a4e8b74979e1f7",
+      "size": 1449,
+      "type": "file"
+    },
+    {
+      "path": "bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.odef",
+      "sha256": "efc34693487511b67d603ac0422c40c5383f441d769f6f43d792a296fe2dc434",
+      "size": 375,
+      "type": "file"
+    },
+    {
+      "path": "bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_collision_barrier_left.mesh",
+      "sha256": "e1d58abfc794bab711bc9f8090f59bd148a98c2bf909b10c76b8340b6dd88770",
+      "size": 911,
+      "type": "file"
+    },
+    {
+      "path": "bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_collision_barrier_right.mesh",
+      "sha256": "4f457c388795e120ebbd1e89795a4e06ee8850281d2645ed5117114fc0b4ac58",
+      "size": 912,
+      "type": "file"
+    },
+    {
+      "path": "bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_collision_road.mesh",
+      "sha256": "69df36443df4ae87bb9d1c33a3ea03cabd1c395c7a4204c2fe576bef6a71dd24",
+      "size": 903,
+      "type": "file"
+    },
+    {
+      "path": "bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_lod0.mesh",
+      "sha256": "6e6329014c5c8e6a5e86d4a898253728af2f35db8e823f60a3a67264734908d2",
+      "size": 176191,
+      "type": "file"
+    },
+    {
+      "path": "bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_lod1.mesh",
+      "sha256": "003bcd9b5941cedc5bf5e7d6409d0ff9a996b9e9c0745fd618aa347ea1f6ac41",
+      "size": 23096,
+      "type": "file"
+    },
+    {
+      "path": "bridge/transition_12m/compiled/rorng_city_bridge_transition_12m_lod2.mesh",
+      "sha256": "6f7e003eaea074355350ad464380fa81abd8d6308182e00c2d501ec8cc4c15d0",
+      "size": 10258,
+      "type": "file"
+    },
+    {
+      "path": "bridge/transition_12m/rorng_city_bridge_transition_12m.asset.json",
+      "sha256": "ae0acaf62d7632b26be1a60d0462a1799cc6382bddbc56f305213f2aaa30a414",
+      "size": 9565,
+      "type": "file"
+    },
+    {
+      "path": "bridge/transition_12m/rorng_city_bridge_transition_12m.glb",
+      "sha256": "fa3cd69d4bee278b3384866920e663efc35688a380164c1ffafebd4367100a7a",
+      "size": 226000,
+      "type": "file"
     }
   ],
   "format": "ror-distributable-inventory-v1"

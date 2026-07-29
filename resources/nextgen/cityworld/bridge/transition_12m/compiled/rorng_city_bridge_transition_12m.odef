@@ -1,0 +1,20 @@
+rorng_city_bridge_transition_12m_lod0.mesh
+1, 1, 1
+standard
+
+beginmesh
+mesh rorng_city_bridge_transition_12m_collision_barrier_left.mesh
+stdfriction concrete
+endmesh
+
+beginmesh
+mesh rorng_city_bridge_transition_12m_collision_barrier_right.mesh
+stdfriction concrete
+endmesh
+
+beginmesh
+mesh rorng_city_bridge_transition_12m_collision_road.mesh
+stdfriction asphalt
+endmesh
+
+end

@@ -4,8 +4,8 @@ This directory contains project-authored source and evidence for the
 rights-cleared CityWorld visual upgrade. It does not contain or derive geometry
 from the user-supplied `CityWorld.zip`.
 
-The first bridge family contains a 20 m tangent span and a 20 m-centreline,
-15-degree left curve:
+The first bridge family contains a 20 m tangent span, a 20 m-centreline
+15-degree left curve, and a 12 m road-to-bridge transition:
 
 - editable source:
   `bridge/rorng_city_bridge_span_20m.blend`;
@@ -30,6 +30,18 @@ separate swept road/barrier collision shells:
 - runtime-neutral interchange and contract:
   `../../resources/nextgen/cityworld/bridge/curve_left_15deg/`.
 
+The transition module closes a bridge corridor against terrain with a
+continuous drivable slab, expansion joint, drains, bearing shelf, backwall,
+flared wing walls, retaining toes, three render LODs, and separate road and
+barrier collision meshes:
+
+- editable source:
+  `bridge/transition_12m/rorng_city_bridge_transition_12m.blend`;
+- authoring preview:
+  `bridge/transition_12m/rorng_city_bridge_transition_12m_preview.png`;
+- runtime-neutral interchange and contract:
+  `../../resources/nextgen/cityworld/bridge/transition_12m/`.
+
 Regenerate with Blender 4.0 or newer:
 
 ```sh
@@ -38,6 +50,9 @@ blender --background --factory-startup \
   --output-root "$PWD"
 blender --background --factory-startup \
   --python tools/blender/cityworld_next/generate_curved_bridge.py -- \
+  --output-root "$PWD"
+blender --background --factory-startup \
+  --python tools/blender/cityworld_next/generate_bridge_transition.py -- \
   --output-root "$PWD"
 ```
 
@@ -50,10 +65,14 @@ python3 tools/validate_cityworld_asset.py \
 python3 tools/validate_cityworld_asset.py \
   resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
   --repo-root .
+python3 tools/validate_cityworld_asset.py \
+  resources/nextgen/cityworld/bridge/transition_12m/rorng_city_bridge_transition_12m.asset.json \
+  --repo-root .
 python3 tools/solve_cityworld_bridge_corridor.py \
   --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
   --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
   --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
+  --asset resources/nextgen/cityworld/bridge/transition_12m/rorng_city_bridge_transition_12m.asset.json \
   --entry-x 512 --entry-z 482 --heading-degrees 0 --format tobj
 python3 tools/build_cityworld_next_provenance.py --repo-root .
 python3 tools/build_cityworld_next_provenance.py --repo-root . --check

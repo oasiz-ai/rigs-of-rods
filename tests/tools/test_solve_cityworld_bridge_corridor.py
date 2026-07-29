@@ -18,10 +18,19 @@ MANIFEST_RELATIVE = (
     "resources/nextgen/cityworld/bridge/curve_left_15deg/"
     "rorng_city_bridge_curve_left_15deg_20m.asset.json"
 )
+TRANSITION_MANIFEST_RELATIVE = (
+    "resources/nextgen/cityworld/bridge/transition_12m/"
+    "rorng_city_bridge_transition_12m.asset.json"
+)
 FIXTURE_PATH = (
     REPOSITORY_ROOT
     / "tests/fixtures/cityworld_curved_bridge_runtime/"
     "cityworld_curved_bridge_runtime.tobj"
+)
+TRANSITION_FIXTURE_PATH = (
+    REPOSITORY_ROOT
+    / "tests/fixtures/cityworld_curved_bridge_runtime/"
+    "cityworld_curved_bridge_with_transition.tobj"
 )
 
 SPEC = importlib.util.spec_from_file_location(
@@ -84,6 +93,43 @@ class CityWorldBridgeCorridorSolverTests(unittest.TestCase):
         self.assertNotIn(
             "rorng_city_bridge_curve_left_15deg_20m,",
             expected,
+        )
+
+    def test_exit_transition_overlay_is_canonical_and_seam_exact(self) -> None:
+        profiles = (
+            *self.profiles(),
+            SOLVER.load_asset_profile(
+                REPOSITORY_ROOT,
+                TRANSITION_MANIFEST_RELATIVE,
+            ),
+        )
+        placements = SOLVER.solve_corridor(
+            profiles,
+            entry_x=512.0,
+            entry_z=482.0,
+            heading_degrees=0.0,
+        )
+        expected = SOLVER.tobj_text(placements, surface_y=0.08)
+        self.assertEqual(
+            TRANSITION_FIXTURE_PATH.read_text(encoding="utf-8"),
+            expected,
+        )
+        result = SOLVER.report(profiles, placements, surface_y=0.08)
+        self.assertEqual(
+            result["exit"],
+            {
+                "heading_degrees": 44.999999942,
+                "x": 542.860675053,
+                "z": 544.504260364,
+            },
+        )
+        self.assertEqual(
+            result["seams"][-1],
+            {
+                "heading_error_degrees": 0.0,
+                "index": 2,
+                "position_gap_m": 0.0,
+            },
         )
 
     def test_json_report_has_zero_seam_error(self) -> None:
