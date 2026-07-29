@@ -125,18 +125,29 @@ done
 ```
 
 The canonical GLB and all six compiled runtime outputs per variant are the
-byte-reproducible contract. Compare two independently generated and compiled
-clean checkouts with:
+byte-reproducible contract. The authoritative gate starts with two empty
+temporary roots, copies only the authored generator/compiler sources into each,
+independently runs pinned Blender and production OGRE compilation, and then
+requires exactly five variants, 35 matching outputs, and no mismatch:
+
+```sh
+python3 tools/verify_cityworld_storefront_clean_reproducibility.py \
+  --repo-root . \
+  --blender /absolute/path/to/blender-5.2.0 \
+  --converter /absolute/path/to/OgreXMLConverter-14.5.2
+```
+
+No checked `.blend`, preview, GLB, asset manifest, compile report, material,
+ODEF, collision fixture, or render mesh is copied into either root. The final
+comparison covers each freshly built GLB, material fallback, ODEF, collision
+fixture, and three render LOD meshes. For diagnosis, already built roots may be
+compared directly with:
 
 ```sh
 python3 tools/compare_cityworld_storefront_reproducibility.py \
-  --left-root /absolute/path/to/clean-build-a \
-  --right-root /absolute/path/to/clean-build-b
+  --left-root /absolute/path/to/build-a \
+  --right-root /absolute/path/to/build-b
 ```
-
-The comparison covers each GLB, material fallback, ODEF, collision fixture,
-and three render LOD meshes. Both roots must authenticate their own manifest
-hashes before their outputs are compared.
 
 Blender `.blend` files and PNG previews are editable/evidence artifacts.
 Blender project/session metadata and PNG render metadata are not claimed to be
@@ -149,10 +160,16 @@ version change is the explicit regeneration boundary and writes newly pinned
 source/evidence hashes.
 
 The normal and `python -O` family suites must both pass, including the real
-filesystem tamper and clean-root binary comparison regressions. When pinned
-Blender 5.2.0 LTS is present, the suite also runs the generator in a copied
-clean root and proves a modified retained `.blend` aborts without changing the
-manifest or GLB.
+filesystem tamper, artifact-free root-preparation, and binary-comparator
+regressions. When pinned Blender 5.2.0 LTS is present, the suite also runs the
+generator in a copied root and proves a modified retained `.blend` aborts
+without changing the manifest or GLB.
+
+The Linux leg of `.github/workflows/ogre14-native.yml` executes the full
+artifact-free two-root gate. It verifies the checksum and version of Blender
+5.2.0 LTS, reuses the locked OGRE 14.5.2 Conan graph already built for the
+native application, runs under Xvfb, and independently asserts the comparator's
+`variants=5`, `outputs=35`, and empty-mismatch report.
 
 ## Placement acceptance gate
 

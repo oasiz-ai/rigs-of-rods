@@ -39,6 +39,10 @@ REPRODUCIBILITY_TOOL_PATH = (
     REPOSITORY_ROOT
     / "tools/compare_cityworld_storefront_reproducibility.py"
 )
+CLEAN_REPRODUCIBILITY_TOOL_PATH = (
+    REPOSITORY_ROOT
+    / "tools/verify_cityworld_storefront_clean_reproducibility.py"
+)
 
 
 def load_module(name: str, path: Path):
@@ -54,6 +58,10 @@ RETENTION = load_module("storefront_retention_test", RETENTION_CONTRACT_PATH)
 REPRODUCIBILITY = load_module(
     "storefront_reproducibility_test",
     REPRODUCIBILITY_TOOL_PATH,
+)
+CLEAN_REPRODUCIBILITY = load_module(
+    "storefront_clean_reproducibility_test",
+    CLEAN_REPRODUCIBILITY_TOOL_PATH,
 )
 
 
@@ -358,7 +366,7 @@ class CityWorldStorefrontFamilyTests(unittest.TestCase):
                     )
                 self.assertEqual(copied_manifest.read_bytes(), manifest_before)
 
-    def test_clean_roots_compare_actual_glb_and_compiled_outputs(self) -> None:
+    def test_comparator_checks_actual_glb_and_compiled_outputs(self) -> None:
         manifest_path = self.manifests()[0]
         manifest_relative = manifest_path.relative_to(REPOSITORY_ROOT).as_posix()
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -429,6 +437,51 @@ class CityWorldStorefrontFamilyTests(unittest.TestCase):
                     )
                 },
             )
+
+    def test_clean_gate_copies_only_authored_toolchain_inputs(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="storefront-artifact-free-root-"
+        ) as directory:
+            clean_root = Path(directory)
+            CLEAN_REPRODUCIBILITY.prepare_artifact_free_root(
+                REPOSITORY_ROOT,
+                clean_root,
+            )
+            actual_files = {
+                path.relative_to(clean_root)
+                for path in clean_root.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(
+                actual_files,
+                set(CLEAN_REPRODUCIBILITY.AUTHORING_INPUTS),
+            )
+            self.assertFalse((clean_root / "content-source").exists())
+            self.assertFalse((clean_root / "resources").exists())
+            for relative in CLEAN_REPRODUCIBILITY.AUTHORING_INPUTS:
+                self.assertEqual(
+                    hashlib.sha256((clean_root / relative).read_bytes()).digest(),
+                    hashlib.sha256(
+                        (REPOSITORY_ROOT / relative).read_bytes()
+                    ).digest(),
+                )
+
+    def test_clean_gate_rejects_seeded_generated_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="storefront-seeded-root-"
+        ) as directory:
+            seeded_root = Path(directory)
+            seeded = seeded_root / "resources/nextgen/cityworld/stale.mesh"
+            seeded.parent.mkdir(parents=True)
+            seeded.write_bytes(b"stale-but-rehashed")
+            with self.assertRaisesRegex(
+                CLEAN_REPRODUCIBILITY.CleanReproducibilityFailure,
+                "not artifact-free",
+            ):
+                CLEAN_REPRODUCIBILITY.prepare_artifact_free_root(
+                    REPOSITORY_ROOT,
+                    seeded_root,
+                )
 
     def test_blender_generator_fails_closed_in_tampered_clean_room(self) -> None:
         blender = self.blender_executable()

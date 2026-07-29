@@ -82,6 +82,56 @@ jobs:
             xauth \
             xvfb
 
+      - name: Restore pinned Blender 5.2 authoring archive
+        if: matrix.platform == 'linux-x86_64'
+        id: storefront-blender-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/blender-authoring/blender-5.2.0-linux-x64.tar.xz
+          key: blender-5.2.0-linux-x64-96f6c181a30f4950607839dc84d42a354b250d8a0231b098b59b7bc69c351c48
+
+      - name: Download pinned Blender 5.2 authoring archive
+        if: >-
+          matrix.platform == 'linux-x86_64' &&
+          steps.storefront-blender-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          cmake -E make_directory "$RUNNER_TEMP/blender-authoring"
+          archive="$RUNNER_TEMP/blender-authoring/blender-5.2.0-linux-x64.tar.xz"
+          if ! curl \
+            --fail \
+            --location \
+            --retry 5 \
+            --retry-all-errors \
+            --output "$archive" \
+            https://download.blender.org/release/Blender5.2/blender-5.2.0-linux-x64.tar.xz
+          then
+            curl \
+              --fail \
+              --location \
+              --retry 5 \
+              --retry-all-errors \
+              --output "$archive" \
+              https://mirrors.aliyun.com/blender/release/Blender5.2/blender-5.2.0-linux-x64.tar.xz
+          fi
+
+      - name: Verify and extract pinned Blender 5.2
+        if: matrix.platform == 'linux-x86_64'
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/blender-authoring/blender-5.2.0-linux-x64.tar.xz"
+          echo \
+            "96f6c181a30f4950607839dc84d42a354b250d8a0231b098b59b7bc69c351c48  $archive" \
+            | sha256sum --check -
+          cmake -E remove_directory \
+            "$RUNNER_TEMP/blender-5.2.0-linux-x64"
+          tar --extract --xz --file "$archive" --directory "$RUNNER_TEMP"
+          test -x "$RUNNER_TEMP/blender-5.2.0-linux-x64/blender"
+          blender_version="$(
+            "$RUNNER_TEMP/blender-5.2.0-linux-x64/blender" --version
+          )"
+          test "${blender_version%%$'\n'*}" = "Blender 5.2.0 LTS"
+
       - name: Install pinned Conan and Ninja clients
         shell: bash
         run: >-
@@ -180,6 +230,51 @@ jobs:
           --build "build-ogre14-${{ matrix.platform }}"
           --target all
           --config Release
+
+      - name: Prove storefront outputs from two artifact-free roots
+        if: matrix.platform == 'linux-x86_64'
+        shell: bash
+        run: |
+          mapfile -t converter_candidates < <(
+            find "$CONAN_HOME" \
+              -type f \
+              -path '*/p/bin/OgreXMLConverter' \
+              -perm -111 \
+              -print
+          )
+          if [[ "${#converter_candidates[@]}" -ne 1 ]]
+          then
+            printf \
+              'expected one packaged OgreXMLConverter, found %s\n' \
+              "${#converter_candidates[@]}" >&2
+            printf '%s\n' "${converter_candidates[@]}" >&2
+            exit 1
+          fi
+          converter="${converter_candidates[0]}"
+          xvfb-run -a -s "-screen 0 1280x720x24" \
+            python tools/verify_cityworld_storefront_clean_reproducibility.py \
+              --repo-root . \
+              --blender \
+              "$RUNNER_TEMP/blender-5.2.0-linux-x64/blender" \
+              --converter "$converter" \
+            | tee artifacts/linux-x86_64-storefront-clean-reproducibility.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(
+              Path(
+                  "artifacts/linux-x86_64-storefront-clean-reproducibility.json"
+              ).read_text(encoding="utf-8")
+          )
+          if (
+              report.get("valid") is not True
+              or report.get("variants") != 5
+              or report.get("outputs") != 35
+              or report.get("mismatches") != []
+          ):
+              raise SystemExit(f"invalid clean reproducibility report: {report!r}")
+          PY
 
       - name: Run native test suite
         shell: bash
@@ -387,6 +482,7 @@ jobs:
             artifacts/${{ matrix.platform }}-conan-graph.json
             artifacts/${{ matrix.platform }}-runtime-audit.json
             artifacts/${{ matrix.platform }}-runtime-audit.log
+            artifacts/${{ matrix.platform }}-storefront-clean-reproducibility.json
             artifacts/msvc-version.txt
             build-ogre14-${{ matrix.platform }}/CMakeCache.txt
             build-ogre14-${{ matrix.platform }}/CMakeFiles/CMakeConfigureLog.yaml

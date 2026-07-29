@@ -302,5 +302,6 @@ between Blender sessions or versions; their current hashes are always pinned
 by the asset and provenance manifests. The storefront generator authenticates
 the checked paths and SHA-256 values before retaining those session-dependent
 artifacts. A mismatch fails closed instead of being rehashed. Its GLB and
-compiled runtime outputs can be compared across two clean roots with
-`tools/compare_cityworld_storefront_reproducibility.py`.
+compiled runtime outputs are independently rebuilt from two artifact-free roots
+by `tools/verify_cityworld_storefront_clean_reproducibility.py`; the lower-level
+root comparator is `tools/compare_cityworld_storefront_reproducibility.py`.
