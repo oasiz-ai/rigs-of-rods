@@ -770,6 +770,15 @@ plugins under the contract-owned `../PlugIns` folder. Linux shared-object
 staging, Windows DLL closure, native Debug and relocated smoke tests, and native
 CI remain open.
 
+The legacy OGRE 1.11 Windows build also keeps RoR in C++17 while consuming
+Caelum/PagedGeometry headers that still expose `std::auto_ptr`. MSVC now enables
+its documented `_HAS_AUTO_PTR_ETC=1` transition surface only on the RoR target
+and only when either affected addon is active. It is not a global compiler flag,
+does not affect the OGRE 14 path, and can be removed when those legacy
+dependencies are modernized or retired. Dependency-free contract tests prove
+the guard and target-private scope; the native Windows build remains the final
+acceptance gate.
+
 This is meaningful R0 progress, not completion. The remaining gates include:
 
 - Extend the display-metrics proof to native Windows/Linux, window resize and

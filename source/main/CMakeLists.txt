@@ -552,6 +552,14 @@ if (ROR_USE_PAGED)
     target_compile_definitions(${BINNAME} PRIVATE USE_PAGED)
 endif ()
 
+# Caelum and PagedGeometry still expose std::auto_ptr in their public headers.
+# MSVC removes that compatibility type in C++17 unless its documented
+# transition switch is enabled. Scope it to RoR's legacy consumer target and
+# only when at least one affected header surface is active.
+if (MSVC AND (ROR_USE_CAELUM OR ROR_USE_PAGED))
+    target_compile_definitions(${BINNAME} PRIVATE _HAS_AUTO_PTR_ETC=1)
+endif ()
+
 ####################################################################################################
 #  POST-BUILD STEPS
 ####################################################################################################
