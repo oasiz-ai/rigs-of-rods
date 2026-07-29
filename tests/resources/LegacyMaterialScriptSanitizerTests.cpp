@@ -152,7 +152,55 @@ void TestPinnedPlanMetadataIsExact()
             plan->archive_sha256,
             "NeoQueretaro.material");
     CHECK(city_plan != nullptr);
-    CHECK(city_plan->edit_count == 30U);
+    CHECK(city_plan->edit_count == 43U);
+    const std::size_t duplicate_lines[] = {
+        1772U,
+        1773U,
+        1774U,
+        1775U,
+        1776U,
+        1777U,
+        1778U,
+        1779U,
+        1780U,
+        1781U,
+        1782U,
+        1783U,
+        1784U};
+    const char* duplicate_anchors[] = {
+        "material concretorojo",
+        "{",
+        "technique",
+        "{",
+        "pass",
+        "{",
+        "texture_unit",
+        "{",
+        "texture detalle-concreto-rojo.jpg",
+        "}",
+        "}",
+        "}",
+        "}"};
+    const std::size_t duplicate_edit_begin = 23U;
+    for (std::size_t index = 0U;
+         index < sizeof(duplicate_lines) / sizeof(duplicate_lines[0]);
+         ++index)
+    {
+        const RoR::LegacyMaterialScriptEdit& edit =
+            city_plan->edits[duplicate_edit_begin + index];
+        CHECK(
+            edit.kind ==
+            RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE);
+        CHECK(edit.line == duplicate_lines[index]);
+        CHECK(std::string(edit.expected) == duplicate_anchors[index]);
+        CHECK(std::string(edit.replacement).empty());
+    }
+    for (std::size_t index = 0U; index < city_plan->edit_count; ++index)
+    {
+        CHECK(
+            city_plan->edits[index].line < 1698U ||
+            city_plan->edits[index].line > 1710U);
+    }
     const RoR::LegacyMaterialScriptEditPlan* furniture_plan =
         RoR::FindLegacyMaterialScriptEditPlan(
             plan->archive_sha256,
@@ -247,6 +295,92 @@ void TestExactPlanAppliesTransactionally()
     CHECK(anchor_mismatch.payload == input);
 }
 
+void TestDuplicateMaterialBlockRemovalIsTransactional()
+{
+    const std::string block =
+        "material repeated\n"
+        "{\n"
+        "  technique\n"
+        "  {\n"
+        "    pass\n"
+        "    {\n"
+        "      texture_unit\n"
+        "      {\n"
+        "        texture repeated.png\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n";
+    const std::string input =
+        block +
+        block +
+        "material next\n"
+        "{\n"
+        "}\n";
+    const RoR::LegacyMaterialScriptEdit edits[] = {
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         14U, "material repeated", ""},
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         15U, "{", ""},
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         16U, "technique", ""},
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         17U, "{", ""},
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         18U, "pass", ""},
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         19U, "{", ""},
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         20U, "texture_unit", ""},
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         21U, "{", ""},
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         22U, "texture repeated.png", ""},
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         23U, "}", ""},
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         24U, "}", ""},
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         25U, "}", ""},
+        {RoR::LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+         26U, "}", ""}};
+    const RoR::LegacyMaterialScriptEditPlan plan = {
+        "archive",
+        "fixture.material",
+        "fixture-script",
+        edits,
+        sizeof(edits) / sizeof(edits[0])};
+
+    const RoR::LegacyMaterialScriptPlanApplication applied =
+        RoR::ApplyLegacyMaterialScriptEditPlan(
+            plan, "fixture-script", input);
+    CHECK(applied.applicable);
+    CHECK(applied.safe);
+    CHECK(applied.applied_edit_count == 13U);
+    CHECK(applied.payload.substr(0U, block.size()) == block);
+    CHECK(
+        applied.payload.find(
+            "material repeated", block.size()) == std::string::npos);
+    CHECK(applied.payload.find("material next") != std::string::npos);
+
+    std::string changed = input;
+    const std::size_t second_texture =
+        changed.find("texture repeated.png", block.size());
+    CHECK(second_texture != std::string::npos);
+    changed.replace(
+        second_texture,
+        std::string("texture repeated.png").size(),
+        "texture changed.png");
+    const RoR::LegacyMaterialScriptPlanApplication rejected =
+        RoR::ApplyLegacyMaterialScriptEditPlan(
+            plan, "fixture-script", changed);
+    CHECK(rejected.applicable);
+    CHECK(!rejected.safe);
+    CHECK(rejected.payload == changed);
+    CHECK(rejected.applied_edit_count == 0U);
+    CHECK(!rejected.rejection_reason.empty());
+}
+
 } // namespace
 
 int main()
@@ -259,5 +393,6 @@ int main()
     TestMultipleStandaloneRepairsAreDeterministic();
     TestPinnedPlanMetadataIsExact();
     TestExactPlanAppliesTransactionally();
+    TestDuplicateMaterialBlockRemovalIsTransactional();
     return EXIT_SUCCESS;
 }

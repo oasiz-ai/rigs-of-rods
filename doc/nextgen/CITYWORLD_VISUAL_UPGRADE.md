@@ -133,7 +133,10 @@ to reviewed identities and fails closed:
   diagnostic suppression.
 
 The current macOS arm64 runtime gate applies exact edit counts of 1, 1, 2, 4,
-2, 30, and 5 to seven reviewed scripts, for 45 edits total. It then resolves
+2, 43, and 5 to seven reviewed scripts, for 58 edits total. The
+`NeoQueretaro.material` plan clears the authenticated redundant
+`concretorojo` block at original lines 1772-1784 while preserving its first
+definition at lines 1698-1710. It then resolves
 23 reviewed aliases, creates 11 reviewed lit fallbacks, loads the one generated
 4x4 DDS resource demanded by this terrain path, and uses GL3Plus RTSS programs.
 The local overlay reaches `TERRAIN LOADING DONE` with zero CityWorld script
