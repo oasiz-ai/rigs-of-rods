@@ -315,7 +315,15 @@ void TestCalibrationProperties()
                     output.damage_driver_capacity_density) -
                 reference) /
             reference;
-        CHECK(relative_error < 8.0e-16L);
+        // MSVC implements long double with the same precision as double.
+        // Scale the bound to that platform's representable resolution while
+        // preserving the tighter gate on extended-precision implementations.
+        const long double calibration_tolerance =
+            std::max(
+                8.0e-16L,
+                8.0L *
+                    std::numeric_limits<long double>::epsilon());
+        CHECK(relative_error < calibration_tolerance);
 
         const double recovered_fracture_energy =
             0.5 *

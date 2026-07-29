@@ -549,6 +549,11 @@ void TestAuthenticatedRoundTrip()
     CHECK(consumer.calls == snapshots.size());
     CHECK(consumer.steps.size() == snapshots.size());
     CHECK(consumer.snapshots.size() == snapshots.size());
+    if (consumer.steps.size() != snapshots.size() ||
+        consumer.snapshots.size() != snapshots.size())
+    {
+        return;
+    }
     for (std::size_t index = 0;
         index < snapshots.size();
         ++index)

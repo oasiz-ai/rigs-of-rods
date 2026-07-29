@@ -94,6 +94,27 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicVehicleInput.cpp"
 )
 
+# The production build deliberately excludes authenticated input-trace
+# translation units from global fast-math. Mirror that boundary here while
+# leaving each test driver and the actual physics kernels in the requested
+# game floating-point mode.
+set(ROR_DETERMINISTIC_INPUT_SOURCES
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputTrace.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputTraceRuntime.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicVehicleInput.cpp"
+)
+if (MSVC)
+    set_source_files_properties(
+        ${ROR_DETERMINISTIC_INPUT_SOURCES}
+        PROPERTIES COMPILE_OPTIONS "/fp:precise"
+    )
+else ()
+    set_source_files_properties(
+        ${ROR_DETERMINISTIC_INPUT_SOURCES}
+        PROPERTIES COMPILE_OPTIONS "-fno-fast-math"
+    )
+endif ()
+
 add_executable(
     ror_state_trace
     "${ROR_REPOSITORY_ROOT}/tools/ror_state_trace.cpp"

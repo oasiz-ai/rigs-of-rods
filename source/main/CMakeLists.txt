@@ -310,6 +310,31 @@ include(SourceFileUtils)
 # Expand file extensions (i.e. path/to/file.{h,cpp} becomes path/to/file.h;path/to/file.cpp)
 expand_file_extensions(SOURCE_FILES ${SOURCE_FILES})
 
+# Authenticated input traces inspect and preserve exact IEEE-754 object
+# representations. Keep this small, non-solver boundary precise even when the
+# release game enables fast math globally; otherwise MSVC may assume that
+# hostile serialized values are finite and optimize away required checks.
+set(ROR_DETERMINISTIC_INPUT_SOURCES
+        physics/DeterministicInputTrace.cpp
+        physics/DeterministicInputTraceRuntime.cpp
+        physics/DeterministicVehicleInput.cpp
+        )
+if (MSVC)
+    set_source_files_properties(
+            ${ROR_DETERMINISTIC_INPUT_SOURCES}
+            PROPERTIES
+            COMPILE_OPTIONS "/fp:precise"
+            SKIP_PRECOMPILE_HEADERS ON
+            )
+else ()
+    set_source_files_properties(
+            ${ROR_DETERMINISTIC_INPUT_SOURCES}
+            PROPERTIES
+            COMPILE_OPTIONS "-fno-fast-math"
+            SKIP_PRECOMPILE_HEADERS ON
+            )
+endif ()
+
 # Generate source groups for use in IDEs
 source_group(TREE ${CMAKE_CURRENT_LIST_DIR} FILES ${SOURCE_FILES})
 
