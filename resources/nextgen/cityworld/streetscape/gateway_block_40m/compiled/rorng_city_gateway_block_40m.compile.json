@@ -38,7 +38,7 @@
   "compiler": {
     "format": "ror-cityworld-scene-compiler-v1",
     "path": "tools/compile_cityworld_asset.py",
-    "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa"
+    "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059"
   },
   "connectors": [
     {
@@ -70,7 +70,7 @@
   ],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "4674dd0d83466b6db36354850f971a1b23de1cc854a486147c3667e7ae9b19a0",
+    "asset_contract_sha256": "de3356129dbcadcde248c1199cc6ce55a08b6b8d928e656628b35a5dc2dcbd25",
     "glb": {
       "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.glb",
       "sha256": "0e7c06346a1cb6c638487b8a0f8d49a535361456e3350939eeeb7c704f541b82"
@@ -110,8 +110,8 @@
     {
       "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.odef",
       "role": "terrain-object",
-      "sha256": "f1ce5067d29e6c2ab8fa9fcacea8fce9770de11a883005a5224d9ee87a34b737",
-      "size": 359
+      "sha256": "74ccb14ab500440727a162d636c696228d97adf8ab278b43978de67187ea62cf",
+      "size": 812
     },
     {
       "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_collision_barrier_left.mesh",
@@ -148,6 +148,128 @@
       "role": "render-lod2",
       "sha256": "38fd91179afea95db342d7e4d6f9d4cb016d4030c052f7a1de4ca3d65124f1b2",
       "size": 19581
+    }
+  ],
+  "runtime_lights": [
+    {
+      "color_linear": [
+        1.0,
+        0.62,
+        0.22
+      ],
+      "id": "rorng_gateway_lamp_left_0",
+      "position_ogre_y_up_m": [
+        -3.95,
+        5.2,
+        12.6
+      ],
+      "range_m": 13.0,
+      "type": "point"
+    },
+    {
+      "color_linear": [
+        1.0,
+        0.62,
+        0.22
+      ],
+      "id": "rorng_gateway_lamp_left_1",
+      "position_ogre_y_up_m": [
+        -3.95,
+        5.2,
+        2.6
+      ],
+      "range_m": 13.0,
+      "type": "point"
+    },
+    {
+      "color_linear": [
+        1.0,
+        0.62,
+        0.22
+      ],
+      "id": "rorng_gateway_lamp_left_2",
+      "position_ogre_y_up_m": [
+        -3.95,
+        5.2,
+        -7.4
+      ],
+      "range_m": 13.0,
+      "type": "point"
+    },
+    {
+      "color_linear": [
+        1.0,
+        0.62,
+        0.22
+      ],
+      "id": "rorng_gateway_lamp_left_3",
+      "position_ogre_y_up_m": [
+        -3.95,
+        5.2,
+        -17.4
+      ],
+      "range_m": 13.0,
+      "type": "point"
+    },
+    {
+      "color_linear": [
+        1.0,
+        0.62,
+        0.22
+      ],
+      "id": "rorng_gateway_lamp_right_0",
+      "position_ogre_y_up_m": [
+        3.95,
+        5.2,
+        12.6
+      ],
+      "range_m": 13.0,
+      "type": "point"
+    },
+    {
+      "color_linear": [
+        1.0,
+        0.62,
+        0.22
+      ],
+      "id": "rorng_gateway_lamp_right_1",
+      "position_ogre_y_up_m": [
+        3.95,
+        5.2,
+        2.6
+      ],
+      "range_m": 13.0,
+      "type": "point"
+    },
+    {
+      "color_linear": [
+        1.0,
+        0.62,
+        0.22
+      ],
+      "id": "rorng_gateway_lamp_right_2",
+      "position_ogre_y_up_m": [
+        3.95,
+        5.2,
+        -7.4
+      ],
+      "range_m": 13.0,
+      "type": "point"
+    },
+    {
+      "color_linear": [
+        1.0,
+        0.62,
+        0.22
+      ],
+      "id": "rorng_gateway_lamp_right_3",
+      "position_ogre_y_up_m": [
+        3.95,
+        5.2,
+        -17.4
+      ],
+      "range_m": 13.0,
+      "type": "point"
     }
   ],
   "source_stats": {

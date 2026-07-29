@@ -114,13 +114,14 @@ The runtime loads only the bounded compiled package. It never executes imported
 scripts, shaders, Blueprints, Lua, or host-engine metadata.
 
 The first compiler profile and production fixtures are implemented for the
-project-owned CityWorld tangent and 15-degree curved bridges. They lower
-validated GLB render LODs and collision objects into pinned little-endian OGRE
-14 meshes, emit stable material and ODEF records, preserve the curve fixture's
-core-glTF emissive factor, and record both non-packaged XML-intermediate hashes
-and checked runtime-output hashes. The portable CI gate revalidates the entire
-source/profile/output contract without depending on Blender or a platform OGRE
-tool. See
+project-owned CityWorld tangent and 15-degree curved bridges, 12 m transition,
+and 40 m gateway block. They lower validated GLB render LODs and collision
+objects into pinned little-endian OGRE 14 meshes, emit stable material and ODEF
+records, preserve core-glTF emissive factors, and lower the gateway's eight
+bounded point lights from versioned authoring declarations. Both non-packaged
+XML-intermediate hashes and checked runtime-output hashes are recorded. The
+portable CI gate revalidates the entire source/profile/output contract without
+depending on Blender or a platform OGRE tool. See
 [CityWorld Next offline scene compiler](CITYWORLD_SCENE_COMPILER.md).
 
 That first slice is executable rather than a package-only proof. The macOS

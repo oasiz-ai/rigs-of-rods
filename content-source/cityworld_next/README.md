@@ -45,8 +45,11 @@ barrier collision meshes:
 The first city-side gateway block is a connector-compatible 40 m streetscape
 with four detailed mid-rise façades, individual windows and ground-floor
 glazing, roof trim and HVAC equipment, eight procedural trees, eight emissive
-streetlights, sidewalks, curbs, three render LODs, and conservative building
-collision proxies:
+streetlights, eight bounded dynamic point lights, sidewalks, curbs, three
+render LODs, and conservative building collision proxies. The compiler lowers
+the versioned light declarations into portable ODEF records; their ranges,
+linear colours, identifiers, coordinate transform, and maximum count are
+validated before runtime:
 
 - editable source:
   `streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend`;

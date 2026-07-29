@@ -5,8 +5,9 @@ CityWorld Next content is authored in Blender, exported through a bounded glTF
 files or arbitrary glTF at runtime.
 
 The first production fixtures are the tangent
-`rorng_city_bridge_span_20m` and the 15-degree left curve
-`rorng_city_bridge_curve_left_15deg_20m`. Their checked packages contain:
+`rorng_city_bridge_span_20m`, the 15-degree left curve
+`rorng_city_bridge_curve_left_15deg_20m`, the 12 m transition, and the 40 m
+gateway block. Their checked packages contain:
 
 - three render meshes with authored LOD0, LOD1, and LOD2 geometry;
 - one road and two barrier collision meshes, separate from render geometry;
@@ -14,6 +15,8 @@ The first production fixtures are the tangent
 - a deterministic, RTShader-compatible material fallback generated from the
   declared linear base colour, metallic, roughness, and optional core-glTF
   emissive factors; and
+- optional bounded local point lights lowered from explicit, versioned
+  authoring-space declarations into the terrain-object definition; and
 - a canonical conversion report with source, compiler, converter, options,
   intermediate, output, and connector hashes.
 
@@ -87,7 +90,9 @@ radius, angle, road width, and tangent directions for placement.
 The production command requires an explicit converter; it never searches
 `PATH` or silently chooses a host tool. Output is written through a
 repository-local staging directory, unexpected files fail the compile, and a
-failed converter does not produce an accepted report.
+failed converter does not produce an accepted report. After every output and
+the canonical report are in place, the compiler atomically refreshes the
+manifest's compiled-output hashes and report identity.
 
 ## Runtime contract and physical scene gate
 

@@ -106,6 +106,7 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 "glb_materials": 7,
                 "glb_nodes": 6,
                 "lod_objects": 3,
+                "runtime_lights": 0,
                 "triangles": 5020,
                 "valid": True,
             },
@@ -126,6 +127,7 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 "glb_materials": 8,
                 "glb_nodes": 6,
                 "lod_objects": 3,
+                "runtime_lights": 0,
                 "triangles": 8476,
                 "valid": True,
             },
@@ -146,6 +148,7 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 "glb_materials": 7,
                 "glb_nodes": 6,
                 "lod_objects": 3,
+                "runtime_lights": 0,
                 "triangles": 1720,
                 "valid": True,
             },
@@ -166,6 +169,7 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 "glb_materials": 14,
                 "glb_nodes": 6,
                 "lod_objects": 3,
+                "runtime_lights": 8,
                 "triangles": 14920,
                 "valid": True,
             },
@@ -256,6 +260,66 @@ class CityWorldAssetValidationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("MATERIAL_COLOR_SPACE", self.codes(report))
         self.assertIn("MATERIAL_COVERAGE", self.codes(report))
+
+    def test_runtime_lights_are_bounded_and_fail_closed(self) -> None:
+        gateway_relative = GATEWAY_MANIFEST_PATH.relative_to(REPOSITORY_ROOT)
+        mutations = (
+            (
+                lambda manifest: manifest["runtime_lights"]["lights"][0].update(
+                    {"range_m": 1000.0}
+                ),
+                "RUNTIME_LIGHT_RANGE",
+            ),
+            (
+                lambda manifest: manifest["runtime_lights"]["lights"][0].update(
+                    {"range_m": "13.0"}
+                ),
+                "RUNTIME_LIGHT_RANGE",
+            ),
+            (
+                lambda manifest: manifest["runtime_lights"]["lights"][0].update(
+                    {"position_blender_z_up_m": ["-3.95", 5.2, 12.6]}
+                ),
+                "RUNTIME_LIGHT_POSITION",
+            ),
+            (
+                lambda manifest: manifest["runtime_lights"]["lights"][0].update(
+                    {"color_linear": [1.0, -0.1, 0.2]}
+                ),
+                "RUNTIME_LIGHT_COLOR",
+            ),
+            (
+                lambda manifest: manifest["runtime_lights"]["lights"][0].update(
+                    {"type": "spot"}
+                ),
+                "RUNTIME_LIGHT_TYPE",
+            ),
+            (
+                lambda manifest: manifest["runtime_lights"]["lights"][1].update(
+                    {"id": manifest["runtime_lights"]["lights"][0]["id"]}
+                ),
+                "RUNTIME_LIGHT_DUPLICATE",
+            ),
+        )
+        for mutate, expected_code in mutations:
+            with self.subTest(expected_code=expected_code):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    manifest_path = self.copy_fixture(
+                        root,
+                        gateway_relative,
+                    )
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    mutate(manifest)
+                    manifest_path.write_text(
+                        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                    result, report = self.run_validator(root, manifest_path)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(expected_code, self.codes(report))
 
     def test_duplicate_keys_and_path_escape_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

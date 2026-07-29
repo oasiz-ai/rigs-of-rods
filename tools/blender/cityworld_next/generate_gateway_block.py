@@ -740,6 +740,27 @@ def main() -> int:
         },
     ]
     manifest["geometry"]["asset_family"] = "city-gateway-streetscape"
+    manifest["runtime_lights"] = {
+        "lights": [
+            {
+                "color_linear": [1.0, 0.62, 0.22],
+                "id": (
+                    f"rorng_gateway_lamp_"
+                    f"{'left' if side < 0.0 else 'right'}_{index}"
+                ),
+                "position_blender_z_up_m": [
+                    side * 3.95,
+                    station + 2.4,
+                    5.2,
+                ],
+                "range_m": 13.0,
+                "type": "point",
+            }
+            for side in (-1.0, 1.0)
+            for index, station in enumerate((-15.0, -5.0, 5.0, 15.0))
+        ],
+        "profile": "ror-cityworld-local-lights-v1",
+    }
     for material in manifest["materials"]:
         if material["name"] == "rorng_gateway_lamp_emissive":
             material["emissive_factor_linear"] = [1.0, 0.69, 0.25]

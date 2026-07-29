@@ -845,6 +845,25 @@ class SceneCompiler:
                     "",
                 ]
             )
+        for light in self.runtime_light_contract():
+            position = light["position_ogre_y_up_m"]
+            color = light["color_linear"]
+            lines.append(
+                "pointlight "
+                + ", ".join(
+                    stable_float(value)
+                    for value in (
+                        *position,
+                        0.0,
+                        -1.0,
+                        0.0,
+                        *color,
+                        light["range_m"],
+                    )
+                )
+            )
+        if self.runtime_light_contract():
+            lines.append("")
         lines.append("end")
         return ("\n".join(lines) + "\n").encode("utf-8")
 
@@ -891,6 +910,29 @@ class SceneCompiler:
                 }
             )
         return result
+
+    def runtime_light_contract(self) -> list[dict[str, Any]]:
+        declaration = self.manifest.get("runtime_lights")
+        if declaration is None:
+            return []
+        return [
+            {
+                "color_linear": [
+                    float(component)
+                    for component in light["color_linear"]
+                ],
+                "id": light["id"],
+                "position_ogre_y_up_m": transformed_blender_connector(
+                    light["position_blender_z_up_m"]
+                ),
+                "range_m": float(light["range_m"]),
+                "type": light["type"],
+            }
+            for light in sorted(
+                declaration["lights"],
+                key=lambda item: item["id"],
+            )
+        ]
 
 
 def converter_identity(converter: Path) -> dict[str, str]:
@@ -1118,6 +1160,7 @@ def compile_asset(
                 "lod_distances_m": list(LOD_DISTANCES_M),
                 "transforms": "applied-only",
             },
+            "runtime_lights": compiler.runtime_light_contract(),
             "outputs": [
                 {key: value for key, value in record.items() if key != "_source"}
                 for record in sorted(output_records, key=lambda item: item["path"])
@@ -1155,6 +1198,24 @@ def compile_asset(
             destination = output_directory / Path(record["path"]).name
             os.replace(source, destination)
         os.replace(report_temporary_path, report_path)
+        compiler.manifest["compiled"] = {
+            "format": COMPILED_RECORD_FORMAT,
+            "outputs": report["outputs"],
+            "report": {
+                "path": portable_relative_path(
+                    compiler.repo_root,
+                    report_path,
+                ),
+                "sha256": sha256_file(report_path),
+            },
+        }
+        manifest_temporary_path = (
+            temporary_directory / compiler.manifest_path.name
+        )
+        manifest_temporary_path.write_bytes(
+            canonical_pretty(compiler.manifest)
+        )
+        os.replace(manifest_temporary_path, compiler.manifest_path)
     return report
 
 
@@ -1207,6 +1268,8 @@ def validate_checked_outputs(
             "lod_distances_m": list(LOD_DISTANCES_M),
             "transforms": "applied-only",
         }
+        or report.get("runtime_lights")
+        != compiler.runtime_light_contract()
         or report.get("source_stats")
         != {
             "indices": compiler.index_count,

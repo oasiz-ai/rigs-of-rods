@@ -2,7 +2,7 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
-      "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+      "sha256": "16b7b4e3b9a8821ee20059ed1575b3ec8e2bf3145af21aaadfe1664407caeb7e"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.glb",
@@ -10,7 +10,7 @@
     },
     "preview": {
       "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m_preview.png",
-      "sha256": "5060655249bc85888de3805d5934961e3d403980ecf904912839e501455fc952"
+      "sha256": "7cad071e01cd306fb8fc3e7e2e5fb8678bf928e29e418b9d3a91f92f9f4f6e68"
     }
   },
   "asset": {
@@ -26,7 +26,7 @@
     "generator": {
       "format": "ror-cityworld-gateway-block-generator-v1",
       "path": "tools/blender/cityworld_next/generate_gateway_block.py",
-      "sha256": "077f469b90a4408c7bfcd2ee0ac2f79f0aebb8106164fb6aa4271b316dbe6e39"
+      "sha256": "bb70d21b793fc394adf714fc1b303ff448ccaea8ced358780f72c21342f2f4b4"
     },
     "transforms_applied": true,
     "units": "metres"
@@ -118,8 +118,8 @@
       {
         "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.odef",
         "role": "terrain-object",
-        "sha256": "f1ce5067d29e6c2ab8fa9fcacea8fce9770de11a883005a5224d9ee87a34b737",
-        "size": 359
+        "sha256": "74ccb14ab500440727a162d636c696228d97adf8ab278b43978de67187ea62cf",
+        "size": 812
       },
       {
         "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m_collision_barrier_left.mesh",
@@ -160,7 +160,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.compile.json",
-      "sha256": "c4e1879c67b866ab0cf69841f8b2f363f2900d5215373dd7c2de0478e34f9bfe"
+      "sha256": "f2ab0d173390ab79a002967dbac650d61207fd958dbc556f54d8f0aa735211ba"
     }
   },
   "connectors": [
@@ -453,5 +453,130 @@
       "name": "rorng_gateway_tree_bark",
       "roughness_factor": 0.96
     }
-  ]
+  ],
+  "runtime_lights": {
+    "lights": [
+      {
+        "color_linear": [
+          1.0,
+          0.62,
+          0.22
+        ],
+        "id": "rorng_gateway_lamp_left_0",
+        "position_blender_z_up_m": [
+          -3.95,
+          -12.6,
+          5.2
+        ],
+        "range_m": 13.0,
+        "type": "point"
+      },
+      {
+        "color_linear": [
+          1.0,
+          0.62,
+          0.22
+        ],
+        "id": "rorng_gateway_lamp_left_1",
+        "position_blender_z_up_m": [
+          -3.95,
+          -2.6,
+          5.2
+        ],
+        "range_m": 13.0,
+        "type": "point"
+      },
+      {
+        "color_linear": [
+          1.0,
+          0.62,
+          0.22
+        ],
+        "id": "rorng_gateway_lamp_left_2",
+        "position_blender_z_up_m": [
+          -3.95,
+          7.4,
+          5.2
+        ],
+        "range_m": 13.0,
+        "type": "point"
+      },
+      {
+        "color_linear": [
+          1.0,
+          0.62,
+          0.22
+        ],
+        "id": "rorng_gateway_lamp_left_3",
+        "position_blender_z_up_m": [
+          -3.95,
+          17.4,
+          5.2
+        ],
+        "range_m": 13.0,
+        "type": "point"
+      },
+      {
+        "color_linear": [
+          1.0,
+          0.62,
+          0.22
+        ],
+        "id": "rorng_gateway_lamp_right_0",
+        "position_blender_z_up_m": [
+          3.95,
+          -12.6,
+          5.2
+        ],
+        "range_m": 13.0,
+        "type": "point"
+      },
+      {
+        "color_linear": [
+          1.0,
+          0.62,
+          0.22
+        ],
+        "id": "rorng_gateway_lamp_right_1",
+        "position_blender_z_up_m": [
+          3.95,
+          -2.6,
+          5.2
+        ],
+        "range_m": 13.0,
+        "type": "point"
+      },
+      {
+        "color_linear": [
+          1.0,
+          0.62,
+          0.22
+        ],
+        "id": "rorng_gateway_lamp_right_2",
+        "position_blender_z_up_m": [
+          3.95,
+          7.4,
+          5.2
+        ],
+        "range_m": 13.0,
+        "type": "point"
+      },
+      {
+        "color_linear": [
+          1.0,
+          0.62,
+          0.22
+        ],
+        "id": "rorng_gateway_lamp_right_3",
+        "position_blender_z_up_m": [
+          3.95,
+          17.4,
+          5.2
+        ],
+        "range_m": 13.0,
+        "type": "point"
+      }
+    ],
+    "profile": "ror-cityworld-local-lights-v1"
+  }
 }

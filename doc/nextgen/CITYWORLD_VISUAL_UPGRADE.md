@@ -74,6 +74,14 @@ is implemented, fixtures use physically plausible emissive surfaces and the
 directional sun; they must not disable global shadows merely to cast a point
 light.
 
+The first bounded local-light slice is attached to the project-owned gateway
+block: eight versioned warm point lights share the eight emissive luminaires.
+The offline validator rejects unknown types, duplicate identifiers, non-finite
+positions or colours, out-of-range colours, unsafe ranges, and more than 32
+lights per asset. The compiler records the Blender-to-OGRE transform and emits
+stable ODEF point-light records; the runtime logs the created count without
+changing the global PSSM shadow configuration.
+
 ### CW2 — Intercity corridor and bridge kit
 
 Build the Penguinville-to-NeoQueretaro corridor first. Use short modular pieces
@@ -125,12 +133,15 @@ cross-version byte-canonical formats.
 ![First project-owned CityWorld curved bridge span](../../content-source/cityworld_next/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m_preview.png)
 
 These are the first CW2 modules, not completion of the intercity corridor.
-The checked connector solver now assembles three curve modules with exact
-position/tangent continuity, and the signed macOS arm64 app physically drove
-the DAF through the 45-degree corridor with 1.41593 m maximum path error.
-Abutments, retaining walls, transitions, mixed-module map placement,
-Windows/Linux physical execution, production fixed-camera captures, and the
-declared frame-time gates remain required.
+The checked connector solver now assembles three curves, the 12 m transition,
+and the 40 m gateway with exact position/tangent continuity. The installed
+macOS arm64 app physically drove the DAF through all five modules over
+137.569 m with 1.43999 m maximum path error. The building-canyon capture proves
+the truck, façades, windows, trees, fixtures, emissive lenses, and all eight
+dynamic point lights render together. Full retaining-wall families,
+rights-cleared map-overlay placement, Windows/Linux physical execution, the
+remaining production camera anchors, and declared frame-time gates are still
+required.
 
 Both spans pass the production offline scene-compiler boundary. Each checked
 runtime package contains three OGRE render LOD meshes, three separate collision

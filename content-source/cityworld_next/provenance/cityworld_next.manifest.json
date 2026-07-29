@@ -14,10 +14,10 @@
         "allowed": true,
         "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
       },
-      "sha256": "02f444a7119f52a06220be8befe00a859fb6f4ea14725c8e0dfa5838d18d4b26",
+      "sha256": "0b0b123574bf6370fc1aba535395991c2828964e69efec1a6b3e89ba97c56046",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -38,7 +38,7 @@
       "sha256": "a53683499a34dbc24e674c88b1ab9e942d9efafc488fb541e92984209e5ab401",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -59,7 +59,7 @@
       "sha256": "dca3be2776c0ebb688306b1ea802826b380f648b862d1fa23e90c34dbe23f334",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -80,7 +80,7 @@
       "sha256": "4fbf12bbd9cd586754b3d569d47345039a4be109c5e5003eae7952e2b70beaca",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -101,7 +101,7 @@
       "sha256": "fbae6abc376f15318219f1cb79e125a830638391e7c14b857d8a845fa775bf1e",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -122,7 +122,7 @@
       "sha256": "a05880fddfb5610c82cec8b5e86a19a9b8aae8afe91612c29fc26ecc51839759",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -143,7 +143,7 @@
       "sha256": "12d5b1a2362babd37a04b556e03ab15bd4b0947c89067e552a97d6d48aa07f7b",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -164,7 +164,7 @@
       "sha256": "c86e6a9c837a6eb50cd780831cbadbeb91e98a5f9b8571e6b06ee929af6b6561",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -185,7 +185,7 @@
       "sha256": "83752f5a27bfeab30adde124ad9c370c006f0d23f301c1e635a63ae4ac59ec8d",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -203,10 +203,10 @@
         "allowed": true,
         "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
       },
-      "sha256": "78b3e822d360ee68240b8178071a29318962582096c4505b2a1b2523256393e6",
+      "sha256": "1758bf05fb971095b852be5f5bc29e2ae3db57cdfcbb26265e5812b1837dabb8",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -227,7 +227,7 @@
       "sha256": "295f2931a9492a91a148d0e27d21eee92fc75f00705369634e4868a6796171a7",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -248,7 +248,7 @@
       "sha256": "d061ae5bf62c69e7f2451f3ef9cb6bdf2b29387a214477d9629c0ed5eb2456db",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -269,7 +269,7 @@
       "sha256": "e64d3167e7344bcefb28c1b9b86595433e77652494eb1f83b1cabe7e49d7809a",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -290,7 +290,7 @@
       "sha256": "3efac7900f756c8d83ed01ad7ec6b2007bfa90f352c3b669d0ae8acb40d85c41",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -311,7 +311,7 @@
       "sha256": "6e8eca4159cb35a9a11996f1bf7e34db96f16c16b9e2d8e39055ad4b7933d7e0",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -332,7 +332,7 @@
       "sha256": "a893667c9b99dc69addb6f021abaa911a3ed41c31eaacef5f0dbc9fe40aa8413",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -353,7 +353,7 @@
       "sha256": "7efee0b0f5d8b358a5a0067aea7ac790844251e69c51828dd715990444942888",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -374,7 +374,7 @@
       "sha256": "a99f361907545bc55f2d54586a9f8562658e2239e4cf0d11408686415beec4f3",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -392,7 +392,7 @@
         "allowed": true,
         "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
       },
-      "sha256": "05655424c1e5b91dad2776464f03463cadd152fc07cc2f58c7e254c2cb7724a2",
+      "sha256": "afbd31969d3599cb1ed6ebc4e0bf3cd8af2078234c1bb0e8c7c2825367856432",
       "source": {
         "kind": "generator",
         "sha256": "bf9860269e29f36f844d832d47295f86e2c8fab4cc5ba87c04492aefb103d7d9",
@@ -434,7 +434,7 @@
         "allowed": true,
         "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
       },
-      "sha256": "7e069d2459214c84702fe9e5dbd26bcbefc21190430a70d53db1165f836cb4fd",
+      "sha256": "ed161ceaf45eea6b28eb73fd6a290a139197ac42f681f5a649075ed048bb630a",
       "source": {
         "kind": "generator",
         "sha256": "4910be675d50da85f0dc9ad49bf5e21c0f6d3a4277c65993860389acbc5bee9c",
@@ -476,10 +476,10 @@
         "allowed": true,
         "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
       },
-      "sha256": "16b859c061088a5e52c331c1091aaa251f36562044695e4e738288135309fcd3",
+      "sha256": "bfcfa51883d1314952270bb4cb14fccbd38bb2478e7b6112520f9bfc6a5b0f04",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -500,7 +500,7 @@
       "sha256": "94e291f8332c2e0ee2048f29bca17fc05aaad8cb7900a554e4a4e8b74979e1f7",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -521,7 +521,7 @@
       "sha256": "efc34693487511b67d603ac0422c40c5383f441d769f6f43d792a296fe2dc434",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -542,7 +542,7 @@
       "sha256": "e1d58abfc794bab711bc9f8090f59bd148a98c2bf909b10c76b8340b6dd88770",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -563,7 +563,7 @@
       "sha256": "4f457c388795e120ebbd1e89795a4e06ee8850281d2645ed5117114fc0b4ac58",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -584,7 +584,7 @@
       "sha256": "69df36443df4ae87bb9d1c33a3ea03cabd1c395c7a4204c2fe576bef6a71dd24",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -605,7 +605,7 @@
       "sha256": "6e6329014c5c8e6a5e86d4a898253728af2f35db8e823f60a3a67264734908d2",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -626,7 +626,7 @@
       "sha256": "003bcd9b5941cedc5bf5e7d6409d0ff9a996b9e9c0745fd618aa347ea1f6ac41",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -647,7 +647,7 @@
       "sha256": "6f7e003eaea074355350ad464380fa81abd8d6308182e00c2d501ec8cc4c15d0",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -665,7 +665,7 @@
         "allowed": true,
         "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
       },
-      "sha256": "ae0acaf62d7632b26be1a60d0462a1799cc6382bddbc56f305213f2aaa30a414",
+      "sha256": "3f695c349de3d62104f91aace5c767c0c73f3c3b03060d0a9d862e4020d6ac97",
       "source": {
         "kind": "generator",
         "sha256": "8ed128bef09f95fb0683f5256199b73e7276397eec9ecf83b168ff14986fc15e",
@@ -698,7 +698,7 @@
       "classification": "generated",
       "editable_source": {
         "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
-        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+        "sha256": "16b7b4e3b9a8821ee20059ed1575b3ec8e2bf3145af21aaadfe1664407caeb7e"
       },
       "license": "GPL-3.0-or-later",
       "modified": true,
@@ -707,10 +707,10 @@
         "allowed": true,
         "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
       },
-      "sha256": "c4e1879c67b866ab0cf69841f8b2f363f2900d5215373dd7c2de0478e34f9bfe",
+      "sha256": "f2ab0d173390ab79a002967dbac650d61207fd958dbc556f54d8f0aa735211ba",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -719,7 +719,7 @@
       "classification": "generated",
       "editable_source": {
         "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
-        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+        "sha256": "16b7b4e3b9a8821ee20059ed1575b3ec8e2bf3145af21aaadfe1664407caeb7e"
       },
       "license": "GPL-3.0-or-later",
       "modified": true,
@@ -731,7 +731,7 @@
       "sha256": "0b93fd353fc873bef94ec858e77597182c4f22f0aa77b18749756301c1deed78",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -740,7 +740,7 @@
       "classification": "generated",
       "editable_source": {
         "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
-        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+        "sha256": "16b7b4e3b9a8821ee20059ed1575b3ec8e2bf3145af21aaadfe1664407caeb7e"
       },
       "license": "GPL-3.0-or-later",
       "modified": true,
@@ -749,10 +749,10 @@
         "allowed": true,
         "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
       },
-      "sha256": "f1ce5067d29e6c2ab8fa9fcacea8fce9770de11a883005a5224d9ee87a34b737",
+      "sha256": "74ccb14ab500440727a162d636c696228d97adf8ab278b43978de67187ea62cf",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -761,7 +761,7 @@
       "classification": "generated",
       "editable_source": {
         "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
-        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+        "sha256": "16b7b4e3b9a8821ee20059ed1575b3ec8e2bf3145af21aaadfe1664407caeb7e"
       },
       "license": "GPL-3.0-or-later",
       "modified": true,
@@ -773,7 +773,7 @@
       "sha256": "9fe421322b65afbb04c7a523899864b40bba583eccde50348d47d46edf0bdcd9",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -782,7 +782,7 @@
       "classification": "generated",
       "editable_source": {
         "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
-        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+        "sha256": "16b7b4e3b9a8821ee20059ed1575b3ec8e2bf3145af21aaadfe1664407caeb7e"
       },
       "license": "GPL-3.0-or-later",
       "modified": true,
@@ -794,7 +794,7 @@
       "sha256": "7560cafea6c77cef6e310acce634a635fd14d7d17122d2ca7db3e4f57245d2a6",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -803,7 +803,7 @@
       "classification": "generated",
       "editable_source": {
         "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
-        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+        "sha256": "16b7b4e3b9a8821ee20059ed1575b3ec8e2bf3145af21aaadfe1664407caeb7e"
       },
       "license": "GPL-3.0-or-later",
       "modified": true,
@@ -815,7 +815,7 @@
       "sha256": "cad5170a2bef8f76fb4c08a140e392b9d6df58c4c2f12066b95588a1eb2394cc",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -824,7 +824,7 @@
       "classification": "generated",
       "editable_source": {
         "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
-        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+        "sha256": "16b7b4e3b9a8821ee20059ed1575b3ec8e2bf3145af21aaadfe1664407caeb7e"
       },
       "license": "GPL-3.0-or-later",
       "modified": true,
@@ -836,7 +836,7 @@
       "sha256": "8c0bd3de5f83dadc65a4493c1bb7075148cf8187a151960ce06cb16301fc0615",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -845,7 +845,7 @@
       "classification": "generated",
       "editable_source": {
         "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
-        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+        "sha256": "16b7b4e3b9a8821ee20059ed1575b3ec8e2bf3145af21aaadfe1664407caeb7e"
       },
       "license": "GPL-3.0-or-later",
       "modified": true,
@@ -857,7 +857,7 @@
       "sha256": "eb58a452f5d3159ac3cb0601698c51c519d170a3e2c63067f4fa59df259054bf",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -866,7 +866,7 @@
       "classification": "generated",
       "editable_source": {
         "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
-        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+        "sha256": "16b7b4e3b9a8821ee20059ed1575b3ec8e2bf3145af21aaadfe1664407caeb7e"
       },
       "license": "GPL-3.0-or-later",
       "modified": true,
@@ -878,7 +878,7 @@
       "sha256": "38fd91179afea95db342d7e4d6f9d4cb016d4030c052f7a1de4ca3d65124f1b2",
       "source": {
         "kind": "generator",
-        "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa",
+        "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -887,7 +887,7 @@
       "classification": "generated",
       "editable_source": {
         "path": "tools/blender/cityworld_next/generate_gateway_block.py",
-        "sha256": "077f469b90a4408c7bfcd2ee0ac2f79f0aebb8106164fb6aa4271b316dbe6e39"
+        "sha256": "bb70d21b793fc394adf714fc1b303ff448ccaea8ced358780f72c21342f2f4b4"
       },
       "license": "GPL-3.0-or-later",
       "modified": true,
@@ -896,10 +896,10 @@
         "allowed": true,
         "evidence": "https://github.com/oasiz-ai/rigs-of-rods"
       },
-      "sha256": "01984f09baa8997ce94c54dd79e554618c7c30dcb0cb985bc1abc522d04d3fc7",
+      "sha256": "1fd58af6161e8ece2356188caa92e2bfbf2aa464643f9f7c00dc86ca8bbfd67c",
       "source": {
         "kind": "generator",
-        "sha256": "077f469b90a4408c7bfcd2ee0ac2f79f0aebb8106164fb6aa4271b316dbe6e39",
+        "sha256": "bb70d21b793fc394adf714fc1b303ff448ccaea8ced358780f72c21342f2f4b4",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     },
@@ -908,7 +908,7 @@
       "classification": "generated",
       "editable_source": {
         "path": "content-source/cityworld_next/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.blend",
-        "sha256": "79d67f2fa166480cec24852607c5d0119207174bfae4ec0698e77bfc975767a9"
+        "sha256": "16b7b4e3b9a8821ee20059ed1575b3ec8e2bf3145af21aaadfe1664407caeb7e"
       },
       "license": "GPL-3.0-or-later",
       "modified": true,
@@ -920,7 +920,7 @@
       "sha256": "0e7c06346a1cb6c638487b8a0f8d49a535361456e3350939eeeb7c704f541b82",
       "source": {
         "kind": "generator",
-        "sha256": "077f469b90a4408c7bfcd2ee0ac2f79f0aebb8106164fb6aa4271b316dbe6e39",
+        "sha256": "bb70d21b793fc394adf714fc1b303ff448ccaea8ced358780f72c21342f2f4b4",
         "uri": "https://github.com/oasiz-ai/rigs-of-rods"
       }
     }

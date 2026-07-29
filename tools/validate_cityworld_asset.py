@@ -16,6 +16,7 @@ import hashlib
 import json
 import math
 from pathlib import Path, PurePosixPath
+import re
 import struct
 import sys
 from typing import Any, Iterable
@@ -30,6 +31,8 @@ MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_GLB_BYTES = 128 * 1024 * 1024
 MAX_SOURCE_BYTES = 512 * 1024 * 1024
 POSITION_EPSILON = 1e-6
+MAX_RUNTIME_LIGHTS = 32
+RUNTIME_LIGHT_ID_PATTERN = re.compile(r"rorng_[a-z0-9_]+")
 
 COMPONENT_TYPES: dict[int, tuple[str, int]] = {
     5120: ("b", 1),
@@ -303,6 +306,7 @@ class Validator:
             "glb_materials": 0,
             "glb_nodes": 0,
             "lod_objects": 0,
+            "runtime_lights": 0,
             "triangles": 0,
         }
 
@@ -902,6 +906,138 @@ class Validator:
                 "centreline, radius, angle, and connector chord disagree",
             )
 
+    def validate_runtime_lights(self) -> None:
+        assert self.manifest is not None
+        declaration = self.manifest.get("runtime_lights")
+        if declaration is None:
+            return
+        if not isinstance(declaration, dict):
+            self.add(
+                "RUNTIME_LIGHTS_RECORD",
+                "$.runtime_lights",
+                "runtime lights must be an object",
+            )
+            return
+        if set(declaration) != {"lights", "profile"}:
+            self.add(
+                "RUNTIME_LIGHTS_KEYS",
+                "$.runtime_lights",
+                "runtime lights require exactly profile and lights",
+            )
+        if declaration.get("profile") != "ror-cityworld-local-lights-v1":
+            self.add(
+                "RUNTIME_LIGHTS_PROFILE",
+                "$.runtime_lights.profile",
+                "unsupported runtime-light profile",
+            )
+        lights = declaration.get("lights")
+        if (
+            not isinstance(lights, list)
+            or not lights
+            or len(lights) > MAX_RUNTIME_LIGHTS
+        ):
+            self.add(
+                "RUNTIME_LIGHTS_COUNT",
+                "$.runtime_lights.lights",
+                f"runtime lights require 1 to {MAX_RUNTIME_LIGHTS} records",
+            )
+            return
+
+        identifiers: set[str] = set()
+        for index, light in enumerate(lights):
+            pointer = f"$.runtime_lights.lights[{index}]"
+            if not isinstance(light, dict):
+                self.add(
+                    "RUNTIME_LIGHT_RECORD",
+                    pointer,
+                    "runtime light must be an object",
+                )
+                continue
+            if set(light) != {
+                "color_linear",
+                "id",
+                "position_blender_z_up_m",
+                "range_m",
+                "type",
+            }:
+                self.add(
+                    "RUNTIME_LIGHT_KEYS",
+                    pointer,
+                    "runtime point light has unknown or missing keys",
+                )
+            identifier = light.get("id")
+            if (
+                not isinstance(identifier, str)
+                or RUNTIME_LIGHT_ID_PATTERN.fullmatch(identifier) is None
+            ):
+                self.add(
+                    "RUNTIME_LIGHT_ID",
+                    f"{pointer}.id",
+                    "runtime light ID must be a stable rorng_ identifier",
+                )
+            elif identifier in identifiers:
+                self.add(
+                    "RUNTIME_LIGHT_DUPLICATE",
+                    f"{pointer}.id",
+                    "runtime light ID is duplicated",
+                )
+            else:
+                identifiers.add(identifier)
+            if light.get("type") != "point":
+                self.add(
+                    "RUNTIME_LIGHT_TYPE",
+                    f"{pointer}.type",
+                    "only bounded point lights are supported",
+                )
+
+            position = light.get("position_blender_z_up_m")
+            color = light.get("color_linear")
+            if (
+                not isinstance(position, list)
+                or len(position) != 3
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    for value in position
+                )
+            ):
+                self.add(
+                    "RUNTIME_LIGHT_POSITION",
+                    f"{pointer}.position_blender_z_up_m",
+                    "runtime light position must contain three finite metres",
+                )
+            if (
+                not isinstance(color, list)
+                or len(color) != 3
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    or float(value) < 0.0
+                    or float(value) > 16.0
+                    for value in color
+                )
+            ):
+                self.add(
+                    "RUNTIME_LIGHT_COLOR",
+                    f"{pointer}.color_linear",
+                    "runtime light color must contain three finite values from 0 to 16",
+                )
+            range_value = light.get("range_m")
+            if (
+                isinstance(range_value, bool)
+                or not isinstance(range_value, (int, float))
+                or not math.isfinite(float(range_value))
+                or not 0.1 <= float(range_value) <= 100.0
+            ):
+                self.add(
+                    "RUNTIME_LIGHT_RANGE",
+                    f"{pointer}.range_m",
+                    "runtime light range must be from 0.1 to 100 metres",
+                )
+        self.stats["runtime_lights"] = len(lights)
+
     def validate(self) -> dict[str, Any]:
         self.load_manifest()
         if self.manifest is not None:
@@ -912,6 +1048,7 @@ class Validator:
             self.validate_lods()
             self.validate_collisions()
             self.validate_connectors()
+            self.validate_runtime_lights()
         diagnostics = sorted(
             (diagnostic.as_dict() for diagnostic in self.diagnostics),
             key=lambda item: (item["code"], item["path"], item["message"]),

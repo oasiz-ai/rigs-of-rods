@@ -17,4 +17,13 @@ mesh rorng_city_gateway_block_40m_collision_road.mesh
 stdfriction asphalt
 endmesh
 
+pointlight -3.95, 5.2, 12.6, 0, -1, 0, 1, 0.62, 0.22, 13
+pointlight -3.95, 5.2, 2.6, 0, -1, 0, 1, 0.62, 0.22, 13
+pointlight -3.95, 5.2, -7.4, 0, -1, 0, 1, 0.62, 0.22, 13
+pointlight -3.95, 5.2, -17.4, 0, -1, 0, 1, 0.62, 0.22, 13
+pointlight 3.95, 5.2, 12.6, 0, -1, 0, 1, 0.62, 0.22, 13
+pointlight 3.95, 5.2, 2.6, 0, -1, 0, 1, 0.62, 0.22, 13
+pointlight 3.95, 5.2, -7.4, 0, -1, 0, 1, 0.62, 0.22, 13
+pointlight 3.95, 5.2, -17.4, 0, -1, 0, 1, 0.62, 0.22, 13
+
 end

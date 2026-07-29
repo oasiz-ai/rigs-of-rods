@@ -683,27 +683,33 @@ marker, and persisted `Sky effects=Sandstorm (fastest)`. The capture confirms
 direct sun and ambient response; it also keeps CityWorld's missing-material
 messages visible as the separate content-authoring failures they are.
 
-The first original Blender-authored CityWorld Next bridge family now crosses
-the offline/runtime boundary. A fail-closed glTF compiler lowers its applied,
-bounded static scenes into deterministic OGRE 1.100 little-endian meshes, manual
-80/180 metre render LODs, separate asphalt/barrier collision meshes, an
-RTShaderSystem material fallback, and an ODEF that preserves the Y-up basis.
-The checked package and provenance cover every output byte. A portable runtime
-gate assembles a deterministic local fixture from the pinned content submodule,
-uses an isolated native profile on macOS/Linux/Windows, and drives the pinned
-DAF across three exactly coincident 20 metre modules with collision enabled.
-The first arm64 run traversed 90.1281 metres and both seams in 20,260
-deterministic physics steps, held lateral drift to 0.640167 metres and height to
-0.69451–1.50233 metres, loaded every render/collision mesh, generated GL3Plus
-RTSS programs for all six bridge materials, and fully decoded a UI-free
-1280x720 RGB proof. A compiled 15-degree curved module now adds exact
-tangent-aware connectors, a support pier, bearings, four fixtures, and
-core-glTF-to-OGRE emissive lowering. Windows and Linux runtime execution, the
-abutments, and insertion into the rights-cleared CityWorld overlay remain
-open. The connector-solved curved traversal is now proven on the signed arm64
-app: three modules produce zero mathematical seam gap, the DAF crossed both
-physical seams with 1.41593 m maximum path error and 0.805754–0.866494 m actor
-height, and all seven materials plus a decoded 1280x720 RGB frame passed.
+The first original Blender-authored CityWorld Next bridge-to-city family now
+crosses the offline/runtime boundary. A fail-closed glTF compiler lowers its
+applied, bounded static scenes into deterministic OGRE 1.100 little-endian
+meshes, manual 80/180 metre render LODs, separate collision meshes,
+RTShaderSystem material fallbacks, and ODEFs that preserve the Y-up basis. The
+checked package and provenance cover every output byte. The family now includes
+the tangent and 15-degree curved spans, a 12 m abutment/transition, and a 40 m
+gateway block with four mid-rise façades, individual windows, sidewalks, eight
+trees, and eight streetlights.
+
+The gateway lights are the first bounded dynamic-light compiler slice. Eight
+versioned warm point lights are validated for count, identifiers, type, finite
+position/colour, colour range, and physical range before deterministic
+Blender-to-OGRE coordinate conversion and ODEF lowering. Runtime creation is
+logged, emissive lenses remain active, and the local lights do not alter the
+global PSSM configuration.
+
+A portable runtime gate assembles an isolated native fixture from the pinned
+content submodule. On macOS arm64, the DAF drove 137.569 metres through three
+curves, the transition, and the gateway in 30,580 deterministic physics steps.
+All four mathematical seams are exact, maximum path error was 1.43999 m, actor
+height stayed at 0.807714–0.867233 m, all eight point lights and every
+render/collision mesh loaded, all visible materials received GL3Plus RTSS
+programs, and the UI-free 1280x720 RGB proof fully decoded. The installed
+rolling app reproduced the pass. Native Windows/Linux physical execution,
+controlled PSSM captures, performance gates, and insertion into a
+rights-cleared full CityWorld overlay remain open.
 
 This is meaningful R0 progress, not completion. The remaining gates include:
 

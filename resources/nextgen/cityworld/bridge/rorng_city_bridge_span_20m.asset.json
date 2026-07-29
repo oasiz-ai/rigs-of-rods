@@ -160,7 +160,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/bridge/compiled/rorng_city_bridge_span_20m.compile.json",
-      "sha256": "02f444a7119f52a06220be8befe00a859fb6f4ea14725c8e0dfa5838d18d4b26"
+      "sha256": "0b0b123574bf6370fc1aba535395991c2828964e69efec1a6b3e89ba97c56046"
     }
   },
   "connectors": [

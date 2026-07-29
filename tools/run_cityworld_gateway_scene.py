@@ -74,6 +74,8 @@ ENGINE_MARKERS = (
     "Mesh: Loading rorng_city_gateway_block_40m_collision_barrier_left.mesh.",
     "Mesh: Loading rorng_city_gateway_block_40m_collision_barrier_right.mesh.",
     "Mesh: Loading rorng_city_gateway_block_40m_collision_road.mesh.",
+    "[RoR|TerrainObject|Lights] "
+    "odef=rorng_city_gateway_block_40m.odef spotlights=0 point_lights=8",
     "Pass 0 of 'rorng_gateway_architectural_concrete'",
     "Pass 0 of 'rorng_gateway_asphalt'",
     "Pass 0 of 'rorng_gateway_tree_bark'",

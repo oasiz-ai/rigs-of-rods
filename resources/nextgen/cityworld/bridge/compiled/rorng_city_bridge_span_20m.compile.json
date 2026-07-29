@@ -38,7 +38,7 @@
   "compiler": {
     "format": "ror-cityworld-scene-compiler-v1",
     "path": "tools/compile_cityworld_asset.py",
-    "sha256": "e9a62abba1fb06600c42ae7265a97b57f6c3bf93df8a2cab0e6e5510bdea29fa"
+    "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059"
   },
   "connectors": [
     {
@@ -150,6 +150,7 @@
       "size": 5338
     }
   ],
+  "runtime_lights": [],
   "source_stats": {
     "indices": 15060,
     "materials": 7,

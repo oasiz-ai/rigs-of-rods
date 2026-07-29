@@ -327,6 +327,26 @@ class CityWorldSceneCompilerTests(unittest.TestCase):
         self.assertIn("material rorng_gateway_leaf_light", material)
         self.assertIn("material rorng_gateway_lamp_emissive", material)
         self.assertIn("      emissive 1 0.69 0.25", material)
+        lights = compiler.runtime_light_contract()
+        self.assertEqual(len(lights), 8)
+        self.assertEqual(
+            lights[0],
+            {
+                "color_linear": [1.0, 0.62, 0.22],
+                "id": "rorng_gateway_lamp_left_0",
+                "position_ogre_y_up_m": [-3.95, 5.2, 12.6],
+                "range_m": 13.0,
+                "type": "point",
+            },
+        )
+        self.assertEqual(report["runtime_lights"], lights)
+        odef = compiler._odef_bytes().decode("utf-8")
+        self.assertEqual(odef.count("\npointlight "), 8)
+        self.assertIn(
+            "pointlight -3.95, 5.2, 12.6, 0, -1, 0, "
+            "1, 0.62, 0.22, 13",
+            odef,
+        )
 
     def test_intermediates_are_byte_deterministic(self) -> None:
         first = self.intermediates()

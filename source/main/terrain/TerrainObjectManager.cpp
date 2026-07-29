@@ -966,6 +966,14 @@ bool TerrainObjectManager::LoadTerrainObject(const Ogre::String& name, const Ogr
         sn->attachObject(pointlight);
         sn->attachObject(lflare);
     }
+    if (!odef->spotlights.empty() || !odef->point_lights.empty())
+    {
+        LOG(fmt::format(
+            "[RoR|TerrainObject|Lights] odef={} spotlights={} point_lights={}",
+            odefname,
+            odef->spotlights.size(),
+            odef->point_lights.size()));
+    }
 
     return true;
 }
