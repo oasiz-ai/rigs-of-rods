@@ -1,8 +1,11 @@
 #include "LegacyMaterialScriptSanitizer.h"
 
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -140,13 +143,50 @@ void TestPinnedPlanMetadataIsExact()
     CHECK(
         std::string(plan->script_sha256) ==
         "03e17f9fab655321e7b266ce848e55d3ecd581d417e4f336f3a7928cd9d6e919");
-    CHECK(plan->edit_count == 2U);
+    CHECK(plan->edit_count == 32U);
+    CHECK(plan->edits[0].line == 30U);
+    CHECK(
+        std::string(plan->edits[0].replacement).find(
+            "ambient 0.12 0.12 0.12 1") != std::string::npos);
     const RoR::LegacyMaterialScriptEditPlan* builds_plan =
         RoR::FindLegacyMaterialScriptEditPlan(
             plan->archive_sha256,
             "NeoQ2-0-builds.material");
     CHECK(builds_plan != nullptr);
-    CHECK(builds_plan->edit_count == 4U);
+    CHECK(builds_plan->edit_count == 26U);
+    const struct
+    {
+        const char* script_name;
+        const char* script_sha256;
+        std::size_t edit_count;
+    } neoq20_grade_plans[] = {
+        {"NeoQ2-0-asphalt.material",
+         "6ce129e2f04aaca9fe8dd29b62b09781f3dca3c19b18d58450976e330b165ae6",
+         8U},
+        {"NeoQ2-0-concrete-road.material",
+         "fe3c212dd0a1df62fa5c904575d8b0e61d440c42972c00f2792a1fcbab9354a4",
+         10U},
+        {"NeoQ2-0-vegetation.material",
+         "63fd8844d1efe2393c3499678f06d9c7c09f757c11ae660f41141311ddb94484",
+         15U},
+        {"NeoQ2-0-SmfS.material",
+         "0491e5ca22aec7150a5df80bf5eaf73136bd7c03e0ae5ae984f807bd4b7882d9",
+         7U}};
+    for (const auto& expected : neoq20_grade_plans)
+    {
+        const RoR::LegacyMaterialScriptEditPlan* grade_plan =
+            RoR::FindLegacyMaterialScriptEditPlan(
+                plan->archive_sha256,
+                expected.script_name);
+        CHECK(grade_plan != nullptr);
+        if (grade_plan != nullptr)
+        {
+            CHECK(
+                std::string(grade_plan->script_sha256) ==
+                expected.script_sha256);
+            CHECK(grade_plan->edit_count == expected.edit_count);
+        }
+    }
     const RoR::LegacyMaterialScriptEditPlan* city_plan =
         RoR::FindLegacyMaterialScriptEditPlan(
             plan->archive_sha256,
@@ -270,6 +310,64 @@ void TestPinnedPlanMetadataIsExact()
         RoR::FindLegacyMaterialScriptEditPlan(
             plan->archive_sha256,
             "unplanned.material") == nullptr);
+}
+
+void TestPinnedNeoQ20PayloadsWhenAvailable()
+{
+    const char* fixture_directory =
+        std::getenv("ROR_CITYWORLD_NEOQ20_MATERIAL_DIR");
+    if (fixture_directory == nullptr || fixture_directory[0] == '\0')
+    {
+        return;
+    }
+
+    const char* scripts[] = {
+        "NeoQ2-0.material",
+        "NeoQ2-0-builds.material",
+        "NeoQ2-0-asphalt.material",
+        "NeoQ2-0-concrete-road.material",
+        "NeoQ2-0-vegetation.material",
+        "NeoQ2-0-SmfS.material"};
+    const std::string archive_sha256 =
+        "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
+    for (const char* script : scripts)
+    {
+        const std::string path =
+            std::string(fixture_directory) + "/" + script;
+        std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
+        CHECK(input.good());
+        if (!input.good())
+        {
+            continue;
+        }
+        std::ostringstream payload_stream;
+        payload_stream << input.rdbuf();
+        const std::string payload = payload_stream.str();
+        const RoR::LegacyMaterialScriptEditPlan* plan =
+            RoR::FindLegacyMaterialScriptEditPlan(
+                archive_sha256,
+                script);
+        CHECK(plan != nullptr);
+        if (plan == nullptr)
+        {
+            continue;
+        }
+        const RoR::LegacyMaterialScriptPlanApplication applied =
+            RoR::ApplyLegacyMaterialScriptEditPlan(
+                *plan,
+                plan->script_sha256,
+                payload);
+        CHECK(applied.applicable);
+        CHECK(applied.safe);
+        CHECK(applied.applied_edit_count == plan->edit_count);
+        CHECK(applied.payload != payload);
+        CHECK(
+            applied.payload.find("lighting on") !=
+            std::string::npos);
+        CHECK(
+            applied.payload.find("specular ") !=
+            std::string::npos);
+    }
 }
 
 void TestExactPlanAppliesTransactionally()
@@ -526,6 +624,7 @@ int main()
     TestAmbiguousAndUnbalancedScriptsAreRejectedByteExact();
     TestMultipleStandaloneRepairsAreDeterministic();
     TestPinnedPlanMetadataIsExact();
+    TestPinnedNeoQ20PayloadsWhenAvailable();
     TestExactPlanAppliesTransactionally();
     TestDuplicateMaterialBlockRemovalIsTransactional();
     TestLegacyEnvironmentMapConversionIsTransactional();

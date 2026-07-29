@@ -28,6 +28,7 @@
 
 #include <Ogre.h>
 
+#include <cstddef>
 #include <memory>
 
 namespace RoR  {
@@ -133,6 +134,7 @@ struct TObjEntry
     char                 type[TObj::STR_LEN]          = {};
     char                 instance_name[TObj::STR_LEN] = {};
     char                 odef_name[TObj::STR_LEN]     = {};
+    std::size_t          source_line                  = 0U;
     float                rendering_distance           = 0.f; // 0 means 'always rendered', see https://ogrecave.github.io/ogre/api/1.11/class_ogre_1_1_movable_object.html#afe1f2a1009e3f14f36e1bcc9b1b9557e
     std::string          comments; //!< Comment line(s) preceding the object-line in the .TOBJ file.
 };

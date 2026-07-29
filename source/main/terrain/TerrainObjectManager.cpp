@@ -26,6 +26,7 @@
 #include "AutoPilot.h"
 #include "CacheSystem.h"
 #include "CameraManager.h"
+#include "CityWorldNeoQ20Compatibility.h"
 #include "Collisions.h"
 #include "Console.h"
 #include "ErrorUtils.h"
@@ -156,14 +157,90 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
     ROR_ASSERT(this->terrainManager->getCacheEntry()->resource_group != "");
 
     TObjDocumentPtr tobj;
+    std::vector<std::string> authored_dependencies(
+        this->terrainManager->GetDef()->resource_bundle_dependencies.begin(),
+        this->terrainManager->GetDef()->resource_bundle_dependencies.end());
+    const bool inspect_cityworld_neoq20 =
+        tobj_name == "CityWorld.tobj" &&
+        HasCityWorldNeoQ20PinnedDependency(authored_dependencies);
+    std::string observed_tobj_sha256;
     try
     {
         DataStreamPtr stream_ptr = ResourceGroupManager::getSingleton().openResource(
             tobj_name, this->terrainManager->getCacheEntry()->resource_group);
+        static const std::size_t MAX_CITYWORLD_TOBJ_BYTES =
+            32U * 1024U * 1024U;
+        if (inspect_cityworld_neoq20 &&
+            stream_ptr->size() <= MAX_CITYWORLD_TOBJ_BYTES)
+        {
+            const std::string payload = stream_ptr->getAsString();
+            observed_tobj_sha256 =
+                ComputeCityWorldNeoQ20Sha256(payload);
+            stream_ptr->seek(0U);
+        }
         TObjParser parser;
         parser.Prepare();
         parser.ProcessOgreStream(stream_ptr.get());
         tobj = parser.Finalize();
+
+        if (inspect_cityworld_neoq20)
+        {
+            std::vector<CityWorldNeoQ20Placement> placements;
+            placements.reserve(tobj->objects.size());
+            for (const TObjEntry& entry : tobj->objects)
+            {
+                placements.push_back({
+                    entry.source_line,
+                    entry.odef_name,
+                    entry.type,
+                    entry.instance_name,
+                    entry.position.x,
+                    entry.position.y,
+                    entry.position.z,
+                    entry.rotation.x,
+                    entry.rotation.y,
+                    entry.rotation.z});
+            }
+
+            const CityWorldNeoQ20CompatibilityResult grounding =
+                ApplyCityWorldNeoQ20Grounding(
+                    authored_dependencies,
+                    tobj_name,
+                    observed_tobj_sha256,
+                    placements);
+            if (grounding.applied)
+            {
+                ROR_ASSERT(placements.size() == tobj->objects.size());
+                for (std::size_t index = 0U;
+                     index < placements.size();
+                     ++index)
+                {
+                    // The same transformed entry is passed to
+                    // LoadTerrainObject() below, so ODEF visuals and every
+                    // collision primitive receive one identical transform.
+                    tobj->objects[index].position.y =
+                        placements[index].position_y;
+                }
+                m_cityworld_neoq20_grounding_applied = true;
+                LOG(fmt::format(
+                    "[RoR|CityWorld|NeoQ20Grounding] Applied {} exact "
+                    "placement transforms from y=50 to y=0 "
+                    "(tobj_sha256={})",
+                    grounding.changed_count,
+                    observed_tobj_sha256));
+            }
+            else
+            {
+                LOG(fmt::format(
+                    "[RoR|CityWorld|NeoQ20Grounding] Preserved "
+                    "CityWorld.tobj without a partial transform: {} "
+                    "(tobj_sha256={})",
+                    grounding.rejection_reason,
+                    observed_tobj_sha256.empty()
+                        ? "unavailable"
+                        : observed_tobj_sha256));
+            }
+        }
         m_tobj_cache.push_back(tobj);
     }
     catch (...)
@@ -1031,6 +1108,48 @@ void TerrainObjectManager::UpdateParticleEffectObjects()
 
 void TerrainObjectManager::LoadTelepoints()
 {
+    if (m_cityworld_neoq20_grounding_applied)
+    {
+        std::vector<CityWorldNeoQ20Telepoint> telepoints;
+        telepoints.reserve(terrainManager->GetDef()->telepoints.size());
+        for (const Terrn2Telepoint& source :
+             terrainManager->GetDef()->telepoints)
+        {
+            telepoints.push_back({
+                source.name,
+                source.position.x,
+                source.position.y,
+                source.position.z});
+        }
+        const CityWorldNeoQ20CompatibilityResult grounding =
+            ApplyCityWorldNeoQ20TelepointGrounding(
+                true,
+                telepoints);
+        if (grounding.applied)
+        {
+            terrainManager->GetDef()->telepoints.clear();
+            for (const CityWorldNeoQ20Telepoint& source : telepoints)
+            {
+                Terrn2Telepoint telepoint;
+                telepoint.name = source.name;
+                telepoint.position = Ogre::Vector3(
+                    source.position_x,
+                    source.position_y,
+                    source.position_z);
+                terrainManager->GetDef()->telepoints.push_back(telepoint);
+            }
+            LOG(
+                "[RoR|CityWorld|NeoQ20Grounding] Grounded authenticated "
+                "NeoQ2.0 telepoint at y=0");
+        }
+        else
+        {
+            LOG(fmt::format(
+                "[RoR|CityWorld|NeoQ20Grounding] Preserved telepoints: {}",
+                grounding.rejection_reason));
+        }
+    }
+
     for (Terrn2Telepoint& telepoint: terrainManager->GetDef()->telepoints)
     {
         m_map_entities.push_back(SurveyMapEntity("telepoint", telepoint.name, "icon_telepoint.dds", /*resource_group:*/"", telepoint.position, Ogre::Radian(0), -1));

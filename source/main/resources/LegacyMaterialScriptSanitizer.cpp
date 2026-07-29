@@ -18,13 +18,119 @@ namespace
 const char CITYWORLD_ARCHIVE_SHA256[] =
     "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
 
+// Exact-script inserts use CRLF because every pinned NeoQ2.0 source script is
+// CRLF-authored. They retain texture units and authored blend/depth/cull state,
+// while giving OGRE 14 RTShaderSystem useful physically plausible light terms.
+const char NEOQ20_SURFACE_PASS_OPEN[] =
+    "{\r\n"
+    "          lighting on\r\n"
+    "          ambient 0.18 0.18 0.18 1\r\n"
+    "          diffuse 0.82 0.82 0.82 1\r\n"
+    "          specular 0.06 0.06 0.06 1 16";
+const char NEOQ20_ASPHALT_PASS_OPEN[] =
+    "{\r\n"
+    "          lighting on\r\n"
+    "          ambient 0.12 0.12 0.12 1\r\n"
+    "          diffuse 0.70 0.70 0.70 1\r\n"
+    "          specular 0.03 0.03 0.03 1 8";
+const char NEOQ20_CONCRETE_PASS_OPEN[] =
+    "{\r\n"
+    "          lighting on\r\n"
+    "          ambient 0.20 0.20 0.20 1\r\n"
+    "          diffuse 0.78 0.78 0.78 1\r\n"
+    "          specular 0.05 0.05 0.05 1 12";
+const char NEOQ20_METAL_PASS_OPEN[] =
+    "{\r\n"
+    "          lighting on\r\n"
+    "          ambient 0.16 0.16 0.16 1\r\n"
+    "          diffuse 0.72 0.72 0.72 1\r\n"
+    "          specular 0.28 0.28 0.28 1 48";
+const char NEOQ20_FACADE_PASS_OPEN[] =
+    "{\r\n"
+    "          lighting on\r\n"
+    "          ambient 0.22 0.22 0.22 1\r\n"
+    "          diffuse 0.78 0.78 0.78 1\r\n"
+    "          specular 0.05 0.05 0.05 1 12";
+
 const LegacyMaterialScriptEdit CITYWORLD_NEOQ20_EDITS[] = {
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     30U, "{", NEOQ20_ASPHALT_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+     37U, "pass", ""},
+    {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+     38U, "{", ""},
+    {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+     39U, "ambient  0.0 0.0 0.0", ""},
+    {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+     40U, "diffuse  0.0 0.0 0.0", ""},
+    {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+     41U, "specular 0.0 0.0 0.0 1.0 12.5", ""},
+    {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+     42U, "scene_blend add", ""},
+    {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
+     43U, "}", ""},
     {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
      81U, "scroll_z", "scroll_y"},
     {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
-     140U, "}", ""}};
+     140U, "}", ""},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     297U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     310U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     323U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     453U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     466U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     479U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     492U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     505U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     518U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     692U, "{", NEOQ20_METAL_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     712U, "{", NEOQ20_METAL_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     732U, "{", NEOQ20_METAL_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     772U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     839U, "{", NEOQ20_SURFACE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     928U, "{", NEOQ20_METAL_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     957U, "{", NEOQ20_METAL_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     986U, "{", NEOQ20_METAL_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1015U, "{", NEOQ20_METAL_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1044U, "{", NEOQ20_METAL_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1073U, "{", NEOQ20_METAL_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1091U, "{", NEOQ20_METAL_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1109U, "{", NEOQ20_FACADE_PASS_OPEN}};
 
 const LegacyMaterialScriptEdit CITYWORLD_NEOQ20_BUILDS_EDITS[] = {
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     109U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     132U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     224U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     362U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     385U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     569U, "{", NEOQ20_FACADE_PASS_OPEN},
     {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
      675U, "texture_unit", ""},
     {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
@@ -32,7 +138,147 @@ const LegacyMaterialScriptEdit CITYWORLD_NEOQ20_BUILDS_EDITS[] = {
     {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
      701U, "texture_unit", ""},
     {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
-     702U, "}", ""}};
+     702U, "}", ""},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     807U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     831U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     927U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1157U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1170U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1183U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1196U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1209U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1222U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1235U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1248U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1261U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1274U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1287U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1300U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     1313U, "{", NEOQ20_FACADE_PASS_OPEN}};
+
+const LegacyMaterialScriptEdit CITYWORLD_NEOQ20_ASPHALT_EDITS[] = {
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     6U, "{", NEOQ20_ASPHALT_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     19U, "{", NEOQ20_ASPHALT_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     32U, "{", NEOQ20_ASPHALT_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     58U, "{", NEOQ20_ASPHALT_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     71U, "{", NEOQ20_ASPHALT_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     84U, "{", NEOQ20_ASPHALT_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     97U, "{", NEOQ20_ASPHALT_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     110U, "{", NEOQ20_ASPHALT_PASS_OPEN}};
+
+const LegacyMaterialScriptEdit CITYWORLD_NEOQ20_CONCRETE_ROAD_EDITS[] = {
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     6U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     19U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     32U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     45U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     58U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     71U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     84U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     97U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     110U, "{", NEOQ20_CONCRETE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     123U, "{", NEOQ20_CONCRETE_PASS_OPEN}};
+
+const LegacyMaterialScriptEdit CITYWORLD_NEOQ20_VEGETATION_EDITS[] = {
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     8U, "ambient  0.9 0.9 0.9 0.9",
+     "ambient 0.18 0.20 0.16 1.0"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     9U, "diffuse  0.1 0.1 0.1 1.0",
+     "diffuse 0.82 0.88 0.76 1.0"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     10U, "lighting on",
+     "lighting on\r\n"
+     "          specular 0.01 0.01 0.01 1.0 4"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     31U, "ambient  0.8 0.8 0.8 0.8",
+     "ambient 0.16 0.19 0.15 1.0"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     32U, "diffuse  0.1 0.1 0.1 1.0",
+     "diffuse 0.78 0.86 0.74 1.0"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     33U, "lighting on",
+     "lighting on\r\n"
+     "          specular 0.01 0.01 0.01 1.0 4"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     54U, "ambient  0.9 0.9 0.9 0.9",
+     "ambient 0.18 0.20 0.16 1.0"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     55U, "diffuse  0.1 0.1 0.1 1.0",
+     "diffuse 0.82 0.88 0.76 1.0"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     56U, "lighting on",
+     "lighting on\r\n"
+     "          specular 0.01 0.01 0.01 1.0 4"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     77U, "ambient  0.9 0.9 0.9 0.9",
+     "ambient 0.18 0.20 0.16 1.0"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     78U, "diffuse  0.1 0.1 0.1 1.0",
+     "diffuse 0.82 0.88 0.76 1.0"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     79U, "lighting on",
+     "lighting on\r\n"
+     "          specular 0.01 0.01 0.01 1.0 4"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     100U, "ambient  0.9 0.9 0.9 0.9",
+     "ambient 0.18 0.20 0.16 1.0"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     101U, "diffuse  0.1 0.1 0.1 1.0",
+     "diffuse 0.82 0.88 0.76 1.0"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     102U, "lighting on",
+     "lighting on\r\n"
+     "          specular 0.01 0.01 0.01 1.0 4"}};
+
+const LegacyMaterialScriptEdit CITYWORLD_NEOQ20_SMFS_EDITS[] = {
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     6U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     20U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     34U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     48U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     62U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     76U, "{", NEOQ20_FACADE_PASS_OPEN},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     90U, "{", NEOQ20_FACADE_PASS_OPEN}};
 
 const LegacyMaterialScriptEdit CITYWORLD_NEOQUERETARO_EDITS[] = {
     {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
@@ -195,6 +441,30 @@ const LegacyMaterialScriptEditPlan CITYWORLD_PLANS[] = {
      CITYWORLD_NEOQ20_BUILDS_EDITS,
      sizeof(CITYWORLD_NEOQ20_BUILDS_EDITS) /
          sizeof(CITYWORLD_NEOQ20_BUILDS_EDITS[0])},
+    {CITYWORLD_ARCHIVE_SHA256,
+     "NeoQ2-0-asphalt.material",
+     "6ce129e2f04aaca9fe8dd29b62b09781f3dca3c19b18d58450976e330b165ae6",
+     CITYWORLD_NEOQ20_ASPHALT_EDITS,
+     sizeof(CITYWORLD_NEOQ20_ASPHALT_EDITS) /
+         sizeof(CITYWORLD_NEOQ20_ASPHALT_EDITS[0])},
+    {CITYWORLD_ARCHIVE_SHA256,
+     "NeoQ2-0-concrete-road.material",
+     "fe3c212dd0a1df62fa5c904575d8b0e61d440c42972c00f2792a1fcbab9354a4",
+     CITYWORLD_NEOQ20_CONCRETE_ROAD_EDITS,
+     sizeof(CITYWORLD_NEOQ20_CONCRETE_ROAD_EDITS) /
+         sizeof(CITYWORLD_NEOQ20_CONCRETE_ROAD_EDITS[0])},
+    {CITYWORLD_ARCHIVE_SHA256,
+     "NeoQ2-0-vegetation.material",
+     "63fd8844d1efe2393c3499678f06d9c7c09f757c11ae660f41141311ddb94484",
+     CITYWORLD_NEOQ20_VEGETATION_EDITS,
+     sizeof(CITYWORLD_NEOQ20_VEGETATION_EDITS) /
+         sizeof(CITYWORLD_NEOQ20_VEGETATION_EDITS[0])},
+    {CITYWORLD_ARCHIVE_SHA256,
+     "NeoQ2-0-SmfS.material",
+     "0491e5ca22aec7150a5df80bf5eaf73136bd7c03e0ae5ae984f807bd4b7882d9",
+     CITYWORLD_NEOQ20_SMFS_EDITS,
+     sizeof(CITYWORLD_NEOQ20_SMFS_EDITS) /
+         sizeof(CITYWORLD_NEOQ20_SMFS_EDITS[0])},
     {CITYWORLD_ARCHIVE_SHA256,
      "NeoQueretaro.material",
      "9dac0249de8f55b47d5672ab2f8750026abada4e460b2b3a60c4b11ccceec6a3",

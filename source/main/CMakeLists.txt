@@ -227,6 +227,7 @@ set(SOURCE_FILES
         resources/terrn2_fileformat/TerrainBundleArchiveVerifier.{h,cpp}
         resources/terrn2_fileformat/TerrainBundleDependency.{h,cpp}
         resources/terrn2_fileformat/Terrn2FileFormat.{h,cpp}
+        resources/tobj_fileformat/CityWorldNeoQ20Compatibility.{h,cpp}
         resources/tobj_fileformat/TObjFileFormat.{h,cpp}
         resources/tuneup_fileformat/TuneupFileFormat.{h,cpp}
         system/AppCommandLine.cpp
