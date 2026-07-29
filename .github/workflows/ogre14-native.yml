@@ -107,7 +107,8 @@ jobs:
           home.mkdir(parents=True, exist_ok=True)
           (home / "global.conf").write_text(
               "tools.system.package_manager:mode=install\n"
-              "tools.system.package_manager:sudo=True\n",
+              "tools.system.package_manager:sudo=True\n"
+              'core.sources:download_urls=["origin", "https://c3i.jfrog.io/artifactory/conan-center-backup-sources/"]\n',
               encoding="utf-8",
           )
           PY

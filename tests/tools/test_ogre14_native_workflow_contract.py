@@ -11,9 +11,16 @@ import unittest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "ogre14-native.yml"
+MACOS_WORKFLOW = (
+    REPOSITORY_ROOT / ".github" / "workflows" / "macos-native.yml"
+)
 AUDITOR = REPOSITORY_ROOT / "tools" / "ogre14_runtime_audit.py"
 RENDER_SMOKE = (
     REPOSITORY_ROOT / "tools" / "ogre14_native_runtime_smoke.py"
+)
+CONAN_SOURCE_FALLBACK = (
+    'core.sources:download_urls=["origin", '
+    '"https://c3i.jfrog.io/artifactory/conan-center-backup-sources/"]'
 )
 
 EXPECTED_PLUGINS = {
@@ -44,8 +51,15 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text(encoding="utf-8")
+        cls.macos_text = MACOS_WORKFLOW.read_text(encoding="utf-8")
         cls.auditor_text = AUDITOR.read_text(encoding="utf-8")
         cls.render_smoke_text = RENDER_SMOKE.read_text(encoding="utf-8")
+
+    def assert_conan_source_fallback_contract(self, text: str) -> None:
+        self.assertEqual(text.count("core.sources:download_urls="), 1)
+        self.assertEqual(text.count(CONAN_SOURCE_FALLBACK), 1)
+        self.assertNotIn("tools.files.download:verify=False", text)
+        self.assertNotIn("tools.files.download:verify=false", text)
 
     def test_workflow_is_isolated_read_only_and_cancellable(self) -> None:
         text = self.text
@@ -110,6 +124,48 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             text,
         )
         self.assertNotIn("restore-keys:", text)
+
+    def test_conan_source_fallback_is_exact_and_cross_platform(self) -> None:
+        for workflow, text in (
+            (WORKFLOW.name, self.text),
+            (MACOS_WORKFLOW.name, self.macos_text),
+        ):
+            with self.subTest(workflow=workflow):
+                self.assert_conan_source_fallback_contract(text)
+
+    def test_conan_source_fallback_rejects_unsafe_variants(self) -> None:
+        unsafe_variants = {
+            "backup before origin": CONAN_SOURCE_FALLBACK.replace(
+                '["origin", "https://',
+                '["https://',
+            ).replace(
+                'backup-sources/"]',
+                'backup-sources/", "origin"]',
+            ),
+            "origin omitted": CONAN_SOURCE_FALLBACK.replace(
+                '["origin", ',
+                "[",
+            ),
+            "unencrypted backup": CONAN_SOURCE_FALLBACK.replace(
+                "https://c3i.jfrog.io",
+                "http://c3i.jfrog.io",
+            ),
+        }
+        for name, unsafe in unsafe_variants.items():
+            with self.subTest(variant=name):
+                mutated = self.text.replace(CONAN_SOURCE_FALLBACK, unsafe)
+                with self.assertRaises(AssertionError):
+                    self.assert_conan_source_fallback_contract(mutated)
+
+        with self.assertRaises(AssertionError):
+            self.assert_conan_source_fallback_contract(
+                self.text
+                + "\ncore.sources:download_urls=[\"origin\"]\n"
+            )
+        with self.assertRaises(AssertionError):
+            self.assert_conan_source_fallback_contract(
+                self.text + "\ntools.files.download:verify=False\n"
+            )
 
     def test_local_conan_recipe_bytes_are_platform_stable(self) -> None:
         listed = subprocess.run(

@@ -49,6 +49,16 @@ jobs:
 
       - name: Configure Conan remotes and profile
         run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          home = Path.home() / ".conan2"
+          home.mkdir(parents=True, exist_ok=True)
+          (home / "global.conf").write_text(
+              'core.sources:download_urls=["origin", "https://c3i.jfrog.io/artifactory/conan-center-backup-sources/"]\n',
+              encoding="utf-8",
+          )
+          PY
           conan profile detect --force
           conan remote add \
             conancenter https://center2.conan.io --force
