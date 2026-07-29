@@ -38,6 +38,7 @@ COMPILE_REPORT = (
     "resources/nextgen/cityworld/bridge/compiled/"
     "rorng_city_bridge_span_20m.compile.json"
 )
+ADDITIONAL_ASSET_PACKAGES: tuple[tuple[str, str], ...] = ()
 FIXTURE_DIRECTORY = "tests/fixtures/cityworld_bridge_runtime"
 FIXTURE_FILES = (
     "LICENSE.md",
@@ -218,22 +219,69 @@ def validate_cityworld_package(
     repository: Path,
     timeout: int,
 ) -> tuple[dict[str, object], tuple[Path, ...]]:
-    commands = (
-        (
-            sys.executable,
-            str(repository / "tools/validate_cityworld_asset.py"),
-            str(repository / ASSET_MANIFEST),
-            "--repo-root",
-            str(repository),
-        ),
-        (
-            sys.executable,
-            str(repository / "tools/compile_cityworld_asset.py"),
-            str(repository / ASSET_MANIFEST),
-            "--repo-root",
-            str(repository),
-            "--validate-checked",
-        ),
+    packages = (
+        (ASSET_MANIFEST, COMPILE_REPORT),
+        *ADDITIONAL_ASSET_PACKAGES,
+    )
+    reports: list[dict[str, object]] = []
+    outputs: list[Path] = []
+    names: set[str] = set()
+    for asset_manifest, compile_report in packages:
+        commands = (
+            (
+                sys.executable,
+                str(repository / "tools/validate_cityworld_asset.py"),
+                str(repository / asset_manifest),
+                "--repo-root",
+                str(repository),
+            ),
+            (
+                sys.executable,
+                str(repository / "tools/compile_cityworld_asset.py"),
+                str(repository / asset_manifest),
+                "--repo-root",
+                str(repository),
+                "--validate-checked",
+            ),
+        )
+        for command in commands:
+            completed = run_command(command, timeout, cwd=repository)
+            if completed.returncode != 0:
+                raise BridgeSceneFailure(
+                    "CityWorld package validation failed: "
+                    + decode_output(completed.stdout)
+                )
+
+        report = load_json(repository / compile_report)
+        if report.get("format") != "ror-cityworld-scene-compile-report-v1":
+            raise BridgeSceneFailure("unsupported CityWorld compile report")
+        raw_outputs = report.get("outputs")
+        if not isinstance(raw_outputs, list) or not raw_outputs:
+            raise BridgeSceneFailure("CityWorld compile report has no outputs")
+        reports.append(report)
+        for raw_output in raw_outputs:
+            if not isinstance(raw_output, dict):
+                raise BridgeSceneFailure(
+                    "CityWorld compile output is not an object"
+                )
+            path = resolve_repository_path(repository, raw_output.get("path"))
+            if path.name in names:
+                raise BridgeSceneFailure(
+                    "CityWorld runtime output basename is duplicated: "
+                    f"{path.name}"
+                )
+            names.add(path.name)
+            if path.stat().st_size != raw_output.get("size"):
+                raise BridgeSceneFailure(
+                    f"CityWorld output size drift: {path.name}"
+                )
+            if sha256_file(path) != raw_output.get("sha256"):
+                raise BridgeSceneFailure(
+                    f"CityWorld output hash drift: {path.name}"
+                )
+            outputs.append(path)
+
+    provenance = run_command(
         (
             sys.executable,
             str(repository / "tools/build_cityworld_next_provenance.py"),
@@ -241,42 +289,20 @@ def validate_cityworld_package(
             str(repository),
             "--check",
         ),
+        timeout,
+        cwd=repository,
     )
-    for command in commands:
-        completed = run_command(command, timeout, cwd=repository)
-        if completed.returncode != 0:
-            raise BridgeSceneFailure(
-                "CityWorld package validation failed: "
-                + decode_output(completed.stdout)
-            )
-
-    report_path = repository / COMPILE_REPORT
-    report = load_json(report_path)
-    if report.get("format") != "ror-cityworld-scene-compile-report-v1":
-        raise BridgeSceneFailure("unsupported CityWorld compile report")
-    raw_outputs = report.get("outputs")
-    if not isinstance(raw_outputs, list) or not raw_outputs:
-        raise BridgeSceneFailure("CityWorld compile report has no outputs")
-    outputs: list[Path] = []
-    names: set[str] = set()
-    for raw_output in raw_outputs:
-        if not isinstance(raw_output, dict):
-            raise BridgeSceneFailure("CityWorld compile output is not an object")
-        path = resolve_repository_path(repository, raw_output.get("path"))
-        if path.name in names:
-            raise BridgeSceneFailure(
-                f"CityWorld runtime output basename is duplicated: {path.name}"
-            )
-        names.add(path.name)
-        if path.stat().st_size != raw_output.get("size"):
-            raise BridgeSceneFailure(f"CityWorld output size drift: {path.name}")
-        if sha256_file(path) != raw_output.get("sha256"):
-            raise BridgeSceneFailure(f"CityWorld output hash drift: {path.name}")
-        outputs.append(path)
+    if provenance.returncode != 0:
+        raise BridgeSceneFailure(
+            "CityWorld package validation failed: "
+            + decode_output(provenance.stdout)
+        )
+    if not reports:
+        raise BridgeSceneFailure("CityWorld package set is empty")
     required_suffixes = {".material", ".odef", ".mesh"}
     if not required_suffixes.issubset({path.suffix for path in outputs}):
         raise BridgeSceneFailure("CityWorld runtime output types are incomplete")
-    return report, tuple(sorted(outputs, key=lambda path: path.name))
+    return reports[0], tuple(sorted(outputs, key=lambda path: path.name))
 
 
 def verify_pinned_content(repository: Path) -> Path:
