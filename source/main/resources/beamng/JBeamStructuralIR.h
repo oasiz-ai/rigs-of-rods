@@ -33,7 +33,7 @@ namespace BeamNG {
 enum class JBeamStructuralSeverity
 {
     WARNING,
-    ERROR
+    ERROR_SEVERITY
 };
 
 enum class JBeamStructuralDiagnosticCode

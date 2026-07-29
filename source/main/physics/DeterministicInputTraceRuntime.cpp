@@ -360,7 +360,7 @@ bool PreflightAuthenticatedTrace(
         {
             const Trace::ReadResult read_result =
                 reader.ReadNext(frame);
-            if (read_result == Trace::ReadResult::ERROR)
+            if (read_result == Trace::ReadResult::READ_ERROR)
             {
                 trace_status = reader.GetStatus();
                 return false;
@@ -1163,7 +1163,7 @@ bool Runtime::ReplayFixedStep(
     const ReadResult result = m_impl->reader->ReadNext(frame);
     if (result != ReadResult::FRAME)
     {
-        if (result == ReadResult::ERROR)
+        if (result == ReadResult::READ_ERROR)
         {
             return m_impl->FailTrace(
                 m_impl->reader->GetStatus(),

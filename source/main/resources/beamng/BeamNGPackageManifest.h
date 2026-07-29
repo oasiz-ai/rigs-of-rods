@@ -197,7 +197,7 @@ enum class DiagnosticSeverity
 {
     INFO,
     WARNING,
-    ERROR
+    ERROR_SEVERITY
 };
 
 /// A 1-based source origin. Zero denotes an unknown row, line, or column.

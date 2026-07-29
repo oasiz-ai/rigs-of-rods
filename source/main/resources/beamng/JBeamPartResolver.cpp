@@ -30,7 +30,7 @@ bool HasErrors(const std::vector<JBeamResolveDiagnostic>& diagnostics)
 {
     for (std::size_t i = 0; i < diagnostics.size(); ++i)
     {
-        if (diagnostics[i].severity == JBeamResolveSeverity::ERROR)
+        if (diagnostics[i].severity == JBeamResolveSeverity::ERROR_SEVERITY)
         {
             return true;
         }
@@ -67,7 +67,7 @@ JBeamResolveDiagnostic MakeDiagnosticLimit()
 {
     return MakeDiagnostic(
         JBeamResolveDiagnosticCode::DIAGNOSTIC_LIMIT,
-        JBeamResolveSeverity::ERROR,
+        JBeamResolveSeverity::ERROR_SEVERITY,
         JBeamSourceSpan(),
         std::string(),
         std::string(),
@@ -302,7 +302,7 @@ void ReadSlotVariables(
             limits.max_diagnostics,
             MakeDiagnostic(
             JBeamResolveDiagnosticCode::INVALID_SLOT_VARIABLE,
-            JBeamResolveSeverity::ERROR,
+            JBeamResolveSeverity::ERROR_SEVERITY,
             variables_field->span,
             part_name,
             slot_name,
@@ -319,7 +319,7 @@ void ReadSlotVariables(
             limits.max_diagnostics,
             MakeDiagnostic(
                 JBeamResolveDiagnosticCode::RESOLVED_VARIABLE_LIMIT,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 variables_field->span,
                 part_name,
                 slot_name,
@@ -338,7 +338,7 @@ void ReadSlotVariables(
                 limits.max_diagnostics,
                 MakeDiagnostic(
                 JBeamResolveDiagnosticCode::INVALID_SLOT_VARIABLE,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 field.key_span,
                 part_name,
                 slot_name,
@@ -375,7 +375,7 @@ bool ReadCoreSlot(
             limits.max_diagnostics,
             MakeDiagnostic(
             JBeamResolveDiagnosticCode::INVALID_SLOT_FIELD,
-            JBeamResolveSeverity::ERROR,
+            JBeamResolveSeverity::ERROR_SEVERITY,
             field->span,
             part_name,
             slot_name,
@@ -403,7 +403,7 @@ bool ReadRequiredString(
             limits.max_diagnostics,
             MakeDiagnostic(
             JBeamResolveDiagnosticCode::MISSING_SLOT_FIELD,
-            JBeamResolveSeverity::ERROR,
+            JBeamResolveSeverity::ERROR_SEVERITY,
             JBeamSourceSpan(),
             part_name,
             slot_name,
@@ -421,7 +421,7 @@ bool ReadRequiredString(
             limits.max_diagnostics,
             MakeDiagnostic(
             JBeamResolveDiagnosticCode::INVALID_SLOT_FIELD,
-            JBeamResolveSeverity::ERROR,
+            JBeamResolveSeverity::ERROR_SEVERITY,
             field->span,
             part_name,
             slot_name,
@@ -450,7 +450,7 @@ void ParseSlotTable(
             limits.max_diagnostics,
             MakeDiagnostic(
             JBeamResolveDiagnosticCode::INVALID_SLOT_TABLE,
-            JBeamResolveSeverity::ERROR,
+            JBeamResolveSeverity::ERROR_SEVERITY,
             value.span,
             part_name,
             std::string(),
@@ -473,7 +473,7 @@ void ParseSlotTable(
                     JBeamDiagnosticCode::DUPLICATE_TABLE_HEADER
                 ? JBeamResolveDiagnosticCode::INVALID_SLOT_TABLE
                 : JBeamResolveDiagnosticCode::INVALID_SLOT_ROW,
-            JBeamResolveSeverity::ERROR,
+            JBeamResolveSeverity::ERROR_SEVERITY,
             syntax_diagnostic.span,
             part_name,
             std::string(),
@@ -495,7 +495,7 @@ void ParseSlotTable(
                 limits.max_diagnostics,
                 MakeDiagnostic(
                 JBeamResolveDiagnosticCode::INVALID_SLOT_ROW,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 entry.raw_value.span,
                 part_name,
                 std::string(),
@@ -510,7 +510,7 @@ void ParseSlotTable(
                 limits.max_diagnostics,
                 MakeDiagnostic(
                 JBeamResolveDiagnosticCode::INVALID_SLOT_TABLE,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 entry.raw_value.span,
                 part_name,
                 std::string(),
@@ -585,7 +585,7 @@ void ParseSlotTable(
                     allow == NULL
                         ? JBeamResolveDiagnosticCode::MISSING_SLOT_FIELD
                         : JBeamResolveDiagnosticCode::INVALID_SLOT_FIELD,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     allow == NULL ? row.span : allow->span,
                     part_name,
                     slot.name,
@@ -603,7 +603,7 @@ void ParseSlotTable(
                     deny == NULL
                         ? JBeamResolveDiagnosticCode::MISSING_SLOT_FIELD
                         : JBeamResolveDiagnosticCode::INVALID_SLOT_FIELD,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     deny == NULL ? row.span : deny->span,
                     part_name,
                     slot.name,
@@ -633,7 +633,7 @@ void ParseSlotTable(
                         limits.max_diagnostics,
                         MakeDiagnostic(
                         JBeamResolveDiagnosticCode::INVALID_SLOT_FIELD,
-                        JBeamResolveSeverity::ERROR,
+                        JBeamResolveSeverity::ERROR_SEVERITY,
                         deny->span,
                         part_name,
                         slot.name,
@@ -678,7 +678,7 @@ void ParsePartSlotTypes(
             limits.max_diagnostics,
             MakeDiagnostic(
             JBeamResolveDiagnosticCode::MISSING_SLOT_TYPE,
-            JBeamResolveSeverity::ERROR,
+            JBeamResolveSeverity::ERROR_SEVERITY,
             part.name_span,
             part.name,
             std::string(),
@@ -703,7 +703,7 @@ void ParsePartSlotTypes(
                     limits.max_diagnostics,
                     MakeDiagnostic(
                     JBeamResolveDiagnosticCode::INVALID_SLOT_TYPE,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     value.array_values[i].span,
                     part.name,
                     std::string(),
@@ -738,7 +738,7 @@ void ParsePartSlotTypes(
             limits.max_diagnostics,
             MakeDiagnostic(
             JBeamResolveDiagnosticCode::INVALID_SLOT_TYPE,
-            JBeamResolveSeverity::ERROR,
+            JBeamResolveSeverity::ERROR_SEVERITY,
             value.span,
             part.name,
             std::string(),
@@ -836,7 +836,7 @@ void ParsePartSlots(
                 limits.max_diagnostics,
                 MakeDiagnostic(
                 JBeamResolveDiagnosticCode::DUPLICATE_SLOT,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 slot.span,
                 part.name,
                 slot.name,
@@ -886,7 +886,7 @@ bool PartLess(
 
 const char* SeverityToString(JBeamResolveSeverity severity)
 {
-    return severity == JBeamResolveSeverity::ERROR ? "error" : "warning";
+    return severity == JBeamResolveSeverity::ERROR_SEVERITY ? "error" : "warning";
 }
 
 const char* SlotKindToString(JBeamSlotKind kind)
@@ -1011,7 +1011,7 @@ public:
         {
             Emit(MakeDiagnostic(
                 JBeamResolveDiagnosticCode::INDEX_INVALID,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 JBeamSourceSpan(),
                 std::string(),
                 std::string(),
@@ -1105,7 +1105,7 @@ private:
                     : JBeamSourceSpan();
             Emit(MakeDiagnostic(
                 JBeamResolveDiagnosticCode::PART_SELECTION_LIMIT,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 span,
                 std::string(),
                 std::string(),
@@ -1124,7 +1124,7 @@ private:
                     : JBeamSourceSpan();
             Emit(MakeDiagnostic(
                 JBeamResolveDiagnosticCode::REQUEST_VARIABLE_LIMIT,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 span,
                 std::string(),
                 std::string(),
@@ -1142,7 +1142,7 @@ private:
                     : JBeamSourceSpan();
             Emit(MakeDiagnostic(
                 JBeamResolveDiagnosticCode::RESOLVED_VARIABLE_LIMIT,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 span,
                 std::string(),
                 std::string(),
@@ -1184,7 +1184,7 @@ private:
             {
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::INVALID_PART_SELECTION,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     selection.span,
                     std::string(),
                     selection.slot_name,
@@ -1196,7 +1196,7 @@ private:
             {
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::INVALID_PART_SELECTION,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     selection.span,
                     std::string(),
                     selection.slot_name,
@@ -1240,7 +1240,7 @@ private:
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::
                         INVALID_CONFIGURATION_VARIABLE,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     variable.span,
                     std::string(),
                     std::string(),
@@ -1278,7 +1278,7 @@ private:
             {
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::ROOT_PART_NOT_FOUND,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     JBeamSourceSpan(),
                     m_request.root_part_name,
                     std::string(),
@@ -1289,7 +1289,7 @@ private:
             {
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::AMBIGUOUS_PART,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     JBeamSourceSpan(),
                     m_request.root_part_name,
                     std::string(),
@@ -1302,7 +1302,7 @@ private:
             {
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::ROOT_PART_NOT_MAIN,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     part.name_span,
                     part.name,
                     std::string(),
@@ -1323,7 +1323,7 @@ private:
             {
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::MULTIPLE_MAIN_PARTS,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     m_index.parts[i].name_span,
                     m_index.parts[i].name,
                     std::string(),
@@ -1336,7 +1336,7 @@ private:
         {
             Emit(MakeDiagnostic(
                 JBeamResolveDiagnosticCode::ROOT_PART_NOT_FOUND,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 JBeamSourceSpan(),
                 std::string(),
                 std::string(),
@@ -1384,7 +1384,7 @@ private:
         {
             Emit(MakeDiagnostic(
                 JBeamResolveDiagnosticCode::RESOLVE_DEPTH_LIMIT,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 part.name_span,
                 part.name,
                 std::string(),
@@ -1396,7 +1396,7 @@ private:
         {
             Emit(MakeDiagnostic(
                 JBeamResolveDiagnosticCode::RESOLVED_PART_LIMIT,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 part.name_span,
                 part.name,
                 std::string(),
@@ -1431,7 +1431,7 @@ private:
                     edge.status = JBeamResolvedSlotStatus::MISSING;
                     Emit(MakeDiagnostic(
                         JBeamResolveDiagnosticCode::MISSING_REQUIRED_PART,
-                        JBeamResolveSeverity::ERROR,
+                        JBeamResolveSeverity::ERROR_SEVERITY,
                         slot.span,
                         part.name,
                         slot.name,
@@ -1455,7 +1455,7 @@ private:
                         ? JBeamResolveDiagnosticCode::MISSING_REQUIRED_PART
                         : JBeamResolveDiagnosticCode::MISSING_OPTIONAL_PART,
                     slot.core_slot
-                        ? JBeamResolveSeverity::ERROR
+                        ? JBeamResolveSeverity::ERROR_SEVERITY
                         : JBeamResolveSeverity::WARNING,
                     slot.span,
                     part.name,
@@ -1470,7 +1470,7 @@ private:
                 edge.status = JBeamResolvedSlotStatus::MISSING;
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::AMBIGUOUS_PART,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     slot.span,
                     edge.selected_part,
                     slot.name,
@@ -1486,7 +1486,7 @@ private:
                 edge.status = JBeamResolvedSlotStatus::NOT_ALLOWED;
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::PART_NOT_ALLOWED_IN_SLOT,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     slot.span,
                     child_part.name,
                     slot.name,
@@ -1500,7 +1500,7 @@ private:
                 edge.status = JBeamResolvedSlotStatus::CYCLE;
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::SLOT_CYCLE,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     slot.span,
                     child_part.name,
                     slot.name,
@@ -1518,7 +1518,7 @@ private:
                 edge.status = JBeamResolvedSlotStatus::LIMIT_REJECTED;
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::RESOLVE_DEPTH_LIMIT,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     slot.span,
                     child_part.name,
                     slot.name,
@@ -1532,7 +1532,7 @@ private:
                 edge.status = JBeamResolvedSlotStatus::LIMIT_REJECTED;
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::RESOLVED_PART_LIMIT,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     slot.span,
                     child_part.name,
                     slot.name,
@@ -1550,7 +1550,7 @@ private:
                 edge.status = JBeamResolvedSlotStatus::LIMIT_REJECTED;
                 Emit(MakeDiagnostic(
                     JBeamResolveDiagnosticCode::RESOLVED_VARIABLE_LIMIT,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     slot.span,
                     child_part.name,
                     slot.name,
@@ -1633,7 +1633,7 @@ void AppendResolvedNode(
 
 JBeamResolveDiagnostic::JBeamResolveDiagnostic()
     : code(JBeamResolveDiagnosticCode::PACKAGE_DOCUMENT_NOT_OBJECT)
-    , severity(JBeamResolveSeverity::ERROR)
+    , severity(JBeamResolveSeverity::ERROR_SEVERITY)
 {
 }
 
@@ -1713,7 +1713,7 @@ JBeamPackageIndex BuildJBeamPackageIndex(
                 limits.max_diagnostics,
                 MakeDiagnostic(
                 JBeamResolveDiagnosticCode::PACKAGE_DOCUMENT_NOT_OBJECT,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 source.document.span,
                 std::string(),
                 std::string(),
@@ -1735,7 +1735,7 @@ JBeamPackageIndex BuildJBeamPackageIndex(
                     MakeDiagnostic(
                         JBeamResolveDiagnosticCode::
                             INDEX_INPUT_ENTRY_LIMIT,
-                        JBeamResolveSeverity::ERROR,
+                        JBeamResolveSeverity::ERROR_SEVERITY,
                         field.key_span,
                         field.key,
                         std::string(),
@@ -1752,7 +1752,7 @@ JBeamPackageIndex BuildJBeamPackageIndex(
                     limits.max_diagnostics,
                     MakeDiagnostic(
                     JBeamResolveDiagnosticCode::EMPTY_PART_NAME,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     field.key_span,
                     field.key,
                     std::string(),
@@ -1767,7 +1767,7 @@ JBeamPackageIndex BuildJBeamPackageIndex(
                     limits.max_diagnostics,
                     MakeDiagnostic(
                     JBeamResolveDiagnosticCode::PART_NOT_OBJECT,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     field.value ? field.value->span : field.key_span,
                     field.key,
                     std::string(),
@@ -1781,7 +1781,7 @@ JBeamPackageIndex BuildJBeamPackageIndex(
                     limits.max_diagnostics,
                     MakeDiagnostic(
                     JBeamResolveDiagnosticCode::INDEX_PART_LIMIT,
-                    JBeamResolveSeverity::ERROR,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
                     field.key_span,
                     field.key,
                     std::string(),
@@ -1811,7 +1811,7 @@ JBeamPackageIndex BuildJBeamPackageIndex(
                 limits.max_diagnostics,
                 MakeDiagnostic(
                 JBeamResolveDiagnosticCode::DUPLICATE_PART,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 index.parts[i].name_span,
                 index.parts[i].name,
                 std::string(),
@@ -1893,7 +1893,7 @@ JBeamConfigurationResult ParseJBeamConfiguration(
             limits.max_diagnostics,
             MakeDiagnostic(
             JBeamResolveDiagnosticCode::CONFIGURATION_NOT_OBJECT,
-            JBeamResolveSeverity::ERROR,
+            JBeamResolveSeverity::ERROR_SEVERITY,
             configuration.span,
             std::string(),
             std::string(),
@@ -1950,7 +1950,7 @@ JBeamConfigurationResult ParseJBeamConfiguration(
             limits.max_diagnostics,
             MakeDiagnostic(
                 JBeamResolveDiagnosticCode::PART_SELECTION_LIMIT,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 span,
                 std::string(),
                 "parts",
@@ -1974,7 +1974,7 @@ JBeamConfigurationResult ParseJBeamConfiguration(
             limits.max_diagnostics,
             MakeDiagnostic(
                 JBeamResolveDiagnosticCode::REQUEST_VARIABLE_LIMIT,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 span,
                 std::string(),
                 "vars",
@@ -1998,7 +1998,7 @@ JBeamConfigurationResult ParseJBeamConfiguration(
                 MakeDiagnostic(
                 JBeamResolveDiagnosticCode::
                     INVALID_CONFIGURATION_SECTION,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 parts->value ? parts->value->span : parts->key_span,
                 std::string(),
                 "parts",
@@ -2024,7 +2024,7 @@ JBeamConfigurationResult ParseJBeamConfiguration(
                         MakeDiagnostic(
                         JBeamResolveDiagnosticCode::
                             INVALID_PART_SELECTION,
-                        JBeamResolveSeverity::ERROR,
+                        JBeamResolveSeverity::ERROR_SEVERITY,
                         field.value
                             ? field.value->span
                             : field.key_span,
@@ -2068,7 +2068,7 @@ JBeamConfigurationResult ParseJBeamConfiguration(
                 MakeDiagnostic(
                 JBeamResolveDiagnosticCode::
                     INVALID_CONFIGURATION_SECTION,
-                JBeamResolveSeverity::ERROR,
+                JBeamResolveSeverity::ERROR_SEVERITY,
                 variables->value
                     ? variables->value->span
                     : variables->key_span,
@@ -2095,7 +2095,7 @@ JBeamConfigurationResult ParseJBeamConfiguration(
                         MakeDiagnostic(
                         JBeamResolveDiagnosticCode::
                             INVALID_CONFIGURATION_VARIABLE,
-                        JBeamResolveSeverity::ERROR,
+                        JBeamResolveSeverity::ERROR_SEVERITY,
                         field.value
                             ? field.value->span
                             : field.key_span,

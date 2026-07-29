@@ -659,7 +659,7 @@ private:
     {
         BeamNGMaterialDiagnostic terminal;
         terminal.code = code;
-        terminal.severity = BeamNGMaterialSeverity::ERROR;
+        terminal.severity = BeamNGMaterialSeverity::ERROR_SEVERITY;
         terminal.span = span;
         terminal.detail = TruncateForDiagnostic(detail, 512U);
         if (m_result.diagnostics.empty())
@@ -719,7 +719,7 @@ private:
         const std::string& field_name,
         const std::string& detail)
     {
-        if (m_fatal && severity != BeamNGMaterialSeverity::ERROR)
+        if (m_fatal && severity != BeamNGMaterialSeverity::ERROR_SEVERITY)
         {
             return;
         }
@@ -774,7 +774,7 @@ private:
             return;
         }
         m_result.diagnostics.push_back(diagnostic);
-        if (severity == BeamNGMaterialSeverity::ERROR)
+        if (severity == BeamNGMaterialSeverity::ERROR_SEVERITY)
         {
             m_fatal = true;
         }
@@ -790,7 +790,7 @@ private:
     {
         AddDiagnostic(
             code,
-            BeamNGMaterialSeverity::ERROR,
+            BeamNGMaterialSeverity::ERROR_SEVERITY,
             span,
             source_index,
             material_index,
@@ -1184,8 +1184,8 @@ private:
                 BeamNGMaterialDiagnosticCode::
                     SOURCE_PARSE_DIAGNOSTIC,
                 parser_diagnostic.severity ==
-                        JBeamDiagnosticSeverity::ERROR ?
-                    BeamNGMaterialSeverity::ERROR :
+                        JBeamDiagnosticSeverity::ERROR_SEVERITY ?
+                    BeamNGMaterialSeverity::ERROR_SEVERITY :
                     BeamNGMaterialSeverity::WARNING,
                 parser_diagnostic.span,
                 source_index,
@@ -2726,7 +2726,7 @@ BeamNGMaterialSource::BeamNGMaterialSource()
 BeamNGMaterialDiagnostic::BeamNGMaterialDiagnostic()
     : code(
           BeamNGMaterialDiagnosticCode::SOURCE_PARSE_DIAGNOSTIC)
-    , severity(BeamNGMaterialSeverity::ERROR)
+    , severity(BeamNGMaterialSeverity::ERROR_SEVERITY)
     , source_index(NO_INDEX)
     , material_index(NO_INDEX)
 {
@@ -2812,7 +2812,7 @@ bool BeamNGMaterialInventory::IsValid() const
     for (std::size_t i = 0U; i < diagnostics.size(); ++i)
     {
         if (diagnostics[i].severity ==
-            BeamNGMaterialSeverity::ERROR)
+            BeamNGMaterialSeverity::ERROR_SEVERITY)
         {
             return false;
         }

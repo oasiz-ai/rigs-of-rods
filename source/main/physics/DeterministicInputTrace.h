@@ -273,7 +273,7 @@ enum class ReadResult
 {
     FRAME,
     END,
-    ERROR
+    READ_ERROR
 };
 
 /// Streaming reader. Every frame's hash-chain link is checked before the frame

@@ -144,7 +144,7 @@ GetJBeamPressureWheelDocumentationProfile();
 enum class JBeamPressureWheelSeverity
 {
     WARNING,
-    ERROR
+    ERROR_SEVERITY
 };
 
 enum class JBeamPressureWheelDiagnosticCode

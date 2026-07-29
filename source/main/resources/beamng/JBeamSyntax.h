@@ -51,7 +51,7 @@ struct JBeamSourceSpan
 enum class JBeamDiagnosticSeverity
 {
     WARNING,
-    ERROR
+    ERROR_SEVERITY
 };
 
 enum class JBeamDiagnosticCode

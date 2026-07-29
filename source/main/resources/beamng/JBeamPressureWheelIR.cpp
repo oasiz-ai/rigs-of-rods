@@ -557,7 +557,7 @@ bool IsDocumentedAmbiguousWheelField(
 bool IsError(const JBeamPressureWheelDiagnostic& diagnostic)
 {
     return diagnostic.severity ==
-        JBeamPressureWheelSeverity::ERROR;
+        JBeamPressureWheelSeverity::ERROR_SEVERITY;
 }
 
 bool IsDiagnosticLimit(
@@ -591,7 +591,7 @@ JBeamPressureWheelDiagnostic MakeDiagnosticLimit()
 {
     return MakeDiagnostic(
         JBeamPressureWheelDiagnosticCode::DIAGNOSTIC_LIMIT,
-        JBeamPressureWheelSeverity::ERROR,
+        JBeamPressureWheelSeverity::ERROR_SEVERITY,
         JBeamPressureWheelProvenance(),
         std::string(),
         0U,
@@ -769,7 +769,7 @@ public:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     INVALID_RESOLVED_GRAPH,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 JBeamPressureWheelProvenance(),
                 std::string(),
                 0U,
@@ -888,7 +888,7 @@ private:
         PushDirect(MakeDiagnostic(
             JBeamPressureWheelDiagnosticCode::
                 RETAINED_BYTE_LIMIT,
-            JBeamPressureWheelSeverity::ERROR,
+            JBeamPressureWheelSeverity::ERROR_SEVERITY,
             JBeamPressureWheelProvenance(),
             std::string(),
             0U,
@@ -975,7 +975,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     PRESERVED_VALUE_LIMIT,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 provenance,
                 "pressureWheels",
                 0U,
@@ -1025,7 +1025,7 @@ private:
                 Push(
                     JBeamPressureWheelDiagnosticCode::
                         RESOLVED_GRAPH_CYCLE,
-                    JBeamPressureWheelSeverity::ERROR,
+                    JBeamPressureWheelSeverity::ERROR_SEVERITY,
                     JBeamPressureWheelProvenance(),
                     std::string(),
                     0U,
@@ -1039,7 +1039,7 @@ private:
                 Push(
                     JBeamPressureWheelDiagnosticCode::
                         RESOLVED_PART_LIMIT,
-                    JBeamPressureWheelSeverity::ERROR,
+                    JBeamPressureWheelSeverity::ERROR_SEVERITY,
                     JBeamPressureWheelProvenance(),
                     std::string(),
                     0U,
@@ -1101,7 +1101,7 @@ private:
                         Push(
                             JBeamPressureWheelDiagnosticCode::
                                 RESOLVED_PART_LIMIT,
-                            JBeamPressureWheelSeverity::ERROR,
+                            JBeamPressureWheelSeverity::ERROR_SEVERITY,
                             part.provenance,
                             std::string(),
                             0U,
@@ -1124,7 +1124,7 @@ private:
                 Push(
                     JBeamPressureWheelDiagnosticCode::
                         RESOLVED_PART_LIMIT,
-                    JBeamPressureWheelSeverity::ERROR,
+                    JBeamPressureWheelSeverity::ERROR_SEVERITY,
                     part.provenance,
                     std::string(),
                     0U,
@@ -1159,7 +1159,7 @@ private:
                 Push(
                     JBeamPressureWheelDiagnosticCode::
                         PART_BODY_NOT_OBJECT,
-                    JBeamPressureWheelSeverity::ERROR,
+                    JBeamPressureWheelSeverity::ERROR_SEVERITY,
                     m_parts[part_index].provenance,
                     std::string(),
                     0U,
@@ -1238,7 +1238,7 @@ private:
                     Push(
                         JBeamPressureWheelDiagnosticCode::
                             SOURCE_RECORD_LIMIT,
-                        JBeamPressureWheelSeverity::ERROR,
+                        JBeamPressureWheelSeverity::ERROR_SEVERITY,
                         Provenance(
                             part_index,
                             field.value
@@ -1313,7 +1313,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     EFFECTIVE_FIELD_LIMIT,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 provenance,
                 "pressureWheels",
                 0U,
@@ -1364,7 +1364,7 @@ private:
                 Push(
                     JBeamPressureWheelDiagnosticCode::
                         EFFECTIVE_FIELD_LIMIT,
-                    JBeamPressureWheelSeverity::ERROR,
+                    JBeamPressureWheelSeverity::ERROR_SEVERITY,
                     provenance,
                     "pressureWheels",
                     0U,
@@ -1382,7 +1382,7 @@ private:
             {
                 Push(
                     JBeamPressureWheelDiagnosticCode::ENTRY_LIMIT,
-                    JBeamPressureWheelSeverity::ERROR,
+                    JBeamPressureWheelSeverity::ERROR_SEVERITY,
                     provenance,
                     "pressureWheels",
                     0U,
@@ -1438,7 +1438,7 @@ private:
                     Push(
                         JBeamPressureWheelDiagnosticCode::
                             WHEEL_LIMIT,
-                        JBeamPressureWheelSeverity::ERROR,
+                        JBeamPressureWheelSeverity::ERROR_SEVERITY,
                         Provenance(
                             section.part_index,
                             entry.span),
@@ -1488,7 +1488,7 @@ private:
                     Push(
                         JBeamPressureWheelDiagnosticCode::
                             EFFECTIVE_FIELD_LIMIT,
-                        JBeamPressureWheelSeverity::ERROR,
+                        JBeamPressureWheelSeverity::ERROR_SEVERITY,
                         Provenance(
                             section.part_index,
                             entry.span),
@@ -1522,7 +1522,7 @@ private:
                     Push(
                         JBeamPressureWheelDiagnosticCode::
                             TOPOLOGY_COUNT_OVERFLOW,
-                        JBeamPressureWheelSeverity::ERROR,
+                        JBeamPressureWheelSeverity::ERROR_SEVERITY,
                         Provenance(
                             section.part_index,
                             entry.span),
@@ -1556,7 +1556,7 @@ private:
                     Push(
                         JBeamPressureWheelDiagnosticCode::
                             TOPOLOGY_COUNT_OVERFLOW,
-                        JBeamPressureWheelSeverity::ERROR,
+                        JBeamPressureWheelSeverity::ERROR_SEVERITY,
                         Provenance(
                             section.part_index,
                             entry.span),
@@ -1574,7 +1574,7 @@ private:
                     Push(
                         JBeamPressureWheelDiagnosticCode::
                             TOPOLOGY_NODE_LIMIT,
-                        JBeamPressureWheelSeverity::ERROR,
+                        JBeamPressureWheelSeverity::ERROR_SEVERITY,
                         Provenance(
                             section.part_index,
                             entry.span),
@@ -1592,7 +1592,7 @@ private:
                     Push(
                         JBeamPressureWheelDiagnosticCode::
                             TOPOLOGY_BEAM_LIMIT,
-                        JBeamPressureWheelSeverity::ERROR,
+                        JBeamPressureWheelSeverity::ERROR_SEVERITY,
                         Provenance(
                             section.part_index,
                             entry.span),
@@ -1814,7 +1814,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     INVALID_SECTION,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 record.provenance,
                 field.key,
                 0U,
@@ -1838,7 +1838,7 @@ private:
                         RETAINED_BYTE_LIMIT
                     : JBeamPressureWheelDiagnosticCode::
                         PRESERVED_VALUE_LIMIT,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 record.provenance,
                 field.key,
                 0U,
@@ -1874,7 +1874,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     PRESERVED_VALUE_LIMIT,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 record.provenance,
                 field.key,
                 0U,
@@ -1973,7 +1973,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     AMBIGUOUS_REQUIRED_FIELD,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 provenance,
                 "pressureWheels",
                 row_index,
@@ -1994,7 +1994,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     MISSING_REQUIRED_FIELD,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 provenance,
                 "pressureWheels",
                 row_index,
@@ -2032,7 +2032,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     EXPRESSION_DISABLED,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 Provenance(
                     assignment->part_index,
                     assignment->span),
@@ -2050,7 +2050,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     INVALID_FIELD_TYPE,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 Provenance(
                     assignment->part_index,
                     assignment->span),
@@ -2090,7 +2090,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     EXPRESSION_DISABLED,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 Provenance(
                     assignment->part_index,
                     assignment->span),
@@ -2107,7 +2107,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     INVALID_FIELD_TYPE,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 Provenance(
                     assignment->part_index,
                     assignment->span),
@@ -2124,7 +2124,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     NON_FINITE_NUMBER,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 Provenance(
                     assignment->part_index,
                     assignment->span),
@@ -2141,7 +2141,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     INVALID_GEOMETRY,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 Provenance(
                     assignment->part_index,
                     assignment->span),
@@ -2179,7 +2179,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     EXPRESSION_DISABLED,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 Provenance(
                     assignment->part_index,
                     assignment->span),
@@ -2214,7 +2214,7 @@ private:
                     NON_FINITE_NUMBER
                 : JBeamPressureWheelDiagnosticCode::
                     INVALID_FIELD_TYPE,
-            JBeamPressureWheelSeverity::ERROR,
+            JBeamPressureWheelSeverity::ERROR_SEVERITY,
             Provenance(
                 assignment->part_index,
                 assignment->span),
@@ -2256,7 +2256,7 @@ private:
                         NON_FINITE_NUMBER
                     : JBeamPressureWheelDiagnosticCode::
                         INVALID_WHEEL_DIRECTION,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 Provenance(
                     assignment->part_index,
                     assignment->span),
@@ -2295,7 +2295,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     INVALID_FIELD_TYPE,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 Provenance(
                     assignment->part_index,
                     assignment->span),
@@ -2342,7 +2342,7 @@ private:
                         NON_FINITE_NUMBER
                     : JBeamPressureWheelDiagnosticCode::
                         INVALID_NUM_RAYS,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 Provenance(
                     assignment->part_index,
                     assignment->span),
@@ -2368,7 +2368,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     TOPOLOGY_COUNT_OVERFLOW,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 provenance,
                 "pressureWheels",
                 row_index,
@@ -2391,7 +2391,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     TOPOLOGY_COUNT_OVERFLOW,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 provenance,
                 "pressureWheels",
                 row_index,
@@ -2512,7 +2512,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     INVALID_TABLE_HEADER,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 record.provenance,
                 "pressureWheels",
                 0U,
@@ -2525,7 +2525,7 @@ private:
             Push(
                 JBeamPressureWheelDiagnosticCode::
                     DUPLICATE_SECTION,
-                JBeamPressureWheelSeverity::ERROR,
+                JBeamPressureWheelSeverity::ERROR_SEVERITY,
                 record.provenance,
                 "pressureWheels",
                 0U,
@@ -2551,7 +2551,7 @@ private:
                 Push(
                     JBeamPressureWheelDiagnosticCode::
                         DUPLICATE_TABLE_HEADER,
-                    JBeamPressureWheelSeverity::ERROR,
+                    JBeamPressureWheelSeverity::ERROR_SEVERITY,
                     Provenance(
                         source.part_index,
                         header.array_values[i].span),
@@ -2582,7 +2582,7 @@ private:
                 Push(
                     JBeamPressureWheelDiagnosticCode::
                         INVALID_TABLE_ENTRY,
-                    JBeamPressureWheelSeverity::ERROR,
+                    JBeamPressureWheelSeverity::ERROR_SEVERITY,
                     Provenance(source.part_index, entry.span),
                     "pressureWheels",
                     entry_index - 1U,
@@ -2648,7 +2648,7 @@ private:
                 Push(
                     JBeamPressureWheelDiagnosticCode::
                         INVALID_TABLE_ENTRY,
-                    JBeamPressureWheelSeverity::ERROR,
+                    JBeamPressureWheelSeverity::ERROR_SEVERITY,
                     wheel.provenance,
                     "pressureWheels",
                     entry_index - 1U,
@@ -3235,7 +3235,7 @@ JBeamPressureWheelDiagnostic::
     : code(
         JBeamPressureWheelDiagnosticCode::
             INVALID_RESOLVED_GRAPH)
-    , severity(JBeamPressureWheelSeverity::ERROR)
+    , severity(JBeamPressureWheelSeverity::ERROR_SEVERITY)
     , row_index(0U)
 {
 }

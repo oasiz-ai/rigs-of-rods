@@ -34,7 +34,7 @@ bool HasErrors(const std::vector<JBeamDiagnostic>& diagnostics)
 {
     for (std::size_t i = 0; i < diagnostics.size(); ++i)
     {
-        if (diagnostics[i].severity == JBeamDiagnosticSeverity::ERROR)
+        if (diagnostics[i].severity == JBeamDiagnosticSeverity::ERROR_SEVERITY)
         {
             return true;
         }
@@ -116,7 +116,7 @@ public:
             end.byte_offset = static_cast<std::uint64_t>(m_source.size());
             m_result.diagnostics.push_back(MakeDiagnostic(
                 JBeamDiagnosticCode::SOURCE_SIZE_LIMIT,
-                JBeamDiagnosticSeverity::ERROR,
+                JBeamDiagnosticSeverity::ERROR_SEVERITY,
                 Span(begin, end),
                 "JBeam source exceeds the configured byte limit"));
             return m_result;
@@ -209,7 +209,7 @@ private:
         {
             m_result.diagnostics.push_back(MakeDiagnostic(
                 code,
-                JBeamDiagnosticSeverity::ERROR,
+                JBeamDiagnosticSeverity::ERROR_SEVERITY,
                 Span(begin, Position()),
                 message));
         }
@@ -217,7 +217,7 @@ private:
         {
             m_result.diagnostics.push_back(MakeDiagnostic(
                 JBeamDiagnosticCode::DIAGNOSTIC_LIMIT,
-                JBeamDiagnosticSeverity::ERROR,
+                JBeamDiagnosticSeverity::ERROR_SEVERITY,
                 Span(begin, Position()),
                 "JBeam diagnostic count reached the configured limit"));
         }
@@ -864,13 +864,13 @@ private:
         if (m_result.diagnostics.size() < m_limits.max_diagnostics)
         {
             m_result.diagnostics.push_back(MakeDiagnostic(
-                code, JBeamDiagnosticSeverity::ERROR, span, message));
+                code, JBeamDiagnosticSeverity::ERROR_SEVERITY, span, message));
         }
         else
         {
             m_result.diagnostics.push_back(MakeDiagnostic(
                 JBeamDiagnosticCode::DIAGNOSTIC_LIMIT,
-                JBeamDiagnosticSeverity::ERROR,
+                JBeamDiagnosticSeverity::ERROR_SEVERITY,
                 span,
                 "JBeam diagnostic count reached the configured limit"));
         }
@@ -885,7 +885,7 @@ private:
         {
             m_result.diagnostics.push_back(MakeDiagnostic(
                 JBeamDiagnosticCode::DIAGNOSTIC_LIMIT,
-                JBeamDiagnosticSeverity::ERROR,
+                JBeamDiagnosticSeverity::ERROR_SEVERITY,
                 span,
                 "JBeam diagnostic count reached the configured limit"));
             return false;
@@ -1514,7 +1514,7 @@ private:
         m_stopped = true;
         m_result.diagnostics.push_back(MakeDiagnostic(
             code,
-            JBeamDiagnosticSeverity::ERROR,
+            JBeamDiagnosticSeverity::ERROR_SEVERITY,
             span,
             message));
     }
@@ -2235,7 +2235,7 @@ JBeamSourceSpan::JBeamSourceSpan()
 
 JBeamDiagnostic::JBeamDiagnostic()
     : code(JBeamDiagnosticCode::INVALID_CHARACTER)
-    , severity(JBeamDiagnosticSeverity::ERROR)
+    , severity(JBeamDiagnosticSeverity::ERROR_SEVERITY)
 {
 }
 

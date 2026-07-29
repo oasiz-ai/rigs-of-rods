@@ -1572,7 +1572,7 @@ bool TryMeasureStructuralErrors(
     for (std::size_t i = 0U; i < ir.diagnostics.size(); ++i)
     {
         const JBeamStructuralDiagnostic& source = ir.diagnostics[i];
-        if (source.severity != JBeamStructuralSeverity::ERROR)
+        if (source.severity != JBeamStructuralSeverity::ERROR_SEVERITY)
         {
             continue;
         }
@@ -1645,7 +1645,7 @@ void CopyStructuralErrors(
     for (std::size_t i = 0U; i < ir.diagnostics.size(); ++i)
     {
         const JBeamStructuralDiagnostic& source = ir.diagnostics[i];
-        if (source.severity == JBeamStructuralSeverity::ERROR)
+        if (source.severity == JBeamStructuralSeverity::ERROR_SEVERITY)
         {
             PushDiagnostic(
                 result,

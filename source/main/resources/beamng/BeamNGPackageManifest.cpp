@@ -968,7 +968,7 @@ const char* DiagnosticSeverityToString(DiagnosticSeverity severity)
         return "info";
     case DiagnosticSeverity::WARNING:
         return "warning";
-    case DiagnosticSeverity::ERROR:
+    case DiagnosticSeverity::ERROR_SEVERITY:
         return "error";
     }
     return "error";

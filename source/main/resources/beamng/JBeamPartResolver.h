@@ -32,7 +32,7 @@ namespace BeamNG {
 enum class JBeamResolveSeverity
 {
     WARNING,
-    ERROR
+    ERROR_SEVERITY
 };
 
 enum class JBeamResolveDiagnosticCode

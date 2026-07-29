@@ -1617,29 +1617,29 @@ bool Reader::ReadAndValidateTrailer(const std::uint8_t prefix[8])
 ReadResult Reader::ReadNext(Frame& frame)
 {
     if (m_status.error != Error::NONE)
-        return ReadResult::ERROR;
+        return ReadResult::READ_ERROR;
     if (m_finished)
         return ReadResult::END;
 
     std::array<std::uint8_t, FRAME_PREFIX_SIZE> prefix = {};
     if (!ReadBytes(prefix.data(), 8))
-        return ReadResult::ERROR;
+        return ReadResult::READ_ERROR;
     const std::uint32_t tag = LoadU32(prefix.data());
     if (tag == END_TAG)
     {
         if (!ReadAndValidateTrailer(prefix.data()))
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         return ReadResult::END;
     }
     if (tag != FRAME_TAG)
     {
         Fail(Error::INVALID_RECORD_TAG, m_bytes_read - 8);
-        return ReadResult::ERROR;
+        return ReadResult::READ_ERROR;
     }
     if (!ReadBytes(prefix.data() + 8, FRAME_PREFIX_SIZE - 8))
-        return ReadResult::ERROR;
+        return ReadResult::READ_ERROR;
     if (!ReadFrame(prefix.data(), frame))
-        return ReadResult::ERROR;
+        return ReadResult::READ_ERROR;
     return ReadResult::FRAME;
 }
 
@@ -1724,9 +1724,9 @@ ComparisonResult Compare(
     bool left_terminal = left.GetStatus().error != Error::NONE;
     bool right_terminal = right.GetStatus().error != Error::NONE;
     ReadResult left_result =
-        left_terminal ? ReadResult::ERROR : ReadResult::END;
+        left_terminal ? ReadResult::READ_ERROR : ReadResult::END;
     ReadResult right_result =
-        right_terminal ? ReadResult::ERROR : ReadResult::END;
+        right_terminal ? ReadResult::READ_ERROR : ReadResult::END;
     Frame left_frame;
     Frame right_frame;
 
@@ -1808,8 +1808,8 @@ ComparisonResult Compare(
         }
         else if (result.difference == Difference::NONE &&
                  left_result != right_result &&
-                 left_result != ReadResult::ERROR &&
-                 right_result != ReadResult::ERROR)
+                 left_result != ReadResult::READ_ERROR &&
+                 right_result != ReadResult::READ_ERROR)
         {
             result.status = ComparisonStatus::DIVERGED;
             result.difference = Difference::TRACE_LENGTH;

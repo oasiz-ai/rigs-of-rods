@@ -80,7 +80,7 @@ struct PartSections
 
 bool IsError(const JBeamStructuralDiagnostic& diagnostic)
 {
-    return diagnostic.severity == JBeamStructuralSeverity::ERROR;
+    return diagnostic.severity == JBeamStructuralSeverity::ERROR_SEVERITY;
 }
 
 bool HasErrors(const std::vector<JBeamStructuralDiagnostic>& diagnostics)
@@ -125,7 +125,7 @@ JBeamStructuralDiagnostic MakeDiagnosticLimit()
 {
     return MakeDiagnostic(
         JBeamStructuralDiagnosticCode::DIAGNOSTIC_LIMIT,
-        JBeamStructuralSeverity::ERROR,
+        JBeamStructuralSeverity::ERROR_SEVERITY,
         JBeamStructuralProvenance(),
         std::string(),
         0U,
@@ -450,7 +450,7 @@ public:
         {
             Push(
                 JBeamStructuralDiagnosticCode::INVALID_RESOLVED_GRAPH,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 JBeamStructuralProvenance(),
                 std::string(),
                 0U,
@@ -500,7 +500,7 @@ public:
         {
             Push(
                 JBeamStructuralDiagnosticCode::MISSING_REF_NODES,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 RootProvenance(),
                 "refNodes",
                 0U,
@@ -511,7 +511,7 @@ public:
         {
             Push(
                 JBeamStructuralDiagnosticCode::DUPLICATE_REF_NODES,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 RootProvenance(),
                 "refNodes",
                 0U,
@@ -586,7 +586,7 @@ private:
     {
         JBeamStructuralDiagnostic diagnostic = MakeDiagnostic(
             JBeamStructuralDiagnosticCode::RETAINED_BYTE_LIMIT,
-            JBeamStructuralSeverity::ERROR,
+            JBeamStructuralSeverity::ERROR_SEVERITY,
             JBeamStructuralProvenance(),
             std::string(),
             0U,
@@ -877,7 +877,7 @@ private:
         }
         Push(
             JBeamStructuralDiagnosticCode::PRESERVED_VALUE_LIMIT,
-            JBeamStructuralSeverity::ERROR,
+            JBeamStructuralSeverity::ERROR_SEVERITY,
             provenance,
             section,
             row_index,
@@ -1077,7 +1077,7 @@ private:
             {
                 Push(
                     JBeamStructuralDiagnosticCode::RESOLVED_PART_LIMIT,
-                    JBeamStructuralSeverity::ERROR,
+                    JBeamStructuralSeverity::ERROR_SEVERITY,
                     JBeamStructuralProvenance(),
                     std::string(),
                     0U,
@@ -1138,7 +1138,7 @@ private:
                         Push(
                             JBeamStructuralDiagnosticCode::
                                 INVALID_RESOLVED_GRAPH,
-                            JBeamStructuralSeverity::ERROR,
+                            JBeamStructuralSeverity::ERROR_SEVERITY,
                             part.provenance,
                             std::string(),
                             0U,
@@ -1153,7 +1153,7 @@ private:
                         Push(
                             JBeamStructuralDiagnosticCode::
                                 RESOLVED_PART_LIMIT,
-                            JBeamStructuralSeverity::ERROR,
+                            JBeamStructuralSeverity::ERROR_SEVERITY,
                             part.provenance,
                             std::string(),
                             0U,
@@ -1184,7 +1184,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 0U,
@@ -1222,7 +1222,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 0U,
@@ -1367,7 +1367,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -1382,7 +1382,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -1406,7 +1406,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::EXPRESSION_ERROR,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -1432,7 +1432,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -1459,7 +1459,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -1514,7 +1514,7 @@ private:
                 is_limit
                     ? JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT
                     : JBeamStructuralDiagnosticCode::EXPRESSION_ERROR,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -1563,7 +1563,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::EXPRESSION_ERROR,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -1590,7 +1590,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -1614,7 +1614,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -1660,7 +1660,7 @@ private:
             {
                 Push(
                     JBeamStructuralDiagnosticCode::NON_FINITE_NUMBER,
-                    JBeamStructuralSeverity::ERROR,
+                    JBeamStructuralSeverity::ERROR_SEVERITY,
                     provenance,
                     section,
                     row_index,
@@ -1846,7 +1846,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 part.provenance,
                 "components",
                 0U,
@@ -2037,7 +2037,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 part.provenance,
                 "components",
                 0U,
@@ -2124,7 +2124,7 @@ private:
                     Push(
                         JBeamStructuralDiagnosticCode::
                             EXPRESSION_LIMIT,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         JBeamStructuralProvenance(),
                         "components",
                         0U,
@@ -2166,7 +2166,7 @@ private:
             {
                 Push(
                     JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
-                    JBeamStructuralSeverity::ERROR,
+                    JBeamStructuralSeverity::ERROR_SEVERITY,
                     part.provenance,
                     "variables",
                     0U,
@@ -2194,7 +2194,7 @@ private:
                     Push(
                         JBeamStructuralDiagnosticCode::
                             INVALID_VARIABLE_VALUE,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         provenance,
                         "variables",
                         i,
@@ -2221,7 +2221,7 @@ private:
                         Push(
                             JBeamStructuralDiagnosticCode::
                                 INVALID_VARIABLE_VALUE,
-                            JBeamStructuralSeverity::ERROR,
+                            JBeamStructuralSeverity::ERROR_SEVERITY,
                             provenance,
                             "variables",
                             i,
@@ -2253,7 +2253,7 @@ private:
                         Push(
                             JBeamStructuralDiagnosticCode::
                                 EXPRESSION_LIMIT,
-                            JBeamStructuralSeverity::ERROR,
+                            JBeamStructuralSeverity::ERROR_SEVERITY,
                             provenance,
                             "variables",
                             i,
@@ -2297,7 +2297,7 @@ private:
             {
                 Push(
                     JBeamStructuralDiagnosticCode::PART_BODY_NOT_OBJECT,
-                    JBeamStructuralSeverity::ERROR,
+                    JBeamStructuralSeverity::ERROR_SEVERITY,
                     sections.part.provenance,
                     std::string(),
                     0U,
@@ -2401,7 +2401,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::DUPLICATE_SECTION,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         m_sections[part_index].part.provenance,
                         name,
                         0U,
@@ -2422,7 +2422,7 @@ private:
                     {
                         Push(
                             JBeamStructuralDiagnosticCode::INVALID_SECTION,
-                            JBeamStructuralSeverity::ERROR,
+                            JBeamStructuralSeverity::ERROR_SEVERITY,
                             m_sections[part_index].part.provenance,
                             name,
                             0U,
@@ -2435,7 +2435,7 @@ private:
                         Push(
                             JBeamStructuralDiagnosticCode::
                                 INVALID_TABLE_HEADER,
-                            JBeamStructuralSeverity::ERROR,
+                            JBeamStructuralSeverity::ERROR_SEVERITY,
                             m_sections[part_index].part.provenance,
                             name,
                             0U,
@@ -2454,7 +2454,7 @@ private:
                     {
                         Push(
                             JBeamStructuralDiagnosticCode::ROW_LIMIT,
-                            JBeamStructuralSeverity::ERROR,
+                            JBeamStructuralSeverity::ERROR_SEVERITY,
                             m_sections[part_index].part.provenance,
                             name,
                             0U,
@@ -2537,7 +2537,7 @@ private:
                 Push(
                     JBeamStructuralDiagnosticCode::
                         RETAINED_BYTE_LIMIT,
-                    JBeamStructuralSeverity::ERROR,
+                    JBeamStructuralSeverity::ERROR_SEVERITY,
                     provenance,
                     name,
                     0U,
@@ -2551,7 +2551,7 @@ private:
             {
                 Push(
                     JBeamStructuralDiagnosticCode::DIAGNOSTIC_LIMIT,
-                    JBeamStructuralSeverity::ERROR,
+                    JBeamStructuralSeverity::ERROR_SEVERITY,
                     provenance,
                     name,
                     0U,
@@ -2561,7 +2561,7 @@ private:
                 return NULL;
             }
             const bool is_error =
-                source.severity == JBeamDiagnosticSeverity::ERROR;
+                source.severity == JBeamDiagnosticSeverity::ERROR_SEVERITY;
             Push(
                 is_error
                     ? JBeamStructuralDiagnosticCode::
@@ -2569,7 +2569,7 @@ private:
                     : JBeamStructuralDiagnosticCode::
                         NORMALIZATION_WARNING,
                 is_error
-                    ? JBeamStructuralSeverity::ERROR
+                    ? JBeamStructuralSeverity::ERROR_SEVERITY
                     : JBeamStructuralSeverity::WARNING,
                 provenance,
                 name,
@@ -2603,7 +2603,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::INVALID_SECTION,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 sections.part.provenance,
                 name,
                 0U,
@@ -2619,7 +2619,7 @@ private:
                 Push(
                     JBeamStructuralDiagnosticCode::
                         DUPLICATE_TABLE_HEADER,
-                    JBeamStructuralSeverity::ERROR,
+                    JBeamStructuralSeverity::ERROR_SEVERITY,
                     sections.part.provenance,
                     name,
                     0U,
@@ -2837,7 +2837,7 @@ private:
             Push(
                 JBeamStructuralDiagnosticCode::
                     AMBIGUOUS_REQUIRED_FIELD,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -2851,7 +2851,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::MISSING_REQUIRED_FIELD,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -2878,7 +2878,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 field_provenance,
                 section,
                 row_index,
@@ -2909,7 +2909,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::MISSING_REQUIRED_FIELD,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -2935,7 +2935,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 field_provenance,
                 section,
                 row_index,
@@ -3028,7 +3028,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 provenance,
                 section,
                 row_index,
@@ -3054,7 +3054,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 field_provenance,
                 section,
                 row_index,
@@ -3089,7 +3089,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 assignment->value
                     ? ProvenanceWithSpan(
                         provenance, assignment->value->span)
@@ -3119,7 +3119,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 field_provenance,
                 "beams",
                 row_index,
@@ -3194,7 +3194,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::INVALID_TABLE_ROW,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         m_sections[part_index].part.provenance,
                         "nodes",
                         entry_index,
@@ -3221,7 +3221,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::NODE_LIMIT,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         m_sections[part_index].part.provenance,
                         "nodes",
                         entry_index,
@@ -3287,7 +3287,7 @@ private:
                         Push(
                             JBeamStructuralDiagnosticCode::
                                 INVALID_NODE_WEIGHT,
-                            JBeamStructuralSeverity::ERROR,
+                            JBeamStructuralSeverity::ERROR_SEVERITY,
                             node.provenance,
                             "nodes",
                             entry_index,
@@ -3302,7 +3302,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::DUPLICATE_NODE_ID,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         node.provenance,
                         "nodes",
                         entry_index,
@@ -3706,7 +3706,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::INVALID_TABLE_ROW,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         m_sections[part_index].part.provenance,
                         "refNodes",
                         entry_index,
@@ -3815,7 +3815,7 @@ private:
                             Push(
                                 JBeamStructuralDiagnosticCode::
                                     DUPLICATE_VERTEX,
-                                JBeamStructuralSeverity::ERROR,
+                                JBeamStructuralSeverity::ERROR_SEVERITY,
                                 frame.provenance,
                                 "refNodes",
                                 entry_index,
@@ -3835,7 +3835,7 @@ private:
                             Push(
                                 JBeamStructuralDiagnosticCode::
                                     MISSING_NODE_REFERENCE,
-                                JBeamStructuralSeverity::ERROR,
+                                JBeamStructuralSeverity::ERROR_SEVERITY,
                                 frame.provenance,
                                 "refNodes",
                                 entry_index,
@@ -3856,7 +3856,7 @@ private:
                     Push(
                         JBeamStructuralDiagnosticCode::
                             DEGENERATE_REF_NODES,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         frame.provenance,
                         "refNodes",
                         entry_index,
@@ -3874,7 +3874,7 @@ private:
                     Push(
                         JBeamStructuralDiagnosticCode::
                             MISALIGNED_REF_NODES,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         frame.provenance,
                         "refNodes",
                         entry_index,
@@ -3894,7 +3894,7 @@ private:
                     Push(
                         JBeamStructuralDiagnosticCode::
                             MISALIGNED_REF_CORNERS,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         frame.provenance,
                         "refNodes",
                         entry_index,
@@ -3973,7 +3973,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::INVALID_TABLE_ROW,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         m_sections[part_index].part.provenance,
                         "beams",
                         entry_index,
@@ -3990,7 +3990,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::BEAM_LIMIT,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         m_sections[part_index].part.provenance,
                         "beams",
                         entry_index,
@@ -4089,7 +4089,7 @@ private:
                     Push(
                         JBeamStructuralDiagnosticCode::
                             INVALID_BEAM_PARAMETER,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         beam.provenance,
                         "beams",
                         entry_index,
@@ -4103,7 +4103,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::DUPLICATE_VERTEX,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         beam.provenance,
                         "beams",
                         entry_index,
@@ -4140,7 +4140,7 @@ private:
                         Push(
                             JBeamStructuralDiagnosticCode::
                                 MISSING_NODE_REFERENCE,
-                            JBeamStructuralSeverity::ERROR,
+                            JBeamStructuralSeverity::ERROR_SEVERITY,
                             beam.provenance,
                             "beams",
                             entry_index,
@@ -4155,7 +4155,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::DEGENERATE_BEAM,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         beam.provenance,
                         "beams",
                         entry_index,
@@ -4231,7 +4231,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::DUPLICATE_VERTEX,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 triangle.provenance,
                 section,
                 entry_index,
@@ -4278,7 +4278,7 @@ private:
                 Push(
                     JBeamStructuralDiagnosticCode::
                         MISSING_NODE_REFERENCE,
-                    JBeamStructuralSeverity::ERROR,
+                    JBeamStructuralSeverity::ERROR_SEVERITY,
                     triangle.provenance,
                     section,
                     entry_index,
@@ -4294,7 +4294,7 @@ private:
         {
             Push(
                 JBeamStructuralDiagnosticCode::DEGENERATE_TRIANGLE,
-                JBeamStructuralSeverity::ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
                 triangle.provenance,
                 section,
                 entry_index,
@@ -4361,7 +4361,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::INVALID_TABLE_ROW,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         m_sections[part_index].part.provenance,
                         "triangles",
                         entry_index,
@@ -4389,7 +4389,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::TRIANGLE_LIMIT,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         m_sections[part_index].part.provenance,
                         "triangles",
                         entry_index,
@@ -4469,7 +4469,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::INVALID_TABLE_ROW,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         m_sections[part_index].part.provenance,
                         "quads",
                         entry_index,
@@ -4499,7 +4499,7 @@ private:
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::TRIANGLE_LIMIT,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         m_sections[part_index].part.provenance,
                         "quads",
                         entry_index,
@@ -4551,7 +4551,7 @@ private:
                             provenance, entry.data_row.span);
                     Push(
                         JBeamStructuralDiagnosticCode::DUPLICATE_VERTEX,
-                        JBeamStructuralSeverity::ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
                         row_provenance,
                         "quads",
                         entry_index,
@@ -4848,7 +4848,7 @@ JBeamSourceSpan JBeamStructuralProvenance::SourceSpan() const
 
 JBeamStructuralDiagnostic::JBeamStructuralDiagnostic()
     : code(JBeamStructuralDiagnosticCode::INVALID_RESOLVED_GRAPH)
-    , severity(JBeamStructuralSeverity::ERROR)
+    , severity(JBeamStructuralSeverity::ERROR_SEVERITY)
     , row_index(0U)
     , has_preserved_value(false)
 {

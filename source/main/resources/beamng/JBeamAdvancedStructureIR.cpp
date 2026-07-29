@@ -442,7 +442,7 @@ public:
         {
             Push(
                 JBeamAdvancedDiagnosticCode::INVALID_RESOLVED_GRAPH,
-                JBeamAdvancedSeverity::ERROR,
+                JBeamAdvancedSeverity::ERROR_SEVERITY,
                 JBeamAdvancedProvenance(),
                 JBeamAdvancedSectionKind::HYDROS,
                 0U,
@@ -535,7 +535,7 @@ private:
         {
             Push(
                 JBeamAdvancedDiagnosticCode::RETAINED_BYTE_LIMIT,
-                JBeamAdvancedSeverity::ERROR,
+                JBeamAdvancedSeverity::ERROR_SEVERITY,
                 JBeamAdvancedProvenance(),
                 JBeamAdvancedSectionKind::HYDROS,
                 0U,
@@ -562,7 +562,7 @@ private:
         {
             Push(
                 JBeamAdvancedDiagnosticCode::WORK_LIMIT,
-                JBeamAdvancedSeverity::ERROR,
+                JBeamAdvancedSeverity::ERROR_SEVERITY,
                 provenance,
                 kind,
                 record_index,
@@ -598,7 +598,7 @@ private:
             JBeamAdvancedDiagnostic terminal;
             terminal.code =
                 JBeamAdvancedDiagnosticCode::DIAGNOSTIC_LIMIT;
-            terminal.severity = JBeamAdvancedSeverity::ERROR;
+            terminal.severity = JBeamAdvancedSeverity::ERROR_SEVERITY;
             terminal.provenance = provenance;
             terminal.section_kind = kind;
             terminal.source_record_index = record_index;
@@ -640,7 +640,7 @@ private:
             Push(
                 JBeamAdvancedDiagnosticCode::
                     RESOLVED_GRAPH_DEPTH_LIMIT,
-                JBeamAdvancedSeverity::ERROR,
+                JBeamAdvancedSeverity::ERROR_SEVERITY,
                 JBeamAdvancedProvenance(),
                 JBeamAdvancedSectionKind::HYDROS,
                 0U,
@@ -654,7 +654,7 @@ private:
         {
             Push(
                 JBeamAdvancedDiagnosticCode::RESOLVED_GRAPH_CYCLE,
-                JBeamAdvancedSeverity::ERROR,
+                JBeamAdvancedSeverity::ERROR_SEVERITY,
                 JBeamAdvancedProvenance(),
                 JBeamAdvancedSectionKind::HYDROS,
                 0U,
@@ -668,7 +668,7 @@ private:
         {
             Push(
                 JBeamAdvancedDiagnosticCode::RESOLVED_PART_LIMIT,
-                JBeamAdvancedSeverity::ERROR,
+                JBeamAdvancedSeverity::ERROR_SEVERITY,
                 JBeamAdvancedProvenance(),
                 JBeamAdvancedSectionKind::HYDROS,
                 0U,
@@ -818,7 +818,7 @@ private:
             {
                 Push(
                     JBeamAdvancedDiagnosticCode::NODE_COORDINATE_LIMIT,
-                    JBeamAdvancedSeverity::ERROR,
+                    JBeamAdvancedSeverity::ERROR_SEVERITY,
                     JBeamAdvancedProvenance(),
                     JBeamAdvancedSectionKind::HYDROS,
                     0U,
@@ -887,7 +887,7 @@ private:
             {
                 Push(
                     JBeamAdvancedDiagnosticCode::PART_BODY_NOT_OBJECT,
-                    JBeamAdvancedSeverity::ERROR,
+                    JBeamAdvancedSeverity::ERROR_SEVERITY,
                     Provenance(part.identity, body.span),
                     JBeamAdvancedSectionKind::HYDROS,
                     0U,
@@ -936,7 +936,7 @@ private:
                 {
                     Push(
                         JBeamAdvancedDiagnosticCode::INVALID_SECTION,
-                        JBeamAdvancedSeverity::ERROR,
+                        JBeamAdvancedSeverity::ERROR_SEVERITY,
                         Provenance(part.identity, field.key_span),
                         kind,
                         m_result.source_records.size(),
@@ -950,7 +950,7 @@ private:
                 {
                     Push(
                         JBeamAdvancedDiagnosticCode::SOURCE_RECORD_LIMIT,
-                        JBeamAdvancedSeverity::ERROR,
+                        JBeamAdvancedSeverity::ERROR_SEVERITY,
                         Provenance(part.identity, field.key_span),
                         kind,
                         m_result.source_records.size(),
@@ -985,7 +985,7 @@ private:
                 {
                     Push(
                         JBeamAdvancedDiagnosticCode::DUPLICATE_SECTION,
-                        JBeamAdvancedSeverity::ERROR,
+                        JBeamAdvancedSeverity::ERROR_SEVERITY,
                         record.provenance,
                         kind,
                         m_result.source_records.size() - 1U,
@@ -1016,7 +1016,7 @@ private:
         {
             Push(
                 JBeamAdvancedDiagnosticCode::PRESERVED_VALUE_LIMIT,
-                JBeamAdvancedSeverity::ERROR,
+                JBeamAdvancedSeverity::ERROR_SEVERITY,
                 JBeamAdvancedProvenance(),
                 JBeamAdvancedSectionKind::HYDROS,
                 0U,
@@ -1109,7 +1109,7 @@ private:
         {
             Push(
                 JBeamAdvancedDiagnosticCode::INVALID_SECTION,
-                JBeamAdvancedSeverity::ERROR,
+                JBeamAdvancedSeverity::ERROR_SEVERITY,
                 record.provenance,
                 record.kind,
                 record_index,
@@ -1139,7 +1139,7 @@ private:
             {
                 Push(
                     JBeamAdvancedDiagnosticCode::INVALID_TABLE_HEADER,
-                    JBeamAdvancedSeverity::ERROR,
+                    JBeamAdvancedSeverity::ERROR_SEVERITY,
                     Provenance(record.provenance.part, cell.span),
                     record.kind,
                     record_index,
@@ -1154,7 +1154,7 @@ private:
                 Push(
                     JBeamAdvancedDiagnosticCode::
                         DUPLICATE_TABLE_HEADER,
-                    JBeamAdvancedSeverity::ERROR,
+                    JBeamAdvancedSeverity::ERROR_SEVERITY,
                     Provenance(record.provenance.part, cell.span),
                     record.kind,
                     record_index,
@@ -1177,7 +1177,7 @@ private:
         {
             Push(
                 JBeamAdvancedDiagnosticCode::ENTRY_LIMIT,
-                JBeamAdvancedSeverity::ERROR,
+                JBeamAdvancedSeverity::ERROR_SEVERITY,
                 record.provenance,
                 record.kind,
                 record_index,
@@ -1201,7 +1201,7 @@ private:
         {
             Push(
                 JBeamAdvancedDiagnosticCode::MODIFIER_LIMIT,
-                JBeamAdvancedSeverity::ERROR,
+                JBeamAdvancedSeverity::ERROR_SEVERITY,
                 Provenance(record.provenance.part, object.span),
                 record.kind,
                 record_index,
@@ -1250,7 +1250,7 @@ private:
         {
             Push(
                 JBeamAdvancedDiagnosticCode::EFFECTIVE_FIELD_LIMIT,
-                JBeamAdvancedSeverity::ERROR,
+                JBeamAdvancedSeverity::ERROR_SEVERITY,
                 result.provenance,
                 record.kind,
                 record_index,
@@ -1323,7 +1323,7 @@ private:
         m_result.rejected_entries.push_back(rejected);
         Push(
             JBeamAdvancedDiagnosticCode::INVALID_TABLE_ENTRY,
-            JBeamAdvancedSeverity::ERROR,
+            JBeamAdvancedSeverity::ERROR_SEVERITY,
             rejected.entry.provenance,
             record.kind,
             record_index,
@@ -1467,7 +1467,7 @@ private:
         {
             Push(
                 JBeamAdvancedDiagnosticCode::INVALID_SECTION,
-                JBeamAdvancedSeverity::ERROR,
+                JBeamAdvancedSeverity::ERROR_SEVERITY,
                 record.provenance,
                 record.kind,
                 record_index,
@@ -2771,7 +2771,7 @@ private:
     {
         Push(
             code,
-            JBeamAdvancedSeverity::ERROR,
+            JBeamAdvancedSeverity::ERROR_SEVERITY,
             entry.provenance,
             kind,
             entry.source_record_index,
@@ -2838,7 +2838,7 @@ private:
             {
                 Push(
                     JBeamAdvancedDiagnosticCode::RETAINED_BYTE_LIMIT,
-                    JBeamAdvancedSeverity::ERROR,
+                    JBeamAdvancedSeverity::ERROR_SEVERITY,
                     rail.entry.provenance,
                     m_result.source_records[
                         rail.entry.source_record_index].kind,
@@ -3180,7 +3180,7 @@ const std::string& JBeamAdvancedProvenance::PackagePath() const
 
 JBeamAdvancedDiagnostic::JBeamAdvancedDiagnostic()
     : code(JBeamAdvancedDiagnosticCode::INVALID_RESOLVED_GRAPH)
-    , severity(JBeamAdvancedSeverity::ERROR)
+    , severity(JBeamAdvancedSeverity::ERROR_SEVERITY)
     , section_kind(JBeamAdvancedSectionKind::HYDROS)
     , source_record_index(0U)
     , entry_index(0U)
@@ -3319,7 +3319,7 @@ bool JBeamAdvancedStructureIR::IsValid() const
 {
     for (std::size_t i = 0U; i < diagnostics.size(); ++i)
     {
-        if (diagnostics[i].severity == JBeamAdvancedSeverity::ERROR)
+        if (diagnostics[i].severity == JBeamAdvancedSeverity::ERROR_SEVERITY)
         {
             return false;
         }

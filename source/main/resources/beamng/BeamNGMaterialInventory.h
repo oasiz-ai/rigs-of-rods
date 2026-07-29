@@ -62,7 +62,7 @@ struct BeamNGMaterialSource
 enum class BeamNGMaterialSeverity
 {
     WARNING,
-    ERROR
+    ERROR_SEVERITY
 };
 
 enum class BeamNGMaterialDiagnosticCode

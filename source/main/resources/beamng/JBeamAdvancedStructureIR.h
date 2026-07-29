@@ -99,7 +99,7 @@ enum class JBeamAdvancedBehavior
 enum class JBeamAdvancedSeverity
 {
     WARNING,
-    ERROR
+    ERROR_SEVERITY
 };
 
 enum class JBeamAdvancedDiagnosticCode

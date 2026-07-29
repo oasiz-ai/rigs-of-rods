@@ -811,7 +811,7 @@ void TestInputWorkAndDiagnosticEnvelopes()
     JBeamStructuralDiagnostic upstream_error;
     upstream_error.code =
         JBeamStructuralDiagnosticCode::MISSING_NODE_REFERENCE;
-    upstream_error.severity = JBeamStructuralSeverity::ERROR;
+    upstream_error.severity = JBeamStructuralSeverity::ERROR_SEVERITY;
     upstream_error.provenance = Provenance(
         "vehicles/upstream/bounded.jbeam", 100U);
     upstream_error.detail = "bounded upstream error";
@@ -944,7 +944,7 @@ void TestDiagnosticsRetainSourceTrace()
     JBeamStructuralDiagnostic structural;
     structural.code =
         JBeamStructuralDiagnosticCode::MISSING_NODE_REFERENCE;
-    structural.severity = JBeamStructuralSeverity::ERROR;
+    structural.severity = JBeamStructuralSeverity::ERROR_SEVERITY;
     structural.provenance = Provenance(
         "vehicles/upstream/bad.jbeam", 99U);
     structural.section = "beams";
