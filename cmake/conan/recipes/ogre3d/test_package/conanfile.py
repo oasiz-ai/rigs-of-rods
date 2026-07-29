@@ -1,6 +1,7 @@
 import os
 import shutil
 import tempfile
+import zipfile
 
 from conan import ConanFile
 from conan.tools.build import can_run
@@ -76,6 +77,24 @@ class OgreTestPackage(ConanFile):
                 executable_name,
             )
             shutil.copy2(executable, staged_executable)
+            zip_archive = os.path.join(
+                relocated_package,
+                "bin",
+                "concurrent-read-probe.zip",
+            )
+            with zipfile.ZipFile(
+                zip_archive,
+                mode="w",
+                compression=zipfile.ZIP_DEFLATED,
+            ) as probe_archive:
+                probe_archive.writestr(
+                    "nested/alpha.txt",
+                    "alpha-payload\n",
+                )
+                probe_archive.writestr(
+                    "other/beta.txt",
+                    "beta-payload\n",
+                )
             if self.settings.os == "Macos":
                 clear_loader_environment = (
                     "env -u DYLD_LIBRARY_PATH "
@@ -91,6 +110,6 @@ class OgreTestPackage(ConanFile):
             self.run(
                 f'{clear_loader_environment}"{staged_executable}" '
                 f'"{plugins_config}" "{expected_renderer}" '
-                f'"{relocated_package}"',
+                f'"{relocated_package}" "{zip_archive}"',
                 env="",
             )

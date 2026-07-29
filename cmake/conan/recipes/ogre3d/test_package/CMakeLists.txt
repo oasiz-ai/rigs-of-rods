@@ -14,6 +14,7 @@ find_package(
         Terrain
         Volume
 )
+find_package(Threads REQUIRED)
 
 add_executable(ogre_recipe_probe src/ogre_recipe_probe.cpp)
 target_compile_features(ogre_recipe_probe PRIVATE cxx_std_17)
@@ -48,4 +49,5 @@ target_link_libraries(
         OGRE::RTShaderSystem
         OGRE::Terrain
         OGRE::Volume
+        Threads::Threads
 )

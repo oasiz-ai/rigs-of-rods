@@ -43,6 +43,9 @@ EXPECTED_PATCH_SHA256 = {
     "patches/14.5.2/defer-glsl-program-validation.patch": (
         "d60d2684b6fd29ba1d3bdc4aaa34bb21463488ab16af03592e3b19594f249e72"
     ),
+    "patches/14.5.2/always-lock-zip-archive.patch": (
+        "7674db9811bdf80abb0248b39504f259b85ecd9331f5bb1ca19c9b5d7a9db1b4"
+    ),
 }
 EXPECTED_OGRE_OPTIONS = {
     "codec_rsimage": "False",

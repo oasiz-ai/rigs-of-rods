@@ -1,3 +1,6 @@
+#include <OgreArchive.h>
+#include <OgreArchiveManager.h>
+#include <OgreDataStream.h>
 #include <OgreRoot.h>
 #include <OgreRenderSystem.h>
 
@@ -5,12 +8,15 @@
 #include <mach-o/dyld.h>
 #endif
 
+#include <atomic>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <string>
 #include <system_error>
+#include <thread>
+#include <vector>
 
 namespace
 {
@@ -111,14 +117,129 @@ bool VerifyLoadedOgreImages(const std::string& expected_prefix)
 #endif
     return true;
 }
+
+bool VerifyConcurrentZipReads(const std::string& zip_path)
+{
+    constexpr std::size_t thread_count = 8;
+    constexpr std::size_t iterations_per_thread = 500;
+    Ogre::Archive* archive = nullptr;
+
+    try
+    {
+        archive = Ogre::ArchiveManager::getSingleton().load(
+            zip_path,
+            "Zip",
+            true);
+        std::atomic<std::size_t> ready_threads{0};
+        std::atomic<bool> start{false};
+        std::atomic<bool> failed{false};
+        std::vector<std::thread> threads;
+        threads.reserve(thread_count);
+
+        for (std::size_t thread_index = 0;
+             thread_index < thread_count;
+             ++thread_index)
+        {
+            threads.emplace_back(
+                [archive, thread_index, &ready_threads, &start, &failed]()
+                {
+                    ready_threads.fetch_add(1, std::memory_order_release);
+                    while (!start.load(std::memory_order_acquire))
+                    {
+                        std::this_thread::yield();
+                    }
+
+                    try
+                    {
+                        for (std::size_t iteration = 0;
+                             iteration < iterations_per_thread;
+                             ++iteration)
+                        {
+                            const bool select_alpha =
+                                ((thread_index + iteration) % 2) == 0;
+#if OGRE_RESOURCEMANAGER_STRICT
+                            const Ogre::String filename = select_alpha
+                                ? "nested/alpha.txt"
+                                : "other/beta.txt";
+#else
+                            // The basename deliberately misses the first
+                            // zip_entry_open(), forcing open() to call the
+                            // separately locked findFileInfo() helper.
+                            const Ogre::String filename = select_alpha
+                                ? "alpha.txt"
+                                : "beta.txt";
+#endif
+                            const Ogre::String expected = select_alpha
+                                ? "alpha-payload\n"
+                                : "beta-payload\n";
+                            const Ogre::DataStreamPtr stream =
+                                archive->open(filename);
+                            if (stream == nullptr ||
+                                stream->getAsString() != expected ||
+                                !archive->exists(filename) ||
+                                archive->list(true, false)->size() != 2 ||
+                                archive->listFileInfo(true, false)->size() != 2 ||
+                                archive->find(
+                                    "*.txt",
+                                    true,
+                                    false)->size() != 2 ||
+                                archive->findFileInfo(
+                                    "*.txt",
+                                    true,
+                                    false)->size() != 2)
+                            {
+                                failed.store(
+                                    true,
+                                    std::memory_order_relaxed);
+                                return;
+                            }
+                        }
+                    }
+                    catch (const std::exception&)
+                    {
+                        failed.store(true, std::memory_order_relaxed);
+                    }
+                });
+        }
+
+        while (ready_threads.load(std::memory_order_acquire) != thread_count)
+        {
+            std::this_thread::yield();
+        }
+        start.store(true, std::memory_order_release);
+        for (std::thread& thread : threads)
+        {
+            thread.join();
+        }
+
+        Ogre::ArchiveManager::getSingleton().unload(archive);
+        archive = nullptr;
+        if (failed.load(std::memory_order_relaxed))
+        {
+            std::cerr << "concurrent ZIP archive probe failed\n";
+            return false;
+        }
+    }
+    catch (const std::exception& error)
+    {
+        if (archive != nullptr)
+        {
+            Ogre::ArchiveManager::getSingleton().unload(archive);
+        }
+        std::cerr << "ZIP archive probe failed: " << error.what() << '\n';
+        return false;
+    }
+
+    return true;
+}
 } // namespace
 
 int main(int argc, char** argv)
 {
-    if (argc != 4)
+    if (argc != 5)
     {
         std::cerr << "usage: ogre_recipe_probe PLUGINS_CFG RENDERER_TOKEN "
-                     "RELOCATED_PREFIX\n";
+                     "RELOCATED_PREFIX ZIP_ARCHIVE\n";
         return 2;
     }
 
@@ -135,6 +256,10 @@ int main(int argc, char** argv)
                 root.setRenderSystem(renderer);
                 root.initialise(false);
                 if (!VerifyLoadedOgreImages(argv[3]))
+                {
+                    return 1;
+                }
+                if (!VerifyConcurrentZipReads(argv[4]))
                 {
                     return 1;
                 }

@@ -1,0 +1,72 @@
+--- a/OgreMain/src/OgreZip.cpp
++++ b/OgreMain/src/OgreZip.cpp
+@@ -30,2 +30,3 @@
+ #if OGRE_NO_ZIP_ARCHIVE == 0
++#include <mutex>
+ #include <zip.h>
+@@ -40,7 +41,7 @@ namespace {
+         MemoryDataStreamPtr mBuffer;
+         /// File list (since zziplib seems to only allow scanning of dir tree once)
+         FileInfoList mFileList;
+-        OGRE_AUTO_MUTEX;
++        mutable std::recursive_mutex mZipMutex;
+     public:
+         ZipArchive(const String& name, const String& archType, const uint8* externBuf = 0, size_t externBufSz = 0);
+         ~ZipArchive();
+@@ -97,7 +98,7 @@ namespace {
+     //-----------------------------------------------------------------------
+     void ZipArchive::load()
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mZipMutex);
+         if (!mZipFile)
+         {
+             if(!mBuffer)
+@@ -143,7 +144,7 @@ namespace {
+     //-----------------------------------------------------------------------
+     void ZipArchive::unload()
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mZipMutex);
+         if (mZipFile)
+         {
+             zip_close(mZipFile);
+@@ -160 +161 @@ namespace {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mZipMutex);
+@@ -205,3 +206,3 @@ namespace {
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mZipMutex);
+         auto ret = std::make_shared<StringVector>();
+@@ -216,7 +217,7 @@ namespace {
+     //-----------------------------------------------------------------------
+     FileInfoListPtr ZipArchive::listFileInfo(bool recursive, bool dirs) const
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mZipMutex);
+         auto ret = std::make_shared<FileInfoList>();
+         for (auto& f : mFileList)
+             if ((dirs == (f.compressedSize == size_t (-1))) &&
+@@ -228,7 +229,7 @@ namespace {
+     //-----------------------------------------------------------------------
+     StringVectorPtr ZipArchive::find(const String& pattern, bool recursive, bool dirs) const
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mZipMutex);
+         auto ret = std::make_shared<StringVector>();
+         // If pattern contains a directory name, do a full match
+         bool full_match = (pattern.find ('/') != String::npos) ||
+@@ -249,5 +250,5 @@ namespace {
+         bool recursive, bool dirs) const
+     {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mZipMutex);
+         auto ret = std::make_shared<FileInfoList>();
+         // If pattern contains a directory name, do a full match
+@@ -270,4 +271,4 @@ namespace {
+-        OGRE_LOCK_AUTO_MUTEX;
++        std::lock_guard<std::recursive_mutex> lock(mZipMutex);
+         String cleanName = filename;
+ #if !OGRE_RESOURCEMANAGER_STRICT
+         if(filename.rfind('/') != String::npos)

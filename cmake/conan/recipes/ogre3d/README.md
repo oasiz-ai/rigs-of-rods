@@ -22,6 +22,8 @@ separately.
   `13bbbd974dfe0106dc51a8846caff800394b371a57fc98bcdd0dbcf783823d51`
 - Local deferred GLSL validation patch SHA-256:
   `d60d2684b6fd29ba1d3bdc4aaa34bb21463488ab16af03592e3b19594f249e72`
+- Local always-on ZIP archive mutex patch SHA-256:
+  `7674db9811bdf80abb0248b39504f259b85ecd9331f5bb1ca19c9b5d7a9db1b4`
 - macOS arm64 Release lock:
   `cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock`
 
@@ -47,12 +49,21 @@ a compatible VAO; RoR has not established that state while OGRE is linking the
 program. Omitting that state-dependent check here avoids reporting valid linked
 programs as failed because of transient setup state.
 
-On 2026-07-28, the native arm64 application was reconfigured against the exact
-package reference below and exercised with PSSM plus mixed cube, 2D, and shadow
-samplers. The two-truck scene completed 1,000 physics steps, wrote and fully
-decoded a 2560x1440 Retina PNG, and logged neither a sampler-validation failure
-nor `GL_INVALID_*`. The deterministic scene runner now rejects both diagnostics
-so a stale package or regression cannot silently satisfy the runtime gate.
+The local ZIP archive patch protects the shared `zip_t` handle and cached file
+list with a class-local `std::recursive_mutex`. It is deliberately independent
+of `OGRE_CONFIG_THREADS`, whose no-thread definitions otherwise reduce OGRE's
+archive mutex macros to no-ops. Recursive locking is required because sloppy
+resource lookup makes `ZipArchive::open()` call the separately locked
+`findFileInfo()` helper. Load, unload, open, list, find, and existence
+operations now serialize on macOS, Linux, and Windows.
+
+On 2026-07-28, the native arm64 application exercised the rendering patches
+with PSSM plus mixed cube, 2D, and shadow samplers. The two-truck scene
+completed 1,000 physics steps, wrote and fully decoded a 2560x1440 Retina PNG,
+and logged neither a sampler-validation failure nor `GL_INVALID_*`. On
+2026-07-29, the package was rebuilt with the ZIP mutex patch and passed the
+relocated package probe described below. Application rebundling against this
+new package revision is tracked separately from the package proof.
 
 ## Intentional policy differences
 
@@ -75,19 +86,19 @@ so a stale package or regression cannot silently satisfy the runtime gate.
 
 ## Verified native package
 
-On 2026-07-27, AppleClang `21.0.0.21000101` built the locked Release package as
+On 2026-07-29, AppleClang `21.0.0.21000101` built the locked Release package as
 native arm64 C++17 with `os.version=11.0`:
 
 ```text
-ogre3d/14.5.2#68db16985fa623986379d2b9422d0dce:
+ogre3d/14.5.2#b6b0c0cfeda342454587f82182559f20:
   a7b76c6f340c40b0b8883ed9b40acfff5165c675#
-  7bca6071546b0b39732f0b83fb5eb89f
+  9760d50a3820a14847ad81599fe47e89
 ```
 
 The line breaks above are for readability. The exact Conan reference is:
 
 ```text
-ogre3d/14.5.2#68db16985fa623986379d2b9422d0dce:a7b76c6f340c40b0b8883ed9b40acfff5165c675#7bca6071546b0b39732f0b83fb5eb89f
+ogre3d/14.5.2#b6b0c0cfeda342454587f82182559f20:a7b76c6f340c40b0b8883ed9b40acfff5165c675#9760d50a3820a14847ad81599fe47e89
 ```
 
 The proof established all of the following:
@@ -97,6 +108,10 @@ The proof established all of the following:
   It copied the package to a random temporary prefix, cleared
   `DYLD_LIBRARY_PATH` and `DYLD_FALLBACK_LIBRARY_PATH`, loaded the package's
   `plugins.cfg`, selected Metal, and completed OGRE initialization.
+- The same relocated probe opened a generated ZIP through one shared
+  `ZipArchive` from eight threads. Each thread completed 500 iterations of
+  `open`, `exists`, `list`, `listFileInfo`, `find`, and `findFileInfo`. Basename
+  opens deliberately entered the recursive `open()` to `findFileInfo()` path.
 - The package contains 20 arm64 Mach-O files, all with a macOS 11.0 minimum
   deployment target, relocatable install names, 17 package-local symlinks, ten
   relative pkg-config files, and no absolute Conan prefix in loader, install,
@@ -173,7 +188,7 @@ CONAN_HOME="$OGRE_CONAN_HOME" \
   -s:b build_type=Release \
   --build=missing
 
-OGRE_PACKAGE_REF='ogre3d/14.5.2#68db16985fa623986379d2b9422d0dce:a7b76c6f340c40b0b8883ed9b40acfff5165c675#7bca6071546b0b39732f0b83fb5eb89f'
+OGRE_PACKAGE_REF='ogre3d/14.5.2#b6b0c0cfeda342454587f82182559f20:a7b76c6f340c40b0b8883ed9b40acfff5165c675#9760d50a3820a14847ad81599fe47e89'
 OGRE_PACKAGE_PATH="$(
   CONAN_HOME="$OGRE_CONAN_HOME" conan cache path "$OGRE_PACKAGE_REF"
 )"
