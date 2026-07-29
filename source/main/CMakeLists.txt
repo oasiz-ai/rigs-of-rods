@@ -578,50 +578,61 @@ set(CFG_COMMENT_RENDERSYSTEM_METAL "# ")
 set(CFG_COMMENT_PLUGIN_CG "")
 
 if (ROR_OGRE14)
-    # Derive the immutable package root once for build-tree plugin and media
-    # lookup. Installed bundles rewrite PluginFolder to ../PlugIns.
-    set(_ror_ogre14_package_root "")
-    foreach (_ror_ogre_include_dir IN LISTS OGRE_INCLUDE_DIRS)
-        if (EXISTS "${_ror_ogre_include_dir}/OGRE/Ogre.h")
-            get_filename_component(
-                _ror_ogre14_package_root
-                "${_ror_ogre_include_dir}"
-                DIRECTORY)
-            break()
-        elseif (EXISTS "${_ror_ogre_include_dir}/Ogre.h")
-            get_filename_component(
-                _ror_ogre_include_root
-                "${_ror_ogre_include_dir}"
-                DIRECTORY)
-            get_filename_component(
-                _ror_ogre14_package_root
-                "${_ror_ogre_include_root}"
-                DIRECTORY)
-            break()
+    ror_ogre14_runtime_contract(
+        _ror_ogre14_runtime
+        "${CMAKE_SYSTEM_NAME}"
+        "${CMAKE_SYSTEM_PROCESSOR}")
+    get_property(
+        _ror_ogre14_multi_config
+        GLOBAL
+        PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    ror_ogre14_package_roots(
+        _ror_ogre14_package
+        "${_ror_ogre14_multi_config}"
+        "${CMAKE_BUILD_TYPE}"
+        "${CMAKE_CONFIGURATION_TYPES}")
+
+    # Conan CMakeDeps exposes one immutable package root per build
+    # configuration. Never derive an aggregate root from OGRE_INCLUDE_DIRS:
+    # multi-config generation intentionally carries both package variants.
+    set(_ror_ogre14_package_root
+        "${_ror_ogre14_package_MEDIA}")
+    set(_ror_ogre14_plugin_dir_RELEASE
+        "${_ror_ogre14_package_RELEASE}/${_ror_ogre14_runtime_PACKAGE_PLUGIN_SUBDIR}")
+    set(_ror_ogre14_plugin_dir_DEBUG
+        "${_ror_ogre14_package_DEBUG}/${_ror_ogre14_runtime_PACKAGE_PLUGIN_SUBDIR}")
+    foreach (_ror_ogre14_plugin_dir IN ITEMS
+            "${_ror_ogre14_plugin_dir_RELEASE}"
+            "${_ror_ogre14_plugin_dir_DEBUG}")
+        if (NOT IS_DIRECTORY "${_ror_ogre14_plugin_dir}")
+            message(FATAL_ERROR
+                "The pinned OGRE 14 package is missing its platform plugin "
+                "directory: ${_ror_ogre14_plugin_dir}")
         endif ()
     endforeach ()
-    if (NOT IS_DIRECTORY "${_ror_ogre14_package_root}")
-        message(FATAL_ERROR
-            "Could not derive the pinned OGRE 14 package root")
-    endif ()
 
-    set(_ror_ogre14_plugin_dir
-        "${_ror_ogre14_package_root}/lib/OGRE")
-    if (NOT IS_DIRECTORY "${_ror_ogre14_plugin_dir}")
-        message(FATAL_ERROR
-            "The pinned OGRE 14 package is missing lib/OGRE")
-    endif ()
-
-    set(CFG_COMMENT_RENDERSYSTEM_GL "# ")
-    set(CFG_COMMENT_RENDERSYSTEM_GL3PLUS "")
-    # Metal remains packaged for the next migration slice, but exposing it
-    # before Cocoa window hosting and authored MSL shaders would be unsafe.
-    set(CFG_COMMENT_RENDERSYSTEM_METAL "# ")
-    set(CFG_COMMENT_PLUGIN_CG "# ")
+    # Select exactly one supported renderer for each R0 target. The macOS
+    # package also carries Metal for the later migration slice, but RoR keeps
+    # it inactive until Cocoa hosting and authored MSL materials are ready.
+    ror_ogre14_plugin_template_contract(
+        _ror_ogre14_plugin_comments
+        "${_ror_ogre14_runtime_RENDERER_PLUGIN}")
+    set(CFG_COMMENT_RENDERSYSTEM_D3D9
+        "${_ror_ogre14_plugin_comments_D3D9}")
+    set(CFG_COMMENT_RENDERSYSTEM_D3D11
+        "${_ror_ogre14_plugin_comments_D3D11}")
+    set(CFG_COMMENT_RENDERSYSTEM_GL
+        "${_ror_ogre14_plugin_comments_GL}")
+    set(CFG_COMMENT_RENDERSYSTEM_GL3PLUS
+        "${_ror_ogre14_plugin_comments_GL3PLUS}")
+    set(CFG_COMMENT_RENDERSYSTEM_METAL
+        "${_ror_ogre14_plugin_comments_METAL}")
+    set(CFG_COMMENT_PLUGIN_CG
+        "${_ror_ogre14_plugin_comments_CG}")
 endif ()
 
 if (ROR_OGRE14)
-    set(PLUGINS_FOLDER "${_ror_ogre14_plugin_dir}")
+    set(PLUGINS_FOLDER "${_ror_ogre14_plugin_dir_RELEASE}")
 elseif (DEFINED OGRE_PLUGIN_DIR AND NOT WIN32)
     set(PLUGINS_FOLDER "${OGRE_PLUGIN_DIR}")
 else ()
@@ -654,8 +665,11 @@ endif ()
 
 configure_file(plugins.cfg.in ${RUNTIME_OUTPUT_DIRECTORY}/plugins.cfg)
 if (ROR_OGRE14)
-    # The pinned non-Windows OGRE package does not suffix Debug plugins.
+    # OGRE 14 appends its own Windows Debug binary suffix while loading an
+    # unsuffixed token. Reusing the release template avoids `_d_d.dll`.
+    set(PLUGINS_FOLDER "${_ror_ogre14_plugin_dir_DEBUG}")
     configure_file(plugins.cfg.in ${RUNTIME_OUTPUT_DIRECTORY}/plugins_d.cfg)
+    set(PLUGINS_FOLDER "${_ror_ogre14_plugin_dir_RELEASE}")
 else ()
     configure_file(plugins_d.cfg.in ${RUNTIME_OUTPUT_DIRECTORY}/plugins_d.cfg)
 endif ()
@@ -730,9 +744,10 @@ if (APPLE AND ROR_OGRE14)
         "-DROR_EXECUTABLE=$<TARGET_FILE:${BINNAME}>"
         "-DROR_RESOURCES=${RUNTIME_OUTPUT_DIRECTORY}/resources"
         "-DROR_LANGUAGES=${RUNTIME_OUTPUT_DIRECTORY}/languages"
-        "-DROR_OGRE_PACKAGE_DIR=${_ror_ogre14_package_root}"
-        "-DROR_OGRE_PLUGIN_DIR=${_ror_ogre14_plugin_dir}"
-        "-DROR_OGRE_PLUGINS_CFG=${RUNTIME_OUTPUT_DIRECTORY}/plugins.cfg"
+        "-DROR_OGRE_PACKAGE_DIR=$<IF:$<CONFIG:Debug>,${_ror_ogre14_package_DEBUG},${_ror_ogre14_package_RELEASE}>"
+        "-DROR_OGRE_PLUGIN_DIR=$<IF:$<CONFIG:Debug>,${_ror_ogre14_plugin_dir_DEBUG},${_ror_ogre14_plugin_dir_RELEASE}>"
+        "-DROR_OGRE_PLUGINS_CFG=$<IF:$<CONFIG:Debug>,${RUNTIME_OUTPUT_DIRECTORY}/plugins_d.cfg,${RUNTIME_OUTPUT_DIRECTORY}/plugins.cfg>"
+        "-DROR_OGRE_INSTALL_PLUGIN_FOLDER=${_ror_ogre14_runtime_INSTALL_PLUGIN_FOLDER}"
         "-DROR_RUNTIME_DYLIBS="
         "-DROR_INFO_PLIST_TEMPLATE=${CMAKE_SOURCE_DIR}/cmake/macos/RoRInfo.plist.in"
         "-DROR_BUNDLE_SHORT_VERSION=${CMAKE_PROJECT_VERSION}"
@@ -763,16 +778,6 @@ if (APPLE AND ROR_OGRE14)
     unset(_ror_macos_bundle_arguments)
 endif ()
 
-if (ROR_OGRE14)
-    unset(_ror_ogre14_package_root)
-    unset(_ror_ogre14_plugin_dir)
-    unset(_ror_ogre14_main_media)
-    unset(_ror_ogre14_rtshader_media)
-    unset(_ror_ogre14_terrain_media)
-    unset(_ror_ogre_include_dir)
-    unset(_ror_ogre_include_root)
-endif ()
-
 # TODO: Run fixup_bundle instead
 if (IS_DIRECTORY "${CMAKE_BINARY_DIR}/conan/bin")
     file(COPY "${CMAKE_BINARY_DIR}/conan/bin/" DESTINATION "${CMAKE_BINARY_DIR}/bin/")
@@ -788,8 +793,36 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/languages/ DESTINATION languages COMPONENT
 install(DIRECTORY ${RUNTIME_OUTPUT_DIRECTORY}/resources/ DESTINATION resources COMPONENT "Base_Game")
 install(DIRECTORY ${RUNTIME_OUTPUT_DIRECTORY}/content/ DESTINATION content COMPONENT "Base_Content")
 
+if (ROR_OGRE14 AND NOT APPLE)
+    # Never install the build-tree config: its PluginFolder deliberately names
+    # the absolute Conan package used for local execution.
+    set(_ror_ogre14_build_plugin_folder "${PLUGINS_FOLDER}")
+    set(PLUGINS_FOLDER
+        "${_ror_ogre14_runtime_INSTALL_PLUGIN_FOLDER}")
+    configure_file(
+        plugins.cfg.in
+        ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg)
+    configure_file(
+        plugins.cfg.in
+        ${CMAKE_CURRENT_BINARY_DIR}/plugins-install-d.cfg)
+    set(PLUGINS_FOLDER "${_ror_ogre14_build_plugin_folder}")
+endif ()
+
 if (WIN32)
-    install(FILES ${RUNTIME_OUTPUT_DIRECTORY}/plugins.cfg DESTINATION . COMPONENT "Base_Game")
+    if (ROR_OGRE14)
+        install(
+            FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg
+            DESTINATION .
+            RENAME plugins.cfg
+            COMPONENT "Base_Game")
+        install(
+            FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install-d.cfg
+            DESTINATION .
+            RENAME plugins_d.cfg
+            COMPONENT "Base_Game")
+    else ()
+        install(FILES ${RUNTIME_OUTPUT_DIRECTORY}/plugins.cfg DESTINATION . COMPONENT "Base_Game")
+    endif ()
     install(FILES ${CMAKE_SOURCE_DIR}/tools/windows/.itch.toml DESTINATION . COMPONENT "Base_Game")
     install(CODE "file(GLOB files ${RUNTIME_OUTPUT_DIRECTORY}/*.dll)
             file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX})" COMPONENT "Base_Game")
@@ -798,18 +831,69 @@ if (WIN32)
 elseif (APPLE)
     set(PLUGINS_FOLDER "lib")
     configure_file(plugins.cfg.in ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg)
-    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg DESTINATION . RENAME plugins.cfg)
+    if (ROR_OGRE14)
+        install(
+            FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg
+            DESTINATION .
+            RENAME plugins.cfg
+            COMPONENT "Base_Game")
+        configure_file(
+            plugins.cfg.in
+            ${CMAKE_CURRENT_BINARY_DIR}/plugins-install-d.cfg)
+        install(
+            FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install-d.cfg
+            DESTINATION .
+            RENAME plugins_d.cfg
+            COMPONENT "Base_Game")
+    else ()
+        # Preserve the legacy component ownership exactly; downstream
+        # component-less installs historically include this file.
+        install(
+            FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg
+            DESTINATION .
+            RENAME plugins.cfg)
+    endif ()
     install(CODE "file(GLOB_RECURSE files ${RUNTIME_OUTPUT_DIRECTORY}/*.dylib)
             file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX}/lib FOLLOW_SYMLINK_CHAIN)"
             COMPONENT "Base_Game")
 else ()
-    set(PLUGINS_FOLDER "lib")
-    configure_file(plugins.cfg.in ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg)
+    if (NOT ROR_OGRE14)
+        set(PLUGINS_FOLDER "lib")
+        configure_file(plugins.cfg.in ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg)
+    endif ()
     install(FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg DESTINATION . RENAME plugins.cfg)
+    if (ROR_OGRE14)
+        install(FILES ${CMAKE_CURRENT_BINARY_DIR}/plugins-install-d.cfg DESTINATION . RENAME plugins_d.cfg)
+    endif ()
     install(PROGRAMS ${CMAKE_SOURCE_DIR}/tools/linux/RunRoR DESTINATION .)
     install(FILES ${CMAKE_SOURCE_DIR}/tools/linux/.itch.toml DESTINATION .)
     install(CODE "file(GLOB_RECURSE files ${RUNTIME_OUTPUT_DIRECTORY}/*.so)
             file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX}/lib FOLLOW_SYMLINK_CHAIN)")
+endif ()
+
+if (ROR_OGRE14)
+    unset(_ror_ogre14_package_root)
+    unset(_ror_ogre14_package_RELEASE)
+    unset(_ror_ogre14_package_DEBUG)
+    unset(_ror_ogre14_package_MEDIA)
+    unset(_ror_ogre14_plugin_dir)
+    unset(_ror_ogre14_plugin_dir_RELEASE)
+    unset(_ror_ogre14_plugin_dir_DEBUG)
+    unset(_ror_ogre14_main_media)
+    unset(_ror_ogre14_rtshader_media)
+    unset(_ror_ogre14_terrain_media)
+    unset(_ror_ogre14_multi_config)
+    unset(_ror_ogre14_build_plugin_folder)
+    unset(_ror_ogre14_runtime_PACKAGE_PLUGIN_SUBDIR)
+    unset(_ror_ogre14_runtime_RENDERER_PLUGIN)
+    unset(_ror_ogre14_runtime_INSTALL_PLUGIN_FOLDER)
+    unset(_ror_ogre14_runtime_PLUGIN_BINARIES_USE_DEBUG_SUFFIX)
+    unset(_ror_ogre14_plugin_comments_D3D9)
+    unset(_ror_ogre14_plugin_comments_D3D11)
+    unset(_ror_ogre14_plugin_comments_GL)
+    unset(_ror_ogre14_plugin_comments_GL3PLUS)
+    unset(_ror_ogre14_plugin_comments_METAL)
+    unset(_ror_ogre14_plugin_comments_CG)
 endif ()
 
 

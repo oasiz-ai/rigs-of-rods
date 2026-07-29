@@ -746,6 +746,30 @@ dependency contracts and current macOS realization; platform-aware plugin
 staging, relocatable Linux/Windows packages, native application builds, and
 runtime smoke tests remain required.
 
+The following runtime-configuration slice centralizes the renderer, package
+plugin directory, installed plugin folder, and debug-suffix policy for the same
+three exact target tuples. Generated release and debug configurations activate
+only FreeImage, the platform renderer, ParticleFX, and OctreeSceneManager:
+GL3Plus on macOS/Linux and D3D11 on Windows. All configuration tokens remain
+unsuffixed because OGRE 14's loader applies `_d` when resolving physical
+Windows Debug DLLs; this avoids the legacy template's invalid `_d_d.dll`
+lookup. D3D9, legacy GL, Metal, Cg, and every non-platform renderer remain
+inactive. Release and Debug each resolve their exact immutable Conan package
+root, preventing multi-config builds from drifting to whichever dependency
+graph happened to configure last. The R0 multi-config contract exposes exactly
+`Debug;Release`, matching the two graphs installed by the provider; unsupported
+configurations fail closed instead of linking a partial graph. Build-tree
+configurations may name those package roots, but installed configurations are
+generated separately with only relative plugin folders. The macOS stager owns
+both `plugins.cfg` and `plugins_d.cfg`, and writes identical unsuffixed runtime
+tokens for both names. Synthetic CMake tests prove all six platform/build-type
+configurations, package-root selection, and unsupported targets fail closed.
+The full macOS arm64 application rebuilt, all 41 configured CTests passed, and
+the stager produced a deep-valid signed bundle containing the expected four
+plugins under the contract-owned `../PlugIns` folder. Linux shared-object
+staging, Windows DLL closure, native Debug and relocated smoke tests, and native
+CI remain open.
+
 This is meaningful R0 progress, not completion. The remaining gates include:
 
 - Extend the display-metrics proof to native Windows/Linux, window resize and
@@ -764,9 +788,10 @@ This is meaningful R0 progress, not completion. The remaining gates include:
 - Decide and prove the production Metal material path. RoR media still has no
   authored MSL pipeline; the current application path intentionally uses
   GL3Plus.
-- Complete platform-aware OGRE plugin and runtime staging, build and test the
-  full OGRE 14 application on Windows and Linux, add the three-platform native
-  CI matrix, and measure the declared CPU/GPU frame-time budgets.
+- Complete platform-aware OGRE plugin-binary and runtime-library staging, build
+  and test the full OGRE 14 application on Windows and Linux, add the
+  three-platform native CI matrix, and measure the declared CPU/GPU frame-time
+  budgets.
 
 Merely changing version strings is still an explicitly rejected milestone.
 

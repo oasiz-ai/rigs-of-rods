@@ -164,6 +164,10 @@ jobs:
           test -L "$app/Contents/MacOS/languages"
           test -L "$app/Contents/MacOS/content"
           test -L "$app/Contents/MacOS/plugins.cfg"
+          test -L "$app/Contents/MacOS/plugins_d.cfg"
+          cmp \
+            "$app/Contents/Resources/plugins.cfg" \
+            "$app/Contents/Resources/plugins_d.cfg"
           test ! -e "$app/Contents/MacOS/config"
 
           diff -qr \

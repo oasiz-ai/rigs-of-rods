@@ -46,6 +46,21 @@ set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to th
 
 if (ROR_OGRE14)
     include(Ogre14Platform)
+    get_property(
+        _ror_ogre14_multi_config
+        GLOBAL
+        PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    if (_ror_ogre14_multi_config)
+        # Conan's provider installs exactly these two graphs. Restrict the
+        # generator before the first dependency lookup so Visual Studio and
+        # Xcode cannot expose unsupported RelWithDebInfo/MinSizeRel targets.
+        set(
+            CMAKE_CONFIGURATION_TYPES
+            "Debug;Release"
+            CACHE STRING
+            "Supported OGRE 14 multi-config build types"
+            FORCE)
+    endif ()
     ror_select_ogre14_lockfile(
         _ror_ogre14_lockfile
         "${CMAKE_SYSTEM_NAME}"
@@ -91,6 +106,7 @@ if (ROR_OGRE14)
     set(CONAN_INSTALL_ARGS "${CONAN_INSTALL_ARGS}" CACHE STRING
         "Command line arguments for conan install" FORCE)
     unset(_ror_ogre14_conan_args)
+    unset(_ror_ogre14_multi_config)
     unset(_ror_conan_arg)
     unset(_ror_conan_arg_index)
     unset(_ror_ogre14_lockfile)
