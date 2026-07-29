@@ -3717,8 +3717,18 @@ void Parser::ProcessRawLine(const char* raw_line_buf)
     const char* raw_start = raw_line_buf;
     const char* raw_end = raw_line_buf + strnlen(raw_line_buf, LINE_BUFFER_LENGTH);
 
+    // std::getline() and some Ogre streams remove '\n' but retain the '\r'
+    // from CRLF-authored actor files. Strip line terminators at the parser
+    // boundary so they cannot become part of the actor name, a keyword, or
+    // an argument.
+    while (raw_start != raw_end &&
+           ((raw_end[-1] == '\r') || (raw_end[-1] == '\n')))
+    {
+        --raw_end;
+    }
+
     // Trim leading whitespace
-    while (IsWhitespace(*raw_start) && (raw_start != raw_end))
+    while ((raw_start != raw_end) && IsWhitespace(*raw_start))
     {
         ++raw_start;
     }

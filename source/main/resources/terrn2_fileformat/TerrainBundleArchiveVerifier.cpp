@@ -72,7 +72,12 @@ FILE* OpenArchiveReadOnly(const std::string& path)
     {
         return nullptr;
     }
-    return _wfopen(&wide_path[0], L"rb");
+    FILE* archive = nullptr;
+    if (_wfopen_s(&archive, &wide_path[0], L"rb") != 0)
+    {
+        return nullptr;
+    }
+    return archive;
 }
 #else
 FILE* OpenArchiveReadOnly(const std::string& path)

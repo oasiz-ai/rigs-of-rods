@@ -85,6 +85,32 @@ bool ParseLines(
     return true;
 }
 
+std::string WithCrLfLineEndings(const std::string& input)
+{
+    std::string result;
+    result.reserve(input.size() + input.size() / 8U);
+    for (std::size_t index = 0U; index < input.size(); ++index)
+    {
+        const char character = input[index];
+        if (character == '\r' &&
+            index + 1U < input.size() &&
+            input[index + 1U] == '\n')
+        {
+            result += "\r\n";
+            ++index;
+        }
+        else if (character == '\n')
+        {
+            result += "\r\n";
+        }
+        else
+        {
+            result += character;
+        }
+    }
+    return result;
+}
+
 bool ValidateParsedFixture(
     const RigDef::DocumentPtr& document,
     std::string& error)
@@ -242,12 +268,32 @@ int RigDef::RunCalibratedBeamMaterialRoundTripIntegration(
         return 1;
     }
 
+    std::ostringstream fixture_buffer;
+    fixture_buffer << fixture.rdbuf();
+    if (fixture.bad())
+    {
+        std::cerr << "RigDef integration: cannot read fixture '"
+            << fixture_path << "'\n";
+        return 1;
+    }
+    const std::string fixture_text = fixture_buffer.str();
+
     std::string error;
     RigDef::DocumentPtr authored;
-    if (!ParseLines(fixture, authored, error) ||
+    std::istringstream authored_input(fixture_text);
+    if (!ParseLines(authored_input, authored, error) ||
         !ValidateParsedFixture(authored, error))
     {
         std::cerr << "RigDef integration: " << error << '\n';
+        return 1;
+    }
+
+    RigDef::DocumentPtr crlf_authored;
+    std::istringstream crlf_input(WithCrLfLineEndings(fixture_text));
+    if (!ParseLines(crlf_input, crlf_authored, error) ||
+        !ValidateParsedFixture(crlf_authored, error))
+    {
+        std::cerr << "RigDef CRLF integration: " << error << '\n';
         return 1;
     }
 
