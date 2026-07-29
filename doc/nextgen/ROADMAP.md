@@ -707,17 +707,34 @@ All four mathematical seams are exact, maximum path error was 1.43999 m, actor
 height stayed at 0.807714–0.867233 m, all eight point lights and every
 render/collision mesh loaded, all visible materials received GL3Plus RTSS
 programs, and the UI-free 1280x720 RGB proof fully decoded. The installed
-rolling app reproduced the pass. Native Windows/Linux physical execution,
-controlled PSSM captures, performance gates, and insertion into a
-rights-cleared full CityWorld overlay remain open.
+rolling app reproduced the pass. Native Windows/Linux physical execution and
+insertion into a rights-cleared full CityWorld overlay remain open.
+
+The controlled CityWorld PSSM gate is now closed on the macOS arm64 reference
+host. At commit `7f7f131fed2a8bfaa77f0bb1bfed919112140b7f`, fresh isolated
+no-shadow and quality-2 PSSM runs used the same signed executable, Apple M5
+OpenGL 4.1 device, 1280x720 camera, runtime pack, renderer configuration, and
+30,580-step traversal. Requested and effective RoR configurations normalized
+to identical hashes after removing only `gfx_shadow_type`. The PSSM run
+proved the RTSS receiver, three `PF_DEPTH16` cascades at
+3072/2048/2048, lambda 0.97, and 0.5/7.816331/45.241116/350 m splits.
+All gated physics outputs were exactly equal. The cast-shadow comparison
+darkened 2.0818142% of the frame by at least four luminance levels and
+1.3471137% by at least twelve; the fixed occluder region measured
+20.2045455% and 17.1233766%, respectively, with no qualifying lightened
+pixels. Across 1,410 post-warmup samples, PSSM measured 1.99006 ms mean and
+3.44846 ms p95, adding 0.72936 ms mean and 1.24438 ms p95 over the control.
+The parent report hashes every child report, RGB proof, and stdout artifact.
 
 This is meaningful R0 progress, not completion. The remaining gates include:
 
 - Extend the display-metrics proof to native Windows/Linux, window resize and
   cross-monitor density transitions. Extend the zero-GL-diagnostic proof
-  across every validation scene, and prove PSSM with controlled occluder
-  captures; then cover dynamic cubemaps, water, sky, vegetation, particles,
-  UI, mirrors, screenshots, and hot-load against recorded baselines.
+  across every validation scene, and execute the paired PSSM gate on native
+  Windows/D3D11 and Linux/GL3Plus hardware with declared backend-specific
+  timing profiles; then cover dynamic cubemaps, water, sky, vegetation,
+  particles, UI, mirrors, screenshots, and hot-load against recorded
+  baselines.
 - Verify real controller enumeration, hot-plugging, representative vendor
   mappings, and force feedback on physical hardware. Add a native
   force-feedback path rather than silently presenting the OIS device API as
