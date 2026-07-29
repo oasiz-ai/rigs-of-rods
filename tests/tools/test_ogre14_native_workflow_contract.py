@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import subprocess
 import unittest
 
 
@@ -108,6 +109,96 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             text,
         )
         self.assertNotIn("restore-keys:", text)
+
+    def test_local_conan_recipe_bytes_are_platform_stable(self) -> None:
+        listed = subprocess.run(
+            [
+                "git",
+                "ls-files",
+                "--",
+                "cmake/conan/recipes",
+                "cmake/conan/locks/*.lock",
+            ],
+            cwd=REPOSITORY_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            listed.returncode,
+            0,
+            msg=listed.stdout + listed.stderr,
+        )
+        tracked_inputs = tuple(listed.stdout.splitlines())
+        self.assertTrue(tracked_inputs)
+        for relative_path in tracked_inputs:
+            with self.subTest(path=relative_path):
+                result = subprocess.run(
+                    [
+                        "git",
+                        "check-attr",
+                        "text",
+                        "eol",
+                        "--",
+                        relative_path,
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(
+                    result.returncode,
+                    0,
+                    msg=result.stdout + result.stderr,
+                )
+                self.assertIn(
+                    f"{relative_path}: text: set",
+                    result.stdout,
+                )
+                self.assertIn(
+                    f"{relative_path}: eol: lf",
+                    result.stdout,
+                )
+        active_patches = (
+            (
+                "cmake/conan/recipes/ogre3d/patches/14.5.2/"
+                "relocatable-install-paths.patch"
+            ),
+            (
+                "cmake/conan/recipes/ogre3d/patches/14.5.2/"
+                "bounds-safe-shadow-texture-projectors.patch"
+            ),
+            (
+                "cmake/conan/recipes/ogre3d/patches/14.5.2/"
+                "defer-glsl-program-validation.patch"
+            ),
+            "cmake/conan/recipes/mygui/patches/3.4.0/ogre14-api.patch",
+        )
+        for relative_path in active_patches:
+            with self.subTest(patch=relative_path):
+                result = subprocess.run(
+                    [
+                        "git",
+                        "check-attr",
+                        "whitespace",
+                        "--",
+                        relative_path,
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(
+                    result.returncode,
+                    0,
+                    msg=result.stdout + result.stderr,
+                )
+                self.assertIn(
+                    f"{relative_path}: whitespace: unset",
+                    result.stdout,
+                )
 
     def test_build_install_relocation_and_audit_are_mandatory(self) -> None:
         text = self.text

@@ -27,6 +27,11 @@ source/main/terrain/Terrain.cpp whitespace=cr-at-eol
 source/main/utils/InputEngine.cpp whitespace=cr-at-eol
 source/main/utils/PlatformUtils.cpp whitespace=cr-at-eol
 source/main/utils/PlatformUtils.h whitespace=cr-at-eol
+#
+# Conan recipe revisions hash exported source bytes. Force every local recipe
+# input to LF so Windows and POSIX checkouts export the same locked revisions.
+cmake/conan/recipes/** text eol=lf
+cmake/conan/locks/*.lock text eol=lf
 cmake/conan/recipes/ogre3d/patches/14.5.2/relocatable-install-paths.patch -whitespace
 cmake/conan/recipes/ogre3d/patches/14.5.2/bounds-safe-shadow-texture-projectors.patch -whitespace
 cmake/conan/recipes/ogre3d/patches/14.5.2/defer-glsl-program-validation.patch -whitespace
