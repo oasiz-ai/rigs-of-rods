@@ -100,13 +100,15 @@ ENGINE_MARKERS = (
     "[RoR|TerrainObject|Lights] "
     "odef=rorng_city_led_streetlight_bridge.odef "
     "spotlights=0 point_lights=1 local_shadow_casters=0",
+    "[RoR|TerrainObject|LocalLightBudget] "
+    "discovered=1 active=1 budget=64",
     FALLBACK_LIGHTING_MARKER,
     "Pass 0 of 'rorng_fixture_galvanized_steel'",
     "Pass 0 of 'rorng_fixture_led_lens_emissive'",
     "Pass 0 of 'rorng_fixture_lens_gasket'",
     "Pass 0 of 'rorng_fixture_powdercoat_graphite'",
 )
-ENGINE_SINGLETON_MARKERS = ENGINE_MARKERS[:4]
+ENGINE_SINGLETON_MARKERS = ENGINE_MARKERS[:5]
 FATAL_MARKERS = (
     "[RoR|CW1|BridgeStreetlightRuntime] FAIL",
     "[ODEF] Could not find rorng_city_led_streetlight_bridge",

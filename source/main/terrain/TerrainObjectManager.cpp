@@ -25,6 +25,7 @@
 #include "Application.h"
 #include "AutoPilot.h"
 #include "CacheSystem.h"
+#include "CameraManager.h"
 #include "Collisions.h"
 #include "Console.h"
 #include "ErrorUtils.h"
@@ -528,6 +529,7 @@ void TerrainObjectManager::destroyObject(const String& instancename)
     {
         // Static object: Destroy the scene node and everything attached to it.
         ROR_ASSERT(object->static_object_node);
+        this->UnregisterLocalLightsForOwner(object->static_object_node);
         for (Ogre::MovableObject* mova : object->static_object_node->getAttachedObjects())
         {
             App::GetGfxScene()->GetSceneManager()->destroyMovableObject(mova);
@@ -944,6 +946,7 @@ bool TerrainObjectManager::LoadTerrainObject(const Ogre::String& name, const Ogr
         SceneNode *sn = tenode->createChildSceneNode();
         sn->attachObject(spotLight);
         sn->attachObject(lflare);
+        this->RegisterLocalLight(spotLight, lflare, sn, tenode);
     }
 
     for (ODefPointLight& plight : odef->point_lights)
@@ -970,6 +973,7 @@ bool TerrainObjectManager::LoadTerrainObject(const Ogre::String& name, const Ogr
         SceneNode *sn = tenode->createChildSceneNode();
         sn->attachObject(pointlight);
         sn->attachObject(lflare);
+        this->RegisterLocalLight(pointlight, lflare, sn, tenode);
     }
     if (!odef->spotlights.empty() || !odef->point_lights.empty())
     {
@@ -1108,6 +1112,167 @@ void TerrainObjectManager::LoadPredefinedActors()
     }
 }
 
+void TerrainObjectManager::RegisterLocalLight(
+    Ogre::Light* light,
+    Ogre::BillboardSet* flare,
+    Ogre::SceneNode* light_node,
+    Ogre::SceneNode* owner_node)
+{
+    ROR_ASSERT(light);
+    ROR_ASSERT(flare);
+    ROR_ASSERT(light_node);
+    ROR_ASSERT(owner_node);
+
+    RegisteredLocalLight registered;
+    registered.light = light;
+    registered.flare = flare;
+    registered.light_node = light_node;
+    registered.owner_node = owner_node;
+    registered.stable_id = m_next_local_light_id++;
+    registered.active =
+        m_registered_local_lights.size() < LOCAL_LIGHT_ACTIVE_BUDGET;
+
+    // This registration path is shared by every terrain-local light source.
+    // Enforce the no-shadow policy here as well as at parser call sites so
+    // future world-space TOBJ lights cannot accidentally consume shadow maps.
+    light->setCastShadows(false);
+    light->setVisible(registered.active);
+    flare->setVisible(registered.active);
+
+    m_registered_local_lights.push_back(registered);
+    m_local_light_candidates.resize(m_registered_local_lights.size());
+    m_local_light_rank_scratch.resize(m_registered_local_lights.size());
+    m_local_light_selection.resize(m_registered_local_lights.size());
+}
+
+void TerrainObjectManager::UnregisterLocalLightsForOwner(
+    Ogre::SceneNode* owner_node)
+{
+    std::size_t destination = 0;
+    for (std::size_t source = 0;
+         source < m_registered_local_lights.size();
+         ++source)
+    {
+        if (m_registered_local_lights[source].owner_node == owner_node)
+        {
+            RegisteredLocalLight& registered =
+                m_registered_local_lights[source];
+            Ogre::SceneManager* scene_manager =
+                App::GetGfxScene()->GetSceneManager();
+            scene_manager->destroyMovableObject(registered.light);
+            scene_manager->destroyMovableObject(registered.flare);
+            scene_manager->destroySceneNode(registered.light_node);
+            continue;
+        }
+        if (destination != source)
+        {
+            m_registered_local_lights[destination] =
+                m_registered_local_lights[source];
+        }
+        ++destination;
+    }
+
+    if (destination == m_registered_local_lights.size())
+    {
+        return;
+    }
+
+    m_registered_local_lights.resize(destination);
+    m_local_light_candidates.resize(destination);
+    m_local_light_rank_scratch.resize(destination);
+    m_local_light_selection.resize(destination);
+}
+
+void TerrainObjectManager::UpdateLocalLightBudget()
+{
+    const std::size_t discovered = m_registered_local_lights.size();
+    if (discovered == 0)
+    {
+        if (m_last_logged_local_light_discovered !=
+                static_cast<std::size_t>(-1) &&
+            m_last_logged_local_light_discovered != 0)
+        {
+            LOG(fmt::format(
+                "{} discovered=0 active=0 budget={}",
+                LOCAL_LIGHT_BUDGET_LOG_MARKER,
+                LOCAL_LIGHT_ACTIVE_BUDGET));
+        }
+        m_last_logged_local_light_discovered = 0;
+        m_last_logged_local_light_active = 0;
+        return;
+    }
+
+    CameraManager* camera_manager = App::GetCameraManager();
+    Ogre::Camera* camera =
+        camera_manager != nullptr ? camera_manager->GetCamera() : nullptr;
+
+    LocalLightPosition camera_position;
+    if (camera != nullptr)
+    {
+        const Ogre::Vector3& position = camera->getDerivedPosition();
+        camera_position = {
+            static_cast<double>(position.x),
+            static_cast<double>(position.y),
+            static_cast<double>(position.z)};
+    }
+    else
+    {
+        // A non-finite camera makes the pure selector fail closed.
+        std::uint64_t bits = UINT64_C(0x7ff8000000000001);
+        std::memcpy(&camera_position.x, &bits, sizeof(bits));
+    }
+
+    for (std::size_t index = 0; index < discovered; ++index)
+    {
+        RegisteredLocalLight& registered = m_registered_local_lights[index];
+        LocalLightCandidate& candidate = m_local_light_candidates[index];
+        candidate.stable_id = registered.stable_id;
+        if (registered.light != nullptr)
+        {
+            const Ogre::Vector3& position =
+                registered.light->getDerivedPosition();
+            candidate.position = {
+                static_cast<double>(position.x),
+                static_cast<double>(position.y),
+                static_cast<double>(position.z)};
+        }
+    }
+
+    const std::size_t active = SelectLocalLights(
+        m_local_light_candidates.data(),
+        m_local_light_candidates.size(),
+        camera_position,
+        LOCAL_LIGHT_ACTIVE_BUDGET,
+        m_local_light_selection.data(),
+        m_local_light_rank_scratch.data());
+
+    for (std::size_t index = 0; index < discovered; ++index)
+    {
+        RegisteredLocalLight& registered = m_registered_local_lights[index];
+        const bool should_be_active = m_local_light_selection[index] != 0;
+        if (registered.active == should_be_active)
+        {
+            continue;
+        }
+        registered.active = should_be_active;
+        registered.light->setVisible(should_be_active);
+        registered.flare->setVisible(should_be_active);
+    }
+
+    if (m_last_logged_local_light_discovered != discovered ||
+        m_last_logged_local_light_active != active)
+    {
+        LOG(fmt::format(
+            "{} discovered={} active={} budget={}",
+            LOCAL_LIGHT_BUDGET_LOG_MARKER,
+            discovered,
+            active,
+            LOCAL_LIGHT_ACTIVE_BUDGET));
+        m_last_logged_local_light_discovered = discovered;
+        m_last_logged_local_light_active = active;
+    }
+}
+
 bool TerrainObjectManager::UpdateTerrainObjects(float dt)
 {
 #ifdef USE_PAGED
@@ -1118,6 +1283,7 @@ bool TerrainObjectManager::UpdateTerrainObjects(float dt)
 #endif //USE_PAGED
     this->UpdateAnimatedObjects(dt);
     this->UpdateParticleEffectObjects();
+    this->UpdateLocalLightBudget();
 
     return true;
 }

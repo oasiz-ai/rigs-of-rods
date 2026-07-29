@@ -25,6 +25,7 @@
 #include "Application.h"
 
 #include "ODefFileFormat.h"
+#include "LocalLightBudget.h"
 #include "MeshObject.h"
 #include "ProceduralManager.h"
 #include "SurveyMapEntity.h"
@@ -113,6 +114,16 @@ protected:
         Ogre::SceneNode* node = nullptr;
     };
 
+    struct RegisteredLocalLight
+    {
+        Ogre::Light* light = nullptr;
+        Ogre::BillboardSet* flare = nullptr;
+        Ogre::SceneNode* light_node = nullptr;
+        Ogre::SceneNode* owner_node = nullptr;
+        std::uint64_t stable_id = 0;
+        bool active = false;
+    };
+
     // ODef processing functions
 
     RoR::ODefDocument* FetchODef(std::string const & odef_name);
@@ -122,10 +133,17 @@ protected:
 
     void           UpdateAnimatedObjects(float dt);
     void           UpdateParticleEffectObjects();
+    void           UpdateLocalLightBudget();
 
     // Helpers
 
     TerrainEditorObjectID_t FindEditorObjectByInstanceName(std::string const& instance_name); //!< Returns offset to `m_editor_objects` or -1 if not found.
+    void RegisterLocalLight(
+        Ogre::Light* light,
+        Ogre::BillboardSet* flare,
+        Ogre::SceneNode* light_node,
+        Ogre::SceneNode* owner_node);
+    void UnregisterLocalLightsForOwner(Ogre::SceneNode* owner_node);
 
     // Variables
 
@@ -137,6 +155,13 @@ protected:
     bool                                  m_has_predefined_actors = false;
     std::vector<AnimatedObject>           m_animated_objects;
     std::vector<ParticleEffectObject>     m_particle_effect_objects;
+    std::vector<RegisteredLocalLight>     m_registered_local_lights;
+    std::vector<LocalLightCandidate>      m_local_light_candidates;
+    std::vector<LocalLightRank>           m_local_light_rank_scratch;
+    std::vector<std::uint8_t>             m_local_light_selection;
+    std::uint64_t                         m_next_local_light_id = 0;
+    std::size_t                           m_last_logged_local_light_discovered = static_cast<std::size_t>(-1);
+    std::size_t                           m_last_logged_local_light_active = static_cast<std::size_t>(-1);
     std::vector<MeshObject*>              m_mesh_objects;
     SurveyMapEntityVec                    m_map_entities;
     Terrain*                  terrainManager = nullptr;

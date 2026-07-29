@@ -36,6 +36,11 @@ add_executable(
 )
 
 add_executable(
+    ror_local_light_budget_tests
+    "${CMAKE_CURRENT_LIST_DIR}/terrain/LocalLightBudgetTests.cpp"
+)
+
+add_executable(
     ror_beam_axial_response_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/BeamAxialResponseTests.cpp"
 )
@@ -443,6 +448,12 @@ target_include_directories(
         "${ROR_REPOSITORY_ROOT}/source/main/gfx"
 )
 
+target_include_directories(
+    ror_local_light_budget_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/terrain"
+)
+
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_compile_definitions(
         ror_jbeam_to_rigdef_tests
@@ -568,6 +579,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_render_display_metrics_tests
     ror_sky_mode_availability_tests
     ror_v0_post_process_math_tests
+    ror_local_light_budget_tests
     ror_beam_axial_response_tests
     ror_beam_rest_length_scale_tests
     ror_beamng_material_inventory_tests
@@ -682,6 +694,11 @@ add_test(
 add_test(
     NAME v0_post_process_math
     COMMAND ror_v0_post_process_math_tests
+)
+
+add_test(
+    NAME local_light_budget
+    COMMAND ror_local_light_budget_tests
 )
 
 add_test(

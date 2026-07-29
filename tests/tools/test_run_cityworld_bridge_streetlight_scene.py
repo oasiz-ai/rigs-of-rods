@@ -95,6 +95,11 @@ class CityWorldBridgeStreetlightSceneTests(unittest.TestCase):
             "spotlights=0 point_lights=1 local_shadow_casters=0",
             SCENE.ENGINE_SINGLETON_MARKERS,
         )
+        self.assertIn(
+            "[RoR|TerrainObject|LocalLightBudget] "
+            "discovered=1 active=1 budget=64",
+            SCENE.ENGINE_SINGLETON_MARKERS,
+        )
 
     def test_runtime_log_gate_requires_visual_and_point_light_evidence(
         self,
