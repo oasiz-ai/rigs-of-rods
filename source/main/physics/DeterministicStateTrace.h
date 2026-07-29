@@ -186,7 +186,7 @@ enum class ReadResult
 {
     STEP,
     END,
-    ERROR
+    READ_ERROR
 };
 
 /// Streaming fail-closed reader. Reaching byte EOF before a valid trailer is

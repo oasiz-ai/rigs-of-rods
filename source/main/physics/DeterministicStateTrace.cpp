@@ -675,14 +675,14 @@ bool Reader::ReadBlock(std::uint8_t* data, std::size_t size)
 ReadResult Reader::ReadNext(StepRecord& record)
 {
     if (m_status.error != Error::NONE)
-        return ReadResult::ERROR;
+        return ReadResult::READ_ERROR;
     if (m_finished)
         return ReadResult::END;
 
     const std::uint64_t record_offset = m_bytes_read;
     std::array<std::uint8_t, 8> prefix = {};
     if (!ReadBlock(prefix.data(), prefix.size()))
-        return ReadResult::ERROR;
+        return ReadResult::READ_ERROR;
 
     const std::uint32_t tag = LoadU32(prefix.data());
     const std::uint32_t size = LoadU32(prefix.data() + 4);
@@ -691,12 +691,12 @@ ReadResult Reader::ReadNext(StepRecord& record)
         if (size != STEP_RECORD_SIZE)
         {
             Fail(Error::INVALID_RECORD_SIZE, record_offset + 4);
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         }
         if (m_step_count >= m_limits.max_steps)
         {
             Fail(Error::STEP_LIMIT_EXCEEDED, record_offset);
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         }
 
         std::array<std::uint8_t, STEP_RECORD_SIZE> frame = {};
@@ -705,25 +705,25 @@ ReadResult Reader::ReadNext(StepRecord& record)
                 frame.data() + prefix.size(),
                 frame.size() - prefix.size()))
         {
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         }
         if (LoadU32(frame.data() + 56) != 0)
         {
             Fail(Error::RESERVED_FIELD_NONZERO, record_offset + 56);
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         }
         if (LoadU32(frame.data() + 60) !=
             ComputeCrc32(frame.data(), STEP_RECORD_SIZE - 4))
         {
             Fail(Error::CHECKSUM_MISMATCH, record_offset + 60);
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         }
         if (AddWouldOverflow(
                 m_metadata.first_physics_step,
                 m_step_count))
         {
             Fail(Error::ARITHMETIC_OVERFLOW, record_offset + 8);
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         }
 
         const std::uint64_t physics_step = LoadU64(frame.data() + 8);
@@ -731,7 +731,7 @@ ReadResult Reader::ReadNext(StepRecord& record)
             m_metadata.first_physics_step + m_step_count)
         {
             Fail(Error::NON_CONTIGUOUS_STEP, record_offset + 8);
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         }
         const std::uint32_t actor_count = LoadU32(frame.data() + 16);
         const std::uint32_t contact_count = LoadU32(frame.data() + 20);
@@ -739,13 +739,13 @@ ReadResult Reader::ReadNext(StepRecord& record)
             contact_count > DeterministicStateDigest::MAX_CONTACTS)
         {
             Fail(Error::COUNT_LIMIT_EXCEEDED, record_offset + 16);
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         }
         if (AddWouldOverflow(m_total_actor_count, actor_count) ||
             AddWouldOverflow(m_total_contact_count, contact_count))
         {
             Fail(Error::ARITHMETIC_OVERFLOW, record_offset + 16);
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         }
 
         StepRecord completed;
@@ -773,7 +773,7 @@ ReadResult Reader::ReadNext(StepRecord& record)
         if (size != TRAILER_SIZE)
         {
             Fail(Error::INVALID_RECORD_SIZE, record_offset + 4);
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         }
 
         std::array<std::uint8_t, TRAILER_SIZE> trailer = {};
@@ -782,15 +782,15 @@ ReadResult Reader::ReadNext(StepRecord& record)
                 trailer.data() + prefix.size(),
                 trailer.size() - prefix.size()))
         {
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         }
         if (!ValidateAndFinishTrailer(trailer.data()))
-            return ReadResult::ERROR;
+            return ReadResult::READ_ERROR;
         return ReadResult::END;
     }
 
     Fail(Error::INVALID_RECORD_TAG, record_offset);
-    return ReadResult::ERROR;
+    return ReadResult::READ_ERROR;
 }
 
 bool Reader::ValidateAndFinishTrailer(const std::uint8_t* trailer)
@@ -908,7 +908,7 @@ bool DrainTrace(Reader& reader)
         const ReadResult result = reader.ReadNext(ignored);
         if (result == ReadResult::END)
             return true;
-        if (result == ReadResult::ERROR)
+        if (result == ReadResult::READ_ERROR)
             return false;
     }
 }
@@ -1028,14 +1028,14 @@ ComparisonResult Compare(
         result.left_error = left_reader.GetStatus();
         result.right_error = right_reader.GetStatus();
 
-        if (left_read == ReadResult::ERROR ||
-            right_read == ReadResult::ERROR)
+        if (left_read == ReadResult::READ_ERROR ||
+            right_read == ReadResult::READ_ERROR)
         {
             const bool left_valid =
-                left_read != ReadResult::ERROR &&
+                left_read != ReadResult::READ_ERROR &&
                 (left_read == ReadResult::END || DrainTrace(left_reader));
             const bool right_valid =
-                right_read != ReadResult::ERROR &&
+                right_read != ReadResult::READ_ERROR &&
                 (right_read == ReadResult::END || DrainTrace(right_reader));
             SetInvalidComparison(
                 result,

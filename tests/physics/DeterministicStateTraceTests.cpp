@@ -553,7 +553,7 @@ void TestReaderStructuralFailures()
     Reader limited_reader(limited_input, one_step);
     StepRecord step;
     CHECK(limited_reader.ReadNext(step) == ReadResult::STEP);
-    CHECK(limited_reader.ReadNext(step) == ReadResult::ERROR);
+    CHECK(limited_reader.ReadNext(step) == ReadResult::READ_ERROR);
     CHECK(limited_reader.GetStatus().error == Error::STEP_LIMIT_EXCEEDED);
 
     Limits tiny_bytes;
