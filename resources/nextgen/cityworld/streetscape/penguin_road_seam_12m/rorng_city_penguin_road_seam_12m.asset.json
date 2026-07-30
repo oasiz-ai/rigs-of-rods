@@ -1,0 +1,337 @@
+{
+  "artifacts": {
+    "blend": {
+      "path": "content-source/cityworld_next/streetscape/penguin_road_seam_12m/rorng_city_penguin_road_seam_12m.blend",
+      "sha256": "f645d2c3bd0e22f7e545eb1b7c816460bd0c588dbe0d3bf9238a2b5ea2a3a829"
+    },
+    "glb": {
+      "path": "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/rorng_city_penguin_road_seam_12m.glb",
+      "sha256": "d9ac02017a56a750f00d911f3c88d98363a91f520684fa0bc5c85cdcbbac143c"
+    },
+    "preview": {
+      "path": "content-source/cityworld_next/streetscape/penguin_road_seam_12m/rorng_city_penguin_road_seam_12m_preview.png",
+      "sha256": "d8449715e4be4bb8d58c8ff5266ef83f18c16efa399fd241cf46e0932220c999"
+    }
+  },
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_penguin_road_seam_12m",
+    "license": "GPL-3.0-or-later",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 2
+  },
+  "authoring": {
+    "axis": "blender-z-up",
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        }
+      ],
+      "format": "ror-cityworld-penguin-road-seam-generator-v2",
+      "path": "tools/blender/cityworld_next/generate_penguin_road_seam.py",
+      "sha256": "b4bceb5761ca10e68e742b02b80c1fea23627599f67f565df5ebaff55a41767f"
+    },
+    "transforms_applied": true,
+    "units": "metres"
+  },
+  "collision": {
+    "objects": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            4.875085,
+            6.0,
+            0.098013
+          ],
+          "min": [
+            -4.875085,
+            -6.0,
+            -0.12
+          ]
+        },
+        "name": "rorng_city_penguin_road_seam_12m_collision_road",
+        "role": "collision-road",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 16
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -4.925085,
+            6.0,
+            0.0
+          ],
+          "min": [
+            -5.025085,
+            -6.0,
+            -0.12
+          ]
+        },
+        "name": "rorng_city_penguin_road_seam_12m_collision_shoulder_left",
+        "role": "collision-shoulder-left",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            5.025085,
+            6.0,
+            0.0
+          ],
+          "min": [
+            4.925085,
+            -6.0,
+            -0.12
+          ]
+        },
+        "name": "rorng_city_penguin_road_seam_12m_collision_shoulder_right",
+        "role": "collision-shoulder-right",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      }
+    ],
+    "road_surface_profile": "authenticated-source-crown-to-flat-v1",
+    "road_surface_z_m": 0.0,
+    "separate_from_render_mesh": true
+  },
+  "compiled": {
+    "format": "ror-cityworld-compiled-asset-v1",
+    "outputs": [
+      {
+        "path": "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m.material",
+        "role": "material-fallback",
+        "sha256": "7bc6f26733b23f6f679c0fddf21edad269ee70be4ef3ead85219535fc245aa75",
+        "size": 318
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m.odef",
+        "role": "terrain-object",
+        "sha256": "8e22bdbb066b138d2dddb3b6f480db79e042f43f2efd07b8f93745e546f799cb",
+        "size": 377
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m_collision_road.mesh",
+        "role": "collision-road",
+        "sha256": "bfd5a61f7537ef2a3cf67ac1857c398281d745e204560ad18a738c3518e184f5",
+        "size": 1073
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m_collision_shoulder_left.mesh",
+        "role": "collision-shoulder-left",
+        "sha256": "6818ee3386c1b823bc115a4db55152cbbfc51a7d0c392d7b27cbced8067fff7e",
+        "size": 914
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m_collision_shoulder_right.mesh",
+        "role": "collision-shoulder-right",
+        "sha256": "a7939f9d6de13b789ea8e007472359e9c7a1c40f8a024106513d2e6a567f4d51",
+        "size": 915
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m_lod0.mesh",
+        "role": "render-lod0",
+        "sha256": "a5f80795d499029b3d003e832f4bbddfbf74774f1abaaa07473de49fd5bbecd9",
+        "size": 1916
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m_lod1.mesh",
+        "role": "render-lod1",
+        "sha256": "40ae377b4e27560fbcf07ce7c7242fb8ee074893fd6f2b60c974d1319ac798d3",
+        "size": 1786
+      },
+      {
+        "path": "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m_lod2.mesh",
+        "role": "render-lod2",
+        "sha256": "eeec7e97e7d3e929dd4d014bed74d8ae83a530d3a1656726135493bbebf9c4fd",
+        "size": 1786
+      }
+    ],
+    "report": {
+      "path": "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m.compile.json",
+      "sha256": "45c108b6639b8cc46692eca535dbe09fec6a373aedf4c95df2a57601980bb24a"
+    }
+  },
+  "connectors": [
+    {
+      "cross_section": {
+        "crown_height_m": 0.098013,
+        "crown_x_m": -0.023093,
+        "edge_height_m": 0.0
+      },
+      "forward": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "id": "start",
+      "lane_centres_x_m": [
+        -2.4375425,
+        2.4375425
+      ],
+      "position_blender_z_up_m": [
+        -0.023093,
+        -6.0,
+        0.098013
+      ],
+      "road_width_m": 9.75017
+    },
+    {
+      "cross_section": {
+        "crown_height_m": 0.0,
+        "edge_height_m": 0.0
+      },
+      "forward": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "id": "end",
+      "lane_centres_x_m": [
+        -2.4375425,
+        2.4375425
+      ],
+      "position_blender_z_up_m": [
+        0.0,
+        6.0,
+        0.0
+      ],
+      "road_width_m": 9.75017
+    }
+  ],
+  "export": {
+    "allowlisted_extensions": [],
+    "animations": false,
+    "apply_modifiers": true,
+    "cameras": false,
+    "format": "glb",
+    "lights": false,
+    "materials": "export",
+    "profile": "gltf-2.0",
+    "selection_only": true,
+    "tangents": true,
+    "textures": [],
+    "y_up": true
+  },
+  "format": "ror-cityworld-asset-v1",
+  "geometry": {
+    "bridge_length_m": 12.00042248568016,
+    "bridge_width_m": 10.050170000000001,
+    "lane_width_m": 3.5,
+    "lod0_triangle_ceiling": 60000,
+    "lod1_max_ratio": 1.0,
+    "lod2_max_ratio": 1.0,
+    "lods": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            4.875085,
+            6.0,
+            0.098013
+          ],
+          "min": [
+            -4.875085,
+            -6.0,
+            -0.12
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_penguin_road_seam_12m_lod0",
+        "triangles": 16
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            4.875085,
+            6.0,
+            0.098013
+          ],
+          "min": [
+            -4.875085,
+            -6.0,
+            -0.12
+          ]
+        },
+        "lod": 1,
+        "name": "rorng_city_penguin_road_seam_12m_lod1",
+        "triangles": 16
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            4.875085,
+            6.0,
+            0.098013
+          ],
+          "min": [
+            -4.875085,
+            -6.0,
+            -0.12
+          ]
+        },
+        "lod": 2,
+        "name": "rorng_city_penguin_road_seam_12m_lod2",
+        "triangles": 16
+      }
+    ],
+    "road_width_m": 9.75017,
+    "runtime_surface_material": "road2",
+    "runtime_surface_uv_profile": "ror-procedural-road-road2-atlas-v1",
+    "source_crown_fade_length_m": 12.0,
+    "source_crown_height_m": 0.098013
+  },
+  "materials": [
+    {
+      "base_color_factor_linear": [
+        0.045,
+        0.052,
+        0.058,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_penguin_seam_asphalt",
+      "roughness_factor": 0.94,
+      "runtime_parent_material": "road2"
+    },
+    {
+      "base_color_factor_linear": [
+        0.82,
+        0.03,
+        0.02,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_penguin_seam_collision_debug",
+      "roughness_factor": 1.0
+    }
+  ],
+  "runtime_material_dependencies": [
+    {
+      "material": "road2",
+      "material_script_path": "resources/materials/ror.material",
+      "material_script_sha256": "3a7f08413ad147795bbcc4f20c28c087ebb88cac011bf690008fcaa1901a4883",
+      "texture_path": "resources/textures/road2.dds",
+      "texture_sha256": "591c24e00484bbab58158f646e2710058eb5ae1360d1244f794687b8d1055698"
+    }
+  ]
+}

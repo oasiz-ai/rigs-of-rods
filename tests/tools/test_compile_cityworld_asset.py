@@ -69,6 +69,16 @@ BRIDGE_STREETLIGHT_COMPILED_PATH = (
     REPOSITORY_ROOT
     / "resources/nextgen/cityworld/fixtures/led_streetlight_bridge/compiled"
 )
+PENGUIN_SEAM_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/"
+    "rorng_city_penguin_road_seam_12m.asset.json"
+)
+PENGUIN_SEAM_COMPILED_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/"
+    "compiled"
+)
 
 SPEC = importlib.util.spec_from_file_location("compile_cityworld_asset", TOOL_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -607,6 +617,167 @@ class CityWorldSceneCompilerTests(unittest.TestCase):
             if name.endswith(".mesh.xml")
         }
         self.assertEqual(report["xml_intermediate_sha256"], expected)
+
+    def test_existing_assets_keep_checked_material_bytes_without_parent(
+        self,
+    ) -> None:
+        cases = (
+            (MANIFEST_PATH, COMPILED_RELATIVE),
+            (CURVED_MANIFEST_PATH, CURVED_COMPILED_PATH),
+            (TRANSITION_MANIFEST_PATH, TRANSITION_COMPILED_PATH),
+            (GATEWAY_MANIFEST_PATH, GATEWAY_COMPILED_PATH),
+            (STREETLIGHT_MANIFEST_PATH, STREETLIGHT_COMPILED_PATH),
+            (
+                BRIDGE_STREETLIGHT_MANIFEST_PATH,
+                BRIDGE_STREETLIGHT_COMPILED_PATH,
+            ),
+        )
+        for manifest_path, compiled_path in cases:
+            with self.subTest(manifest=manifest_path.name):
+                compiler = self.compiler(manifest_path)
+                self.assertFalse(
+                    any(
+                        "runtime_parent_material" in material
+                        for material in compiler.manifest["materials"]
+                    )
+                )
+                self.assertEqual(
+                    compiler._material_bytes(),
+                    (
+                        REPOSITORY_ROOT
+                        / compiled_path
+                        / f"{compiler.asset_id}.material"
+                    ).read_bytes(),
+                )
+
+    def test_runtime_parent_material_binds_exact_core_material_in_mesh(
+        self,
+    ) -> None:
+        compiler = self.compiler()
+        baseline = compiler._material_bytes()
+        declaration = next(
+            material
+            for material in compiler.manifest["materials"]
+            if material["name"] == "rorng_city_asphalt"
+        )
+        declaration["runtime_parent_material"] = "road2"
+
+        fallback = (
+            b"material rorng_city_asphalt\n"
+            b"{\n"
+            b"  technique\n"
+            b"  {\n"
+            b"    pass\n"
+            b"    {\n"
+            b"      ambient 0.032 0.038 0.045 1\n"
+            b"      diffuse 0.032 0.038 0.045 1\n"
+            b"      specular 0.04 0.04 0.04 1 1.04831581\n"
+            b"    }\n"
+            b"  }\n"
+            b"}\n"
+        )
+        self.assertEqual(baseline.count(fallback), 1)
+        self.assertEqual(
+            compiler._material_bytes(),
+            baseline.replace(b"\n" + fallback, b"", 1),
+        )
+
+        mesh_xml = compiler._mesh_xml(compiler.meshes[0])
+        submeshes = ET.fromstring(mesh_xml).find("submeshes")
+        self.assertIsNotNone(submeshes)
+        assert submeshes is not None
+        self.assertIn(
+            "road2",
+            [submesh.get("material") for submesh in submeshes],
+        )
+        self.assertNotIn(
+            "rorng_city_asphalt",
+            [submesh.get("material") for submesh in submeshes],
+        )
+
+    def test_runtime_parent_material_compiler_rejects_unvalidated_values(
+        self,
+    ) -> None:
+        compiler = self.compiler()
+        declaration = compiler.manifest["materials"][0]
+        for runtime_parent in (
+            ["road2"],
+            None,
+            True,
+            {"name": "road2"},
+            "road3",
+            "road2 ",
+            "road2\n{ technique { pass {} } }",
+        ):
+            with self.subTest(runtime_parent=runtime_parent):
+                declaration["runtime_parent_material"] = runtime_parent
+                with self.assertRaisesRegex(
+                    COMPILER_MODULE.CompileFailure,
+                    "invalid runtime parent material",
+                ):
+                    compiler._material_bytes()
+
+    def test_runtime_parent_material_rejects_legacy_checked_compiler(
+        self,
+    ) -> None:
+        compiler = self.compiler()
+        compiler.manifest["materials"][0][
+            "runtime_parent_material"
+        ] = "road2"
+        with self.assertRaisesRegex(
+            COMPILER_MODULE.CompileFailure,
+            "stale (profile metadata|compiler identity)",
+        ):
+            COMPILER_MODULE.validate_checked_outputs(
+                compiler,
+                REPOSITORY_ROOT / COMPILED_RELATIVE,
+            )
+
+    def test_checked_penguin_seam_lods_bind_core_road2_directly(
+        self,
+    ) -> None:
+        compiler = self.compiler(PENGUIN_SEAM_MANIFEST_PATH)
+        report = COMPILER_MODULE.validate_checked_outputs(
+            compiler,
+            PENGUIN_SEAM_COMPILED_PATH,
+        )
+        self.assertEqual(
+            report["material_model"],
+            "ogre-rtss-metallic-roughness-fallback-"
+            "with-direct-core-bindings-v1",
+        )
+        self.assertEqual(
+            report["runtime_material_bindings"],
+            [
+                {
+                    "authored_material":
+                        "rorng_penguin_seam_asphalt",
+                    "runtime_material": "road2",
+                }
+            ],
+        )
+        material_path = (
+            PENGUIN_SEAM_COMPILED_PATH
+            / "rorng_city_penguin_road_seam_12m.material"
+        )
+        self.assertNotIn(
+            b"rorng_penguin_seam_asphalt",
+            material_path.read_bytes(),
+        )
+        render_outputs = [
+            output
+            for output in report["outputs"]
+            if output["role"].startswith("render-lod")
+        ]
+        self.assertEqual(len(render_outputs), 3)
+        for output in render_outputs:
+            with self.subTest(role=output["role"]):
+                payload = (REPOSITORY_ROOT / output["path"]).read_bytes()
+                self.assertIn(b"road2", payload)
+                self.assertNotIn(
+                    b"rorng_penguin_seam_asphalt",
+                    payload,
+                )
 
     def test_unapplied_transform_and_unsupported_attribute_fail_closed(self) -> None:
         compiler = self.compiler()

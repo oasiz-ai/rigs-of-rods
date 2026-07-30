@@ -976,6 +976,74 @@ class CityWorldAssetValidationTests(unittest.TestCase):
         self.assertIn("MATERIAL_COLOR_SPACE", self.codes(report))
         self.assertIn("MATERIAL_COVERAGE", self.codes(report))
 
+    def test_runtime_parent_material_is_an_exact_fail_closed_allowlist(
+        self,
+    ) -> None:
+        cases = (
+            ("allowed", "road2", True),
+            ("wrong-type-list", ["road2"], False),
+            ("wrong-type-null", None, False),
+            ("wrong-type-boolean", True, False),
+            ("wrong-type-object", {"name": "road2"}, False),
+            ("unknown", "road3", False),
+            ("not-exact", "road2 ", False),
+            (
+                "injection",
+                "road2\n{\n  technique { pass {} }\n}",
+                False,
+            ),
+        )
+        for name, runtime_parent, expected_valid in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    manifest_path = self.copy_fixture(root)
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    manifest["materials"][0][
+                        "runtime_parent_material"
+                    ] = runtime_parent
+                    manifest_path.write_text(
+                        json.dumps(
+                            manifest,
+                            indent=2,
+                            sort_keys=True,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+
+                    normal_result, normal = self.run_validator(
+                        root,
+                        manifest_path,
+                    )
+                    optimized_result, optimized = self.run_validator(
+                        root,
+                        manifest_path,
+                        optimized=True,
+                    )
+
+                self.assertEqual(normal, optimized)
+                self.assertEqual(
+                    normal_result.returncode,
+                    0 if expected_valid else 1,
+                )
+                self.assertEqual(
+                    optimized_result.returncode,
+                    normal_result.returncode,
+                )
+                if expected_valid:
+                    self.assertNotIn(
+                        "MATERIAL_RUNTIME_PARENT",
+                        self.codes(normal),
+                    )
+                else:
+                    self.assertIn(
+                        "MATERIAL_RUNTIME_PARENT",
+                        self.codes(normal),
+                    )
+
     def test_runtime_lights_are_bounded_and_fail_closed(self) -> None:
         gateway_relative = GATEWAY_MANIFEST_PATH.relative_to(REPOSITORY_ROOT)
         mutations = (

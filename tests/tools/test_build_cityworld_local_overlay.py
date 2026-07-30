@@ -445,6 +445,30 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
         self.assertIsNone(streetlight.centerline_length_m)
         self.assertIsNone(streetlight.profile)
 
+        road_seam = BUILDER.prepare_penguin_road_seam_asset(
+            REPOSITORY_ROOT
+        )
+        self.assertEqual(
+            road_seam.asset_id,
+            BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID,
+        )
+        self.assertEqual(len(road_seam.runtime_files), 8)
+        self.assertEqual(road_seam.provenance["runtime_lights"], [])
+        self.assertEqual(
+            {
+                item.role
+                for item in road_seam.runtime_files
+                if item.role.startswith("collision-")
+            },
+            {
+                "collision-road",
+                "collision-shoulder-left",
+                "collision-shoulder-right",
+            },
+        )
+        self.assertIsNone(road_seam.centerline_length_m)
+        self.assertIsNone(road_seam.profile)
+
         tree_plan = BUILDER.read_native_tree_plan(REPOSITORY_ROOT)
         tree_family = BUILDER.prepare_tree_family(
             REPOSITORY_ROOT,
@@ -687,7 +711,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     )
                 )
 
-    def test_full_corridor_closes_at_edge_roads_with_ramps_and_pillars(
+    def test_full_corridor_has_flush_open_seams_and_outboard_piers(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -696,11 +720,11 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             corridor = report["corridor"]
             self.assertEqual(
                 corridor["format"],
-                "ror-cityworld-intercity-corridor-v3",
+                "ror-cityworld-intercity-corridor-v4",
             )
             self.assertEqual(
                 corridor["source"]["connection"],
-                "east T-junction",
+                "east opened road seam after crowned-to-flat transition",
             )
             self.assertEqual(
                 corridor["destination"]["connection"],
@@ -734,20 +758,24 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             self.assertEqual(
                 corridor["profile"],
                 {
-                    "connection_surface_y_m": 0.1,
-                    "connection_taper_grade": 0.0112,
+                    "connection_taper_grade": 0.003,
                     "connection_taper_length_m": 40.0,
                     "deck_clearance_m": 8.0,
+                    "destination_connection_surface_y_m": 0.1,
+                    "destination_surface_y_m": 0.18,
+                    "destination_width_m": 10.0,
                     "flat_lead_length_m": 40.0,
                     "maximum_grade": 0.075,
                     "ramp_length_m": 160.0,
                     "rotation_convention":
                         "ogre-yaw-local-plus-z-cross-section",
-                    "sampled_maximum_grade": 0.073573604,
+                    "sampled_maximum_grade": 0.07379231,
                     "sample_spacing_limit_m": 20.0,
+                    "source_connection_surface_y_m": 0.100001,
+                    "source_surface_y_m": 0.180001,
+                    "source_width_m": 9.75017,
                     "surface_offset_m": 0.08,
-                    "surface_y_m": 0.18,
-                    "width_m": 8.9,
+                    "width_transition": "full-corridor-cubic-smoothstep",
                 },
             )
             obstacle_audit = corridor["obstacle_avoidance"]
@@ -769,21 +797,21 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             )
             self.assertEqual(
                 obstacle_audit["intentional_source_overlap_m"],
-                14.8491,
+                0.0,
+            )
+            self.assertEqual(
+                obstacle_audit["existing_ground_road_envelopes_intersected"],
+                0,
+            )
+            self.assertEqual(
+                obstacle_audit["source_transition_x_bounds_m"],
+                [510.0, 522.0],
             )
             waypoints = corridor["waypoints"]
             self.assertGreater(len(waypoints), 50)
             self.assertEqual(
                 waypoints[0]["position_m"],
-                [480.0, 0.198, 370.0],
-            )
-            self.assertEqual(
-                waypoints[1]["position_m"],
-                [490.0, 0.31, 370.0],
-            )
-            self.assertEqual(
-                waypoints[2]["position_m"],
-                [494.8491, 0.31, 370.0],
+                [522.0, 0.100001, 370.023095],
             )
             self.assertEqual(
                 waypoints[-1]["position_m"],
@@ -793,6 +821,14 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             self.assertEqual(waypoints[-1]["yaw_degrees"], 0.0)
             self.assertEqual(waypoints[0]["road_type"], "flat")
             self.assertEqual(waypoints[-1]["road_type"], "flat")
+            self.assertEqual(waypoints[0]["width_m"], 9.75017)
+            self.assertEqual(waypoints[-1]["width_m"], 10.0)
+            self.assertTrue(
+                all(
+                    first["width_m"] <= second["width_m"]
+                    for first, second in zip(waypoints, waypoints[1:])
+                )
+            )
             self.assertEqual(
                 corridor["source"]["authenticated_placement"]["object"],
                 "troadavenuesidewalk",
@@ -802,27 +838,19 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 "crucetQr",
             )
             self.assertEqual(
-                corridor["source"]["apron"],
+                corridor["source"]["collision_handoff"],
                 {
-                    "collision_authority": "native-procedural-road-v3",
-                    "curb_clearance_m": 0.01,
-                    "curb_top_y_m": 0.3,
-                    "legacy_collision_mesh":
-                        "troadavenuesidewalkbox.mesh",
-                    "legacy_road_surface_y_m": 0.198,
-                    "overlap_length_m": 14.8491,
-                    "plateau_y_m": 0.31,
-                    "rise_length_m": 10.0,
-                    "surface_continuous": True,
+                    "authorities_per_station": 1,
+                    "legacy_curb_collision_retained": False,
+                    "replacement_mode":
+                        "native-authenticated-in-place-object-definition-swap",
+                    "transition_asset_id":
+                        BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID,
                 },
-            )
-            self.assertGreater(
-                waypoints[2]["position_m"][1],
-                corridor["source"]["apron"]["curb_top_y_m"],
             )
             self.assertEqual(
                 max(point["position_m"][1] for point in waypoints),
-                8.18,
+                8.180000903,
             )
             self.assertTrue(
                 all(
@@ -834,15 +862,12 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             destination = tuple(
                 BUILDER.ROUTE_DESTINATION_ANCHOR["connection_position_m"]
             )
-            apron_length = (
-                source[0] - BUILDER.ROUTE_SOURCE_APRON_START_X_M
-            )
             control_points = BUILDER.route_control_points(source, destination)
             arc_table = BUILDER.route_arc_table(control_points)
-            for waypoint in waypoints[2:]:
+            for waypoint in waypoints:
                 parameter = BUILDER.parameter_at_station(
                     arc_table,
-                    max(0.0, waypoint["station_m"] - apron_length),
+                    min(waypoint["station_m"], arc_table[-1][1]),
                 )
                 tangent_x, tangent_z = BUILDER.cubic_bezier_derivative(
                     control_points,
@@ -861,7 +886,20 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 )
             supports = corridor["supports"]
             self.assertTrue(supports["enabled"])
-            self.assertGreater(supports["requested_count"], 40)
+            self.assertEqual(supports["requested_count"], 46)
+            self.assertEqual(supports["expected_built_count"], 46)
+            self.assertEqual(supports["expected_skipped_count"], 0)
+            self.assertEqual(supports["no_pillar_bridge_count"], 2)
+            self.assertEqual(
+                supports["no_pillar_bridge_stations_m"],
+                [60.0, 980.0],
+            )
+            self.assertTrue(supports["paired_outboard"])
+            self.assertEqual(supports["centerline_pillars_requested"], 0)
+            self.assertEqual(
+                supports["road_type_token"],
+                "bridge_side_pillars",
+            )
             self.assertLessEqual(
                 supports["maximum_station_spacing_m"],
                 BUILDER.ROUTE_SAMPLE_SPACING_M,
@@ -869,7 +907,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             fixtures = corridor["fixtures"]
             self.assertEqual(
                 fixtures["format"],
-                "ror-cityworld-streetlight-placement-v1",
+                "ror-cityworld-streetlight-placement-v2",
             )
             self.assertEqual(
                 fixtures["asset_id"],
@@ -877,25 +915,21 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             )
             self.assertFalse(fixtures["paired"])
             self.assertEqual(fixtures["station_spacing_m"], 40.0)
-            self.assertEqual(fixtures["station_count"], 16)
-            self.assertEqual(fixtures["instance_count"], 16)
-            self.assertEqual(fixtures["lateral_mount_offset_m"], 4.675)
+            self.assertEqual(fixtures["station_count"], 15)
+            self.assertEqual(fixtures["instance_count"], 15)
             self.assertEqual(fixtures["mount_elevation_above_road_m"], 0.95)
             self.assertEqual(fixtures["runtime_point_lights_per_instance"], 1)
             self.assertEqual(
                 fixtures["collision_authority"],
-                "native-procedural-road-v3",
+                "native-procedural-road-v4-open-seams",
             )
             self.assertEqual(
                 [item["station_m"] for item in fixtures["stations"]],
-                [
-                    round(apron_length + value, 9)
-                    for value in range(220, 821, 40)
-                ],
+                list(range(220, 781, 40)),
             )
             self.assertEqual(
                 [item["side"] for item in fixtures["stations"]],
-                ["left", "right"] * 8,
+                ["left", "right"] * 7 + ["left"],
             )
             for fixture in fixtures["stations"]:
                 center = fixture["centerline_position_m"]
@@ -903,7 +937,17 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 offset_x = placement[0] - center[0]
                 offset_z = placement[2] - center[2]
                 offset_length = math.hypot(offset_x, offset_z)
-                self.assertAlmostEqual(offset_length, 4.675, places=8)
+                self.assertAlmostEqual(
+                    offset_length,
+                    fixture["lateral_mount_offset_m"],
+                    places=8,
+                )
+                self.assertAlmostEqual(
+                    fixture["lateral_mount_offset_m"],
+                    fixture["road_width_m"] / 2.0
+                    + BUILDER.ROUTE_BRIDGE_BORDER_WIDTH_M / 2.0,
+                    places=8,
+                )
                 self.assertAlmostEqual(
                     placement[1] - center[1],
                     0.95,
@@ -938,58 +982,27 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 len(report["source"]["archive"]["members"]),
                 3,
             )
-            self.assertEqual(len(report["assets"]), 8)
+            self.assertEqual(len(report["assets"]), 9)
             self.assertTrue(
                 all("manifest" in asset for asset in report["assets"])
             )
+            usage = report["visual_asset_usage"]
             self.assertEqual(
-                report["visual_asset_usage"],
-                {
-                    "corridor_placement_mode":
-                        "native-procedural-v3-curb-cut-with-blender-fixtures-v1",
-                    "disabled_light_candidate_manifest":
-                        BUILDER.NEOQ_LIGHT_CANDIDATE_NAME,
-                    "neoq_core_runtime_light_activation":
-                        "blocked-fail-closed",
-                    "packaged_asset_ids": [
-                        "rorng_city_led_streetlight_bridge",
-                        "rorng_city_neoq_tree_round",
-                        "rorng_city_neoq_tree_columnar",
-                        "rorng_city_neoq_tree_windswept",
-                    ],
-                    "placed_asset_ids": [
-                        "rorng_city_led_streetlight_bridge",
-                        "rorng_city_neoq_tree_round",
-                        "rorng_city_neoq_tree_columnar",
-                        "rorng_city_neoq_tree_windswept",
-                    ],
-                    "unplaced_asset_ids": [
-                        "rorng_city_gateway_block_40m",
-                        "rorng_city_bridge_transition_12m",
-                        "rorng_city_bridge_curve_left_15deg_20m",
-                        "rorng_city_bridge_span_20m",
-                    ],
-                    "validated_asset_ids": [
-                        "rorng_city_gateway_block_40m",
-                        "rorng_city_bridge_transition_12m",
-                        "rorng_city_bridge_curve_left_15deg_20m",
-                        "rorng_city_bridge_span_20m",
-                        "rorng_city_led_streetlight_bridge",
-                        "rorng_city_neoq_tree_round",
-                        "rorng_city_neoq_tree_columnar",
-                        "rorng_city_neoq_tree_windswept",
-                    ],
-                    "purpose":
-                        "curb-free Penguinville overlap apron plus route-safe "
-                        "Blender lighting; all 18 authenticated legacy "
-                        "NeoQueretaro trees are replaced in place by the "
-                        "rights-cleared three-variant family with per-instance "
-                        "visual/collision scale wrappers; deterministic "
-                        "NeoQueretaro pole-light candidates remain disabled "
-                        "pending the bounded renderer light budget and "
-                        "fixed-camera visual gate; bridge modules remain "
-                        "validated candidates for deck and abutment replacement",
-                },
+                usage["corridor_placement_mode"],
+                "native-procedural-v4-open-seams-side-piers-with-blender-transition-v2",
+            )
+            self.assertIn(
+                BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID,
+                usage["packaged_asset_ids"],
+            )
+            self.assertIn(
+                BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID,
+                usage["placed_asset_ids"],
+            )
+            self.assertIn("open procedural collision endcaps", usage["purpose"])
+            self.assertIn(
+                "procedural road2 surface and marking atlas",
+                usage["purpose"],
             )
             self.assertIn(
                 "tools/build_cityworld_local_overlay.py",
@@ -1000,37 +1013,83 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 placement_text = package.read(BUILDER.OVERLAY_NAME).decode()
             self.assertIn("begin_procedural_roads", placement_text)
             self.assertIn("collision_enabled true", placement_text)
-            self.assertGreater(placement_text.count(", bridge\n"), 40)
+            self.assertEqual(
+                placement_text.count("collision_endcaps_enabled false"),
+                1,
+            )
+            self.assertEqual(
+                placement_text.count(", bridge_side_pillars\n"),
+                46,
+            )
+            self.assertEqual(
+                placement_text.count(", bridge_no_pillars\n"),
+                2,
+            )
+            self.assertNotIn(", bridge\n", placement_text)
             self.assertNotIn("rorng_city_gateway_block_40m -", placement_text)
             self.assertEqual(
                 placement_text.count(
                     f"{BUILDER.LED_STREETLIGHT_ASSET_ID} - "
                 ),
-                16,
+                15,
             )
             self.assertIn(
-                "cityworld_next_led_0235_left",
+                "cityworld_next_led_0220_left",
                 placement_text,
             )
             self.assertIn(
-                "cityworld_next_led_0835_right",
+                "cityworld_next_led_0780_left",
+                placement_text,
+            )
+            self.assertEqual(
+                placement_text.count(
+                    f"{BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID} - "
+                ),
+                1,
+            )
+            self.assertIn(
+                "522, 0.100001, 370.023095, 0, 0, 0, "
+                "9.75017, 1, 0.15, flat",
                 placement_text,
             )
             self.assertIn(
-                "480, 0.198, 370, 0, 0, 0, 8.9, 1, 0.15, flat",
+                "1380.966797, 0.1, 936.098389, 0, 0, 0, "
+                "10, 1, 0.15, flat",
                 placement_text,
             )
-            self.assertIn(
-                "490, 0.31, 370, 0, 0, 0, 8.9, 1, 0.15, flat",
-                placement_text,
+            seams = corridor["seams"]
+            self.assertFalse(
+                seams["collision_endcaps"][
+                    "start_and_finish_transverse_collision_faces_emitted"
+                ]
             )
-            self.assertIn(
-                "494.8491, 0.31, 370, 0, 0, 0, 8.9, 1, 0.15, flat",
-                placement_text,
+            self.assertEqual(
+                seams["source"]["curb_opening"][
+                    "legacy_curb_collision_retained"
+                ],
+                False,
             )
-            self.assertIn(
-                "1380.966797, 0.1, 936.098389, 0, 0, 0, 8.9, 1, 0.15, flat",
-                placement_text,
+            self.assertEqual(
+                seams["source"]["curb_opening"][
+                    "replacement_collision_mesh"
+                ]["sha256"],
+                BUILDER.penguin_neoq_seam
+                    .SOURCE_REPLACEMENT_COLLISION_SHA256,
+            )
+            self.assertEqual(
+                seams["destination"]["collision_mesh"]["surface_probe"],
+                {
+                    "local_xy_m": [79.999, 33.0],
+                    "local_z_m": 0.0,
+                    "triangle_index": 61,
+                    "triangle_vertices": [105, 106, 107],
+                },
+            )
+            self.assertEqual(
+                seams["transition_asset_contract"][
+                    "authoritative_collision"
+                ]["open_interval_surface_count"],
+                1,
             )
             self.assertEqual(
                 result["report"]["sha256"],
@@ -1444,7 +1503,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     for runtime_file in asset["runtime_files"]
                     if runtime_file["role"] == "material-fallback"
                 ),
-                8,
+                9,
             )
             self.assertEqual(
                 report["rights"],
@@ -1458,7 +1517,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     "source_placement_payload_copied": False,
                     "source_placements_copied": False,
                     "source_placement_records_derived": True,
-                    "derived_source_placement_record_count": 85,
+                    "derived_source_placement_record_count": 86,
                     "source_textures_copied": False,
                 },
             )

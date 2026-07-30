@@ -23,6 +23,15 @@ INVENTORY_FORMAT = "ror-distributable-inventory-v1"
 COMPILED_FORMAT = "ror-cityworld-compiled-asset-v1"
 COMPILE_REPORT_FORMAT = "ror-cityworld-scene-compile-report-v1"
 COMPILER_FORMAT = "ror-cityworld-scene-compiler-v1"
+COMPILER_PATH = "tools/compile_cityworld_asset.py"
+# This pinned compiler revision is byte-compatible for manifests that do not
+# opt into inherited runtime materials. The current compiler revalidates that
+# restriction before accepting the same checked outputs.
+BYTE_COMPATIBLE_COMPILER_SHA256_WITHOUT_RUNTIME_PARENT = frozenset(
+    {
+        "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+    }
+)
 SPDX_LIST_VERSION = "3.28.0"
 MAX_FILE_BYTES = 512 * 1024 * 1024
 
@@ -42,6 +51,10 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -85,6 +98,24 @@ def resolve_declared(root: Path, value: Any) -> Path:
 
 def canonical_pretty(document: dict[str, Any]) -> str:
     return json.dumps(document, indent=2, ensure_ascii=True, sort_keys=True) + "\n"
+
+
+def canonical_json(document: dict[str, Any]) -> str:
+    return json.dumps(
+        document,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def uses_runtime_parent_material(manifest: dict[str, Any]) -> bool:
+    materials = manifest.get("materials")
+    return isinstance(materials, list) and any(
+        isinstance(material, dict)
+        and "runtime_parent_material" in material
+        for material in materials
+    )
 
 
 def build_documents(repo_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -193,14 +224,50 @@ def build_documents(repo_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         if (
             not isinstance(compiler, dict)
             or compiler.get("format") != COMPILER_FORMAT
+            or compiler.get("path") != COMPILER_PATH
         ):
             raise BuildFailure(
                 f"invalid scene compiler identity: {asset_manifest_path.name}"
             )
         compiler_path = resolve_declared(repo_root, compiler.get("path"))
-        if sha256_file(compiler_path) != compiler.get("sha256"):
+        active_compiler_sha256 = sha256_file(compiler_path)
+        current_compiler_sha256 = sha256_file(
+            Path(__file__).resolve().with_name("compile_cityworld_asset.py")
+        )
+        checked_compiler_sha256 = compiler.get("sha256")
+        compiler_is_current = (
+            active_compiler_sha256 == current_compiler_sha256
+            and checked_compiler_sha256 == current_compiler_sha256
+        )
+        compiler_is_byte_compatible = (
+            active_compiler_sha256 == current_compiler_sha256
+            and not uses_runtime_parent_material(asset_manifest)
+            and checked_compiler_sha256
+            in BYTE_COMPATIBLE_COMPILER_SHA256_WITHOUT_RUNTIME_PARENT
+        )
+        if not (compiler_is_current or compiler_is_byte_compatible):
             raise BuildFailure(
                 f"stale scene compiler identity: {asset_manifest_path.name}"
+            )
+        expected_inputs = {
+            "asset_contract_sha256": sha256_bytes(
+                canonical_json(
+                    {
+                        key: value
+                        for key, value in asset_manifest.items()
+                        if key != "compiled"
+                    }
+                ).encode("utf-8")
+            ),
+            "glb": {
+                "path": relative_path(repo_root, glb_path),
+                "sha256": sha256_file(glb_path),
+            },
+        }
+        if report.get("inputs") != expected_inputs:
+            raise BuildFailure(
+                f"stale compile source identity: "
+                f"{asset_manifest_path.name}"
             )
         report_outputs = report.get("outputs")
         if report_outputs != compiled_outputs:

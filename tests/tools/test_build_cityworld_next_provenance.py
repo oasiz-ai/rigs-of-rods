@@ -19,6 +19,11 @@ ASSET_MANIFEST = (
     / "resources/nextgen/cityworld/bridge/"
     "rorng_city_bridge_span_20m.asset.json"
 )
+PENGUIN_SEAM_MANIFEST = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/streetscape/penguin_road_seam_12m/"
+    "rorng_city_penguin_road_seam_12m.asset.json"
+)
 PROVENANCE_MANIFEST = (
     REPOSITORY_ROOT
     / "content-source/cityworld_next/provenance/cityworld_next.manifest.json"
@@ -27,7 +32,7 @@ INVENTORY = (
     REPOSITORY_ROOT
     / "content-source/cityworld_next/provenance/cityworld_next.inventory.json"
 )
-PACKAGE_FILE_COUNT = 133
+PACKAGE_FILE_COUNT = 144
 STREETLIGHT_PACKAGE_PATHS = {
     "fixtures/led_streetlight/compiled/"
     "rorng_city_led_streetlight.compile.json",
@@ -106,15 +111,24 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
             text=True,
         )
 
-    def copy_fixture(self, root: Path) -> None:
-        asset = json.loads(ASSET_MANIFEST.read_text(encoding="utf-8"))
+    def copy_fixture(
+        self,
+        root: Path,
+        manifest_source: Path = ASSET_MANIFEST,
+    ) -> None:
+        asset = json.loads(manifest_source.read_text(encoding="utf-8"))
         paths = {
-            ASSET_MANIFEST.relative_to(REPOSITORY_ROOT).as_posix(),
+            manifest_source.relative_to(REPOSITORY_ROOT).as_posix(),
             asset["artifacts"]["blend"]["path"],
             asset["artifacts"]["glb"]["path"],
             asset["authoring"]["generator"]["path"],
             asset["compiled"]["report"]["path"],
         }
+        paths.update(
+            dependency["path"]
+            for dependency
+            in asset["authoring"]["generator"].get("dependencies", [])
+        )
         paths.update(output["path"] for output in asset["compiled"]["outputs"])
         report = json.loads(
             (REPOSITORY_ROOT / asset["compiled"]["report"]["path"]).read_text(
@@ -279,6 +293,51 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1)
         self.assertIn("stale generator hash", result.stderr)
+
+    def test_legacy_compiler_cannot_author_runtime_parent_material(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self.copy_fixture(root)
+            manifest_path = (
+                root / ASSET_MANIFEST.relative_to(REPOSITORY_ROOT)
+            )
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            manifest["materials"][0]["runtime_parent_material"] = "road2"
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_tool(root)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("stale scene compiler identity", result.stderr)
+
+    def test_current_compiler_manifest_drift_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self.copy_fixture(root, PENGUIN_SEAM_MANIFEST)
+            manifest_path = (
+                root
+                / PENGUIN_SEAM_MANIFEST.relative_to(REPOSITORY_ROOT)
+            )
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            del manifest["materials"][0]["runtime_parent_material"]
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_tool(root)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("stale compile source identity", result.stderr)
 
     def test_generator_dependencies_fail_closed_on_hostile_records(
         self,

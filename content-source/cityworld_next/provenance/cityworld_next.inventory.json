@@ -637,6 +637,72 @@
       "type": "file"
     },
     {
+      "path": "streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m.compile.json",
+      "sha256": "45c108b6639b8cc46692eca535dbe09fec6a373aedf4c95df2a57601980bb24a",
+      "size": 5689,
+      "type": "file"
+    },
+    {
+      "path": "streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m.material",
+      "sha256": "7bc6f26733b23f6f679c0fddf21edad269ee70be4ef3ead85219535fc245aa75",
+      "size": 318,
+      "type": "file"
+    },
+    {
+      "path": "streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m.odef",
+      "sha256": "8e22bdbb066b138d2dddb3b6f480db79e042f43f2efd07b8f93745e546f799cb",
+      "size": 377,
+      "type": "file"
+    },
+    {
+      "path": "streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m_collision_road.mesh",
+      "sha256": "bfd5a61f7537ef2a3cf67ac1857c398281d745e204560ad18a738c3518e184f5",
+      "size": 1073,
+      "type": "file"
+    },
+    {
+      "path": "streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m_collision_shoulder_left.mesh",
+      "sha256": "6818ee3386c1b823bc115a4db55152cbbfc51a7d0c392d7b27cbced8067fff7e",
+      "size": 914,
+      "type": "file"
+    },
+    {
+      "path": "streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m_collision_shoulder_right.mesh",
+      "sha256": "a7939f9d6de13b789ea8e007472359e9c7a1c40f8a024106513d2e6a567f4d51",
+      "size": 915,
+      "type": "file"
+    },
+    {
+      "path": "streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m_lod0.mesh",
+      "sha256": "a5f80795d499029b3d003e832f4bbddfbf74774f1abaaa07473de49fd5bbecd9",
+      "size": 1916,
+      "type": "file"
+    },
+    {
+      "path": "streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m_lod1.mesh",
+      "sha256": "40ae377b4e27560fbcf07ce7c7242fb8ee074893fd6f2b60c974d1319ac798d3",
+      "size": 1786,
+      "type": "file"
+    },
+    {
+      "path": "streetscape/penguin_road_seam_12m/compiled/rorng_city_penguin_road_seam_12m_lod2.mesh",
+      "sha256": "eeec7e97e7d3e929dd4d014bed74d8ae83a530d3a1656726135493bbebf9c4fd",
+      "size": 1786,
+      "type": "file"
+    },
+    {
+      "path": "streetscape/penguin_road_seam_12m/rorng_city_penguin_road_seam_12m.asset.json",
+      "sha256": "13f8a749f52bcf46323f924b15476ce1a3367d323d572189ebca9b17ea9744e4",
+      "size": 9712,
+      "type": "file"
+    },
+    {
+      "path": "streetscape/penguin_road_seam_12m/rorng_city_penguin_road_seam_12m.glb",
+      "sha256": "d9ac02017a56a750f00d911f3c88d98363a91f520684fa0bc5c85cdcbbac143c",
+      "size": 15244,
+      "type": "file"
+    },
+    {
       "path": "vegetation/rorng_city_neoq_tree_columnar/compiled/rorng_city_neoq_tree_columnar.compile.json",
       "sha256": "6a76bec09e99cfe6dd6ccf6552e9b2507068ccd5f859a1471a91ab73c3499b15",
       "size": 4208,
