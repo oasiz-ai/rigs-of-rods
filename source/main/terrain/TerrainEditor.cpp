@@ -268,6 +268,24 @@ void TerrainEditor::WriteSeparateOutputFile()
             if (num_points > 0)
             {
                 stream->write("\nbegin_procedural_roads\n", 24);
+                std::string smoothing_line = fmt::format(
+                    "    smoothing_num_splits {}\n",
+                    obj->smoothing_num_splits);
+                stream->write(
+                    smoothing_line.c_str(),
+                    smoothing_line.length());
+                std::string collision_line = fmt::format(
+                    "    collision_enabled {}\n",
+                    obj->collision_enabled);
+                stream->write(
+                    collision_line.c_str(),
+                    collision_line.length());
+                std::string endcap_collision_line = fmt::format(
+                    "    collision_endcaps_enabled {}\n",
+                    obj->collision_endcaps_enabled);
+                stream->write(
+                    endcap_collision_line.c_str(),
+                    endcap_collision_line.length());
                 for (int j = 0; j < num_points; j++)
                 {
                     ProceduralPointPtr point = obj->getPoint(j);
@@ -279,8 +297,14 @@ void TerrainEditor::WriteSeparateOutputFile()
                     case RoadType::ROAD_LEFT: type_str = "left"; break;
                     case RoadType::ROAD_RIGHT: type_str = "right"; break;
                     case RoadType::ROAD_BOTH: type_str = "both"; break;
-                    case RoadType::ROAD_BRIDGE: type_str = (point->pillartype == 1) ? "bridge" : "bridge_no_pillars"; break;
-                    case RoadType::ROAD_MONORAIL: type_str = (point->pillartype == 2) ? "monorail" : "monorail2"; break;
+                    case RoadType::ROAD_BRIDGE:
+                        type_str = (point->pillartype == ROAD_PILLAR_TYPE_BRIDGE_SIDES)
+                            ? "bridge_side_pillars"
+                            : ((point->pillartype == ROAD_PILLAR_TYPE_BRIDGE_CENTER)
+                                ? "bridge"
+                                : "bridge_no_pillars");
+                        break;
+                    case RoadType::ROAD_MONORAIL: type_str = (point->pillartype == ROAD_PILLAR_TYPE_MONORAIL) ? "monorail" : "monorail2"; break;
                     }
 
                     Ogre::Matrix3 point_rot_matrix;

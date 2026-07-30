@@ -103,6 +103,10 @@ void RoR::RegisterProceduralRoad(asIScriptEngine* engine)
     result = engine->RegisterObjectMethod("ProceduralRoadClass", "void createMesh()", asMETHOD(RoR::ProceduralRoad, createMesh), asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("ProceduralRoadClass", "void finish()", asMETHOD(RoR::ProceduralRoad, finish), asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("ProceduralRoadClass", "void setCollisionEnabled(bool v)", asMETHOD(RoR::ProceduralRoad, setCollisionEnabled), asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("ProceduralRoadClass", "void setEndCapCollisionEnabled(bool v)", asMETHOD(RoR::ProceduralRoad, setEndCapCollisionEnabled), asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("ProceduralRoadClass", "int getSidePierRequestedCount() const", asMETHOD(RoR::ProceduralRoad, getSidePierRequestedCount), asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("ProceduralRoadClass", "int getSidePierBuiltCount() const", asMETHOD(RoR::ProceduralRoad, getSidePierBuiltCount), asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("ProceduralRoadClass", "int getSidePierSkippedCount() const", asMETHOD(RoR::ProceduralRoad, getSidePierSkippedCount), asCALL_THISCALL); ROR_ASSERT(result >= 0);
 
     // class ProceduralObject (ref)
     ProceduralObject::RegisterRefCountingObject(engine, "ProceduralObjectClass");
@@ -120,6 +124,8 @@ void RoR::RegisterProceduralRoad(asIScriptEngine* engine)
     result = engine->RegisterObjectMethod("ProceduralObjectClass", "void set_smoothing_num_splits(int) property", asFUNCTIONPR([](ProceduralObject* self, int n) { self->smoothing_num_splits = n; }, (ProceduralObject*, int), void), asCALL_CDECL_OBJFIRST); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("ProceduralObjectClass", "bool get_collision_enabled() property", asFUNCTIONPR([](ProceduralObject* self) { return self->collision_enabled; }, (ProceduralObject*), bool), asCALL_CDECL_OBJFIRST); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("ProceduralObjectClass", "void set_collision_enabled(bool) property", asFUNCTIONPR([](ProceduralObject* self, bool n) { self->collision_enabled = n; }, (ProceduralObject*, bool), void), asCALL_CDECL_OBJFIRST); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("ProceduralObjectClass", "bool get_collision_endcaps_enabled() property", asFUNCTIONPR([](ProceduralObject* self) { return self->collision_endcaps_enabled; }, (ProceduralObject*), bool), asCALL_CDECL_OBJFIRST); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("ProceduralObjectClass", "void set_collision_endcaps_enabled(bool) property", asFUNCTIONPR([](ProceduralObject* self, bool n) { self->collision_endcaps_enabled = n; }, (ProceduralObject*, bool), void), asCALL_CDECL_OBJFIRST); ROR_ASSERT(result >= 0);
 
     // class ProceduralManager (ref)
     ProceduralManager::RegisterRefCountingObject(engine, "ProceduralManagerClass");

@@ -609,6 +609,10 @@ class Ogre14PlatformContractTests(unittest.TestCase):
             '"$app/Contents/Resources/plugins_d.cfg"',
             workflow,
         )
+        self.assertIn(
+            "ROR_CONTENT directory contains no regular files",
+            stager,
+        )
 
 
 if __name__ == "__main__":

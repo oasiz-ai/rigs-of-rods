@@ -36,6 +36,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from validate_cityworld_asset import (  # noqa: E402
+    ALLOWED_RUNTIME_PARENT_MATERIALS,
     Glb,
     Validator,
     canonical_json,
@@ -58,6 +59,16 @@ MAX_OUTPUT_BYTES = 256 * 1024 * 1024
 FLOAT_EPSILON = 1e-5
 LOD_DISTANCES_M = (80.0, 180.0)
 ASSET_ID_PATTERN = re.compile(r"^rorng_[a-z0-9_]+$")
+# This compiler revision changes only mesh bindings and material declarations
+# that opt into ``runtime_parent_material``. Existing checked assets were
+# produced by this byte-compatible prior revision; retain their reports only
+# when the opt-in is absent and all regenerated deterministic intermediates
+# still match.
+BYTE_COMPATIBLE_COMPILER_SHA256_WITHOUT_RUNTIME_PARENT = frozenset(
+    {
+        "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
+    }
+)
 
 
 class CompileFailure(RuntimeError):
@@ -651,7 +662,9 @@ class SceneCompiler:
                 submeshes,
                 "submesh",
                 {
-                    "material": primitive.material,
+                    "material": self._runtime_material_name(
+                        primitive.material
+                    ),
                     "usesharedvertices": "false",
                     "use32bitindexes": "true" if use_32_bit else "false",
                     "operationtype": "triangle_list",
@@ -759,6 +772,56 @@ class SceneCompiler:
             )
         return xml_bytes(root)
 
+    def _runtime_material_name(self, name: str) -> str:
+        declaration = next(
+            (
+                material
+                for material in self.manifest["materials"]
+                if material["name"] == name
+            ),
+            None,
+        )
+        if declaration is None:
+            raise CompileFailure(f"material {name} has no declaration")
+        if "runtime_parent_material" not in declaration:
+            return name
+        runtime_parent = declaration["runtime_parent_material"]
+        if (
+            not isinstance(runtime_parent, str)
+            or runtime_parent not in ALLOWED_RUNTIME_PARENT_MATERIALS
+        ):
+            raise CompileFailure(
+                f"material {name} has an invalid runtime parent material"
+            )
+        # OGRE resolves inherited base materials only inside the resource group
+        # currently parsing the script. CityWorld overlays are initialized in
+        # their own group, before a cross-group base lookup can succeed.
+        # Binding the allowlisted core material directly preserves its exact
+        # technique and texture while avoiding a blank child material.
+        return runtime_parent
+
+    def runtime_material_bindings(self) -> list[dict[str, str]]:
+        declarations = {
+            material["name"]: material
+            for material in self.manifest["materials"]
+        }
+        return [
+            {
+                "authored_material": name,
+                "runtime_material": self._runtime_material_name(name),
+            }
+            for name in self.material_names
+            if "runtime_parent_material" in declarations[name]
+        ]
+
+    def material_model(self) -> str:
+        if self.runtime_material_bindings():
+            return (
+                "ogre-rtss-metallic-roughness-fallback-"
+                "with-direct-core-bindings-v1"
+            )
+        return "ogre-rtss-metallic-roughness-fallback-v1"
+
     def _material_bytes(self) -> bytes:
         declarations = {
             material["name"]: material for material in self.manifest["materials"]
@@ -770,6 +833,9 @@ class SceneCompiler:
         ]
         for name in self.material_names:
             material = declarations[name]
+            if "runtime_parent_material" in material:
+                self._runtime_material_name(name)
+                continue
             color = [float(value) for value in material["base_color_factor_linear"]]
             metallic = float(material["metallic_factor"])
             roughness = float(material["roughness_factor"])
@@ -1039,6 +1105,15 @@ def source_contract(manifest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def uses_runtime_parent_material(manifest: dict[str, Any]) -> bool:
+    materials = manifest.get("materials")
+    return isinstance(materials, list) and any(
+        isinstance(material, dict)
+        and "runtime_parent_material" in material
+        for material in materials
+    )
+
+
 def compile_asset(
     compiler: SceneCompiler,
     converter: Path,
@@ -1108,6 +1183,7 @@ def compile_asset(
         compiler_path = Path(__file__).resolve()
         assert compiler.glb_path is not None
         report_path = output_directory / f"{compiler.asset_id}.compile.json"
+        runtime_material_bindings = compiler.runtime_material_bindings()
         report = {
             "asset": {
                 "id": compiler.asset_id,
@@ -1151,7 +1227,7 @@ def compile_asset(
                 "primitives": MAX_PRIMITIVES,
                 "vertices": MAX_VERTICES,
             },
-            "material_model": "ogre-rtss-metallic-roughness-fallback-v1",
+            "material_model": compiler.material_model(),
             "mesh_format": "MeshSerializer_v1.100-little-endian",
             "ogre_converter": converter_info,
             "options": {
@@ -1161,6 +1237,14 @@ def compile_asset(
                 "transforms": "applied-only",
             },
             "runtime_lights": compiler.runtime_light_contract(),
+            **(
+                {
+                    "runtime_material_bindings":
+                        runtime_material_bindings,
+                }
+                if runtime_material_bindings
+                else {}
+            ),
             "outputs": [
                 {key: value for key, value in record.items() if key != "_source"}
                 for record in sorted(output_records, key=lambda item: item["path"])
@@ -1240,6 +1324,7 @@ def validate_checked_outputs(
         "interchange": "gltf-y-up-metres",
         "runtime": "ogre-y-up-metres",
     }
+    runtime_material_bindings = compiler.runtime_material_bindings()
     if (
         report.get("asset")
         != {
@@ -1257,8 +1342,7 @@ def validate_checked_outputs(
             "primitives": MAX_PRIMITIVES,
             "vertices": MAX_VERTICES,
         }
-        or report.get("material_model")
-        != "ogre-rtss-metallic-roughness-fallback-v1"
+        or report.get("material_model") != compiler.material_model()
         or report.get("mesh_format")
         != "MeshSerializer_v1.100-little-endian"
         or report.get("options")
@@ -1280,6 +1364,15 @@ def validate_checked_outputs(
         }
     ):
         raise CompileFailure("checked compile report has stale profile metadata")
+    if (
+        report.get("runtime_material_bindings")
+        != runtime_material_bindings
+        if runtime_material_bindings
+        else "runtime_material_bindings" in report
+    ):
+        raise CompileFailure(
+            "checked compile report has stale runtime material bindings"
+        )
     converter = report.get("ogre_converter")
     if (
         not isinstance(converter, dict)
@@ -1292,11 +1385,19 @@ def validate_checked_outputs(
         raise CompileFailure("checked compile report has invalid converter identity")
     compiler_record = report.get("compiler", {})
     compiler_path = Path(__file__).resolve()
+    current_compiler_sha256 = sha256_file(compiler_path)
+    checked_compiler_sha256 = compiler_record.get("sha256")
+    compiler_is_current = checked_compiler_sha256 == current_compiler_sha256
+    compiler_is_byte_compatible = (
+        not uses_runtime_parent_material(compiler.manifest)
+        and checked_compiler_sha256
+        in BYTE_COMPATIBLE_COMPILER_SHA256_WITHOUT_RUNTIME_PARENT
+    )
     if (
         compiler_record.get("format") != COMPILER_FORMAT
         or compiler_record.get("path")
         != portable_relative_path(compiler.repo_root, compiler_path)
-        or compiler_record.get("sha256") != sha256_file(compiler_path)
+        or not (compiler_is_current or compiler_is_byte_compatible)
     ):
         raise CompileFailure("checked compile report has stale compiler identity")
     assert compiler.glb_path is not None
@@ -1341,6 +1442,14 @@ def validate_checked_outputs(
             output_directory / f"{compiler.asset_id}.odef",
         )
     ] = "terrain-object"
+    expected_generated_sha256 = {
+        portable_relative_path(
+            compiler.repo_root,
+            output_directory / intermediate.path,
+        ): sha256_bytes(intermediate.data)
+        for intermediate in compiler.intermediates()
+        if not intermediate.path.endswith(".mesh.xml")
+    }
     declared_paths: set[str] = set()
     for record in outputs:
         if not isinstance(record, dict) or set(record) != {
@@ -1365,6 +1474,14 @@ def validate_checked_outputs(
             raise CompileFailure(f"checked output size is stale: {path.name}")
         if sha256_file(path) != record.get("sha256"):
             raise CompileFailure(f"checked output hash is stale: {path.name}")
+        generated_sha256 = expected_generated_sha256.get(relative)
+        if (
+            generated_sha256 is not None
+            and record.get("sha256") != generated_sha256
+        ):
+            raise CompileFailure(
+                f"checked generated output is stale: {path.name}"
+            )
         if path.suffix == ".mesh":
             with path.open("rb") as handle:
                 if handle.read(len(OGRE_MESH_HEADER)) != OGRE_MESH_HEADER:

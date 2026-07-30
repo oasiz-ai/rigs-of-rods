@@ -27,6 +27,7 @@
 #include "CacheSystem.h"
 #include "CameraManager.h"
 #include "CityWorldNeoQ20Compatibility.h"
+#include "CityWorldPenguinRoadCompatibility.h"
 #include "CityWorldNeoQTreeCompatibility.h"
 #include "Collisions.h"
 #include "Console.h"
@@ -232,6 +233,12 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                     tobj_name,
                     observed_tobj_sha256,
                     placements);
+            const CityWorldPenguinRoadCompatibilityResult road_replacement =
+                ApplyCityWorldPenguinRoadCompatibility(
+                    authored_dependencies,
+                    tobj_name,
+                    observed_tobj_sha256,
+                    placements);
             bool tree_resources_available = tree_replacement.applied;
             std::size_t tree_resource_count = 0U;
             if (tree_resources_available)
@@ -256,10 +263,17 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                     tree_resource_count ==
                         tree_replacement.replacement_count;
             }
+            const bool road_resource_available =
+                road_replacement.applied &&
+                ResourceGroupManager::getSingleton().resourceExists(
+                    terrainManager->getTerrainFileResourceGroup(),
+                    "crossroadavenuesidewalk.odef");
             bool tobj_cached = false;
             if (grounding.applied &&
                 tree_replacement.applied &&
-                tree_resources_available)
+                tree_resources_available &&
+                road_replacement.applied &&
+                road_resource_available)
             {
                 ROR_ASSERT(placements.size() == tobj->objects.size());
                 bool names_fit = true;
@@ -300,13 +314,15 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                         return fmt::format(
                             "[RoR|CityWorld|NeoQ20Grounding] Applied "
                             "placements={} renames={} telepoints={} "
-                            "tree_replacements={} transactionally before "
+                            "tree_replacements={} road_replacements={} "
+                            "transactionally before "
                             "object instantiation "
                             "(tobj_sha256={})",
                             grounding.placement_changed_count,
                             grounding.renamed_instance_count,
                             grounding.telepoint_changed_count,
                             tree_replacement.replacement_count,
+                            road_replacement.replacement_count,
                             observed_tobj_sha256);
                     },
                     [&]()
@@ -369,6 +385,7 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                     "[RoR|CityWorld|NeoQCompatibility] Preserved "
                     "CityWorld.tobj without a partial transform: "
                     "grounding='{}' trees='{}' tree_resources={} "
+                    "penguin_road='{}' road_resource={} "
                     "(tobj_sha256={})",
                     grounding.applied
                         ? "ready"
@@ -379,6 +396,12 @@ void TerrainObjectManager::LoadTObjFile(Ogre::String tobj_name)
                     tree_resources_available
                         ? "ready"
                         : "missing-or-incomplete",
+                    road_replacement.applied
+                        ? "ready"
+                        : road_replacement.rejection_reason,
+                    road_resource_available
+                        ? "ready"
+                        : "missing",
                     observed_tobj_sha256.empty()
                         ? "unavailable"
                         : observed_tobj_sha256));

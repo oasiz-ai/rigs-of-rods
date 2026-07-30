@@ -35,6 +35,7 @@ POSITION_EPSILON = 1e-6
 MAX_RUNTIME_LIGHTS = 32
 MAX_RUNTIME_LIGHT_LOCAL_COORDINATE_M = 1000.0
 RUNTIME_LIGHT_ID_PATTERN = re.compile(r"rorng_[a-z0-9_]+")
+ALLOWED_RUNTIME_PARENT_MATERIALS = frozenset({"road2"})
 CORRIDOR_ASSET_PROFILE = "corridor-module-v1"
 FIXTURE_ASSET_PROFILE = "static-fixture-v1"
 STATIC_VISUAL_ASSET_PROFILE = "static-visual-v1"
@@ -1073,6 +1074,19 @@ class Validator:
                 )
             if declaration.get("color_space") != "linear-factor":
                 self.add("MATERIAL_COLOR_SPACE", pointer, "factor colour space must be explicit")
+            if "runtime_parent_material" in declaration:
+                runtime_parent = declaration["runtime_parent_material"]
+                if (
+                    not isinstance(runtime_parent, str)
+                    or runtime_parent not in ALLOWED_RUNTIME_PARENT_MATERIALS
+                ):
+                    self.add(
+                        "MATERIAL_RUNTIME_PARENT",
+                        f"{pointer}.runtime_parent_material",
+                        "runtime parent material must exactly match an allowed "
+                        "core material: "
+                        + ", ".join(sorted(ALLOWED_RUNTIME_PARENT_MATERIALS)),
+                    )
             if any(key.endswith("Texture") for key in pbr):
                 self.add("MATERIAL_TEXTURE", pointer, "initial texture-free profile has a PBR texture")
             if "emissiveTexture" in material:

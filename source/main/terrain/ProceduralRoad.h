@@ -41,6 +41,13 @@ enum class RoadType
     ROAD_MONORAIL
 };
 
+// Serialized procedural-road pillar modes. Keep the numeric values stable:
+// terrain content stores these alongside RoadType rather than as an enum.
+constexpr int ROAD_PILLAR_TYPE_NONE = 0;
+constexpr int ROAD_PILLAR_TYPE_BRIDGE_CENTER = 1;
+constexpr int ROAD_PILLAR_TYPE_MONORAIL = 2;
+constexpr int ROAD_PILLAR_TYPE_BRIDGE_SIDES = 3;
+
 enum class TextureFit
 {
     TEXFIT_NONE,
@@ -75,6 +82,10 @@ public:
     void createMesh();
     void finish(Ogre::SceneNode* snode);
     void setCollisionEnabled(bool v) { collision = v; }
+    void setEndCapCollisionEnabled(bool v) { collision_endcaps = v; }
+    int getSidePierRequestedCount() const { return side_pier_requested; }
+    int getSidePierBuiltCount() const { return side_pier_built; }
+    int getSidePierSkippedCount() const { return side_pier_skipped; }
 
     static const unsigned int MAX_VERTEX = 50000;
     static const unsigned int MAX_TRIS = 50000;
@@ -111,10 +122,13 @@ private:
     RoadType lasttype;
     int mid = 0;
     bool collision = true; //!< Register collision triangles?
+    bool collision_endcaps = true; //!< Register first/final cap collision triangles?
+    int side_pier_requested = 0;
+    int side_pier_built = 0;
+    int side_pier_skipped = 0;
     std::vector<int> registeredCollTris;
 };
 
 /// @} // addtogroup Terrain
 
 } // namespace RoR
-

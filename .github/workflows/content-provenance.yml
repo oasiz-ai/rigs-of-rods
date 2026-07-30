@@ -32,7 +32,10 @@ jobs:
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py
+          tests/tools/test_cityworld_infill.py
+          tests/tools/test_cityworld_infill_assets.py
           tests/tools/test_cityworld_storefront_family.py
+          tests/tools/test_cityworld_neoq_intercity_bridge.py
           tests/tools/test_cityworld_tree_family.py
           tests/tools/test_compile_cityworld_asset.py
           tests/tools/test_run_cityworld_bridge_scene.py
@@ -40,6 +43,7 @@ jobs:
           tests/tools/test_run_cityworld_curved_bridge_scene.py
           tests/tools/test_run_cityworld_bridge_transition_scene.py
           tests/tools/test_run_cityworld_gateway_scene.py
+          tests/tools/test_run_cityworld_infill_scene.py
           tests/tools/test_run_cityworld_led_streetlight_scene.py
           tests/tools/test_run_cityworld_shadow_scene.py
           tests/tools/test_solve_cityworld_bridge_corridor.py
@@ -52,7 +56,10 @@ jobs:
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py
+          tests/tools/test_cityworld_infill.py
+          tests/tools/test_cityworld_infill_assets.py
           tests/tools/test_cityworld_storefront_family.py
+          tests/tools/test_cityworld_neoq_intercity_bridge.py
           tests/tools/test_cityworld_tree_family.py
           tests/tools/test_compile_cityworld_asset.py
           tests/tools/test_run_cityworld_bridge_scene.py
@@ -60,6 +67,7 @@ jobs:
           tests/tools/test_run_cityworld_curved_bridge_scene.py
           tests/tools/test_run_cityworld_bridge_transition_scene.py
           tests/tools/test_run_cityworld_gateway_scene.py
+          tests/tools/test_run_cityworld_infill_scene.py
           tests/tools/test_run_cityworld_led_streetlight_scene.py
           tests/tools/test_run_cityworld_shadow_scene.py
           tests/tools/test_solve_cityworld_bridge_corridor.py
@@ -119,6 +127,17 @@ jobs:
             --repo-root .
           for manifest in \
             resources/nextgen/cityworld/buildings/storefront_family/*/*.asset.json
+          do
+            python tools/validate_cityworld_asset.py \
+              "$manifest" \
+              --repo-root .
+            python tools/compile_cityworld_asset.py \
+              "$manifest" \
+              --repo-root . \
+              --validate-checked
+          done
+          for manifest in \
+            resources/nextgen/cityworld/regional_infill/*/*.asset.json
           do
             python tools/validate_cityworld_asset.py \
               "$manifest" \

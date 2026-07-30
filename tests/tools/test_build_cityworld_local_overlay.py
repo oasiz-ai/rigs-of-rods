@@ -100,6 +100,26 @@ BASE_PLACEMENTS = """\
 1722.910278, -0.054961, 2044.339844, 0.000000, 64.000000, -0.000000, arbol1Qr
 1629.423096, -0.074142, 2046.764160, 0.000000, -72.000000, -0.000000, arbol1Qr
 """
+SYNTHETIC_BRIDGE_MEMBER_PAYLOADS = tuple(
+    (
+        record["name"],
+        ("synthetic authenticated bridge member " + record["name"] + "\n").encode(),
+    )
+    for record in BUILDER.neoq_bridge.AUTHENTICATED_MEMBERS
+)
+SYNTHETIC_BRIDGE_MEMBER_CONTRACT = tuple(
+    {
+        "name": name,
+        "role": next(
+            record["role"]
+            for record in BUILDER.neoq_bridge.AUTHENTICATED_MEMBERS
+            if record["name"] == name
+        ),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "size": len(payload),
+    }
+    for name, payload in SYNTHETIC_BRIDGE_MEMBER_PAYLOADS
+)
 
 
 def luminaria_fixture_placements() -> str:
@@ -132,10 +152,60 @@ def luminaria_fixture_placements() -> str:
     return "\n".join(lines) + "\n"
 
 
-PLACEMENTS = BASE_PLACEMENTS + luminaria_fixture_placements()
+def pinned_fixture_placements() -> str:
+    lines = [
+        f"// fixture-padding-{line_number:04d}"
+        for line_number in range(1, 1355)
+    ]
+    tree_lines = [
+        line
+        for line in BASE_PLACEMENTS.splitlines()
+        if line.rstrip().endswith(", arbol1Qr")
+    ]
+    if len(tree_lines) != 18:
+        raise RuntimeError("synthetic NeoQ tree fixture must contain 18 trees")
+    lines[0] = "// SOURCE_PLACEMENTS_PAYLOAD_MUST_NOT_LEAK"
+    lines[1] = "1, 2, 3, 0, 0, 0, source_only_object"
+    lines[2] = "1, 2, 4, 0, 0, 0, source_only_object_two"
+    lines[3] = (
+        "1460.966797, 0.1, 903.098389, "
+        "0, -180, 0, crucetQr"
+    )
+    lines[8:26] = tree_lines
+    lines[365] = (
+        "3676.970703, 0.3, 3993.104004, "
+        "90, 0, 0, distribuidorQr"
+    )
+    lines[377] = "0, -0.4, 0, 90, 0, 90, autopistaQr"
+    lines[1229] = (
+        "7000, 50, 4018, 90, 0, 0, "
+        "NeoQ2-0industrial-zone-distributor-road"
+    )
+    lines[1353] = "485, 0.1, 370, 0, 90, 0, troadavenuesidewalk"
+    light_lines = luminaria_fixture_placements().splitlines()
+    available = (
+        index
+        for index in range(4, 1229)
+        if index not in {365, 377} and not 8 <= index < 26
+    )
+    for line, index in zip(light_lines, available):
+        lines[index] = line
+    return "\n".join(lines) + "\n"
+
+
+PLACEMENTS = pinned_fixture_placements()
 
 
 class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
+    def setUp(self) -> None:
+        bridge_contract = mock.patch.object(
+            BUILDER.neoq_bridge,
+            "AUTHENTICATED_MEMBERS",
+            SYNTHETIC_BRIDGE_MEMBER_CONTRACT,
+        )
+        bridge_contract.start()
+        self.addCleanup(bridge_contract.stop)
+
     def make_archive(
         self,
         root: Path,
@@ -169,6 +239,8 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             write_entry(otc_name, SOURCE_MARKERS["CityWorld.otc"])
             write_entry("CityWorld.tobj", placements.encode("utf-8"))
             for name, payload in pole_definitions:
+                write_entry(name, payload)
+            for name, payload in SYNTHETIC_BRIDGE_MEMBER_PAYLOADS:
                 write_entry(name, payload)
             for name, payload in extra_entries:
                 write_entry(name, payload)
@@ -288,7 +360,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             "  }\n"
             "}\n"
         ).encode()
-        runtime_files = (
+        runtime_files = [
             BUILDER.RuntimeFile(
                 package_path=f"{asset_id}.odef",
                 repository_path=f"fixtures/{asset_id}.odef",
@@ -305,7 +377,24 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 size=len(material_payload),
                 payload=material_payload,
             ),
-        )
+        ]
+        for ordinal in range(3):
+            payload = (
+                f"synthetic streetlight render LOD {ordinal}\n"
+            ).encode()
+            runtime_files.append(
+                BUILDER.RuntimeFile(
+                    package_path=f"{asset_id}_lod{ordinal}.mesh",
+                    repository_path=(
+                        f"fixtures/{asset_id}_lod{ordinal}.mesh"
+                    ),
+                    role=f"render-lod{ordinal}",
+                    sha256=hashlib.sha256(payload).hexdigest(),
+                    size=len(payload),
+                    payload=payload,
+                )
+            )
+        runtime_files = tuple(runtime_files)
         return BUILDER.PreparedAsset(
             asset_id=asset_id,
             centerline_length_m=None,
@@ -341,6 +430,142 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             },
             runtime_files=runtime_files,
         )
+
+    def fake_regional_infill_bundle(
+        self,
+    ) -> tuple[object, dict[str, object], dict[str, object], tuple[object, ...]]:
+        plan = BUILDER.regional_infill.build_infill_plan()
+        audit = BUILDER.regional_infill.audit_plan(plan)
+        manifest = BUILDER.regional_infill.build_manifest(plan)
+        assets = []
+        for (
+            asset_id,
+            manifest_path,
+            profile,
+            light_ids,
+        ) in BUILDER.INFILL_ASSET_CONTRACTS:
+            material_payload = (
+                f"material {asset_id}_test_surface\n"
+                "{\n"
+                "  technique\n"
+                "  {\n"
+                "    pass\n"
+                "    {\n"
+                "      ambient 0.2 0.3 0.4 1\n"
+                "    }\n"
+                "  }\n"
+                "}\n"
+            ).encode()
+            runtime_files = [
+                BUILDER.RuntimeFile(
+                    package_path=f"{asset_id}.material",
+                    repository_path=f"fixtures/{asset_id}.material",
+                    role="material-fallback",
+                    sha256=hashlib.sha256(material_payload).hexdigest(),
+                    size=len(material_payload),
+                    payload=material_payload,
+                )
+            ]
+            for suffix, role in (
+                (".odef", "terrain-object"),
+                ("_collision_fixture.mesh", "collision-fixture"),
+                ("_lod0.mesh", "render-lod0"),
+                ("_lod1.mesh", "render-lod1"),
+                ("_lod2.mesh", "render-lod2"),
+            ):
+                payload = (
+                    f"synthetic regional infill {asset_id} {role}\n"
+                ).encode()
+                runtime_files.append(
+                    BUILDER.RuntimeFile(
+                        package_path=f"{asset_id}{suffix}",
+                        repository_path=f"fixtures/{asset_id}{suffix}",
+                        role=role,
+                        sha256=hashlib.sha256(payload).hexdigest(),
+                        size=len(payload),
+                        payload=payload,
+                    )
+                )
+            runtime_lights = [
+                {
+                    "color_linear": [1.0, 0.66, 0.31],
+                    "id": light_id,
+                    "position_ogre_y_up_m": [0.0, 5.16, 0.0],
+                    "range_m": 24.0,
+                    "type": "point",
+                }
+                for light_id in light_ids
+            ]
+            assets.append(
+                BUILDER.PreparedAsset(
+                    asset_id=asset_id,
+                    centerline_length_m=None,
+                    manifest_path=manifest_path,
+                    profile=None,
+                    provenance={
+                        "asset": {
+                            "id": asset_id,
+                            "license": "GPL-3.0-or-later",
+                            "profile": profile,
+                        },
+                        "generator": {},
+                        "manifest": {
+                            "path": manifest_path,
+                            "sha256": "3" * 64,
+                        },
+                        "runtime_files": [
+                            {
+                                "package_path": item.package_path,
+                                "path": item.repository_path,
+                                "role": item.role,
+                                "sha256": item.sha256,
+                                "size": item.size,
+                            }
+                            for item in runtime_files
+                        ],
+                        "runtime_lights": runtime_lights,
+                    },
+                    runtime_files=tuple(runtime_files),
+                )
+            )
+        return plan, audit, manifest, tuple(assets)
+
+    @staticmethod
+    def fake_regional_infill_source_authentication() -> dict[str, object]:
+        plan = BUILDER.regional_infill.build_infill_plan()
+        return {
+            "anchor_ids": [
+                anchor.anchor_id for anchor in plan.source_anchors
+            ],
+            "archive_sha256": BUILDER.PINNED_ARCHIVE_SHA256,
+            "authenticated_placement_lines": [378, 1354],
+            "format":
+                BUILDER.REGIONAL_INFILL_SOURCE_AUTHENTICATION_FORMAT,
+            "generated_anchor_count": 1,
+            "line_0378": {
+                "collision_member": "autopistaQr.mesh",
+                "collision_sha256":
+                    BUILDER.regional_infill.PINNED_HIGHWAY_COLLISION_SHA256,
+                "line_number": 378,
+                "member": "CityWorld.tobj",
+                "object": "autopistaQr",
+                "position_m": [0.0, -0.4, 0.0],
+                "rotation_degrees": [90.0, 0.0, 90.0],
+            },
+            "line_1354": {
+                "line_number": 1354,
+                "member": "CityWorld.tobj",
+                "object": "troadavenuesidewalk",
+                "position_m": [485.0, 0.1, 370.0],
+                "rotation_degrees": [0.0, 90.0, 0.0],
+            },
+            "native_anchor_count": 6,
+            "source_anchor_count": 7,
+            "source_tobj": {
+                "member": "CityWorld.tobj",
+                "sha256": "synthetic-fixture",
+            },
+        }
 
     def replace_material(
         self,
@@ -395,6 +620,17 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 "prepare_streetlight_asset",
                 return_value=self.fake_streetlight_asset(),
             ),
+            mock.patch.object(
+                BUILDER,
+                "prepare_regional_infill_assets",
+                return_value=self.fake_regional_infill_bundle(),
+            ),
+            mock.patch.object(
+                BUILDER,
+                "authenticate_regional_infill_source",
+                return_value=
+                    self.fake_regional_infill_source_authentication(),
+            ),
         ):
             result = BUILDER.build_local_overlay(
                 archive_path=archive,
@@ -444,6 +680,30 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
         self.assertIn("pointlight ", streetlight_odef)
         self.assertIsNone(streetlight.centerline_length_m)
         self.assertIsNone(streetlight.profile)
+
+        road_seam = BUILDER.prepare_penguin_road_seam_asset(
+            REPOSITORY_ROOT
+        )
+        self.assertEqual(
+            road_seam.asset_id,
+            BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID,
+        )
+        self.assertEqual(len(road_seam.runtime_files), 8)
+        self.assertEqual(road_seam.provenance["runtime_lights"], [])
+        self.assertEqual(
+            {
+                item.role
+                for item in road_seam.runtime_files
+                if item.role.startswith("collision-")
+            },
+            {
+                "collision-road",
+                "collision-shoulder-left",
+                "collision-shoulder-right",
+            },
+        )
+        self.assertIsNone(road_seam.centerline_length_m)
+        self.assertIsNone(road_seam.profile)
 
         tree_plan = BUILDER.read_native_tree_plan(REPOSITORY_ROOT)
         tree_family = BUILDER.prepare_tree_family(
@@ -687,7 +947,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     )
                 )
 
-    def test_full_corridor_closes_at_edge_roads_with_ramps_and_pillars(
+    def test_full_corridor_has_flush_open_seams_and_outboard_piers(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -696,11 +956,11 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             corridor = report["corridor"]
             self.assertEqual(
                 corridor["format"],
-                "ror-cityworld-intercity-corridor-v3",
+                "ror-cityworld-intercity-corridor-v4",
             )
             self.assertEqual(
                 corridor["source"]["connection"],
-                "east T-junction",
+                "east opened road seam after crowned-to-flat transition",
             )
             self.assertEqual(
                 corridor["destination"]["connection"],
@@ -734,20 +994,24 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             self.assertEqual(
                 corridor["profile"],
                 {
-                    "connection_surface_y_m": 0.1,
-                    "connection_taper_grade": 0.0112,
+                    "connection_taper_grade": 0.003,
                     "connection_taper_length_m": 40.0,
                     "deck_clearance_m": 8.0,
+                    "destination_connection_surface_y_m": 0.1,
+                    "destination_surface_y_m": 0.18,
+                    "destination_width_m": 10.0,
                     "flat_lead_length_m": 40.0,
                     "maximum_grade": 0.075,
                     "ramp_length_m": 160.0,
                     "rotation_convention":
                         "ogre-yaw-local-plus-z-cross-section",
-                    "sampled_maximum_grade": 0.073573604,
+                    "sampled_maximum_grade": 0.07379231,
                     "sample_spacing_limit_m": 20.0,
+                    "source_connection_surface_y_m": 0.100001,
+                    "source_surface_y_m": 0.180001,
+                    "source_width_m": 9.75017,
                     "surface_offset_m": 0.08,
-                    "surface_y_m": 0.18,
-                    "width_m": 8.9,
+                    "width_transition": "full-corridor-cubic-smoothstep",
                 },
             )
             obstacle_audit = corridor["obstacle_avoidance"]
@@ -769,21 +1033,21 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             )
             self.assertEqual(
                 obstacle_audit["intentional_source_overlap_m"],
-                14.8491,
+                0.0,
+            )
+            self.assertEqual(
+                obstacle_audit["existing_ground_road_envelopes_intersected"],
+                0,
+            )
+            self.assertEqual(
+                obstacle_audit["source_transition_x_bounds_m"],
+                [510.0, 522.0],
             )
             waypoints = corridor["waypoints"]
             self.assertGreater(len(waypoints), 50)
             self.assertEqual(
                 waypoints[0]["position_m"],
-                [480.0, 0.198, 370.0],
-            )
-            self.assertEqual(
-                waypoints[1]["position_m"],
-                [490.0, 0.31, 370.0],
-            )
-            self.assertEqual(
-                waypoints[2]["position_m"],
-                [494.8491, 0.31, 370.0],
+                [522.0, 0.100001, 370.023095],
             )
             self.assertEqual(
                 waypoints[-1]["position_m"],
@@ -793,6 +1057,14 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             self.assertEqual(waypoints[-1]["yaw_degrees"], 0.0)
             self.assertEqual(waypoints[0]["road_type"], "flat")
             self.assertEqual(waypoints[-1]["road_type"], "flat")
+            self.assertEqual(waypoints[0]["width_m"], 9.75017)
+            self.assertEqual(waypoints[-1]["width_m"], 10.0)
+            self.assertTrue(
+                all(
+                    first["width_m"] <= second["width_m"]
+                    for first, second in zip(waypoints, waypoints[1:])
+                )
+            )
             self.assertEqual(
                 corridor["source"]["authenticated_placement"]["object"],
                 "troadavenuesidewalk",
@@ -802,27 +1074,19 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 "crucetQr",
             )
             self.assertEqual(
-                corridor["source"]["apron"],
+                corridor["source"]["collision_handoff"],
                 {
-                    "collision_authority": "native-procedural-road-v3",
-                    "curb_clearance_m": 0.01,
-                    "curb_top_y_m": 0.3,
-                    "legacy_collision_mesh":
-                        "troadavenuesidewalkbox.mesh",
-                    "legacy_road_surface_y_m": 0.198,
-                    "overlap_length_m": 14.8491,
-                    "plateau_y_m": 0.31,
-                    "rise_length_m": 10.0,
-                    "surface_continuous": True,
+                    "authorities_per_station": 1,
+                    "legacy_curb_collision_retained": False,
+                    "replacement_mode":
+                        "native-authenticated-in-place-object-definition-swap",
+                    "transition_asset_id":
+                        BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID,
                 },
-            )
-            self.assertGreater(
-                waypoints[2]["position_m"][1],
-                corridor["source"]["apron"]["curb_top_y_m"],
             )
             self.assertEqual(
                 max(point["position_m"][1] for point in waypoints),
-                8.18,
+                8.180000903,
             )
             self.assertTrue(
                 all(
@@ -834,15 +1098,12 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             destination = tuple(
                 BUILDER.ROUTE_DESTINATION_ANCHOR["connection_position_m"]
             )
-            apron_length = (
-                source[0] - BUILDER.ROUTE_SOURCE_APRON_START_X_M
-            )
             control_points = BUILDER.route_control_points(source, destination)
             arc_table = BUILDER.route_arc_table(control_points)
-            for waypoint in waypoints[2:]:
+            for waypoint in waypoints:
                 parameter = BUILDER.parameter_at_station(
                     arc_table,
-                    max(0.0, waypoint["station_m"] - apron_length),
+                    min(waypoint["station_m"], arc_table[-1][1]),
                 )
                 tangent_x, tangent_z = BUILDER.cubic_bezier_derivative(
                     control_points,
@@ -861,7 +1122,20 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 )
             supports = corridor["supports"]
             self.assertTrue(supports["enabled"])
-            self.assertGreater(supports["requested_count"], 40)
+            self.assertEqual(supports["requested_count"], 46)
+            self.assertEqual(supports["expected_built_count"], 46)
+            self.assertEqual(supports["expected_skipped_count"], 0)
+            self.assertEqual(supports["no_pillar_bridge_count"], 2)
+            self.assertEqual(
+                supports["no_pillar_bridge_stations_m"],
+                [60.0, 980.0],
+            )
+            self.assertTrue(supports["paired_outboard"])
+            self.assertEqual(supports["centerline_pillars_requested"], 0)
+            self.assertEqual(
+                supports["road_type_token"],
+                "bridge_side_pillars",
+            )
             self.assertLessEqual(
                 supports["maximum_station_spacing_m"],
                 BUILDER.ROUTE_SAMPLE_SPACING_M,
@@ -869,7 +1143,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             fixtures = corridor["fixtures"]
             self.assertEqual(
                 fixtures["format"],
-                "ror-cityworld-streetlight-placement-v1",
+                "ror-cityworld-streetlight-placement-v2",
             )
             self.assertEqual(
                 fixtures["asset_id"],
@@ -877,25 +1151,21 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             )
             self.assertFalse(fixtures["paired"])
             self.assertEqual(fixtures["station_spacing_m"], 40.0)
-            self.assertEqual(fixtures["station_count"], 16)
-            self.assertEqual(fixtures["instance_count"], 16)
-            self.assertEqual(fixtures["lateral_mount_offset_m"], 4.675)
+            self.assertEqual(fixtures["station_count"], 15)
+            self.assertEqual(fixtures["instance_count"], 15)
             self.assertEqual(fixtures["mount_elevation_above_road_m"], 0.95)
             self.assertEqual(fixtures["runtime_point_lights_per_instance"], 1)
             self.assertEqual(
                 fixtures["collision_authority"],
-                "native-procedural-road-v3",
+                "native-procedural-road-v4-open-seams",
             )
             self.assertEqual(
                 [item["station_m"] for item in fixtures["stations"]],
-                [
-                    round(apron_length + value, 9)
-                    for value in range(220, 821, 40)
-                ],
+                list(range(220, 781, 40)),
             )
             self.assertEqual(
                 [item["side"] for item in fixtures["stations"]],
-                ["left", "right"] * 8,
+                ["left", "right"] * 7 + ["left"],
             )
             for fixture in fixtures["stations"]:
                 center = fixture["centerline_position_m"]
@@ -903,7 +1173,17 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 offset_x = placement[0] - center[0]
                 offset_z = placement[2] - center[2]
                 offset_length = math.hypot(offset_x, offset_z)
-                self.assertAlmostEqual(offset_length, 4.675, places=8)
+                self.assertAlmostEqual(
+                    offset_length,
+                    fixture["lateral_mount_offset_m"],
+                    places=8,
+                )
+                self.assertAlmostEqual(
+                    fixture["lateral_mount_offset_m"],
+                    fixture["road_width_m"] / 2.0
+                    + BUILDER.ROUTE_BRIDGE_BORDER_WIDTH_M / 2.0,
+                    places=8,
+                )
                 self.assertAlmostEqual(
                     placement[1] - center[1],
                     0.95,
@@ -927,6 +1207,8 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     "geometry_config": "CityWorld.otc",
                     "original_placements": "CityWorld.tobj",
                     "overlay_placements": BUILDER.OVERLAY_NAME,
+                    "regional_infill_manifest":
+                        BUILDER.REGIONAL_INFILL_MANIFEST_NAME,
                     "tree_replacement_manifest":
                         BUILDER.NEOQ_TREE_REPLACEMENT_NAME,
                     "resource_bundle_dependency":
@@ -938,58 +1220,38 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 len(report["source"]["archive"]["members"]),
                 3,
             )
-            self.assertEqual(len(report["assets"]), 8)
+            self.assertEqual(len(report["assets"]), 14)
             self.assertTrue(
                 all("manifest" in asset for asset in report["assets"])
             )
+            usage = report["visual_asset_usage"]
             self.assertEqual(
-                report["visual_asset_usage"],
-                {
-                    "corridor_placement_mode":
-                        "native-procedural-v3-curb-cut-with-blender-fixtures-v1",
-                    "disabled_light_candidate_manifest":
-                        BUILDER.NEOQ_LIGHT_CANDIDATE_NAME,
-                    "neoq_core_runtime_light_activation":
-                        "blocked-fail-closed",
-                    "packaged_asset_ids": [
-                        "rorng_city_led_streetlight_bridge",
-                        "rorng_city_neoq_tree_round",
-                        "rorng_city_neoq_tree_columnar",
-                        "rorng_city_neoq_tree_windswept",
-                    ],
-                    "placed_asset_ids": [
-                        "rorng_city_led_streetlight_bridge",
-                        "rorng_city_neoq_tree_round",
-                        "rorng_city_neoq_tree_columnar",
-                        "rorng_city_neoq_tree_windswept",
-                    ],
-                    "unplaced_asset_ids": [
-                        "rorng_city_gateway_block_40m",
-                        "rorng_city_bridge_transition_12m",
-                        "rorng_city_bridge_curve_left_15deg_20m",
-                        "rorng_city_bridge_span_20m",
-                    ],
-                    "validated_asset_ids": [
-                        "rorng_city_gateway_block_40m",
-                        "rorng_city_bridge_transition_12m",
-                        "rorng_city_bridge_curve_left_15deg_20m",
-                        "rorng_city_bridge_span_20m",
-                        "rorng_city_led_streetlight_bridge",
-                        "rorng_city_neoq_tree_round",
-                        "rorng_city_neoq_tree_columnar",
-                        "rorng_city_neoq_tree_windswept",
-                    ],
-                    "purpose":
-                        "curb-free Penguinville overlap apron plus route-safe "
-                        "Blender lighting; all 18 authenticated legacy "
-                        "NeoQueretaro trees are replaced in place by the "
-                        "rights-cleared three-variant family with per-instance "
-                        "visual/collision scale wrappers; deterministic "
-                        "NeoQueretaro pole-light candidates remain disabled "
-                        "pending the bounded renderer light budget and "
-                        "fixed-camera visual gate; bridge modules remain "
-                        "validated candidates for deck and abutment replacement",
-                },
+                usage["corridor_placement_mode"],
+                "native-procedural-v6-two-corridor-open-seams-side-piers-with-"
+                "blender-transition-v2-and-regional-infill-v1",
+            )
+            self.assertIn(
+                BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID,
+                usage["packaged_asset_ids"],
+            )
+            self.assertIn(
+                BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID,
+                usage["placed_asset_ids"],
+            )
+            self.assertIn("open procedural collision endcaps", usage["purpose"])
+            self.assertIn(
+                "procedural road2 surface and marking atlas",
+                usage["purpose"],
+            )
+            self.assertIn("a second raised bridge", usage["purpose"])
+            self.assertIn("without covering its median", usage["purpose"])
+            self.assertIn(
+                BUILDER.LED_STREETLIGHT_ASSET_ID,
+                usage["packaged_asset_ids"],
+            )
+            self.assertIn(
+                "18 polygon-authenticated no-pillar stations above autopistaQr",
+                usage["purpose"],
             )
             self.assertIn(
                 "tools/build_cityworld_local_overlay.py",
@@ -1000,37 +1262,233 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 placement_text = package.read(BUILDER.OVERLAY_NAME).decode()
             self.assertIn("begin_procedural_roads", placement_text)
             self.assertIn("collision_enabled true", placement_text)
-            self.assertGreater(placement_text.count(", bridge\n"), 40)
+            self.assertEqual(
+                placement_text.count("collision_endcaps_enabled false"),
+                9,
+            )
+            self.assertEqual(
+                placement_text.count(", bridge_side_pillars\n"),
+                102,
+            )
+            self.assertGreater(
+                placement_text.count(", bridge_no_pillars\n"),
+                2,
+            )
+            self.assertNotIn(", bridge\n", placement_text)
             self.assertNotIn("rorng_city_gateway_block_40m -", placement_text)
             self.assertEqual(
                 placement_text.count(
                     f"{BUILDER.LED_STREETLIGHT_ASSET_ID} - "
                 ),
-                16,
+                48,
             )
             self.assertIn(
-                "cityworld_next_led_0235_left",
+                "cityworld_next_led_0220_left",
                 placement_text,
             )
             self.assertIn(
-                "cityworld_next_led_0835_right",
+                "cityworld_next_led_0780_left",
+                placement_text,
+            )
+            self.assertEqual(
+                placement_text.count(
+                    f"{BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID} - "
+                ),
+                1,
+            )
+            self.assertIn(
+                "cityworld_next_neoq_link_led_0240_left",
                 placement_text,
             )
             self.assertIn(
-                "480, 0.198, 370, 0, 0, 0, 8.9, 1, 0.15, flat",
+                "cityworld_next_neoq_link_led_2800_left",
+                placement_text,
+            )
+            self.assertEqual(
+                placement_text.count("begin_procedural_roads"),
+                9,
+            )
+            self.assertIn(
+                "522, 0.100001, 370.023095, 0, 0, 0, "
+                "9.75017, 1, 0.15, flat",
                 placement_text,
             )
             self.assertIn(
-                "490, 0.31, 370, 0, 0, 0, 8.9, 1, 0.15, flat",
+                "1380.966797, 0.1, 936.098389, 0, 0, 0, "
+                "10, 1, 0.15, flat",
+                placement_text,
+            )
+            seams = corridor["seams"]
+            self.assertFalse(
+                seams["collision_endcaps"][
+                    "start_and_finish_transverse_collision_faces_emitted"
+                ]
+            )
+            self.assertEqual(
+                seams["source"]["curb_opening"][
+                    "legacy_curb_collision_retained"
+                ],
+                False,
+            )
+            self.assertEqual(
+                seams["source"]["curb_opening"][
+                    "replacement_collision_mesh"
+                ]["sha256"],
+                BUILDER.penguin_neoq_seam
+                    .SOURCE_REPLACEMENT_COLLISION_SHA256,
+            )
+            self.assertEqual(
+                seams["destination"]["collision_mesh"]["surface_probe"],
+                {
+                    "local_xy_m": [79.999, 33.0],
+                    "local_z_m": 0.0,
+                    "triangle_index": 61,
+                    "triangle_vertices": [105, 106, 107],
+                },
+            )
+            self.assertEqual(
+                seams["transition_asset_contract"][
+                    "authoritative_collision"
+                ]["open_interval_surface_count"],
+                1,
+            )
+            self.assertIn(
+                "3790.970703, 0.1, 3993.104004, 0, 0, 0, "
+                "24, 0, 0, flat",
                 placement_text,
             )
             self.assertIn(
-                "494.8491, 0.31, 370, 0, 0, 0, 8.9, 1, 0.15, flat",
+                "6867, 0.2, 4018, 0, 0, 0, 15.1, 0, 0, flat",
                 placement_text,
             )
-            self.assertIn(
-                "1380.966797, 0.1, 936.098389, 0, 0, 0, 8.9, 1, 0.15, flat",
-                placement_text,
+            bridge = report["corridors"]["neoq_to_neoq20"]
+            self.assertEqual(
+                bridge["format"],
+                "ror-cityworld-neoq-intercity-bridge-v4",
+            )
+            self.assertEqual(
+                bridge["source"]["seam_m"],
+                [3790.970703, 0.1, 3993.104004],
+            )
+            self.assertEqual(
+                bridge["destination"]["seam_m"],
+                [6867.0, 0.2, 4018.0],
+            )
+            self.assertTrue(bridge["collision"]["continuous"])
+            self.assertFalse(
+                bridge["collision"]["endcap_collision_enabled"]
+            )
+            self.assertEqual(
+                bridge["collision"]["endcap_collision_triangle_count"],
+                0,
+            )
+            self.assertEqual(
+                bridge["collision"]["endpoint_wheel_path_intrusion_m"],
+                0.0,
+            )
+            self.assertTrue(bridge["profile"]["curb_free_approaches"])
+            self.assertEqual(bridge["profile"]["width_m"], 24.0)
+            self.assertEqual(
+                bridge["profile"]["destination_merge_width_m"],
+                15.1,
+            )
+            self.assertEqual(
+                bridge["connection"]["source_generated_overlap_m"],
+                0.0,
+            )
+            self.assertEqual(
+                bridge["connection"]["destination_generated_overlap_m"],
+                0.0,
+            )
+            self.assertEqual(
+                bridge["connection"]["destination_vertical_step_m"],
+                0.0,
+            )
+            self.assertEqual(
+                bridge["connection"]["destination_grade_discontinuity"],
+                0.0,
+            )
+            self.assertTrue(
+                bridge["destination"]["existing_lanes_preserved"]
+            )
+            self.assertEqual(
+                bridge["source"]["elevation_authority"][
+                    "runtime_origin_plus_local_surface_y_m"
+                ],
+                0.1,
+            )
+            self.assertEqual(
+                bridge["destination"]["elevation_authority"][
+                    "authored_placement_origin_y_m"
+                ],
+                50.0,
+            )
+            self.assertEqual(
+                bridge["destination"]["elevation_authority"][
+                    "runtime_origin_plus_local_surface_y_m"
+                ],
+                0.2,
+            )
+            self.assertLessEqual(
+                bridge["profile"]["sampled_maximum_grade"],
+                bridge["profile"]["maximum_grade"],
+            )
+            self.assertEqual(bridge["supports"]["requested_count"], 56)
+            self.assertEqual(bridge["supports"]["column_pair_count"], 56)
+            self.assertEqual(bridge["supports"]["aabb_count"], 168)
+            self.assertEqual(
+                bridge["supports"]["aabb_vs_swept_roadway_prism"],
+                "all-disjoint",
+            )
+            self.assertEqual(
+                bridge["obstacle_avoidance"][
+                    "ground_level_support_clearance"
+                ]["clearance"],
+                "all-column-aabbs-clear-of-authenticated-live-road-polygons",
+            )
+            self.assertEqual(
+                bridge["supports"]["ground_road_no_pillar_stations_m"],
+                list(range(80, 761, 40)),
+            )
+            self.assertEqual(bridge["supports"]["stations_m"][0], 800.0)
+            self.assertEqual(
+                bridge["supports"]["ground_road_collision_member"],
+                "autopistaQr.mesh",
+            )
+            self.assertEqual(
+                bridge["supports"]["ground_road_surface_materials"],
+                ["calleunsolosentido", "pavimento"],
+            )
+            self.assertEqual(
+                bridge["supports"]["ground_road_surface_triangle_count"],
+                9599,
+            )
+            ground_clearance = bridge["obstacle_avoidance"][
+                "ground_level_support_clearance"
+            ]
+            self.assertEqual(ground_clearance["column_aabb_count"], 112)
+            self.assertTrue(
+                ground_clearance["legacy_mesh_world_bounds_available"]
+            )
+            self.assertEqual(
+                ground_clearance["ground_road"]["no_pillar_station_count"],
+                18,
+            )
+            self.assertEqual(bridge["fixtures"]["instance_count"], 33)
+            self.assertEqual(
+                len(bridge["authentication"]["members"]),
+                8,
+            )
+            self.assertEqual(
+                bridge["authentication"]["ground_road"]["line_number"],
+                378,
+            )
+            self.assertEqual(
+                bridge["authentication"]["ground_road"]["object"],
+                "autopistaQr",
+            )
+            self.assertTrue(
+                bridge["authentication"]["open_gap"]["verified"]
             )
             self.assertEqual(
                 result["report"]["sha256"],
@@ -1053,7 +1511,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
 
         self.assertEqual(
             result["format"],
-            "ror-cityworld-local-overlay-build-result-v4",
+            "ror-cityworld-local-overlay-build-result-v6",
         )
         self.assertEqual(
             manifest["format"],
@@ -1126,9 +1584,13 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             manifest["visual_geometry"]["duplicate_pole_geometry_emitted"]
         )
         self.assertNotIn("rorng_city_neoq_luminaria", placement_text)
-        self.assertIn("Version = 4", descriptor)
+        self.assertIn("Version = 6", descriptor)
         self.assertIn(
-            "GUID = rorng-cityworld-next-local-overlay-v4",
+            "Name = CityWorld Next Enhanced (Use This)",
+            descriptor,
+        )
+        self.assertIn(
+            "GUID = rorng-cityworld-next-local-overlay-v6",
             descriptor,
         )
         lighting_report = report["city_lighting"]["neoq_core"]
@@ -1444,7 +1906,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     for runtime_file in asset["runtime_files"]
                     if runtime_file["role"] == "material-fallback"
                 ),
-                8,
+                14,
             )
             self.assertEqual(
                 report["rights"],
@@ -1458,7 +1920,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     "source_placement_payload_copied": False,
                     "source_placements_copied": False,
                     "source_placement_records_derived": True,
-                    "derived_source_placement_record_count": 85,
+                    "derived_source_placement_record_count": 91,
                     "source_textures_copied": False,
                 },
             )
@@ -1793,6 +2255,17 @@ material rorng_bridge_streetlight_test
                     "prepare_streetlight_asset",
                     return_value=streetlight,
                 ),
+                mock.patch.object(
+                    BUILDER,
+                    "prepare_regional_infill_assets",
+                    return_value=self.fake_regional_infill_bundle(),
+                ),
+                mock.patch.object(
+                    BUILDER,
+                    "authenticate_regional_infill_source",
+                    return_value=
+                        self.fake_regional_infill_source_authentication(),
+                ),
                 self.assertRaisesRegex(
                     BUILDER.OverlayFailure,
                     r"conflicting material definition "
@@ -1828,6 +2301,17 @@ material rorng_bridge_streetlight_test
                     BUILDER,
                     "prepare_streetlight_asset",
                     return_value=self.fake_streetlight_asset(),
+                ),
+                mock.patch.object(
+                    BUILDER,
+                    "prepare_regional_infill_assets",
+                    return_value=self.fake_regional_infill_bundle(),
+                ),
+                mock.patch.object(
+                    BUILDER,
+                    "authenticate_regional_infill_source",
+                    return_value=
+                        self.fake_regional_infill_source_authentication(),
                 ),
                 mock.patch.object(
                     BUILDER,
@@ -1887,6 +2371,17 @@ material rorng_bridge_streetlight_test
                 ),
                 mock.patch.object(
                     BUILDER,
+                    "prepare_regional_infill_assets",
+                    return_value=self.fake_regional_infill_bundle(),
+                ),
+                mock.patch.object(
+                    BUILDER,
+                    "authenticate_regional_infill_source",
+                    return_value=
+                        self.fake_regional_infill_source_authentication(),
+                ),
+                mock.patch.object(
+                    BUILDER,
                     "write_deterministic_zip",
                     side_effect=write_then_race,
                 ),
@@ -1915,6 +2410,9 @@ material rorng_bridge_streetlight_test
             optimized_root = root / "optimized"
             normal_root.mkdir()
             optimized_root.mkdir()
+            source_tobj_sha256 = hashlib.sha256(
+                PLACEMENTS.encode("utf-8")
+            ).hexdigest()
 
             def command(output: Path, optimized: bool) -> list[str]:
                 code = (
@@ -1922,6 +2420,21 @@ material rorng_bridge_streetlight_test
                     f"ns=runpy.run_path({str(TOOL_PATH)!r});"
                     "g=ns['main'].__globals__;"
                     f"g['PINNED_ARCHIVE_SHA256']={digest!r};"
+                    "g['regional_infill'].PINNED_ARCHIVE_SHA256="
+                    f"{digest!r};"
+                    "g['regional_infill'].PINNED_TOBJ_SHA256="
+                    f"{source_tobj_sha256!r};"
+                    "import dataclasses;"
+                    "g['regional_infill'].SOURCE_ANCHORS=tuple("
+                    "dataclasses.replace("
+                    "a,"
+                    f"source_archive_sha256={digest!r},"
+                    f"source_tobj_sha256={source_tobj_sha256!r}"
+                    ") for a in g['regional_infill'].SOURCE_ANCHORS);"
+                    "g['neoq_bridge'].PINNED_TOBJ_SHA256="
+                    f"{source_tobj_sha256!r};"
+                    "g['neoq_bridge'].AUTHENTICATED_MEMBERS="
+                    f"{SYNTHETIC_BRIDGE_MEMBER_CONTRACT!r};"
                     "sys.exit(ns['main'](["
                     f"'--archive',{str(archive)!r},"
                     f"'--repo-root',{str(REPOSITORY_ROOT)!r},"

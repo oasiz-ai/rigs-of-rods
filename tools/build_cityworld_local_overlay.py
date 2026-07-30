@@ -3,9 +3,10 @@
 """Build a deterministic, local-only CityWorld Next overlay package.
 
 The source ``CityWorld.zip`` is a user-supplied compatibility dependency. This
-tool audits it in place and reads only three named members for provenance. It
-does not extract the archive, execute archive content, use the network, or copy
-original CityWorld payloads into the generated package.
+tool audits it in place and reads only authenticated terrain, placement, and
+road-endpoint members for provenance and topology. It does not extract the
+archive, execute archive content, use the network, or copy original CityWorld
+payloads into the generated package.
 """
 
 from __future__ import annotations
@@ -46,6 +47,8 @@ from compile_cityworld_asset import (  # noqa: E402
     default_output_directory,
     validate_checked_outputs,
 )
+import cityworld_neoq_intercity_bridge as neoq_bridge  # noqa: E402
+import cityworld_infill as regional_infill  # noqa: E402
 from solve_cityworld_bridge_corridor import (  # noqa: E402
     AssetProfile,
     CorridorFailure,
@@ -61,10 +64,11 @@ from validate_cityworld_tree_family import (  # noqa: E402
     FamilyValidator,
     load_json as load_tree_family_json,
 )
+import cityworld_penguin_neoq_corridor as penguin_neoq_seam  # noqa: E402
 
 
-FORMAT = "ror-cityworld-local-overlay-v4"
-BUILD_RESULT_FORMAT = "ror-cityworld-local-overlay-build-result-v4"
+FORMAT = "ror-cityworld-local-overlay-v6"
+BUILD_RESULT_FORMAT = "ror-cityworld-local-overlay-build-result-v6"
 PINNED_ARCHIVE_SHA256 = (
     "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3"
 )
@@ -87,6 +91,12 @@ NEOQ_TREE_REPLACEMENT_NAME = (
 )
 NEOQ_TREE_REPLACEMENT_FORMAT = (
     "ror-cityworld-neoq-tree-replacements-v1"
+)
+REGIONAL_INFILL_MANIFEST_NAME = (
+    "cityworld_next_infill_manifest.v1.json"
+)
+REGIONAL_INFILL_SOURCE_AUTHENTICATION_FORMAT = (
+    "ror-cityworld-regional-infill-source-authentication-v1"
 )
 NEOQ_LIGHT_POLICY_ID = "ror-cityworld-local-light-budget-v1"
 NEOQ_EXPECTED_MAP_FAMILY_COUNTS = {
@@ -191,37 +201,35 @@ ROUTE_TANGENT_HANDLE_M = 160.0
 ROUTE_GROUND_LEAD_M = 40.0
 ROUTE_RAMP_LENGTH_M = 160.0
 ROUTE_DECK_CLEARANCE_M = 8.0
-ROUTE_WIDTH_M = 8.9
 ROUTE_BRIDGE_BORDER_WIDTH_M = 0.45
 ROUTE_BRIDGE_BORDER_HEIGHT_M = 0.95
 ROUTE_STREETLIGHT_SPACING_M = 40.0
 ROUTE_STREETLIGHT_DECK_MARGIN_M = 20.0
 ROUTE_FLAT_BORDER_WIDTH_M = 1.0
 ROUTE_FLAT_BORDER_HEIGHT_M = 0.15
-ROUTE_SOURCE_APRON_START_X_M = 480.0
-ROUTE_SOURCE_APRON_RISE_X_M = 490.0
-ROUTE_SOURCE_LEGACY_ROAD_SURFACE_Y_M = 0.198
-ROUTE_SOURCE_LEGACY_CURB_TOP_Y_M = 0.3
-ROUTE_SOURCE_CURB_CLEARANCE_M = 0.01
 ROUTE_ARC_TABLE_STEPS = 8192
 ROUTE_EXPECTED_PROCEDURAL_YAW_DEGREES = 0.0
 ROUTE_MAX_CONNECTION_TAPER_GRADE = 0.02
 ROUTE_OPEN_GAP_BOUNDS_XZ_M = (500.0, 1380.0, 400.0, 1000.0)
 ROUTE_SOURCE_ANCHOR = {
     "city": "Penguinville",
-    "connection": "east T-junction",
-    "connection_position_m": (494.8491, 0.1, 370.0),
-    "object": "troadavenuesidewalk",
-    "placement_position_m": (485.0, 0.1, 370.0),
-    "rotation_degrees": (0.0, 90.0, 0.0),
+    "connection": "east opened road seam after crowned-to-flat transition",
+    "connection_position_m": penguin_neoq_seam.ROUTE_SOURCE_POSITION_M,
+    "object": penguin_neoq_seam.SOURCE_LEGACY_OBJECT,
+    "placement_position_m": penguin_neoq_seam.SOURCE_PLACEMENT_POSITION_M,
+    "rotation_degrees":
+        penguin_neoq_seam.SOURCE_PLACEMENT_ROTATION_DEGREES,
 }
 ROUTE_DESTINATION_ANCHOR = {
     "city": "NeoQueretaro",
     "connection": "west perimeter T-junction carriageway",
-    "connection_position_m": (1380.966797, 0.1, 936.098389),
-    "object": "crucetQr",
-    "placement_position_m": (1460.966797, 0.1, 903.098389),
-    "rotation_degrees": (0.0, -180.0, 0.0),
+    "connection_position_m":
+        penguin_neoq_seam.ROUTE_DESTINATION_POSITION_M,
+    "object": penguin_neoq_seam.DESTINATION_OBJECT,
+    "placement_position_m":
+        penguin_neoq_seam.DESTINATION_PLACEMENT_POSITION_M,
+    "rotation_degrees":
+        penguin_neoq_seam.DESTINATION_PLACEMENT_ROTATION_DEGREES,
 }
 
 GATEWAY_MANIFEST = (
@@ -245,6 +253,8 @@ LED_STREETLIGHT_MANIFEST = (
     "rorng_city_led_streetlight_bridge.asset.json"
 )
 LED_STREETLIGHT_ASSET_ID = "rorng_city_led_streetlight_bridge"
+PENGUIN_ROAD_SEAM_MANIFEST = penguin_neoq_seam.TRANSITION_MANIFEST
+PENGUIN_ROAD_SEAM_ASSET_ID = penguin_neoq_seam.TRANSITION_ASSET_ID
 NEOQ_TREE_FAMILY_MANIFEST = (
     "content-source/cityworld_next/vegetation/"
     "rorng_city_neoq_tree_family.v1.json"
@@ -253,6 +263,69 @@ NEOQ_TREE_NATIVE_PLAN = (
     "source/main/resources/tobj_fileformat/"
     "CityWorldNeoQTreePlan.inc"
 )
+INFILL_FARMSTEAD_MANIFEST = (
+    "resources/nextgen/cityworld/regional_infill/"
+    "rorng_city_infill_farmstead_98x86/"
+    "rorng_city_infill_farmstead_98x86.asset.json"
+)
+INFILL_SUBURB_MANIFEST = (
+    "resources/nextgen/cityworld/regional_infill/"
+    "rorng_city_infill_suburb_block_96x88/"
+    "rorng_city_infill_suburb_block_96x88.asset.json"
+)
+INFILL_SERVICE_STATION_MANIFEST = (
+    "resources/nextgen/cityworld/regional_infill/"
+    "rorng_city_infill_service_station_90x65/"
+    "rorng_city_infill_service_station_90x65.asset.json"
+)
+INFILL_RED_MESA_MANIFEST = (
+    "resources/nextgen/cityworld/regional_infill/"
+    "rorng_city_infill_red_mesa_19m/"
+    "rorng_city_infill_red_mesa_19m.asset.json"
+)
+INFILL_ARROYO_OASIS_MANIFEST = (
+    "resources/nextgen/cityworld/regional_infill/"
+    "rorng_city_infill_arroyo_oasis_19m/"
+    "rorng_city_infill_arroyo_oasis_19m.asset.json"
+)
+INFILL_ASSET_CONTRACTS = (
+    (
+        regional_infill.FARMSTEAD_ASSET_ID,
+        INFILL_FARMSTEAD_MANIFEST,
+        "static-building-v1",
+        (),
+    ),
+    (
+        regional_infill.SUBURB_ASSET_ID,
+        INFILL_SUBURB_MANIFEST,
+        "static-building-v1",
+        (),
+    ),
+    (
+        regional_infill.SERVICE_STATION_ASSET_ID,
+        INFILL_SERVICE_STATION_MANIFEST,
+        "static-building-v1",
+        tuple(
+            f"rorng_infill_station_canopy_{ordinal:02d}"
+            for ordinal in range(6)
+        ),
+    ),
+    (
+        regional_infill.RED_MESA_ASSET_ID,
+        INFILL_RED_MESA_MANIFEST,
+        "static-fixture-v1",
+        (),
+    ),
+    (
+        regional_infill.ARROYO_OASIS_ASSET_ID,
+        INFILL_ARROYO_OASIS_MANIFEST,
+        "static-fixture-v1",
+        (),
+    ),
+)
+EXPECTED_REGIONAL_INFILL_ROUTES = 7
+EXPECTED_REGIONAL_INFILL_PLACEMENTS = 46
+EXPECTED_PACKAGE_ENTRIES = 76
 ASSET_MANIFESTS = (
     GATEWAY_MANIFEST,
     TRANSITION_MANIFEST,
@@ -273,7 +346,11 @@ MODULE_ASSET_IDS = (
 TOOL_PATHS = (
     "tools/audit_cityworld_visuals.py",
     "tools/build_cityworld_local_overlay.py",
+    "tools/cityworld_infill.py",
+    "tools/cityworld_neoq_intercity_bridge.py",
+    "tools/cityworld_penguin_neoq_corridor.py",
     "tools/compile_cityworld_asset.py",
+    "tools/run_cityworld_neoq_bridge_scene.py",
     "tools/solve_cityworld_bridge_corridor.py",
     "tools/validate_cityworld_asset.py",
     "tools/validate_cityworld_tree_family.py",
@@ -1208,6 +1285,76 @@ def prepare_asset(
         report_path,
         max_bytes=4 * 1024 * 1024,
     )
+    runtime_material_provenance: dict[str, Any] = {}
+    runtime_material_dependencies = compiler.manifest.get(
+        "runtime_material_dependencies"
+    )
+    if runtime_material_dependencies is not None:
+        if (
+            not isinstance(runtime_material_dependencies, list)
+            or not runtime_material_dependencies
+        ):
+            raise OverlayFailure(
+                f"{compiler.asset_id} has invalid runtime material dependencies"
+            )
+        checked_dependencies: list[dict[str, Any]] = []
+        dependency_keys = {
+            "material",
+            "material_script_path",
+            "material_script_sha256",
+            "texture_path",
+            "texture_sha256",
+        }
+        for index, dependency in enumerate(runtime_material_dependencies):
+            if (
+                not isinstance(dependency, dict)
+                or set(dependency) != dependency_keys
+                or not isinstance(dependency.get("material"), str)
+                or not dependency["material"]
+            ):
+                raise OverlayFailure(
+                    f"{compiler.asset_id} runtime material dependency "
+                    f"{index} has an invalid contract"
+                )
+            for path_key, hash_key in (
+                ("material_script_path", "material_script_sha256"),
+                ("texture_path", "texture_sha256"),
+            ):
+                path_value = dependency.get(path_key)
+                expected_hash = dependency.get(hash_key)
+                if (
+                    not isinstance(path_value, str)
+                    or not isinstance(expected_hash, str)
+                    or len(expected_hash) != 64
+                ):
+                    raise OverlayFailure(
+                        f"{compiler.asset_id} runtime material dependency "
+                        f"{index} is incomplete"
+                    )
+                source = (
+                    repository / safe_package_path(path_value)
+                ).resolve()
+                try:
+                    source.relative_to(repository)
+                except ValueError as error:
+                    raise OverlayFailure(
+                        f"{compiler.asset_id} runtime material dependency "
+                        "escapes the repository"
+                    ) from error
+                actual_hash = sha256_regular_file(
+                    source,
+                    max_bytes=64 * 1024 * 1024,
+                )
+                if actual_hash != expected_hash:
+                    raise OverlayFailure(
+                        f"{compiler.asset_id} runtime material dependency "
+                        f"hash drifted: {path_value}"
+                    )
+            checked_dependencies.append(dict(dependency))
+        runtime_material_provenance = {
+            "materials": compiler.manifest.get("materials"),
+            "runtime_material_dependencies": checked_dependencies,
+        }
     profile = (
         load_asset_profile(repository, manifest_relative)
         if corridor_module
@@ -1231,6 +1378,9 @@ def prepare_asset(
                 "path": report_path_value,
                 "sha256": report_hash,
             },
+            "collision": compiler.manifest.get("collision"),
+            "connectors": compiler.manifest.get("connectors"),
+            "geometry": compiler.manifest.get("geometry"),
             "generator": compiler.manifest["authoring"]["generator"],
             "manifest": {
                 "path": manifest_relative,
@@ -1247,6 +1397,7 @@ def prepare_asset(
                 for item in runtime_files
             ],
             "runtime_lights": runtime_lights,
+            **runtime_material_provenance,
             "validation": {
                 "format": validation["format"],
                 "summary": validation["summary"],
@@ -1284,6 +1435,349 @@ def prepare_streetlight_asset(repository: Path) -> PreparedAsset:
     ):
         raise OverlayFailure("streetlight asset does not match its pinned fixture contract")
     return asset
+
+
+def prepare_penguin_road_seam_asset(repository: Path) -> PreparedAsset:
+    asset = prepare_asset(
+        repository,
+        PENGUIN_ROAD_SEAM_MANIFEST,
+        corridor_module=False,
+    )
+    profile = asset.provenance.get("asset", {}).get("profile")
+    if (
+        asset.asset_id != PENGUIN_ROAD_SEAM_ASSET_ID
+        or profile is not None
+        or asset.centerline_length_m is not None
+        or asset.profile is not None
+    ):
+        raise OverlayFailure(
+            "Penguinville crowned-road transition does not match "
+            "its pinned standalone seam contract"
+        )
+    return asset
+
+
+def prepare_regional_infill_assets(
+    repository: Path,
+) -> tuple[
+    regional_infill.InfillPlan,
+    dict[str, Any],
+    dict[str, Any],
+    tuple[PreparedAsset, ...],
+]:
+    """Validate the immutable infill plan and its five runtime asset families."""
+
+    if (
+        regional_infill.PINNED_ARCHIVE_SHA256
+        != PINNED_ARCHIVE_SHA256
+        or regional_infill.OPEN_ENDCAP_DIRECTIVE
+        != penguin_neoq_seam.OPEN_ENDCAP_DIRECTIVE
+    ):
+        raise OverlayFailure(
+            "regional-infill source or collision-seam contract drifted"
+        )
+    plan = regional_infill.build_infill_plan()
+    try:
+        plan_audit = regional_infill.audit_plan(plan)
+        manifest = regional_infill.build_manifest(plan)
+    except regional_infill.InfillFailure as error:
+        raise OverlayFailure(
+            f"regional-infill plan validation failed: {error}"
+        ) from error
+    if (
+        manifest.get("format") != regional_infill.FORMAT
+        or manifest.get("audit") != plan_audit
+        or regional_infill.canonical_manifest_bytes(plan)
+        != canonical_json_bytes(manifest)
+        or plan_audit.get("summary", {}).get("access_routes")
+        != EXPECTED_REGIONAL_INFILL_ROUTES
+        or plan_audit.get("summary", {}).get("placements")
+        != EXPECTED_REGIONAL_INFILL_PLACEMENTS
+        or plan_audit.get("summary", {}).get("assets")
+        != len(INFILL_ASSET_CONTRACTS)
+    ):
+        raise OverlayFailure("regional-infill canonical manifest drifted")
+
+    authored_contracts = tuple(
+        (asset.asset_id, asset.manifest)
+        for asset in plan.assets
+    )
+    expected_contracts = tuple(
+        (asset_id, manifest_path)
+        for asset_id, manifest_path, _, _ in INFILL_ASSET_CONTRACTS
+    )
+    if authored_contracts != expected_contracts:
+        raise OverlayFailure(
+            "regional-infill asset manifest sequence drifted"
+        )
+
+    assets = tuple(
+        prepare_asset(
+            repository,
+            manifest_path,
+            corridor_module=False,
+        )
+        for _, manifest_path, _, _ in INFILL_ASSET_CONTRACTS
+    )
+    expected_light_positions = (
+        (-12.0, 5.16, 8.0),
+        (0.0, 5.16, 8.0),
+        (12.0, 5.16, 8.0),
+        (-12.0, 5.16, 0.0),
+        (0.0, 5.16, 0.0),
+        (12.0, 5.16, 0.0),
+    )
+    for asset, contract in zip(assets, INFILL_ASSET_CONTRACTS):
+        asset_id, manifest_path, expected_profile, expected_light_ids = contract
+        identity = asset.provenance.get("asset")
+        runtime_lights = asset.provenance.get("runtime_lights")
+        if (
+            asset.asset_id != asset_id
+            or asset.manifest_path != manifest_path
+            or not isinstance(identity, dict)
+            or identity.get("id") != asset_id
+            or identity.get("profile") != expected_profile
+            or asset.centerline_length_m is not None
+            or asset.profile is not None
+            or not isinstance(runtime_lights, list)
+            or tuple(
+                light.get("id")
+                for light in runtime_lights
+                if isinstance(light, dict)
+            )
+            != expected_light_ids
+        ):
+            raise OverlayFailure(
+                f"{asset_id} does not match its pinned regional-infill contract"
+            )
+        if expected_light_ids:
+            if (
+                len(runtime_lights) != len(expected_light_positions)
+                or any(
+                    set(light) != {
+                        "color_linear",
+                        "id",
+                        "position_ogre_y_up_m",
+                        "range_m",
+                        "type",
+                    }
+                    or light["type"] != "point"
+                    or light["range_m"] != 24.0
+                    or light["color_linear"] != [1.0, 0.66, 0.31]
+                    or tuple(light["position_ogre_y_up_m"])
+                    != expected_light_positions[index]
+                    for index, light in enumerate(runtime_lights)
+                )
+            ):
+                raise OverlayFailure(
+                    "regional-infill service-station light contract drifted"
+                )
+        elif runtime_lights:
+            raise OverlayFailure(
+                f"{asset_id} unexpectedly emits runtime lights"
+            )
+    if len({asset.asset_id for asset in assets}) != len(assets):
+        raise OverlayFailure("regional-infill asset identifiers are not unique")
+    return plan, plan_audit, manifest, assets
+
+
+def regional_infill_routes(
+    plan: regional_infill.InfillPlan,
+) -> tuple[
+    tuple[tuple[ProceduralRoutePoint, ...], tuple[str, ...]],
+    ...,
+]:
+    """Convert the checked flat-road plan to native TOBJ route records."""
+
+    converted = []
+    for route in plan.routes:
+        points = tuple(
+            ProceduralRoutePoint(
+                station_m=point.station_m,
+                x=point.x,
+                y=point.y,
+                z=point.z,
+                yaw_degrees=point.yaw_degrees,
+                road_type=point.road_type,
+                width_m=point.width_m,
+                border_width_m=point.border_width_m,
+                border_height_m=point.border_height_m,
+            )
+            for point in route.points
+        )
+        if (
+            not route.collision_enabled
+            or route.collision_endcaps_enabled
+            or route.smoothing_num_splits != 0
+            or route.surface_material
+            != regional_infill.ROAD_SURFACE_MATERIAL
+            or any(
+                point.road_type != regional_infill.ROAD_TYPE
+                or point.border_width_m != 0.0
+                or point.border_height_m != 0.0
+                for point in points
+            )
+        ):
+            raise OverlayFailure(
+                f"regional-infill route {route.route_id} is not a flat open road"
+            )
+        converted.append((points, route.comments))
+    if len(converted) != EXPECTED_REGIONAL_INFILL_ROUTES:
+        raise OverlayFailure("regional-infill access-route count drifted")
+    return tuple(converted)
+
+
+def regional_infill_placements(
+    plan: regional_infill.InfillPlan,
+) -> tuple[TerrainObjectPlacement, ...]:
+    placements = tuple(
+        TerrainObjectPlacement(
+            station_m=placement.station_m,
+            side=placement.side,
+            x=placement.x,
+            y=placement.y,
+            z=placement.z,
+            yaw_degrees=placement.yaw_degrees,
+            asset_id=placement.asset_id,
+            instance_name=placement.instance_name,
+        )
+        for placement in plan.placements
+    )
+    if (
+        len(placements) != EXPECTED_REGIONAL_INFILL_PLACEMENTS
+        or tuple(placement.instance_name for placement in placements)
+        != tuple(placement.instance_name for placement in plan.placements)
+    ):
+        raise OverlayFailure("regional-infill placement sequence drifted")
+    return placements
+
+
+def authenticate_regional_infill_source(
+    *,
+    plan: regional_infill.InfillPlan,
+    source_tobj_sha256: str,
+    placements: Sequence[SourcePlacement],
+    route_anchor_evidence: dict[str, dict[str, Any]],
+    neoq_bridge_authentication: dict[str, Any],
+) -> dict[str, Any]:
+    """Bind every native infill handoff to its exact decoded source placement."""
+
+    if (
+        source_tobj_sha256 != regional_infill.PINNED_TOBJ_SHA256
+        or neoq_bridge_authentication.get("tobj")
+        != {
+            "name": regional_infill.PINNED_TOBJ_MEMBER,
+            "sha256": regional_infill.PINNED_TOBJ_SHA256,
+        }
+    ):
+        raise OverlayFailure("regional-infill source TOBJ hash drifted")
+    placements_by_line = {
+        placement.line_number: placement for placement in placements
+    }
+    if len(placements_by_line) != len(placements):
+        raise OverlayFailure("CityWorld source placement lines are not unique")
+
+    native_anchors = tuple(
+        anchor
+        for anchor in plan.source_anchors
+        if anchor.placement_line is not None
+    )
+    generated_anchors = tuple(
+        anchor
+        for anchor in plan.source_anchors
+        if anchor.placement_line is None
+    )
+    if (
+        len(native_anchors) != 6
+        or len(generated_anchors) != 1
+        or {anchor.placement_line for anchor in native_anchors}
+        != {378, 1354}
+    ):
+        raise OverlayFailure("regional-infill source-anchor set drifted")
+    for anchor in native_anchors:
+        observed = placements_by_line.get(anchor.placement_line)
+        if (
+            observed is None
+            or observed.object_name != anchor.placement_object
+            or observed.position != anchor.placement_position_m
+            or observed.rotation_degrees
+            != anchor.placement_rotation_degrees
+        ):
+            raise OverlayFailure(
+                f"regional-infill source anchor {anchor.anchor_id} "
+                "does not match its exact CityWorld.tobj placement"
+            )
+
+    line_1354 = route_anchor_evidence.get("source")
+    line_0378 = neoq_bridge_authentication.get("ground_road")
+    expected_line_1354 = {
+        "line_number": 1354,
+        "member": regional_infill.PINNED_TOBJ_MEMBER,
+        "object": penguin_neoq_seam.SOURCE_LEGACY_OBJECT,
+        "position_m": list(
+            penguin_neoq_seam.SOURCE_PLACEMENT_POSITION_M
+        ),
+        "rotation_degrees": list(
+            penguin_neoq_seam.SOURCE_PLACEMENT_ROTATION_DEGREES
+        ),
+    }
+    if line_1354 != expected_line_1354:
+        raise OverlayFailure(
+            "regional-infill line 1354 source evidence drifted"
+        )
+    if (
+        not isinstance(line_0378, dict)
+        or line_0378.get("line_number") != 378
+        or line_0378.get("member")
+        != regional_infill.PINNED_TOBJ_MEMBER
+        or line_0378.get("object")
+        != regional_infill.PINNED_HIGHWAY_OBJECT
+        or line_0378.get("position_m")
+        != list(regional_infill.PINNED_HIGHWAY_PLACEMENT_POSITION_M)
+        or line_0378.get("rotation_degrees")
+        != list(
+            regional_infill.PINNED_HIGHWAY_PLACEMENT_ROTATION_DEGREES
+        )
+        or line_0378.get("collision_member")
+        != regional_infill.PINNED_HIGHWAY_COLLISION_MEMBER
+        or line_0378.get("collision_sha256")
+        != regional_infill.PINNED_HIGHWAY_COLLISION_SHA256
+    ):
+        raise OverlayFailure(
+            "regional-infill line 378 highway evidence drifted"
+        )
+    line_1354_anchor = next(
+        anchor
+        for anchor in native_anchors
+        if anchor.placement_line == 1354
+    )
+    if (
+        line_1354_anchor.collision_member
+        != penguin_neoq_seam.SOURCE_REPLACEMENT_COLLISION_MESH
+        or line_1354_anchor.collision_sha256
+        != penguin_neoq_seam.SOURCE_REPLACEMENT_COLLISION_SHA256
+    ):
+        raise OverlayFailure(
+            "regional-infill line 1354 replacement-road evidence drifted"
+        )
+
+    return {
+        "anchor_ids": [
+            anchor.anchor_id for anchor in plan.source_anchors
+        ],
+        "archive_sha256": PINNED_ARCHIVE_SHA256,
+        "authenticated_placement_lines": [378, 1354],
+        "format": REGIONAL_INFILL_SOURCE_AUTHENTICATION_FORMAT,
+        "generated_anchor_count": len(generated_anchors),
+        "line_0378": line_0378,
+        "line_1354": line_1354,
+        "native_anchor_count": len(native_anchors),
+        "source_anchor_count": len(plan.source_anchors),
+        "source_tobj": {
+            "member": regional_infill.PINNED_TOBJ_MEMBER,
+            "sha256": source_tobj_sha256,
+        },
+    }
 
 
 def tree_scale_wrapper(
@@ -1864,7 +2358,7 @@ def merge_material_scripts(
         )
 
     rendered = [
-        "// Generated by ror-cityworld-local-overlay-v4.",
+        "// Generated by ror-cityworld-local-overlay-v6.",
         "// Canonical merged material script; duplicate definitions removed.",
         "",
     ]
@@ -2067,21 +2561,32 @@ def parameter_at_station(
 def route_elevation(
     station_m: float,
     total_length_m: float,
-    road_y_m: float,
+    source_road_y_m: float,
+    destination_road_y_m: float,
     surface_offset_m: float,
 ) -> float:
     station = float(station_m)
     total = float(total_length_m)
-    road_y = float(road_y_m)
+    source_road_y = float(source_road_y_m)
+    destination_road_y = float(destination_road_y_m)
     surface_offset = float(surface_offset_m)
     if not all(
         math.isfinite(value)
-        for value in (station, total, road_y, surface_offset)
+        for value in (
+            station,
+            total,
+            source_road_y,
+            destination_road_y,
+            surface_offset,
+        )
     ):
         raise OverlayFailure("route elevation inputs must be finite")
-    if not 0.0 <= station <= total:
+    if total <= 0.0 or not 0.0 <= station <= total:
         raise OverlayFailure("route elevation station lies outside the corridor")
 
+    road_y = source_road_y + (
+        destination_road_y - source_road_y
+    ) * smoothstep(station / total)
     ascent_start = ROUTE_GROUND_LEAD_M
     ascent_end = ascent_start + ROUTE_RAMP_LENGTH_M
     descent_start = total - ascent_end
@@ -2153,68 +2658,27 @@ def build_intercity_route(
             "surface offset must be finite and between "
             f"{MIN_SURFACE_OFFSET_M:g} and {MAX_SURFACE_OFFSET_M:g} metres"
         )
-    if abs(source[1] - destination[1]) > POSITION_EPSILON:
-        raise OverlayFailure("intercity road anchors must share a road elevation")
+    if (
+        len(source) != 3
+        or len(destination) != 3
+        or not all(
+            math.isfinite(float(value))
+            for value in (*source, *destination)
+        )
+    ):
+        raise OverlayFailure("intercity road anchors must be finite vectors")
     control_points = route_control_points(source, destination)
     arc_table = route_arc_table(control_points)
     core_length = arc_table[-1][1]
     stations = route_stations(core_length)
-    road_y = source[1]
-    surface_y = road_y + float(surface_offset_m)
-    destination_taper_grade = (
+    connection_taper_grade = (
         1.5 * abs(float(surface_offset_m)) / ROUTE_GROUND_LEAD_M
     )
-    source_apron_length = source[0] - ROUTE_SOURCE_APRON_START_X_M
-    source_apron_rise_length = (
-        ROUTE_SOURCE_APRON_RISE_X_M
-        - ROUTE_SOURCE_APRON_START_X_M
-    )
-    source_clearance_y = (
-        ROUTE_SOURCE_LEGACY_CURB_TOP_Y_M
-        + ROUTE_SOURCE_CURB_CLEARANCE_M
-    )
-    source_apron_grade = (
-        source_clearance_y
-        - ROUTE_SOURCE_LEGACY_ROAD_SURFACE_Y_M
-    ) / source_apron_rise_length
-    connection_taper_grade = max(
-        destination_taper_grade,
-        source_apron_grade,
-    )
-    if (
-        source_apron_length <= source_apron_rise_length
-        or source_apron_rise_length <= 0.0
-        or ROUTE_SOURCE_APRON_RISE_X_M >= source[0]
-    ):
-        raise OverlayFailure("Penguinville curb apron dimensions are invalid")
     if connection_taper_grade > ROUTE_MAX_CONNECTION_TAPER_GRADE:
         raise OverlayFailure(
             "road connection exceeds the safe connection-taper grade"
         )
-    points: list[ProceduralRoutePoint] = [
-        ProceduralRoutePoint(
-            station_m=0.0,
-            x=ROUTE_SOURCE_APRON_START_X_M,
-            y=ROUTE_SOURCE_LEGACY_ROAD_SURFACE_Y_M,
-            z=source[2],
-            yaw_degrees=ROUTE_EXPECTED_PROCEDURAL_YAW_DEGREES,
-            road_type="flat",
-            width_m=ROUTE_WIDTH_M,
-            border_width_m=ROUTE_FLAT_BORDER_WIDTH_M,
-            border_height_m=ROUTE_FLAT_BORDER_HEIGHT_M,
-        ),
-        ProceduralRoutePoint(
-            station_m=source_apron_rise_length,
-            x=ROUTE_SOURCE_APRON_RISE_X_M,
-            y=source_clearance_y,
-            z=source[2],
-            yaw_degrees=ROUTE_EXPECTED_PROCEDURAL_YAW_DEGREES,
-            road_type="flat",
-            width_m=ROUTE_WIDTH_M,
-            border_width_m=ROUTE_FLAT_BORDER_WIDTH_M,
-            border_height_m=ROUTE_FLAT_BORDER_HEIGHT_M,
-        ),
-    ]
+    points: list[ProceduralRoutePoint] = []
     for station in stations:
         parameter = parameter_at_station(arc_table, station)
         x, z = cubic_bezier(control_points, parameter)
@@ -2229,35 +2693,36 @@ def build_intercity_route(
         # rotates +Z toward +X, so the authored rotation is the negative of
         # the mathematical XZ tangent angle.
         yaw = -math.degrees(math.atan2(derivative_z, derivative_x))
-        road_type = (
-            "flat"
-            if (
-                station <= ROUTE_GROUND_LEAD_M
-                or station >= core_length - ROUTE_GROUND_LEAD_M
-            )
-            else "bridge"
-        )
         elevation = route_elevation(
             station,
             core_length,
-            road_y,
+            source[1],
+            destination[1],
             float(surface_offset_m),
         )
-        if station < ROUTE_GROUND_LEAD_M:
-            elevation += (
-                source_clearance_y - road_y
-            ) * (
-                1.0
-                - smoothstep(station / ROUTE_GROUND_LEAD_M)
-            )
+        if (
+            station <= ROUTE_GROUND_LEAD_M
+            or station >= core_length - ROUTE_GROUND_LEAD_M
+        ):
+            road_type = "flat"
+        elif elevation - min(source[1], destination[1]) < 1.0:
+            # Keep bridge cross-section/visuals on the two very low ramp
+            # segments, but do not ask native support generation to create a
+            # terrain-reaching pier that cannot meet its height contract.
+            road_type = penguin_neoq_seam.BRIDGE_NO_PILLARS_TOKEN
+        else:
+            road_type = penguin_neoq_seam.BRIDGE_TOKEN
         point = ProceduralRoutePoint(
-            station_m=source_apron_length + station,
+            station_m=station,
             x=x,
             y=elevation,
             z=z,
             yaw_degrees=normalized_degrees(yaw),
             road_type=road_type,
-            width_m=ROUTE_WIDTH_M,
+            width_m=penguin_neoq_seam.width_at_station(
+                station,
+                core_length,
+            ),
             border_width_m=(
                 ROUTE_FLAT_BORDER_WIDTH_M
                 if road_type == "flat"
@@ -2273,15 +2738,10 @@ def build_intercity_route(
             raise OverlayFailure("intercity route must leave both city envelopes")
         points.append(point)
 
-    total_length = source_apron_length + core_length
-    source_surface_position = (
-        ROUTE_SOURCE_APRON_START_X_M,
-        ROUTE_SOURCE_LEGACY_ROAD_SURFACE_Y_M,
-        source[2],
-    )
+    total_length = core_length
     source_gap = math.dist(
         (points[0].x, points[0].y, points[0].z),
-        source_surface_position,
+        source,
     )
     destination_gap = math.dist(
         (points[-1].x, points[-1].y, points[-1].z),
@@ -2290,22 +2750,38 @@ def build_intercity_route(
     if source_gap > POSITION_EPSILON or destination_gap > POSITION_EPSILON:
         raise OverlayFailure("intercity route does not close against its road anchors")
     if any(
-        point.x < ROUTE_SOURCE_APRON_START_X_M - POSITION_EPSILON
+        point.x < source[0] - POSITION_EPSILON
         or point.x > destination[0] + POSITION_EPSILON
         for point in points
     ):
         raise OverlayFailure("intercity route enters an existing city envelope")
 
-    support_points = [
+    requested_support_points = [
         point
         for point in points
-        if point.road_type == "bridge"
-        and point.y - surface_y >= 1.0
+        if point.road_type == penguin_neoq_seam.BRIDGE_TOKEN
     ]
+    no_pillar_bridge_points = [
+        point
+        for point in points
+        if point.road_type == penguin_neoq_seam.BRIDGE_NO_PILLARS_TOKEN
+    ]
+    supported_support_points = [
+        point
+        for point in requested_support_points
+        if point.y - min(source[1], destination[1]) >= 1.0
+    ]
+    if len(supported_support_points) != len(requested_support_points):
+        raise OverlayFailure(
+            "side-pier request is below the support-height threshold"
+        )
     bridge_spacing = max(
         (
             second.station_m - first.station_m
-            for first, second in zip(support_points, support_points[1:])
+            for first, second in zip(
+                requested_support_points,
+                requested_support_points[1:],
+            )
         ),
         default=0.0,
     )
@@ -2319,7 +2795,7 @@ def build_intercity_route(
         default=0.0,
     )
     straight_distance = math.hypot(
-        destination[0] - ROUTE_SOURCE_APRON_START_X_M,
+        destination[0] - source[0],
         destination[2] - source[2],
     )
     source_heading_error = angular_error_degrees(
@@ -2331,6 +2807,11 @@ def build_intercity_route(
         ROUTE_EXPECTED_PROCEDURAL_YAW_DEGREES,
     )
     report = {
+        "collision": {
+            "endcap_collision_enabled": False,
+            "endcap_collision_triangle_count": 0,
+            "endpoint_wheel_path_intrusion_m": 0.0,
+        },
         "connection": {
             "destination_heading_error_degrees": round(
                 destination_heading_error,
@@ -2356,20 +2837,28 @@ def build_intercity_route(
                 round(destination[2], 9),
             ],
         },
-        "format": "ror-cityworld-intercity-corridor-v3",
+        "format": "ror-cityworld-intercity-corridor-v4",
         "obstacle_avoidance": {
             "derivation":
-                "curb-clearing-source-overlap-then-strictly-monotonic-x",
+                "authenticated-open-road-mouth-then-strictly-monotonic-x",
             "destination_city_min_x_m": round(destination[0], 9),
             "source_city_max_x_m": round(source[0], 9),
             "centerline_monotonic_x": True,
-            "intentional_source_overlap_m": round(
-                source_apron_length,
-                9,
-            ),
+            "existing_ground_road_envelopes_intersected": 0,
+            "intentional_source_overlap_m": 0.0,
+            "procedural_centerline_x_bounds_m": [
+                round(source[0], 9),
+                round(destination[0], 9),
+            ],
+            "source_transition_x_bounds_m": [
+                penguin_neoq_seam.SOURCE_EDGE_WORLD_X_M,
+                round(source[0], 9),
+            ],
         },
         "profile": {
-            "connection_surface_y_m": round(road_y, 9),
+            "destination_connection_surface_y_m":
+                round(destination[1], 9),
+            "source_connection_surface_y_m": round(source[1], 9),
             "connection_taper_grade": round(connection_taper_grade, 9),
             "connection_taper_length_m": ROUTE_GROUND_LEAD_M,
             "deck_clearance_m": ROUTE_DECK_CLEARANCE_M,
@@ -2384,8 +2873,18 @@ def build_intercity_route(
             "sampled_maximum_grade": round(sampled_max_grade, 9),
             "sample_spacing_limit_m": ROUTE_SAMPLE_SPACING_M,
             "surface_offset_m": round(float(surface_offset_m), 9),
-            "surface_y_m": round(surface_y, 9),
-            "width_m": ROUTE_WIDTH_M,
+            "source_surface_y_m": round(
+                source[1] + float(surface_offset_m),
+                9,
+            ),
+            "destination_surface_y_m": round(
+                destination[1] + float(surface_offset_m),
+                9,
+            ),
+            "source_width_m": penguin_neoq_seam.SOURCE_ROAD_WIDTH_M,
+            "destination_width_m":
+                penguin_neoq_seam.DESTINATION_ROAD_WIDTH_M,
+            "width_transition": "full-corridor-cubic-smoothstep",
         },
         "remaining_straight_line_distance_m": round(
             math.hypot(
@@ -2397,48 +2896,42 @@ def build_intercity_route(
         "source": {
             **ROUTE_SOURCE_ANCHOR,
             "position_m": [
-                round(source_surface_position[0], 9),
-                round(source_surface_position[1], 9),
-                round(source_surface_position[2], 9),
+                round(source[0], 9),
+                round(source[1], 9),
+                round(source[2], 9),
             ],
-            "apron": {
-                "collision_authority":
-                    "native-procedural-road-v3",
-                "curb_clearance_m": round(
-                    ROUTE_SOURCE_CURB_CLEARANCE_M,
-                    9,
-                ),
-                "curb_top_y_m": round(
-                    ROUTE_SOURCE_LEGACY_CURB_TOP_Y_M,
-                    9,
-                ),
-                "legacy_collision_mesh":
-                    "troadavenuesidewalkbox.mesh",
-                "legacy_road_surface_y_m": round(
-                    ROUTE_SOURCE_LEGACY_ROAD_SURFACE_Y_M,
-                    9,
-                ),
-                "overlap_length_m": round(
-                    source_apron_length,
-                    9,
-                ),
-                "plateau_y_m": round(source_clearance_y, 9),
-                "rise_length_m": round(
-                    source_apron_rise_length,
-                    9,
-                ),
-                "surface_continuous": True,
+            "collision_handoff": {
+                "authorities_per_station": 1,
+                "legacy_curb_collision_retained": False,
+                "replacement_mode":
+                    "native-authenticated-in-place-object-definition-swap",
+                "transition_asset_id":
+                    penguin_neoq_seam.TRANSITION_ASSET_ID,
             },
         },
         "supports": {
             "enabled": True,
+            "expected_built_count": len(requested_support_points),
+            "expected_skipped_count": 0,
             "maximum_station_spacing_m": round(bridge_spacing, 9),
-            "requested_count": len(support_points),
+            "no_pillar_bridge_count": len(no_pillar_bridge_points),
+            "no_pillar_bridge_stations_m": [
+                round(point.station_m, 9)
+                for point in no_pillar_bridge_points
+            ],
+            "road_type_token": penguin_neoq_seam.BRIDGE_TOKEN,
+            "requested_count": len(requested_support_points),
             "stations_m": [
                 round(point.station_m, 9)
-                for point in support_points
+                for point in requested_support_points
             ],
-            "style": "ror-native-procedural-bridge-pillar-v1",
+            "expected_built_stations_m": [
+                round(point.station_m, 9)
+                for point in requested_support_points
+            ],
+            "style": "ror-native-procedural-paired-outboard-piers-v1",
+            "centerline_pillars_requested": 0,
+            "paired_outboard": True,
             "terrain_contact_resolved_at_runtime": True,
         },
         "target_distance_m": round(straight_distance, 9),
@@ -2452,6 +2945,7 @@ def build_intercity_route(
                 ],
                 "road_type": point.road_type,
                 "station_m": round(point.station_m, 9),
+                "width_m": round(point.width_m, 9),
                 "yaw_degrees": round(point.yaw_degrees, 9),
             }
             for index, point in enumerate(points)
@@ -2466,7 +2960,9 @@ def build_streetlight_placements(
     if len(points) < 2:
         raise OverlayFailure("streetlight placement requires a complete route")
     bridge_points = [
-        point for point in points if point.road_type == "bridge"
+        point
+        for point in points
+        if point.road_type == penguin_neoq_seam.BRIDGE_TOKEN
     ]
     if not bridge_points:
         raise OverlayFailure("streetlight placement requires a raised bridge")
@@ -2505,7 +3001,7 @@ def build_streetlight_placements(
             <= full_deck_end_m + POSITION_EPSILON
             and abs(point.station_m - aligned_station) <= POSITION_EPSILON
         ):
-            if point.road_type != "bridge":
+            if point.road_type != penguin_neoq_seam.BRIDGE_TOKEN:
                 raise OverlayFailure(
                     "streetlight station is not on the raised bridge deck"
                 )
@@ -2561,6 +3057,11 @@ def build_streetlight_placements(
                     round(point.z, 9),
                 ],
                 "instance_name": placement.instance_name,
+                "lateral_mount_offset_m": round(
+                    point.width_m / 2.0
+                    + point.border_width_m / 2.0,
+                    9,
+                ),
                 "placement_position_m": [
                     round(placement.x, 9),
                     round(placement.y, 9),
@@ -2573,20 +3074,24 @@ def build_streetlight_placements(
                 ],
                 "side": placement.side,
                 "station_m": round(point.station_m, 9),
+                "road_width_m": round(point.width_m, 9),
             }
         )
 
-    lateral_offset_m = (
-        selected_points[0].width_m / 2.0
-        + selected_points[0].border_width_m / 2.0
-    )
+    lateral_offsets_m = [
+        point.width_m / 2.0 + point.border_width_m / 2.0
+        for point in selected_points
+    ]
     report = {
         "arm_orientation": "alternating-inward-over-roadway",
         "asset_id": LED_STREETLIGHT_ASSET_ID,
-        "collision_authority": "native-procedural-road-v3",
-        "format": "ror-cityworld-streetlight-placement-v1",
+        "collision_authority": "native-procedural-road-v4-open-seams",
+        "format": "ror-cityworld-streetlight-placement-v2",
         "instance_count": len(placements),
-        "lateral_mount_offset_m": round(lateral_offset_m, 9),
+        "lateral_mount_offset_range_m": [
+            round(min(lateral_offsets_m), 9),
+            round(max(lateral_offsets_m), 9),
+        ],
         "mount_elevation_above_road_m": round(
             selected_points[0].border_height_m,
             9,
@@ -2600,17 +3105,35 @@ def build_streetlight_placements(
     return tuple(placements), report
 
 
-def procedural_route_text(points: Sequence[ProceduralRoutePoint]) -> str:
+def procedural_route_text(
+    points: Sequence[ProceduralRoutePoint],
+    *,
+    comments: Sequence[str] = (
+        "Generated full Penguinville-to-NeoQueretaro intercity road.",
+        "The Penguinville overlap apron clears the legacy curb.",
+        "The NeoQueretaro endpoint is an authenticated perimeter road.",
+        "Bridge points request terrain-reaching pillars.",
+    ),
+) -> str:
     if len(points) < 2:
         raise OverlayFailure("intercity route requires at least two waypoints")
+    if (
+        not comments
+        or any(
+            not isinstance(comment, str)
+            or not comment
+            or "\n" in comment
+            or "\r" in comment
+            for comment in comments
+        )
+    ):
+        raise OverlayFailure("procedural route comments are invalid")
     lines = [
-        "// Generated full Penguinville-to-NeoQueretaro intercity road.",
-        "// The Penguinville overlap apron clears the legacy curb.",
-        "// The NeoQueretaro endpoint is an authenticated perimeter road.",
-        "// Bridge points request terrain-reaching pillars.",
+        *(f"// {comment}" for comment in comments),
         "begin_procedural_roads",
         "    smoothing_num_splits 0",
         "    collision_enabled true",
+        f"    {penguin_neoq_seam.OPEN_ENDCAP_DIRECTIVE}",
     ]
     for point in points:
         lines.append(
@@ -2641,7 +3164,7 @@ def terrain_object_placement_text(
         return ""
     lines = [
         "",
-        "// Blender-authored bridge fixtures mounted outside the carriageway.",
+        "// Project-authored road, lighting, vegetation, and regional fixtures.",
     ]
     for placement in placements:
         lines.append(
@@ -2806,7 +3329,7 @@ def terrain_descriptor(
         "# Requires the separately supplied pinned CityWorld.zip.",
         "# Redistribution and shipping of this derived package are disabled.",
         "[General]",
-        "Name = CityWorld Next Local Overlay",
+        "Name = CityWorld Next Enhanced (Use This)",
         "GeometryConfig = CityWorld.otc",
         "Water = 0",
         "WaterLine = 0",
@@ -2817,8 +3340,8 @@ def terrain_descriptor(
         f"StartRotation = {stable_float(initial_heading)}",
         "Gravity = -9.81",
         "CategoryID = 129",
-        "Version = 4",
-        "GUID = rorng-cityworld-next-local-overlay-v4",
+        "Version = 6",
+        "GUID = rorng-cityworld-next-local-overlay-v6",
         "",
         "[Authors]",
         "overlay = Oasiz AI and Rigs of Rods contributors",
@@ -2839,14 +3362,24 @@ def terrain_descriptor(
 def overlay_placement(
     route_points: Sequence[ProceduralRoutePoint],
     terrain_objects: Sequence[TerrainObjectPlacement],
+    *,
+    additional_routes: Sequence[
+        tuple[Sequence[ProceduralRoutePoint], Sequence[str]]
+    ] = (),
 ) -> bytes:
     header = (
         "// LOCAL-ONLY: requires the pinned user-supplied CityWorld.zip.\n"
         "// Redistribution and shipping are disabled.\n"
     )
+    route_text = procedural_route_text(route_points)
+    for points, comments in additional_routes:
+        route_text += "\n" + procedural_route_text(
+            points,
+            comments=comments,
+        )
     return (
         header
-        + procedural_route_text(route_points)
+        + route_text
         + terrain_object_placement_text(terrain_objects)
     ).encode("utf-8")
 
@@ -2949,6 +3482,10 @@ def build_local_overlay(
         legacy_placements,
         native_tree_plan,
     )
+    neoq_bridge_authentication = neoq_bridge.authenticate_inputs(
+        source_archive,
+        legacy_placements,
+    )
     source_telepoint = exact_telepoint(audit, SOURCE_TELEPOINT)
     destination_telepoint = exact_telepoint(audit, DESTINATION_TELEPOINT)
     light_candidates = neoq_light_candidate_manifest(
@@ -2964,6 +3501,29 @@ def build_local_overlay(
     destination = tuple(ROUTE_DESTINATION_ANCHOR["connection_position_m"])
     corridor_assets = prepare_assets(repository)
     streetlight_asset = prepare_streetlight_asset(repository)
+    penguin_road_seam_asset = prepare_penguin_road_seam_asset(repository)
+    (
+        infill_plan,
+        infill_audit,
+        infill_manifest,
+        infill_assets,
+    ) = prepare_regional_infill_assets(repository)
+    infill_source_authentication = authenticate_regional_infill_source(
+        plan=infill_plan,
+        source_tobj_sha256=source_tobj_sha256,
+        placements=legacy_placements,
+        route_anchor_evidence=anchor_evidence,
+        neoq_bridge_authentication=neoq_bridge_authentication,
+    )
+    infill_manifest_payload = regional_infill.canonical_manifest_bytes(
+        infill_plan
+    )
+    if infill_manifest_payload != canonical_json_bytes(infill_manifest):
+        raise OverlayFailure(
+            "regional-infill embedded manifest is not canonical"
+        )
+    infill_access_routes = regional_infill_routes(infill_plan)
+    infill_object_placements = regional_infill_placements(infill_plan)
     tree_family = prepare_tree_family(repository, native_tree_plan)
     tree_replacements = neoq_tree_replacement_manifest(
         tree_family,
@@ -2974,7 +3534,9 @@ def build_local_overlay(
     assets = (
         *corridor_assets,
         streetlight_asset,
+        penguin_road_seam_asset,
         *tree_family.assets,
+        *infill_assets,
     )
     if len({asset.asset_id for asset in assets}) != len(assets):
         raise OverlayFailure("overlay assets contain duplicate identifiers")
@@ -2983,10 +3545,34 @@ def build_local_overlay(
         destination=destination,
         surface_offset_m=surface_offset_m,
     )
+    neoq_bridge_points, neoq_bridge_segment = neoq_bridge.build_route(
+        surface_offset_m=surface_offset_m,
+    )
     streetlight_placements, streetlight_report = (
         build_streetlight_placements(route_points)
     )
+    seam_placement = penguin_neoq_seam.transition_placement()
+    penguin_road_seam_placement = TerrainObjectPlacement(
+        station_m=0.0,
+        side="center",
+        x=seam_placement.x,
+        y=seam_placement.y,
+        z=seam_placement.z,
+        yaw_degrees=seam_placement.yaw_degrees,
+        asset_id=seam_placement.asset_id,
+        instance_name=seam_placement.instance_name,
+    )
+    (
+        neoq_bridge_streetlight_placements,
+        neoq_bridge_streetlight_report,
+    ) = neoq_bridge.build_streetlights(neoq_bridge_points)
     segment["fixtures"] = streetlight_report
+    segment["seams"] = penguin_neoq_seam.validate_seams(
+        route_points,
+        procedural_text=procedural_route_text(route_points),
+        transition_asset_provenance=
+            penguin_road_seam_asset.provenance,
+    )
     segment["source"]["authenticated_placement"] = anchor_evidence["source"]
     segment["destination"]["authenticated_placement"] = (
         anchor_evidence["destination"]
@@ -2998,6 +3584,26 @@ def build_local_overlay(
     segment["obstacle_avoidance"]["swept_mesh_clearance"] = (
         "native-visual-and-drive-gate-required"
     )
+    neoq_bridge_segment["authentication"] = neoq_bridge_authentication
+    neoq_bridge_segment["fixtures"] = neoq_bridge_streetlight_report
+    neoq_bridge_ground_clearance = (
+        neoq_bridge.validate_ground_road_clearance(
+            neoq_bridge_segment,
+            neoq_bridge_authentication,
+        )
+    )
+    neoq_bridge_segment["obstacle_avoidance"] = {
+        "destination_existing_lane_collision_preserved": True,
+        "destination_generated_overlap_m": 0.0,
+        "ground_level_support_clearance": neoq_bridge_ground_clearance,
+        "source_existing_lane_collision_preserved": True,
+        "source_flush_join_at_authenticated_mesh_edge": True,
+        "source_generated_overlap_m": 0.0,
+        "open_gap_placement_origin_audit":
+            neoq_bridge_authentication["open_gap"],
+        "swept_mesh_clearance":
+            "native-multi-camera-and-drive-gate-required",
+    }
 
     descriptor = terrain_descriptor(
         audit,
@@ -3006,11 +3612,30 @@ def build_local_overlay(
     )
     placement = overlay_placement(
         route_points,
-        streetlight_placements,
+        (
+            penguin_road_seam_placement,
+            *streetlight_placements,
+            *neoq_bridge_streetlight_placements,
+            *infill_object_placements,
+        ),
+        additional_routes=(
+            (
+                neoq_bridge_points,
+                (
+                    "Generated NeoQueretaro-to-NeoQ2.0 highway bridge.",
+                    "Both decoded city-road seams merge flush with zero generated overlap.",
+                    "Stations 80..760 are authored no-pillar above authenticated autopistaQr polygons.",
+                    "Fifty-six paired side piers elsewhere clear the deck and heavy trucks.",
+                ),
+            ),
+            *infill_access_routes,
+        ),
     )
     runtime_assets = (
+        penguin_road_seam_asset,
         streetlight_asset,
         *tree_family.assets,
+        *infill_assets,
     )
     merged_material = merge_material_scripts(runtime_assets)
     payloads: dict[str, bytes] = {}
@@ -3054,6 +3679,14 @@ def build_local_overlay(
     package_roles[NEOQ_TREE_REPLACEMENT_NAME] = (
         "authenticated-in-place-tree-replacement-plan"
     )
+    add_payload(
+        payloads,
+        REGIONAL_INFILL_MANIFEST_NAME,
+        infill_manifest_payload,
+    )
+    package_roles[REGIONAL_INFILL_MANIFEST_NAME] = (
+        "regional-infill-plan"
+    )
 
     source_member_hashes = {
         record["sha256"] for record in member_records
@@ -3063,6 +3696,11 @@ def build_local_overlay(
         for payload in payloads.values()
     ):
         raise OverlayFailure("generated package duplicates an original source member")
+    if len(payloads) + 1 != EXPECTED_PACKAGE_ENTRIES:
+        raise OverlayFailure(
+            "regional-infill package member count drifted: "
+            f"expected {EXPECTED_PACKAGE_ENTRIES}, found {len(payloads) + 1}"
+        )
 
     non_report_records = [
         payload_record(
@@ -3082,6 +3720,11 @@ def build_local_overlay(
         NEOQ_TREE_REPLACEMENT_NAME,
         tree_replacement_payload,
         "authenticated-in-place-tree-replacement-plan",
+    )
+    infill_manifest_record = payload_record(
+        REGIONAL_INFILL_MANIFEST_NAME,
+        infill_manifest_payload,
+        "regional-infill-plan",
     )
     report = {
         "assets": [asset.provenance for asset in assets],
@@ -3110,6 +3753,10 @@ def build_local_overlay(
             },
         },
         "corridor": segment,
+        "corridors": {
+            "neoq_to_neoq20": neoq_bridge_segment,
+            "penguinville_to_neoq": segment,
+        },
         "format": FORMAT,
         "package": {
             "entries": len(payloads) + 1,
@@ -3117,6 +3764,12 @@ def build_local_overlay(
             "fixed_permissions_octal": "100644",
             "fixed_timestamp_utc": "1980-01-01T00:00:00Z",
             "zip_compression": "stored",
+        },
+        "regional_infill": {
+            "audit": infill_audit,
+            "manifest": infill_manifest_record,
+            "source_authentication": infill_source_authentication,
+            "summary": infill_audit["summary"],
         },
         "rights": {
             "local_only": True,
@@ -3129,12 +3782,15 @@ def build_local_overlay(
             "source_placements_copied": False,
             "source_placement_records_derived": True,
             "derived_source_placement_record_count":
-                light_candidates["candidate_poles"] + 18,
+                light_candidates["candidate_poles"]
+                + 19
+                + 5,
             "source_textures_copied": False,
         },
         "visual_asset_usage": {
             "corridor_placement_mode":
-                "native-procedural-v3-curb-cut-with-blender-fixtures-v1",
+                "native-procedural-v6-two-corridor-open-seams-side-piers-with-"
+                "blender-transition-v2-and-regional-infill-v1",
             "disabled_light_candidate_manifest":
                 NEOQ_LIGHT_CANDIDATE_NAME,
             "neoq_core_runtime_light_activation": "blocked-fail-closed",
@@ -3143,12 +3799,18 @@ def build_local_overlay(
                 for asset in runtime_assets
             ],
             "placed_asset_ids": [
+                PENGUIN_ROAD_SEAM_ASSET_ID,
                 LED_STREETLIGHT_ASSET_ID,
                 *[
                     asset.asset_id
                     for asset in tree_family.assets
                 ],
+                *[
+                    asset.asset_id
+                    for asset in infill_assets
+                ],
             ],
+            "regional_infill_manifest": REGIONAL_INFILL_MANIFEST_NAME,
             "unplaced_asset_ids": [
                 asset.asset_id
                 for asset in corridor_assets
@@ -3158,14 +3820,26 @@ def build_local_overlay(
                 for asset in assets
             ],
             "purpose":
-                "curb-free Penguinville overlap apron plus route-safe Blender "
-                "lighting; all 18 authenticated legacy NeoQueretaro trees are "
-                "replaced in place by the rights-cleared three-variant family "
-                "with per-instance visual/collision scale wrappers; "
+                "authenticated Penguinville curb-bearing T-junction replacement "
+                "plus a crowned-to-flat Blender road transition inheriting the "
+                "procedural road2 surface and marking atlas, open procedural collision "
+                "endcaps, paired outboard bridge piers, and route-safe Blender "
+                "lighting; a second raised bridge leaves NeoQueretaro from an "
+                "authenticated flush mesh edge and merges flush at NeoQ2.0 without "
+                "covering its median or live lanes, with continuous collision, "
+                "18 polygon-authenticated no-pillar stations above autopistaQr, "
+                "paired outboard terrain-reaching side piers elsewhere, and bounded "
+                "LED fixtures; all 18 authenticated legacy NeoQueretaro trees "
+                "are replaced in place by the rights-cleared three-variant "
+                "family with per-instance visual/collision scale wrappers; "
                 "deterministic NeoQueretaro pole-light candidates remain "
                 "disabled pending the bounded renderer light budget and "
-                "fixed-camera visual gate; bridge modules remain validated "
-                "candidates for deck and abutment replacement",
+                "fixed-camera visual gate; seven curb-free flat access roads "
+                "connect 46 project-authored farm, suburb, service-station, "
+                "red-mesa, and arroyo-oasis placements across eight audited "
+                "empty parcels, with open collision endcaps and six bounded "
+                "canopy lights per service-station instance; bridge modules remain "
+                "validated candidates for deck and abutment replacement",
         },
         "source": {
             "archive": {
@@ -3180,6 +3854,8 @@ def build_local_overlay(
                 "geometry_config": "CityWorld.otc",
                 "original_placements": "CityWorld.tobj",
                 "overlay_placements": OVERLAY_NAME,
+                "regional_infill_manifest":
+                    REGIONAL_INFILL_MANIFEST_NAME,
                 "tree_replacement_manifest":
                     NEOQ_TREE_REPLACEMENT_NAME,
                 "resource_bundle_dependency":
@@ -3190,6 +3866,10 @@ def build_local_overlay(
     }
     report_payload = canonical_json_bytes(report)
     add_payload(payloads, REPORT_NAME, report_payload)
+    if len(payloads) != EXPECTED_PACKAGE_ENTRIES:
+        raise OverlayFailure(
+            "completed regional-infill package member count drifted"
+        )
 
     post_build_archive_hash = archive_sha256(source_archive)
     if post_build_archive_hash != PINNED_ARCHIVE_SHA256:
@@ -3232,6 +3912,7 @@ def build_local_overlay(
             placement_record,
             light_candidate_record,
             tree_replacement_record,
+            infill_manifest_record,
         ],
         "output": {
             "entries": len(payloads),
@@ -3272,6 +3953,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         CompileFailure,
         CorridorFailure,
         OverlayFailure,
+        regional_infill.InfillFailure,
         OSError,
         ValueError,
         zipfile.BadZipFile,

@@ -328,6 +328,48 @@ real in-memory descriptor through `Ogre::ConfigFile` with the production
 separators and proves that the fully authenticated colon-qualified values
 survive parsing intact.
 
+## CityWorld intercity overlay gates
+
+`tests/tools/test_cityworld_neoq_intercity_bridge.py` locks the exact
+NeoQueretaro and NeoQ2.0 distributor placements, all six endpoint resources,
+and the line-378 `autopistaQr` mesh/ODEF pair. It locks zero overlap at both
+city seams, one authoritative collision surface per seam, the decoded 15.1 m
+flush merge, and open collision endcaps. The pinned ground-road decode covers
+9,599 `calleunsolosentido`/`pavimento` triangles: stations 80 through 760 are
+therefore authored as 18 no-pillar pairs, while 56 feasible outboard pairs and
+all 168 support AABBs retain the 2.5 m lateral/5 cm vertical truck clearances.
+The 33-fixture alternating light schedule is unchanged. Synthetic archives
+make hostile and deterministic cases portable; the exact private archive is
+additionally authenticated when installed locally.
+
+`tests/tools/test_build_cityworld_local_overlay.py` then proves that overlay v5
+packages both intercity routes into one deterministic, local-only ZIP without
+copying the private source archive. `tests/tools/test_run_cityworld_corridor_scene.py`
+independently validates the complete report, 48 runtime bridge lights, and
+byte-identical rebuild contract. These standard-library tests run normally and
+under `python -O` on macOS, Linux, and Windows.
+
+The project-owned
+`tests/fixtures/cityworld_neoq_bridge_runtime/cityworld_neoq_bridge_runtime.as`
+diagnostic supplies six UI-free fixed cameras for native review of both road
+joins, the driver-height deck, ramp and mid-span undersides, paired side piers,
+and the complete raised alignment. The
+companion `cityworld_neoq_bridge_drive_runtime` fixture drives the packaged DAF
+over the complete link and ten metres beyond the zero-overlap seam, then spawns
+a westbound DAF on the preserved NeoQ2.0 carriageway and drives it back across
+the destination seam onto the generated deck. Both directions must keep the
+heavy-truck footprint inside the live lane.
+`tools/run_cityworld_neoq_bridge_scene.py` turns those fixtures into one
+fail-closed native acceptance: it authenticates and independently rebuilds the
+private overlay, requires six ordered UI-free 1280x720 RGB captures, drives
+through both seams with collisions and self-collisions enabled, checks the
+destination live-lane footprint in both directions, and requires the exact
+complete SidePiers summary multiset with no skipped supports. Static and drive
+runs use separate ephemeral RoR homes, and their logs, images, hashes, and
+report are published atomically only after both pass. The private
+`CityWorld.zip` and generated local overlay remain external to the fixtures and
+retained artifacts.
+
 ## Deterministic two-truck runtime scene
 
 `tools/run_deterministic_scene.py` drives the pinned D0 production scene

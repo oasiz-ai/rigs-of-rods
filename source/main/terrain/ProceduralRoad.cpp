@@ -30,10 +30,376 @@
 
 #include <Ogre.h>
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 using namespace Ogre;
 using namespace RoR;
 
 static int id_counter = 0;
+
+namespace
+{
+
+// Pillartype 3 is deliberately a separate geometry path. These dimensions are
+// part of the `bridge_side_pillars` content contract and must remain stable so
+// authored terrain tools can predict each support's occupied volume.
+constexpr float SIDE_PIER_COLUMN_HALF_EXTENT_M = 0.65f;
+constexpr float SIDE_PIER_HAMMERHEAD_HALF_EXTENT_M = 0.75f;
+constexpr float SIDE_PIER_HEAVY_TRUCK_CLEARANCE_M = 2.5f;
+constexpr float SIDE_PIER_DECK_UNDERSIDE_M = 0.4f;
+constexpr float SIDE_PIER_UNDERSIDE_GAP_M = 0.05f;
+constexpr float SIDE_PIER_HAMMERHEAD_THICKNESS_M = 0.6f;
+constexpr float SIDE_PIER_TERRAIN_EMBED_M = 0.25f;
+constexpr float SIDE_PIER_MIN_VISIBLE_COLUMN_M = 0.1f;
+constexpr float SIDE_PIER_EPSILON_M = 0.001f;
+
+enum class SidePierBuildResult
+{
+    BUILT,
+    MISSING_INCOMING_SEGMENT,
+    INVALID_ORIENTATION,
+    NON_FORWARD_SEGMENT,
+    ROADWAY_SWEPT_PRISM_OVERLAP,
+    NONFINITE_TERRAIN,
+    INSUFFICIENT_COLUMN_HEIGHT
+};
+
+const char* SidePierBuildResultName(SidePierBuildResult result)
+{
+    switch (result)
+    {
+    case SidePierBuildResult::BUILT:
+        return "built";
+    case SidePierBuildResult::MISSING_INCOMING_SEGMENT:
+        return "missing-incoming-segment";
+    case SidePierBuildResult::INVALID_ORIENTATION:
+        return "invalid-orientation";
+    case SidePierBuildResult::NON_FORWARD_SEGMENT:
+        return "non-forward-segment";
+    case SidePierBuildResult::ROADWAY_SWEPT_PRISM_OVERLAP:
+        return "roadway-swept-prism-overlap";
+    case SidePierBuildResult::NONFINITE_TERRAIN:
+        return "nonfinite-terrain";
+    case SidePierBuildResult::INSUFFICIENT_COLUMN_HEIGHT:
+        return "insufficient-column-height";
+    }
+    return "unknown";
+}
+
+void LogSidePierSkip(SidePierBuildResult result, Vector3 road_pos)
+{
+    const std::string message = fmt::format(
+        "[RoR|ProceduralRoad|SidePiers] skip reason={} "
+        "pos=({:.6f},{:.6f},{:.6f})",
+        SidePierBuildResultName(result),
+        road_pos.x,
+        road_pos.y,
+        road_pos.z);
+    RoR::Log(message.c_str());
+}
+
+struct SidePierFrame
+{
+    Vector3 origin;
+    Vector3 forward;
+    Vector3 lateral;
+    float negative_column_min;
+    float negative_column_max;
+    float positive_column_min;
+    float positive_column_max;
+    float underside_slope;
+    float hammerhead_top_at_station;
+    float hammerhead_top_back;
+    float hammerhead_top_front;
+    float hammerhead_bottom_back;
+    float hammerhead_bottom_front;
+};
+
+Vector3 SidePierPoint(
+    const SidePierFrame& frame,
+    float forward_offset,
+    float lateral_offset,
+    float height)
+{
+    Vector3 point =
+        frame.origin +
+        frame.forward * forward_offset +
+        frame.lateral * lateral_offset;
+    point.y = height;
+    return point;
+}
+
+void AddSidePierPrism(
+    ProceduralRoad& road,
+    const SidePierFrame& frame,
+    float lateral_min,
+    float lateral_max,
+    float bottom_back,
+    float bottom_front,
+    float top_back,
+    float top_front,
+    float half_longitudinal,
+    Vector3 road_pos,
+    Vector3 previous_road_pos,
+    float road_width)
+{
+    const float back = -half_longitudinal;
+    const float front = half_longitudinal;
+
+    const Vector3 back_min_bottom =
+        SidePierPoint(frame, back, lateral_min, bottom_back);
+    const Vector3 back_max_bottom =
+        SidePierPoint(frame, back, lateral_max, bottom_back);
+    const Vector3 front_min_bottom =
+        SidePierPoint(frame, front, lateral_min, bottom_front);
+    const Vector3 front_max_bottom =
+        SidePierPoint(frame, front, lateral_max, bottom_front);
+    const Vector3 back_min_top =
+        SidePierPoint(frame, back, lateral_min, top_back);
+    const Vector3 back_max_top =
+        SidePierPoint(frame, back, lateral_max, top_back);
+    const Vector3 front_min_top =
+        SidePierPoint(frame, front, lateral_min, top_front);
+    const Vector3 front_max_top =
+        SidePierPoint(frame, front, lateral_max, top_front);
+
+    // Closed, collision-bearing concrete prism. Winding points the cap normals
+    // away from the solid for the standard forward/up/lateral road frame.
+    road.addQuad(
+        back_min_top, back_max_top, front_max_top, front_min_top,
+        TextureFit::TEXFIT_CONCRETETOP,
+        road_pos, previous_road_pos, road_width);
+    road.addQuad(
+        back_min_bottom, front_min_bottom, front_max_bottom, back_max_bottom,
+        TextureFit::TEXFIT_CONCRETEUNDER,
+        road_pos, previous_road_pos, road_width);
+    road.addQuad(
+        back_min_bottom, back_min_top, front_min_top, front_min_bottom,
+        TextureFit::TEXFIT_CONCRETETOP,
+        road_pos, previous_road_pos, road_width);
+    road.addQuad(
+        front_max_bottom, front_max_top, back_max_top, back_max_bottom,
+        TextureFit::TEXFIT_CONCRETETOP,
+        road_pos, previous_road_pos, road_width);
+    road.addQuad(
+        back_max_bottom, back_max_top, back_min_top, back_min_bottom,
+        TextureFit::TEXFIT_CONCRETETOP,
+        road_pos, previous_road_pos, road_width);
+    road.addQuad(
+        front_min_bottom, front_min_top, front_max_top, front_max_bottom,
+        TextureFit::TEXFIT_CONCRETETOP,
+        road_pos, previous_road_pos, road_width);
+}
+
+SidePierBuildResult BuildSidePierFrame(
+    Vector3 road_pos,
+    Vector3 previous_road_pos,
+    Quaternion road_rot,
+    const Vector3* road_points,
+    const Vector3* previous_road_points,
+    SidePierFrame* frame)
+{
+    Vector3 forward = road_rot * Vector3::UNIT_X;
+    forward.y = 0.0f;
+    const float forward_length = forward.length();
+    if (!std::isfinite(forward_length) || forward_length <= SIDE_PIER_EPSILON_M)
+        return SidePierBuildResult::INVALID_ORIENTATION;
+    forward /= forward_length;
+
+    Vector3 authored_lateral = road_rot * Vector3::UNIT_Z;
+    authored_lateral.y = 0.0f;
+    Vector3 lateral(-forward.z, 0.0f, forward.x);
+    if (lateral.dotProduct(authored_lateral) < 0.0f)
+        lateral = -lateral;
+
+    Vector3 segment = road_pos - previous_road_pos;
+    segment.y = 0.0f;
+    const float signed_run = segment.dotProduct(forward);
+    if (!std::isfinite(signed_run) || signed_run <= SIDE_PIER_EPSILON_M)
+        return SidePierBuildResult::NON_FORWARD_SEGMENT;
+
+    float current_lateral_min = std::numeric_limits<float>::max();
+    float current_lateral_max = -std::numeric_limits<float>::max();
+    float swept_lateral_min = std::numeric_limits<float>::max();
+    float swept_lateral_max = -std::numeric_limits<float>::max();
+    for (int point_index = 0; point_index < 8; ++point_index)
+    {
+        const float current_projection =
+            (road_points[point_index] - road_pos).dotProduct(lateral);
+        const float previous_projection =
+            (previous_road_points[point_index] - road_pos).dotProduct(lateral);
+        current_lateral_min =
+            std::min(current_lateral_min, current_projection);
+        current_lateral_max =
+            std::max(current_lateral_max, current_projection);
+        swept_lateral_min =
+            std::min(swept_lateral_min, std::min(
+                current_projection, previous_projection));
+        swept_lateral_max =
+            std::max(swept_lateral_max, std::max(
+                current_projection, previous_projection));
+    }
+
+    const float negative_column_max =
+        current_lateral_min - SIDE_PIER_HEAVY_TRUCK_CLEARANCE_M;
+    const float positive_column_min =
+        current_lateral_max + SIDE_PIER_HEAVY_TRUCK_CLEARANCE_M;
+
+    // A sharply folded incoming segment can enter the otherwise-clear column
+    // slab. Fail closed rather than silently relocating a support away from its
+    // authored cross-section or allowing collision geometry into the roadway.
+    if (swept_lateral_min <= negative_column_max + SIDE_PIER_EPSILON_M ||
+        swept_lateral_max >= positive_column_min - SIDE_PIER_EPSILON_M)
+    {
+        return SidePierBuildResult::ROADWAY_SWEPT_PRISM_OVERLAP;
+    }
+
+    const float current_underside = std::min(
+        road_points[0].y, road_points[7].y);
+    const float previous_underside = std::min(
+        previous_road_points[0].y, previous_road_points[7].y);
+    const float underside_slope =
+        (current_underside - previous_underside) / signed_run;
+    const float hammerhead_top_at_station = std::min(
+        road_pos.y -
+            SIDE_PIER_DECK_UNDERSIDE_M -
+            SIDE_PIER_UNDERSIDE_GAP_M,
+        current_underside - SIDE_PIER_UNDERSIDE_GAP_M);
+
+    frame->origin = road_pos;
+    frame->forward = forward;
+    frame->lateral = lateral;
+    frame->negative_column_max = negative_column_max;
+    frame->negative_column_min =
+        negative_column_max - 2.0f * SIDE_PIER_COLUMN_HALF_EXTENT_M;
+    frame->positive_column_min = positive_column_min;
+    frame->positive_column_max =
+        positive_column_min + 2.0f * SIDE_PIER_COLUMN_HALF_EXTENT_M;
+    frame->underside_slope = underside_slope;
+    frame->hammerhead_top_at_station = hammerhead_top_at_station;
+    frame->hammerhead_top_back =
+        hammerhead_top_at_station -
+        underside_slope * SIDE_PIER_HAMMERHEAD_HALF_EXTENT_M;
+    frame->hammerhead_top_front =
+        hammerhead_top_at_station +
+        underside_slope * SIDE_PIER_HAMMERHEAD_HALF_EXTENT_M;
+    frame->hammerhead_bottom_back =
+        frame->hammerhead_top_back -
+        SIDE_PIER_HAMMERHEAD_THICKNESS_M;
+    frame->hammerhead_bottom_front =
+        frame->hammerhead_top_front -
+        SIDE_PIER_HAMMERHEAD_THICKNESS_M;
+    return SidePierBuildResult::BUILT;
+}
+
+SidePierBuildResult AddBridgeSidePiers(
+    ProceduralRoad& road,
+    Vector3 road_pos,
+    Vector3 previous_road_pos,
+    Quaternion road_rot,
+    float road_width,
+    const Vector3* road_points,
+    const Vector3* previous_road_points)
+{
+    SidePierFrame frame;
+    const SidePierBuildResult frame_result = BuildSidePierFrame(
+        road_pos,
+        previous_road_pos,
+        road_rot,
+        road_points,
+        previous_road_points,
+        &frame);
+    if (frame_result != SidePierBuildResult::BUILT)
+    {
+        return frame_result;
+    }
+
+    const float forward_offsets[] = {
+        -SIDE_PIER_COLUMN_HALF_EXTENT_M,
+        SIDE_PIER_COLUMN_HALF_EXTENT_M};
+    const float lateral_offsets[] = {
+        frame.negative_column_min,
+        frame.negative_column_max,
+        frame.positive_column_min,
+        frame.positive_column_max};
+    float terrain_bottom = std::numeric_limits<float>::max();
+    for (float forward_offset : forward_offsets)
+    {
+        for (float lateral_offset : lateral_offsets)
+        {
+            const Vector3 sample = SidePierPoint(
+                frame, forward_offset, lateral_offset, 0.0f);
+            const float terrain_height =
+                App::GetGameContext()->GetTerrain()->getHeightAt(
+                    sample.x, sample.z);
+            if (!std::isfinite(terrain_height))
+                return SidePierBuildResult::NONFINITE_TERRAIN;
+            terrain_bottom = std::min(terrain_bottom, terrain_height);
+        }
+    }
+    terrain_bottom -= SIDE_PIER_TERRAIN_EMBED_M;
+
+    const float column_top_back =
+        frame.hammerhead_top_at_station -
+        frame.underside_slope * SIDE_PIER_COLUMN_HALF_EXTENT_M;
+    const float column_top_front =
+        frame.hammerhead_top_at_station +
+        frame.underside_slope * SIDE_PIER_COLUMN_HALF_EXTENT_M;
+    const float minimum_column_top = std::min(
+        column_top_back,
+        column_top_front);
+    if (minimum_column_top - terrain_bottom <
+        SIDE_PIER_MIN_VISIBLE_COLUMN_M)
+    {
+        return SidePierBuildResult::INSUFFICIENT_COLUMN_HEIGHT;
+    }
+
+    AddSidePierPrism(
+        road,
+        frame,
+        frame.negative_column_min,
+        frame.negative_column_max,
+        terrain_bottom,
+        terrain_bottom,
+        column_top_back,
+        column_top_front,
+        SIDE_PIER_COLUMN_HALF_EXTENT_M,
+        road_pos,
+        previous_road_pos,
+        road_width);
+    AddSidePierPrism(
+        road,
+        frame,
+        frame.positive_column_min,
+        frame.positive_column_max,
+        terrain_bottom,
+        terrain_bottom,
+        column_top_back,
+        column_top_front,
+        SIDE_PIER_COLUMN_HALF_EXTENT_M,
+        road_pos,
+        previous_road_pos,
+        road_width);
+
+    AddSidePierPrism(
+        road,
+        frame,
+        frame.negative_column_min,
+        frame.positive_column_max,
+        frame.hammerhead_bottom_back,
+        frame.hammerhead_bottom_front,
+        frame.hammerhead_top_back,
+        frame.hammerhead_top_front,
+        SIDE_PIER_HAMMERHEAD_HALF_EXTENT_M,
+        road_pos,
+        previous_road_pos,
+        road_width);
+    return SidePierBuildResult::BUILT;
+}
+
+} // namespace
 
 ProceduralRoad::ProceduralRoad()
 {
@@ -62,9 +428,23 @@ void ProceduralRoad::finish(Ogre::SceneNode* groupingSceneNode)
 {
     Vector3 pts[8];
     computePoints(pts, lastpos, lastrot, lasttype, lastwidth, lastbwidth, lastbheight);
+    const bool longitudinal_collision = collision;
+    if (!collision_endcaps)
+        collision = false;
     addQuad(pts[7], pts[6], pts[5], pts[4], TextureFit::TEXFIT_NONE, lastpos, lastpos, lastwidth);
     addQuad(pts[7], pts[4], pts[3], pts[0], TextureFit::TEXFIT_NONE, lastpos, lastpos, lastwidth);
     addQuad(pts[3], pts[2], pts[1], pts[0], TextureFit::TEXFIT_NONE, lastpos, lastpos, lastwidth);
+    collision = longitudinal_collision;
+
+    if (side_pier_requested > 0)
+    {
+        const std::string message = fmt::format(
+            "[RoR|ProceduralRoad|SidePiers] requested={} built={} skipped={}",
+            side_pier_requested,
+            side_pier_built,
+            side_pier_skipped);
+        RoR::Log(message.c_str());
+    }
 
     createMesh();
     String entity_name = String("RoadSystem_Instance-").append(StringConverter::toString(mid));
@@ -73,7 +453,7 @@ void ProceduralRoad::finish(Ogre::SceneNode* groupingSceneNode)
     snode = groupingSceneNode->createChildSceneNode();
     snode->attachObject(ec);
 
-    if (collision)
+    if (collision && !registeredCollTris.empty())
     {
         App::GetGameContext()->GetTerrain()->GetCollisions()->registerCollisionMesh(
             "RoadSystem", mesh_name,
@@ -160,7 +540,29 @@ void ProceduralRoad::addBlock(Vector3 pos, Quaternion rot, RoadType type, float 
             addQuad(pts[1], lpts[1], lpts[0], pts[0], TextureFit::TEXFIT_BRICKWALL, pos, lastpos, width);
             addQuad(lpts[6], pts[6], pts[7], lpts[7], TextureFit::TEXFIT_BRICKWALL, pos, lastpos, width);
         }
-        if ((type == RoadType::ROAD_BRIDGE || type == RoadType::ROAD_MONORAIL) && pillartype > 0)
+        if (type == RoadType::ROAD_BRIDGE &&
+            pillartype == ROAD_PILLAR_TYPE_BRIDGE_SIDES)
+        {
+            ++side_pier_requested;
+            const SidePierBuildResult result = AddBridgeSidePiers(
+                *this,
+                pos,
+                lastpos,
+                rot,
+                width,
+                pts,
+                lpts);
+            if (result == SidePierBuildResult::BUILT)
+            {
+                ++side_pier_built;
+            }
+            else
+            {
+                ++side_pier_skipped;
+                LogSidePierSkip(result, pos);
+            }
+        }
+        else if ((type == RoadType::ROAD_BRIDGE || type == RoadType::ROAD_MONORAIL) && pillartype > 0)
         {
             /* this is the basic bridge pillar mod.
              * it will create on pillar for each segment!
@@ -249,9 +651,22 @@ void ProceduralRoad::addBlock(Vector3 pos, Quaternion rot, RoadType type, float 
     {
         first = false;
         computePoints(pts, pos, rot, type, width, bwidth, bheight);
+        const bool longitudinal_collision = collision;
+        if (!collision_endcaps)
+            collision = false;
         addQuad(pts[0], pts[1], pts[2], pts[3], TextureFit::TEXFIT_NONE, pos, pos, width);
         addQuad(pts[0], pts[3], pts[4], pts[7], TextureFit::TEXFIT_NONE, pos, pos, width);
         addQuad(pts[4], pts[5], pts[6], pts[7], TextureFit::TEXFIT_NONE, pos, pos, width);
+        collision = longitudinal_collision;
+        if (type == RoadType::ROAD_BRIDGE &&
+            pillartype == ROAD_PILLAR_TYPE_BRIDGE_SIDES)
+        {
+            ++side_pier_requested;
+            ++side_pier_skipped;
+            LogSidePierSkip(
+                SidePierBuildResult::MISSING_INCOMING_SEGMENT,
+                pos);
+        }
     }
     lastpos = pos;
     lastrot = rot;
@@ -679,4 +1094,3 @@ void ProceduralRoad::createMesh()
 
     free(vertices);
 };
-

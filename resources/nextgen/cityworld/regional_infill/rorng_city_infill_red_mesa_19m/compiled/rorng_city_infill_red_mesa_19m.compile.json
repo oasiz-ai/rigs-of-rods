@@ -1,0 +1,128 @@
+{
+  "asset": {
+    "id": "rorng_city_infill_red_mesa_19m",
+    "version": 1
+  },
+  "basis": {
+    "authoring": "blender-z-up-metres",
+    "authoring_to_interchange": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        -1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "compiler_transform": "identity",
+    "interchange": "gltf-y-up-metres",
+    "runtime": "ogre-y-up-metres"
+  },
+  "compiler": {
+    "format": "ror-cityworld-scene-compiler-v1",
+    "path": "tools/compile_cityworld_asset.py",
+    "sha256": "9e65172d4895cac5b033c23485cff4d3744557c76db62cd01ec083f01971ce47"
+  },
+  "connectors": [],
+  "format": "ror-cityworld-scene-compile-report-v1",
+  "inputs": {
+    "asset_contract_sha256": "91a4273e152350599c580909dc376fa9ed5c9cb1d144c3afb792e2e7a63af0c2",
+    "glb": {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m.glb",
+      "sha256": "6c77821d5808aa6186f45df56557f4a2d7ea8148c88fe4c35df7f43db5e885d5"
+    }
+  },
+  "limits": {
+    "indices": 12000000,
+    "materials": 4096,
+    "meshes": 4096,
+    "nodes": 4096,
+    "primitives": 8192,
+    "vertices": 4000000
+  },
+  "material_model": "ogre-rtss-metallic-roughness-fallback-v1",
+  "mesh_format": "MeshSerializer_v1.100-little-endian",
+  "ogre_converter": {
+    "executable": "OgreXMLConverter",
+    "sha256": "50b375974784925e8a180ca886f849b78ff61a3f94fa5e4b8abea710d800264a",
+    "version": "OgreXMLConverter Tsathoggua (14.5.2)"
+  },
+  "options": {
+    "colour_packing": "gl",
+    "endian": "little",
+    "lod_distances_m": [
+      80.0,
+      180.0
+    ],
+    "transforms": "applied-only"
+  },
+  "outputs": [
+    {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m.material",
+      "role": "material-fallback",
+      "sha256": "abfa377a8d34c41377ca51fa6ccec3710c84491e526b8965b4b65309f8c8574d",
+      "size": 1112
+    },
+    {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m.odef",
+      "role": "terrain-object",
+      "sha256": "c174835413298110638c36e74440d396f4ca6631ebc3d53accec85813d03491c",
+      "size": 162
+    },
+    {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_collision_fixture.mesh",
+      "role": "collision-fixture",
+      "sha256": "91a0c23085c5001f7b55d85fa3bee4c153364aeca62f451b793932cc52bf1702",
+      "size": 918
+    },
+    {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_lod0.mesh",
+      "role": "render-lod0",
+      "sha256": "64950667fe4e1e52d9a506880241ed085f1a5c080953466953bdd522b12d3b9c",
+      "size": 595034
+    },
+    {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_lod1.mesh",
+      "role": "render-lod1",
+      "sha256": "6cf836cc95485045d18d51b62c951fa2558c09e161f674ac3e4e9b94fb3db2f2",
+      "size": 45812
+    },
+    {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_lod2.mesh",
+      "role": "render-lod2",
+      "sha256": "4170152ecdff0913d8af88b1de30b767e63b59c7f1d76b52ec7e6f3a98810c3c",
+      "size": 4371
+    }
+  ],
+  "runtime_lights": [],
+  "source_stats": {
+    "indices": 14844,
+    "materials": 5,
+    "meshes": 4,
+    "primitives": 12,
+    "vertices": 12794
+  },
+  "xml_intermediate_sha256": {
+    "rorng_city_infill_red_mesa_19m_collision_fixture.mesh.xml": "22663d53bf10449d23554dd3f3346c1e2b2bd353bd390616beeca6d51766b57b",
+    "rorng_city_infill_red_mesa_19m_lod0.mesh.xml": "fd63cd0d5f249284ada70de31219658dfb3954dbba0b4b49de8e301b34c45f35",
+    "rorng_city_infill_red_mesa_19m_lod1.mesh.xml": "ecae60bde35b323da373ac323eb94870843349ee94086f1bb8984eeab935c0f7",
+    "rorng_city_infill_red_mesa_19m_lod2.mesh.xml": "9a235d2064f77f2a99b554379104fb2c58edee1a424a356826c02fa1d696d052"
+  }
+}
