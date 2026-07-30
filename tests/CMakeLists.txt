@@ -160,6 +160,12 @@ add_executable(
 )
 
 add_executable(
+    ror_post_process_policy_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/PostProcessPolicyTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/PostProcessPolicy.cpp"
+)
+
+add_executable(
     ror_local_light_budget_tests
     "${CMAKE_CURRENT_LIST_DIR}/terrain/LocalLightBudgetTests.cpp"
 )
@@ -633,6 +639,12 @@ target_include_directories(
 )
 
 target_include_directories(
+    ror_post_process_policy_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+)
+
+target_include_directories(
     ror_local_light_budget_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/terrain"
@@ -763,6 +775,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_render_display_metrics_tests
     ror_sky_mode_availability_tests
     ror_v0_post_process_math_tests
+    ror_post_process_policy_tests
     ror_local_light_budget_tests
     ror_beam_axial_response_tests
     ror_beam_rest_length_scale_tests
@@ -882,6 +895,11 @@ add_test(
 add_test(
     NAME v0_post_process_math
     COMMAND ror_v0_post_process_math_tests
+)
+
+add_test(
+    NAME post_process_policy
+    COMMAND ror_post_process_policy_tests
 )
 
 add_test(
