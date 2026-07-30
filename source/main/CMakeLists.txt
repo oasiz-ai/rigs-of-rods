@@ -235,6 +235,7 @@ set(SOURCE_FILES
         resources/tobj_fileformat/TObjFileFormat.{h,cpp}
         resources/tuneup_fileformat/TuneupFileFormat.{h,cpp}
         system/AppCommandLine.cpp
+        system/CommandLineInfo.{h,cpp}
         system/AppConfig.cpp
         system/Console.{h,cpp}
         system/ConsoleCmd.{h,cpp}
@@ -668,8 +669,10 @@ if (ROR_OGRE14)
     # Conan CMakeDeps exposes one immutable package root per build
     # configuration. Never derive an aggregate root from OGRE_INCLUDE_DIRS:
     # multi-config generation intentionally carries both package variants.
-    set(_ror_ogre14_package_root
-        "${_ror_ogre14_package_MEDIA}")
+    ror_ogre14_media_root(
+        _ror_ogre14_media_root
+        "${_ror_ogre14_package_MEDIA}"
+        "${CMAKE_SYSTEM_NAME}")
     set(_ror_ogre14_plugin_dir_RELEASE
         "${_ror_ogre14_package_RELEASE}/${_ror_ogre14_runtime_PACKAGE_PLUGIN_SUBDIR}")
     set(_ror_ogre14_plugin_dir_DEBUG
@@ -760,17 +763,11 @@ if (ROR_OGRE14)
     # shipped by the pinned OGRE package instead of carrying stale third-party
     # copies in the source tree.
     set(_ror_ogre14_main_media
-        "${_ror_ogre14_package_root}/Media/Main")
+        "${_ror_ogre14_media_root}/Main")
     set(_ror_ogre14_rtshader_media
-        "${_ror_ogre14_package_root}/Media/RTShaderLib")
+        "${_ror_ogre14_media_root}/RTShaderLib")
     set(_ror_ogre14_terrain_media
-        "${_ror_ogre14_package_root}/Media/Terrain")
-    if (NOT IS_DIRECTORY "${_ror_ogre14_main_media}" OR
-        NOT IS_DIRECTORY "${_ror_ogre14_rtshader_media}" OR
-        NOT IS_DIRECTORY "${_ror_ogre14_terrain_media}")
-        message(FATAL_ERROR
-            "The pinned OGRE 14 package is missing Main, RTShaderLib, or Terrain media")
-    endif ()
+        "${_ror_ogre14_media_root}/Terrain")
 
     file(MAKE_DIRECTORY
         "${RUNTIME_OUTPUT_DIRECTORY}/resources/ogre14/Main"
@@ -1005,7 +1002,7 @@ else ()
 endif ()
 
 if (ROR_OGRE14)
-    unset(_ror_ogre14_package_root)
+    unset(_ror_ogre14_media_root)
     unset(_ror_ogre14_package_RELEASE)
     unset(_ror_ogre14_package_DEBUG)
     unset(_ror_ogre14_package_MEDIA)

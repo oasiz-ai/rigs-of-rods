@@ -18,6 +18,10 @@ AUDITOR = REPOSITORY_ROOT / "tools" / "ogre14_runtime_audit.py"
 RENDER_SMOKE = (
     REPOSITORY_ROOT / "tools" / "ogre14_native_runtime_smoke.py"
 )
+APP_COMMAND_LINE = (
+    REPOSITORY_ROOT / "source" / "main" / "system" / "AppCommandLine.cpp"
+)
+MAIN_SOURCE = REPOSITORY_ROOT / "source" / "main" / "main.cpp"
 CONAN_SOURCE_FALLBACK = (
     'core.sources:download_urls=["origin", '
     '"https://c3i.jfrog.io/artifactory/conan-center-backup-sources/"]'
@@ -54,6 +58,10 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         cls.macos_text = MACOS_WORKFLOW.read_text(encoding="utf-8")
         cls.auditor_text = AUDITOR.read_text(encoding="utf-8")
         cls.render_smoke_text = RENDER_SMOKE.read_text(encoding="utf-8")
+        cls.app_command_line_text = APP_COMMAND_LINE.read_text(
+            encoding="utf-8"
+        )
+        cls.main_source_text = MAIN_SOURCE.read_text(encoding="utf-8")
 
     def assert_conan_source_fallback_contract(self, text: str) -> None:
         self.assertEqual(text.count("core.sources:download_urls="), 1)
@@ -344,6 +352,32 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
                 self.assertIn(contract, text)
         self.assertEqual(text.count("cmake --install"), 1)
         self.assertEqual(text.count("cmake -E rename"), 1)
+
+    def test_cli_audit_commands_are_ui_free_before_renderer_startup(
+        self,
+    ) -> None:
+        command_line = self.app_command_line_text
+        self.assertEqual(
+            command_line.count("RoR::WriteCommandLineInfo("),
+            2,
+        )
+        self.assertEqual(command_line.count("stdout,"), 2)
+        self.assertNotIn("ErrorUtils::ShowInfo", command_line)
+        self.assertNotIn("MessageBox", command_line)
+        main_source = self.main_source_text
+        parse = main_source.index("processCommandLine(argc, argv)")
+        help_exit = main_source.index(
+            "AppState::PRINT_HELP_EXIT",
+            parse,
+        )
+        version_exit = main_source.index(
+            "AppState::PRINT_VERSION_EXIT",
+            help_exit,
+        )
+        rendering = main_source.index("SetUpRendering()", version_exit)
+        self.assertLess(parse, help_exit)
+        self.assertLess(help_exit, version_exit)
+        self.assertLess(version_exit, rendering)
 
     def test_real_native_render_probes_are_mandatory_and_isolated(
         self,

@@ -20,8 +20,8 @@
 */
 
 #include "Console.h"
+#include "CommandLineInfo.h"
 #include "GameContext.h"
-#include "ErrorUtils.h"
 #include "PlatformUtils.h"
 #include "Utils.h"
 
@@ -241,7 +241,8 @@ void Console::processCommandLine(int argc, char *argv[])
 
 void Console::showCommandLineUsage()
 {
-    ErrorUtils::ShowInfo(
+    RoR::WriteCommandLineInfo(
+        stdout,
         _L("Command Line Arguments"),
         _L("--help (this)"                                          "\n"
             "-map <map> (loads map on startup)"                     "\n"
@@ -270,7 +271,10 @@ void Console::showCommandLineUsage()
 
 void Console::showCommandLineVersion()
 {
-    ErrorUtils::ShowInfo(_L("Version Information"), getVersionString());
+    RoR::WriteCommandLineInfo(
+        stdout,
+        _L("Version Information"),
+        getVersionString());
 #ifdef __GNUC__
     printf(" * built with gcc %d.%d.%d\n", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
 #endif //__GNUC__

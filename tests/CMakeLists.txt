@@ -171,6 +171,22 @@ add_executable(
 )
 
 add_executable(
+    ror_command_line_info_tests
+    "${CMAKE_CURRENT_LIST_DIR}/system/CommandLineInfoTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/CommandLineInfo.cpp"
+)
+target_include_directories(
+    ror_command_line_info_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+if (MSVC)
+    target_compile_definitions(
+        ror_command_line_info_tests
+        PRIVATE _CRT_SECURE_NO_WARNINGS
+    )
+endif ()
+
+add_executable(
     ror_beam_axial_response_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/BeamAxialResponseTests.cpp"
 )
@@ -777,6 +793,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_v0_post_process_math_tests
     ror_post_process_policy_tests
     ror_local_light_budget_tests
+    ror_command_line_info_tests
     ror_beam_axial_response_tests
     ror_beam_rest_length_scale_tests
     ror_beamng_material_inventory_tests
@@ -905,6 +922,11 @@ add_test(
 add_test(
     NAME local_light_budget
     COMMAND ror_local_light_budget_tests
+)
+
+add_test(
+    NAME command_line_info
+    COMMAND ror_command_line_info_tests
 )
 
 add_test(
