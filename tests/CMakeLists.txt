@@ -31,6 +31,7 @@ set(ROR_WORLDMODEL_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelCaptureContract.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelCaptureEncoding.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelLiveCaptureConfig.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelPlatformIdentity.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelCaptureSession.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelRuntimeBackend.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelTelemetry.cpp"
@@ -81,6 +82,10 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/worldmodel/WorldModelLiveCaptureConfigTests.cpp"
 )
 add_executable(
+    ror_worldmodel_platform_identity_tests
+    "${CMAKE_CURRENT_LIST_DIR}/worldmodel/WorldModelPlatformIdentityTests.cpp"
+)
+add_executable(
     ror_worldmodel_episode
     "${ROR_REPOSITORY_ROOT}/tools/ror_worldmodel_episode.cpp"
 )
@@ -96,6 +101,7 @@ set(ROR_WORLDMODEL_TARGETS
     ror_worldmodel_episode_io_tests
     ror_worldmodel_episode_tests
     ror_worldmodel_live_capture_config_tests
+    ror_worldmodel_platform_identity_tests
     ror_worldmodel_episode
 )
 
@@ -132,6 +138,7 @@ foreach (worldmodel_test IN ITEMS
     ror_worldmodel_episode_io_tests
     ror_worldmodel_episode_tests
     ror_worldmodel_live_capture_config_tests
+    ror_worldmodel_platform_identity_tests
     ror_worldmodel_episode
 )
     target_link_libraries(${worldmodel_test} PRIVATE ror_worldmodel_core)
@@ -913,6 +920,11 @@ add_test(
 add_test(
     NAME worldmodel_live_capture_config
     COMMAND ror_worldmodel_live_capture_config_tests
+)
+
+add_test(
+    NAME worldmodel_platform_identity
+    COMMAND ror_worldmodel_platform_identity_tests
 )
 
 add_test(

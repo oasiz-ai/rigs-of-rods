@@ -32,8 +32,14 @@ std::filesystem::path TemporaryRoot()
     const std::uint64_t nonce = static_cast<std::uint64_t>(
         std::chrono::high_resolution_clock::now()
             .time_since_epoch().count());
-    return std::filesystem::temp_directory_path() /
+    std::filesystem::path root =
+        std::filesystem::temp_directory_path() /
         ("ror-episode-io-tests-" + std::to_string(nonce));
+#if defined(_WIN32)
+    // Exercise EpisodeWriter's native wide-path file opening.
+    root /= L"unicode-\u4e16\u754c";
+#endif
+    return root;
 }
 
 bool WriteEpisode(

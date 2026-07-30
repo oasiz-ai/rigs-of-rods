@@ -280,6 +280,7 @@ set(SOURCE_FILES
         worldmodel/WorldModelCaptureEncoding.{h,cpp}
         worldmodel/WorldModelLiveCaptureConfig.{h,cpp}
         worldmodel/WorldModelLiveCaptureController.{h,cpp}
+        worldmodel/WorldModelPlatformIdentity.{h,cpp}
         worldmodel/WorldModelCaptureSession.{h,cpp}
         worldmodel/WorldModelRuntimeBackend.{h,cpp}
         worldmodel/WorldModelTelemetry.{h,cpp}

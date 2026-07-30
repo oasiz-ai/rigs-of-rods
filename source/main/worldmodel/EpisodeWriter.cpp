@@ -59,7 +59,10 @@ std::FILE* OpenFile(
 {
 #if defined(_WIN32)
     std::FILE* output = nullptr;
-    return ::fopen_s(&output, path.string().c_str(), mode) == 0
+    std::wstring wide_mode;
+    for (const char* character = mode; *character != '\0'; ++character)
+        wide_mode.push_back(static_cast<wchar_t>(*character));
+    return ::_wfopen_s(&output, path.c_str(), wide_mode.c_str()) == 0
         ? output
         : nullptr;
 #else

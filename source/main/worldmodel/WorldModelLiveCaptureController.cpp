@@ -18,6 +18,7 @@
 #include "Terrain.h"
 #include "WorldModelCaptureContract.h"
 #include "WorldModelLiveCaptureConfig.h"
+#include "WorldModelPlatformIdentity.h"
 #include "WorldModelTelemetry.h"
 
 #include <OgreRenderSystem.h>
@@ -91,50 +92,6 @@ std::string CanonicalIdentifier(
         output.pop_back();
     }
     return output;
-}
-
-bool InspectPlatformId(
-    std::string& platform_id,
-    std::string* error)
-{
-#if defined(_WIN32)
-    OSVERSIONINFOW version = {};
-    version.dwOSVersionInfoSize = sizeof(version);
-    SYSTEM_INFO system = {};
-    GetNativeSystemInfo(&system);
-    if (!GetVersionExW(&version))
-    {
-        if (error != nullptr)
-            *error = "GetVersionExW failed";
-        return false;
-    }
-    platform_id = CanonicalIdentifier(
-        "platform/",
-        "windows-" +
-            std::to_string(version.dwMajorVersion) + "-" +
-            std::to_string(version.dwMinorVersion) + "-" +
-            std::to_string(version.dwBuildNumber) + "-arch-" +
-            std::to_string(system.wProcessorArchitecture));
-#else
-    struct utsname identity = {};
-    if (uname(&identity) != 0)
-    {
-        if (error != nullptr)
-            *error = "uname failed";
-        return false;
-    }
-    platform_id = CanonicalIdentifier(
-        "platform/",
-        std::string(identity.sysname) + "-" +
-            identity.release + "-" + identity.machine);
-#endif
-    if (!RoR::WorldModel::IsCanonicalWorldModelIdentifier(platform_id))
-    {
-        if (error != nullptr)
-            *error = "runtime platform identity is not canonical";
-        return false;
-    }
-    return true;
 }
 
 bool CurrentExecutablePath(
@@ -602,7 +559,8 @@ public:
             runtime.reset();
             return false;
         }
-        if (!InspectPlatformId(provenance.os_id, &error))
+        if (!RoR::WorldModel::InspectRuntimePlatformIdentifier(
+                provenance.os_id, &error))
         {
             DisableAfterFailure(
                 "platform identity failed: " + error);
