@@ -228,6 +228,7 @@ set(SOURCE_FILES
         resources/terrn2_fileformat/TerrainBundleDependency.{h,cpp}
         resources/terrn2_fileformat/Terrn2FileFormat.{h,cpp}
         resources/tobj_fileformat/CityWorldNeoQ20Compatibility.{h,cpp}
+        resources/tobj_fileformat/CityWorldPenguinRoadCompatibility.{h,cpp}
         resources/tobj_fileformat/CityWorldNeoQTreeCompatibility.{h,cpp}
         resources/tobj_fileformat/CityWorldNeoQTreePlan.inc
         resources/tobj_fileformat/TObjFileFormat.{h,cpp}
