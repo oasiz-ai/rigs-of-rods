@@ -56,4 +56,5 @@ tests/tools/test_validate_cityworld_asset.py text eol=lf
 resources/nextgen/cityworld/**/*.json text eol=lf
 resources/nextgen/cityworld/**/*.material text eol=lf
 resources/nextgen/cityworld/**/*.odef text eol=lf
+resources/materials/ror.material text eol=lf
 content-source/cityworld_next/provenance/*.json text eol=lf

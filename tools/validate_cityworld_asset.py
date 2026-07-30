@@ -33,6 +33,11 @@ MAX_GLB_BYTES = 128 * 1024 * 1024
 MAX_SOURCE_BYTES = 512 * 1024 * 1024
 POSITION_EPSILON = 1e-6
 COLLISION_COMPONENT_EPSILON_M = 1e-5
+# ``footprint_m`` describes the building wall/lot envelope. Render meshes may
+# extend slightly beyond it for bounded architectural details such as roof
+# edges, cornices, gutters, and trim. Collision remains governed by the nominal
+# footprint and does not receive this allowance.
+STATIC_BUILDING_MAX_RENDER_OVERHANG_M = 0.25
 MAX_RUNTIME_LIGHTS = 32
 MAX_RUNTIME_LIGHT_LOCAL_COORDINATE_M = 1000.0
 SUPPORTED_BLENDER_VERSION = "5.2.0 LTS"
@@ -1975,8 +1980,25 @@ class Validator:
 
         self.stats["collision_objects"] = len(objects)
         if profile == STATIC_BUILDING_ASSET_PROFILE:
-            geometry = self.manifest.get("geometry", {})
+            geometry = self.manifest.get("geometry")
+            if not isinstance(geometry, dict):
+                geometry = {}
             height = geometry.get("height_limit_m")
+            footprint = geometry.get("footprint_m")
+            half_footprint = (
+                (float(footprint[0]) * 0.5, float(footprint[1]) * 0.5)
+                if (
+                    isinstance(footprint, list)
+                    and len(footprint) == 2
+                    and all(
+                        not isinstance(value, bool)
+                        and isinstance(value, (int, float))
+                        and math.isfinite(float(value))
+                        for value in footprint
+                    )
+                )
+                else None
+            )
             for name, minimum, maximum in bounds:
                 if minimum[2] != 0.0:
                     self.add(
@@ -1993,6 +2015,27 @@ class Validator:
                         "BUILDING_COLLISION_HEIGHT",
                         "$.collision.objects",
                         f"{name} exceeds the declared building height",
+                    )
+                if (
+                    half_footprint is not None
+                    and (
+                        minimum[0]
+                        < -half_footprint[0] - POSITION_EPSILON
+                        or maximum[0]
+                        > half_footprint[0] + POSITION_EPSILON
+                        or minimum[1]
+                        < -half_footprint[1] - POSITION_EPSILON
+                        or maximum[1]
+                        > half_footprint[1] + POSITION_EPSILON
+                    )
+                ):
+                    self.add(
+                        "BUILDING_COLLISION_FOOTPRINT",
+                        "$.collision.objects",
+                        (
+                            f"{name} exceeds the declared horizontal "
+                            "building footprint"
+                        ),
                     )
         for first_index, (first_name, first_min, first_max) in enumerate(bounds):
             for second_name, second_min, second_max in bounds[first_index + 1 :]:
@@ -2128,15 +2171,19 @@ class Validator:
                             and (
                                 float(minimum[0])
                                 < -footprint_values[0] * 0.5
+                                - STATIC_BUILDING_MAX_RENDER_OVERHANG_M
                                 - POSITION_EPSILON
                                 or float(maximum[0])
                                 > footprint_values[0] * 0.5
+                                + STATIC_BUILDING_MAX_RENDER_OVERHANG_M
                                 + POSITION_EPSILON
                                 or float(minimum[1])
                                 < -footprint_values[1] * 0.5
+                                - STATIC_BUILDING_MAX_RENDER_OVERHANG_M
                                 - POSITION_EPSILON
                                 or float(maximum[1])
                                 > footprint_values[1] * 0.5
+                                + STATIC_BUILDING_MAX_RENDER_OVERHANG_M
                                 + POSITION_EPSILON
                             )
                         ):
@@ -2145,7 +2192,8 @@ class Validator:
                                 f"$.geometry.lods[{index}]",
                                 (
                                     "building render LOD exceeds the "
-                                    "declared horizontal footprint"
+                                    "declared horizontal footprint plus "
+                                    "the bounded architectural overhang"
                                 ),
                             )
                         if (

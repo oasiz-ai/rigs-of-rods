@@ -58,6 +58,15 @@ BRIDGE_FIXTURE_MANIFEST_PATH = (
 BRIDGE_FIXTURE_MANIFEST_RELATIVE = (
     BRIDGE_FIXTURE_MANIFEST_PATH.relative_to(REPOSITORY_ROOT)
 )
+STOREFRONT_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "resources/nextgen/cityworld/buildings/storefront_family/"
+    "rorng_city_storefront_arcade_30x10/"
+    "rorng_city_storefront_arcade_30x10.asset.json"
+)
+STOREFRONT_MANIFEST_RELATIVE = STOREFRONT_MANIFEST_PATH.relative_to(
+    REPOSITORY_ROOT
+)
 BASE_GENERATOR_PATH = (
     REPOSITORY_ROOT
     / "tools/blender/cityworld_next/generate_bridge_kit.py"
@@ -505,6 +514,83 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 ),
             },
         )
+
+    def test_static_building_render_overhang_is_bounded_in_all_modes(
+        self,
+    ) -> None:
+        cases = (
+            ("within-bound", 9.842, set()),
+            (
+                "render-beyond-bound",
+                9.838,
+                {"BUILDING_RENDER_FOOTPRINT"},
+            ),
+            (
+                "collision-beyond-bound",
+                9.65,
+                {
+                    "BUILDING_COLLISION_FOOTPRINT",
+                    "BUILDING_RENDER_FOOTPRINT",
+                },
+            ),
+        )
+        for name, footprint_depth, expected_codes in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    manifest_path = self.copy_fixture(
+                        root,
+                        STOREFRONT_MANIFEST_RELATIVE,
+                    )
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    manifest["geometry"]["footprint_m"][1] = (
+                        footprint_depth
+                    )
+                    manifest_path.write_text(
+                        json.dumps(
+                            manifest,
+                            indent=2,
+                            sort_keys=True,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+
+                    normal_result, normal = self.run_validator(
+                        root,
+                        manifest_path,
+                    )
+                    optimized_result, optimized = self.run_validator(
+                        root,
+                        manifest_path,
+                        optimized=True,
+                    )
+
+                self.assertEqual(normal, optimized)
+                self.assertEqual(
+                    normal_result.returncode,
+                    0 if not expected_codes else 1,
+                )
+                self.assertEqual(
+                    optimized_result.returncode,
+                    normal_result.returncode,
+                )
+                if not expected_codes:
+                    self.assertNotIn(
+                        "BUILDING_RENDER_FOOTPRINT",
+                        self.codes(normal),
+                    )
+                    self.assertNotIn(
+                        "BUILDING_COLLISION_FOOTPRINT",
+                        self.codes(normal),
+                    )
+                else:
+                    self.assertTrue(
+                        expected_codes.issubset(self.codes(normal)),
+                        normal,
+                    )
 
     def test_gate_is_equivalent_under_python_optimized_mode(self) -> None:
         normal_result, normal = self.run_validator(

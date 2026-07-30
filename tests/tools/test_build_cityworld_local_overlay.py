@@ -21,6 +21,7 @@ import zipfile
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TOOL_PATH = REPOSITORY_ROOT / "tools/build_cityworld_local_overlay.py"
+GITATTRIBUTES_PATH = REPOSITORY_ROOT / ".gitattributes"
 
 SPEC = importlib.util.spec_from_file_location(
     "build_cityworld_local_overlay",
@@ -197,6 +198,19 @@ PLACEMENTS = pinned_fixture_placements()
 
 
 class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
+    def test_hashed_runtime_material_is_checkout_stable(self) -> None:
+        attributes = {
+            line.strip()
+            for line in GITATTRIBUTES_PATH.read_text(
+                encoding="utf-8"
+            ).splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        self.assertIn(
+            "resources/materials/ror.material text eol=lf",
+            attributes,
+        )
+
     def setUp(self) -> None:
         bridge_contract = mock.patch.object(
             BUILDER.neoq_bridge,
