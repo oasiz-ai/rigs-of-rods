@@ -27,6 +27,15 @@ int g_failures = 0;
 
 const char* VALID_ID = "0123456789abcdef0123456789abcdef";
 
+void Progress(const char* stage)
+{
+#if defined(_WIN32)
+    std::cerr << "[episode-io] " << stage << std::endl;
+#else
+    static_cast<void>(stage);
+#endif
+}
+
 std::filesystem::path TemporaryRoot()
 {
     const std::uint64_t nonce = static_cast<std::uint64_t>(
@@ -53,6 +62,7 @@ bool WriteEpisode(
     options.max_chunk_bytes = 1024;
     EpisodeWriter writer;
     std::string error;
+    Progress("writer open begin");
     if (!writer.Open(
             root,
             episode_id,
@@ -63,6 +73,7 @@ bool WriteEpisode(
         std::cerr << "writer open failed: " << error << '\n';
         return false;
     }
+    Progress("writer open complete");
     const std::string telemetry[] = {
         "observation-10", "observation-20", "observation-30",
         "observation-40", "observation-50"};
@@ -79,6 +90,7 @@ bool WriteEpisode(
             return false;
         }
     }
+    Progress("telemetry complete");
     const std::string rgb0 = "fake-rgb-frame-zero";
     const std::string rgb1 = "fake-rgb-frame-one";
     if (!writer.AppendRgbRecord(
@@ -90,6 +102,7 @@ bool WriteEpisode(
         std::cerr << "RGB append or completion failed: " << error << '\n';
         return false;
     }
+    Progress("writer completion complete");
     final_directory = writer.GetFinalDirectory();
     return writer.IsComplete();
 }
@@ -356,10 +369,15 @@ int main(int argc, char** argv)
     }
 
     TestIntegrityPrimitives();
+    Progress("integrity complete");
     TestCompletedEpisode(root);
+    Progress("completed episode complete");
     TestInterruptedEpisode(root);
+    Progress("interrupted episode complete");
     TestCorruptionRejection(root);
+    Progress("corruption rejection complete");
     TestWriterAdmission(root);
+    Progress("writer admission complete");
     std::filesystem::remove_all(root, error);
     if (g_failures != 0)
     {
