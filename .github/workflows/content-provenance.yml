@@ -6,7 +6,7 @@ jobs:
   provenance-tool:
     name: Provenance tool (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -29,6 +29,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests/tools/test_content_provenance_audit.py
+          tests/tools/test_content_provenance_workflow_contract.py
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py
@@ -53,6 +54,7 @@ jobs:
         run: >-
           python -O -m unittest -v
           tests/tools/test_content_provenance_audit.py
+          tests/tools/test_content_provenance_workflow_contract.py
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py
