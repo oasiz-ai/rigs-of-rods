@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Accept overlay v5 and its seamless Penguinville route with the packaged DAF.
+"""Accept overlay v6 and its seamless Penguinville route with the packaged DAF.
 
 CityWorld is third-party content and is intentionally absent from this
 repository. This gate authenticates the original and locally derived overlay,
 rebuilds the overlay byte-for-byte, stages both in an ephemeral RoR home, and
 requires two physical DAF traversals plus four distinct UI-free RGB seam views.
+It also fail-closes the project-authored regional-infill package and placement
+contract before starting the native runtime.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import zlib
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 BASE_PATH = REPOSITORY_ROOT / "tools/run_cityworld_bridge_scene.py"
+INFILL_PATH = REPOSITORY_ROOT / "tools/cityworld_infill.py"
 
 
 def load_module(name: str, path: Path) -> object:
@@ -42,6 +45,7 @@ def load_module(name: str, path: Path) -> object:
 
 
 base = load_module("ror_cityworld_corridor_scene_base", BASE_PATH)
+infill = load_module("ror_cityworld_infill_for_corridor_scene", INFILL_PATH)
 
 
 CITYWORLD_SHA256 = (
@@ -51,7 +55,10 @@ CITYWORLD_NAME = "CityWorld.zip"
 OVERLAY_NAME = "CityWorldNextLocalOverlay.zip"
 OVERLAY_REPORT_MEMBER = "cityworld_next_local_overlay.report.json"
 OVERLAY_PLACEMENT_MEMBER = "cityworld_next_local_overlay.tobj"
-OVERLAY_REPORT_FORMAT = "ror-cityworld-local-overlay-v5"
+OVERLAY_REPORT_FORMAT = "ror-cityworld-local-overlay-v6"
+INFILL_MANIFEST_MEMBER = "cityworld_next_infill_manifest.v1.json"
+INFILL_MANIFEST_ROLE = "regional-infill-plan"
+INFILL_MANIFEST_FORMAT = "ror-cityworld-regional-infill-plan-v1"
 NEOQ_LIGHT_CANDIDATE_MEMBER = (
     "cityworld_next_neoq_core_lights.candidates.json"
 )
@@ -193,17 +200,24 @@ RGB_CAPTURE_IDS = (
 MAX_REPORT_BYTES = 4 * 1024 * 1024
 MAX_CANDIDATE_BYTES = 1024 * 1024
 MAX_TREE_REPLACEMENT_BYTES = 1024 * 1024
-MAX_ARCHIVE_MEMBERS = 64
+MAX_INFILL_MANIFEST_BYTES = 4 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 256
 MAX_OVERLAY_MEMBER_BYTES = 64 * 1024 * 1024
-MAX_OVERLAY_TOTAL_BYTES = 128 * 1024 * 1024
+MAX_OVERLAY_TOTAL_BYTES = 512 * 1024 * 1024
 EXPECTED_WAYPOINTS = 55
 EXPECTED_CORRIDOR_LIGHTS = 15
 EXPECTED_NEOQ_BRIDGE_LIGHTS = 33
 EXPECTED_LIGHTS = EXPECTED_CORRIDOR_LIGHTS + EXPECTED_NEOQ_BRIDGE_LIGHTS
+EXPECTED_SERVICE_STATIONS = 2
+EXPECTED_SERVICE_STATION_LIGHTS_PER_INSTANCE = 6
+EXPECTED_LIGHT_OBJECT_MARKERS = EXPECTED_LIGHTS + EXPECTED_SERVICE_STATIONS
 EXPECTED_ROUTE_LENGTH_M = 1038.350024882
 EXPECTED_CORRIDOR_SIDE_PIERS = 46
 EXPECTED_NEOQ_SIDE_PIERS = 56
 EXPECTED_NO_PILLAR_SPANS = 21
+EXPECTED_INFILL_ROUTES = 7
+EXPECTED_INFILL_PLACEMENTS = 46
+EXPECTED_ENDCAP_DIRECTIVES = 2 + EXPECTED_INFILL_ROUTES
 MAX_PHYSICS_STEPS = 480000
 CITYWORLD_FALLBACK_LIGHTING_MARKER = base.fallback_lighting_marker(
     (0.93, 0.86, 0.76)
@@ -227,19 +241,46 @@ EXPECTED_VISUAL_PURPOSE = (
     "are replaced in place by the rights-cleared three-variant family with "
     "per-instance visual/collision scale wrappers; deterministic "
     "NeoQueretaro pole-light candidates remain disabled pending "
-    "the bounded renderer light budget and fixed-camera visual gate; bridge "
-    "modules remain validated candidates for deck and abutment replacement"
+    "the bounded renderer light budget and fixed-camera visual gate; seven "
+    "curb-free flat access roads connect 46 project-authored farm, suburb, "
+    "service-station, red-mesa, and arroyo-oasis placements across eight "
+    "audited empty parcels, with open collision endcaps and six bounded canopy "
+    "lights per service-station instance; bridge modules remain validated "
+    "candidates for deck and abutment replacement"
 )
 EXPECTED_TREE_ASSET_IDS = [
     "rorng_city_neoq_tree_round",
     "rorng_city_neoq_tree_columnar",
     "rorng_city_neoq_tree_windswept",
 ]
+EXPECTED_INFILL_ASSET_IDS = [
+    "rorng_city_infill_farmstead_98x86",
+    "rorng_city_infill_suburb_block_96x88",
+    "rorng_city_infill_service_station_90x65",
+    "rorng_city_infill_red_mesa_19m",
+    "rorng_city_infill_arroyo_oasis_19m",
+]
+EXPECTED_INFILL_ASSET_MULTIPLICITIES = {
+    "rorng_city_infill_arroyo_oasis_19m": 7,
+    "rorng_city_infill_farmstead_98x86": 13,
+    "rorng_city_infill_red_mesa_19m": 7,
+    "rorng_city_infill_service_station_90x65": 2,
+    "rorng_city_infill_suburb_block_96x88": 17,
+}
+SERVICE_STATION_ASSET_ID = "rorng_city_infill_service_station_90x65"
+PROJECT_MATERIAL_FAILURE_IDENTIFIERS = (
+    "cityworld_next_local_overlay.material",
+    "rorng_city_infill_",
+    "rorng_city_neoq_tree_",
+    "rorng_fixture_",
+    "rorng_penguin_",
+)
 REQUIRED_OVERLAY_TOOLS = frozenset(
     (
         NEOQ_TREE_NATIVE_PLAN,
         "tools/audit_cityworld_visuals.py",
         "tools/build_cityworld_local_overlay.py",
+        "tools/cityworld_infill.py",
         "tools/cityworld_neoq_intercity_bridge.py",
         "tools/cityworld_penguin_neoq_corridor.py",
         "tools/compile_cityworld_asset.py",
@@ -1024,6 +1065,156 @@ def validate_neoq_light_candidates(manifest: object) -> dict[str, object]:
     return candidate_manifest
 
 
+def validate_regional_infill_manifest(
+    manifest: object,
+) -> dict[str, object]:
+    """Require the embedded plan to match the checked project contract."""
+
+    checked = exact_dict(manifest, "regional infill manifest")
+    canonical = infill.build_manifest()
+    require_exact_json(
+        checked,
+        canonical,
+        "regional infill manifest",
+    )
+    if checked.get("format") != INFILL_MANIFEST_FORMAT:
+        raise CorridorSceneFailure("regional infill format is unsupported")
+
+    routes = exact_list(
+        checked.get("access_routes"),
+        "regional infill access routes",
+    )
+    placements = exact_list(
+        checked.get("placements"),
+        "regional infill placements",
+    )
+    assets = exact_list(
+        checked.get("assets"),
+        "regional infill assets",
+    )
+    if len(routes) != EXPECTED_INFILL_ROUTES:
+        raise CorridorSceneFailure("regional infill route count drifted")
+    if len(placements) != EXPECTED_INFILL_PLACEMENTS:
+        raise CorridorSceneFailure("regional infill placement count drifted")
+    if [
+        exact_dict(value, f"regional infill asset {index}").get("asset_id")
+        for index, value in enumerate(assets)
+    ] != EXPECTED_INFILL_ASSET_IDS:
+        raise CorridorSceneFailure("regional infill asset inventory drifted")
+
+    multiplicities = {
+        asset_id: 0 for asset_id in EXPECTED_INFILL_ASSET_IDS
+    }
+    placement_ids: set[str] = set()
+    instance_names: set[str] = set()
+    for index, value in enumerate(placements):
+        placement = exact_dict(value, f"regional infill placement {index}")
+        asset_id = placement.get("asset_id")
+        if asset_id not in multiplicities:
+            raise CorridorSceneFailure(
+                "regional infill placement uses an unexpected asset"
+            )
+        multiplicities[asset_id] += 1
+        placement_id = placement.get("placement_id")
+        instance_name = placement.get("instance_name")
+        if (
+            not isinstance(placement_id, str)
+            or not placement_id
+            or placement_id in placement_ids
+            or not isinstance(instance_name, str)
+            or not instance_name
+            or instance_name in instance_names
+        ):
+            raise CorridorSceneFailure(
+                "regional infill placement identity is ambiguous"
+            )
+        placement_ids.add(placement_id)
+        instance_names.add(instance_name)
+    if multiplicities != EXPECTED_INFILL_ASSET_MULTIPLICITIES:
+        raise CorridorSceneFailure(
+            "regional infill asset multiplicities drifted"
+        )
+
+    route_ids: set[str] = set()
+    for index, value in enumerate(routes):
+        route = exact_dict(value, f"regional infill route {index}")
+        route_id = route.get("route_id")
+        collision = exact_dict(
+            route.get("collision"),
+            f"regional infill route {index} collision",
+        )
+        if (
+            not isinstance(route_id, str)
+            or not route_id
+            or route_id in route_ids
+            or collision.get("enabled") is not True
+            or collision.get("endcaps_enabled") is not False
+            or collision.get("endcap_directive")
+            != "collision_endcaps_enabled false"
+            or collision.get("single_surface_at_source_seam") is not True
+        ):
+            raise CorridorSceneFailure(
+                "regional infill route collision contract drifted"
+            )
+        route_ids.add(route_id)
+
+    audit = exact_dict(checked.get("audit"), "regional infill audit")
+    summary = exact_dict(audit.get("summary"), "regional infill summary")
+    if (
+        exact_int(summary.get("access_routes"), "infill route summary")
+        != EXPECTED_INFILL_ROUTES
+        or exact_int(
+            summary.get("placements"),
+            "infill placement summary",
+        )
+        != EXPECTED_INFILL_PLACEMENTS
+        or exact_int(summary.get("assets"), "infill asset summary")
+        != len(EXPECTED_INFILL_ASSET_IDS)
+    ):
+        raise CorridorSceneFailure("regional infill summary drifted")
+    return checked
+
+
+def validate_regional_infill_package(
+    package_payloads: Mapping[str, bytes],
+    package_records: Mapping[str, Mapping[str, object]],
+) -> None:
+    """Require every placed infill family member to be runtime-loadable."""
+
+    suffix_roles = {
+        ".odef": "terrain-object",
+        "_collision_fixture.mesh": "collision-fixture",
+        "_lod0.mesh": "render-lod0",
+        "_lod1.mesh": "render-lod1",
+        "_lod2.mesh": "render-lod2",
+    }
+    for asset_id in EXPECTED_INFILL_ASSET_IDS:
+        for suffix, expected_role in suffix_roles.items():
+            name = asset_id + suffix
+            record = package_records.get(name)
+            payload = package_payloads.get(name)
+            if (
+                record is None
+                or payload is None
+                or record.get("role") != expected_role
+            ):
+                raise CorridorSceneFailure(
+                    f"regional infill runtime package is incomplete: {name}"
+                )
+        odef_name = asset_id + ".odef"
+        try:
+            odef_text = package_payloads[odef_name].decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise CorridorSceneFailure(
+                f"regional infill ODEF is not UTF-8: {odef_name}"
+            ) from error
+        expected_lights = 6 if asset_id == SERVICE_STATION_ASSET_ID else 0
+        if odef_text.count("\npointlight ") != expected_lights:
+            raise CorridorSceneFailure(
+                f"regional infill ODEF light count drifted: {odef_name}"
+            )
+
+
 def validate_cityworld_archive(path: Path) -> dict[str, object]:
     digest = sha256_file(path)
     if digest != CITYWORLD_SHA256:
@@ -1036,6 +1227,7 @@ def validate_cityworld_archive(path: Path) -> dict[str, object]:
             if (
                 not names
                 or len(names) != len(set(names))
+                or len(names) != len({name.casefold() for name in names})
                 or archive.testzip() is not None
             ):
                 raise CorridorSceneFailure("CityWorld ZIP integrity failed")
@@ -1063,6 +1255,8 @@ def validate_overlay_archive(
     candidate_manifest: dict[str, object] | None = None
     tree_record: dict[str, object] | None = None
     tree_manifest: dict[str, object] | None = None
+    infill_record: dict[str, object] | None = None
+    infill_manifest: dict[str, object] | None = None
     package_payloads: dict[str, bytes] = {}
     package_records: dict[str, dict[str, object]] = {}
     try:
@@ -1073,6 +1267,7 @@ def validate_overlay_archive(
                 not infos
                 or len(infos) > MAX_ARCHIVE_MEMBERS
                 or len(names) != len(set(names))
+                or len(names) != len({name.casefold() for name in names})
             ):
                 raise CorridorSceneFailure("overlay ZIP integrity failed")
             total_size = 0
@@ -1200,6 +1395,15 @@ def validate_overlay_archive(
                             "NeoQ tree replacement inventory drifted"
                         )
                     tree_record = record
+                if name == INFILL_MANIFEST_MEMBER:
+                    if (
+                        infill_record is not None
+                        or record.get("role") != INFILL_MANIFEST_ROLE
+                    ):
+                        raise CorridorSceneFailure(
+                            "regional infill package inventory drifted"
+                        )
+                    infill_record = record
                 expected_names.add(name)
             if (
                 exact_int(package.get("entries"), "package entries")
@@ -1265,6 +1469,42 @@ def validate_overlay_archive(
                 package_payloads,
                 package_records,
             )
+            if infill_record is None:
+                raise CorridorSceneFailure(
+                    "regional infill manifest is missing"
+                )
+            infill_info = archive.getinfo(INFILL_MANIFEST_MEMBER)
+            if not 1 <= infill_info.file_size <= MAX_INFILL_MANIFEST_BYTES:
+                raise CorridorSceneFailure(
+                    "regional infill manifest size is invalid"
+                )
+            infill_payload = archive.read(INFILL_MANIFEST_MEMBER)
+            canonical_infill_payload = infill.canonical_manifest_bytes()
+            if (
+                infill_payload != canonical_infill_payload
+                or infill_record.get("sha256")
+                != infill.canonical_manifest_sha256()
+            ):
+                raise CorridorSceneFailure(
+                    "regional infill manifest is not canonical"
+                )
+            try:
+                decoded_infill_manifest = json.loads(
+                    infill_payload.decode("utf-8"),
+                    object_pairs_hook=reject_duplicate_keys,
+                )
+            except (
+                DuplicateKeyError,
+                RecursionError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+            ) as error:
+                raise CorridorSceneFailure(
+                    f"regional infill manifest is invalid JSON: {error}"
+                ) from error
+            infill_manifest = validate_regional_infill_manifest(
+                decoded_infill_manifest
+            )
             if references.get("overlay_placements") != (
                 OVERLAY_PLACEMENT_MEMBER
             ):
@@ -1276,6 +1516,12 @@ def validate_overlay_archive(
             ):
                 raise CorridorSceneFailure(
                     "NeoQ tree replacement reference drifted"
+                )
+            if references.get("regional_infill_manifest") != (
+                INFILL_MANIFEST_MEMBER
+            ):
+                raise CorridorSceneFailure(
+                    "regional infill source reference drifted"
                 )
             placement_payload = archive.read(OVERLAY_PLACEMENT_MEMBER)
             try:
@@ -1295,11 +1541,47 @@ def validate_overlay_archive(
                 raise CorridorSceneFailure(
                     "NeoQ trees were duplicated in overlay placements"
                 )
-            if placement_text.count("collision_endcaps_enabled false") != 2:
-                raise CorridorSceneFailure(
-                    "both procedural routes must disable collision endcaps "
-                    "exactly once"
+            if (
+                placement_text.count("begin_procedural_roads")
+                != EXPECTED_ENDCAP_DIRECTIVES
+                or placement_text.count("end_procedural_roads")
+                != EXPECTED_ENDCAP_DIRECTIVES
+                or placement_text.count(
+                    "collision_endcaps_enabled false"
                 )
+                != EXPECTED_ENDCAP_DIRECTIVES
+            ):
+                raise CorridorSceneFailure(
+                    "both corridors and all seven regional access routes must "
+                    "disable collision endcaps exactly once"
+                )
+            if infill_manifest is None:
+                raise CorridorSceneFailure(
+                    "regional infill validation did not complete"
+                )
+            for asset_id, count in (
+                EXPECTED_INFILL_ASSET_MULTIPLICITIES.items()
+            ):
+                if placement_text.count(f", {asset_id} - ") != count:
+                    raise CorridorSceneFailure(
+                        "regional infill placement multiplicities drifted"
+                    )
+            for value in exact_list(
+                infill_manifest.get("placements"),
+                "regional infill placement manifest",
+            ):
+                placement = exact_dict(
+                    value,
+                    "regional infill placement manifest entry",
+                )
+                instance_name = placement.get("instance_name")
+                if (
+                    not isinstance(instance_name, str)
+                    or placement_text.count(f" - {instance_name}\n") != 1
+                ):
+                    raise CorridorSceneFailure(
+                        "regional infill placement identity drifted"
+                    )
             if ", bridge\n" in placement_text:
                 raise CorridorSceneFailure(
                     "legacy center-pillar bridge token is present"
@@ -1327,6 +1609,10 @@ def validate_overlay_archive(
                     raise CorridorSceneFailure(
                         "NeoQueretaro candidate adapter was emitted"
                     )
+            validate_regional_infill_package(
+                package_payloads,
+                package_records,
+            )
 
             tools = exact_list(report.get("tools"), "overlay tools")
             tool_paths: set[str] = set()
@@ -1370,9 +1656,11 @@ def validate_overlay_archive(
         or candidate_manifest is None
         or tree_record is None
         or tree_manifest is None
+        or infill_record is None
+        or infill_manifest is None
     ):
         raise CorridorSceneFailure(
-            "NeoQueretaro visual validation did not complete"
+            "CityWorld visual validation did not complete"
         )
     lighting = exact_dict(report.get("city_lighting"), "overlay city lighting")
     if set(lighting) != {"neoq_core"}:
@@ -1413,6 +1701,86 @@ def validate_overlay_archive(
             "summary": tree_manifest["summary"],
         },
         "NeoQ tree visual report",
+    )
+    regional_infill = exact_dict(
+        report.get("regional_infill"),
+        "overlay regional infill",
+    )
+    if set(regional_infill) != {
+        "audit",
+        "manifest",
+        "source_authentication",
+        "summary",
+    }:
+        raise CorridorSceneFailure(
+            "overlay regional-infill report fields drifted"
+        )
+    require_exact_json(
+        regional_infill.get("audit"),
+        infill_manifest["audit"],
+        "overlay regional-infill audit",
+    )
+    require_exact_json(
+        regional_infill.get("manifest"),
+        infill_record,
+        "overlay regional-infill manifest record",
+    )
+    require_exact_json(
+        regional_infill.get("summary"),
+        infill_manifest["audit"]["summary"],
+        "overlay regional-infill summary",
+    )
+    infill_source_authentication = exact_dict(
+        regional_infill.get("source_authentication"),
+        "regional infill source authentication",
+    )
+    if set(infill_source_authentication) != {
+        "anchor_ids",
+        "archive_sha256",
+        "authenticated_placement_lines",
+        "format",
+        "generated_anchor_count",
+        "line_0378",
+        "line_1354",
+        "native_anchor_count",
+        "source_anchor_count",
+        "source_tobj",
+    }:
+        raise CorridorSceneFailure(
+            "regional infill source-authentication fields drifted"
+        )
+    require_exact_json(
+        {
+            key: infill_source_authentication[key]
+            for key in (
+                "anchor_ids",
+                "archive_sha256",
+                "authenticated_placement_lines",
+                "format",
+                "generated_anchor_count",
+                "native_anchor_count",
+                "source_anchor_count",
+                "source_tobj",
+            )
+        },
+        {
+            "anchor_ids": [
+                anchor["anchor_id"]
+                for anchor in infill_manifest["source_anchors"]
+            ],
+            "archive_sha256": CITYWORLD_SHA256,
+            "authenticated_placement_lines": [378, 1354],
+            "format":
+                "ror-cityworld-regional-infill-source-authentication-v1",
+            "generated_anchor_count": 1,
+            "native_anchor_count": 6,
+            "source_anchor_count": 7,
+            "source_tobj": {
+                "member": "CityWorld.tobj",
+                "sha256": infill.PINNED_TOBJ_SHA256,
+            },
+        },
+        "regional infill source authentication",
     )
 
     corridor = exact_dict(report.get("corridor"), "overlay corridor")
@@ -1475,6 +1843,26 @@ def validate_overlay_archive(
     collision_handoff = exact_dict(
         source.get("collision_handoff"),
         "corridor source collision handoff",
+    )
+    authenticated_source_placement = exact_dict(
+        source.get("authenticated_placement"),
+        "corridor authenticated source placement",
+    )
+    require_exact_json(
+        authenticated_source_placement,
+        {
+            "line_number": 1354,
+            "member": "CityWorld.tobj",
+            "object": "troadavenuesidewalk",
+            "position_m": [485.0, 0.1, 370.0],
+            "rotation_degrees": [0.0, 90.0, 0.0],
+        },
+        "corridor authenticated source placement",
+    )
+    require_exact_json(
+        infill_source_authentication.get("line_1354"),
+        authenticated_source_placement,
+        "regional infill line 1354 authentication",
     )
     if (
         source.get("connection_position_m")
@@ -1904,6 +2292,11 @@ def validate_overlay_archive(
         ]
     ):
         raise CorridorSceneFailure("Neo bridge authentication drifted")
+    require_exact_json(
+        infill_source_authentication.get("line_0378"),
+        bridge_ground_road,
+        "regional infill line 378 authentication",
+    )
     destination_contract = exact_dict(
         neoq_bridge.get("destination"),
         "Neo bridge destination contract",
@@ -2024,20 +2417,23 @@ def validate_overlay_archive(
         usage,
         {
             "corridor_placement_mode":
-                "native-procedural-v5-two-corridor-open-seams-side-piers-with-"
-                "blender-transition-v2",
+                "native-procedural-v6-two-corridor-open-seams-side-piers-with-"
+                "blender-transition-v2-and-regional-infill-v1",
             "disabled_light_candidate_manifest":
                 NEOQ_LIGHT_CANDIDATE_MEMBER,
             "neoq_core_runtime_light_activation": "blocked-fail-closed",
+            "regional_infill_manifest": INFILL_MANIFEST_MEMBER,
             "packaged_asset_ids": [
                 "rorng_city_penguin_road_seam_12m",
                 "rorng_city_led_streetlight_bridge",
                 *EXPECTED_TREE_ASSET_IDS,
+                *EXPECTED_INFILL_ASSET_IDS,
             ],
             "placed_asset_ids": [
                 "rorng_city_penguin_road_seam_12m",
                 "rorng_city_led_streetlight_bridge",
                 *EXPECTED_TREE_ASSET_IDS,
+                *EXPECTED_INFILL_ASSET_IDS,
             ],
             "purpose": EXPECTED_VISUAL_PURPOSE,
             "unplaced_asset_ids": EXPECTED_UNPLACED_ASSETS,
@@ -2047,6 +2443,7 @@ def validate_overlay_archive(
                     "rorng_city_led_streetlight_bridge",
                     "rorng_city_penguin_road_seam_12m",
                     *EXPECTED_TREE_ASSET_IDS,
+                    *EXPECTED_INFILL_ASSET_IDS,
                 ],
         },
         "overlay visual asset usage",
@@ -2331,15 +2728,25 @@ def validate_runtime_logs(
     for marker in ENGINE_MARKERS:
         if marker not in engine_log:
             raise CorridorSceneFailure(f"engine marker is missing: {marker}")
-    for marker in (
-        "base object not found in cityworld_next_local_overlay.material",
-        "material rorng_penguin_seam_asphalt has no supportable Techniques "
-        "and will be blank",
-    ):
-        if marker in engine_log:
+    for line in engine_log.splitlines():
+        is_material_failure = (
+            "base object not found" in line
+            or (
+                "material " in line
+                and "no supportable Techniques" in line
+                and "will be blank" in line
+            )
+            or "Can't assign material to SubMesh" in line
+        )
+        if (
+            is_material_failure
+            and any(
+                identifier in line
+                for identifier in PROJECT_MATERIAL_FAILURE_IDENTIFIERS
+            )
+        ):
             raise CorridorSceneFailure(
-                "Penguinville transition material did not resolve: "
-                + marker
+                "project-owned overlay material did not resolve: " + line
             )
     if engine_log.count("===== LOADING VEHICLE: b6b0UID-semi.truck") != 2:
         raise CorridorSceneFailure(
@@ -2395,7 +2802,23 @@ def validate_runtime_logs(
         "spotlights=0 point_lights=1 local_shadow_casters=0"
     )
     if engine_log.count(light_marker) != EXPECTED_LIGHTS:
-        raise CorridorSceneFailure("runtime light instance count drifted")
+        raise CorridorSceneFailure(
+            "runtime bridge-light instance count drifted"
+        )
+    service_station_light_marker = (
+        "[RoR|TerrainObject|Lights] "
+        f"odef={SERVICE_STATION_ASSET_ID}.odef "
+        "spotlights=0 "
+        f"point_lights={EXPECTED_SERVICE_STATION_LIGHTS_PER_INSTANCE} "
+        "local_shadow_casters=0"
+    )
+    if (
+        engine_log.count(service_station_light_marker)
+        != EXPECTED_SERVICE_STATIONS
+    ):
+        raise CorridorSceneFailure(
+            "runtime service-station light instance count drifted"
+        )
     if "Error =" in script_log:
         raise CorridorSceneFailure("AngelScript compiler emitted an error")
     if script_log.count("[RoR|CW2|CorridorRuntime] CAPTURE id=") != 4:
@@ -2702,7 +3125,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "city_road_surface_connection_verified": True,
             "collision_endcaps_open_verified": True,
             "fixed_seam_rgb_views_verified": True,
-            "status": "accepted-v4-seamless-corridor",
+            "status": "accepted-v6-seamless-corridor-and-regional-infill",
             "swept_wheel_path_clearance_verified": True,
             "paired_outboard_support_runtime_counts_verified": True,
         },

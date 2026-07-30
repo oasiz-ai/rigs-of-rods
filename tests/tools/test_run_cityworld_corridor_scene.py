@@ -47,6 +47,13 @@ def valid_logs() -> tuple[str, str]:
         "odef=rorng_city_led_streetlight_bridge.odef "
         "spotlights=0 point_lights=1 local_shadow_casters=0"
     )
+    service_station_marker = (
+        "[RoR|TerrainObject|Lights] "
+        f"odef={SCENE.SERVICE_STATION_ASSET_ID}.odef "
+        "spotlights=0 "
+        f"point_lights={SCENE.EXPECTED_SERVICE_STATION_LIGHTS_PER_INSTANCE} "
+        "local_shadow_casters=0"
+    )
     engine = "\n".join(
         (
             *SCENE.ENGINE_MARKERS,
@@ -58,6 +65,10 @@ def valid_logs() -> tuple[str, str]:
             "[RoR|ProceduralRoad|SidePiers] "
             "requested=56 built=56 skipped=0",
             *(light_marker for _ in range(SCENE.EXPECTED_LIGHTS)),
+            *(
+                service_station_marker
+                for _ in range(SCENE.EXPECTED_SERVICE_STATIONS)
+            ),
         )
     )
     script = "\n".join(
@@ -239,6 +250,7 @@ def synthetic_overlay_report(
             waypoint["station_m"] / covered
         )
         waypoint["yaw_degrees"] = 0.0
+    infill_manifest = SCENE.infill.build_manifest()
     placement_lines = [
         "begin_procedural_roads",
         "    collision_enabled true",
@@ -262,25 +274,70 @@ def synthetic_overlay_report(
             for index in range(80)
         ),
         "end_procedural_roads",
+    ]
+    for route in infill_manifest["access_routes"]:
+        placement_lines.extend(
+            (
+                "begin_procedural_roads",
+                "    collision_enabled true",
+                "    collision_endcaps_enabled false",
+                *(
+                    "    "
+                    + ", ".join(
+                        str(value)
+                        for value in (
+                            *point["position_m"],
+                            0.0,
+                            point["yaw_degrees"],
+                            0.0,
+                            point["width_m"],
+                            point["border_width_m"],
+                            point["border_height_m"],
+                            point["road_type"],
+                        )
+                    )
+                    for point in route["points"]
+                ),
+                "end_procedural_roads",
+            )
+        )
+    for placement in infill_manifest["placements"]:
+        placement_lines.append(
+            ", ".join(
+                str(value)
+                for value in (
+                    *placement["position_m"],
+                    *placement["rotation_degrees"],
+                )
+            )
+            + f", {placement['asset_id']} - "
+            + placement["instance_name"]
+        )
+    placement_lines.extend(
+        (
         (
             "516, 0.100001, 370.023095, 0, -90, 0, "
             "rorng_city_penguin_road_seam_12m - "
             "cityworld_next_penguin_road_seam_12m"
         ),
         "// " + payload.decode("utf-8", errors="replace"),
-    ]
+        )
+    )
     payload = ("\n".join(placement_lines) + "\n").encode("utf-8")
     candidate_manifest = synthetic_light_candidate_manifest()
     candidate_payload = synthetic_light_candidate_payload()
+    infill_payload = SCENE.infill.canonical_manifest_bytes()
     native_plan = SCENE.read_neoq_tree_native_plan(repository)
     package_payloads = {
         SCENE.OVERLAY_PLACEMENT_MEMBER: payload,
         SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER: candidate_payload,
+        SCENE.INFILL_MANIFEST_MEMBER: infill_payload,
     }
     package_roles = {
         SCENE.OVERLAY_PLACEMENT_MEMBER: "overlay-placement",
         SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER:
             "disabled-light-candidate-manifest",
+        SCENE.INFILL_MANIFEST_MEMBER: SCENE.INFILL_MANIFEST_ROLE,
     }
     material_lines = ["// synthetic merged material"]
     for variant in SCENE.NEOQ_TREE_VARIANTS:
@@ -299,6 +356,35 @@ def synthetic_overlay_report(
             material_lines.extend(
                 ("material " + variant + "_" + suffix, "{", "}", "")
             )
+    for asset_id in SCENE.EXPECTED_INFILL_ASSET_IDS:
+        point_lights = (
+            SCENE.EXPECTED_SERVICE_STATION_LIGHTS_PER_INSTANCE
+            if asset_id == SCENE.SERVICE_STATION_ASSET_ID
+            else 0
+        )
+        odef_name = asset_id + ".odef"
+        package_payloads[odef_name] = (
+            asset_id
+            + "_lod0.mesh\n1, 1, 1\nstandard\n"
+            + "".join(
+                "\npointlight 0, 5, 0, 0, -1, 0, 1, 1, 1, 24"
+                for _ in range(point_lights)
+            )
+            + "\nend\n"
+        ).encode()
+        package_roles[odef_name] = "terrain-object"
+        for suffix, role in (
+            ("_collision_fixture.mesh", "collision-fixture"),
+            ("_lod0.mesh", "render-lod0"),
+            ("_lod1.mesh", "render-lod1"),
+            ("_lod2.mesh", "render-lod2"),
+        ):
+            name = asset_id + suffix
+            package_payloads[name] = ("synthetic " + name + "\n").encode()
+            package_roles[name] = role
+        material_lines.extend(
+            ("material " + asset_id + "_synthetic", "{", "}", "")
+        )
     material_name = "cityworld_next_local_overlay.material"
     package_payloads[material_name] = (
         "\n".join(material_lines) + "\n"
@@ -428,6 +514,14 @@ def synthetic_overlay_report(
     }
     candidate_record = records_by_name[SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER]
     tree_record = records_by_name[SCENE.NEOQ_TREE_REPLACEMENT_MEMBER]
+    infill_record = records_by_name[SCENE.INFILL_MANIFEST_MEMBER]
+    authenticated_source_placement = {
+        "line_number": 1354,
+        "member": "CityWorld.tobj",
+        "object": "troadavenuesidewalk",
+        "position_m": [485.0, 0.1, 370.0],
+        "rotation_degrees": [0.0, 90.0, 0.0],
+    }
     legacy_corridor = {
         "format": "ror-cityworld-intercity-corridor-v4",
         "covered_centerline_length_m": covered,
@@ -464,6 +558,8 @@ def synthetic_overlay_report(
             "position_m": [522.0, 0.100001, 370.023095],
             "connection_position_m":
                 [522.0, 0.100001, 370.023095],
+            "authenticated_placement":
+                copy.deepcopy(authenticated_source_placement),
             "collision_handoff": {
                 "authorities_per_station": 1,
                 "legacy_curb_collision_retained": False,
@@ -597,6 +693,8 @@ def synthetic_overlay_report(
             "archive": {"sha256": SCENE.CITYWORLD_SHA256},
             "references": {
                 "overlay_placements": SCENE.OVERLAY_PLACEMENT_MEMBER,
+                "regional_infill_manifest":
+                    SCENE.INFILL_MANIFEST_MEMBER,
                 "tree_replacement_manifest":
                     SCENE.NEOQ_TREE_REPLACEMENT_MEMBER,
                 "resource_bundle_dependency": (
@@ -647,6 +745,34 @@ def synthetic_overlay_report(
                 "summary": tree_manifest["summary"],
             },
         },
+        "regional_infill": {
+            "audit": infill_manifest["audit"],
+            "manifest": infill_record,
+            "source_authentication": {
+                "anchor_ids": [
+                    anchor["anchor_id"]
+                    for anchor in infill_manifest["source_anchors"]
+                ],
+                "archive_sha256": SCENE.CITYWORLD_SHA256,
+                "authenticated_placement_lines": [378, 1354],
+                "format":
+                    "ror-cityworld-regional-infill-source-authentication-v1",
+                "generated_anchor_count": 1,
+                "line_0378":
+                    copy.deepcopy(
+                        neoq_bridge["authentication"]["ground_road"]
+                    ),
+                "line_1354":
+                    copy.deepcopy(authenticated_source_placement),
+                "native_anchor_count": 6,
+                "source_anchor_count": 7,
+                "source_tobj": {
+                    "member": "CityWorld.tobj",
+                    "sha256": SCENE.infill.PINNED_TOBJ_SHA256,
+                },
+            },
+            "summary": infill_manifest["audit"]["summary"],
+        },
         "corridor": {
             "format": "ror-cityworld-intercity-corridor-v4",
             "covered_centerline_length_m": covered,
@@ -683,6 +809,8 @@ def synthetic_overlay_report(
                 "position_m": [522.0, 0.100001, 370.023095],
                 "connection_position_m":
                     [522.0, 0.100001, 370.023095],
+                "authenticated_placement":
+                    copy.deepcopy(authenticated_source_placement),
                 "collision_handoff": {
                     "authorities_per_station": 1,
                     "legacy_curb_collision_retained": False,
@@ -736,21 +864,24 @@ def synthetic_overlay_report(
         },
         "visual_asset_usage": {
             "corridor_placement_mode":
-                "native-procedural-v5-two-corridor-open-seams-side-piers-with-"
-                "blender-transition-v2",
+                "native-procedural-v6-two-corridor-open-seams-side-piers-with-"
+                "blender-transition-v2-and-regional-infill-v1",
             "disabled_light_candidate_manifest":
                 SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER,
             "neoq_core_runtime_light_activation": "blocked-fail-closed",
+            "regional_infill_manifest": SCENE.INFILL_MANIFEST_MEMBER,
             "purpose": SCENE.EXPECTED_VISUAL_PURPOSE,
             "packaged_asset_ids": [
                 "rorng_city_penguin_road_seam_12m",
                 "rorng_city_led_streetlight_bridge",
                 *SCENE.EXPECTED_TREE_ASSET_IDS,
+                *SCENE.EXPECTED_INFILL_ASSET_IDS,
             ],
             "placed_asset_ids": [
                 "rorng_city_penguin_road_seam_12m",
                 "rorng_city_led_streetlight_bridge",
                 *SCENE.EXPECTED_TREE_ASSET_IDS,
+                *SCENE.EXPECTED_INFILL_ASSET_IDS,
             ],
             "unplaced_asset_ids": SCENE.EXPECTED_UNPLACED_ASSETS,
             "validated_asset_ids": (
@@ -759,6 +890,7 @@ def synthetic_overlay_report(
                     "rorng_city_led_streetlight_bridge",
                     "rorng_city_penguin_road_seam_12m",
                     *SCENE.EXPECTED_TREE_ASSET_IDS,
+                    *SCENE.EXPECTED_INFILL_ASSET_IDS,
                 ]
             ),
         },
@@ -792,7 +924,7 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
         self.assertIn(SCENE.CITYWORLD_FALLBACK_LIGHTING_MARKER, engine)
         self.assertEqual(
             engine.count("local_shadow_casters=0"),
-            SCENE.EXPECTED_LIGHTS,
+            SCENE.EXPECTED_LIGHT_OBJECT_MARKERS,
         )
         with self.assertRaises(SCENE.CorridorSceneFailure):
             SCENE.validate_runtime_logs(
@@ -915,7 +1047,7 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
                 ),
             )
 
-    def test_runtime_log_gate_rejects_blank_transition_material(
+    def test_runtime_log_gate_rejects_blank_project_materials(
         self,
     ) -> None:
         engine, script = valid_logs()
@@ -924,12 +1056,17 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
             "cityworld_next_local_overlay.material(213): road2",
             "Warning: material rorng_penguin_seam_asphalt has no "
             "supportable Techniques and will be blank.",
+            "Warning: material "
+            "rorng_city_infill_suburb_block_96x88_stucco has no "
+            "supportable Techniques and will be blank.",
+            "Can't assign material to SubMesh of "
+            "'rorng_city_infill_farmstead_98x86_lod0.mesh'.",
         )
         for marker in markers:
             with self.subTest(marker=marker):
                 with self.assertRaisesRegex(
                     SCENE.CorridorSceneFailure,
-                    "transition material did not resolve",
+                    "project-owned overlay material did not resolve",
                 ):
                     SCENE.validate_runtime_logs(
                         0,
@@ -937,6 +1074,39 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
                         engine + "\n" + marker,
                         script,
                     )
+        legacy_warning = (
+            "Warning: material cityworld_legacy_missing has no supportable "
+            "Techniques and will be blank."
+        )
+        SCENE.validate_runtime_logs(
+            0,
+            "",
+            engine + "\n" + legacy_warning,
+            script,
+        )
+
+    def test_runtime_log_gate_requires_two_six_light_service_stations(
+        self,
+    ) -> None:
+        engine, script = valid_logs()
+        marker = (
+            "[RoR|TerrainObject|Lights] "
+            f"odef={SCENE.SERVICE_STATION_ASSET_ID}.odef "
+            "spotlights=0 "
+            f"point_lights={SCENE.EXPECTED_SERVICE_STATION_LIGHTS_PER_INSTANCE} "
+            "local_shadow_casters=0"
+        )
+        self.assertEqual(
+            engine.count(marker),
+            SCENE.EXPECTED_SERVICE_STATIONS,
+        )
+        for changed in (
+            engine.replace(marker, "", 1),
+            engine + "\n" + marker,
+            engine.replace("point_lights=6", "point_lights=5", 1),
+        ):
+            with self.assertRaises(SCENE.CorridorSceneFailure):
+                SCENE.validate_runtime_logs(0, "", changed, script)
 
     def test_four_rgb_screenshots_are_exact_distinct_and_regular(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1097,13 +1267,13 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
                         "",
                         1,
                     ),
-                    "both procedural routes must disable collision endcaps",
+                    "all seven regional access routes",
                 ),
                 (
                     "extra-endcap-directive",
                     placement_text
                     + "collision_endcaps_enabled false\n",
-                    "both procedural routes must disable collision endcaps",
+                    "all seven regional access routes",
                 ),
                 (
                     "side-pier-count-drift",
@@ -1185,6 +1355,142 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
             changed["visual_asset_usage"]["purpose"] = "stale v3 purpose"
             write_overlay(archive, changed, package_payloads)
             with self.assertRaises(SCENE.CorridorSceneFailure):
+                SCENE.validate_overlay_archive(archive, repository)
+
+    def test_regional_infill_manifest_package_and_casefold_are_fail_closed(
+        self,
+    ) -> None:
+        manifest = SCENE.infill.build_manifest()
+        checked = SCENE.validate_regional_infill_manifest(manifest)
+        self.assertEqual(
+            checked["audit"]["summary"],
+            {
+                "access_routes": 7,
+                "assets": 5,
+                "placements": 46,
+                "placements_by_category": {
+                    "farmland": 13,
+                    "natural-landmark": 14,
+                    "service-station": 2,
+                    "suburb": 17,
+                },
+                "sites": 8,
+                "sites_by_category": {
+                    "farmland": 2,
+                    "natural-landmark": 2,
+                    "service-station": 2,
+                    "suburb": 2,
+                },
+            },
+        )
+        multiplicities: dict[str, int] = {}
+        for placement in checked["placements"]:
+            asset_id = placement["asset_id"]
+            multiplicities[asset_id] = multiplicities.get(asset_id, 0) + 1
+        self.assertEqual(
+            multiplicities,
+            SCENE.EXPECTED_INFILL_ASSET_MULTIPLICITIES,
+        )
+        changed_manifest = copy.deepcopy(manifest)
+        changed_manifest["placements"][0]["asset_id"] = (
+            SCENE.SERVICE_STATION_ASSET_ID
+        )
+        with self.assertRaises(SCENE.CorridorSceneFailure):
+            SCENE.validate_regional_infill_manifest(changed_manifest)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
+            report, package_payloads = synthetic_overlay_report(
+                repository,
+                b"regional infill fixture",
+            )
+            archive = root / SCENE.OVERLAY_NAME
+            self.assertEqual(SCENE.MAX_ARCHIVE_MEMBERS, 256)
+            self.assertEqual(
+                SCENE.MAX_OVERLAY_TOTAL_BYTES,
+                512 * 1024 * 1024,
+            )
+
+            cases: list[tuple[str, dict[str, object]]] = []
+            changed = copy.deepcopy(report)
+            next(
+                item
+                for item in changed["package"]["files"]
+                if item["path"] == SCENE.INFILL_MANIFEST_MEMBER
+            )["role"] = "generic-json"
+            cases.append(("role", changed))
+            changed = copy.deepcopy(report)
+            changed["source"]["references"][
+                "regional_infill_manifest"
+            ] = "stale.json"
+            cases.append(("source-reference", changed))
+            changed = copy.deepcopy(report)
+            changed["regional_infill"]["summary"]["placements"] = 45
+            cases.append(("report-summary", changed))
+            changed = copy.deepcopy(report)
+            changed["visual_asset_usage"]["placed_asset_ids"].remove(
+                SCENE.SERVICE_STATION_ASSET_ID
+            )
+            cases.append(("usage", changed))
+            changed = copy.deepcopy(report)
+            next(
+                item
+                for item in changed["package"]["files"]
+                if item["path"]
+                == SCENE.EXPECTED_INFILL_ASSET_IDS[0] + ".odef"
+            )["role"] = "generic-resource"
+            cases.append(("runtime-package-role", changed))
+            for label, changed in cases:
+                with self.subTest(label=label):
+                    write_overlay(archive, changed, package_payloads)
+                    with self.assertRaises(SCENE.CorridorSceneFailure):
+                        SCENE.validate_overlay_archive(archive, repository)
+
+            noncanonical_payloads = dict(package_payloads)
+            noncanonical_payload = json.dumps(
+                manifest,
+                ensure_ascii=True,
+                sort_keys=False,
+            ).encode("utf-8")
+            noncanonical_payloads[
+                SCENE.INFILL_MANIFEST_MEMBER
+            ] = noncanonical_payload
+            noncanonical_report = copy.deepcopy(report)
+            package_record = next(
+                item
+                for item in noncanonical_report["package"]["files"]
+                if item["path"] == SCENE.INFILL_MANIFEST_MEMBER
+            )
+            package_record["sha256"] = hashlib.sha256(
+                noncanonical_payload
+            ).hexdigest()
+            package_record["size"] = len(noncanonical_payload)
+            noncanonical_report["regional_infill"]["manifest"] = (
+                copy.deepcopy(package_record)
+            )
+            write_overlay(
+                archive,
+                noncanonical_report,
+                noncanonical_payloads,
+            )
+            with self.assertRaisesRegex(
+                SCENE.CorridorSceneFailure,
+                "not canonical",
+            ):
+                SCENE.validate_overlay_archive(archive, repository)
+
+            write_overlay(archive, report, package_payloads)
+            with zipfile.ZipFile(archive, "a") as duplicate_archive:
+                duplicate_archive.writestr(
+                    SCENE.INFILL_MANIFEST_MEMBER.upper(),
+                    b"casefold duplicate",
+                )
+            with self.assertRaisesRegex(
+                SCENE.CorridorSceneFailure,
+                "ZIP integrity",
+            ):
                 SCENE.validate_overlay_archive(archive, repository)
 
     def test_neoq_tree_manifest_and_wrappers_are_exact(self) -> None:

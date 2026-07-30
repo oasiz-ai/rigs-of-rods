@@ -43,6 +43,7 @@ jobs:
           tests/tools/test_run_cityworld_curved_bridge_scene.py
           tests/tools/test_run_cityworld_bridge_transition_scene.py
           tests/tools/test_run_cityworld_gateway_scene.py
+          tests/tools/test_run_cityworld_infill_scene.py
           tests/tools/test_run_cityworld_led_streetlight_scene.py
           tests/tools/test_run_cityworld_shadow_scene.py
           tests/tools/test_solve_cityworld_bridge_corridor.py
@@ -66,6 +67,7 @@ jobs:
           tests/tools/test_run_cityworld_curved_bridge_scene.py
           tests/tools/test_run_cityworld_bridge_transition_scene.py
           tests/tools/test_run_cityworld_gateway_scene.py
+          tests/tools/test_run_cityworld_infill_scene.py
           tests/tools/test_run_cityworld_led_streetlight_scene.py
           tests/tools/test_run_cityworld_shadow_scene.py
           tests/tools/test_solve_cityworld_bridge_corridor.py

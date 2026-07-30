@@ -48,6 +48,7 @@ from compile_cityworld_asset import (  # noqa: E402
     validate_checked_outputs,
 )
 import cityworld_neoq_intercity_bridge as neoq_bridge  # noqa: E402
+import cityworld_infill as regional_infill  # noqa: E402
 from solve_cityworld_bridge_corridor import (  # noqa: E402
     AssetProfile,
     CorridorFailure,
@@ -66,8 +67,8 @@ from validate_cityworld_tree_family import (  # noqa: E402
 import cityworld_penguin_neoq_corridor as penguin_neoq_seam  # noqa: E402
 
 
-FORMAT = "ror-cityworld-local-overlay-v5"
-BUILD_RESULT_FORMAT = "ror-cityworld-local-overlay-build-result-v5"
+FORMAT = "ror-cityworld-local-overlay-v6"
+BUILD_RESULT_FORMAT = "ror-cityworld-local-overlay-build-result-v6"
 PINNED_ARCHIVE_SHA256 = (
     "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3"
 )
@@ -90,6 +91,12 @@ NEOQ_TREE_REPLACEMENT_NAME = (
 )
 NEOQ_TREE_REPLACEMENT_FORMAT = (
     "ror-cityworld-neoq-tree-replacements-v1"
+)
+REGIONAL_INFILL_MANIFEST_NAME = (
+    "cityworld_next_infill_manifest.v1.json"
+)
+REGIONAL_INFILL_SOURCE_AUTHENTICATION_FORMAT = (
+    "ror-cityworld-regional-infill-source-authentication-v1"
 )
 NEOQ_LIGHT_POLICY_ID = "ror-cityworld-local-light-budget-v1"
 NEOQ_EXPECTED_MAP_FAMILY_COUNTS = {
@@ -256,6 +263,69 @@ NEOQ_TREE_NATIVE_PLAN = (
     "source/main/resources/tobj_fileformat/"
     "CityWorldNeoQTreePlan.inc"
 )
+INFILL_FARMSTEAD_MANIFEST = (
+    "resources/nextgen/cityworld/regional_infill/"
+    "rorng_city_infill_farmstead_98x86/"
+    "rorng_city_infill_farmstead_98x86.asset.json"
+)
+INFILL_SUBURB_MANIFEST = (
+    "resources/nextgen/cityworld/regional_infill/"
+    "rorng_city_infill_suburb_block_96x88/"
+    "rorng_city_infill_suburb_block_96x88.asset.json"
+)
+INFILL_SERVICE_STATION_MANIFEST = (
+    "resources/nextgen/cityworld/regional_infill/"
+    "rorng_city_infill_service_station_90x65/"
+    "rorng_city_infill_service_station_90x65.asset.json"
+)
+INFILL_RED_MESA_MANIFEST = (
+    "resources/nextgen/cityworld/regional_infill/"
+    "rorng_city_infill_red_mesa_19m/"
+    "rorng_city_infill_red_mesa_19m.asset.json"
+)
+INFILL_ARROYO_OASIS_MANIFEST = (
+    "resources/nextgen/cityworld/regional_infill/"
+    "rorng_city_infill_arroyo_oasis_19m/"
+    "rorng_city_infill_arroyo_oasis_19m.asset.json"
+)
+INFILL_ASSET_CONTRACTS = (
+    (
+        regional_infill.FARMSTEAD_ASSET_ID,
+        INFILL_FARMSTEAD_MANIFEST,
+        "static-building-v1",
+        (),
+    ),
+    (
+        regional_infill.SUBURB_ASSET_ID,
+        INFILL_SUBURB_MANIFEST,
+        "static-building-v1",
+        (),
+    ),
+    (
+        regional_infill.SERVICE_STATION_ASSET_ID,
+        INFILL_SERVICE_STATION_MANIFEST,
+        "static-building-v1",
+        tuple(
+            f"rorng_infill_station_canopy_{ordinal:02d}"
+            for ordinal in range(6)
+        ),
+    ),
+    (
+        regional_infill.RED_MESA_ASSET_ID,
+        INFILL_RED_MESA_MANIFEST,
+        "static-fixture-v1",
+        (),
+    ),
+    (
+        regional_infill.ARROYO_OASIS_ASSET_ID,
+        INFILL_ARROYO_OASIS_MANIFEST,
+        "static-fixture-v1",
+        (),
+    ),
+)
+EXPECTED_REGIONAL_INFILL_ROUTES = 7
+EXPECTED_REGIONAL_INFILL_PLACEMENTS = 46
+EXPECTED_PACKAGE_ENTRIES = 76
 ASSET_MANIFESTS = (
     GATEWAY_MANIFEST,
     TRANSITION_MANIFEST,
@@ -276,6 +346,7 @@ MODULE_ASSET_IDS = (
 TOOL_PATHS = (
     "tools/audit_cityworld_visuals.py",
     "tools/build_cityworld_local_overlay.py",
+    "tools/cityworld_infill.py",
     "tools/cityworld_neoq_intercity_bridge.py",
     "tools/cityworld_penguin_neoq_corridor.py",
     "tools/compile_cityworld_asset.py",
@@ -1386,6 +1457,329 @@ def prepare_penguin_road_seam_asset(repository: Path) -> PreparedAsset:
     return asset
 
 
+def prepare_regional_infill_assets(
+    repository: Path,
+) -> tuple[
+    regional_infill.InfillPlan,
+    dict[str, Any],
+    dict[str, Any],
+    tuple[PreparedAsset, ...],
+]:
+    """Validate the immutable infill plan and its five runtime asset families."""
+
+    if (
+        regional_infill.PINNED_ARCHIVE_SHA256
+        != PINNED_ARCHIVE_SHA256
+        or regional_infill.OPEN_ENDCAP_DIRECTIVE
+        != penguin_neoq_seam.OPEN_ENDCAP_DIRECTIVE
+    ):
+        raise OverlayFailure(
+            "regional-infill source or collision-seam contract drifted"
+        )
+    plan = regional_infill.build_infill_plan()
+    try:
+        plan_audit = regional_infill.audit_plan(plan)
+        manifest = regional_infill.build_manifest(plan)
+    except regional_infill.InfillFailure as error:
+        raise OverlayFailure(
+            f"regional-infill plan validation failed: {error}"
+        ) from error
+    if (
+        manifest.get("format") != regional_infill.FORMAT
+        or manifest.get("audit") != plan_audit
+        or regional_infill.canonical_manifest_bytes(plan)
+        != canonical_json_bytes(manifest)
+        or plan_audit.get("summary", {}).get("access_routes")
+        != EXPECTED_REGIONAL_INFILL_ROUTES
+        or plan_audit.get("summary", {}).get("placements")
+        != EXPECTED_REGIONAL_INFILL_PLACEMENTS
+        or plan_audit.get("summary", {}).get("assets")
+        != len(INFILL_ASSET_CONTRACTS)
+    ):
+        raise OverlayFailure("regional-infill canonical manifest drifted")
+
+    authored_contracts = tuple(
+        (asset.asset_id, asset.manifest)
+        for asset in plan.assets
+    )
+    expected_contracts = tuple(
+        (asset_id, manifest_path)
+        for asset_id, manifest_path, _, _ in INFILL_ASSET_CONTRACTS
+    )
+    if authored_contracts != expected_contracts:
+        raise OverlayFailure(
+            "regional-infill asset manifest sequence drifted"
+        )
+
+    assets = tuple(
+        prepare_asset(
+            repository,
+            manifest_path,
+            corridor_module=False,
+        )
+        for _, manifest_path, _, _ in INFILL_ASSET_CONTRACTS
+    )
+    expected_light_positions = (
+        (-12.0, 5.16, 8.0),
+        (0.0, 5.16, 8.0),
+        (12.0, 5.16, 8.0),
+        (-12.0, 5.16, 0.0),
+        (0.0, 5.16, 0.0),
+        (12.0, 5.16, 0.0),
+    )
+    for asset, contract in zip(assets, INFILL_ASSET_CONTRACTS):
+        asset_id, manifest_path, expected_profile, expected_light_ids = contract
+        identity = asset.provenance.get("asset")
+        runtime_lights = asset.provenance.get("runtime_lights")
+        if (
+            asset.asset_id != asset_id
+            or asset.manifest_path != manifest_path
+            or not isinstance(identity, dict)
+            or identity.get("id") != asset_id
+            or identity.get("profile") != expected_profile
+            or asset.centerline_length_m is not None
+            or asset.profile is not None
+            or not isinstance(runtime_lights, list)
+            or tuple(
+                light.get("id")
+                for light in runtime_lights
+                if isinstance(light, dict)
+            )
+            != expected_light_ids
+        ):
+            raise OverlayFailure(
+                f"{asset_id} does not match its pinned regional-infill contract"
+            )
+        if expected_light_ids:
+            if (
+                len(runtime_lights) != len(expected_light_positions)
+                or any(
+                    set(light) != {
+                        "color_linear",
+                        "id",
+                        "position_ogre_y_up_m",
+                        "range_m",
+                        "type",
+                    }
+                    or light["type"] != "point"
+                    or light["range_m"] != 24.0
+                    or light["color_linear"] != [1.0, 0.66, 0.31]
+                    or tuple(light["position_ogre_y_up_m"])
+                    != expected_light_positions[index]
+                    for index, light in enumerate(runtime_lights)
+                )
+            ):
+                raise OverlayFailure(
+                    "regional-infill service-station light contract drifted"
+                )
+        elif runtime_lights:
+            raise OverlayFailure(
+                f"{asset_id} unexpectedly emits runtime lights"
+            )
+    if len({asset.asset_id for asset in assets}) != len(assets):
+        raise OverlayFailure("regional-infill asset identifiers are not unique")
+    return plan, plan_audit, manifest, assets
+
+
+def regional_infill_routes(
+    plan: regional_infill.InfillPlan,
+) -> tuple[
+    tuple[tuple[ProceduralRoutePoint, ...], tuple[str, ...]],
+    ...,
+]:
+    """Convert the checked flat-road plan to native TOBJ route records."""
+
+    converted = []
+    for route in plan.routes:
+        points = tuple(
+            ProceduralRoutePoint(
+                station_m=point.station_m,
+                x=point.x,
+                y=point.y,
+                z=point.z,
+                yaw_degrees=point.yaw_degrees,
+                road_type=point.road_type,
+                width_m=point.width_m,
+                border_width_m=point.border_width_m,
+                border_height_m=point.border_height_m,
+            )
+            for point in route.points
+        )
+        if (
+            not route.collision_enabled
+            or route.collision_endcaps_enabled
+            or route.smoothing_num_splits != 0
+            or route.surface_material
+            != regional_infill.ROAD_SURFACE_MATERIAL
+            or any(
+                point.road_type != regional_infill.ROAD_TYPE
+                or point.border_width_m != 0.0
+                or point.border_height_m != 0.0
+                for point in points
+            )
+        ):
+            raise OverlayFailure(
+                f"regional-infill route {route.route_id} is not a flat open road"
+            )
+        converted.append((points, route.comments))
+    if len(converted) != EXPECTED_REGIONAL_INFILL_ROUTES:
+        raise OverlayFailure("regional-infill access-route count drifted")
+    return tuple(converted)
+
+
+def regional_infill_placements(
+    plan: regional_infill.InfillPlan,
+) -> tuple[TerrainObjectPlacement, ...]:
+    placements = tuple(
+        TerrainObjectPlacement(
+            station_m=placement.station_m,
+            side=placement.side,
+            x=placement.x,
+            y=placement.y,
+            z=placement.z,
+            yaw_degrees=placement.yaw_degrees,
+            asset_id=placement.asset_id,
+            instance_name=placement.instance_name,
+        )
+        for placement in plan.placements
+    )
+    if (
+        len(placements) != EXPECTED_REGIONAL_INFILL_PLACEMENTS
+        or tuple(placement.instance_name for placement in placements)
+        != tuple(placement.instance_name for placement in plan.placements)
+    ):
+        raise OverlayFailure("regional-infill placement sequence drifted")
+    return placements
+
+
+def authenticate_regional_infill_source(
+    *,
+    plan: regional_infill.InfillPlan,
+    source_tobj_sha256: str,
+    placements: Sequence[SourcePlacement],
+    route_anchor_evidence: dict[str, dict[str, Any]],
+    neoq_bridge_authentication: dict[str, Any],
+) -> dict[str, Any]:
+    """Bind every native infill handoff to its exact decoded source placement."""
+
+    if (
+        source_tobj_sha256 != regional_infill.PINNED_TOBJ_SHA256
+        or neoq_bridge_authentication.get("tobj")
+        != {
+            "name": regional_infill.PINNED_TOBJ_MEMBER,
+            "sha256": regional_infill.PINNED_TOBJ_SHA256,
+        }
+    ):
+        raise OverlayFailure("regional-infill source TOBJ hash drifted")
+    placements_by_line = {
+        placement.line_number: placement for placement in placements
+    }
+    if len(placements_by_line) != len(placements):
+        raise OverlayFailure("CityWorld source placement lines are not unique")
+
+    native_anchors = tuple(
+        anchor
+        for anchor in plan.source_anchors
+        if anchor.placement_line is not None
+    )
+    generated_anchors = tuple(
+        anchor
+        for anchor in plan.source_anchors
+        if anchor.placement_line is None
+    )
+    if (
+        len(native_anchors) != 6
+        or len(generated_anchors) != 1
+        or {anchor.placement_line for anchor in native_anchors}
+        != {378, 1354}
+    ):
+        raise OverlayFailure("regional-infill source-anchor set drifted")
+    for anchor in native_anchors:
+        observed = placements_by_line.get(anchor.placement_line)
+        if (
+            observed is None
+            or observed.object_name != anchor.placement_object
+            or observed.position != anchor.placement_position_m
+            or observed.rotation_degrees
+            != anchor.placement_rotation_degrees
+        ):
+            raise OverlayFailure(
+                f"regional-infill source anchor {anchor.anchor_id} "
+                "does not match its exact CityWorld.tobj placement"
+            )
+
+    line_1354 = route_anchor_evidence.get("source")
+    line_0378 = neoq_bridge_authentication.get("ground_road")
+    expected_line_1354 = {
+        "line_number": 1354,
+        "member": regional_infill.PINNED_TOBJ_MEMBER,
+        "object": penguin_neoq_seam.SOURCE_LEGACY_OBJECT,
+        "position_m": list(
+            penguin_neoq_seam.SOURCE_PLACEMENT_POSITION_M
+        ),
+        "rotation_degrees": list(
+            penguin_neoq_seam.SOURCE_PLACEMENT_ROTATION_DEGREES
+        ),
+    }
+    if line_1354 != expected_line_1354:
+        raise OverlayFailure(
+            "regional-infill line 1354 source evidence drifted"
+        )
+    if (
+        not isinstance(line_0378, dict)
+        or line_0378.get("line_number") != 378
+        or line_0378.get("member")
+        != regional_infill.PINNED_TOBJ_MEMBER
+        or line_0378.get("object")
+        != regional_infill.PINNED_HIGHWAY_OBJECT
+        or line_0378.get("position_m")
+        != list(regional_infill.PINNED_HIGHWAY_PLACEMENT_POSITION_M)
+        or line_0378.get("rotation_degrees")
+        != list(
+            regional_infill.PINNED_HIGHWAY_PLACEMENT_ROTATION_DEGREES
+        )
+        or line_0378.get("collision_member")
+        != regional_infill.PINNED_HIGHWAY_COLLISION_MEMBER
+        or line_0378.get("collision_sha256")
+        != regional_infill.PINNED_HIGHWAY_COLLISION_SHA256
+    ):
+        raise OverlayFailure(
+            "regional-infill line 378 highway evidence drifted"
+        )
+    line_1354_anchor = next(
+        anchor
+        for anchor in native_anchors
+        if anchor.placement_line == 1354
+    )
+    if (
+        line_1354_anchor.collision_member
+        != penguin_neoq_seam.SOURCE_REPLACEMENT_COLLISION_MESH
+        or line_1354_anchor.collision_sha256
+        != penguin_neoq_seam.SOURCE_REPLACEMENT_COLLISION_SHA256
+    ):
+        raise OverlayFailure(
+            "regional-infill line 1354 replacement-road evidence drifted"
+        )
+
+    return {
+        "anchor_ids": [
+            anchor.anchor_id for anchor in plan.source_anchors
+        ],
+        "archive_sha256": PINNED_ARCHIVE_SHA256,
+        "authenticated_placement_lines": [378, 1354],
+        "format": REGIONAL_INFILL_SOURCE_AUTHENTICATION_FORMAT,
+        "generated_anchor_count": len(generated_anchors),
+        "line_0378": line_0378,
+        "line_1354": line_1354,
+        "native_anchor_count": len(native_anchors),
+        "source_anchor_count": len(plan.source_anchors),
+        "source_tobj": {
+            "member": regional_infill.PINNED_TOBJ_MEMBER,
+            "sha256": source_tobj_sha256,
+        },
+    }
+
+
 def tree_scale_wrapper(
     asset: PreparedAsset,
     entry: NativeTreePlanEntry,
@@ -1964,7 +2358,7 @@ def merge_material_scripts(
         )
 
     rendered = [
-        "// Generated by ror-cityworld-local-overlay-v5.",
+        "// Generated by ror-cityworld-local-overlay-v6.",
         "// Canonical merged material script; duplicate definitions removed.",
         "",
     ]
@@ -2770,7 +3164,7 @@ def terrain_object_placement_text(
         return ""
     lines = [
         "",
-        "// Blender-authored road transition and bridge fixtures.",
+        "// Project-authored road, lighting, vegetation, and regional fixtures.",
     ]
     for placement in placements:
         lines.append(
@@ -2946,8 +3340,8 @@ def terrain_descriptor(
         f"StartRotation = {stable_float(initial_heading)}",
         "Gravity = -9.81",
         "CategoryID = 129",
-        "Version = 5",
-        "GUID = rorng-cityworld-next-local-overlay-v5",
+        "Version = 6",
+        "GUID = rorng-cityworld-next-local-overlay-v6",
         "",
         "[Authors]",
         "overlay = Oasiz AI and Rigs of Rods contributors",
@@ -3108,6 +3502,28 @@ def build_local_overlay(
     corridor_assets = prepare_assets(repository)
     streetlight_asset = prepare_streetlight_asset(repository)
     penguin_road_seam_asset = prepare_penguin_road_seam_asset(repository)
+    (
+        infill_plan,
+        infill_audit,
+        infill_manifest,
+        infill_assets,
+    ) = prepare_regional_infill_assets(repository)
+    infill_source_authentication = authenticate_regional_infill_source(
+        plan=infill_plan,
+        source_tobj_sha256=source_tobj_sha256,
+        placements=legacy_placements,
+        route_anchor_evidence=anchor_evidence,
+        neoq_bridge_authentication=neoq_bridge_authentication,
+    )
+    infill_manifest_payload = regional_infill.canonical_manifest_bytes(
+        infill_plan
+    )
+    if infill_manifest_payload != canonical_json_bytes(infill_manifest):
+        raise OverlayFailure(
+            "regional-infill embedded manifest is not canonical"
+        )
+    infill_access_routes = regional_infill_routes(infill_plan)
+    infill_object_placements = regional_infill_placements(infill_plan)
     tree_family = prepare_tree_family(repository, native_tree_plan)
     tree_replacements = neoq_tree_replacement_manifest(
         tree_family,
@@ -3120,6 +3536,7 @@ def build_local_overlay(
         streetlight_asset,
         penguin_road_seam_asset,
         *tree_family.assets,
+        *infill_assets,
     )
     if len({asset.asset_id for asset in assets}) != len(assets):
         raise OverlayFailure("overlay assets contain duplicate identifiers")
@@ -3199,6 +3616,7 @@ def build_local_overlay(
             penguin_road_seam_placement,
             *streetlight_placements,
             *neoq_bridge_streetlight_placements,
+            *infill_object_placements,
         ),
         additional_routes=(
             (
@@ -3210,12 +3628,14 @@ def build_local_overlay(
                     "Fifty-six paired side piers elsewhere clear the deck and heavy trucks.",
                 ),
             ),
+            *infill_access_routes,
         ),
     )
     runtime_assets = (
         penguin_road_seam_asset,
         streetlight_asset,
         *tree_family.assets,
+        *infill_assets,
     )
     merged_material = merge_material_scripts(runtime_assets)
     payloads: dict[str, bytes] = {}
@@ -3259,6 +3679,14 @@ def build_local_overlay(
     package_roles[NEOQ_TREE_REPLACEMENT_NAME] = (
         "authenticated-in-place-tree-replacement-plan"
     )
+    add_payload(
+        payloads,
+        REGIONAL_INFILL_MANIFEST_NAME,
+        infill_manifest_payload,
+    )
+    package_roles[REGIONAL_INFILL_MANIFEST_NAME] = (
+        "regional-infill-plan"
+    )
 
     source_member_hashes = {
         record["sha256"] for record in member_records
@@ -3268,6 +3696,11 @@ def build_local_overlay(
         for payload in payloads.values()
     ):
         raise OverlayFailure("generated package duplicates an original source member")
+    if len(payloads) + 1 != EXPECTED_PACKAGE_ENTRIES:
+        raise OverlayFailure(
+            "regional-infill package member count drifted: "
+            f"expected {EXPECTED_PACKAGE_ENTRIES}, found {len(payloads) + 1}"
+        )
 
     non_report_records = [
         payload_record(
@@ -3287,6 +3720,11 @@ def build_local_overlay(
         NEOQ_TREE_REPLACEMENT_NAME,
         tree_replacement_payload,
         "authenticated-in-place-tree-replacement-plan",
+    )
+    infill_manifest_record = payload_record(
+        REGIONAL_INFILL_MANIFEST_NAME,
+        infill_manifest_payload,
+        "regional-infill-plan",
     )
     report = {
         "assets": [asset.provenance for asset in assets],
@@ -3327,6 +3765,12 @@ def build_local_overlay(
             "fixed_timestamp_utc": "1980-01-01T00:00:00Z",
             "zip_compression": "stored",
         },
+        "regional_infill": {
+            "audit": infill_audit,
+            "manifest": infill_manifest_record,
+            "source_authentication": infill_source_authentication,
+            "summary": infill_audit["summary"],
+        },
         "rights": {
             "local_only": True,
             "redistribution_allowed": False,
@@ -3338,13 +3782,15 @@ def build_local_overlay(
             "source_placements_copied": False,
             "source_placement_records_derived": True,
             "derived_source_placement_record_count":
-                light_candidates["candidate_poles"] + 19 + 5,
+                light_candidates["candidate_poles"]
+                + 19
+                + 5,
             "source_textures_copied": False,
         },
         "visual_asset_usage": {
             "corridor_placement_mode":
-                "native-procedural-v5-two-corridor-open-seams-side-piers-with-"
-                "blender-transition-v2",
+                "native-procedural-v6-two-corridor-open-seams-side-piers-with-"
+                "blender-transition-v2-and-regional-infill-v1",
             "disabled_light_candidate_manifest":
                 NEOQ_LIGHT_CANDIDATE_NAME,
             "neoq_core_runtime_light_activation": "blocked-fail-closed",
@@ -3359,7 +3805,12 @@ def build_local_overlay(
                     asset.asset_id
                     for asset in tree_family.assets
                 ],
+                *[
+                    asset.asset_id
+                    for asset in infill_assets
+                ],
             ],
+            "regional_infill_manifest": REGIONAL_INFILL_MANIFEST_NAME,
             "unplaced_asset_ids": [
                 asset.asset_id
                 for asset in corridor_assets
@@ -3383,7 +3834,11 @@ def build_local_overlay(
                 "family with per-instance visual/collision scale wrappers; "
                 "deterministic NeoQueretaro pole-light candidates remain "
                 "disabled pending the bounded renderer light budget and "
-                "fixed-camera visual gate; bridge modules remain "
+                "fixed-camera visual gate; seven curb-free flat access roads "
+                "connect 46 project-authored farm, suburb, service-station, "
+                "red-mesa, and arroyo-oasis placements across eight audited "
+                "empty parcels, with open collision endcaps and six bounded "
+                "canopy lights per service-station instance; bridge modules remain "
                 "validated candidates for deck and abutment replacement",
         },
         "source": {
@@ -3399,6 +3854,8 @@ def build_local_overlay(
                 "geometry_config": "CityWorld.otc",
                 "original_placements": "CityWorld.tobj",
                 "overlay_placements": OVERLAY_NAME,
+                "regional_infill_manifest":
+                    REGIONAL_INFILL_MANIFEST_NAME,
                 "tree_replacement_manifest":
                     NEOQ_TREE_REPLACEMENT_NAME,
                 "resource_bundle_dependency":
@@ -3409,6 +3866,10 @@ def build_local_overlay(
     }
     report_payload = canonical_json_bytes(report)
     add_payload(payloads, REPORT_NAME, report_payload)
+    if len(payloads) != EXPECTED_PACKAGE_ENTRIES:
+        raise OverlayFailure(
+            "completed regional-infill package member count drifted"
+        )
 
     post_build_archive_hash = archive_sha256(source_archive)
     if post_build_archive_hash != PINNED_ARCHIVE_SHA256:
@@ -3451,6 +3912,7 @@ def build_local_overlay(
             placement_record,
             light_candidate_record,
             tree_replacement_record,
+            infill_manifest_record,
         ],
         "output": {
             "entries": len(payloads),
@@ -3491,6 +3953,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         CompileFailure,
         CorridorFailure,
         OverlayFailure,
+        regional_infill.InfillFailure,
         OSError,
         ValueError,
         zipfile.BadZipFile,

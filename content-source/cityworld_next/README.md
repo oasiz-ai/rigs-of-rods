@@ -136,17 +136,35 @@ with no runtime point lights:
 - detailed workflow and future placement gate:
   `../../doc/nextgen/CITYWORLD_STOREFRONT_FAMILY.md`.
 
-The regional infill family fills authenticated empty land between the cities
-without importing legacy geometry, branded signage, textures, or materials.
-It provides a 98 x 86 m crop farmstead, a 96 x 88 m palm-lined stucco suburb
-block, a fictional 90 x 65 m service station with six bounded warm lights,
-and modular 19 m red-mesa and arroyo-oasis landmarks. Every asset is grounded
-at the common CityWorld road plane, uses three checked LODs, carries a separate
-watertight collision proxy, and uses factor-only materials supported by the
-portable Ogre RTShader path:
+The five regional-infill asset families fill authenticated empty land between
+the cities without importing legacy geometry, branded signage, textures, or
+materials:
+
+- Golden Horizon Farmstead,
+  `rorng_city_infill_farmstead_98x86`, is a 98 x 86 m crop farmstead;
+- Sunridge Courtyard Homes,
+  `rorng_city_infill_suburb_block_96x88`, is a 96 x 88 m palm-lined stucco
+  suburb block;
+- Horizon Energy and Market,
+  `rorng_city_infill_service_station_90x65`, is a fictional 90 x 65 m service
+  station with six bounded warm lights;
+- Red Mesa Natural Monument,
+  `rorng_city_infill_red_mesa_19m`, is a modular 19 m red-mesa landmark;
+- Coyote Arroyo Oasis,
+  `rorng_city_infill_arroyo_oasis_19m`, is a modular 19 m oasis landmark.
+
+Every asset is grounded at the common CityWorld road plane, uses three checked
+LODs, carries a separate watertight collision proxy, and uses factor-only
+materials supported by the portable Ogre RTShader path. The canonical v6
+placement plan adds exactly 46 project-authored placements across eight
+audited sites: 13 farmstead, 17 suburb, two service-station, and 14
+natural-landmark instances. Seven flat, curb-free native access roads connect
+those sites with collision enabled and open collision endcaps:
 
 - family and rights contract:
   `regional_infill/rorng_city_regional_infill_family.v1.json`;
+- deterministic placement and access-road contract:
+  `../../tools/cityworld_infill.py`;
 - editable sources and previews:
   `regional_infill/rorng_city_infill_*/`;
 - runtime-neutral interchange, contracts, and checked Ogre packages:
@@ -235,6 +253,16 @@ do
   python3 tools/compile_cityworld_asset.py "$manifest" \
     --repo-root . --validate-checked
 done
+python3 -m unittest -v \
+  tests.tools.test_cityworld_infill \
+  tests.tools.test_cityworld_infill_assets \
+  tests.tools.test_build_cityworld_local_overlay \
+  tests.tools.test_run_cityworld_infill_scene
+python3 -O -m unittest -v \
+  tests.tools.test_cityworld_infill \
+  tests.tools.test_cityworld_infill_assets \
+  tests.tools.test_build_cityworld_local_overlay \
+  tests.tools.test_run_cityworld_infill_scene
 python3 tools/solve_cityworld_bridge_corridor.py \
   --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
   --asset resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json \
@@ -282,10 +310,14 @@ python3 tools/build_cityworld_local_overlay.py \
   --surface-offset-m 0.08
 ```
 
-The output path must not already exist and must be outside this repository.
-The current 43-entry deterministic ZIP references the separately installed
-original `CityWorld.otc` and `CityWorld.tobj`; it does not copy either file or
-any original map asset. Overlay v5 retains the authenticated
+The overlay output path must not already exist and must be outside this
+repository. The current v6 deterministic ZIP has exactly 76 members and
+references the separately installed original `CityWorld.otc` and
+`CityWorld.tobj`; it does not copy either file or any original map asset. It
+embeds the canonical `cityworld_next_infill_manifest.v1.json`, adds the 46
+placements and seven access roads described above, and keeps all five
+project-authored infill runtime families local to the overlay. Overlay v6
+retains the authenticated
 Penguinville-to-NeoQueretaro route. It authenticates its two source
 road-object placements and replaces the incomplete 192 m prototype with a
 continuous
@@ -299,7 +331,7 @@ collision, and requests 47 terrain-reaching pillar stations. The overlap
 functionally removes the curb from the connection without copying or modifying
 the original private city mesh.
 
-Overlay v5 also adds a road-to-road link from NeoQueretaro's east distributor
+Overlay v6 also adds a road-to-road link from NeoQueretaro's east distributor
 stub to NeoQ2.0's west industrial distributor stub. The authenticated seams are
 `(3790.970703, 0.1, 3993.104004)` and `(6867, 0.2, 4018)`. The earlier
 3,096.132 m figure is superseded by the flush-merge v3 contract: the route is
@@ -325,22 +357,70 @@ resources before adding the route. Any source drift, skipped native support,
 or new placement origin in the conservative 128 m-wide ground corridor fails
 closed.
 
-The package inventory is the generated descriptor, merged material script,
-procedural placement, canonical local-only provenance report, disabled
+The 76-member package inventory includes the generated descriptor, merged
+material script, procedural placement, canonical local-only provenance report,
+regional-infill plan, five checked infill runtime families, disabled
 NeoQueretaro relighting-candidate manifest, authenticated tree-replacement
 manifest, four collisionless runtime resources for the shared bridge
 streetlight, 18 tree scale wrappers, and 15 precompiled tree runtime resources:
 three ODEFs plus 12 render/collision meshes. The four Blender-authored bridge
 module families remain validated and reported but are unplaced and excluded
 from the runtime payload because their existing ODEFs own collision. Both
-routes use RoR's native procedural road and barriers as the sole deck collision
-authority. The first route retains its legacy support contract; the second
-uses paired outboard side piers with explicit collision-volume clearance. The
-building-overlapping gateway is not placed. Sixteen alternating fixtures
-illuminate the Penguinville link and 33 alternate along the Neo-to-NeoQ2.0
-deck; each has an exact inward transform and one checked warm point light. The
-source archive stays byte-identical and the generated package is explicitly
-not for redistribution or shipping.
+intercity routes use RoR's native procedural road and barriers as the sole deck
+collision authority; the seven infill routes similarly use native flat road
+collision with open endcaps. The first intercity route retains its legacy
+support contract; the second uses paired outboard side piers with explicit
+collision-volume clearance. The building-overlapping gateway is not placed.
+Fifteen alternating fixtures illuminate the Penguinville link and 33 alternate
+along the Neo-to-NeoQ2.0 deck; each has an exact inward transform and one
+checked warm point light. The two service-station placements contribute
+exactly 12 bounded canopy lights. The source archive stays byte-identical and
+the generated package is explicitly not for redistribution or shipping.
+
+Run the regional-infill native acceptance gate only after building the v6
+overlay. The gate authenticates both archives, compares the embedded infill
+manifest with the canonical plan, rebuilds the overlay byte-for-byte, runs RoR
+under an isolated profile, and accepts exactly eight distinct UI-free RGB
+views. It requires 345 render frames, 1,380 deterministic physics steps, all
+46 placements, all seven routes, both service stations, and all 12 station
+lights. The artifact directory must not already exist.
+
+On macOS:
+
+```sh
+python3 tools/run_cityworld_infill_scene.py \
+  --executable /Applications/RoR.app/Contents/MacOS/RoR \
+  --cityworld-archive \
+    "$HOME/Library/Application Support/Rigs of Rods/mods/CityWorld.zip" \
+  --overlay-archive /tmp/ror-cityworld-local/CityWorldNextLocalOverlay.zip \
+  --artifact-dir /tmp/cityworld-infill-macos \
+  --repository "$PWD"
+```
+
+On Linux, use the native `RunRoR` executable; CI and other headless systems
+must provide an X server such as Xvfb:
+
+```sh
+xvfb-run -a \
+  -s "-screen 0 1280x720x24 +extension GLX +render -noreset" \
+  python3 tools/run_cityworld_infill_scene.py \
+    --executable /absolute/path/to/RunRoR \
+    --cityworld-archive /absolute/path/to/CityWorld.zip \
+    --overlay-archive /tmp/ror-cityworld-local/CityWorldNextLocalOverlay.zip \
+    --artifact-dir /tmp/cityworld-infill-linux \
+    --repository "$PWD"
+```
+
+On Windows PowerShell:
+
+```powershell
+py -3 tools/run_cityworld_infill_scene.py `
+  --executable 'C:\absolute\path\to\RoR.exe' `
+  --cityworld-archive 'C:\absolute\path\to\CityWorld.zip' `
+  --overlay-archive 'C:\Temp\CityWorldNextLocalOverlay.zip' `
+  --artifact-dir 'C:\Temp\cityworld-infill-windows' `
+  --repository "$PWD"
+```
 
 The same overlay replaces exactly the 18 authenticated `arbol1Qr` records at
 `CityWorld.tobj` source lines 9–26. The native policy edits each legacy record
