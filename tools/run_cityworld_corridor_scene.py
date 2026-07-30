@@ -202,7 +202,7 @@ EXPECTED_NEOQ_BRIDGE_LIGHTS = 33
 EXPECTED_LIGHTS = EXPECTED_CORRIDOR_LIGHTS + EXPECTED_NEOQ_BRIDGE_LIGHTS
 EXPECTED_ROUTE_LENGTH_M = 1038.350024882
 EXPECTED_CORRIDOR_SIDE_PIERS = 46
-EXPECTED_NEOQ_SIDE_PIERS = 74
+EXPECTED_NEOQ_SIDE_PIERS = 56
 MAX_PHYSICS_STEPS = 480000
 CITYWORLD_FALLBACK_LIGHTING_MARKER = base.fallback_lighting_marker(
     (0.93, 0.86, 0.76)
@@ -219,16 +219,15 @@ EXPECTED_VISUAL_PURPOSE = (
     "surface and marking atlas, open procedural collision endcaps, paired "
     "outboard bridge piers, and route-safe Blender lighting; "
     "a second raised bridge leaves NeoQueretaro from an authenticated flush "
-    "mesh edge "
-    "and merges flush at NeoQ2.0 without covering its median or live lanes, "
-    "with continuous collision, paired outboard terrain-reaching side piers, "
-    "and bounded LED fixtures; "
-    "all 18 authenticated legacy NeoQueretaro trees are replaced in place by "
-    "the rights-cleared three-variant family with per-instance "
-    "visual/collision scale wrappers; deterministic NeoQueretaro pole-light "
-    "candidates remain disabled pending the bounded renderer light budget and "
-    "fixed-camera visual gate; bridge modules remain validated candidates for "
-    "deck and abutment replacement"
+    "mesh edge and merges flush at NeoQ2.0 without covering its median or live lanes, "
+    "with continuous collision, 18 polygon-authenticated no-pillar stations "
+    "above autopistaQr, paired outboard terrain-reaching side piers elsewhere, "
+    "and bounded LED fixtures; all 18 authenticated legacy NeoQueretaro trees "
+    "are replaced in place by the rights-cleared three-variant family with "
+    "per-instance visual/collision scale wrappers; deterministic "
+    "NeoQueretaro pole-light candidates remain disabled pending "
+    "the bounded renderer light budget and fixed-camera visual gate; bridge "
+    "modules remain validated candidates for deck and abutment replacement"
 )
 EXPECTED_TREE_ASSET_IDS = [
     "rorng_city_neoq_tree_round",
@@ -1146,7 +1145,7 @@ def validate_overlay_archive(
                 "source_placement_payload_copied": False,
                 "source_placement_records_derived": True,
                 "source_placements_copied": False,
-                "derived_source_placement_record_count": 90,
+                "derived_source_placement_record_count": 91,
                 "source_textures_copied": False,
             }
             require_exact_json(
@@ -1622,7 +1621,7 @@ def validate_overlay_archive(
     )
     if (
         neoq_bridge.get("format")
-        != "ror-cityworld-neoq-intercity-bridge-v3"
+        != "ror-cityworld-neoq-intercity-bridge-v4"
     ):
         raise CorridorSceneFailure("Neo intercity bridge format drifted")
     bridge_waypoints = exact_list(
@@ -1743,23 +1742,27 @@ def validate_overlay_archive(
         neoq_bridge.get("supports"),
         "Neo bridge supports",
     )
+    bridge_support_stations = exact_list(
+        bridge_supports.get("stations_m"),
+        "Neo bridge support stations",
+    )
     if (
         bridge_supports.get("enabled") is not True
         or exact_int(
             bridge_supports.get("requested_count"),
             "Neo bridge support count",
         )
-        != 74
+        != 56
         or exact_int(
             bridge_supports.get("column_pair_count"),
             "Neo bridge side-pier pair count",
         )
-        != 74
+        != 56
         or exact_int(
             bridge_supports.get("aabb_count"),
             "Neo bridge support collision AABB count",
         )
-        != 222
+        != 168
         or bridge_supports.get("aabb_vs_swept_roadway_prism")
         != "all-disjoint"
         or abs(
@@ -1786,6 +1789,23 @@ def validate_overlay_archive(
         > 40.0 + 1.0e-9
         or bridge_supports.get("terrain_contact_resolved_at_runtime")
         is not True
+        or bridge_supports.get("style")
+        != "ror-native-procedural-side-pier-pair-v1"
+        or bridge_supports.get("ground_road_no_pillar_stations_m")
+        != list(range(80, 761, 40))
+        or len(bridge_support_stations) != 56
+        or bridge_support_stations[0] != 800.0
+        or bridge_supports.get("ground_road_collision_member")
+        != "autopistaQr.mesh"
+        or bridge_supports.get("ground_road_collision_sha256")
+        != "931dea1993ad1b42db68e27abe376f082b25da4aadf96755a54fbb997fe7f80d"
+        or bridge_supports.get("ground_road_surface_materials")
+        != ["calleunsolosentido", "pavimento"]
+        or exact_int(
+            bridge_supports.get("ground_road_surface_triangle_count"),
+            "Neo bridge ground-road surface triangle count",
+        )
+        != 9599
     ):
         raise CorridorSceneFailure("Neo bridge support contract drifted")
     bridge_fixtures = exact_dict(
@@ -1811,16 +1831,20 @@ def validate_overlay_archive(
         neoq_bridge.get("authentication"),
         "Neo bridge authentication",
     )
+    bridge_ground_road = exact_dict(
+        bridge_authentication.get("ground_road"),
+        "Neo bridge authenticated ground road",
+    )
     if (
         bridge_authentication.get("format")
-        != "ror-cityworld-neoq-bridge-authentication-v1"
+        != "ror-cityworld-neoq-bridge-authentication-v2"
         or len(
             exact_list(
                 bridge_authentication.get("members"),
                 "Neo bridge authenticated members",
             )
         )
-        != 6
+        != 8
         or exact_int(
             exact_dict(
                 bridge_authentication.get("source"),
@@ -1842,6 +1866,35 @@ def validate_overlay_archive(
             "Neo bridge open-gap audit",
         ).get("verified")
         is not True
+        or exact_int(
+            bridge_ground_road.get("line_number"),
+            "Neo bridge ground-road line",
+        )
+        != 378
+        or bridge_ground_road.get("object") != "autopistaQr"
+        or bridge_ground_road.get("position_m") != [0.0, -0.4, 0.0]
+        or bridge_ground_road.get("rotation_degrees")
+        != [90.0, 0.0, 90.0]
+        or bridge_ground_road.get("collision_member")
+        != "autopistaQr.mesh"
+        or bridge_ground_road.get("collision_sha256")
+        != "931dea1993ad1b42db68e27abe376f082b25da4aadf96755a54fbb997fe7f80d"
+        or bridge_ground_road.get("odef_member") != "autopistaQr.odef"
+        or bridge_ground_road.get("odef_sha256")
+        != "9caa5752ce5b1cb11f26ad086b93e052f376486d6a8503eb04db0503fe73e602"
+        or bridge_ground_road.get("decoded_surface_materials")
+        != ["calleunsolosentido", "pavimento"]
+        or exact_int(
+            bridge_ground_road.get("decoded_surface_triangle_count"),
+            "Neo bridge ground-road triangle count",
+        )
+        != 9599
+        or bridge_ground_road.get("local_to_world_mapping")
+        != [
+            "world_x=-local_z",
+            "world_y=local_y-0.4",
+            "world_z=local_x",
+        ]
     ):
         raise CorridorSceneFailure("Neo bridge authentication drifted")
     destination_contract = exact_dict(
@@ -1890,6 +1943,10 @@ def validate_overlay_archive(
         obstacle_contract.get("ground_level_support_clearance"),
         "Neo bridge ground support clearance",
     )
+    clearance_ground_road = exact_dict(
+        ground_clearance.get("ground_road"),
+        "Neo bridge cleared ground road",
+    )
     if (
         obstacle_contract.get("destination_existing_lane_collision_preserved")
         is not True
@@ -1910,14 +1967,45 @@ def validate_overlay_archive(
         )
         != 0.0
         or ground_clearance.get("clearance")
-        != "all-column-aabbs-inside-empty-corridor"
+        != "all-column-aabbs-clear-of-authenticated-live-road-polygons"
         or exact_int(
             ground_clearance.get("column_aabb_count"),
             "Neo bridge ground-cleared column count",
         )
-        != 148
+        != 112
+        or ground_clearance.get("legacy_mesh_world_bounds_available")
+        is not True
         or ground_clearance.get("native_underside_visual_gate_required")
         is not True
+        or clearance_ground_road.get("collision_member")
+        != "autopistaQr.mesh"
+        or clearance_ground_road.get("collision_sha256")
+        != "931dea1993ad1b42db68e27abe376f082b25da4aadf96755a54fbb997fe7f80d"
+        or finite_number(
+            clearance_ground_road.get("column_clearance_m"),
+            "Neo bridge ground-road column clearance",
+        )
+        != 2.5
+        or clearance_ground_road.get("decoded_surface_materials")
+        != ["calleunsolosentido", "pavimento"]
+        or exact_int(
+            clearance_ground_road.get("decoded_surface_triangle_count"),
+            "Neo bridge cleared road triangle count",
+        )
+        != 9599
+        or exact_int(
+            clearance_ground_road.get("no_pillar_station_count"),
+            "Neo bridge no-pillar station count",
+        )
+        != 18
+        or clearance_ground_road.get("no_pillar_stations_m")
+        != list(range(80, 761, 40))
+        or exact_int(
+            clearance_ground_road.get("placement_line"),
+            "Neo bridge ground-road placement line",
+        )
+        != 378
+        or clearance_ground_road.get("placement_object") != "autopistaQr"
     ):
         raise CorridorSceneFailure("Neo bridge ground clearance drifted")
 
@@ -2300,7 +2388,7 @@ def validate_runtime_logs(
         raise CorridorSceneFailure("DAF spawn height is invalid")
 
     record = pass_matches[0].groupdict()
-    metrics: dict[str, float | int] = {
+    metrics: dict[str, object] = {
         "armed_station_m": armed["station"],
         "distance_m": float(record["distance"]),
         "forward_distance_m": float(record["forward"]),

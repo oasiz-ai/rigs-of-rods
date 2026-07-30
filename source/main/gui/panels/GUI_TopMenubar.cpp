@@ -2072,6 +2072,11 @@ void TopMenubar::Draw(float dt)
 
 bool TopMenubar::ShouldDisplay(ImVec2 window_pos)
 {
+    if (App::ui_hide_gui->getBool())
+    {
+        return false;
+    }
+
     if (!App::GetGuiManager()->AreStaticMenusAllowed())
     {
         return false;

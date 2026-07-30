@@ -29,13 +29,15 @@ void HoldCamera(uint captureIndex)
     }
     else if (captureIndex == 2)
     {
-        // Source ramp underside and its first paired, outboard supports.
+        // Source-ramp underside above authenticated autopistaQr: the complete
+        // station pairs are absent here so no column occupies the live road.
         game.setCameraPosition(vector3(4000.0f, 2.5f, 3960.0f));
         game.cameraLookAt(vector3(4150.0f, 7.5f, 3996.0f));
     }
     else if (captureIndex == 3)
     {
-        // Mid-span underside; the camera remains below the 8 m deck.
+        // Mid-span underside and outboard pairs after the first feasible
+        // support station at 800 m; the camera remains below the 8 m deck.
         game.setCameraPosition(vector3(5250.0f, 2.5f, 3950.0f));
         game.cameraLookAt(vector3(5400.0f, 8.2f, 4006.0f));
     }
@@ -47,10 +49,11 @@ void HoldCamera(uint captureIndex)
     }
     else
     {
-        // Flush NeoQ2.0 merge: the generated deck ends at the mesh edge and
-        // leaves the independently authored median and both lanes untouched.
-        game.setCameraPosition(vector3(6950.0f, 20.0f, 4070.0f));
-        game.cameraLookAt(vector3(6800.0f, 3.0f, 4018.0f));
+        // Wheel-height view down the positive-local-z live lane. The generated
+        // deck ends at x=6867 with zero overlap and an open collision cap;
+        // the authored median, carriageway, and outer barrier stay untouched.
+        game.setCameraPosition(vector3(6902.0f, 1.15f, 4022.125f));
+        game.cameraLookAt(vector3(6838.0f, 0.65f, 4022.125f));
     }
 }
 
@@ -82,7 +85,7 @@ void main()
     console.cVarSet("ui_hide_gui", "true");
     game.log(
         "[RoR|CW2|NeoBridgeRuntime] START cameras=6 "
-        "route_m=3076.132100441 width_m=24 supports=74 lights=33");
+        "route_m=3076.132100441 width_m=24 supports=56 lights=33");
 }
 
 void frameStep(float dt)
@@ -120,6 +123,6 @@ void frameStep(float dt)
     game.log(
         "[RoR|CW2|NeoBridgeRuntime] PASS cameras=6 frames=" +
         gReadyFrames + " physics_steps=" + steps +
-        " route_m=3076.132100441 supports=74 lights=33");
+        " route_m=3076.132100441 supports=56 lights=33");
     game.quitGame();
 }

@@ -3206,7 +3206,8 @@ def build_local_overlay(
                 (
                     "Generated NeoQueretaro-to-NeoQ2.0 highway bridge.",
                     "Both decoded city-road seams merge flush with zero generated overlap.",
-                    "Paired side piers clear the deck, heavy trucks, and authenticated ground corridor.",
+                    "Stations 80..760 are authored no-pillar above authenticated autopistaQr polygons.",
+                    "Fifty-six paired side piers elsewhere clear the deck and heavy trucks.",
                 ),
             ),
         ),
@@ -3337,7 +3338,7 @@ def build_local_overlay(
             "source_placements_copied": False,
             "source_placement_records_derived": True,
             "derived_source_placement_record_count":
-                light_candidates["candidate_poles"] + 19 + 4,
+                light_candidates["candidate_poles"] + 19 + 5,
             "source_textures_copied": False,
         },
         "visual_asset_usage": {
@@ -3375,10 +3376,11 @@ def build_local_overlay(
                 "lighting; a second raised bridge leaves NeoQueretaro from an "
                 "authenticated flush mesh edge and merges flush at NeoQ2.0 without "
                 "covering its median or live lanes, with continuous collision, "
-                "paired outboard terrain-reaching side piers, and bounded "
-                "LED fixtures; all 18 authenticated legacy NeoQueretaro trees are "
-                "replaced in place by the rights-cleared three-variant family "
-                "with per-instance visual/collision scale wrappers; "
+                "18 polygon-authenticated no-pillar stations above autopistaQr, "
+                "paired outboard terrain-reaching side piers elsewhere, and bounded "
+                "LED fixtures; all 18 authenticated legacy NeoQueretaro trees "
+                "are replaced in place by the rights-cleared three-variant "
+                "family with per-instance visual/collision scale wrappers; "
                 "deterministic NeoQueretaro pole-light candidates remain "
                 "disabled pending the bounded renderer light budget and "
                 "fixed-camera visual gate; bridge modules remain "

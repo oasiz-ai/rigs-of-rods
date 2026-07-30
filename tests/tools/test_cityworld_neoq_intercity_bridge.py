@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import copy
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -41,6 +42,7 @@ class Placement:
 def exact_placements() -> tuple[Placement, ...]:
     source = BRIDGE.SOURCE_PLACEMENT
     destination = BRIDGE.DESTINATION_PLACEMENT
+    ground_road = BRIDGE.GROUND_ROAD_PLACEMENT
     return (
         Placement(
             line_number=source["line_number"],
@@ -53,6 +55,12 @@ def exact_placements() -> tuple[Placement, ...]:
             object_name=destination["object"],
             position=destination["position_m"],
             rotation_degrees=destination["rotation_degrees"],
+        ),
+        Placement(
+            line_number=ground_road["line_number"],
+            object_name=ground_road["object"],
+            position=ground_road["position_m"],
+            rotation_degrees=ground_road["rotation_degrees"],
         ),
         Placement(
             line_number=800,
@@ -224,13 +232,13 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
                 "route_vs_decoded_surface_step_m": 0.0,
             },
         )
-        self.assertEqual(report["supports"]["requested_count"], 74)
+        self.assertEqual(report["supports"]["requested_count"], 56)
         self.assertLessEqual(
             report["supports"]["maximum_station_spacing_m"],
             BRIDGE.SAMPLE_SPACING_M,
         )
-        self.assertEqual(report["supports"]["column_pair_count"], 74)
-        self.assertEqual(report["supports"]["aabb_count"], 222)
+        self.assertEqual(report["supports"]["column_pair_count"], 56)
+        self.assertEqual(report["supports"]["aabb_count"], 168)
         self.assertEqual(
             report["supports"]["aabb_vs_swept_roadway_prism"],
             "all-disjoint",
@@ -259,7 +267,33 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
                 point.road_type == "bridge_side_pillars"
                 for point in points
             ),
-            74,
+            56,
+        )
+        self.assertEqual(
+            report["supports"]["ground_road_no_pillar_stations_m"],
+            list(BRIDGE.GROUND_ROAD_NO_PILLAR_STATIONS_M),
+        )
+        self.assertEqual(
+            len(report["supports"]["ground_road_no_pillar_stations_m"]),
+            18,
+        )
+        self.assertEqual(report["supports"]["stations_m"][0], 800.0)
+        self.assertEqual(
+            [
+                point.station_m
+                for point in points
+                if point.station_m
+                    in BRIDGE.GROUND_ROAD_NO_PILLAR_STATIONS_M
+            ],
+            list(BRIDGE.GROUND_ROAD_NO_PILLAR_STATIONS_M),
+        )
+        self.assertTrue(
+            all(
+                point.road_type == "bridge_no_pillars"
+                for point in points
+                if point.station_m
+                    in BRIDGE.GROUND_ROAD_NO_PILLAR_STATIONS_M
+            )
         )
 
     def test_route_and_fixture_schedule_are_deterministic(self) -> None:
@@ -303,6 +337,8 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
         self.assertEqual(report["format"], BRIDGE.AUTHENTICATION_FORMAT)
         self.assertEqual(report["source"]["line_number"], 366)
         self.assertEqual(report["destination"]["line_number"], 1230)
+        self.assertEqual(report["ground_road"]["line_number"], 378)
+        self.assertEqual(report["ground_road"]["object"], "autopistaQr")
         self.assertEqual(
             report["source"]["runtime_position_m"],
             [3676.970703, 0.3, 3993.104004],
@@ -315,7 +351,7 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
             report["destination"]["runtime_position_m"],
             [7000.0, 0.0, 4018.0],
         )
-        self.assertEqual(len(report["members"]), 6)
+        self.assertEqual(len(report["members"]), 8)
         self.assertTrue(report["open_gap"]["verified"])
         self.assertEqual(report["open_gap"]["placement_origin_count"], 0)
 
@@ -324,13 +360,70 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
             route_report,
             report,
         )
-        self.assertEqual(ground["column_aabb_count"], 148)
+        self.assertEqual(ground["column_aabb_count"], 112)
         self.assertEqual(
             ground["clearance"],
-            "all-column-aabbs-inside-empty-corridor",
+            "all-column-aabbs-clear-of-authenticated-live-road-polygons",
         )
         self.assertTrue(ground["native_underside_visual_gate_required"])
-        self.assertFalse(ground["legacy_mesh_world_bounds_available"])
+        self.assertTrue(ground["legacy_mesh_world_bounds_available"])
+        self.assertEqual(
+            ground["ground_road"],
+            {
+                "collision_member": "autopistaQr.mesh",
+                "collision_sha256":
+                    BRIDGE.GROUND_ROAD_COLLISION_SHA256,
+                "column_clearance_m": 2.5,
+                "decoded_surface_materials": [
+                    "calleunsolosentido",
+                    "pavimento",
+                ],
+                "decoded_surface_triangle_count": 9599,
+                "no_pillar_station_count": 18,
+                "no_pillar_stations_m":
+                    list(BRIDGE.GROUND_ROAD_NO_PILLAR_STATIONS_M),
+                "placement_line": 378,
+                "placement_object": "autopistaQr",
+            },
+        )
+
+    def test_ground_road_clearance_rejects_authored_support_drift(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            archive, contract = self.make_archive(Path(directory))
+            authentication = BRIDGE.authenticate_inputs(
+                archive,
+                exact_placements(),
+                member_contract=contract,
+            )
+        _, report = BRIDGE.build_route(surface_offset_m=0.08)
+        support_drift = copy.deepcopy(report)
+        support_drift["supports"]["stations_m"].append(80.0)
+        with self.assertRaisesRegex(
+            BRIDGE.BridgeFailure,
+            "enters the authenticated live ground road",
+        ):
+            BRIDGE.validate_ground_road_clearance(
+                support_drift,
+                authentication,
+            )
+
+        waypoint_drift = copy.deepcopy(report)
+        waypoint = next(
+            item
+            for item in waypoint_drift["waypoints"]
+            if item["station_m"] == 80.0
+        )
+        waypoint["road_type"] = "bridge_side_pillars"
+        with self.assertRaisesRegex(
+            BRIDGE.BridgeFailure,
+            "span is not authored no-pillar",
+        ):
+            BRIDGE.validate_ground_road_clearance(
+                waypoint_drift,
+                authentication,
+            )
 
     def test_ground_clearance_fails_closed_outside_authenticated_corridor(
         self,
@@ -445,8 +538,10 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
             "vector3(4000.0f, 2.5f, 3960.0f)",
             "vector3(5250.0f, 2.5f, 3950.0f)",
             "vector3(5325.0f, 300.0f, 3650.0f)",
-            "vector3(6950.0f, 20.0f, 4070.0f)",
-            "route_m=3076.132100441 supports=74 lights=33",
+            "vector3(6902.0f, 1.15f, 4022.125f)",
+            "vector3(6838.0f, 0.65f, 4022.125f)",
+            "zero overlap and an open collision cap",
+            "route_m=3076.132100441 supports=56 lights=33",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, fixture)
@@ -462,11 +557,19 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
             "const float PASS_DESTINATION_X_M = 6877.0f;",
             "const float DESTINATION_LANE_SAFE_MIN_LOCAL_Z_M = 1.95f;",
             "const float DESTINATION_LANE_SAFE_MAX_LOCAL_Z_M = 6.30f;",
-            "gPath.length() != 80",
+            "gPath.length() != 82",
+            "gStation[79] - DESTINATION_SEAM_STATION",
+            "gStation[81] - ROUTE_LENGTH_M - 20.0f",
             "source_overlap_m=0",
             "destination_overlap_m=0",
             "destination-lane-footprint-",
+            "reverse-destination-lane-footprint-",
             "destination_local_z_m=",
+            "reverse_destination_local_z_m=",
+            "REVERSE_DESTINATION_SEAM",
+            "destination_traversals=2",
+            "REVERSE_ACTOR_ID = 2026072903",
+            "MSG_SIM_DELETE_ACTOR_REQUESTED",
             '"sim_no_collisions", "false"',
             '"sim_no_self_collisions", "false"',
         ):
@@ -476,7 +579,7 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
             "};",
             1,
         )[0]
-        self.assertEqual(path_block.count("vector3("), 80)
+        self.assertEqual(path_block.count("vector3("), 82)
         vectors = [
             tuple(float(value) for value in match)
             for match in re.findall(
@@ -488,12 +591,19 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
             )
         ]
         points, _ = BRIDGE.build_route(surface_offset_m=0.08)
-        self.assertEqual(len(vectors), len(points))
-        for index, (vector, point) in enumerate(zip(vectors, points)):
+        self.assertEqual(len(vectors), len(points) + 2)
+        for index, (vector, point) in enumerate(zip(vectors[:80], points)):
             with self.subTest(index=index):
                 self.assertLessEqual(abs(vector[0] - point.x), 1.0e-9)
                 self.assertLessEqual(abs(vector[1] - point.y), 1.0e-9)
                 self.assertLessEqual(abs(vector[2] - point.z), 1.0e-9)
+        self.assertEqual(
+            vectors[80:],
+            [
+                (6877.0, 0.2, 4018.0),
+                (6887.0, 0.2, 4018.0),
+            ],
+        )
 
     def test_native_side_pier_and_open_endcap_contracts_are_additive(
         self,
@@ -581,6 +691,34 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
             editor,
         )
         self.assertIn("bridge_side_pillars", editor)
+
+    def test_native_ui_free_capture_hides_top_menu_and_cursor(self) -> None:
+        gui_manager = (
+            REPOSITORY_ROOT / "source/main/gui/GUIManager.cpp"
+        ).read_text(encoding="utf-8")
+        top_menubar = (
+            REPOSITORY_ROOT
+            / "source/main/gui/panels/GUI_TopMenubar.cpp"
+        ).read_text(encoding="utf-8")
+        visible_case = gui_manager.split(
+            "case MouseCursorVisibility::VISIBLE:",
+            1,
+        )[1].split(
+            "case MouseCursorVisibility::HIDDEN:",
+            1,
+        )[0]
+        self.assertIn("App::ui_hide_gui->getBool()", visible_case)
+        self.assertIn("ImGui::GetIO().MouseDrawCursor = false;", visible_case)
+        should_display = top_menubar.split(
+            "bool TopMenubar::ShouldDisplay(ImVec2 window_pos)",
+            1,
+        )[1]
+        hide_guard = should_display.split(
+            "if (!App::GetGuiManager()->AreStaticMenusAllowed())",
+            1,
+        )[0]
+        self.assertIn("App::ui_hide_gui->getBool()", hide_guard)
+        self.assertIn("return false;", hide_guard)
 
     def test_real_private_archive_when_available(self) -> None:
         archive = (

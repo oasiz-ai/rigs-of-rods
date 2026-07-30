@@ -301,6 +301,14 @@ void GUIManager::SetMouseCursorVisibility(MouseCursorVisibility visi)
     switch (visi)
     {
     case MouseCursorVisibility::VISIBLE:
+        // A hidden GUI is also a UI-free capture contract.  Keep the
+        // software cursor hidden even when mouse motion or the screenshot
+        // message tries to wake it while a scripted capture is in progress.
+        if (App::ui_hide_gui->getBool())
+        {
+            ImGui::GetIO().MouseDrawCursor = false;
+            return;
+        }
         ImGui::GetIO().MouseDrawCursor = true;
         this->SupressCursor(false);
         return;

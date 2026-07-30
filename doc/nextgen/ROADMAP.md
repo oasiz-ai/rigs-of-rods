@@ -797,8 +797,9 @@ requires a byte-identical nine-entry rebuild before it runs the unchanged v3
 Penguinville road diagnostic.
 
 Overlay v5 adds the direct road-to-road NeoQueretaro-to-NeoQ2.0 link. It
-authenticates the exact east and west distributor placements plus their six
-render, collision, and ODEF resources, then joins their decoded seams with a
+authenticates the exact east and west distributor placements, their six
+render/collision/ODEF resources, and line-378 `autopistaQr` with its exact
+mesh/ODEF pair, then joins the decoded distributor seams with a
 3,076.132 m native procedural surface. Both city endpoints have zero generated
 overlap, leaving one authoritative collision surface at each flush seam and
 preserving NeoQ2.0's median and both live carriageways. The 24 m deck tapers to
@@ -807,22 +808,29 @@ step, grade, yaw, and width-edge discontinuity. Per-road
 `collision_endcaps_enabled false` removes all six transverse cap collision
 faces without changing legacy roads.
 
-The raised deck requests 74 paired outboard side-pier stations and 33
-alternating inward bridge lights. Column inner faces sit 2.5 m beyond the deck
-edge, hammerheads remain at least 5 cm below the road slab, and all 222 support
-collision AABBs must clear the heavy-truck prism. An 80 m approach exclusion
-and conservative authenticated empty-ground corridor reject supports on active
-roads beneath or beside the bridge. Native accounting must report exactly 74
-requested and built pairs with zero skips.
+The pinned `autopistaQr` decode identifies 9,599 upward-facing live-road
+triangles in `calleunsolosentido` and `pavimento`. Expanding prospective
+columns by the 2.5 m heavy-truck clearance intersects those polygons at the 18
+stations from 80 through 760 m, so those complete pairs are authored
+`bridge_no_pillars`. The remaining raised deck requests 56 paired outboard
+side-pier stations and 33 alternating inward bridge lights. Hammerheads remain
+at least 5 cm below the road slab, and all 168 support collision AABBs clear
+the heavy-truck prism. Native accounting must report exactly 56 requested and
+built pairs with zero skips.
 
 The earlier clean macOS arm64 five-camera run covered a superseded
 center-pillar/destination-overlap prototype and is retained only as historical
-diagnostic evidence. The v3 acceptance gate requires a rebuilt arm64 app, six
-UI-free fixed cameras including driver and underside views, and a full DAF
-traversal ten metres into the preserved NeoQ2.0 carriageway. Normal and
-optimized Python tests lock the content contract on the
-macOS/Linux/Windows CI matrix; native macOS, Windows, and Linux gates remain
-open until the replacement run passes.
+diagnostic evidence. The v4 replacement gate now passes natively on the Apple
+M5 arm64 executable
+`e6843e669a8cbcd2f63af48b66f8be9d3bf5549bf9b4bf5b4016b99b4281e26b`.
+It produced six byte-distinct UI-free 1280x720 RGBs, including an unobstructed
+`autopistaQr` underside and wheel-height destination seam, and reported
+SidePiers `56/56/0`. The collision-enabled eastbound plus westbound drive
+covered 3,161.36 m in 424,240 physics steps; the reverse actor crossed 60.1921 m
+from the live NeoQ2.0 lane onto the deck with 0.0822754 m maximum path error,
+0.808374 m vertical error, and 0.00537109 m regression. Normal and optimized
+Python tests lock the portable content contract; native Windows and Linux
+replacement gates remain open.
 
 The full-map acceptance gate remains open. The v3 macOS arm64 diagnostic starts
 the packaged DAF at station -9.99478 inside Penguinville, crosses the

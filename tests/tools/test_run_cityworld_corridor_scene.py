@@ -56,7 +56,7 @@ def valid_logs() -> tuple[str, str]:
             "'{bundle USER:/mods/CityWorldNextLocalOverlay.zip}'",
             SCENE.CITYWORLD_NAME,
             "[RoR|ProceduralRoad|SidePiers] "
-            "requested=74 built=74 skipped=0",
+            "requested=56 built=56 skipped=0",
             *(light_marker for _ in range(SCENE.EXPECTED_LIGHTS)),
         )
     )
@@ -507,6 +507,29 @@ def synthetic_overlay_report(
             "line_number": 1230,
         },
         "format": BRIDGE.AUTHENTICATION_FORMAT,
+        "ground_road": {
+            "collision_member": BRIDGE.GROUND_ROAD_COLLISION_MEMBER,
+            "collision_sha256": BRIDGE.GROUND_ROAD_COLLISION_SHA256,
+            "decoded_surface_materials":
+                list(BRIDGE.GROUND_ROAD_SURFACE_MATERIALS),
+            "decoded_surface_triangle_count":
+                BRIDGE.GROUND_ROAD_SURFACE_TRIANGLE_COUNT,
+            "line_number": BRIDGE.GROUND_ROAD_PLACEMENT["line_number"],
+            "local_to_world_mapping": [
+                "world_x=-local_z",
+                "world_y=local_y-0.4",
+                "world_z=local_x",
+            ],
+            "object": BRIDGE.GROUND_ROAD_PLACEMENT["object"],
+            "odef_member": BRIDGE.GROUND_ROAD_ODEF_MEMBER,
+            "odef_sha256": BRIDGE.GROUND_ROAD_ODEF_SHA256,
+            "position_m": list(
+                BRIDGE.GROUND_ROAD_PLACEMENT["position_m"]
+            ),
+            "rotation_degrees": list(
+                BRIDGE.GROUND_ROAD_PLACEMENT["rotation_degrees"]
+            ),
+        },
         "members": [
             {
                 "name": record["name"],
@@ -579,7 +602,7 @@ def synthetic_overlay_report(
             "source_placement_payload_copied": False,
             "source_placement_records_derived": True,
             "source_placements_copied": False,
-            "derived_source_placement_record_count": 90,
+            "derived_source_placement_record_count": 91,
             "source_textures_copied": False,
         },
         "package": {
@@ -806,7 +829,7 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
                 )
                 for record in metrics["side_piers"]
             ),
-            [(46, 46, 0), (74, 74, 0)],
+            [(46, 46, 0), (56, 56, 0)],
         )
         for marker in SCENE.SCRIPT_MARKERS:
             with self.subTest(marker=marker):
@@ -959,7 +982,7 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
                 "missing-neo",
                 engine.replace(
                     "[RoR|ProceduralRoad|SidePiers] "
-                    "requested=74 built=74 skipped=0",
+                    "requested=56 built=56 skipped=0",
                     "",
                 ),
             ),
@@ -967,15 +990,15 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
                 "duplicate",
                 engine
                 + "\n[RoR|ProceduralRoad|SidePiers] "
-                "requested=74 built=74 skipped=0",
+                "requested=56 built=56 skipped=0",
             ),
             (
                 "count-drift",
                 engine.replace(
                     "[RoR|ProceduralRoad|SidePiers] "
-                    "requested=74 built=74 skipped=0",
+                    "requested=56 built=56 skipped=0",
                     "[RoR|ProceduralRoad|SidePiers] "
-                    "requested=74 built=73 skipped=1",
+                    "requested=56 built=55 skipped=1",
                 ),
             ),
             (

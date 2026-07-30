@@ -176,6 +176,7 @@ def pinned_fixture_placements() -> str:
         "3676.970703, 0.3, 3993.104004, "
         "90, 0, 0, distribuidorQr"
     )
+    lines[377] = "0, -0.4, 0, 90, 0, 90, autopistaQr"
     lines[1229] = (
         "7000, 50, 4018, 90, 0, 0, "
         "NeoQ2-0industrial-zone-distributor-road"
@@ -184,7 +185,7 @@ def pinned_fixture_placements() -> str:
     available = (
         index
         for index in range(4, 1229)
-        if index != 365 and not 8 <= index < 26
+        if index not in {365, 377} and not 8 <= index < 26
     )
     for line, index in zip(light_lines, available):
         lines[index] = line
@@ -1082,6 +1083,10 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 usage["packaged_asset_ids"],
             )
             self.assertIn(
+                "18 polygon-authenticated no-pillar stations above autopistaQr",
+                usage["purpose"],
+            )
+            self.assertIn(
                 "tools/build_cityworld_local_overlay.py",
                 [tool["path"] for tool in report["tools"]],
             )
@@ -1096,7 +1101,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             )
             self.assertEqual(
                 placement_text.count(", bridge_side_pillars\n"),
-                120,
+                102,
             )
             self.assertGreater(
                 placement_text.count(", bridge_no_pillars\n"),
@@ -1192,7 +1197,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             bridge = report["corridors"]["neoq_to_neoq20"]
             self.assertEqual(
                 bridge["format"],
-                "ror-cityworld-neoq-intercity-bridge-v3",
+                "ror-cityworld-neoq-intercity-bridge-v4",
             )
             self.assertEqual(
                 bridge["source"]["seam_m"],
@@ -1261,9 +1266,9 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 bridge["profile"]["sampled_maximum_grade"],
                 bridge["profile"]["maximum_grade"],
             )
-            self.assertEqual(bridge["supports"]["requested_count"], 74)
-            self.assertEqual(bridge["supports"]["column_pair_count"], 74)
-            self.assertEqual(bridge["supports"]["aabb_count"], 222)
+            self.assertEqual(bridge["supports"]["requested_count"], 56)
+            self.assertEqual(bridge["supports"]["column_pair_count"], 56)
+            self.assertEqual(bridge["supports"]["aabb_count"], 168)
             self.assertEqual(
                 bridge["supports"]["aabb_vs_swept_roadway_prism"],
                 "all-disjoint",
@@ -1272,12 +1277,48 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 bridge["obstacle_avoidance"][
                     "ground_level_support_clearance"
                 ]["clearance"],
-                "all-column-aabbs-inside-empty-corridor",
+                "all-column-aabbs-clear-of-authenticated-live-road-polygons",
+            )
+            self.assertEqual(
+                bridge["supports"]["ground_road_no_pillar_stations_m"],
+                list(range(80, 761, 40)),
+            )
+            self.assertEqual(bridge["supports"]["stations_m"][0], 800.0)
+            self.assertEqual(
+                bridge["supports"]["ground_road_collision_member"],
+                "autopistaQr.mesh",
+            )
+            self.assertEqual(
+                bridge["supports"]["ground_road_surface_materials"],
+                ["calleunsolosentido", "pavimento"],
+            )
+            self.assertEqual(
+                bridge["supports"]["ground_road_surface_triangle_count"],
+                9599,
+            )
+            ground_clearance = bridge["obstacle_avoidance"][
+                "ground_level_support_clearance"
+            ]
+            self.assertEqual(ground_clearance["column_aabb_count"], 112)
+            self.assertTrue(
+                ground_clearance["legacy_mesh_world_bounds_available"]
+            )
+            self.assertEqual(
+                ground_clearance["ground_road"]["no_pillar_station_count"],
+                18,
             )
             self.assertEqual(bridge["fixtures"]["instance_count"], 33)
             self.assertEqual(
                 len(bridge["authentication"]["members"]),
-                6,
+                8,
+            )
+            self.assertEqual(
+                bridge["authentication"]["ground_road"]["line_number"],
+                378,
+            )
+            self.assertEqual(
+                bridge["authentication"]["ground_road"]["object"],
+                "autopistaQr",
             )
             self.assertTrue(
                 bridge["authentication"]["open_gap"]["verified"]
@@ -1712,7 +1753,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     "source_placement_payload_copied": False,
                     "source_placements_copied": False,
                     "source_placement_records_derived": True,
-                    "derived_source_placement_record_count": 90,
+                    "derived_source_placement_record_count": 91,
                     "source_textures_copied": False,
                 },
             )

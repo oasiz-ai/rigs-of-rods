@@ -7,7 +7,8 @@ developer's normal RoR profile. It authenticates CityWorld and the derived
 overlay, independently rebuilds that overlay, then runs two isolated scenes:
 
 * six UI-free fixed-camera RGB captures of both seams, the deck, and supports;
-* a collision-enabled packaged-DAF traversal across both city-road seams.
+* collision-enabled packaged-DAF traversal across both city-road seams, plus
+  a separately spawned westbound traversal of the NeoQ2.0 destination seam.
 
 Artifacts are published atomically only after both native runs pass.
 """
@@ -69,6 +70,12 @@ STATIC_RGB_NAMES = tuple(
     f"cityworld_neoq_bridge_static_{index:02d}.png"
     for index in range(6)
 )
+TOP_MENU_X_RANGE = range(420, 880)
+TOP_MENU_DARK_REGION_Y_RANGE = range(18, 45)
+TOP_MENU_EDGE_ROWS = (8, 12)
+TOP_MENU_EDGE_CONTRAST_LIMIT = 20.0
+TOP_MENU_DARK_SCENE_MEAN_LIMIT = 100.0
+TOP_MENU_DARK_SCENE_NEUTRAL_BRIGHT_LIMIT = 300
 SIDE_PIER_STYLE = "ror-native-procedural-side-pier-pair-v1"
 SIDE_PIER_SUMMARY_PATTERN = corridor.SIDE_PIER_SUMMARY_PATTERN
 SIDE_PIER_SKIP_PREFIX = corridor.SIDE_PIER_SKIP_PREFIX
@@ -90,7 +97,7 @@ GROUNDING_PATTERN = re.compile(
 DEPENDENCY_PATTERN = corridor.DEPENDENCY_PATTERN
 STATIC_MARKERS = (
     "[RoR|CW2|NeoBridgeRuntime] START cameras=6 "
-    "route_m=3076.132100441 width_m=24 supports=74 lights=33",
+    "route_m=3076.132100441 width_m=24 supports=56 lights=33",
     *(
         f"[RoR|CW2|NeoBridgeRuntime] CAPTURE index={index}"
         for index in range(6)
@@ -100,17 +107,20 @@ STATIC_PASS_PATTERN = re.compile(
     r"\[RoR\|CW2\|NeoBridgeRuntime\] PASS cameras=6 "
     r"frames=(?P<frames>[0-9]+) "
     r"physics_steps=(?P<steps>[0-9]+) "
-    r"route_m=3076\.132100441 supports=74 lights=33"
+    r"route_m=3076\.132100441 supports=56 lights=33"
 )
 DRIVE_MARKERS = (
     "[RoR|CW2|NeoBridgeDrive] START route_m=3076.132100441 "
     "waypoints=80 vehicle=b6b0UID-semi.truck batch=40 "
     "source_overlap_m=0 destination_overlap_m=0 "
-    "collisions=on self_collisions=on",
+    "collisions=on self_collisions=on "
+    "traversal=destination-bidirectional",
     "[RoR|CW2|NeoBridgeDrive] ARMED actor=2026072902",
     "[RoR|CW2|NeoBridgeDrive] SEAM name=source",
     "[RoR|CW2|NeoBridgeDrive] MIDPOINT",
     "[RoR|CW2|NeoBridgeDrive] SEAM name=destination",
+    "[RoR|CW2|NeoBridgeDrive] REVERSE_ARMED actor=2026072903",
+    "[RoR|CW2|NeoBridgeDrive] REVERSE_DESTINATION_SEAM",
 )
 DRIVE_ARMED_PATTERN = re.compile(
     r"\[RoR\|CW2\|NeoBridgeDrive\] ARMED actor=2026072902 "
@@ -129,13 +139,34 @@ DRIVE_DESTINATION_SEAM_PATTERN = re.compile(
     r"station=(?P<station>-?[0-9.eE+]+) "
     r"x=(?P<x>-?[0-9.eE+]+) z=(?P<z>-?[0-9.eE+]+)"
 )
+DRIVE_REVERSE_ARMED_PATTERN = re.compile(
+    r"\[RoR\|CW2\|NeoBridgeDrive\] REVERSE_ARMED actor=2026072903 "
+    r"direction=neoq20_to_neoq "
+    r"heading=(?P<heading>-?[0-9.eE+]+) "
+    r"station=(?P<station>-?[0-9.eE+]+) "
+    r"cross_track=(?P<cross>-?[0-9.eE+]+) "
+    r"height=(?P<height>-?[0-9.eE+]+) "
+    r"forward_distance_m=(?P<forward_distance>-?[0-9.eE+]+)"
+)
+DRIVE_REVERSE_DESTINATION_SEAM_PATTERN = re.compile(
+    r"\[RoR\|CW2\|NeoBridgeDrive\] REVERSE_DESTINATION_SEAM "
+    r"direction=neoq20_to_neoq target_station=3076\.132100441 "
+    r"station=(?P<station>-?[0-9.eE+]+) "
+    r"x=(?P<x>-?[0-9.eE+]+) z=(?P<z>-?[0-9.eE+]+) "
+    r"local_z=(?P<local_z>-?[0-9.eE+]+)"
+)
 DRIVE_PASS_PATTERN = re.compile(
-    r"\[RoR\|CW2\|NeoBridgeDrive\] PASS seams=2 "
-    r"route_m=3076\.132100441 "
+    r"\[RoR\|CW2\|NeoBridgeDrive\] PASS seams=3 traversals=2 "
+    r"destination_traversals=2 route_m=3076\.132100441 "
     r"station_m=(?P<station>-?[0-9.eE+]+) "
+    r"reverse_station_m=(?P<reverse_station>-?[0-9.eE+]+) "
     r"destination_x_m=(?P<destination_x>-?[0-9.eE+]+) "
     r"destination_local_z_m=(?P<destination_local_z>-?[0-9.eE+]+) "
+    r"reverse_destination_local_z_m="
+    r"(?P<reverse_destination_local_z>-?[0-9.eE+]+) "
     r"distance_m=(?P<distance>-?[0-9.eE+]+) "
+    r"forward_distance_m=(?P<forward_distance>-?[0-9.eE+]+) "
+    r"reverse_distance_m=(?P<reverse_distance>-?[0-9.eE+]+) "
     r"path_error_m=(?P<path>-?[0-9.eE+]+) "
     r"vertical_error_m=(?P<vertical>-?[0-9.eE+]+) "
     r"regression_m=(?P<regression>-?[0-9.eE+]+) "
@@ -199,6 +230,10 @@ def validate_fixture(
             "source_overlap_m=0 destination_overlap_m=0",
             "collisions=on self_collisions=on",
             "PASS_DESTINATION_X_M = 6877.0f",
+            "REVERSE_PASS_STATION = 3036.132100441f",
+            "REVERSE_ACTOR_ID = 2026072903",
+            "REVERSE_DESTINATION_SEAM",
+            "destination_traversals=2",
             "DESTINATION_LANE_SAFE_MIN_LOCAL_Z_M = 1.95f",
             "DESTINATION_LANE_SAFE_MAX_LOCAL_Z_M = 6.30f",
         )
@@ -254,11 +289,191 @@ def expected_side_pier_counts(
                 f"overlay side-pier count is invalid: {name}"
             )
         counts.append(requested)
-    if 74 not in counts:
+    if 56 not in counts:
         raise NeoBridgeSceneFailure(
             "Neo intercity bridge side-pier contract is missing"
         )
     return tuple(sorted(counts))
+
+
+def validate_destination_join_contract(
+    overlay_report: Mapping[str, object],
+) -> dict[str, object]:
+    """Require a flush, open-cap handoff into the untouched live lanes."""
+
+    def object_value(value: object, label: str) -> Mapping[str, object]:
+        if not isinstance(value, dict):
+            raise NeoBridgeSceneFailure(f"{label} is not an object")
+        return value
+
+    def exact_number(
+        value: object,
+        expected: float,
+        label: str,
+    ) -> None:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) != expected
+        ):
+            expected_label = "zero" if expected == 0.0 else str(expected)
+            raise NeoBridgeSceneFailure(
+                f"{label} is not exactly {expected_label}"
+            )
+
+    corridors = object_value(
+        overlay_report.get("corridors"),
+        "overlay corridors",
+    )
+    bridge = object_value(
+        corridors.get("neoq_to_neoq20"),
+        "Neo intercity bridge",
+    )
+    if bridge.get("format") != "ror-cityworld-neoq-intercity-bridge-v4":
+        raise NeoBridgeSceneFailure(
+            "Neo intercity bridge destination contract has stale format"
+        )
+
+    collision = object_value(
+        bridge.get("collision"),
+        "Neo bridge collision contract",
+    )
+    if (
+        collision.get("continuous") is not True
+        or collision.get("single_surface") is not True
+        or collision.get("duplicate_authoritative_collision_surface")
+            is not False
+        or collision.get("endcap_collision_enabled") is not False
+    ):
+        raise NeoBridgeSceneFailure(
+            "NeoQ2.0 join is not a single-surface open collision cap"
+        )
+    exact_number(
+        collision.get("authoritative_collision_surfaces_per_seam"),
+        1.0,
+        "NeoQ2.0 authoritative collision surfaces per seam",
+    )
+    exact_number(
+        collision.get("endcap_collision_triangle_count"),
+        0.0,
+        "NeoQ2.0 endcap collision triangle count",
+    )
+    exact_number(
+        collision.get("endpoint_wheel_path_intrusion_m"),
+        0.0,
+        "NeoQ2.0 endpoint wheel-path intrusion",
+    )
+
+    connection = object_value(
+        bridge.get("connection"),
+        "Neo bridge connection contract",
+    )
+    for key in (
+        "destination_generated_overlap_m",
+        "destination_grade_discontinuity",
+        "destination_heading_error_degrees",
+        "destination_position_gap_m",
+        "destination_route_vs_decoded_surface_step_m",
+        "destination_vertical_step_m",
+        "destination_width_edge_error_m",
+    ):
+        exact_number(connection.get(key), 0.0, "NeoQ2.0 " + key)
+
+    destination = object_value(
+        bridge.get("destination"),
+        "Neo bridge destination contract",
+    )
+    lane_handoff = object_value(
+        destination.get("lane_handoff"),
+        "NeoQ2.0 live-lane handoff",
+    )
+    exact_number(
+        destination.get("generated_overlap_length_m"),
+        0.0,
+        "NeoQ2.0 generated overlap length",
+    )
+    exact_number(
+        destination.get("merge_width_m"),
+        15.1,
+        "NeoQ2.0 merge width",
+    )
+    if (
+        destination.get("existing_lanes_preserved") is not True
+        or destination.get("seam_m") != [6867.0, 0.2, 4018.0]
+        or destination.get("outer_collision_bounds_local_z_m")
+            != [-8.15, 8.15]
+        or destination.get("open_carriageways_local_z_m")
+            != [[-7.55, -0.7], [0.7, 7.55]]
+        or destination.get("median_local_z_m") != [-0.7, 0.7]
+        or lane_handoff.get("carriageway") != "positive-local-z"
+        or lane_handoff.get("local_position_m")
+            != [-133.0, 0.2, 4.125]
+        or lane_handoff.get("world_position_m")
+            != [6867.0, 0.2, 4022.125]
+    ):
+        raise NeoBridgeSceneFailure(
+            "NeoQ2.0 median, barriers, or live carriageways are covered"
+        )
+
+    profile = object_value(
+        bridge.get("profile"),
+        "Neo bridge profile contract",
+    )
+    exact_number(
+        profile.get("destination_merge_width_m"),
+        15.1,
+        "NeoQ2.0 profile merge width",
+    )
+    if profile.get("curb_free_approaches") is not True:
+        raise NeoBridgeSceneFailure(
+            "NeoQ2.0 curb-free inner-barrier handoff drifted"
+        )
+    waypoints = bridge.get("waypoints")
+    if (
+        not isinstance(waypoints, list)
+        or len(waypoints) != 80
+        or not isinstance(waypoints[-1], dict)
+        or waypoints[-1].get("position_m") != [6867.0, 0.2, 4018.0]
+        or waypoints[-1].get("road_type") != "flat"
+    ):
+        raise NeoBridgeSceneFailure(
+            "NeoQ2.0 generated deck does not terminate at the decoded seam"
+        )
+
+    obstacle = object_value(
+        bridge.get("obstacle_avoidance"),
+        "Neo bridge obstacle contract",
+    )
+    exact_number(
+        obstacle.get("destination_generated_overlap_m"),
+        0.0,
+        "NeoQ2.0 obstacle overlap",
+    )
+    if (
+        obstacle.get("destination_existing_lane_collision_preserved")
+            is not True
+    ):
+        raise NeoBridgeSceneFailure(
+            "NeoQ2.0 independent lane collision is not preserved"
+        )
+
+    return {
+        "authoritative_collision_surfaces_per_seam": 1,
+        "destination_lane_handoff_world_m":
+            [6867.0, 0.2, 4022.125],
+        "endcap_collision_enabled": False,
+        "endcap_collision_triangle_count": 0,
+        "generated_barrier_coverage": False,
+        "generated_lane_coverage": False,
+        "generated_median_coverage": False,
+        "generated_overlap_m": 0.0,
+        "live_carriageways_local_z_m":
+            [[-7.55, -0.7], [0.7, 7.55]],
+        "median_local_z_m": [-0.7, 0.7],
+        "single_surface": True,
+        "status": "verified",
+    }
 
 
 def validate_side_piers(
@@ -346,9 +561,9 @@ def validate_common_runtime(
         )
     if drive and engine_log.count(
         "===== LOADING VEHICLE: b6b0UID-semi.truck"
-    ) != 1:
+    ) != 2:
         raise NeoBridgeSceneFailure(
-            "packaged DAF was not loaded exactly once"
+            "packaged DAF was not loaded exactly twice"
         )
     return {
         "renderer": base.parse_renderer_identity(engine_log, sys.platform),
@@ -449,6 +664,16 @@ def validate_drive_logs(
         script_log,
         "destination SEAM",
     )
+    reverse_armed = _single_float_match(
+        DRIVE_REVERSE_ARMED_PATTERN,
+        script_log,
+        "REVERSE_ARMED",
+    )
+    reverse_destination = _single_float_match(
+        DRIVE_REVERSE_DESTINATION_SEAM_PATTERN,
+        script_log,
+        "REVERSE_DESTINATION_SEAM",
+    )
     passes = list(DRIVE_PASS_PATTERN.finditer(script_log))
     if len(passes) != 1:
         raise NeoBridgeSceneFailure(
@@ -469,9 +694,20 @@ def validate_drive_logs(
         "destination_station_m": destination["station"],
         "destination_x_m": float(pass_record["destination_x"]),
         "distance_m": float(pass_record["distance"]),
+        "forward_distance_m": float(pass_record["forward_distance"]),
         "path_error_m": float(pass_record["path"]),
         "physics_steps": int(pass_record["steps"]),
         "regression_m": float(pass_record["regression"]),
+        "reverse_armed_cross_track_m": reverse_armed["cross"],
+        "reverse_armed_height_m": reverse_armed["height"],
+        "reverse_armed_station_m": reverse_armed["station"],
+        "reverse_destination_local_z_m": float(
+            pass_record["reverse_destination_local_z"]
+        ),
+        "reverse_destination_station_m":
+            reverse_destination["station"],
+        "reverse_distance_m": float(pass_record["reverse_distance"]),
+        "reverse_route_station_m": float(pass_record["reverse_station"]),
         "route_station_m": float(pass_record["station"]),
         "source_station_m": source["station"],
         "source_x_m": source["x"],
@@ -491,6 +727,25 @@ def validate_drive_logs(
         raise NeoBridgeSceneFailure("DAF spawn cross-track is invalid")
     if not 0.5 <= metrics["armed_height_m"] <= 4.0:
         raise NeoBridgeSceneFailure("DAF spawn height is invalid")
+    if not 3093.0 <= metrics["reverse_armed_station_m"] <= 3096.3:
+        raise NeoBridgeSceneFailure(
+            "westbound DAF was not armed on the preserved NeoQ2.0 lane"
+        )
+    if not 4.5 <= metrics["reverse_armed_cross_track_m"] <= 6.5:
+        raise NeoBridgeSceneFailure(
+            "westbound DAF spawn cross-track is invalid"
+        )
+    if not 0.5 <= metrics["reverse_armed_height_m"] <= 4.0:
+        raise NeoBridgeSceneFailure(
+            "westbound DAF spawn height is invalid"
+        )
+    if abs(
+        reverse_armed["forward_distance"]
+        - metrics["forward_distance_m"]
+    ) > 0.1:
+        raise NeoBridgeSceneFailure(
+            "eastbound distance changed after westbound actor arming"
+        )
     if (
         metrics["source_x_m"] < 3790.970703
         or not 0.0 <= metrics["source_station_m"] <= 10.0
@@ -506,13 +761,41 @@ def validate_drive_logs(
         raise NeoBridgeSceneFailure(
             "DAF did not cross the flush NeoQ2.0 seam and destination road"
         )
+    if (
+        not 3070.0
+            <= metrics["reverse_destination_station_m"]
+            <= 3076.2
+        or metrics["reverse_route_station_m"] > 3036.2
+    ):
+        raise NeoBridgeSceneFailure(
+            "westbound DAF did not cross the destination seam onto the deck"
+        )
     if not 1.95 <= metrics["destination_local_z_m"] <= 6.30:
         raise NeoBridgeSceneFailure(
             "DAF left the authenticated NeoQ2.0 live-lane footprint"
         )
-    if not 3050.0 <= metrics["distance_m"] <= 3400.0:
+    if not 1.95 <= metrics["reverse_destination_local_z_m"] <= 6.30:
         raise NeoBridgeSceneFailure(
-            "physical Neo bridge traversal distance is invalid"
+            "westbound DAF left the authenticated NeoQ2.0 lane footprint"
+        )
+    if abs(
+        reverse_destination["local_z"]
+        - metrics["reverse_destination_local_z_m"]
+    ) > 0.01:
+        raise NeoBridgeSceneFailure(
+            "westbound destination lane evidence is inconsistent"
+        )
+    if not 3050.0 <= metrics["forward_distance_m"] <= 3450.0:
+        raise NeoBridgeSceneFailure(
+            "eastbound Neo bridge traversal distance is invalid"
+        )
+    if not 45.0 <= metrics["reverse_distance_m"] <= 100.0:
+        raise NeoBridgeSceneFailure(
+            "westbound destination-seam traversal distance is invalid"
+        )
+    if not 3100.0 <= metrics["distance_m"] <= 3550.0:
+        raise NeoBridgeSceneFailure(
+            "combined physical Neo bridge traversal distance is invalid"
         )
     if not 0.0 <= metrics["path_error_m"] <= 2.5:
         raise NeoBridgeSceneFailure("Neo bridge path error is excessive")
@@ -522,7 +805,7 @@ def validate_drive_logs(
         raise NeoBridgeSceneFailure("Neo bridge progress regressed")
     if not 0.0 < metrics["speed_mps"] <= 30.0:
         raise NeoBridgeSceneFailure("Neo bridge exit speed is invalid")
-    if not 100000 <= metrics["physics_steps"] <= 650000:
+    if not 100000 <= metrics["physics_steps"] <= 680000:
         raise NeoBridgeSceneFailure(
             "Neo bridge deterministic physics-step count is invalid"
         )
@@ -685,6 +968,67 @@ def require_distinct_rgb_records(
         )
 
 
+def validate_ui_free_rgb_png(path: Path) -> dict[str, object]:
+    """Validate RGB structure and reject the hover-activated top menu."""
+
+    record, pixels = base.decode_rgb_png(path)
+    width = int(record["width"])
+    height = int(record["height"])
+    first_row, second_row = TOP_MENU_EDGE_ROWS
+    if (
+        width < TOP_MENU_X_RANGE.stop
+        or height <= max(second_row, TOP_MENU_DARK_REGION_Y_RANGE.stop)
+    ):
+        raise NeoBridgeSceneFailure(
+            "static RGB is too small for the top-menu exclusion gate"
+        )
+
+    edge_difference = 0
+    edge_channels = 0
+    for x in TOP_MENU_X_RANGE:
+        first_offset = (first_row * width + x) * 3
+        second_offset = (second_row * width + x) * 3
+        for channel in range(3):
+            edge_difference += abs(
+                pixels[first_offset + channel]
+                - pixels[second_offset + channel]
+            )
+            edge_channels += 1
+    edge_contrast = edge_difference / edge_channels
+
+    dark_region_total = 0
+    dark_region_channels = 0
+    neutral_bright_pixels = 0
+    for y in TOP_MENU_DARK_REGION_Y_RANGE:
+        for x in TOP_MENU_X_RANGE:
+            offset = (y * width + x) * 3
+            colour = pixels[offset : offset + 3]
+            dark_region_total += sum(colour)
+            dark_region_channels += 3
+            if min(colour) > 140 and max(colour) - min(colour) < 25:
+                neutral_bright_pixels += 1
+    dark_region_mean = dark_region_total / dark_region_channels
+
+    if edge_contrast > TOP_MENU_EDGE_CONTRAST_LIMIT or (
+        dark_region_mean < TOP_MENU_DARK_SCENE_MEAN_LIMIT
+        and neutral_bright_pixels
+        > TOP_MENU_DARK_SCENE_NEUTRAL_BRIGHT_LIMIT
+    ):
+        raise NeoBridgeSceneFailure(
+            "static RGB contains the hover-activated RoR top menu"
+        )
+
+    return {
+        **record,
+        "ui_free_top_menu_check": {
+            "dark_region_channel_mean": round(dark_region_mean, 6),
+            "dark_scene_neutral_bright_pixels": neutral_bright_pixels,
+            "edge_contrast": round(edge_contrast, 6),
+            "status": "passed",
+        },
+    }
+
+
 def read_runtime_log(
     path: Path,
     *,
@@ -755,6 +1099,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         overlay_archive,
         repository,
     )
+    destination_join = validate_destination_join_contract(overlay_report)
     overlay_rebuild = corridor.verify_overlay_rebuild(
         cityworld_archive,
         overlay_archive,
@@ -886,7 +1231,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         screenshots,
                         STATIC_RGB_NAMES,
                     ):
-                        image = base.validate_rgb_png(source)
+                        image = validate_ui_free_rgb_png(source)
                         destination = rgb_directory / name
                         shutil.copy2(source, destination)
                         rgb_records.append(
@@ -914,7 +1259,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = {
             "acceptance": {
                 "collision_enabled": True,
+                "destination_bidirectional_traversal_verified": True,
                 "destination_city_road_surface_connection_verified": True,
+                "destination_live_lanes_and_median_preserved": True,
+                "destination_open_collision_cap_verified": True,
                 "native_vehicle_traversal_verified": True,
                 "source_city_road_surface_connection_verified": True,
                 "static_ui_free_rgb_views": 6,
@@ -926,6 +1274,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "overlay": overlay_record,
                 "vehicle": vehicle_record,
             },
+            "destination_join": destination_join,
             "executable": {
                 "path": str(executable),
                 "sha256": sha256_file(executable),

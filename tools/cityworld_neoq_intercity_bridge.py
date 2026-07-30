@@ -18,8 +18,8 @@ from typing import Any, Iterable, Sequence
 import zipfile
 
 
-FORMAT = "ror-cityworld-neoq-intercity-bridge-v3"
-AUTHENTICATION_FORMAT = "ror-cityworld-neoq-bridge-authentication-v1"
+FORMAT = "ror-cityworld-neoq-intercity-bridge-v4"
+AUTHENTICATION_FORMAT = "ror-cityworld-neoq-bridge-authentication-v2"
 PINNED_TOBJ_SHA256 = (
     "1cdc57dc59c4c0f403f621ad31afc301436af70c813b2e0dd01ffb0cd54f0b48"
 )
@@ -44,6 +44,14 @@ DESTINATION_PLACEMENT = {
     "object": "NeoQ2-0industrial-zone-distributor-road",
     "position_m": (7000.0, 50.0, 4018.0),
     "rotation_degrees": (90.0, 0.0, 0.0),
+}
+GROUND_ROAD_PLACEMENT = {
+    "city": "NeoQueretaro",
+    "connection": "divided surface highway beneath source bridge ramp",
+    "line_number": 378,
+    "object": "autopistaQr",
+    "position_m": (0.0, -0.4, 0.0),
+    "rotation_degrees": (90.0, 0.0, 90.0),
 }
 
 # These seam positions were decoded from the exact render meshes below and
@@ -90,6 +98,33 @@ DESTINATION_LANE_HANDOFF = (
 )
 DESTINATION_WIDTH_TAPER_LENGTH_M = 160.0
 
+# The authenticated autopistaQr.mesh collision surface passes diagonally under
+# the rising source half of the generated bridge. Ogre's exact placement
+# transform for TOBJ (90, 0, 90) maps local (x, y, z) to world
+# (-z, y - 0.4, x). An offline decode of the pinned mesh found 9,599
+# upward-facing live-road triangles in its `pavimento` and
+# `calleunsolosentido` submeshes. Expanding each prospective column footprint
+# by the heavy-truck lateral clearance intersects those polygons at stations
+# 80..760 m. The entire pair is therefore authored as no-pillar at each of
+# those stations; runtime support skipping is never used.
+GROUND_ROAD_COLLISION_MEMBER = "autopistaQr.mesh"
+GROUND_ROAD_COLLISION_SHA256 = (
+    "931dea1993ad1b42db68e27abe376f082b25da4aadf96755a54fbb997fe7f80d"
+)
+GROUND_ROAD_ODEF_MEMBER = "autopistaQr.odef"
+GROUND_ROAD_ODEF_SHA256 = (
+    "9caa5752ce5b1cb11f26ad086b93e052f376486d6a8503eb04db0503fe73e602"
+)
+GROUND_ROAD_SURFACE_MATERIALS = (
+    "calleunsolosentido",
+    "pavimento",
+)
+GROUND_ROAD_SURFACE_TRIANGLE_COUNT = 9599
+GROUND_ROAD_COLUMN_CLEARANCE_M = 2.5
+GROUND_ROAD_NO_PILLAR_STATIONS_M = tuple(
+    float(station) for station in range(80, 761, 40)
+)
+
 AUTHENTICATED_MEMBERS = (
     {
         "name": "distribuidorQr.mesh",
@@ -133,6 +168,18 @@ AUTHENTICATED_MEMBERS = (
         "size": 139,
         "sha256":
             "044bf09f0e0c2b9c032f651596dd9d5507032b523234d76d8e0f6f123ac589e0",
+    },
+    {
+        "name": GROUND_ROAD_COLLISION_MEMBER,
+        "role": "live-ground-road-collision-mesh",
+        "size": 1638638,
+        "sha256": GROUND_ROAD_COLLISION_SHA256,
+    },
+    {
+        "name": GROUND_ROAD_ODEF_MEMBER,
+        "role": "live-ground-road-object-definition",
+        "size": 73,
+        "sha256": GROUND_ROAD_ODEF_SHA256,
     },
 )
 
@@ -356,12 +403,16 @@ def authenticate_inputs(
     *,
     member_contract: Sequence[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Authenticate the exact source placements and six endpoint resources."""
+    """Authenticate both seams, the live ground road, and eight resources."""
 
     if member_contract is None:
         member_contract = AUTHENTICATED_MEMBERS
     source = _matching_placement(placements, SOURCE_PLACEMENT)
     destination = _matching_placement(placements, DESTINATION_PLACEMENT)
+    ground_road = _matching_placement(
+        placements,
+        GROUND_ROAD_PLACEMENT,
+    )
     members = _member_records(archive_path, member_contract)
     gap = _open_gap_audit(placements)
 
@@ -401,6 +452,20 @@ def authenticate_inputs(
     return {
         "destination": placement_record(destination, DESTINATION_PLACEMENT),
         "format": AUTHENTICATION_FORMAT,
+        "ground_road": {
+            **placement_record(ground_road, GROUND_ROAD_PLACEMENT),
+            "collision_member": GROUND_ROAD_COLLISION_MEMBER,
+            "collision_sha256": GROUND_ROAD_COLLISION_SHA256,
+            "decoded_surface_materials":
+                list(GROUND_ROAD_SURFACE_MATERIALS),
+            "decoded_surface_triangle_count":
+                GROUND_ROAD_SURFACE_TRIANGLE_COUNT,
+            "local_to_world_mapping":
+                ["world_x=-local_z", "world_y=local_y-0.4",
+                 "world_z=local_x"],
+            "odef_member": GROUND_ROAD_ODEF_MEMBER,
+            "odef_sha256": GROUND_ROAD_ODEF_SHA256,
+        },
         "members": members,
         "open_gap": gap,
         "source": placement_record(source, SOURCE_PLACEMENT),
@@ -833,9 +898,14 @@ def build_route(
             core_station > GROUND_LEAD_M
             and core_station < core_length - GROUND_LEAD_M
         )
+        ground_road_no_pillar = any(
+            abs(core_station - station) <= POSITION_EPSILON
+            for station in GROUND_ROAD_NO_PILLAR_STATIONS_M
+        )
         requests_support = (
             is_bridge
             and elevation >= 1.0
+            and not ground_road_no_pillar
             and core_station
                 >= SUPPORT_ENDPOINT_EXCLUSION_M - POSITION_EPSILON
             and core_length - core_station
@@ -1082,6 +1152,20 @@ def build_route(
             "maximum_station_spacing_m":
                 _stable_number(maximum_support_spacing),
             "requested_count": len(supports),
+            "ground_road_clearance_m":
+                GROUND_ROAD_COLUMN_CLEARANCE_M,
+            "ground_road_collision_member":
+                GROUND_ROAD_COLLISION_MEMBER,
+            "ground_road_collision_sha256":
+                GROUND_ROAD_COLLISION_SHA256,
+            "ground_road_no_pillar_stations_m": [
+                _stable_number(station)
+                for station in GROUND_ROAD_NO_PILLAR_STATIONS_M
+            ],
+            "ground_road_surface_materials":
+                list(GROUND_ROAD_SURFACE_MATERIALS),
+            "ground_road_surface_triangle_count":
+                GROUND_ROAD_SURFACE_TRIANGLE_COUNT,
             "stations_m": [
                 _stable_number(point.station_m) for point in supports
             ],
@@ -1110,14 +1194,7 @@ def validate_ground_road_clearance(
     route_report: dict[str, Any],
     authentication: dict[str, Any],
 ) -> dict[str, Any]:
-    """Reject supports outside the authenticated empty ground corridor.
-
-    CityWorld does not provide a world-space acceleration structure for every
-    legacy mesh. The pinned TOBJ placement-origin audit is therefore combined
-    with an intentionally wide corridor, an 80 m exclusion around both live
-    road anchors, exact support footprints, and a mandatory underside render
-    gate. The report is explicit about this conservative limit.
-    """
+    """Reject supports that enter any authenticated live ground roadway."""
 
     open_gap = authentication.get("open_gap")
     if (
@@ -1165,16 +1242,90 @@ def validate_ground_road_clearance(
             raise BridgeFailure(
                 "Neo bridge support enters an unauthenticated ground area"
             )
+    ground_road = authentication.get("ground_road")
+    if (
+        not isinstance(ground_road, dict)
+        or ground_road.get("line_number")
+            != GROUND_ROAD_PLACEMENT["line_number"]
+        or ground_road.get("object") != GROUND_ROAD_PLACEMENT["object"]
+        or ground_road.get("position_m")
+            != list(GROUND_ROAD_PLACEMENT["position_m"])
+        or ground_road.get("rotation_degrees")
+            != list(GROUND_ROAD_PLACEMENT["rotation_degrees"])
+        or ground_road.get("collision_member")
+            != GROUND_ROAD_COLLISION_MEMBER
+        or ground_road.get("collision_sha256")
+            != GROUND_ROAD_COLLISION_SHA256
+        or ground_road.get("odef_member") != GROUND_ROAD_ODEF_MEMBER
+        or ground_road.get("odef_sha256")
+            != GROUND_ROAD_ODEF_SHA256
+        or ground_road.get("decoded_surface_materials")
+            != list(GROUND_ROAD_SURFACE_MATERIALS)
+        or ground_road.get("decoded_surface_triangle_count")
+            != GROUND_ROAD_SURFACE_TRIANGLE_COUNT
+    ):
+        raise BridgeFailure(
+            "Neo bridge live ground-road authentication drifted"
+        )
+    support_stations = _finite_vector(
+        supports.get("stations_m", ()),
+        "support station schedule",
+    )
+    prohibited = set(GROUND_ROAD_NO_PILLAR_STATIONS_M)
+    if any(
+        any(abs(station - target) <= POSITION_EPSILON for target in prohibited)
+        for station in support_stations
+    ):
+        raise BridgeFailure(
+            "Neo bridge support enters the authenticated live ground road"
+        )
+    waypoints = route_report.get("waypoints")
+    if not isinstance(waypoints, list):
+        raise BridgeFailure("Neo bridge waypoint report is missing")
+    no_pillar_waypoints = {
+        float(item.get("station_m"))
+        for item in waypoints
+        if (
+            isinstance(item, dict)
+            and item.get("road_type") == "bridge_no_pillars"
+            and isinstance(item.get("station_m"), (int, float))
+            and not isinstance(item.get("station_m"), bool)
+        )
+    }
+    if not all(
+        any(
+            abs(station - candidate) <= POSITION_EPSILON
+            for candidate in no_pillar_waypoints
+        )
+        for station in prohibited
+    ):
+        raise BridgeFailure(
+            "Neo bridge live ground-road span is not authored no-pillar"
+        )
     return {
         "approach_anchor_exclusion_m": SUPPORT_ENDPOINT_EXCLUSION_M,
         "authenticated_placement_origin_count": 0,
         "authenticated_tobj_sha256": authentication.get("tobj", {}).get(
             "sha256"
         ),
-        "clearance": "all-column-aabbs-inside-empty-corridor",
+        "clearance":
+            "all-column-aabbs-clear-of-authenticated-live-road-polygons",
         "column_aabb_count": len(columns),
         "conservative_corridor_bounds_xz_m": list(bounds),
-        "legacy_mesh_world_bounds_available": False,
+        "ground_road": {
+            "collision_member": GROUND_ROAD_COLLISION_MEMBER,
+            "collision_sha256": GROUND_ROAD_COLLISION_SHA256,
+            "column_clearance_m": GROUND_ROAD_COLUMN_CLEARANCE_M,
+            "decoded_surface_materials":
+                list(GROUND_ROAD_SURFACE_MATERIALS),
+            "decoded_surface_triangle_count":
+                GROUND_ROAD_SURFACE_TRIANGLE_COUNT,
+            "no_pillar_station_count": len(prohibited),
+            "no_pillar_stations_m": sorted(prohibited),
+            "placement_line": GROUND_ROAD_PLACEMENT["line_number"],
+            "placement_object": GROUND_ROAD_PLACEMENT["object"],
+        },
+        "legacy_mesh_world_bounds_available": True,
         "native_underside_visual_gate_required": True,
     }
 

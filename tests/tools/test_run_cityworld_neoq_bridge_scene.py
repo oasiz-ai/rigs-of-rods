@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -23,7 +25,7 @@ SPEC.loader.exec_module(SCENE)
 
 
 def valid_engine(
-    side_pier_counts: tuple[int, ...] = (74,),
+    side_pier_counts: tuple[int, ...] = (56,),
     *,
     drive: bool,
 ) -> str:
@@ -60,7 +62,12 @@ def valid_engine(
         ),
     ]
     if drive:
-        lines.append("===== LOADING VEHICLE: b6b0UID-semi.truck")
+        lines.extend(
+            (
+                "===== LOADING VEHICLE: b6b0UID-semi.truck",
+                "===== LOADING VEHICLE: b6b0UID-semi.truck",
+            )
+        )
     return "\n".join(lines)
 
 
@@ -70,7 +77,7 @@ def valid_static_script() -> str:
             *SCENE.STATIC_MARKERS,
             "[RoR|CW2|NeoBridgeRuntime] PASS cameras=6 frames=265 "
             "physics_steps=1060 route_m=3076.132100441 "
-            "supports=74 lights=33",
+            "supports=56 lights=33",
         )
     )
 
@@ -87,14 +94,88 @@ def valid_drive_script() -> str:
             "station=1538.2 x=5329.0 z=4005.5",
             "[RoR|CW2|NeoBridgeDrive] SEAM name=destination "
             "station=3076.1321 x=6867.2 z=4022.9",
-            "[RoR|CW2|NeoBridgeDrive] PASS seams=2 "
-            "route_m=3076.132100441 station_m=3076.1321 "
+            "[RoR|CW2|NeoBridgeDrive] REVERSE_ARMED actor=2026072903 "
+            "direction=neoq20_to_neoq heading=0 station=3096.0 "
+            "cross_track=5.8 height=1.6 forward_distance_m=3105.0",
+            "[RoR|CW2|NeoBridgeDrive] REVERSE_DESTINATION_SEAM "
+            "direction=neoq20_to_neoq target_station=3076.132100441 "
+            "station=3075.8 x=6866.7 z=4023.7 local_z=5.7",
+            "[RoR|CW2|NeoBridgeDrive] PASS seams=3 traversals=2 "
+            "destination_traversals=2 route_m=3076.132100441 "
+            "station_m=3076.1321 reverse_station_m=3036.0 "
             "destination_x_m=6877.2 destination_local_z_m=4.9 "
-            "distance_m=3091.8 path_error_m=0.8 "
+            "reverse_destination_local_z_m=5.7 "
+            "distance_m=3170.0 forward_distance_m=3105.0 "
+            "reverse_distance_m=65.0 path_error_m=0.8 "
             "vertical_error_m=0.7 regression_m=0.02 "
             "speed_mps=9.2 physics_steps=420000",
         )
     )
+
+
+def valid_destination_report() -> dict[str, object]:
+    waypoints = [
+        {
+            "position_m": [3790.970703 + index, 0.1, 3993.104004],
+            "road_type": "bridge_side_pillars",
+        }
+        for index in range(79)
+    ]
+    waypoints.append(
+        {
+            "position_m": [6867.0, 0.2, 4018.0],
+            "road_type": "flat",
+        }
+    )
+    return {
+        "corridors": {
+            "neoq_to_neoq20": {
+                "format": "ror-cityworld-neoq-intercity-bridge-v4",
+                "collision": {
+                    "authoritative_collision_surfaces_per_seam": 1,
+                    "continuous": True,
+                    "duplicate_authoritative_collision_surface": False,
+                    "endcap_collision_enabled": False,
+                    "endcap_collision_triangle_count": 0,
+                    "endpoint_wheel_path_intrusion_m": 0.0,
+                    "single_surface": True,
+                },
+                "connection": {
+                    "destination_generated_overlap_m": 0.0,
+                    "destination_grade_discontinuity": 0.0,
+                    "destination_heading_error_degrees": 0.0,
+                    "destination_position_gap_m": 0.0,
+                    "destination_route_vs_decoded_surface_step_m": 0.0,
+                    "destination_vertical_step_m": 0.0,
+                    "destination_width_edge_error_m": 0.0,
+                },
+                "destination": {
+                    "existing_lanes_preserved": True,
+                    "generated_overlap_length_m": 0.0,
+                    "lane_handoff": {
+                        "carriageway": "positive-local-z",
+                        "local_position_m": [-133.0, 0.2, 4.125],
+                        "world_position_m": [6867.0, 0.2, 4022.125],
+                    },
+                    "median_local_z_m": [-0.7, 0.7],
+                    "merge_width_m": 15.1,
+                    "open_carriageways_local_z_m":
+                        [[-7.55, -0.7], [0.7, 7.55]],
+                    "outer_collision_bounds_local_z_m": [-8.15, 8.15],
+                    "seam_m": [6867.0, 0.2, 4018.0],
+                },
+                "obstacle_avoidance": {
+                    "destination_existing_lane_collision_preserved": True,
+                    "destination_generated_overlap_m": 0.0,
+                },
+                "profile": {
+                    "curb_free_approaches": True,
+                    "destination_merge_width_m": 15.1,
+                },
+                "waypoints": waypoints,
+            }
+        }
+    }
 
 
 class NeoBridgeSceneTests(unittest.TestCase):
@@ -117,7 +198,7 @@ class NeoBridgeSceneTests(unittest.TestCase):
             "corridors": {
                 "neoq_to_neoq20": {
                     "supports": {
-                        "requested_count": 74,
+                        "requested_count": 56,
                         "style": SCENE.SIDE_PIER_STYLE,
                     }
                 },
@@ -131,8 +212,58 @@ class NeoBridgeSceneTests(unittest.TestCase):
         }
         self.assertEqual(
             SCENE.expected_side_pier_counts(report),
-            (46, 74),
+            (46, 56),
         )
+
+    def test_destination_join_contract_is_exact_and_fail_closed(self) -> None:
+        contract = SCENE.validate_destination_join_contract(
+            valid_destination_report()
+        )
+        self.assertEqual(contract["status"], "verified")
+        self.assertFalse(contract["endcap_collision_enabled"])
+        self.assertFalse(contract["generated_median_coverage"])
+
+        cases = (
+            (
+                "overlap",
+                ("connection", "destination_generated_overlap_m"),
+                0.01,
+                "not exactly zero",
+            ),
+            (
+                "endcap",
+                ("collision", "endcap_collision_enabled"),
+                True,
+                "open collision cap",
+            ),
+            (
+                "median",
+                ("destination", "median_local_z_m"),
+                [-0.6, 0.6],
+                "median, barriers, or live carriageways",
+            ),
+            (
+                "lane-preservation",
+                (
+                    "obstacle_avoidance",
+                    "destination_existing_lane_collision_preserved",
+                ),
+                False,
+                "independent lane collision",
+            ),
+        )
+        for label, path, value, message in cases:
+            report = copy.deepcopy(valid_destination_report())
+            bridge = report["corridors"]["neoq_to_neoq20"]
+            bridge[path[0]][path[1]] = value
+            with (
+                self.subTest(label=label),
+                self.assertRaisesRegex(
+                    SCENE.NeoBridgeSceneFailure,
+                    message,
+                ),
+            ):
+                SCENE.validate_destination_join_contract(report)
 
     def test_static_runtime_accepts_six_ordered_captures(self) -> None:
         metrics = SCENE.validate_static_logs(
@@ -140,13 +271,13 @@ class NeoBridgeSceneTests(unittest.TestCase):
             "",
             valid_engine(drive=False),
             valid_static_script(),
-            (74,),
+            (56,),
         )
         self.assertEqual(metrics["captures"], 6)
         self.assertEqual(metrics["physics_steps"], 1060)
         self.assertEqual(
             metrics["side_piers"],
-            [{"built": 74, "requested": 74, "skipped": 0}],
+            [{"built": 56, "requested": 56, "skipped": 0}],
         )
 
     def test_drive_runtime_accepts_both_seams_and_live_lane(self) -> None:
@@ -155,16 +286,18 @@ class NeoBridgeSceneTests(unittest.TestCase):
             "",
             valid_engine(drive=True),
             valid_drive_script(),
-            (74,),
+            (56,),
         )
         self.assertEqual(metrics["destination_local_z_m"], 4.9)
+        self.assertEqual(metrics["reverse_destination_local_z_m"], 5.7)
+        self.assertEqual(metrics["reverse_distance_m"], 65.0)
         self.assertEqual(metrics["physics_steps"], 420000)
         self.assertGreaterEqual(metrics["destination_x_m"], 6877.0)
 
     def test_runtime_rejects_missing_or_partial_side_pier_summary(
         self,
     ) -> None:
-        engine = valid_engine((46, 74), drive=False)
+        engine = valid_engine((46, 56), drive=False)
         with self.assertRaisesRegex(
             SCENE.NeoBridgeSceneFailure,
             "multiset drifted",
@@ -177,7 +310,7 @@ class NeoBridgeSceneTests(unittest.TestCase):
                     "requested=46 built=45 skipped=1",
                 ),
                 valid_static_script(),
-                (46, 74),
+                (46, 56),
             )
         with self.assertRaisesRegex(
             SCENE.NeoBridgeSceneFailure,
@@ -189,7 +322,7 @@ class NeoBridgeSceneTests(unittest.TestCase):
                 engine
                 + "\n[RoR|ProceduralRoad|SidePiers] skip reason=terrain",
                 valid_static_script(),
-                (46, 74),
+                (46, 56),
             )
 
     def test_drive_runtime_rejects_destination_outside_live_lane(
@@ -207,7 +340,25 @@ class NeoBridgeSceneTests(unittest.TestCase):
                     "destination_local_z_m=4.9",
                     "destination_local_z_m=0.0",
                 ),
-                (74,),
+                (56,),
+            )
+
+    def test_drive_runtime_rejects_reverse_destination_outside_live_lane(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(
+            SCENE.NeoBridgeSceneFailure,
+            "westbound DAF left",
+        ):
+            SCENE.validate_drive_logs(
+                0,
+                "",
+                valid_engine(drive=True),
+                valid_drive_script().replace(
+                    "reverse_destination_local_z_m=5.7",
+                    "reverse_destination_local_z_m=0.0",
+                ),
+                (56,),
             )
 
     def test_build_command_is_cross_platform_and_script_specific(
@@ -281,6 +432,78 @@ class NeoBridgeSceneTests(unittest.TestCase):
             "not byte-distinct",
         ):
             SCENE.require_distinct_rgb_records(records)
+
+    @staticmethod
+    def rgb_fixture(colour: tuple[int, int, int]) -> bytearray:
+        return bytearray(colour * (1280 * 720))
+
+    @staticmethod
+    def rgb_record() -> dict[str, object]:
+        return {
+            "height": 720,
+            "sha256": "1" * 64,
+            "width": 1280,
+        }
+
+    def test_ui_free_rgb_accepts_an_unobstructed_top_region(self) -> None:
+        pixels = self.rgb_fixture((180, 190, 200))
+        with mock.patch.object(
+            SCENE.base,
+            "decode_rgb_png",
+            return_value=(self.rgb_record(), bytes(pixels)),
+        ):
+            record = SCENE.validate_ui_free_rgb_png(Path("/synthetic.png"))
+        self.assertEqual(
+            record["ui_free_top_menu_check"]["status"],
+            "passed",
+        )
+        self.assertEqual(
+            record["ui_free_top_menu_check"]["edge_contrast"],
+            0.0,
+        )
+
+    def test_ui_free_rgb_rejects_a_bright_scene_top_menu(self) -> None:
+        pixels = self.rgb_fixture((180, 190, 200))
+        for x in SCENE.TOP_MENU_X_RANGE:
+            offset = (SCENE.TOP_MENU_EDGE_ROWS[1] * 1280 + x) * 3
+            pixels[offset : offset + 3] = bytes((20, 20, 20))
+        with (
+            mock.patch.object(
+                SCENE.base,
+                "decode_rgb_png",
+                return_value=(self.rgb_record(), bytes(pixels)),
+            ),
+            self.assertRaisesRegex(
+                SCENE.NeoBridgeSceneFailure,
+                "hover-activated RoR top menu",
+            ),
+        ):
+            SCENE.validate_ui_free_rgb_png(Path("/synthetic.png"))
+
+    def test_ui_free_rgb_rejects_dark_scene_menu_text(self) -> None:
+        pixels = self.rgb_fixture((30, 30, 30))
+        injected = 0
+        for y in SCENE.TOP_MENU_DARK_REGION_Y_RANGE:
+            for x in SCENE.TOP_MENU_X_RANGE:
+                if injected > SCENE.TOP_MENU_DARK_SCENE_NEUTRAL_BRIGHT_LIMIT:
+                    break
+                offset = (y * 1280 + x) * 3
+                pixels[offset : offset + 3] = bytes((210, 210, 210))
+                injected += 1
+            if injected > SCENE.TOP_MENU_DARK_SCENE_NEUTRAL_BRIGHT_LIMIT:
+                break
+        with (
+            mock.patch.object(
+                SCENE.base,
+                "decode_rgb_png",
+                return_value=(self.rgb_record(), bytes(pixels)),
+            ),
+            self.assertRaisesRegex(
+                SCENE.NeoBridgeSceneFailure,
+                "hover-activated RoR top menu",
+            ),
+        ):
+            SCENE.validate_ui_free_rgb_png(Path("/synthetic.png"))
 
 
 if __name__ == "__main__":

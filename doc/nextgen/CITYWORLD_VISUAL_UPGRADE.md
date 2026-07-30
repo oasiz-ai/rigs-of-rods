@@ -164,9 +164,11 @@ authority.
 
 Overlay v5 authenticates `distribuidorQr` at source line 366 and
 `NeoQ2-0industrial-zone-distributor-road` at destination line 1230, together
-with their exact render mesh, collision mesh, and ODEF bytes. A 128 m-wide swept
-placement-origin strip between the decoded road seams must remain empty. This
-is intentionally stricter than selecting nearby city spawn points: endpoint or
+with their exact render mesh, collision mesh, and ODEF bytes. It also
+authenticates line-378 `autopistaQr` at `(0,-0.4,0)` with rotation
+`(90,0,90)` plus its exact mesh and ODEF. A 128 m-wide swept placement-origin
+strip between the decoded road seams must remain empty. This is intentionally
+stricter than selecting nearby city spawn points: endpoint, ground road, or
 resource drift aborts the local build before a route is emitted.
 
 Endpoint elevation comes from decoded collision surfaces, not raw TOBJ origin
@@ -177,7 +179,7 @@ surface to produce the 0.1 m source seam. The NeoQ2.0 placement is authored at
 destination seam. The report records all four values and requires the route
 surface to match the composed collision elevation exactly.
 
-The v3 route is one 3,076.132 m continuous native procedural collision surface
+The v4 route is one 3,076.132 m continuous native procedural collision surface
 with 80 waypoints. It begins exactly at NeoQueretaro's decoded east mesh edge
 and terminates exactly at NeoQ2.0's decoded west mesh edge. Generated overlap
 is zero at both ends, preserving the source surface plus the destination
@@ -189,19 +191,32 @@ the open-end collision contract omits all six transverse start/finish cap
 triangles.
 
 Two 160 m smoothstep ramps raise the central deck by 8 m. The sampled maximum
-grade is 0.07039, below the 0.075 contract. Seventy-four
-`bridge_side_pillars` stations are requested no more than 40 m apart. Every
-station uses paired columns with 2.5 m lateral truck clearance plus a
-hammerhead at least 5 cm below the road slab. The build enumerates 222 support
-collision AABBs, rejects any intersection with the swept road prism, excludes
-supports within 80 m of either live road anchor, and confines all columns to
-the authenticated empty ground corridor.
+grade is 0.07039, below the 0.075 contract. An exact offline decode of
+`autopistaQr.mesh` identifies 9,599 upward-facing live-road triangles in the
+`calleunsolosentido` and `pavimento` submeshes. Prospective column footprints,
+expanded by the 2.5 m heavy-truck clearance, intersect that surface at all 18
+stations from 80 through 760 m; each entire pair is therefore authored
+`bridge_no_pillars`, with no runtime skipping. The remaining 56
+`bridge_side_pillars` stations use paired columns plus hammerheads at least
+5 cm below the road slab. The build enumerates 168 support collision AABBs and
+rejects any intersection with the swept bridge-road prism.
 
 Thirty-three collisionless bridge fixtures alternate sides at 80 m spacing.
 They share the checked `rorng_city_led_streetlight_bridge` resource, point
 inward, and add one bounded 24 m warm point light each. Together with the first
 route's sixteen fixtures, overlay v5 requests 49 project-owned local lights,
 which remains below the runtime budget of 64.
+
+The v4 native macOS arm64 gate validates this contract end to end. Six
+byte-distinct 1280x720 UI-free captures show the live `autopistaQr` surface
+without columns, paired piers beginning only after the excluded span, and the
+wheel-height NeoQ2.0 handoff with no generated barrier or median coverage.
+Native accounting reports `requested=56 built=56 skipped=0`. A packaged DAF
+crosses both city seams eastbound, then a separately spawned westbound DAF
+crosses from the preserved positive-local-z carriageway back onto the generated
+deck. The combined trace covers 3,161.36 m in 424,240 physics steps with
+0.0822754 m maximum path error, 0.808374 m vertical error, and 0.00537109 m
+maximum regression. Windows and Linux still require their own native runs.
 
 ### NeoQueretaro core relighting gate
 
