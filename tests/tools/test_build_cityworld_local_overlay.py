@@ -100,6 +100,26 @@ BASE_PLACEMENTS = """\
 1722.910278, -0.054961, 2044.339844, 0.000000, 64.000000, -0.000000, arbol1Qr
 1629.423096, -0.074142, 2046.764160, 0.000000, -72.000000, -0.000000, arbol1Qr
 """
+SYNTHETIC_BRIDGE_MEMBER_PAYLOADS = tuple(
+    (
+        record["name"],
+        ("synthetic authenticated bridge member " + record["name"] + "\n").encode(),
+    )
+    for record in BUILDER.neoq_bridge.AUTHENTICATED_MEMBERS
+)
+SYNTHETIC_BRIDGE_MEMBER_CONTRACT = tuple(
+    {
+        "name": name,
+        "role": next(
+            record["role"]
+            for record in BUILDER.neoq_bridge.AUTHENTICATED_MEMBERS
+            if record["name"] == name
+        ),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "size": len(payload),
+    }
+    for name, payload in SYNTHETIC_BRIDGE_MEMBER_PAYLOADS
+)
 
 
 def luminaria_fixture_placements() -> str:
@@ -132,10 +152,58 @@ def luminaria_fixture_placements() -> str:
     return "\n".join(lines) + "\n"
 
 
-PLACEMENTS = BASE_PLACEMENTS + luminaria_fixture_placements()
+def pinned_fixture_placements() -> str:
+    lines = [
+        f"// fixture-padding-{line_number:04d}"
+        for line_number in range(1, 1231)
+    ]
+    tree_lines = [
+        line
+        for line in BASE_PLACEMENTS.splitlines()
+        if line.rstrip().endswith(", arbol1Qr")
+    ]
+    if len(tree_lines) != 18:
+        raise RuntimeError("synthetic NeoQ tree fixture must contain 18 trees")
+    lines[0] = "// SOURCE_PLACEMENTS_PAYLOAD_MUST_NOT_LEAK"
+    lines[1] = "1, 2, 3, 0, 0, 0, source_only_object"
+    lines[2] = "485, 0.1, 370, 0, 90, 0, troadavenuesidewalk"
+    lines[3] = (
+        "1460.966797, 0.1, 903.098389, "
+        "0, -180, 0, crucetQr"
+    )
+    lines[8:26] = tree_lines
+    lines[365] = (
+        "3676.970703, 0.3, 3993.104004, "
+        "90, 0, 0, distribuidorQr"
+    )
+    lines[1229] = (
+        "7000, 50, 4018, 90, 0, 0, "
+        "NeoQ2-0industrial-zone-distributor-road"
+    )
+    light_lines = luminaria_fixture_placements().splitlines()
+    available = (
+        index
+        for index in range(4, 1229)
+        if index != 365 and not 8 <= index < 26
+    )
+    for line, index in zip(light_lines, available):
+        lines[index] = line
+    return "\n".join(lines) + "\n"
+
+
+PLACEMENTS = pinned_fixture_placements()
 
 
 class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
+    def setUp(self) -> None:
+        bridge_contract = mock.patch.object(
+            BUILDER.neoq_bridge,
+            "AUTHENTICATED_MEMBERS",
+            SYNTHETIC_BRIDGE_MEMBER_CONTRACT,
+        )
+        bridge_contract.start()
+        self.addCleanup(bridge_contract.stop)
+
     def make_archive(
         self,
         root: Path,
@@ -169,6 +237,8 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             write_entry(otc_name, SOURCE_MARKERS["CityWorld.otc"])
             write_entry("CityWorld.tobj", placements.encode("utf-8"))
             for name, payload in pole_definitions:
+                write_entry(name, payload)
+            for name, payload in SYNTHETIC_BRIDGE_MEMBER_PAYLOADS:
                 write_entry(name, payload)
             for name, payload in extra_entries:
                 write_entry(name, payload)
@@ -989,7 +1059,8 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             usage = report["visual_asset_usage"]
             self.assertEqual(
                 usage["corridor_placement_mode"],
-                "native-procedural-v4-open-seams-side-piers-with-blender-transition-v2",
+                "native-procedural-v5-two-corridor-open-seams-side-piers-with-"
+                "blender-transition-v2",
             )
             self.assertIn(
                 BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID,
@@ -1004,6 +1075,12 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 "procedural road2 surface and marking atlas",
                 usage["purpose"],
             )
+            self.assertIn("a second raised bridge", usage["purpose"])
+            self.assertIn("without covering its median", usage["purpose"])
+            self.assertIn(
+                BUILDER.LED_STREETLIGHT_ASSET_ID,
+                usage["packaged_asset_ids"],
+            )
             self.assertIn(
                 "tools/build_cityworld_local_overlay.py",
                 [tool["path"] for tool in report["tools"]],
@@ -1015,23 +1092,23 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             self.assertIn("collision_enabled true", placement_text)
             self.assertEqual(
                 placement_text.count("collision_endcaps_enabled false"),
-                1,
+                2,
             )
             self.assertEqual(
                 placement_text.count(", bridge_side_pillars\n"),
-                46,
+                120,
             )
-            self.assertEqual(
+            self.assertGreater(
                 placement_text.count(", bridge_no_pillars\n"),
                 2,
             )
-            self.assertNotIn(", bridge\n", placement_text)
+            self.assertGreater(placement_text.count(", bridge\n"), 40)
             self.assertNotIn("rorng_city_gateway_block_40m -", placement_text)
             self.assertEqual(
                 placement_text.count(
                     f"{BUILDER.LED_STREETLIGHT_ASSET_ID} - "
                 ),
-                15,
+                48,
             )
             self.assertIn(
                 "cityworld_next_led_0220_left",
@@ -1046,6 +1123,18 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     f"{BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID} - "
                 ),
                 1,
+            )
+            self.assertIn(
+                "cityworld_next_neoq_link_led_0250_left",
+                placement_text,
+            )
+            self.assertIn(
+                "cityworld_next_neoq_link_led_2810_left",
+                placement_text,
+            )
+            self.assertEqual(
+                placement_text.count("begin_procedural_roads"),
+                2,
             )
             self.assertIn(
                 "522, 0.100001, 370.023095, 0, 0, 0, "
@@ -1091,6 +1180,104 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 ]["open_interval_surface_count"],
                 1,
             )
+            self.assertIn(
+                "3780.970703, 0.1, 3993.104004, 0, 0, 0, "
+                "24, 0, 0, flat",
+                placement_text,
+            )
+            self.assertIn(
+                "6867, 0.2, 4018, 0, 0, 0, 15.1, 0, 0, flat",
+                placement_text,
+            )
+            bridge = report["corridors"]["neoq_to_neoq20"]
+            self.assertEqual(
+                bridge["format"],
+                "ror-cityworld-neoq-intercity-bridge-v2",
+            )
+            self.assertEqual(
+                bridge["source"]["seam_m"],
+                [3790.970703, 0.1, 3993.104004],
+            )
+            self.assertEqual(
+                bridge["destination"]["seam_m"],
+                [6867.0, 0.2, 4018.0],
+            )
+            self.assertTrue(bridge["collision"]["continuous"])
+            self.assertFalse(
+                bridge["collision"]["endcap_collision_enabled"]
+            )
+            self.assertEqual(
+                bridge["collision"]["endcap_collision_triangle_count"],
+                0,
+            )
+            self.assertEqual(
+                bridge["collision"]["endpoint_wheel_path_intrusion_m"],
+                0.0,
+            )
+            self.assertTrue(bridge["profile"]["curb_free_approaches"])
+            self.assertEqual(bridge["profile"]["width_m"], 24.0)
+            self.assertEqual(
+                bridge["profile"]["destination_merge_width_m"],
+                15.1,
+            )
+            self.assertEqual(
+                bridge["connection"]["destination_generated_overlap_m"],
+                0.0,
+            )
+            self.assertEqual(
+                bridge["connection"]["destination_vertical_step_m"],
+                0.0,
+            )
+            self.assertEqual(
+                bridge["connection"]["destination_grade_discontinuity"],
+                0.0,
+            )
+            self.assertTrue(
+                bridge["destination"]["existing_lanes_preserved"]
+            )
+            self.assertEqual(
+                bridge["source"]["elevation_authority"][
+                    "runtime_origin_plus_local_surface_y_m"
+                ],
+                0.1,
+            )
+            self.assertEqual(
+                bridge["destination"]["elevation_authority"][
+                    "authored_placement_origin_y_m"
+                ],
+                50.0,
+            )
+            self.assertEqual(
+                bridge["destination"]["elevation_authority"][
+                    "runtime_origin_plus_local_surface_y_m"
+                ],
+                0.2,
+            )
+            self.assertLessEqual(
+                bridge["profile"]["sampled_maximum_grade"],
+                bridge["profile"]["maximum_grade"],
+            )
+            self.assertEqual(bridge["supports"]["requested_count"], 74)
+            self.assertEqual(bridge["supports"]["column_pair_count"], 74)
+            self.assertEqual(bridge["supports"]["aabb_count"], 222)
+            self.assertEqual(
+                bridge["supports"]["aabb_vs_swept_roadway_prism"],
+                "all-disjoint",
+            )
+            self.assertEqual(
+                bridge["obstacle_avoidance"][
+                    "ground_level_support_clearance"
+                ]["clearance"],
+                "all-column-aabbs-inside-empty-corridor",
+            )
+            self.assertEqual(bridge["fixtures"]["instance_count"], 33)
+            self.assertEqual(
+                len(bridge["authentication"]["members"]),
+                6,
+            )
+            self.assertTrue(
+                bridge["authentication"]["open_gap"]["verified"]
+            )
             self.assertEqual(
                 result["report"]["sha256"],
                 hashlib.sha256(report_payload).hexdigest(),
@@ -1112,7 +1299,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
 
         self.assertEqual(
             result["format"],
-            "ror-cityworld-local-overlay-build-result-v4",
+            "ror-cityworld-local-overlay-build-result-v5",
         )
         self.assertEqual(
             manifest["format"],
@@ -1185,9 +1372,13 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             manifest["visual_geometry"]["duplicate_pole_geometry_emitted"]
         )
         self.assertNotIn("rorng_city_neoq_luminaria", placement_text)
-        self.assertIn("Version = 4", descriptor)
+        self.assertIn("Version = 5", descriptor)
         self.assertIn(
-            "GUID = rorng-cityworld-next-local-overlay-v4",
+            "Name = CityWorld Next Enhanced (Use This)",
+            descriptor,
+        )
+        self.assertIn(
+            "GUID = rorng-cityworld-next-local-overlay-v5",
             descriptor,
         )
         lighting_report = report["city_lighting"]["neoq_core"]
@@ -1517,7 +1708,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     "source_placement_payload_copied": False,
                     "source_placements_copied": False,
                     "source_placement_records_derived": True,
-                    "derived_source_placement_record_count": 86,
+                    "derived_source_placement_record_count": 90,
                     "source_textures_copied": False,
                 },
             )
@@ -1981,6 +2172,8 @@ material rorng_bridge_streetlight_test
                     f"ns=runpy.run_path({str(TOOL_PATH)!r});"
                     "g=ns['main'].__globals__;"
                     f"g['PINNED_ARCHIVE_SHA256']={digest!r};"
+                    "g['neoq_bridge'].AUTHENTICATED_MEMBERS="
+                    f"{SYNTHETIC_BRIDGE_MEMBER_CONTRACT!r};"
                     "sys.exit(ns['main'](["
                     f"'--archive',{str(archive)!r},"
                     f"'--repo-root',{str(REPOSITORY_ROOT)!r},"

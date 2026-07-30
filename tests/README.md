@@ -328,6 +328,36 @@ real in-memory descriptor through `Ogre::ConfigFile` with the production
 separators and proves that the fully authenticated colon-qualified values
 survive parsing intact.
 
+## CityWorld intercity overlay gates
+
+`tests/tools/test_cityworld_neoq_intercity_bridge.py` locks the exact
+NeoQueretaro and NeoQ2.0 distributor placements, the six endpoint-resource
+contracts, the conservative empty ground corridor, the ten-metre source
+overlap, zero destination overlap, decoded 15.1 m flush merge, and open
+collision endcaps. It also locks 74 paired outboard support stations, all 222
+support AABBs, the 2.5 m lateral/5 cm vertical truck clearances, and the
+33-fixture alternating light schedule. Synthetic archives make the hostile
+and deterministic cases portable; the exact private archive is additionally
+authenticated when it is installed locally.
+
+`tests/tools/test_build_cityworld_local_overlay.py` then proves that overlay v5
+packages both intercity routes into one deterministic, local-only ZIP without
+copying the private source archive. `tests/tools/test_run_cityworld_corridor_scene.py`
+independently validates the complete report, 49 runtime bridge lights, and
+byte-identical rebuild contract. These standard-library tests run normally and
+under `python -O` on macOS, Linux, and Windows.
+
+The project-owned
+`tests/fixtures/cityworld_neoq_bridge_runtime/cityworld_neoq_bridge_runtime.as`
+diagnostic supplies six UI-free fixed cameras for native review of both road
+joins, the driver-height deck, ramp and mid-span undersides, paired side piers,
+and the complete raised alignment. The
+companion `cityworld_neoq_bridge_drive_runtime` fixture drives the packaged DAF
+over the complete link and ten metres beyond the zero-overlap seam, accepting
+only a heavy-truck footprint fully inside the preserved NeoQ2.0 carriageway.
+The private `CityWorld.zip` and generated local overlay remain external to the
+fixtures.
+
 ## Deterministic two-truck runtime scene
 
 `tools/run_deterministic_scene.py` drives the pinned D0 production scene

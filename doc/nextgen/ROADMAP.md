@@ -790,10 +790,38 @@ rejects family-count, 400 m scope, or exact source-ODEF drift, and its canonical
 report exposes the candidate payload hash, derived-record count, zero runtime
 emission, and non-shipping rights state. It is activation-ready content
 provenance, not a claim that whole-map relighting or ray tracing is complete.
-The corridor runner now consumes report v4, authenticates every candidate and
-source-pole definition, rejects any emitted adapter/placement, and requires a
-byte-identical nine-entry rebuild before it runs the unchanged v3 road
-diagnostic.
+The corridor runner now consumes report v5, authenticates every candidate and
+source-pole definition, rejects any emitted core adapter/placement, validates
+both intercity procedural-road contracts and all 49 project bridge lights, and
+requires a byte-identical nine-entry rebuild before it runs the unchanged v3
+Penguinville road diagnostic.
+
+Overlay v5 adds the direct road-to-road NeoQueretaro-to-NeoQ2.0 link. It
+authenticates the exact east and west distributor placements plus their six
+render, collision, and ODEF resources, then joins their decoded seams with a
+3,086.132 m native procedural surface. The source retains a ten-metre overlap;
+the divided NeoQ2.0 road has zero generated overlap, preserving its median and
+both live carriageways. The 24 m deck tapers to the decoded 15.1 m destination
+span, ends level at 0.2 m, and reports zero step, grade, yaw, and width-edge
+discontinuity. Per-road `collision_endcaps_enabled false` removes all six
+transverse cap collision faces without changing legacy roads.
+
+The raised deck requests 74 paired outboard side-pier stations and 33
+alternating inward bridge lights. Column inner faces sit 2.5 m beyond the deck
+edge, hammerheads remain at least 5 cm below the road slab, and all 222 support
+collision AABBs must clear the heavy-truck prism. An 80 m approach exclusion
+and conservative authenticated empty-ground corridor reject supports on active
+roads beneath or beside the bridge. Native accounting must report exactly 74
+requested and built pairs with zero skips.
+
+The earlier clean macOS arm64 five-camera run covered a superseded
+center-pillar/destination-overlap prototype and is retained only as historical
+diagnostic evidence. The v2 acceptance gate requires a rebuilt arm64 app, six
+UI-free fixed cameras including driver and underside views, and a full DAF
+traversal ten metres into the preserved NeoQ2.0 carriageway. Normal and
+optimized Python tests lock the content contract on the
+macOS/Linux/Windows CI matrix; native macOS, Windows, and Linux gates remain
+open until the replacement run passes.
 
 The full-map acceptance gate remains open. The v3 macOS arm64 diagnostic starts
 the packaged DAF at station -9.99478 inside Penguinville, crosses the

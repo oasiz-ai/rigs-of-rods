@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Accept the seamless v4 Penguinville-to-NeoQueretaro corridor at runtime.
+"""Accept overlay v5 and its seamless Penguinville route with the packaged DAF.
 
 CityWorld is third-party content and is intentionally absent from this
 repository. This gate authenticates the original and locally derived overlay,
@@ -51,7 +51,7 @@ CITYWORLD_NAME = "CityWorld.zip"
 OVERLAY_NAME = "CityWorldNextLocalOverlay.zip"
 OVERLAY_REPORT_MEMBER = "cityworld_next_local_overlay.report.json"
 OVERLAY_PLACEMENT_MEMBER = "cityworld_next_local_overlay.tobj"
-OVERLAY_REPORT_FORMAT = "ror-cityworld-local-overlay-v4"
+OVERLAY_REPORT_FORMAT = "ror-cityworld-local-overlay-v5"
 NEOQ_LIGHT_CANDIDATE_MEMBER = (
     "cityworld_next_neoq_core_lights.candidates.json"
 )
@@ -197,7 +197,9 @@ MAX_ARCHIVE_MEMBERS = 64
 MAX_OVERLAY_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_OVERLAY_TOTAL_BYTES = 128 * 1024 * 1024
 EXPECTED_WAYPOINTS = 55
-EXPECTED_LIGHTS = 15
+EXPECTED_CORRIDOR_LIGHTS = 15
+EXPECTED_NEOQ_BRIDGE_LIGHTS = 33
+EXPECTED_LIGHTS = EXPECTED_CORRIDOR_LIGHTS + EXPECTED_NEOQ_BRIDGE_LIGHTS
 EXPECTED_ROUTE_LENGTH_M = 1038.350024882
 MAX_PHYSICS_STEPS = 480000
 CITYWORLD_FALLBACK_LIGHTING_MARKER = base.fallback_lighting_marker(
@@ -214,6 +216,10 @@ EXPECTED_VISUAL_PURPOSE = (
     "crowned-to-flat Blender road transition inheriting the procedural road2 "
     "surface and marking atlas, open procedural collision endcaps, paired "
     "outboard bridge piers, and route-safe Blender lighting; "
+    "a second raised bridge leaves NeoQueretaro from an authenticated overlap "
+    "and merges flush at NeoQ2.0 without covering its median or live lanes, "
+    "with continuous collision, paired outboard terrain-reaching side piers, "
+    "and bounded LED fixtures; "
     "all 18 authenticated legacy NeoQueretaro trees are replaced in place by "
     "the rights-cleared three-variant family with per-instance "
     "visual/collision scale wrappers; deterministic NeoQueretaro pole-light "
@@ -231,6 +237,8 @@ REQUIRED_OVERLAY_TOOLS = frozenset(
         NEOQ_TREE_NATIVE_PLAN,
         "tools/audit_cityworld_visuals.py",
         "tools/build_cityworld_local_overlay.py",
+        "tools/cityworld_neoq_intercity_bridge.py",
+        "tools/cityworld_penguin_neoq_corridor.py",
         "tools/compile_cityworld_asset.py",
         "tools/solve_cityworld_bridge_corridor.py",
         "tools/validate_cityworld_asset.py",
@@ -1127,7 +1135,7 @@ def validate_overlay_archive(
                 "source_placement_payload_copied": False,
                 "source_placement_records_derived": True,
                 "source_placements_copied": False,
-                "derived_source_placement_record_count": 86,
+                "derived_source_placement_record_count": 90,
                 "source_textures_copied": False,
             }
             require_exact_json(
@@ -1533,7 +1541,7 @@ def validate_overlay_archive(
     fixtures = exact_dict(corridor.get("fixtures"), "corridor fixtures")
     if (
         exact_int(fixtures.get("instance_count"), "fixture count")
-        != EXPECTED_LIGHTS
+        != EXPECTED_CORRIDOR_LIGHTS
         or exact_int(
             fixtures.get("runtime_point_lights_per_instance"),
             "fixture light count",
@@ -1589,6 +1597,288 @@ def validate_overlay_archive(
         or supports.get("terrain_contact_resolved_at_runtime") is not True
     ):
         raise CorridorSceneFailure("corridor support contract drifted")
+
+    corridors = exact_dict(report.get("corridors"), "overlay corridors")
+    if set(corridors) != {"neoq_to_neoq20", "penguinville_to_neoq"}:
+        raise CorridorSceneFailure("overlay corridor inventory drifted")
+    if corridors.get("penguinville_to_neoq") != corridor:
+        raise CorridorSceneFailure(
+            "legacy corridor alias differs from corridor inventory"
+        )
+    neoq_bridge = exact_dict(
+        corridors.get("neoq_to_neoq20"),
+        "Neo intercity bridge",
+    )
+    if (
+        neoq_bridge.get("format")
+        != "ror-cityworld-neoq-intercity-bridge-v2"
+    ):
+        raise CorridorSceneFailure("Neo intercity bridge format drifted")
+    bridge_waypoints = exact_list(
+        neoq_bridge.get("waypoints"),
+        "Neo intercity bridge waypoints",
+    )
+    if len(bridge_waypoints) != 81:
+        raise CorridorSceneFailure("Neo intercity bridge waypoint count drifted")
+    bridge_endpoints = (
+        (
+            bridge_waypoints[0],
+            (3780.970703, 0.1, 3993.104004),
+            "source overlap",
+        ),
+        (
+            bridge_waypoints[1],
+            (3790.970703, 0.1, 3993.104004),
+            "source seam",
+        ),
+        (
+            bridge_waypoints[-1],
+            (6867.0, 0.2, 4018.0),
+            "destination seam",
+        ),
+    )
+    for value, expected, label in bridge_endpoints:
+        waypoint = exact_dict(value, f"Neo bridge {label}")
+        position = exact_list(
+            waypoint.get("position_m"),
+            f"Neo bridge {label} position",
+        )
+        if len(position) != 3 or any(
+            abs(finite_number(actual, label) - target) > 1.0e-6
+            for actual, target in zip(position, expected)
+        ):
+            raise CorridorSceneFailure(f"Neo bridge {label} drifted")
+    bridge_length = finite_number(
+        neoq_bridge.get("covered_centerline_length_m"),
+        "Neo bridge length",
+    )
+    if abs(bridge_length - 3086.132100441) > 1.0e-6:
+        raise CorridorSceneFailure("Neo intercity bridge length drifted")
+    bridge_connection = exact_dict(
+        neoq_bridge.get("connection"),
+        "Neo bridge connection",
+    )
+    for key in (
+        "source_position_gap_m",
+        "source_heading_error_degrees",
+        "destination_position_gap_m",
+        "destination_heading_error_degrees",
+        "destination_generated_overlap_m",
+        "destination_grade_discontinuity",
+        "destination_route_vs_decoded_surface_step_m",
+        "destination_vertical_step_m",
+        "destination_width_edge_error_m",
+        "source_route_vs_decoded_surface_step_m",
+    ):
+        if abs(finite_number(bridge_connection.get(key), key)) > 1.0e-9:
+            raise CorridorSceneFailure(f"Neo bridge connection is open: {key}")
+    bridge_collision = exact_dict(
+        neoq_bridge.get("collision"),
+        "Neo bridge collision",
+    )
+    if (
+        bridge_collision.get("authority")
+        != "native-procedural-road-v2-side-piers"
+        or bridge_collision.get("continuous") is not True
+        or bridge_collision.get("single_surface") is not True
+        or bridge_collision.get("endcap_collision_enabled") is not False
+        or exact_int(
+            bridge_collision.get("endcap_collision_triangle_count"),
+            "Neo bridge endcap collision triangles",
+        )
+        != 0
+        or finite_number(
+            bridge_collision.get("endpoint_wheel_path_intrusion_m"),
+            "Neo bridge endpoint wheel-path intrusion",
+        )
+        != 0.0
+    ):
+        raise CorridorSceneFailure("Neo bridge collision contract drifted")
+    bridge_profile = exact_dict(
+        neoq_bridge.get("profile"),
+        "Neo bridge profile",
+    )
+    if (
+        bridge_profile.get("curb_free_approaches") is not True
+        or abs(
+            finite_number(bridge_profile.get("width_m"), "Neo bridge width")
+            - 24.0
+        )
+        > 1.0e-9
+        or abs(
+            finite_number(
+                bridge_profile.get("destination_merge_width_m"),
+                "Neo bridge destination merge width",
+            )
+            - 15.1
+        )
+        > 1.0e-9
+        or finite_number(
+            bridge_profile.get("approach_border_height_m"),
+            "Neo bridge approach border",
+        )
+        != 0.0
+        or finite_number(
+            bridge_profile.get("sampled_maximum_grade"),
+            "Neo bridge grade",
+        )
+        > 0.075 + 1.0e-9
+    ):
+        raise CorridorSceneFailure("Neo bridge drive profile drifted")
+    bridge_supports = exact_dict(
+        neoq_bridge.get("supports"),
+        "Neo bridge supports",
+    )
+    if (
+        bridge_supports.get("enabled") is not True
+        or exact_int(
+            bridge_supports.get("requested_count"),
+            "Neo bridge support count",
+        )
+        != 74
+        or exact_int(
+            bridge_supports.get("column_pair_count"),
+            "Neo bridge side-pier pair count",
+        )
+        != 74
+        or exact_int(
+            bridge_supports.get("aabb_count"),
+            "Neo bridge support collision AABB count",
+        )
+        != 222
+        or bridge_supports.get("aabb_vs_swept_roadway_prism")
+        != "all-disjoint"
+        or abs(
+            finite_number(
+                bridge_supports.get(
+                    "minimum_lateral_clearance_from_deck_edge_m"
+                ),
+                "Neo bridge side-pier lateral clearance",
+            )
+            - 2.5
+        )
+        > 1.0e-9
+        or finite_number(
+            bridge_supports.get(
+                "minimum_vertical_clearance_below_collision_slab_m"
+            ),
+            "Neo bridge hammerhead vertical clearance",
+        )
+        <= 0.0
+        or finite_number(
+            bridge_supports.get("maximum_station_spacing_m"),
+            "Neo bridge support spacing",
+        )
+        > 40.0 + 1.0e-9
+        or bridge_supports.get("terrain_contact_resolved_at_runtime")
+        is not True
+    ):
+        raise CorridorSceneFailure("Neo bridge support contract drifted")
+    bridge_fixtures = exact_dict(
+        neoq_bridge.get("fixtures"),
+        "Neo bridge fixtures",
+    )
+    if (
+        exact_int(
+            bridge_fixtures.get("instance_count"),
+            "Neo bridge fixture count",
+        )
+        != EXPECTED_NEOQ_BRIDGE_LIGHTS
+        or exact_int(
+            bridge_fixtures.get("runtime_point_lights_per_instance"),
+            "Neo bridge point lights",
+        )
+        != 1
+        or bridge_fixtures.get("collision_authority")
+        != "native-procedural-road-v2-side-piers"
+    ):
+        raise CorridorSceneFailure("Neo bridge lighting contract drifted")
+    bridge_authentication = exact_dict(
+        neoq_bridge.get("authentication"),
+        "Neo bridge authentication",
+    )
+    if (
+        bridge_authentication.get("format")
+        != "ror-cityworld-neoq-bridge-authentication-v1"
+        or len(
+            exact_list(
+                bridge_authentication.get("members"),
+                "Neo bridge authenticated members",
+            )
+        )
+        != 6
+        or exact_int(
+            exact_dict(
+                bridge_authentication.get("source"),
+                "Neo bridge authenticated source",
+            ).get("line_number"),
+            "Neo bridge source line",
+        )
+        != 366
+        or exact_int(
+            exact_dict(
+                bridge_authentication.get("destination"),
+                "Neo bridge authenticated destination",
+            ).get("line_number"),
+            "Neo bridge destination line",
+        )
+        != 1230
+        or exact_dict(
+            bridge_authentication.get("open_gap"),
+            "Neo bridge open-gap audit",
+        ).get("verified")
+        is not True
+    ):
+        raise CorridorSceneFailure("Neo bridge authentication drifted")
+    destination_contract = exact_dict(
+        neoq_bridge.get("destination"),
+        "Neo bridge destination contract",
+    )
+    if (
+        destination_contract.get("existing_lanes_preserved") is not True
+        or finite_number(
+            destination_contract.get("generated_overlap_length_m"),
+            "Neo bridge generated destination overlap",
+        )
+        != 0.0
+        or destination_contract.get("open_carriageways_local_z_m")
+        != [[-7.55, -0.7], [0.7, 7.55]]
+        or destination_contract.get("median_local_z_m") != [-0.7, 0.7]
+        or exact_dict(
+            destination_contract.get("elevation_authority"),
+            "Neo bridge destination elevation authority",
+        ).get("runtime_origin_plus_local_surface_y_m")
+        != 0.2
+    ):
+        raise CorridorSceneFailure("Neo bridge destination merge drifted")
+    obstacle_contract = exact_dict(
+        neoq_bridge.get("obstacle_avoidance"),
+        "Neo bridge obstacle avoidance",
+    )
+    ground_clearance = exact_dict(
+        obstacle_contract.get("ground_level_support_clearance"),
+        "Neo bridge ground support clearance",
+    )
+    if (
+        obstacle_contract.get("destination_existing_lane_collision_preserved")
+        is not True
+        or finite_number(
+            obstacle_contract.get("destination_generated_overlap_m"),
+            "Neo bridge obstacle destination overlap",
+        )
+        != 0.0
+        or ground_clearance.get("clearance")
+        != "all-column-aabbs-inside-empty-corridor"
+        or exact_int(
+            ground_clearance.get("column_aabb_count"),
+            "Neo bridge ground-cleared column count",
+        )
+        != 148
+        or ground_clearance.get("native_underside_visual_gate_required")
+        is not True
+    ):
+        raise CorridorSceneFailure("Neo bridge ground clearance drifted")
+
     usage = exact_dict(
         report.get("visual_asset_usage"),
         "overlay visual asset usage",
@@ -1597,7 +1887,8 @@ def validate_overlay_archive(
         usage,
         {
             "corridor_placement_mode":
-                "native-procedural-v4-open-seams-side-piers-with-blender-transition-v2",
+                "native-procedural-v5-two-corridor-open-seams-side-piers-with-"
+                "blender-transition-v2",
             "disabled_light_candidate_manifest":
                 NEOQ_LIGHT_CANDIDATE_MEMBER,
             "neoq_core_runtime_light_activation": "blocked-fail-closed",

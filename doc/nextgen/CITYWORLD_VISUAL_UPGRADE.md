@@ -36,18 +36,25 @@ distances:
 1. Penguinville to NeoQueretaro: 2,067.758 metres.
 2. NeoQueretaro to NeoQ2.0: 5,401.543 metres.
 
-The first physical road link does not use those spawn positions as endpoints.
-It starts on the authenticated Penguinville east carriageway at
+The physical road links do not use those spawn positions as endpoints. The
+first starts on the authenticated Penguinville east carriageway at
 `(480, 0.198, 370)`, overlaps 14.8491 m of the existing road and curb, and
 continues from the authenticated curb edge at `(494.8491, 0.1, 370)` to the
 authenticated NeoQueretaro west carriageway seam at
 `(1380.966797, 0.1, 936.098389)`. The new source and destination surface points
 are 1,064.053 metres apart. The generated centreline is 1,075.448 metres
 because it preserves east tangents at both cities and includes the source
-overlap. The direct Penguinville-to-NeoQ2.0 distance is 7,374.342 metres and is
-not the first construction target. A link is a road corridor with bridge or
-elevated spans where the terrain requires them, not a single multi-kilometre
-mesh.
+overlap.
+
+The second link starts ten metres inside NeoQueretaro's east distributor at
+`(3780.970703, 0.1, 3993.104004)`, crosses its decoded seam at
+`(3790.970703, 0.1, 3993.104004)`, reaches NeoQ2.0's west industrial
+distributor seam at `(6867, 0.2, 4018)`, and terminates there with no generated
+overlap across the divided destination road. Its generated centreline is
+3,086.132 metres. The
+direct Penguinville-to-NeoQ2.0 spawn distance remains 7,374.342 metres; links
+are road corridors with bridge or elevated spans where terrain requires them,
+not single spawn-to-spawn meshes.
 
 Run the local audit with:
 
@@ -75,14 +82,15 @@ python3 tools/build_cityworld_local_overlay.py \
 ```
 
 The builder requires the exact pinned archive hash, audits ZIP paths and
-telepoints without extracting the archive, authenticates both road-object
-placements and rotations in `CityWorld.tobj`, verifies that the open intercity
-placement-origin window remains empty, validates all five asset manifests and
+telepoints without extracting the archive, authenticates both routes'
+road-object placements and rotations in `CityWorld.tobj`, verifies both open
+intercity placement-origin windows, hashes the Neo-to-NeoQ2.0 endpoint render
+meshes, collision meshes, and ODEFs, validates all five asset manifests and
 checked compiler outputs, and writes through a temporary sibling before an
-atomic no-overwrite publish. The ZIP contains a derived terrain descriptor, a
-project-owned overlay TOBJ, four placed collisionless streetlight resources,
-one disabled NeoQueretaro light-candidate manifest, one merged material
-script, and one canonical report. The four earlier
+atomic no-overwrite publish. The nine-entry ZIP contains a derived terrain
+descriptor, a project-owned overlay TOBJ, four placed collisionless streetlight
+resources, one disabled NeoQueretaro light-candidate manifest, one merged
+material script, and one canonical report. The four earlier
 Blender-authored corridor module families remain validated and reported but
 are excluded from the runtime payload while their ODEFs still own collision. It
 contains no original CityWorld geometry, placement, texture, object, or
@@ -115,7 +123,7 @@ separately installed, read-only local source and is appended to the derived
 terrain's resource group. The derived overlay location therefore keeps
 precedence if both archives contain the same resource name.
 
-Overlay v4 retains the v3 runtime corridor that replaced the incomplete 192 m
+Overlay v5 retains the v3 runtime corridor that replaced the incomplete 192 m
 prototype placement with a continuous
 1,075.448 m, 8.9 m-wide construction alignment. At Penguinville, a
 14.8491 m collision-authoritative asphalt apron begins at the legacy road
@@ -153,6 +161,47 @@ validated warm point light with a 24 m range; the generated report records
 every placement transform, light count, lateral offset, and collision
 authority.
 
+### NeoQueretaro-to-NeoQ2.0 road link
+
+Overlay v5 authenticates `distribuidorQr` at source line 366 and
+`NeoQ2-0industrial-zone-distributor-road` at destination line 1230, together
+with their exact render mesh, collision mesh, and ODEF bytes. A 72 m-wide swept
+placement-origin strip between the decoded road seams must remain empty. This
+is intentionally stricter than selecting nearby city spawn points: endpoint or
+resource drift aborts the local build before a route is emitted.
+
+Endpoint elevation comes from decoded collision surfaces, not raw TOBJ origin
+height. `distribuidorQr` composes its 0.3 m runtime origin with a -0.2 m local
+surface to produce the 0.1 m source seam. The NeoQ2.0 placement is authored at
+50 m but the pinned compatibility transform grounds its runtime origin at
+0 m; its decoded +0.2 m local surface therefore produces the 0.2 m
+destination seam. The report records all four values and requires the route
+surface to match the composed collision elevation exactly.
+
+The v2 route is one 3,086.132 m continuous native procedural collision surface
+with 81 waypoints. It starts ten metres inside NeoQueretaro but terminates
+exactly at NeoQ2.0's decoded west mesh edge: generated destination overlap is
+zero, preserving the existing median and both carriageways. The main deck is
+24 m wide, then tapers over 160 m to the destination road's decoded 15.1 m
+inner-barrier span. Its final surface is exactly level at 0.2 m. Position,
+vertical step, grade, yaw, and width-edge errors are all zero, and the open-end
+collision contract omits all six transverse start/finish cap triangles.
+
+Two 160 m smoothstep ramps raise the central deck by 8 m. The sampled maximum
+grade is 0.07039, below the 0.075 contract. Seventy-four
+`bridge_side_pillars` stations are requested no more than 40 m apart. Every
+station uses paired columns with 2.5 m lateral truck clearance plus a
+hammerhead at least 5 cm below the road slab. The build enumerates 222 support
+collision AABBs, rejects any intersection with the swept road prism, excludes
+supports within 80 m of either live road anchor, and confines all columns to
+the authenticated empty ground corridor.
+
+Thirty-three collisionless bridge fixtures alternate sides at 80 m spacing.
+They share the checked `rorng_city_led_streetlight_bridge` resource, point
+inward, and add one bounded 24 m warm point light each. Together with the first
+route's sixteen fixtures, overlay v5 requests 49 project-owned local lights,
+which remains below the runtime budget of 64.
+
 ### NeoQueretaro core relighting gate
 
 Overlay v4 adds the first deterministic full-map relighting content slice
@@ -173,11 +222,13 @@ candidate placement, source mesh, or source texture is emitted. The report
 records 67 derived placement records and continues to mark the package
 nonredistributable and non-shippable.
 
-Activation fails closed. Overlay v4 emits zero NeoQueretaro runtime point
-lights until the renderer exposes the `ror-cityworld-local-light-budget-v1`
-bounded-light policy. The shared terrain-object path now explicitly disables
-shadow casting on every point and spot light and reports
-`local_shadow_casters=0`; the v4 manifest records that zero-local-shadow
+Activation fails closed. Overlay v5 still emits zero NeoQueretaro
+core-candidate point lights until that independently derived content is
+promoted. The renderer now exposes the
+`ror-cityworld-local-light-budget-v1` bounded-light policy used by the 49
+project-owned bridge fixtures. The shared terrain-object path explicitly
+disables shadow casting on every point and spot light and reports
+`local_shadow_casters=0`; the candidate manifest records that zero-local-shadow
 contract as satisfied. The candidate-family and whole-map family counts are
 authenticated during every build; moving one pole across the 400 m boundary,
 changing a family count, or changing any of the three exact collision-bearing
@@ -185,10 +236,11 @@ source ODEFs aborts publication. Promotion also requires a UI-free fixed-camera
 RGB comparison, frame-time measurements, and native macOS, Windows, and Linux
 loading. Until those gates close, this is a reproducible activation-ready
 content contract, not evidence of completed relighting or ray tracing.
-The corridor diagnostic accepts overlay report v4, independently validates all
-67 candidate records and three pinned source-ODEF hashes, proves that no
-candidate adapter or placement entered the runtime payload, and rebuilds the
-complete nine-entry ZIP byte for byte before launching the unchanged v3
+The corridor diagnostic accepts overlay report v5, independently validates all
+67 candidate records and three pinned source-ODEF hashes, proves that no core
+candidate adapter or placement entered the runtime payload, validates both
+procedural corridors and all 49 bridge fixtures, and rebuilds the complete
+nine-entry ZIP byte for byte before launching the unchanged v3 Penguinville
 corridor traversal.
 
 Fixed ZIP order, timestamps, permissions, and stored payloads make repeated
@@ -202,12 +254,16 @@ pillars, inward fixture orientation, collisionless ODEFs, Windows-reserved
 output names, and no-overwrite publication. Those overlay tests now run in the
 Linux, Windows, and macOS provenance matrix.
 
-On the macOS arm64 rolling app, the installed v3 runtime package reaches
+On the macOS arm64 rolling app, the earlier installed v5 runtime package reaches
 `TERRAIN LOADING DONE`, passes the 10-frame bundle smoke, and shuts OGRE down
 cleanly. A UI-free 1280x720 capture verifies a continuous asphalt mouth across
 the original sidewalk and curb, with the curb retained only beside the road.
-A deterministic full-vehicle end-to-end acceptance traversal and native
-Windows/Linux repetitions remain open.
+The prior Neo-to-NeoQ2.0 five-view run exercised the superseded centered-pillar
+and destination-overlap prototype and is not acceptance evidence for v2. The
+replacement gate requires six UI-free views, including driver-height and
+underside views, exact native side-pier accounting, a full DAF traversal into
+the preserved destination lane, and no endpoint-cap snag. Native macOS arm64,
+Windows, and Linux repetitions remain open until those gates pass.
 
 The v2 exploratory private-content diagnostic armed the packaged DAF at the
 former report-declared Penguinville endpoint tangent and followed all 57
@@ -391,9 +447,10 @@ with deterministic placement transforms:
 The local map already has 20 `elevatedhighway` placements, nine standard
 pillars, three wide pillars, two ramps, one curve, and one on-ramp. Those are
 compatibility references, not sources for a redistributable replacement. The
-new kit uses project-owned names and geometry. The longer
-NeoQueretaro-to-NeoQ2.0 corridor starts only after the first link passes
-collision, navigation, visual, and performance gates.
+new kit uses project-owned names and geometry. Overlay v5 now gives the longer
+NeoQueretaro-to-NeoQ2.0 corridor an authenticated native procedural
+construction alignment; authored high-detail deck and abutment replacement
+remains a later visual pass.
 
 The first-link topology is now complete as the v3 native procedural
 construction alignment described above. That deliberately separates two
@@ -403,6 +460,9 @@ deck-detail, fixture and building-adjacency meshes replace the generic
 construction visuals without changing the authenticated route. The visual pass
 must preserve the v3 centreline, lane width, curb-free source overlap,
 destination seam, maximum grade and continuous collision surface.
+The same rule applies to the v5 second link: future authored visuals must
+preserve its exact road overlaps, 24 m driven width, grade ceiling, and single
+native collision surface.
 
 The first project-owned tangent module is checked in as
 `rorng_city_bridge_span_20m`, and the first curve as

@@ -35,6 +35,10 @@ if SPEC is None or SPEC.loader is None:
 SCENE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = SCENE
 SPEC.loader.exec_module(SCENE)
+BRIDGE = SCENE.load_module(
+    "cityworld_neoq_intercity_bridge_for_corridor_scene_test",
+    REPOSITORY_ROOT / "tools/cityworld_neoq_intercity_bridge.py",
+)
 
 
 def valid_logs() -> tuple[str, str]:
@@ -409,6 +413,144 @@ def synthetic_overlay_report(
     }
     candidate_record = records_by_name[SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER]
     tree_record = records_by_name[SCENE.NEOQ_TREE_REPLACEMENT_MEMBER]
+    legacy_corridor = {
+        "format": "ror-cityworld-intercity-corridor-v4",
+        "covered_centerline_length_m": covered,
+        "waypoints": waypoints,
+        "connection": {
+            "source_position_gap_m": 0.0,
+            "source_heading_error_degrees": 0.0,
+            "destination_position_gap_m": 0.0,
+            "destination_heading_error_degrees": 0.0,
+        },
+        "fixtures": {
+            "instance_count": SCENE.EXPECTED_CORRIDOR_LIGHTS,
+            "runtime_point_lights_per_instance": 1,
+            "collision_authority":
+                "native-procedural-road-v4-open-seams",
+        },
+        "profile": {
+            "source_width_m": 9.75017,
+            "destination_width_m": 10.0,
+            "sampled_maximum_grade": 0.073,
+            "surface_offset_m": 0.08,
+        },
+        "supports": {
+            "enabled": True,
+            "requested_count": 46,
+            "expected_built_count": 46,
+            "expected_skipped_count": 0,
+            "road_type_token": "bridge_side_pillars",
+            "paired_outboard": True,
+            "centerline_pillars_requested": 0,
+            "terrain_contact_resolved_at_runtime": True,
+        },
+        "source": {
+            "position_m": [522.0, 0.100001, 370.023095],
+            "connection_position_m":
+                [522.0, 0.100001, 370.023095],
+            "collision_handoff": {
+                "authorities_per_station": 1,
+                "legacy_curb_collision_retained": False,
+                "replacement_mode":
+                    "native-authenticated-in-place-object-definition-swap",
+                "transition_asset_id":
+                    "rorng_city_penguin_road_seam_12m",
+            },
+        },
+        "seams": {
+            "format": "ror-cityworld-penguin-neoq-seams-v1",
+            "collision_endcaps": {
+                "destination_exposed_vertical_face_m": 0.0,
+                "directive": "collision_endcaps_enabled false",
+                "maximum_exposed_vertical_face_m": 1e-06,
+                "source_exposed_vertical_face_m": 0.0,
+                "start_and_finish_transverse_collision_faces_emitted":
+                    False,
+            },
+            "source": {
+                "heading_error_degrees": 0.0,
+                "position_gap_m": 0.0,
+                "road_width_gap_m": 0.0,
+                "surface_overlap_m": 0.0,
+                "transition": {
+                    "asset_id": "rorng_city_penguin_road_seam_12m",
+                    "placement_position_m":
+                        [516.0, 0.100001, 370.023095],
+                    "end_position_m":
+                        [522.0, 0.100001, 370.023095],
+                    "transition_to_procedural_gap_m": 0.0,
+                },
+            },
+            "destination": {
+                "heading_error_degrees": 0.0,
+                "position_gap_m": 0.0,
+                "road_width_gap_m": 0.0,
+                "surface_overlap_m": 0.0,
+            },
+            "supports": {
+                "legacy_ground_road_envelopes_intersected": 0,
+                "road_type_token": "bridge_side_pillars",
+                "support_layout": "paired-outboard",
+                "swept_bridge_carriageway_intrusion_m": 0.0,
+            },
+        },
+    }
+    _, neoq_bridge = BRIDGE.build_route(surface_offset_m=0.08)
+    bridge_points, _ = BRIDGE.build_route(surface_offset_m=0.08)
+    _, bridge_fixtures = BRIDGE.build_streetlights(bridge_points)
+    neoq_bridge["fixtures"] = bridge_fixtures
+    neoq_bridge["authentication"] = {
+        "destination": {
+            "line_number": 1230,
+        },
+        "format": BRIDGE.AUTHENTICATION_FORMAT,
+        "members": [
+            {
+                "name": record["name"],
+                "role": record["role"],
+                "sha256": record["sha256"],
+                "size": record["size"],
+            }
+            for record in BRIDGE.AUTHENTICATED_MEMBERS
+        ],
+        "open_gap": {
+            "bounds_xz_m": [
+                BRIDGE.SOURCE_SEAM[0],
+                BRIDGE.DESTINATION_SEAM[0],
+                (
+                    min(BRIDGE.SOURCE_SEAM[2], BRIDGE.DESTINATION_SEAM[2])
+                    - BRIDGE.OPEN_GAP_HALF_WIDTH_M
+                ),
+                (
+                    max(BRIDGE.SOURCE_SEAM[2], BRIDGE.DESTINATION_SEAM[2])
+                    + BRIDGE.OPEN_GAP_HALF_WIDTH_M
+                ),
+            ],
+            "placement_origin_count": 0,
+            "verified": True,
+        },
+        "source": {
+            "line_number": 366,
+        },
+        "tobj": {
+            "sha256": BRIDGE.PINNED_TOBJ_SHA256,
+        },
+    }
+    neoq_bridge["obstacle_avoidance"] = {
+        "destination_existing_lane_collision_preserved": True,
+        "destination_generated_overlap_m": 0.0,
+        "ground_level_support_clearance":
+            BRIDGE.validate_ground_road_clearance(
+                neoq_bridge,
+                neoq_bridge["authentication"],
+            ),
+        "source_city_entered_only_at_authenticated_road_overlap": True,
+        "open_gap_placement_origin_audit":
+            neoq_bridge["authentication"]["open_gap"],
+        "swept_mesh_clearance":
+            "native-multi-camera-and-drive-gate-required",
+    }
     report = {
         "format": SCENE.OVERLAY_REPORT_FORMAT,
         "source": {
@@ -433,7 +575,7 @@ def synthetic_overlay_report(
             "source_placement_payload_copied": False,
             "source_placement_records_derived": True,
             "source_placements_copied": False,
-            "derived_source_placement_record_count": 86,
+            "derived_source_placement_record_count": 90,
             "source_textures_copied": False,
         },
         "package": {
@@ -476,7 +618,7 @@ def synthetic_overlay_report(
                 "destination_heading_error_degrees": 0.0,
             },
             "fixtures": {
-                "instance_count": SCENE.EXPECTED_LIGHTS,
+                "instance_count": SCENE.EXPECTED_CORRIDOR_LIGHTS,
                 "runtime_point_lights_per_instance": 1,
                 "collision_authority":
                     "native-procedural-road-v4-open-seams",
@@ -548,9 +690,14 @@ def synthetic_overlay_report(
                 },
             },
         },
+        "corridors": {
+            "neoq_to_neoq20": neoq_bridge,
+            "penguinville_to_neoq": copy.deepcopy(legacy_corridor),
+        },
         "visual_asset_usage": {
             "corridor_placement_mode":
-                "native-procedural-v4-open-seams-side-piers-with-blender-transition-v2",
+                "native-procedural-v5-two-corridor-open-seams-side-piers-with-"
+                "blender-transition-v2",
             "disabled_light_candidate_manifest":
                 SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER,
             "neoq_core_runtime_light_activation": "blocked-fail-closed",

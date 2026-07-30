@@ -238,7 +238,7 @@ the explicit absolute path; the compiler never searches `PATH`. The
 `--validate-checked` command revalidates the committed portable package without
 executing a host converter.
 
-Build the local-only Penguinville-to-NeoQueretaro overlay after those checks:
+Build the local-only CityWorld intercity overlay after those checks:
 
 ```sh
 mkdir -p /tmp/ror-cityworld-local
@@ -252,8 +252,10 @@ python3 tools/build_cityworld_local_overlay.py \
 The output path must not already exist and must be outside this repository.
 The current 43-entry deterministic ZIP references the separately installed
 original `CityWorld.otc` and `CityWorld.tobj`; it does not copy either file or
-any original map asset. Overlay v4 authenticates the two source road-object
-placements and replaces the incomplete 192 m prototype with a continuous
+any original map asset. Overlay v5 retains the authenticated
+Penguinville-to-NeoQueretaro route. It authenticates its two source
+road-object placements and replaces the incomplete 192 m prototype with a
+continuous
 1,075.448 m native construction alignment. It starts 14.8491 m inside
 Penguinville's east carriageway, rises from the decoded 0.198 m road surface
 to 0.31 m over 10 m, clears the decoded 0.30 m curb by 1 cm across the full
@@ -264,20 +266,48 @@ collision, and requests 47 terrain-reaching pillar stations. The overlap
 functionally removes the curb from the connection without copying or modifying
 the original private city mesh.
 
-Its inventory is the generated descriptor, merged material script, procedural
-placement, canonical local-only provenance report, disabled light-candidate
-manifest, authenticated tree-replacement manifest, four collisionless runtime
-resources for the placed bridge streetlight, 18 scale wrappers, and 15
-precompiled tree runtime resources: three ODEFs plus 12 render/collision meshes.
-The four Blender-authored module families remain validated and reported but are
-unplaced and excluded from the runtime payload because their existing ODEFs own
-collision. The v4 route continues to use RoR's native procedural road, barriers,
-and terrain-reaching pillars as the sole corridor collision authority. The
-building-overlapping gateway is not placed. Sixteen alternating bridge
-fixtures are mounted from station 234.8491 m through 834.8491 m, with exact
-inward transforms and one checked warm point light per instance. The source
-archive stays byte-identical and the generated package is explicitly not for
-redistribution or shipping.
+Overlay v5 also adds a road-to-road link from NeoQueretaro's east distributor
+stub to NeoQ2.0's west industrial distributor stub. The authenticated seams are
+`(3790.970703, 0.1, 3993.104004)` and `(6867, 0.2, 4018)`. The earlier
+3,096.132 m figure is superseded by the flush-merge v2 contract: the route is now
+3,086.132 m with 81 waypoints. It overlaps ten metres only at the open
+NeoQueretaro source road and has zero generated overlap at NeoQ2.0, so it
+cannot cover that road's raised median or either live carriageway. The deck is
+24 m wide and tapers over 160 m to the decoded 15.1 m inner-barrier span at
+the destination. Its final segment is exactly level at 0.2 m, with zero
+vertical step, grade discontinuity, yaw discontinuity, or width-edge error.
+Both procedural endpoint render caps remain visible but their six transverse
+collision faces are omitted.
+
+Two 160 m smooth ramps raise an 8 m deck while holding the sampled grade below
+7.5 percent. Seventy-four support stations request the additive native
+`bridge_side_pillars` mode at no more than 40 m spacing. Each station builds
+paired terrain-reaching columns whose inner faces are 2.5 m beyond the deck
+edge and a hammerhead whose top is 5 cm below the road collision slab.
+All 222 support collision AABBs must be disjoint from the heavy-truck swept
+prism; no support is allowed within 80 m of either active road anchor. The
+build authenticates the exact two placement records, their decoded surface
+elevations, and all six render-mesh, collision-mesh, and ODEF endpoint
+resources before adding the route. Any source drift, skipped native support,
+or new placement origin in the conservative 128 m-wide ground corridor fails
+closed.
+
+The package inventory is the generated descriptor, merged material script,
+procedural placement, canonical local-only provenance report, disabled
+NeoQueretaro relighting-candidate manifest, authenticated tree-replacement
+manifest, four collisionless runtime resources for the shared bridge
+streetlight, 18 tree scale wrappers, and 15 precompiled tree runtime resources:
+three ODEFs plus 12 render/collision meshes. The four Blender-authored bridge
+module families remain validated and reported but are unplaced and excluded
+from the runtime payload because their existing ODEFs own collision. Both
+routes use RoR's native procedural road and barriers as the sole deck collision
+authority. The first route retains its legacy support contract; the second
+uses paired outboard side piers with explicit collision-volume clearance. The
+building-overlapping gateway is not placed. Sixteen alternating fixtures
+illuminate the Penguinville link and 33 alternate along the Neo-to-NeoQ2.0
+deck; each has an exact inward transform and one checked warm point light. The
+source archive stays byte-identical and the generated package is explicitly
+not for redistribution or shipping.
 
 The same overlay replaces exactly the 18 authenticated `arbol1Qr` records at
 `CityWorld.tobj` source lines 9–26. The native policy edits each legacy record
