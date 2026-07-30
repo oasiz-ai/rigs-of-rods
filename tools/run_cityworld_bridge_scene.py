@@ -105,6 +105,28 @@ PSSM_QUALITY_PROFILES = {
     2: (((3072, 3072), (2048, 2048), (2048, 2048)), 0.97),
     3: (((4096, 4096), (3072, 3072), (2048, 2048)), 0.965),
 }
+POSTPROCESS_MODES = {
+    "none": 0,
+    "v0a": 1,
+}
+POSTPROCESS_PREFIX = "[RoR|PostProcess]"
+POSTPROCESS_PATTERN = re.compile(
+    r"\[RoR\|PostProcess\] "
+    r"event=(?P<event>[a-z0-9_]+) "
+    r"requested=(?P<requested>-?[0-9]+) "
+    r"effective=(?P<effective>-?[0-9]+) "
+    r"backend=(?P<backend>[a-z0-9_]+) "
+    r"status=(?P<status>[a-z0-9_]+) "
+    r"stage=(?P<stage>[a-z0-9_]+) "
+    r"backing=(?P<width>[0-9]+)x(?P<height>[0-9]+) "
+    r"renderer=(?P<renderer>.+?) "
+    r"detail=(?P<detail>[^\r\n]+)"
+)
+POSTPROCESS_BACKENDS = {
+    "darwin": "gl3plus_glsl330",
+    "linux": "gl3plus_glsl330",
+    "win32": "d3d11_sm4",
+}
 
 
 class RendererContract(NamedTuple):
@@ -631,6 +653,7 @@ def write_runtime_config(
     shadow_mode: str = "none",
     shadow_quality: int = 2,
     *,
+    postprocess_mode: str = "none",
     target_platform: str = sys.platform,
 ) -> tuple[Path, Path]:
     if shadow_mode not in ("none", "pssm"):
@@ -638,6 +661,10 @@ def write_runtime_config(
     if not 0 <= shadow_quality <= 3:
         raise BridgeSceneFailure(
             f"shadow quality is outside 0..3: {shadow_quality}"
+        )
+    if postprocess_mode not in POSTPROCESS_MODES:
+        raise BridgeSceneFailure(
+            f"unsupported post-processing mode: {postprocess_mode}"
         )
     contract = renderer_contract(target_platform)
     config_directory.mkdir(parents=True, exist_ok=True)
@@ -653,6 +680,8 @@ def write_runtime_config(
                 "app_force_cache_update=true",
                 "audio_master_volume=0",
                 "gfx_fps_limit=0",
+                "gfx_postprocess_mode="
+                + str(POSTPROCESS_MODES[postprocess_mode]),
                 "gfx_shadow_type="
                 + (
                     "Parallel-split Shadow Maps"
@@ -771,6 +800,96 @@ def validate_pssm_log(
     }
 
 
+def validate_postprocess_log(
+    engine_log: str,
+    postprocess_mode: str,
+    target_platform: str,
+) -> dict[str, object]:
+    if postprocess_mode not in POSTPROCESS_MODES:
+        raise BridgeSceneFailure(
+            f"unsupported post-processing mode: {postprocess_mode}"
+        )
+    expected_backend = POSTPROCESS_BACKENDS.get(target_platform)
+    if expected_backend is None:
+        raise BridgeSceneFailure(
+            "unsupported CityWorld runtime platform: "
+            f"{target_platform}"
+        )
+    marker_count = engine_log.count(POSTPROCESS_PREFIX)
+    all_matches = list(POSTPROCESS_PATTERN.finditer(engine_log))
+    matches = [
+        match
+        for match in all_matches
+        if match.group("event") == "scene_ready"
+    ]
+    if (
+        marker_count < 1
+        or len(all_matches) != marker_count
+        or len(matches) != 1
+    ):
+        raise BridgeSceneFailure(
+            "post-processing run must emit exactly one complete "
+            "scene_ready marker"
+        )
+    if any(
+        match.group("status") == "program_unavailable"
+        or match.group("stage") == "failed"
+        for match in all_matches
+    ):
+        raise BridgeSceneFailure(
+            "post-processing lifecycle failed after scene attachment"
+        )
+    fields = matches[0].groupdict()
+    requested = int(fields["requested"])
+    effective = int(fields["effective"])
+    width = int(fields["width"])
+    height = int(fields["height"])
+    expected_mode = POSTPROCESS_MODES[postprocess_mode]
+    if requested != expected_mode:
+        raise BridgeSceneFailure(
+            "post-processing marker differs from the requested mode"
+        )
+    if fields["backend"] != expected_backend:
+        raise BridgeSceneFailure(
+            "post-processing backend differs from the platform contract"
+        )
+    if width != EXPECTED_WIDTH or height != EXPECTED_HEIGHT:
+        raise BridgeSceneFailure(
+            "post-processing backing extent differs from the fixed "
+            "render target"
+        )
+    expected = (
+        (0, "requested_none", "bypassed")
+        if postprocess_mode == "none"
+        else (1, "enabled", "attached")
+    )
+    if (
+        effective != expected[0]
+        or fields["status"] != expected[1]
+        or fields["stage"] != expected[2]
+    ):
+        raise BridgeSceneFailure(
+            "post-processing marker does not prove the requested "
+            "effective lifecycle"
+        )
+    expected_renderer = renderer_contract(target_platform).render_system
+    if fields["renderer"] != expected_renderer:
+        raise BridgeSceneFailure(
+            "post-processing marker renderer differs from the "
+            "platform contract"
+        )
+    return {
+        "backend": fields["backend"],
+        "backing_height": height,
+        "backing_width": width,
+        "detail": fields["detail"],
+        "effective_mode": effective,
+        "lifecycle_stage": fields["stage"],
+        "requested_mode": requested,
+        "status": fields["status"],
+    }
+
+
 def parse_renderer_identity(
     engine_log: str,
     target_platform: str,
@@ -815,6 +934,29 @@ def normalize_shadow_config(payload: bytes) -> bytes:
     if matches != 1:
         raise BridgeSceneFailure(
             "RoR configuration must contain exactly one shadow-mode setting"
+        )
+    return "".join(normalized).encode("utf-8")
+
+
+def normalize_postprocess_config(payload: bytes) -> bytes:
+    text = payload.decode("utf-8")
+    lines = text.splitlines(keepends=True)
+    matches = 0
+    normalized: list[str] = []
+    for line in lines:
+        if line.startswith("gfx_postprocess_mode="):
+            ending = "\n" if line.endswith("\n") else ""
+            normalized.append(
+                "gfx_postprocess_mode=<paired-postprocess-mode>"
+                + ending
+            )
+            matches += 1
+        else:
+            normalized.append(line)
+    if matches != 1:
+        raise BridgeSceneFailure(
+            "RoR configuration must contain exactly one "
+            "post-processing-mode setting"
         )
     return "".join(normalized).encode("utf-8")
 
@@ -1050,6 +1192,11 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         choices=range(4),
         default=2,
     )
+    parser.add_argument(
+        "--postprocess-mode",
+        choices=tuple(POSTPROCESS_MODES),
+        default="none",
+    )
     args = parser.parse_args(argv)
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
@@ -1096,6 +1243,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         layout["config"],
         args.shadow_mode,
         args.shadow_quality,
+        postprocess_mode=args.postprocess_mode,
         target_platform=target_platform,
     )
     requested_configs = {
@@ -1139,6 +1287,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         engine_log,
         args.shadow_mode,
         args.shadow_quality,
+    )
+    postprocess_record = validate_postprocess_log(
+        engine_log,
+        args.postprocess_mode,
+        target_platform,
     )
     renderer_identity = parse_renderer_identity(engine_log, target_platform)
     effective_configs = {
@@ -1192,6 +1345,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             ] = sha256_bytes(
                 normalize_shadow_config(effective_configs[name])
             )
+            copied_configs[name][
+                "requested_postprocess_normalized_sha256"
+            ] = sha256_bytes(
+                normalize_postprocess_config(requested_configs[name])
+            )
+            copied_configs[name][
+                "effective_postprocess_normalized_sha256"
+            ] = sha256_bytes(
+                normalize_postprocess_config(effective_configs[name])
+            )
 
     repository_commit = git_output(repository, ("rev-parse", "HEAD"))
     report: dict[str, object] = {
@@ -1220,6 +1383,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "configs": copied_configs,
             "device": renderer_identity,
             "height": EXPECTED_HEIGHT,
+            "postprocess": postprocess_record,
+            "postprocess_mode": args.postprocess_mode,
             "pssm": pssm_record,
             "shadow_mode": args.shadow_mode,
             "shadow_quality": args.shadow_quality,

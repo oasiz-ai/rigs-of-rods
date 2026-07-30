@@ -133,6 +133,28 @@ def valid_pssm_marker() -> str:
     )
 
 
+def valid_postprocess_marker(
+    mode: str,
+    target_platform: str,
+) -> str:
+    requested = SCENE.POSTPROCESS_MODES[mode]
+    effective = 0 if mode == "none" else 1
+    status = "requested_none" if mode == "none" else "enabled"
+    stage = "bypassed" if mode == "none" else "attached"
+    renderer = (
+        "Direct3D11 Rendering Subsystem"
+        if target_platform == "win32"
+        else "OpenGL 3+ Rendering Subsystem"
+    )
+    return (
+        "[RoR|PostProcess] event=scene_ready "
+        f"requested={requested} effective={effective} "
+        f"backend={SCENE.POSTPROCESS_BACKENDS[target_platform]} "
+        f"status={status} stage={stage} backing=1280x720 "
+        f"renderer={renderer} detail=none"
+    )
+
+
 class CityWorldBridgeSceneTests(unittest.TestCase):
     def test_runtime_log_gate_requires_mesh_shader_and_physics_evidence(
         self,
@@ -372,6 +394,7 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                         "gfx_shadow_type=No shadows (fastest)",
                         ror_text,
                     )
+                    self.assertIn("gfx_postprocess_mode=0", ror_text)
                     self.assertIn("gfx_shadow_quality=2", ror_text)
                     self.assertEqual(
                         ogre.read_text(encoding="utf-8"),
@@ -425,6 +448,7 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                         ror_text,
                     )
                     self.assertIn("gfx_shadow_quality=2", ror_text)
+                    self.assertIn("gfx_postprocess_mode=0", ror_text)
             with self.assertRaises(SCENE.BridgeSceneFailure):
                 SCENE.write_runtime_config(
                     root / "bad-mode",
@@ -437,6 +461,21 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                     shadow_mode="pssm",
                     shadow_quality=4,
                     target_platform="win32",
+                )
+            v0a, _ = SCENE.write_runtime_config(
+                root / "v0a",
+                postprocess_mode="v0a",
+                target_platform="darwin",
+            )
+            self.assertIn(
+                "gfx_postprocess_mode=1",
+                v0a.read_text(encoding="utf-8"),
+            )
+            with self.assertRaises(SCENE.BridgeSceneFailure):
+                SCENE.write_runtime_config(
+                    root / "bad-postprocess",
+                    postprocess_mode="hdr",
+                    target_platform="darwin",
                 )
 
     def test_pssm_marker_gate_checks_complete_effective_configuration(
@@ -469,6 +508,80 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                     SCENE.validate_pssm_log(invalid, "pssm", 2)
         with self.assertRaises(SCENE.BridgeSceneFailure):
             SCENE.validate_pssm_log(marker, "none", 2)
+
+    def test_postprocess_marker_gate_proves_platform_effective_mode(
+        self,
+    ) -> None:
+        for mode in ("none", "v0a"):
+            for target_platform in ("darwin", "linux", "win32"):
+                with self.subTest(
+                    mode=mode,
+                    target_platform=target_platform,
+                ):
+                    marker = valid_postprocess_marker(
+                        mode,
+                        target_platform,
+                    )
+                    record = SCENE.validate_postprocess_log(
+                        marker,
+                        mode,
+                        target_platform,
+                    )
+                    self.assertEqual(
+                        record["requested_mode"],
+                        SCENE.POSTPROCESS_MODES[mode],
+                    )
+                    self.assertEqual(
+                        record["backend"],
+                        SCENE.POSTPROCESS_BACKENDS[target_platform],
+                    )
+                    self.assertEqual(record["backing_width"], 1280)
+                    self.assertEqual(record["backing_height"], 720)
+
+        marker = valid_postprocess_marker("v0a", "linux")
+        invalid_markers = (
+            marker.replace("requested=1", "requested=0"),
+            marker.replace("effective=1", "effective=0"),
+            marker.replace("status=enabled", "status=program_unavailable"),
+            marker.replace("stage=attached", "stage=failed"),
+            marker.replace("backing=1280x720", "backing=640x360"),
+            marker.replace("backend=gl3plus_glsl330", "backend=d3d11_sm4"),
+            marker.replace(
+                "renderer=OpenGL 3+ Rendering Subsystem",
+                "renderer=other",
+            ),
+            marker + "\n" + marker,
+            marker + "\n[RoR|PostProcess] incomplete",
+            marker
+            + "\n"
+            + marker.replace(
+                "event=scene_ready requested=1 effective=1 "
+                "backend=gl3plus_glsl330 status=enabled stage=attached",
+                "event=main_window_readback requested=1 effective=0 "
+                "backend=gl3plus_glsl330 "
+                "status=program_unavailable stage=failed",
+            ),
+        )
+        for invalid in invalid_markers:
+            with self.subTest(marker=invalid):
+                with self.assertRaises(SCENE.BridgeSceneFailure):
+                    SCENE.validate_postprocess_log(
+                        invalid,
+                        "v0a",
+                        "linux",
+                    )
+        with self.assertRaises(SCENE.BridgeSceneFailure):
+            SCENE.validate_postprocess_log(
+                marker,
+                "none",
+                "linux",
+            )
+        with self.assertRaises(SCENE.BridgeSceneFailure):
+            SCENE.validate_postprocess_log(
+                marker,
+                "v0a",
+                "freebsd14",
+            )
 
     def test_renderer_identity_and_shadow_config_are_fail_closed(self) -> None:
         gl3plus_log = "\n".join(
@@ -588,6 +701,17 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         )
         with self.assertRaises(SCENE.BridgeSceneFailure):
             SCENE.normalize_shadow_config(b"gfx_shadow_quality=2\n")
+
+        no_postprocess = b"gfx_postprocess_mode=0\n"
+        v0a_postprocess = b"gfx_postprocess_mode=1\n"
+        self.assertEqual(
+            SCENE.normalize_postprocess_config(no_postprocess),
+            SCENE.normalize_postprocess_config(v0a_postprocess),
+        )
+        with self.assertRaises(SCENE.BridgeSceneFailure):
+            SCENE.normalize_postprocess_config(
+                b"gfx_shadow_quality=2\n"
+            )
 
     def test_fixture_locks_exact_connectors_and_collision_run(self) -> None:
         script = (FIXTURE_ROOT / "cityworld_bridge_runtime.as").read_text(

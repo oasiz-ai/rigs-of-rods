@@ -433,7 +433,7 @@ jobs:
             2>&1 | tee \
               "artifacts/cityworld-bridge-streetlight-${{ matrix.platform }}.driver.log"
 
-      - name: Drive CityWorld bridge with relocated Linux GL3Plus
+      - name: Drive CityWorld bridge with relocated Linux GL3Plus and V0A
         if: runner.os == 'Linux'
         shell: bash
         env:
@@ -447,11 +447,12 @@ jobs:
               --repository "${GITHUB_WORKSPACE}" \
               --runtime-content "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}/content" \
               --artifact-dir "${GITHUB_WORKSPACE}/artifacts/cityworld-bridge-${{ matrix.platform }}" \
+              --postprocess-mode v0a \
               --timeout 300 \
             2>&1 | tee \
               "artifacts/cityworld-bridge-${{ matrix.platform }}.driver.log"
 
-      - name: Drive CityWorld bridge with relocated Windows D3D11
+      - name: Drive CityWorld bridge with relocated Windows D3D11 and V0A
         if: runner.os == 'Windows'
         shell: bash
         run: |
@@ -460,6 +461,7 @@ jobs:
             --repository "${GITHUB_WORKSPACE}" \
             --runtime-content "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}/content" \
             --artifact-dir "${GITHUB_WORKSPACE}/artifacts/cityworld-bridge-${{ matrix.platform }}" \
+            --postprocess-mode v0a \
             --timeout 300 \
             2>&1 | tee \
               "artifacts/cityworld-bridge-${{ matrix.platform }}.driver.log"

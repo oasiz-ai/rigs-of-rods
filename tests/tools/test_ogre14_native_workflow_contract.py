@@ -175,6 +175,12 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
                 "Render CityWorld Bridge streetlight with macOS arm64 GL3Plus"
             ),
         )
+        self.assertEqual(text.count("--postprocess-mode v0a"), 1)
+        self.assertIn(
+            "Render CityWorld Bridge streetlight with macOS arm64 "
+            "GL3Plus and V0A",
+            text,
+        )
 
     def test_conan_source_fallback_rejects_unsafe_variants(self) -> None:
         unsafe_variants = {
@@ -435,6 +441,7 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             '${{ matrix.platform }}/content"',
             '--artifact-dir "${GITHUB_WORKSPACE}/artifacts/'
             'cityworld-bridge-${{ matrix.platform }}"',
+            "--postprocess-mode v0a",
             "--timeout 300",
             "do not constitute physical GPU or vendor performance",
         )
@@ -449,6 +456,7 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             text.count("python tools/run_cityworld_bridge_scene.py"),
             2,
         )
+        self.assertEqual(text.count("--postprocess-mode v0a"), 2)
         linux_scene_start = text.index(
             "Drive CityWorld bridge with relocated Linux GL3Plus"
         )

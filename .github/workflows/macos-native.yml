@@ -322,7 +322,7 @@ jobs:
             2>&1 | tee \
               "$RUNNER_TEMP/ror-cityworld-led-streetlight-macos-arm64.driver.log"
 
-      - name: Render CityWorld Bridge streetlight with macOS arm64 GL3Plus
+      - name: Render CityWorld Bridge streetlight with macOS arm64 GL3Plus and V0A
         if: steps.renderer_capability.outputs.available == 'true'
         timeout-minutes: 10
         shell: bash
@@ -333,6 +333,7 @@ jobs:
             --repository "$GITHUB_WORKSPACE" \
             --runtime-content "$app/Contents/Resources/content" \
             --artifact-dir "$RUNNER_TEMP/ror-cityworld-bridge-streetlight-macos-arm64" \
+            --postprocess-mode v0a \
             --timeout 360 \
             2>&1 | tee \
               "$RUNNER_TEMP/ror-cityworld-bridge-streetlight-macos-arm64.driver.log"
