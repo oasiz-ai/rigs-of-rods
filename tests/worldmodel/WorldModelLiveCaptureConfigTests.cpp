@@ -26,13 +26,18 @@ void Check(bool value, const char* message)
 RoR::WorldModel::LiveCaptureActivationConfig GoodConfig()
 {
     RoR::WorldModel::LiveCaptureActivationConfig config;
+#ifdef _WIN32
+    config.output_root = "C:/capture";
+    config.rights_manifest_path = "C:/capture/rights.json";
+#else
     config.output_root = "/capture";
+    config.rights_manifest_path = "/capture/rights.json";
+#endif
     config.root_seed = 42U;
     config.episode_ordinal = 7U;
     config.transition_count = 48U;
     config.rgb_width = 1920U;
     config.rgb_height = 1080U;
-    config.rights_manifest_path = "/capture/rights.json";
     config.rights_manifest_sha256 =
         RoR::WorldModel::ComputeSha256("rights", 6U).ToHex();
     config.data_source_id = "beam-cloud/canary";
@@ -76,8 +81,8 @@ int main()
 
     LiveCaptureActivationConfig config = GoodConfig();
     std::string error;
-    Check(ValidateLiveCaptureActivationConfig(config, &error),
-        error.c_str());
+    bool valid = ValidateLiveCaptureActivationConfig(config, &error);
+    Check(valid, error.c_str());
     Check(LiveCaptureControlIds().size() == 5U,
         "schema-1 control profile changed");
 
@@ -95,8 +100,8 @@ int main()
         "config does not seal self-collision policy");
 
     LiveCaptureRuntimeState runtime_state = GoodRuntimeState();
-    Check(ValidateLiveCaptureRuntimeState(runtime_state, &error),
-        error.c_str());
+    valid = ValidateLiveCaptureRuntimeState(runtime_state, &error);
+    Check(valid, error.c_str());
 
     runtime_state = GoodRuntimeState();
     runtime_state.has_section_config = true;
@@ -168,9 +173,9 @@ int main()
     Check(!ValidateLiveCaptureRuntimeState(runtime_state, &error),
         "competing fixed-step scheduler accepted");
 
-    Check(ValidateLiveCaptureAnalogInputState(
-            1.0f, 1.0f, 1.0f, 1.0f, &error),
-        error.c_str());
+    valid = ValidateLiveCaptureAnalogInputState(
+        1.0f, 1.0f, 1.0f, 1.0f, &error);
+    Check(valid, error.c_str());
     Check(!ValidateLiveCaptureAnalogInputState(
             1.0f, 1.0f, 1.25f, 1.0f, &error),
         "analog smoothing drift accepted");
@@ -197,11 +202,19 @@ int main()
     Check(!ValidateLiveCaptureActivationConfig(config, &error),
         "unbounded RGB allocation accepted");
     config = GoodConfig();
+#ifdef _WIN32
+    config.output_root = "C:/";
+#else
     config.output_root = "/";
+#endif
     Check(!ValidateLiveCaptureActivationConfig(config, &error),
         "filesystem root accepted as capture output");
     config = GoodConfig();
+#ifdef _WIN32
+    config.output_root = "C:/capture/..";
+#else
     config.output_root = "/capture/..";
+#endif
     Check(!ValidateLiveCaptureActivationConfig(config, &error),
         "lexically disguised filesystem root accepted");
     config = GoodConfig();
@@ -224,8 +237,8 @@ int main()
     config.rgb_width = 4096U;
     config.rgb_height = 2160U;
     config.transition_count = 646U;
-    Check(ValidateLiveCaptureActivationConfig(config, &error),
-        "16 GiB raw RGB boundary rejected");
+    valid = ValidateLiveCaptureActivationConfig(config, &error);
+    Check(valid, "16 GiB raw RGB boundary rejected");
     config.transition_count = 647U;
     Check(!ValidateLiveCaptureActivationConfig(config, &error),
         "raw RGB episode above the 16 GiB source contract accepted");
