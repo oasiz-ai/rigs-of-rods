@@ -413,10 +413,11 @@ overlay. The gate authenticates both archives, compares the embedded infill
 manifest with the canonical plan, rebuilds the overlay byte-for-byte, runs RoR
 under an isolated profile, and accepts exactly 13 distinct UI-free RGB views:
 eight district views and one close view of each of the five active connector
-seams. It requires 545 render frames, 2,180 deterministic physics steps, all
-five zero-gap connectors, all 46 placements, all seven routes, both service
-stations, and all 12 station lights. The artifact directory must not already
-exist.
+seams. It requires 545 render frames and exactly 2,176 completed deterministic
+physics steps: the first ready render frame arms the four-step batch, then the
+remaining 544 frames each complete four steps. It also requires all five
+zero-gap connectors, all 46 placements, all seven routes, both service stations,
+and all 12 station lights. The artifact directory must not already exist.
 
 On macOS:
 

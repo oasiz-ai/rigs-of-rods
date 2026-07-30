@@ -108,7 +108,7 @@ def valid_logs() -> tuple[str, str]:
             *SCENE.runtime_script_markers(active_connectors),
             "[RoR|CW2|InfillRuntime] PASS cameras=13 seam_cameras=5 "
             f"active_connectors={active_connectors} hold_frames=40 "
-            "frames=545 physics_steps=2180 placements=46 routes=7 "
+            "frames=545 physics_steps=2176 placements=46 routes=7 "
             "stations=2 station_lights=12",
         )
     )
@@ -477,7 +477,7 @@ class CityWorldInfillSceneTests(unittest.TestCase):
         self.assertEqual(metrics["active_connectors"], 5)
         self.assertEqual(metrics["captures"], 13)
         self.assertEqual(metrics["frames"], 545)
-        self.assertEqual(metrics["physics_steps"], 2180)
+        self.assertEqual(metrics["physics_steps"], 2176)
         self.assertEqual(metrics["station_light_instances"], 2)
         self.assertEqual(metrics["station_lights"], 12)
         self.assertEqual(
@@ -510,11 +510,11 @@ class CityWorldInfillSceneTests(unittest.TestCase):
                     f"wrong-physics-steps-{steps}",
                     engine,
                     script.replace(
-                        "physics_steps=2180",
+                        "physics_steps=2176",
                         f"physics_steps={steps}",
                     ),
                 )
-                for steps in (2179, 2181)
+                for steps in (2175, 2177)
             ),
             (
                 "wrong-active-connector-count",

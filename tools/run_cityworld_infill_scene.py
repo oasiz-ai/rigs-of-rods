@@ -82,7 +82,12 @@ EXPECTED_DERIVED_SOURCE_PLACEMENT_RECORDS = 91
 CAPTURE_HOLD_FRAMES = 40
 PASS_FRAME = 545
 FIXED_PHYSICS_STEPS_PER_FRAME = 4
-EXPECTED_PHYSICS_STEPS = PASS_FRAME * FIXED_PHYSICS_STEPS_PER_FRAME
+# The first ready render frame arms the deterministic batch; its four physics
+# steps complete before the second callback. Therefore N observed ready frames
+# contain exactly N - 1 completed fixed-step batches.
+EXPECTED_PHYSICS_STEPS = (
+    (PASS_FRAME - 1) * FIXED_PHYSICS_STEPS_PER_FRAME
+)
 SOURCE_RGB_CAPTURE_IDS = (
     "west_farm_belt",
     "sunset_courts",
@@ -1977,7 +1982,12 @@ def validate_runtime_logs(
         or active_connectors != expected_active_connectors
     ):
         raise InfillSceneFailure(
-            "infill deterministic frame/physics count drifted"
+            "infill deterministic frame/physics count drifted: "
+            f"frames={frames} expected_frames={PASS_FRAME} "
+            f"physics_steps={steps} "
+            f"expected_physics_steps={EXPECTED_PHYSICS_STEPS} "
+            f"active_connectors={active_connectors} "
+            f"expected_active_connectors={expected_active_connectors}"
         )
     if (
         script_log.count("[RoR|CW2|InfillRuntime] CAPTURE index=")
