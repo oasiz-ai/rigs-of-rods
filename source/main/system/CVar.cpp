@@ -296,6 +296,7 @@ void Console::cVarSetupBuiltins()
     App::gfx_enable_rtshaders    = this->cVarCreate("gfx_enable_rtshaders",    "Use RTShader System",        CVAR_ARCHIVE | CVAR_TYPE_BOOL,    "false");
     App::gfx_alt_actor_materials = this->cVarCreate("gfx_alt_actor_materials", "Use alternate vehicle materials", CVAR_ARCHIVE | CVAR_TYPE_BOOL, "false");
     App::gfx_auto_lod            = this->cVarCreate("gfx_auto_lod",            "Use OGREs Automatic Mesh LOD Generator", CVAR_ARCHIVE | CVAR_TYPE_BOOL, "true");
+    App::gfx_postprocess_mode    = this->cVarCreate("gfx_postprocess_mode",    "Post-process mode",          CVAR_ARCHIVE | CVAR_TYPE_INT,     "0");
 
     App::flexbody_defrag_enabled           = this->cVarCreate("flexbody_defrag_enabled",           "", CVAR_TYPE_BOOL);
     App::flexbody_defrag_const_penalty     = this->cVarCreate("flexbody_defrag_const_penalty",     "", CVAR_TYPE_INT, "7");

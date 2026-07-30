@@ -72,6 +72,7 @@ public:
         static const ResourcePack OVERLAYS;
         static const ResourcePack PAGED;
         static const ResourcePack PARTICLES;
+        static const ResourcePack POSTPROCESS;
         static const ResourcePack PSSM;
         static const ResourcePack SKYX;
         static const ResourcePack RTSHADER;

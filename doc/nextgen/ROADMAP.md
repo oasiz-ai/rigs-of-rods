@@ -1041,6 +1041,16 @@ Gate V0:
 - High quality adds at most 10% GPU frame time at 1920×1080 on the declared
   reference GPU; physics-step time is unchanged.
 
+The first runtime slice is V0A only. Its archived CVar defaults off; mode 1
+requests the locked LDR color curve plus five-tap FXAA on GL3Plus/GLSL 330 or
+D3D11/Shader Model 4. The fail-closed lifecycle owns only the main viewport,
+attaches after Terrain water/weather setup, stays last in the scene compositor
+chain, leaves native-resolution overlays outside the pass, recreates on real
+backing-extent changes, and detaches before scene/render teardown. This is a
+testable seam, not the V0 milestone: native three-platform image/performance
+gates, default-off pixel identity, bloom, and the other V0 acceptance items
+above remain open.
+
 V1 follows R0 and introduces a linear HDR pipeline and a documented PBR material
 schema: albedo, normal, packed occlusion/roughness/metalness, emissive, alpha
 mode, and legacy fallback. Generate or import tangents rather than pretending

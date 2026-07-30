@@ -31,6 +31,7 @@ jobs:
           tests/tools/test_content_provenance_audit.py
           tests/tools/test_content_provenance_workflow_contract.py
           tests/tools/test_postprocess_resources.py
+          tests/tools/test_postprocess_runtime_contract.py
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py
@@ -57,6 +58,7 @@ jobs:
           tests/tools/test_content_provenance_audit.py
           tests/tools/test_content_provenance_workflow_contract.py
           tests/tools/test_postprocess_resources.py
+          tests/tools/test_postprocess_runtime_contract.py
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py

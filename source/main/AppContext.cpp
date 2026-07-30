@@ -75,6 +75,7 @@ using namespace RoR;
 AppContext::~AppContext()
 {
     this->FinishPendingScreenshot();
+    m_postprocess_runtime.Shutdown();
 
 #if OGRE_VERSION_MAJOR >= 14
     this->ShutDownRTShaderSystem();
@@ -237,6 +238,7 @@ bool AppContext::povMoved(const OIS::JoyStickEvent& arg, int)       { App::GetIn
 void AppContext::windowResized(Ogre::RenderWindow* rw)
 {
     this->RefreshRenderDisplayMetrics(/*log_change=*/true);
+    m_postprocess_runtime.OnMainViewportResized();
     App::GetInputEngine()->windowResized(rw); // Update mouse area
     if (App::GetOverlayWrapper())
     {
@@ -928,11 +930,31 @@ Ogre::RenderWindow* AppContext::CreateCustomRenderWindow(std::string const& wind
     return rw;
 }
 
+void AppContext::BeginPostProcessScene()
+{
+    m_postprocess_runtime.BeginScene(
+        m_viewport,
+        m_render_window,
+        static_cast<PostProcessMode>(
+            App::gfx_postprocess_mode->getInt()));
+}
+
+void AppContext::EndPostProcessScene()
+{
+    m_postprocess_runtime.EndScene();
+}
+
+void AppContext::MaintainPostProcessSceneOrder()
+{
+    m_postprocess_runtime.MaintainSceneCompositorOrder();
+}
+
 void AppContext::CaptureScreenshot()
 {
     // Bound screenshot concurrency to one encoder and surface any previous
     // write failure on the main thread before reusing codec/runtime state.
     this->FinishPendingScreenshot();
+    m_postprocess_runtime.BeforeMainWindowReadback();
 
     const std::time_t time = std::time(nullptr);
     const int index = (time == m_prev_screenshot_time) ? m_prev_screenshot_index+1 : 1;

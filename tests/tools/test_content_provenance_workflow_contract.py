@@ -15,6 +15,9 @@ SELF_PATH = "tests/tools/test_content_provenance_workflow_contract.py"
 POSTPROCESS_RESOURCE_TEST_PATH = (
     "tests/tools/test_postprocess_resources.py"
 )
+POSTPROCESS_RUNTIME_TEST_PATH = (
+    "tests/tools/test_postprocess_runtime_contract.py"
+)
 
 
 class ContentProvenanceWorkflowContractTests(unittest.TestCase):
@@ -26,6 +29,10 @@ class ContentProvenanceWorkflowContractTests(unittest.TestCase):
         self.assertEqual(workflow.count(SELF_PATH), 2)
         self.assertEqual(
             workflow.count(POSTPROCESS_RESOURCE_TEST_PATH),
+            2,
+        )
+        self.assertEqual(
+            workflow.count(POSTPROCESS_RUNTIME_TEST_PATH),
             2,
         )
         for runner in ("ubuntu-22.04", "windows-2025", "macos-15"):

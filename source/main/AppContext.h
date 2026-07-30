@@ -28,6 +28,7 @@
 
 #include "Application.h"
 #include "ForceFeedback.h"
+#include "PostProcessRuntime.h"
 #include "RenderDisplayMetrics.h"
 
 #include <Bites/OgreWindowEventUtilities.h>
@@ -86,6 +87,9 @@ public:
     void                 CaptureScreenshot();
     void                 ActivateFullscreen(bool val);
     void                 RegisterRTShaderSceneManager(Ogre::SceneManager* scene_manager);
+    void                 BeginPostProcessScene();
+    void                 EndPostProcessScene();
+    void                 MaintainPostProcessSceneOrder();
 
     // Profiling
     void                 PrepareProfiler();
@@ -135,6 +139,7 @@ private:
     Ogre::RenderWindow*  m_render_window = nullptr;
     Ogre::Viewport*      m_viewport      = nullptr;
     RenderDisplayMetrics m_display_metrics;
+    PostProcessRuntime   m_postprocess_runtime;
 #if OGRE_VERSION_MAJOR >= 14
     Ogre::RTShader::ShaderGenerator*          m_shader_generator = nullptr;
     OgreBites::SGTechniqueResolverListener*   m_rtshader_material_listener = nullptr;

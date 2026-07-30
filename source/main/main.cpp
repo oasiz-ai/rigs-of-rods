@@ -1065,6 +1065,7 @@ int main(int argc, char *argv[])
 
                         if (App::GetGameContext()->LoadTerrain(m.description))
                         {
+                            App::GetAppContext()->BeginPostProcessScene();
                             App::GetGameContext()->CreatePlayerCharacter();
                             // Spawn preselected vehicle; commandline has precedence
                             if (App::cli_preset_vehicle->getStr() != "")
@@ -1133,6 +1134,7 @@ int main(int argc, char *argv[])
                 {
                     try
                     {
+                        App::GetAppContext()->EndPostProcessScene();
                         if (App::sim_state->getEnum<SimState>() == SimState::EDITOR_MODE)
                         {
                             App::GetGameContext()->GetTerrain()->GetTerrainEditor()->WriteSeparateOutputFile();
@@ -2355,6 +2357,7 @@ int main(int argc, char *argv[])
             }
             else
             {
+                App::GetAppContext()->MaintainPostProcessSceneOrder();
                 App::GetAppContext()->GetOgreRoot()->renderOneFrame();
                 if (!render_window->isActive() && render_window->isVisible())
                 {

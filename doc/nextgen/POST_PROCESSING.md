@@ -57,15 +57,44 @@ transcendental transfer function, derivative sampling, or unbounded loop.
 Unsupported program pairs therefore leave the material unsupported instead of
 silently selecting a different visual path.
 
-The pack is intentionally not registered or attached yet. The runtime
-integration must register `postprocess.zip` in a dedicated resource group
-before looking up these names, verify that the selected backend pair is
-supported, and then attach the compositor after water/weather and before
-native-resolution overlays. It must detach before terrain/render teardown and
-recreate viewport-dependent state after a resize. Until that transaction is
-implemented, V0A causes no runtime visual change.
+The V0A runtime seam is now present but opt-in. `gfx_postprocess_mode = 0` is
+the default and does not register the pack or acquire compositor state.
+`gfx_postprocess_mode = 1` requests V0A for simulation scenes. Any other value
+fails closed.
 
-Remaining V0 work is runtime registration and lifecycle integration, followed
-by the disabled-path pixel baseline and quality/performance captures on macOS,
-Linux, and Windows. Bloom remains a separate later profile because its
-half-resolution targets and blur lifecycle require their own measured gate.
+For an opt-in scene, the runtime:
+
+- classifies only the exact OGRE GL3Plus/GLSL 330 or D3D11/Shader Model 4
+  renderer/program pair;
+- registers `postprocess.zip` in `PostProcessRG`, verifies the six source
+  resources, loads the selected and unified programs, and requires one
+  supported material and compositor technique before attachment;
+- accepts only the main render target's viewport zero, after its camera exists;
+  custom mirror, video-camera, environment-map, survey-map, and capture
+  viewports cannot receive V0A;
+- attaches after Terrain has initialized Hydrax/Caelum and appends V0A as the
+  last scene compositor before scene overlays are created;
+- revalidates that ordering before every frame and re-appends transactionally
+  if a Hydrax reload or resource hot-load changes the chain;
+- leaves the main viewport overlay flag unchanged. OGRE's compositor RTT
+  viewport excludes overlays, while the main output quad is issued before
+  `RENDER_QUEUE_OVERLAY`, so OverlaySystem and Dear ImGui stay at native
+  backing resolution;
+- recreates only when the actual backing-pixel extent changes, detaches while
+  either extent is zero, and resumes only at a nonzero extent;
+- verifies rather than toggles the compositor before a main-window screenshot;
+  and
+- detaches as the first scene-unload action and again defensively before the
+  main viewport/render target is destroyed.
+
+All adapter exceptions are reduced to one bounded diagnostic line, detach V0A,
+and suppress retries for the rest of that scene. Unsupported renderers and
+program/resource failures therefore retain the unprocessed scene path.
+
+V0A is not V0 completion. It is only the locked color curve plus five-tap
+FXAA: there is no bloom, HDR, PBR, ray tracing, or AirSim-parity claim.
+Native GL3Plus and D3D11 image/performance acceptance, the default-off
+pixel-identity baseline, Hydrax/Caelum/screenshot captures, and cross-platform
+resize/teardown soaks remain open. Bloom remains a separate later profile
+because its half-resolution targets and blur lifecycle require their own
+measured gate.
