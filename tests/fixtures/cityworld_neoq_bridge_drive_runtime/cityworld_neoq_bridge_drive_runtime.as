@@ -376,7 +376,8 @@ void main()
     game.log(
         "[RoR|CW2|NeoBridgeDrive] START route_m=3076.132100441 "
         "waypoints=80 vehicle=b6b0UID-semi.truck batch=40 "
-        "source_overlap_m=0 destination_overlap_m=0");
+        "source_overlap_m=0 destination_overlap_m=0 "
+        "collisions=on self_collisions=on");
 }
 
 void eventCallbackEx(

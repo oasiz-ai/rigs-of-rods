@@ -223,6 +223,13 @@ python3 tools/run_cityworld_gateway_scene.py \
   --executable /Applications/RoR.app/Contents/MacOS/RoR \
   --runtime-content build-macos-ogre14-roadmap/bin/content \
   --artifact-dir /tmp/cityworld-gateway-runtime
+python3 tools/run_cityworld_neoq_bridge_scene.py \
+  --executable /Applications/RoR.app/Contents/MacOS/RoR \
+  --runtime-content /Applications/RoR.app/Contents/Resources/content \
+  --cityworld-archive \
+    "$HOME/Library/Application Support/Rigs of Rods/mods/CityWorld.zip" \
+  --overlay-archive /tmp/ror-cityworld-local/CityWorldNextLocalOverlay.zip \
+  --artifact-dir /tmp/cityworld-neoq-bridge-runtime
 python3 tools/build_cityworld_next_provenance.py --repo-root .
 python3 tools/build_cityworld_next_provenance.py --repo-root . --check
 python3 tools/content_provenance_audit.py \

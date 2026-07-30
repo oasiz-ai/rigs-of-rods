@@ -356,8 +356,15 @@ and the complete raised alignment. The
 companion `cityworld_neoq_bridge_drive_runtime` fixture drives the packaged DAF
 over the complete link and ten metres beyond the zero-overlap seam, accepting
 only a heavy-truck footprint fully inside the preserved NeoQ2.0 carriageway.
-The private `CityWorld.zip` and generated local overlay remain external to the
-fixtures.
+`tools/run_cityworld_neoq_bridge_scene.py` turns those fixtures into one
+fail-closed native acceptance: it authenticates and independently rebuilds the
+private overlay, requires six ordered UI-free 1280x720 RGB captures, drives
+through both seams with collisions and self-collisions enabled, checks the
+destination live-lane footprint, and requires the exact complete SidePiers
+summary multiset with no skipped supports. Static and drive runs use separate
+ephemeral RoR homes, and their logs, images, hashes, and report are published
+atomically only after both pass. The private `CityWorld.zip` and generated
+local overlay remain external to the fixtures and retained artifacts.
 
 ## Deterministic two-truck runtime scene
 

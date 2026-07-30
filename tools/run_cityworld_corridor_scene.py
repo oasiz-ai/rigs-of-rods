@@ -243,6 +243,7 @@ REQUIRED_OVERLAY_TOOLS = frozenset(
         "tools/cityworld_neoq_intercity_bridge.py",
         "tools/cityworld_penguin_neoq_corridor.py",
         "tools/compile_cityworld_asset.py",
+        "tools/run_cityworld_neoq_bridge_scene.py",
         "tools/solve_cityworld_bridge_corridor.py",
         "tools/validate_cityworld_asset.py",
         "tools/validate_cityworld_tree_family.py",

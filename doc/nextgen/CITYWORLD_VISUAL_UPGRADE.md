@@ -323,6 +323,29 @@ private ZIP is retained in the artifact directory. Its standard-library
 contract tests run under normal and optimized Python on Linux, Windows, and
 macOS.
 
+The complete NeoQueretaro-to-NeoQ2.0 bridge has a separate native acceptance
+runner. It captures six UI-free views and then drives the packaged DAF from the
+independently authored NeoQueretaro road, across both flush zero-overlap seams,
+and ten metres into an authenticated live NeoQ2.0 lane. It fails on incomplete
+or skipped paired supports, disabled collision, a median/lane departure,
+missing seam markers, degenerate RGB, shader/renderer errors, or a
+non-byte-identical overlay rebuild:
+
+```bash
+python3 tools/run_cityworld_neoq_bridge_scene.py \
+  --executable /Applications/RoR.app/Contents/MacOS/RoR \
+  --runtime-content /Applications/RoR.app/Contents/Resources/content \
+  --cityworld-archive \
+    "$HOME/Library/Application Support/Rigs of Rods/mods/CityWorld.zip" \
+  --overlay-archive /tmp/ror-cityworld-local/CityWorldNextLocalOverlay.zip \
+  --artifact-dir /tmp/cityworld-neoq-bridge-runtime
+```
+
+The runner uses isolated profiles for the static and drive scenes and
+atomically publishes the six RGB files, both log sets, renderer/PSSM identity,
+exact SidePiers counts, executable and input hashes, repository commit, and
+acceptance report only after both native runs pass.
+
 ### Authenticated legacy material compatibility
 
 The original archive remains byte-identical. Runtime compatibility is limited
