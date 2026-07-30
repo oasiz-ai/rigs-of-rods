@@ -3178,7 +3178,9 @@ def build_local_overlay(
         "destination_existing_lane_collision_preserved": True,
         "destination_generated_overlap_m": 0.0,
         "ground_level_support_clearance": neoq_bridge_ground_clearance,
-        "source_city_entered_only_at_authenticated_road_overlap": True,
+        "source_existing_lane_collision_preserved": True,
+        "source_flush_join_at_authenticated_mesh_edge": True,
+        "source_generated_overlap_m": 0.0,
         "open_gap_placement_origin_audit":
             neoq_bridge_authentication["open_gap"],
         "swept_mesh_clearance":
@@ -3202,7 +3204,7 @@ def build_local_overlay(
                 neoq_bridge_points,
                 (
                     "Generated NeoQueretaro-to-NeoQ2.0 highway bridge.",
-                    "The source overlaps its open road; NeoQ2 merges flush with no live-lane overlap.",
+                    "Both decoded city-road seams merge flush with zero generated overlap.",
                     "Paired side piers clear the deck, heavy trucks, and authenticated ground corridor.",
                 ),
             ),
@@ -3370,7 +3372,7 @@ def build_local_overlay(
                 "procedural road2 surface and marking atlas, open procedural collision "
                 "endcaps, paired outboard bridge piers, and route-safe Blender "
                 "lighting; a second raised bridge leaves NeoQueretaro from an "
-                "authenticated overlap and merges flush at NeoQ2.0 without "
+                "authenticated flush mesh edge and merges flush at NeoQ2.0 without "
                 "covering its median or live lanes, with continuous collision, "
                 "paired outboard terrain-reaching side piers, and bounded "
                 "LED fixtures; all 18 authenticated legacy NeoQueretaro trees are "

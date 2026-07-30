@@ -18,7 +18,7 @@ from typing import Any, Iterable, Sequence
 import zipfile
 
 
-FORMAT = "ror-cityworld-neoq-intercity-bridge-v2"
+FORMAT = "ror-cityworld-neoq-intercity-bridge-v3"
 AUTHENTICATION_FORMAT = "ror-cityworld-neoq-bridge-authentication-v1"
 PINNED_TOBJ_SHA256 = (
     "1cdc57dc59c4c0f403f621ad31afc301436af70c813b2e0dd01ffb0cd54f0b48"
@@ -47,12 +47,11 @@ DESTINATION_PLACEMENT = {
 }
 
 # These seam positions were decoded from the exact render meshes below and
-# checked against their separately hashed collision meshes. The source keeps a
-# ten-metre overlap because it is a single open carriageway. The destination is
-# a divided highway: the generated road stops flush at its west mesh edge so it
-# cannot cover the median, raise a transverse ridge, or block either live lane.
+# checked against their separately hashed collision meshes. The generated road
+# starts and ends flush at the decoded mesh edges. With endpoint collision caps
+# disabled, each seam therefore has exactly one authoritative collision surface
+# and cannot create a double-contact strip, transverse ridge, or z-fighting.
 SOURCE_SEAM = (3790.970703, 0.1, 3993.104004)
-SOURCE_OVERLAP_START = (3780.970703, 0.1, 3993.104004)
 DESTINATION_SEAM = (6867.0, 0.2, 4018.0)
 SOURCE_LOCAL_SEAM = (114.0, -0.2, 0.0)
 DESTINATION_LOCAL_SEAM = (-133.0, 0.2, 0.0)
@@ -62,8 +61,8 @@ DESTINATION_RUNTIME_PLACEMENT_ORIGIN = (
     0.0,
     DESTINATION_PLACEMENT["position_m"][2],
 )
-SOURCE_OVERLAP_LENGTH_M = 10.0
-DESTINATION_OVERLAP_LENGTH_M = 0.0
+SOURCE_GENERATED_OVERLAP_M = 0.0
+DESTINATION_GENERATED_OVERLAP_M = 0.0
 
 # Exact decoded destination collision cross-section at local x=-133 m. The
 # outer barriers occupy 7.55..8.15 m on either side, the median occupies
@@ -761,7 +760,7 @@ def _support_clearance_report(
             }
         )
 
-    first_clearance = supports[0].station_m - SOURCE_OVERLAP_LENGTH_M
+    first_clearance = supports[0].station_m
     final_clearance = route_length_m - supports[-1].station_m
     if (
         first_clearance < SUPPORT_ENDPOINT_EXCLUSION_M - POSITION_EPSILON
@@ -816,19 +815,7 @@ def build_route(
     arc_table = _arc_table(controls)
     core_length = arc_table[-1][1]
     core_stations = _stations(core_length)
-    points = [
-        BridgePoint(
-            station_m=0.0,
-            x=SOURCE_OVERLAP_START[0],
-            y=SOURCE_OVERLAP_START[1],
-            z=SOURCE_OVERLAP_START[2],
-            yaw_degrees=0.0,
-            road_type="flat",
-            width_m=ROAD_WIDTH_M,
-            border_width_m=APPROACH_BORDER_WIDTH_M,
-            border_height_m=APPROACH_BORDER_HEIGHT_M,
-        )
-    ]
+    points = []
     for core_station in core_stations:
         parameter = _parameter_at_station(arc_table, core_station)
         x, z = _bezier(controls, parameter)
@@ -861,7 +848,7 @@ def build_route(
         )
         points.append(
             BridgePoint(
-                station_m=SOURCE_OVERLAP_LENGTH_M + core_station,
+                station_m=core_station,
                 x=x,
                 y=elevation,
                 z=z,
@@ -880,7 +867,7 @@ def build_route(
                 ),
             )
         )
-    total_length = core_length + SOURCE_OVERLAP_LENGTH_M
+    total_length = core_length
 
     if any(
         second.station_m <= first.station_m
@@ -893,11 +880,6 @@ def build_route(
     if (
         math.dist(
             (points[0].x, points[0].y, points[0].z),
-            SOURCE_OVERLAP_START,
-        )
-        > POSITION_EPSILON
-        or math.dist(
-            (points[1].x, points[1].y, points[1].z),
             SOURCE_SEAM,
         )
         > POSITION_EPSILON
@@ -957,7 +939,7 @@ def build_route(
         DESTINATION_RUNTIME_PLACEMENT_ORIGIN[1]
         + DESTINATION_LOCAL_SEAM[1]
     )
-    source_surface_step = abs(points[1].y - source_decoded_surface_y)
+    source_surface_step = abs(points[0].y - source_decoded_surface_y)
     destination_surface_step = abs(
         points[-1].y - destination_decoded_surface_y
     )
@@ -980,11 +962,13 @@ def build_route(
             "endcap_collision_enabled": False,
             "endcap_collision_triangle_count": 0,
             "endpoint_wheel_path_intrusion_m": 0.0,
+            "authoritative_collision_surfaces_per_seam": 1,
+            "duplicate_authoritative_collision_surface": False,
             "single_surface": True,
         },
         "connection": {
             "destination_generated_overlap_m":
-                DESTINATION_OVERLAP_LENGTH_M,
+                DESTINATION_GENERATED_OVERLAP_M,
             "destination_grade_discontinuity":
                 _stable_number(abs(destination_grade)),
             "destination_heading_error_degrees":
@@ -1002,6 +986,8 @@ def build_route(
                 MAXIMUM_CONNECTION_YAW_DISCONTINUITY_DEGREES,
             "maximum_vertical_step_m": MAXIMUM_CONNECTION_STEP_M,
             "source_heading_error_degrees": 0.0,
+            "source_generated_overlap_m":
+                SOURCE_GENERATED_OVERLAP_M,
             "source_position_gap_m": 0.0,
             "source_route_vs_decoded_surface_step_m":
                 _stable_number(source_surface_step),
@@ -1031,7 +1017,7 @@ def build_route(
                     _stable_number(destination_surface_step),
             },
             "generated_overlap_length_m":
-                DESTINATION_OVERLAP_LENGTH_M,
+                DESTINATION_GENERATED_OVERLAP_M,
             "lane_handoff": {
                 "carriageway": "positive-local-z",
                 "local_position_m": [
@@ -1085,9 +1071,9 @@ def build_route(
                 "route_vs_decoded_surface_step_m":
                     _stable_number(source_surface_step),
             },
+            "generated_overlap_length_m":
+                SOURCE_GENERATED_OVERLAP_M,
             "local_mesh_seam_m": list(SOURCE_LOCAL_SEAM),
-            "overlap_length_m": SOURCE_OVERLAP_LENGTH_M,
-            "overlap_start_m": list(SOURCE_OVERLAP_START),
             "seam_m": list(SOURCE_SEAM),
         },
         "supports": {
@@ -1200,7 +1186,7 @@ def build_streetlights(
 
     if len(points) < 2:
         raise BridgeFailure("Neo bridge fixture route is incomplete")
-    core_start = SOURCE_OVERLAP_LENGTH_M
+    core_start = 0.0
     core_end = points[-1].station_m
     full_deck_start = (
         core_start

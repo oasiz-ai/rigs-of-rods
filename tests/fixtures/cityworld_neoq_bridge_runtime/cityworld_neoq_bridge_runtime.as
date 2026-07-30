@@ -16,7 +16,7 @@ void HoldCamera(uint captureIndex)
 {
     if (captureIndex == 0)
     {
-        // NeoQueretaro east distributor and the curb-free source overlap.
+        // NeoQueretaro east distributor and the zero-overlap flush source seam.
         game.setCameraPosition(vector3(3735.0f, 18.0f, 3955.0f));
         game.cameraLookAt(vector3(3860.0f, 3.0f, 3993.5f));
     }
@@ -82,7 +82,7 @@ void main()
     console.cVarSet("ui_hide_gui", "true");
     game.log(
         "[RoR|CW2|NeoBridgeRuntime] START cameras=6 "
-        "route_m=3086.132100441 width_m=24 supports=74 lights=33");
+        "route_m=3076.132100441 width_m=24 supports=74 lights=33");
 }
 
 void frameStep(float dt)
@@ -120,6 +120,6 @@ void frameStep(float dt)
     game.log(
         "[RoR|CW2|NeoBridgeRuntime] PASS cameras=6 frames=" +
         gReadyFrames + " physics_steps=" + steps +
-        " route_m=3086.132100441 supports=74 lights=33");
+        " route_m=3076.132100441 supports=74 lights=33");
     game.quitGame();
 }

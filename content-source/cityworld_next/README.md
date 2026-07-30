@@ -269,10 +269,10 @@ the original private city mesh.
 Overlay v5 also adds a road-to-road link from NeoQueretaro's east distributor
 stub to NeoQ2.0's west industrial distributor stub. The authenticated seams are
 `(3790.970703, 0.1, 3993.104004)` and `(6867, 0.2, 4018)`. The earlier
-3,096.132 m figure is superseded by the flush-merge v2 contract: the route is now
-3,086.132 m with 81 waypoints. It overlaps ten metres only at the open
-NeoQueretaro source road and has zero generated overlap at NeoQ2.0, so it
-cannot cover that road's raised median or either live carriageway. The deck is
+3,096.132 m figure is superseded by the flush-merge v3 contract: the route is
+now 3,076.132 m with 80 waypoints. It has zero generated overlap at both city
+roads, leaving exactly one authoritative collision surface at each seam and
+preserving NeoQ2.0's raised median and both live carriageways. The deck is
 24 m wide and tapers over 160 m to the decoded 15.1 m inner-barrier span at
 the destination. Its final segment is exactly level at 0.2 m, with zero
 vertical step, grade discontinuity, yaw discontinuity, or width-edge error.

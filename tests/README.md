@@ -332,9 +332,10 @@ survive parsing intact.
 
 `tests/tools/test_cityworld_neoq_intercity_bridge.py` locks the exact
 NeoQueretaro and NeoQ2.0 distributor placements, the six endpoint-resource
-contracts, the conservative empty ground corridor, the ten-metre source
-overlap, zero destination overlap, decoded 15.1 m flush merge, and open
-collision endcaps. It also locks 74 paired outboard support stations, all 222
+contracts, the conservative empty ground corridor, zero overlap at both city
+seams, one authoritative collision surface per seam, the decoded 15.1 m flush
+merge, and open collision endcaps. It also locks 74 paired outboard support
+stations, all 222
 support AABBs, the 2.5 m lateral/5 cm vertical truck clearances, and the
 33-fixture alternating light schedule. Synthetic archives make the hostile
 and deterministic cases portable; the exact private archive is additionally

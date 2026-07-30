@@ -547,7 +547,9 @@ def synthetic_overlay_report(
                 neoq_bridge,
                 neoq_bridge["authentication"],
             ),
-        "source_city_entered_only_at_authenticated_road_overlap": True,
+        "source_existing_lane_collision_preserved": True,
+        "source_flush_join_at_authenticated_mesh_edge": True,
+        "source_generated_overlap_m": 0.0,
         "open_gap_placement_origin_audit":
             neoq_bridge["authentication"]["open_gap"],
         "swept_mesh_clearance":

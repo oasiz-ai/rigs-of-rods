@@ -218,7 +218,8 @@ EXPECTED_VISUAL_PURPOSE = (
     "crowned-to-flat Blender road transition inheriting the procedural road2 "
     "surface and marking atlas, open procedural collision endcaps, paired "
     "outboard bridge piers, and route-safe Blender lighting; "
-    "a second raised bridge leaves NeoQueretaro from an authenticated overlap "
+    "a second raised bridge leaves NeoQueretaro from an authenticated flush "
+    "mesh edge "
     "and merges flush at NeoQ2.0 without covering its median or live lanes, "
     "with continuous collision, paired outboard terrain-reaching side piers, "
     "and bounded LED fixtures; "
@@ -1620,23 +1621,18 @@ def validate_overlay_archive(
     )
     if (
         neoq_bridge.get("format")
-        != "ror-cityworld-neoq-intercity-bridge-v2"
+        != "ror-cityworld-neoq-intercity-bridge-v3"
     ):
         raise CorridorSceneFailure("Neo intercity bridge format drifted")
     bridge_waypoints = exact_list(
         neoq_bridge.get("waypoints"),
         "Neo intercity bridge waypoints",
     )
-    if len(bridge_waypoints) != 81:
+    if len(bridge_waypoints) != 80:
         raise CorridorSceneFailure("Neo intercity bridge waypoint count drifted")
     bridge_endpoints = (
         (
             bridge_waypoints[0],
-            (3780.970703, 0.1, 3993.104004),
-            "source overlap",
-        ),
-        (
-            bridge_waypoints[1],
             (3790.970703, 0.1, 3993.104004),
             "source seam",
         ),
@@ -1661,7 +1657,7 @@ def validate_overlay_archive(
         neoq_bridge.get("covered_centerline_length_m"),
         "Neo bridge length",
     )
-    if abs(bridge_length - 3086.132100441) > 1.0e-6:
+    if abs(bridge_length - 3076.132100441) > 1.0e-6:
         raise CorridorSceneFailure("Neo intercity bridge length drifted")
     bridge_connection = exact_dict(
         neoq_bridge.get("connection"),
@@ -1670,6 +1666,7 @@ def validate_overlay_archive(
     for key in (
         "source_position_gap_m",
         "source_heading_error_degrees",
+        "source_generated_overlap_m",
         "destination_position_gap_m",
         "destination_heading_error_degrees",
         "destination_generated_overlap_m",
@@ -1690,6 +1687,13 @@ def validate_overlay_archive(
         != "native-procedural-road-v2-side-piers"
         or bridge_collision.get("continuous") is not True
         or bridge_collision.get("single_surface") is not True
+        or bridge_collision.get("duplicate_authoritative_collision_surface")
+        is not False
+        or exact_int(
+            bridge_collision.get("authoritative_collision_surfaces_per_seam"),
+            "Neo bridge authoritative collision surfaces per seam",
+        )
+        != 1
         or bridge_collision.get("endcap_collision_enabled") is not False
         or exact_int(
             bridge_collision.get("endcap_collision_triangle_count"),
@@ -1860,6 +1864,23 @@ def validate_overlay_archive(
         != 0.2
     ):
         raise CorridorSceneFailure("Neo bridge destination merge drifted")
+    source_contract = exact_dict(
+        neoq_bridge.get("source"),
+        "Neo bridge source contract",
+    )
+    if (
+        finite_number(
+            source_contract.get("generated_overlap_length_m"),
+            "Neo bridge generated source overlap",
+        )
+        != 0.0
+        or exact_dict(
+            source_contract.get("elevation_authority"),
+            "Neo bridge source elevation authority",
+        ).get("runtime_origin_plus_local_surface_y_m")
+        != 0.1
+    ):
+        raise CorridorSceneFailure("Neo bridge source merge drifted")
     obstacle_contract = exact_dict(
         neoq_bridge.get("obstacle_avoidance"),
         "Neo bridge obstacle avoidance",
@@ -1874,6 +1895,17 @@ def validate_overlay_archive(
         or finite_number(
             obstacle_contract.get("destination_generated_overlap_m"),
             "Neo bridge obstacle destination overlap",
+        )
+        != 0.0
+        or obstacle_contract.get("source_existing_lane_collision_preserved")
+        is not True
+        or obstacle_contract.get(
+            "source_flush_join_at_authenticated_mesh_edge"
+        )
+        is not True
+        or finite_number(
+            obstacle_contract.get("source_generated_overlap_m"),
+            "Neo bridge obstacle source overlap",
         )
         != 0.0
         or ground_clearance.get("clearance")

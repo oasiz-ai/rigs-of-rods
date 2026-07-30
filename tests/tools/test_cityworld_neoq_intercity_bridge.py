@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 import hashlib
 import importlib.util
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -94,23 +95,19 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
         )
         return archive_path, contract
 
-    def test_route_overlaps_source_and_merges_flush_into_destination(self) -> None:
+    def test_route_merges_flush_at_both_city_road_seams(self) -> None:
         points, report = BRIDGE.build_route(surface_offset_m=0.08)
         self.assertEqual(report["format"], BRIDGE.FORMAT)
         self.assertEqual(
             (points[0].x, points[0].y, points[0].z),
-            BRIDGE.SOURCE_OVERLAP_START,
-        )
-        self.assertEqual(
-            (points[1].x, points[1].y, points[1].z),
             BRIDGE.SOURCE_SEAM,
         )
         self.assertEqual(
             (points[-1].x, points[-1].y, points[-1].z),
             BRIDGE.DESTINATION_SEAM,
         )
-        self.assertEqual(len(points), 81)
-        self.assertEqual(report["covered_centerline_length_m"], 3086.132100441)
+        self.assertEqual(len(points), 80)
+        self.assertEqual(report["covered_centerline_length_m"], 3076.132100441)
         self.assertTrue(
             all(
                 first.station_m < second.station_m
@@ -120,6 +117,13 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
         )
         self.assertTrue(report["collision"]["continuous"])
         self.assertTrue(report["collision"]["single_surface"])
+        self.assertFalse(
+            report["collision"]["duplicate_authoritative_collision_surface"]
+        )
+        self.assertEqual(
+            report["collision"]["authoritative_collision_surfaces_per_seam"],
+            1,
+        )
         self.assertEqual(
             report["collision"]["authority"],
             "native-procedural-road-v2-side-piers",
@@ -149,6 +153,10 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
         self.assertLessEqual(
             report["profile"]["sampled_maximum_grade"],
             BRIDGE.MAXIMUM_GRADE,
+        )
+        self.assertEqual(
+            report["connection"]["source_generated_overlap_m"],
+            0.0,
         )
         self.assertEqual(
             report["connection"]["destination_generated_overlap_m"],
@@ -184,6 +192,10 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
             [[-7.55, -0.7], [0.7, 7.55]],
         )
         self.assertEqual(destination["median_local_z_m"], [-0.7, 0.7])
+        self.assertEqual(
+            report["source"]["generated_overlap_length_m"],
+            0.0,
+        )
         self.assertEqual(
             destination["lane_handoff"]["world_position_m"],
             list(BRIDGE.DESTINATION_LANE_HANDOFF),
@@ -434,7 +446,7 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
             "vector3(5250.0f, 2.5f, 3950.0f)",
             "vector3(5325.0f, 300.0f, 3650.0f)",
             "vector3(6950.0f, 20.0f, 4070.0f)",
-            "route_m=3086.132100441 supports=74 lights=33",
+            "route_m=3076.132100441 supports=74 lights=33",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, fixture)
@@ -446,11 +458,12 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
             "cityworld_neoq_bridge_drive_runtime.as"
         ).read_text(encoding="utf-8")
         for marker in (
-            "const float ROUTE_LENGTH_M = 3086.132100441f;",
+            "const float ROUTE_LENGTH_M = 3076.132100441f;",
             "const float PASS_DESTINATION_X_M = 6877.0f;",
             "const float DESTINATION_LANE_SAFE_MIN_LOCAL_Z_M = 1.95f;",
             "const float DESTINATION_LANE_SAFE_MAX_LOCAL_Z_M = 6.30f;",
-            "gPath.length() != 81",
+            "gPath.length() != 80",
+            "source_overlap_m=0",
             "destination_overlap_m=0",
             "destination-lane-footprint-",
             "destination_local_z_m=",
@@ -463,7 +476,24 @@ class CityWorldNeoIntercityBridgeTests(unittest.TestCase):
             "};",
             1,
         )[0]
-        self.assertEqual(path_block.count("vector3("), 81)
+        self.assertEqual(path_block.count("vector3("), 80)
+        vectors = [
+            tuple(float(value) for value in match)
+            for match in re.findall(
+                r"vector3\("
+                r"(-?[0-9.]+)f, "
+                r"(-?[0-9.]+)f, "
+                r"(-?[0-9.]+)f\)",
+                path_block,
+            )
+        ]
+        points, _ = BRIDGE.build_route(surface_offset_m=0.08)
+        self.assertEqual(len(vectors), len(points))
+        for index, (vector, point) in enumerate(zip(vectors, points)):
+            with self.subTest(index=index):
+                self.assertLessEqual(abs(vector[0] - point.x), 1.0e-9)
+                self.assertLessEqual(abs(vector[1] - point.y), 1.0e-9)
+                self.assertLessEqual(abs(vector[2] - point.z), 1.0e-9)
 
     def test_native_side_pier_and_open_endcap_contracts_are_additive(
         self,

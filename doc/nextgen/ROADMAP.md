@@ -799,12 +799,13 @@ Penguinville road diagnostic.
 Overlay v5 adds the direct road-to-road NeoQueretaro-to-NeoQ2.0 link. It
 authenticates the exact east and west distributor placements plus their six
 render, collision, and ODEF resources, then joins their decoded seams with a
-3,086.132 m native procedural surface. The source retains a ten-metre overlap;
-the divided NeoQ2.0 road has zero generated overlap, preserving its median and
-both live carriageways. The 24 m deck tapers to the decoded 15.1 m destination
-span, ends level at 0.2 m, and reports zero step, grade, yaw, and width-edge
-discontinuity. Per-road `collision_endcaps_enabled false` removes all six
-transverse cap collision faces without changing legacy roads.
+3,076.132 m native procedural surface. Both city endpoints have zero generated
+overlap, leaving one authoritative collision surface at each flush seam and
+preserving NeoQ2.0's median and both live carriageways. The 24 m deck tapers to
+the decoded 15.1 m destination span, ends level at 0.2 m, and reports zero
+step, grade, yaw, and width-edge discontinuity. Per-road
+`collision_endcaps_enabled false` removes all six transverse cap collision
+faces without changing legacy roads.
 
 The raised deck requests 74 paired outboard side-pier stations and 33
 alternating inward bridge lights. Column inner faces sit 2.5 m beyond the deck
@@ -816,7 +817,7 @@ requested and built pairs with zero skips.
 
 The earlier clean macOS arm64 five-camera run covered a superseded
 center-pillar/destination-overlap prototype and is retained only as historical
-diagnostic evidence. The v2 acceptance gate requires a rebuilt arm64 app, six
+diagnostic evidence. The v3 acceptance gate requires a rebuilt arm64 app, six
 UI-free fixed cameras including driver and underside views, and a full DAF
 traversal ten metres into the preserved NeoQ2.0 carriageway. Normal and
 optimized Python tests lock the content contract on the

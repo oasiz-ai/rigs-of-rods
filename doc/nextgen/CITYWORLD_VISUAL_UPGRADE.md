@@ -46,12 +46,11 @@ are 1,064.053 metres apart. The generated centreline is 1,075.448 metres
 because it preserves east tangents at both cities and includes the source
 overlap.
 
-The second link starts ten metres inside NeoQueretaro's east distributor at
-`(3780.970703, 0.1, 3993.104004)`, crosses its decoded seam at
-`(3790.970703, 0.1, 3993.104004)`, reaches NeoQ2.0's west industrial
-distributor seam at `(6867, 0.2, 4018)`, and terminates there with no generated
-overlap across the divided destination road. Its generated centreline is
-3,086.132 metres. The
+The second link starts flush at NeoQueretaro's decoded east-distributor seam
+at `(3790.970703, 0.1, 3993.104004)`, reaches NeoQ2.0's west industrial
+distributor seam at `(6867, 0.2, 4018)`, and terminates flush there. Its
+generated centreline is 3,076.132 metres. Both endpoints have zero generated
+overlap, so each seam retains exactly one authoritative collision surface. The
 direct Penguinville-to-NeoQ2.0 spawn distance remains 7,374.342 metres; links
 are road corridors with bridge or elevated spans where terrain requires them,
 not single spawn-to-spawn meshes.
@@ -165,7 +164,7 @@ authority.
 
 Overlay v5 authenticates `distribuidorQr` at source line 366 and
 `NeoQ2-0industrial-zone-distributor-road` at destination line 1230, together
-with their exact render mesh, collision mesh, and ODEF bytes. A 72 m-wide swept
+with their exact render mesh, collision mesh, and ODEF bytes. A 128 m-wide swept
 placement-origin strip between the decoded road seams must remain empty. This
 is intentionally stricter than selecting nearby city spawn points: endpoint or
 resource drift aborts the local build before a route is emitted.
@@ -178,14 +177,16 @@ surface to produce the 0.1 m source seam. The NeoQ2.0 placement is authored at
 destination seam. The report records all four values and requires the route
 surface to match the composed collision elevation exactly.
 
-The v2 route is one 3,086.132 m continuous native procedural collision surface
-with 81 waypoints. It starts ten metres inside NeoQueretaro but terminates
-exactly at NeoQ2.0's decoded west mesh edge: generated destination overlap is
-zero, preserving the existing median and both carriageways. The main deck is
-24 m wide, then tapers over 160 m to the destination road's decoded 15.1 m
-inner-barrier span. Its final surface is exactly level at 0.2 m. Position,
-vertical step, grade, yaw, and width-edge errors are all zero, and the open-end
-collision contract omits all six transverse start/finish cap triangles.
+The v3 route is one 3,076.132 m continuous native procedural collision surface
+with 80 waypoints. It begins exactly at NeoQueretaro's decoded east mesh edge
+and terminates exactly at NeoQ2.0's decoded west mesh edge. Generated overlap
+is zero at both ends, preserving the source surface plus the destination
+median and both carriageways without coplanar double-contact strips. The main
+deck is 24 m wide, then tapers over 160 m to the destination road's decoded
+15.1 m inner-barrier span. Its final surface is exactly level at 0.2 m.
+Position, vertical step, grade, yaw, and width-edge errors are all zero, and
+the open-end collision contract omits all six transverse start/finish cap
+triangles.
 
 Two 160 m smoothstep ramps raise the central deck by 8 m. The sampled maximum
 grade is 0.07039, below the 0.075 contract. Seventy-four
@@ -461,8 +462,8 @@ construction visuals without changing the authenticated route. The visual pass
 must preserve the v3 centreline, lane width, curb-free source overlap,
 destination seam, maximum grade and continuous collision surface.
 The same rule applies to the v5 second link: future authored visuals must
-preserve its exact road overlaps, 24 m driven width, grade ceiling, and single
-native collision surface.
+preserve its exact zero-overlap city seams, 24 m driven width, grade ceiling,
+and single native collision surface.
 
 The first project-owned tangent module is checked in as
 `rorng_city_bridge_span_20m`, and the first curve as

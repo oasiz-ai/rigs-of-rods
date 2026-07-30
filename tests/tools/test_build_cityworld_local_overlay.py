@@ -1125,11 +1125,11 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 1,
             )
             self.assertIn(
-                "cityworld_next_neoq_link_led_0250_left",
+                "cityworld_next_neoq_link_led_0240_left",
                 placement_text,
             )
             self.assertIn(
-                "cityworld_next_neoq_link_led_2810_left",
+                "cityworld_next_neoq_link_led_2800_left",
                 placement_text,
             )
             self.assertEqual(
@@ -1181,7 +1181,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 1,
             )
             self.assertIn(
-                "3780.970703, 0.1, 3993.104004, 0, 0, 0, "
+                "3790.970703, 0.1, 3993.104004, 0, 0, 0, "
                 "24, 0, 0, flat",
                 placement_text,
             )
@@ -1192,7 +1192,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             bridge = report["corridors"]["neoq_to_neoq20"]
             self.assertEqual(
                 bridge["format"],
-                "ror-cityworld-neoq-intercity-bridge-v2",
+                "ror-cityworld-neoq-intercity-bridge-v3",
             )
             self.assertEqual(
                 bridge["source"]["seam_m"],
@@ -1219,6 +1219,10 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             self.assertEqual(
                 bridge["profile"]["destination_merge_width_m"],
                 15.1,
+            )
+            self.assertEqual(
+                bridge["connection"]["source_generated_overlap_m"],
+                0.0,
             )
             self.assertEqual(
                 bridge["connection"]["destination_generated_overlap_m"],
