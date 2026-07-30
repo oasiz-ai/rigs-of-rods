@@ -312,6 +312,14 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/resources/LegacyMaterialScriptSanitizerTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/LegacyMaterialScriptSanitizer.cpp"
 )
+if (MSVC)
+    # The pinned-fixture opt-in uses the standard getenv API. Keep this
+    # upstream-only test portable under MSVC's /WX deprecation policy.
+    target_compile_definitions(
+        ror_legacy_material_script_sanitizer_tests
+        PRIVATE _CRT_SECURE_NO_WARNINGS
+    )
+endif ()
 
 add_executable(
     ror_legacy_material_compatibility_plan_tests

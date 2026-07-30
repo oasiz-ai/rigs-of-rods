@@ -10,8 +10,8 @@
 
 #include <cerrno>
 #include <cstdio>
-#include <cstring>
 #include <limits>
+#include <system_error>
 #include <vector>
 
 #if defined(_WIN32)
@@ -39,7 +39,8 @@ void SetError(std::string* error, const std::string& text)
 
 std::string IoError(const std::string& operation)
 {
-    return operation + ": " + std::strerror(errno);
+    return operation + ": " +
+        std::error_code(errno, std::generic_category()).message();
 }
 
 #if defined(_WIN32)
@@ -51,6 +52,20 @@ std::string WindowsError(
         std::to_string(error_code) + ")";
 }
 #endif
+
+std::FILE* OpenFile(
+    const std::filesystem::path& path,
+    const char* mode)
+{
+#if defined(_WIN32)
+    std::FILE* output = nullptr;
+    return ::fopen_s(&output, path.string().c_str(), mode) == 0
+        ? output
+        : nullptr;
+#else
+    return std::fopen(path.string().c_str(), mode);
+#endif
+}
 
 bool WriteAll(
     std::FILE* output,
@@ -242,7 +257,7 @@ bool AtomicWrite(
             temporary.string());
         return false;
     }
-    std::FILE* output = std::fopen(temporary.string().c_str(), "wb");
+    std::FILE* output = OpenFile(temporary, "wb");
     if (output == nullptr)
     {
         SetError(error, IoError("could not create " + temporary.string()));
@@ -347,8 +362,7 @@ public:
         if (std::filesystem::exists(state.temporary_path) ||
             std::filesystem::exists(state.final_path))
             return Fail(error, "chunk path already exists: " + relative);
-        state.file =
-            std::fopen(state.temporary_path.string().c_str(), "wb");
+        state.file = OpenFile(state.temporary_path, "wb");
         if (state.file == nullptr)
             return Fail(
                 error, IoError("could not create " +

@@ -66,7 +66,7 @@ int main()
             "18446744073709551615", parsed) &&
             parsed == std::numeric_limits<std::uint64_t>::max(),
         "UINT64_MAX must parse");
-    for (const std::string& invalid : {
+    for (const char* invalid : {
             "", "00", "01", "-1", "+1", " 1", "1 ",
             "0x1", "18446744073709551616"})
     {

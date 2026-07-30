@@ -83,11 +83,17 @@ public:
         m_buffer[m_used++] = 0x80U;
         if (m_used > 56)
         {
-            std::fill(m_buffer.begin() + m_used, m_buffer.end(), 0);
+            std::fill(
+                m_buffer.begin() + m_used,
+                m_buffer.end(),
+                std::uint8_t{0});
             Transform(m_buffer.data());
             m_used = 0;
         }
-        std::fill(m_buffer.begin() + m_used, m_buffer.begin() + 56, 0);
+        std::fill(
+            m_buffer.begin() + m_used,
+            m_buffer.begin() + 56,
+            std::uint8_t{0});
         for (unsigned int i = 0; i < 8; ++i)
             m_buffer[63U - i] =
                 static_cast<std::uint8_t>(bits >> (i * 8U));
