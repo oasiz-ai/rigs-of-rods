@@ -14,6 +14,40 @@ MACROS_FILE = REPO_ROOT / "cmake" / "Macros.cmake"
 
 
 class RecursiveZipFolderTests(unittest.TestCase):
+    def test_empty_source_fails_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source"
+            build = root / "build"
+            (source / "payload").mkdir(parents=True)
+            (source / "CMakeLists.txt").write_text(
+                "\n".join(
+                    [
+                        "cmake_minimum_required(VERSION 3.16)",
+                        "project(recursive_zip_folder_empty_test NONE)",
+                        f'include("{MACROS_FILE.as_posix()}")',
+                        "recursive_zip_folder(",
+                        '  "${CMAKE_CURRENT_SOURCE_DIR}/payload"',
+                        '  "${CMAKE_CURRENT_BINARY_DIR}/archives")',
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["cmake", "-S", str(source), "-B", str(build)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "found no package directories",
+                result.stdout + result.stderr,
+            )
+
     def test_archive_has_explicit_unique_directory_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

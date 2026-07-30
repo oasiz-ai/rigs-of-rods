@@ -516,6 +516,17 @@ if(DEFINED ROR_CONTENT AND NOT ROR_CONTENT STREQUAL "")
     _ror_require_absolute_path("ROR_CONTENT" "FILE_OR_DIRECTORY")
     _ror_real_path("${ROR_CONTENT}" _ror_content)
     _ror_assert_no_recursive_copy("${_ror_content}" "ROR_CONTENT" "${_ror_bundle}")
+    if(IS_DIRECTORY "${_ror_content}")
+        file(GLOB_RECURSE _ror_content_files
+            LIST_DIRECTORIES FALSE
+            "${_ror_content}/*")
+        if(NOT _ror_content_files)
+            message(FATAL_ERROR
+                "ROR_CONTENT directory contains no regular files: "
+                "'${_ror_content}'. Refusing to produce an app bundle that "
+                "silently omits starter content.")
+        endif()
+    endif()
 else()
     set(_ror_content "")
 endif()

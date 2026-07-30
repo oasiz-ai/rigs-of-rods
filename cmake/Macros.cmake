@@ -13,13 +13,17 @@ function(recursive_zip_folder in_dir out_dir)
     get_filename_component(FROM_DIR_NAME ${in_dir} NAME)
     set(TMP_FILE_DIR ${CMAKE_BINARY_DIR}/tmp/recursive_zip_${FROM_DIR_NAME})
     get_sub_dirs(SUB_DIRS "${in_dir}")
+    list(REMOVE_ITEM SUB_DIRS ".git")
+    if (NOT SUB_DIRS)
+        message(FATAL_ERROR
+            "recursive_zip_folder('${in_dir}') found no package directories. "
+            "Initialize the required source content (for the starter content, "
+            "run 'git submodule update --init content') or disable the "
+            "corresponding packaging option.")
+    endif ()
     file(MAKE_DIRECTORY ${out_dir})
 
     foreach (ZIP_DIR ${SUB_DIRS})
-        if ("${ZIP_DIR}" STREQUAL ".git")
-            continue()
-        endif ()
-
         set(ZIP_ROOT "${in_dir}/${ZIP_DIR}")
 
         # Feed the archiver only the immediate children. Directory arguments
