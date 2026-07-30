@@ -86,9 +86,10 @@ road-object placements and rotations in `CityWorld.tobj`, verifies both open
 intercity placement-origin windows, hashes the Neo-to-NeoQ2.0 endpoint render
 meshes, collision meshes, and ODEFs, validates all five asset manifests and
 checked compiler outputs, and writes through a temporary sibling before an
-atomic no-overwrite publish. The nine-entry ZIP contains a derived terrain
-descriptor, a project-owned overlay TOBJ, four placed collisionless streetlight
-resources, one disabled NeoQueretaro light-candidate manifest, one merged
+atomic no-overwrite publish. The 50-entry ZIP contains a derived terrain
+descriptor, a project-owned overlay TOBJ, the collisionless streetlight LOD
+family, the direct Penguinville road-seam family, three replacement-tree LOD
+families with 18 per-instance ODEFs, two authenticated manifests, one merged
 material script, and one canonical report. The four earlier
 Blender-authored corridor module families remain validated and reported but
 are excluded from the runtime payload while their ODEFs still own collision. It
@@ -204,14 +205,16 @@ rejects any intersection with the swept bridge-road prism.
 Thirty-three collisionless bridge fixtures alternate sides at 80 m spacing.
 They share the checked `rorng_city_led_streetlight_bridge` resource, point
 inward, and add one bounded 24 m warm point light each. Together with the first
-route's sixteen fixtures, overlay v5 requests 49 project-owned local lights,
+route's fifteen fixtures, overlay v5 requests 48 project-owned local lights,
 which remains below the runtime budget of 64.
 
 The v4 native macOS arm64 gate validates this contract end to end. Six
 byte-distinct 1280x720 UI-free captures show the live `autopistaQr` surface
 without columns, paired piers beginning only after the excluded span, and the
 wheel-height NeoQ2.0 handoff with no generated barrier or median coverage.
-Native accounting reports `requested=56 built=56 skipped=0`. A packaged DAF
+Native accounting reports the exact combined multiset
+`requested=46 built=46 skipped=0` and
+`requested=56 built=56 skipped=0`. A packaged DAF
 crosses both city seams eastbound, then a separately spawned westbound DAF
 crosses from the preserved positive-local-z carriageway back onto the generated
 deck. The combined trace covers 3,161.36 m in 424,240 physics steps with
@@ -255,8 +258,8 @@ content contract, not evidence of completed relighting or ray tracing.
 The corridor diagnostic accepts overlay report v5, independently validates all
 67 candidate records and three pinned source-ODEF hashes, proves that no core
 candidate adapter or placement entered the runtime payload, validates both
-procedural corridors and all 49 bridge fixtures, and rebuilds the complete
-nine-entry ZIP byte for byte before launching the unchanged v3 Penguinville
+procedural corridors and all 48 bridge fixtures, and rebuilds the complete
+50-entry ZIP byte for byte before launching the unchanged v3 Penguinville
 corridor traversal.
 
 Fixed ZIP order, timestamps, permissions, and stored payloads make repeated
@@ -276,10 +279,10 @@ cleanly. A UI-free 1280x720 capture verifies a continuous asphalt mouth across
 the original sidewalk and curb, with the curb retained only beside the road.
 The prior Neo-to-NeoQ2.0 five-view run exercised the superseded centered-pillar
 and destination-overlap prototype and is not acceptance evidence for v2. The
-replacement gate requires six UI-free views, including driver-height and
-underside views, exact native side-pier accounting, a full DAF traversal into
-the preserved destination lane, and no endpoint-cap snag. Native macOS arm64,
-Windows, and Linux repetitions remain open until those gates pass.
+replacement gate now passes on macOS arm64 with six UI-free views, including
+driver-height and underside views, exact native side-pier accounting, a full
+DAF traversal into the preserved destination lane, and no endpoint-cap snag.
+Native Windows and Linux repetitions remain open.
 
 The v2 exploratory private-content diagnostic armed the packaged DAF at the
 former report-declared Penguinville endpoint tangent and followed all 57
@@ -287,32 +290,21 @@ procedural centreline samples. That macOS arm64 run covered 1,086.34 m in
 170,960 fixed-batch physics steps and held maximum centreline error to
 0.912104 m.
 
-The v3 diagnostic now starts the packaged DAF at station -9.99478 inside
-Penguinville, follows 59 exact report waypoints plus two road extensions, and
-crosses the authenticated curb edge at station 14.8491. The macOS arm64 run
-covered 1,096.82 m in 171,020 fixed-batch physics steps, held maximum
-centreline error to 1.12854 m and maximum vertical error to 0.725408 m, rebuilt
-the tested overlay byte for byte, and decoded one UI-free 1280x720 RGB capture.
-This directly exercises the original-carriageway approach and curb-clearing
-ascent, but remains diagnostic rather than acceptance evidence because it does
-not independently identify every supporting collision face or prove the
-destination-road turn.
+The current combined corridor gate supersedes that v3 evidence. On macOS
+arm64 it rebuilds the 50-entry overlay byte for byte, requires the exact
+`46/46/0` and `56/56/0` native support summaries, validates all 48 bridge
+lights, and captures four byte-distinct UI-free 1280x720 seam views. Forward
+and reverse collision-enabled DAF traversals cover 2,146.23 m in 377,000 fixed
+physics steps with 1.1988 m maximum path error, 0.808091 m vertical error, and
+0.00591469 m regression. The route crosses the direct project-owned
+Penguinville road seam without a curb obstruction and reaches the independent
+NeoQueretaro road in both directions.
 
-The installed v3 report explicitly identifies the package as a curb-free
-Penguinville overlap apron plus a route-safe first visual pass. The source curb
-blocker is closed for the driven width, but the bridge transition, curve, span,
-and gateway assets remain unplaced; only the LED streetlight is packaged and
-placed. The destination-network, independent building-clearance, and authored
-bridge blockers remain current-content work, not evidence of an old installed
-package. A manual underside capture shows native procedural pillars, but the
-diagnostic does not verify their count, terrain contact, or integration with an
-authored deck.
-Do not promote it to an acceptance gate until independent geometry/collision
-audits and runtime object evidence cover those properties. In particular, the
-destination is the west leg of a T-junction. Acceptance must cross the seam,
-command the required turn through that junction, and continue a substantial
-independently derived distance on the genuine destination road network; the
-current 11.4 m straight report-tangent extension is insufficient.
+The optional Blender transition, curve, span, and gateway visual families
+remain validated but unplaced; the accepted route uses the native procedural
+deck and direct road seam. Whole-route building-clearance and visual/performance
+review, rights-cleared distribution, and native Windows and Linux repetitions
+remain promotion gates.
 
 Run the rights-preserving diagnostic only with the explicit incomplete-content
 acknowledgement:

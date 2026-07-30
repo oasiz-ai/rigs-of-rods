@@ -345,7 +345,7 @@ additionally authenticated when installed locally.
 `tests/tools/test_build_cityworld_local_overlay.py` then proves that overlay v5
 packages both intercity routes into one deterministic, local-only ZIP without
 copying the private source archive. `tests/tools/test_run_cityworld_corridor_scene.py`
-independently validates the complete report, 49 runtime bridge lights, and
+independently validates the complete report, 48 runtime bridge lights, and
 byte-identical rebuild contract. These standard-library tests run normally and
 under `python -O` on macOS, Linux, and Windows.
 

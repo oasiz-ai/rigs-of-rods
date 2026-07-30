@@ -792,8 +792,8 @@ emission, and non-shipping rights state. It is activation-ready content
 provenance, not a claim that whole-map relighting or ray tracing is complete.
 The corridor runner now consumes report v5, authenticates every candidate and
 source-pole definition, rejects any emitted core adapter/placement, validates
-both intercity procedural-road contracts and all 49 project bridge lights, and
-requires a byte-identical nine-entry rebuild before it runs the unchanged v3
+both intercity procedural-road contracts and all 48 project bridge lights, and
+requires a byte-identical 50-entry rebuild before it runs the unchanged v3
 Penguinville road diagnostic.
 
 Overlay v5 adds the direct road-to-road NeoQueretaro-to-NeoQ2.0 link. It
@@ -822,36 +822,32 @@ The earlier clean macOS arm64 five-camera run covered a superseded
 center-pillar/destination-overlap prototype and is retained only as historical
 diagnostic evidence. The v4 replacement gate now passes natively on the Apple
 M5 arm64 executable
-`e6843e669a8cbcd2f63af48b66f8be9d3bf5549bf9b4bf5b4016b99b4281e26b`.
+`2113bed84fb40313b707206c3e48188866d4fa9e907e9f958b55590eb394609c`.
 It produced six byte-distinct UI-free 1280x720 RGBs, including an unobstructed
 `autopistaQr` underside and wheel-height destination seam, and reported
-SidePiers `56/56/0`. The collision-enabled eastbound plus westbound drive
+the exact combined SidePiers multiset `46/46/0` and `56/56/0`. The
+collision-enabled eastbound plus westbound drive
 covered 3,161.36 m in 424,240 physics steps; the reverse actor crossed 60.1921 m
 from the live NeoQ2.0 lane onto the deck with 0.0822754 m maximum path error,
 0.808374 m vertical error, and 0.00537109 m regression. Normal and optimized
 Python tests lock the portable content contract; native Windows and Linux
 replacement gates remain open.
 
-The full-map acceptance gate remains open. The v3 macOS arm64 diagnostic starts
-the packaged DAF at station -9.99478 inside Penguinville, crosses the
-authenticated curb edge at station 14.8491, and drives 1,096.82 m over all 59
-reported route waypoints in 171,020 fixed-batch physics steps. It held maximum
-centreline error to 1.12854 m, maximum vertical error to 0.725408 m, rebuilt the
-overlay byte for byte, and decoded a UI-free 1280x720 RGB proof. This closes the
-driven curb obstruction and directly exercises the original-carriageway
-approach, but the diagnostic still cannot independently identify every
-supporting collision face, visible-mesh clearance, authored bridge module, or
-visible support.
+The full-map visual acceptance gate remains open, but the combined two-corridor
+macOS arm64 runtime gate now passes on that same executable. It rebuilds the
+50-entry overlay byte for byte, validates all 48 lights and the exact
+`46/46/0` plus `56/56/0` support summaries, and produces four byte-distinct
+UI-free 1280x720 seam views. Two collision-enabled DAF traversals cover
+2,146.23 m in 377,000 fixed physics steps with 1.1988 m maximum path error,
+0.808091 m vertical error, and 0.00591469 m regression. This directly proves
+the flush Penguinville road seam, curb-free travel width, both bridge
+directions, and complete native paired-pier construction.
 
-The transition, curve, span, and gateway assets remain unplaced; the 47
-supports are requests rather than runtime object evidence in this automated
-diagnostic. Manual captures show native procedural pillars, but not a completed
-authored deck/abutment system or a verified support count. Independently audit
-the remaining swept building clearance, integrate the
-deck/abutments/supports, add runtime-object assertions, and extend the drive
-through a commanded turn at the destination T-junction followed by substantial
-travel on the independently derived road network. Then repeat the full
-traversal on macOS, Windows, and Linux.
+The optional transition, curve, span, and gateway visual families remain
+unplaced; the accepted routes use native procedural surfaces plus the
+project-owned direct road seam. Promotion still requires a complete
+rights-cleared visual pass, whole-route building-clearance and performance
+review, and native Windows and Linux repetitions.
 
 A portable runtime gate assembles an isolated native fixture from the pinned
 content submodule. On macOS arm64, the DAF drove 137.569 metres through three

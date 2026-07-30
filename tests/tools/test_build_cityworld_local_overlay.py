@@ -1107,7 +1107,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 placement_text.count(", bridge_no_pillars\n"),
                 2,
             )
-            self.assertGreater(placement_text.count(", bridge\n"), 40)
+            self.assertNotIn(", bridge\n", placement_text)
             self.assertNotIn("rorng_city_gateway_block_40m -", placement_text)
             self.assertEqual(
                 placement_text.count(

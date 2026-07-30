@@ -25,7 +25,7 @@ SPEC.loader.exec_module(SCENE)
 
 
 def valid_engine(
-    side_pier_counts: tuple[int, ...] = (56,),
+    side_pier_counts: tuple[int, ...] = (46, 56),
     *,
     drive: bool,
 ) -> str:
@@ -45,11 +45,7 @@ def valid_engine(
         "sizes=3072x3072/2048x2048/2048x2048 "
         "lambda=0.970 near=0.5 far=350.0 "
         "splits=0.5/10.0/80.0/350.0",
-        "[RoR|CityWorld|NeoQ20Grounding] Applied placements=35 renames=3 "
-        "telepoints=1 tree_replacements=18 transactionally before object "
-        "instantiation (tobj_sha256="
-        + SCENE.corridor.NEOQ_TREE_SOURCE_TOBJ_SHA256
-        + ")",
+        SCENE.corridor.ENGINE_MARKERS[1],
         "===== TERRAIN LOADING DONE CityWorldNextLocalOverlay.terrn2",
         "[RoR|TerrainDependency] Mounted "
         "'/isolated/mods/CityWorld.zip' into "
@@ -205,7 +201,8 @@ class NeoBridgeSceneTests(unittest.TestCase):
                 "penguinville_to_neoq": {
                     "supports": {
                         "requested_count": 46,
-                        "style": SCENE.SIDE_PIER_STYLE,
+                        "style":
+                            "ror-native-procedural-paired-outboard-piers-v1",
                     }
                 },
             }
@@ -214,6 +211,66 @@ class NeoBridgeSceneTests(unittest.TestCase):
             SCENE.expected_side_pier_counts(report),
             (46, 56),
         )
+
+    def test_expected_side_piers_reject_contract_drift(self) -> None:
+        report = {
+            "corridors": {
+                "neoq_to_neoq20": {
+                    "supports": {
+                        "requested_count": 56,
+                        "style": SCENE.SIDE_PIER_STYLE,
+                    }
+                },
+                "penguinville_to_neoq": {
+                    "supports": {
+                        "requested_count": 46,
+                        "style":
+                            "ror-native-procedural-paired-outboard-piers-v1",
+                    }
+                },
+            }
+        }
+        cases = (
+            (
+                "missing-corridor",
+                lambda value: value["corridors"].pop(
+                    "penguinville_to_neoq"
+                ),
+                "two-bridge contract",
+            ),
+            (
+                "extra-corridor",
+                lambda value: value["corridors"].update(
+                    {"unexpected": {"supports": {}}}
+                ),
+                "two-bridge contract",
+            ),
+            (
+                "style",
+                lambda value: value["corridors"]["penguinville_to_neoq"][
+                    "supports"
+                ].update({"style": SCENE.SIDE_PIER_STYLE}),
+                "style drifted",
+            ),
+            (
+                "count",
+                lambda value: value["corridors"]["neoq_to_neoq20"][
+                    "supports"
+                ].update({"requested_count": 55}),
+                "count is invalid",
+            ),
+        )
+        for label, mutate, message in cases:
+            candidate = copy.deepcopy(report)
+            mutate(candidate)
+            with (
+                self.subTest(label=label),
+                self.assertRaisesRegex(
+                    SCENE.NeoBridgeSceneFailure,
+                    message,
+                ),
+            ):
+                SCENE.expected_side_pier_counts(candidate)
 
     def test_destination_join_contract_is_exact_and_fail_closed(self) -> None:
         contract = SCENE.validate_destination_join_contract(
@@ -271,13 +328,16 @@ class NeoBridgeSceneTests(unittest.TestCase):
             "",
             valid_engine(drive=False),
             valid_static_script(),
-            (56,),
+            (46, 56),
         )
         self.assertEqual(metrics["captures"], 6)
         self.assertEqual(metrics["physics_steps"], 1060)
         self.assertEqual(
             metrics["side_piers"],
-            [{"built": 56, "requested": 56, "skipped": 0}],
+            [
+                {"built": 46, "requested": 46, "skipped": 0},
+                {"built": 56, "requested": 56, "skipped": 0},
+            ],
         )
 
     def test_drive_runtime_accepts_both_seams_and_live_lane(self) -> None:
@@ -286,7 +346,7 @@ class NeoBridgeSceneTests(unittest.TestCase):
             "",
             valid_engine(drive=True),
             valid_drive_script(),
-            (56,),
+            (46, 56),
         )
         self.assertEqual(metrics["destination_local_z_m"], 4.9)
         self.assertEqual(metrics["reverse_destination_local_z_m"], 5.7)
@@ -340,7 +400,7 @@ class NeoBridgeSceneTests(unittest.TestCase):
                     "destination_local_z_m=4.9",
                     "destination_local_z_m=0.0",
                 ),
-                (56,),
+                (46, 56),
             )
 
     def test_drive_runtime_rejects_reverse_destination_outside_live_lane(
@@ -358,7 +418,7 @@ class NeoBridgeSceneTests(unittest.TestCase):
                     "reverse_destination_local_z_m=5.7",
                     "reverse_destination_local_z_m=0.0",
                 ),
-                (56,),
+                (46, 56),
             )
 
     def test_build_command_is_cross_platform_and_script_specific(

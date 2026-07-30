@@ -203,6 +203,7 @@ EXPECTED_LIGHTS = EXPECTED_CORRIDOR_LIGHTS + EXPECTED_NEOQ_BRIDGE_LIGHTS
 EXPECTED_ROUTE_LENGTH_M = 1038.350024882
 EXPECTED_CORRIDOR_SIDE_PIERS = 46
 EXPECTED_NEOQ_SIDE_PIERS = 56
+EXPECTED_NO_PILLAR_SPANS = 21
 MAX_PHYSICS_STEPS = 480000
 CITYWORLD_FALLBACK_LIGHTING_MARKER = base.fallback_lighting_marker(
     (0.93, 0.86, 0.76)
@@ -1294,17 +1295,23 @@ def validate_overlay_archive(
                 raise CorridorSceneFailure(
                     "NeoQ trees were duplicated in overlay placements"
                 )
-            if placement_text.count("collision_endcaps_enabled false") != 1:
+            if placement_text.count("collision_endcaps_enabled false") != 2:
                 raise CorridorSceneFailure(
-                    "procedural collision endcaps are not disabled exactly once"
+                    "both procedural routes must disable collision endcaps "
+                    "exactly once"
                 )
             if ", bridge\n" in placement_text:
                 raise CorridorSceneFailure(
                     "legacy center-pillar bridge token is present"
                 )
             if (
-                placement_text.count(", bridge_side_pillars\n") != 46
-                or placement_text.count(", bridge_no_pillars\n") != 2
+                placement_text.count(", bridge_side_pillars\n")
+                != (
+                    EXPECTED_CORRIDOR_SIDE_PIERS
+                    + EXPECTED_NEOQ_SIDE_PIERS
+                )
+                or placement_text.count(", bridge_no_pillars\n")
+                != EXPECTED_NO_PILLAR_SPANS
                 or placement_text.count(
                     "rorng_city_penguin_road_seam_12m - "
                     "cityworld_next_penguin_road_seam_12m"
@@ -2244,12 +2251,37 @@ def build_command(executable: Path) -> tuple[str, ...]:
     return tuple(command)
 
 
+def isolated_runtime_layout(
+    isolated_home: Path,
+    executable: Path,
+    target_platform: str,
+) -> dict[str, Path]:
+    """Return the platform layout for bundled and loose native builds."""
+
+    bundled_macos = (
+        target_platform == "darwin"
+        and executable.parent.name == "MacOS"
+        and executable.parent.parent.name == "Contents"
+        and executable.parent.parent.parent.suffix == ".app"
+    )
+    if target_platform != "darwin" or bundled_macos:
+        return base.runtime_layout(isolated_home, target_platform)
+    user = isolated_home / "RigsOfRods"
+    return {
+        "config": user / "config",
+        "logs": user / "logs",
+        "mods": user / "mods",
+        "screenshots": user / "screenshots",
+        "user": user,
+    }
+
+
 def validate_runtime_logs(
     returncode: int,
     stdout: str,
     engine_log: str,
     script_log: str,
-) -> dict[str, float | int]:
+) -> dict[str, object]:
     if returncode != 0:
         raise CorridorSceneFailure(
             f"RoR corridor scene exited with {returncode}"
@@ -2556,7 +2588,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         prefix="ror-cityworld-corridor-"
     ) as temporary:
         isolated_home = Path(temporary)
-        layout = base.runtime_layout(isolated_home, sys.platform)
+        layout = isolated_runtime_layout(
+            isolated_home,
+            executable,
+            sys.platform,
+        )
         for key in ("config", "logs", "mods", "screenshots", "user"):
             layout[key].mkdir(parents=True, exist_ok=True)
         scripts = layout["user"] / "scripts"

@@ -249,6 +249,19 @@ def synthetic_overlay_report(
             for waypoint in waypoints
         ),
         "end_procedural_roads",
+        "begin_procedural_roads",
+        "    collision_enabled true",
+        "    collision_endcaps_enabled false",
+        *(
+            "    0, 0, 0, 0, 0, 0, 24, 0, 0, "
+            + (
+                "bridge_side_pillars"
+                if index < 56
+                else ("bridge_no_pillars" if index < 75 else "flat")
+            )
+            for index in range(80)
+        ),
+        "end_procedural_roads",
         (
             "516, 0.100001, 370.023095, 0, -90, 0, "
             "rorng_city_penguin_road_seam_12m - "
@@ -1073,6 +1086,67 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
             self.assertEqual(record["name"], SCENE.OVERLAY_NAME)
             self.assertEqual(record["size"], archive.stat().st_size)
 
+            placement_text = package_payloads[
+                SCENE.OVERLAY_PLACEMENT_MEMBER
+            ].decode()
+            placement_drifts = (
+                (
+                    "missing-endcap-directive",
+                    placement_text.replace(
+                        "    collision_endcaps_enabled false\n",
+                        "",
+                        1,
+                    ),
+                    "both procedural routes must disable collision endcaps",
+                ),
+                (
+                    "extra-endcap-directive",
+                    placement_text
+                    + "collision_endcaps_enabled false\n",
+                    "both procedural routes must disable collision endcaps",
+                ),
+                (
+                    "side-pier-count-drift",
+                    placement_text.replace(
+                        ", bridge_side_pillars\n",
+                        ", bridge_no_pillars\n",
+                        1,
+                    ),
+                    "side-pier road or Penguinville transition",
+                ),
+            )
+            for label, changed_text, message in placement_drifts:
+                with self.subTest(label=label):
+                    changed_payloads = dict(package_payloads)
+                    changed_payload = changed_text.encode()
+                    changed_payloads[
+                        SCENE.OVERLAY_PLACEMENT_MEMBER
+                    ] = changed_payload
+                    changed_report = copy.deepcopy(report)
+                    placement_record = next(
+                        item
+                        for item in changed_report["package"]["files"]
+                        if item["path"]
+                            == SCENE.OVERLAY_PLACEMENT_MEMBER
+                    )
+                    placement_record["sha256"] = hashlib.sha256(
+                        changed_payload
+                    ).hexdigest()
+                    placement_record["size"] = len(changed_payload)
+                    write_overlay(
+                        archive,
+                        changed_report,
+                        changed_payloads,
+                    )
+                    with self.assertRaisesRegex(
+                        SCENE.CorridorSceneFailure,
+                        message,
+                    ):
+                        SCENE.validate_overlay_archive(
+                            archive,
+                            repository,
+                        )
+
             changed = copy.deepcopy(report)
             changed["package"]["files"][0]["sha256"] = "0" * 64
             write_overlay(archive, changed, package_payloads)
@@ -1336,20 +1410,58 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
                     SCENE.SCRIPT_NAME,
                 ),
             )
-        for target in ("linux", "win32"):
-            with self.subTest(platform=target):
+        layout_cases = (
+            (
+                "darwin",
+                Path("/loose/bin/RoR"),
+                Path("/isolated/RigsOfRods"),
+            ),
+            (
+                "darwin",
+                Path("/Applications/RoR.app/Contents/MacOS/RoR"),
+                Path(
+                    "/isolated/Library/Application Support/Rigs of Rods"
+                ),
+            ),
+            (
+                "linux",
+                Path("/opt/ror/RoR"),
+                Path("/isolated/.rigsofrods"),
+            ),
+            (
+                "win32",
+                Path("C:/RoR/RoR.exe"),
+                Path("/isolated/My Games/Rigs of Rods"),
+            ),
+        )
+        for target, target_executable, expected_user in layout_cases:
+            with self.subTest(
+                platform=target,
+                executable=target_executable,
+            ):
                 with mock.patch.object(SCENE.sys, "platform", target):
+                    platform_flags = (
+                        ("-ApplePersistenceIgnoreState", "YES")
+                        if target == "darwin"
+                        else ()
+                    )
                     self.assertEqual(
                         SCENE.build_command(executable),
                         (
                             str(executable),
+                            *platform_flags,
                             "-map",
                             SCENE.OVERLAY_TERRAIN,
                             "-runscript",
                             SCENE.SCRIPT_NAME,
                         ),
                     )
-                layout = SCENE.base.runtime_layout(Path("/isolated"), target)
+                layout = SCENE.isolated_runtime_layout(
+                    Path("/isolated"),
+                    target_executable,
+                    target,
+                )
+                self.assertEqual(layout["user"], expected_user)
                 for path in layout.values():
                     self.assertTrue(path.is_relative_to(Path("/isolated")))
 

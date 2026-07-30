@@ -84,16 +84,8 @@ LIGHT_MARKER = (
     "odef=rorng_city_led_streetlight_bridge.odef "
     "spotlights=0 point_lights=1 local_shadow_casters=0"
 )
-EXPECTED_LIGHTS = 49
-GROUNDING_PATTERN = re.compile(
-    r"\[RoR\|CityWorld\|NeoQ20Grounding\] Applied "
-    r"placements=35 renames=3 "
-    r"(?:(?:road_replacements=1 )?)"
-    r"telepoints=1 tree_replacements=18 transactionally before object "
-    r"instantiation \(tobj_sha256="
-    + re.escape(corridor.NEOQ_TREE_SOURCE_TOBJ_SHA256)
-    + r"\)"
-)
+EXPECTED_LIGHTS = corridor.EXPECTED_LIGHTS
+GROUNDING_PATTERN = re.compile(re.escape(corridor.ENGINE_MARKERS[1]))
 DEPENDENCY_PATTERN = corridor.DEPENDENCY_PATTERN
 STATIC_MARKERS = (
     "[RoR|CW2|NeoBridgeRuntime] START cameras=6 "
@@ -267,8 +259,22 @@ def expected_side_pier_counts(
         raise NeoBridgeSceneFailure("overlay corridors are missing") from error
     if not isinstance(corridors, dict):
         raise NeoBridgeSceneFailure("overlay corridors are not an object")
+    required = {
+        "neoq_to_neoq20": (
+            SIDE_PIER_STYLE,
+            corridor.EXPECTED_NEOQ_SIDE_PIERS,
+        ),
+        "penguinville_to_neoq": (
+            "ror-native-procedural-paired-outboard-piers-v1",
+            corridor.EXPECTED_CORRIDOR_SIDE_PIERS,
+        ),
+    }
+    if set(corridors) != set(required):
+        raise NeoBridgeSceneFailure(
+            "overlay corridor set does not match the two-bridge contract"
+        )
     counts = []
-    for name in sorted(corridors):
+    for name in sorted(required):
         value = corridors[name]
         if not isinstance(value, dict):
             raise NeoBridgeSceneFailure(f"overlay corridor is invalid: {name}")
@@ -277,22 +283,21 @@ def expected_side_pier_counts(
             raise NeoBridgeSceneFailure(
                 f"overlay corridor support contract is invalid: {name}"
             )
-        if supports.get("style") != SIDE_PIER_STYLE:
-            continue
+        expected_style, expected_count = required[name]
+        if supports.get("style") != expected_style:
+            raise NeoBridgeSceneFailure(
+                f"overlay side-pier style drifted: {name}"
+            )
         requested = supports.get("requested_count")
         if (
             isinstance(requested, bool)
             or not isinstance(requested, int)
-            or requested <= 0
+            or requested != expected_count
         ):
             raise NeoBridgeSceneFailure(
                 f"overlay side-pier count is invalid: {name}"
             )
         counts.append(requested)
-    if 56 not in counts:
-        raise NeoBridgeSceneFailure(
-            "Neo intercity bridge side-pier contract is missing"
-        )
     return tuple(sorted(counts))
 
 
