@@ -944,6 +944,12 @@ add_test(
     COMMAND ror_worldmodel_platform_identity_tests
 )
 
+set_tests_properties(
+    worldmodel_episode_io
+    worldmodel_platform_identity
+    PROPERTIES TIMEOUT 30
+)
+
 add_test(
     NAME beam_rest_length_scale
     COMMAND ror_beam_rest_length_scale_tests
