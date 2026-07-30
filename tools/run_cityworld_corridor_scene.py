@@ -201,6 +201,8 @@ EXPECTED_CORRIDOR_LIGHTS = 15
 EXPECTED_NEOQ_BRIDGE_LIGHTS = 33
 EXPECTED_LIGHTS = EXPECTED_CORRIDOR_LIGHTS + EXPECTED_NEOQ_BRIDGE_LIGHTS
 EXPECTED_ROUTE_LENGTH_M = 1038.350024882
+EXPECTED_CORRIDOR_SIDE_PIERS = 46
+EXPECTED_NEOQ_SIDE_PIERS = 74
 MAX_PHYSICS_STEPS = 480000
 CITYWORLD_FALLBACK_LIGHTING_MARKER = base.fallback_lighting_marker(
     (0.93, 0.86, 0.76)
@@ -282,6 +284,13 @@ ENGINE_MARKERS = (
     "===== TERRAIN LOADING DONE CityWorldNextLocalOverlay.terrn2",
     "===== LOADING VEHICLE: b6b0UID-semi.truck",
 )
+SIDE_PIER_SUMMARY_PATTERN = re.compile(
+    r"\[RoR\|ProceduralRoad\|SidePiers\] "
+    r"requested=(?P<requested>[0-9]+) "
+    r"built=(?P<built>[0-9]+) "
+    r"skipped=(?P<skipped>[0-9]+)"
+)
+SIDE_PIER_SKIP_PREFIX = "[RoR|ProceduralRoad|SidePiers] skip reason="
 FATAL_MARKERS = (
     "[RoR|CW2|CorridorRuntime] FAIL",
     "Could not load script 'cityworld_corridor_runtime.as",
@@ -2179,17 +2188,6 @@ def validate_runtime_logs(
                 "Penguinville transition material did not resolve: "
                 + marker
             )
-    side_pier_marker = (
-        "[RoR|ProceduralRoad|SidePiers] requested=46 built=46 skipped=0"
-    )
-    if (
-        engine_log.count(side_pier_marker) != 1
-        or engine_log.count("[RoR|ProceduralRoad|SidePiers] requested=")
-        != 1
-    ):
-        raise CorridorSceneFailure(
-            "side-pier runtime summary is missing, duplicated, or nonzero-skip"
-        )
     if engine_log.count("===== LOADING VEHICLE: b6b0UID-semi.truck") != 2:
         raise CorridorSceneFailure(
             "runtime did not load exactly two directional DAF actors"
@@ -2197,6 +2195,36 @@ def validate_runtime_logs(
     if engine_log.count(CITYWORLD_FALLBACK_LIGHTING_MARKER) != 1:
         raise CorridorSceneFailure(
             "fallback lighting marker must appear exactly once"
+    )
+    side_pier_matches = list(SIDE_PIER_SUMMARY_PATTERN.finditer(engine_log))
+    side_pier_counts = [
+        {
+            key: int(value)
+            for key, value in match.groupdict().items()
+        }
+        for match in side_pier_matches
+    ]
+    actual_side_piers = sorted(
+        (
+            counts["requested"],
+            counts["built"],
+            counts["skipped"],
+        )
+        for counts in side_pier_counts
+    )
+    expected_side_piers = sorted(
+        (
+            (EXPECTED_CORRIDOR_SIDE_PIERS,) * 2 + (0,),
+            (EXPECTED_NEOQ_SIDE_PIERS,) * 2 + (0,),
+        )
+    )
+    if actual_side_piers != expected_side_piers:
+        raise CorridorSceneFailure(
+            "complete side-pier runtime summary multiset drifted"
+        )
+    if SIDE_PIER_SKIP_PREFIX in engine_log:
+        raise CorridorSceneFailure(
+            "Neo bridge side-pier construction logged a skip"
         )
     dependency_matches = list(DEPENDENCY_PATTERN.finditer(engine_log))
     if len(dependency_matches) != 1:
@@ -2247,6 +2275,7 @@ def validate_runtime_logs(
         "physics_steps": int(record["steps"]),
         "regression_m": float(record["regression"]),
         "reverse_distance_m": float(record["reverse"]),
+        "side_piers": side_pier_counts,
         "speed_mps": float(record["speed"]),
         "vertical_error_m": float(record["vertical"]),
     }

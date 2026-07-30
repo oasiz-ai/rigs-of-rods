@@ -55,6 +55,8 @@ def valid_logs() -> tuple[str, str]:
             "'/isolated/mods/CityWorld.zip' into "
             "'{bundle USER:/mods/CityWorldNextLocalOverlay.zip}'",
             SCENE.CITYWORLD_NAME,
+            "[RoR|ProceduralRoad|SidePiers] "
+            "requested=74 built=74 skipped=0",
             *(light_marker for _ in range(SCENE.EXPECTED_LIGHTS)),
         )
     )
@@ -793,6 +795,17 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["reverse_distance_m"], 1076.1)
         self.assertAlmostEqual(metrics["path_error_m"], 0.912104)
         self.assertEqual(metrics["physics_steps"], 340960)
+        self.assertEqual(
+            sorted(
+                (
+                    record["requested"],
+                    record["built"],
+                    record["skipped"],
+                )
+                for record in metrics["side_piers"]
+            ),
+            [(46, 46, 0), (74, 74, 0)],
+        )
         for marker in SCENE.SCRIPT_MARKERS:
             with self.subTest(marker=marker):
                 with self.assertRaises(SCENE.CorridorSceneFailure):
@@ -928,6 +941,64 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
             ):
                 with self.assertRaises(SCENE.CorridorSceneFailure):
                     SCENE.validate_rgb_screenshots(root)
+
+    def test_runtime_log_gate_requires_exact_side_pier_completion(self) -> None:
+        engine, script = valid_logs()
+        cases = (
+            (
+                "missing-corridor",
+                engine.replace(
+                    "[RoR|ProceduralRoad|SidePiers] "
+                    "requested=46 built=46 skipped=0",
+                    "",
+                ),
+            ),
+            (
+                "missing-neo",
+                engine.replace(
+                    "[RoR|ProceduralRoad|SidePiers] "
+                    "requested=74 built=74 skipped=0",
+                    "",
+                ),
+            ),
+            (
+                "duplicate",
+                engine
+                + "\n[RoR|ProceduralRoad|SidePiers] "
+                "requested=74 built=74 skipped=0",
+            ),
+            (
+                "count-drift",
+                engine.replace(
+                    "[RoR|ProceduralRoad|SidePiers] "
+                    "requested=74 built=74 skipped=0",
+                    "[RoR|ProceduralRoad|SidePiers] "
+                    "requested=74 built=73 skipped=1",
+                ),
+            ),
+            (
+                "silent-extra-summary",
+                engine
+                + "\n[RoR|ProceduralRoad|SidePiers] "
+                "requested=1 built=1 skipped=0",
+            ),
+            (
+                "skip-diagnostic",
+                engine
+                + "\n[RoR|ProceduralRoad|SidePiers] "
+                "skip reason=roadway-swept-prism-overlap "
+                "pos=(1.000000,2.000000,3.000000)",
+            ),
+        )
+        for label, changed in cases:
+            with self.subTest(label=label):
+                with self.assertRaises(SCENE.CorridorSceneFailure):
+                    SCENE.validate_runtime_logs(
+                        0,
+                        "",
+                        changed,
+                        script,
+                    )
 
     def test_fixture_route_matches_overlay_waypoint_contract(self) -> None:
         report = report_matching_script()
