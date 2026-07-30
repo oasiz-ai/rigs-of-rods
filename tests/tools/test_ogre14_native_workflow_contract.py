@@ -22,6 +22,8 @@ APP_COMMAND_LINE = (
     REPOSITORY_ROOT / "source" / "main" / "system" / "AppCommandLine.cpp"
 )
 MAIN_SOURCE = REPOSITORY_ROOT / "source" / "main" / "main.cpp"
+TEST_CMAKE = REPOSITORY_ROOT / "tests" / "CMakeLists.txt"
+MYGUI_RESOURCE_ROOT = REPOSITORY_ROOT / "resources" / "mygui"
 CONAN_SOURCE_FALLBACK = (
     'core.sources:download_urls=["origin", '
     '"https://c3i.jfrog.io/artifactory/conan-center-backup-sources/"]'
@@ -62,6 +64,7 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         cls.main_source_text = MAIN_SOURCE.read_text(encoding="utf-8")
+        cls.test_cmake_text = TEST_CMAKE.read_text(encoding="utf-8")
 
     def assert_conan_source_fallback_contract(self, text: str) -> None:
         self.assertEqual(text.count("core.sources:download_urls="), 1)
@@ -414,6 +417,46 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             "warning_buffer->blitFromMemory(warning_pixels);",
             upload,
         )
+
+    def test_mygui_d3d11_shader_names_match_the_runtime_loader(self) -> None:
+        for stage in ("VP", "FP"):
+            with self.subTest(stage=stage):
+                required = (
+                    MYGUI_RESOURCE_ROOT / f"MyGUI_{stage}.hlsl"
+                ).read_bytes()
+                legacy = (
+                    MYGUI_RESOURCE_ROOT / f"MyGUI_Ogre_{stage}.hlsl"
+                ).read_bytes()
+                self.assertEqual(required, legacy)
+                self.assertIn(b"void main(", required)
+                self.assertIn(b"SV_", required)
+
+    def test_ogre_linked_config_test_uses_dependency_cpp_standard(
+        self,
+    ) -> None:
+        target = "ror_terrain_bundle_config_syntax_tests"
+        conditional_blocks = tuple(
+            fragment.split("endif ()", 1)[0]
+            for fragment in self.test_cmake_text.split(
+                f"if (TARGET {target})"
+            )[1:]
+        )
+        standard_blocks = tuple(
+            block
+            for block in conditional_blocks
+            if "CXX_STANDARD 14" in block
+        )
+        self.assertEqual(len(standard_blocks), 1)
+        standard_block = standard_blocks[0]
+        for contract in (
+            "set_target_properties(",
+            target,
+            "CXX_STANDARD 14",
+            "CXX_STANDARD_REQUIRED YES",
+            "CXX_EXTENSIONS NO",
+        ):
+            with self.subTest(contract=contract):
+                self.assertEqual(standard_block.count(contract), 1)
 
     def test_real_native_render_probes_are_mandatory_and_isolated(
         self,

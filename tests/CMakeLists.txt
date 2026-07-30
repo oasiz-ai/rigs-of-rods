@@ -904,6 +904,20 @@ foreach (test_target IN LISTS ROR_PHYSICS_TEST_TARGETS)
     endif ()
 endforeach ()
 
+if (TARGET ror_terrain_bundle_config_syntax_tests)
+    # OGRE 14's public vector headers use the relaxed constexpr constructor
+    # rules introduced by C++14. Keep the pure physics oracles on C++11, but
+    # compile this OGRE-linked integration test against its dependency's
+    # minimum language contract.
+    set_target_properties(
+        ror_terrain_bundle_config_syntax_tests
+        PROPERTIES
+        CXX_STANDARD 14
+        CXX_STANDARD_REQUIRED YES
+        CXX_EXTENSIONS NO
+    )
+endif ()
+
 set_target_properties(
     ror_beamng_material_inventory_tests
     ror_jbeam_to_rigdef_tests
