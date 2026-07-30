@@ -843,6 +843,44 @@ UI-free 1280x720 seam views. Two collision-enabled DAF traversals cover
 the flush Penguinville road seam, curb-free travel width, both bridge
 directions, and complete native paired-pier construction.
 
+Overlay v7 adds the first authenticated regional-infill slice without changing
+or redistributing the private CityWorld archive. Its version-2 plan places 46
+project-owned instances across eight bounded sites: 13 farmstead instances, 17
+suburb blocks, two service stations, and 14 natural-landmark instances. Seven
+curb-free native procedural routes originate at exact decoded legacy-road
+anchors. Five route-to-asset contracts close the two station forecourts, two
+suburb streets, and one farm lane with zero measured seam gap. Plan validation
+rejects non-designated route/asset intersections, road/collision overlap,
+building intrusion, component drift, and a generated-road clearance below
+5.4 m.
+
+The five glTF families now carry versioned, connected collision-component
+manifests. The service station has 17 component boxes, the suburb block has
+eight, and each remaining family has one, for 28 components total. Validation
+derives real render and collision bounds from the GLBs, rejects node transforms,
+inverted winding, overlapping boxes, non-cuboid deformation, stale Blender or
+compiler identity, and packaged component drift. The v7 ZIP has 76 unique
+members and rebuilds byte for byte at SHA-256
+`c81206e5f7805b4bf289458ebdd5960993f79a82ec18114b50799001995d359f`.
+
+At content commit `16373204b9e8bbf4c7b6949a6e7a7a37f09f7d2a`, the installed
+Apple Silicon app passed the regional-infill native gate on the Apple M5
+GL3Plus renderer. It produced 13 distinct UI-free 1280x720 captures, including
+one close view for each active seam, over 545 ready render frames and exactly
+2,176 completed deterministic physics steps. Both station instances created
+all 12 bounded canopy lights, both bridge support summaries remained
+`46/46/0` and `56/56/0`, every reviewed material resolved, and the process
+shut down cleanly. The first ready render frame arms the four-step batch, so
+the exact completed-step invariant is `(545 - 1) * 4`, not `545 * 4`.
+
+This is a verified content-density and connectivity checkpoint, not completion
+of the full-map or AirSim-referenced visual gate. The native captures remain
+stylized and sparse: regional ground materials, terrain blending, decals,
+street furniture, higher-detail vegetation, building variation, traffic, and
+PBR/HDR are still open. Fixed cameras do not prove vehicle traversal across all
+seven new routes. Native Windows and Linux repetitions, route-driving gates,
+frame-time budgets, and the shared-scene V2 comparison remain required.
+
 The optional transition, curve, span, and gateway visual families remain
 unplaced; the accepted routes use native procedural surfaces plus the
 project-owned direct road seam. Promotion still requires a complete
