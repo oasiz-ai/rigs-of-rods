@@ -380,6 +380,13 @@ int main(int argc, char *argv[])
             while (App::GetGameContext()->HasMessages())
             {
                 Message m = App::GetGameContext()->PopMessage();
+                if (App::IsWorldModelCaptureActive() &&
+                    App::WorldModelCaptureMessageRequiresAbort(m.type))
+                {
+                    App::AbortWorldModelCapture(
+                        std::string("game message: ") +
+                        MsgTypeToString(m.type));
+                }
                 bool failed_m = false;
                 switch (m.type)
                 {
@@ -1113,8 +1120,10 @@ int main(int argc, char *argv[])
                         App::sim_terrain_name->setStr("");
                         App::sim_terrain_gui_name->setStr("");
                         App::GetOutGauge()->Close();
+#ifdef USE_OPENAL
                         App::GetSoundScriptManager()->SetListener(/*position:*/Ogre::Vector3::ZERO, /*direction:*/Ogre::Vector3::ZERO, /*up:*/Ogre::Vector3::UNIT_Y, /*velocity:*/Ogre::Vector3::ZERO);
                         App::GetSoundScriptManager()->getSoundManager()->CleanUp();
+#endif // USE_OPENAL
                         App::GetGameContext()->GetRaceSystem().ResetRaceUI();
                     }
                     catch (...)
@@ -2049,6 +2058,13 @@ int main(int argc, char *argv[])
             } // Game events block
             OgreProfileEnd("RoR message queue");
 
+            // Arm only after the message queue has created and seated the
+            // startup truck. Admission requires this still to be a fresh
+            // joined scene at global physics step zero.
+            App::UpdateWorldModelCaptureRequest();
+            const bool world_model_capture_frame =
+                App::WorldModelCaptureOwnsSimulationLoop();
+
             // Check FPS limit
             if (App::gfx_fps_limit->getInt() > 0)
             {
@@ -2069,7 +2085,8 @@ int main(int argc, char *argv[])
 
 #ifdef USE_SOCKETW
             // Process incoming network traffic
-            if (App::mp_state->getEnum<MpState>() == MpState::CONNECTED)
+            if (!world_model_capture_frame &&
+                App::mp_state->getEnum<MpState>() == MpState::CONNECTED)
             {
                 std::vector<RoR::NetRecvPacket> packets = App::GetNetwork()->GetIncomingStreamData();
                 if (!packets.empty())
@@ -2086,7 +2103,8 @@ int main(int argc, char *argv[])
 
             // Set arcade controls and hydro coupling settings for player actors
             // Default to false for other actors.
-            if (App::app_state->getEnum<AppState>() == AppState::SIMULATION)
+            if (!world_model_capture_frame &&
+                App::app_state->getEnum<AppState>() == AppState::SIMULATION)
             {
                 ActorPtr player_actor = App::GetGameContext()->GetPlayerActor();
                 for (ActorPtr actor : App::GetGameContext()->GetActorManager()->GetActors())
@@ -2099,7 +2117,15 @@ int main(int argc, char *argv[])
 
             // Process input events
             OgreProfileBegin("Input processing");
-            if (dt != 0.f)
+            if (world_model_capture_frame)
+            {
+                // Capture owns the simulation scheduler and samples devices
+                // exactly once before its single 48 Hz transition. The owned
+                // batch advances input-bounce time once; no GUI, sky, actor,
+                // or script input mutator runs on this path.
+                App::GetInputEngine()->Capture();
+            }
+            else if (dt != 0.f)
             {
                 App::GetInputEngine()->Capture();
                 App::GetInputEngine()->updateKeyBounces(dt);
@@ -2172,8 +2198,14 @@ int main(int argc, char *argv[])
             } // dt != 0
             OgreProfileEnd("Input processing");
 
+            if (world_model_capture_frame)
+            {
+                App::CaptureWorldModelControlledFrame();
+            }
+
             // Update OutGauge device
-            if (App::io_outgauge_mode->getInt() > 0)
+            if (!world_model_capture_frame &&
+                App::io_outgauge_mode->getInt() > 0)
             {
                 OgreProfile("OutGauge");
                 App::GetOutGauge()->Update(dt, App::GetGameContext()->GetPlayerActor());
@@ -2181,7 +2213,8 @@ int main(int argc, char *argv[])
 
             // Early GUI updates which require halted physics
             App::GetGuiManager()->NewImGuiFrame(dt);
-            if (App::app_state->getEnum<AppState>() == AppState::SIMULATION)
+            if (!world_model_capture_frame &&
+                App::app_state->getEnum<AppState>() == AppState::SIMULATION)
             {
                 OgreProfile("Scene and GUI");
                 App::GetGuiManager()->DrawSimulationGui(dt);
@@ -2215,11 +2248,13 @@ int main(int argc, char *argv[])
 
 #ifdef USE_ANGELSCRIPT
             OgreProfileBegin("Scripting");
-            App::GetScriptEngine()->framestep(dt);
+            if (!world_model_capture_frame)
+                App::GetScriptEngine()->framestep(dt);
             OgreProfileEnd("Scripting");
 #endif // USE_ANGELSCRIPT
 
-            if (App::io_ffb_enabled->getBool() &&
+            if (!world_model_capture_frame &&
+                App::io_ffb_enabled->getBool() &&
                 App::sim_state->getEnum<SimState>() == SimState::RUNNING)
             {
                 OgreProfile("Force Feedback");
@@ -2227,7 +2262,8 @@ int main(int argc, char *argv[])
             }
 
             OgreProfileBegin("Simulation");
-            if (App::sim_state->getEnum<SimState>() == SimState::RUNNING)
+            if (!world_model_capture_frame &&
+                App::sim_state->getEnum<SimState>() == SimState::RUNNING)
             {
                 App::GetGameContext()->GetSceneMouse().UpdateSimulation();
             }
@@ -2242,13 +2278,16 @@ int main(int argc, char *argv[])
 
             // Calculate elapsed simulation time (taking simulation speed and pause into account)
             float dt_sim = 0.f;
-            if (App::sim_state->getEnum<SimState>() == SimState::RUNNING && !App::GetGameContext()->GetActorManager()->IsSimulationPaused())
+            if (!world_model_capture_frame &&
+                App::sim_state->getEnum<SimState>() == SimState::RUNNING &&
+                !App::GetGameContext()->GetActorManager()->IsSimulationPaused())
             {
                 dt_sim = dt * App::GetGameContext()->GetActorManager()->GetSimulationSpeed();
             }
 
             // Advance simulation
-            if (App::sim_state->getEnum<SimState>() == SimState::RUNNING)
+            if (!world_model_capture_frame &&
+                App::sim_state->getEnum<SimState>() == SimState::RUNNING)
             {
                 if (App::GetGameContext()->GetTerrain()->getWater())
                 {
@@ -2287,21 +2326,26 @@ int main(int argc, char *argv[])
                 }
             } // Render block
 
-            App::GetGuiManager()->ApplyGuiCaptureKeyboard();
+            if (!world_model_capture_frame)
+                App::GetGuiManager()->ApplyGuiCaptureKeyboard();
 
             App::GetGuiManager()->UpdateMouseCursorVisibility();
 
         } // End of main rendering/input loop
 
+        App::ShutdownWorldModelCapture();
+
 #ifndef _DEBUG
     }
     catch (Ogre::Exception& e)
     {
+        App::ShutdownWorldModelCapture();
         LOG(e.getFullDescription());
         ErrorUtils::ShowError(_L("An exception has occured!"), e.getFullDescription());
     }
     catch (std::runtime_error& e)
     {
+        App::ShutdownWorldModelCapture();
         LOG(e.what());
         ErrorUtils::ShowError(_L("An exception (std::runtime_error) has occured!"), e.what());
     }

@@ -76,6 +76,14 @@ public:
     bool           GetEditorObjectFlagRotYXZ(TerrainEditorObjectPtr const& object);
     void           LoadPredefinedActors();
     bool           HasPredefinedActors() { return m_has_predefined_actors; };
+    /// Canonical world-model RGB capture rejects terrain visuals whose state
+    /// advances on the asynchronous display frame rather than the joined
+    /// physics boundary.
+    bool           HasTimeVaryingVisuals() const;
+    /// False once a race-event object was loaded while race collisions were
+    /// disabled. Re-enabling the CVar cannot reconstruct omitted boxes.
+    bool           HasCanonicalWorldModelCollisionProfile() const
+                   { return m_worldmodel_collision_profile_canonical; }
     bool           UpdateTerrainObjects(float dt);
 
     void ProcessTree(
@@ -165,6 +173,7 @@ protected:
     std::size_t                           m_last_logged_local_light_active = static_cast<std::size_t>(-1);
     std::vector<MeshObject*>              m_mesh_objects;
     SurveyMapEntityVec                    m_map_entities;
+    bool                                  m_worldmodel_collision_profile_canonical = true;
     Terrain*                  terrainManager = nullptr;
     ProceduralManagerPtr      m_procedural_manager;
     int                       m_entity_counter = 0;

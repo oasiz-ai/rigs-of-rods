@@ -77,6 +77,22 @@ elseif (BUILD_DEV_VERSION)
         )
         set(VERSION_SUFFIX ${VERSION_SUFFIX}-${GIT_HASH})
 
+        execute_process(
+                COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+                WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                OUTPUT_VARIABLE GIT_COMMIT
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        execute_process(
+                COMMAND ${GIT_EXECUTABLE} symbolic-ref --short -q HEAD
+                WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                OUTPUT_VARIABLE GIT_BRANCH
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if (NOT GIT_BRANCH)
+            set(GIT_BRANCH "detached")
+        endif ()
+
         # Check if the code has been modified since the latest commit
         execute_process(
                 COMMAND ${GIT_EXECUTABLE} diff-index --quiet HEAD
@@ -97,7 +113,31 @@ elseif (BUILD_DEV_VERSION)
         # Use the following version string suffix if git is not available or not inside a valid
         # git repository
         set(VERSION_SUFFIX "-dev-without-git")
+        set(GIT_COMMIT "")
+        set(GIT_BRANCH "")
     endif ()
+endif ()
+
+# Installer/custom builds still need an auditable source identity. Do not
+# silently substitute the display version for the commit.
+if (NOT DEFINED GIT_COMMIT AND GIT_EXECUTABLE)
+    execute_process(
+            COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            OUTPUT_VARIABLE GIT_COMMIT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+    )
+    execute_process(
+            COMMAND ${GIT_EXECUTABLE} symbolic-ref --short -q HEAD
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            OUTPUT_VARIABLE GIT_BRANCH
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+    )
+endif ()
+if (NOT GIT_BRANCH)
+    set(GIT_BRANCH "detached")
 endif ()
 
 # Fill in the actual version information in the provided template

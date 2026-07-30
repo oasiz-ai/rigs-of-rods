@@ -74,6 +74,14 @@ public:
     void           RegisterGfxActor(RoR::GfxActor* gfx_actor);
     void           RemoveGfxActor(RoR::GfxActor* gfx_actor);
     void           ForceUpdateSingleGfxActor(RoR::GfxActor* gfx_actor);
+    /// Synchronizes all non-UI visuals needed by canonical capture from one
+    /// joined simulation boundary. The supplied camera replaces mutable
+    /// display-camera state for camera-facing effects during the update.
+    bool           ForceUpdateSingleGfxActorForCapture(
+                       RoR::GfxActor* gfx_actor,
+                       float dt,
+                       const Ogre::Vector3& camera_position,
+                       const Ogre::Quaternion& camera_orientation);
     void           RegisterGfxCharacter(RoR::GfxCharacter* gfx_character);
     void           RemoveGfxCharacter(RoR::GfxCharacter* gfx_character);
     void           BufferSimulationData(); //!< Run this when simulation is halted

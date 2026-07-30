@@ -1555,8 +1555,25 @@ bool TerrainObjectManager::UpdateTerrainObjects(float dt)
     return true;
 }
 
+bool TerrainObjectManager::HasTimeVaryingVisuals() const
+{
+    if (!m_animated_objects.empty() ||
+        !m_particle_effect_objects.empty())
+    {
+        return true;
+    }
+#ifdef USE_PAGED
+    if (!m_paged_geometry.empty())
+        return true;
+#endif
+    return false;
+}
+
 void TerrainObjectManager::ProcessODefCollisionBoxes(TerrainEditorObjectPtr obj, ODefDocument* odef, const TerrainEditorObjectPtr& params, bool race_event)
 {
+    if (race_event && !App::sim_races_enabled->getBool())
+        m_worldmodel_collision_profile_canonical = false;
+
     for (ODefCollisionBox& cbox : odef->collision_boxes)
     {
         if (params->enable_collisions && (App::sim_races_enabled->getBool() || !race_event))

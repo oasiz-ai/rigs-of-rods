@@ -1549,6 +1549,15 @@ float InputEngine::getEventValue(int eventID, bool pure, InputSourceType valueSo
     return returnValue;
 }
 
+bool InputEngine::hasEventSimulatedValue(int eventID) const
+{
+    const auto simulated = event_values_simulated.find(eventID);
+    // getEventValue() deliberately treats zero as "no override"; mirror that
+    // behavior so a cleared map slot does not reject physical capture.
+    return simulated != event_values_simulated.end() &&
+        simulated->second != 0.0f;
+}
+
 bool InputEngine::isKeyDown(OIS::KeyCode key)
 {
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE

@@ -20,6 +20,130 @@ option(
 
 find_package(Threads REQUIRED)
 
+set(ROR_WORLDMODEL_SOURCES
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/EpisodeArtifacts.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/EpisodeCaptureSink.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/EpisodeFormat.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/EpisodeProvenance.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/EpisodeValidator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/EpisodeWriter.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/ObservationScheduler.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelCaptureContract.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelCaptureEncoding.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelLiveCaptureConfig.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelPlatformIdentity.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelCaptureSession.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelRuntimeBackend.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/WorldModelTelemetry.cpp"
+)
+
+add_library(ror_worldmodel_core STATIC ${ROR_WORLDMODEL_SOURCES})
+target_include_directories(
+    ror_worldmodel_core
+    PUBLIC
+        "${ROR_REPOSITORY_ROOT}/source/main/worldmodel"
+        "${ROR_REPOSITORY_ROOT}/source/main/physics"
+)
+
+add_executable(
+    ror_worldmodel_observation_scheduler_tests
+    "${CMAKE_CURRENT_LIST_DIR}/worldmodel/ObservationSchedulerTests.cpp"
+)
+add_executable(
+    ror_worldmodel_capture_contract_tests
+    "${CMAKE_CURRENT_LIST_DIR}/worldmodel/WorldModelCaptureContractTests.cpp"
+)
+add_executable(
+    ror_worldmodel_capture_session_tests
+    "${CMAKE_CURRENT_LIST_DIR}/worldmodel/WorldModelCaptureSessionTests.cpp"
+)
+add_executable(
+    ror_worldmodel_episode_provenance_tests
+    "${CMAKE_CURRENT_LIST_DIR}/worldmodel/EpisodeProvenanceTests.cpp"
+)
+add_executable(
+    ror_worldmodel_telemetry_tests
+    "${CMAKE_CURRENT_LIST_DIR}/worldmodel/WorldModelTelemetryTests.cpp"
+)
+add_executable(
+    ror_worldmodel_runtime_backend_tests
+    "${CMAKE_CURRENT_LIST_DIR}/worldmodel/WorldModelRuntimeBackendTests.cpp"
+)
+add_executable(
+    ror_worldmodel_episode_io_tests
+    "${CMAKE_CURRENT_LIST_DIR}/worldmodel/EpisodeIoTests.cpp"
+)
+add_executable(
+    ror_worldmodel_episode_tests
+    "${CMAKE_CURRENT_LIST_DIR}/worldmodel/WorldModelEpisodeTests.cpp"
+)
+add_executable(
+    ror_worldmodel_live_capture_config_tests
+    "${CMAKE_CURRENT_LIST_DIR}/worldmodel/WorldModelLiveCaptureConfigTests.cpp"
+)
+add_executable(
+    ror_worldmodel_platform_identity_tests
+    "${CMAKE_CURRENT_LIST_DIR}/worldmodel/WorldModelPlatformIdentityTests.cpp"
+)
+add_executable(
+    ror_worldmodel_episode
+    "${ROR_REPOSITORY_ROOT}/tools/ror_worldmodel_episode.cpp"
+)
+
+set(ROR_WORLDMODEL_TARGETS
+    ror_worldmodel_core
+    ror_worldmodel_observation_scheduler_tests
+    ror_worldmodel_capture_contract_tests
+    ror_worldmodel_capture_session_tests
+    ror_worldmodel_episode_provenance_tests
+    ror_worldmodel_runtime_backend_tests
+    ror_worldmodel_telemetry_tests
+    ror_worldmodel_episode_io_tests
+    ror_worldmodel_episode_tests
+    ror_worldmodel_live_capture_config_tests
+    ror_worldmodel_platform_identity_tests
+    ror_worldmodel_episode
+)
+
+foreach (worldmodel_target IN LISTS ROR_WORLDMODEL_TARGETS)
+    set_target_properties(
+        ${worldmodel_target}
+        PROPERTIES
+            CXX_STANDARD 17
+            CXX_STANDARD_REQUIRED YES
+            CXX_EXTENSIONS NO
+    )
+    if (MSVC)
+        target_compile_options(
+            ${worldmodel_target}
+            PRIVATE /W4 /WX /fp:strict
+        )
+    else ()
+        target_compile_options(
+            ${worldmodel_target}
+            PRIVATE
+                -Wall -Wextra -Werror -pedantic
+                -fno-fast-math -ffp-contract=off
+        )
+    endif ()
+endforeach ()
+
+foreach (worldmodel_test IN ITEMS
+    ror_worldmodel_observation_scheduler_tests
+    ror_worldmodel_capture_contract_tests
+    ror_worldmodel_capture_session_tests
+    ror_worldmodel_episode_provenance_tests
+    ror_worldmodel_runtime_backend_tests
+    ror_worldmodel_telemetry_tests
+    ror_worldmodel_episode_io_tests
+    ror_worldmodel_episode_tests
+    ror_worldmodel_live_capture_config_tests
+    ror_worldmodel_platform_identity_tests
+    ror_worldmodel_episode
+)
+    target_link_libraries(${worldmodel_test} PRIVATE ror_worldmodel_core)
+endforeach ()
+
 add_executable(
     ror_render_display_metrics_tests
     "${CMAKE_CURRENT_LIST_DIR}/platform/RenderDisplayMetricsTests.cpp"
@@ -58,6 +182,11 @@ add_executable(
 add_executable(
     ror_deterministic_fixed_step_cadence_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicFixedStepCadenceTests.cpp"
+)
+
+add_executable(
+    ror_fixed_step_capture_bridge_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/FixedStepCaptureBridgeTests.cpp"
 )
 
 add_executable(
@@ -190,6 +319,14 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/resources/LegacyMaterialScriptSanitizerTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/LegacyMaterialScriptSanitizer.cpp"
 )
+if (MSVC)
+    # The pinned-fixture opt-in uses the standard getenv API. Keep this
+    # upstream-only test portable under MSVC's /WX deprecation policy.
+    target_compile_definitions(
+        ror_legacy_material_script_sanitizer_tests
+        PRIVATE _CRT_SECURE_NO_WARNINGS
+    )
+endif ()
 
 add_executable(
     ror_legacy_material_compatibility_plan_tests
@@ -642,6 +779,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_contact_order_tests
     ror_deterministic_counter_noise_tests
     ror_deterministic_fixed_step_cadence_tests
+    ror_fixed_step_capture_bridge_tests
     ror_deterministic_scenario_schedule_tests
     ror_deterministic_input_trace_tests
     ror_deterministic_input_trace_runtime_tests
@@ -757,6 +895,62 @@ add_test(
 )
 
 add_test(
+    NAME worldmodel_observation_scheduler
+    COMMAND ror_worldmodel_observation_scheduler_tests
+)
+
+add_test(
+    NAME worldmodel_capture_contract
+    COMMAND ror_worldmodel_capture_contract_tests
+)
+
+add_test(
+    NAME worldmodel_capture_session
+    COMMAND ror_worldmodel_capture_session_tests
+)
+
+add_test(
+    NAME worldmodel_episode_provenance
+    COMMAND ror_worldmodel_episode_provenance_tests
+)
+
+add_test(
+    NAME worldmodel_runtime_backend
+    COMMAND ror_worldmodel_runtime_backend_tests
+)
+
+add_test(
+    NAME worldmodel_telemetry
+    COMMAND ror_worldmodel_telemetry_tests
+)
+
+add_test(
+    NAME worldmodel_episode_io
+    COMMAND ror_worldmodel_episode_io_tests
+)
+
+add_test(
+    NAME worldmodel_episode
+    COMMAND ror_worldmodel_episode_tests
+)
+
+add_test(
+    NAME worldmodel_live_capture_config
+    COMMAND ror_worldmodel_live_capture_config_tests
+)
+
+add_test(
+    NAME worldmodel_platform_identity
+    COMMAND ror_worldmodel_platform_identity_tests
+)
+
+set_tests_properties(
+    worldmodel_episode_io
+    worldmodel_platform_identity
+    PROPERTIES TIMEOUT 30
+)
+
+add_test(
     NAME beam_rest_length_scale
     COMMAND ror_beam_rest_length_scale_tests
 )
@@ -769,6 +963,11 @@ add_test(
 add_test(
     NAME deterministic_fixed_step_cadence
     COMMAND ror_deterministic_fixed_step_cadence_tests
+)
+
+add_test(
+    NAME fixed_step_capture_bridge
+    COMMAND ror_fixed_step_capture_bridge_tests
 )
 
 add_test(

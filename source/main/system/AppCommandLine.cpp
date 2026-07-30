@@ -47,6 +47,16 @@ enum {
     OPT_RUNSCRIPT,
     OPT_ENTERTRUCK,
     OPT_JOINMPSERVER,
+    OPT_WORLDMODEL_CAPTURE,
+    OPT_WORLDMODEL_OUTPUT,
+    OPT_WORLDMODEL_ROOT_SEED,
+    OPT_WORLDMODEL_EPISODE_ORDINAL,
+    OPT_WORLDMODEL_TRANSITIONS,
+    OPT_WORLDMODEL_RIGHTS_PATH,
+    OPT_WORLDMODEL_RIGHTS,
+    OPT_WORLDMODEL_DATA_SOURCE,
+    OPT_WORLDMODEL_PARTICIPANT_RELEASE,
+    OPT_WORLDMODEL_ALLOWED_USE,
     OPT_APPLE_PERSISTENCE_IGNORE_STATE
 };
 
@@ -66,6 +76,26 @@ CSimpleOpt::SOption cmdline_options[] = {
     { OPT_CHECKCACHE,     ("-checkcache"),  SO_NONE    },
     { OPT_VER,            ("-version"),     SO_NONE    },
     { OPT_JOINMPSERVER,   ("-joinserver"),  SO_REQ_CMB },
+    { OPT_WORLDMODEL_CAPTURE,
+                          ("-worldmodel-capture"), SO_NONE },
+    { OPT_WORLDMODEL_OUTPUT,
+                          ("-worldmodel-output"), SO_REQ_SEP },
+    { OPT_WORLDMODEL_ROOT_SEED,
+                          ("-worldmodel-root-seed"), SO_REQ_SEP },
+    { OPT_WORLDMODEL_EPISODE_ORDINAL,
+                          ("-worldmodel-episode-ordinal"), SO_REQ_SEP },
+    { OPT_WORLDMODEL_TRANSITIONS,
+                          ("-worldmodel-transitions"), SO_REQ_SEP },
+    { OPT_WORLDMODEL_RIGHTS_PATH,
+                          ("-worldmodel-rights-manifest"), SO_REQ_SEP },
+    { OPT_WORLDMODEL_RIGHTS,
+                          ("-worldmodel-rights-sha256"), SO_REQ_SEP },
+    { OPT_WORLDMODEL_DATA_SOURCE,
+                          ("-worldmodel-data-source"), SO_REQ_SEP },
+    { OPT_WORLDMODEL_PARTICIPANT_RELEASE,
+                          ("-worldmodel-participant-release"), SO_REQ_SEP },
+    { OPT_WORLDMODEL_ALLOWED_USE,
+                          ("-worldmodel-allowed-use"), SO_REQ_SEP },
     // AppKit consumes this NSArgumentDomain preference before RoR parses the
     // command line. Accept it here as a no-op so unattended macOS runs can
     // disable crash-state restoration without falling back to help/exit.
@@ -162,6 +192,50 @@ void Console::processCommandLine(int argc, char *argv[])
                 App::cli_server_port->setVal(Ogre::StringConverter::parseInt(port_str));
             }
         }
+        else if (args.OptionId() == OPT_WORLDMODEL_CAPTURE)
+        {
+            App::wm_capture_enabled->setVal(true);
+        }
+        else if (args.OptionId() == OPT_WORLDMODEL_OUTPUT)
+        {
+            App::wm_capture_output_root->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_WORLDMODEL_ROOT_SEED)
+        {
+            App::wm_capture_root_seed->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_WORLDMODEL_EPISODE_ORDINAL)
+        {
+            App::wm_capture_episode_ordinal->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_WORLDMODEL_TRANSITIONS)
+        {
+            App::wm_capture_transition_count->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_WORLDMODEL_RIGHTS_PATH)
+        {
+            App::wm_capture_rights_manifest_path->setStr(
+                args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_WORLDMODEL_RIGHTS)
+        {
+            App::wm_capture_rights_manifest_sha256->setStr(
+                args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_WORLDMODEL_DATA_SOURCE)
+        {
+            App::wm_capture_data_source_id->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() ==
+            OPT_WORLDMODEL_PARTICIPANT_RELEASE)
+        {
+            App::wm_capture_participant_release_id->setStr(
+                args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_WORLDMODEL_ALLOWED_USE)
+        {
+            App::wm_capture_allowed_use_id->setStr(args.OptionArg());
+        }
     }
 }
 
@@ -181,6 +255,16 @@ void Console::showCommandLineUsage()
             "-version shows the version information"                "\n"
             "-joinserver=<server>:<port> (join multiplayer server)" "\n"
             "-runscript <filename> (load script, can be repeated)"  "\n"
+            "-worldmodel-capture (arms one native episode)"         "\n"
+            "-worldmodel-output <directory>"                        "\n"
+            "-worldmodel-root-seed <canonical uint64>"              "\n"
+            "-worldmodel-episode-ordinal <canonical uint64>"        "\n"
+            "-worldmodel-transitions <positive canonical uint64>"   "\n"
+            "-worldmodel-rights-manifest <absolute file>"           "\n"
+            "-worldmodel-rights-sha256 <nonzero sha256>"            "\n"
+            "-worldmodel-data-source <canonical id>"                "\n"
+            "-worldmodel-participant-release <canonical id>"        "\n"
+            "-worldmodel-allowed-use <canonical id>"                "\n"
             "For example: RoR.exe -map simple2 -pos '518 0 518' -rot 45 -truck semi.truck -enter"));
 }
 
