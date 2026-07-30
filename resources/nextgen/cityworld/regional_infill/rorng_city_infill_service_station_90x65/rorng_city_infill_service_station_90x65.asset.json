@@ -1,0 +1,432 @@
+{
+  "artifacts": {
+    "blend": {
+      "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.blend",
+      "sha256": "147307ab9a5e50bd6cc35b641db7c5517fc4367785fc48b2583af43dbfcf1e51"
+    },
+    "glb": {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.glb",
+      "sha256": "3a4fda2e4d1f2a6a009dad3f39616f3190fc82990d811f37b48e17b9d5cd8e53"
+    },
+    "preview": {
+      "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65_preview.png",
+      "sha256": "4cc6786ae12a0192b92f3ec3a2900700fd3c458e97ae07d2c11add14d0deab72"
+    }
+  },
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_infill_service_station_90x65",
+    "license": "GPL-3.0-or-later",
+    "profile": "static-building-v1",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "artifact_reproducibility": {
+      "blend": "authenticated-session-metadata-bearing",
+      "glb": "byte-deterministic-pinned-toolchain",
+      "preview": "authenticated-render-metadata-bearing"
+    },
+    "axis": "blender-z-up",
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        },
+        {
+          "path": "tools/blender/cityworld_next/canonicalize_static_glb.py",
+          "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
+        }
+      ],
+      "format": "ror-cityworld-regional-infill-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
+      "sha256": "34d1f72e544a32157a629c9ec5996ade489fdeb61391c048f2139354694bd422"
+    },
+    "procedural_provenance": {
+      "external_geometry": false,
+      "external_materials": false,
+      "external_textures": false,
+      "method": "deterministic-project-authored-blender-python",
+      "rights_basis": "GPL-3.0-or-later project-authored source"
+    },
+    "transforms_applied": true,
+    "units": "metres"
+  },
+  "collision": {
+    "objects": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            15.25,
+            30.25,
+            6.8
+          ],
+          "min": [
+            -15.25,
+            13.75,
+            0.0
+          ]
+        },
+        "name": "rorng_city_infill_service_station_90x65_collision_fixture",
+        "role": "collision-fixture",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      }
+    ],
+    "profile": "single-watertight-proxy-v1",
+    "purpose": "bounded-landmark-or-building-envelope",
+    "separate_from_render_mesh": true
+  },
+  "compiled": {
+    "format": "ror-cityworld-compiled-asset-v1",
+    "outputs": [
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65.material",
+        "role": "material-fallback",
+        "sha256": "6a5353ecfe6815b2a948e9af1d43fafd18718d0ca91fc7124f6c8360c6840d49",
+        "size": 2035
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65.odef",
+        "role": "terrain-object",
+        "sha256": "b91f170b95b3de086e839d144f781cb6e680090929993b58cb7302908c17413b",
+        "size": 493
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_collision_fixture.mesh",
+        "role": "collision-fixture",
+        "sha256": "a0b96dfcd09b4d4e4e3b287bcaa20184030e4911bd1e997d4f8c9aada048b33f",
+        "size": 936
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod0.mesh",
+        "role": "render-lod0",
+        "sha256": "d13943de2ce42d73fd19f82f482c57fcf800a64261be36d10fb73a6a0fc5ddd5",
+        "size": 538361
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod1.mesh",
+        "role": "render-lod1",
+        "sha256": "61fae48df47dcdf80fdde6d45bdbdabde00add5e23b7493dada9df738a9118a9",
+        "size": 23812
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod2.mesh",
+        "role": "render-lod2",
+        "sha256": "52847f8a989554b89ae4ba4eec9b4328493dac005a8b1f28cd2d9c63560047e3",
+        "size": 14972
+      }
+    ],
+    "report": {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65.compile.json",
+      "sha256": "4800a36ddb885ae8eafab58cf5eba15eae354d7361b7402baa13778dbe4c44d7"
+    }
+  },
+  "connectors": [],
+  "export": {
+    "allowlisted_extensions": [],
+    "animations": false,
+    "apply_modifiers": true,
+    "cameras": false,
+    "format": "glb",
+    "lights": false,
+    "materials": "export",
+    "profile": "gltf-2.0",
+    "selection_only": true,
+    "tangents": true,
+    "textures": [],
+    "y_up": true
+  },
+  "format": "ror-cityworld-asset-v1",
+  "geometry": {
+    "asset_family": "rorng_city_regional_infill_family",
+    "detail_profile": {
+      "architecture": "real-scale-recessed-openings-roofs-fixtures",
+      "landscape": "modeled-crop-rows-palms-strata-boulders-water-basin",
+      "runtime_materials": "portable-factor-lit-rtshader-compatible"
+    },
+    "footprint_m": [
+      90.0,
+      65.0
+    ],
+    "ground_plane_z_m": 0.0,
+    "height_limit_m": 15.0,
+    "lod0_triangle_ceiling": 80000,
+    "lod1_max_ratio": 0.35,
+    "lod2_max_ratio": 0.12,
+    "lods": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            45.0,
+            32.5,
+            10.5
+          ],
+          "min": [
+            -45.0,
+            -32.5,
+            0.0
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_infill_service_station_90x65_lod0",
+        "triangles": 4120
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            45.0,
+            32.5,
+            10.5
+          ],
+          "min": [
+            -45.0,
+            -32.5,
+            0.0
+          ]
+        },
+        "lod": 1,
+        "name": "rorng_city_infill_service_station_90x65_lod1",
+        "triangles": 232
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            45.0,
+            32.5,
+            10.5
+          ],
+          "min": [
+            -45.0,
+            -32.5,
+            0.0
+          ]
+        },
+        "lod": 2,
+        "name": "rorng_city_infill_service_station_90x65_lod2",
+        "triangles": 140
+      }
+    ],
+    "texcoord_policy": "canonical-zero-textureless-v1"
+  },
+  "infill": {
+    "category": "service-station",
+    "family": "rorng_city_regional_infill_family",
+    "fictional_branding": true,
+    "label": "Horizon Energy and Market",
+    "placement_integration": "cityworld-local-overlay-v6",
+    "runtime_texture_dependencies": []
+  },
+  "materials": [
+    {
+      "base_color_factor_linear": [
+        0.82,
+        0.025,
+        0.02,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_service_station_90x65_collision_debug",
+      "roughness_factor": 1.0
+    },
+    {
+      "base_color_factor_linear": [
+        0.36,
+        0.37,
+        0.34,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_service_station_90x65_concrete",
+      "roughness_factor": 0.88
+    },
+    {
+      "base_color_factor_linear": [
+        0.02,
+        0.31,
+        0.34,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.08,
+      "name": "rorng_city_infill_service_station_90x65_fictional_signage",
+      "roughness_factor": 0.42
+    },
+    {
+      "base_color_factor_linear": [
+        0.035,
+        0.12,
+        0.17,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.18,
+      "name": "rorng_city_infill_service_station_90x65_glass",
+      "roughness_factor": 0.16
+    },
+    {
+      "base_color_factor_linear": [
+        0.96,
+        0.72,
+        0.31,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_service_station_90x65_light_lens",
+      "roughness_factor": 0.24
+    },
+    {
+      "base_color_factor_linear": [
+        0.025,
+        0.19,
+        0.32,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_service_station_90x65_paint_blue",
+      "roughness_factor": 0.5
+    },
+    {
+      "base_color_factor_linear": [
+        0.68,
+        0.54,
+        0.35,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_service_station_90x65_paint_cream",
+      "roughness_factor": 0.76
+    },
+    {
+      "base_color_factor_linear": [
+        0.72,
+        0.71,
+        0.64,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_service_station_90x65_paint_white",
+      "roughness_factor": 0.72
+    },
+    {
+      "base_color_factor_linear": [
+        0.055,
+        0.065,
+        0.075,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.7,
+      "name": "rorng_city_infill_service_station_90x65_powdercoat_metal",
+      "roughness_factor": 0.31
+    }
+  ],
+  "runtime_lights": {
+    "lights": [
+      {
+        "color_linear": [
+          1.0,
+          0.66,
+          0.31
+        ],
+        "id": "rorng_infill_station_canopy_00",
+        "position_blender_z_up_m": [
+          -12.0,
+          -8.0,
+          5.16
+        ],
+        "range_m": 24.0,
+        "type": "point"
+      },
+      {
+        "color_linear": [
+          1.0,
+          0.66,
+          0.31
+        ],
+        "id": "rorng_infill_station_canopy_01",
+        "position_blender_z_up_m": [
+          0.0,
+          -8.0,
+          5.16
+        ],
+        "range_m": 24.0,
+        "type": "point"
+      },
+      {
+        "color_linear": [
+          1.0,
+          0.66,
+          0.31
+        ],
+        "id": "rorng_infill_station_canopy_02",
+        "position_blender_z_up_m": [
+          12.0,
+          -8.0,
+          5.16
+        ],
+        "range_m": 24.0,
+        "type": "point"
+      },
+      {
+        "color_linear": [
+          1.0,
+          0.66,
+          0.31
+        ],
+        "id": "rorng_infill_station_canopy_03",
+        "position_blender_z_up_m": [
+          -12.0,
+          0.0,
+          5.16
+        ],
+        "range_m": 24.0,
+        "type": "point"
+      },
+      {
+        "color_linear": [
+          1.0,
+          0.66,
+          0.31
+        ],
+        "id": "rorng_infill_station_canopy_04",
+        "position_blender_z_up_m": [
+          0.0,
+          0.0,
+          5.16
+        ],
+        "range_m": 24.0,
+        "type": "point"
+      },
+      {
+        "color_linear": [
+          1.0,
+          0.66,
+          0.31
+        ],
+        "id": "rorng_infill_station_canopy_05",
+        "position_blender_z_up_m": [
+          12.0,
+          0.0,
+          5.16
+        ],
+        "range_m": 24.0,
+        "type": "point"
+      }
+    ],
+    "profile": "ror-cityworld-local-lights-v1"
+  }
+}

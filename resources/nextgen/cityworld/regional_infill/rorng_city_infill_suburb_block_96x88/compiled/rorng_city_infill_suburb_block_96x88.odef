@@ -1,0 +1,10 @@
+rorng_city_infill_suburb_block_96x88_lod0.mesh
+1, 1, 1
+standard
+
+beginmesh
+mesh rorng_city_infill_suburb_block_96x88_collision_fixture.mesh
+stdfriction concrete
+endmesh
+
+end

@@ -1,0 +1,321 @@
+{
+  "artifacts": {
+    "blend": {
+      "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m.blend",
+      "sha256": "c6cf0be8706be97d16a690d7629ed461aa034c9848cccd100a700ba35a12cab1"
+    },
+    "glb": {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m.glb",
+      "sha256": "93c3691e7d1125f0a87a94fa90c8d6d7eb552d54288314707c7eddffa9efd869"
+    },
+    "preview": {
+      "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m_preview.png",
+      "sha256": "eeea3a8d3a2efb15f3fd15fd4e8e3bf5d83e0e3ea78773c0029253fd4079167e"
+    }
+  },
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_infill_arroyo_oasis_19m",
+    "license": "GPL-3.0-or-later",
+    "profile": "static-fixture-v1",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "artifact_reproducibility": {
+      "blend": "authenticated-session-metadata-bearing",
+      "glb": "byte-deterministic-pinned-toolchain",
+      "preview": "authenticated-render-metadata-bearing"
+    },
+    "axis": "blender-z-up",
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        },
+        {
+          "path": "tools/blender/cityworld_next/canonicalize_static_glb.py",
+          "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
+        }
+      ],
+      "format": "ror-cityworld-regional-infill-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
+      "sha256": "34d1f72e544a32157a629c9ec5996ade489fdeb61391c048f2139354694bd422"
+    },
+    "procedural_provenance": {
+      "external_geometry": false,
+      "external_materials": false,
+      "external_textures": false,
+      "method": "deterministic-project-authored-blender-python",
+      "rights_basis": "GPL-3.0-or-later project-authored source"
+    },
+    "transforms_applied": true,
+    "units": "metres"
+  },
+  "collision": {
+    "objects": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -3.7,
+            -2.3,
+            7.2
+          ],
+          "min": [
+            -5.5,
+            -4.1,
+            0.0
+          ]
+        },
+        "name": "rorng_city_infill_arroyo_oasis_19m_collision_fixture",
+        "role": "collision-fixture",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      }
+    ],
+    "profile": "single-watertight-proxy-v1",
+    "purpose": "bounded-landmark-or-building-envelope",
+    "separate_from_render_mesh": true
+  },
+  "compiled": {
+    "format": "ror-cityworld-compiled-asset-v1",
+    "outputs": [
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m.material",
+        "role": "material-fallback",
+        "sha256": "4c56af59149474343a05ff6db13a2c0b3ee05cf46393026374edee37392a044b",
+        "size": 1726
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m.odef",
+        "role": "terrain-object",
+        "sha256": "41471f3aabe174eeed3b4b98303f888cad825612fb4e7c039ebff1218ace2f40",
+        "size": 170
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_collision_fixture.mesh",
+        "role": "collision-fixture",
+        "sha256": "bf09f5416de14be0ed7e2a5d7355feb76b73932fd3f526d2523fc7c36beb8e69",
+        "size": 926
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_lod0.mesh",
+        "role": "render-lod0",
+        "sha256": "285a01899c8b69ef030ec24a9e5d5d89045e4adbce1e0222f9df6b7ba325aa3a",
+        "size": 1041858
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_lod1.mesh",
+        "role": "render-lod1",
+        "sha256": "cd9a9e94755ed5b877ecac4d5d4fc5a44f8f11d4aa6aebd453b879e8968f1afb",
+        "size": 63652
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_lod2.mesh",
+        "role": "render-lod2",
+        "sha256": "7e0e80b6b6a53eee1fed377135e399594e38a5b5d07dcd0b37c35098d2b0a30d",
+        "size": 12404
+      }
+    ],
+    "report": {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m.compile.json",
+      "sha256": "3a08f989848e4d6d48b9cc8735e5547c93bb89213406cf7125e929d16b37dc57"
+    }
+  },
+  "connectors": [],
+  "export": {
+    "allowlisted_extensions": [],
+    "animations": false,
+    "apply_modifiers": true,
+    "cameras": false,
+    "format": "glb",
+    "lights": false,
+    "materials": "export",
+    "profile": "gltf-2.0",
+    "selection_only": true,
+    "tangents": true,
+    "textures": [],
+    "y_up": true
+  },
+  "format": "ror-cityworld-asset-v1",
+  "geometry": {
+    "asset_family": "rorng_city_regional_infill_family",
+    "detail_profile": {
+      "architecture": "real-scale-recessed-openings-roofs-fixtures",
+      "landscape": "modeled-crop-rows-palms-strata-boulders-water-basin",
+      "runtime_materials": "portable-factor-lit-rtshader-compatible"
+    },
+    "fixture_height_m": 13.0,
+    "footprint_diameter_m": 19.0,
+    "lod0_triangle_ceiling": 80000,
+    "lod1_max_ratio": 0.35,
+    "lod2_max_ratio": 0.12,
+    "lods": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            9.5,
+            9.5,
+            9.228273
+          ],
+          "min": [
+            -9.5,
+            -9.5,
+            -0.1
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_infill_arroyo_oasis_19m_lod0",
+        "triangles": 7892
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            9.5,
+            9.5,
+            9.142814
+          ],
+          "min": [
+            -9.5,
+            -9.5,
+            -0.1
+          ]
+        },
+        "lod": 1,
+        "name": "rorng_city_infill_arroyo_oasis_19m_lod1",
+        "triangles": 560
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            9.5,
+            9.5,
+            7.742813
+          ],
+          "min": [
+            -9.5,
+            -9.5,
+            0.0
+          ]
+        },
+        "lod": 2,
+        "name": "rorng_city_infill_arroyo_oasis_19m_lod2",
+        "triangles": 112
+      }
+    ],
+    "texcoord_policy": "canonical-zero-textureless-v1"
+  },
+  "infill": {
+    "category": "natural-landmark",
+    "family": "rorng_city_regional_infill_family",
+    "fictional_branding": true,
+    "label": "Coyote Arroyo Oasis",
+    "placement_integration": "cityworld-local-overlay-v6",
+    "runtime_texture_dependencies": []
+  },
+  "materials": [
+    {
+      "base_color_factor_linear": [
+        0.82,
+        0.025,
+        0.02,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_arroyo_oasis_19m_collision_debug",
+      "roughness_factor": 1.0
+    },
+    {
+      "base_color_factor_linear": [
+        0.18,
+        0.075,
+        0.025,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_arroyo_oasis_19m_cultivated_soil",
+      "roughness_factor": 1.0
+    },
+    {
+      "base_color_factor_linear": [
+        0.045,
+        0.22,
+        0.07,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_arroyo_oasis_19m_leaf",
+      "roughness_factor": 0.92
+    },
+    {
+      "base_color_factor_linear": [
+        0.21,
+        0.075,
+        0.035,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_arroyo_oasis_19m_rock_dark",
+      "roughness_factor": 0.98
+    },
+    {
+      "base_color_factor_linear": [
+        0.48,
+        0.18,
+        0.065,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_arroyo_oasis_19m_rock_light",
+      "roughness_factor": 0.96
+    },
+    {
+      "base_color_factor_linear": [
+        0.36,
+        0.24,
+        0.105,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_arroyo_oasis_19m_sand",
+      "roughness_factor": 0.98
+    },
+    {
+      "base_color_factor_linear": [
+        0.18,
+        0.075,
+        0.025,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_arroyo_oasis_19m_trunk",
+      "roughness_factor": 0.98
+    },
+    {
+      "base_color_factor_linear": [
+        0.025,
+        0.19,
+        0.255,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.12,
+      "name": "rorng_city_infill_arroyo_oasis_19m_water",
+      "roughness_factor": 0.18
+    }
+  ]
+}

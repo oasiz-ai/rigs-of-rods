@@ -1,0 +1,285 @@
+{
+  "artifacts": {
+    "blend": {
+      "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m.blend",
+      "sha256": "f32fbcc40cb71eae6612bdbb7f4f5a177a6d3967e3b8afebd8c60a5844eb9e09"
+    },
+    "glb": {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m.glb",
+      "sha256": "6c77821d5808aa6186f45df56557f4a2d7ea8148c88fe4c35df7f43db5e885d5"
+    },
+    "preview": {
+      "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m_preview.png",
+      "sha256": "b1a6cdf59c8140eefd65486cbfb4f7c3522d716e6426e91e33c4dd0b1add04e9"
+    }
+  },
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_infill_red_mesa_19m",
+    "license": "GPL-3.0-or-later",
+    "profile": "static-fixture-v1",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "artifact_reproducibility": {
+      "blend": "authenticated-session-metadata-bearing",
+      "glb": "byte-deterministic-pinned-toolchain",
+      "preview": "authenticated-render-metadata-bearing"
+    },
+    "axis": "blender-z-up",
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        },
+        {
+          "path": "tools/blender/cityworld_next/canonicalize_static_glb.py",
+          "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
+        }
+      ],
+      "format": "ror-cityworld-regional-infill-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
+      "sha256": "34d1f72e544a32157a629c9ec5996ade489fdeb61391c048f2139354694bd422"
+    },
+    "procedural_provenance": {
+      "external_geometry": false,
+      "external_materials": false,
+      "external_textures": false,
+      "method": "deterministic-project-authored-blender-python",
+      "rights_basis": "GPL-3.0-or-later project-authored source"
+    },
+    "transforms_applied": true,
+    "units": "metres"
+  },
+  "collision": {
+    "objects": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            3.35,
+            5.3,
+            14.0
+          ],
+          "min": [
+            -8.15,
+            -3.7,
+            0.0
+          ]
+        },
+        "name": "rorng_city_infill_red_mesa_19m_collision_fixture",
+        "role": "collision-fixture",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      }
+    ],
+    "profile": "single-watertight-proxy-v1",
+    "purpose": "bounded-landmark-or-building-envelope",
+    "separate_from_render_mesh": true
+  },
+  "compiled": {
+    "format": "ror-cityworld-compiled-asset-v1",
+    "outputs": [
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m.material",
+        "role": "material-fallback",
+        "sha256": "abfa377a8d34c41377ca51fa6ccec3710c84491e526b8965b4b65309f8c8574d",
+        "size": 1112
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m.odef",
+        "role": "terrain-object",
+        "sha256": "c174835413298110638c36e74440d396f4ca6631ebc3d53accec85813d03491c",
+        "size": 162
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_collision_fixture.mesh",
+        "role": "collision-fixture",
+        "sha256": "91a0c23085c5001f7b55d85fa3bee4c153364aeca62f451b793932cc52bf1702",
+        "size": 918
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_lod0.mesh",
+        "role": "render-lod0",
+        "sha256": "64950667fe4e1e52d9a506880241ed085f1a5c080953466953bdd522b12d3b9c",
+        "size": 595034
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_lod1.mesh",
+        "role": "render-lod1",
+        "sha256": "6cf836cc95485045d18d51b62c951fa2558c09e161f674ac3e4e9b94fb3db2f2",
+        "size": 45812
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_lod2.mesh",
+        "role": "render-lod2",
+        "sha256": "4170152ecdff0913d8af88b1de30b767e63b59c7f1d76b52ec7e6f3a98810c3c",
+        "size": 4371
+      }
+    ],
+    "report": {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m.compile.json",
+      "sha256": "4409ed3d5ff34d95fe0fee3e644b508e86f4fbab4e795b6c1a67d901bb17e0fe"
+    }
+  },
+  "connectors": [],
+  "export": {
+    "allowlisted_extensions": [],
+    "animations": false,
+    "apply_modifiers": true,
+    "cameras": false,
+    "format": "glb",
+    "lights": false,
+    "materials": "export",
+    "profile": "gltf-2.0",
+    "selection_only": true,
+    "tangents": true,
+    "textures": [],
+    "y_up": true
+  },
+  "format": "ror-cityworld-asset-v1",
+  "geometry": {
+    "asset_family": "rorng_city_regional_infill_family",
+    "detail_profile": {
+      "architecture": "real-scale-recessed-openings-roofs-fixtures",
+      "landscape": "modeled-crop-rows-palms-strata-boulders-water-basin",
+      "runtime_materials": "portable-factor-lit-rtshader-compatible"
+    },
+    "fixture_height_m": 16.0,
+    "footprint_diameter_m": 19.0,
+    "lod0_triangle_ceiling": 80000,
+    "lod1_max_ratio": 0.35,
+    "lod2_max_ratio": 0.12,
+    "lods": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            9.5,
+            9.5,
+            14.0
+          ],
+          "min": [
+            -9.5,
+            -9.5,
+            0.0
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_infill_red_mesa_19m_lod0",
+        "triangles": 4552
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            9.5,
+            9.5,
+            14.0
+          ],
+          "min": [
+            -9.5,
+            -9.5,
+            0.0
+          ]
+        },
+        "lod": 1,
+        "name": "rorng_city_infill_red_mesa_19m_lod1",
+        "triangles": 348
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            9.5,
+            9.5,
+            14.0
+          ],
+          "min": [
+            -9.5,
+            -9.5,
+            0.0
+          ]
+        },
+        "lod": 2,
+        "name": "rorng_city_infill_red_mesa_19m_lod2",
+        "triangles": 36
+      }
+    ],
+    "texcoord_policy": "canonical-zero-textureless-v1"
+  },
+  "infill": {
+    "category": "natural-landmark",
+    "family": "rorng_city_regional_infill_family",
+    "fictional_branding": true,
+    "label": "Red Mesa Natural Monument",
+    "placement_integration": "cityworld-local-overlay-v6",
+    "runtime_texture_dependencies": []
+  },
+  "materials": [
+    {
+      "base_color_factor_linear": [
+        0.82,
+        0.025,
+        0.02,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_red_mesa_19m_collision_debug",
+      "roughness_factor": 1.0
+    },
+    {
+      "base_color_factor_linear": [
+        0.36,
+        0.37,
+        0.34,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_red_mesa_19m_concrete",
+      "roughness_factor": 0.88
+    },
+    {
+      "base_color_factor_linear": [
+        0.21,
+        0.075,
+        0.035,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_red_mesa_19m_rock_dark",
+      "roughness_factor": 0.98
+    },
+    {
+      "base_color_factor_linear": [
+        0.48,
+        0.18,
+        0.065,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_red_mesa_19m_rock_light",
+      "roughness_factor": 0.96
+    },
+    {
+      "base_color_factor_linear": [
+        0.36,
+        0.24,
+        0.105,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_red_mesa_19m_sand",
+      "roughness_factor": 0.98
+    }
+  ]
+}

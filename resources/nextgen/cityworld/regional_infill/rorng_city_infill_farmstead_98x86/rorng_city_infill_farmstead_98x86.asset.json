@@ -1,0 +1,337 @@
+{
+  "artifacts": {
+    "blend": {
+      "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.blend",
+      "sha256": "cb32ec7c39177fdae0068c717caf8e05a50d3d2464dee93f093e4c5dba6e516d"
+    },
+    "glb": {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.glb",
+      "sha256": "018f52aa91debb8642ba5ec5c775f84f0020e8423627a359d88ce77f5d330e1d"
+    },
+    "preview": {
+      "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86_preview.png",
+      "sha256": "5efd4e8121d067dfa0f254ccac585349f265002bae2763bec464e2c26810199d"
+    }
+  },
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_infill_farmstead_98x86",
+    "license": "GPL-3.0-or-later",
+    "profile": "static-building-v1",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "artifact_reproducibility": {
+      "blend": "authenticated-session-metadata-bearing",
+      "glb": "byte-deterministic-pinned-toolchain",
+      "preview": "authenticated-render-metadata-bearing"
+    },
+    "axis": "blender-z-up",
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        },
+        {
+          "path": "tools/blender/cityworld_next/canonicalize_static_glb.py",
+          "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
+        }
+      ],
+      "format": "ror-cityworld-regional-infill-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
+      "sha256": "34d1f72e544a32157a629c9ec5996ade489fdeb61391c048f2139354694bd422"
+    },
+    "procedural_provenance": {
+      "external_geometry": false,
+      "external_materials": false,
+      "external_textures": false,
+      "method": "deterministic-project-authored-blender-python",
+      "rights_basis": "GPL-3.0-or-later project-authored source"
+    },
+    "transforms_applied": true,
+    "units": "metres"
+  },
+  "collision": {
+    "objects": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -20.4,
+            34.099998,
+            8.2
+          ],
+          "min": [
+            -43.599998,
+            17.9,
+            0.0
+          ]
+        },
+        "name": "rorng_city_infill_farmstead_98x86_collision_fixture",
+        "role": "collision-fixture",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      }
+    ],
+    "profile": "single-watertight-proxy-v1",
+    "purpose": "bounded-landmark-or-building-envelope",
+    "separate_from_render_mesh": true
+  },
+  "compiled": {
+    "format": "ror-cityworld-compiled-asset-v1",
+    "outputs": [
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.material",
+        "role": "material-fallback",
+        "sha256": "280881e3cae9beef565ce43bdd616b1ee59eec4a04015ac43022b67dc7324541",
+        "size": 1963
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.odef",
+        "role": "terrain-object",
+        "sha256": "4584cab08e508607f60fe207a0bb26979de43974e78741ca1c08c1732ccbd5f2",
+        "size": 168
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_collision_fixture.mesh",
+        "role": "collision-fixture",
+        "sha256": "4982de658b24a7fc1eb653c89c9506fae544f636fde5c171373af09443d8cfed",
+        "size": 924
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod0.mesh",
+        "role": "render-lod0",
+        "sha256": "f2e50d8e144adebe4e750717fdc95706a59537cb3b12f7bc4b27de29277649a8",
+        "size": 555314
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod1.mesh",
+        "role": "render-lod1",
+        "sha256": "4e869650eb5cad26996905f1d6c8a34dcc12a157f17fd5cb918d0c6160bafdf5",
+        "size": 26826
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod2.mesh",
+        "role": "render-lod2",
+        "sha256": "97ef70743b145060d953b3f66c478bd145305ad37d3bbb5b7c98d6eb2fb145b7",
+        "size": 9730
+      }
+    ],
+    "report": {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.compile.json",
+      "sha256": "cc6ba07819ed0f935f9b77917b45dadbdf1884ae2df60b92f460badea45c0cbb"
+    }
+  },
+  "connectors": [],
+  "export": {
+    "allowlisted_extensions": [],
+    "animations": false,
+    "apply_modifiers": true,
+    "cameras": false,
+    "format": "glb",
+    "lights": false,
+    "materials": "export",
+    "profile": "gltf-2.0",
+    "selection_only": true,
+    "tangents": true,
+    "textures": [],
+    "y_up": true
+  },
+  "format": "ror-cityworld-asset-v1",
+  "geometry": {
+    "asset_family": "rorng_city_regional_infill_family",
+    "detail_profile": {
+      "architecture": "real-scale-recessed-openings-roofs-fixtures",
+      "landscape": "modeled-crop-rows-palms-strata-boulders-water-basin",
+      "runtime_materials": "portable-factor-lit-rtshader-compatible"
+    },
+    "footprint_m": [
+      98.0,
+      86.0
+    ],
+    "ground_plane_z_m": 0.0,
+    "height_limit_m": 18.0,
+    "lod0_triangle_ceiling": 80000,
+    "lod1_max_ratio": 0.35,
+    "lod2_max_ratio": 0.12,
+    "lods": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            49.0,
+            43.0,
+            12.31029
+          ],
+          "min": [
+            -49.0,
+            -44.09,
+            0.0
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_infill_farmstead_98x86_lod0",
+        "triangles": 4884
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            49.0,
+            43.0,
+            12.295312
+          ],
+          "min": [
+            -49.0,
+            -43.0,
+            0.0
+          ]
+        },
+        "lod": 1,
+        "name": "rorng_city_infill_farmstead_98x86_lod1",
+        "triangles": 324
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            49.0,
+            43.0,
+            12.295312
+          ],
+          "min": [
+            -49.0,
+            -43.0,
+            0.0
+          ]
+        },
+        "lod": 2,
+        "name": "rorng_city_infill_farmstead_98x86_lod2",
+        "triangles": 84
+      }
+    ],
+    "texcoord_policy": "canonical-zero-textureless-v1"
+  },
+  "infill": {
+    "category": "farmland",
+    "family": "rorng_city_regional_infill_family",
+    "fictional_branding": true,
+    "label": "Golden Horizon Farmstead",
+    "placement_integration": "cityworld-local-overlay-v6",
+    "runtime_texture_dependencies": []
+  },
+  "materials": [
+    {
+      "base_color_factor_linear": [
+        0.42,
+        0.095,
+        0.035,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_clay_tile",
+      "roughness_factor": 0.82
+    },
+    {
+      "base_color_factor_linear": [
+        0.82,
+        0.025,
+        0.02,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_collision_debug",
+      "roughness_factor": 1.0
+    },
+    {
+      "base_color_factor_linear": [
+        0.52,
+        0.34,
+        0.055,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_crop_gold",
+      "roughness_factor": 0.94
+    },
+    {
+      "base_color_factor_linear": [
+        0.085,
+        0.245,
+        0.055,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_crop_green",
+      "roughness_factor": 0.96
+    },
+    {
+      "base_color_factor_linear": [
+        0.18,
+        0.075,
+        0.025,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_cultivated_soil",
+      "roughness_factor": 1.0
+    },
+    {
+      "base_color_factor_linear": [
+        0.025,
+        0.19,
+        0.32,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_paint_blue",
+      "roughness_factor": 0.5
+    },
+    {
+      "base_color_factor_linear": [
+        0.68,
+        0.54,
+        0.35,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_paint_cream",
+      "roughness_factor": 0.76
+    },
+    {
+      "base_color_factor_linear": [
+        0.055,
+        0.065,
+        0.075,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.7,
+      "name": "rorng_city_infill_farmstead_98x86_powdercoat_metal",
+      "roughness_factor": 0.31
+    },
+    {
+      "base_color_factor_linear": [
+        0.18,
+        0.075,
+        0.025,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_trunk",
+      "roughness_factor": 0.98
+    }
+  ]
+}

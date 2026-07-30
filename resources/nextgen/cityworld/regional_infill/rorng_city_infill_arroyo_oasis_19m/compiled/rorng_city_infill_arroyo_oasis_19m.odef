@@ -1,0 +1,10 @@
+rorng_city_infill_arroyo_oasis_19m_lod0.mesh
+1, 1, 1
+standard
+
+beginmesh
+mesh rorng_city_infill_arroyo_oasis_19m_collision_fixture.mesh
+stdfriction concrete
+endmesh
+
+end

@@ -136,6 +136,22 @@ with no runtime point lights:
 - detailed workflow and future placement gate:
   `../../doc/nextgen/CITYWORLD_STOREFRONT_FAMILY.md`.
 
+The regional infill family fills authenticated empty land between the cities
+without importing legacy geometry, branded signage, textures, or materials.
+It provides a 98 x 86 m crop farmstead, a 96 x 88 m palm-lined stucco suburb
+block, a fictional 90 x 65 m service station with six bounded warm lights,
+and modular 19 m red-mesa and arroyo-oasis landmarks. Every asset is grounded
+at the common CityWorld road plane, uses three checked LODs, carries a separate
+watertight collision proxy, and uses factor-only materials supported by the
+portable Ogre RTShader path:
+
+- family and rights contract:
+  `regional_infill/rorng_city_regional_infill_family.v1.json`;
+- editable sources and previews:
+  `regional_infill/rorng_city_infill_*/`;
+- runtime-neutral interchange, contracts, and checked Ogre packages:
+  `../../resources/nextgen/cityworld/regional_infill/`.
+
 Regenerate with the pinned Blender 5.2 LTS authoring version:
 
 ```sh
@@ -159,6 +175,9 @@ blender --background --factory-startup \
   --output-root "$PWD"
 blender --background --factory-startup \
   --python tools/blender/cityworld_next/generate_cityworld_storefront_family.py -- \
+  --output-root "$PWD"
+blender --background --factory-startup \
+  --python tools/blender/cityworld_next/generate_cityworld_infill_family.py -- \
   --output-root "$PWD"
 ```
 
@@ -204,6 +223,13 @@ python3 tools/validate_cityworld_storefront_family.py \
   --repo-root .
 for manifest in \
   resources/nextgen/cityworld/buildings/storefront_family/*/*.asset.json
+do
+  python3 tools/validate_cityworld_asset.py "$manifest" --repo-root .
+  python3 tools/compile_cityworld_asset.py "$manifest" \
+    --repo-root . --validate-checked
+done
+for manifest in \
+  resources/nextgen/cityworld/regional_infill/*/*.asset.json
 do
   python3 tools/validate_cityworld_asset.py "$manifest" --repo-root .
   python3 tools/compile_cityworld_asset.py "$manifest" \

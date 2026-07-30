@@ -1,0 +1,361 @@
+{
+  "artifacts": {
+    "blend": {
+      "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88.blend",
+      "sha256": "5ac8cbc1820873daa2889875c2e3d9beddb4e65e0c723c3eb69c2c74cb148753"
+    },
+    "glb": {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88.glb",
+      "sha256": "6b0dd929ab937675139e77f53c1155ad3facad5fdafd9060d8c1a4daa9534219"
+    },
+    "preview": {
+      "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88_preview.png",
+      "sha256": "913909491f822589cdf9c50785f88f1c7cd0641a43b35f7c2af2c00a51df332f"
+    }
+  },
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_infill_suburb_block_96x88",
+    "license": "GPL-3.0-or-later",
+    "profile": "static-building-v1",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "artifact_reproducibility": {
+      "blend": "authenticated-session-metadata-bearing",
+      "glb": "byte-deterministic-pinned-toolchain",
+      "preview": "authenticated-render-metadata-bearing"
+    },
+    "axis": "blender-z-up",
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        },
+        {
+          "path": "tools/blender/cityworld_next/canonicalize_static_glb.py",
+          "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
+        }
+      ],
+      "format": "ror-cityworld-regional-infill-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
+      "sha256": "34d1f72e544a32157a629c9ec5996ade489fdeb61391c048f2139354694bd422"
+    },
+    "procedural_provenance": {
+      "external_geometry": false,
+      "external_materials": false,
+      "external_textures": false,
+      "method": "deterministic-project-authored-blender-python",
+      "rights_basis": "GPL-3.0-or-later project-authored source"
+    },
+    "transforms_applied": true,
+    "units": "metres"
+  },
+  "collision": {
+    "objects": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            47.0,
+            41.0,
+            9.5
+          ],
+          "min": [
+            -47.0,
+            -41.0,
+            0.0
+          ]
+        },
+        "name": "rorng_city_infill_suburb_block_96x88_collision_fixture",
+        "role": "collision-fixture",
+        "topology": {
+          "connected_components": 1,
+          "intersecting_faces": 0,
+          "outward_winding": true,
+          "watertight": true
+        },
+        "triangles": 12
+      }
+    ],
+    "profile": "single-watertight-proxy-v1",
+    "purpose": "bounded-landmark-or-building-envelope",
+    "separate_from_render_mesh": true
+  },
+  "compiled": {
+    "format": "ror-cityworld-compiled-asset-v1",
+    "outputs": [
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.material",
+        "role": "material-fallback",
+        "sha256": "e8921497a4027fd6b05c8b69cd969f2f3169b29e7090e8a78ecaa279a9d039c2",
+        "size": 2362
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.odef",
+        "role": "terrain-object",
+        "sha256": "24d7dd2c64a2c2bd7e6c5798895e30d1f3b021ba36a625a46e0b8e653b71e9f6",
+        "size": 174
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_collision_fixture.mesh",
+        "role": "collision-fixture",
+        "sha256": "75a0a170f29fc9c59f6f8ff9196b25ba55f7cfdd6bedf4f7392c1d2ab151dfcc",
+        "size": 930
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod0.mesh",
+        "role": "render-lod0",
+        "sha256": "f64deae4d5bb908fa73d14a79e8fb6ff7f834b99cc348faa40c3f555e43cf8c9",
+        "size": 1223915
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod1.mesh",
+        "role": "render-lod1",
+        "sha256": "28c70bca76a4882706cca39175b6ee24f0cc88472e2993c2440e9e268bdd8a85",
+        "size": 59529
+      },
+      {
+        "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod2.mesh",
+        "role": "render-lod2",
+        "sha256": "9fda39af7b1d546cb8608e666a1baa2d93057f3e8c7eca51e22695567b52309b",
+        "size": 30882
+      }
+    ],
+    "report": {
+      "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.compile.json",
+      "sha256": "0fca9b4f7ef5eef5f0f599d16083fe6673f3f717c519b01e2e6bbf7cb188f76a"
+    }
+  },
+  "connectors": [],
+  "export": {
+    "allowlisted_extensions": [],
+    "animations": false,
+    "apply_modifiers": true,
+    "cameras": false,
+    "format": "glb",
+    "lights": false,
+    "materials": "export",
+    "profile": "gltf-2.0",
+    "selection_only": true,
+    "tangents": true,
+    "textures": [],
+    "y_up": true
+  },
+  "format": "ror-cityworld-asset-v1",
+  "geometry": {
+    "asset_family": "rorng_city_regional_infill_family",
+    "detail_profile": {
+      "architecture": "real-scale-recessed-openings-roofs-fixtures",
+      "landscape": "modeled-crop-rows-palms-strata-boulders-water-basin",
+      "runtime_materials": "portable-factor-lit-rtshader-compatible"
+    },
+    "footprint_m": [
+      96.0,
+      88.0
+    ],
+    "ground_plane_z_m": 0.0,
+    "height_limit_m": 15.0,
+    "lod0_triangle_ceiling": 80000,
+    "lod1_max_ratio": 0.35,
+    "lod2_max_ratio": 0.12,
+    "lods": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            48.142487,
+            44.0,
+            11.728274
+          ],
+          "min": [
+            -48.142487,
+            -44.0,
+            0.0
+          ]
+        },
+        "lod": 0,
+        "name": "rorng_city_infill_suburb_block_96x88_lod0",
+        "triangles": 8976
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            48.0,
+            44.0,
+            10.242814
+          ],
+          "min": [
+            -48.0,
+            -44.0,
+            0.0
+          ]
+        },
+        "lod": 1,
+        "name": "rorng_city_infill_suburb_block_96x88_lod1",
+        "triangles": 560
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            48.0,
+            44.0,
+            9.597281
+          ],
+          "min": [
+            -48.0,
+            -44.0,
+            0.0
+          ]
+        },
+        "lod": 2,
+        "name": "rorng_city_infill_suburb_block_96x88_lod2",
+        "triangles": 292
+      }
+    ],
+    "texcoord_policy": "canonical-zero-textureless-v1"
+  },
+  "infill": {
+    "category": "suburb",
+    "family": "rorng_city_regional_infill_family",
+    "fictional_branding": true,
+    "label": "Sunridge Courtyard Homes",
+    "placement_integration": "cityworld-local-overlay-v6",
+    "runtime_texture_dependencies": []
+  },
+  "materials": [
+    {
+      "base_color_factor_linear": [
+        0.035,
+        0.042,
+        0.048,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_suburb_block_96x88_asphalt",
+      "roughness_factor": 0.91
+    },
+    {
+      "base_color_factor_linear": [
+        0.42,
+        0.095,
+        0.035,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_suburb_block_96x88_clay_tile",
+      "roughness_factor": 0.82
+    },
+    {
+      "base_color_factor_linear": [
+        0.82,
+        0.025,
+        0.02,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_suburb_block_96x88_collision_debug",
+      "roughness_factor": 1.0
+    },
+    {
+      "base_color_factor_linear": [
+        0.035,
+        0.12,
+        0.17,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.18,
+      "name": "rorng_city_infill_suburb_block_96x88_glass",
+      "roughness_factor": 0.16
+    },
+    {
+      "base_color_factor_linear": [
+        0.045,
+        0.22,
+        0.07,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_suburb_block_96x88_leaf",
+      "roughness_factor": 0.92
+    },
+    {
+      "base_color_factor_linear": [
+        0.025,
+        0.19,
+        0.32,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_suburb_block_96x88_paint_blue",
+      "roughness_factor": 0.5
+    },
+    {
+      "base_color_factor_linear": [
+        0.72,
+        0.71,
+        0.64,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_suburb_block_96x88_paint_white",
+      "roughness_factor": 0.72
+    },
+    {
+      "base_color_factor_linear": [
+        0.21,
+        0.075,
+        0.035,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_suburb_block_96x88_rock_dark",
+      "roughness_factor": 0.98
+    },
+    {
+      "base_color_factor_linear": [
+        0.36,
+        0.24,
+        0.105,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_suburb_block_96x88_sand",
+      "roughness_factor": 0.98
+    },
+    {
+      "base_color_factor_linear": [
+        0.58,
+        0.41,
+        0.235,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_suburb_block_96x88_stucco",
+      "roughness_factor": 0.87
+    },
+    {
+      "base_color_factor_linear": [
+        0.18,
+        0.075,
+        0.025,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_suburb_block_96x88_trunk",
+      "roughness_factor": 0.98
+    }
+  ]
+}

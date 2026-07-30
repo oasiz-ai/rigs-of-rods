@@ -1,0 +1,91 @@
+{
+  "asset": {
+    "author": "Oasiz AI and Rigs of Rods contributors",
+    "id": "rorng_city_regional_infill_family",
+    "license": "GPL-3.0-or-later",
+    "source_uri": "https://github.com/oasiz-ai/rigs-of-rods",
+    "version": 1
+  },
+  "authoring": {
+    "blender_version": "5.2.0 LTS",
+    "generator": {
+      "dependencies": [
+        {
+          "path": "tools/blender/cityworld_next/generate_bridge_kit.py",
+          "sha256": "e6ae75ae49c0d225a8d591b1efcf4fe20a2fcbb5222fe613350d177c8bbfa3f7"
+        },
+        {
+          "path": "tools/blender/cityworld_next/canonicalize_static_glb.py",
+          "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
+        }
+      ],
+      "format": "ror-cityworld-regional-infill-generator-v1",
+      "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
+      "sha256": "34d1f72e544a32157a629c9ec5996ade489fdeb61391c048f2139354694bd422"
+    },
+    "procedural_provenance": {
+      "external_geometry": false,
+      "external_materials": false,
+      "external_textures": false,
+      "method": "deterministic-project-authored-blender-python",
+      "rights_basis": "GPL-3.0-or-later project-authored source"
+    }
+  },
+  "format": "ror-cityworld-regional-infill-family-v1",
+  "placement_target": {
+    "integration_status": "asset-ready-overlay-v6",
+    "source_archive_sha256": "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3"
+  },
+  "variants": [
+    {
+      "asset_id": "rorng_city_infill_farmstead_98x86",
+      "category": "farmland",
+      "lod_triangles": [
+        4884,
+        324,
+        84
+      ],
+      "manifest": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.asset.json"
+    },
+    {
+      "asset_id": "rorng_city_infill_suburb_block_96x88",
+      "category": "suburb",
+      "lod_triangles": [
+        8976,
+        560,
+        292
+      ],
+      "manifest": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88.asset.json"
+    },
+    {
+      "asset_id": "rorng_city_infill_service_station_90x65",
+      "category": "service-station",
+      "lod_triangles": [
+        4120,
+        232,
+        140
+      ],
+      "manifest": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.asset.json"
+    },
+    {
+      "asset_id": "rorng_city_infill_red_mesa_19m",
+      "category": "natural-landmark",
+      "lod_triangles": [
+        4552,
+        348,
+        36
+      ],
+      "manifest": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m.asset.json"
+    },
+    {
+      "asset_id": "rorng_city_infill_arroyo_oasis_19m",
+      "category": "natural-landmark",
+      "lod_triangles": [
+        7892,
+        560,
+        112
+      ],
+      "manifest": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m.asset.json"
+    }
+  ]
+}

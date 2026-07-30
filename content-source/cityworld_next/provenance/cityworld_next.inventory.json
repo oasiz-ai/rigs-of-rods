@@ -571,6 +571,276 @@
       "type": "file"
     },
     {
+      "path": "regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m.compile.json",
+      "sha256": "3a08f989848e4d6d48b9cc8735e5547c93bb89213406cf7125e929d16b37dc57",
+      "size": 4339,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m.material",
+      "sha256": "4c56af59149474343a05ff6db13a2c0b3ee05cf46393026374edee37392a044b",
+      "size": 1726,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m.odef",
+      "sha256": "41471f3aabe174eeed3b4b98303f888cad825612fb4e7c039ebff1218ace2f40",
+      "size": 170,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_collision_fixture.mesh",
+      "sha256": "bf09f5416de14be0ed7e2a5d7355feb76b73932fd3f526d2523fc7c36beb8e69",
+      "size": 926,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_lod0.mesh",
+      "sha256": "285a01899c8b69ef030ec24a9e5d5d89045e4adbce1e0222f9df6b7ba325aa3a",
+      "size": 1041858,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_lod1.mesh",
+      "sha256": "cd9a9e94755ed5b877ecac4d5d4fc5a44f8f11d4aa6aebd453b879e8968f1afb",
+      "size": 63652,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_lod2.mesh",
+      "sha256": "7e0e80b6b6a53eee1fed377135e399594e38a5b5d07dcd0b37c35098d2b0a30d",
+      "size": 12404,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m.asset.json",
+      "sha256": "4dce2d233fbc74c00a92003233b52fafa490ff9451c7afdfd369f8bfb3f0d821",
+      "size": 9638,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m.glb",
+      "sha256": "93c3691e7d1125f0a87a94fa90c8d6d7eb552d54288314707c7eddffa9efd869",
+      "size": 1136772,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.compile.json",
+      "sha256": "cc6ba07819ed0f935f9b77917b45dadbdf1884ae2df60b92f460badea45c0cbb",
+      "size": 4318,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.material",
+      "sha256": "280881e3cae9beef565ce43bdd616b1ee59eec4a04015ac43022b67dc7324541",
+      "size": 1963,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.odef",
+      "sha256": "4584cab08e508607f60fe207a0bb26979de43974e78741ca1c08c1732ccbd5f2",
+      "size": 168,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_collision_fixture.mesh",
+      "sha256": "4982de658b24a7fc1eb653c89c9506fae544f636fde5c171373af09443d8cfed",
+      "size": 924,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod0.mesh",
+      "sha256": "f2e50d8e144adebe4e750717fdc95706a59537cb3b12f7bc4b27de29277649a8",
+      "size": 555314,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod1.mesh",
+      "sha256": "4e869650eb5cad26996905f1d6c8a34dcc12a157f17fd5cb918d0c6160bafdf5",
+      "size": 26826,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod2.mesh",
+      "sha256": "97ef70743b145060d953b3f66c478bd145305ad37d3bbb5b7c98d6eb2fb145b7",
+      "size": 9730,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.asset.json",
+      "sha256": "c3cea90dc08fc682e048f913bb5a7f02666a5a90b3e7c099793b2b9e22dffb65",
+      "size": 9966,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.glb",
+      "sha256": "018f52aa91debb8642ba5ec5c775f84f0020e8423627a359d88ce77f5d330e1d",
+      "size": 610520,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m.compile.json",
+      "sha256": "4409ed3d5ff34d95fe0fee3e644b508e86f4fbab4e795b6c1a67d901bb17e0fe",
+      "size": 4261,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m.material",
+      "sha256": "abfa377a8d34c41377ca51fa6ccec3710c84491e526b8965b4b65309f8c8574d",
+      "size": 1112,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m.odef",
+      "sha256": "c174835413298110638c36e74440d396f4ca6631ebc3d53accec85813d03491c",
+      "size": 162,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_collision_fixture.mesh",
+      "sha256": "91a0c23085c5001f7b55d85fa3bee4c153364aeca62f451b793932cc52bf1702",
+      "size": 918,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_lod0.mesh",
+      "sha256": "64950667fe4e1e52d9a506880241ed085f1a5c080953466953bdd522b12d3b9c",
+      "size": 595034,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_lod1.mesh",
+      "sha256": "6cf836cc95485045d18d51b62c951fa2558c09e161f674ac3e4e9b94fb3db2f2",
+      "size": 45812,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_lod2.mesh",
+      "sha256": "4170152ecdff0913d8af88b1de30b767e63b59c7f1d76b52ec7e6f3a98810c3c",
+      "size": 4371,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m.asset.json",
+      "sha256": "74170800991b3bd240e9dd783f0b36b736efa8f23e6fd7cf5a3e3c4531d1c770",
+      "size": 8688,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m.glb",
+      "sha256": "6c77821d5808aa6186f45df56557f4a2d7ea8148c88fe4c35df7f43db5e885d5",
+      "size": 657032,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65.compile.json",
+      "sha256": "4800a36ddb885ae8eafab58cf5eba15eae354d7361b7402baa13778dbe4c44d7",
+      "size": 5986,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65.material",
+      "sha256": "6a5353ecfe6815b2a948e9af1d43fafd18718d0ca91fc7124f6c8360c6840d49",
+      "size": 2035,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65.odef",
+      "sha256": "b91f170b95b3de086e839d144f781cb6e680090929993b58cb7302908c17413b",
+      "size": 493,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_collision_fixture.mesh",
+      "sha256": "a0b96dfcd09b4d4e4e3b287bcaa20184030e4911bd1e997d4f8c9aada048b33f",
+      "size": 936,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod0.mesh",
+      "sha256": "d13943de2ce42d73fd19f82f482c57fcf800a64261be36d10fb73a6a0fc5ddd5",
+      "size": 538361,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod1.mesh",
+      "sha256": "61fae48df47dcdf80fdde6d45bdbdabde00add5e23b7493dada9df738a9118a9",
+      "size": 23812,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod2.mesh",
+      "sha256": "52847f8a989554b89ae4ba4eec9b4328493dac005a8b1f28cd2d9c63560047e3",
+      "size": 14972,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.asset.json",
+      "sha256": "078d4eb465d3c4e63aa7bbf398f703cf9784f8fe86ba6012937d2fda3eeb4781",
+      "size": 12000,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.glb",
+      "sha256": "3a4fda2e4d1f2a6a009dad3f39616f3190fc82990d811f37b48e17b9d5cd8e53",
+      "size": 596220,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.compile.json",
+      "sha256": "0fca9b4f7ef5eef5f0f599d16083fe6673f3f717c519b01e2e6bbf7cb188f76a",
+      "size": 4378,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.material",
+      "sha256": "e8921497a4027fd6b05c8b69cd969f2f3169b29e7090e8a78ecaa279a9d039c2",
+      "size": 2362,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.odef",
+      "sha256": "24d7dd2c64a2c2bd7e6c5798895e30d1f3b021ba36a625a46e0b8e653b71e9f6",
+      "size": 174,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_collision_fixture.mesh",
+      "sha256": "75a0a170f29fc9c59f6f8ff9196b25ba55f7cfdd6bedf4f7392c1d2ab151dfcc",
+      "size": 930,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod0.mesh",
+      "sha256": "f64deae4d5bb908fa73d14a79e8fb6ff7f834b99cc348faa40c3f555e43cf8c9",
+      "size": 1223915,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod1.mesh",
+      "sha256": "28c70bca76a4882706cca39175b6ee24f0cc88472e2993c2440e9e268bdd8a85",
+      "size": 59529,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod2.mesh",
+      "sha256": "9fda39af7b1d546cb8608e666a1baa2d93057f3e8c7eca51e22695567b52309b",
+      "size": 30882,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88.asset.json",
+      "sha256": "78c2f1f5c1bc5ba3d644e88a96d029059d672af1bd8cce450165633b0de44269",
+      "size": 10587,
+      "type": "file"
+    },
+    {
+      "path": "regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88.glb",
+      "sha256": "6b0dd929ab937675139e77f53c1155ad3facad5fdafd9060d8c1a4daa9534219",
+      "size": 1336340,
+      "type": "file"
+    },
+    {
       "path": "streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.compile.json",
       "sha256": "73aee4ddc9cde7895c43d4a2efd0a5f6fe736f83c56f7a597da285c8e781c1e0",
       "size": 7415,
