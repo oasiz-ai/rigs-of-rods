@@ -175,12 +175,46 @@ bool TObjParser::ProcessCurrentLine()
         if (m_in_procedural_road)
         {
             char valuebuf[100] = {};
-            int result = sscanf(m_cur_line_trimmed, "collision_enabled %s", &valuebuf);
+            int result = sscanf(m_cur_line_trimmed, "collision_enabled %99s", valuebuf);
             if (result != 1)
             {
                 LOG(fmt::format("[RoR|TObj] not enough parameters at line '{}' ({}, line {})", m_cur_line, m_filename, m_line_number));
             }
             m_cur_procedural_obj->collision_enabled = Ogre::StringConverter::parseBool(valuebuf, false);
+        }
+        return true;
+    }
+    if (strncmp("collision_endcaps_enabled", m_cur_line_trimmed, 25) == 0)
+    {
+        if (m_in_procedural_road)
+        {
+            char valuebuf[100] = {};
+            int result = sscanf(
+                m_cur_line_trimmed,
+                "collision_endcaps_enabled %99s",
+                valuebuf);
+            if (result != 1)
+            {
+                LOG(fmt::format("[RoR|TObj] not enough parameters at line '{}' ({}, line {})", m_cur_line, m_filename, m_line_number));
+            }
+            else if (strcmp(valuebuf, "true") == 0)
+            {
+                m_cur_procedural_obj->collision_endcaps_enabled = true;
+            }
+            else if (strcmp(valuebuf, "false") == 0)
+            {
+                m_cur_procedural_obj->collision_endcaps_enabled = false;
+            }
+            else
+            {
+                LOG(fmt::format(
+                    "[RoR|TObj] invalid collision_endcaps_enabled value "
+                    "'{}' at line '{}' ({}, line {}); preserving prior value",
+                    valuebuf,
+                    m_cur_line,
+                    m_filename,
+                    m_line_number));
+            }
         }
         return true;
     }
@@ -264,11 +298,12 @@ void TObjParser::ProcessProceduralLine()
     else if (obj_name == "left"             ) { point.type = RoadType::ROAD_LEFT;  }
     else if (obj_name == "right"            ) { point.type = RoadType::ROAD_RIGHT; }
     else if (obj_name == "both"             ) { point.type = RoadType::ROAD_BOTH;  }
-    else if (obj_name == "bridge"           ) { point.type = RoadType::ROAD_BRIDGE;    point.pillartype = 1; }
-    else if (obj_name == "monorail"         ) { point.type = RoadType::ROAD_MONORAIL;  point.pillartype = 2; }
-    else if (obj_name == "monorail2"        ) { point.type = RoadType::ROAD_MONORAIL;  point.pillartype = 0; }
-    else if (obj_name == "bridge_no_pillars") { point.type = RoadType::ROAD_BRIDGE;    point.pillartype = 0; }
-    else                                      { point.type = RoadType::ROAD_AUTOMATIC; point.pillartype = 1; }
+    else if (obj_name == "bridge"           ) { point.type = RoadType::ROAD_BRIDGE;    point.pillartype = ROAD_PILLAR_TYPE_BRIDGE_CENTER; }
+    else if (obj_name == "bridge_side_pillars") { point.type = RoadType::ROAD_BRIDGE; point.pillartype = ROAD_PILLAR_TYPE_BRIDGE_SIDES; }
+    else if (obj_name == "monorail"         ) { point.type = RoadType::ROAD_MONORAIL;  point.pillartype = ROAD_PILLAR_TYPE_MONORAIL; }
+    else if (obj_name == "monorail2"        ) { point.type = RoadType::ROAD_MONORAIL;  point.pillartype = ROAD_PILLAR_TYPE_NONE; }
+    else if (obj_name == "bridge_no_pillars") { point.type = RoadType::ROAD_BRIDGE;    point.pillartype = ROAD_PILLAR_TYPE_NONE; }
+    else                                      { point.type = RoadType::ROAD_AUTOMATIC; point.pillartype = ROAD_PILLAR_TYPE_BRIDGE_CENTER; }
 
     // Attach comments
     point.comments = m_preceding_line_comments;
@@ -562,6 +597,11 @@ void TObj::WriteToStream(TObjDocumentPtr doc, Ogre::DataStreamPtr stream)
         std::string cline = fmt::format("    collision_enabled {}\n", procobj->collision_enabled);
         stream->write(cline.c_str(), cline.length());
 
+        std::string ecline = fmt::format(
+            "    collision_endcaps_enabled {}\n",
+            procobj->collision_endcaps_enabled);
+        stream->write(ecline.c_str(), ecline.length());
+
         for (ProceduralPointPtr& point : procobj->points)
         {
             std::string type_str;
@@ -572,8 +612,14 @@ void TObj::WriteToStream(TObjDocumentPtr doc, Ogre::DataStreamPtr stream)
             case RoadType::ROAD_LEFT: type_str = "left"; break;
             case RoadType::ROAD_RIGHT: type_str = "right"; break;
             case RoadType::ROAD_BOTH: type_str = "both"; break;
-            case RoadType::ROAD_BRIDGE: type_str = (point->pillartype == 1) ? "bridge" : "bridge_no_pillars"; break;
-            case RoadType::ROAD_MONORAIL: type_str = (point->pillartype == 2) ? "monorail" : "monorail2"; break;
+            case RoadType::ROAD_BRIDGE:
+                type_str = (point->pillartype == ROAD_PILLAR_TYPE_BRIDGE_SIDES)
+                    ? "bridge_side_pillars"
+                    : ((point->pillartype == ROAD_PILLAR_TYPE_BRIDGE_CENTER)
+                        ? "bridge"
+                        : "bridge_no_pillars");
+                break;
+            case RoadType::ROAD_MONORAIL: type_str = (point->pillartype == ROAD_PILLAR_TYPE_MONORAIL) ? "monorail" : "monorail2"; break;
             }
 
             // Handle preceding comments

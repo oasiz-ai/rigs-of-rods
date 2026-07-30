@@ -119,6 +119,7 @@ void ProceduralManager::rebuildObjectMesh(ProceduralObjectPtr po)
 
     po->road = new ProceduralRoad();
     po->road->setCollisionEnabled(po->collision_enabled);
+    po->road->setEndCapCollisionEnabled(po->collision_endcaps_enabled);
 
     Ogre::SimpleSpline spline;
     if (po->smoothing_num_splits > 0)
@@ -180,7 +181,7 @@ void ProceduralManager::logDiagnostics()
 {
     Log("[RoR] Procedural road diagnostic.\n"
         "    types: 0=ROAD_AUTOMATIC, 1=ROAD_FLAT, 2=ROAD_LEFT, 3=ROAD_RIGHT, 4=ROAD_BOTH, 5=ROAD_BRIDGE, 6=ROAD_MONORAIL\n"
-        "    pillartypes: 0=none, 1=road bridge, 2=monorail");
+        "    pillartypes: 0=none, 1=road bridge, 2=monorail, 3=road bridge side piers");
     for (int i=0; i< (int) pObjects.size(); ++i)
     {
         LogFormat("~~~~~~ ProceduralObject %d ~~~~~~", i);
