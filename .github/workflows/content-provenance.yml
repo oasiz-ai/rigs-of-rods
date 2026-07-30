@@ -25,11 +25,12 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - name: Run standard-library provenance and CityWorld asset tests
+      - name: Run standard-library provenance, asset, and renderer tests
         run: >-
           python -m unittest -v
           tests/tools/test_content_provenance_audit.py
           tests/tools/test_content_provenance_workflow_contract.py
+          tests/tools/test_postprocess_resources.py
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py
@@ -50,11 +51,12 @@ jobs:
           tests/tools/test_solve_cityworld_bridge_corridor.py
           tests/tools/test_validate_cityworld_asset.py
 
-      - name: Run optimized standard-library provenance and CityWorld asset tests
+      - name: Run optimized provenance, asset, and renderer tests
         run: >-
           python -O -m unittest -v
           tests/tools/test_content_provenance_audit.py
           tests/tools/test_content_provenance_workflow_contract.py
+          tests/tools/test_postprocess_resources.py
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py

@@ -1,0 +1,66 @@
+/*
+    This source file is part of Rigs of Rods
+
+    Rigs of Rods is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License version 3, as
+    published by the Free Software Foundation.
+*/
+
+vertex_program RoR/PostProcess/V0A/Vertex/GL3Plus glsl
+{
+    syntax glsl330
+    source ror_postprocess_v0a_gl3plus.vert
+
+    default_params
+    {
+        param_named_auto uWorldViewProj worldviewproj_matrix
+    }
+}
+
+fragment_program RoR/PostProcess/V0A/Fragment/GL3Plus glsl
+{
+    syntax glsl330
+    source ror_postprocess_v0a_gl3plus.frag
+
+    default_params
+    {
+        param_named uScene int 0
+        param_named_auto uInvTextureSize inverse_texture_size 0
+    }
+}
+
+vertex_program RoR/PostProcess/V0A/Vertex/D3D11 hlsl
+{
+    source ror_postprocess_v0a_d3d11.hlsl
+    entry_point V0A_vs
+    target vs_4_0
+
+    default_params
+    {
+        param_named_auto uWorldViewProj worldviewproj_matrix
+    }
+}
+
+fragment_program RoR/PostProcess/V0A/Fragment/D3D11 hlsl
+{
+    source ror_postprocess_v0a_d3d11.hlsl
+    entry_point V0A_ps
+    target ps_4_0
+
+    default_params
+    {
+        param_named_auto uInvTextureSize inverse_texture_size 0
+    }
+}
+
+vertex_program RoR/PostProcess/V0A/Vertex unified
+{
+    delegate RoR/PostProcess/V0A/Vertex/GL3Plus
+    delegate RoR/PostProcess/V0A/Vertex/D3D11
+}
+
+fragment_program RoR/PostProcess/V0A/Fragment unified
+{
+    delegate RoR/PostProcess/V0A/Fragment/GL3Plus
+    delegate RoR/PostProcess/V0A/Fragment/D3D11
+}

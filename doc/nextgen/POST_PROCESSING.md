@@ -34,8 +34,38 @@ The reference profile is:
 | FXAA absolute edge threshold | 1/24 |
 | FXAA blend limit | 0.75 |
 
-The current kernel is an oracle, not renderer completion. The remaining V0
-work is to implement matching GLSL and HLSL materials, attach one final
-half-resolution compositor after water/weather and before UI, validate resize
-and hot-load lifecycles, and record the disabled-path pixel baseline plus
-quality/performance captures on macOS, Linux, and Windows.
+## V0A portable shader resources
+
+`resources/postprocess` is packaged as `postprocess.zip` by the existing
+resource build. It contains only the `RoR/PostProcess/V0A/` namespace:
+
+- a GLSL 330 core vertex/fragment pair for OGRE 14 GL3Plus;
+- a Shader Model 4 vertex/fragment pair for D3D11;
+- unified OGRE program declarations that delegate only to those pairs;
+- one LDR material named `RoR/PostProcess/V0A/LdrFxaa`; and
+- one compositor with the same name.
+
+V0A deliberately implements the locked color curve followed by bounded FXAA,
+not the bloom oracle. It reads exactly the center, north, south, east, and west
+scene texels. The curve is applied independently to all five samples before
+the edge decision, the center alpha is retained, and the material uses
+point-filtered, clamped sampling. `inverse_texture_size 0` supplies texel size;
+there is no viewport guess in either shader.
+
+The shader graph has no Cg fallback, time, random values, automatic exposure,
+transcendental transfer function, derivative sampling, or unbounded loop.
+Unsupported program pairs therefore leave the material unsupported instead of
+silently selecting a different visual path.
+
+The pack is intentionally not registered or attached yet. The runtime
+integration must register `postprocess.zip` in a dedicated resource group
+before looking up these names, verify that the selected backend pair is
+supported, and then attach the compositor after water/weather and before
+native-resolution overlays. It must detach before terrain/render teardown and
+recreate viewport-dependent state after a resize. Until that transaction is
+implemented, V0A causes no runtime visual change.
+
+Remaining V0 work is runtime registration and lifecycle integration, followed
+by the disabled-path pixel baseline and quality/performance captures on macOS,
+Linux, and Windows. Bloom remains a separate later profile because its
+half-resolution targets and blur lifecycle require their own measured gate.
