@@ -14,6 +14,13 @@ jobs:
             libssl-dev libopenal-dev libois-dev libcurl4-openssl-dev rapidjson-dev gettext libfmt-dev
             
       - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Verify pinned starter content
+        run: |
+          test "$(git -C content rev-parse HEAD)" = \
+            "34fefdd126784bf87b068fc283f812525d159dd7"
 
       - name: Build OGRE
         run: |
