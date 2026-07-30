@@ -38,15 +38,15 @@
   "compiler": {
     "format": "ror-cityworld-scene-compiler-v1",
     "path": "tools/compile_cityworld_asset.py",
-    "sha256": "9e65172d4895cac5b033c23485cff4d3744557c76db62cd01ec083f01971ce47"
+    "sha256": "8d90b2fe1b8b43b4c81d766ad0ac1d700282d36c244d6ef2b17ef81e748b2144"
   },
   "connectors": [],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "14c873855f209eff8aa4e1290d40f8ecbc6e9f359978e2a9d4df3092bc6ccf21",
+    "asset_contract_sha256": "d8533374abf49bb447a8213240eaa7199d85368bba6114c9f925a116936281c6",
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m.glb",
-      "sha256": "93c3691e7d1125f0a87a94fa90c8d6d7eb552d54288314707c7eddffa9efd869"
+      "sha256": "527fe7b69ea59696d8b862e440817119f57b0e79b01f039424867dbfa8c08788"
     }
   },
   "limits": {
@@ -61,7 +61,7 @@
   "mesh_format": "MeshSerializer_v1.100-little-endian",
   "ogre_converter": {
     "executable": "OgreXMLConverter",
-    "sha256": "50b375974784925e8a180ca886f849b78ff61a3f94fa5e4b8abea710d800264a",
+    "sha256": "15dbcde2ea124f0645d0c0f2ee809effee35123b0799f542742b5d2dd42b507f",
     "version": "OgreXMLConverter Tsathoggua (14.5.2)"
   },
   "options": {
@@ -95,19 +95,19 @@
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_lod0.mesh",
       "role": "render-lod0",
-      "sha256": "285a01899c8b69ef030ec24a9e5d5d89045e4adbce1e0222f9df6b7ba325aa3a",
+      "sha256": "064c4902d4f0382ff867fc7f123be276a9af114b39e4de1046773d67768586c7",
       "size": 1041858
     },
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_lod1.mesh",
       "role": "render-lod1",
-      "sha256": "cd9a9e94755ed5b877ecac4d5d4fc5a44f8f11d4aa6aebd453b879e8968f1afb",
+      "sha256": "f56e9e6dbce7d97024491d7ba0320e410f3b9676ec8225d337ce8c5c9b592f71",
       "size": 63652
     },
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_lod2.mesh",
       "role": "render-lod2",
-      "sha256": "7e0e80b6b6a53eee1fed377135e399594e38a5b5d07dcd0b37c35098d2b0a30d",
+      "sha256": "1df387c279352340f25b2b7e1b6f0d0ac58d8d768f55ee81146a2000e59f6f3f",
       "size": 12404
     }
   ],
@@ -121,8 +121,8 @@
   },
   "xml_intermediate_sha256": {
     "rorng_city_infill_arroyo_oasis_19m_collision_fixture.mesh.xml": "5fa6203541168981e0bf9445fb673b8e4a3fa2c99912d04e002e5096dbf87849",
-    "rorng_city_infill_arroyo_oasis_19m_lod0.mesh.xml": "4aaa6894b804e18dc4230956c499ce4642b7735b51a68ff933b4ca2ed8915347",
-    "rorng_city_infill_arroyo_oasis_19m_lod1.mesh.xml": "2fd4f868d76827cc34894d55358ff2d90d839841a563840f3cec29d2eef36c7b",
-    "rorng_city_infill_arroyo_oasis_19m_lod2.mesh.xml": "acb61de7242c577e05a75aca5d5034ff6410ec85fedd9a62b8f116f1bf172363"
+    "rorng_city_infill_arroyo_oasis_19m_lod0.mesh.xml": "1f6ad1e6b2bf3fc6b8601a66737022af149db18bca9de06d9a5c88b7841fc110",
+    "rorng_city_infill_arroyo_oasis_19m_lod1.mesh.xml": "708ffd4e293806762050aa51723b18c7b3387b786f20b324e1a7d8b65f22e9d3",
+    "rorng_city_infill_arroyo_oasis_19m_lod2.mesh.xml": "00f8ae45a6a24356f54c64d02f8681ca5eb06ca699955fa6d263ac18fc5b5baa"
   }
 }

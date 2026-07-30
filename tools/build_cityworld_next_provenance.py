@@ -32,6 +32,14 @@ BYTE_COMPATIBLE_COMPILER_SHA256_WITHOUT_RUNTIME_PARENT = frozenset(
         "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
     }
 )
+# This prior revision differs only in where the read-only ``-v`` converter
+# probe writes its diagnostic log. Mesh lowering and every emitted byte are
+# unchanged, including assets that opt into ``runtime_parent_material``.
+BYTE_COMPATIBLE_COMPILER_SHA256 = frozenset(
+    {
+        "9e65172d4895cac5b033c23485cff4d3744557c76db62cd01ec083f01971ce47",
+    }
+)
 SPDX_LIST_VERSION = "3.28.0"
 MAX_FILE_BYTES = 512 * 1024 * 1024
 
@@ -241,9 +249,15 @@ def build_documents(repo_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         )
         compiler_is_byte_compatible = (
             active_compiler_sha256 == current_compiler_sha256
-            and not uses_runtime_parent_material(asset_manifest)
-            and checked_compiler_sha256
-            in BYTE_COMPATIBLE_COMPILER_SHA256_WITHOUT_RUNTIME_PARENT
+            and (
+                checked_compiler_sha256
+                in BYTE_COMPATIBLE_COMPILER_SHA256
+                or (
+                    not uses_runtime_parent_material(asset_manifest)
+                    and checked_compiler_sha256
+                    in BYTE_COMPATIBLE_COMPILER_SHA256_WITHOUT_RUNTIME_PARENT
+                )
+            )
         )
         if not (compiler_is_current or compiler_is_byte_compatible):
             raise BuildFailure(

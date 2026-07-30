@@ -38,15 +38,15 @@
   "compiler": {
     "format": "ror-cityworld-scene-compiler-v1",
     "path": "tools/compile_cityworld_asset.py",
-    "sha256": "9e65172d4895cac5b033c23485cff4d3744557c76db62cd01ec083f01971ce47"
+    "sha256": "8d90b2fe1b8b43b4c81d766ad0ac1d700282d36c244d6ef2b17ef81e748b2144"
   },
   "connectors": [],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "28f1ab7d880452052904bc2b43edfc7a6e6dd020d2edd5d423fa78bfa587a002",
+    "asset_contract_sha256": "6c23707d0a1fab96aa4ce433d3ae823a0c4fcd33ee714fb21e119e67fbfaacdd",
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.glb",
-      "sha256": "3a4fda2e4d1f2a6a009dad3f39616f3190fc82990d811f37b48e17b9d5cd8e53"
+      "sha256": "ed1f1e41b382ce6b4f4316f17ff03904806dc977373a72a4314136de42709160"
     }
   },
   "limits": {
@@ -61,7 +61,7 @@
   "mesh_format": "MeshSerializer_v1.100-little-endian",
   "ogre_converter": {
     "executable": "OgreXMLConverter",
-    "sha256": "50b375974784925e8a180ca886f849b78ff61a3f94fa5e4b8abea710d800264a",
+    "sha256": "15dbcde2ea124f0645d0c0f2ee809effee35123b0799f542742b5d2dd42b507f",
     "version": "OgreXMLConverter Tsathoggua (14.5.2)"
   },
   "options": {
@@ -89,25 +89,25 @@
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_collision_fixture.mesh",
       "role": "collision-fixture",
-      "sha256": "a0b96dfcd09b4d4e4e3b287bcaa20184030e4911bd1e997d4f8c9aada048b33f",
-      "size": 936
+      "sha256": "0012abd3d7a62a9c64284de8790550851139efb33a9e86eea2298ef97e22a173",
+      "size": 11304
     },
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod0.mesh",
       "role": "render-lod0",
-      "sha256": "d13943de2ce42d73fd19f82f482c57fcf800a64261be36d10fb73a6a0fc5ddd5",
+      "sha256": "c1a6d39d77c205343363aff7819c57af2381742189bf1ab93ba45fa8f6cc94f2",
       "size": 538361
     },
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod1.mesh",
       "role": "render-lod1",
-      "sha256": "61fae48df47dcdf80fdde6d45bdbdabde00add5e23b7493dada9df738a9118a9",
+      "sha256": "084352f751c4083870b9db30ea66131e6cd0c5ac8147700361503858cb6318aa",
       "size": 23812
     },
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod2.mesh",
       "role": "render-lod2",
-      "sha256": "52847f8a989554b89ae4ba4eec9b4328493dac005a8b1f28cd2d9c63560047e3",
+      "sha256": "51b4bf8f5971470d0a445bb7674fab5d68be5f955cefb64dcb769eca272f1b0b",
       "size": 14972
     }
   ],
@@ -204,16 +204,16 @@
     }
   ],
   "source_stats": {
-    "indices": 13512,
+    "indices": 14088,
     "materials": 9,
     "meshes": 4,
     "primitives": 22,
-    "vertices": 11378
+    "vertices": 11762
   },
   "xml_intermediate_sha256": {
-    "rorng_city_infill_service_station_90x65_collision_fixture.mesh.xml": "1ee2cec337e874cdbe2ff22946d8a118c246790bb1f8c4e0f735a0b8ba111db6",
-    "rorng_city_infill_service_station_90x65_lod0.mesh.xml": "db4d41697632b58b07655c8de1c1edd3d2b7e0737b16177549d812f85c8e8b0b",
-    "rorng_city_infill_service_station_90x65_lod1.mesh.xml": "212d13806a95c43cc28dc0ad1369dd3215c1f000a9eb8730a683328daa23cbb2",
-    "rorng_city_infill_service_station_90x65_lod2.mesh.xml": "b5e80217859cfc513658f0eef255d80bae85f920bae76c4e737049d6abc2ea1e"
+    "rorng_city_infill_service_station_90x65_collision_fixture.mesh.xml": "3ed65bf94da1a3398b305f02f2009f8465970cbd9d573c5c58aa419e8a1f7a2a",
+    "rorng_city_infill_service_station_90x65_lod0.mesh.xml": "1610e50f7b1f04284a793e4678e638c8ba53fc00790d38a77d7d5dba44bea742",
+    "rorng_city_infill_service_station_90x65_lod1.mesh.xml": "1072d15240c71863f7396a182b81954bdc1382187092600435e25802b7e64fea",
+    "rorng_city_infill_service_station_90x65_lod2.mesh.xml": "5715ef60f6925ae97f0a54356eda033dc067de9fe96a7d215a9ec5c49118a375"
   }
 }

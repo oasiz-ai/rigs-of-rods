@@ -289,6 +289,48 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         ):
             SCENE.runtime_layout(root, "freebsd14")
 
+    def test_isolated_environment_outranks_snap_and_portable_config(
+        self,
+    ) -> None:
+        isolated = Path("/isolated-scene-home")
+        with mock.patch.dict(
+            SCENE.os.environ,
+            {
+                "KEEP_ME": "yes",
+                "SNAP_USER_COMMON": "/real/snap/home",
+            },
+            clear=True,
+        ):
+            environment = SCENE.isolated_runtime_environment(isolated)
+        self.assertEqual(environment["KEEP_ME"], "yes")
+        self.assertNotIn("SNAP_USER_COMMON", environment)
+        self.assertEqual(
+            environment["ROR_D0_SCENE_HOME"],
+            str(isolated),
+        )
+        self.assertEqual(environment["ALSOFT_DRIVERS"], "null")
+        self.assertEqual(environment["ALSOFT_LOGLEVEL"], "0")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "bin" / "RoR"
+            executable.parent.mkdir()
+            (executable.parent / "config").mkdir()
+            for target in ("linux", "win32"):
+                with self.subTest(target=target):
+                    with self.assertRaisesRegex(
+                        SCENE.BridgeSceneFailure,
+                        "portable executable config",
+                    ):
+                        SCENE.require_isolated_runtime_executable(
+                            executable,
+                            target,
+                        )
+            SCENE.require_isolated_runtime_executable(
+                executable,
+                "darwin",
+            )
+
     def test_main_rejects_unknown_platform_before_creating_artifacts(
         self,
     ) -> None:

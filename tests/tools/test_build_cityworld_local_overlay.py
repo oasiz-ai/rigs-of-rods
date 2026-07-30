@@ -437,6 +437,9 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
         plan = BUILDER.regional_infill.build_infill_plan()
         audit = BUILDER.regional_infill.audit_plan(plan)
         manifest = BUILDER.regional_infill.build_manifest(plan)
+        authored_assets = {
+            asset.asset_id: asset for asset in plan.assets
+        }
         assets = []
         for (
             asset_id,
@@ -496,6 +499,49 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 }
                 for light_id in light_ids
             ]
+            authored = authored_assets[asset_id]
+            collision_component_count = len(
+                authored.collision_components
+            )
+            collision_components = [
+                {
+                    "bounds_blender_z_up": {
+                        "min": [
+                            component.collision_center_local_x_m
+                            - component.collision_width_m / 2.0,
+                            -component.collision_center_local_z_m
+                            - component.collision_depth_m / 2.0,
+                            0.0,
+                        ],
+                        "max": [
+                            component.collision_center_local_x_m
+                            + component.collision_width_m / 2.0,
+                            -component.collision_center_local_z_m
+                            + component.collision_depth_m / 2.0,
+                            1.0,
+                        ],
+                    },
+                    "component_id": component.component_id,
+                    "triangles": 12,
+                }
+                for component in authored.collision_components
+            ]
+            aggregate_bounds = {
+                "min": [
+                    min(
+                        component["bounds_blender_z_up"]["min"][axis]
+                        for component in collision_components
+                    )
+                    for axis in range(3)
+                ],
+                "max": [
+                    max(
+                        component["bounds_blender_z_up"]["max"][axis]
+                        for component in collision_components
+                    )
+                    for axis in range(3)
+                ],
+            }
             assets.append(
                 BUILDER.PreparedAsset(
                     asset_id=asset_id,
@@ -509,6 +555,32 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                             "profile": profile,
                         },
                         "generator": {},
+                        "collision": {
+                            "components": collision_components,
+                            "components_format":
+                                "ror-cityworld-collision-components-v1",
+                            "objects": [
+                                {
+                                    "bounds_blender_z_up": aggregate_bounds,
+                                    "name":
+                                        f"{asset_id}_collision_fixture",
+                                    "role": "collision-fixture",
+                                    "topology": {
+                                        "connected_components":
+                                            collision_component_count,
+                                        "intersecting_faces": 0,
+                                        "outward_winding": True,
+                                        "watertight": True,
+                                    },
+                                    "triangles":
+                                        collision_component_count * 12,
+                                }
+                            ],
+                            "profile": authored.collision_profile,
+                            "purpose":
+                                "bounded-landmark-or-building-envelope",
+                            "separate_from_render_mesh": True,
+                        },
                         "manifest": {
                             "path": manifest_path,
                             "sha256": "3" * 64,
@@ -704,6 +776,98 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
         )
         self.assertIsNone(road_seam.centerline_length_m)
         self.assertIsNone(road_seam.profile)
+
+        (
+            infill_plan,
+            infill_audit,
+            infill_manifest,
+            infill_assets,
+        ) = BUILDER.prepare_regional_infill_assets(REPOSITORY_ROOT)
+        self.assertEqual(len(infill_assets), 5)
+        self.assertEqual(
+            BUILDER.validate_regional_infill_manifest_contract(
+                infill_plan,
+                infill_audit,
+                infill_manifest,
+            ),
+            BUILDER.regional_infill.canonical_manifest_sha256(
+                infill_plan
+            ),
+        )
+        authored_infill_assets = {
+            asset.asset_id: asset for asset in infill_plan.assets
+        }
+        self.assertEqual(
+            {
+                asset.asset_id: (
+                    asset.provenance["collision"]["profile"],
+                    asset.provenance["collision"]["objects"][0][
+                        "topology"
+                    ]["connected_components"],
+                )
+                for asset in infill_assets
+            },
+            {
+                asset_id: (
+                    authored.collision_profile,
+                    len(authored.collision_components),
+                )
+                for asset_id, authored in authored_infill_assets.items()
+            },
+        )
+        suburb = next(
+            asset
+            for asset in infill_assets
+            if asset.asset_id == BUILDER.regional_infill.SUBURB_ASSET_ID
+        )
+        stale_provenance = copy.deepcopy(suburb.provenance)
+        stale_provenance["collision"]["profile"] = (
+            "single-watertight-proxy-v1"
+        )
+        with self.assertRaisesRegex(
+            BUILDER.OverlayFailure,
+            "collision manifest profile drifted",
+        ):
+            BUILDER.validate_regional_infill_asset_collision(
+                replace(suburb, provenance=stale_provenance),
+                authored_infill_assets[suburb.asset_id],
+            )
+        stale_provenance = copy.deepcopy(suburb.provenance)
+        stale_provenance["collision"]["components"][0][
+            "component_id"
+        ] = "wrong-house"
+        with self.assertRaisesRegex(
+            BUILDER.OverlayFailure,
+            "collision component 0 drifted",
+        ):
+            BUILDER.validate_regional_infill_asset_collision(
+                replace(suburb, provenance=stale_provenance),
+                authored_infill_assets[suburb.asset_id],
+            )
+        stale_provenance = copy.deepcopy(suburb.provenance)
+        stale_provenance["collision"]["components"][0][
+            "bounds_blender_z_up"
+        ]["min"][0] -= 1.0
+        with self.assertRaisesRegex(
+            BUILDER.OverlayFailure,
+            "bounds do not match the canonical plan",
+        ):
+            BUILDER.validate_regional_infill_asset_collision(
+                replace(suburb, provenance=stale_provenance),
+                authored_infill_assets[suburb.asset_id],
+            )
+        stale_provenance = copy.deepcopy(suburb.provenance)
+        stale_provenance["collision"]["objects"][0][
+            "bounds_blender_z_up"
+        ]["max"][0] += 1.0
+        with self.assertRaisesRegex(
+            BUILDER.OverlayFailure,
+            "aggregate collision bounds drifted",
+        ):
+            BUILDER.validate_regional_infill_asset_collision(
+                replace(suburb, provenance=stale_provenance),
+                authored_infill_assets[suburb.asset_id],
+            )
 
         tree_plan = BUILDER.read_native_tree_plan(REPOSITORY_ROOT)
         tree_family = BUILDER.prepare_tree_family(
@@ -1201,6 +1365,35 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     1.0,
                     places=8,
                 )
+            infill_report = report["regional_infill"]
+            self.assertEqual(
+                infill_report["canonical_manifest_sha256"],
+                BUILDER.regional_infill.canonical_manifest_sha256(),
+            )
+            self.assertEqual(
+                infill_report["manifest"]["sha256"],
+                infill_report["canonical_manifest_sha256"],
+            )
+            connector_audit = infill_report["audit"]["connectors"]
+            connector_statuses = [
+                connector.status
+                for connector in
+                BUILDER.regional_infill.build_infill_plan().connectors
+            ]
+            self.assertEqual(
+                connector_audit["active"],
+                connector_statuses.count("active"),
+            )
+            self.assertEqual(
+                connector_audit["pending"],
+                connector_statuses.count("pending"),
+            )
+            self.assertEqual(
+                connector_audit[
+                    "non_designated_route_asset_intersection_count"
+                ],
+                0,
+            )
             self.assertEqual(
                 report["source"]["references"],
                 {
@@ -1227,8 +1420,8 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             usage = report["visual_asset_usage"]
             self.assertEqual(
                 usage["corridor_placement_mode"],
-                "native-procedural-v6-two-corridor-open-seams-side-piers-with-"
-                "blender-transition-v2-and-regional-infill-v1",
+                "native-procedural-v7-two-corridor-open-seams-side-piers-with-"
+                "blender-transition-v2-and-regional-infill-v2",
             )
             self.assertIn(
                 BUILDER.PENGUIN_ROAD_SEAM_ASSET_ID,
@@ -1241,6 +1434,14 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             self.assertIn("open procedural collision endcaps", usage["purpose"])
             self.assertIn(
                 "procedural road2 surface and marking atlas",
+                usage["purpose"],
+            )
+            self.assertIn(
+                "one-millimetre seam gates",
+                usage["purpose"],
+            )
+            self.assertIn(
+                "exact compound suburb/station collision components",
                 usage["purpose"],
             )
             self.assertIn("a second raised bridge", usage["purpose"])
@@ -1511,7 +1712,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
 
         self.assertEqual(
             result["format"],
-            "ror-cityworld-local-overlay-build-result-v6",
+            "ror-cityworld-local-overlay-build-result-v7",
         )
         self.assertEqual(
             manifest["format"],
@@ -1590,7 +1791,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
             descriptor,
         )
         self.assertIn(
-            "GUID = rorng-cityworld-next-local-overlay-v6",
+            "GUID = rorng-cityworld-next-local-overlay-v7",
             descriptor,
         )
         lighting_report = report["city_lighting"]["neoq_core"]

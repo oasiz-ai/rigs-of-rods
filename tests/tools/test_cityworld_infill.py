@@ -30,6 +30,13 @@ EXPECTED_ROUTE_IDS = (
     "intercity-farm-road",
     "sagebrush-arroyo-trail",
 )
+EXPECTED_CONNECTOR_IDS = (
+    "sunset-frontage-west-service-forecourt",
+    "sunset-frontage-sunset-courts-internal-street",
+    "arroyo-vista-internal-street",
+    "intercity-service-forecourt",
+    "intercity-farm-lane",
+)
 EXPECTED_PLACEMENT_IDS = (
     "west-farm-belt-farmstead-01",
     "west-farm-belt-farmstead-02",
@@ -153,17 +160,206 @@ class CityWorldInfillTests(unittest.TestCase):
                 INFILL.ARROYO_OASIS_ASSET_ID,
             ),
         )
+        self.assertEqual(
+            tuple(
+                connector.connector_id
+                for connector in self.plan.connectors
+            ),
+            EXPECTED_CONNECTOR_IDS,
+        )
+        self.assertEqual(
+            [connector.status for connector in self.plan.connectors],
+            ["active", "active", "active", "active", "active"],
+        )
+
+    def test_connector_route_topology_and_corrected_collision_basis(self) -> None:
+        routes = {route.route_id: route for route in self.plan.routes}
+        placements = {
+            placement.placement_id: placement
+            for placement in self.plan.placements
+        }
+        self.assertEqual(
+            tuple(
+                (point.x, point.z)
+                for point in routes["sunset-frontage-road"].points
+            ),
+            (
+                (706.967, 1425.0),
+                (730.0, 1425.0),
+                (750.0, 1510.0),
+                (772.5, 1510.0),
+                (837.5, 1510.0),
+                (860.0, 1510.0),
+                (880.0, 1510.0),
+                (910.0, 1510.0),
+                (910.0, 1528.0),
+            ),
+        )
+        self.assertEqual(
+            tuple(
+                (point.x, point.z)
+                for point in routes["arroyo-vista-boulevard"].points
+            ),
+            (
+                (4732.97, 3500.0),
+                (4630.0, 3500.0),
+                (4550.0, 3500.0),
+                (4440.0, 3500.0),
+                (4240.0, 3500.0),
+                (4140.0, 3500.0),
+                (4140.0, 3425.0),
+                (4140.0, 3402.0),
+            ),
+        )
+        self.assertEqual(
+            tuple(
+                (point.x, point.z)
+                for point in routes["intercity-service-road"].points
+            ),
+            (
+                (3688.97, 3580.0),
+                (3720.0, 3580.0),
+                (3740.0, 3580.0),
+            ),
+        )
+        self.assertEqual(
+            tuple(
+                (point.x, point.z)
+                for point in routes["intercity-farm-road"].points
+            ),
+            (
+                (3723.199038, 4350.0),
+                (3800.0, 4350.0),
+                (3860.0, 4350.0),
+                (3880.0, 4350.0),
+                (3880.0, 4285.0),
+                (3916.0, 4285.0),
+            ),
+        )
+        self.assertEqual(
+            (
+                placements["west-highway-service-station-01"].x,
+                placements["west-highway-service-station-01"].z,
+            ),
+            (805.0, 1460.0),
+        )
+        self.assertEqual(
+            (
+                placements["intercity-service-station-01"].x,
+                placements["intercity-service-station-01"].z,
+            ),
+            (3785.0, 3580.0),
+        )
+        assets = {asset.asset_id: asset for asset in self.plan.assets}
+        self.assertEqual(
+            {
+                asset_id: asset.collision_profile
+                for asset_id, asset in assets.items()
+            },
+            {
+                INFILL.FARMSTEAD_ASSET_ID:
+                    "single-watertight-proxy-v1",
+                INFILL.SUBURB_ASSET_ID:
+                    "compound-watertight-proxy-v1",
+                INFILL.SERVICE_STATION_ASSET_ID:
+                    "compound-watertight-proxy-v1",
+                INFILL.RED_MESA_ASSET_ID:
+                    "single-watertight-proxy-v1",
+                INFILL.ARROYO_OASIS_ASSET_ID:
+                    "single-watertight-proxy-v1",
+            },
+        )
+        self.assertEqual(
+            {
+                INFILL.FARMSTEAD_ASSET_ID:
+                    assets[INFILL.FARMSTEAD_ASSET_ID]
+                    .collision_components[0]
+                    .collision_center_local_z_m,
+                INFILL.SERVICE_STATION_ASSET_ID:
+                    assets[INFILL.SERVICE_STATION_ASSET_ID]
+                    .collision_components[0]
+                    .collision_center_local_z_m,
+                INFILL.RED_MESA_ASSET_ID:
+                    assets[INFILL.RED_MESA_ASSET_ID]
+                    .collision_components[0]
+                    .collision_center_local_z_m,
+                INFILL.ARROYO_OASIS_ASSET_ID:
+                    assets[INFILL.ARROYO_OASIS_ASSET_ID]
+                    .collision_components[0]
+                    .collision_center_local_z_m,
+            },
+            {
+                INFILL.FARMSTEAD_ASSET_ID: -26.0,
+                INFILL.SERVICE_STATION_ASSET_ID: -22.0,
+                INFILL.RED_MESA_ASSET_ID: -0.8,
+                INFILL.ARROYO_OASIS_ASSET_ID: 3.2,
+            },
+        )
+        suburb_components = assets[
+            INFILL.SUBURB_ASSET_ID
+        ].collision_components
+        self.assertEqual(len(suburb_components), 8)
+        self.assertEqual(
+            {
+                (
+                    component.collision_center_local_x_m,
+                    component.collision_center_local_z_m,
+                    component.collision_width_m,
+                    component.collision_depth_m,
+                )
+                for component in suburb_components
+            },
+            {
+                (-27.0, 24.0, 24.0, 17.0),
+                (27.0, 24.0, 24.0, 17.0),
+                (-27.0, 0.0, 24.0, 17.0),
+                (27.0, 0.0, 24.0, 17.0),
+                (-27.0, -24.0, 24.0, 17.0),
+                (27.0, -24.0, 24.0, 17.0),
+                (-47.0, 0.0, 1.5, 84.0),
+                (47.0, 0.0, 1.5, 84.0),
+            },
+        )
+        station_components = {
+            component.component_id: component
+            for component in assets[
+                INFILL.SERVICE_STATION_ASSET_ID
+            ].collision_components
+        }
+        self.assertEqual(len(station_components), 17)
+        self.assertEqual(
+            {
+                component_id: (
+                    station_components[component_id]
+                    .collision_center_local_x_m,
+                    station_components[component_id]
+                    .collision_center_local_z_m,
+                )
+                for component_id in (
+                    "market",
+                    "canopy",
+                    "price-pylon",
+                    "ev-charger-03",
+                )
+            },
+            {
+                "market": (0.0, -22.0),
+                "canopy": (3.0, 4.0),
+                "price-pylon": (-38.0, 24.0),
+                "ev-charger-03": (37.6, -24.0),
+            },
+        )
 
     def test_render_and_collision_footprints_fit_without_overlap(self) -> None:
         sites = {site.site_id: site for site in self.plan.sites}
         for placement in self.plan.placements:
             with self.subTest(placement=placement.placement_id):
                 site = sites[placement.site_id]
-                for collision in (False, True):
-                    footprint = INFILL.placement_footprint(
-                        placement,
-                        collision=collision,
-                    )
+                footprints = (
+                    INFILL.placement_footprint(placement),
+                    *INFILL.placement_collision_footprints(placement),
+                )
+                for footprint in footprints:
                     self.assertTrue(
                         all(
                             INFILL.point_in_polygon(
@@ -187,15 +383,15 @@ class CityWorldInfillTests(unittest.TestCase):
                         )
                     )
                     self.assertFalse(
-                        INFILL.polygons_overlap(
-                            INFILL.placement_footprint(
-                                first,
-                                collision=True,
-                            ),
-                            INFILL.placement_footprint(
-                                second,
-                                collision=True,
-                            ),
+                        any(
+                            INFILL.polygons_overlap(
+                                first_component,
+                                second_component,
+                            )
+                            for first_component in
+                            INFILL.placement_collision_footprints(first)
+                            for second_component in
+                            INFILL.placement_collision_footprints(second)
                         )
                     )
 
@@ -212,7 +408,7 @@ class CityWorldInfillTests(unittest.TestCase):
             INFILL.audit_plan(self.plan)["collision"][
                 "minimum_collision_proxy_clearance_m"
             ],
-            38.0,
+            36.0,
         )
 
     def test_authenticated_surface_seams_are_route_endpoints(self) -> None:
@@ -310,6 +506,11 @@ class CityWorldInfillTests(unittest.TestCase):
         )
 
     def test_access_roads_are_flat_open_and_clear_every_asset(self) -> None:
+        active_connector_pairs = {
+            (connector.route_id, connector.placement_id)
+            for connector in self.plan.connectors
+            if connector.status == "active"
+        }
         for route in self.plan.routes:
             with self.subTest(route=route.route_id):
                 self.assertTrue(route.collision_enabled)
@@ -339,7 +540,29 @@ class CityWorldInfillTests(unittest.TestCase):
                         )
                     )
                 )
+                self.assertTrue(
+                    all(
+                        INFILL.polygon_is_strictly_convex(
+                            INFILL.route_segment_surface_footprint(
+                                route,
+                                segment_index,
+                            )
+                        )
+                        for segment_index in range(
+                            len(route.points) - 1
+                        )
+                    )
+                )
                 for placement in self.plan.placements:
+                    INFILL.route_collision_component_clearance_m(
+                        route,
+                        placement,
+                    )
+                    if (
+                        route.route_id,
+                        placement.placement_id,
+                    ) in active_connector_pairs:
+                        continue
                     self.assertGreaterEqual(
                         INFILL.route_placement_clearance_m(
                             route,
@@ -357,14 +580,79 @@ class CityWorldInfillTests(unittest.TestCase):
             report["geometry"][
                 "minimum_access_road_to_render_footprint_clearance_m"
             ],
-            13.0,
+            23.0,
+        )
+        connector_report = report["connectors"]
+        self.assertEqual(
+            {
+                key: connector_report[key]
+                for key in (
+                    "active",
+                    "format",
+                    "maximum_allowed_seam_gap_m",
+                    "maximum_observed_active_seam_gap_m",
+                    "non_designated_route_asset_intersection_count",
+                    "pending",
+                )
+            },
+            {
+                "active": 5,
+                "format": INFILL.CONNECTOR_FORMAT,
+                "maximum_allowed_seam_gap_m": 0.001,
+                "maximum_observed_active_seam_gap_m": 0.0,
+                "non_designated_route_asset_intersection_count": 0,
+                "pending": 0,
+            },
+        )
+        connector_evidence = {
+            contract["connector_id"]: contract
+            for contract in connector_report["contracts"]
+        }
+        self.assertEqual(
+            tuple(connector_evidence),
+            EXPECTED_CONNECTOR_IDS,
+        )
+        for connector_id in EXPECTED_CONNECTOR_IDS:
+            with self.subTest(connector=connector_id):
+                evidence = connector_evidence[connector_id]
+                self.assertEqual(evidence["status"], "active")
+                self.assertLessEqual(evidence["seam_gap_m"], 0.001)
+                self.assertEqual(
+                    evidence["collision_proxy_overlap_count"],
+                    0,
+                )
+        farm = connector_evidence["intercity-farm-lane"]
+        self.assertEqual(
+            farm["route_world_seam_xz_m"],
+            [[3916.0, 4289.0], [3916.0, 4281.0]],
+        )
+        self.assertEqual(farm["target_world_seam_xz_m"], [
+            [3916.0, 4289.0],
+            [3916.0, 4281.0],
+        ])
+        self.assertEqual(farm["road_width_m"], 8.0)
+        self.assertEqual(
+            farm["minimum_collision_proxy_clearance_m"],
+            49.197256021,
         )
         self.assertEqual(
             report["collision"],
             {
                 "collision_endcaps_enabled": False,
+                "collision_component_count": 28,
+                "collision_profiles": {
+                    "compound-watertight-proxy-v1": 2,
+                    "single-watertight-proxy-v1": 3,
+                },
                 "directive": "collision_endcaps_enabled false",
-                "minimum_collision_proxy_clearance_m": 38.0,
+                "generated_road_collision_proxy_overlap_count": 0,
+                "minimum_generated_road_to_collision_proxy_clearance_m":
+                    5.4,
+                "minimum_generated_road_to_collision_proxy_pair": [
+                    "sunset-frontage-road",
+                    "west-highway-service-station-01",
+                ],
+                "minimum_collision_proxy_clearance_m": 36.0,
                 "minimum_collision_proxy_pair": [
                     "sunset-courts-suburb-block-01",
                     "sunset-courts-suburb-block-04",
@@ -383,10 +671,59 @@ class CityWorldInfillTests(unittest.TestCase):
         decoded = json.loads(first)
         self.assertEqual(decoded, INFILL.build_manifest())
         self.assertEqual(decoded["format"], INFILL.FORMAT)
-        self.assertEqual(decoded["version"], 1)
+        self.assertEqual(decoded["version"], INFILL.VERSION)
+        self.assertEqual(
+            {
+                key: decoded["connectors"][key]
+                for key in (
+                    "collision_policy",
+                    "format",
+                    "maximum_seam_gap_m",
+                )
+            },
+            {
+                "collision_policy":
+                    "no-generated-road-overlap-with-building-proxies",
+                "format": INFILL.CONNECTOR_FORMAT,
+                "maximum_seam_gap_m": 0.001,
+            },
+        )
+        self.assertEqual(
+            [
+                contract["status"]
+                for contract in decoded["connectors"]["contracts"]
+            ],
+            ["active", "active", "active", "active", "active"],
+        )
+        manifest_assets = {
+            asset["asset_id"]: asset
+            for asset in decoded["assets"]
+        }
+        self.assertEqual(
+            manifest_assets[INFILL.SUBURB_ASSET_ID][
+                "collision_profile"
+            ],
+            "compound-watertight-proxy-v1",
+        )
+        self.assertEqual(
+            len(
+                manifest_assets[INFILL.SUBURB_ASSET_ID][
+                    "collision_components"
+                ]
+            ),
+            8,
+        )
+        self.assertTrue(
+            all(
+                placement["collision_footprint_semantics"]
+                == "conservative-component-outer-bounds"
+                and placement["collision_component_footprints_xz_m"]
+                for placement in decoded["placements"]
+            )
+        )
         self.assertEqual(
             INFILL.canonical_manifest_sha256(),
-            "a77ad7fe20acd87a580d80b4e491cd43f0f77d69a32f12984d9760264f853fef",
+            "735fca0fd917763cdfe02d8d3cbd7871ebd7f4feb3ccf4fc73771de9c9c0c0af",
         )
         self.assertEqual(
             decoded["provenance"]["source_archive"],
@@ -423,6 +760,162 @@ class CityWorldInfillTests(unittest.TestCase):
             "footprint left",
         ):
             INFILL.audit_plan(outside_plan)
+
+        moved_farm_component = replace(
+            self.plan.assets[0].collision_components[0],
+            collision_center_local_x_m=0.0,
+            collision_center_local_z_m=0.0,
+        )
+        moved_farm_asset = replace(
+            self.plan.assets[0],
+            collision_components=(moved_farm_component,),
+        )
+        moved_asset_plan = replace(
+            self.plan,
+            assets=(moved_farm_asset, *self.plan.assets[1:]),
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "asset contract drifted",
+        ):
+            INFILL.audit_plan(moved_asset_plan)
+
+        station_index = next(
+            index
+            for index, placement in enumerate(self.plan.placements)
+            if placement.placement_id
+            == "west-highway-service-station-01"
+        )
+        shifted_station = replace(
+            self.plan.placements[station_index],
+            x=self.plan.placements[station_index].x + 0.002,
+        )
+        shifted_placements = list(self.plan.placements)
+        shifted_placements[station_index] = shifted_station
+        seam_gap_plan = replace(
+            self.plan,
+            placements=tuple(shifted_placements),
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "seam gap exceeds one millimetre",
+        ):
+            INFILL.audit_plan(seam_gap_plan)
+
+        farm_connector_index = next(
+            index
+            for index, connector in enumerate(self.plan.connectors)
+            if connector.connector_id == "intercity-farm-lane"
+        )
+        blocked_farm = replace(
+            self.plan.connectors[farm_connector_index],
+            status="pending",
+        )
+        blocked_connectors = list(self.plan.connectors)
+        blocked_connectors[farm_connector_index] = blocked_farm
+        blocked_farm_plan = replace(
+            self.plan,
+            connectors=tuple(blocked_connectors),
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "connector set drifted",
+        ):
+            INFILL.audit_plan(blocked_farm_plan)
+
+        farm_route_index = next(
+            index
+            for index, route in enumerate(self.plan.routes)
+            if route.route_id == "intercity-farm-road"
+        )
+        farm_route = self.plan.routes[farm_route_index]
+        concave_farm_route = INFILL._build_route(
+            route_id=farm_route.route_id,
+            source_anchor_id=farm_route.source_anchor_id,
+            destination_site_id=farm_route.destination_site_id,
+            served_site_ids=farm_route.served_site_ids,
+            xz_points=(
+                (3723.199038, 4350.0),
+                (3800.0, 4350.0),
+                (3860.0, 4350.0),
+                (3908.0, 4350.0),
+                (3908.0, 4285.0),
+                (3916.0, 4285.0),
+            ),
+            width_m=8.0,
+            comments=farm_route.comments,
+        )
+        concave_farm_routes = list(self.plan.routes)
+        concave_farm_routes[farm_route_index] = concave_farm_route
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "surface quad is not strictly convex",
+        ):
+            INFILL.audit_plan(
+                replace(
+                    self.plan,
+                    routes=tuple(concave_farm_routes),
+                )
+            )
+
+        unsafe_farm_route = INFILL._build_route(
+            route_id=farm_route.route_id,
+            source_anchor_id=farm_route.source_anchor_id,
+            destination_site_id=farm_route.destination_site_id,
+            served_site_ids=farm_route.served_site_ids,
+            xz_points=(
+                *((point.x, point.z) for point in farm_route.points[:-1]),
+                (3916.002, 4285.0),
+            ),
+            width_m=8.0,
+            comments=farm_route.comments,
+        )
+        unsafe_farm_routes = list(self.plan.routes)
+        unsafe_farm_routes[farm_route_index] = unsafe_farm_route
+        unsafe_farm_plan = replace(
+            self.plan,
+            routes=tuple(unsafe_farm_routes),
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "render overlap depth drifted",
+        ):
+            INFILL.audit_plan(unsafe_farm_plan)
+
+        west_route_index = next(
+            index
+            for index, route in enumerate(self.plan.routes)
+            if route.route_id == "west-farm-spine"
+        )
+        west_route = self.plan.routes[west_route_index]
+        colliding_west_route = INFILL._build_route(
+            route_id=west_route.route_id,
+            source_anchor_id=west_route.source_anchor_id,
+            destination_site_id=west_route.destination_site_id,
+            served_site_ids=west_route.served_site_ids,
+            xz_points=(
+                (500.0, 365.14801),
+                (500.0, 330.0),
+                (668.0, 104.0),
+                (1150.0, 300.0),
+            ),
+            width_m=8.0,
+            comments=west_route.comments,
+        )
+        colliding_routes = list(self.plan.routes)
+        colliding_routes[west_route_index] = colliding_west_route
+        colliding_plan = replace(
+            self.plan,
+            routes=tuple(colliding_routes),
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            (
+                "overlaps building collision component "
+                "west-farm-belt-farmstead-01/farmhouse"
+            ),
+        ):
+            INFILL.audit_plan(colliding_plan)
 
 
 if __name__ == "__main__":

@@ -69,6 +69,14 @@ BYTE_COMPATIBLE_COMPILER_SHA256_WITHOUT_RUNTIME_PARENT = frozenset(
         "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059",
     }
 )
+# This prior revision differs only in where the read-only ``-v`` converter
+# probe writes its diagnostic log. Mesh lowering and every emitted byte are
+# unchanged, including assets that opt into ``runtime_parent_material``.
+BYTE_COMPATIBLE_COMPILER_SHA256 = frozenset(
+    {
+        "9e65172d4895cac5b033c23485cff4d3744557c76db62cd01ec083f01971ce47",
+    }
+)
 
 
 class CompileFailure(RuntimeError):
@@ -1004,16 +1012,23 @@ class SceneCompiler:
 def converter_identity(converter: Path) -> dict[str, str]:
     if not converter.is_file() or converter.is_symlink():
         raise CompileFailure(f"OgreXMLConverter is missing or unsafe: {converter}")
-    try:
-        result = subprocess.run(
-            [str(converter), "-v"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        raise CompileFailure(f"cannot execute OgreXMLConverter: {error}") from error
+    converter_command = str(converter.resolve())
+    with tempfile.TemporaryDirectory(
+        prefix="ror-ogre-converter-identity-"
+    ) as temporary_directory:
+        try:
+            result = subprocess.run(
+                [converter_command, "-v"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=temporary_directory,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise CompileFailure(
+                f"cannot execute OgreXMLConverter: {error}"
+            ) from error
     version = result.stdout.strip()
     if result.returncode != 0 or version != OGRE_CONVERTER_VERSION:
         raise CompileFailure(
@@ -1389,9 +1404,12 @@ def validate_checked_outputs(
     checked_compiler_sha256 = compiler_record.get("sha256")
     compiler_is_current = checked_compiler_sha256 == current_compiler_sha256
     compiler_is_byte_compatible = (
-        not uses_runtime_parent_material(compiler.manifest)
-        and checked_compiler_sha256
-        in BYTE_COMPATIBLE_COMPILER_SHA256_WITHOUT_RUNTIME_PARENT
+        checked_compiler_sha256 in BYTE_COMPATIBLE_COMPILER_SHA256
+        or (
+            not uses_runtime_parent_material(compiler.manifest)
+            and checked_compiler_sha256
+            in BYTE_COMPATIBLE_COMPILER_SHA256_WITHOUT_RUNTIME_PARENT
+        )
     )
     if (
         compiler_record.get("format") != COMPILER_FORMAT

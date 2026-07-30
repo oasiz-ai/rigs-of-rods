@@ -52,10 +52,12 @@ CANONICALIZER_SPEC.loader.exec_module(CANONICALIZER)
 ASSET_VERSION = 1
 FAMILY_ID = "rorng_city_regional_infill_family"
 GENERATOR_ID = "ror-cityworld-regional-infill-generator-v1"
+COLLISION_COMPONENTS_FORMAT = "ror-cityworld-collision-components-v1"
 AUTHORING_DEPENDENCY_PATHS = (
     BASE_GENERATOR_PATH,
     CANONICALIZER_PATH,
 )
+PINNED_BLENDER_VERSION = "5.2.0 LTS"
 
 VARIANTS: tuple[dict[str, Any], ...] = (
     {
@@ -683,22 +685,111 @@ def farmstead_lod(
     mats: dict[str, bpy.types.Material],
 ) -> list[bpy.types.Object]:
     parts: list[bpy.types.Object] = []
+    driveway_min_x = -36.0
+    driveway_max_x = -28.0
+    driveway_min_y = -43.0
+    driveway_max_y = 17.5
+    driveway_branch_min_y = -39.0
+    driveway_branch_max_y = -31.0
     add_box(
         parts,
-        f"lod{lod}_field_base",
-        (98.0, 86.0, 0.12),
-        (0.0, 0.0, 0.06),
+        f"lod{lod}_field_base_west_front",
+        (13.0, driveway_branch_min_y - driveway_min_y, 0.12),
+        (
+            -42.5,
+            (driveway_min_y + driveway_branch_min_y) * 0.5,
+            -0.06,
+        ),
         mats["soil"],
+        collection,
+    )
+    add_box(
+        parts,
+        f"lod{lod}_field_base_west_rear",
+        (13.0, 43.0 - driveway_branch_max_y, 0.12),
+        (
+            -42.5,
+            (driveway_branch_max_y + 43.0) * 0.5,
+            -0.06,
+        ),
+        mats["soil"],
+        collection,
+    )
+    add_box(
+        parts,
+        f"lod{lod}_field_base_east",
+        (77.0, 86.0, 0.12),
+        (10.5, 0.0, -0.06),
+        mats["soil"],
+        collection,
+    )
+    add_box(
+        parts,
+        f"lod{lod}_field_base_barn_apron",
+        (
+            driveway_max_x - driveway_min_x,
+            43.0 - driveway_max_y,
+            0.12,
+        ),
+        (
+            (driveway_min_x + driveway_max_x) * 0.5,
+            (driveway_max_y + 43.0) * 0.5,
+            -0.06,
+        ),
+        mats["soil"],
+        collection,
+    )
+    add_box(
+        parts,
+        f"lod{lod}_driveway",
+        (
+            driveway_max_x - driveway_min_x,
+            driveway_max_y - driveway_min_y,
+            0.04,
+        ),
+        (
+            (driveway_min_x + driveway_max_x) * 0.5,
+            (driveway_min_y + driveway_max_y) * 0.5,
+            -0.02,
+        ),
+        mats["asphalt"],
+        collection,
+    )
+    add_box(
+        parts,
+        f"lod{lod}_driveway_west_branch",
+        (
+            driveway_min_x - (-49.0),
+            driveway_branch_max_y - driveway_branch_min_y,
+            0.04,
+        ),
+        (
+            (-49.0 + driveway_min_x) * 0.5,
+            (driveway_branch_min_y + driveway_branch_max_y) * 0.5,
+            -0.02,
+        ),
+        mats["asphalt"],
         collection,
     )
     row_count = 22 if lod == 0 else 9 if lod == 1 else 3
     for index in range(row_count):
         x = -45.0 + 90.0 * (index + 0.5) / row_count
+        row_width = 2.5 if lod == 0 else 5.0
+        if (
+            x + row_width * 0.5 > driveway_min_x
+            and x - row_width * 0.5 < driveway_max_x
+        ):
+            continue
+        row_depth = 72.0
+        row_y = -3.0
+        if x + row_width * 0.5 <= driveway_min_x:
+            row_depth = 64.0
+            row_y = 1.0
         add_box(
             parts,
             f"lod{lod}_crop_row_{index}",
-            (2.5 if lod == 0 else 5.0, 72.0, 0.52 if lod == 0 else 0.3),
-            (x, -3.0, 0.32 if lod == 0 else 0.21),
+            (row_width, row_depth, 0.52 if lod == 0 else 0.3),
+            (x, row_y, 0.26 if lod == 0 else 0.15),
             mats["crop_green" if index % 3 else "crop_gold"],
             collection,
             bevel=0.08 if lod == 0 else 0.0,
@@ -764,25 +855,31 @@ def farmstead_lod(
     if lod == 0:
         for index in range(24):
             x = -46.0 + index * 4.0
+            if driveway_min_x < x < driveway_max_x:
+                continue
             add_cylinder(
                 parts,
                 f"lod0_fence_post_{index}",
                 radius=0.09,
                 depth=1.5,
-                location=(x, -44.0, 0.75),
+                location=(x, -42.0, 0.75),
                 mat=mats["trunk"],
                 collection=collection,
                 vertices=8,
             )
         for rail_z in (0.55, 1.12):
-            add_box(
-                parts,
-                f"lod0_fence_rail_{rail_z}",
-                (94.0, 0.11, 0.11),
-                (0.0, -42.0, rail_z),
-                mats["trunk"],
-                collection,
-            )
+            for side, start_x, end_x in (
+                ("west", -47.0, driveway_min_x),
+                ("east", driveway_max_x, 47.0),
+            ):
+                add_box(
+                    parts,
+                    f"lod0_fence_rail_{side}_{rail_z}",
+                    (end_x - start_x, 0.11, 0.11),
+                    ((start_x + end_x) * 0.5, -42.0, rail_z),
+                    mats["trunk"],
+                    collection,
+                )
     return parts
 
 
@@ -796,16 +893,16 @@ def suburb_lod(
     add_box(
         parts,
         f"lod{lod}_landscape",
-        (96.0, 88.0, 0.12),
-        (0.0, 0.0, 0.06),
+        (96.0, 88.0, 0.11),
+        (0.0, 0.0, -0.065),
         mats["sand"],
         collection,
     )
     add_box(
         parts,
         f"lod{lod}_shared_lane",
-        (10.0, 84.0, 0.09),
-        (0.0, 0.0, 0.115),
+        (10.0, 84.0, 0.04),
+        (0.0, 0.0, -0.02),
         mats["asphalt"],
         collection,
     )
@@ -828,10 +925,10 @@ def suburb_lod(
             mats=mats,
         ))
     palm_positions = (
-        (-45.0, -38.0),
-        (45.0, -15.0),
-        (-45.0, 12.0),
-        (45.0, 38.0),
+        (-43.5, -38.0),
+        (43.5, -15.0),
+        (-43.5, 12.0),
+        (43.5, 38.0),
     )
     for index, (x, y) in enumerate(palm_positions[: 4 if lod == 0 else 2 if lod == 1 else 1]):
         add_palm(
@@ -870,7 +967,7 @@ def station_lod(
         parts,
         f"lod{lod}_forecourt",
         (90.0, 65.0, 0.12),
-        (0.0, 0.0, 0.06),
+        (0.0, 0.0, -0.06),
         mats["concrete"],
         collection,
     )
@@ -1012,7 +1109,7 @@ def mesa_lod(
         parts,
         f"lod{lod}_desert_base",
         (19.0, 19.0, 0.14),
-        (0.0, 0.0, 0.07),
+        (0.0, 0.0, -0.07),
         mats["sand"],
         collection,
     )
@@ -1106,7 +1203,7 @@ def oasis_lod(
         parts,
         f"lod{lod}_arroyo_base",
         (19.0, 19.0, 0.14),
-        (0.0, 0.0, 0.07),
+        (0.0, 0.0, -0.07),
         mats["sand"],
         collection,
     )
@@ -1213,39 +1310,172 @@ def build_collision(
     spec: dict[str, Any],
     collection: bpy.types.Collection,
     mat: bpy.types.Material,
-) -> list[bpy.types.Object]:
+) -> tuple[list[bpy.types.Object], list[dict[str, Any]]]:
     asset_id = str(spec["asset_id"])
     category = str(spec["category"])
+    components: list[bpy.types.Object] = []
     if category == "farmland":
-        dimensions = (23.2, 16.2, 8.2)
-        location = (-32.0, 26.0, 4.1)
-    elif category == "suburb":
-        dimensions = (94.0, 82.0, 9.5)
-        location = (0.0, 0.0, 4.75)
-    elif category == "service-station":
-        dimensions = (30.5, 16.5, 6.8)
-        location = (0.0, 22.0, 3.4)
-    elif asset_id.endswith("red_mesa_19m"):
-        dimensions = (11.5, 9.0, 14.0)
-        location = (-2.4, 0.8, 7.0)
-    else:
-        dimensions = (1.8, 1.8, 7.2)
-        location = (-4.6, -3.2, 3.6)
-    proxy = BASE.make_box(
-        "collision_fixture_component",
-        dimensions=dimensions,
-        location=location,
-        material=mat,
-        collection=collection,
-    )
-    return [
-        BASE.join_components(
-            [proxy],
-            name=f"{asset_id}_collision_fixture",
-            role="collision-fixture",
-            lod=None,
+        components.append(
+            BASE.make_box(
+                "collision_farmhouse",
+                dimensions=(23.2, 16.2, 8.2),
+                location=(-32.0, 26.0, 4.1),
+                material=mat,
+                collection=collection,
+            )
         )
-    ]
+    elif category == "suburb":
+        for index, (x, y) in enumerate(
+            (
+                (-27.0, -24.0),
+                (27.0, -24.0),
+                (-27.0, 0.0),
+                (27.0, 0.0),
+                (-27.0, 24.0),
+                (27.0, 24.0),
+            )
+        ):
+            components.append(
+                BASE.make_box(
+                    f"collision_house_{index:02d}",
+                    dimensions=(24.0, 17.0, 9.5),
+                    location=(x, y, 4.75),
+                    material=mat,
+                    collection=collection,
+                )
+            )
+        for side, x in (("west", -47.0), ("east", 47.0)):
+            components.append(
+                BASE.make_box(
+                    f"collision_{side}_perimeter_wall",
+                    dimensions=(1.5, 84.0, 1.8),
+                    location=(x, 0.0, 0.9),
+                    material=mat,
+                    collection=collection,
+                )
+            )
+    elif category == "service-station":
+        components.extend(
+            (
+                BASE.make_box(
+                    "collision_market",
+                    dimensions=(32.5, 18.2, 7.275),
+                    location=(0.0, 22.0, 3.6375),
+                    material=mat,
+                    collection=collection,
+                ),
+                BASE.make_box(
+                    "collision_canopy",
+                    dimensions=(44.3, 23.3, 0.55),
+                    location=(3.0, -4.0, 5.82),
+                    material=mat,
+                    collection=collection,
+                ),
+            )
+        )
+        for index, (x, y) in enumerate(
+            ((-15.0, -11.0), (21.0, -11.0), (-15.0, 3.0), (21.0, 3.0))
+        ):
+            components.append(
+                BASE.make_box(
+                    f"collision_canopy_column_{index:02d}",
+                    dimensions=(0.84, 0.84, 5.25),
+                    location=(x, y, 2.625),
+                    material=mat,
+                    collection=collection,
+                )
+            )
+        for index in range(6):
+            x = -12.0 + (index % 3) * 12.0
+            y = -8.0 + (index // 3) * 8.0
+            components.append(
+                BASE.make_box(
+                    f"collision_fuel_pump_{index:02d}",
+                    dimensions=(1.35, 0.9, 2.2),
+                    location=(x, y, 1.1),
+                    material=mat,
+                    collection=collection,
+                )
+            )
+        components.append(
+            BASE.make_box(
+                "collision_price_pylon",
+                dimensions=(3.2, 1.1, 10.5),
+                location=(-38.0, -24.0, 5.25),
+                material=mat,
+                collection=collection,
+            )
+        )
+        for index in range(4):
+            components.append(
+                BASE.make_box(
+                    f"collision_ev_charger_{index:02d}",
+                    dimensions=(0.72, 0.7, 1.7),
+                    location=(28.0 + index * 3.2, 24.0, 0.85),
+                    material=mat,
+                    collection=collection,
+                )
+            )
+    elif asset_id.endswith("red_mesa_19m"):
+        components.append(
+            BASE.make_box(
+                "collision_mesa",
+                dimensions=(11.5, 9.0, 14.0),
+                location=(-2.4, 0.8, 7.0),
+                material=mat,
+                collection=collection,
+            )
+        )
+    else:
+        components.append(
+            BASE.make_box(
+                "collision_palm_trunk",
+                dimensions=(1.8, 1.8, 7.2),
+                location=(-4.6, -3.2, 3.6),
+                material=mat,
+                collection=collection,
+            )
+        )
+    component_records = []
+    component_ids = []
+    for component in components:
+        if not component.name.startswith("collision_"):
+            raise RuntimeError(
+                f"collision component name is not canonical: {component.name}"
+            )
+        component_id = component.name[len("collision_"):].replace("_", "-")
+        if (
+            not component_id
+            or any(
+                character not in "abcdefghijklmnopqrstuvwxyz0123456789-"
+                for character in component_id
+            )
+        ):
+            raise RuntimeError(
+                f"collision component ID is invalid: {component_id}"
+            )
+        component_ids.append(component_id)
+        component_records.append(
+            {
+                "bounds_blender_z_up": BASE.object_bounds(component),
+                "component_id": component_id,
+                "triangles": BASE.triangle_count(component),
+            }
+        )
+    if len(component_ids) != len(set(component_ids)):
+        raise RuntimeError(f"{asset_id} collision component IDs are duplicated")
+    joined = BASE.join_components(
+        components,
+        name=f"{asset_id}_collision_fixture",
+        role="collision-fixture",
+        lod=None,
+    )
+    joined["rorng_collision_component_ids"] = json.dumps(
+        component_ids,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    return [joined], component_records
 
 
 def add_preview_scene(
@@ -1376,7 +1606,7 @@ def generate_variant(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
         build_render_lod(spec, lod, render_collection, mats)
         for lod in range(3)
     ]
-    collision_objects = build_collision(
+    collision_objects, collision_components = build_collision(
         spec,
         collision_collection,
         mats["collision"],
@@ -1469,7 +1699,19 @@ def generate_variant(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
         "rights_basis": "GPL-3.0-or-later project-authored source",
     }
     manifest["collision"].pop("road_surface_z_m", None)
-    manifest["collision"]["profile"] = "single-watertight-proxy-v1"
+    collision_component_count = len(collision_components)
+    manifest["collision"]["profile"] = (
+        "compound-watertight-proxy-v1"
+        if spec["category"] in {"suburb", "service-station"}
+        else "single-watertight-proxy-v1"
+    )
+    manifest["collision"]["components_format"] = (
+        COLLISION_COMPONENTS_FORMAT
+    )
+    manifest["collision"]["components"] = collision_components
+    manifest["collision"]["objects"][0]["topology"][
+        "connected_components"
+    ] = collision_component_count
     manifest["collision"]["purpose"] = "bounded-landmark-or-building-envelope"
     manifest["connectors"] = []
     lod_entries = manifest["geometry"]["lods"]
@@ -1493,6 +1735,7 @@ def generate_variant(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
                 "footprint_m": [
                     float(value) for value in spec["footprint_m"]
                 ],
+                "foundation_recess_m": 0.12,
                 "ground_plane_z_m": 0.0,
                 "height_limit_m": float(spec["height_m"]),
             }
@@ -1512,7 +1755,7 @@ def generate_variant(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
         "family": FAMILY_ID,
         "fictional_branding": True,
         "label": spec["label"],
-        "placement_integration": "cityworld-local-overlay-v6",
+        "placement_integration": "cityworld-local-overlay-v7",
         "runtime_texture_dependencies": [],
     }
     lights = runtime_lights(spec)
@@ -1570,7 +1813,7 @@ def write_family_contract(root: Path, generated: list[dict[str, Any]]) -> Path:
         },
         "format": "ror-cityworld-regional-infill-family-v1",
         "placement_target": {
-            "integration_status": "asset-ready-overlay-v6",
+            "integration_status": "asset-ready-overlay-v7",
             "source_archive_sha256":
                 "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3",
         },
@@ -1588,6 +1831,11 @@ def main() -> int:
     root = args.output_root.resolve()
     if not (root / ".git").exists():
         raise RuntimeError(f"--output-root is not a repository root: {root}")
+    if bpy.app.version_string != PINNED_BLENDER_VERSION:
+        raise RuntimeError(
+            "regional infill generation requires Blender "
+            f"{PINNED_BLENDER_VERSION}; found {bpy.app.version_string}"
+        )
     generated = [generate_variant(root, spec) for spec in VARIANTS]
     family_path = write_family_contract(root, generated)
     print(

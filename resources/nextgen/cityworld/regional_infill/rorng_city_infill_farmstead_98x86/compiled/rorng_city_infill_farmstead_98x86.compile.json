@@ -38,15 +38,15 @@
   "compiler": {
     "format": "ror-cityworld-scene-compiler-v1",
     "path": "tools/compile_cityworld_asset.py",
-    "sha256": "9e65172d4895cac5b033c23485cff4d3744557c76db62cd01ec083f01971ce47"
+    "sha256": "8d90b2fe1b8b43b4c81d766ad0ac1d700282d36c244d6ef2b17ef81e748b2144"
   },
   "connectors": [],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "2f05cc0578f3ddd8f275b36900fbe2f95689e3f7e373d22943d0ca7b4fe571d5",
+    "asset_contract_sha256": "3e4dd03a648a72b64205355a7ca0bae00a7a6635ea3f23989e5be02da0619186",
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.glb",
-      "sha256": "018f52aa91debb8642ba5ec5c775f84f0020e8423627a359d88ce77f5d330e1d"
+      "sha256": "5ee4700900e53274019b77117e8c71b040479b66c1ccae05ec435e2358f3c77b"
     }
   },
   "limits": {
@@ -61,7 +61,7 @@
   "mesh_format": "MeshSerializer_v1.100-little-endian",
   "ogre_converter": {
     "executable": "OgreXMLConverter",
-    "sha256": "50b375974784925e8a180ca886f849b78ff61a3f94fa5e4b8abea710d800264a",
+    "sha256": "15dbcde2ea124f0645d0c0f2ee809effee35123b0799f542742b5d2dd42b507f",
     "version": "OgreXMLConverter Tsathoggua (14.5.2)"
   },
   "options": {
@@ -77,8 +77,8 @@
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.material",
       "role": "material-fallback",
-      "sha256": "280881e3cae9beef565ce43bdd616b1ee59eec4a04015ac43022b67dc7324541",
-      "size": 1963
+      "sha256": "183e32d7786726205d2056fc7e92a01b1bdee337092a64ddc0b503b64a27dac4",
+      "size": 2162
     },
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.odef",
@@ -95,34 +95,34 @@
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod0.mesh",
       "role": "render-lod0",
-      "sha256": "f2e50d8e144adebe4e750717fdc95706a59537cb3b12f7bc4b27de29277649a8",
-      "size": 555314
+      "sha256": "1526e7dc658cc4ea64a3494e67ea932cab9f4cf82415152fdea71a25233fcb45",
+      "size": 531552
     },
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod1.mesh",
       "role": "render-lod1",
-      "sha256": "4e869650eb5cad26996905f1d6c8a34dcc12a157f17fd5cb918d0c6160bafdf5",
-      "size": 26826
+      "sha256": "d2e6544f4b3bc90d147b81d7dbeb7049aab82dc2c90f7d838e2c60f0e9f8ccf9",
+      "size": 31936
     },
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod2.mesh",
       "role": "render-lod2",
-      "sha256": "97ef70743b145060d953b3f66c478bd145305ad37d3bbb5b7c98d6eb2fb145b7",
-      "size": 9730
+      "sha256": "18e13ccb5cc4d0dd699b45fd45d8177a8201aba1f59d59ec89cfd62eda97c0cb",
+      "size": 14624
     }
   ],
   "runtime_lights": [],
   "source_stats": {
-    "indices": 15912,
-    "materials": 9,
+    "indices": 15636,
+    "materials": 10,
     "meshes": 4,
-    "primitives": 21,
-    "vertices": 11595
+    "primitives": 23,
+    "vertices": 11311
   },
   "xml_intermediate_sha256": {
     "rorng_city_infill_farmstead_98x86_collision_fixture.mesh.xml": "35299c80bfefbea940d2511d13e2183d99253ca1c77b50cc7924b49e2c4b4f9c",
-    "rorng_city_infill_farmstead_98x86_lod0.mesh.xml": "a8b50783a5fcf89827c1330adb188e412ccc220a08ba87f765cceeca7ef63f97",
-    "rorng_city_infill_farmstead_98x86_lod1.mesh.xml": "291b7fc957cf8e344bd57913205ff98f0f0ee73f2c8ef0e242c0e4b8699fbcdc",
-    "rorng_city_infill_farmstead_98x86_lod2.mesh.xml": "83fa89346bdf05bb22ea47ae844f055e794da3eb468b1fcaa1eb2587196a2ead"
+    "rorng_city_infill_farmstead_98x86_lod0.mesh.xml": "710c395ff1ef73ff3c927414d5b70dd66ad7e039d004323786fefffd4db49da8",
+    "rorng_city_infill_farmstead_98x86_lod1.mesh.xml": "a25899091df5fac266808b2b58f942a58fbbb3b954cc930ebebe0cc0c09ef2b7",
+    "rorng_city_infill_farmstead_98x86_lod2.mesh.xml": "c6d187bbb3d05bb9858b0f69d1af3d900133a009e512e518ec136cfe267befce"
   }
 }

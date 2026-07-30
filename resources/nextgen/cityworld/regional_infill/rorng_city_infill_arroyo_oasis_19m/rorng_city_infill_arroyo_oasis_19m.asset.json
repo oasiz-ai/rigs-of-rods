@@ -2,15 +2,15 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m.blend",
-      "sha256": "c6cf0be8706be97d16a690d7629ed461aa034c9848cccd100a700ba35a12cab1"
+      "sha256": "769c3ba0c33af45b0b3702ed0f5baecd78bf5b54651e5ca63fc3c4b50cb27066"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m.glb",
-      "sha256": "93c3691e7d1125f0a87a94fa90c8d6d7eb552d54288314707c7eddffa9efd869"
+      "sha256": "527fe7b69ea59696d8b862e440817119f57b0e79b01f039424867dbfa8c08788"
     },
     "preview": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m_preview.png",
-      "sha256": "eeea3a8d3a2efb15f3fd15fd4e8e3bf5d83e0e3ea78773c0029253fd4079167e"
+      "sha256": "0f8018d8cbdc251ed1bbae230a1f590a3169d2359f36f6e2ab1e20509a1d6937"
     }
   },
   "asset": {
@@ -42,7 +42,7 @@
       ],
       "format": "ror-cityworld-regional-infill-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
-      "sha256": "34d1f72e544a32157a629c9ec5996ade489fdeb61391c048f2139354694bd422"
+      "sha256": "c19056c6921187cc68d9f0acb32b487fae4af2111065d6cd5e217d0b157ddf0a"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -55,6 +55,25 @@
     "units": "metres"
   },
   "collision": {
+    "components": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -3.7,
+            -2.3,
+            7.2
+          ],
+          "min": [
+            -5.5,
+            -4.1,
+            0.0
+          ]
+        },
+        "component_id": "palm-trunk",
+        "triangles": 12
+      }
+    ],
+    "components_format": "ror-cityworld-collision-components-v1",
     "objects": [
       {
         "bounds_blender_z_up": {
@@ -108,25 +127,25 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "285a01899c8b69ef030ec24a9e5d5d89045e4adbce1e0222f9df6b7ba325aa3a",
+        "sha256": "064c4902d4f0382ff867fc7f123be276a9af114b39e4de1046773d67768586c7",
         "size": 1041858
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "cd9a9e94755ed5b877ecac4d5d4fc5a44f8f11d4aa6aebd453b879e8968f1afb",
+        "sha256": "f56e9e6dbce7d97024491d7ba0320e410f3b9676ec8225d337ce8c5c9b592f71",
         "size": 63652
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "7e0e80b6b6a53eee1fed377135e399594e38a5b5d07dcd0b37c35098d2b0a30d",
+        "sha256": "1df387c279352340f25b2b7e1b6f0d0ac58d8d768f55ee81146a2000e59f6f3f",
         "size": 12404
       }
     ],
     "report": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m.compile.json",
-      "sha256": "3a08f989848e4d6d48b9cc8735e5547c93bb89213406cf7125e929d16b37dc57"
+      "sha256": "36c8b2a1d2068836000d7348de08b0a688fb3278bc0076b5d106fd5eb245ec6a"
     }
   },
   "connectors": [],
@@ -168,7 +187,7 @@
           "min": [
             -9.5,
             -9.5,
-            -0.1
+            -0.14
           ]
         },
         "lod": 0,
@@ -185,7 +204,7 @@
           "min": [
             -9.5,
             -9.5,
-            -0.1
+            -0.14
           ]
         },
         "lod": 1,
@@ -202,7 +221,7 @@
           "min": [
             -9.5,
             -9.5,
-            0.0
+            -0.14
           ]
         },
         "lod": 2,
@@ -217,7 +236,7 @@
     "family": "rorng_city_regional_infill_family",
     "fictional_branding": true,
     "label": "Coyote Arroyo Oasis",
-    "placement_integration": "cityworld-local-overlay-v6",
+    "placement_integration": "cityworld-local-overlay-v7",
     "runtime_texture_dependencies": []
   },
   "materials": [

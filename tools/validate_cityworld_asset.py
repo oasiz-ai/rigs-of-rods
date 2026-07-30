@@ -32,8 +32,10 @@ MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_GLB_BYTES = 128 * 1024 * 1024
 MAX_SOURCE_BYTES = 512 * 1024 * 1024
 POSITION_EPSILON = 1e-6
+COLLISION_COMPONENT_EPSILON_M = 1e-5
 MAX_RUNTIME_LIGHTS = 32
 MAX_RUNTIME_LIGHT_LOCAL_COORDINATE_M = 1000.0
+SUPPORTED_BLENDER_VERSION = "5.2.0 LTS"
 RUNTIME_LIGHT_ID_PATTERN = re.compile(r"rorng_[a-z0-9_]+")
 ALLOWED_RUNTIME_PARENT_MATERIALS = frozenset({"road2"})
 CORRIDOR_ASSET_PROFILE = "corridor-module-v1"
@@ -49,10 +51,17 @@ COLLIDING_STATIC_ASSET_PROFILES = {
     STATIC_BUILDING_ASSET_PROFILE,
     FIXTURE_ASSET_PROFILE,
 }
+SINGLE_COLLISION_PROFILE = "single-watertight-proxy-v1"
+COMPOUND_COLLISION_PROFILE = "compound-watertight-proxy-v1"
 SUPPORTED_ASSET_PROFILES = {
     CORRIDOR_ASSET_PROFILE,
     *STATIC_ASSET_PROFILES,
 }
+REGIONAL_INFILL_FAMILY = "rorng_city_regional_infill_family"
+COLLISION_COMPONENTS_FORMAT = "ror-cityworld-collision-components-v1"
+COLLISION_COMPONENT_ID_PATTERN = re.compile(
+    r"[a-z0-9]+(?:-[a-z0-9]+)*"
+)
 
 COMPONENT_TYPES: dict[int, tuple[str, int]] = {
     5120: ("b", 1),
@@ -85,6 +94,16 @@ class Diagnostic:
 
     def as_dict(self) -> dict[str, str]:
         return {"code": self.code, "message": self.message, "path": self.path}
+
+
+@dataclass(frozen=True)
+class CollisionComponentAnalysis:
+    aabb_cuboid: bool
+    bounds_min_blender_z_up: tuple[float, float, float]
+    bounds_max_blender_z_up: tuple[float, float, float]
+    signed_six_volume: float
+    triangle_count: int
+    welded_vertex_count: int
 
 
 def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -439,6 +458,56 @@ class Glb:
             raise ValueError(f"node {node.get('name')} has no valid mesh")
         return meshes[mesh_index]
 
+    def mesh_positions_blender_z_up(
+        self,
+        node: dict[str, Any],
+    ) -> list[tuple[float, float, float]]:
+        if any(
+            key in node
+            for key in ("matrix", "rotation", "scale", "translation")
+        ):
+            raise ValueError(
+                f"node {node.get('name')} has an unapplied transform"
+            )
+        mesh = self.mesh_for_node(node)
+        positions: list[tuple[float, float, float]] = []
+        for primitive in mesh.get("primitives", []):
+            attributes = primitive.get("attributes", {})
+            position_index = attributes.get("POSITION")
+            if not isinstance(position_index, int):
+                raise ValueError("primitive has no POSITION accessor")
+            for value in self.accessor(position_index):
+                if not isinstance(value, tuple) or len(value) != 3:
+                    raise ValueError("POSITION accessor is not VEC3")
+                gltf_x, gltf_y, gltf_z = (
+                    float(value[0]),
+                    float(value[1]),
+                    float(value[2]),
+                )
+                positions.append((gltf_x, -gltf_z, gltf_y))
+        if not positions:
+            raise ValueError(f"node {node.get('name')} has no positions")
+        return positions
+
+    def mesh_bounds_blender_z_up(
+        self,
+        node: dict[str, Any],
+    ) -> tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ]:
+        positions = self.mesh_positions_blender_z_up(node)
+        return (
+            tuple(
+                min(position[axis] for position in positions)
+                for axis in range(3)
+            ),
+            tuple(
+                max(position[axis] for position in positions)
+                for axis in range(3)
+            ),
+        )
+
     def primitive_triangles(self, primitive: dict[str, Any]) -> list[tuple[int, int, int]]:
         if primitive.get("mode", 4) != 4:
             raise ValueError("only TRIANGLES primitives are allowed")
@@ -606,6 +675,13 @@ class Validator:
             if isinstance(authoring_record, dict)
             else {}
         )
+        if authoring.get("blender_version") != SUPPORTED_BLENDER_VERSION:
+            self.add(
+                "BLENDER_VERSION",
+                "$.authoring.blender_version",
+                "asset must be authored with the pinned Blender "
+                f"{SUPPORTED_BLENDER_VERSION} toolchain",
+            )
         generator_record = authoring.get("generator")
         generator = (
             generator_record
@@ -1146,12 +1222,57 @@ class Validator:
             try:
                 mesh = self.glb.mesh_for_node(node)
                 actual_triangles = self.glb.mesh_triangle_count(mesh)
+                actual_bounds = self.glb.mesh_bounds_blender_z_up(node)
             except ValueError as error:
                 self.add("LOD_MESH", pointer, str(error))
                 continue
             counts[lod] = actual_triangles
             if actual_triangles != expected_triangles:
                 self.add("LOD_TRIANGLES", pointer, "manifest triangle count does not match GLB")
+            declared_bounds = entry.get("bounds_blender_z_up")
+            declared_minimum = (
+                declared_bounds.get("min")
+                if isinstance(declared_bounds, dict)
+                else None
+            )
+            declared_maximum = (
+                declared_bounds.get("max")
+                if isinstance(declared_bounds, dict)
+                else None
+            )
+            valid_declared_bounds = (
+                isinstance(declared_minimum, list)
+                and len(declared_minimum) == 3
+                and isinstance(declared_maximum, list)
+                and len(declared_maximum) == 3
+                and all(
+                    not isinstance(value, bool)
+                    and isinstance(value, (int, float))
+                    and math.isfinite(float(value))
+                    for value in declared_minimum + declared_maximum
+                )
+            )
+            if (
+                not valid_declared_bounds
+                or any(
+                    abs(
+                        float(
+                            (declared_minimum, declared_maximum)[bound_index][
+                                axis
+                            ]
+                        )
+                        - actual_bounds[bound_index][axis]
+                    )
+                    > POSITION_EPSILON
+                    for bound_index in range(2)
+                    for axis in range(3)
+                )
+            ):
+                self.add(
+                    "LOD_BOUNDS",
+                    f"{pointer}.bounds_blender_z_up",
+                    "declared LOD bounds do not match GLB positions",
+                )
             extras = node.get("extras", {})
             if extras.get("rorng_role") != "render" or extras.get("rorng_lod") != lod:
                 self.add("LOD_EXTRAS", pointer, "GLB node is missing render/LOD metadata")
@@ -1191,7 +1312,8 @@ class Validator:
         *,
         node: dict[str, Any],
         pointer: str,
-    ) -> None:
+        allow_disconnected: bool = False,
+    ) -> tuple[CollisionComponentAnalysis, ...] | None:
         assert self.glb is not None
         try:
             mesh = self.glb.mesh_for_node(node)
@@ -1231,8 +1353,21 @@ class Validator:
             list[tuple[tuple[int, int, int], tuple[int, int, int]]],
         ] = defaultdict(list)
         adjacency: dict[tuple[int, int, int], set[tuple[int, int, int]]] = defaultdict(set)
+        triangle_records: list[
+            tuple[
+                tuple[
+                    tuple[int, int, int],
+                    tuple[int, int, int],
+                    tuple[int, int, int],
+                ],
+                tuple[
+                    tuple[float, float, float],
+                    tuple[float, float, float],
+                    tuple[float, float, float],
+                ],
+            ]
+        ] = []
         degenerate = 0
-        signed_six_volume = 0.0
         for triangle in triangles:
             try:
                 indices = (triangle[0], triangle[1], triangle[2])
@@ -1246,10 +1381,7 @@ class Validator:
             normal = vector_cross(edge_a, edge_b)
             if vector_length(normal) <= POSITION_EPSILON:
                 degenerate += 1
-            signed_six_volume += vector_dot(
-                points[0],
-                vector_cross(points[1], points[2]),
-            )
+            triangle_records.append((triangle_keys, points))
             for start, end in (
                 (triangle_keys[0], triangle_keys[1]),
                 (triangle_keys[1], triangle_keys[2]),
@@ -1284,24 +1416,340 @@ class Validator:
                 pointer,
                 f"{inconsistent_winding} shared edges have inconsistent winding",
             )
-        elif not open_or_nonmanifold and signed_six_volume <= POSITION_EPSILON:
+
+        unvisited = set(unique_positions)
+        component_keys: list[
+            frozenset[tuple[int, int, int]]
+        ] = []
+        while unvisited:
+            start = next(iter(unvisited))
+            visited = {start}
+            queue: deque[tuple[int, int, int]] = deque([start])
+            while queue:
+                current = queue.popleft()
+                for neighbour in adjacency[current]:
+                    if neighbour not in visited:
+                        visited.add(neighbour)
+                        queue.append(neighbour)
+            unvisited.difference_update(visited)
+            component_keys.append(frozenset(visited))
+        component_keys.sort(
+            key=lambda component: (
+                *(
+                    min(
+                        (
+                            unique_positions[key][0],
+                            -unique_positions[key][2],
+                            unique_positions[key][1],
+                        )[axis]
+                        for key in component
+                    )
+                    for axis in range(3)
+                ),
+                *(
+                    max(
+                        (
+                            unique_positions[key][0],
+                            -unique_positions[key][2],
+                            unique_positions[key][1],
+                        )[axis]
+                        for key in component
+                    )
+                    for axis in range(3)
+                ),
+            )
+        )
+        connected_components = len(component_keys)
+        if not allow_disconnected and connected_components != 1:
+            self.add("COLLISION_CONNECTED", pointer, "collision mesh has multiple welded components")
+        if allow_disconnected and connected_components < 2:
             self.add(
-                "COLLISION_WINDING",
+                "COLLISION_COMPOUND",
                 pointer,
-                "closed collision mesh has non-positive signed volume",
+                "compound collision mesh must have multiple watertight components",
+            )
+        component_by_key = {
+            key: component_index
+            for component_index, component in enumerate(component_keys)
+            for key in component
+        }
+        signed_six_volumes = [0.0] * connected_components
+        triangle_counts = [0] * connected_components
+        for triangle_keys, points in triangle_records:
+            component_indices = {
+                component_by_key[key] for key in triangle_keys
+            }
+            if len(component_indices) != 1:
+                self.add(
+                    "COLLISION_COMPONENT_SPLIT",
+                    pointer,
+                    "collision triangle crosses welded components",
+                )
+                continue
+            component_index = next(iter(component_indices))
+            signed_six_volumes[component_index] += vector_dot(
+                points[0],
+                vector_cross(points[1], points[2]),
+            )
+            triangle_counts[component_index] += 1
+
+        analyses = []
+        for component_index, component in enumerate(component_keys):
+            blender_positions = [
+                (
+                    unique_positions[key][0],
+                    -unique_positions[key][2],
+                    unique_positions[key][1],
+                )
+                for key in component
+            ]
+            bounds_minimum = tuple(
+                min(position[axis] for position in blender_positions)
+                for axis in range(3)
+            )
+            bounds_maximum = tuple(
+                max(position[axis] for position in blender_positions)
+                for axis in range(3)
+            )
+            actual_corner_keys = {
+                self.welded_key(position)
+                for position in blender_positions
+            }
+            expected_corner_keys = {
+                self.welded_key((x, y, z))
+                for x in (bounds_minimum[0], bounds_maximum[0])
+                for y in (bounds_minimum[1], bounds_maximum[1])
+                for z in (bounds_minimum[2], bounds_maximum[2])
+            }
+            aabb_cuboid = (
+                len(actual_corner_keys) == 8
+                and actual_corner_keys == expected_corner_keys
+                and triangle_counts[component_index] == 12
+            )
+            signed_six_volume = signed_six_volumes[component_index]
+            if (
+                not open_or_nonmanifold
+                and not inconsistent_winding
+                and signed_six_volume <= POSITION_EPSILON
+            ):
+                self.add(
+                    "COLLISION_WINDING",
+                    f"{pointer}.components[{component_index}]",
+                    "closed collision component has non-positive signed volume",
+                )
+            analyses.append(
+                CollisionComponentAnalysis(
+                    aabb_cuboid=aabb_cuboid,
+                    bounds_min_blender_z_up=bounds_minimum,
+                    bounds_max_blender_z_up=bounds_maximum,
+                    signed_six_volume=signed_six_volume,
+                    triangle_count=triangle_counts[component_index],
+                    welded_vertex_count=len(actual_corner_keys),
+                )
+            )
+        for first_index, first in enumerate(analyses):
+            for second_index, second in enumerate(analyses[first_index + 1 :]):
+                overlaps = all(
+                    min(
+                        first.bounds_max_blender_z_up[axis],
+                        second.bounds_max_blender_z_up[axis],
+                    )
+                    - max(
+                        first.bounds_min_blender_z_up[axis],
+                        second.bounds_min_blender_z_up[axis],
+                    )
+                    > POSITION_EPSILON
+                    for axis in range(3)
+                )
+                if overlaps:
+                    self.add(
+                        "COLLISION_INTERSECTION",
+                        pointer,
+                        "collision component AABBs overlap: "
+                        f"{first_index}, {first_index + second_index + 1}",
+                    )
+        return tuple(analyses)
+
+    def validate_collision_component_manifest(
+        self,
+        *,
+        collision: dict[str, Any],
+        node: dict[str, Any],
+        analyses: tuple[CollisionComponentAnalysis, ...],
+        pointer: str,
+        required: bool,
+    ) -> None:
+        declared_format = collision.get("components_format")
+        declared = collision.get("components")
+        if not required and declared_format is None and declared is None:
+            return
+        if declared_format != COLLISION_COMPONENTS_FORMAT:
+            self.add(
+                "COLLISION_COMPONENT_FORMAT",
+                "$.collision.components_format",
+                "collision components must use the supported versioned format",
+            )
+        if not isinstance(declared, list):
+            self.add(
+                "COLLISION_COMPONENT_MANIFEST",
+                "$.collision.components",
+                "collision components must be an array",
+            )
+            return
+        if len(declared) != len(analyses):
+            self.add(
+                "COLLISION_COMPONENT_MANIFEST",
+                "$.collision.components",
+                "declared collision component count does not match the GLB",
             )
 
-        start = next(iter(unique_positions))
-        visited = {start}
-        queue: deque[tuple[int, int, int]] = deque([start])
-        while queue:
-            current = queue.popleft()
-            for neighbour in adjacency[current]:
-                if neighbour not in visited:
-                    visited.add(neighbour)
-                    queue.append(neighbour)
-        if len(visited) != len(unique_positions):
-            self.add("COLLISION_CONNECTED", pointer, "collision mesh has multiple welded components")
+        declared_ids: list[str] = []
+        unmatched_analyses = set(range(len(analyses)))
+        for index, record in enumerate(declared):
+            component_pointer = f"$.collision.components[{index}]"
+            if (
+                not isinstance(record, dict)
+                or set(record)
+                != {"bounds_blender_z_up", "component_id", "triangles"}
+            ):
+                self.add(
+                    "COLLISION_COMPONENT_RECORD",
+                    component_pointer,
+                    "collision component fields are malformed",
+                )
+                continue
+            component_id = record.get("component_id")
+            if (
+                not isinstance(component_id, str)
+                or COLLISION_COMPONENT_ID_PATTERN.fullmatch(component_id)
+                is None
+            ):
+                self.add(
+                    "COLLISION_COMPONENT_ID",
+                    f"{component_pointer}.component_id",
+                    "collision component ID is invalid",
+                )
+            else:
+                declared_ids.append(component_id)
+            triangles = record.get("triangles")
+            if (
+                isinstance(triangles, bool)
+                or not isinstance(triangles, int)
+                or triangles <= 0
+            ):
+                self.add(
+                    "COLLISION_COMPONENT_TRIANGLES",
+                    f"{component_pointer}.triangles",
+                    "collision component triangle count is invalid",
+                )
+                triangles = None
+            bounds = record.get("bounds_blender_z_up")
+            minimum = (
+                bounds.get("min")
+                if isinstance(bounds, dict)
+                else None
+            )
+            maximum = (
+                bounds.get("max")
+                if isinstance(bounds, dict)
+                else None
+            )
+            if (
+                not isinstance(bounds, dict)
+                or set(bounds) != {"min", "max"}
+                or not isinstance(minimum, list)
+                or len(minimum) != 3
+                or not isinstance(maximum, list)
+                or len(maximum) != 3
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    for value in (*minimum, *maximum)
+                )
+                or any(
+                    float(minimum[axis]) >= float(maximum[axis])
+                    for axis in range(3)
+                )
+            ):
+                self.add(
+                    "COLLISION_COMPONENT_BOUNDS",
+                    f"{component_pointer}.bounds_blender_z_up",
+                    "collision component bounds are invalid",
+                )
+                continue
+            matches = [
+                analysis_index
+                for analysis_index in unmatched_analyses
+                if all(
+                    abs(
+                        float(
+                            (minimum, maximum)[bound_index][axis]
+                        )
+                        - (
+                            analyses[analysis_index]
+                            .bounds_min_blender_z_up
+                            if bound_index == 0
+                            else analyses[analysis_index]
+                            .bounds_max_blender_z_up
+                        )[axis]
+                    )
+                    <= COLLISION_COMPONENT_EPSILON_M
+                    for bound_index in range(2)
+                    for axis in range(3)
+                )
+            ]
+            if len(matches) != 1:
+                self.add(
+                    "COLLISION_COMPONENT_BOUNDS",
+                    f"{component_pointer}.bounds_blender_z_up",
+                    "declared collision component does not uniquely match GLB geometry",
+                )
+                continue
+            matched_analysis = analyses[matches[0]]
+            unmatched_analyses.remove(matches[0])
+            if triangles != matched_analysis.triangle_count:
+                self.add(
+                    "COLLISION_COMPONENT_TRIANGLES",
+                    f"{component_pointer}.triangles",
+                    "declared component triangle count does not match the GLB",
+                )
+            if required and not matched_analysis.aabb_cuboid:
+                self.add(
+                    "COLLISION_COMPONENT_SHAPE",
+                    component_pointer,
+                    "regional-infill collision component must be an exact "
+                    "eight-corner, twelve-triangle AABB cuboid",
+                )
+        if len(declared_ids) != len(set(declared_ids)):
+            self.add(
+                "COLLISION_COMPONENT_ID",
+                "$.collision.components",
+                "collision component IDs are duplicated",
+            )
+        if unmatched_analyses:
+            self.add(
+                "COLLISION_COMPONENT_COVERAGE",
+                "$.collision.components",
+                "manifest does not exactly cover GLB collision components",
+            )
+
+        extras = node.get("extras")
+        encoded_ids = (
+            extras.get("rorng_collision_component_ids")
+            if isinstance(extras, dict)
+            else None
+        )
+        try:
+            glb_ids = json.loads(encoded_ids)
+        except (TypeError, json.JSONDecodeError):
+            glb_ids = None
+        if glb_ids != declared_ids:
+            self.add(
+                "COLLISION_COMPONENT_EXTRAS",
+                f"{pointer}.extras.rorng_collision_component_ids",
+                "GLB collision component IDs do not match the manifest",
+            )
 
     def validate_collisions(self) -> None:
         assert self.manifest is not None and self.glb is not None
@@ -1346,14 +1794,36 @@ class Validator:
                 "$.collision.profile",
                 "static visuals must use the collisionless visual profile",
             )
+        collision_profile = collision.get("profile")
+        infill_record = self.manifest.get("infill")
+        requires_component_manifest = (
+            isinstance(infill_record, dict)
+            and infill_record.get("family") == REGIONAL_INFILL_FAMILY
+            and profile in COLLIDING_STATIC_ASSET_PROFILES
+        )
+        expected_collision_profiles = (
+            {
+                SINGLE_COLLISION_PROFILE,
+                COMPOUND_COLLISION_PROFILE,
+            }
+            if profile == STATIC_BUILDING_ASSET_PROFILE
+            else {SINGLE_COLLISION_PROFILE}
+        )
         if (
             profile in COLLIDING_STATIC_ASSET_PROFILES
-            and collision.get("profile") != "single-watertight-proxy-v1"
+            and collision_profile not in expected_collision_profiles
         ):
             self.add(
                 "COLLISION_PROFILE",
                 "$.collision.profile",
-                "fixture collision must use the single watertight proxy profile",
+                (
+                    "building collision must use a supported watertight "
+                    "single or compound proxy profile"
+                    if profile == STATIC_BUILDING_ASSET_PROFILE
+                    else
+                    "fixture collision must use the single watertight "
+                    "proxy profile"
+                ),
             )
         bounds: list[tuple[str, list[float], list[float]]] = []
         for index, entry in enumerate(objects):
@@ -1382,15 +1852,78 @@ class Validator:
                     f"{pointer}.role",
                     "static collision role must be collision-fixture",
                 )
-            self.validate_collision_mesh(node=node, pointer=pointer)
+            component_analyses = self.validate_collision_mesh(
+                node=node,
+                pointer=pointer,
+                allow_disconnected=(
+                    profile == STATIC_BUILDING_ASSET_PROFILE
+                    and collision_profile == COMPOUND_COLLISION_PROFILE
+                ),
+            )
+            connected_components = (
+                len(component_analyses)
+                if component_analyses is not None
+                else None
+            )
+            topology = entry.get("topology")
+            if (
+                connected_components is not None
+                and (
+                    not isinstance(topology, dict)
+                    or topology.get("connected_components")
+                    != connected_components
+                )
+            ):
+                self.add(
+                    "COLLISION_COMPONENTS",
+                    f"{pointer}.topology.connected_components",
+                    "declared collision component count does not match GLB",
+                )
+            if (
+                isinstance(topology, dict)
+                and (
+                    set(topology)
+                    != {
+                        "connected_components",
+                        "intersecting_faces",
+                        "outward_winding",
+                        "watertight",
+                    }
+                    or topology.get("intersecting_faces") != 0
+                    or topology.get("outward_winding") is not True
+                    or topology.get("watertight") is not True
+                )
+            ):
+                self.add(
+                    "COLLISION_TOPOLOGY",
+                    f"{pointer}.topology",
+                    "declared collision topology contract is malformed",
+                )
+            if (
+                component_analyses is not None
+                and (
+                    requires_component_manifest
+                    or "components" in collision
+                    or "components_format" in collision
+                )
+            ):
+                self.validate_collision_component_manifest(
+                    collision=collision,
+                    node=node,
+                    analyses=component_analyses,
+                    pointer=pointer,
+                    required=requires_component_manifest,
+                )
+            actual_bounds = None
             try:
                 mesh = self.glb.mesh_for_node(node)
                 triangles = self.glb.mesh_triangle_count(mesh)
+                actual_bounds = self.glb.mesh_bounds_blender_z_up(node)
                 if triangles != entry.get("triangles"):
                     self.add("COLLISION_TRIANGLES", pointer, "triangle count does not match GLB")
                 self.stats["triangles"] += triangles
             except ValueError as error:
-                self.add("COLLISION_TRIANGLES", pointer, str(error))
+                self.add("COLLISION_GEOMETRY", pointer, str(error))
             declared_bounds = entry.get("bounds_blender_z_up")
             if not isinstance(declared_bounds, dict):
                 self.add(
@@ -1409,10 +1942,30 @@ class Validator:
                 and all(
                     not isinstance(value, bool)
                     and isinstance(value, (int, float))
+                    and math.isfinite(float(value))
                     for value in minimum + maximum
                 )
             ):
                 bounds.append((name, [float(v) for v in minimum], [float(v) for v in maximum]))
+                if (
+                    actual_bounds is None
+                    or any(
+                        abs(
+                            float(
+                                (minimum, maximum)[bound_index][axis]
+                            )
+                            - actual_bounds[bound_index][axis]
+                        )
+                        > POSITION_EPSILON
+                        for bound_index in range(2)
+                        for axis in range(3)
+                    )
+                ):
+                    self.add(
+                        "COLLISION_BOUNDS",
+                        f"{pointer}.bounds_blender_z_up",
+                        "declared collision bounds do not match GLB positions",
+                    )
             else:
                 self.add(
                     "COLLISION_BOUNDS",
@@ -1479,20 +2032,31 @@ class Validator:
                 footprint = geometry.get("footprint_m")
                 height = geometry.get("height_limit_m")
                 ground = geometry.get("ground_plane_z_m")
-                if (
-                    not isinstance(footprint, list)
-                    or len(footprint) != 2
-                    or any(
-                        isinstance(value, bool)
-                        or not isinstance(value, (int, float))
-                        or not 1.0 <= float(value) <= 100.0
+                foundation_recess = geometry.get(
+                    "foundation_recess_m",
+                    0.0,
+                )
+                valid_footprint = (
+                    isinstance(footprint, list)
+                    and len(footprint) == 2
+                    and all(
+                        not isinstance(value, bool)
+                        and isinstance(value, (int, float))
+                        and 1.0 <= float(value) <= 100.0
                         for value in footprint
                     )
-                ):
+                )
+                if not valid_footprint:
                     self.add(
                         "BUILDING_FOOTPRINT",
                         "$.geometry.footprint_m",
                         "building footprint must contain two dimensions from 1 to 100 metres",
+                    )
+                    footprint_values = None
+                else:
+                    footprint_values = (
+                        float(footprint[0]),
+                        float(footprint[1]),
                     )
                 if (
                     isinstance(height, bool)
@@ -1514,6 +2078,19 @@ class Validator:
                         "$.geometry.ground_plane_z_m",
                         "building ground plane must be exactly zero metres",
                     )
+                if (
+                    isinstance(foundation_recess, bool)
+                    or not isinstance(foundation_recess, (int, float))
+                    or not 0.0 <= float(foundation_recess) <= 0.5
+                ):
+                    self.add(
+                        "BUILDING_FOUNDATION_RECESS",
+                        "$.geometry.foundation_recess_m",
+                        "building foundation recess must be from 0 to 0.5 metres",
+                    )
+                    foundation_recess_value = 0.0
+                else:
+                    foundation_recess_value = float(foundation_recess)
                 lods = geometry.get("lods")
                 if isinstance(lods, list):
                     for index, lod in enumerate(lods):
@@ -1533,14 +2110,62 @@ class Validator:
                             else None
                         )
                         if (
+                            footprint_values is not None
+                            and isinstance(minimum, list)
+                            and len(minimum) == 3
+                            and isinstance(maximum, list)
+                            and len(maximum) == 3
+                            and all(
+                                not isinstance(value, bool)
+                                and isinstance(value, (int, float))
+                                for value in (
+                                    minimum[0],
+                                    minimum[1],
+                                    maximum[0],
+                                    maximum[1],
+                                )
+                            )
+                            and (
+                                float(minimum[0])
+                                < -footprint_values[0] * 0.5
+                                - POSITION_EPSILON
+                                or float(maximum[0])
+                                > footprint_values[0] * 0.5
+                                + POSITION_EPSILON
+                                or float(minimum[1])
+                                < -footprint_values[1] * 0.5
+                                - POSITION_EPSILON
+                                or float(maximum[1])
+                                > footprint_values[1] * 0.5
+                                + POSITION_EPSILON
+                            )
+                        ):
+                            self.add(
+                                "BUILDING_RENDER_FOOTPRINT",
+                                f"$.geometry.lods[{index}]",
+                                (
+                                    "building render LOD exceeds the "
+                                    "declared horizontal footprint"
+                                ),
+                            )
+                        if (
                             not isinstance(minimum, list)
                             or len(minimum) != 3
-                            or minimum[2] != 0.0
+                            or not isinstance(minimum[2], (int, float))
+                            or isinstance(minimum[2], bool)
+                            or abs(
+                                float(minimum[2])
+                                + foundation_recess_value
+                            )
+                            > POSITION_EPSILON
                         ):
                             self.add(
                                 "BUILDING_RENDER_GROUND",
                                 f"$.geometry.lods[{index}]",
-                                "building render LOD must begin at ground Z=0",
+                                (
+                                    "building render LOD must begin at the "
+                                    "declared recessed foundation datum"
+                                ),
                             )
                         if (
                             isinstance(height, (int, float))
@@ -1590,6 +2215,9 @@ class Validator:
                     "$.geometry.fixture_height_m",
                     "fixture height must be from 0.1 to 50 metres",
                 )
+                height_value = None
+            else:
+                height_value = float(height)
             if (
                 isinstance(footprint, bool)
                 or not isinstance(footprint, (int, float))
@@ -1600,6 +2228,91 @@ class Validator:
                     "$.geometry.footprint_diameter_m",
                     "fixture footprint must be from 0.01 to 20 metres",
                 )
+                footprint_value = None
+            else:
+                footprint_value = float(footprint)
+            lods = geometry.get("lods")
+            if height_value is not None and isinstance(lods, list):
+                for index, lod in enumerate(lods):
+                    bounds = (
+                        lod.get("bounds_blender_z_up")
+                        if isinstance(lod, dict)
+                        else None
+                    )
+                    maximum = (
+                        bounds.get("max")
+                        if isinstance(bounds, dict)
+                        else None
+                    )
+                    if (
+                        not isinstance(maximum, list)
+                        or len(maximum) != 3
+                        or isinstance(maximum[2], bool)
+                        or not isinstance(maximum[2], (int, float))
+                        or float(maximum[2])
+                        > height_value + POSITION_EPSILON
+                    ):
+                        self.add(
+                            "FIXTURE_RENDER_HEIGHT",
+                            f"$.geometry.lods[{index}]",
+                            "fixture render LOD exceeds declared height",
+                        )
+            collision = self.manifest.get("collision")
+            collision_objects = (
+                collision.get("objects")
+                if isinstance(collision, dict)
+                else None
+            )
+            if (
+                footprint_value is not None
+                and isinstance(collision_objects, list)
+            ):
+                half_footprint = footprint_value * 0.5
+                for index, collision_object in enumerate(collision_objects):
+                    bounds = (
+                        collision_object.get("bounds_blender_z_up")
+                        if isinstance(collision_object, dict)
+                        else None
+                    )
+                    minimum = (
+                        bounds.get("min")
+                        if isinstance(bounds, dict)
+                        else None
+                    )
+                    maximum = (
+                        bounds.get("max")
+                        if isinstance(bounds, dict)
+                        else None
+                    )
+                    if (
+                        not isinstance(minimum, list)
+                        or len(minimum) != 3
+                        or not isinstance(maximum, list)
+                        or len(maximum) != 3
+                        or any(
+                            isinstance(value, bool)
+                            or not isinstance(value, (int, float))
+                            for value in (
+                                minimum[0],
+                                minimum[1],
+                                maximum[0],
+                                maximum[1],
+                            )
+                        )
+                        or float(minimum[0])
+                        < -half_footprint - POSITION_EPSILON
+                        or float(maximum[0])
+                        > half_footprint + POSITION_EPSILON
+                        or float(minimum[1])
+                        < -half_footprint - POSITION_EPSILON
+                        or float(maximum[1])
+                        > half_footprint + POSITION_EPSILON
+                    ):
+                        self.add(
+                            "FIXTURE_COLLISION_FOOTPRINT",
+                            f"$.collision.objects[{index}]",
+                            "fixture collision exceeds declared footprint",
+                        )
             forbidden = sorted(
                 {
                     "bridge_length_m",

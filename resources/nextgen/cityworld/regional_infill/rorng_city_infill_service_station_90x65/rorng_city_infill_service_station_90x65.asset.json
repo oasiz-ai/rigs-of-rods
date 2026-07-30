@@ -2,15 +2,15 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.blend",
-      "sha256": "147307ab9a5e50bd6cc35b641db7c5517fc4367785fc48b2583af43dbfcf1e51"
+      "sha256": "a170e727e3e8ee320ea971a7322f99516b27c9fe141a418713ba41843cd837a1"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.glb",
-      "sha256": "3a4fda2e4d1f2a6a009dad3f39616f3190fc82990d811f37b48e17b9d5cd8e53"
+      "sha256": "ed1f1e41b382ce6b4f4316f17ff03904806dc977373a72a4314136de42709160"
     },
     "preview": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65_preview.png",
-      "sha256": "4cc6786ae12a0192b92f3ec3a2900700fd3c458e97ae07d2c11add14d0deab72"
+      "sha256": "e4e58f09ca45b6d23852afadc440bb55275380fe80e3864337afdd700f46f275"
     }
   },
   "asset": {
@@ -42,7 +42,7 @@
       ],
       "format": "ror-cityworld-regional-infill-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
-      "sha256": "34d1f72e544a32157a629c9ec5996ade489fdeb61391c048f2139354694bd422"
+      "sha256": "c19056c6921187cc68d9f0acb32b487fae4af2111065d6cd5e217d0b157ddf0a"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -55,32 +55,307 @@
     "units": "metres"
   },
   "collision": {
+    "components": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            16.25,
+            31.1,
+            7.275
+          ],
+          "min": [
+            -16.25,
+            12.9,
+            0.0
+          ]
+        },
+        "component_id": "market",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            25.15,
+            7.65,
+            6.095
+          ],
+          "min": [
+            -19.15,
+            -15.65,
+            5.545
+          ]
+        },
+        "component_id": "canopy",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -14.58,
+            -10.58,
+            5.25
+          ],
+          "min": [
+            -15.42,
+            -11.42,
+            0.0
+          ]
+        },
+        "component_id": "canopy-column-00",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            21.42,
+            -10.58,
+            5.25
+          ],
+          "min": [
+            20.58,
+            -11.42,
+            0.0
+          ]
+        },
+        "component_id": "canopy-column-01",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -14.58,
+            3.42,
+            5.25
+          ],
+          "min": [
+            -15.42,
+            2.58,
+            0.0
+          ]
+        },
+        "component_id": "canopy-column-02",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            21.42,
+            3.42,
+            5.25
+          ],
+          "min": [
+            20.58,
+            2.58,
+            0.0
+          ]
+        },
+        "component_id": "canopy-column-03",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -11.325,
+            -7.55,
+            2.2
+          ],
+          "min": [
+            -12.675,
+            -8.45,
+            0.0
+          ]
+        },
+        "component_id": "fuel-pump-00",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            0.675,
+            -7.55,
+            2.2
+          ],
+          "min": [
+            -0.675,
+            -8.45,
+            0.0
+          ]
+        },
+        "component_id": "fuel-pump-01",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            12.675,
+            -7.55,
+            2.2
+          ],
+          "min": [
+            11.325,
+            -8.45,
+            0.0
+          ]
+        },
+        "component_id": "fuel-pump-02",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -11.325,
+            0.45,
+            2.2
+          ],
+          "min": [
+            -12.675,
+            -0.45,
+            0.0
+          ]
+        },
+        "component_id": "fuel-pump-03",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            0.675,
+            0.45,
+            2.2
+          ],
+          "min": [
+            -0.675,
+            -0.45,
+            0.0
+          ]
+        },
+        "component_id": "fuel-pump-04",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            12.675,
+            0.45,
+            2.2
+          ],
+          "min": [
+            11.325,
+            -0.45,
+            0.0
+          ]
+        },
+        "component_id": "fuel-pump-05",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -36.400002,
+            -23.450001,
+            10.5
+          ],
+          "min": [
+            -39.599998,
+            -24.549999,
+            0.0
+          ]
+        },
+        "component_id": "price-pylon",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            28.360001,
+            24.35,
+            1.7
+          ],
+          "min": [
+            27.639999,
+            23.65,
+            0.0
+          ]
+        },
+        "component_id": "ev-charger-00",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            31.560001,
+            24.35,
+            1.7
+          ],
+          "min": [
+            30.84,
+            23.65,
+            0.0
+          ]
+        },
+        "component_id": "ev-charger-01",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            34.760002,
+            24.35,
+            1.7
+          ],
+          "min": [
+            34.040001,
+            23.65,
+            0.0
+          ]
+        },
+        "component_id": "ev-charger-02",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            37.959999,
+            24.35,
+            1.7
+          ],
+          "min": [
+            37.239998,
+            23.65,
+            0.0
+          ]
+        },
+        "component_id": "ev-charger-03",
+        "triangles": 12
+      }
+    ],
+    "components_format": "ror-cityworld-collision-components-v1",
     "objects": [
       {
         "bounds_blender_z_up": {
           "max": [
-            15.25,
-            30.25,
-            6.8
+            37.959999,
+            31.1,
+            10.5
           ],
           "min": [
-            -15.25,
-            13.75,
+            -39.599998,
+            -24.549999,
             0.0
           ]
         },
         "name": "rorng_city_infill_service_station_90x65_collision_fixture",
         "role": "collision-fixture",
         "topology": {
-          "connected_components": 1,
+          "connected_components": 17,
           "intersecting_faces": 0,
           "outward_winding": true,
           "watertight": true
         },
-        "triangles": 12
+        "triangles": 204
       }
     ],
-    "profile": "single-watertight-proxy-v1",
+    "profile": "compound-watertight-proxy-v1",
     "purpose": "bounded-landmark-or-building-envelope",
     "separate_from_render_mesh": true
   },
@@ -102,31 +377,31 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_collision_fixture.mesh",
         "role": "collision-fixture",
-        "sha256": "a0b96dfcd09b4d4e4e3b287bcaa20184030e4911bd1e997d4f8c9aada048b33f",
-        "size": 936
+        "sha256": "0012abd3d7a62a9c64284de8790550851139efb33a9e86eea2298ef97e22a173",
+        "size": 11304
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "d13943de2ce42d73fd19f82f482c57fcf800a64261be36d10fb73a6a0fc5ddd5",
+        "sha256": "c1a6d39d77c205343363aff7819c57af2381742189bf1ab93ba45fa8f6cc94f2",
         "size": 538361
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "61fae48df47dcdf80fdde6d45bdbdabde00add5e23b7493dada9df738a9118a9",
+        "sha256": "084352f751c4083870b9db30ea66131e6cd0c5ac8147700361503858cb6318aa",
         "size": 23812
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "52847f8a989554b89ae4ba4eec9b4328493dac005a8b1f28cd2d9c63560047e3",
+        "sha256": "51b4bf8f5971470d0a445bb7674fab5d68be5f955cefb64dcb769eca272f1b0b",
         "size": 14972
       }
     ],
     "report": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65.compile.json",
-      "sha256": "4800a36ddb885ae8eafab58cf5eba15eae354d7361b7402baa13778dbe4c44d7"
+      "sha256": "73e0edcfc67c5acc5c4c57da480a68f54aedb146a68edf1a9013054ee5a0509f"
     }
   },
   "connectors": [],
@@ -156,6 +431,7 @@
       90.0,
       65.0
     ],
+    "foundation_recess_m": 0.12,
     "ground_plane_z_m": 0.0,
     "height_limit_m": 15.0,
     "lod0_triangle_ceiling": 80000,
@@ -172,7 +448,7 @@
           "min": [
             -45.0,
             -32.5,
-            0.0
+            -0.12
           ]
         },
         "lod": 0,
@@ -189,7 +465,7 @@
           "min": [
             -45.0,
             -32.5,
-            0.0
+            -0.12
           ]
         },
         "lod": 1,
@@ -206,7 +482,7 @@
           "min": [
             -45.0,
             -32.5,
-            0.0
+            -0.12
           ]
         },
         "lod": 2,
@@ -221,7 +497,7 @@
     "family": "rorng_city_regional_infill_family",
     "fictional_branding": true,
     "label": "Horizon Energy and Market",
-    "placement_integration": "cityworld-local-overlay-v6",
+    "placement_integration": "cityworld-local-overlay-v7",
     "runtime_texture_dependencies": []
   },
   "materials": [

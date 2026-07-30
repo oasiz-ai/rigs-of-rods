@@ -342,7 +342,7 @@ The 33-fixture alternating light schedule is unchanged. Synthetic archives
 make hostile and deterministic cases portable; the exact private archive is
 additionally authenticated when installed locally.
 
-`tests/tools/test_build_cityworld_local_overlay.py` then proves that overlay v5
+`tests/tools/test_build_cityworld_local_overlay.py` then proves that overlay v7
 packages both intercity routes into one deterministic, local-only ZIP without
 copying the private source archive. `tests/tools/test_run_cityworld_corridor_scene.py`
 independently validates the complete report, 48 runtime bridge lights, and

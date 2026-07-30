@@ -21,7 +21,7 @@
       ],
       "format": "ror-cityworld-regional-infill-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
-      "sha256": "34d1f72e544a32157a629c9ec5996ade489fdeb61391c048f2139354694bd422"
+      "sha256": "c19056c6921187cc68d9f0acb32b487fae4af2111065d6cd5e217d0b157ddf0a"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -33,7 +33,7 @@
   },
   "format": "ror-cityworld-regional-infill-family-v1",
   "placement_target": {
-    "integration_status": "asset-ready-overlay-v6",
+    "integration_status": "asset-ready-overlay-v7",
     "source_archive_sha256": "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3"
   },
   "variants": [
@@ -41,9 +41,9 @@
       "asset_id": "rorng_city_infill_farmstead_98x86",
       "category": "farmland",
       "lod_triangles": [
-        4884,
-        324,
-        84
+        4696,
+        372,
+        132
       ],
       "manifest": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.asset.json"
     },

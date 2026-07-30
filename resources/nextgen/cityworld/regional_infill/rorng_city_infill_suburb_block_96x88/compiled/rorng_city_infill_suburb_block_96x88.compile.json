@@ -38,15 +38,15 @@
   "compiler": {
     "format": "ror-cityworld-scene-compiler-v1",
     "path": "tools/compile_cityworld_asset.py",
-    "sha256": "9e65172d4895cac5b033c23485cff4d3744557c76db62cd01ec083f01971ce47"
+    "sha256": "8d90b2fe1b8b43b4c81d766ad0ac1d700282d36c244d6ef2b17ef81e748b2144"
   },
   "connectors": [],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "ebd6aa89bb7809589370fd475172794e56429861a4f5df4f2278846e8fb56922",
+    "asset_contract_sha256": "04c2fac879f845d05e89b96f4568e5acddbc92097a8f204291e9afea48e0fb62",
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88.glb",
-      "sha256": "6b0dd929ab937675139e77f53c1155ad3facad5fdafd9060d8c1a4daa9534219"
+      "sha256": "4e38a90dfa32e59db7d2435217b579d2955917fd09db0383d3a31831234b7bea"
     }
   },
   "limits": {
@@ -61,7 +61,7 @@
   "mesh_format": "MeshSerializer_v1.100-little-endian",
   "ogre_converter": {
     "executable": "OgreXMLConverter",
-    "sha256": "50b375974784925e8a180ca886f849b78ff61a3f94fa5e4b8abea710d800264a",
+    "sha256": "15dbcde2ea124f0645d0c0f2ee809effee35123b0799f542742b5d2dd42b507f",
     "version": "OgreXMLConverter Tsathoggua (14.5.2)"
   },
   "options": {
@@ -89,40 +89,40 @@
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_collision_fixture.mesh",
       "role": "collision-fixture",
-      "sha256": "75a0a170f29fc9c59f6f8ff9196b25ba55f7cfdd6bedf4f7392c1d2ab151dfcc",
-      "size": 930
+      "sha256": "8912cf60b15c3e7f5985f62c26375a4f5abc806f5187ba5224f0fce9c5ada49f",
+      "size": 5466
     },
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod0.mesh",
       "role": "render-lod0",
-      "sha256": "f64deae4d5bb908fa73d14a79e8fb6ff7f834b99cc348faa40c3f555e43cf8c9",
-      "size": 1223915
+      "sha256": "ccf05e30b3ecbb8a210fe316ee092ad9052c9d30d0a82bf0c2ff423b5db5d259",
+      "size": 1223243
     },
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod1.mesh",
       "role": "render-lod1",
-      "sha256": "28c70bca76a4882706cca39175b6ee24f0cc88472e2993c2440e9e268bdd8a85",
+      "sha256": "5fbc8cda7cf75d4e65650c5e04208821e327af28a43298029e532d9850b07b36",
       "size": 59529
     },
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod2.mesh",
       "role": "render-lod2",
-      "sha256": "9fda39af7b1d546cb8608e666a1baa2d93057f3e8c7eca51e22695567b52309b",
+      "sha256": "4bbfc8ee172ac07c1fec0b40f71ec43d887a586a0d08c534dbf383eac2d6a3d5",
       "size": 30882
     }
   ],
   "runtime_lights": [],
   "source_stats": {
-    "indices": 29520,
+    "indices": 29772,
     "materials": 11,
     "meshes": 4,
     "primitives": 25,
-    "vertices": 26060
+    "vertices": 26214
   },
   "xml_intermediate_sha256": {
-    "rorng_city_infill_suburb_block_96x88_collision_fixture.mesh.xml": "67a2eb9f981f9c635f4cb1fd4c91bd8bd63f9962a813b4ee5af879ec6a338e7a",
-    "rorng_city_infill_suburb_block_96x88_lod0.mesh.xml": "2bf93471593c735572cd090d6aca12e75fb36349a1ed7b0ce14ad01e670d73ff",
-    "rorng_city_infill_suburb_block_96x88_lod1.mesh.xml": "59bd9267bb0218b305897aa81d6e7367e9d296c3b16098f15e2b6ec71f9040f8",
-    "rorng_city_infill_suburb_block_96x88_lod2.mesh.xml": "3a57b1f5527631e6047089d7c8f7030f5dbde0ef19ac032406ec1dc81144e582"
+    "rorng_city_infill_suburb_block_96x88_collision_fixture.mesh.xml": "cb51896053365cb361f7f621ff2be798e6163dd0fc718386084a3cada17b3a15",
+    "rorng_city_infill_suburb_block_96x88_lod0.mesh.xml": "76f7904a1ecf2a77da155dcdaa68a5ddea68799578ca65e22838825b40f8418c",
+    "rorng_city_infill_suburb_block_96x88_lod1.mesh.xml": "4ae917716ea529791346d47b777bdb1d035c3dd64be803a89e86bc04e4f150e1",
+    "rorng_city_infill_suburb_block_96x88_lod2.mesh.xml": "fecfef1b9aa7c153c2760f62f6c80dbd156c1cf4bd606f3ecc923660e1a4850a"
   }
 }

@@ -154,12 +154,40 @@ materials:
   `rorng_city_infill_arroyo_oasis_19m`, is a modular 19 m oasis landmark.
 
 Every asset is grounded at the common CityWorld road plane, uses three checked
-LODs, carries a separate watertight collision proxy, and uses factor-only
-materials supported by the portable Ogre RTShader path. The canonical v6
-placement plan adds exactly 46 project-authored placements across eight
-audited sites: 13 farmstead, 17 suburb, two service-station, and 14
-natural-landmark instances. Seven flat, curb-free native access roads connect
-those sites with collision enabled and open collision endcaps:
+LODs, carries separate watertight collision geometry, and uses factor-only
+materials supported by the portable Ogre RTShader path. The three building
+families declare a 0.12 m foundation recess: every render LOD begins at
+Z=-0.12 m while finished grade, forecourts, and internal streets remain at
+Z=0. The recess hides foundation edges below the visible surface without
+raising a connector or adding a second road collision surface.
+
+The suburb and service-station families no longer use one parcel-sized
+collision envelope. Their compound proxies contain exactly eight components
+(six houses and two perimeter walls) and 17 components (market, canopy,
+columns, pumps, pylon, and chargers), respectively. The farmstead, mesa, and
+oasis retain one watertight component each, for 28 checked components across
+the family. Every component is separately bounded in the placement audit; the
+seven generated roads overlap none of them.
+
+The canonical v2 plan in overlay v7 adds exactly 46 project-authored placements
+across eight audited sites: 13 farmstead, 17 suburb, two service-station, and
+14 natural-landmark instances. Seven flat, curb-free native access roads serve
+those sites with collision enabled and open collision endcaps. The plan
+defines five active vehicle connectors and has no pending connector:
+
+- `sunset-frontage-west-service-forecourt`;
+- `sunset-frontage-sunset-courts-internal-street`;
+- `arroyo-vista-internal-street`;
+- `intercity-service-forecourt`;
+- `intercity-farm-lane`.
+
+All five route and target edges have an observed seam gap of exactly 0 m
+against a 0.001 m maximum. The two internal-street approaches cross their
+declared 2 m rendered aprons, while the two forecourt approaches and the
+authored farm driveway meet at their edges. The 8 m-wide farm seam runs from
+`(3916, 4289)` to `(3916, 4281)` and retains 49.197 m of clearance from its
+single watertight collision proxy. No connector overlaps a building collision
+component:
 
 - family and rights contract:
   `regional_infill/rorng_city_regional_infill_family.v1.json`;
@@ -246,10 +274,13 @@ do
   python3 tools/compile_cityworld_asset.py "$manifest" \
     --repo-root . --validate-checked
 done
+CITYWORLD_OGRE_XML_CONVERTER=/absolute/path/to/OgreXMLConverter
 for manifest in \
   resources/nextgen/cityworld/regional_infill/*/*.asset.json
 do
   python3 tools/validate_cityworld_asset.py "$manifest" --repo-root .
+  python3 tools/compile_cityworld_asset.py "$manifest" \
+    --repo-root . --converter "$CITYWORLD_OGRE_XML_CONVERTER"
   python3 tools/compile_cityworld_asset.py "$manifest" \
     --repo-root . --validate-checked
 done
@@ -311,12 +342,12 @@ python3 tools/build_cityworld_local_overlay.py \
 ```
 
 The overlay output path must not already exist and must be outside this
-repository. The current v6 deterministic ZIP has exactly 76 members and
+repository. The current v7 deterministic ZIP has exactly 76 members and
 references the separately installed original `CityWorld.otc` and
 `CityWorld.tobj`; it does not copy either file or any original map asset. It
-embeds the canonical `cityworld_next_infill_manifest.v1.json`, adds the 46
+embeds the canonical `cityworld_next_infill_manifest.v2.json`, adds the 46
 placements and seven access roads described above, and keeps all five
-project-authored infill runtime families local to the overlay. Overlay v6
+project-authored infill runtime families local to the overlay. Overlay v7
 retains the authenticated
 Penguinville-to-NeoQueretaro route. It authenticates its two source
 road-object placements and replaces the incomplete 192 m prototype with a
@@ -331,7 +362,7 @@ collision, and requests 47 terrain-reaching pillar stations. The overlap
 functionally removes the curb from the connection without copying or modifying
 the original private city mesh.
 
-Overlay v6 also adds a road-to-road link from NeoQueretaro's east distributor
+Overlay v7 also adds a road-to-road link from NeoQueretaro's east distributor
 stub to NeoQ2.0's west industrial distributor stub. The authenticated seams are
 `(3790.970703, 0.1, 3993.104004)` and `(6867, 0.2, 4018)`. The earlier
 3,096.132 m figure is superseded by the flush-merge v3 contract: the route is
@@ -377,13 +408,15 @@ checked warm point light. The two service-station placements contribute
 exactly 12 bounded canopy lights. The source archive stays byte-identical and
 the generated package is explicitly not for redistribution or shipping.
 
-Run the regional-infill native acceptance gate only after building the v6
+Run the regional-infill native acceptance gate only after building the v7
 overlay. The gate authenticates both archives, compares the embedded infill
 manifest with the canonical plan, rebuilds the overlay byte-for-byte, runs RoR
-under an isolated profile, and accepts exactly eight distinct UI-free RGB
-views. It requires 345 render frames, 1,380 deterministic physics steps, all
-46 placements, all seven routes, both service stations, and all 12 station
-lights. The artifact directory must not already exist.
+under an isolated profile, and accepts exactly 13 distinct UI-free RGB views:
+eight district views and one close view of each of the five active connector
+seams. It requires 545 render frames, 2,180 deterministic physics steps, all
+five zero-gap connectors, all 46 placements, all seven routes, both service
+stations, and all 12 station lights. The artifact directory must not already
+exist.
 
 On macOS:
 
@@ -421,6 +454,15 @@ py -3 tools/run_cityworld_infill_scene.py `
   --artifact-dir 'C:\Temp\cityworld-infill-windows' `
   --repository "$PWD"
 ```
+
+This fixed-camera gate verifies reproducible archive and manifest assembly,
+static connector and collision-proxy geometry, native material and light
+resolution, and distinct UI-free RGB readback. It does not drive a vehicle
+across a seam, so tire-contact continuity, vehicle or AI navigation,
+performance budgets, and weather coverage require separate runtime scenarios.
+The report authenticates the exact executable bytes but deliberately does not
+claim that an externally installed executable was built from the reported
+repository commit. No AirSim compatibility or parity is asserted.
 
 The same overlay replaces exactly the 18 authenticated `arbol1Qr` records at
 `CityWorld.tobj` source lines 9–26. The native policy edits each legacy record

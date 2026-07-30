@@ -2,15 +2,15 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88.blend",
-      "sha256": "5ac8cbc1820873daa2889875c2e3d9beddb4e65e0c723c3eb69c2c74cb148753"
+      "sha256": "f968a84af83ae6f23ccf210cc385cd77111f1d925aff4124fcc8f5749631ca59"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88.glb",
-      "sha256": "6b0dd929ab937675139e77f53c1155ad3facad5fdafd9060d8c1a4daa9534219"
+      "sha256": "4e38a90dfa32e59db7d2435217b579d2955917fd09db0383d3a31831234b7bea"
     },
     "preview": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88_preview.png",
-      "sha256": "913909491f822589cdf9c50785f88f1c7cd0641a43b35f7c2af2c00a51df332f"
+      "sha256": "32fca3b3bc2c40031965792c87c22f1e3a5cfa12acd93d693741ba34d989a77a"
     }
   },
   "asset": {
@@ -42,7 +42,7 @@
       ],
       "format": "ror-cityworld-regional-infill-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
-      "sha256": "34d1f72e544a32157a629c9ec5996ade489fdeb61391c048f2139354694bd422"
+      "sha256": "c19056c6921187cc68d9f0acb32b487fae4af2111065d6cd5e217d0b157ddf0a"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -55,32 +55,163 @@
     "units": "metres"
   },
   "collision": {
+    "components": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -15.0,
+            -15.5,
+            9.5
+          ],
+          "min": [
+            -39.0,
+            -32.5,
+            0.0
+          ]
+        },
+        "component_id": "house-00",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            39.0,
+            -15.5,
+            9.5
+          ],
+          "min": [
+            15.0,
+            -32.5,
+            0.0
+          ]
+        },
+        "component_id": "house-01",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -15.0,
+            8.5,
+            9.5
+          ],
+          "min": [
+            -39.0,
+            -8.5,
+            0.0
+          ]
+        },
+        "component_id": "house-02",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            39.0,
+            8.5,
+            9.5
+          ],
+          "min": [
+            15.0,
+            -8.5,
+            0.0
+          ]
+        },
+        "component_id": "house-03",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -15.0,
+            32.5,
+            9.5
+          ],
+          "min": [
+            -39.0,
+            15.5,
+            0.0
+          ]
+        },
+        "component_id": "house-04",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            39.0,
+            32.5,
+            9.5
+          ],
+          "min": [
+            15.0,
+            15.5,
+            0.0
+          ]
+        },
+        "component_id": "house-05",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -46.25,
+            42.0,
+            1.8
+          ],
+          "min": [
+            -47.75,
+            -42.0,
+            0.0
+          ]
+        },
+        "component_id": "west-perimeter-wall",
+        "triangles": 12
+      },
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            47.75,
+            42.0,
+            1.8
+          ],
+          "min": [
+            46.25,
+            -42.0,
+            0.0
+          ]
+        },
+        "component_id": "east-perimeter-wall",
+        "triangles": 12
+      }
+    ],
+    "components_format": "ror-cityworld-collision-components-v1",
     "objects": [
       {
         "bounds_blender_z_up": {
           "max": [
-            47.0,
-            41.0,
+            47.75,
+            42.0,
             9.5
           ],
           "min": [
-            -47.0,
-            -41.0,
+            -47.75,
+            -42.0,
             0.0
           ]
         },
         "name": "rorng_city_infill_suburb_block_96x88_collision_fixture",
         "role": "collision-fixture",
         "topology": {
-          "connected_components": 1,
+          "connected_components": 8,
           "intersecting_faces": 0,
           "outward_winding": true,
           "watertight": true
         },
-        "triangles": 12
+        "triangles": 96
       }
     ],
-    "profile": "single-watertight-proxy-v1",
+    "profile": "compound-watertight-proxy-v1",
     "purpose": "bounded-landmark-or-building-envelope",
     "separate_from_render_mesh": true
   },
@@ -102,31 +233,31 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_collision_fixture.mesh",
         "role": "collision-fixture",
-        "sha256": "75a0a170f29fc9c59f6f8ff9196b25ba55f7cfdd6bedf4f7392c1d2ab151dfcc",
-        "size": 930
+        "sha256": "8912cf60b15c3e7f5985f62c26375a4f5abc806f5187ba5224f0fce9c5ada49f",
+        "size": 5466
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "f64deae4d5bb908fa73d14a79e8fb6ff7f834b99cc348faa40c3f555e43cf8c9",
-        "size": 1223915
+        "sha256": "ccf05e30b3ecbb8a210fe316ee092ad9052c9d30d0a82bf0c2ff423b5db5d259",
+        "size": 1223243
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "28c70bca76a4882706cca39175b6ee24f0cc88472e2993c2440e9e268bdd8a85",
+        "sha256": "5fbc8cda7cf75d4e65650c5e04208821e327af28a43298029e532d9850b07b36",
         "size": 59529
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "9fda39af7b1d546cb8608e666a1baa2d93057f3e8c7eca51e22695567b52309b",
+        "sha256": "4bbfc8ee172ac07c1fec0b40f71ec43d887a586a0d08c534dbf383eac2d6a3d5",
         "size": 30882
       }
     ],
     "report": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.compile.json",
-      "sha256": "0fca9b4f7ef5eef5f0f599d16083fe6673f3f717c519b01e2e6bbf7cb188f76a"
+      "sha256": "64640d0193f17e97f09d40a29907bd0b807e9b4c22ea574e95d376228167f28b"
     }
   },
   "connectors": [],
@@ -156,6 +287,7 @@
       96.0,
       88.0
     ],
+    "foundation_recess_m": 0.12,
     "ground_plane_z_m": 0.0,
     "height_limit_m": 15.0,
     "lod0_triangle_ceiling": 80000,
@@ -165,14 +297,14 @@
       {
         "bounds_blender_z_up": {
           "max": [
-            48.142487,
+            48.0,
             44.0,
             11.728274
           ],
           "min": [
-            -48.142487,
+            -48.0,
             -44.0,
-            0.0
+            -0.12
           ]
         },
         "lod": 0,
@@ -189,7 +321,7 @@
           "min": [
             -48.0,
             -44.0,
-            0.0
+            -0.12
           ]
         },
         "lod": 1,
@@ -206,7 +338,7 @@
           "min": [
             -48.0,
             -44.0,
-            0.0
+            -0.12
           ]
         },
         "lod": 2,
@@ -221,7 +353,7 @@
     "family": "rorng_city_regional_infill_family",
     "fictional_branding": true,
     "label": "Sunridge Courtyard Homes",
-    "placement_integration": "cityworld-local-overlay-v6",
+    "placement_integration": "cityworld-local-overlay-v7",
     "runtime_texture_dependencies": []
   },
   "materials": [

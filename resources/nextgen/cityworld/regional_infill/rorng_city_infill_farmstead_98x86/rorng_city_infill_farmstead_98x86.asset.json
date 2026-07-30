@@ -2,15 +2,15 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.blend",
-      "sha256": "cb32ec7c39177fdae0068c717caf8e05a50d3d2464dee93f093e4c5dba6e516d"
+      "sha256": "980109f222526065cdb5b3b996cebccc558283dc3681765ed344fe77ead58481"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.glb",
-      "sha256": "018f52aa91debb8642ba5ec5c775f84f0020e8423627a359d88ce77f5d330e1d"
+      "sha256": "5ee4700900e53274019b77117e8c71b040479b66c1ccae05ec435e2358f3c77b"
     },
     "preview": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86_preview.png",
-      "sha256": "5efd4e8121d067dfa0f254ccac585349f265002bae2763bec464e2c26810199d"
+      "sha256": "ea51c68c0d34fb1f1dc02b39bb890347a2926685883acfa2fa6e6c3a93316d3d"
     }
   },
   "asset": {
@@ -42,7 +42,7 @@
       ],
       "format": "ror-cityworld-regional-infill-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
-      "sha256": "34d1f72e544a32157a629c9ec5996ade489fdeb61391c048f2139354694bd422"
+      "sha256": "c19056c6921187cc68d9f0acb32b487fae4af2111065d6cd5e217d0b157ddf0a"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -55,6 +55,25 @@
     "units": "metres"
   },
   "collision": {
+    "components": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            -20.4,
+            34.099998,
+            8.2
+          ],
+          "min": [
+            -43.599998,
+            17.9,
+            0.0
+          ]
+        },
+        "component_id": "farmhouse",
+        "triangles": 12
+      }
+    ],
+    "components_format": "ror-cityworld-collision-components-v1",
     "objects": [
       {
         "bounds_blender_z_up": {
@@ -90,8 +109,8 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.material",
         "role": "material-fallback",
-        "sha256": "280881e3cae9beef565ce43bdd616b1ee59eec4a04015ac43022b67dc7324541",
-        "size": 1963
+        "sha256": "183e32d7786726205d2056fc7e92a01b1bdee337092a64ddc0b503b64a27dac4",
+        "size": 2162
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.odef",
@@ -108,25 +127,25 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "f2e50d8e144adebe4e750717fdc95706a59537cb3b12f7bc4b27de29277649a8",
-        "size": 555314
+        "sha256": "1526e7dc658cc4ea64a3494e67ea932cab9f4cf82415152fdea71a25233fcb45",
+        "size": 531552
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "4e869650eb5cad26996905f1d6c8a34dcc12a157f17fd5cb918d0c6160bafdf5",
-        "size": 26826
+        "sha256": "d2e6544f4b3bc90d147b81d7dbeb7049aab82dc2c90f7d838e2c60f0e9f8ccf9",
+        "size": 31936
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "97ef70743b145060d953b3f66c478bd145305ad37d3bbb5b7c98d6eb2fb145b7",
-        "size": 9730
+        "sha256": "18e13ccb5cc4d0dd699b45fd45d8177a8201aba1f59d59ec89cfd62eda97c0cb",
+        "size": 14624
       }
     ],
     "report": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.compile.json",
-      "sha256": "cc6ba07819ed0f935f9b77917b45dadbdf1884ae2df60b92f460badea45c0cbb"
+      "sha256": "4097b546f388fc0817ea2da9bf9b5683664c8ba2fab7e4bda1cbc31ed5137c62"
     }
   },
   "connectors": [],
@@ -156,6 +175,7 @@
       98.0,
       86.0
     ],
+    "foundation_recess_m": 0.12,
     "ground_plane_z_m": 0.0,
     "height_limit_m": 18.0,
     "lod0_triangle_ceiling": 80000,
@@ -171,13 +191,13 @@
           ],
           "min": [
             -49.0,
-            -44.09,
-            0.0
+            -43.0,
+            -0.12
           ]
         },
         "lod": 0,
         "name": "rorng_city_infill_farmstead_98x86_lod0",
-        "triangles": 4884
+        "triangles": 4696
       },
       {
         "bounds_blender_z_up": {
@@ -189,12 +209,12 @@
           "min": [
             -49.0,
             -43.0,
-            0.0
+            -0.12
           ]
         },
         "lod": 1,
         "name": "rorng_city_infill_farmstead_98x86_lod1",
-        "triangles": 324
+        "triangles": 372
       },
       {
         "bounds_blender_z_up": {
@@ -206,12 +226,12 @@
           "min": [
             -49.0,
             -43.0,
-            0.0
+            -0.12
           ]
         },
         "lod": 2,
         "name": "rorng_city_infill_farmstead_98x86_lod2",
-        "triangles": 84
+        "triangles": 132
       }
     ],
     "texcoord_policy": "canonical-zero-textureless-v1"
@@ -221,10 +241,22 @@
     "family": "rorng_city_regional_infill_family",
     "fictional_branding": true,
     "label": "Golden Horizon Farmstead",
-    "placement_integration": "cityworld-local-overlay-v6",
+    "placement_integration": "cityworld-local-overlay-v7",
     "runtime_texture_dependencies": []
   },
   "materials": [
+    {
+      "base_color_factor_linear": [
+        0.035,
+        0.042,
+        0.048,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_asphalt",
+      "roughness_factor": 0.91
+    },
     {
       "base_color_factor_linear": [
         0.42,

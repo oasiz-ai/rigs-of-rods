@@ -621,6 +621,7 @@ class CityWorldAssetValidationTests(unittest.TestCase):
                 "authoring",
                 {
                     "AUTHORING_RECORD",
+                    "BLENDER_VERSION",
                     "GENERATOR_RECORD",
                     "GLTF_SCENE_EXTRAS_CONTRACT",
                 },
@@ -918,6 +919,118 @@ class CityWorldAssetValidationTests(unittest.TestCase):
         self.assertIn("GLTF_SCENE_EXTRAS_UNKNOWN", codes)
         self.assertIn("GLTF_SCENE_EXTRAS_MISSING", codes)
         self.assertIn("GLTF_SCENE_EXTRAS_VALUE", codes)
+
+    def test_lod_bounds_and_node_transforms_are_derived_from_glb(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            manifest_path = self.copy_fixture(root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["geometry"]["lods"][0]["bounds_blender_z_up"] = {
+                "min": [-1.0, -1.0, -1.0],
+                "max": [1.0, 1.0, 1.0],
+            }
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            result, report = self.run_validator(root, manifest_path)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("LOD_BOUNDS", self.codes(report))
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            manifest_path = self.copy_fixture(root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            glb_path = root / manifest["artifacts"]["glb"]["path"]
+            lod0_name = manifest["geometry"]["lods"][0]["name"]
+
+            def translate_lod(document: dict[str, object]) -> None:
+                node = next(
+                    value
+                    for value in document["nodes"]
+                    if value["name"] == lod0_name
+                )
+                node["translation"] = [1000.0, 0.0, 0.0]
+
+            mutate_glb_document(glb_path, translate_lod)
+            manifest["artifacts"]["glb"]["sha256"] = hashlib.sha256(
+                glb_path.read_bytes()
+            ).hexdigest()
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            result, report = self.run_validator(root, manifest_path)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("LOD_MESH", self.codes(report))
+
+    def test_blender_authoring_version_is_pinned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            manifest_path = self.copy_fixture(root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["authoring"]["blender_version"] = "5.1.0"
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            normal_result, normal = self.run_validator(root, manifest_path)
+            optimized_result, optimized = self.run_validator(
+                root,
+                manifest_path,
+                optimized=True,
+            )
+
+        self.assertEqual(normal_result.returncode, 1)
+        self.assertEqual(optimized_result.returncode, 1)
+        self.assertEqual(normal, optimized)
+        self.assertIn("BLENDER_VERSION", self.codes(normal))
+
+    def test_fixture_dimensions_bind_to_render_and_collision_geometry(
+        self,
+    ) -> None:
+        mutations = (
+            ("fixture_height_m", 1.0, "FIXTURE_RENDER_HEIGHT"),
+            (
+                "footprint_diameter_m",
+                0.1,
+                "FIXTURE_COLLISION_FOOTPRINT",
+            ),
+        )
+        for field, value, expected_code in mutations:
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    manifest_path = self.copy_fixture(
+                        root,
+                        FIXTURE_MANIFEST_RELATIVE,
+                    )
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    manifest["geometry"][field] = value
+                    manifest_path.write_text(
+                        json.dumps(
+                            manifest,
+                            indent=2,
+                            sort_keys=True,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+
+                    result, report = self.run_validator(
+                        root,
+                        manifest_path,
+                    )
+
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(expected_code, self.codes(report))
 
     def test_connector_and_lod_contract_mutations_fail(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

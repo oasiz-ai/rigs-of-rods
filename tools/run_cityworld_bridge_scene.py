@@ -599,6 +599,33 @@ def runtime_layout(isolated_home: Path, target_platform: str) -> dict[str, Path]
     }
 
 
+def require_isolated_runtime_executable(
+    executable: Path,
+    target_platform: str,
+) -> None:
+    """Reject portable layouts that outrank the diagnostic home override."""
+
+    renderer_contract(target_platform)
+    if (
+        target_platform != "darwin"
+        and (executable.parent / "config").is_dir()
+    ):
+        raise BridgeSceneFailure(
+            "portable executable config would bypass the isolated scene home"
+        )
+
+
+def isolated_runtime_environment(isolated_home: Path) -> dict[str, str]:
+    """Build an isolated native environment without Linux Snap precedence."""
+
+    environment = os.environ.copy()
+    environment.pop("SNAP_USER_COMMON", None)
+    environment["ROR_D0_SCENE_HOME"] = str(isolated_home)
+    environment["ALSOFT_DRIVERS"] = "null"
+    environment["ALSOFT_LOGLEVEL"] = "0"
+    return environment
+
+
 def write_runtime_config(
     config_directory: Path,
     shadow_mode: str = "none",
@@ -1044,10 +1071,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{artifact_dir}"
         )
     artifact_dir.mkdir(parents=True)
-    if target_platform != "darwin" and (executable.parent / "config").is_dir():
-        raise BridgeSceneFailure(
-            "portable executable config would bypass the isolated scene home"
-        )
+    require_isolated_runtime_executable(executable, target_platform)
 
     compile_report, compiled_outputs = validate_cityworld_package(
         repository, args.timeout
@@ -1092,10 +1116,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         pack_path,
     )
 
-    environment = os.environ.copy()
-    environment["ROR_D0_SCENE_HOME"] = str(isolated_home)
-    environment["ALSOFT_DRIVERS"] = "null"
-    environment["ALSOFT_LOGLEVEL"] = "0"
+    environment = isolated_runtime_environment(isolated_home)
     command = build_scene_command(executable)
     completed = run_command(
         command,

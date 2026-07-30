@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Accept overlay v6 and its seamless Penguinville route with the packaged DAF.
+"""Accept overlay v7 and its seamless Penguinville route with the packaged DAF.
 
 CityWorld is third-party content and is intentionally absent from this
 repository. This gate authenticates the original and locally derived overlay,
@@ -55,10 +55,15 @@ CITYWORLD_NAME = "CityWorld.zip"
 OVERLAY_NAME = "CityWorldNextLocalOverlay.zip"
 OVERLAY_REPORT_MEMBER = "cityworld_next_local_overlay.report.json"
 OVERLAY_PLACEMENT_MEMBER = "cityworld_next_local_overlay.tobj"
-OVERLAY_REPORT_FORMAT = "ror-cityworld-local-overlay-v6"
-INFILL_MANIFEST_MEMBER = "cityworld_next_infill_manifest.v1.json"
+OVERLAY_REPORT_FORMAT = "ror-cityworld-local-overlay-v7"
+INFILL_MANIFEST_MEMBER = "cityworld_next_infill_manifest.v2.json"
 INFILL_MANIFEST_ROLE = "regional-infill-plan"
-INFILL_MANIFEST_FORMAT = "ror-cityworld-regional-infill-plan-v1"
+INFILL_MANIFEST_FORMAT = infill.FORMAT
+INFILL_CONNECTOR_FORMAT = infill.CONNECTOR_FORMAT
+INFILL_COLLISION_COMPONENTS_FORMAT = (
+    "ror-cityworld-collision-components-v1"
+)
+INFILL_COLLISION_COMPONENT_EPSILON_M = 1.0e-5
 NEOQ_LIGHT_CANDIDATE_MEMBER = (
     "cityworld_next_neoq_core_lights.candidates.json"
 )
@@ -244,8 +249,10 @@ EXPECTED_VISUAL_PURPOSE = (
     "the bounded renderer light budget and fixed-camera visual gate; seven "
     "curb-free flat access roads connect 46 project-authored farm, suburb, "
     "service-station, red-mesa, and arroyo-oasis placements across eight "
-    "audited empty parcels, with open collision endcaps and six bounded canopy "
-    "lights per service-station instance; bridge modules remain validated "
+    "audited empty parcels, with versioned route-to-asset connectors, "
+    "one-millimetre seam gates, exact compound suburb/station collision "
+    "components, open collision endcaps, and six bounded canopy lights per "
+    "service-station instance; bridge modules remain validated "
     "candidates for deck and abutment replacement"
 )
 EXPECTED_TREE_ASSET_IDS = [
@@ -1101,6 +1108,107 @@ def validate_regional_infill_manifest(
         for index, value in enumerate(assets)
     ] != EXPECTED_INFILL_ASSET_IDS:
         raise CorridorSceneFailure("regional infill asset inventory drifted")
+    expected_plan = infill.build_infill_plan()
+    expected_asset_by_id = {
+        asset.asset_id: asset for asset in expected_plan.assets
+    }
+    for index, value in enumerate(assets):
+        asset = exact_dict(value, f"regional infill asset {index}")
+        asset_id = asset.get("asset_id")
+        expected_asset = expected_asset_by_id.get(asset_id)
+        components = exact_list(
+            asset.get("collision_components"),
+            f"regional infill asset {index} collision components",
+        )
+        collision_bounds = exact_dict(
+            asset.get("collision_footprint"),
+            f"regional infill asset {index} collision bounds",
+        )
+        if (
+            expected_asset is None
+            or asset.get("collision_profile")
+            != expected_asset.collision_profile
+            or collision_bounds.get("semantics")
+            != "conservative-component-outer-bounds"
+            or [
+                exact_dict(
+                    component,
+                    f"regional infill asset {index} collision component",
+                ).get("component_id")
+                for component in components
+            ]
+            != [
+                component.component_id
+                for component in expected_asset.collision_components
+            ]
+        ):
+            raise CorridorSceneFailure(
+                "regional infill collision asset contract drifted"
+            )
+
+    connector_container = exact_dict(
+        checked.get("connectors"),
+        "regional infill connector container",
+    )
+    if set(connector_container) != {
+        "collision_policy",
+        "contracts",
+        "format",
+        "maximum_seam_gap_m",
+    }:
+        raise CorridorSceneFailure(
+            "regional infill connector fields drifted"
+        )
+    require_exact_json(
+        connector_container.get("format"),
+        INFILL_CONNECTOR_FORMAT,
+        "regional infill connector format",
+    )
+    require_exact_json(
+        connector_container.get("collision_policy"),
+        "no-generated-road-overlap-with-building-proxies",
+        "regional infill connector collision policy",
+    )
+    maximum_seam_gap = finite_number(
+        connector_container.get("maximum_seam_gap_m"),
+        "regional infill maximum connector seam gap",
+    )
+    if maximum_seam_gap != infill.MAXIMUM_CONNECTOR_SEAM_GAP_M:
+        raise CorridorSceneFailure(
+            "regional infill connector seam gate drifted"
+        )
+    connector_contracts = exact_list(
+        connector_container.get("contracts"),
+        "regional infill connector contracts",
+    )
+    expected_connector_identity = [
+        [
+            connector.connector_id,
+            connector.status,
+            connector.route_id,
+            connector.placement_id,
+        ]
+        for connector in expected_plan.connectors
+    ]
+    connector_identity = [
+        [
+            contract.get("connector_id"),
+            contract.get("status"),
+            contract.get("route_id"),
+            contract.get("placement_id"),
+        ]
+        for contract in (
+            exact_dict(
+                value,
+                f"regional infill connector {index}",
+            )
+            for index, value in enumerate(connector_contracts)
+        )
+    ]
+    if connector_identity != expected_connector_identity:
+        raise CorridorSceneFailure(
+            "regional infill connector inventory drifted"
+        )
 
     multiplicities = {
         asset_id: 0 for asset_id in EXPECTED_INFILL_ASSET_IDS
@@ -1127,6 +1235,22 @@ def validate_regional_infill_manifest(
         ):
             raise CorridorSceneFailure(
                 "regional infill placement identity is ambiguous"
+            )
+        expected_asset = expected_asset_by_id[asset_id]
+        collision_components = exact_list(
+            placement.get("collision_component_footprints_xz_m"),
+            f"regional infill placement {index} collision components",
+        )
+        if (
+            placement.get("collision_profile")
+            != expected_asset.collision_profile
+            or placement.get("collision_footprint_semantics")
+            != "conservative-component-outer-bounds"
+            or len(collision_components)
+            != len(expected_asset.collision_components)
+        ):
+            raise CorridorSceneFailure(
+                "regional infill placement collision contract drifted"
             )
         placement_ids.add(placement_id)
         instance_names.add(instance_name)
@@ -1159,6 +1283,139 @@ def validate_regional_infill_manifest(
         route_ids.add(route_id)
 
     audit = exact_dict(checked.get("audit"), "regional infill audit")
+    connector_audit = exact_dict(
+        audit.get("connectors"),
+        "regional infill connector audit",
+    )
+    connector_evidence = exact_list(
+        connector_audit.get("contracts"),
+        "regional infill connector evidence",
+    )
+    evidence_identity = [
+        [
+            evidence.get("connector_id"),
+            evidence.get("status"),
+            evidence.get("route_id"),
+            evidence.get("placement_id"),
+        ]
+        for evidence in (
+            exact_dict(
+                value,
+                f"regional infill connector evidence {index}",
+            )
+            for index, value in enumerate(connector_evidence)
+        )
+    ]
+    status_counts = {"active": 0, "pending": 0}
+    active_gaps = []
+    if evidence_identity != expected_connector_identity:
+        raise CorridorSceneFailure(
+            "regional infill connector evidence drifted"
+        )
+    for index, (expected, value) in enumerate(
+        zip(expected_plan.connectors, connector_evidence)
+    ):
+        evidence = exact_dict(
+            value,
+            f"regional infill connector evidence {index}",
+        )
+        if expected.status not in status_counts:
+            raise CorridorSceneFailure(
+                "regional infill connector status is unsupported"
+            )
+        status_counts[expected.status] += 1
+        if evidence.get("collision_proxy_overlap_count") != 0:
+            raise CorridorSceneFailure(
+                "regional infill connector intersects collision"
+            )
+        if expected.status == "active":
+            gap = finite_number(
+                evidence.get("seam_gap_m"),
+                f"regional infill connector {index} seam gap",
+            )
+            if gap > maximum_seam_gap:
+                raise CorridorSceneFailure(
+                    "regional infill connector exceeds seam gate"
+                )
+            active_gaps.append(gap)
+        elif (
+            evidence.get("flush") is not False
+            or evidence.get("seam_gap_m") is not None
+            or not isinstance(evidence.get("blocker"), str)
+            or not evidence["blocker"]
+        ):
+            raise CorridorSceneFailure(
+                "regional infill pending connector is not fail-closed"
+            )
+    if (
+        connector_audit.get("format") != INFILL_CONNECTOR_FORMAT
+        or exact_int(
+            connector_audit.get("active"),
+            "regional infill active connector count",
+        )
+        != status_counts["active"]
+        or exact_int(
+            connector_audit.get("pending"),
+            "regional infill pending connector count",
+        )
+        != status_counts["pending"]
+        or finite_number(
+            connector_audit.get("maximum_allowed_seam_gap_m"),
+            "regional infill allowed connector seam gap",
+        )
+        != maximum_seam_gap
+        or exact_int(
+            connector_audit.get(
+                "non_designated_route_asset_intersection_count"
+            ),
+            "regional infill undesignated connector intersections",
+        )
+        != 0
+        or (
+            active_gaps
+            and finite_number(
+                connector_audit.get(
+                    "maximum_observed_active_seam_gap_m"
+                ),
+                "regional infill observed connector seam gap",
+            )
+            != max(active_gaps)
+        )
+    ):
+        raise CorridorSceneFailure(
+            "regional infill connector audit drifted"
+        )
+    collision_audit = exact_dict(
+        audit.get("collision"),
+        "regional infill collision audit",
+    )
+    expected_profile_counts: dict[str, int] = {}
+    for asset in expected_plan.assets:
+        expected_profile_counts[asset.collision_profile] = (
+            expected_profile_counts.get(asset.collision_profile, 0) + 1
+        )
+    if (
+        exact_int(
+            collision_audit.get(
+                "generated_road_collision_proxy_overlap_count"
+            ),
+            "regional infill road collision overlaps",
+        )
+        != 0
+        or exact_int(
+            collision_audit.get("collision_component_count"),
+            "regional infill collision component count",
+        )
+        != sum(
+            len(asset.collision_components)
+            for asset in expected_plan.assets
+        )
+        or collision_audit.get("collision_profiles")
+        != dict(sorted(expected_profile_counts.items()))
+    ):
+        raise CorridorSceneFailure(
+            "regional infill collision audit drifted"
+        )
     summary = exact_dict(audit.get("summary"), "regional infill summary")
     if (
         exact_int(summary.get("access_routes"), "infill route summary")
@@ -1178,8 +1435,10 @@ def validate_regional_infill_manifest(
 def validate_regional_infill_package(
     package_payloads: Mapping[str, bytes],
     package_records: Mapping[str, Mapping[str, object]],
+    manifest: Mapping[str, object],
+    asset_provenance: object,
 ) -> None:
-    """Require every placed infill family member to be runtime-loadable."""
+    """Require runtime resources and exact compiled collision provenance."""
 
     suffix_roles = {
         ".odef": "terrain-object",
@@ -1212,6 +1471,272 @@ def validate_regional_infill_package(
         if odef_text.count("\npointlight ") != expected_lights:
             raise CorridorSceneFailure(
                 f"regional infill ODEF light count drifted: {odef_name}"
+            )
+
+    collision_contracts: dict[
+        str,
+        tuple[
+            str,
+            tuple[tuple[str, float, float, float, float], ...],
+        ],
+    ] = {}
+    for index, value in enumerate(
+        exact_list(
+            manifest.get("assets"),
+            "regional infill collision asset contracts",
+        )
+    ):
+        asset = exact_dict(
+            value,
+            f"regional infill collision asset contract {index}",
+        )
+        asset_id = asset.get("asset_id")
+        profile = asset.get("collision_profile")
+        components = exact_list(
+            asset.get("collision_components"),
+            f"regional infill collision asset components {index}",
+        )
+        component_contracts = []
+        for component_index, value in enumerate(components):
+            component = exact_dict(
+                value,
+                (
+                    "regional infill collision asset component "
+                    f"{index}/{component_index}"
+                ),
+            )
+            component_id = component.get("component_id")
+            center = exact_list(
+                component.get("center_local_xz_m"),
+                (
+                    "regional infill collision asset component center "
+                    f"{index}/{component_index}"
+                ),
+            )
+            if (
+                not isinstance(component_id, str)
+                or not component_id
+                or len(center) != 2
+            ):
+                raise CorridorSceneFailure(
+                    "regional infill collision component contract drifted"
+                )
+            center_x = finite_number(
+                center[0],
+                f"{asset_id}/{component_id} canonical center x",
+            )
+            center_z = finite_number(
+                center[1],
+                f"{asset_id}/{component_id} canonical center z",
+            )
+            width = finite_number(
+                component.get("width_m"),
+                f"{asset_id}/{component_id} canonical width",
+            )
+            depth = finite_number(
+                component.get("depth_m"),
+                f"{asset_id}/{component_id} canonical depth",
+            )
+            if width <= 0.0 or depth <= 0.0:
+                raise CorridorSceneFailure(
+                    "regional infill collision component dimensions "
+                    "are not positive"
+                )
+            component_contracts.append(
+                (component_id, center_x, center_z, width, depth)
+            )
+        if (
+            not isinstance(asset_id, str)
+            or asset_id not in EXPECTED_INFILL_ASSET_IDS
+            or not isinstance(profile, str)
+            or not component_contracts
+            or asset_id in collision_contracts
+        ):
+            raise CorridorSceneFailure(
+                "regional infill collision asset inventory drifted"
+            )
+        collision_contracts[asset_id] = (
+            profile,
+            tuple(component_contracts),
+        )
+
+    collision_provenance: dict[str, dict[str, object]] = {}
+    for index, value in enumerate(
+        exact_list(asset_provenance, "overlay asset provenance")
+    ):
+        provenance = exact_dict(
+            value,
+            f"overlay asset provenance {index}",
+        )
+        identity = exact_dict(
+            provenance.get("asset"),
+            f"overlay asset identity {index}",
+        )
+        asset_id = identity.get("id")
+        if asset_id not in collision_contracts:
+            continue
+        if asset_id in collision_provenance:
+            raise CorridorSceneFailure(
+                "regional infill collision provenance is duplicated"
+            )
+        collision_provenance[asset_id] = provenance
+    if set(collision_provenance) != set(collision_contracts):
+        raise CorridorSceneFailure(
+            "regional infill collision provenance is incomplete"
+        )
+
+    def checked_bounds(
+        value: object,
+        label: str,
+    ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        bounds = exact_dict(value, label)
+        if set(bounds) != {"min", "max"}:
+            raise CorridorSceneFailure(f"{label} fields drifted")
+        minimum_values = exact_list(bounds.get("min"), f"{label} minimum")
+        maximum_values = exact_list(bounds.get("max"), f"{label} maximum")
+        if len(minimum_values) != 3 or len(maximum_values) != 3:
+            raise CorridorSceneFailure(f"{label} dimensions drifted")
+        minimum = tuple(
+            finite_number(value, f"{label} minimum axis {axis}")
+            for axis, value in enumerate(minimum_values)
+        )
+        maximum = tuple(
+            finite_number(value, f"{label} maximum axis {axis}")
+            for axis, value in enumerate(maximum_values)
+        )
+        if any(
+            minimum[axis] >= maximum[axis]
+            for axis in range(3)
+        ):
+            raise CorridorSceneFailure(f"{label} is not a positive volume")
+        return minimum, maximum
+
+    for asset_id, (expected_profile, expected_component_contracts) in (
+        collision_contracts.items()
+    ):
+        expected_components = len(expected_component_contracts)
+        collision = exact_dict(
+            collision_provenance[asset_id].get("collision"),
+            f"{asset_id} collision provenance",
+        )
+        objects = exact_list(
+            collision.get("objects"),
+            f"{asset_id} collision objects",
+        )
+        components = exact_list(
+            collision.get("components"),
+            f"{asset_id} collision components",
+        )
+        if (
+            collision.get("profile") != expected_profile
+            or collision.get("components_format")
+            != INFILL_COLLISION_COMPONENTS_FORMAT
+            or len(components) != expected_components
+            or collision.get("purpose")
+            != "bounded-landmark-or-building-envelope"
+            or collision.get("separate_from_render_mesh") is not True
+            or len(objects) != 1
+        ):
+            raise CorridorSceneFailure(
+                f"{asset_id} collision manifest profile drifted"
+            )
+        collision_object = exact_dict(
+            objects[0],
+            f"{asset_id} collision object",
+        )
+        topology = exact_dict(
+            collision_object.get("topology"),
+            f"{asset_id} collision topology",
+        )
+        if (
+            collision_object.get("name")
+            != f"{asset_id}_collision_fixture"
+            or collision_object.get("role") != "collision-fixture"
+            or exact_int(
+                collision_object.get("triangles"),
+                f"{asset_id} collision triangle count",
+            )
+            != expected_components * 12
+            or topology != {
+                "connected_components": expected_components,
+                "intersecting_faces": 0,
+                "outward_winding": True,
+                "watertight": True,
+            }
+        ):
+            raise CorridorSceneFailure(
+                f"{asset_id} collision component topology drifted"
+            )
+
+        component_bounds = []
+        for index, (value, expected) in enumerate(
+            zip(components, expected_component_contracts)
+        ):
+            component = exact_dict(
+                value,
+                f"{asset_id} collision component {index}",
+            )
+            if (
+                set(component)
+                != {"bounds_blender_z_up", "component_id", "triangles"}
+                or component.get("component_id") != expected[0]
+                or exact_int(
+                    component.get("triangles"),
+                    f"{asset_id} collision component {index} triangles",
+                )
+                != 12
+            ):
+                raise CorridorSceneFailure(
+                    f"{asset_id} collision component {index} drifted"
+                )
+            minimum, maximum = checked_bounds(
+                component.get("bounds_blender_z_up"),
+                f"{asset_id} collision component {index} bounds",
+            )
+            runtime_values = (
+                (minimum[0] + maximum[0]) / 2.0,
+                -(minimum[1] + maximum[1]) / 2.0,
+                maximum[0] - minimum[0],
+                maximum[1] - minimum[1],
+            )
+            if any(
+                abs(actual - expected_value)
+                > INFILL_COLLISION_COMPONENT_EPSILON_M
+                for actual, expected_value in zip(
+                    runtime_values,
+                    expected[1:],
+                )
+            ):
+                raise CorridorSceneFailure(
+                    f"{asset_id}/{expected[0]} bounds do not match "
+                    "the canonical infill manifest"
+                )
+            component_bounds.append((minimum, maximum))
+
+        aggregate_minimum, aggregate_maximum = checked_bounds(
+            collision_object.get("bounds_blender_z_up"),
+            f"{asset_id} aggregate collision bounds",
+        )
+        expected_aggregate = (
+            tuple(
+                min(bounds[0][axis] for bounds in component_bounds)
+                for axis in range(3)
+            ),
+            tuple(
+                max(bounds[1][axis] for bounds in component_bounds)
+                for axis in range(3)
+            ),
+        )
+        if any(
+            abs(actual - expected)
+            > INFILL_COLLISION_COMPONENT_EPSILON_M
+            for actual, expected in zip(
+                (*aggregate_minimum, *aggregate_maximum),
+                (*expected_aggregate[0], *expected_aggregate[1]),
+            )
+        ):
+            raise CorridorSceneFailure(
+                f"{asset_id} aggregate collision bounds drifted"
             )
 
 
@@ -1612,6 +2137,8 @@ def validate_overlay_archive(
             validate_regional_infill_package(
                 package_payloads,
                 package_records,
+                infill_manifest,
+                report.get("assets"),
             )
 
             tools = exact_list(report.get("tools"), "overlay tools")
@@ -1708,6 +2235,7 @@ def validate_overlay_archive(
     )
     if set(regional_infill) != {
         "audit",
+        "canonical_manifest_sha256",
         "manifest",
         "source_authentication",
         "summary",
@@ -1725,6 +2253,15 @@ def validate_overlay_archive(
         infill_record,
         "overlay regional-infill manifest record",
     )
+    canonical_infill_sha256 = infill.canonical_manifest_sha256()
+    if (
+        regional_infill.get("canonical_manifest_sha256")
+        != canonical_infill_sha256
+        or infill_record.get("sha256") != canonical_infill_sha256
+    ):
+        raise CorridorSceneFailure(
+            "overlay regional-infill canonical hash drifted"
+        )
     require_exact_json(
         regional_infill.get("summary"),
         infill_manifest["audit"]["summary"],
@@ -2417,8 +2954,8 @@ def validate_overlay_archive(
         usage,
         {
             "corridor_placement_mode":
-                "native-procedural-v6-two-corridor-open-seams-side-piers-with-"
-                "blender-transition-v2-and-regional-infill-v1",
+                "native-procedural-v7-two-corridor-open-seams-side-piers-with-"
+                "blender-transition-v2-and-regional-infill-v2",
             "disabled_light_candidate_manifest":
                 NEOQ_LIGHT_CANDIDATE_MEMBER,
             "neoq_core_runtime_light_activation": "blocked-fail-closed",
@@ -2973,6 +3510,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     artifact_dir = args.artifact_dir.resolve()
     if not executable.is_file():
         raise CorridorSceneFailure(f"executable is missing: {executable}")
+    base.require_isolated_runtime_executable(executable, sys.platform)
     if artifact_dir.exists():
         raise CorridorSceneFailure(
             f"artifact directory already exists: {artifact_dir}"
@@ -3060,10 +3598,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             target_platform=sys.platform,
         )
 
-        environment = os.environ.copy()
-        environment["ROR_D0_SCENE_HOME"] = str(isolated_home)
-        environment["ALSOFT_DRIVERS"] = "null"
-        environment["ALSOFT_LOGLEVEL"] = "0"
+        environment = base.isolated_runtime_environment(isolated_home)
         command = build_command(executable)
         completed = base.run_command(
             command,
@@ -3125,7 +3660,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "city_road_surface_connection_verified": True,
             "collision_endcaps_open_verified": True,
             "fixed_seam_rgb_views_verified": True,
-            "status": "accepted-v6-seamless-corridor-and-regional-infill",
+            "status": "accepted-v7-seamless-corridor-and-regional-infill",
             "swept_wheel_path_clearance_verified": True,
             "paired_outboard_support_runtime_counts_verified": True,
         },

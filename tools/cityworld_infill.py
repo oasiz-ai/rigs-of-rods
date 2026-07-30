@@ -18,8 +18,10 @@ import math
 from typing import Any, Iterable, Sequence
 
 
-FORMAT = "ror-cityworld-regional-infill-plan-v1"
-SOURCE_AUDIT_FORMAT = "ror-cityworld-regional-land-audit-v1"
+FORMAT = "ror-cityworld-regional-infill-plan-v2"
+VERSION = 2
+SOURCE_AUDIT_FORMAT = "ror-cityworld-regional-land-audit-v2"
+CONNECTOR_FORMAT = "ror-cityworld-regional-infill-connectors-v1"
 PINNED_ARCHIVE_NAME = "CityWorld.zip"
 PINNED_ARCHIVE_SHA256 = (
     "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3"
@@ -46,6 +48,7 @@ OPEN_ENDCAP_DIRECTIVE = "collision_endcaps_enabled false"
 POSITION_EPSILON_M = 1.0e-6
 MINIMUM_PLACEMENT_GAP_M = 8.0
 MINIMUM_ACCESS_ROAD_CLEARANCE_M = 12.0
+MAXIMUM_CONNECTOR_SEAM_GAP_M = 0.001
 
 FARMSTEAD_ASSET_ID = "rorng_city_infill_farmstead_98x86"
 SUBURB_ASSET_ID = "rorng_city_infill_suburb_block_96x88"
@@ -62,16 +65,23 @@ class InfillFailure(RuntimeError):
 
 
 @dataclass(frozen=True)
+class CollisionComponent:
+    component_id: str
+    collision_width_m: float
+    collision_depth_m: float
+    collision_center_local_x_m: float
+    collision_center_local_z_m: float
+
+
+@dataclass(frozen=True)
 class AssetContract:
     asset_id: str
     category: str
     manifest: str
     render_width_m: float
     render_depth_m: float
-    collision_width_m: float
-    collision_depth_m: float
-    collision_center_local_x_m: float
-    collision_center_local_z_m: float
+    collision_profile: str
+    collision_components: tuple[CollisionComponent, ...]
 
 
 @dataclass(frozen=True)
@@ -152,12 +162,30 @@ class InfillPlacement:
 
 
 @dataclass(frozen=True)
+class RouteAssetConnector:
+    connector_id: str
+    status: str
+    route_id: str
+    placement_id: str
+    surface_id: str
+    route_segment_index: int
+    route_edge: str
+    target_surface_local_polygon_xz_m: tuple[PointXZ, ...]
+    target_seam_local_xz_m: tuple[PointXZ, ...]
+    target_surface_local_y_m: float
+    expected_render_overlap_depth_m: float
+    blocker: str | None = None
+    maximum_seam_gap_m: float = MAXIMUM_CONNECTOR_SEAM_GAP_M
+
+
+@dataclass(frozen=True)
 class InfillPlan:
     assets: tuple[AssetContract, ...]
     sites: tuple[InfillSite, ...]
     source_anchors: tuple[SourceAnchor, ...]
     routes: tuple[AccessRoute, ...]
     placements: tuple[InfillPlacement, ...]
+    connectors: tuple[RouteAssetConnector, ...]
 
 
 ASSETS = (
@@ -171,10 +199,16 @@ ASSETS = (
         ),
         render_width_m=98.0,
         render_depth_m=86.0,
-        collision_width_m=23.2,
-        collision_depth_m=16.2,
-        collision_center_local_x_m=-32.0,
-        collision_center_local_z_m=26.0,
+        collision_profile="single-watertight-proxy-v1",
+        collision_components=(
+            CollisionComponent(
+                component_id="farmhouse",
+                collision_width_m=23.2,
+                collision_depth_m=16.2,
+                collision_center_local_x_m=-32.0,
+                collision_center_local_z_m=-26.0,
+            ),
+        ),
     ),
     AssetContract(
         asset_id=SUBURB_ASSET_ID,
@@ -186,10 +220,42 @@ ASSETS = (
         ),
         render_width_m=96.0,
         render_depth_m=88.0,
-        collision_width_m=94.0,
-        collision_depth_m=82.0,
-        collision_center_local_x_m=0.0,
-        collision_center_local_z_m=0.0,
+        collision_profile="compound-watertight-proxy-v1",
+        collision_components=(
+            *(
+                CollisionComponent(
+                    component_id=f"house-{index:02d}",
+                    collision_width_m=24.0,
+                    collision_depth_m=17.0,
+                    collision_center_local_x_m=x,
+                    collision_center_local_z_m=z,
+                )
+                for index, (x, z) in enumerate(
+                    (
+                        (-27.0, 24.0),
+                        (27.0, 24.0),
+                        (-27.0, 0.0),
+                        (27.0, 0.0),
+                        (-27.0, -24.0),
+                        (27.0, -24.0),
+                    )
+                )
+            ),
+            CollisionComponent(
+                component_id="west-perimeter-wall",
+                collision_width_m=1.5,
+                collision_depth_m=84.0,
+                collision_center_local_x_m=-47.0,
+                collision_center_local_z_m=0.0,
+            ),
+            CollisionComponent(
+                component_id="east-perimeter-wall",
+                collision_width_m=1.5,
+                collision_depth_m=84.0,
+                collision_center_local_x_m=47.0,
+                collision_center_local_z_m=0.0,
+            ),
+        ),
     ),
     AssetContract(
         asset_id=SERVICE_STATION_ASSET_ID,
@@ -201,10 +267,76 @@ ASSETS = (
         ),
         render_width_m=90.0,
         render_depth_m=65.0,
-        collision_width_m=30.5,
-        collision_depth_m=16.5,
-        collision_center_local_x_m=0.0,
-        collision_center_local_z_m=22.0,
+        collision_profile="compound-watertight-proxy-v1",
+        collision_components=(
+            CollisionComponent(
+                component_id="market",
+                collision_width_m=32.5,
+                collision_depth_m=18.2,
+                collision_center_local_x_m=0.0,
+                collision_center_local_z_m=-22.0,
+            ),
+            CollisionComponent(
+                component_id="canopy",
+                collision_width_m=44.3,
+                collision_depth_m=23.3,
+                collision_center_local_x_m=3.0,
+                collision_center_local_z_m=4.0,
+            ),
+            *(
+                CollisionComponent(
+                    component_id=f"canopy-column-{index:02d}",
+                    collision_width_m=0.84,
+                    collision_depth_m=0.84,
+                    collision_center_local_x_m=x,
+                    collision_center_local_z_m=z,
+                )
+                for index, (x, z) in enumerate(
+                    (
+                        (-15.0, 11.0),
+                        (21.0, 11.0),
+                        (-15.0, -3.0),
+                        (21.0, -3.0),
+                    )
+                )
+            ),
+            *(
+                CollisionComponent(
+                    component_id=f"fuel-pump-{index:02d}",
+                    collision_width_m=1.35,
+                    collision_depth_m=0.9,
+                    collision_center_local_x_m=x,
+                    collision_center_local_z_m=z,
+                )
+                for index, (x, z) in enumerate(
+                    (
+                        (-12.0, 8.0),
+                        (0.0, 8.0),
+                        (12.0, 8.0),
+                        (-12.0, 0.0),
+                        (0.0, 0.0),
+                        (12.0, 0.0),
+                    )
+                )
+            ),
+            CollisionComponent(
+                component_id="price-pylon",
+                collision_width_m=3.2,
+                collision_depth_m=1.1,
+                collision_center_local_x_m=-38.0,
+                collision_center_local_z_m=24.0,
+            ),
+            *(
+                CollisionComponent(
+                    component_id=f"ev-charger-{index:02d}",
+                    collision_width_m=0.72,
+                    collision_depth_m=0.7,
+                    collision_center_local_x_m=x,
+                    collision_center_local_z_m=-24.0,
+                )
+                for index, x in enumerate((28.0, 31.2, 34.4, 37.6))
+            ),
+        ),
     ),
     AssetContract(
         asset_id=RED_MESA_ASSET_ID,
@@ -216,10 +348,16 @@ ASSETS = (
         ),
         render_width_m=19.0,
         render_depth_m=19.0,
-        collision_width_m=11.5,
-        collision_depth_m=9.0,
-        collision_center_local_x_m=-2.4,
-        collision_center_local_z_m=0.8,
+        collision_profile="single-watertight-proxy-v1",
+        collision_components=(
+            CollisionComponent(
+                component_id="mesa",
+                collision_width_m=11.5,
+                collision_depth_m=9.0,
+                collision_center_local_x_m=-2.4,
+                collision_center_local_z_m=-0.8,
+            ),
+        ),
     ),
     AssetContract(
         asset_id=ARROYO_OASIS_ASSET_ID,
@@ -231,10 +369,16 @@ ASSETS = (
         ),
         render_width_m=19.0,
         render_depth_m=19.0,
-        collision_width_m=1.8,
-        collision_depth_m=1.8,
-        collision_center_local_x_m=-4.6,
-        collision_center_local_z_m=-3.2,
+        collision_profile="single-watertight-proxy-v1",
+        collision_components=(
+            CollisionComponent(
+                component_id="palm-trunk",
+                collision_width_m=1.8,
+                collision_depth_m=1.8,
+                collision_center_local_x_m=-4.6,
+                collision_center_local_z_m=3.2,
+            ),
+        ),
     ),
 )
 ASSET_BY_ID = {asset.asset_id: asset for asset in ASSETS}
@@ -318,8 +462,8 @@ SITES = (
         polygon_xz_m=(
             (770.0, 1350.0),
             (840.0, 1350.0),
-            (840.0, 1500.0),
-            (770.0, 1500.0),
+            (840.0, 1510.0),
+            (770.0, 1510.0),
         ),
         center_xz_m=(805.0, 1425.0),
         access_route_ids=("sunset-frontage-road",),
@@ -594,14 +738,20 @@ ROUTES = (
         served_site_ids=("west-highway-service", "sunset-courts"),
         xz_points=(
             (706.967, 1425.0),
-            (740.0, 1425.0),
-            (760.0, 1510.0),
-            (850.0, 1510.0),
+            (730.0, 1425.0),
+            (750.0, 1510.0),
+            (772.5, 1510.0),
+            (837.5, 1510.0),
+            (860.0, 1510.0),
+            (880.0, 1510.0),
+            (910.0, 1510.0),
+            (910.0, 1528.0),
         ),
         width_m=10.0,
         comments=(
             "Shared highway frontage road for Sunset Courts and fuel service.",
-            "The bend preserves the complete service-station collision parcel.",
+            "Its south edge meets the complete station forecourt without overlap.",
+            "Its endpoint crosses the two-metre apron to the shared internal lane.",
         ),
     ),
     _build_route(
@@ -624,10 +774,20 @@ ROUTES = (
         ),
         destination_site_id="arroyo-vista",
         served_site_ids=("arroyo-vista",),
-        xz_points=((4732.970, 3500.0), (4630.0, 3500.0), (4550.0, 3500.0)),
+        xz_points=(
+            (4732.970, 3500.0),
+            (4630.0, 3500.0),
+            (4550.0, 3500.0),
+            (4440.0, 3500.0),
+            (4240.0, 3500.0),
+            (4140.0, 3500.0),
+            (4140.0, 3425.0),
+            (4140.0, 3402.0),
+        ),
         width_m=10.0,
         comments=(
             "Curb-free boulevard from the highway into Arroyo Vista.",
+            "The north approach crosses the two-metre apron to an internal lane.",
         ),
     ),
     _build_route(
@@ -637,10 +797,15 @@ ROUTES = (
         ),
         destination_site_id="intercity-service",
         served_site_ids=("intercity-service",),
-        xz_points=((3688.970, 3580.0), (3720.0, 3580.0), (3740.0, 3580.0)),
+        xz_points=(
+            (3688.970, 3580.0),
+            (3720.0, 3580.0),
+            (3740.0, 3580.0),
+        ),
         width_m=10.0,
         comments=(
             "Short curb-free service-road handoff beside the intercity highway.",
+            "Its endpoint meets the west forecourt edge without overlap.",
         ),
     ),
     _build_route(
@@ -654,11 +819,14 @@ ROUTES = (
             (3723.199038, 4350.0),
             (3800.0, 4350.0),
             (3860.0, 4350.0),
-            (3925.0, 4350.0),
+            (3880.0, 4350.0),
+            (3880.0, 4285.0),
+            (3916.0, 4285.0),
         ),
         width_m=8.0,
         comments=(
             "Curb-free farm road from the authenticated curved highway edge.",
+            "Its final bend meets the authored crop and fence opening exactly.",
         ),
     ),
     _build_route(
@@ -753,13 +921,13 @@ PLACEMENTS = (
         site_id="west-highway-service",
         asset_id=SERVICE_STATION_ASSET_ID,
         prefix="west-highway-service-station",
-        positions=((805.0, 1395.0, 90.0),),
+        positions=((805.0, 1460.0, 90.0),),
     ),
     *_placements(
         site_id="intercity-service",
         asset_id=SERVICE_STATION_ASSET_ID,
         prefix="intercity-service-station",
-        positions=((3820.0, 3635.0, 0.0),),
+        positions=((3785.0, 3580.0, 0.0),),
     ),
     *_placements(
         site_id="coyote-arch",
@@ -791,6 +959,103 @@ PLACEMENTS = (
     ),
 )
 
+CONNECTORS = (
+    RouteAssetConnector(
+        connector_id="sunset-frontage-west-service-forecourt",
+        status="active",
+        route_id="sunset-frontage-road",
+        placement_id="west-highway-service-station-01",
+        surface_id="full-concrete-forecourt-west-edge",
+        route_segment_index=3,
+        route_edge="right",
+        target_surface_local_polygon_xz_m=(
+            (-45.0, -32.5),
+            (45.0, -32.5),
+            (45.0, 32.5),
+            (-45.0, 32.5),
+        ),
+        target_seam_local_xz_m=((-45.0, -32.5), (-45.0, 32.5)),
+        target_surface_local_y_m=0.0,
+        expected_render_overlap_depth_m=0.0,
+    ),
+    RouteAssetConnector(
+        connector_id="sunset-frontage-sunset-courts-internal-street",
+        status="active",
+        route_id="sunset-frontage-road",
+        placement_id="sunset-courts-suburb-block-07",
+        surface_id="shared-internal-street-south-edge",
+        route_segment_index=7,
+        route_edge="end",
+        target_surface_local_polygon_xz_m=(
+            (-5.0, -42.0),
+            (5.0, -42.0),
+            (5.0, 42.0),
+            (-5.0, 42.0),
+        ),
+        target_seam_local_xz_m=((-5.0, -42.0), (5.0, -42.0)),
+        target_surface_local_y_m=0.0,
+        expected_render_overlap_depth_m=2.0,
+    ),
+    RouteAssetConnector(
+        connector_id="arroyo-vista-internal-street",
+        status="active",
+        route_id="arroyo-vista-boulevard",
+        placement_id="arroyo-vista-suburb-block-02",
+        surface_id="shared-internal-street-north-edge",
+        route_segment_index=6,
+        route_edge="end",
+        target_surface_local_polygon_xz_m=(
+            (-5.0, -42.0),
+            (5.0, -42.0),
+            (5.0, 42.0),
+            (-5.0, 42.0),
+        ),
+        target_seam_local_xz_m=((5.0, 42.0), (-5.0, 42.0)),
+        target_surface_local_y_m=0.0,
+        expected_render_overlap_depth_m=2.0,
+    ),
+    RouteAssetConnector(
+        connector_id="intercity-service-forecourt",
+        status="active",
+        route_id="intercity-service-road",
+        placement_id="intercity-service-station-01",
+        surface_id="full-concrete-forecourt-west-edge",
+        route_segment_index=1,
+        route_edge="end",
+        target_surface_local_polygon_xz_m=(
+            (-45.0, -32.5),
+            (45.0, -32.5),
+            (45.0, 32.5),
+            (-45.0, 32.5),
+        ),
+        target_seam_local_xz_m=((-45.0, -5.0), (-45.0, 5.0)),
+        target_surface_local_y_m=0.0,
+        expected_render_overlap_depth_m=0.0,
+    ),
+    RouteAssetConnector(
+        connector_id="intercity-farm-lane",
+        status="active",
+        route_id="intercity-farm-road",
+        placement_id="intercity-farm-farmstead-01",
+        surface_id="authored-asphalt-driveway-west-edge",
+        route_segment_index=4,
+        route_edge="end",
+        target_surface_local_polygon_xz_m=(
+            (-49.0, 31.0),
+            (-36.0, 31.0),
+            (-36.0, -17.5),
+            (-28.0, -17.5),
+            (-28.0, 43.0),
+            (-36.0, 43.0),
+            (-36.0, 39.0),
+            (-49.0, 39.0),
+        ),
+        target_seam_local_xz_m=((-49.0, 39.0), (-49.0, 31.0)),
+        target_surface_local_y_m=0.0,
+        expected_render_overlap_depth_m=0.0,
+    ),
+)
+
 
 def build_infill_plan() -> InfillPlan:
     """Return the immutable, ordering-stable checked infill plan."""
@@ -801,6 +1066,7 @@ def build_infill_plan() -> InfillPlan:
         source_anchors=SOURCE_ANCHORS,
         routes=ROUTES,
         placements=PLACEMENTS,
+        connectors=CONNECTORS,
     )
 
 
@@ -850,14 +1116,38 @@ def placement_footprint(
     *,
     collision: bool = False,
 ) -> tuple[PointXZ, ...]:
-    """Return the conservative render or exact proxy footprint in world XZ."""
+    """Return the render footprint or conservative collision outer bounds."""
 
     asset = ASSET_BY_ID[placement.asset_id]
     if collision:
-        width = asset.collision_width_m
-        depth = asset.collision_depth_m
-        offset_x = asset.collision_center_local_x_m
-        offset_z = asset.collision_center_local_z_m
+        if not asset.collision_components:
+            raise InfillFailure(
+                f"{asset.asset_id} has no collision components"
+            )
+        minimum_x = min(
+            component.collision_center_local_x_m
+            - component.collision_width_m / 2.0
+            for component in asset.collision_components
+        )
+        maximum_x = max(
+            component.collision_center_local_x_m
+            + component.collision_width_m / 2.0
+            for component in asset.collision_components
+        )
+        minimum_z = min(
+            component.collision_center_local_z_m
+            - component.collision_depth_m / 2.0
+            for component in asset.collision_components
+        )
+        maximum_z = max(
+            component.collision_center_local_z_m
+            + component.collision_depth_m / 2.0
+            for component in asset.collision_components
+        )
+        width = maximum_x - minimum_x
+        depth = maximum_z - minimum_z
+        offset_x = (minimum_x + maximum_x) / 2.0
+        offset_z = (minimum_z + maximum_z) / 2.0
     else:
         width = asset.render_width_m
         depth = asset.render_depth_m
@@ -882,6 +1172,293 @@ def placement_footprint(
             )
         )
     return tuple(result)
+
+
+def collision_component_footprint(
+    placement: InfillPlacement,
+    component: CollisionComponent,
+) -> tuple[PointXZ, ...]:
+    """Return one exact collision component footprint in world XZ."""
+
+    result = []
+    for local_x, local_z in (
+        (
+            component.collision_center_local_x_m
+            - component.collision_width_m / 2.0,
+            component.collision_center_local_z_m
+            - component.collision_depth_m / 2.0,
+        ),
+        (
+            component.collision_center_local_x_m
+            + component.collision_width_m / 2.0,
+            component.collision_center_local_z_m
+            - component.collision_depth_m / 2.0,
+        ),
+        (
+            component.collision_center_local_x_m
+            + component.collision_width_m / 2.0,
+            component.collision_center_local_z_m
+            + component.collision_depth_m / 2.0,
+        ),
+        (
+            component.collision_center_local_x_m
+            - component.collision_width_m / 2.0,
+            component.collision_center_local_z_m
+            + component.collision_depth_m / 2.0,
+        ),
+    ):
+        result.append(placement_local_to_world_xz(
+            placement,
+            (local_x, local_z),
+        ))
+    return tuple(result)
+
+
+def placement_collision_footprints(
+    placement: InfillPlacement,
+) -> tuple[tuple[PointXZ, ...], ...]:
+    """Return every exact world-space collision component footprint."""
+
+    asset = ASSET_BY_ID[placement.asset_id]
+    return tuple(
+        collision_component_footprint(placement, component)
+        for component in asset.collision_components
+    )
+
+
+def placement_local_to_world_xz(
+    placement: InfillPlacement,
+    point: PointXZ,
+) -> PointXZ:
+    """Transform an exact asset-local XZ point through a TOBJ placement."""
+
+    dx, dz = _rotate_local_xz(point[0], point[1], placement.yaw_degrees)
+    return (
+        _stable_number(placement.x + dx),
+        _stable_number(placement.z + dz),
+    )
+
+
+def placement_world_to_local_xz(
+    placement: InfillPlacement,
+    point: PointXZ,
+) -> PointXZ:
+    """Invert the exact asset-local XZ transform for connector auditing."""
+
+    radians = math.radians(placement.yaw_degrees)
+    cosine = math.cos(radians)
+    sine = math.sin(radians)
+    dx = point[0] - placement.x
+    dz = point[1] - placement.z
+    return (
+        _stable_number(cosine * dx - sine * dz),
+        _stable_number(sine * dx + cosine * dz),
+    )
+
+
+def route_point_cross_section(
+    point: AccessRoadPoint,
+) -> tuple[PointXZ, PointXZ]:
+    """Return the native yaw-oriented left/right edges of a road point."""
+
+    radians = math.radians(point.yaw_degrees)
+    normal_x = math.sin(radians)
+    normal_z = math.cos(radians)
+    half_width = point.width_m / 2.0
+    return (
+        (
+            _stable_number(point.x + normal_x * half_width),
+            _stable_number(point.z + normal_z * half_width),
+        ),
+        (
+            _stable_number(point.x - normal_x * half_width),
+            _stable_number(point.z - normal_z * half_width),
+        ),
+    )
+
+
+def polygon_is_strictly_convex(
+    polygon: Sequence[PointXZ],
+    *,
+    epsilon: float = POSITION_EPSILON_M,
+) -> bool:
+    """Return whether every ordered turn has one non-zero orientation."""
+
+    if len(polygon) < 3:
+        return False
+    orientation_sign = 0
+    for first, second, third in zip(
+        polygon,
+        (*polygon[1:], polygon[0]),
+        (*polygon[2:], polygon[0], polygon[1]),
+    ):
+        cross = (
+            (second[0] - first[0]) * (third[1] - second[1])
+            - (second[1] - first[1]) * (third[0] - second[0])
+        )
+        if abs(cross) <= epsilon:
+            return False
+        current_sign = 1 if cross > 0.0 else -1
+        if orientation_sign and current_sign != orientation_sign:
+            return False
+        orientation_sign = current_sign
+    return True
+
+
+def route_segment_surface_footprint(
+    route: AccessRoute,
+    segment_index: int,
+) -> tuple[PointXZ, ...]:
+    """Return the exact yaw-oriented surface quad for a generated segment."""
+
+    if (
+        isinstance(segment_index, bool)
+        or not isinstance(segment_index, int)
+        or segment_index < 0
+        or segment_index >= len(route.points) - 1
+    ):
+        raise InfillFailure(
+            f"{route.route_id} connector segment index is invalid"
+        )
+    start = route.points[segment_index]
+    end = route.points[segment_index + 1]
+    start_left, start_right = route_point_cross_section(start)
+    end_left, end_right = route_point_cross_section(end)
+    footprint = (start_left, end_left, end_right, start_right)
+    if not polygon_is_strictly_convex(footprint):
+        raise InfillFailure(
+            f"{route.route_id} segment {segment_index} surface quad "
+            "is not strictly convex"
+        )
+    return footprint
+
+
+def route_connector_world_seam(
+    route: AccessRoute,
+    connector: RouteAssetConnector,
+) -> tuple[PointXZ, PointXZ]:
+    """Return the selected generated-road side or terminal cross-section."""
+
+    if connector.route_segment_index >= len(route.points) - 1:
+        raise InfillFailure(
+            f"{connector.connector_id} route segment is unavailable"
+        )
+    start = route.points[connector.route_segment_index]
+    end = route.points[connector.route_segment_index + 1]
+    start_left, start_right = route_point_cross_section(start)
+    end_left, end_right = route_point_cross_section(end)
+    if connector.route_edge == "left":
+        return (start_left, end_left)
+    if connector.route_edge == "right":
+        return (start_right, end_right)
+    if connector.route_edge == "end":
+        if connector.route_segment_index != len(route.points) - 2:
+            raise InfillFailure(
+                f"{connector.connector_id} does not use the terminal segment"
+            )
+        return (end_left, end_right)
+    raise InfillFailure(
+        f"{connector.connector_id} route edge is unsupported"
+    )
+
+
+def connector_target_world_seam(
+    connector: RouteAssetConnector,
+    placement: InfillPlacement,
+) -> tuple[PointXZ, PointXZ]:
+    return tuple(
+        placement_local_to_world_xz(placement, point)
+        for point in connector.target_seam_local_xz_m
+    )
+
+
+def connector_seam_gap_m(
+    connector: RouteAssetConnector,
+    route: AccessRoute,
+    placement: InfillPlacement,
+) -> float:
+    """Return the maximum endpoint gap under the best seam orientation."""
+
+    route_start, route_end = route_connector_world_seam(route, connector)
+    target_start, target_end = connector_target_world_seam(
+        connector,
+        placement,
+    )
+    forward = max(
+        math.dist(route_start, target_start),
+        math.dist(route_end, target_end),
+    )
+    reverse = max(
+        math.dist(route_start, target_end),
+        math.dist(route_end, target_start),
+    )
+    return _stable_number(min(forward, reverse))
+
+
+def _point_on_polygon_boundary(
+    point: PointXZ,
+    polygon: Sequence[PointXZ],
+) -> bool:
+    return any(
+        _point_segment_distance(point, start, end)
+        <= POSITION_EPSILON_M
+        for start, end in zip(polygon, (*polygon[1:], polygon[0]))
+    )
+
+
+def _endpoint_render_overlap_depth_m(
+    route: AccessRoute,
+    placement: InfillPlacement,
+) -> float:
+    """Measure the terminal road-center penetration into a render footprint."""
+
+    previous = placement_world_to_local_xz(
+        placement,
+        (route.points[-2].x, route.points[-2].z),
+    )
+    endpoint = placement_world_to_local_xz(
+        placement,
+        (route.points[-1].x, route.points[-1].z),
+    )
+    dx = endpoint[0] - previous[0]
+    dz = endpoint[1] - previous[1]
+    length = math.hypot(dx, dz)
+    if length <= POSITION_EPSILON_M:
+        raise InfillFailure(
+            f"{route.route_id} terminal connector segment is degenerate"
+        )
+    backwards = (-dx / length, -dz / length)
+    asset = ASSET_BY_ID[placement.asset_id]
+    half_width = asset.render_width_m / 2.0
+    half_depth = asset.render_depth_m / 2.0
+    if (
+        abs(endpoint[0]) > half_width + POSITION_EPSILON_M
+        or abs(endpoint[1]) > half_depth + POSITION_EPSILON_M
+    ):
+        raise InfillFailure(
+            f"{route.route_id} terminal connector misses its render footprint"
+        )
+    candidates = []
+    for origin, direction, half_extent, other, other_direction, other_half in (
+        (endpoint[0], backwards[0], half_width,
+         endpoint[1], backwards[1], half_depth),
+        (endpoint[1], backwards[1], half_depth,
+         endpoint[0], backwards[0], half_width),
+    ):
+        if abs(direction) <= POSITION_EPSILON_M:
+            continue
+        for boundary in (-half_extent, half_extent):
+            distance = (boundary - origin) / direction
+            if distance < -POSITION_EPSILON_M:
+                continue
+            other_at_boundary = other + distance * other_direction
+            if abs(other_at_boundary) <= other_half + POSITION_EPSILON_M:
+                candidates.append(max(0.0, distance))
+    if not candidates:
+        raise InfillFailure(
+            f"{route.route_id} terminal connector has no render-boundary entry"
+        )
+    return _stable_number(min(candidates))
 
 
 def _polygon_axes(polygon: Sequence[PointXZ]) -> tuple[PointXZ, ...]:
@@ -1053,19 +1630,278 @@ def _minimum_pairwise_clearance(
     minimum = math.inf
     pair = ("", "")
     for index, first in enumerate(placements):
-        first_polygon = placement_footprint(first, collision=collision)
+        first_polygons = (
+            placement_collision_footprints(first)
+            if collision
+            else (placement_footprint(first),)
+        )
         for second in placements[index + 1:]:
-            second_polygon = placement_footprint(second, collision=collision)
-            if polygons_overlap(first_polygon, second_polygon):
-                raise InfillFailure(
-                    f"placements overlap: {first.placement_id}, "
-                    f"{second.placement_id}"
-                )
-            clearance = polygon_clearance(first_polygon, second_polygon)
+            second_polygons = (
+                placement_collision_footprints(second)
+                if collision
+                else (placement_footprint(second),)
+            )
+            clearance = math.inf
+            for first_polygon in first_polygons:
+                for second_polygon in second_polygons:
+                    if polygons_overlap(first_polygon, second_polygon):
+                        raise InfillFailure(
+                            f"placements overlap: {first.placement_id}, "
+                            f"{second.placement_id}"
+                        )
+                    clearance = min(
+                        clearance,
+                        polygon_clearance(
+                            first_polygon,
+                            second_polygon,
+                        ),
+                    )
             if clearance < minimum:
                 minimum = clearance
                 pair = (first.placement_id, second.placement_id)
     return minimum, pair
+
+
+def route_collision_component_clearance_m(
+    route: AccessRoute,
+    placement: InfillPlacement,
+) -> float:
+    """Return road-surface clearance from every exact collision component."""
+
+    minimum = math.inf
+    asset = ASSET_BY_ID[placement.asset_id]
+    component_footprints = zip(
+        asset.collision_components,
+        placement_collision_footprints(placement),
+    )
+    checked_components = tuple(component_footprints)
+    if not checked_components:
+        raise InfillFailure(
+            f"{placement.placement_id} has no collision components"
+        )
+    for segment_index in range(len(route.points) - 1):
+        road_surface = route_segment_surface_footprint(
+            route,
+            segment_index,
+        )
+        for component, collision_footprint in checked_components:
+            if polygons_overlap(road_surface, collision_footprint):
+                raise InfillFailure(
+                    f"{route.route_id} overlaps building collision component "
+                    f"{placement.placement_id}/{component.component_id}"
+                )
+            minimum = min(
+                minimum,
+                polygon_clearance(road_surface, collision_footprint),
+            )
+    return minimum
+
+
+def _audit_connector_contract(
+    connector: RouteAssetConnector,
+    route: AccessRoute,
+    placement: InfillPlacement,
+) -> dict[str, Any]:
+    asset = ASSET_BY_ID.get(placement.asset_id)
+    if asset is None:
+        raise InfillFailure(
+            f"{connector.connector_id} target asset is unavailable"
+        )
+    if placement.site_id not in route.served_site_ids:
+        raise InfillFailure(
+            f"{connector.connector_id} target site is not served by its route"
+        )
+    if connector.status == "pending":
+        if (
+            connector.route_edge != "pending"
+            or connector.blocker is None
+            or not connector.blocker
+            or connector.target_surface_local_polygon_xz_m
+            or connector.target_seam_local_xz_m
+            or connector.expected_render_overlap_depth_m != 0.0
+            or connector.target_surface_local_y_m != 0.0
+            or connector.maximum_seam_gap_m
+            != MAXIMUM_CONNECTOR_SEAM_GAP_M
+        ):
+            raise InfillFailure(
+                f"{connector.connector_id} pending contract drifted"
+            )
+        route_segment_surface_footprint(
+            route,
+            connector.route_segment_index,
+        )
+        collision_clearance = route_collision_component_clearance_m(
+            route,
+            placement,
+        )
+        render_clearance = route_placement_clearance_m(route, placement)
+        if render_clearance < MINIMUM_ACCESS_ROAD_CLEARANCE_M:
+            raise InfillFailure(
+                f"{connector.connector_id} pending road is not fail-closed"
+            )
+        return {
+            "blocker": connector.blocker,
+            "collision_profile": asset.collision_profile,
+            "collision_proxy_overlap_count": 0,
+            "connector_id": connector.connector_id,
+            "flush": False,
+            "minimum_collision_proxy_clearance_m":
+                _stable_number(collision_clearance),
+            "observed_render_clearance_m":
+                _stable_number(render_clearance),
+            "placement_id": connector.placement_id,
+            "route_id": connector.route_id,
+            "seam_gap_m": None,
+            "status": "pending",
+            "surface_id": connector.surface_id,
+        }
+    if (
+        not connector.connector_id
+        or not connector.surface_id
+        or connector.status != "active"
+        or connector.blocker is not None
+        or connector.maximum_seam_gap_m
+        != MAXIMUM_CONNECTOR_SEAM_GAP_M
+        or connector.route_edge not in {"left", "right", "end"}
+        or len(connector.target_surface_local_polygon_xz_m) < 4
+        or len(connector.target_seam_local_xz_m) != 2
+        or connector.target_surface_local_y_m != 0.0
+        or not math.isfinite(connector.expected_render_overlap_depth_m)
+        or connector.expected_render_overlap_depth_m < 0.0
+    ):
+        raise InfillFailure(
+            f"{connector.connector_id} connector profile drifted"
+        )
+    route_segment_surface_footprint(
+        route,
+        connector.route_segment_index,
+    )
+    selected_points = (
+        route.points[connector.route_segment_index],
+        route.points[connector.route_segment_index + 1],
+    )
+    if (
+        any(
+            abs(
+                point.y
+                - (
+                    placement.y
+                    + connector.target_surface_local_y_m
+                )
+            )
+            > POSITION_EPSILON_M
+            for point in selected_points
+        )
+        or selected_points[0].width_m != selected_points[1].width_m
+    ):
+        raise InfillFailure(
+            f"{connector.connector_id} road elevation or width drifted"
+        )
+
+    half_width = asset.render_width_m / 2.0
+    half_depth = asset.render_depth_m / 2.0
+    surface = connector.target_surface_local_polygon_xz_m
+    if any(
+        abs(x) > half_width + POSITION_EPSILON_M
+        or abs(z) > half_depth + POSITION_EPSILON_M
+        for x, z in surface
+    ):
+        raise InfillFailure(
+            f"{connector.connector_id} target surface left the asset footprint"
+        )
+    if any(
+        not _point_on_polygon_boundary(point, surface)
+        for point in connector.target_seam_local_xz_m
+    ):
+        raise InfillFailure(
+            f"{connector.connector_id} target seam left its surface edge"
+        )
+
+    route_seam = route_connector_world_seam(route, connector)
+    target_seam = connector_target_world_seam(connector, placement)
+    route_seam_width = math.dist(*route_seam)
+    target_seam_width = math.dist(*target_seam)
+    road_width = selected_points[0].width_m
+    if connector.route_edge == "end":
+        if (
+            abs(route_seam_width - road_width) > POSITION_EPSILON_M
+            or abs(target_seam_width - road_width) > POSITION_EPSILON_M
+        ):
+            raise InfillFailure(
+                f"{connector.connector_id} terminal seam width drifted"
+            )
+        observed_overlap_depth = _endpoint_render_overlap_depth_m(
+            route,
+            placement,
+        )
+    else:
+        target_on_render_edge = all(
+            abs(abs(x) - half_width) <= POSITION_EPSILON_M
+            or abs(abs(z) - half_depth) <= POSITION_EPSILON_M
+            for x, z in connector.target_seam_local_xz_m
+        )
+        if (
+            not target_on_render_edge
+            or abs(route_seam_width - target_seam_width)
+            > POSITION_EPSILON_M
+        ):
+            raise InfillFailure(
+                f"{connector.connector_id} side seam width drifted"
+            )
+        observed_overlap_depth = 0.0
+    if (
+        abs(
+            observed_overlap_depth
+            - connector.expected_render_overlap_depth_m
+        )
+        > POSITION_EPSILON_M
+    ):
+        raise InfillFailure(
+            f"{connector.connector_id} render overlap depth drifted"
+        )
+
+    seam_gap = connector_seam_gap_m(connector, route, placement)
+    if seam_gap > connector.maximum_seam_gap_m:
+        raise InfillFailure(
+            f"{connector.connector_id} seam gap exceeds one millimetre"
+        )
+    if route_placement_clearance_m(route, placement) > seam_gap:
+        raise InfillFailure(
+            f"{connector.connector_id} route does not reach its target surface"
+        )
+
+    collision_clearance = route_collision_component_clearance_m(
+        route,
+        placement,
+    )
+    return {
+        "collision_profile": asset.collision_profile,
+        "collision_proxy_overlap_count": 0,
+        "connector_id": connector.connector_id,
+        "expected_render_overlap_depth_m":
+            _stable_number(connector.expected_render_overlap_depth_m),
+        "maximum_seam_gap_m":
+            _stable_number(connector.maximum_seam_gap_m),
+        "minimum_collision_proxy_clearance_m":
+            _stable_number(collision_clearance),
+        "observed_render_overlap_depth_m":
+            _stable_number(observed_overlap_depth),
+        "placement_id": connector.placement_id,
+        "road_width_m": _stable_number(road_width),
+        "route_edge": connector.route_edge,
+        "route_id": connector.route_id,
+        "route_segment_index": connector.route_segment_index,
+        "route_world_seam_xz_m": [
+            list(point) for point in route_seam
+        ],
+        "seam_gap_m": seam_gap,
+        "status": "active",
+        "surface_id": connector.surface_id,
+        "target_seam_width_m": _stable_number(target_seam_width),
+        "target_world_seam_xz_m": [
+            list(point) for point in target_seam
+        ],
+    }
 
 
 def audit_plan(plan: InfillPlan | None = None) -> dict[str, Any]:
@@ -1078,22 +1914,109 @@ def audit_plan(plan: InfillPlan | None = None) -> dict[str, Any]:
         anchor.anchor_id: anchor for anchor in checked.source_anchors
     }
     route_by_id = {route.route_id: route for route in checked.routes}
+    placement_by_id = {
+        placement.placement_id: placement
+        for placement in checked.placements
+    }
+    connector_by_id = {
+        connector.connector_id: connector
+        for connector in checked.connectors
+    }
     if len(asset_by_id) != len(checked.assets):
         raise InfillFailure("asset identifiers are not unique")
+    if checked.assets != ASSETS:
+        raise InfillFailure("regional-infill asset contract drifted")
     if len(site_by_id) != len(checked.sites):
         raise InfillFailure("site identifiers are not unique")
     if len(anchor_by_id) != len(checked.source_anchors):
         raise InfillFailure("source-anchor identifiers are not unique")
     if len(route_by_id) != len(checked.routes):
         raise InfillFailure("access-route identifiers are not unique")
-    if len({item.placement_id for item in checked.placements}) != len(
-        checked.placements
-    ):
+    if len(placement_by_id) != len(checked.placements):
         raise InfillFailure("placement identifiers are not unique")
     if len({item.instance_name for item in checked.placements}) != len(
         checked.placements
     ):
         raise InfillFailure("runtime instance names are not unique")
+    if len(connector_by_id) != len(checked.connectors):
+        raise InfillFailure("connector identifiers are not unique")
+    connector_pairs = {
+        (connector.route_id, connector.placement_id)
+        for connector in checked.connectors
+    }
+    active_connector_pairs = {
+        (connector.route_id, connector.placement_id)
+        for connector in checked.connectors
+        if connector.status == "active"
+    }
+    if (
+        len(connector_pairs) != len(checked.connectors)
+        or len(checked.connectors) != 5
+        or len(active_connector_pairs) != 5
+        or sum(
+            connector.status == "pending"
+            for connector in checked.connectors
+        )
+        != 0
+    ):
+        raise InfillFailure("route-to-asset connector set drifted")
+
+    for asset in checked.assets:
+        component_ids = {
+            component.component_id
+            for component in asset.collision_components
+        }
+        expected_component_count = len(asset.collision_components)
+        if (
+            asset.collision_profile
+            not in {
+                "single-watertight-proxy-v1",
+                "compound-watertight-proxy-v1",
+            }
+            or not component_ids
+            or len(component_ids) != expected_component_count
+            or (
+                asset.collision_profile == "single-watertight-proxy-v1"
+                and expected_component_count != 1
+            )
+            or (
+                asset.collision_profile == "compound-watertight-proxy-v1"
+                and expected_component_count <= 1
+            )
+        ):
+            raise InfillFailure(
+                f"{asset.asset_id} collision component profile drifted"
+            )
+        half_render_width = asset.render_width_m / 2.0
+        half_render_depth = asset.render_depth_m / 2.0
+        for component in asset.collision_components:
+            if (
+                not component.component_id
+                or not all(
+                    math.isfinite(value) and value > 0.0
+                    for value in (
+                        component.collision_width_m,
+                        component.collision_depth_m,
+                    )
+                )
+                or not all(
+                    math.isfinite(value)
+                    for value in (
+                        component.collision_center_local_x_m,
+                        component.collision_center_local_z_m,
+                    )
+                )
+                or abs(component.collision_center_local_x_m)
+                + component.collision_width_m / 2.0
+                > half_render_width + POSITION_EPSILON_M
+                or abs(component.collision_center_local_z_m)
+                + component.collision_depth_m / 2.0
+                > half_render_depth + POSITION_EPSILON_M
+            ):
+                raise InfillFailure(
+                    f"{asset.asset_id}/{component.component_id} collision "
+                    "component left the render footprint"
+                )
 
     for site in checked.sites:
         if len(site.polygon_xz_m) < 3:
@@ -1121,19 +2044,27 @@ def audit_plan(plan: InfillPlan | None = None) -> dict[str, Any]:
             raise InfillFailure(
                 f"{placement.placement_id} category does not match its site"
             )
-        for collision in (False, True):
-            if not all(
+        if not all(
+            point_in_polygon(corner, site.polygon_xz_m)
+            for corner in placement_footprint(placement)
+        ):
+            raise InfillFailure(
+                f"{placement.placement_id} render footprint left "
+                f"{site.site_id}"
+            )
+        if any(
+            not all(
                 point_in_polygon(corner, site.polygon_xz_m)
-                for corner in placement_footprint(
-                    placement,
-                    collision=collision,
-                )
-            ):
-                kind = "collision" if collision else "render"
-                raise InfillFailure(
-                    f"{placement.placement_id} {kind} footprint left "
-                    f"{site.site_id}"
-                )
+                for corner in collision_footprint
+            )
+            for collision_footprint in placement_collision_footprints(
+                placement
+            )
+        ):
+            raise InfillFailure(
+                f"{placement.placement_id} collision footprint left "
+                f"{site.site_id}"
+            )
 
     render_clearance, render_pair = _minimum_pairwise_clearance(
         checked.placements,
@@ -1146,8 +2077,6 @@ def audit_plan(plan: InfillPlan | None = None) -> dict[str, Any]:
     if render_clearance < MINIMUM_PLACEMENT_GAP_M:
         raise InfillFailure("render footprints are too close")
 
-    minimum_route_clearance = math.inf
-    minimum_route_pair = ("", "")
     for route in checked.routes:
         anchor = anchor_by_id.get(route.source_anchor_id)
         destination_site = site_by_id.get(route.destination_site_id)
@@ -1203,16 +2132,50 @@ def audit_plan(plan: InfillPlan | None = None) -> dict[str, Any]:
         )
         if heading_error > POSITION_EPSILON_M:
             raise InfillFailure(f"{route.route_id} source heading drifted")
+
+    connector_evidence = []
+    for connector in checked.connectors:
+        route = route_by_id.get(connector.route_id)
+        placement = placement_by_id.get(connector.placement_id)
+        if route is None or placement is None:
+            raise InfillFailure(
+                f"{connector.connector_id} references a missing route or asset"
+            )
+        connector_evidence.append(
+            _audit_connector_contract(connector, route, placement)
+        )
+
+    minimum_route_clearance = math.inf
+    minimum_route_pair = ("", "")
+    minimum_route_collision_clearance = math.inf
+    minimum_route_collision_pair = ("", "")
+    for route in checked.routes:
         for placement in checked.placements:
+            pair = (route.route_id, placement.placement_id)
+            route_collision_clearance = (
+                route_collision_component_clearance_m(
+                    route,
+                    placement,
+                )
+            )
+            if route_collision_clearance < minimum_route_collision_clearance:
+                minimum_route_collision_clearance = (
+                    route_collision_clearance
+                )
+                minimum_route_collision_pair = pair
+
             clearance = route_placement_clearance_m(route, placement)
+            if pair in active_connector_pairs:
+                continue
+            if clearance < MINIMUM_ACCESS_ROAD_CLEARANCE_M:
+                raise InfillFailure(
+                    "a non-designated access road enters an authored "
+                    f"asset footprint: {route.route_id}, "
+                    f"{placement.placement_id}"
+                )
             if clearance < minimum_route_clearance:
                 minimum_route_clearance = clearance
-                minimum_route_pair = (
-                    route.route_id,
-                    placement.placement_id,
-                )
-    if minimum_route_clearance < MINIMUM_ACCESS_ROAD_CLEARANCE_M:
-        raise InfillFailure("an access road enters an authored asset footprint")
+                minimum_route_pair = pair
 
     for anchor in checked.source_anchors:
         if (
@@ -1255,14 +2218,58 @@ def audit_plan(plan: InfillPlan | None = None) -> dict[str, Any]:
     return {
         "collision": {
             "collision_endcaps_enabled": False,
+            "collision_component_count": sum(
+                len(asset.collision_components)
+                for asset in checked.assets
+            ),
+            "collision_profiles": dict(sorted(
+                (
+                    profile,
+                    sum(
+                        asset.collision_profile == profile
+                        for asset in checked.assets
+                    ),
+                )
+                for profile in {
+                    asset.collision_profile
+                    for asset in checked.assets
+                }
+            )),
             "directive": OPEN_ENDCAP_DIRECTIVE,
+            "generated_road_collision_proxy_overlap_count": 0,
+            "minimum_generated_road_to_collision_proxy_clearance_m":
+                _stable_number(minimum_route_collision_clearance),
+            "minimum_generated_road_to_collision_proxy_pair":
+                list(minimum_route_collision_pair),
             "minimum_collision_proxy_clearance_m":
                 _stable_number(collision_clearance),
             "minimum_collision_proxy_pair": list(collision_pair),
             "single_surface_at_access_seams": True,
         },
+        "connectors": {
+            "active": sum(
+                connector.status == "active"
+                for connector in checked.connectors
+            ),
+            "contracts": connector_evidence,
+            "format": CONNECTOR_FORMAT,
+            "maximum_allowed_seam_gap_m":
+                MAXIMUM_CONNECTOR_SEAM_GAP_M,
+            "maximum_observed_active_seam_gap_m": max(
+                evidence["seam_gap_m"]
+                for evidence in connector_evidence
+                if evidence["status"] == "active"
+            ),
+            "non_designated_route_asset_intersection_count": 0,
+            "pending": sum(
+                connector.status == "pending"
+                for connector in checked.connectors
+            ),
+        },
         "format": SOURCE_AUDIT_FORMAT,
         "geometry": {
+            "access_road_clearance_scope":
+                "non-designated-route-asset-pairs",
             "minimum_access_road_to_render_footprint_clearance_m":
                 _stable_number(minimum_route_clearance),
             "minimum_access_road_to_render_footprint_pair":
@@ -1297,23 +2304,86 @@ def audit_plan(plan: InfillPlan | None = None) -> dict[str, Any]:
 
 
 def _asset_record(asset: AssetContract) -> dict[str, Any]:
+    minimum_x = min(
+        component.collision_center_local_x_m
+        - component.collision_width_m / 2.0
+        for component in asset.collision_components
+    )
+    maximum_x = max(
+        component.collision_center_local_x_m
+        + component.collision_width_m / 2.0
+        for component in asset.collision_components
+    )
+    minimum_z = min(
+        component.collision_center_local_z_m
+        - component.collision_depth_m / 2.0
+        for component in asset.collision_components
+    )
+    maximum_z = max(
+        component.collision_center_local_z_m
+        + component.collision_depth_m / 2.0
+        for component in asset.collision_components
+    )
     return {
         "asset_id": asset.asset_id,
         "category": asset.category,
+        "collision_components": [
+            {
+                "center_local_xz_m": [
+                    component.collision_center_local_x_m,
+                    component.collision_center_local_z_m,
+                ],
+                "component_id": component.component_id,
+                "depth_m": component.collision_depth_m,
+                "width_m": component.collision_width_m,
+            }
+            for component in asset.collision_components
+        ],
         "collision_footprint": {
             "center_local_xz_m": [
-                asset.collision_center_local_x_m,
-                asset.collision_center_local_z_m,
+                _stable_number((minimum_x + maximum_x) / 2.0),
+                _stable_number((minimum_z + maximum_z) / 2.0),
             ],
-            "depth_m": asset.collision_depth_m,
-            "width_m": asset.collision_width_m,
+            "depth_m": _stable_number(maximum_z - minimum_z),
+            "semantics": "conservative-component-outer-bounds",
+            "width_m": _stable_number(maximum_x - minimum_x),
         },
+        "collision_profile": asset.collision_profile,
         "manifest": asset.manifest,
         "render_footprint_m": [
             asset.render_width_m,
             asset.render_depth_m,
         ],
     }
+
+
+def _connector_record(
+    connector: RouteAssetConnector,
+) -> dict[str, Any]:
+    record = {
+        "connector_id": connector.connector_id,
+        "expected_render_overlap_depth_m":
+            connector.expected_render_overlap_depth_m,
+        "maximum_seam_gap_m": connector.maximum_seam_gap_m,
+        "placement_id": connector.placement_id,
+        "route_edge": connector.route_edge,
+        "route_id": connector.route_id,
+        "route_segment_index": connector.route_segment_index,
+        "status": connector.status,
+        "surface_id": connector.surface_id,
+        "target_seam_local_xz_m": [
+            list(point) for point in connector.target_seam_local_xz_m
+        ],
+        "target_surface_local_polygon_xz_m": [
+            list(point)
+            for point in connector.target_surface_local_polygon_xz_m
+        ],
+        "target_surface_local_y_m":
+            connector.target_surface_local_y_m,
+    }
+    if connector.blocker is not None:
+        record["blocker"] = connector.blocker
+    return record
 
 
 def _site_record(site: InfillSite) -> dict[str, Any]:
@@ -1413,12 +2483,29 @@ def _route_record(route: AccessRoute) -> dict[str, Any]:
 
 
 def _placement_record(placement: InfillPlacement) -> dict[str, Any]:
+    asset = ASSET_BY_ID[placement.asset_id]
     return {
         "asset_id": placement.asset_id,
+        "collision_component_footprints_xz_m": [
+            {
+                "component_id": component.component_id,
+                "polygon_xz_m": [
+                    list(point)
+                    for point in collision_component_footprint(
+                        placement,
+                        component,
+                    )
+                ],
+            }
+            for component in asset.collision_components
+        ],
         "collision_footprint_xz_m": [
             list(point)
             for point in placement_footprint(placement, collision=True)
         ],
+        "collision_footprint_semantics":
+            "conservative-component-outer-bounds",
+        "collision_profile": asset.collision_profile,
         "instance_name": placement.instance_name,
         "placement_id": placement.placement_id,
         "position_m": [placement.x, placement.y, placement.z],
@@ -1438,6 +2525,16 @@ def build_manifest(plan: InfillPlan | None = None) -> dict[str, Any]:
         "access_routes": [_route_record(route) for route in checked.routes],
         "assets": [_asset_record(asset) for asset in checked.assets],
         "audit": audit_plan(checked),
+        "connectors": {
+            "collision_policy":
+                "no-generated-road-overlap-with-building-proxies",
+            "contracts": [
+                _connector_record(connector)
+                for connector in checked.connectors
+            ],
+            "format": CONNECTOR_FORMAT,
+            "maximum_seam_gap_m": MAXIMUM_CONNECTOR_SEAM_GAP_M,
+        },
         "format": FORMAT,
         "placements": [
             _placement_record(placement) for placement in checked.placements
@@ -1461,7 +2558,7 @@ def build_manifest(plan: InfillPlan | None = None) -> dict[str, Any]:
         "source_anchors": [
             _anchor_record(anchor) for anchor in checked.source_anchors
         ],
-        "version": 1,
+        "version": VERSION,
     }
 
 

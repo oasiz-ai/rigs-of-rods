@@ -2,15 +2,15 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m.blend",
-      "sha256": "f32fbcc40cb71eae6612bdbb7f4f5a177a6d3967e3b8afebd8c60a5844eb9e09"
+      "sha256": "b60bf179c35b6c625676c8c68b6dd0ce69d9bcdb60de189ac23a88e9accf9564"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m.glb",
-      "sha256": "6c77821d5808aa6186f45df56557f4a2d7ea8148c88fe4c35df7f43db5e885d5"
+      "sha256": "9436c097c5f70a866737585a0fa8f1cc9e3e01249a5af250a9ae49d33b70cfb9"
     },
     "preview": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m_preview.png",
-      "sha256": "b1a6cdf59c8140eefd65486cbfb4f7c3522d716e6426e91e33c4dd0b1add04e9"
+      "sha256": "94e3fb87df4109ff87e176fae0f6502a4eef01cabef9c489885b4ad664122a42"
     }
   },
   "asset": {
@@ -42,7 +42,7 @@
       ],
       "format": "ror-cityworld-regional-infill-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
-      "sha256": "34d1f72e544a32157a629c9ec5996ade489fdeb61391c048f2139354694bd422"
+      "sha256": "c19056c6921187cc68d9f0acb32b487fae4af2111065d6cd5e217d0b157ddf0a"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -55,6 +55,25 @@
     "units": "metres"
   },
   "collision": {
+    "components": [
+      {
+        "bounds_blender_z_up": {
+          "max": [
+            3.35,
+            5.3,
+            14.0
+          ],
+          "min": [
+            -8.15,
+            -3.7,
+            0.0
+          ]
+        },
+        "component_id": "mesa",
+        "triangles": 12
+      }
+    ],
+    "components_format": "ror-cityworld-collision-components-v1",
     "objects": [
       {
         "bounds_blender_z_up": {
@@ -108,25 +127,25 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "64950667fe4e1e52d9a506880241ed085f1a5c080953466953bdd522b12d3b9c",
+        "sha256": "8cea3b66f314a62358ad4411eab9ad1d9fd11d03cafdbe49bcc54018567b629c",
         "size": 595034
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "6cf836cc95485045d18d51b62c951fa2558c09e161f674ac3e4e9b94fb3db2f2",
+        "sha256": "4da513db0fe92676868eec5c2e489729409ab2a457dd579ddf843af217643d8c",
         "size": 45812
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "4170152ecdff0913d8af88b1de30b767e63b59c7f1d76b52ec7e6f3a98810c3c",
+        "sha256": "0967c39d34fb79650cdc2b6d07fe4346c444457df637671ab3361f8c4ad55917",
         "size": 4371
       }
     ],
     "report": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m.compile.json",
-      "sha256": "4409ed3d5ff34d95fe0fee3e644b508e86f4fbab4e795b6c1a67d901bb17e0fe"
+      "sha256": "91e95f0c8f65f63baa01b1f5dd2dbf3832f4086efa786bfccbbd166c6e6a9375"
     }
   },
   "connectors": [],
@@ -168,7 +187,7 @@
           "min": [
             -9.5,
             -9.5,
-            0.0
+            -0.14
           ]
         },
         "lod": 0,
@@ -185,7 +204,7 @@
           "min": [
             -9.5,
             -9.5,
-            0.0
+            -0.14
           ]
         },
         "lod": 1,
@@ -202,7 +221,7 @@
           "min": [
             -9.5,
             -9.5,
-            0.0
+            -0.14
           ]
         },
         "lod": 2,
@@ -217,7 +236,7 @@
     "family": "rorng_city_regional_infill_family",
     "fictional_branding": true,
     "label": "Red Mesa Natural Monument",
-    "placement_integration": "cityworld-local-overlay-v6",
+    "placement_integration": "cityworld-local-overlay-v7",
     "runtime_texture_dependencies": []
   },
   "materials": [

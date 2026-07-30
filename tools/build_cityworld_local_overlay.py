@@ -67,8 +67,8 @@ from validate_cityworld_tree_family import (  # noqa: E402
 import cityworld_penguin_neoq_corridor as penguin_neoq_seam  # noqa: E402
 
 
-FORMAT = "ror-cityworld-local-overlay-v6"
-BUILD_RESULT_FORMAT = "ror-cityworld-local-overlay-build-result-v6"
+FORMAT = "ror-cityworld-local-overlay-v7"
+BUILD_RESULT_FORMAT = "ror-cityworld-local-overlay-build-result-v7"
 PINNED_ARCHIVE_SHA256 = (
     "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3"
 )
@@ -93,11 +93,15 @@ NEOQ_TREE_REPLACEMENT_FORMAT = (
     "ror-cityworld-neoq-tree-replacements-v1"
 )
 REGIONAL_INFILL_MANIFEST_NAME = (
-    "cityworld_next_infill_manifest.v1.json"
+    "cityworld_next_infill_manifest.v2.json"
 )
 REGIONAL_INFILL_SOURCE_AUTHENTICATION_FORMAT = (
     "ror-cityworld-regional-infill-source-authentication-v1"
 )
+REGIONAL_INFILL_COLLISION_COMPONENTS_FORMAT = (
+    "ror-cityworld-collision-components-v1"
+)
+REGIONAL_INFILL_COLLISION_COMPONENT_EPSILON_M = 1.0e-5
 NEOQ_LIGHT_POLICY_ID = "ror-cityworld-local-light-budget-v1"
 NEOQ_EXPECTED_MAP_FAMILY_COUNTS = {
     "luminariaLQr": 528,
@@ -1457,6 +1461,450 @@ def prepare_penguin_road_seam_asset(repository: Path) -> PreparedAsset:
     return asset
 
 
+def validate_regional_infill_manifest_contract(
+    plan: regional_infill.InfillPlan,
+    plan_audit: dict[str, Any],
+    manifest: dict[str, Any],
+) -> str:
+    """Validate the versioned connector/collision schema and return its SHA."""
+
+    canonical_payload = regional_infill.canonical_manifest_bytes(plan)
+    canonical_sha256 = sha256_bytes(canonical_payload)
+    if (
+        manifest.get("format") != regional_infill.FORMAT
+        or manifest.get("audit") != plan_audit
+        or canonical_payload != canonical_json_bytes(manifest)
+        or regional_infill.canonical_manifest_sha256(plan)
+        != canonical_sha256
+        or plan_audit.get("summary", {}).get("access_routes")
+        != EXPECTED_REGIONAL_INFILL_ROUTES
+        or plan_audit.get("summary", {}).get("placements")
+        != EXPECTED_REGIONAL_INFILL_PLACEMENTS
+        or plan_audit.get("summary", {}).get("assets")
+        != len(INFILL_ASSET_CONTRACTS)
+    ):
+        raise OverlayFailure("regional-infill canonical manifest drifted")
+
+    connectors = manifest.get("connectors")
+    connector_audit = plan_audit.get("connectors")
+    if (
+        not isinstance(connectors, dict)
+        or set(connectors) != {
+            "collision_policy",
+            "contracts",
+            "format",
+            "maximum_seam_gap_m",
+        }
+        or connectors.get("format")
+        != regional_infill.CONNECTOR_FORMAT
+        or connectors.get("collision_policy")
+        != "no-generated-road-overlap-with-building-proxies"
+        or connectors.get("maximum_seam_gap_m")
+        != regional_infill.MAXIMUM_CONNECTOR_SEAM_GAP_M
+        or not isinstance(connector_audit, dict)
+        or connector_audit.get("format")
+        != regional_infill.CONNECTOR_FORMAT
+        or connector_audit.get("maximum_allowed_seam_gap_m")
+        != regional_infill.MAXIMUM_CONNECTOR_SEAM_GAP_M
+        or connector_audit.get(
+            "non_designated_route_asset_intersection_count"
+        )
+        != 0
+    ):
+        raise OverlayFailure(
+            "regional-infill connector metadata drifted"
+        )
+
+    manifest_connectors = connectors.get("contracts")
+    audit_connectors = connector_audit.get("contracts")
+    if (
+        not isinstance(manifest_connectors, list)
+        or not isinstance(audit_connectors, list)
+        or len(manifest_connectors) != len(plan.connectors)
+        or len(audit_connectors) != len(plan.connectors)
+    ):
+        raise OverlayFailure(
+            "regional-infill connector inventory drifted"
+        )
+    expected_connector_identity = tuple(
+        (
+            connector.connector_id,
+            connector.status,
+            connector.route_id,
+            connector.placement_id,
+        )
+        for connector in plan.connectors
+    )
+    actual_connector_identity = tuple(
+        (
+            contract.get("connector_id"),
+            contract.get("status"),
+            contract.get("route_id"),
+            contract.get("placement_id"),
+        )
+        if isinstance(contract, dict)
+        else (None, None, None, None)
+        for contract in manifest_connectors
+    )
+    evidence_identity = tuple(
+        (
+            evidence.get("connector_id"),
+            evidence.get("status"),
+            evidence.get("route_id"),
+            evidence.get("placement_id"),
+        )
+        if isinstance(evidence, dict)
+        else (None, None, None, None)
+        for evidence in audit_connectors
+    )
+    if (
+        actual_connector_identity != expected_connector_identity
+        or evidence_identity != expected_connector_identity
+    ):
+        raise OverlayFailure(
+            "regional-infill connector identity drifted"
+        )
+
+    status_counts = {"active": 0, "pending": 0}
+    active_gaps: list[float] = []
+    for expected, contract, evidence in zip(
+        plan.connectors,
+        manifest_connectors,
+        audit_connectors,
+    ):
+        if expected.status not in status_counts:
+            raise OverlayFailure(
+                "regional-infill connector status is unsupported"
+            )
+        status_counts[expected.status] += 1
+        if (
+            not isinstance(contract, dict)
+            or not isinstance(evidence, dict)
+            or contract.get("maximum_seam_gap_m")
+            != regional_infill.MAXIMUM_CONNECTOR_SEAM_GAP_M
+            or evidence.get("collision_proxy_overlap_count") != 0
+        ):
+            raise OverlayFailure(
+                f"regional-infill connector {expected.connector_id} drifted"
+            )
+        if expected.status == "active":
+            seam_gap = evidence.get("seam_gap_m")
+            if (
+                isinstance(seam_gap, bool)
+                or not isinstance(seam_gap, (int, float))
+                or not math.isfinite(float(seam_gap))
+                or float(seam_gap)
+                > regional_infill.MAXIMUM_CONNECTOR_SEAM_GAP_M
+            ):
+                raise OverlayFailure(
+                    f"regional-infill connector {expected.connector_id} "
+                    "exceeds its seam gate"
+                )
+            active_gaps.append(float(seam_gap))
+        elif (
+            evidence.get("flush") is not False
+            or evidence.get("seam_gap_m") is not None
+            or not isinstance(evidence.get("blocker"), str)
+            or not evidence["blocker"]
+        ):
+            raise OverlayFailure(
+                f"regional-infill pending connector "
+                f"{expected.connector_id} is not fail-closed"
+            )
+    if (
+        connector_audit.get("active") != status_counts["active"]
+        or connector_audit.get("pending") != status_counts["pending"]
+        or (
+            active_gaps
+            and connector_audit.get(
+                "maximum_observed_active_seam_gap_m"
+            )
+            != max(active_gaps)
+        )
+    ):
+        raise OverlayFailure(
+            "regional-infill connector status summary drifted"
+        )
+
+    asset_records = manifest.get("assets")
+    placement_records = manifest.get("placements")
+    collision_audit = plan_audit.get("collision")
+    if (
+        not isinstance(asset_records, list)
+        or not isinstance(placement_records, list)
+        or not isinstance(collision_audit, dict)
+        or collision_audit.get(
+            "generated_road_collision_proxy_overlap_count"
+        )
+        != 0
+        or collision_audit.get("collision_component_count")
+        != sum(
+            len(asset.collision_components)
+            for asset in plan.assets
+        )
+    ):
+        raise OverlayFailure(
+            "regional-infill collision summary drifted"
+        )
+    profile_counts: dict[str, int] = {}
+    for asset in plan.assets:
+        profile_counts[asset.collision_profile] = (
+            profile_counts.get(asset.collision_profile, 0) + 1
+        )
+    if collision_audit.get("collision_profiles") != dict(
+        sorted(profile_counts.items())
+    ):
+        raise OverlayFailure(
+            "regional-infill collision profiles drifted"
+        )
+    manifest_asset_by_id = {
+        record.get("asset_id"): record
+        for record in asset_records
+        if isinstance(record, dict)
+        and isinstance(record.get("asset_id"), str)
+    }
+    if len(manifest_asset_by_id) != len(plan.assets):
+        raise OverlayFailure(
+            "regional-infill collision asset inventory drifted"
+        )
+    asset_by_id = {asset.asset_id: asset for asset in plan.assets}
+    for asset_id, authored in asset_by_id.items():
+        record = manifest_asset_by_id.get(asset_id)
+        components = (
+            record.get("collision_components")
+            if isinstance(record, dict)
+            else None
+        )
+        collision_bounds = (
+            record.get("collision_footprint")
+            if isinstance(record, dict)
+            else None
+        )
+        if (
+            not isinstance(record, dict)
+            or record.get("collision_profile")
+            != authored.collision_profile
+            or not isinstance(components, list)
+            or not isinstance(collision_bounds, dict)
+            or [
+                component.get("component_id")
+                if isinstance(component, dict)
+                else None
+                for component in components
+            ]
+            != [
+                component.component_id
+                for component in authored.collision_components
+            ]
+            or collision_bounds.get("semantics")
+            != "conservative-component-outer-bounds"
+        ):
+            raise OverlayFailure(
+                f"{asset_id} collision manifest contract drifted"
+            )
+    for record in placement_records:
+        if not isinstance(record, dict):
+            raise OverlayFailure(
+                "regional-infill placement collision record is malformed"
+            )
+        asset = asset_by_id.get(record.get("asset_id"))
+        component_footprints = record.get(
+            "collision_component_footprints_xz_m"
+        )
+        if (
+            asset is None
+            or record.get("collision_profile")
+            != asset.collision_profile
+            or record.get("collision_footprint_semantics")
+            != "conservative-component-outer-bounds"
+            or not isinstance(component_footprints, list)
+            or len(component_footprints)
+            != len(asset.collision_components)
+        ):
+            raise OverlayFailure(
+                "regional-infill placement collision contract drifted"
+            )
+    return canonical_sha256
+
+
+def validate_regional_infill_asset_collision(
+    asset: PreparedAsset,
+    authored: regional_infill.AssetContract,
+) -> None:
+    """Require a compiled asset manifest to match its exact proxy components."""
+
+    collision = asset.provenance.get("collision")
+    objects = (
+        collision.get("objects")
+        if isinstance(collision, dict)
+        else None
+    )
+    components = (
+        collision.get("components")
+        if isinstance(collision, dict)
+        else None
+    )
+    expected_component_count = len(authored.collision_components)
+    if (
+        not isinstance(collision, dict)
+        or collision.get("profile") != authored.collision_profile
+        or collision.get("components_format")
+        != REGIONAL_INFILL_COLLISION_COMPONENTS_FORMAT
+        or not isinstance(components, list)
+        or len(components) != expected_component_count
+        or collision.get("purpose")
+        != "bounded-landmark-or-building-envelope"
+        or collision.get("separate_from_render_mesh") is not True
+        or not isinstance(objects, list)
+        or len(objects) != 1
+        or not isinstance(objects[0], dict)
+    ):
+        raise OverlayFailure(
+            f"{asset.asset_id} collision manifest profile drifted"
+        )
+    collision_object = objects[0]
+    topology = collision_object.get("topology")
+    if (
+        collision_object.get("name")
+        != f"{asset.asset_id}_collision_fixture"
+        or collision_object.get("role") != "collision-fixture"
+        or collision_object.get("triangles")
+        != expected_component_count * 12
+        or not isinstance(topology, dict)
+        or topology != {
+            "connected_components": expected_component_count,
+            "intersecting_faces": 0,
+            "outward_winding": True,
+            "watertight": True,
+        }
+    ):
+        raise OverlayFailure(
+            f"{asset.asset_id} collision component topology drifted"
+        )
+
+    component_bounds = []
+    for index, (record, expected) in enumerate(
+        zip(components, authored.collision_components)
+    ):
+        if (
+            not isinstance(record, dict)
+            or set(record)
+            != {"bounds_blender_z_up", "component_id", "triangles"}
+            or record.get("component_id") != expected.component_id
+            or record.get("triangles") != 12
+        ):
+            raise OverlayFailure(
+                f"{asset.asset_id} collision component {index} drifted"
+            )
+        bounds = record.get("bounds_blender_z_up")
+        minimum = (
+            bounds.get("min")
+            if isinstance(bounds, dict)
+            else None
+        )
+        maximum = (
+            bounds.get("max")
+            if isinstance(bounds, dict)
+            else None
+        )
+        if (
+            not isinstance(bounds, dict)
+            or set(bounds) != {"min", "max"}
+            or not isinstance(minimum, list)
+            or len(minimum) != 3
+            or not isinstance(maximum, list)
+            or len(maximum) != 3
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in (*minimum, *maximum)
+            )
+            or any(
+                float(minimum[axis]) >= float(maximum[axis])
+                for axis in range(3)
+            )
+        ):
+            raise OverlayFailure(
+                f"{asset.asset_id} collision component {index} bounds drifted"
+            )
+        converted = (
+            (float(minimum[0]) + float(maximum[0])) / 2.0,
+            -(float(minimum[1]) + float(maximum[1])) / 2.0,
+            float(maximum[0]) - float(minimum[0]),
+            float(maximum[1]) - float(minimum[1]),
+        )
+        expected_values = (
+            expected.collision_center_local_x_m,
+            expected.collision_center_local_z_m,
+            expected.collision_width_m,
+            expected.collision_depth_m,
+        )
+        if any(
+            abs(actual - expected_value)
+            > REGIONAL_INFILL_COLLISION_COMPONENT_EPSILON_M
+            for actual, expected_value in zip(converted, expected_values)
+        ):
+            raise OverlayFailure(
+                f"{asset.asset_id}/{expected.component_id} bounds do not "
+                "match the canonical plan"
+            )
+        component_bounds.append(
+            (
+                tuple(float(value) for value in minimum),
+                tuple(float(value) for value in maximum),
+            )
+        )
+
+    aggregate = collision_object.get("bounds_blender_z_up")
+    aggregate_minimum = (
+        aggregate.get("min")
+        if isinstance(aggregate, dict)
+        else None
+    )
+    aggregate_maximum = (
+        aggregate.get("max")
+        if isinstance(aggregate, dict)
+        else None
+    )
+    expected_aggregate = (
+        tuple(
+            min(bounds[0][axis] for bounds in component_bounds)
+            for axis in range(3)
+        ),
+        tuple(
+            max(bounds[1][axis] for bounds in component_bounds)
+            for axis in range(3)
+        ),
+    )
+    if (
+        not isinstance(aggregate_minimum, list)
+        or len(aggregate_minimum) != 3
+        or not isinstance(aggregate_maximum, list)
+        or len(aggregate_maximum) != 3
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for value in (*aggregate_minimum, *aggregate_maximum)
+        )
+        or any(
+            abs(
+                float(
+                    (aggregate_minimum, aggregate_maximum)[bound_index][axis]
+                )
+                - expected_aggregate[bound_index][axis]
+            )
+            > REGIONAL_INFILL_COLLISION_COMPONENT_EPSILON_M
+            for bound_index in range(2)
+            for axis in range(3)
+        )
+    ):
+        raise OverlayFailure(
+            f"{asset.asset_id} aggregate collision bounds drifted"
+        )
+
+
 def prepare_regional_infill_assets(
     repository: Path,
 ) -> tuple[
@@ -1484,19 +1932,11 @@ def prepare_regional_infill_assets(
         raise OverlayFailure(
             f"regional-infill plan validation failed: {error}"
         ) from error
-    if (
-        manifest.get("format") != regional_infill.FORMAT
-        or manifest.get("audit") != plan_audit
-        or regional_infill.canonical_manifest_bytes(plan)
-        != canonical_json_bytes(manifest)
-        or plan_audit.get("summary", {}).get("access_routes")
-        != EXPECTED_REGIONAL_INFILL_ROUTES
-        or plan_audit.get("summary", {}).get("placements")
-        != EXPECTED_REGIONAL_INFILL_PLACEMENTS
-        or plan_audit.get("summary", {}).get("assets")
-        != len(INFILL_ASSET_CONTRACTS)
-    ):
-        raise OverlayFailure("regional-infill canonical manifest drifted")
+    validate_regional_infill_manifest_contract(
+        plan,
+        plan_audit,
+        manifest,
+    )
 
     authored_contracts = tuple(
         (asset.asset_id, asset.manifest)
@@ -1527,6 +1967,9 @@ def prepare_regional_infill_assets(
         (0.0, 5.16, 0.0),
         (12.0, 5.16, 0.0),
     )
+    authored_asset_by_id = {
+        asset.asset_id: asset for asset in plan.assets
+    }
     for asset, contract in zip(assets, INFILL_ASSET_CONTRACTS):
         asset_id, manifest_path, expected_profile, expected_light_ids = contract
         identity = asset.provenance.get("asset")
@@ -1576,6 +2019,10 @@ def prepare_regional_infill_assets(
             raise OverlayFailure(
                 f"{asset_id} unexpectedly emits runtime lights"
             )
+        validate_regional_infill_asset_collision(
+            asset,
+            authored_asset_by_id[asset_id],
+        )
     if len({asset.asset_id for asset in assets}) != len(assets):
         raise OverlayFailure("regional-infill asset identifiers are not unique")
     return plan, plan_audit, manifest, assets
@@ -2358,7 +2805,7 @@ def merge_material_scripts(
         )
 
     rendered = [
-        "// Generated by ror-cityworld-local-overlay-v6.",
+        "// Generated by ror-cityworld-local-overlay-v7.",
         "// Canonical merged material script; duplicate definitions removed.",
         "",
     ]
@@ -3341,7 +3788,7 @@ def terrain_descriptor(
         "Gravity = -9.81",
         "CategoryID = 129",
         "Version = 6",
-        "GUID = rorng-cityworld-next-local-overlay-v6",
+        "GUID = rorng-cityworld-next-local-overlay-v7",
         "",
         "[Authors]",
         "overlay = Oasiz AI and Rigs of Rods contributors",
@@ -3518,7 +3965,12 @@ def build_local_overlay(
     infill_manifest_payload = regional_infill.canonical_manifest_bytes(
         infill_plan
     )
-    if infill_manifest_payload != canonical_json_bytes(infill_manifest):
+    infill_manifest_sha256 = sha256_bytes(infill_manifest_payload)
+    if (
+        infill_manifest_payload != canonical_json_bytes(infill_manifest)
+        or infill_manifest_sha256
+        != regional_infill.canonical_manifest_sha256(infill_plan)
+    ):
         raise OverlayFailure(
             "regional-infill embedded manifest is not canonical"
         )
@@ -3767,6 +4219,7 @@ def build_local_overlay(
         },
         "regional_infill": {
             "audit": infill_audit,
+            "canonical_manifest_sha256": infill_manifest_sha256,
             "manifest": infill_manifest_record,
             "source_authentication": infill_source_authentication,
             "summary": infill_audit["summary"],
@@ -3789,8 +4242,8 @@ def build_local_overlay(
         },
         "visual_asset_usage": {
             "corridor_placement_mode":
-                "native-procedural-v6-two-corridor-open-seams-side-piers-with-"
-                "blender-transition-v2-and-regional-infill-v1",
+                "native-procedural-v7-two-corridor-open-seams-side-piers-with-"
+                "blender-transition-v2-and-regional-infill-v2",
             "disabled_light_candidate_manifest":
                 NEOQ_LIGHT_CANDIDATE_NAME,
             "neoq_core_runtime_light_activation": "blocked-fail-closed",
@@ -3837,7 +4290,9 @@ def build_local_overlay(
                 "fixed-camera visual gate; seven curb-free flat access roads "
                 "connect 46 project-authored farm, suburb, service-station, "
                 "red-mesa, and arroyo-oasis placements across eight audited "
-                "empty parcels, with open collision endcaps and six bounded "
+                "empty parcels, with versioned route-to-asset connectors, "
+                "one-millimetre seam gates, exact compound suburb/station "
+                "collision components, open collision endcaps, and six bounded "
                 "canopy lights per service-station instance; bridge modules remain "
                 "validated candidates for deck and abutment replacement",
         },

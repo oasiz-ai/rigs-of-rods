@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 
 
@@ -824,6 +825,56 @@ class CityWorldSceneCompilerTests(unittest.TestCase):
             outputs.append(json.loads(result.stdout))
         self.assertEqual(outputs[0], outputs[1])
         self.assertIn("requires an explicit --converter", outputs[0]["error"])
+
+    def test_converter_version_probe_does_not_pollute_calling_directory(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            caller = root / "caller"
+            caller.mkdir()
+            converter = root / "OgreXMLConverter"
+            converter.write_bytes(b"pinned converter fixture")
+            probe_directories = []
+
+            def version_probe(
+                command: list[str],
+                **kwargs: object,
+            ) -> subprocess.CompletedProcess[str]:
+                working_directory = Path(
+                    kwargs.get("cwd", caller)
+                )
+                probe_directories.append(working_directory)
+                (working_directory / "OgreXMLConverter.log").write_text(
+                    "probe log\n",
+                    encoding="utf-8",
+                )
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=COMPILER_MODULE.OGRE_CONVERTER_VERSION + "\n",
+                    stderr="",
+                )
+
+            with mock.patch.object(
+                COMPILER_MODULE.subprocess,
+                "run",
+                side_effect=version_probe,
+            ):
+                identity = COMPILER_MODULE.converter_identity(converter)
+
+            self.assertEqual(
+                identity,
+                {
+                    "executable": converter.name,
+                    "sha256": COMPILER_MODULE.sha256_file(converter),
+                    "version": COMPILER_MODULE.OGRE_CONVERTER_VERSION,
+                },
+            )
+            self.assertEqual(len(probe_directories), 1)
+            self.assertNotEqual(probe_directories[0], caller)
+            self.assertFalse(probe_directories[0].exists())
+            self.assertFalse((caller / "OgreXMLConverter.log").exists())
 
     def test_checked_output_corruption_fails_without_running_converter(self) -> None:
         manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))

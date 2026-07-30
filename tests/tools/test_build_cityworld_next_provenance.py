@@ -349,6 +349,17 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("stale scene compiler identity", result.stderr)
 
+    def test_converter_probe_only_compiler_accepts_runtime_parent_material(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self.copy_fixture(root, PENGUIN_SEAM_MANIFEST)
+
+            result = self.run_tool(root)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_current_compiler_manifest_drift_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

@@ -251,6 +251,77 @@ def synthetic_overlay_report(
         )
         waypoint["yaw_degrees"] = 0.0
     infill_manifest = SCENE.infill.build_manifest()
+    infill_asset_provenance = []
+    for asset in infill_manifest["assets"]:
+        asset_id = asset["asset_id"]
+        collision_components = []
+        for component in asset["collision_components"]:
+            center_x, center_z = component["center_local_xz_m"]
+            half_width = component["width_m"] / 2.0
+            half_depth = component["depth_m"] / 2.0
+            collision_components.append(
+                {
+                    "bounds_blender_z_up": {
+                        "min": [
+                            center_x - half_width,
+                            -center_z - half_depth,
+                            0.0,
+                        ],
+                        "max": [
+                            center_x + half_width,
+                            -center_z + half_depth,
+                            1.0,
+                        ],
+                    },
+                    "component_id": component["component_id"],
+                    "triangles": 12,
+                }
+            )
+        component_count = len(collision_components)
+        aggregate_bounds = {
+            "min": [
+                min(
+                    component["bounds_blender_z_up"]["min"][axis]
+                    for component in collision_components
+                )
+                for axis in range(3)
+            ],
+            "max": [
+                max(
+                    component["bounds_blender_z_up"]["max"][axis]
+                    for component in collision_components
+                )
+                for axis in range(3)
+            ],
+        }
+        infill_asset_provenance.append(
+            {
+                "asset": {"id": asset_id},
+                "collision": {
+                    "components": collision_components,
+                    "components_format":
+                        SCENE.INFILL_COLLISION_COMPONENTS_FORMAT,
+                    "objects": [
+                        {
+                            "bounds_blender_z_up": aggregate_bounds,
+                            "name": f"{asset_id}_collision_fixture",
+                            "role": "collision-fixture",
+                            "topology": {
+                                "connected_components": component_count,
+                                "intersecting_faces": 0,
+                                "outward_winding": True,
+                                "watertight": True,
+                            },
+                            "triangles": component_count * 12,
+                        }
+                    ],
+                    "profile": asset["collision_profile"],
+                    "purpose":
+                        "bounded-landmark-or-building-envelope",
+                    "separate_from_render_mesh": True,
+                },
+            }
+        )
     placement_lines = [
         "begin_procedural_roads",
         "    collision_enabled true",
@@ -688,6 +759,7 @@ def synthetic_overlay_report(
             "native-multi-camera-and-drive-gate-required",
     }
     report = {
+        "assets": infill_asset_provenance,
         "format": SCENE.OVERLAY_REPORT_FORMAT,
         "source": {
             "archive": {"sha256": SCENE.CITYWORLD_SHA256},
@@ -747,6 +819,8 @@ def synthetic_overlay_report(
         },
         "regional_infill": {
             "audit": infill_manifest["audit"],
+            "canonical_manifest_sha256":
+                SCENE.infill.canonical_manifest_sha256(),
             "manifest": infill_record,
             "source_authentication": {
                 "anchor_ids": [
@@ -864,8 +938,8 @@ def synthetic_overlay_report(
         },
         "visual_asset_usage": {
             "corridor_placement_mode":
-                "native-procedural-v6-two-corridor-open-seams-side-piers-with-"
-                "blender-transition-v2-and-regional-infill-v1",
+                "native-procedural-v7-two-corridor-open-seams-side-piers-with-"
+                "blender-transition-v2-and-regional-infill-v2",
             "disabled_light_candidate_manifest":
                 SCENE.NEOQ_LIGHT_CANDIDATE_MEMBER,
             "neoq_core_runtime_light_activation": "blocked-fail-closed",
@@ -1362,6 +1436,47 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
     ) -> None:
         manifest = SCENE.infill.build_manifest()
         checked = SCENE.validate_regional_infill_manifest(manifest)
+        plan = SCENE.infill.build_infill_plan()
+        connector_statuses = [
+            connector.status for connector in plan.connectors
+        ]
+        self.assertEqual(
+            checked["connectors"]["format"],
+            SCENE.INFILL_CONNECTOR_FORMAT,
+        )
+        self.assertEqual(
+            checked["audit"]["connectors"]["active"],
+            connector_statuses.count("active"),
+        )
+        self.assertEqual(
+            checked["audit"]["connectors"]["pending"],
+            connector_statuses.count("pending"),
+        )
+        self.assertLessEqual(
+            checked["audit"]["connectors"][
+                "maximum_observed_active_seam_gap_m"
+            ],
+            SCENE.infill.MAXIMUM_CONNECTOR_SEAM_GAP_M,
+        )
+        self.assertEqual(
+            checked["audit"]["collision"][
+                "generated_road_collision_proxy_overlap_count"
+            ],
+            0,
+        )
+        self.assertEqual(
+            checked["audit"]["collision"]["collision_component_count"],
+            sum(
+                len(asset.collision_components)
+                for asset in plan.assets
+            ),
+        )
+        self.assertEqual(
+            hashlib.sha256(
+                SCENE.infill.canonical_manifest_bytes()
+            ).hexdigest(),
+            SCENE.infill.canonical_manifest_sha256(),
+        )
         self.assertEqual(
             checked["audit"]["summary"],
             {
@@ -1394,6 +1509,18 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
         changed_manifest = copy.deepcopy(manifest)
         changed_manifest["placements"][0]["asset_id"] = (
             SCENE.SERVICE_STATION_ASSET_ID
+        )
+        with self.assertRaises(SCENE.CorridorSceneFailure):
+            SCENE.validate_regional_infill_manifest(changed_manifest)
+        changed_manifest = copy.deepcopy(manifest)
+        changed_manifest["connectors"]["contracts"][0][
+            "maximum_seam_gap_m"
+        ] = 0.01
+        with self.assertRaises(SCENE.CorridorSceneFailure):
+            SCENE.validate_regional_infill_manifest(changed_manifest)
+        changed_manifest = copy.deepcopy(manifest)
+        changed_manifest["assets"][1]["collision_profile"] = (
+            "single-watertight-proxy-v1"
         )
         with self.assertRaises(SCENE.CorridorSceneFailure):
             SCENE.validate_regional_infill_manifest(changed_manifest)
@@ -1430,6 +1557,11 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
             changed["regional_infill"]["summary"]["placements"] = 45
             cases.append(("report-summary", changed))
             changed = copy.deepcopy(report)
+            changed["regional_infill"][
+                "canonical_manifest_sha256"
+            ] = "0" * 64
+            cases.append(("canonical-sha", changed))
+            changed = copy.deepcopy(report)
             changed["visual_asset_usage"]["placed_asset_ids"].remove(
                 SCENE.SERVICE_STATION_ASSET_ID
             )
@@ -1442,6 +1574,79 @@ class CityWorldCorridorSceneTests(unittest.TestCase):
                 == SCENE.EXPECTED_INFILL_ASSET_IDS[0] + ".odef"
             )["role"] = "generic-resource"
             cases.append(("runtime-package-role", changed))
+            changed = copy.deepcopy(report)
+            next(
+                asset
+                for asset in changed["assets"]
+                if asset["asset"]["id"]
+                == SCENE.infill.SUBURB_ASSET_ID
+            )["collision"]["profile"] = "single-watertight-proxy-v1"
+            cases.append(("compound-profile", changed))
+            changed = copy.deepcopy(report)
+            next(
+                asset
+                for asset in changed["assets"]
+                if asset["asset"]["id"]
+                == SCENE.infill.SERVICE_STATION_ASSET_ID
+            )["collision"]["objects"][0]["topology"][
+                "connected_components"
+            ] = 1
+            cases.append(("compound-components", changed))
+            changed = copy.deepcopy(report)
+            next(
+                asset
+                for asset in changed["assets"]
+                if asset["asset"]["id"]
+                == SCENE.infill.SUBURB_ASSET_ID
+            )["collision"]["components_format"] = "stale-components-v0"
+            cases.append(("component-format", changed))
+            changed = copy.deepcopy(report)
+            components = next(
+                asset
+                for asset in changed["assets"]
+                if asset["asset"]["id"]
+                == SCENE.infill.SUBURB_ASSET_ID
+            )["collision"]["components"]
+            components[0], components[1] = components[1], components[0]
+            cases.append(("component-order", changed))
+            changed = copy.deepcopy(report)
+            next(
+                asset
+                for asset in changed["assets"]
+                if asset["asset"]["id"]
+                == SCENE.infill.FARMSTEAD_ASSET_ID
+            )["collision"]["components"][0][
+                "bounds_blender_z_up"
+            ]["min"][2] = float("nan")
+            cases.append(("component-finite-bounds", changed))
+            changed = copy.deepcopy(report)
+            next(
+                asset
+                for asset in changed["assets"]
+                if asset["asset"]["id"]
+                == SCENE.infill.RED_MESA_ASSET_ID
+            )["collision"]["components"][0]["triangles"] = 14
+            cases.append(("component-triangles", changed))
+            changed = copy.deepcopy(report)
+            component_bounds = next(
+                asset
+                for asset in changed["assets"]
+                if asset["asset"]["id"]
+                == SCENE.infill.ARROYO_OASIS_ASSET_ID
+            )["collision"]["components"][0]["bounds_blender_z_up"]
+            component_bounds["min"][0] += 0.25
+            component_bounds["max"][0] += 0.25
+            cases.append(("component-canonical-bounds", changed))
+            changed = copy.deepcopy(report)
+            next(
+                asset
+                for asset in changed["assets"]
+                if asset["asset"]["id"]
+                == SCENE.infill.SERVICE_STATION_ASSET_ID
+            )["collision"]["objects"][0]["bounds_blender_z_up"][
+                "max"
+            ][2] += 0.25
+            cases.append(("aggregate-component-bounds", changed))
             for label, changed in cases:
                 with self.subTest(label=label):
                     write_overlay(archive, changed, package_payloads)
