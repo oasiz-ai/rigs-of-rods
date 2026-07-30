@@ -544,9 +544,35 @@ def build_command(executable: Path, script_name: str) -> tuple[str, ...]:
     return tuple(command)
 
 
+def isolated_runtime_layout(
+    isolated_home: Path,
+    executable: Path,
+    target_platform: str,
+) -> dict[str, Path]:
+    """Return the D0 layout for a platform and macOS packaging form."""
+
+    bundled_macos = (
+        target_platform == "darwin"
+        and executable.parent.name == "MacOS"
+        and executable.parent.parent.name == "Contents"
+        and executable.parent.parent.parent.suffix == ".app"
+    )
+    if target_platform != "darwin" or bundled_macos:
+        return base.runtime_layout(isolated_home, target_platform)
+    user = isolated_home / "RigsOfRods"
+    return {
+        "config": user / "config",
+        "logs": user / "logs",
+        "mods": user / "mods",
+        "screenshots": user / "screenshots",
+        "user": user,
+    }
+
+
 def stage_runtime(
     isolated_home: Path,
     *,
+    executable: Path,
     script_path: Path,
     script_record: Mapping[str, object],
     cityworld_archive: Path,
@@ -556,7 +582,11 @@ def stage_runtime(
     vehicle_archive: Path,
     vehicle_record: Mapping[str, object],
 ) -> tuple[dict[str, Path], tuple[Path, ...]]:
-    layout = base.runtime_layout(isolated_home, sys.platform)
+    layout = isolated_runtime_layout(
+        isolated_home,
+        executable,
+        sys.platform,
+    )
     for key in ("config", "logs", "mods", "screenshots", "user"):
         layout[key].mkdir(parents=True, exist_ok=True)
     scripts = layout["user"] / "scripts"
@@ -639,6 +669,36 @@ def collect_diagnostics(
         }
     records["configs"] = configs
     return records
+
+
+def require_distinct_rgb_records(
+    records: Sequence[Mapping[str, object]],
+) -> None:
+    hashes = [record.get("sha256") for record in records]
+    if (
+        len(hashes) != len(STATIC_RGB_NAMES)
+        or any(not isinstance(value, str) or not value for value in hashes)
+        or len(set(hashes)) != len(hashes)
+    ):
+        raise NeoBridgeSceneFailure(
+            "the six fixed-camera RGB captures are not byte-distinct"
+        )
+
+
+def read_runtime_log(
+    path: Path,
+    *,
+    label: str,
+    returncode: int,
+    stdout: str,
+) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError as error:
+        raise NeoBridgeSceneFailure(
+            f"{label} was not created; RoR returncode={returncode}; "
+            f"stdout_tail={stdout[-4000:]!r}"
+        ) from error
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -750,6 +810,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 isolated_home = Path(temporary)
                 layout, config_paths = stage_runtime(
                     isolated_home,
+                    executable=executable,
                     script_path=script_path,
                     script_record=script_record,
                     cityworld_archive=cityworld_archive,
@@ -771,13 +832,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     environment=environment,
                 )
                 stdout = base.decode_output(completed.stdout)
-                engine_log = base.read_required(
+                engine_log = read_runtime_log(
                     layout["logs"] / "RoR.log",
-                    "RoR engine log",
+                    label="RoR engine log",
+                    returncode=completed.returncode,
+                    stdout=stdout,
                 )
-                script_log = base.read_required(
+                script_log = read_runtime_log(
                     layout["logs"] / "Angelscript.log",
-                    "AngelScript log",
+                    label="AngelScript log",
+                    returncode=completed.returncode,
+                    stdout=stdout,
                 )
                 if run_name == "static":
                     metrics = validate_static_logs(
@@ -833,6 +898,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                                     ).as_posix(),
                             }
                         )
+                    require_distinct_rgb_records(rgb_records)
                 elif list(layout["screenshots"].glob("*.png")):
                     raise NeoBridgeSceneFailure(
                         "drive gate unexpectedly emitted an RGB screenshot"

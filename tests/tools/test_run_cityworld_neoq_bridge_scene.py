@@ -227,6 +227,61 @@ class NeoBridgeSceneTests(unittest.TestCase):
             ),
         )
 
+    def test_isolated_runtime_layout_matches_packaging_forms(self) -> None:
+        cases = (
+            (
+                "darwin",
+                Path("/loose/bin/RoR"),
+                Path("/isolated/RigsOfRods"),
+                Path("/isolated/RigsOfRods/logs"),
+            ),
+            (
+                "darwin",
+                Path("/Applications/RoR.app/Contents/MacOS/RoR"),
+                Path(
+                    "/isolated/Library/Application Support/Rigs of Rods"
+                ),
+                Path("/isolated/Library/Logs/Rigs of Rods"),
+            ),
+            (
+                "linux",
+                Path("/opt/ror/RoR"),
+                Path("/isolated/.rigsofrods"),
+                Path("/isolated/.rigsofrods/logs"),
+            ),
+            (
+                "win32",
+                Path("C:/RoR/RoR.exe"),
+                Path("/isolated/My Games/Rigs of Rods"),
+                Path("/isolated/My Games/Rigs of Rods/logs"),
+            ),
+        )
+        for target_platform, executable, user, logs in cases:
+            with self.subTest(
+                target_platform=target_platform,
+                executable=executable,
+            ):
+                layout = SCENE.isolated_runtime_layout(
+                    Path("/isolated"),
+                    executable,
+                    target_platform,
+                )
+                self.assertEqual(layout["user"], user)
+                self.assertEqual(layout["logs"], logs)
+
+    def test_six_static_rgb_hashes_must_be_distinct(self) -> None:
+        records = [
+            {"sha256": f"{index:064x}"}
+            for index in range(6)
+        ]
+        SCENE.require_distinct_rgb_records(records)
+        records[-1]["sha256"] = records[0]["sha256"]
+        with self.assertRaisesRegex(
+            SCENE.NeoBridgeSceneFailure,
+            "not byte-distinct",
+        ):
+            SCENE.require_distinct_rgb_records(records)
+
 
 if __name__ == "__main__":
     unittest.main()
