@@ -32,7 +32,7 @@ INVENTORY = (
     REPOSITORY_ROOT
     / "content-source/cityworld_next/provenance/cityworld_next.inventory.json"
 )
-PACKAGE_FILE_COUNT = 144
+PACKAGE_FILE_COUNT = 189
 STREETLIGHT_PACKAGE_PATHS = {
     "fixtures/led_streetlight/compiled/"
     "rorng_city_led_streetlight.compile.json",
@@ -88,6 +88,27 @@ TREE_PACKAGE_PATHS = {
         f"vegetation/{asset_id}/compiled/{asset_id}_lod2.mesh",
         f"vegetation/{asset_id}/{asset_id}.asset.json",
         f"vegetation/{asset_id}/{asset_id}.glb",
+    )
+}
+INFILL_PACKAGE_PATHS = {
+    path
+    for asset_id in (
+        "rorng_city_infill_arroyo_oasis_19m",
+        "rorng_city_infill_farmstead_98x86",
+        "rorng_city_infill_red_mesa_19m",
+        "rorng_city_infill_service_station_90x65",
+        "rorng_city_infill_suburb_block_96x88",
+    )
+    for path in (
+        f"regional_infill/{asset_id}/compiled/{asset_id}.compile.json",
+        f"regional_infill/{asset_id}/compiled/{asset_id}.material",
+        f"regional_infill/{asset_id}/compiled/{asset_id}.odef",
+        f"regional_infill/{asset_id}/compiled/{asset_id}_collision_fixture.mesh",
+        f"regional_infill/{asset_id}/compiled/{asset_id}_lod0.mesh",
+        f"regional_infill/{asset_id}/compiled/{asset_id}_lod1.mesh",
+        f"regional_infill/{asset_id}/compiled/{asset_id}_lod2.mesh",
+        f"regional_infill/{asset_id}/{asset_id}.asset.json",
+        f"regional_infill/{asset_id}/{asset_id}.glb",
     )
 }
 
@@ -187,6 +208,17 @@ class CityWorldNextProvenanceBuildTests(unittest.TestCase):
         )
         self.assertTrue(
             TREE_PACKAGE_PATHS.issubset(
+                item["path"] for item in inventory["files"]
+            )
+        )
+        self.assertEqual(len(INFILL_PACKAGE_PATHS), 45)
+        self.assertTrue(
+            INFILL_PACKAGE_PATHS.issubset(
+                asset["path"] for asset in manifest["assets"]
+            )
+        )
+        self.assertTrue(
+            INFILL_PACKAGE_PATHS.issubset(
                 item["path"] for item in inventory["files"]
             )
         )
