@@ -65,6 +65,7 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <vector>
 #include <fstream>
 
 #ifdef USE_CURL
@@ -206,9 +207,44 @@ int main(int argc, char *argv[])
         if (!App::diag_warning_texture->getBool())
         {
             // We overwrite the default warning texture (yellow stripes) with something unobtrusive
-            Ogre::uchar data[3] = {0};
-            Ogre::PixelBox pixels(1, 1, 1, Ogre::PF_BYTE_RGB, &data);
-            Ogre::TextureManager::getSingleton()._getWarningTexture()->getBuffer()->blitFromMemory(pixels);
+            // D3D11 does not scale blitFromMemory uploads, so the source box
+            // must exactly match the renderer-owned warning texture.
+            Ogre::HardwarePixelBufferSharedPtr warning_buffer =
+                Ogre::TextureManager::getSingleton()
+                    ._getWarningTexture()->getBuffer();
+            const size_t warning_width = warning_buffer->getWidth();
+            const size_t warning_height = warning_buffer->getHeight();
+            const size_t warning_depth = warning_buffer->getDepth();
+            const Ogre::PixelFormat warning_format =
+                warning_buffer->getFormat();
+            const size_t warning_bytes =
+                Ogre::PixelUtil::getMemorySize(
+                    warning_width,
+                    warning_height,
+                    warning_depth,
+                    warning_format);
+            if (warning_width == 0 ||
+                warning_height == 0 ||
+                warning_depth == 0 ||
+                warning_bytes == 0)
+            {
+                LOG("[RoR|Startup|Rendering] WARNING - cannot replace "
+                    "the renderer warning texture because its storage "
+                    "contract is empty");
+            }
+            else
+            {
+                std::vector<Ogre::uchar> warning_data(
+                    warning_bytes,
+                    static_cast<Ogre::uchar>(0));
+                Ogre::PixelBox warning_pixels(
+                    warning_width,
+                    warning_height,
+                    warning_depth,
+                    warning_format,
+                    warning_data.data());
+                warning_buffer->blitFromMemory(warning_pixels);
+            }
         }
 
         App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::FLAGS);

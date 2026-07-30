@@ -379,6 +379,36 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertLess(help_exit, version_exit)
         self.assertLess(version_exit, rendering)
 
+    def test_warning_texture_upload_matches_renderer_storage(self) -> None:
+        main_source = self.main_source_text
+        begin = main_source.index(
+            "if (!App::diag_warning_texture->getBool())"
+        )
+        end = main_source.index(
+            "App::GetContentManager()->AddResourcePack",
+            begin,
+        )
+        upload = main_source[begin:end]
+        self.assertNotIn("Ogre::uchar data[3]", upload)
+        self.assertNotIn("Ogre::PF_BYTE_RGB", upload)
+        self.assertNotIn("Ogre::PixelBox pixels(1, 1, 1", upload)
+        for storage_query in (
+            "warning_buffer->getWidth()",
+            "warning_buffer->getHeight()",
+            "warning_buffer->getDepth()",
+            "warning_buffer->getFormat()",
+            "Ogre::PixelUtil::getMemorySize(",
+        ):
+            self.assertEqual(upload.count(storage_query), 1)
+        self.assertIn(
+            "std::vector<Ogre::uchar> warning_data(",
+            upload,
+        )
+        self.assertIn(
+            "warning_buffer->blitFromMemory(warning_pixels);",
+            upload,
+        )
+
     def test_real_native_render_probes_are_mandatory_and_isolated(
         self,
     ) -> None:
