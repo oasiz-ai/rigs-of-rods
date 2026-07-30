@@ -91,14 +91,20 @@ PostProcessBackend PostProcessRuntime::DetectBackend(
     {
         return PostProcessBackend::UNSUPPORTED;
     }
+    Ogre::GpuProgramManager* program_manager =
+        Ogre::GpuProgramManager::getSingletonPtr();
+    if (program_manager == nullptr)
+    {
+        return PostProcessBackend::UNSUPPORTED;
+    }
 
     renderer_name =
         Ogre::Root::getSingleton().getRenderSystem()->getName();
     return ClassifyPostProcessBackend(
         renderer_name,
-        Ogre::GpuProgramManager::isSyntaxSupported("glsl330"),
-        Ogre::GpuProgramManager::isSyntaxSupported("vs_4_0"),
-        Ogre::GpuProgramManager::isSyntaxSupported("ps_4_0"));
+        program_manager->isSyntaxSupported("glsl330"),
+        program_manager->isSyntaxSupported("vs_4_0"),
+        program_manager->isSyntaxSupported("ps_4_0"));
 }
 
 bool PostProcessRuntime::EnsureResourcesAvailable(

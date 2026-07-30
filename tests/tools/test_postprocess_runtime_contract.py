@@ -271,9 +271,17 @@ class PostProcessRuntimeSourceContractTests(unittest.TestCase):
             self.assertIn(exact_renderer, self.runtime_contract_cpp)
         for syntax in ("glsl330", "vs_4_0", "ps_4_0"):
             self.assertIn(
-                f'isSyntaxSupported("{syntax}")',
+                f'program_manager->isSyntaxSupported("{syntax}")',
                 self.runtime_cpp,
             )
+        self.assertIn(
+            "Ogre::GpuProgramManager::getSingletonPtr()",
+            self.runtime_cpp,
+        )
+        self.assertNotIn(
+            "Ogre::GpuProgramManager::isSyntaxSupported(",
+            self.runtime_cpp,
+        )
         for resource_name in (
             "ror_postprocess_v0a.compositor",
             "ror_postprocess_v0a.material",
