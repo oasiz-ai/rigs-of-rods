@@ -166,8 +166,8 @@ application therefore must not report `native_rt=metal` from this result.
 ## RoR render-boundary audit
 
 This is a migration, not a renderer-library drop-in. At the audited RoR
-revision, 323 of 557 C++/Objective-C++ source files contain `Ogre::` references,
-with 8,278 scoped uses. The heaviest groups are:
+revision, 322 of 557 C++/Objective-C++ source files contain `Ogre::` references,
+with 8,276 scoped uses. The heaviest groups are:
 
 | Area | Files containing `Ogre::` | Migration implication |
 | --- | ---: | --- |
