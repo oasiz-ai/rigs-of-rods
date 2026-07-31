@@ -1,0 +1,50 @@
+{
+  "schema": "ror.native_rt_probe_evidence.v1",
+  "result": "pass",
+  "observed_at_utc": "2026-07-30T14:32:44Z",
+  "scope": "standalone Metal hardware ray-tracing admission probe",
+  "provenance": {
+    "repository": "https://github.com/RigsOfRods/rigs-of-rods",
+    "base_commit": "6e7c81d3cf5cac8501af1a2be8158a5d7f14202d",
+    "branch": "codex/native-rt-backend-spike",
+    "source_path": "tests/gfx/MetalRayTracingProbe.mm",
+    "source_sha256": "7857676160f6652f6161444238fd211f329b9ff270422d949295b7febb42927f",
+    "build_artifact_path": "/private/tmp/ror-metal-rt-probe",
+    "build_artifact_sha256": "1e4f637cea9d1f9e72db03c0d8c823bf19f5247f5ae61fe183f9cf610d75201a",
+    "build_command": "xcrun clang++ -std=c++17 -fobjc-arc -mmacosx-version-min=11.0 -Wall -Wextra -Werror -pedantic -framework Foundation -framework Metal tests/gfx/MetalRayTracingProbe.mm -o /private/tmp/ror-metal-rt-probe"
+  },
+  "host": {
+    "os": "macOS 26.4.1",
+    "os_build": "25E253",
+    "architecture": "arm64",
+    "xcode": "26.6 (17F113)",
+    "compiler": "Apple clang 21.0.0 (clang-2100.1.1.101)",
+    "sdk": "macOS 26.5 (25F70)",
+    "metal_device_name": "Apple M5"
+  },
+  "capabilities": {
+    "supports_raytracing": true,
+    "supports_family_apple9": true,
+    "accepted_hardware_floor": true
+  },
+  "acceleration_structures": {
+    "blas_bytes": 512,
+    "blas_scratch_bytes": 576,
+    "tlas_bytes": 512,
+    "tlas_scratch_bytes": 384,
+    "validated_blas": true,
+    "validated_tlas": true
+  },
+  "dispatch": {
+    "threads": 1,
+    "expected_ray_distance": 1.0,
+    "observed_ray_distance": 1.0,
+    "validated_intersection_readback": true
+  },
+  "limitations": [
+    "This proves native Metal acceleration-structure construction and ray-query execution on the recorded Apple M5 only.",
+    "It does not prove Ogre-Next device or resource interop.",
+    "It does not render or composite a ray-traced Rigs of Rods scene.",
+    "It does not establish DXR or Vulkan KHR ray-tracing support."
+  ]
+}

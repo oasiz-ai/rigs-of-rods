@@ -38,6 +38,7 @@ set(SOURCE_FILES
         gfx/PostProcessPolicy.{h,cpp}
         gfx/PostProcessRuntime.{h,cpp}
         gfx/PostProcessRuntimeContract.{h,cpp}
+        gfx/RendererBackendPolicy.{h,cpp}
         gfx/RenderDisplayMetrics.h
         gfx/HydraxWater.{h,cpp}
         gfx/IGfxWater.h

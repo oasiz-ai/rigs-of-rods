@@ -47,6 +47,13 @@ BeamNG-derived product name without written permission, in accordance with
 - A historical OGRE 14 migration branch exists, but it is roughly 740 commits
   behind the audited `master`, and its Conan/platform assumptions remain biased
   toward Linux and Windows. Treat it as research, not as a merge base.
+- Native ray tracing is now a renderer-selection priority, but the current
+  project does not claim it. Ogre-Next's audited tree provides a materially
+  stronger PBS/HDR raster foundation and Metal/Vulkan integration seams, not a
+  complete native RT implementation or a D3D12 renderer. The
+  [Ogre-Next/native RT decision RFC](NATIVE_RAY_TRACING_BACKEND.md) makes a real
+  Metal RT scene pass and DXR/Ogre-Next interop hard continuation gates while
+  keeping OGRE14 default and fail-closed.
 - CI and publishing currently target the `master` branch. Renaming it to `main`
   is a separate repository operation, not an engine change.
 
@@ -1024,6 +1031,39 @@ This is meaningful R0 progress, not completion. The remaining gates include:
   budgets.
 
 Merely changing version strings is still an explicitly rejected milestone.
+
+## R1 — Ogre-Next/native ray tracing decision gate (priority)
+
+Do not treat an Ogre-Next library upgrade as proof of native ray tracing.
+Ogre-Next is the candidate high-quality raster/PBR frontend; RoR must supply and
+prove native Metal RT, DXR, and Vulkan KHR backends through explicit same-device
+resource interop. OGRE14 remains the default until the full migration gate
+passes.
+
+Gate R1:
+
+- A dependency-free selector defaults to OGRE14/RT-disabled and refuses to
+  report RT without a compiled backend, accepted hardware capability, real
+  BLAS/TLAS dispatch/readback probe, and scene interop.
+- The standalone Metal admission probe has passed BLAS/TLAS construction,
+  one-ray dispatch, and exact readback on the recorded Apple M5. This is an API
+  subgate only: it does not enable `native_rt=metal` until an Ogre-Next mesh and
+  HDR target contribute to a real UI-free RoR frame.
+- Ogre-Next `v3.0.0` is evaluated as an exact pin on macOS arm64, Windows
+  x86_64, and Linux x86_64; development `master` is not a shipping dependency.
+- macOS first renders a measured RT contribution in a real UI-free RoR frame
+  on Apple family 9 or newer. M1/M2 and unsupported OS versions retain the
+  complete Ogre-Next raster fallback.
+- Linux proves a shared application-owned Vulkan device with the required KHR
+  extension/feature chain.
+- Windows proves D3D12/D3D11On12/Ogre-Next lifecycle and DXR tier 1.1. Failure
+  is an architecture no-go that requires a D3D12 renderer or different renderer
+  choice; silently substituting Vulkan RT does not satisfy the DXR endpoint.
+- Renderer choice cannot change fixed-input deterministic physics traces, and
+  the migration never reads or mutates live solver state from an RT backend.
+- No “native RT” or “UE5-quality” claim is published before the platform
+  runtime, image, performance, fallback, and lifecycle gates in the
+  [decision RFC](NATIVE_RAY_TRACING_BACKEND.md) pass.
 
 ## V0/V1 — Post-processing and PBR
 

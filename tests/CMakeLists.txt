@@ -173,6 +173,16 @@ add_executable(
 )
 
 add_executable(
+    ror_renderer_backend_policy_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererBackendPolicyTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+)
+target_include_directories(
+    ror_renderer_backend_policy_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+)
+
+add_executable(
     ror_local_light_budget_tests
     "${CMAKE_CURRENT_LIST_DIR}/terrain/LocalLightBudgetTests.cpp"
 )
@@ -723,6 +733,45 @@ else ()
 endif ()
 
 if (APPLE)
+    if (NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(
+            CMAKE_OSX_DEPLOYMENT_TARGET
+            "11.0"
+            CACHE STRING
+            "Minimum supported macOS version"
+            FORCE
+        )
+    endif ()
+    enable_language(OBJCXX)
+    find_library(ROR_FOUNDATION_FRAMEWORK Foundation)
+    find_library(ROR_METAL_FRAMEWORK Metal)
+    if (NOT ROR_FOUNDATION_FRAMEWORK OR NOT ROR_METAL_FRAMEWORK)
+        message(FATAL_ERROR
+            "Metal RT probe requires the Foundation and Metal frameworks")
+    endif ()
+
+    add_executable(
+        ror_metal_rt_probe
+        "${CMAKE_CURRENT_LIST_DIR}/gfx/MetalRayTracingProbe.mm"
+    )
+    target_link_libraries(
+        ror_metal_rt_probe
+        PRIVATE
+            "${ROR_FOUNDATION_FRAMEWORK}"
+            "${ROR_METAL_FRAMEWORK}"
+    )
+    set_target_properties(
+        ror_metal_rt_probe
+        PROPERTIES
+            OBJCXX_STANDARD 17
+            OBJCXX_STANDARD_REQUIRED YES
+            OBJCXX_EXTENSIONS NO
+    )
+    target_compile_options(
+        ror_metal_rt_probe
+        PRIVATE -fobjc-arc -Wall -Wextra -Werror -pedantic
+    )
+
     add_executable(
         ror_apple_executable_path_tests
         "${CMAKE_CURRENT_LIST_DIR}/platform/AppleExecutablePathTests.cpp"
@@ -806,6 +855,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_v0_post_process_math_tests
     ror_post_process_policy_tests
     ror_post_process_runtime_contract_tests
+    ror_renderer_backend_policy_tests
     ror_local_light_budget_tests
     ror_command_line_info_tests
     ror_beam_axial_response_tests
@@ -950,6 +1000,11 @@ add_test(
 add_test(
     NAME post_process_runtime_contract
     COMMAND ror_post_process_runtime_contract_tests
+)
+
+add_test(
+    NAME renderer_backend_policy
+    COMMAND ror_renderer_backend_policy_tests
 )
 
 add_test(
@@ -1253,6 +1308,18 @@ add_test(
 )
 
 if (APPLE)
+    add_test(
+        NAME metal_rt_probe
+        COMMAND ror_metal_rt_probe
+    )
+    set_tests_properties(
+        metal_rt_probe
+        PROPERTIES
+            LABELS "gfx;native-rt"
+            SKIP_RETURN_CODE 77
+            TIMEOUT 30
+    )
+
     add_test(
         NAME apple_executable_path
         COMMAND ror_apple_executable_path_tests
