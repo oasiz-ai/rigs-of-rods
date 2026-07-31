@@ -22,6 +22,8 @@ APP_COMMAND_LINE = (
     REPOSITORY_ROOT / "source" / "main" / "system" / "AppCommandLine.cpp"
 )
 MAIN_SOURCE = REPOSITORY_ROOT / "source" / "main" / "main.cpp"
+APP_CONTEXT_HEADER = REPOSITORY_ROOT / "source" / "main" / "AppContext.h"
+APP_CONTEXT_SOURCE = REPOSITORY_ROOT / "source" / "main" / "AppContext.cpp"
 TEST_CMAKE = REPOSITORY_ROOT / "tests" / "CMakeLists.txt"
 MYGUI_RESOURCE_ROOT = REPOSITORY_ROOT / "resources" / "mygui"
 CONAN_SOURCE_FALLBACK = (
@@ -64,6 +66,12 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         cls.main_source_text = MAIN_SOURCE.read_text(encoding="utf-8")
+        cls.app_context_header_text = APP_CONTEXT_HEADER.read_text(
+            encoding="utf-8"
+        )
+        cls.app_context_source_text = APP_CONTEXT_SOURCE.read_text(
+            encoding="utf-8"
+        )
         cls.test_cmake_text = TEST_CMAKE.read_text(encoding="utf-8")
 
     def assert_conan_source_fallback_contract(self, text: str) -> None:
@@ -519,6 +527,7 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("GALLIUM_DRIVER", windows_scene)
         self.assertNotIn("MESA_LOADER_DRIVER_OVERRIDE", text)
         self.assertNotIn("continue-on-error:", text)
+        self.assertIn("--generation-timeout 600", text)
         self.assertNotRegex(
             text.casefold(),
             r"(?:skip|ignore).*(?:renderer|render probe)",
@@ -550,6 +559,100 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertIn('f"{plugin}.so.14.5"', auditor)
         self.assertIn('f"{plugin}.so.14.5.2"', auditor)
         self.assertIn('[dumpbin, "/nologo", "/imports"', auditor)
+
+    def test_shutdown_stops_callbacks_and_releases_window_integrations(
+        self,
+    ) -> None:
+        text = self.main_source_text
+        helper_start = text.index("void ReleaseWindowBoundRuntime(")
+        detach = text.index("DetachRenderWindowEvents()", helper_start)
+        input_cleanup = text.index("App::DestroyInputEngine()", detach)
+        gui_cleanup = text.index(
+            "App::GetGuiManager()->ShutdownMyGUI()",
+            input_cleanup,
+        )
+        listener_cleanup = text.index(
+            "removeRenderQueueListener",
+            gui_cleanup,
+        )
+        overlay_cleanup = text.index(
+            "delete overlay_system",
+            listener_cleanup,
+        )
+        helper_end = text.index("class WindowBoundRuntimeGuard", overlay_cleanup)
+        self.assertLess(detach, input_cleanup)
+        self.assertLess(input_cleanup, gui_cleanup)
+        self.assertLess(gui_cleanup, listener_cleanup)
+        self.assertLess(listener_cleanup, overlay_cleanup)
+        self.assertIn(
+            "[RoR|Shutdown] Window-bound runtime integrations released",
+            text[helper_start:helper_end],
+        )
+
+        main_start = text.index("int main(")
+        guard = text.index(
+            "WindowBoundRuntimeGuard window_bound_runtime_guard",
+            main_start,
+        )
+        try_start = text.index("try", guard)
+        self.assertLess(guard, try_start)
+
+        queue_end = text.index('OgreProfileEnd("RoR message queue")')
+        shutdown_guard = text.index(
+            "AppState::SHUTDOWN",
+            queue_end,
+        )
+        capture_update = text.index(
+            "App::UpdateWorldModelCaptureRequest()",
+            queue_end,
+        )
+        self.assertLess(shutdown_guard, capture_update)
+        self.assertIn(
+            "[RoR|Shutdown] Leaving the main loop after the shutdown "
+            "message",
+            text[queue_end:capture_update],
+        )
+
+        immediate_queue_guard = text.index(
+            "Once shutdown is committed",
+            queue_end - 6000,
+        )
+        chained_messages = text.index(
+            "// Process chained messages",
+            immediate_queue_guard,
+        )
+        self.assertLess(immediate_queue_guard, chained_messages)
+
+        self.assertIn(
+            "bool                 DetachRenderWindowEvents() noexcept;",
+            self.app_context_header_text,
+        )
+        self.assertIn(
+            "bool AppContext::DetachRenderWindowEvents() noexcept",
+            self.app_context_source_text,
+        )
+        self.assertIn("catch (...)", self.app_context_source_text)
+        self.assertIn("return clean_detach;", self.app_context_source_text)
+        self.assertIn(
+            "m_render_window_registered = false",
+            self.app_context_header_text,
+        )
+        self.assertIn(
+            "m_window_event_listener_registered = false",
+            self.app_context_header_text,
+        )
+        destructor = self.app_context_source_text.index(
+            "AppContext::~AppContext()"
+        )
+        destroy_target = self.app_context_source_text.index(
+            "destroyRenderTarget",
+            destructor,
+        )
+        detach_in_destructor = self.app_context_source_text.index(
+            "this->DetachRenderWindowEvents()",
+            destructor,
+        )
+        self.assertLess(detach_in_destructor, destroy_target)
 
     def test_failure_diagnostics_and_verified_runtime_are_artifacts(
         self,

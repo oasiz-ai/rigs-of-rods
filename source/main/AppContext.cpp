@@ -80,11 +80,9 @@ AppContext::~AppContext()
 #if OGRE_VERSION_MAJOR >= 14
     this->ShutDownRTShaderSystem();
 
+    this->DetachRenderWindowEvents();
     if (m_render_window != nullptr)
     {
-        OgreBites::WindowEventUtilities::removeWindowEventListener(
-            m_render_window, this);
-        OgreBites::WindowEventUtilities::_removeRenderWindow(m_render_window);
         m_viewport = nullptr;
         m_ogre_root->destroyRenderTarget(m_render_window);
         m_render_window = nullptr;
@@ -572,7 +570,9 @@ bool AppContext::SetUpRendering()
         width, height, ropts["Full Screen"].currentValue == "Yes", &miscParams);
 #endif
     OgreBites::WindowEventUtilities::_addRenderWindow(m_render_window);
+    m_render_window_registered = true;
     OgreBites::WindowEventUtilities::addWindowEventListener(m_render_window, this);
+    m_window_event_listener_registered = true;
 
     this->SetRenderWindowIcon(m_render_window);
     m_render_window->setActive(true);
@@ -590,6 +590,45 @@ bool AppContext::SetUpRendering()
 #endif
 
     return true;
+}
+
+bool AppContext::DetachRenderWindowEvents() noexcept
+{
+    if (m_render_window == nullptr)
+    {
+        m_window_event_listener_registered = false;
+        m_render_window_registered = false;
+        return true;
+    }
+
+    bool clean_detach = true;
+    if (m_window_event_listener_registered)
+    {
+        try
+        {
+            OgreBites::WindowEventUtilities::removeWindowEventListener(
+                m_render_window, this);
+            m_window_event_listener_registered = false;
+        }
+        catch (...)
+        {
+            clean_detach = false;
+        }
+    }
+    if (m_render_window_registered)
+    {
+        try
+        {
+            OgreBites::WindowEventUtilities::_removeRenderWindow(
+                m_render_window);
+            m_render_window_registered = false;
+        }
+        catch (...)
+        {
+            clean_detach = false;
+        }
+    }
+    return clean_detach;
 }
 
 void AppContext::RefreshRenderDisplayMetrics(bool log_change)

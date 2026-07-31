@@ -439,6 +439,10 @@ class CityWorldStorefrontFamilyTests(unittest.TestCase):
             )
 
     def test_clean_gate_copies_only_authored_toolchain_inputs(self) -> None:
+        self.assertEqual(
+            CLEAN_REPRODUCIBILITY.DEFAULT_GENERATION_TIMEOUT_SECONDS,
+            600,
+        )
         with tempfile.TemporaryDirectory(
             prefix="storefront-artifact-free-root-"
         ) as directory:

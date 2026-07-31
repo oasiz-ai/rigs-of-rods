@@ -26,6 +26,7 @@ PINNED_BLENDER_VERSION = "Blender 5.2.0 LTS"
 PINNED_CONVERTER_VERSION = "OgreXMLConverter Tsathoggua (14.5.2)"
 EXPECTED_VARIANTS = 5
 EXPECTED_OUTPUTS = 35
+DEFAULT_GENERATION_TIMEOUT_SECONDS = 600
 FAMILY_RELATIVE = Path(
     "content-source/cityworld_next/buildings/storefront_family/"
     "rorng_city_storefront_family.v1.json"
@@ -194,6 +195,7 @@ def build_clean_root(
     *,
     blender: Path,
     converter: Path,
+    generation_timeout: int,
 ) -> dict[str, Any]:
     run_checked(
         [
@@ -210,7 +212,7 @@ def build_clean_root(
         ],
         cwd=build_root,
         label=f"Blender generation in {build_root.name}",
-        timeout=300,
+        timeout=generation_timeout,
     )
     manifests = load_family_manifests(build_root)
     for manifest in manifests:
@@ -285,7 +287,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--blender", type=Path, required=True)
     parser.add_argument("--converter", type=Path, required=True)
-    return parser.parse_args()
+    parser.add_argument(
+        "--generation-timeout",
+        type=int,
+        default=DEFAULT_GENERATION_TIMEOUT_SECONDS,
+        help="maximum seconds allowed for each clean Blender generation",
+    )
+    args = parser.parse_args()
+    if args.generation_timeout <= 0:
+        parser.error("--generation-timeout must be positive")
+    return args
 
 
 def main() -> int:
@@ -328,6 +339,7 @@ def main() -> int:
                         build_root,
                         blender=blender,
                         converter=converter,
+                        generation_timeout=args.generation_timeout,
                     )
                     for build_root in (left_root, right_root)
                 ]

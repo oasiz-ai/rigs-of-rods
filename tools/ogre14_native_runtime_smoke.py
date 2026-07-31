@@ -26,6 +26,15 @@ COMMON_ENGINE_REQUIRED_MARKERS = (
     "[RoR|Startup|Rendering] Starting renderer '",
     "[RoR|Startup|Rendering] Creating render window with settings:",
     "RenderSystem::_createRenderWindow",
+    "[RoR|Shutdown] Leaving the main loop after the shutdown message",
+    "*** Terminating OIS ***",
+    "[RoR|Shutdown] Window-bound runtime integrations released",
+    "*-*-* OGRE Shutdown",
+)
+SHUTDOWN_ENGINE_REQUIRED_MARKERS = (
+    "[RoR|Shutdown] Leaving the main loop after the shutdown message",
+    "*** Terminating OIS ***",
+    "[RoR|Shutdown] Window-bound runtime integrations released",
     "*-*-* OGRE Shutdown",
 )
 LINUX_ENGINE_REQUIRED_MARKERS = (
@@ -266,6 +275,18 @@ def validate_runtime_evidence(
             raise SmokeFailure(
                 f"engine log missed runtime pattern: {pattern}"
             )
+
+    shutdown_positions: list[int] = []
+    for marker in SHUTDOWN_ENGINE_REQUIRED_MARKERS:
+        count = engine_log.count(marker)
+        if count != 1:
+            raise SmokeFailure(
+                f"engine log contains {count} copies of shutdown marker: "
+                f"{marker}"
+            )
+        shutdown_positions.append(engine_log.index(marker))
+    if shutdown_positions != sorted(shutdown_positions):
+        raise SmokeFailure("engine shutdown markers are out of order")
 
     marker_positions: list[int] = []
     for marker in SCRIPT_REQUIRED_MARKERS:

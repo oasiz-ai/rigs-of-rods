@@ -86,6 +86,7 @@ public:
     Ogre::RenderWindow*  CreateCustomRenderWindow(std::string const& name, int width, int height);
     void                 CaptureScreenshot();
     void                 ActivateFullscreen(bool val);
+    bool                 DetachRenderWindowEvents() noexcept;
     void                 RegisterRTShaderSceneManager(Ogre::SceneManager* scene_manager);
     void                 BeginPostProcessScene();
     void                 EndPostProcessScene();
@@ -138,6 +139,8 @@ private:
     Ogre::Root*          m_ogre_root     = nullptr;
     Ogre::RenderWindow*  m_render_window = nullptr;
     Ogre::Viewport*      m_viewport      = nullptr;
+    bool                 m_render_window_registered = false;
+    bool                 m_window_event_listener_registered = false;
     RenderDisplayMetrics m_display_metrics;
     PostProcessRuntime   m_postprocess_runtime;
 #if OGRE_VERSION_MAJOR >= 14

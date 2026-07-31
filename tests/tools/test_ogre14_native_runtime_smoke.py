@@ -38,6 +38,15 @@ EXPECTED_COMMON_ENGINE_MARKERS = (
     "[RoR|Startup|Rendering] Starting renderer '",
     "[RoR|Startup|Rendering] Creating render window with settings:",
     "RenderSystem::_createRenderWindow",
+    "[RoR|Shutdown] Leaving the main loop after the shutdown message",
+    "*** Terminating OIS ***",
+    "[RoR|Shutdown] Window-bound runtime integrations released",
+    "*-*-* OGRE Shutdown",
+)
+EXPECTED_SHUTDOWN_ENGINE_MARKERS = (
+    "[RoR|Shutdown] Leaving the main loop after the shutdown message",
+    "*** Terminating OIS ***",
+    "[RoR|Shutdown] Window-bound runtime integrations released",
     "*-*-* OGRE Shutdown",
 )
 EXPECTED_LINUX_ENGINE_MARKERS = (
@@ -81,7 +90,13 @@ def engine_log(platform: str, user_directory: Path) -> str:
             "Installing plugin: D3D11 RenderSystem\n"
             "RenderSystem Name: Direct3D11 Rendering Subsystem\n"
         )
-    return common + renderer + "*-*-* OGRE Shutdown\n"
+    shutdown = (
+        "[RoR|Shutdown] Leaving the main loop after the shutdown message\n"
+        "*** Terminating OIS ***\n"
+        "[RoR|Shutdown] Window-bound runtime integrations released\n"
+        "*-*-* OGRE Shutdown\n"
+    )
+    return common + renderer + shutdown
 
 
 def completed(output: str = "runtime stdout") -> subprocess.CompletedProcess[bytes]:
@@ -102,6 +117,10 @@ class Ogre14NativeRuntimeSmokeTests(unittest.TestCase):
         self.assertEqual(
             SMOKE.COMMON_ENGINE_REQUIRED_MARKERS,
             EXPECTED_COMMON_ENGINE_MARKERS,
+        )
+        self.assertEqual(
+            SMOKE.SHUTDOWN_ENGINE_REQUIRED_MARKERS,
+            EXPECTED_SHUTDOWN_ENGINE_MARKERS,
         )
         self.assertEqual(
             SMOKE.LINUX_ENGINE_REQUIRED_MARKERS,
@@ -195,6 +214,32 @@ class Ogre14NativeRuntimeSmokeTests(unittest.TestCase):
                         runtime_output="normal stdout",
                         engine_log=engine,
                         script_log=invalid,
+                        expected_user_directory=user_directory,
+                    )
+
+    def test_shutdown_markers_are_unique_and_ordered(self) -> None:
+        user_directory = Path("/isolated/.rigsofrods")
+        valid_engine = engine_log("linux-x86_64", user_directory)
+        duplicate = (
+            valid_engine
+            + "\n"
+            + EXPECTED_SHUTDOWN_ENGINE_MARKERS[1]
+        )
+        reversed_shutdown = valid_engine
+        for marker in EXPECTED_SHUTDOWN_ENGINE_MARKERS:
+            reversed_shutdown = reversed_shutdown.replace(marker, "")
+        reversed_shutdown += "\n".join(
+            reversed(EXPECTED_SHUTDOWN_ENGINE_MARKERS)
+        )
+        for invalid in (duplicate, reversed_shutdown):
+            with self.subTest(invalid=invalid[-240:]):
+                with self.assertRaises(SMOKE.SmokeFailure):
+                    SMOKE.validate_runtime_evidence(
+                        "linux-x86_64",
+                        returncode=0,
+                        runtime_output="normal stdout",
+                        engine_log=invalid,
+                        script_log=script_log(),
                         expected_user_directory=user_directory,
                     )
 

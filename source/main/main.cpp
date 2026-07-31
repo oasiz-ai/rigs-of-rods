@@ -72,6 +72,92 @@
 #   include <curl/curl.h>
 #endif //USE_CURL
 
+namespace
+{
+
+void ReleaseWindowBoundRuntime(
+    Ogre::OverlaySystem*& overlay_system) noexcept
+{
+    using namespace RoR;
+
+    const bool had_window_bound_state =
+        App::GetInputEngine() != nullptr ||
+        App::GetGuiManager() != nullptr ||
+        overlay_system != nullptr;
+    bool clean_release = true;
+
+    clean_release =
+        App::GetAppContext()->DetachRenderWindowEvents() && clean_release;
+    try
+    {
+        if (App::GetInputEngine() != nullptr)
+        {
+            App::DestroyInputEngine();
+        }
+    }
+    catch (...)
+    {
+        clean_release = false;
+    }
+    try
+    {
+        if (App::GetGuiManager() != nullptr)
+        {
+            App::GetGuiManager()->ShutdownMyGUI();
+        }
+    }
+    catch (...)
+    {
+        clean_release = false;
+    }
+    try
+    {
+        if (overlay_system != nullptr)
+        {
+            if (App::GetGfxScene()->GetSceneManager() != nullptr)
+            {
+                App::GetGfxScene()->GetSceneManager()
+                    ->removeRenderQueueListener(overlay_system);
+            }
+            delete overlay_system;
+            overlay_system = nullptr;
+        }
+    }
+    catch (...)
+    {
+        clean_release = false;
+    }
+
+    if (had_window_bound_state)
+    {
+        LOG(clean_release
+            ? "[RoR|Shutdown] Window-bound runtime integrations released"
+            : "[RoR|Shutdown] ERROR releasing window-bound runtime integrations");
+    }
+}
+
+class WindowBoundRuntimeGuard
+{
+public:
+    explicit WindowBoundRuntimeGuard(Ogre::OverlaySystem*& overlay_system):
+        m_overlay_system(overlay_system)
+    {
+    }
+
+    ~WindowBoundRuntimeGuard()
+    {
+        ReleaseWindowBoundRuntime(m_overlay_system);
+    }
+
+    WindowBoundRuntimeGuard(const WindowBoundRuntimeGuard&) = delete;
+    WindowBoundRuntimeGuard& operator=(const WindowBoundRuntimeGuard&) = delete;
+
+private:
+    Ogre::OverlaySystem*& m_overlay_system;
+};
+
+} // namespace
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -83,6 +169,9 @@ int main(int argc, char *argv[])
 #ifdef USE_CURL
     curl_global_init(CURL_GLOBAL_ALL); // MUST init before any threads are started
 #endif
+
+    Ogre::OverlaySystem* overlay_system = nullptr;
+    WindowBoundRuntimeGuard window_bound_runtime_guard(overlay_system);
 
 #ifndef _DEBUG
     try
@@ -187,7 +276,7 @@ int main(int argc, char *argv[])
             return -1; // Error already displayed
         }
 
-        Ogre::OverlaySystem* overlay_system = new Ogre::OverlaySystem(); //Overlay init
+        overlay_system = new Ogre::OverlaySystem(); //Overlay init
 
         Ogre::ConfigOptionMap ropts = App::GetAppContext()->GetOgreRoot()->getRenderSystem()->getConfigOptions();
         int resolution = Ogre::StringConverter::parseInt(Ogre::StringUtil::split(ropts["Video Mode"].currentValue, " x ")[0], 1024);
@@ -2084,6 +2173,15 @@ int main(int argc, char *argv[])
                 default:;
                 }
 
+                // Once shutdown is committed, leave any remaining raw-payload
+                // messages undispatched. Process exit owns those allocations;
+                // invoking their GUI/input/render callbacks after SHUTDOWN is
+                // unsafe and was the source of the Win32 fast-fail path.
+                if (App::app_state->getEnum<AppState>() == AppState::SHUTDOWN)
+                {
+                    break;
+                }
+
                 // Process chained messages
                 if (!failed_m)
                 {
@@ -2095,6 +2193,17 @@ int main(int argc, char *argv[])
 
             } // Game events block
             OgreProfileEnd("RoR message queue");
+
+            // A shutdown request is handled inside the queue above. Do not run
+            // input, script, GUI, or renderer callbacks for a state that has
+            // already transitioned to SHUTDOWN. In particular, the Win32
+            // D3D11/OIS stack must not receive one more frame after the quit
+            // message has been committed.
+            if (App::app_state->getEnum<AppState>() == AppState::SHUTDOWN)
+            {
+                LOG("[RoR|Shutdown] Leaving the main loop after the shutdown message");
+                break;
+            }
 
             // Arm only after the message queue has created and seated the
             // startup truck. Admission requires this still to be a fresh

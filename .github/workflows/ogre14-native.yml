@@ -257,6 +257,7 @@ jobs:
               --blender \
               "$RUNNER_TEMP/blender-5.2.0-linux-x64/blender" \
               --converter "$converter" \
+              --generation-timeout 600 \
             | tee artifacts/linux-x86_64-storefront-clean-reproducibility.json
           python - <<'PY'
           import json
