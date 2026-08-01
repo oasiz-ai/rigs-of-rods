@@ -115,8 +115,6 @@ RenderAssetDelta MakeModernCatalogDelta(std::uint64_t registry_id) {
       Ref(RenderAssetKind::TEXTURE, 4U);
   material.metallic_roughness_texture.sampler =
       Ref(RenderAssetKind::SAMPLER, 7U);
-  material.normal_texture.texture = Ref(RenderAssetKind::TEXTURE, 5U);
-  material.normal_texture.sampler = Ref(RenderAssetKind::SAMPLER, 7U);
   material.emissive_texture.texture = Ref(RenderAssetKind::TEXTURE, 6U);
   material.emissive_texture.sampler = Ref(RenderAssetKind::SAMPLER, 7U);
 
@@ -492,7 +490,7 @@ void TestModernPbrAssetPolicy() {
 
   RenderAssetDelta transformed_delta = MakeModernCatalogDelta(kRegistryId + 1U);
   std::get<MaterialDescriptor>(transformed_delta.mutations[1U].payload)
-      .normal_texture.rotation_radians = 0.25F;
+      .base_color_texture.rotation_radians = 0.25F;
   RenderAssetRegistry transformed_registry(kRegistryId + 1U);
   Require(transformed_registry.Apply(transformed_delta).ok(),
           "texture-transform fixture is not renderer-contract valid");
@@ -512,16 +510,18 @@ void TestModernPbrAssetPolicy() {
               .code == ValidationCode::UNSUPPORTED_FEATURE,
           "pinned-PBS ambient-occlusion mismatch escaped RT4/V1 admission");
 
-  RenderAssetDelta scaled_normal_delta =
+  RenderAssetDelta normal_delta =
       MakeModernCatalogDelta(kRegistryId + 3U);
-  std::get<MaterialDescriptor>(scaled_normal_delta.mutations[1U].payload)
-      .normal_scale = 0.5F;
-  RenderAssetRegistry scaled_normal_registry(kRegistryId + 3U);
-  Require(scaled_normal_registry.Apply(scaled_normal_delta).ok(),
-          "normal-scale fixture is not renderer-contract valid");
-  Require(ValidateOgreNextN1AssetCatalog(scaled_normal_registry, false, kModern)
+  MaterialDescriptor &normal_material =
+      std::get<MaterialDescriptor>(normal_delta.mutations[1U].payload);
+  normal_material.normal_texture.texture = Ref(RenderAssetKind::TEXTURE, 5U);
+  normal_material.normal_texture.sampler = Ref(RenderAssetKind::SAMPLER, 7U);
+  RenderAssetRegistry normal_registry(kRegistryId + 3U);
+  Require(normal_registry.Apply(normal_delta).ok(),
+          "normal-texture fixture is not renderer-contract valid");
+  Require(ValidateOgreNextN1AssetCatalog(normal_registry, false, kModern)
               .code == ValidationCode::UNSUPPORTED_FEATURE,
-          "noncanonical pinned-PBS normal weight escaped RT4/V1 admission");
+          "pinned-PBS reconstructed normal Z escaped RT4/V1 admission");
 
   RenderAssetDelta border_delta = MakeModernCatalogDelta(kRegistryId + 4U);
   std::get<SamplerResourceDescriptor>(border_delta.mutations.back().payload)
@@ -543,11 +543,48 @@ void TestModernPbrAssetPolicy() {
               ValidationCode::UNSUPPORTED_FEATURE,
           "Metal-omitted mip LOD bias escaped RT4/V1 admission");
 
-  RenderAssetDelta missing_tangent_delta =
+  RenderAssetDelta unreferenced_delta =
       MakeModernCatalogDelta(kRegistryId + 6U);
+  TextureResourceDescriptor &unreferenced_texture =
+      std::get<TextureResourceDescriptor>(
+          unreferenced_delta.mutations[4U].payload);
+  unreferenced_texture.format = TextureResourceFormat::R8_UNORM;
+  unreferenced_texture.mip_levels.front().row_pitch_bytes = 1U;
+  unreferenced_texture.mip_levels.front().layer_pitch_bytes = 1U;
+  unreferenced_texture.mip_levels.front().bytes = {128U};
+  SamplerResourceDescriptor unreferenced_sampler;
+  unreferenced_sampler.address_u = SamplerAddressMode::CLAMP_TO_BORDER;
+  RenderAssetMutation unreferenced_sampler_mutation;
+  unreferenced_sampler_mutation.asset = Ref(RenderAssetKind::SAMPLER, 8U);
+  unreferenced_sampler_mutation.payload = unreferenced_sampler;
+  unreferenced_delta.mutations.push_back(
+      std::move(unreferenced_sampler_mutation));
+  RenderAssetRegistry unreferenced_registry(kRegistryId + 6U);
+  Require(unreferenced_registry.Apply(unreferenced_delta).ok(),
+          "unreferenced shared-catalog fixture is not structurally valid");
+  Require(ValidateOgreNextN1AssetCatalog(unreferenced_registry, false, kModern)
+              .ok(),
+          "RT4/V1 constrained texture or sampler assets not referenced by a material");
+
+  RenderAssetDelta transparent_base_delta =
+      MakeModernCatalogDelta(kRegistryId + 7U);
+  std::get<TextureResourceDescriptor>(
+      transparent_base_delta.mutations[2U].payload)
+      .mip_levels.front()
+      .bytes[3U] = 128U;
+  RenderAssetRegistry transparent_base_registry(kRegistryId + 7U);
+  Require(transparent_base_registry.Apply(transparent_base_delta).ok(),
+          "nonopaque base-color fixture is not renderer-contract valid");
+  Require(ValidateOgreNextN1AssetCatalog(transparent_base_registry, false,
+                                         kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "nonopaque base texture escaped RT4/V1 straight-alpha evidence policy");
+
+  RenderAssetDelta missing_tangent_delta =
+      MakeModernCatalogDelta(kRegistryId + 8U);
   std::get<MeshResourceDescriptor>(missing_tangent_delta.mutations[0U].payload)
       .tangents.clear();
-  RenderAssetRegistry missing_tangent_registry(kRegistryId + 6U);
+  RenderAssetRegistry missing_tangent_registry(kRegistryId + 8U);
   Require(missing_tangent_registry.Apply(missing_tangent_delta).ok(),
           "missing-tangent catalog fixture is not structurally valid");
   Require(ValidateOgreNextN1AssetCatalog(missing_tangent_registry, false, kModern)
