@@ -345,6 +345,11 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/probe_config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_probe_config.h"
     @ONLY)
+set(ROR_OGRE_NEXT_MEDIA_ROOT "${ogre_next_SOURCE_DIR}/Samples/Media")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/frame_probe_config.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_frame_probe_config.h"
+    @ONLY)
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/ogre_next_build_contract.json.in"
     "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
@@ -376,6 +381,32 @@ set_target_properties(
     PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+add_executable(ror_ogre_next_frame_probe src/frame_main.cpp)
+target_compile_definitions(
+    ror_ogre_next_frame_probe PRIVATE ${_ror_probe_renderer_definition})
+target_include_directories(
+    ror_ogre_next_frame_probe
+    PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        "${ogre_next_SOURCE_DIR}/OgreMain/include"
+        "${ogre_next_BINARY_DIR}/include"
+        "${ogre_next_SOURCE_DIR}/Components/Hlms/Common/include"
+        "${ogre_next_SOURCE_DIR}/Components/Hlms/Pbs/include"
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX"
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Direct3D11/include"
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Vulkan/include")
+target_link_libraries(
+    ror_ogre_next_frame_probe
+    PRIVATE
+        OgreNextHlmsPbs
+        ${ROR_OGRE_NEXT_RENDERER_TARGET}
+        OgreNextMain)
+set_target_properties(
+    ror_ogre_next_frame_probe
+    PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 set(ROR_OGRE_NEXT_REPORT
     "${CMAKE_BINARY_DIR}/ror-ogre-next-probe-report.json")
 add_custom_target(
@@ -388,6 +419,31 @@ add_custom_target(
     COMMENT "Running fail-closed OGRE-Next capability probe"
     VERBATIM)
 
+set(ROR_OGRE_NEXT_FRAME_IMAGE
+    "${CMAKE_BINARY_DIR}/ror-ogre-next-frame-probe.ppm")
+set(ROR_OGRE_NEXT_FRAME_REPORT
+    "${CMAKE_BINARY_DIR}/ror-ogre-next-frame-probe-report.json")
+add_custom_target(
+    ror_ogre_next_frame_probe_report
+    COMMAND
+        "${CMAKE_COMMAND}" -E rm -f
+        "${ROR_OGRE_NEXT_FRAME_IMAGE}"
+        "${ROR_OGRE_NEXT_FRAME_REPORT}"
+    COMMAND
+        $<TARGET_FILE:ror_ogre_next_frame_probe>
+        --output "${ROR_OGRE_NEXT_FRAME_IMAGE}"
+        --report "${ROR_OGRE_NEXT_FRAME_REPORT}"
+    DEPENDS ror_ogre_next_frame_probe
+    BYPRODUCTS
+        "${ROR_OGRE_NEXT_FRAME_IMAGE}"
+        "${ROR_OGRE_NEXT_FRAME_REPORT}"
+    COMMENT "Rendering and reading back one UI-free OGRE-Next PBS frame"
+    VERBATIM)
+
 enable_testing()
 add_test(NAME ror_ogre_next_probe_runtime
     COMMAND $<TARGET_FILE:ror_ogre_next_probe>)
+add_test(NAME ror_ogre_next_frame_probe_runtime
+    COMMAND $<TARGET_FILE:ror_ogre_next_frame_probe>
+            --output "${ROR_OGRE_NEXT_FRAME_IMAGE}"
+            --report "${ROR_OGRE_NEXT_FRAME_REPORT}")
