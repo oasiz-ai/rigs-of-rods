@@ -12,7 +12,7 @@
 #pragma once
 
 #include "../RendererFrontend.h"
-#include "OgreNextRasterFeatureTier.h"
+#include "RasterFeatureTier.h"
 
 #include <cstdint>
 #include <memory>

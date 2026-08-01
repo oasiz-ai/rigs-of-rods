@@ -20,6 +20,7 @@
 #include "OgreCamera.h"
 #include "OgreColourValue.h"
 #include "OgreException.h"
+#include "OgreHlmsSamplerblock.h"
 #include "OgreHlmsManager.h"
 #include "OgreHlmsPbs.h"
 #include "OgreHlmsPbsDatablock.h"
@@ -95,6 +96,19 @@ struct N1Vertex {
   float normal[3];
 };
 
+struct Rt4PbrVertex {
+  float position[3];
+  float normal[3];
+  float tangent[4];
+  float texture_coordinates_0[2];
+};
+
+enum class UploadedTextureChannel : std::uint8_t {
+  RGBA,
+  GREEN,
+  BLUE,
+};
+
 RasterGraphicsApi CompiledRasterApi() noexcept {
 #if defined(ROR_OGRE_NEXT_N1_METAL)
   return RasterGraphicsApi::METAL;
@@ -145,6 +159,70 @@ bool NearlyEqual(const Ogre::Vector3 &lhs,
                  const Ogre::Vector3 &rhs) noexcept {
   return NearlyEqual(lhs.x, rhs.x) && NearlyEqual(lhs.y, rhs.y) &&
          NearlyEqual(lhs.z, rhs.z);
+}
+
+Ogre::FilterOptions ToOgreFilter(SamplerFilter filter,
+                                 bool anisotropic) {
+  if (anisotropic) {
+    return Ogre::FO_ANISOTROPIC;
+  }
+  switch (filter) {
+  case SamplerFilter::NEAREST:
+    return Ogre::FO_POINT;
+  case SamplerFilter::LINEAR:
+    return Ogre::FO_LINEAR;
+  }
+  throw std::logic_error("validated RT4/V1 sampler filter became unknown");
+}
+
+Ogre::TextureAddressingMode
+ToOgreAddressMode(SamplerAddressMode address_mode) {
+  switch (address_mode) {
+  case SamplerAddressMode::REPEAT:
+    return Ogre::TAM_WRAP;
+  case SamplerAddressMode::MIRRORED_REPEAT:
+    return Ogre::TAM_MIRROR;
+  case SamplerAddressMode::CLAMP_TO_EDGE:
+    return Ogre::TAM_CLAMP;
+  case SamplerAddressMode::CLAMP_TO_BORDER:
+    break;
+  }
+  throw std::logic_error(
+      "validated RT4/V1 sampler address mode became unsupported");
+}
+
+Ogre::HlmsSamplerblock
+ToOgreSampler(const SamplerResourceDescriptor &descriptor) {
+  Ogre::HlmsSamplerblock sampler;
+  sampler.mMinFilter = ToOgreFilter(descriptor.minification_filter,
+                                    descriptor.anisotropy_enabled);
+  sampler.mMagFilter = ToOgreFilter(descriptor.magnification_filter,
+                                    descriptor.anisotropy_enabled);
+  sampler.mMipFilter =
+      ToOgreFilter(descriptor.mip_filter, descriptor.anisotropy_enabled);
+  sampler.mU = ToOgreAddressMode(descriptor.address_u);
+  sampler.mV = ToOgreAddressMode(descriptor.address_v);
+  sampler.mW = ToOgreAddressMode(descriptor.address_w);
+  sampler.mMipLodBias = descriptor.mip_lod_bias;
+  sampler.mMaxAnisotropy = descriptor.anisotropy_enabled
+                               ? descriptor.maximum_anisotropy
+                               : 1.0F;
+  sampler.mCompareFunction = Ogre::NUM_COMPARE_FUNCTIONS;
+  sampler.mBorderColour = Ogre::ColourValue(
+      descriptor.border_color.x, descriptor.border_color.y,
+      descriptor.border_color.z, descriptor.border_color.w);
+  sampler.mMinLod = descriptor.minimum_lod;
+  sampler.mMaxLod = descriptor.maximum_lod;
+  return sampler;
+}
+
+void VerifySamplerMapping(const Ogre::HlmsSamplerblock &actual,
+                          const Ogre::HlmsSamplerblock &expected) {
+  Ogre::HlmsSamplerblock actual_copy = actual;
+  if (actual_copy != expected) {
+    throw std::runtime_error(
+        "Ogre-Next RT4/V1 live sampler differs from the reviewed portable mapping");
+  }
 }
 
 void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
@@ -305,7 +383,8 @@ RenderOperationResult BackendFailure(const Ogre::Exception &error) {
 class OgreNextN1Frontend::Impl final {
 public:
   explicit Impl(OgreNextN1Configuration configuration)
-      : configured_shader_media_root(
+      : raster_feature_tier(configuration.raster_feature_tier),
+        configured_shader_media_root(
             std::move(configuration.shader_media_root)) {}
 
   struct NativeMesh {
@@ -322,6 +401,16 @@ public:
     std::string name;
   };
 
+  struct NativeTexture {
+    RenderAssetReference asset;
+    Ogre::TextureGpu *sampled = nullptr;
+    Ogre::TextureGpu *roughness = nullptr;
+    Ogre::TextureGpu *metallic = nullptr;
+    std::string sampled_name;
+    std::string roughness_name;
+    std::string metallic_name;
+  };
+
   FrontendCapabilityReport Capabilities() const {
     FrontendCapabilityReport report = BuildOgreNextN1CapabilityReport(
         CompiledRasterApi(), ROR_OGRE_NEXT_N1_VERSION);
@@ -334,6 +423,50 @@ public:
 
   bool OnOwnerThread() const noexcept {
     return initialized && std::this_thread::get_id() == owner_thread;
+  }
+
+  RenderOperationResult ValidateSamplerDeviceLimits(
+      const RenderAssetRegistry &candidate_registry) const {
+    if (raster_feature_tier !=
+        OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+      return RenderOperationResult::Success();
+    }
+    const ValidationResult visit = candidate_registry.VisitRecords(
+        [&](const RenderAssetRecord &record) {
+          const auto *material =
+              std::get_if<MaterialDescriptor>(record.payload.get());
+          if (!record.live() || material == nullptr) {
+            return ValidationResult::Success();
+          }
+          const TextureBinding *bindings[] = {
+              &material->base_color_texture,
+              &material->metallic_roughness_texture,
+              &material->emissive_texture,
+          };
+          for (const TextureBinding *binding : bindings) {
+            if (!binding->texture.valid()) {
+              continue;
+            }
+            const SamplerResourceDescriptor *sampler =
+                candidate_registry.ResolveSampler(binding->sampler);
+            if (sampler == nullptr) {
+              return ValidationResult::Failure(
+                  ValidationCode::MISSING_REFERENCE,
+                  "assets.material.texture_binding",
+                  "RT4/V1 sampler disappeared before device validation");
+            }
+            if (sampler->anisotropy_enabled &&
+                sampler->maximum_anisotropy > maximum_anisotropy) {
+              return ValidationResult::Failure(
+                  ValidationCode::UNSUPPORTED_FEATURE,
+                  "assets.sampler.maximum_anisotropy",
+                  "RT4/V1 rejects anisotropy above the active device limit instead of permitting backend clamping");
+            }
+          }
+          return ValidationResult::Success();
+        });
+    return visit ? RenderOperationResult::Success()
+                 : OgreNextN1OperationFromValidation(visit);
   }
 
   NativeMesh CreateMesh(const RenderAssetReference &asset,
@@ -350,25 +483,56 @@ public:
     Ogre::IndexBufferPacked *index_buffer = nullptr;
     Ogre::VertexArrayObject *vao = nullptr;
     bool attached = false;
-    N1Vertex *vertices = nullptr;
+    void *vertices = nullptr;
     void *indices = nullptr;
     try {
-      const std::size_t vertex_bytes =
-          sizeof(N1Vertex) * descriptor.positions.size();
-      vertices = static_cast<N1Vertex *>(OGRE_MALLOC_SIMD(
-          vertex_bytes, Ogre::MEMCATEGORY_GEOMETRY));
-      for (std::size_t index = 0U; index < descriptor.positions.size();
-           ++index) {
-        const Float3 &position = descriptor.positions[index];
-        const Float3 &normal = descriptor.normals[index];
-        vertices[index] = {{position.x, position.y, position.z},
-                           {normal.x, normal.y, normal.z}};
-      }
       Ogre::VertexElement2Vec elements;
-      elements.push_back(
-          Ogre::VertexElement2(Ogre::VET_FLOAT3, Ogre::VES_POSITION));
-      elements.push_back(
-          Ogre::VertexElement2(Ogre::VET_FLOAT3, Ogre::VES_NORMAL));
+      if (raster_feature_tier ==
+          OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+        const std::size_t vertex_bytes =
+            sizeof(Rt4PbrVertex) * descriptor.positions.size();
+        auto *pbr_vertices = static_cast<Rt4PbrVertex *>(OGRE_MALLOC_SIMD(
+            vertex_bytes, Ogre::MEMCATEGORY_GEOMETRY));
+        vertices = pbr_vertices;
+        for (std::size_t index = 0U; index < descriptor.positions.size();
+             ++index) {
+          const Float3 &position = descriptor.positions[index];
+          const Float3 &normal = descriptor.normals[index];
+          const Float4 &tangent = descriptor.tangents[index];
+          const Float2 &uv = descriptor.texture_coordinates_0[index];
+          pbr_vertices[index] = {
+              {position.x, position.y, position.z},
+              {normal.x, normal.y, normal.z},
+              {tangent.x, tangent.y, tangent.z, tangent.w},
+              {uv.x, uv.y},
+          };
+        }
+        elements.push_back(
+            Ogre::VertexElement2(Ogre::VET_FLOAT3, Ogre::VES_POSITION));
+        elements.push_back(
+            Ogre::VertexElement2(Ogre::VET_FLOAT3, Ogre::VES_NORMAL));
+        elements.push_back(
+            Ogre::VertexElement2(Ogre::VET_FLOAT4, Ogre::VES_TANGENT));
+        elements.push_back(Ogre::VertexElement2(
+            Ogre::VET_FLOAT2, Ogre::VES_TEXTURE_COORDINATES));
+      } else {
+        const std::size_t vertex_bytes =
+            sizeof(N1Vertex) * descriptor.positions.size();
+        auto *n1_vertices = static_cast<N1Vertex *>(OGRE_MALLOC_SIMD(
+            vertex_bytes, Ogre::MEMCATEGORY_GEOMETRY));
+        vertices = n1_vertices;
+        for (std::size_t index = 0U; index < descriptor.positions.size();
+             ++index) {
+          const Float3 &position = descriptor.positions[index];
+          const Float3 &normal = descriptor.normals[index];
+          n1_vertices[index] = {{position.x, position.y, position.z},
+                                {normal.x, normal.y, normal.z}};
+        }
+        elements.push_back(
+            Ogre::VertexElement2(Ogre::VET_FLOAT3, Ogre::VES_POSITION));
+        elements.push_back(
+            Ogre::VertexElement2(Ogre::VET_FLOAT3, Ogre::VES_NORMAL));
+      }
       vertex_buffer = vao_manager->createVertexBuffer(
           elements, descriptor.positions.size(), Ogre::BT_IMMUTABLE, vertices,
           true);
@@ -467,8 +631,137 @@ public:
     }
   }
 
+  Ogre::TextureGpu *CreateUploadedTexture(
+      const TextureResourceDescriptor &descriptor, const std::string &name,
+      UploadedTextureChannel channel) {
+    const bool rgba = channel == UploadedTextureChannel::RGBA;
+    const Ogre::PixelFormatGpu pixel_format =
+        rgba ? (descriptor.color_space == TextureColorSpace::SRGB
+                    ? Ogre::PFG_RGBA8_UNORM_SRGB
+                    : Ogre::PFG_RGBA8_UNORM)
+             : Ogre::PFG_R8_UNORM;
+    auto *image = new Ogre::Image2();
+    Ogre::TextureGpu *texture = nullptr;
+    try {
+      image->createEmptyImage(
+          descriptor.width, descriptor.height, 1U,
+          Ogre::TextureTypes::Type2D, pixel_format,
+          static_cast<Ogre::uint8>(descriptor.mip_levels.size()));
+      for (std::size_t mip_index = 0U;
+           mip_index < descriptor.mip_levels.size(); ++mip_index) {
+        const TextureMipLevelDescriptor &source =
+            descriptor.mip_levels[mip_index];
+        const Ogre::TextureBox destination =
+            image->getData(static_cast<Ogre::uint8>(mip_index));
+        if (destination.width != source.width ||
+            destination.height != source.height) {
+          throw std::logic_error(
+              "validated RT4/V1 mip dimensions changed during Ogre upload");
+        }
+        for (std::uint32_t row = 0U; row < source.height; ++row) {
+          const auto *source_row = source.bytes.data() +
+                                   static_cast<std::size_t>(row) *
+                                       source.row_pitch_bytes;
+          auto *destination_row = static_cast<std::uint8_t *>(
+              destination.at(0U, row, 0U));
+          if (rgba) {
+            std::memcpy(destination_row, source_row,
+                        static_cast<std::size_t>(source.width) * 4U);
+          } else {
+            const std::size_t source_channel =
+                channel == UploadedTextureChannel::GREEN ? 1U : 2U;
+            for (std::uint32_t column = 0U; column < source.width; ++column) {
+              destination_row[column] =
+                  source_row[static_cast<std::size_t>(column) * 4U +
+                             source_channel];
+            }
+          }
+        }
+      }
+
+      Ogre::TextureGpuManager *texture_manager =
+          renderer->getTextureGpuManager();
+      texture = texture_manager->createTexture(
+          name, Ogre::GpuPageOutStrategy::Discard, 0U,
+          Ogre::TextureTypes::Type2D);
+      texture->setResolution(descriptor.width, descriptor.height);
+      texture->setNumMipmaps(
+          static_cast<Ogre::uint8>(descriptor.mip_levels.size()));
+      texture->setPixelFormat(pixel_format);
+      texture->scheduleTransitionTo(Ogre::GpuResidency::Resident, image, true);
+      image = nullptr;
+      return texture;
+    } catch (...) {
+      delete image;
+      if (texture != nullptr) {
+        try {
+          renderer->getTextureGpuManager()->destroyTexture(texture);
+        } catch (...) {
+          faulted = true;
+        }
+      }
+      throw;
+    }
+  }
+
+  NativeTexture CreateTexture(const RenderAssetReference &asset,
+                              const TextureResourceDescriptor &descriptor) {
+    NativeTexture native;
+    native.asset = asset;
+    native.sampled_name = AssetName("RoRRT4Texture", asset);
+    native.roughness_name = native.sampled_name + "_roughness_g";
+    native.metallic_name = native.sampled_name + "_metallic_b";
+    try {
+      native.sampled = CreateUploadedTexture(
+          descriptor, native.sampled_name, UploadedTextureChannel::RGBA);
+      if (descriptor.color_space == TextureColorSpace::LINEAR) {
+        native.roughness = CreateUploadedTexture(
+            descriptor, native.roughness_name,
+            UploadedTextureChannel::GREEN);
+        native.metallic = CreateUploadedTexture(
+            descriptor, native.metallic_name, UploadedTextureChannel::BLUE);
+      }
+      return native;
+    } catch (...) {
+      if (!DestroyTexture(native)) {
+        faulted = true;
+      }
+      throw;
+    }
+  }
+
+  void VerifyTexture(const NativeTexture &native,
+                     const TextureResourceDescriptor &descriptor) const {
+    const auto verify_one = [&](const Ogre::TextureGpu *texture,
+                                Ogre::PixelFormatGpu format) {
+      if (texture == nullptr || !texture->isDataReady() ||
+          texture->getResidencyStatus() != Ogre::GpuResidency::Resident ||
+          texture->getWidth() != descriptor.width ||
+          texture->getHeight() != descriptor.height ||
+          texture->getNumMipmaps() != descriptor.mip_levels.size() ||
+          texture->getPixelFormat() != format) {
+        throw std::runtime_error(
+            "Ogre-Next RT4/V1 texture upload failed strict metadata or residency validation");
+      }
+    };
+    verify_one(native.sampled,
+               descriptor.color_space == TextureColorSpace::SRGB
+                   ? Ogre::PFG_RGBA8_UNORM_SRGB
+                   : Ogre::PFG_RGBA8_UNORM);
+    if (descriptor.color_space == TextureColorSpace::LINEAR) {
+      verify_one(native.roughness, Ogre::PFG_R8_UNORM);
+      verify_one(native.metallic, Ogre::PFG_R8_UNORM);
+    } else if (native.roughness != nullptr || native.metallic != nullptr) {
+      throw std::runtime_error(
+          "Ogre-Next RT4/V1 manufactured linear channels for an sRGB texture");
+    }
+  }
+
   NativeMaterial CreateMaterial(const RenderAssetReference &asset,
-                                const MaterialDescriptor &descriptor) {
+                                const MaterialDescriptor &descriptor,
+                                const RenderAssetRegistry &candidate_registry,
+                                const std::map<RenderAssetId, NativeTexture>
+                                    &candidate_textures) {
     NativeMaterial native;
     native.asset = asset;
     native.name = AssetName("RoRN1Material", asset);
@@ -496,6 +789,52 @@ public:
                         descriptor.emissive_factor.z) *
           descriptor.emissive_strength);
       native.datablock->setTwoSidedLighting(descriptor.double_sided, false);
+      const auto bind_texture =
+          [&](const TextureBinding &binding, Ogre::PbsTextureTypes slot,
+              Ogre::TextureGpu *NativeTexture::*native_member) {
+            if (!binding.texture.valid()) {
+              return;
+            }
+            const auto found = candidate_textures.find(binding.texture.id);
+            const SamplerResourceDescriptor *sampler_descriptor =
+                candidate_registry.ResolveSampler(binding.sampler);
+            if (found == candidate_textures.end() ||
+                found->second.asset != binding.texture ||
+                sampler_descriptor == nullptr) {
+              throw std::logic_error(
+                  "validated RT4/V1 material dependency disappeared before native binding");
+            }
+            Ogre::TextureGpu *texture = found->second.*native_member;
+            if (texture == nullptr) {
+              throw std::logic_error(
+                  "validated RT4/V1 texture lacks its required uploaded channel");
+            }
+            const Ogre::HlmsSamplerblock sampler =
+                ToOgreSampler(*sampler_descriptor);
+            const auto slot_index = static_cast<Ogre::uint8>(slot);
+            native.datablock->setTexture(slot_index, texture, &sampler);
+            native.datablock->setTextureUvSource(slot, 0U);
+            const Ogre::HlmsSamplerblock *actual_sampler =
+                native.datablock->getSamplerblock(slot_index);
+            if (native.datablock->getTexture(slot_index) != texture ||
+                native.datablock->getTextureUvSource(slot) != 0U ||
+                actual_sampler == nullptr) {
+              throw std::runtime_error(
+                  "Ogre-Next RT4/V1 live PBS texture binding differs from the reviewed mapping");
+            }
+            VerifySamplerMapping(*actual_sampler, sampler);
+          };
+      if (raster_feature_tier ==
+          OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+        bind_texture(descriptor.base_color_texture, Ogre::PBSM_DIFFUSE,
+                     &NativeTexture::sampled);
+        bind_texture(descriptor.metallic_roughness_texture,
+                     Ogre::PBSM_ROUGHNESS, &NativeTexture::roughness);
+        bind_texture(descriptor.metallic_roughness_texture,
+                     Ogre::PBSM_METALLIC, &NativeTexture::metallic);
+        bind_texture(descriptor.emissive_texture, Ogre::PBSM_EMISSIVE,
+                     &NativeTexture::sampled);
+      }
       VerifyPbsMapping(*native.datablock, descriptor);
       return native;
     } catch (...) {
@@ -522,6 +861,29 @@ public:
     return clean;
   }
 
+  [[nodiscard]] bool DestroyTexture(NativeTexture &native) noexcept {
+    bool clean = true;
+    const auto destroy_one = [&](Ogre::TextureGpu *&texture) {
+      if (texture == nullptr) {
+        return;
+      }
+      if (renderer != nullptr) {
+        try {
+          renderer->getTextureGpuManager()->destroyTexture(texture);
+        } catch (...) {
+          clean = false;
+        }
+      } else {
+        clean = false;
+      }
+      texture = nullptr;
+    };
+    destroy_one(native.metallic);
+    destroy_one(native.roughness);
+    destroy_one(native.sampled);
+    return clean;
+  }
+
   [[nodiscard]] bool DestroyMaterial(NativeMaterial &native) noexcept {
     if (native.datablock == nullptr) {
       return true;
@@ -540,14 +902,18 @@ public:
 
   [[nodiscard]] bool DestroyCatalog() noexcept {
     bool clean = true;
-    for (auto &entry : meshes) {
-      clean = DestroyMesh(entry.second) && clean;
-    }
-    meshes.clear();
     for (auto &entry : materials) {
       clean = DestroyMaterial(entry.second) && clean;
     }
     materials.clear();
+    for (auto &entry : textures) {
+      clean = DestroyTexture(entry.second) && clean;
+    }
+    textures.clear();
+    for (auto &entry : meshes) {
+      clean = DestroyMesh(entry.second) && clean;
+    }
+    meshes.clear();
     registry.reset();
     return clean;
   }
@@ -580,16 +946,9 @@ public:
 
   [[nodiscard]] bool RollbackCandidateAllocations(
       std::map<RenderAssetId, NativeMesh> &candidate_meshes,
-      std::map<RenderAssetId, NativeMaterial> &candidate_materials) noexcept {
+      std::map<RenderAssetId, NativeMaterial> &candidate_materials,
+      std::map<RenderAssetId, NativeTexture> &candidate_textures) noexcept {
     bool clean = true;
-    for (auto &entry : candidate_meshes) {
-      const auto existing = meshes.find(entry.first);
-      if (existing == meshes.end() ||
-          existing->second.asset != entry.second.asset) {
-        clean = DestroyMesh(entry.second) && clean;
-      }
-    }
-    candidate_meshes.clear();
     for (auto &entry : candidate_materials) {
       const auto existing = materials.find(entry.first);
       if (existing == materials.end() ||
@@ -598,6 +957,22 @@ public:
       }
     }
     candidate_materials.clear();
+    for (auto &entry : candidate_textures) {
+      const auto existing = textures.find(entry.first);
+      if (existing == textures.end() ||
+          existing->second.asset != entry.second.asset) {
+        clean = DestroyTexture(entry.second) && clean;
+      }
+    }
+    candidate_textures.clear();
+    for (auto &entry : candidate_meshes) {
+      const auto existing = meshes.find(entry.first);
+      if (existing == meshes.end() ||
+          existing->second.asset != entry.second.asset) {
+        clean = DestroyMesh(entry.second) && clean;
+      }
+    }
+    candidate_meshes.clear();
     return clean;
   }
 
@@ -630,6 +1005,7 @@ public:
     submission_state.Reset();
     maximum_texture_dimension =
         kOgreNextN1ConservativeMaximumTextureDimension;
+    maximum_anisotropy = 1.0F;
     initialized = false;
     faulted = false;
     owner_thread = {};
@@ -649,6 +1025,7 @@ public:
   std::unique_ptr<RenderAssetRegistry> registry;
   std::map<RenderAssetId, NativeMesh> meshes;
   std::map<RenderAssetId, NativeMaterial> materials;
+  std::map<RenderAssetId, NativeTexture> textures;
   std::vector<NativeMesh> frame_meshes;
   /// N3 alone retains its last HDR target until the native image publication
   /// is discarded, or until frontend shutdown first revokes every token.
@@ -657,6 +1034,8 @@ public:
   OgreNextN1SubmissionState submission_state;
   OgreNextNativeFeatureTier native_feature_tier =
       OgreNextNativeFeatureTier::RASTER_N1;
+  OgreNextRasterFeatureTier raster_feature_tier =
+      OgreNextRasterFeatureTier::STATIC_PBR_N1;
   std::thread::id owner_thread;
   std::string configured_shader_media_root;
   std::string resolved_shader_media_root;
@@ -665,6 +1044,7 @@ public:
   bool owns_root_claim = false;
   std::uint32_t maximum_texture_dimension =
       kOgreNextN1ConservativeMaximumTextureDimension;
+  float maximum_anisotropy = 1.0F;
 };
 
 OgreNextN1Frontend::OgreNextN1Frontend(
@@ -695,6 +1075,18 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     return RenderOperationResult::Failure(
         RenderOperationCode::INVALID_ARGUMENT,
         "Ogre-Next N1 is already initialized");
+  }
+  if (!IsKnownOgreNextRasterFeatureTier(impl_->raster_feature_tier)) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "unknown Ogre-Next raster feature tier");
+  }
+  if (impl_->raster_feature_tier ==
+          OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
+      impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "RT4/V1 is an isolated raster milestone and cannot be combined with an Ogre-Next native interop tier");
   }
 #if !defined(ROR_OGRE_NEXT_N1_METAL)
   if (impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1) {
@@ -785,6 +1177,9 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
           "initial extent exceeds the initialized Ogre-Next device limit"));
     }
     impl_->maximum_texture_dimension = device_maximum_texture_dimension;
+    impl_->maximum_anisotropy =
+        std::max(1.0F, static_cast<float>(
+                           device_capabilities->getMaxSupportedAnisotropy()));
 #if defined(ROR_OGRE_NEXT_N1_METAL)
     if (impl_->native_feature_tier !=
         OgreNextNativeFeatureTier::RASTER_N1) {
@@ -889,6 +1284,17 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
       }
     }
   };
+  struct PendingTextureAllocation final {
+    Impl *owner = nullptr;
+    Impl::NativeTexture native;
+    bool owns = true;
+
+    ~PendingTextureAllocation() {
+      if (owns && !owner->DestroyTexture(native)) {
+        owner->faulted = true;
+      }
+    }
+  };
   try {
     std::unique_ptr<RenderAssetRegistry> candidate =
         impl_->registry
@@ -899,58 +1305,139 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
       return OgreNextN1OperationFromValidation(validation);
     }
     validation = ValidateOgreNextN1AssetCatalog(
-        *candidate, impl_->Capabilities().supports_dynamic_mesh_updates);
+        *candidate, impl_->Capabilities().supports_dynamic_mesh_updates,
+        impl_->raster_feature_tier);
     if (!validation) {
       return OgreNextN1OperationFromValidation(validation);
+    }
+    const RenderOperationResult sampler_device_validation =
+        impl_->ValidateSamplerDeviceLimits(*candidate);
+    if (!sampler_device_validation) {
+      return sampler_device_validation;
     }
 
     std::map<RenderAssetId, Impl::NativeMesh> candidate_meshes;
     std::map<RenderAssetId, Impl::NativeMaterial> candidate_materials;
+    std::map<RenderAssetId, Impl::NativeTexture> candidate_textures;
     try {
-      const ValidationResult visit = candidate->VisitRecords(
+      std::map<RenderAssetId, RenderAssetReference> referenced_textures;
+      ValidationResult visit = candidate->VisitRecords(
           [&](const RenderAssetRecord &record) {
-        if (!record.live()) {
+            const auto *material =
+                std::get_if<MaterialDescriptor>(record.payload.get());
+            if (!record.live() || material == nullptr ||
+                impl_->raster_feature_tier !=
+                    OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+              return ValidationResult::Success();
+            }
+            const TextureBinding *bindings[] = {
+                &material->base_color_texture,
+                &material->metallic_roughness_texture,
+                &material->emissive_texture,
+            };
+            for (const TextureBinding *binding : bindings) {
+              if (binding->texture.valid()) {
+                referenced_textures.emplace(binding->texture.id,
+                                            binding->texture);
+              }
+            }
+            return ValidationResult::Success();
+          });
+      if (!visit) {
+        throw std::logic_error("N1 zero-copy catalog visitation failed");
+      }
+
+      visit = candidate->VisitRecords([&](const RenderAssetRecord &record) {
+        const auto referenced = referenced_textures.find(record.asset.id);
+        if (!record.live() || record.asset.kind != RenderAssetKind::TEXTURE ||
+            referenced == referenced_textures.end() ||
+            referenced->second != record.asset) {
           return ValidationResult::Success();
         }
-        if (record.asset.kind == RenderAssetKind::MESH) {
-          const auto existing = impl_->meshes.find(record.asset.id);
-          if (existing != impl_->meshes.end() &&
-              existing->second.asset == record.asset) {
-            candidate_meshes.emplace(record.asset.id, existing->second);
-          } else {
-            PendingMeshAllocation created{
-                impl_.get(),
-                impl_->CreateMesh(
-                    record.asset,
-                    std::get<MeshResourceDescriptor>(*record.payload)),
-                true};
-            candidate_meshes.emplace(record.asset.id, created.native);
-            created.owns = false;
-          }
-        } else if (record.asset.kind == RenderAssetKind::MATERIAL) {
-          const auto existing = impl_->materials.find(record.asset.id);
-          if (existing != impl_->materials.end() &&
-              existing->second.asset == record.asset) {
-            candidate_materials.emplace(record.asset.id, existing->second);
-          } else {
-            PendingMaterialAllocation created{
-                impl_.get(),
-                impl_->CreateMaterial(
-                    record.asset,
-                    std::get<MaterialDescriptor>(*record.payload)),
-                true};
-            candidate_materials.emplace(record.asset.id, created.native);
-            created.owns = false;
-          }
+        const auto existing = impl_->textures.find(record.asset.id);
+        if (existing != impl_->textures.end() &&
+            existing->second.asset == record.asset) {
+          candidate_textures.emplace(record.asset.id, existing->second);
+        } else {
+          PendingTextureAllocation created{
+              impl_.get(),
+              impl_->CreateTexture(
+                  record.asset,
+                  std::get<TextureResourceDescriptor>(*record.payload)),
+              true};
+          candidate_textures.emplace(record.asset.id, created.native);
+          created.owns = false;
         }
         return ValidationResult::Success();
       });
       if (!visit) {
-        throw std::logic_error("N1 zero-copy catalog visitation failed");
+        throw std::logic_error("RT4/V1 texture catalog visitation failed");
+      }
+      if (!candidate_textures.empty()) {
+        impl_->renderer->getTextureGpuManager()->waitForStreamingCompletion();
+      }
+      for (const auto &entry : candidate_textures) {
+        const TextureResourceDescriptor *descriptor =
+            candidate->ResolveTexture(entry.second.asset);
+        if (descriptor == nullptr) {
+          throw std::logic_error(
+              "RT4/V1 texture disappeared before upload verification");
+        }
+        impl_->VerifyTexture(entry.second, *descriptor);
+      }
+
+      visit = candidate->VisitRecords([&](const RenderAssetRecord &record) {
+        if (!record.live() || record.asset.kind != RenderAssetKind::MESH) {
+          return ValidationResult::Success();
+        }
+        const auto existing = impl_->meshes.find(record.asset.id);
+        if (existing != impl_->meshes.end() &&
+            existing->second.asset == record.asset) {
+          candidate_meshes.emplace(record.asset.id, existing->second);
+        } else {
+          PendingMeshAllocation created{
+              impl_.get(),
+              impl_->CreateMesh(
+                  record.asset,
+                  std::get<MeshResourceDescriptor>(*record.payload)),
+              true};
+          candidate_meshes.emplace(record.asset.id, created.native);
+          created.owns = false;
+        }
+        return ValidationResult::Success();
+      });
+      if (!visit) {
+        throw std::logic_error("N1 mesh catalog visitation failed");
+      }
+
+      visit = candidate->VisitRecords([&](const RenderAssetRecord &record) {
+        if (!record.live() || record.asset.kind != RenderAssetKind::MATERIAL) {
+          return ValidationResult::Success();
+        }
+        const auto existing = impl_->materials.find(record.asset.id);
+        if (existing != impl_->materials.end() &&
+            existing->second.asset == record.asset) {
+          candidate_materials.emplace(record.asset.id, existing->second);
+        } else {
+          PendingMaterialAllocation created{
+              impl_.get(),
+              impl_->CreateMaterial(
+                  record.asset,
+                  std::get<MaterialDescriptor>(*record.payload), *candidate,
+                  candidate_textures),
+              true};
+          candidate_materials.emplace(record.asset.id, created.native);
+          created.owns = false;
+        }
+        return ValidationResult::Success();
+      });
+      if (!visit) {
+        throw std::logic_error("N1 material catalog visitation failed");
       }
     } catch (...) {
       if (!impl_->RollbackCandidateAllocations(candidate_meshes,
-                                               candidate_materials)) {
+                                               candidate_materials,
+                                               candidate_textures)) {
         impl_->faulted = true;
       }
       throw;
@@ -961,7 +1448,8 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
           impl_->native_interop->DiscardPublishedFrame();
       if (!discard) {
         if (!impl_->RollbackCandidateAllocations(candidate_meshes,
-                                                 candidate_materials)) {
+                                                 candidate_materials,
+                                                 candidate_textures)) {
           impl_->faulted = true;
           return NativeTeardownFailure("Ogre-Next N2 asset rollback");
         }
@@ -969,20 +1457,13 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
       }
       if (!impl_->DestroyFrameMeshes()) {
         static_cast<void>(impl_->RollbackCandidateAllocations(
-            candidate_meshes, candidate_materials));
+            candidate_meshes, candidate_materials, candidate_textures));
         impl_->faulted = true;
         return NativeTeardownFailure("Ogre-Next N2 frame geometry retirement");
       }
     }
 
     bool retired_cleanly = true;
-    for (auto &entry : impl_->meshes) {
-      const auto replacement = candidate_meshes.find(entry.first);
-      if (replacement == candidate_meshes.end() ||
-          replacement->second.asset != entry.second.asset) {
-        retired_cleanly = impl_->DestroyMesh(entry.second) && retired_cleanly;
-      }
-    }
     for (auto &entry : impl_->materials) {
       const auto replacement = candidate_materials.find(entry.first);
       if (replacement == candidate_materials.end() ||
@@ -993,12 +1474,40 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
     }
     if (!retired_cleanly) {
       static_cast<void>(impl_->RollbackCandidateAllocations(
-          candidate_meshes, candidate_materials));
+          candidate_meshes, candidate_materials, candidate_textures));
       impl_->faulted = true;
-      return NativeTeardownFailure("Ogre-Next N1 asset replacement");
+      return NativeTeardownFailure("Ogre-Next N1 material replacement");
+    }
+    for (auto &entry : impl_->textures) {
+      const auto replacement = candidate_textures.find(entry.first);
+      if (replacement == candidate_textures.end() ||
+          replacement->second.asset != entry.second.asset) {
+        retired_cleanly =
+            impl_->DestroyTexture(entry.second) && retired_cleanly;
+      }
+    }
+    if (!retired_cleanly) {
+      static_cast<void>(impl_->RollbackCandidateAllocations(
+          candidate_meshes, candidate_materials, candidate_textures));
+      impl_->faulted = true;
+      return NativeTeardownFailure("Ogre-Next RT4/V1 texture replacement");
+    }
+    for (auto &entry : impl_->meshes) {
+      const auto replacement = candidate_meshes.find(entry.first);
+      if (replacement == candidate_meshes.end() ||
+          replacement->second.asset != entry.second.asset) {
+        retired_cleanly = impl_->DestroyMesh(entry.second) && retired_cleanly;
+      }
+    }
+    if (!retired_cleanly) {
+      static_cast<void>(impl_->RollbackCandidateAllocations(
+          candidate_meshes, candidate_materials, candidate_textures));
+      impl_->faulted = true;
+      return NativeTeardownFailure("Ogre-Next N1 mesh replacement");
     }
     impl_->meshes.swap(candidate_meshes);
     impl_->materials.swap(candidate_materials);
+    impl_->textures.swap(candidate_textures);
     impl_->registry.swap(candidate);
     return RenderOperationResult::Success();
   } catch (const std::bad_alloc &) {
@@ -1056,7 +1565,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
         "Ogre-Next N1 requires an asset snapshot before rendering");
   }
   const ValidationResult validation = ValidateOgreNextN1Frame(
-      request, impl_->Capabilities(), *impl_->registry);
+      request, impl_->Capabilities(), *impl_->registry,
+      impl_->raster_feature_tier);
   if (!validation) {
     return OgreNextN1OperationFromValidation(validation);
   }

@@ -58,10 +58,26 @@ ValidationResult ValidateModernTexturePolicy(
       texture.format != TextureResourceFormat::RGBA8_UNORM) {
     return Unsupported(
         "assets.texture.format",
-        "RT4/V1 admits non-array RGBA8 textures only; this keeps sRGB decode and linear ORM/normal uploads identical on Metal, D3D11, and Vulkan",
+        "RT4/V1 admits non-array RGBA8 material textures only; this keeps sRGB decode and linear metallic/roughness uploads identical on Metal, D3D11, and Vulkan",
         index);
   }
   return ValidationResult::Success();
+}
+
+bool HasOpaqueRgba8Alpha(const TextureResourceDescriptor &texture) noexcept {
+  for (const TextureMipLevelDescriptor &mip : texture.mip_levels) {
+    for (std::uint32_t row = 0U; row < mip.height; ++row) {
+      const auto *source_row = mip.bytes.data() +
+                               static_cast<std::size_t>(row) *
+                                   mip.row_pitch_bytes;
+      for (std::uint32_t column = 0U; column < mip.width; ++column) {
+        if (source_row[static_cast<std::size_t>(column) * 4U + 3U] != 255U) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
 }
 
 ValidationResult ValidateModernSamplerPolicy(
@@ -225,17 +241,22 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
   }
   if (raster_feature_tier ==
       OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+    if (material.normal_texture.texture.valid()) {
+      return Unsupported(
+          "assets.material.normal_texture",
+          "RT4/V1 keeps normal textures fail-closed because pinned PBS reconstructs positive Z from decoded RG instead of preserving the canonical 2*RGB-1 normal",
+          index);
+    }
     const TextureBinding *supported_bindings[] = {
         &material.base_color_texture,
         &material.metallic_roughness_texture,
-        &material.normal_texture,
         &material.emissive_texture,
     };
     for (const TextureBinding *binding : supported_bindings) {
       if (binding->texture.valid() && !IsIdentityTextureTransform(*binding)) {
         return Unsupported(
             "assets.material.texture_transform",
-            "RT4/V1 supports authored UV0 with an identity texture transform only; pinned PBS has no exact general base/normal/emissive transform API",
+            "RT4/V1 supports authored UV0 with an identity texture transform only; pinned PBS has no exact general base/emissive transform API",
             index);
       }
     }
@@ -243,13 +264,6 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
       return Unsupported(
           "assets.material.occlusion_texture",
           "RT4/V1 keeps occlusion fail-closed because pinned HLMS PBS has no ambient-occlusion texture slot",
-          index);
-    }
-    if (material.normal_texture.texture.valid() &&
-        material.normal_scale != 1.0F) {
-      return Unsupported(
-          "assets.material.normal_scale",
-          "RT4/V1 requires unit normal scale because pinned PBS normal weighting is not the canonical glTF XY scale operation",
           index);
     }
   }
@@ -514,17 +528,56 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
       if (!validation) {
         return validation;
       }
+      if (raster_feature_tier ==
+          OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+        const TextureBinding *supported_bindings[] = {
+            &material->base_color_texture,
+            &material->metallic_roughness_texture,
+            &material->emissive_texture,
+        };
+        for (const TextureBinding *binding : supported_bindings) {
+          if (!binding->texture.valid()) {
+            continue;
+          }
+          const TextureResourceDescriptor *texture =
+              registry.ResolveTexture(binding->texture);
+          const SamplerResourceDescriptor *sampler =
+              registry.ResolveSampler(binding->sampler);
+          if (texture == nullptr || sampler == nullptr) {
+            return ValidationResult::Failure(
+                ValidationCode::MISSING_REFERENCE,
+                "assets.material.texture_binding",
+                "RT4/V1 material dependency could not be resolved",
+                record_index);
+          }
+          ValidationResult binding_validation =
+              ValidateModernTexturePolicy(*texture, record_index);
+          if (!binding_validation) {
+            return binding_validation;
+          }
+          if (binding == &material->base_color_texture &&
+              !HasOpaqueRgba8Alpha(*texture)) {
+            return Unsupported(
+                "assets.material.base_color_texture.alpha",
+                "RT4/V1 opaque materials require alpha 255 in every authored base-color texel and mip",
+                record_index);
+          }
+          binding_validation =
+              ValidateModernSamplerPolicy(*sampler, record_index);
+          if (!binding_validation) {
+            return binding_validation;
+          }
+        }
+      }
       return ValidationResult::Success();
     }
     if (raster_feature_tier ==
         OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
-      if (const auto *texture =
-              std::get_if<TextureResourceDescriptor>(record.payload.get())) {
-        return ValidateModernTexturePolicy(*texture, record_index);
-      }
-      if (const auto *sampler =
-              std::get_if<SamplerResourceDescriptor>(record.payload.get())) {
-        return ValidateModernSamplerPolicy(*sampler, record_index);
+      if (std::holds_alternative<TextureResourceDescriptor>(*record.payload) ||
+          std::holds_alternative<SamplerResourceDescriptor>(*record.payload)) {
+        // Asset registries may be shared across frontends. Constrain only the
+        // texture/sampler pairs actually referenced by an admitted material.
+        return ValidationResult::Success();
       }
     }
     return Unsupported("assets.kind",
