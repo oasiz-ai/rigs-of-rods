@@ -68,6 +68,10 @@ public:
 
   RenderOperationResult RegisterRayTracingBackend();
   RenderOperationResult UnregisterRayTracingBackend();
+  /// Fault-only teardown escape hatch. The native adapter must latch itself
+  /// unusable before calling this method, because submitted GPU work may still
+  /// retain the old native allocations after the logical leases are revoked.
+  RenderOperationResult AbandonRayTracingBackendAfterFault();
   [[nodiscard]] RenderOperationResult CanShutdown() const;
   RenderOperationResult Reset();
 

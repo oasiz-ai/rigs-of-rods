@@ -270,6 +270,38 @@ void TestPreSubmissionAbortAndShutdownOrder() {
           "frontend did not become shutdown-safe");
 }
 
+void TestSubmittedDeviceLossCanDrainForTeardown() {
+  OgreNextN2InteropState state;
+  Require(state.Initialize(Context(),
+                           Token(NativeObjectKind::TIMELINE_SYNC, 102U))
+              .ok(),
+          "state initialization failed");
+  Require(state.RegisterRayTracingBackend().ok(),
+          "RT backend registration failed");
+  Require(state.PublishFrame(91U, 101U, {Published(91U, 101U, 2U)}).ok(),
+          "frame publication failed");
+  NativeGeometryExport lease;
+  Require(state.AcquireGeometry(Request(91U, 101U, 2U), lease).ok(),
+          "geometry acquisition failed");
+  NativeFrameSynchronization synchronization;
+  Require(state.BeginExternalFrame(91U, 101U, synchronization).ok() &&
+              state.ArmExternalCompletion(synchronization).ok() &&
+              state.MarkExternalSubmitted(synchronization).ok(),
+          "submitted fault fixture could not be staged");
+
+  Require(state.AbandonRayTracingBackendAfterFault().ok(),
+          "device-loss teardown could not revoke submitted leases");
+  Require(!state.ray_tracing_backend_registered() &&
+              !state.has_outstanding_leases() && state.CanShutdown().ok(),
+          "fault teardown left the frontend permanently blocked");
+  Require(state.ValidateGeometryLease(lease).code ==
+              RenderOperationCode::RESOURCE_STALE &&
+              state.ValidateFrameLease(synchronization).code ==
+                  RenderOperationCode::RESOURCE_STALE,
+          "fault teardown left stale native leases valid");
+  Require(state.Reset().ok(), "fault-drained state could not reset");
+}
+
 } // namespace
 
 int main() {
@@ -278,6 +310,7 @@ int main() {
     TestTransactionalPublicationAndStaleGeneration();
     TestSubmittedLeaseIsRetryableButNotAbortable();
     TestPreSubmissionAbortAndShutdownOrder();
+    TestSubmittedDeviceLossCanDrainForTeardown();
     std::cout << "Ogre-Next N2 interop state tests passed\n";
     return EXIT_SUCCESS;
   } catch (const std::exception &error) {

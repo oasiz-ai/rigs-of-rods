@@ -468,6 +468,29 @@ RenderOperationResult OgreNextN2InteropState::UnregisterRayTracingBackend() {
   return RenderOperationResult::Success();
 }
 
+RenderOperationResult
+OgreNextN2InteropState::AbandonRayTracingBackendAfterFault() {
+  const RenderOperationResult initialized = RequireInitialized();
+  if (!initialized) {
+    return initialized;
+  }
+  if (!ray_tracing_backend_registered_) {
+    return Invalid("no native RT backend is registered for fault teardown");
+  }
+
+  // The platform adapter has already made future rendering impossible. Native
+  // command buffers retain every resource they reference until completion, so
+  // logical leases can now be revoked without permitting buffer reuse.
+  published_geometry_.clear();
+  geometry_leases_.clear();
+  active_frame_ = {};
+  published_frame_id_ = 0U;
+  published_snapshot_id_ = 0U;
+  active_frame_live_ = false;
+  ray_tracing_backend_registered_ = false;
+  return RenderOperationResult::Success();
+}
+
 bool OgreNextN2InteropState::has_outstanding_leases() const noexcept {
   return active_frame_live_ || !geometry_leases_.empty();
 }

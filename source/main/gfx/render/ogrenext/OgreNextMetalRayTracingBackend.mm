@@ -17,7 +17,6 @@
 #include "OgreNextN1NativeInterop.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -32,13 +31,13 @@ namespace {
 constexpr std::uint32_t kHitMagic = UINT32_C(0x52545254);
 constexpr std::uint64_t kDispatchTimeoutNanoseconds =
     UINT64_C(5) * UINT64_C(1000) * UINT64_C(1000) * UINT64_C(1000);
-constexpr std::uint64_t kMaximumProofReadbackBytes =
-    UINT64_C(64) * UINT64_C(1024) * UINT64_C(1024);
 
 struct ProbeResult {
   std::uint32_t magic = 0U;
   float distance = -1.0F;
 };
+static_assert(sizeof(ProbeResult) == 8U,
+              "the Metal and host probe result ABI must remain eight bytes");
 
 RenderOperationResult Failure(RenderOperationCode code,
                               std::string detail) {
@@ -138,19 +137,6 @@ dispatch_time_t Deadline(std::uint64_t timeout_nanoseconds) noexcept {
   return dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(bounded));
 }
 
-bool CheckedAttachmentBytes(const CameraViewRequest &view,
-                            std::uint64_t &row_pitch,
-                            std::uint64_t &byte_count) noexcept {
-  row_pitch = static_cast<std::uint64_t>(view.width) * 4U;
-  if (view.height != 0U &&
-      row_pitch > (std::numeric_limits<std::uint64_t>::max)() / view.height) {
-    return false;
-  }
-  byte_count = row_pitch * view.height;
-  return byte_count <= kMaximumProofReadbackBytes &&
-         byte_count <= (std::numeric_limits<std::size_t>::max)();
-}
-
 bool IsIdentity(const Matrix4x4 &matrix) noexcept {
   for (std::size_t index = 0U; index < matrix.elements.size(); ++index) {
     const float expected = index % 5U == 0U ? 1.0F : 0.0F;
@@ -201,60 +187,6 @@ NativeGeometryExportRequest MakeGeometryRequest(
   return geometry_request;
 }
 
-RenderOperationResult PrepareOutput(const NativeRayTracingFrameRequest &request,
-                                    RenderFrameOutput &output) {
-  if (request.frame.requested_outputs != FrameOutputMask::COLOR ||
-      request.frame.color_format != PixelFormat::RGBA8_SRGB ||
-      request.frame.views.size() != 1U || request.samples_per_pixel != 1U ||
-      request.maximum_bounces != 1U || request.denoise) {
-    return Failure(
-        RenderOperationCode::UNSUPPORTED,
-        "Metal N2 acceptance dispatch requires one offscreen RGBA8 color view, one sample, one bounce, and denoise disabled");
-  }
-  std::uint64_t row_pitch = 0U;
-  std::uint64_t byte_count = 0U;
-  if (!CheckedAttachmentBytes(request.frame.views.front(), row_pitch,
-                              byte_count)) {
-    return Failure(RenderOperationCode::UNSUPPORTED,
-                   "Metal N2 proof readback exceeds its 64 MiB safety bound");
-  }
-
-  try {
-    RenderFrameOutput candidate;
-    candidate.frame_id = request.frame.frame_id;
-    candidate.snapshot_id = request.frame.scene_snapshot->snapshot_id();
-    candidate.status = RenderFrameStatus::RENDERED;
-    candidate.presented = false;
-    FrameAttachment attachment;
-    attachment.view_id = request.frame.views.front().view_id;
-    attachment.output = FrameOutputMask::COLOR;
-    attachment.format = PixelFormat::RGBA8_SRGB;
-    attachment.width = request.frame.views.front().width;
-    attachment.height = request.frame.views.front().height;
-    attachment.row_pitch_bytes = row_pitch;
-    attachment.bytes.resize(static_cast<std::size_t>(byte_count));
-    candidate.attachments.push_back(std::move(attachment));
-    output = std::move(candidate);
-    return RenderOperationResult::Success();
-  } catch (const std::bad_alloc &) {
-    return Failure(RenderOperationCode::OUT_OF_MEMORY,
-                   "Metal N2 proof readback allocation failed");
-  }
-}
-
-void FillProofOutput(const ProbeResult &result,
-                     RenderFrameOutput &output) noexcept {
-  FrameAttachment &attachment = output.attachments.front();
-  const std::uint8_t distance = static_cast<std::uint8_t>(std::min(
-      255.0F, std::max(0.0F, result.distance * 64.0F)));
-  for (std::size_t index = 0U; index < attachment.bytes.size(); index += 4U) {
-    attachment.bytes[index + 0U] = 0x52U;
-    attachment.bytes[index + 1U] = 0x54U;
-    attachment.bytes[index + 2U] = distance;
-    attachment.bytes[index + 3U] = 0xFFU;
-  }
-}
-
 } // namespace
 
 class OgreNextMetalRayTracingBackend::Impl final {
@@ -263,13 +195,14 @@ public:
     NativeRayTracingCapabilityReport report;
     report.native_api = NativeGraphicsApi::METAL;
     report.backend_compiled = true;
-    report.api_supported = initialized_;
-    report.hardware_accelerated = initialized_;
+    report.api_supported = evidence_.api_supported;
+    report.hardware_accelerated = evidence_.api_supported &&
+                                  evidence_.apple_family_9_supported;
     report.dispatch_readback_probe_passed =
         initialized_ && evidence_.dispatch_readback_passed;
     report.geometry_interop_ready =
         initialized_ && evidence_.geometry_interop_passed;
-    report.maximum_instances = initialized_ ? 1U : 0U;
+    report.maximum_instances = report.hardware_accelerated ? 1U : 0U;
     return report;
   }
 
@@ -277,10 +210,18 @@ public:
     if (initialized_) {
       return Invalid("Metal N2 ray-tracing backend is already initialized");
     }
-    auto *bridge = dynamic_cast<OgreNextN1NativeInteropBridge *>(&interop);
-    if (bridge == nullptr) {
+    evidence_ = {};
+    auto *borrowed_bridge =
+        dynamic_cast<OgreNextN1NativeInteropBridge *>(&interop);
+    if (borrowed_bridge == nullptr) {
       return Failure(RenderOperationCode::UNSUPPORTED,
                      "Metal N2 requires the live Ogre-Next native interop bridge");
+    }
+    std::shared_ptr<OgreNextN1NativeInteropBridge> bridge =
+        borrowed_bridge->RetainForRayTracingBackend();
+    if (!bridge || bridge.get() != borrowed_bridge) {
+      return BackendFailure(
+          "Metal N2 could not retain the live Ogre-Next interop bridge");
     }
     NativeContextExport context;
     RenderOperationResult result = bridge->AcquireContext(context);
@@ -311,6 +252,12 @@ public:
       supports_apple_9 = [device supportsFamily:MTLGPUFamilyApple9];
     }
 #endif
+    evidence_.context = context;
+    evidence_.device_name = Utf8(device.name);
+    evidence_.api_supported = supports_ray_tracing;
+    evidence_.apple_family_9_supported = supports_apple_9;
+    evidence_.same_ogre_device = true;
+    evidence_.same_ogre_queue = true;
     if (!supports_ray_tracing) {
       return Failure(RenderOperationCode::UNSUPPORTED,
                      "the exact Ogre Metal device does not support ray tracing");
@@ -373,31 +320,24 @@ public:
     if (!result) {
       return result;
     }
-    bridge_ = bridge;
+    bridge_ = std::move(bridge);
     context_ = context;
     device_ = device;
     queue_ = queue;
     pipeline_ = pipeline;
     owner_thread_ = std::this_thread::get_id();
     initialized_ = true;
-    evidence_ = {};
-    evidence_.context = context;
-    evidence_.device_name = Utf8(device.name);
-    evidence_.api_supported = true;
-    evidence_.apple_family_9_supported = true;
-    evidence_.same_ogre_device = true;
-    evidence_.same_ogre_queue = true;
     return RenderOperationResult::Success();
   }
 
-  RenderOperationResult Render(const NativeRayTracingFrameRequest &request,
-                               RenderFrameOutput &output) {
+  RenderOperationResult RunGeometryInteropProbe(
+      const NativeRayTracingFrameRequest &request) {
     if (!initialized_) {
       return Failure(RenderOperationCode::NOT_INITIALIZED,
                      "Metal N2 ray-tracing backend is not initialized");
     }
     if (!OnOwnerThread()) {
-      return Invalid("Metal N2 render was called off its owner thread");
+      return Invalid("Metal N2 probe was called off its owner thread");
     }
     if (command_submitted_ || geometry_live_ || frame_live_) {
       return Failure(RenderOperationCode::OUTSTANDING_LEASES,
@@ -417,15 +357,11 @@ public:
           "Metal N2 acceptance requires one full three-vertex deformed mesh revision");
     }
 
-    RenderFrameOutput candidate;
-    RenderOperationResult result = PrepareOutput(request, candidate);
-    if (!result) {
-      return result;
-    }
     const NativeGeometryExportRequest geometry_request =
         MakeGeometryRequest(request, *instance);
     NativeGeometryExport geometry;
-    result = bridge_->AcquireGeometry(geometry_request, geometry);
+    RenderOperationResult result =
+        bridge_->AcquireGeometry(geometry_request, geometry);
     if (!result) {
       return result;
     }
@@ -610,7 +546,6 @@ public:
     tlas_ = tlas;
     scratch_ = scratch;
     instance_buffer_ = instance_buffer;
-    submission_start_ = std::chrono::steady_clock::now();
     [command_buffer commit];
 
     if (dispatch_semaphore_wait(
@@ -620,9 +555,24 @@ public:
           "Metal N2 dispatch exceeded five seconds; live leases were retained for retryable Shutdown");
     }
     completion_observed_ = true;
-    return CompleteDispatch(request, geometry_request, vertex_buffer,
-                            index_buffer, std::move(candidate), output,
+    return CompleteDispatch(geometry_request, vertex_buffer, index_buffer,
                             blas_sizes, tlas_sizes);
+  }
+
+  RenderOperationResult Render(const NativeRayTracingFrameRequest &request,
+                               RenderFrameOutput &output) const {
+    static_cast<void>(request);
+    static_cast<void>(output);
+    if (!initialized_) {
+      return Failure(RenderOperationCode::NOT_INITIALIZED,
+                     "Metal N2 ray-tracing backend is not initialized");
+    }
+    if (!OnOwnerThread()) {
+      return Invalid("Metal N2 render was called off its owner thread");
+    }
+    return Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "Metal N2 is a one-ray geometry interop probe and does not produce a view-dependent RenderFrameOutput");
   }
 
   RenderOperationResult ValidateInteropEvidence(
@@ -670,14 +620,13 @@ public:
       dispatch_result = ObserveSubmittedCommand();
       if (!dispatch_result &&
           dispatch_result.code == RenderOperationCode::DEVICE_LOST) {
-        return dispatch_result;
+        return AbandonAfterFault(std::move(dispatch_result));
       }
       if (!external_completed_) {
         const RenderOperationResult completed =
             bridge_->MarkExternalCompleted(synchronization_);
         if (!completed) {
-          return BackendFailure(
-              "Metal N2 could not recover its completed external lease");
+          return AbandonAfterFault(completed);
         }
         external_completed_ = true;
       }
@@ -686,7 +635,7 @@ public:
       const RenderOperationResult ended =
           bridge_->EndExternalFrame(synchronization_);
       if (!ended) {
-        return ended;
+        return AbandonAfterFault(ended);
       }
       frame_live_ = false;
     }
@@ -695,11 +644,11 @@ public:
     const RenderOperationResult unregistered =
         bridge_->UnregisterRayTracingBackend();
     if (!unregistered) {
-      return unregistered;
+      return AbandonAfterFault(unregistered);
     }
     ResetNativeState();
     initialized_ = false;
-    bridge_ = nullptr;
+    bridge_.reset();
     context_ = {};
     return dispatch_result;
   }
@@ -712,12 +661,37 @@ public:
     if (!initialized_ || !OnOwnerThread()) {
       return;
     }
-    static_cast<void>(Shutdown(0U));
+    const RenderOperationResult result = Shutdown(kDispatchTimeoutNanoseconds);
+    if (initialized_) {
+      static_cast<void>(AbandonAfterFault(result));
+    }
   }
 
 private:
   bool OnOwnerThread() const noexcept {
     return std::this_thread::get_id() == owner_thread_;
+  }
+
+  RenderOperationResult
+  AbandonAfterFault(RenderOperationResult cause) noexcept {
+    evidence_.dispatch_readback_passed = false;
+    evidence_.geometry_interop_passed = false;
+    evidence_.hit_magic = 0U;
+    evidence_.hit_distance = -1.0F;
+    evidence_.probe_readback_bytes.clear();
+    if (bridge_) {
+      bridge_->SetRayTracingProof(false, false);
+      const RenderOperationResult abandoned =
+          bridge_->AbandonRayTracingBackendAfterFault();
+      if (!abandoned && cause.ok()) {
+        cause = abandoned;
+      }
+    }
+    ResetNativeState();
+    initialized_ = false;
+    bridge_.reset();
+    context_ = {};
+    return cause;
   }
 
   void AbortBeforeSubmission() noexcept {
@@ -745,6 +719,11 @@ private:
           MetalError(command_buffer_,
                      "submitted Metal N2 command buffer did not complete"));
     }
+    if (result_buffer_ == nil || result_buffer_.contents == nullptr ||
+        result_buffer_.length < sizeof(ProbeResult)) {
+      return BackendFailure(
+          "submitted Metal N2 command has no complete probe readback");
+    }
     const ProbeResult observed =
         *static_cast<const ProbeResult *>(result_buffer_.contents);
     if (observed.magic != kHitMagic || !std::isfinite(observed.distance) ||
@@ -759,10 +738,8 @@ private:
   }
 
   RenderOperationResult CompleteDispatch(
-      const NativeRayTracingFrameRequest &request,
       const NativeGeometryExportRequest &geometry_request,
       id<MTLBuffer> vertex_buffer, id<MTLBuffer> index_buffer,
-      RenderFrameOutput candidate, RenderFrameOutput &output,
       const MTLAccelerationStructureSizes &blas_sizes,
       const MTLAccelerationStructureSizes &tlas_sizes) {
     RenderOperationResult result = ObserveSubmittedCommand();
@@ -777,18 +754,14 @@ private:
     external_completed_ = true;
     const ProbeResult observed =
         *static_cast<const ProbeResult *>(result_buffer_.contents);
-    FillProofOutput(observed, candidate);
-    candidate.cpu_submit_milliseconds =
-        std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - submission_start_)
-            .count();
-    candidate.gpu_frame_milliseconds = candidate.cpu_submit_milliseconds;
-    const ValidationResult output_validation =
-        ValidateNativeRayTracingFrameOutput(request, candidate);
-    if (!output_validation) {
-      return BackendFailure("Metal N2 generated invalid readback output: " +
-                            output_validation.field + ": " +
-                            output_validation.detail);
+    try {
+      const auto *begin = static_cast<const std::uint8_t *>(
+          result_buffer_.contents);
+      evidence_.probe_readback_bytes.assign(begin,
+                                            begin + sizeof(ProbeResult));
+    } catch (const std::bad_alloc &) {
+      return Failure(RenderOperationCode::OUT_OF_MEMORY,
+                     "Metal N2 could not retain its eight-byte probe evidence");
     }
 
     evidence_.geometry_request = geometry_request;
@@ -807,7 +780,6 @@ private:
     evidence_.dispatch_readback_passed = true;
     evidence_.geometry_interop_passed = true;
     bridge_->SetRayTracingProof(true, true);
-    output = std::move(candidate);
     return RenderOperationResult::Success();
   }
 
@@ -831,7 +803,7 @@ private:
     geometry_live_ = false;
   }
 
-  OgreNextN1NativeInteropBridge *bridge_ = nullptr;
+  std::shared_ptr<OgreNextN1NativeInteropBridge> bridge_;
   NativeContextExport context_;
   NativeGeometryExport geometry_;
   NativeFrameSynchronization synchronization_;
@@ -846,7 +818,6 @@ private:
   id<MTLAccelerationStructure> blas_ = nil;
   id<MTLAccelerationStructure> tlas_ = nil;
   dispatch_semaphore_t completion_ = nullptr;
-  std::chrono::steady_clock::time_point submission_start_;
   std::thread::id owner_thread_;
   bool initialized_ = false;
   bool geometry_live_ = false;
@@ -878,6 +849,11 @@ OgreNextMetalRayTracingBackend::Initialize(NativeRenderInterop &interop) {
 RenderOperationResult OgreNextMetalRayTracingBackend::Render(
     const NativeRayTracingFrameRequest &request, RenderFrameOutput &output) {
   return impl_->Render(request, output);
+}
+
+RenderOperationResult OgreNextMetalRayTracingBackend::RunGeometryInteropProbe(
+    const NativeRayTracingFrameRequest &request) {
+  return impl_->RunGeometryInteropProbe(request);
 }
 
 RenderOperationResult OgreNextMetalRayTracingBackend::ValidateInteropEvidence(

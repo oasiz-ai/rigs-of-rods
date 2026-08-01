@@ -44,9 +44,19 @@ struct OgreNextN2FrameGeometryBinding {
 
 /// Platform implementation of NativeRenderInterop plus the private
 /// transactional hooks needed by its owning Ogre frontend and RT backend.
-class OgreNextN1NativeInteropBridge : public NativeRenderInterop {
+class OgreNextN1NativeInteropBridge
+    : public NativeRenderInterop,
+      public std::enable_shared_from_this<OgreNextN1NativeInteropBridge> {
 public:
   ~OgreNextN1NativeInteropBridge() override = default;
+
+  /// Retains the bridge across either frontend/backend destruction order.
+  /// Native calls remain owner-thread serialized; RevokeFrontend() makes the
+  /// retained object teardown-only before Ogre destroys its device objects.
+  [[nodiscard]] std::shared_ptr<OgreNextN1NativeInteropBridge>
+  RetainForRayTracingBackend() noexcept {
+    return weak_from_this().lock();
+  }
 
   virtual void DecorateFrontendCapabilities(
       FrontendCapabilityReport &report) const = 0;
@@ -67,18 +77,19 @@ public:
 
   virtual RenderOperationResult RegisterRayTracingBackend() = 0;
   virtual RenderOperationResult UnregisterRayTracingBackend() = 0;
+  virtual RenderOperationResult AbandonRayTracingBackendAfterFault() = 0;
   virtual void SetRayTracingProof(bool dispatch_readback_passed,
                                   bool geometry_interop_passed) = 0;
 
   virtual RenderOperationResult
   PrepareFrontendShutdown(std::uint64_t timeout_nanoseconds) = 0;
-  virtual void ForceInvalidate() noexcept = 0;
+  virtual void RevokeFrontend() noexcept = 0;
 };
 
 /// Creates Metal interop only from an initialized live Ogre Metal renderer.
 /// The implementation exists solely in the Apple ObjC++ target.
 RenderOperationResult CreateOgreNextMetalInterop(
     std::uintptr_t ogre_render_system,
-    std::unique_ptr<OgreNextN1NativeInteropBridge> &output);
+    std::shared_ptr<OgreNextN1NativeInteropBridge> &output);
 
 } // namespace RoR::Render

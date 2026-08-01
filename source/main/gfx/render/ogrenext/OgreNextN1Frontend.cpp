@@ -586,7 +586,7 @@ public:
 
   [[nodiscard]] bool CleanupBackend() noexcept {
     if (native_interop) {
-      native_interop->ForceInvalidate();
+      native_interop->RevokeFrontend();
       native_interop.reset();
     }
     bool clean = DestroyFrameMeshes();
@@ -632,7 +632,7 @@ public:
   std::map<RenderAssetId, NativeMesh> meshes;
   std::map<RenderAssetId, NativeMaterial> materials;
   std::vector<NativeMesh> frame_meshes;
-  std::unique_ptr<OgreNextN1NativeInteropBridge> native_interop;
+  std::shared_ptr<OgreNextN1NativeInteropBridge> native_interop;
   OgreNextN1SubmissionState submission_state;
   OgreNextNativeFeatureTier native_feature_tier =
       OgreNextNativeFeatureTier::RASTER_N1;
@@ -1427,17 +1427,19 @@ OgreNextN1Frontend::Shutdown(std::uint64_t timeout_nanoseconds) {
   if (!impl_->OnOwnerThread()) {
     return WrongThread();
   }
+  RenderOperationResult interop_shutdown = RenderOperationResult::Success();
   if (impl_->native_interop) {
-    const RenderOperationResult interop_shutdown =
+    interop_shutdown =
         impl_->native_interop->PrepareFrontendShutdown(timeout_nanoseconds);
-    if (!interop_shutdown) {
+    if (!interop_shutdown &&
+        interop_shutdown.code != RenderOperationCode::DEVICE_LOST) {
       return interop_shutdown;
     }
   }
   if (!impl_->CleanupBackend()) {
     return NativeTeardownFailure("Ogre-Next N1 shutdown");
   }
-  return RenderOperationResult::Success();
+  return interop_shutdown;
 }
 
 } // namespace RoR::Render

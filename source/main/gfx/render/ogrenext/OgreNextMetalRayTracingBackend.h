@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace RoR::Render {
 
@@ -36,6 +37,8 @@ struct OgreNextMetalRayTracingEvidence {
   std::uint64_t tlas_scratch_bytes = 0U;
   std::uint32_t hit_magic = 0U;
   float hit_distance = -1.0F;
+  /// Exact bytes copied from the GPU-written one-ray result buffer.
+  std::vector<std::uint8_t> probe_readback_bytes;
   bool api_supported = false;
   bool apple_family_9_supported = false;
   bool same_ogre_device = false;
@@ -66,8 +69,13 @@ public:
   [[nodiscard]] NativeRayTracingCapabilityReport
   QueryCapabilities() const override;
   RenderOperationResult Initialize(NativeRenderInterop &interop) override;
+  /// INativeRayTracingBackend::Render remains unsupported until this backend
+  /// can produce a view-dependent image. N2 is deliberately a geometry-
+  /// interop capability probe rather than a renderer.
   RenderOperationResult Render(const NativeRayTracingFrameRequest &request,
                                RenderFrameOutput &output) override;
+  RenderOperationResult RunGeometryInteropProbe(
+      const NativeRayTracingFrameRequest &request);
   [[nodiscard]] RenderOperationResult ValidateInteropEvidence(
       const NativeGeometryExport &geometry,
       const NativeFrameSynchronization &synchronization) const override;

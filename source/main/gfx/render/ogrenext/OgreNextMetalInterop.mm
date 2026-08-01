@@ -138,11 +138,11 @@ public:
     }
   }
 
-  ~OgreNextMetalInterop() override { ForceInvalidate(); }
+  ~OgreNextMetalInterop() override { RevokeFrontend(); }
 
   NativeInteropCapabilityReport QueryCapabilities() const override {
     NativeInteropCapabilityReport report;
-    if (!valid_) {
+    if (!valid_ || faulted_ || frontend_revoked_) {
       return report;
     }
     report.native_api = NativeGraphicsApi::METAL;
@@ -158,7 +158,7 @@ public:
 
   void DecorateFrontendCapabilities(
       FrontendCapabilityReport &report) const override {
-    if (!valid_) {
+    if (!valid_ || faulted_ || frontend_revoked_) {
       return;
     }
     report.native_api = NativeGraphicsApi::METAL;
@@ -240,13 +240,16 @@ public:
 
   RenderOperationResult EndExternalFrame(
       const NativeFrameSynchronization &synchronization) override {
-    const RenderOperationResult ready = Ready();
+    const RenderOperationResult ready = LifecycleReady();
     if (!ready) {
       return ready;
     }
     RenderOperationResult result = state_.ValidateFrameLease(synchronization);
     if (!result) {
       return result;
+    }
+    if (frontend_revoked_) {
+      return state_.EndExternalFrame(synchronization);
     }
 
     try {
@@ -306,7 +309,7 @@ public:
   }
 
   void ReleaseGeometry(std::uint64_t export_id) noexcept override {
-    if (valid_ && OnOwnerThread()) {
+    if (state_.initialized() && OnOwnerThread()) {
       state_.ReleaseGeometry(export_id);
     }
   }
@@ -367,19 +370,19 @@ public:
 
   RenderOperationResult MarkExternalSubmitted(
       const NativeFrameSynchronization &synchronization) override {
-    const RenderOperationResult ready = Ready();
+    const RenderOperationResult ready = LifecycleReady();
     return ready ? state_.MarkExternalSubmitted(synchronization) : ready;
   }
 
   RenderOperationResult MarkExternalCompleted(
       const NativeFrameSynchronization &synchronization) override {
-    const RenderOperationResult ready = Ready();
+    const RenderOperationResult ready = LifecycleReady();
     return ready ? state_.MarkExternalCompleted(synchronization) : ready;
   }
 
   RenderOperationResult AbortExternalFrameBeforeSubmission(
       const NativeFrameSynchronization &synchronization) override {
-    const RenderOperationResult ready = Ready();
+    const RenderOperationResult ready = LifecycleReady();
     return ready ? state_.AbortExternalFrameBeforeSubmission(synchronization)
                  : ready;
   }
@@ -403,14 +406,25 @@ public:
   }
 
   RenderOperationResult UnregisterRayTracingBackend() override {
-    const RenderOperationResult ready = Ready();
+    const RenderOperationResult ready = LifecycleReady();
     return ready ? state_.UnregisterRayTracingBackend() : ready;
+  }
+
+  RenderOperationResult AbandonRayTracingBackendAfterFault() override {
+    const RenderOperationResult ready = LifecycleReady();
+    if (!ready) {
+      return ready;
+    }
+    faulted_ = true;
+    dispatch_readback_passed_ = false;
+    geometry_interop_passed_ = false;
+    return state_.AbandonRayTracingBackendAfterFault();
   }
 
   void SetRayTracingProof(bool dispatch_readback_passed,
                           bool geometry_interop_passed) override {
-    if (!valid_ || !OnOwnerThread() || !ray_tracing_api_supported_ ||
-        !apple_family_9_supported_ ||
+    if (!valid_ || faulted_ || frontend_revoked_ || !OnOwnerThread() ||
+        !ray_tracing_api_supported_ || !apple_family_9_supported_ ||
         (geometry_interop_passed && !dispatch_readback_passed)) {
       dispatch_readback_passed_ = false;
       geometry_interop_passed_ = false;
@@ -422,7 +436,7 @@ public:
 
   RenderOperationResult PrepareFrontendShutdown(
       std::uint64_t timeout_nanoseconds) override {
-    const RenderOperationResult ready = Ready();
+    const RenderOperationResult ready = LifecycleReady();
     if (!ready) {
       return ready;
     }
@@ -447,13 +461,14 @@ public:
       }
       last_return_completion_waited_ = true;
     }
-    if (last_return_command_buffer_ != nil &&
-        last_return_command_buffer_.status != MTLCommandBufferStatusCompleted) {
-      return RenderOperationResult::Failure(
-          RenderOperationCode::DEVICE_LOST,
-          MetalError(last_return_command_buffer_,
-                     "Ogre Metal return dependency did not complete"));
-    }
+    const bool return_dependency_failed =
+        last_return_command_buffer_ != nil &&
+        last_return_command_buffer_.status != MTLCommandBufferStatusCompleted;
+    const std::string return_dependency_error =
+        return_dependency_failed
+            ? MetalError(last_return_command_buffer_,
+                         "Ogre Metal return dependency did not complete")
+            : std::string();
     result = state_.Reset();
     if (!result) {
       return result;
@@ -465,11 +480,17 @@ public:
     queue_ = nil;
     device_ = nil;
     metal_device_ = nullptr;
+    frontend_revoked_ = true;
+    if (return_dependency_failed) {
+      return RenderOperationResult::Failure(RenderOperationCode::DEVICE_LOST,
+                                            return_dependency_error);
+    }
     return RenderOperationResult::Success();
   }
 
-  void ForceInvalidate() noexcept override {
+  void RevokeFrontend() noexcept override {
     valid_ = false;
+    frontend_revoked_ = true;
     dispatch_readback_passed_ = false;
     geometry_interop_passed_ = false;
     last_return_command_buffer_ = nil;
@@ -496,6 +517,18 @@ private:
     }
     if (faulted_) {
       return Faulted();
+    }
+    return RenderOperationResult::Success();
+  }
+
+  RenderOperationResult LifecycleReady() const {
+    if (!OnOwnerThread()) {
+      return WrongThread();
+    }
+    if (!state_.initialized()) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::NOT_INITIALIZED,
+          "Ogre-Next Metal interop lifecycle is not live");
     }
     return RenderOperationResult::Success();
   }
@@ -642,6 +675,7 @@ private:
   bool last_return_completion_waited_ = false;
   bool valid_ = true;
   bool faulted_ = false;
+  bool frontend_revoked_ = false;
   std::thread::id owner_thread_;
 };
 
@@ -649,7 +683,7 @@ private:
 
 RenderOperationResult CreateOgreNextMetalInterop(
     std::uintptr_t ogre_render_system,
-    std::unique_ptr<OgreNextN1NativeInteropBridge> &output) {
+    std::shared_ptr<OgreNextN1NativeInteropBridge> &output) {
   output.reset();
   if (ogre_render_system == 0U) {
     return RenderOperationResult::Failure(
@@ -705,7 +739,7 @@ RenderOperationResult CreateOgreNextMetalInterop(
             context_id, context_id);
 
   try {
-    output = std::make_unique<OgreNextMetalInterop>(
+    output = std::make_shared<OgreNextMetalInterop>(
         metal_device, timeline, context, ray_tracing_api_supported,
         apple_family_9_supported);
     return RenderOperationResult::Success();
