@@ -49,6 +49,7 @@ FIXTURE_FILES = (
 TERRAIN = "cityworld_bridge_runtime.terrn2"
 RUNTIME_PACK = "cityworld-next-bridge-runtime.zip"
 REPORT_FORMAT = "ror-cityworld-bridge-runtime-report-v1"
+PROCESS_DIAGNOSTIC_FORMAT = "ror-cityworld-runtime-process-diagnostic-v1"
 RGB_ARTIFACT_NAME = "cityworld_bridge_rgb.png"
 SUCCESS_PREFIX = "CityWorld bridge runtime gate passed"
 DEVIATION_METRIC_KEY = "lateral_error_m"
@@ -732,6 +733,145 @@ def read_required_config(path: Path, label: str) -> bytes:
     return path.read_bytes()
 
 
+def process_termination_record(
+    returncode: int,
+    target_platform: str,
+) -> dict[str, object]:
+    """Describe a native process exit without losing Windows NTSTATUS bits."""
+
+    renderer_contract(target_platform)
+    record: dict[str, object] = {"returncode": returncode}
+    if returncode == 0:
+        record["kind"] = "success"
+        return record
+
+    unsigned = returncode & 0xFFFFFFFF
+    if target_platform == "win32" and unsigned >= 0x80000000:
+        record.update(
+            {
+                "kind": "windows_ntstatus",
+                "ntstatus_hex": f"0x{unsigned:08X}",
+                "unsigned_returncode": unsigned,
+            }
+        )
+        if unsigned == 0xC0000005:
+            record["meaning"] = "access_violation"
+        return record
+
+    if returncode < 0:
+        record.update(
+            {
+                "kind": "signal",
+                "signal": -returncode,
+            }
+        )
+        return record
+
+    record["kind"] = "exit_code"
+    return record
+
+
+def persist_runtime_process_diagnostics(
+    artifact_dir: Path,
+    completed: subprocess.CompletedProcess[bytes],
+    engine_log_path: Path,
+    script_log_path: Path,
+    requested_configs: Mapping[str, bytes],
+    effective_config_paths: Mapping[str, Path],
+    target_platform: str,
+) -> dict[str, object]:
+    """Persist child-process evidence before semantic validation can fail."""
+
+    diagnostics = artifact_dir / "diagnostics"
+    diagnostics.mkdir(exist_ok=True)
+    files: dict[str, dict[str, object]] = {}
+    last_lines: dict[str, str] = {}
+
+    def capture(name: str, payload: bytes) -> None:
+        destination = diagnostics / name
+        destination.write_bytes(payload)
+        files[name] = {
+            "artifact": "diagnostics/" + name,
+            "sha256": sha256_bytes(payload),
+            "size": len(payload),
+            "status": "captured",
+        }
+        if name.endswith(".log") or name == "runtime.stdout":
+            lines = [
+                line
+                for line in decode_output(payload).splitlines()
+                if line.strip()
+            ]
+            if lines:
+                last_lines[name] = lines[-1][:512]
+
+    raw_stdout = completed.stdout
+    if raw_stdout is None:
+        raw_stdout = b""
+    if not isinstance(raw_stdout, bytes):
+        raise BridgeSceneFailure(
+            "native runtime stdout was not captured as bytes"
+        )
+    capture("runtime.stdout", raw_stdout)
+
+    for name, source in (
+        ("RoR.log", engine_log_path),
+        ("Angelscript.log", script_log_path),
+    ):
+        entry: dict[str, object] = {
+            "artifact": "diagnostics/" + name,
+        }
+        if not source.exists():
+            entry["status"] = "missing"
+        elif not source.is_file() or source.is_symlink():
+            entry["status"] = "unsafe"
+        else:
+            capture(name, source.read_bytes())
+            continue
+        files[name] = entry
+
+    for name in sorted(requested_configs):
+        requested_name = "requested-" + name
+        capture(requested_name, requested_configs[name])
+
+        effective_name = "effective-" + name
+        effective_source = effective_config_paths[name]
+        effective_entry: dict[str, object] = {
+            "artifact": "diagnostics/" + effective_name,
+        }
+        if not effective_source.exists():
+            effective_entry["status"] = "missing"
+        elif (
+            not effective_source.is_file()
+            or effective_source.is_symlink()
+        ):
+            effective_entry["status"] = "unsafe"
+        else:
+            capture(effective_name, effective_source.read_bytes())
+            continue
+        files[effective_name] = effective_entry
+
+    document: dict[str, object] = {
+        "files": files,
+        "format": PROCESS_DIAGNOSTIC_FORMAT,
+        "termination": process_termination_record(
+            completed.returncode,
+            target_platform,
+        ),
+        "last_lines": last_lines,
+        "target_platform": target_platform,
+    }
+    path = diagnostics / "runtime-process.json"
+    temporary = diagnostics / "runtime-process.json.tmp"
+    temporary.write_text(
+        json.dumps(document, indent=2, ensure_ascii=True, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+    return document
+
+
 def validate_pssm_log(
     engine_log: str,
     shadow_mode: str,
@@ -1279,6 +1419,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     stdout = decode_output(completed.stdout)
     engine_log_path = layout["logs"] / "RoR.log"
     script_log_path = layout["logs"] / "Angelscript.log"
+    persist_runtime_process_diagnostics(
+        artifact_dir,
+        completed,
+        engine_log_path,
+        script_log_path,
+        requested_configs,
+        {
+            "RoR.cfg": ror_config_path,
+            "ogre.cfg": ogre_config_path,
+        },
+        target_platform,
+    )
     engine_log = read_required(engine_log_path, "RoR engine log")
     script_log = read_required(script_log_path, "AngelScript log")
     metrics = validate_runtime_logs(
@@ -1313,7 +1465,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     diagnostics = artifact_dir / "diagnostics"
     rgb_directory = artifact_dir / "rgb"
-    diagnostics.mkdir()
+    diagnostics.mkdir(exist_ok=True)
     rgb_directory.mkdir()
     stdout_path = diagnostics / "runtime.stdout"
     copied_engine_log = diagnostics / "RoR.log"
@@ -1366,6 +1518,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "effective_ogre_config": "diagnostics/effective-ogre.cfg",
             "effective_ror_config": "diagnostics/effective-RoR.cfg",
             "engine_log": "diagnostics/RoR.log",
+            "process_diagnostic": "diagnostics/runtime-process.json",
             "requested_ogre_config": "diagnostics/requested-ogre.cfg",
             "requested_ror_config": "diagnostics/requested-RoR.cfg",
             "rgb": f"rgb/{RGB_ARTIFACT_NAME}",

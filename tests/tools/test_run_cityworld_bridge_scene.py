@@ -312,6 +312,108 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         ):
             SCENE.runtime_layout(root, "freebsd14")
 
+    def test_process_diagnostics_survive_windows_access_violation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact_dir = root / "artifact"
+            artifact_dir.mkdir()
+            logs = root / "logs"
+            configs = root / "config"
+            logs.mkdir()
+            configs.mkdir()
+            engine_log = logs / "RoR.log"
+            script_log = logs / "Angelscript.log"
+            engine_log.write_text(
+                "engine start\nlast engine phase\n",
+                encoding="utf-8",
+            )
+            script_log.write_text(
+                "frame=500\nframe=600\n",
+                encoding="utf-8",
+            )
+            effective_ror = configs / "RoR.cfg"
+            effective_ogre = configs / "ogre.cfg"
+            effective_ror.write_bytes(b"effective ror\n")
+            effective_ogre.write_bytes(b"effective ogre\n")
+
+            document = SCENE.persist_runtime_process_diagnostics(
+                artifact_dir,
+                SCENE.subprocess.CompletedProcess(
+                    ["RoR.exe"],
+                    0xC0000005,
+                    b"native stdout\xff\n",
+                ),
+                engine_log,
+                script_log,
+                {
+                    "RoR.cfg": b"requested ror\n",
+                    "ogre.cfg": b"requested ogre\n",
+                },
+                {
+                    "RoR.cfg": effective_ror,
+                    "ogre.cfg": effective_ogre,
+                },
+                "win32",
+            )
+
+            self.assertEqual(
+                document["format"],
+                SCENE.PROCESS_DIAGNOSTIC_FORMAT,
+            )
+            self.assertEqual(
+                document["termination"],
+                {
+                    "kind": "windows_ntstatus",
+                    "meaning": "access_violation",
+                    "ntstatus_hex": "0xC0000005",
+                    "returncode": 0xC0000005,
+                    "unsigned_returncode": 0xC0000005,
+                },
+            )
+            self.assertEqual(
+                document["last_lines"]["Angelscript.log"],
+                "frame=600",
+            )
+            self.assertEqual(
+                document["last_lines"]["runtime.stdout"],
+                "native stdout\ufffd",
+            )
+            self.assertEqual(
+                (
+                    artifact_dir
+                    / "diagnostics"
+                    / "runtime.stdout"
+                ).read_bytes(),
+                b"native stdout\xff\n",
+            )
+            for name in (
+                "RoR.log",
+                "Angelscript.log",
+                "requested-RoR.cfg",
+                "effective-RoR.cfg",
+                "requested-ogre.cfg",
+                "effective-ogre.cfg",
+                "runtime-process.json",
+            ):
+                with self.subTest(name=name):
+                    self.assertTrue(
+                        (artifact_dir / "diagnostics" / name).is_file()
+                    )
+            self.assertFalse(
+                (
+                    artifact_dir
+                    / "diagnostics"
+                    / "runtime-process.json.tmp"
+                ).exists()
+            )
+
+        self.assertEqual(
+            SCENE.process_termination_record(-11, "linux"),
+            {"kind": "signal", "returncode": -11, "signal": 11},
+        )
+
     def test_isolated_environment_outranks_snap_and_portable_config(
         self,
     ) -> None:
