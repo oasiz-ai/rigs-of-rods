@@ -814,6 +814,12 @@ public:
       Ogre::TextureGpuManager *manager = renderer->getTextureGpuManager();
       try {
         manager->destroyTexture(texture);
+        // destroyTexture() is asynchronous when an upload or residency
+        // transition is pending.  findTextureNoThrow() deliberately hides a
+        // destroy-requested entry before its name has actually left Ogre's
+        // registry, so it is not sufficient proof that a same-name retry is
+        // safe.  Drain the streaming/task queues before auditing absence.
+        manager->waitForStreamingCompletion();
         destroy_returned = true;
       } catch (...) {
         // A throwing destroy is ambiguous. The name lookup below still proves
