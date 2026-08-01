@@ -1139,6 +1139,16 @@ mode, and legacy fallback. Generate or import tangents rather than pretending
 legacy cab meshes already contain them. Convert one DAF material and one terrain
 layer before bulk conversion.
 
+The opt-in Ogre-Next `MODERN_PBR_RT4_V1` checkpoint now implements a measured
+subset of that path: authored tangent/UV0 geometry, sRGB base-color/emissive
+uploads, packed linear roughness/metallic extraction, padded multi-mip rows,
+portable samplers, one calibrated directional light, transactional replacement
+and exact native texture retirement, HDR/SDR evidence, and simultaneous Metal
+N3 interop. It has passed locally on the recorded Apple M5. This is progress
+toward V1, not completion: normal/occlusion maps, the full lighting inventory,
+shadows, exposure/tone mapping, reflections/GI, native Windows/Linux runtime
+evidence, content conversion, and image/performance gates remain open.
+
 Gate V1:
 
 - Automated BRDF fixtures match the selected reference implementation within 1%

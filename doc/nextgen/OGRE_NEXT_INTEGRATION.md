@@ -212,6 +212,39 @@ calibrated; N1 does not substitute an approximate local-light curve. Mirrored
 TRS is also rejected because Ogre's signed parent scale can produce a negative
 world-bound radius.
 
+## RT4/V1 opt-in raster tier
+
+`MODERN_PBR_RT4_V1` is the first portable raster extension of N1. It keeps the
+same immutable scene and lifecycle contract while adding authored tangent/UV0
+vertices, sRGB base-color and emissive uploads, packed linear
+metallic-roughness channel extraction, sampler translation, and one calibrated
+directional light. The exact input rows and every mip are copied into Ogre
+images; padded source rows are accepted without uploading their padding.
+Textures that are not referenced by a live material are not allocated.
+
+The tier also proves live texture replacement rather than only successful
+creation. Its 2x2/one-mip -> 4x2/two-mip -> 2x2/one-mip sequence records native
+create/destroy/live counts and requires every retired Ogre texture name to be
+absent before reuse. Six otherwise-identical HDR/SDR captures independently
+show that base color, roughness, metallic, emissive, and sampler/UV changes
+each affect rendered pixels. The report, PPM, packed isolation captures,
+executable, source manifest, build contract, and Ogre/media provenance are
+atomically hash-bound and semantically revalidated before publication.
+
+On Metal, RT4/V1 may run simultaneously with N3. That path uses an explicitly
+reviewed 48-byte position/normal/tangent/UV0 layout for both Ogre rasterization
+and exact native position-slice export; the original N2 proof remains frozen to
+its reviewed 24-byte position/normal layout. The combined Apple M5 checkpoint
+rendered the textured, directionally lit geometry into the exact retained HDR
+target and composited the native primary-hit contribution on the same device
+and queue.
+
+This is not the complete RT4 or V1 gate. Normal and occlusion textures remain
+fail-closed, only one directional-light calibration is admitted, and there are
+no shadow, reflection-probe/SSR, diffuse-GI, exposure/tone-map, temporal,
+presentation, CityWorld, or performance claims yet. N3 proves geometric hit
+contribution only; it does not claim ray-material parity.
+
 Selecting `METAL_RAY_TRACING_N2` is explicit and Apple-only. It admits full
 position/normal deformation snapshots solely to create immutable per-frame
 Ogre v2 buffers used by both raster and native export. Windows/D3D11 and
@@ -407,8 +440,9 @@ non-shipping until these later checkpoints pass:
 1. build/run this exact probe on Windows x64/D3D11 and Linux x86_64/Vulkan;
 2. reproduce the completed macOS native-window Compositor2 + HLMS PBS frame on
    Windows and Linux, including shutdown and fallback tests;
-3. expand the renderer-neutral adapter beyond N1 with calibrated lighting,
-   textures, richer geometry streams, UI ordering, and presentation;
+3. reproduce RT4/V1 texture, retirement, directional-light, HDR/SDR, and
+   artifact gates on native Windows and Linux, then add normal/occlusion maps,
+   the full renderer-neutral light inventory, UI ordering, and presentation;
 4. add depth, motion, and stable object-ID outputs only with their own tests;
 5. extend the proven M5 same-device geometry/image path to RT
    reflection/shadow semantics, materials, calibrated lighting, GPU capture,

@@ -450,7 +450,14 @@ provenance artifacts pass. Only then may the macOS build report
 
 ### RT4 — Production raster fallback
 
-- Complete the Ogre-Next PBR/HDR material and lighting floor.
+- The first opt-in RT4/V1 slice now proves authored tangents/UV0, sRGB base
+  color and emissive, split roughness/metallic channels from a packed linear
+  texture, padded multi-mip uploads, sampler mapping, deterministic texture
+  retirement, one calibrated directional light, HDR/SDR readback, and
+  simultaneous Metal N3 geometry/image interop on the recorded Apple M5.
+- Complete the remaining Ogre-Next PBR/HDR material and lighting floor,
+  including normal/occlusion maps, shadows, exposure, and presentation, and
+  reproduce the implemented slice on Windows and Linux.
 - Add probes/SSR or accepted non-RT reflection path and a measured diffuse-GI
   path.
 - Pass CityWorld/starter-content missing-material, luminance, reflection,
