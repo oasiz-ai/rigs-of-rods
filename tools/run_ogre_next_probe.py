@@ -27,6 +27,7 @@ FRAME_IMAGE_NAME = "ror-ogre-next-frame-probe.ppm"
 FRAME_VALIDATOR = REPOSITORY_ROOT / "tools" / "validate_ogre_next_frame_probe.py"
 BUILD_SENTINEL_NAME = ".ror-ogre-next-probe-build-v1"
 BUILD_SENTINEL_CONTENT = "ror-ogre-next-probe-build-v1\n"
+REQUIRED_CONFIG = "Release"
 
 
 class ProbeError(RuntimeError):
@@ -68,7 +69,7 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_patch_sha256 = (
         "84916d0d1abf61a15d19d2c89a7d9b1a445f1a37a5067a9f8b558395fe10ead1"
     )
-    if lock.get("schema_version") != 1:
+    if lock.get("schema_version") != 2:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
         raise ProbeError("OGRE-Next repository contract changed")
@@ -90,6 +91,51 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     )
     if lock["license"]["sha256"] != expected_ogre_license_sha256:
         raise ProbeError("OGRE-Next license hash moved without review")
+
+    expected_shader_media = {
+        "root": "Samples/Media/Hlms",
+        "license_expression": (
+            "MIT AND LicenseRef-Heitz-LTC-Paper-Notice"
+        ),
+        "third_party_notice": {
+            "license_ref": "LicenseRef-Heitz-LTC-Paper-Notice",
+            "source_path": (
+                "Samples/Media/Hlms/Pbs/Any/AreaLights_LTC_piece_ps.any"
+            ),
+            "source_sha256": (
+                "44146bd7eee4bd6a3bb9428352e89dc20d7690b32c609e62c5f9330678f3a124"
+            ),
+            "notice_path": (
+                "licenses/LicenseRef-Heitz-LTC-Paper-Notice.txt"
+            ),
+            "notice_sha256": (
+                "cc942875917be271c92fdc1fdec7a17da92b45dadf42a979b69583003f38bba6"
+            ),
+            "upstream_source": "https://github.com/selfshadow/ltc_code/",
+            "paper_reference": (
+                "Real-Time Polygonal-Light Shading with Linearly "
+                "Transformed Cosines, ACM TOG 35(4), 2016"
+            ),
+            "source_and_binary_notice_required": True,
+            "paper_reference_required": True,
+        },
+    }
+    if lock.get("shader_media") != expected_shader_media:
+        raise ProbeError(
+            "OGRE-Next shader-media license contract changed without review"
+        )
+    shader_notice = expected_shader_media["third_party_notice"]
+    _require_sha256(
+        shader_notice["source_sha256"], "shader-media source hash"
+    )
+    _require_sha256(
+        shader_notice["notice_sha256"], "shader-media notice hash"
+    )
+    notice_path = path.parent / shader_notice["notice_path"]
+    if not notice_path.is_file():
+        raise ProbeError(f"shader-media notice is missing: {notice_path}")
+    if sha256_file(notice_path) != shader_notice["notice_sha256"]:
+        raise ProbeError("shader-media notice SHA-256 mismatch")
 
     rapidjson = lock.get("dependencies", {}).get("rapidjson", {})
     if (
@@ -304,10 +350,12 @@ def validate_report(
     pbs = capabilities.get("hlms_pbs", {})
     compositor = capabilities.get("compositor2", {})
     rapidjson = lock["dependencies"]["rapidjson"]
+    shader_media = lock["shader_media"]
+    shader_notice = shader_media["third_party_notice"]
     abi = lock["abi_contract"]
 
     checks = {
-        "schema_version": report.get("schema_version") == 1,
+        "schema_version": report.get("schema_version") == 2,
         "status": report.get("status") == "pass",
         "repository": provenance.get("repository") == lock["repository"],
         "branch": provenance.get("branch") == lock["branch"],
@@ -331,6 +379,44 @@ def validate_report(
         == rapidjson["compiled_headers_spdx"],
         "rapidjson_license_sha256": provenance.get("rapidjson_license_sha256")
         == rapidjson["license_sha256"],
+        "shader_media_root": provenance.get("shader_media_root")
+        == shader_media["root"],
+        "shader_media_license": provenance.get(
+            "shader_media_license_expression"
+        )
+        == shader_media["license_expression"],
+        "shader_media_source_path": provenance.get(
+            "shader_media_third_party_source_path"
+        )
+        == shader_notice["source_path"],
+        "shader_media_source_hash": provenance.get(
+            "shader_media_third_party_source_sha256"
+        )
+        == shader_notice["source_sha256"],
+        "shader_media_notice_path": provenance.get(
+            "shader_media_notice_path"
+        )
+        == shader_notice["notice_path"],
+        "shader_media_notice_hash": provenance.get(
+            "shader_media_notice_sha256"
+        )
+        == shader_notice["notice_sha256"],
+        "shader_media_upstream": provenance.get(
+            "shader_media_upstream_source"
+        )
+        == shader_notice["upstream_source"],
+        "shader_media_paper": provenance.get(
+            "shader_media_paper_reference"
+        )
+        == shader_notice["paper_reference"],
+        "shader_media_notice_required": provenance.get(
+            "shader_media_source_and_binary_notice_required"
+        )
+        is True,
+        "shader_media_paper_required": provenance.get(
+            "shader_media_paper_reference_required"
+        )
+        is True,
         "ogre_version": build.get("ogre_version") == "3.0.0",
         "platform_policy": build.get("platform_policy") == policy["name"],
         "cxx_standard": build.get("cxx_standard") == 17,
@@ -339,7 +425,7 @@ def validate_report(
         "abi_cookie": isinstance(build.get("abi_cookie"), str)
         and re.fullmatch(r"[0-9a-f]{32}", build["abi_cookie"]) is not None,
         "debug_mode": build.get("debug_mode")
-        in {abi["debug_level_debug"], abi["debug_level_release"]},
+        == abi["debug_level_release"],
         "double_precision": build.get("double_precision")
         is abi["double_precision"],
         "memory_allocator": build.get("memory_allocator") == abi["allocator"],
@@ -410,6 +496,7 @@ def validate_build_contract(
     components = contract.get("components", {})
     compiler = contract.get("compiler", {})
     rapidjson = lock["dependencies"]["rapidjson"]
+    shader_media = lock["shader_media"]
     abi = lock["abi_contract"]
     expected_simd_family = abi["simd"][policy["name"]]
 
@@ -428,7 +515,7 @@ def validate_build_contract(
         }
     )
     checks = {
-        "schema_version": contract.get("schema_version") == 1,
+        "schema_version": contract.get("schema_version") == 2,
         "repository": provenance.get("repository") == lock["repository"],
         "branch": provenance.get("branch") == lock["branch"],
         "commit": provenance.get("commit") == lock["commit"],
@@ -451,6 +538,7 @@ def validate_build_contract(
         == rapidjson["compiled_headers_spdx"],
         "rapidjson_license_hash": rapidjson_contract.get("license_sha256")
         == rapidjson["license_sha256"],
+        "shader_media": contract.get("shader_media") == shader_media,
         "platform_policy": platform_contract.get("policy") == policy["name"],
         "renderer_target": platform_contract.get("renderer_target")
         == policy["renderer_target"],
@@ -474,7 +562,7 @@ def validate_build_contract(
         and bool(compiler["id"]),
         "compiler_version": isinstance(compiler.get("version"), str)
         and bool(compiler["version"]),
-        "build_type": isinstance(compiler.get("build_type"), str),
+        "build_type": compiler.get("build_type") == REQUIRED_CONFIG,
     }
     failed = [name for name, passed in checks.items() if not passed]
     if failed:
@@ -564,7 +652,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional already-downloaded pinned RapidJSON archive",
     )
     parser.add_argument("--generator", help="optional CMake generator")
-    parser.add_argument("--config", default="Release")
+    parser.add_argument(
+        "--config",
+        choices=(REQUIRED_CONFIG,),
+        default=REQUIRED_CONFIG,
+        help="reviewed build configuration (Release only)",
+    )
     parser.add_argument(
         "--jobs", type=int, default=max(1, min(os.cpu_count() or 1, 8))
     )
@@ -587,10 +680,11 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "status": "pass",
                         "commit": lock["commit"],
                         "platform_policy": policy["name"],
+                        "configuration": REQUIRED_CONFIG,
                         "network_used": False,
                     },
                     indent=2,

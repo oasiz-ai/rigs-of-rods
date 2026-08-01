@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -52,7 +53,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
 
     def make_report(self) -> dict:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "status": "pass",
             "provenance": {
                 "repository": self.lock["repository"],
@@ -76,6 +77,30 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 "rapidjson_license_sha256": self.lock["dependencies"][
                     "rapidjson"
                 ]["license_sha256"],
+                "shader_media_root": self.lock["shader_media"]["root"],
+                "shader_media_license_expression": self.lock[
+                    "shader_media"
+                ]["license_expression"],
+                "shader_media_third_party_source_path": self.lock[
+                    "shader_media"
+                ]["third_party_notice"]["source_path"],
+                "shader_media_third_party_source_sha256": self.lock[
+                    "shader_media"
+                ]["third_party_notice"]["source_sha256"],
+                "shader_media_notice_path": self.lock["shader_media"][
+                    "third_party_notice"
+                ]["notice_path"],
+                "shader_media_notice_sha256": self.lock["shader_media"][
+                    "third_party_notice"
+                ]["notice_sha256"],
+                "shader_media_upstream_source": self.lock["shader_media"][
+                    "third_party_notice"
+                ]["upstream_source"],
+                "shader_media_paper_reference": self.lock["shader_media"][
+                    "third_party_notice"
+                ]["paper_reference"],
+                "shader_media_source_and_binary_notice_required": True,
+                "shader_media_paper_reference_required": True,
             },
             "build": {
                 "ogre_version": "3.0.0",
@@ -126,6 +151,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
         }
 
     def test_exact_upstream_and_dependency_pins(self) -> None:
+        self.assertEqual(self.lock["schema_version"], 2)
         self.assertEqual(
             self.lock["commit"],
             "37149a802de747f6806996fa3067b0748ecc1084",
@@ -149,6 +175,19 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertEqual(
             self.lock["dependencies"]["rapidjson"]["compiled_headers_spdx"],
             "MIT",
+        )
+        shader_media = self.lock["shader_media"]
+        self.assertEqual(
+            shader_media["license_expression"],
+            "MIT AND LicenseRef-Heitz-LTC-Paper-Notice",
+        )
+        notice = shader_media["third_party_notice"]
+        self.assertTrue(notice["source_and_binary_notice_required"])
+        self.assertTrue(notice["paper_reference_required"])
+        notice_path = PROBE_DIR / notice["notice_path"]
+        self.assertEqual(
+            hashlib.sha256(notice_path.read_bytes()).hexdigest(),
+            notice["notice_sha256"],
         )
 
     def test_every_adaptation_patch_matches_lock(self) -> None:
@@ -256,6 +295,22 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 "commit",
                 lambda value: value["provenance"].update(commit="0" * 40),
             ),
+            (
+                "debug_configuration",
+                lambda value: value["build"].update(debug_mode=3),
+            ),
+            (
+                "shader_media_license",
+                lambda value: value["provenance"].update(
+                    shader_media_license_expression="MIT"
+                ),
+            ),
+            (
+                "shader_media_notice",
+                lambda value: value["provenance"].update(
+                    shader_media_source_and_binary_notice_required=False
+                ),
+            ),
         )
         for name, mutate in mutations:
             with self.subTest(name=name):
@@ -282,6 +337,16 @@ class OgreNextProbeContractTests(unittest.TestCase):
                     source_archive_license_spdx="MIT"
                 ),
             ),
+            (
+                "configuration",
+                lambda value: value["compiler"].update(build_type="Debug"),
+            ),
+            (
+                "shader_media",
+                lambda value: value["shader_media"].update(
+                    license_expression="MIT"
+                ),
+            ),
         ):
             with self.subTest(name=name):
                 invalid = copy.deepcopy(contract)
@@ -302,6 +367,16 @@ class OgreNextProbeContractTests(unittest.TestCase):
         )
         self.assertNotIn(PROBE.BUILD_SENTINEL_NAME, cmake)
         self.assertIn("OgreNextHlmsPbs", cmake)
+        self.assertIn('CMAKE_BUILD_TYPE STREQUAL "Release"', cmake)
+        self.assertIn("_ror_extracted_shader_media_source_sha256", cmake)
+        self.assertNotEqual(
+            self._cmake_value(cmake, "ROR_OGRE_NEXT_FRAME_IMAGE"),
+            self._cmake_value(cmake, "ROR_OGRE_NEXT_CTEST_FRAME_IMAGE"),
+        )
+        self.assertNotEqual(
+            self._cmake_value(cmake, "ROR_OGRE_NEXT_FRAME_REPORT"),
+            self._cmake_value(cmake, "ROR_OGRE_NEXT_CTEST_FRAME_REPORT"),
+        )
         build_contract = (
             PROBE_DIR / "ogre_next_build_contract.json.in"
         ).read_text(encoding="utf-8")
@@ -310,6 +385,23 @@ class OgreNextProbeContractTests(unittest.TestCase):
             "ogre_next_probe",
             (REPOSITORY_ROOT / "CMakeLists.txt").read_text(encoding="utf-8"),
         )
+
+    @staticmethod
+    def _cmake_value(cmake: str, name: str) -> str:
+        match = re.search(
+            rf"set\({name}\s+\n?\s*\"([^\"]+)\"\)", cmake
+        )
+        if match is None:
+            raise AssertionError(f"missing CMake variable {name}")
+        return match.group(1)
+
+    def test_only_release_configuration_is_accepted(self) -> None:
+        parser = PROBE.build_parser()
+        self.assertEqual(parser.parse_args([]).config, PROBE.REQUIRED_CONFIG)
+        for config in ("", "Debug", "RelWithDebInfo", "Arbitrary"):
+            with self.subTest(config=config):
+                with self.assertRaises(SystemExit):
+                    parser.parse_args(["--config", config])
 
     def test_configure_without_opt_in_fails_before_fetch(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-next-opt-in-") as temp:
@@ -331,7 +423,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
         evidence = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))
         provenance = evidence["provenance"]
         rapidjson = self.lock["dependencies"]["rapidjson"]
-        self.assertEqual(evidence["schema"], "ror.ogre_next_probe_evidence.v1")
+        self.assertEqual(evidence["schema"], "ror.ogre_next_probe_evidence.v2")
         self.assertEqual(evidence["result"], "pass")
         self.assertEqual(
             provenance["repository"],
@@ -358,6 +450,24 @@ class OgreNextProbeContractTests(unittest.TestCase):
             provenance["rapidjson_license_sha256"],
             rapidjson["license_sha256"],
         )
+        shader_media = self.lock["shader_media"]
+        shader_notice = shader_media["third_party_notice"]
+        self.assertEqual(
+            provenance["shader_media_license_expression"],
+            shader_media["license_expression"],
+        )
+        self.assertEqual(
+            provenance["shader_media_third_party_source_path"],
+            shader_notice["source_path"],
+        )
+        self.assertEqual(
+            provenance["shader_media_third_party_source_sha256"],
+            shader_notice["source_sha256"],
+        )
+        self.assertTrue(
+            provenance["shader_media_source_and_binary_notice_required"]
+        )
+        self.assertTrue(provenance["shader_media_paper_reference_required"])
         for path_key, hash_key in (
             ("source_path", "source_sha256"),
             ("frame_source_path", "frame_source_sha256"),
@@ -374,6 +484,10 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 "build_contract_template_sha256",
             ),
             ("lock_path", "lock_sha256"),
+            (
+                "shader_media_notice_repository_path",
+                "shader_media_notice_sha256",
+            ),
             ("adaptation_patch_path", "adaptation_patch_sha256"),
             ("build_contract_path", "build_contract_sha256"),
             ("runtime_report_path", "runtime_report_sha256"),
@@ -407,6 +521,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
         )
         PROBE.validate_build_contract(build_contract, self.lock, self.policy)
         PROBE.validate_report(runtime_report, self.lock, self.policy)
+        self.assertEqual(build_contract["shader_media"], shader_media)
         self.assertEqual(
             evidence["abi"]["cookie"], runtime_report["build"]["abi_cookie"]
         )
@@ -419,6 +534,12 @@ class OgreNextProbeContractTests(unittest.TestCase):
             frame_runtime_report["platform_policy"],
             runtime_report["build"]["platform_policy"],
         )
+        for field in FRAME.SHADER_MEDIA_PROVENANCE:
+            with self.subTest(shader_media_field=field):
+                self.assertEqual(
+                    frame_runtime_report["provenance"][field],
+                    runtime_report["provenance"][field],
+                )
         self.assertEqual(
             evidence["frame"], frame_runtime_report["frame"]
         )

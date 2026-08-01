@@ -15,12 +15,17 @@ endif ()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if (NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+    message(FATAL_ERROR
+        "The reviewed OGRE-Next probe contract requires CMAKE_BUILD_TYPE=Release")
+endif ()
 
 include(FetchContent)
 find_package(Git REQUIRED)
 
 set(_ror_lock_path "${CMAKE_CURRENT_SOURCE_DIR}/ogre-next.lock.json")
 file(READ "${_ror_lock_path}" _ror_lock_json)
+string(JSON ROR_OGRE_NEXT_LOCK_SCHEMA GET "${_ror_lock_json}" schema_version)
 string(JSON ROR_OGRE_NEXT_REPOSITORY GET "${_ror_lock_json}" repository)
 string(JSON ROR_OGRE_NEXT_BRANCH GET "${_ror_lock_json}" branch)
 string(JSON ROR_OGRE_NEXT_COMMIT GET "${_ror_lock_json}" commit)
@@ -29,6 +34,27 @@ string(JSON ROR_OGRE_NEXT_ARCHIVE_SHA256 GET "${_ror_lock_json}" archive_sha256)
 string(JSON ROR_OGRE_NEXT_LICENSE_SPDX GET "${_ror_lock_json}" license spdx)
 string(JSON ROR_OGRE_NEXT_LICENSE_PATH GET "${_ror_lock_json}" license path)
 string(JSON ROR_OGRE_NEXT_LICENSE_SHA256 GET "${_ror_lock_json}" license sha256)
+string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_ROOT GET "${_ror_lock_json}" shader_media root)
+string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_LICENSE_EXPRESSION GET
+    "${_ror_lock_json}" shader_media license_expression)
+string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_LICENSE_REF GET
+    "${_ror_lock_json}" shader_media third_party_notice license_ref)
+string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_SOURCE_PATH GET
+    "${_ror_lock_json}" shader_media third_party_notice source_path)
+string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_SOURCE_SHA256 GET
+    "${_ror_lock_json}" shader_media third_party_notice source_sha256)
+string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH GET
+    "${_ror_lock_json}" shader_media third_party_notice notice_path)
+string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_SHA256 GET
+    "${_ror_lock_json}" shader_media third_party_notice notice_sha256)
+string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_UPSTREAM_SOURCE GET
+    "${_ror_lock_json}" shader_media third_party_notice upstream_source)
+string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_PAPER_REFERENCE GET
+    "${_ror_lock_json}" shader_media third_party_notice paper_reference)
+string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_REQUIRED GET
+    "${_ror_lock_json}" shader_media third_party_notice source_and_binary_notice_required)
+string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_PAPER_REQUIRED GET
+    "${_ror_lock_json}" shader_media third_party_notice paper_reference_required)
 string(JSON ROR_OGRE_NEXT_PATCH_PATH GET "${_ror_lock_json}" patches 0 path)
 string(JSON ROR_OGRE_NEXT_PATCH_SHA256 GET "${_ror_lock_json}" patches 0 sha256)
 string(JSON ROR_RAPIDJSON_REPOSITORY GET "${_ror_lock_json}" dependencies rapidjson repository)
@@ -40,12 +66,42 @@ string(JSON ROR_RAPIDJSON_COMPILED_HEADERS_SPDX GET "${_ror_lock_json}" dependen
 string(JSON ROR_RAPIDJSON_LICENSE_PATH GET "${_ror_lock_json}" dependencies rapidjson license_path)
 string(JSON ROR_RAPIDJSON_LICENSE_SHA256 GET "${_ror_lock_json}" dependencies rapidjson license_sha256)
 
-if (NOT ROR_OGRE_NEXT_REPOSITORY STREQUAL
+if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 2 OR
+        NOT ROR_OGRE_NEXT_REPOSITORY STREQUAL
         "https://github.com/OGRECave/ogre-next" OR
         NOT ROR_OGRE_NEXT_BRANCH STREQUAL "v3-0" OR
         NOT ROR_OGRE_NEXT_COMMIT STREQUAL
         "37149a802de747f6806996fa3067b0748ecc1084")
     message(FATAL_ERROR "The OGRE-Next lock moved without an integration review")
+endif ()
+if (NOT ROR_OGRE_NEXT_SHADER_MEDIA_ROOT STREQUAL "Samples/Media/Hlms" OR
+        NOT ROR_OGRE_NEXT_SHADER_MEDIA_LICENSE_EXPRESSION STREQUAL
+        "MIT AND LicenseRef-Heitz-LTC-Paper-Notice" OR
+        NOT ROR_OGRE_NEXT_SHADER_MEDIA_LICENSE_REF STREQUAL
+        "LicenseRef-Heitz-LTC-Paper-Notice" OR
+        NOT ROR_OGRE_NEXT_SHADER_MEDIA_SOURCE_PATH STREQUAL
+        "Samples/Media/Hlms/Pbs/Any/AreaLights_LTC_piece_ps.any" OR
+        NOT ROR_OGRE_NEXT_SHADER_MEDIA_SOURCE_SHA256 STREQUAL
+        "44146bd7eee4bd6a3bb9428352e89dc20d7690b32c609e62c5f9330678f3a124" OR
+        NOT ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH STREQUAL
+        "licenses/LicenseRef-Heitz-LTC-Paper-Notice.txt" OR
+        NOT ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_SHA256 STREQUAL
+        "cc942875917be271c92fdc1fdec7a17da92b45dadf42a979b69583003f38bba6" OR
+        NOT ROR_OGRE_NEXT_SHADER_MEDIA_UPSTREAM_SOURCE STREQUAL
+        "https://github.com/selfshadow/ltc_code/" OR
+        NOT ROR_OGRE_NEXT_SHADER_MEDIA_PAPER_REFERENCE STREQUAL
+        "Real-Time Polygonal-Light Shading with Linearly Transformed Cosines, ACM TOG 35(4), 2016" OR
+        NOT ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_REQUIRED OR
+        NOT ROR_OGRE_NEXT_SHADER_MEDIA_PAPER_REQUIRED)
+    message(FATAL_ERROR
+        "The reviewed OGRE-Next shader-media license contract changed")
+endif ()
+file(SHA256
+    "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+    _ror_shader_media_notice_sha256)
+if (NOT _ror_shader_media_notice_sha256 STREQUAL
+        ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_SHA256)
+    message(FATAL_ERROR "The checked-in shader-media notice changed")
 endif ()
 if (NOT ROR_OGRE_NEXT_ARCHIVE_URL STREQUAL
         "https://github.com/OGRECave/ogre-next/archive/37149a802de747f6806996fa3067b0748ecc1084.tar.gz" OR
@@ -329,6 +385,14 @@ if (NOT _ror_extracted_license_sha256 STREQUAL ROR_OGRE_NEXT_LICENSE_SHA256)
     message(FATAL_ERROR
         "The extracted OGRE-Next license does not match the pinned contract")
 endif ()
+file(SHA256
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_SOURCE_PATH}"
+    _ror_extracted_shader_media_source_sha256)
+if (NOT _ror_extracted_shader_media_source_sha256 STREQUAL
+        ROR_OGRE_NEXT_SHADER_MEDIA_SOURCE_SHA256)
+    message(FATAL_ERROR
+        "The extracted OGRE-Next shader-media notice source changed")
+endif ()
 
 foreach (_ror_required_target IN ITEMS
         OgreNextMain OgreNextHlmsPbs ${ROR_OGRE_NEXT_RENDERER_TARGET})
@@ -426,6 +490,10 @@ set(ROR_OGRE_NEXT_FRAME_IMAGE
     "${CMAKE_BINARY_DIR}/ror-ogre-next-frame-probe.ppm")
 set(ROR_OGRE_NEXT_FRAME_REPORT
     "${CMAKE_BINARY_DIR}/ror-ogre-next-frame-probe-report.json")
+set(ROR_OGRE_NEXT_CTEST_FRAME_IMAGE
+    "${CMAKE_BINARY_DIR}/ror-ogre-next-frame-probe-ctest.ppm")
+set(ROR_OGRE_NEXT_CTEST_FRAME_REPORT
+    "${CMAKE_BINARY_DIR}/ror-ogre-next-frame-probe-ctest-report.json")
 add_custom_target(
     ror_ogre_next_frame_probe_report
     COMMAND
@@ -448,5 +516,5 @@ add_test(NAME ror_ogre_next_probe_runtime
     COMMAND $<TARGET_FILE:ror_ogre_next_probe>)
 add_test(NAME ror_ogre_next_frame_probe_runtime
     COMMAND $<TARGET_FILE:ror_ogre_next_frame_probe>
-            --output "${ROR_OGRE_NEXT_FRAME_IMAGE}"
-            --report "${ROR_OGRE_NEXT_FRAME_REPORT}")
+            --output "${ROR_OGRE_NEXT_CTEST_FRAME_IMAGE}"
+            --report "${ROR_OGRE_NEXT_CTEST_FRAME_REPORT}")

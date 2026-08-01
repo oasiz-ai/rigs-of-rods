@@ -66,11 +66,12 @@ class OgreNextFrameProbeTests(unittest.TestCase):
     def make_report(pixels: bytes) -> dict:
         observed = FRAME.inspect_pixels(pixels)
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "status": "pass",
             "provenance": {
                 "ogre_next_commit": "1" * 40,
                 "ogre_next_archive_sha256": "2" * 64,
+                **FRAME.SHADER_MEDIA_PROVENANCE,
             },
             "build": {
                 "ogre_version": "3.0.0",
@@ -107,6 +108,10 @@ class OgreNextFrameProbeTests(unittest.TestCase):
                 "commit": frame_report["provenance"]["ogre_next_commit"],
                 "archive_sha256": frame_report["provenance"]
                 ["ogre_next_archive_sha256"],
+                **{
+                    field: frame_report["provenance"][field]
+                    for field in FRAME.SHADER_MEDIA_PROVENANCE
+                },
             },
             "build": {
                 "ogre_version": frame_report["build"]["ogre_version"],
@@ -154,6 +159,12 @@ class OgreNextFrameProbeTests(unittest.TestCase):
             ),
             lambda value: value["provenance"].update(
                 ogre_next_archive_sha256="4" * 64
+            ),
+            lambda value: value["provenance"].update(
+                shader_media_license_expression="MIT"
+            ),
+            lambda value: value["provenance"].update(
+                shader_media_notice_sha256="4" * 64
             ),
         )
         for mutate in mutations:
@@ -242,6 +253,8 @@ class OgreNextFrameProbeTests(unittest.TestCase):
             "getDeviceName",
             "formatAbiCookie",
             "renderer_shutdown_completed",
+            "shader_media_license_expression",
+            "shader_media_notice_sha256",
             '\\"ui_included\\": false',
             '\\"native_ray_tracing\\": \\"not_evaluated\\"',
         ):
@@ -257,6 +270,8 @@ class OgreNextFrameProbeTests(unittest.TestCase):
         self.assertIn("${ROR_OGRE_NEXT_RENDERER_TARGET}", cmake)
         self.assertIn("ror_ogre_next_frame_probe_report", cmake)
         self.assertIn("ror_ogre_next_frame_probe_runtime", cmake)
+        self.assertIn("ROR_OGRE_NEXT_CTEST_FRAME_IMAGE", cmake)
+        self.assertIn("ROR_OGRE_NEXT_CTEST_FRAME_REPORT", cmake)
         self.assertNotIn(
             "ogre_next_frame_probe",
             (REPOSITORY_ROOT / "CMakeLists.txt").read_text(encoding="utf-8"),

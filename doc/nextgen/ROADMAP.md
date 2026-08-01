@@ -1053,7 +1053,10 @@ Gate R1:
   x86_64, and Linux x86_64; development `master` is not a shipping dependency.
 - The first isolated dependency checkpoint now pins `v3-0` commit
   `37149a802de747f6806996fa3067b0748ecc1084`, verifies archive/license/patch
-  hashes, and leaves the RoR/OGRE 14 graph untouched. Its native macOS arm64
+  hashes, records the loaded HLMS shader tree as
+  `MIT AND LicenseRef-Heitz-LTC-Paper-Notice` with exact LTC source and
+  redistribution-notice hashes, and leaves the RoR/OGRE 14 graph untouched.
+  Its native macOS arm64
   executable registered Metal, linked HLMS PBS with the Metal shader family,
   and compiled Compositor2 while explicitly reporting native RT as not
   evaluated. The next isolated macOS checkpoint creates a hidden native Metal

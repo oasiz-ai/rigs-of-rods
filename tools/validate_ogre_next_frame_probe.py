@@ -33,6 +33,31 @@ SURFACE_MODES = {
     "windows-x64-d3d11": "windows-hidden-native",
     "linux-x86_64-vulkan": "linux-null-window-offscreen",
 }
+SHADER_MEDIA_PROVENANCE = {
+    "shader_media_root": "Samples/Media/Hlms",
+    "shader_media_license_expression": (
+        "MIT AND LicenseRef-Heitz-LTC-Paper-Notice"
+    ),
+    "shader_media_third_party_source_path": (
+        "Samples/Media/Hlms/Pbs/Any/AreaLights_LTC_piece_ps.any"
+    ),
+    "shader_media_third_party_source_sha256": (
+        "44146bd7eee4bd6a3bb9428352e89dc20d7690b32c609e62c5f9330678f3a124"
+    ),
+    "shader_media_notice_path": (
+        "licenses/LicenseRef-Heitz-LTC-Paper-Notice.txt"
+    ),
+    "shader_media_notice_sha256": (
+        "cc942875917be271c92fdc1fdec7a17da92b45dadf42a979b69583003f38bba6"
+    ),
+    "shader_media_upstream_source": "https://github.com/selfshadow/ltc_code/",
+    "shader_media_paper_reference": (
+        "Real-Time Polygonal-Light Shading with Linearly Transformed "
+        "Cosines, ACM TOG 35(4), 2016"
+    ),
+    "shader_media_source_and_binary_notice_required": True,
+    "shader_media_paper_reference_required": True,
+}
 
 
 class FrameValidationError(RuntimeError):
@@ -165,7 +190,7 @@ def validate(
         raise FrameValidationError(
             f"unreviewed OGRE-Next frame policy: {expected_platform_policy}"
         )
-    _require_exact_int(report.get("schema_version"), 2, "schema_version")
+    _require_exact_int(report.get("schema_version"), 3, "schema_version")
     if report.get("status") != "pass":
         raise FrameValidationError("frame report status is not pass")
     if report.get("platform_policy") != expected_platform_policy:
@@ -210,6 +235,16 @@ def validate(
         raise FrameValidationError("frame ABI cookie is malformed")
     if build.get("ogre_version") != "3.0.0":
         raise FrameValidationError("frame OGRE-Next version is outside the reviewed pin")
+    failed_shader_media = [
+        field
+        for field, expected in SHADER_MEDIA_PROVENANCE.items()
+        if provenance.get(field) != expected
+    ]
+    if failed_shader_media:
+        raise FrameValidationError(
+            "frame shader-media provenance failed closed on "
+            + ", ".join(sorted(failed_shader_media))
+        )
 
     capability_provenance = capability_report.get("provenance")
     capability_build = capability_report.get("build")
@@ -230,6 +265,13 @@ def validate(
         == expected_platform_policy,
         "renderer": capability_renderer.get("name") == expected_renderer,
     }
+    joins.update(
+        {
+            f"shader_media.{field}": capability_provenance.get(field)
+            == provenance.get(field)
+            for field in SHADER_MEDIA_PROVENANCE
+        }
+    )
     failed_joins = [name for name, passed in joins.items() if not passed]
     if failed_joins:
         raise FrameValidationError(

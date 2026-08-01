@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import unittest
 
 
@@ -29,6 +30,14 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 self.assertIn(f"runner: {runner}", self.workflow)
                 self.assertIn(f"platform: {policy}", self.workflow)
         self.assertIn('toolset: "14.44"', self.workflow)
+        self.assertNotIn("surface:", self.workflow)
+
+    def test_every_action_is_pinned_to_an_immutable_commit(self) -> None:
+        uses = re.findall(r"^\s*-?\s*uses:\s*([^\s#]+)", self.workflow, re.MULTILINE)
+        self.assertGreaterEqual(len(uses), 4)
+        for action in uses:
+            with self.subTest(action=action):
+                self.assertRegex(action, r"^[^@]+@[0-9a-f]{40}$")
 
     def test_every_probe_layer_is_required_in_normal_and_optimized_python(self) -> None:
         for test_path in (
@@ -40,23 +49,30 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 self.assertEqual(self.workflow.count(test_path), 2)
         self.assertIn("--validate-contract-only", self.workflow)
         self.assertIn("--output-on-failure", self.workflow)
+        self.assertIn(
+            "- name: Run fail-closed offline contracts\n        shell: bash",
+            self.workflow,
+        )
 
     def test_linux_uses_a_declared_software_vulkan_device(self) -> None:
         for required in (
             "libshaderc-dev",
             "libvulkan-dev",
+            "libx11-dev",
+            "libxt-dev",
+            "libxaw7-dev",
             "mesa-vulkan-drivers",
             "vulkaninfo --summary",
             "VK_ICD_FILENAMES",
             "LIBGL_ALWAYS_SOFTWARE=1",
-            "linux-null-window",
+            "Linux x86_64 Vulkan null-window",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, self.workflow)
 
     def test_reports_and_exact_frame_are_always_retained(self) -> None:
         self.assertIn("if: always()", self.workflow)
-        self.assertIn("actions/upload-artifact@v7", self.workflow)
+        self.assertIn("actions/upload-artifact@043fb46d", self.workflow)
         self.assertIn("if-no-files-found: error", self.workflow)
         for artifact in (
             "ogre-next-build-contract.json",
@@ -66,6 +82,16 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(artifact=artifact):
                 self.assertIn(artifact, self.workflow)
+        lifecycle = self.workflow.index("- name: Re-run native lifecycle tests")
+        revalidate = self.workflow.index(
+            "- name: Revalidate the exact artifacts selected for upload"
+        )
+        upload = self.workflow.index("- name: Upload exact reports and UI-free frame")
+        self.assertLess(lifecycle, revalidate)
+        self.assertLess(revalidate, upload)
+        self.assertGreaterEqual(
+            self.workflow.count("tools/validate_ogre_next_frame_probe.py"), 2
+        )
 
     def test_verified_wrapper_owns_source_and_build_lifecycle(self) -> None:
         self.assertIn("tools/run_ogre_next_probe.py", self.workflow)

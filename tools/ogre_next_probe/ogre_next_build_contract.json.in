@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "provenance": {
     "repository": "@ROR_OGRE_NEXT_REPOSITORY@",
     "branch": "@ROR_OGRE_NEXT_BRANCH@",
@@ -15,6 +15,21 @@
       "source_archive_license_spdx": "@ROR_RAPIDJSON_LICENSE_SPDX@",
       "compiled_headers_license_spdx": "@ROR_RAPIDJSON_COMPILED_HEADERS_SPDX@",
       "license_sha256": "@ROR_RAPIDJSON_LICENSE_SHA256@"
+    }
+  },
+  "shader_media": {
+    "root": "@ROR_OGRE_NEXT_SHADER_MEDIA_ROOT@",
+    "license_expression": "@ROR_OGRE_NEXT_SHADER_MEDIA_LICENSE_EXPRESSION@",
+    "third_party_notice": {
+      "license_ref": "@ROR_OGRE_NEXT_SHADER_MEDIA_LICENSE_REF@",
+      "source_path": "@ROR_OGRE_NEXT_SHADER_MEDIA_SOURCE_PATH@",
+      "source_sha256": "@ROR_OGRE_NEXT_SHADER_MEDIA_SOURCE_SHA256@",
+      "notice_path": "@ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH@",
+      "notice_sha256": "@ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_SHA256@",
+      "upstream_source": "@ROR_OGRE_NEXT_SHADER_MEDIA_UPSTREAM_SOURCE@",
+      "paper_reference": "@ROR_OGRE_NEXT_SHADER_MEDIA_PAPER_REFERENCE@",
+      "source_and_binary_notice_required": true,
+      "paper_reference_required": true
     }
   },
   "platform": {

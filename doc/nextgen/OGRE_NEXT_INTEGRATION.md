@@ -1,16 +1,20 @@
 # OGRE-Next isolated integration checkpoint
 
-Status: **opt-in dependency and capability probe; no shipping renderer switch**
+Status: **opt-in dependency, capability, and raster-frame probes; no shipping renderer switch**
 
-This checkpoint compiles a standalone executable against an exact OGRE-Next
-`v3-0` revision. It leaves every default RoR and OGRE 14 build unchanged. The
-probe proves that the reviewed platform renderer can register with OGRE core,
-that HLMS PBS links and selects the expected shader family, and that
-Compositor2 is present in core with initialization correctly deferred until a
-real render window exists.
+This checkpoint compiles two standalone executables against an exact
+OGRE-Next `v3-0` revision while leaving every default RoR and OGRE 14 build
+unchanged. The capability executable proves that the reviewed platform
+renderer registers with OGRE core, HLMS PBS links and selects the expected
+shader family, and Compositor2 remains deferred before a window exists. It
+does not create a render window. The frame executable then creates the
+platform's reviewed hidden or null-window surface, initializes the logical
+device and Compositor2 workspace, renders one PBR triangle, and performs an
+independently validated UI-free GPU readback.
 
-It does not create a RoR scene or render window, does not share RoR resources,
-and does not evaluate or claim native ray tracing.
+Neither executable creates or consumes a RoR scene, shares RoR resources, or
+evaluates or claims native ray tracing. The frame is a raster admission proof,
+not a shipping presentation-window or visual-quality claim.
 
 ## Reproducible dependency contract
 
@@ -18,7 +22,12 @@ and does not evaluate or claim native ray tracing.
 
 - official `OGRECave/ogre-next` branch `v3-0` commit
   `37149a802de747f6806996fa3067b0748ecc1084` and its archive SHA-256;
-- the upstream MIT `COPYING` file and its SHA-256;
+- the upstream core MIT `COPYING` file and its SHA-256;
+- the loaded `Samples/Media/Hlms` shader tree's combined
+  `MIT AND LicenseRef-Heitz-LTC-Paper-Notice` expression, including the exact
+  `AreaLights_LTC_piece_ps.any` source hash and a checked-in notice preserving
+  its Eric Heitz, Jonathan Dupuy, Stephen Hill, and David Neubelt attribution,
+  paper-reference condition, and source/binary redistribution terms;
 - RapidJSON `v1.1.0`, required by OGRE core even when optional tools and scene
   components are disabled, with its source archive's
   `MIT AND BSD-3-Clause AND JSON` expression, the active reviewed header
@@ -50,11 +59,12 @@ Ninja files. It is applied from a hash-locked patch before configuration.
 
 Any other host/architecture fails configuration. A missing renderer target,
 SDK, or Vulkan/D3D dependency also fails rather than substituting another
-renderer. The Linux policy compiles the null-window backend; upstream renderer
-registration initializes a Vulkan instance and enumerates physical devices,
-but this probe does not create a presentation surface, logical rendering
-device, compositor workspace, or frame. A later window/presentation checkpoint
-must prove the shipping surface.
+renderer. The Linux policy compiles the null-window backend. The capability
+executable initializes a Vulkan instance and enumerates physical devices
+without creating a logical rendering device. The frame executable then
+creates the Vulkan logical device, null-window offscreen target, Compositor2
+workspace, and RGB8 frame. It still does not prove a Linux presentation
+surface or shipping game window.
 
 ## Run
 
@@ -126,11 +136,14 @@ ephemeral absolute paths.
 
 The checked-in optional CI matrix runs the exact probe on macOS arm64 Metal,
 Windows x64 Direct3D 11, and Linux x86_64 software Vulkan/null-window. It keeps
-the three jobs independent, reruns the native lifecycle tests, and uploads the
-build contract, both reports, and exact PPM even when a job fails. Only the
-local macOS result is proven at this checkpoint; the Windows and Linux jobs
-must still execute successfully before their gates can close. The renderer
-remains non-shipping until these later checkpoints pass:
+the three jobs independent, reruns the native lifecycle tests into separate
+artifacts, and revalidates the exact reports and PPM selected for upload. The
+always-running upload step preserves whichever diagnostic artifacts exist; an
+early build or frame failure can leave artifacts absent, which intentionally
+fails the upload contract. Only the local macOS result is proven at this
+checkpoint; the Windows and Linux jobs must still execute successfully before
+their gates can close. The renderer remains non-shipping until these later
+checkpoints pass:
 
 1. build/run this exact probe on Windows x64/D3D11 and Linux x86_64/Vulkan;
 2. reproduce the completed macOS native-window Compositor2 + HLMS PBS frame on

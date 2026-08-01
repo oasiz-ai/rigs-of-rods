@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "provenance": {
     "repository": "https://github.com/OGRECave/ogre-next",
     "branch": "v3-0",
@@ -15,6 +15,21 @@
       "source_archive_license_spdx": "MIT AND BSD-3-Clause AND JSON",
       "compiled_headers_license_spdx": "MIT",
       "license_sha256": "a140e5d46fe734a1c78f1a3c3ef207871dd75648be71fdda8e309b23ab8b1f32"
+    }
+  },
+  "shader_media": {
+    "root": "Samples/Media/Hlms",
+    "license_expression": "MIT AND LicenseRef-Heitz-LTC-Paper-Notice",
+    "third_party_notice": {
+      "license_ref": "LicenseRef-Heitz-LTC-Paper-Notice",
+      "source_path": "Samples/Media/Hlms/Pbs/Any/AreaLights_LTC_piece_ps.any",
+      "source_sha256": "44146bd7eee4bd6a3bb9428352e89dc20d7690b32c609e62c5f9330678f3a124",
+      "notice_path": "licenses/LicenseRef-Heitz-LTC-Paper-Notice.txt",
+      "notice_sha256": "cc942875917be271c92fdc1fdec7a17da92b45dadf42a979b69583003f38bba6",
+      "upstream_source": "https://github.com/selfshadow/ltc_code/",
+      "paper_reference": "Real-Time Polygonal-Light Shading with Linearly Transformed Cosines, ACM TOG 35(4), 2016",
+      "source_and_binary_notice_required": true,
+      "paper_reference_required": true
     }
   },
   "platform": {

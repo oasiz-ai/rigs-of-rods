@@ -37,31 +37,28 @@ jobs:
           - name: macOS arm64 Metal
             runner: macos-15
             platform: macos-arm64-metal
-            surface: macos-hidden-native
             jobs: 8
           - name: Windows x64 Direct3D 11
             runner: windows-2022
             platform: windows-x64-d3d11
-            surface: windows-hidden-native
             jobs: 4
           - name: Linux x86_64 Vulkan null-window
             runner: ubuntu-22.04
             platform: linux-x86_64-vulkan
-            surface: linux-null-window-offscreen
             jobs: 4
     env:
       PYTHONDONTWRITEBYTECODE: "1"
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
 
       - name: Enable the reviewed MSVC x64 toolset
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
         with:
           arch: x64
           toolset: "14.44"
@@ -74,6 +71,9 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             libshaderc-dev \
             libvulkan-dev \
+            libx11-dev \
+            libxt-dev \
+            libxaw7-dev \
             mesa-vulkan-drivers \
             ninja-build \
             vulkan-tools
@@ -104,6 +104,7 @@ jobs:
           python --version
 
       - name: Run fail-closed offline contracts
+        shell: bash
         run: |
           python tests/tools/test_ogre_next_probe_contract.py
           python tests/tools/test_ogre_next_frame_probe.py
@@ -126,9 +127,17 @@ jobs:
           --build-config Release
           --output-on-failure
 
+      - name: Revalidate the exact artifacts selected for upload
+        run: >-
+          python tools/validate_ogre_next_frame_probe.py
+          --report "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe-report.json"
+          --image "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm"
+          --capability-report "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-probe-report.json"
+          --platform-policy "${{ matrix.platform }}"
+
       - name: Upload exact reports and UI-free frame
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: OGRE-Next-${{ matrix.platform }}-${{ github.sha }}
           if-no-files-found: error
