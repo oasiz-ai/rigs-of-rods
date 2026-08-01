@@ -158,13 +158,15 @@ MakeScene(std::uint64_t registry_id, Matrix4x4 transform = Matrix4x4{},
           std::uint64_t snapshot_id = 1U,
           Float3 ambient_radiance = {0.03F, 0.03F, 0.03F},
           float environment_intensity = 1.0F,
-          Bounds3 local_bounds = MakeMesh().local_bounds) {
+          Bounds3 local_bounds = MakeMesh().local_bounds,
+          float exposure_compensation_ev = 0.0F) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = registry_id;
   descriptor.asset_sequence = 1U;
   descriptor.environment.ambient_radiance = ambient_radiance;
   descriptor.environment.environment_intensity = environment_intensity;
+  descriptor.environment.exposure_compensation_ev = exposure_compensation_ev;
   MeshInstanceDescriptor instance;
   instance.instance_id = 1U;
   instance.mesh = Ref(RenderAssetKind::MESH, 1U);
@@ -690,6 +692,17 @@ void TestFrameAndScenePolicy() {
   Require(ValidateOgreNextN1Frame(request, capabilities, registry).code ==
               ValidationCode::UNSUPPORTED_FEATURE,
           "unimplemented exposure escaped N1 validation");
+
+  request = MakeFrame(MakeScene(kRegistryId, Matrix4x4{}, 3U,
+                                {0.03F, 0.03F, 0.03F}, 1.0F,
+                                MakeMesh().local_bounds, 1.0F));
+  const ValidationResult scene_exposure_validation =
+      ValidateOgreNextN1Frame(request, capabilities, registry);
+  Require(scene_exposure_validation.code ==
+              ValidationCode::UNSUPPORTED_FEATURE &&
+              scene_exposure_validation.field ==
+                  "environment.exposure_compensation_ev",
+          "unimplemented scene exposure escaped N1 validation");
 
   request = MakeFrame(MakeScene(kRegistryId));
   FrontendCapabilityReport constrained_capabilities = capabilities;

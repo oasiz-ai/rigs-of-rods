@@ -604,6 +604,11 @@ ValidationResult ValidateOgreNextN1Scene(
     return Unsupported("environment.texture",
                        "N1 supports constant ambient radiance only");
   }
+  if (snapshot.environment().exposure_compensation_ev != 0.0F) {
+    return Unsupported(
+        "environment.exposure_compensation_ev",
+        "N1 does not apply scene-level exposure compensation");
+  }
   if (!allow_dynamic_meshes && !snapshot.dynamic_mesh_updates().empty()) {
     return Unsupported("dynamic_mesh_updates",
                        "N1 does not support deformable geometry");
