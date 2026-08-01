@@ -2481,12 +2481,18 @@ def validate_n1_checkpoint(
                     "ui_overlay_control_fnv1a64",
                     "initialization_failure_stages_verified",
                     "same_object_reinitialize_verified",
+                    "frame_commit_prepare_failure_verified",
+                    "aborted_hdr_audit_unchanged",
+                    "aborted_reflection_audit_unchanged",
+                    "aborted_submission_uncommitted",
+                    "aborted_output_unchanged",
+                    "post_render_failure_fault_latched",
                     "first_attachment_fnv1a64",
                     "final_attachment_fnv1a64",
                     "clean_shutdown",
                 }
                 and hdr_compositor.get("schema")
-                == "ror.ogre_next_hdr_compositor.v3"
+                == "ror.ogre_next_hdr_compositor.v4"
                 and hdr_compositor.get("workspace") == "RoRHdrWorkspaceUiFreeV2"
                 and hdr_compositor.get("persistent_workspace") is True
                 and hdr_compositor.get("scene_format") == "RGBA16_FLOAT"
@@ -2654,6 +2660,17 @@ def validate_n1_checkpoint(
                 == 10
                 and hdr_compositor.get("same_object_reinitialize_verified")
                 is True
+                and all(
+                    hdr_compositor.get(field) is True
+                    for field in (
+                        "frame_commit_prepare_failure_verified",
+                        "aborted_hdr_audit_unchanged",
+                        "aborted_reflection_audit_unchanged",
+                        "aborted_submission_uncommitted",
+                        "aborted_output_unchanged",
+                        "post_render_failure_fault_latched",
+                    )
+                )
                 and isinstance(
                     hdr_compositor.get("first_attachment_fnv1a64"), str
                 )

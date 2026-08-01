@@ -96,6 +96,36 @@ HdrR16Float ExpectedStored(const OgreNextHdrTemporalFramePlan &plan,
   return output.stored_inverse_luminance_r16;
 }
 
+bool SameHistoryComparison(const OgreNextHdrHistoryComparison &left,
+                           const OgreNextHdrHistoryComparison &right) {
+  return left.version == right.version && left.mode == right.mode &&
+         left.native_inverse_luminance_r16.bits ==
+             right.native_inverse_luminance_r16.bits &&
+         left.native_inverse_luminance_r16.decoded ==
+             right.native_inverse_luminance_r16.decoded &&
+         left.reference_inverse_luminance_r16.bits ==
+             right.reference_inverse_luminance_r16.bits &&
+         left.reference_inverse_luminance_r16.decoded ==
+             right.reference_inverse_luminance_r16.decoded &&
+         left.ogre_exposure == right.ogre_exposure &&
+         left.minimum_auto_exposure == right.minimum_auto_exposure &&
+         left.maximum_auto_exposure == right.maximum_auto_exposure &&
+         left.average_log_luminance == right.average_log_luminance &&
+         left.previous_inverse_luminance_r16.bits ==
+             right.previous_inverse_luminance_r16.bits &&
+         left.previous_inverse_luminance_r16.decoded ==
+             right.previous_inverse_luminance_r16.decoded &&
+         left.delta_seconds == right.delta_seconds &&
+         left.absolute_error == right.absolute_error &&
+         left.allowed_error == right.allowed_error &&
+         left.conditioning_bound == right.conditioning_bound &&
+         left.binary32_rounding_bound ==
+             right.binary32_rounding_bound &&
+         left.storage_ulp == right.storage_ulp &&
+         left.r16_ulp_distance == right.r16_ulp_distance &&
+         left.accepted == right.accepted;
+}
+
 void TestConfigurationIsTransactional() {
   OgreNextHdrTemporalState state;
   OgreNextHdrTemporalConfiguration invalid;
@@ -242,6 +272,129 @@ void TestDeterministicSimulationTimeAndGpuLineage() {
           "oversized deterministic frame delta was accepted");
 }
 
+void TestTwoPhaseCommitIsAtomicAndRetryable() {
+  OgreNextHdrTemporalState state;
+  Require(state.Initialize(OgreNextHdrTemporalConfiguration{}).ok(),
+          "temporal state initialization failed");
+
+  const RenderFrameRequest first = Frame(1U, Scene(10U, 5.0));
+  OgreNextHdrTemporalFramePlan first_plan;
+  Require(state.PrepareFrame(first,
+                             OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+                             first_plan)
+              .ok(),
+          "first two-phase temporal plan failed");
+  const HdrR16Float expected = ExpectedStored(first_plan, 1.25F);
+  const HdrR16Float initial_history = state.previous_inverse_luminance();
+  const OgreNextHdrHistoryComparison initial_comparison =
+      state.last_history_comparison();
+
+  HdrR16Float invalid_native = expected;
+  invalid_native.decoded = std::nextafter(
+      invalid_native.decoded, std::numeric_limits<float>::infinity());
+  Require(!state.PrepareCommit(first_plan, 1.25F, invalid_native).ok() &&
+              !state.CanCommitPrepared() && state.initialized() &&
+              state.committed_frame_id() == 0U &&
+              state.previous_inverse_luminance().bits ==
+                  initial_history.bits &&
+              SameHistoryComparison(state.last_history_comparison(),
+                                    initial_comparison),
+          "failed prepare exposed or staged temporal state");
+
+  Require(state.PrepareCommit(first_plan, 1.25F, expected).ok() &&
+              state.CanCommitPrepared(),
+          "valid temporal commit did not enter prepared state");
+  Require(state.committed_frame_id() == 0U &&
+              state.previous_inverse_luminance().bits ==
+                  initial_history.bits &&
+              SameHistoryComparison(state.last_history_comparison(),
+                                    initial_comparison),
+          "prepared temporal candidate became visible before commit");
+
+  OgreNextHdrTemporalFramePlan blocked_output;
+  blocked_output.frame_id = 91U;
+  blocked_output.snapshot_id = 92U;
+  Require(!state.PrepareFrame(
+                    Frame(1U, Scene(11U, 5.0)),
+                    OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+                    blocked_output)
+               .ok() &&
+              blocked_output.frame_id == 91U &&
+              blocked_output.snapshot_id == 92U,
+          "PrepareFrame admitted work or mutated output while commit pending");
+  Require(!state.PrepareCommit(first_plan, 1.25F, expected).ok() &&
+              state.CanCommitPrepared() &&
+              state.committed_frame_id() == 0U &&
+              state.previous_inverse_luminance().bits ==
+                  initial_history.bits &&
+              SameHistoryComparison(state.last_history_comparison(),
+                                    initial_comparison),
+          "double prepare replaced or published the pending candidate");
+
+  state.AbortPrepared();
+  Require(!state.CanCommitPrepared() && state.committed_frame_id() == 0U &&
+              state.previous_inverse_luminance().bits ==
+                  initial_history.bits &&
+              SameHistoryComparison(state.last_history_comparison(),
+                                    initial_comparison),
+          "abort changed committed temporal accessors");
+  state.CommitPrepared();
+  Require(state.committed_frame_id() == 0U &&
+              state.previous_inverse_luminance().bits ==
+                  initial_history.bits &&
+              SameHistoryComparison(state.last_history_comparison(),
+                                    initial_comparison),
+          "commit after abort published a discarded candidate");
+
+  Require(state.PrepareCommit(first_plan, 1.25F, expected).ok() &&
+              state.CanCommitPrepared(),
+          "aborted temporal candidate could not be retried");
+  state.CommitPrepared();
+  const OgreNextHdrHistoryComparison committed_comparison =
+      state.last_history_comparison();
+  Require(!state.CanCommitPrepared() && state.committed_frame_id() == 1U &&
+              state.previous_inverse_luminance().bits == expected.bits &&
+              committed_comparison.accepted &&
+              committed_comparison.native_inverse_luminance_r16.bits ==
+                  expected.bits,
+          "CommitPrepared did not atomically publish temporal state");
+
+  state.CommitPrepared();
+  Require(state.committed_frame_id() == 1U &&
+              state.previous_inverse_luminance().bits == expected.bits &&
+              SameHistoryComparison(state.last_history_comparison(),
+                                    committed_comparison),
+          "double commit changed committed temporal state");
+  Require(!state.PrepareCommit(first_plan, 1.25F, expected).ok() &&
+              !state.CanCommitPrepared() &&
+              state.committed_frame_id() == 1U &&
+              state.previous_inverse_luminance().bits == expected.bits &&
+              SameHistoryComparison(state.last_history_comparison(),
+                                    committed_comparison),
+          "stale plan prepared or changed committed temporal state");
+
+  constexpr double kSecondTime = 5.0 + 1.0 / 48.0;
+  OgreNextHdrTemporalFramePlan second_plan;
+  Require(state.PrepareFrame(Frame(2U, Scene(12U, kSecondTime)),
+                             OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+                             second_plan)
+              .ok(),
+          "second two-phase temporal plan failed");
+  const HdrR16Float second_expected = ExpectedStored(second_plan, -0.5F);
+  Require(state.PrepareCommit(second_plan, -0.5F, second_expected).ok() &&
+              state.CanCommitPrepared(),
+          "second temporal candidate was not prepared");
+  state.Reset();
+  Require(!state.CanCommitPrepared() && !state.initialized() &&
+              state.committed_frame_id() == 0U &&
+              state.previous_inverse_luminance().bits == 0U &&
+              !state.last_history_comparison().accepted,
+          "Reset retained a prepared temporal candidate");
+  state.CommitPrepared();
+  Require(!state.initialized() && state.committed_frame_id() == 0U,
+          "commit after Reset revived a discarded temporal candidate");
+}
+
 void TestFailClosedAdmission() {
   OgreNextHdrTemporalState state;
   Require(state.Initialize(OgreNextHdrTemporalConfiguration{}).ok(),
@@ -280,6 +433,7 @@ void TestFailClosedAdmission() {
 int main() {
   TestConfigurationIsTransactional();
   TestDeterministicSimulationTimeAndGpuLineage();
+  TestTwoPhaseCommitIsAtomicAndRetryable();
   TestFailClosedAdmission();
   std::cout << "Ogre-Next HDR temporal contract tests passed\n";
   return EXIT_SUCCESS;

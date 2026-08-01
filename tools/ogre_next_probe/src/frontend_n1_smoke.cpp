@@ -129,6 +129,12 @@ struct SmokeResult final {
     std::size_t ui_overlay_control_magenta_pixels = 0U;
     std::uint32_t initialization_failure_stages_verified = 0U;
     bool same_object_reinitialize_verified = false;
+    bool frame_commit_prepare_failure_verified = false;
+    bool aborted_hdr_audit_unchanged = false;
+    bool aborted_reflection_audit_unchanged = false;
+    bool aborted_submission_uncommitted = false;
+    bool aborted_output_unchanged = false;
+    bool post_render_failure_fault_latched = false;
   } hdr_compositor;
 };
 
@@ -1949,7 +1955,7 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
     const SmokeResult::HdrCompositorEvidence &compositor =
         result.hdr_compositor;
     report << "  \"hdr_compositor\": {\n"
-           << "    \"schema\": \"ror.ogre_next_hdr_compositor.v3\",\n"
+           << "    \"schema\": \"ror.ogre_next_hdr_compositor.v4\",\n"
            << "    \"workspace\": \"RoRHdrWorkspaceUiFreeV2\",\n"
            << "    \"persistent_workspace\": true,\n"
            << "    \"scene_format\": \"RGBA16_FLOAT\",\n"
@@ -2040,6 +2046,27 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << compositor.initialization_failure_stages_verified << ",\n"
            << "    \"same_object_reinitialize_verified\": "
            << (compositor.same_object_reinitialize_verified ? "true" : "false")
+           << ",\n"
+           << "    \"frame_commit_prepare_failure_verified\": "
+           << (compositor.frame_commit_prepare_failure_verified ? "true"
+                                                                 : "false")
+           << ",\n"
+           << "    \"aborted_hdr_audit_unchanged\": "
+           << (compositor.aborted_hdr_audit_unchanged ? "true" : "false")
+           << ",\n"
+           << "    \"aborted_reflection_audit_unchanged\": "
+           << (compositor.aborted_reflection_audit_unchanged ? "true"
+                                                              : "false")
+           << ",\n"
+           << "    \"aborted_submission_uncommitted\": "
+           << (compositor.aborted_submission_uncommitted ? "true" : "false")
+           << ",\n"
+           << "    \"aborted_output_unchanged\": "
+           << (compositor.aborted_output_unchanged ? "true" : "false")
+           << ",\n"
+           << "    \"post_render_failure_fault_latched\": "
+           << (compositor.post_render_failure_fault_latched ? "true"
+                                                            : "false")
            << ",\n"
            << "    \"first_attachment_fnv1a64\": \""
            << HexHash(compositor.first.attachment_fnv1a64) << "\",\n"
@@ -2517,6 +2544,193 @@ RunHdrCompositorProof(const std::string &media_root) {
           "HDR compositor shutdown did not retire its persistent graph");
 
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  OgreNextN1Configuration transaction_configuration;
+  transaction_configuration.shader_media_root = media_root;
+  transaction_configuration.raster_feature_tier =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  transaction_configuration.enable_hdr_compositor = true;
+  transaction_configuration.hdr_failure_stage =
+      OgreNextN1HdrFailureStage::AFTER_FRAME_COMMIT_PREPARE;
+  OgreNextN1Frontend transaction(std::move(transaction_configuration));
+  InitializeAndSync(transaction, MakeCatalog(true, &kVariantSpecs.front()));
+  const OgreNextHdrCompositorAudit hdr_before_abort =
+      transaction.QueryHdrCompositorAudit();
+  const OgreNextReflectionProbeAudit reflection_before_abort =
+      transaction.QueryReflectionProbeAudit();
+  RenderFrameOutput preserved_output;
+  preserved_output.frame_id = 777U;
+  preserved_output.snapshot_id = 778U;
+  preserved_output.status = RenderFrameStatus::SKIPPED;
+  preserved_output.presented = true;
+  preserved_output.presented_view_id = 779U;
+  preserved_output.cpu_submit_milliseconds = 1.25;
+  preserved_output.gpu_frame_milliseconds = 2.5;
+  FrameAttachment preserved_attachment;
+  preserved_attachment.view_id = 780U;
+  preserved_attachment.output = FrameOutputMask::COLOR;
+  preserved_attachment.format = PixelFormat::RGBA8_SRGB;
+  preserved_attachment.width = 1U;
+  preserved_attachment.height = 1U;
+  preserved_attachment.row_pitch_bytes = 4U;
+  preserved_attachment.bytes = {0xA5U, 0x5AU, 0xC3U, 0x3CU};
+  preserved_output.attachments.push_back(preserved_attachment);
+  const RenderOperationResult frame_commit_prepare_failure =
+      transaction.Render(
+          MakeFrame(1U, MakeScene(400U, false, true),
+                    PixelFormat::RGBA8_SRGB),
+          preserved_output);
+  const OgreNextHdrCompositorAudit hdr_after_abort =
+      transaction.QueryHdrCompositorAudit();
+  const OgreNextReflectionProbeAudit reflection_after_abort =
+      transaction.QueryReflectionProbeAudit();
+  evidence.aborted_hdr_audit_unchanged =
+      hdr_after_abort.version == hdr_before_abort.version &&
+      hdr_after_abort.enabled == hdr_before_abort.enabled &&
+      hdr_after_abort.native_workspace_live ==
+          hdr_before_abort.native_workspace_live &&
+      hdr_after_abort.deterministic_delta_bound ==
+          hdr_before_abort.deterministic_delta_bound &&
+      hdr_after_abort.native_r16_history_validated ==
+          hdr_before_abort.native_r16_history_validated &&
+      hdr_after_abort.exact_current_to_old_copy_verified ==
+          hdr_before_abort.exact_current_to_old_copy_verified &&
+      hdr_after_abort.ui_free_workspace_verified ==
+          hdr_before_abort.ui_free_workspace_verified &&
+      hdr_after_abort.width == hdr_before_abort.width &&
+      hdr_after_abort.height == hdr_before_abort.height &&
+      hdr_after_abort.warmup_frames == hdr_before_abort.warmup_frames &&
+      hdr_after_abort.committed_frames == hdr_before_abort.committed_frames &&
+      hdr_after_abort.previous_inverse_luminance_r16_bits ==
+          hdr_before_abort.previous_inverse_luminance_r16_bits &&
+      hdr_after_abort.history_validation_mode ==
+          hdr_before_abort.history_validation_mode &&
+      hdr_after_abort.reference_inverse_luminance_r16_bits ==
+          hdr_before_abort.reference_inverse_luminance_r16_bits &&
+      hdr_after_abort.history_ogre_exposure ==
+          hdr_before_abort.history_ogre_exposure &&
+      hdr_after_abort.history_minimum_auto_exposure ==
+          hdr_before_abort.history_minimum_auto_exposure &&
+      hdr_after_abort.history_maximum_auto_exposure ==
+          hdr_before_abort.history_maximum_auto_exposure &&
+      hdr_after_abort.history_average_log_luminance ==
+          hdr_before_abort.history_average_log_luminance &&
+      hdr_after_abort.history_previous_inverse_luminance_r16_bits ==
+          hdr_before_abort.history_previous_inverse_luminance_r16_bits &&
+      hdr_after_abort.history_delta_seconds ==
+          hdr_before_abort.history_delta_seconds &&
+      hdr_after_abort.history_absolute_error ==
+          hdr_before_abort.history_absolute_error &&
+      hdr_after_abort.history_allowed_error ==
+          hdr_before_abort.history_allowed_error &&
+      hdr_after_abort.history_conditioning_bound ==
+          hdr_before_abort.history_conditioning_bound &&
+      hdr_after_abort.history_binary32_rounding_bound ==
+          hdr_before_abort.history_binary32_rounding_bound &&
+      hdr_after_abort.history_storage_ulp ==
+          hdr_before_abort.history_storage_ulp &&
+      hdr_after_abort.history_r16_ulp_distance ==
+          hdr_before_abort.history_r16_ulp_distance;
+  evidence.aborted_reflection_audit_unchanged =
+      reflection_after_abort.version == reflection_before_abort.version &&
+      reflection_after_abort.committed_state_digest ==
+          reflection_before_abort.committed_state_digest &&
+      reflection_after_abort.successful_capture_count ==
+          reflection_before_abort.successful_capture_count &&
+      reflection_after_abort.failed_capture_count ==
+          reflection_before_abort.failed_capture_count &&
+      reflection_after_abort.native_execution_evidence ==
+          reflection_before_abort.native_execution_evidence &&
+      reflection_after_abort.last_capture_frame_id ==
+          reflection_before_abort.last_capture_frame_id &&
+      reflection_after_abort.last_capture_simulation_tick ==
+          reflection_before_abort.last_capture_simulation_tick &&
+      reflection_after_abort.last_probe_id ==
+          reflection_before_abort.last_probe_id &&
+      reflection_after_abort.last_content_revision ==
+          reflection_before_abort.last_content_revision &&
+      reflection_after_abort.last_candidate_generation ==
+          reflection_before_abort.last_candidate_generation &&
+      reflection_after_abort.last_deterministic_seed ==
+          reflection_before_abort.last_deterministic_seed &&
+      reflection_after_abort.last_capture_digest ==
+          reflection_before_abort.last_capture_digest &&
+      reflection_after_abort.last_canonical_payload_bytes ==
+          reflection_before_abort.last_canonical_payload_bytes &&
+      reflection_after_abort.filtered_finite_component_count ==
+          reflection_before_abort.filtered_finite_component_count &&
+      reflection_after_abort.filtered_nonzero_rgb_component_count ==
+          reflection_before_abort.filtered_nonzero_rgb_component_count &&
+      reflection_after_abort.filtered_max_absolute_rgb ==
+          reflection_before_abort.filtered_max_absolute_rgb &&
+      reflection_after_abort.live_probe_count ==
+          reflection_before_abort.live_probe_count &&
+      reflection_after_abort.completed_face_count ==
+          reflection_before_abort.completed_face_count &&
+      reflection_after_abort.blend_resolution ==
+          reflection_before_abort.blend_resolution &&
+      reflection_after_abort.completed_mip_count ==
+          reflection_before_abort.completed_mip_count &&
+      reflection_after_abort.initialized == reflection_before_abort.initialized &&
+      reflection_after_abort.compositor_defined_in_code ==
+          reflection_before_abort.compositor_defined_in_code &&
+      reflection_after_abort.exact_resources_loaded ==
+          reflection_before_abort.exact_resources_loaded &&
+      reflection_after_abort.pcc_enabled ==
+          reflection_before_abort.pcc_enabled &&
+      reflection_after_abort.pbs_bound == reflection_before_abort.pbs_bound &&
+      reflection_after_abort.blend_texture_ready ==
+          reflection_before_abort.blend_texture_ready &&
+      reflection_after_abort.ui_free_capture ==
+          reflection_before_abort.ui_free_capture &&
+      reflection_after_abort.reserved_render_queue_excluded ==
+          reflection_before_abort.reserved_render_queue_excluded;
+  evidence.aborted_submission_uncommitted =
+      !transaction.IsFrameComplete(1U);
+  evidence.aborted_output_unchanged =
+      preserved_output.version == kRenderFrameContractVersion &&
+      preserved_output.frame_id == 777U &&
+      preserved_output.snapshot_id == 778U &&
+      preserved_output.status == RenderFrameStatus::SKIPPED &&
+      preserved_output.presented &&
+      preserved_output.presented_view_id == 779U &&
+      preserved_output.cpu_submit_milliseconds == 1.25 &&
+      preserved_output.gpu_frame_milliseconds == 2.5 &&
+      preserved_output.attachments.size() == 1U &&
+      preserved_output.attachments.front().view_id == 780U &&
+      preserved_output.attachments.front().output == FrameOutputMask::COLOR &&
+      preserved_output.attachments.front().format == PixelFormat::RGBA8_SRGB &&
+      preserved_output.attachments.front().width == 1U &&
+      preserved_output.attachments.front().height == 1U &&
+      preserved_output.attachments.front().row_pitch_bytes == 4U &&
+      !preserved_output.attachments.front().gpu_resource.valid() &&
+      preserved_output.attachments.front().bytes ==
+          preserved_attachment.bytes;
+  RenderFrameOutput fault_latch_output;
+  fault_latch_output.frame_id = 781U;
+  const RenderOperationResult fault_latched = transaction.Render(
+      MakeFrame(1U, MakeScene(401U, false, true), PixelFormat::RGBA8_SRGB),
+      fault_latch_output);
+  evidence.post_render_failure_fault_latched =
+      !fault_latched &&
+      fault_latched.code == RenderOperationCode::BACKEND_FAILURE &&
+      fault_latched.detail.find("fault-latched") != std::string::npos &&
+      fault_latch_output.frame_id == 781U;
+  evidence.frame_commit_prepare_failure_verified =
+      !frame_commit_prepare_failure &&
+      frame_commit_prepare_failure.code ==
+          RenderOperationCode::BACKEND_FAILURE &&
+      frame_commit_prepare_failure.detail.find("commit-prepare") !=
+          std::string::npos &&
+      evidence.aborted_hdr_audit_unchanged &&
+      evidence.aborted_reflection_audit_unchanged &&
+      evidence.aborted_submission_uncommitted &&
+      evidence.aborted_output_unchanged &&
+      evidence.post_render_failure_fault_latched;
+  Require(evidence.frame_commit_prepare_failure_verified,
+          "HDR frame commit-prepare failure published partial state");
+  RequireSuccess(transaction.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "HDR frame commit-prepare failure Shutdown");
+
   const std::array<std::pair<OgreNextN1HdrFailureStage, const char *>, 10U>
       failure_stages{{
           {OgreNextN1HdrFailureStage::AFTER_RESOURCE_GROUP_CREATE,

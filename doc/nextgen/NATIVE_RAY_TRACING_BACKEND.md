@@ -33,6 +33,11 @@ The viable candidate is therefore:
 4. an Ogre-Next raster fallback that remains visually complete when RT is
    unavailable.
 
+The ownership boundary is explicit across platforms. Ogre-Next owns the
+Metal, Direct3D 11, and Vulkan raster/PBS/HDR paths. RoR owns acceleration
+structures, ray dispatch, and raster interop in its Metal RT, D3D12/DXR, and
+Vulkan KHR RT backends; Ogre-Next native ray tracing is not assumed or claimed.
+
 This is a **conditional go**, not a dependency-selection conclusion. The
 candidate becomes a full go only after a real Metal RT scene pass on supported
 Apple Silicon and a real DXR/Ogre-Next interop pass on Windows. If either hard
@@ -476,6 +481,11 @@ provenance artifacts pass. Only then may the macOS build report
   only after comparison with the pinned shader oracle using its conditioning
   and binary32 rounding bound plus one storage ULP; also reject stale lineage,
   unchanged history, or a non-exact current-to-old compositor copy.
+- Publish HDR history/audit, reflection state, native interop, submission
+  completion, and output only after every participant has prepared and can
+  commit. Abort all staged public state on a later failure; because the GPU
+  exposure-history copy cannot be rolled back after rendering, fault-latch the
+  frontend rather than reuse that advanced history.
 - Keep the HDR workspace RoR-owned, programmatic, source-manifested, and free of
   `HdrRenderUi`; require a negative-control workspace wired to the actual
   `HdrRenderUi` output and a real `Ogre::v1::Overlay`, independently recomputed

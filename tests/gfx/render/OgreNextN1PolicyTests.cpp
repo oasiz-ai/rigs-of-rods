@@ -406,6 +406,34 @@ void TestCapabilitiesFailClosed() {
           "D3D11 raster incorrectly implied D3D12/DXR interop");
 }
 
+void TestHdrFeatureCombinationPolicy() {
+  constexpr std::uint64_t kRegistryId = 73U;
+  RenderAssetRegistry registry(kRegistryId);
+  Require(registry.Apply(MakeCatalogDelta(kRegistryId)).ok(),
+          "HDR feature-combination catalog setup failed");
+  const FrontendCapabilityReport capabilities =
+      BuildOgreNextN1CapabilityReport(RasterGraphicsApi::METAL, "test");
+  RenderFrameRequest request = MakeFrame(MakeReflectionScene(kRegistryId));
+
+  // This pure admission check runs without constructing a frontend or native
+  // device. Keep HDR+PSSM fail-closed until they share a reviewed compositor
+  // node instead of allowing the backend to discover the conflict later.
+  const ValidationResult hdr_pssm = ValidateOgreNextN1Frame(
+      request, capabilities, registry,
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+      OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, true);
+  Require(hdr_pssm.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              hdr_pssm.field == "directional_shadow_mode",
+          "HDR+PSSM escaped pre-device feature-combination admission");
+
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+              OgreNextDirectionalShadowMode::DISABLED, true)
+              .ok(),
+          "reflection probes were incorrectly excluded from the HDR path");
+}
+
 void TestInitializationPolicy() {
   const FrontendCapabilityReport capabilities =
       BuildOgreNextN1CapabilityReport(RasterGraphicsApi::METAL, "test");
@@ -1022,6 +1050,7 @@ int main() {
   TestProjectionDepthConversion();
   TestLifetimeSubmissionState();
   TestCapabilitiesFailClosed();
+  TestHdrFeatureCombinationPolicy();
   TestInitializationPolicy();
   TestAssetPolicy();
   TestModernPbrAssetPolicy();

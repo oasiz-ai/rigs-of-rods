@@ -1624,6 +1624,12 @@ def _verify_hdr_compositor(value: object) -> None:
             "ui_overlay_control_fnv1a64",
             "initialization_failure_stages_verified",
             "same_object_reinitialize_verified",
+            "frame_commit_prepare_failure_verified",
+            "aborted_hdr_audit_unchanged",
+            "aborted_reflection_audit_unchanged",
+            "aborted_submission_uncommitted",
+            "aborted_output_unchanged",
+            "post_render_failure_fault_latched",
             "first_attachment_fnv1a64",
             "final_attachment_fnv1a64",
             "clean_shutdown",
@@ -1656,7 +1662,7 @@ def _verify_hdr_compositor(value: object) -> None:
     oracle = _recompute_hdr_history_oracle(compositor)
     checks = {
         "schema": compositor.get("schema")
-        == "ror.ogre_next_hdr_compositor.v3",
+        == "ror.ogre_next_hdr_compositor.v4",
         "workspace": compositor.get("workspace") == "RoRHdrWorkspaceUiFreeV2",
         "persistence": compositor.get("persistent_workspace") is True,
         "formats": compositor.get("scene_format") == "RGBA16_FLOAT"
@@ -1751,6 +1757,17 @@ def _verify_hdr_compositor(value: object) -> None:
             compositor.get("initialization_failure_stages_verified"), 10
         )
         and compositor.get("same_object_reinitialize_verified") is True,
+        "atomic_publication": all(
+            compositor.get(field) is True
+            for field in (
+                "frame_commit_prepare_failure_verified",
+                "aborted_hdr_audit_unchanged",
+                "aborted_reflection_audit_unchanged",
+                "aborted_submission_uncommitted",
+                "aborted_output_unchanged",
+                "post_render_failure_fault_latched",
+            )
+        ),
         "hashes": isinstance(first_hash, str)
         and re.fullmatch(r"[0-9a-f]{16}", first_hash) is not None
         and isinstance(final_hash, str)

@@ -656,7 +656,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "native_r16_history_validated",
             "exact_current_to_old_copy_verified",
             "history_allowed_error",
-            "hdr_temporal_state.CommitFrame",
+            "hdr_temporal_state.PrepareCommit",
+            "hdr_temporal_state.CanCommitPrepared",
+            "hdr_temporal_state.CommitPrepared",
+            "hdr_temporal_state.AbortPrepared",
         ):
             self.assertIn(token, self.frontend)
         self.assertIn("Ogre::v1::OverlaySystem", self.frontend)
@@ -675,9 +678,59 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "AFTER_PARAMETER_BINDING",
             "AFTER_WARMUP_FRAME_ONE",
             "AFTER_WARMUP_FRAME_TWO",
+            "AFTER_FRAME_COMMIT_PREPARE",
         ):
             self.assertIn(stage, self.header)
             self.assertIn(stage, self.frontend)
+        self.assertIn("AFTER_FRAME_COMMIT_PREPARE", self.smoke)
+        frame_transaction = self.frontend.index(
+            "const ValidationResult output_validation"
+        )
+        transaction_order = [
+            self.frontend.index(
+                "ValidateRenderFrameOutput(request, candidate)", frame_transaction
+            ),
+            self.frontend.index(
+                "VerifyAndPrepareHdrFrame(hdr_plan)", frame_transaction
+            ),
+            self.frontend.index(
+                "OgreNextN1HdrFailureStage::AFTER_FRAME_COMMIT_PREPARE",
+                frame_transaction,
+            ),
+            self.frontend.index(
+                "submission_state.PrepareCommit(request)", frame_transaction
+            ),
+            self.frontend.index(
+                "native_interop->PreparePublishFrame(", frame_transaction
+            ),
+            self.frontend.index("if (!cleanup_scene(false))", frame_transaction),
+            self.frontend.index(
+                "hdr_temporal_state.CanCommitPrepared()", frame_transaction
+            ),
+            self.frontend.index(
+                "submission_state.CanCommitPrepared(request)", frame_transaction
+            ),
+            self.frontend.index(
+                "native_interop->CanCommitPreparedFrame(", frame_transaction
+            ),
+            self.frontend.index(
+                "reflection_probe_runtime->FinalizeFrame(", frame_transaction
+            ),
+            self.frontend.index(
+                "native_interop->CommitPreparedFrame()", frame_transaction
+            ),
+            self.frontend.index(
+                "hdr_temporal_state.CommitPrepared()", frame_transaction
+            ),
+            self.frontend.index(
+                "submission_state.CommitPrepared(request)", frame_transaction
+            ),
+            self.frontend.index("output = std::move(candidate)", frame_transaction),
+        ]
+        self.assertEqual(transaction_order, sorted(transaction_order))
+        self.assertNotIn(
+            "static_cast<void>(destroy_retained_target())", self.frontend
+        )
         for token in (
             "_ror_n1_hdr_media_roots",
             "ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_ENTRIES",
@@ -687,11 +740,20 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.entry_cmake)
         self.assertIn("RunHdrCompositorProof", self.smoke)
-        self.assertIn("ror.ogre_next_hdr_compositor.v3", self.smoke)
+        self.assertIn("ror.ogre_next_hdr_compositor.v4", self.smoke)
         self.assertIn("Ogre::v1::Overlay", self.smoke)
         self.assertIn("--compositor-evidence", self.smoke)
         self.assertIn("VerifyRt4DeterministicRepeat.cmake", self.entry_cmake)
         self.assertIn("same_object_reinitialize_verified", self.smoke)
+        for token in (
+            "frame_commit_prepare_failure_verified",
+            "aborted_hdr_audit_unchanged",
+            "aborted_reflection_audit_unchanged",
+            "aborted_submission_uncommitted",
+            "aborted_output_unchanged",
+            "post_render_failure_fault_latched",
+        ):
+            self.assertIn(token, self.smoke)
 
     def test_projection_and_device_extent_paths_fail_closed(self) -> None:
         self.assertIn("TryConvertPortableProjectionToOgreClip", self.policy_header)

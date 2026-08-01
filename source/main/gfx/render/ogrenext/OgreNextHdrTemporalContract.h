@@ -92,12 +92,15 @@ struct OgreNextHdrHistoryComparison final {
 
 /// Persistent history for one frontend lifetime.
 ///
-/// PrepareFrame is read-only and CommitFrame is transactional. The first
-/// frame uses delta zero so initialization is independent of launch time. Each
-/// later delta comes only from immutable simulation timestamps. CommitFrame
-/// requires a canonical finite-positive native R16 readback within the
-/// conditioning-aware CPU reference bound plus one binary16 ULP. The accepted
-/// native bits, rather than CPU reference bits, advance history.
+/// PrepareFrame is read-only and PrepareCommit validates a candidate without
+/// publishing it. The caller may commit that candidate only after all other
+/// frame participants can commit, or abort it without changing any committed
+/// accessor. The first frame uses delta zero so initialization is independent
+/// of launch time. Each later delta comes only from immutable simulation
+/// timestamps. PrepareCommit requires a canonical finite-positive native R16
+/// readback within the conditioning-aware CPU reference bound plus one
+/// binary16 ULP. The accepted native bits, rather than CPU reference bits,
+/// advance history only when CommitPrepared is called.
 class OgreNextHdrTemporalState final {
 public:
   [[nodiscard]] ValidationResult
@@ -112,6 +115,24 @@ public:
       const OgreNextHdrTemporalFramePlan &plan,
       float average_log_luminance,
       const HdrR16Float &native_stored_inverse_luminance);
+
+  /// Validates and stages a temporal-history update without publishing it.
+  /// Exactly one candidate may be pending at a time.
+  [[nodiscard]] ValidationResult PrepareCommit(
+      const OgreNextHdrTemporalFramePlan &plan,
+      float average_log_luminance,
+      const HdrR16Float &native_stored_inverse_luminance);
+
+  /// True only while the staged candidate still descends from the currently
+  /// committed state. This check is allocation-free and cannot fail.
+  [[nodiscard]] bool CanCommitPrepared() const noexcept;
+
+  /// Publishes the staged candidate if CanCommitPrepared is true. Otherwise it
+  /// is a no-op; callers may use AbortPrepared to discard a stale candidate.
+  void CommitPrepared() noexcept;
+
+  /// Discards the staged candidate without changing committed state.
+  void AbortPrepared() noexcept;
 
   void Reset() noexcept;
 
@@ -128,11 +149,25 @@ public:
   }
 
 private:
+  void ClearPending() noexcept;
+
   OgreNextHdrTemporalConfiguration configuration_{};
   HdrR16Float previous_inverse_luminance_{};
   OgreNextHdrHistoryComparison last_history_comparison_{};
   std::uint64_t committed_frame_id_ = 0U;
   double committed_simulation_time_seconds_ = 0.0;
+
+  // The pending transaction is deliberately POD-only: preparing a renderer
+  // frame must not retain handles, allocate, or expose partially committed
+  // temporal evidence.
+  HdrR16Float pending_previous_inverse_luminance_{};
+  OgreNextHdrHistoryComparison pending_history_comparison_{};
+  std::uint64_t pending_frame_id_ = 0U;
+  double pending_simulation_time_seconds_ = 0.0;
+  HdrR16Float pending_base_previous_inverse_luminance_{};
+  std::uint64_t pending_base_committed_frame_id_ = 0U;
+  double pending_base_committed_simulation_time_seconds_ = 0.0;
+  bool commit_prepared_ = false;
   bool initialized_ = false;
 };
 

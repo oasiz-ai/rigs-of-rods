@@ -2087,7 +2087,10 @@ public:
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
     if (hdr_failure_pending && hdr_failure_stage == stage) {
       hdr_failure_pending = false;
-      return HdrBackendFailure("injected staged initialization failure");
+      return HdrBackendFailure(
+          stage == OgreNextN1HdrFailureStage::AFTER_FRAME_COMMIT_PREPARE
+              ? "injected frame commit-prepare failure"
+              : "injected staged initialization failure");
     }
 #endif
     return RenderOperationResult::Success();
@@ -2454,7 +2457,7 @@ public:
     return RenderOperationResult::Success();
   }
 
-  [[nodiscard]] RenderOperationResult VerifyAndCommitHdrFrame(
+  [[nodiscard]] RenderOperationResult VerifyAndPrepareHdrFrame(
       const OgreNextHdrTemporalFramePlan &plan) {
     if (hdr_workspace == nullptr) {
       return HdrBackendFailure("persistent workspace is unavailable");
@@ -2481,21 +2484,18 @@ public:
       return HdrBackendFailure(
           "native luminance reduction is invalid or current-to-old copy bits differ");
     }
-    hdr_exact_current_to_old_copy_verified = true;
     float average_log_luminance = 0.0F;
     if (!TryComputeHdrAverageLogLuminance(iterative,
                                           average_log_luminance)) {
       return HdrBackendFailure(
           "native 4x4 log-luminance reduction is not finite");
     }
-    const ValidationResult committed = hdr_temporal_state.CommitFrame(
+    const ValidationResult prepared = hdr_temporal_state.PrepareCommit(
         plan, average_log_luminance, copied.front());
-    if (!committed) {
+    if (!prepared) {
       return HdrBackendFailure("native history exceeded the reference bound: " +
-                               committed.field + ": " + committed.detail);
+                               prepared.field + ": " + prepared.detail);
     }
-    hdr_history_comparison = hdr_temporal_state.last_history_comparison();
-    hdr_native_history_validated = hdr_history_comparison.accepted;
     return RenderOperationResult::Success();
   }
 
@@ -3535,6 +3535,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
   bool shadow_node_creation_counted = false;
   std::string target_text;
   bool hdr_native_frame_executed = false;
+  bool hdr_commit_prepared = false;
   std::vector<std::pair<Ogre::Item *, Ogre::SceneNode *>> items;
   std::vector<OgreNextReflectionProbeItemBinding> reflection_items;
   std::vector<std::pair<Ogre::Light *, Ogre::SceneNode *>> lights;
@@ -3821,10 +3822,18 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     return true;
   };
+  const auto abort_hdr_commit = [&]() noexcept {
+    if (hdr_commit_prepared) {
+      impl_->hdr_temporal_state.AbortPrepared();
+      hdr_commit_prepared = false;
+    }
+    return true;
+  };
   const auto fail_after_cleanup = [&](RenderOperationResult failure) {
     bool clean = abort_reflection_frame();
     clean = abort_submission_commit() && clean;
     clean = abort_interop_commit() && clean;
+    clean = abort_hdr_commit() && clean;
     clean = cleanup_scene(false) && clean;
     clean = destroy_retained_target() && clean;
     clean = destroy_submitted_frame_meshes() && clean;
@@ -4378,14 +4387,6 @@ RenderOperationResult OgreNextN1Frontend::Render(
       target_text.clear();
     }
 
-    // Keep only the N3 target alive across ordinary scene cleanup. The
-    // dedicated failure helper still destroys it on every exit.
-    if (!cleanup_scene(false)) {
-      impl_->faulted = true;
-      static_cast<void>(destroy_retained_target());
-      static_cast<void>(destroy_submitted_frame_meshes());
-      return FrameCleanupFailure();
-    }
     RenderFrameOutput candidate;
     candidate.frame_id = request.frame_id;
     candidate.snapshot_id = snapshot.snapshot_id();
@@ -4405,6 +4406,21 @@ RenderOperationResult OgreNextN1Frontend::Render(
           "N1 generated an invalid frame output: " + output_validation.field +
               ": " + output_validation.detail));
     }
+    if (persistent_hdr) {
+      const RenderOperationResult hdr_preparation =
+          impl_->VerifyAndPrepareHdrFrame(hdr_plan);
+      if (!hdr_preparation) {
+        return fail_after_cleanup(hdr_preparation);
+      }
+      hdr_commit_prepared = true;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      const RenderOperationResult injected = impl_->MaybeInjectHdrFailure(
+          OgreNextN1HdrFailureStage::AFTER_FRAME_COMMIT_PREPARE);
+      if (!injected) {
+        return fail_after_cleanup(injected);
+      }
+#endif
+    }
     const RenderOperationResult commit_preparation =
         impl_->submission_state.PrepareCommit(request);
     if (!commit_preparation) {
@@ -4420,18 +4436,25 @@ RenderOperationResult OgreNextN1Frontend::Render(
         return fail_after_cleanup(publication_preparation);
       }
       interop_commit_prepared = true;
-    } else if (!destroy_submitted_frame_meshes()) {
-      impl_->faulted = true;
-      static_cast<void>(abort_reflection_frame());
-      static_cast<void>(abort_submission_commit());
-      return FrameCleanupFailure();
     }
-    if (persistent_hdr) {
-      const RenderOperationResult hdr_commit =
-          impl_->VerifyAndCommitHdrFrame(hdr_plan);
-      if (!hdr_commit) {
-        return fail_after_cleanup(hdr_commit);
-      }
+    // Keep only the N3 target and its frame geometry alive across ordinary
+    // scene cleanup. Every fallible publication stage is now prepared, so a
+    // teardown failure can abort all pending transactions through one path.
+    if (!cleanup_scene(false)) {
+      impl_->faulted = true;
+      return fail_after_cleanup(FrameCleanupFailure());
+    }
+    if (!impl_->native_interop && !destroy_submitted_frame_meshes()) {
+      impl_->faulted = true;
+      return fail_after_cleanup(FrameCleanupFailure());
+    }
+    if (persistent_hdr &&
+        (!hdr_commit_prepared ||
+         !impl_->hdr_temporal_state.CanCommitPrepared())) {
+      impl_->faulted = true;
+      return fail_after_cleanup(RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "N1 prepared HDR history changed before publication"));
     }
     if (!impl_->submission_state.CanCommitPrepared(request)) {
       impl_->faulted = true;
@@ -4462,8 +4485,15 @@ RenderOperationResult OgreNextN1Frontend::Render(
       retained_target = nullptr;
       impl_->frame_meshes.swap(submitted_frame_meshes);
     }
-    impl_->submission_state.CommitPrepared(request);
-    submission_commit_prepared = false;
+    if (persistent_hdr) {
+      impl_->hdr_temporal_state.CommitPrepared();
+      hdr_commit_prepared = false;
+      impl_->hdr_exact_current_to_old_copy_verified = true;
+      impl_->hdr_history_comparison =
+          impl_->hdr_temporal_state.last_history_comparison();
+      impl_->hdr_native_history_validated =
+          impl_->hdr_history_comparison.accepted;
+    }
     if (shadow_plan.enabled) {
       impl_->shadow_audit.last_frame = shadow_plan;
       impl_->shadow_audit.last_native_splits = observed_shadow_state.splits;
@@ -4475,6 +4505,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
           std::move(native_bounds_observations);
       ++impl_->shadow_audit.shadow_frames_completed;
     }
+    impl_->submission_state.CommitPrepared(request);
+    submission_commit_prepared = false;
     output = std::move(candidate);
     return RenderOperationResult::Success();
   } catch (const std::bad_alloc &) {

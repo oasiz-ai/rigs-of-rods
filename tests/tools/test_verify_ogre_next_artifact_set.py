@@ -1050,7 +1050,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 VERIFY.RT4_EXPECTED_TEXTURE_UPLOAD_ROLLBACK
             ),
             "hdr_compositor": {
-                "schema": "ror.ogre_next_hdr_compositor.v3",
+                "schema": "ror.ogre_next_hdr_compositor.v4",
                 "workspace": "RoRHdrWorkspaceUiFreeV2",
                 "persistent_workspace": True,
                 "scene_format": "RGBA16_FLOAT",
@@ -1095,6 +1095,12 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 ),
                 "initialization_failure_stages_verified": 10,
                 "same_object_reinitialize_verified": True,
+                "frame_commit_prepare_failure_verified": True,
+                "aborted_hdr_audit_unchanged": True,
+                "aborted_reflection_audit_unchanged": True,
+                "aborted_submission_uncommitted": True,
+                "aborted_output_unchanged": True,
+                "post_render_failure_fault_latched": True,
                 "first_attachment_fnv1a64": VERIFY._fnv1a64(
                     compositor_first
                 ),
@@ -2169,6 +2175,24 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             lambda report: report["hdr_compositor"].__setitem__(
                 "initialization_failure_stages_verified", 9
             ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "frame_commit_prepare_failure_verified", False
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "aborted_hdr_audit_unchanged", False
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "aborted_reflection_audit_unchanged", False
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "aborted_submission_uncommitted", False
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "aborted_output_unchanged", False
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "post_render_failure_fault_latched", False
+            ),
         )
         for index, mutation in enumerate(mutations):
             with self.subTest(mutation=index):
@@ -2189,6 +2213,24 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                         "RT4 HDR compositor evidence failed",
                     ):
                         VERIFY.verify_artifact_set(root)
+
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre-rt4-hdr-atomic-field-"
+        ) as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["hdr_compositor"].pop(
+                "frame_commit_prepare_failure_verified"
+            )
+            report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+            self.refresh_rt4_attestation(root, ("report",))
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError,
+                "RT4 HDR compositor report fields are incomplete or unexpected",
+            ):
+                VERIFY.verify_artifact_set(root)
 
     def test_rt4_history_oracle_rejects_co_mutated_tolerance_claims(self) -> None:
         with tempfile.TemporaryDirectory(

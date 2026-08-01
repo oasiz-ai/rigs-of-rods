@@ -83,6 +83,9 @@ enum class OgreNextN1HdrFailureStage : std::uint8_t {
   AFTER_PARAMETER_BINDING,
   AFTER_WARMUP_FRAME_ONE,
   AFTER_WARMUP_FRAME_TWO,
+  /// Fires after native HDR history has been read and transactionally
+  /// prepared, but before any public frame or audit state is committed.
+  AFTER_FRAME_COMMIT_PREPARE,
 };
 #endif
 

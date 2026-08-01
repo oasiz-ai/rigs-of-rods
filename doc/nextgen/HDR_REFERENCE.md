@@ -150,10 +150,14 @@ corresponding native write. Later frames use the binary32 rounding of
 consecutive immutable simulation timestamps, require contiguous frame IDs and
 monotonic time, and reject a delta above 60 seconds.
 
-After each native frame, `CommitFrame` compares the finite-positive native R16
+After each native frame, `PrepareCommit` compares the finite-positive native R16
 readback with the CPU reference using the documented conditioning and binary32
-rounding bound plus one binary16 storage ULP. The accepted native bits, not the
-CPU bits, become authoritative history. Evidence records both bit patterns,
+rounding bound plus one binary16 storage ULP. It stages only POD candidate state;
+committed history and audit accessors remain unchanged. Once every frame
+participant reports `CanCommitPrepared`, `CommitPrepared` publishes the accepted
+native bits as authoritative history without allocation, while `AbortPrepared`
+discards the candidate. `CommitFrame` remains the single-participant convenience
+wrapper around that two-phase contract. Evidence records both bit patterns,
 absolute error, every bound component, storage ULP, ULP distance, validation
 mode, and the exposure/luminance/previous-history inputs needed to reproduce the
 calculation. Both the native runner and artifact-set gate independently replay
@@ -161,7 +165,17 @@ the binary32/R16 oracle from those inputs; mutating the claimed bound alongside
 a bad native result cannot make it admissible. The next render also proves that
 the compositor copied current luminance to old luminance bit-for-bit. Invalid
 input, stale plans, out-of-bound native results, and unchanged history leave the
-temporal state unchanged.
+committed temporal state unchanged.
+
+The compositor's current-to-old copy occurs on the GPU during rendering and is
+not reversible by the CPU transaction. A failure after that render but before
+atomic frame publication aborts every staged CPU/public participant, leaves the
+output and committed HDR audit unchanged, and fault-latches the frontend until
+shutdown/reset; it never reuses advanced GPU history as if the failed frame had
+committed. HDR plus directional PSSM is rejected before native device creation
+until a shared `HdrRenderingNode` shadow binding is reviewed. Reflection probes
+remain compatible with HDR and participate in the same post-render publication
+boundary.
 
 The Metal proof creates the RoR-owned `RoRHdrWorkspaceUiFreeV2` definition in
 code and verifies its node aliases never include `HdrRenderUi`. Its name and
