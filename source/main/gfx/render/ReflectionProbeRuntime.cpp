@@ -656,13 +656,6 @@ ReflectionProbePlanResult ReflectionProbeUpdateScheduler::BeginFrame(
         "render frame identity must advance after every committed plan");
     return result;
   }
-  if (impl_->has_committed_frame &&
-      simulation_tick < impl_->last_committed_simulation_tick) {
-    result.validation = Failure(
-        ValidationCode::SEQUENCE_MISMATCH, "simulation_tick",
-        "simulation tick must not move backwards");
-    return result;
-  }
   ValidationResult validation =
       ValidateReflectionProbeRuntimeSet(descriptors);
   if (!validation) {
@@ -674,6 +667,31 @@ ReflectionProbePlanResult ReflectionProbeUpdateScheduler::BeginFrame(
         ValidationCode::VALUE_OUT_OF_RANGE, "descriptors",
         "live reflection-probe set exceeds the configured limit");
     return result;
+  }
+  const bool historical_replay =
+      impl_->has_committed_frame &&
+      simulation_tick < impl_->last_committed_simulation_tick;
+  if (historical_replay) {
+    const std::size_t live_probe_count = static_cast<std::size_t>(
+        std::count_if(impl_->states.begin(), impl_->states.end(),
+                      [](const auto &entry) { return entry.second.live; }));
+    bool exact_live_set = live_probe_count == descriptors.size();
+    for (const ReflectionProbeRuntimeDescriptor &descriptor : descriptors) {
+      const auto current = impl_->states.find(descriptor.probe_id);
+      exact_live_set =
+          exact_live_set && current != impl_->states.end() &&
+          current->second.live && !current->second.retired &&
+          current->second.descriptor.content_revision ==
+              descriptor.content_revision &&
+          AreReflectionProbeRuntimeDescriptorsEquivalent(
+              current->second.descriptor, descriptor);
+    }
+    if (!exact_live_set) {
+      result.validation = Failure(
+          ValidationCode::SEQUENCE_MISMATCH, "simulation_tick",
+          "historical replay must preserve the exact committed live probe set");
+      return result;
+    }
   }
 
   auto candidate_states = impl_->states;
@@ -732,6 +750,11 @@ ReflectionProbePlanResult ReflectionProbeUpdateScheduler::BeginFrame(
   for (auto &entry : candidate_states) {
     Impl::ProbeState &state = entry.second;
     if (!state.live) {
+      continue;
+    }
+    // An exact older immutable snapshot is renderable, but it must never
+    // schedule new work or rewrite capture lineage from historical time.
+    if (historical_replay) {
       continue;
     }
     Impl::DueProbe candidate;
@@ -943,7 +966,8 @@ ReflectionProbeCommitResult ReflectionProbeUpdateScheduler::Commit(
   impl_->last_committed_render_frame_id =
       impl_->pending->plan.render_frame_id;
   impl_->last_committed_simulation_tick =
-      impl_->pending->plan.simulation_tick;
+      (std::max)(impl_->last_committed_simulation_tick,
+                 impl_->pending->plan.simulation_tick);
   impl_->has_committed_frame = true;
   impl_->pending.reset();
   result.committed_state_digest = impl_->StateDigest();

@@ -167,7 +167,9 @@ IsKnownReflectionProbeUpdateReason(ReflectionProbeUpdateReason reason) noexcept;
 /// applies the entire descriptor/tombstone transaction and advances only those
 /// generations with complete native receipts. Abort drops the candidate. One
 /// plan may be outstanding at a time; probe IDs retired during this scheduler
-/// lifetime can never be reused.
+/// lifetime can never be reused. An older simulation tick is admitted only as
+/// an exact live-probe-set replay; it schedules no capture and cannot lower the
+/// committed simulation high-water mark.
 class ReflectionProbeUpdateScheduler final {
 public:
   explicit ReflectionProbeUpdateScheduler(

@@ -455,21 +455,67 @@ void TestRetirementFrameAndTickLineage() {
 
   Require(!scheduler.BeginFrame(1U, 100U, {}, descriptors),
           "committed render frame identity was reused");
-  Require(!scheduler.BeginFrame(2U, 99U, {}, descriptors),
-          "simulation tick moved backwards");
+  ReflectionProbeUpdatePlan replay = Begin(scheduler, 2U, 99U, descriptors);
+  Require(replay.requests.empty(),
+          "exact historical snapshot replay scheduled a capture");
+  CommitAll(scheduler, replay);
+  Require(scheduler.completed_generation(9U) == 1U,
+          "historical snapshot replay changed capture generation");
 
-  plan = Begin(scheduler, 2U, 100U, {});
+  const std::uint64_t replay_digest = scheduler.committed_state_digest();
+  ReflectionProbeRuntimeDescriptor changed = descriptors.front();
+  ++changed.content_revision;
+  Require(!scheduler.BeginFrame(3U, 99U, {}, {changed}),
+          "historical snapshot replay changed probe contents");
+  Require(!scheduler.BeginFrame(3U, 99U, {}, {}),
+          "historical snapshot replay retired a live probe");
+  Require(!scheduler.has_pending_plan() &&
+              scheduler.committed_state_digest() == replay_digest &&
+              scheduler.completed_generation(9U) == 1U,
+          "rejected historical replay mutated committed probe lineage");
+
+  plan = Begin(scheduler, 3U, 100U, {});
   Require(plan.requests.empty(), "probe retirement scheduled a capture");
   CommitAll(scheduler, plan);
   Require(scheduler.completed_generation(9U) == 0U,
           "retired probe remained queryable as live");
-  Require(!scheduler.BeginFrame(3U, 101U, {}, descriptors),
+  Require(!scheduler.BeginFrame(4U, 101U, {}, descriptors),
           "retired probe identity was reused");
 
   scheduler.Reset();
   plan = Begin(scheduler, 1U, 0U, descriptors);
   Require(plan.requests.size() == 1U,
           "reset did not clear tombstones and frame lineage");
+  CommitAll(scheduler, plan);
+}
+
+void TestHistoricalReplayDoesNotRetryFailedPeriodicCapture() {
+  ReflectionProbeUpdateScheduler scheduler;
+  const ReflectionProbeRuntimeDescriptor periodic = Probe(
+      10U, 1U, ReflectionProbeUpdateMode::PERIODIC_SIMULATION_TICKS, 10U);
+  ReflectionProbeUpdatePlan plan = Begin(scheduler, 1U, 100U, {periodic});
+  CommitAll(scheduler, plan);
+
+  plan = Begin(scheduler, 2U, 120U, {periodic});
+  Require(plan.requests.size() == 1U,
+          "periodic capture was not due at the live high-water tick");
+  CommitAll(scheduler, plan, false);
+  Require(scheduler.completed_generation(10U) == 1U,
+          "failed periodic capture advanced the generation");
+
+  plan = Begin(scheduler, 3U, 115U, {periodic});
+  Require(plan.requests.empty(),
+          "historical replay retried failed periodic capture work");
+  CommitAll(scheduler, plan);
+  plan = Begin(scheduler, 4U, 116U, {periodic});
+  Require(plan.requests.empty(),
+          "historical replay lowered the simulation high-water mark");
+  CommitAll(scheduler, plan);
+
+  plan = Begin(scheduler, 5U, 120U, {periodic});
+  Require(plan.requests.size() == 1U &&
+              plan.requests.front().candidate_generation == 2U,
+          "live high-water retry lost periodic capture lineage");
   CommitAll(scheduler, plan);
 }
 
@@ -693,6 +739,7 @@ int main() {
   TestPeriodicTicksAndOverdueFairness();
   TestFailureAbortAndTransactionalCompletion();
   TestRetirementFrameAndTickLineage();
+  TestHistoricalReplayDoesNotRetryFailedPeriodicCapture();
   TestResetNeverReusesPlanIdentity();
   TestCommittedReceiptCannotReplay();
   TestLargeWorldOriginRebasing();
