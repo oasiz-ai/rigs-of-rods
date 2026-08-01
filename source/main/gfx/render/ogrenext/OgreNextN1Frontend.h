@@ -43,6 +43,11 @@ struct OgreNextN1TextureAllocationAudit final {
   std::uint32_t sampled_rgba_allocations = 0U;
   std::uint32_t roughness_r8_allocations = 0U;
   std::uint32_t metallic_r8_allocations = 0U;
+  std::uint64_t native_allocation_creates = 0U;
+  std::uint64_t native_allocation_destroys = 0U;
+  std::uint64_t live_native_allocations = 0U;
+  std::uint64_t retired_name_lookups = 0U;
+  std::uint64_t retired_name_rejections = 0U;
   bool exact_usage = false;
 };
 

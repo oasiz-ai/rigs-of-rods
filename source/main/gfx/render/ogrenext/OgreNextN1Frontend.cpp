@@ -498,6 +498,21 @@ public:
           (texture.roughness != nullptr) == texture.usage.roughness_g &&
           (texture.metallic != nullptr) == texture.usage.metallic_b;
     }
+    audit.live_native_allocations =
+        static_cast<std::uint64_t>(audit.sampled_rgba_allocations) +
+        static_cast<std::uint64_t>(audit.roughness_r8_allocations) +
+        static_cast<std::uint64_t>(audit.metallic_r8_allocations);
+    audit.native_allocation_creates = texture_allocation_creates;
+    audit.native_allocation_destroys = texture_allocation_destroys;
+    audit.retired_name_lookups = texture_retired_name_lookups;
+    audit.retired_name_rejections = texture_retired_name_rejections;
+    audit.exact_usage =
+        audit.exact_usage &&
+        audit.native_allocation_creates >= audit.native_allocation_destroys &&
+        audit.native_allocation_creates - audit.native_allocation_destroys ==
+            audit.live_native_allocations &&
+        audit.retired_name_lookups == audit.native_allocation_destroys &&
+        audit.retired_name_rejections == audit.retired_name_lookups;
     return audit;
   }
 
@@ -761,9 +776,14 @@ public:
 
       Ogre::TextureGpuManager *texture_manager =
           renderer->getTextureGpuManager();
+      if (texture_manager->findTextureNoThrow(Ogre::IdString(name)) != nullptr) {
+        throw std::runtime_error(
+            "Ogre-Next RT4/V1 texture name survived before replacement allocation");
+      }
       texture = texture_manager->createTexture(
           name, Ogre::GpuPageOutStrategy::Discard, 0U,
           Ogre::TextureTypes::Type2D);
+      ++texture_allocation_creates;
       texture->setResolution(descriptor.width, descriptor.height);
       texture->setNumMipmaps(
           static_cast<Ogre::uint8>(descriptor.mip_levels.size()));
@@ -970,13 +990,22 @@ public:
 
   [[nodiscard]] bool DestroyTexture(NativeTexture &native) noexcept {
     bool clean = true;
-    const auto destroy_one = [&](Ogre::TextureGpu *&texture) {
+    const auto destroy_one = [&](Ogre::TextureGpu *&texture,
+                                 const std::string &name) {
       if (texture == nullptr) {
         return;
       }
       if (renderer != nullptr) {
         try {
-          renderer->getTextureGpuManager()->destroyTexture(texture);
+          Ogre::TextureGpuManager *manager = renderer->getTextureGpuManager();
+          manager->destroyTexture(texture);
+          ++texture_allocation_destroys;
+          ++texture_retired_name_lookups;
+          if (manager->findTextureNoThrow(Ogre::IdString(name)) == nullptr) {
+            ++texture_retired_name_rejections;
+          } else {
+            clean = false;
+          }
         } catch (...) {
           clean = false;
         }
@@ -985,9 +1014,9 @@ public:
       }
       texture = nullptr;
     };
-    destroy_one(native.metallic);
-    destroy_one(native.roughness);
-    destroy_one(native.sampled);
+    destroy_one(native.metallic, native.metallic_name);
+    destroy_one(native.roughness, native.roughness_name);
+    destroy_one(native.sampled, native.sampled_name);
     return clean;
   }
 
@@ -1149,6 +1178,10 @@ public:
   bool initialized = false;
   bool faulted = false;
   bool owns_root_claim = false;
+  std::uint64_t texture_allocation_creates = 0U;
+  std::uint64_t texture_allocation_destroys = 0U;
+  std::uint64_t texture_retired_name_lookups = 0U;
+  std::uint64_t texture_retired_name_rejections = 0U;
   std::uint32_t maximum_texture_dimension =
       kOgreNextN1ConservativeMaximumTextureDimension;
   float maximum_anisotropy = 1.0F;

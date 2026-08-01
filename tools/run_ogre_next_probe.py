@@ -1213,6 +1213,7 @@ def validate_n1_checkpoint(
     adapter = report.get("adapter", {})
     catalog = report.get("catalog", {})
     texture_allocations = report.get("texture_allocations", {})
+    texture_retirement = report.get("texture_retirement", {})
     hdr = report.get("hdr", {})
     sdr = report.get("sdr", {})
     lifecycle = report.get("lifecycle", {})
@@ -1365,6 +1366,79 @@ def validate_n1_checkpoint(
                     "live_texture_replacement_retirement"
                 )
                 is True,
+                "rt4_retirement": texture_retirement
+                == {
+                    "schema": "ror.ogre_next_rt4_texture_retirement.v1",
+                    "isolated_from_visual_variants": True,
+                    "transitions": [
+                        {
+                            "revision": 1,
+                            "width": 2,
+                            "height": 2,
+                            "mip_levels": 1,
+                        },
+                        {
+                            "revision": 2,
+                            "width": 4,
+                            "height": 2,
+                            "mip_levels": 2,
+                            "padded_rows": True,
+                        },
+                        {
+                            "revision": 3,
+                            "width": 2,
+                            "height": 2,
+                            "mip_levels": 1,
+                        },
+                    ],
+                    "exact_extent_and_mip_transitions": True,
+                    "renders_through_transitions_and_restart": True,
+                    "find_texture_no_throw_rejected_old_names": True,
+                    "audits": {
+                        "initial": {
+                            "creates": 1,
+                            "destroys": 0,
+                            "live": 1,
+                            "retired_name_lookups": 0,
+                            "retired_name_rejections": 0,
+                        },
+                        "expanded": {
+                            "creates": 2,
+                            "destroys": 1,
+                            "live": 1,
+                            "retired_name_lookups": 1,
+                            "retired_name_rejections": 1,
+                        },
+                        "restored": {
+                            "creates": 3,
+                            "destroys": 2,
+                            "live": 1,
+                            "retired_name_lookups": 2,
+                            "retired_name_rejections": 2,
+                        },
+                        "first_shutdown": {
+                            "creates": 3,
+                            "destroys": 3,
+                            "live": 0,
+                            "retired_name_lookups": 3,
+                            "retired_name_rejections": 3,
+                        },
+                        "restarted": {
+                            "creates": 4,
+                            "destroys": 3,
+                            "live": 1,
+                            "retired_name_lookups": 3,
+                            "retired_name_rejections": 3,
+                        },
+                        "final_shutdown": {
+                            "creates": 4,
+                            "destroys": 4,
+                            "live": 0,
+                            "retired_name_lookups": 4,
+                            "retired_name_rejections": 4,
+                        },
+                    },
+                },
             }
         )
     failed = [name for name, passed in checks.items() if not passed]
