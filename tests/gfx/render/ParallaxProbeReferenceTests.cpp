@@ -201,6 +201,72 @@ void TestOffsetGoldenAndBoundaryPolicy() {
           "outside position did not preserve negative raw fade");
 }
 
+void TestCollapsedAutomaticAreaRangesAndSignedZeroRay() {
+  using namespace RoR::Render;
+  ParallaxProbeReferenceInput input;
+  input.position_local = {-0.0F, -0.0F, -0.0F};
+  input.reflection_direction_local = {-0.0F, 1.0F, -0.0F};
+  input.probe_half_size = {2.0F, 3.0F, 4.0F};
+  input.area_inner_range = {0.0F, 0.5F, 0.0F};
+  input.area_outer_range = {0.0F, 1.0F, 0.0F};
+  input.priority = 7U;
+
+  const ParallaxProbeReferenceResult collapsed_axis = Evaluate(input);
+  Require(collapsed_axis.sample_active,
+          "collapsed automatic area axis disabled probe sampling");
+  RequireNear(collapsed_axis.raw_box_fade, 1.0, 0.0,
+              "collapsed-axis manual fade drifted");
+  RequireNear(collapsed_axis.manual_probe_weight, 1.0, 0.0,
+              "collapsed-axis manual weight drifted");
+  RequireNear(collapsed_axis.automatic_ndf, 0.0, 0.0,
+              "collapsed-axis NDF drifted");
+  RequireNear(collapsed_axis.automatic_probe_weight, 7.0, 0.0,
+              "collapsed-axis fourth-power priority weight drifted");
+  RequireNear(collapsed_axis.intersection_distance, 3.0, 0.0,
+              "signed-zero ray exit distance drifted");
+  RequireNear(collapsed_axis.intersection_local, {-0.0, 3.0, -0.0}, 0.0,
+              "signed-zero ray intersection drifted");
+  Require(std::signbit(collapsed_axis.intersection_local.x) &&
+              std::signbit(collapsed_axis.intersection_local.z),
+          "parallel signed-zero ray axes lost their sign");
+  Require(std::signbit(collapsed_axis.corrected_direction_left_handed.x) &&
+              !std::signbit(
+                  collapsed_axis.corrected_direction_left_handed.z),
+          "left-handed correction did not preserve and flip signed zero");
+
+  input.position_local = {};
+  input.reflection_direction_local = {1.0F, 0.0F, 0.0F};
+  input.area_inner_range = {};
+  input.area_outer_range = {};
+  input.priority = 13U;
+  const ParallaxProbeReferenceResult all_zero_center = Evaluate(input);
+  Require(all_zero_center.sample_active,
+          "all-zero automatic area disabled probe sampling");
+  RequireNear(all_zero_center.manual_probe_weight, 1.0, 0.0,
+              "all-zero-area center manual weight drifted");
+  RequireNear(all_zero_center.automatic_ndf, 0.0, 0.0,
+              "all-zero-area center NDF drifted");
+  RequireNear(all_zero_center.automatic_probe_weight, 13.0, 0.0,
+              "all-zero-area center automatic weight drifted");
+  RequireNear(all_zero_center.intersection_distance, 2.0, 0.0,
+              "all-zero-area center ray exit distance drifted");
+
+  input.position_local = {0.25F, 0.0F, 0.0F};
+  const ParallaxProbeReferenceResult all_zero_offset = Evaluate(input);
+  RequireNear(all_zero_offset.raw_box_fade, 0.875, 0.0,
+              "all-zero-area manual fade drifted");
+  RequireNear(all_zero_offset.manual_probe_weight, 1.0, 0.0,
+              "all-zero-area manual weight drifted");
+  RequireNear(all_zero_offset.automatic_ndf, 250000.0, 0.0,
+              "all-zero-area epsilon NDF drifted");
+  RequireNear(all_zero_offset.automatic_probe_weight, 0.0, 0.0,
+              "all-zero-area automatic weight did not saturate to zero");
+  RequireNear(all_zero_offset.intersection_distance, 1.75, 0.0,
+              "all-zero-area ray exit distance drifted");
+  RequireNear(all_zero_offset.intersection_local, {2.0, 0.0, 0.0}, 0.0,
+              "all-zero-area ray intersection drifted");
+}
+
 void TestFixedSeedIntersectionAndWeights() {
   using namespace RoR::Render;
   std::uint64_t random = UINT64_C(0x6f67726570636331);
@@ -303,6 +369,12 @@ void TestMalformedInputsAreTransactional() {
   Require(unchanged(), "range failure changed output");
 
   input = {};
+  input.area_outer_range.x = -1.0F;
+  Require(!EvaluateParallaxProbeReference(input, sentinel),
+          "negative outer range was accepted");
+  Require(unchanged(), "negative outer-range failure changed output");
+
+  input = {};
   input.priority = 0U;
   Require(!EvaluateParallaxProbeReference(input, sentinel),
           "zero automatic priority was accepted");
@@ -327,6 +399,7 @@ void TestMalformedInputsAreTransactional() {
 int main() {
   TestPinnedIdentityAndAxisGolden();
   TestOffsetGoldenAndBoundaryPolicy();
+  TestCollapsedAutomaticAreaRangesAndSignedZeroRay();
   TestFixedSeedIntersectionAndWeights();
   TestMalformedInputsAreTransactional();
   std::cout << "portable pinned Ogre-Next parallax-probe tests passed\n";
