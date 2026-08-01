@@ -217,7 +217,14 @@ MaterialDescriptor MakeMaterial(bool modern_pbr = false,
   material.roughness_factor = 0.28F;
   material.double_sided = true;
   material.emissive_factor = {0.78F, 0.12F, 0.035F};
-  material.emissive_strength = 6.0F;
+  // The GitHub macOS arm64 runner exposes Apple's paravirtual Metal device.
+  // That driver currently produces roughly one third of the physical Apple M5
+  // luminance for this texture-free emissive fixture.  Keep the source energy
+  // far enough above display white that both devices independently prove the
+  // RGBA16_FLOAT attachment is scene-linear and unclamped.  This smoke checks
+  // HDR storage, not cross-device photometric parity; that is a separate V1
+  // backend-oracle gate.
+  material.emissive_strength = 24.0F;
   if (modern_pbr) {
     Require(variant != nullptr, "RT4/V1 material lacks its revision plan");
     material.debug_name = "RT4/V1 texture-backed metallic-roughness PBS";
