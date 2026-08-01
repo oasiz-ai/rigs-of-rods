@@ -198,6 +198,7 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         for token in (
             "TightReceiverMesh",
             "tight_receiver_bounds",
+            "tight_instances[1U].local_bounds.minimum.z",
             "0.25F",
             "-0.125F",
             "off_center_tight_bounds",

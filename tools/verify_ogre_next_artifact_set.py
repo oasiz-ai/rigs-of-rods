@@ -1960,6 +1960,8 @@ def _verify_pssm_pass(
             "off_center_projection_verified",
             "receiver_bounds_min_z",
             "receiver_bounds_max_z",
+            "caster_bounds_min_z",
+            "caster_bounds_max_z",
             "tight_caster_bounds_verified",
             "sdr_changed_pixels",
             "sdr_darkened_pixels",
@@ -1988,6 +1990,8 @@ def _verify_pssm_pass(
         and fixture.get("off_center_projection_verified") is True
         and _number_matches(fixture.get("receiver_bounds_min_z"), 0.0)
         and _number_matches(fixture.get("receiver_bounds_max_z"), 0.0)
+        and _number_matches(fixture.get("caster_bounds_min_z"), 0.0)
+        and _number_matches(fixture.get("caster_bounds_max_z"), 0.0)
         and fixture.get("tight_caster_bounds_verified") is True
         and _json_exact(fixture.get("sdr_changed_pixels"), fixture_metrics[0])
         and _json_exact(fixture.get("sdr_darkened_pixels"), fixture_metrics[1])

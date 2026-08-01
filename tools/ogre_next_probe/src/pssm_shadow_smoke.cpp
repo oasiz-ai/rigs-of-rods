@@ -677,9 +677,14 @@ RenderOperationResult RunShadow(const std::string &media_root,
                 (0.875F / 1.5F)) < 1.0e-6F &&
       std::fabs(fixture_audit.last_frame.projection_extents.bottom -
                 (-1.125F / 1.5F)) < 1.0e-6F;
+  const std::vector<MeshInstanceDescriptor> &tight_instances =
+      tight_with->mesh_instances();
   result.tight_caster_bounds_verified =
-      tight_with->mesh_instances().front().local_bounds.minimum.z == 0.0F &&
-      tight_with->mesh_instances().front().local_bounds.maximum.z == 0.0F;
+      tight_instances.size() == 2U &&
+      tight_instances[0U].local_bounds.minimum.z == 0.0F &&
+      tight_instances[0U].local_bounds.maximum.z == 0.0F &&
+      tight_instances[1U].local_bounds.minimum.z == 0.0F &&
+      tight_instances[1U].local_bounds.maximum.z == 0.0F;
   Require(result.off_center_projection_verified &&
               result.tight_caster_bounds_verified,
           "PSSM off-center tangent or exact caster-bounds fixture failed");
@@ -971,6 +976,8 @@ std::string PassReport(const SmokeResult &result,
          << ",\n"
          << "    \"receiver_bounds_min_z\": 0,\n"
          << "    \"receiver_bounds_max_z\": 0,\n"
+         << "    \"caster_bounds_min_z\": 0,\n"
+         << "    \"caster_bounds_max_z\": 0,\n"
          << "    \"tight_caster_bounds_verified\": "
          << (result.tight_caster_bounds_verified ? "true" : "false")
          << ",\n"
