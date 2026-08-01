@@ -1,0 +1,35 @@
+{
+  "schema_version": 2,
+  "status": "pass",
+  "provenance": {
+    "ogre_next_commit": "37149a802de747f6806996fa3067b0748ecc1084",
+    "ogre_next_archive_sha256": "1c0be064474da512606d02543be2630b36cdf99f359a9f23edc97eeb410e25b2"
+  },
+  "build": {
+    "ogre_version": "3.0.0",
+    "abi_cookie": "46a34938ff9e3014046d5cf993e7fcb3"
+  },
+  "platform_policy": "macos-arm64-metal",
+  "renderer": "Metal Rendering Subsystem",
+  "device_name": "Apple M5",
+  "surface_mode": "macos-hidden-native",
+  "frame": {
+    "width": 192,
+    "height": 128,
+    "warmup_frames": 4,
+    "pixel_format": "PFG_RGBA8_UNORM",
+    "ui_included": false,
+    "hlms_pbs_geometry": true,
+    "compositor2": true,
+    "gpu_readback": true,
+    "distinct_rgb8_values": 203,
+    "non_background_pixels": 5514,
+    "minimum_luminance": 0.0114972554,
+    "maximum_luminance": 0.922463536,
+    "rgb8_fnv1a64": "47f35fe4bdec9207"
+  },
+  "lifecycle": {
+    "renderer_shutdown_completed": true
+  },
+  "native_ray_tracing": "not_evaluated"
+}

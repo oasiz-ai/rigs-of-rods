@@ -1056,8 +1056,13 @@ Gate R1:
   hashes, and leaves the RoR/OGRE 14 graph untouched. Its native macOS arm64
   executable registered Metal, linked HLMS PBS with the Metal shader family,
   and compiled Compositor2 while explicitly reporting native RT as not
-  evaluated. Windows D3D11, Linux Vulkan, a real window/frame, and RoR scene
-  interop remain open gates; see the
+  evaluated. The next isolated macOS checkpoint creates a hidden native Metal
+  window, renders a manual PBR triangle through HLMS PBS and Compositor2,
+  performs UI-free GPU readback, independently validates the raster pixels,
+  and records clean renderer shutdown. Windows D3D11 and Linux Vulkan
+  reproduction remain open; Linux is deliberately an offscreen null-window
+  raster gate rather than a presentation-window claim. RoR scene interop also
+  remains open; see the
   [isolated integration checkpoint](OGRE_NEXT_INTEGRATION.md).
 - macOS first renders a measured RT contribution in a real UI-free RoR frame
   on Apple family 9 or newer. M1/M2 and unsupported OS versions retain the

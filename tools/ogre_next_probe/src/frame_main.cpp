@@ -14,6 +14,7 @@
 #include "OgreLight.h"
 #include "OgreManualObject2.h"
 #include "OgreRenderSystem.h"
+#include "OgreRenderSystemCapabilities.h"
 #include "OgreRoot.h"
 #include "OgreSceneManager.h"
 #include "OgreSceneNode.h"
@@ -69,6 +70,53 @@ namespace
         float maximumLuminance = -std::numeric_limits<float>::infinity();
         std::vector<unsigned char> rgb;
     };
+
+    struct FrameResult
+    {
+        FrameMetrics metrics;
+        std::string  pixelFormat;
+        std::string  deviceName;
+        std::string  abiCookie;
+    };
+
+    std::string jsonEscape( const std::string &value )
+    {
+        std::ostringstream escaped;
+        for( const unsigned char character : value )
+        {
+            switch( character )
+            {
+            case '\\': escaped << "\\\\"; break;
+            case '"': escaped << "\\\""; break;
+            case '\b': escaped << "\\b"; break;
+            case '\f': escaped << "\\f"; break;
+            case '\n': escaped << "\\n"; break;
+            case '\r': escaped << "\\r"; break;
+            case '\t': escaped << "\\t"; break;
+            default:
+                if( character < 0x20u )
+                {
+                    const char hex[] = "0123456789abcdef";
+                    escaped << "\\u00" << hex[( character >> 4u ) & 0x0fu]
+                            << hex[character & 0x0fu];
+                }
+                else
+                {
+                    escaped << static_cast<char>( character );
+                }
+                break;
+            }
+        }
+        return escaped.str();
+    }
+
+    std::string formatAbiCookie( const Ogre::AbiCookie &abiCookie )
+    {
+        std::ostringstream value;
+        value << std::hex << std::setfill( '0' ) << std::setw( 16 ) << abiCookie.val[0]
+              << std::setw( 16 ) << abiCookie.val[1];
+        return value.str();
+    }
 
     Arguments parseArguments( int argc, char **argv )
     {
@@ -251,21 +299,36 @@ namespace
         return metrics;
     }
 
-    std::string makeReport( const FrameMetrics &metrics, const Ogre::TextureGpu &target )
+    std::string makeReport( const FrameResult &result )
     {
+        const FrameMetrics &metrics = result.metrics;
         std::ostringstream report;
         report << "{\n"
-               << "  \"schema_version\": 1,\n"
+               << "  \"schema_version\": 2,\n"
                << "  \"status\": \"pass\",\n"
+               << "  \"provenance\": {\n"
+               << "    \"ogre_next_commit\": \""
+               << ROR_OGRE_NEXT_FRAME_OGRE_COMMIT << "\",\n"
+               << "    \"ogre_next_archive_sha256\": \""
+               << ROR_OGRE_NEXT_FRAME_OGRE_ARCHIVE_SHA256 << "\"\n"
+               << "  },\n"
+               << "  \"build\": {\n"
+               << "    \"ogre_version\": \"" << OGRE_VERSION_MAJOR << '.'
+               << OGRE_VERSION_MINOR << '.' << OGRE_VERSION_PATCH << "\",\n"
+               << "    \"abi_cookie\": \"" << result.abiCookie << "\"\n"
+               << "  },\n"
                << "  \"platform_policy\": \"" << ROR_OGRE_NEXT_FRAME_PLATFORM_POLICY
                << "\",\n"
                << "  \"renderer\": \"" << ROR_OGRE_NEXT_FRAME_RENDERER_NAME << "\",\n"
+               << "  \"device_name\": \"" << jsonEscape( result.deviceName ) << "\",\n"
+               << "  \"surface_mode\": \"" << ROR_OGRE_NEXT_FRAME_SURFACE_MODE
+               << "\",\n"
                << "  \"frame\": {\n"
                << "    \"width\": " << kWidth << ",\n"
                << "    \"height\": " << kHeight << ",\n"
                << "    \"warmup_frames\": " << kWarmupFrames << ",\n"
                << "    \"pixel_format\": \""
-               << Ogre::PixelFormatGpuUtils::toString( target.getPixelFormat() ) << "\",\n"
+               << result.pixelFormat << "\",\n"
                << "    \"ui_included\": false,\n"
                << "    \"hlms_pbs_geometry\": true,\n"
                << "    \"compositor2\": true,\n"
@@ -278,12 +341,15 @@ namespace
                << "    \"rgb8_fnv1a64\": \"" << std::hex << std::setfill( '0' )
                << std::setw( 16 ) << metrics.fnv1a64 << std::dec << "\"\n"
                << "  },\n"
+               << "  \"lifecycle\": {\n"
+               << "    \"renderer_shutdown_completed\": true\n"
+               << "  },\n"
                << "  \"native_ray_tracing\": \"not_evaluated\"\n"
                << "}\n";
         return report.str();
     }
 
-    std::string renderFrame( const Arguments &arguments )
+    FrameResult renderFrame( const Arguments &arguments )
     {
         const Ogre::AbiCookie abiCookie = Ogre::generateAbiCookie();
         FrameRendererPlugin   rendererPlugin;
@@ -308,6 +374,11 @@ namespace
             "RoR OGRE-Next Frame Probe", 64u, 64u, false, &windowParameters );
         if( !window || !root.getCompositorManager2() )
             throw std::runtime_error( "native window did not initialize Compositor2" );
+
+        const Ogre::RenderSystemCapabilities *capabilities = renderer->getCapabilities();
+        if( !capabilities || capabilities->getDeviceName().empty() )
+            throw std::runtime_error( "initialized renderer did not identify its device" );
+        const std::string deviceName = capabilities->getDeviceName();
 
         Ogre::HlmsPbs *pbs = registerPbs( root );
         Ogre::HlmsPbsDatablock *datablock = createMaterial( *pbs );
@@ -356,15 +427,17 @@ namespace
 
         Ogre::Image2 image;
         image.convertFromTexture( target, 0u, 0u );
-        FrameMetrics metrics = inspectFrame( image );
-        writePpm( arguments.imagePath, metrics );
-        const std::string report = makeReport( metrics, *target );
-        writeText( arguments.reportPath, report );
+        FrameResult result;
+        result.metrics = inspectFrame( image );
+        result.pixelFormat = Ogre::PixelFormatGpuUtils::toString( target->getPixelFormat() );
+        result.deviceName = deviceName;
+        result.abiCookie = formatAbiCookie( abiCookie );
+        writePpm( arguments.imagePath, result.metrics );
 
         compositorManager->removeWorkspace( workspace );
         textureManager->destroyTexture( target );
         root.destroySceneManager( sceneManager );
-        return report;
+        return result;
     }
 }  // namespace
 
@@ -372,8 +445,11 @@ int main( int argc, char **argv )
 {
     try
     {
-        const Arguments arguments = parseArguments( argc, argv );
-        std::cout << renderFrame( arguments );
+        const Arguments   arguments = parseArguments( argc, argv );
+        const FrameResult result = renderFrame( arguments );
+        const std::string report = makeReport( result );
+        writeText( arguments.reportPath, report );
+        std::cout << report;
         return 0;
     }
     catch( const Ogre::Exception &error )

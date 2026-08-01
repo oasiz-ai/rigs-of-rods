@@ -28,6 +28,11 @@ RENDERERS = {
     "windows-x64-d3d11": "Direct3D11 Rendering Subsystem",
     "linux-x86_64-vulkan": "Vulkan Rendering Subsystem",
 }
+SURFACE_MODES = {
+    "macos-arm64-metal": "macos-hidden-native",
+    "windows-x64-d3d11": "windows-hidden-native",
+    "linux-x86_64-vulkan": "linux-null-window-offscreen",
+}
 
 
 class FrameValidationError(RuntimeError):
@@ -69,6 +74,18 @@ def read_report(path: Path) -> dict[str, Any]:
     return value
 
 
+def read_capability_report(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise FrameValidationError(
+            f"could not read capability report: {error}"
+        ) from error
+    if not isinstance(value, dict):
+        raise FrameValidationError("capability report root must be an object")
+    return value
+
+
 def read_ppm(path: Path) -> bytes:
     header = f"P6\n{WIDTH} {HEIGHT}\n255\n".encode("ascii")
     try:
@@ -94,19 +111,43 @@ def fnv1a64(payload: bytes) -> int:
     return result
 
 
-def inspect_pixels(pixels: bytes) -> dict[str, int | float | str]:
-    colours = Counter(
+def inspect_pixels(pixels: bytes) -> dict[str, Any]:
+    pixel_values = [
         (pixels[offset], pixels[offset + 1], pixels[offset + 2])
         for offset in range(0, len(pixels), 3)
-    )
-    largest_colour_run = max(colours.values())
+    ]
+    colours = Counter(pixel_values)
+    background, background_pixels = colours.most_common(1)[0]
+    foreground = [
+        (index % WIDTH, index // WIDTH)
+        for index, colour in enumerate(pixel_values)
+        if colour != background
+    ]
+    bounds = None
+    if foreground:
+        x_values = [point[0] for point in foreground]
+        y_values = [point[1] for point in foreground]
+        bounds = {
+            "min_x": min(x_values),
+            "max_x": max(x_values),
+            "min_y": min(y_values),
+            "max_y": max(y_values),
+        }
+    corner_indices = (0, WIDTH - 1, (HEIGHT - 1) * WIDTH, WIDTH * HEIGHT - 1)
+    corners = [list(pixel_values[index]) for index in corner_indices]
+    center = list(pixel_values[(HEIGHT // 2) * WIDTH + WIDTH // 2])
     luminances = [
         (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255.0
         for red, green, blue in colours
     ]
     return {
         "distinct_rgb8_values": len(colours),
-        "non_background_pixels": WIDTH * HEIGHT - largest_colour_run,
+        "background_rgb8": list(background),
+        "background_pixels": background_pixels,
+        "non_background_pixels": WIDTH * HEIGHT - background_pixels,
+        "foreground_bounds": bounds,
+        "corner_rgb8": corners,
+        "center_rgb8": center,
         "minimum_luminance": min(luminances),
         "maximum_luminance": max(luminances),
         "rgb8_fnv1a64": f"{fnv1a64(pixels):016x}",
@@ -114,22 +155,87 @@ def inspect_pixels(pixels: bytes) -> dict[str, int | float | str]:
 
 
 def validate(
-    report: dict[str, Any], pixels: bytes, expected_platform_policy: str
-) -> dict[str, int | float | str]:
+    report: dict[str, Any],
+    pixels: bytes,
+    expected_platform_policy: str,
+    capability_report: dict[str, Any],
+) -> dict[str, Any]:
     expected_renderer = RENDERERS.get(expected_platform_policy)
     if expected_renderer is None:
         raise FrameValidationError(
             f"unreviewed OGRE-Next frame policy: {expected_platform_policy}"
         )
-    _require_exact_int(report.get("schema_version"), 1, "schema_version")
+    _require_exact_int(report.get("schema_version"), 2, "schema_version")
     if report.get("status") != "pass":
         raise FrameValidationError("frame report status is not pass")
     if report.get("platform_policy") != expected_platform_policy:
         raise FrameValidationError("frame report platform policy does not match the runner")
     if report.get("renderer") != expected_renderer:
         raise FrameValidationError("frame report renderer does not match its platform policy")
+    if report.get("surface_mode") != SURFACE_MODES[expected_platform_policy]:
+        raise FrameValidationError("frame report surface mode does not match its policy")
+    device_name = report.get("device_name")
+    if (
+        not isinstance(device_name, str)
+        or not device_name.strip()
+        or device_name == "(default)"
+    ):
+        raise FrameValidationError("frame report does not identify the initialized device")
     if report.get("native_ray_tracing") != "not_evaluated":
         raise FrameValidationError("raster frame probe must not claim native ray tracing")
+
+    provenance = report.get("provenance")
+    build = report.get("build")
+    lifecycle = report.get("lifecycle")
+    if not isinstance(provenance, dict) or not isinstance(build, dict):
+        raise FrameValidationError("frame report is missing provenance or build identity")
+    if not isinstance(lifecycle, dict) or lifecycle.get(
+        "renderer_shutdown_completed"
+    ) is not True:
+        raise FrameValidationError("frame report does not prove clean renderer shutdown")
+    ogre_commit = provenance.get("ogre_next_commit")
+    ogre_archive = provenance.get("ogre_next_archive_sha256")
+    abi_cookie = build.get("abi_cookie")
+    if not isinstance(ogre_commit, str) or re.fullmatch(
+        r"[0-9a-f]{40}", ogre_commit
+    ) is None:
+        raise FrameValidationError("frame OGRE-Next commit is malformed")
+    if not isinstance(ogre_archive, str) or re.fullmatch(
+        r"[0-9a-f]{64}", ogre_archive
+    ) is None:
+        raise FrameValidationError("frame OGRE-Next archive hash is malformed")
+    if not isinstance(abi_cookie, str) or re.fullmatch(
+        r"[0-9a-f]{32}", abi_cookie
+    ) is None:
+        raise FrameValidationError("frame ABI cookie is malformed")
+    if build.get("ogre_version") != "3.0.0":
+        raise FrameValidationError("frame OGRE-Next version is outside the reviewed pin")
+
+    capability_provenance = capability_report.get("provenance")
+    capability_build = capability_report.get("build")
+    capability_renderer = capability_report.get("capabilities", {}).get("renderer")
+    if (
+        capability_report.get("status") != "pass"
+        or not isinstance(capability_provenance, dict)
+        or not isinstance(capability_build, dict)
+        or not isinstance(capability_renderer, dict)
+    ):
+        raise FrameValidationError("capability report is not a valid passing join input")
+    joins = {
+        "commit": capability_provenance.get("commit") == ogre_commit,
+        "archive": capability_provenance.get("archive_sha256") == ogre_archive,
+        "abi": capability_build.get("abi_cookie") == abi_cookie,
+        "version": capability_build.get("ogre_version") == build.get("ogre_version"),
+        "policy": capability_build.get("platform_policy")
+        == expected_platform_policy,
+        "renderer": capability_renderer.get("name") == expected_renderer,
+    }
+    failed_joins = [name for name, passed in joins.items() if not passed]
+    if failed_joins:
+        raise FrameValidationError(
+            "frame and capability reports disagree on "
+            + ", ".join(sorted(failed_joins))
+        )
 
     frame = report.get("frame")
     if not isinstance(frame, dict):
@@ -183,11 +289,44 @@ def validate(
         raise FrameValidationError("report and image disagree on foreground pixels")
     if observed["rgb8_fnv1a64"] != reported_hash:
         raise FrameValidationError("report and image RGB hashes disagree")
+    if not math.isclose(
+        float(observed["minimum_luminance"]),
+        minimum_luminance,
+        rel_tol=0.0,
+        abs_tol=1e-6,
+    ) or not math.isclose(
+        float(observed["maximum_luminance"]),
+        maximum_luminance,
+        rel_tol=0.0,
+        abs_tol=1e-6,
+    ):
+        raise FrameValidationError("report and image luminance extrema disagree")
     observed_span = float(observed["maximum_luminance"]) - float(
         observed["minimum_luminance"]
     )
     if observed_span < MIN_LUMINANCE_SPAN:
         raise FrameValidationError("RGB8 image luminance span is too small")
+    background = observed["background_rgb8"]
+    if int(observed["background_pixels"]) <= total_pixels // 2:
+        raise FrameValidationError("frame has no dominant scene background")
+    if any(corner != background for corner in observed["corner_rgb8"]):
+        raise FrameValidationError("frame corners do not agree with the modal background")
+    if observed["center_rgb8"] == background:
+        raise FrameValidationError("expected PBS geometry is absent from frame center")
+    bounds = observed["foreground_bounds"]
+    if not isinstance(bounds, dict):
+        raise FrameValidationError("frame has no foreground bounds")
+    if (
+        bounds["min_x"] < 16
+        or bounds["max_x"] > WIDTH - 17
+        or bounds["min_y"] < 8
+        or bounds["max_y"] > HEIGHT - 9
+        or bounds["max_x"] - bounds["min_x"] + 1 < WIDTH // 4
+        or bounds["max_y"] - bounds["min_y"] + 1 < HEIGHT // 3
+    ):
+        raise FrameValidationError(
+            "foreground does not occupy the reviewed central geometry region"
+        )
     return observed
 
 
@@ -195,6 +334,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", required=True, type=Path)
     parser.add_argument("--image", required=True, type=Path)
+    parser.add_argument("--capability-report", required=True, type=Path)
     parser.add_argument(
         "--platform-policy", required=True, choices=tuple(RENDERERS)
     )
@@ -208,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
             read_report(args.report),
             read_ppm(args.image),
             args.platform_policy,
+            read_capability_report(args.capability_report),
         )
     except FrameValidationError as error:
         print(f"OGRE-Next frame validation failed: {error}", file=sys.stderr)

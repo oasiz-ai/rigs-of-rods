@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import base64
 import copy
+import gzip
 import hashlib
 import importlib.util
 import json
@@ -15,6 +17,9 @@ import unittest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TOOL_PATH = REPOSITORY_ROOT / "tools" / "run_ogre_next_probe.py"
+FRAME_TOOL_PATH = (
+    REPOSITORY_ROOT / "tools" / "validate_ogre_next_frame_probe.py"
+)
 PROBE_DIR = REPOSITORY_ROOT / "tools" / "ogre_next_probe"
 CMAKE_PATH = PROBE_DIR / "CMakeLists.txt"
 LOCK_PATH = PROBE_DIR / "ogre-next.lock.json"
@@ -30,6 +35,13 @@ SPEC = importlib.util.spec_from_file_location("run_ogre_next_probe", TOOL_PATH)
 assert SPEC and SPEC.loader
 PROBE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PROBE)
+
+FRAME_SPEC = importlib.util.spec_from_file_location(
+    "validate_checked_in_ogre_next_frame", FRAME_TOOL_PATH
+)
+assert FRAME_SPEC and FRAME_SPEC.loader
+FRAME = importlib.util.module_from_spec(FRAME_SPEC)
+FRAME_SPEC.loader.exec_module(FRAME)
 
 
 class OgreNextProbeContractTests(unittest.TestCase):
@@ -348,9 +360,15 @@ class OgreNextProbeContractTests(unittest.TestCase):
         )
         for path_key, hash_key in (
             ("source_path", "source_sha256"),
+            ("frame_source_path", "frame_source_sha256"),
             ("cmake_path", "cmake_sha256"),
             ("wrapper_path", "wrapper_sha256"),
+            ("frame_validator_path", "frame_validator_sha256"),
             ("probe_config_template_path", "probe_config_template_sha256"),
+            (
+                "frame_config_template_path",
+                "frame_config_template_sha256",
+            ),
             (
                 "build_contract_template_path",
                 "build_contract_template_sha256",
@@ -359,6 +377,11 @@ class OgreNextProbeContractTests(unittest.TestCase):
             ("adaptation_patch_path", "adaptation_patch_sha256"),
             ("build_contract_path", "build_contract_sha256"),
             ("runtime_report_path", "runtime_report_sha256"),
+            (
+                "frame_runtime_report_path",
+                "frame_runtime_report_sha256",
+            ),
+            ("frame_image_path", "frame_image_encoded_sha256"),
         ):
             source_path = REPOSITORY_ROOT / provenance[path_key]
             self.assertTrue(source_path.is_file(), source_path)
@@ -376,6 +399,12 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
+        frame_runtime_report = json.loads(
+            (
+                REPOSITORY_ROOT
+                / provenance["frame_runtime_report_path"]
+            ).read_text(encoding="utf-8")
+        )
         PROBE.validate_build_contract(build_contract, self.lock, self.policy)
         PROBE.validate_report(runtime_report, self.lock, self.policy)
         self.assertEqual(
@@ -385,6 +414,48 @@ class OgreNextProbeContractTests(unittest.TestCase):
             evidence["capabilities"]["renderer_target"],
             runtime_report["capabilities"]["renderer"]["target"],
         )
+        self.assertEqual(frame_runtime_report["status"], "pass")
+        self.assertEqual(
+            frame_runtime_report["platform_policy"],
+            runtime_report["build"]["platform_policy"],
+        )
+        self.assertEqual(
+            evidence["frame"], frame_runtime_report["frame"]
+        )
+        self.assertEqual(
+            frame_runtime_report["native_ray_tracing"], "not_evaluated"
+        )
+        self.assertTrue(provenance["frame_image_retained"])
+        self.assertEqual(
+            provenance["frame_image_encoding"], "base64-gzip-p6-ppm"
+        )
+        self.assertRegex(provenance["frame_image_sha256"], r"^[0-9a-f]{64}$")
+        self.assertRegex(
+            provenance["frame_build_artifact_sha256"], r"^[0-9a-f]{64}$"
+        )
+        encoded_image = (
+            REPOSITORY_ROOT / provenance["frame_image_path"]
+        ).read_bytes()
+        compressed_image = base64.b64decode(
+            b"".join(encoded_image.split()), validate=True
+        )
+        ppm_image = gzip.decompress(compressed_image)
+        self.assertEqual(
+            hashlib.sha256(ppm_image).hexdigest(),
+            provenance["frame_image_sha256"],
+        )
+        with tempfile.TemporaryDirectory(
+            prefix="ror-checked-in-ogre-next-frame-"
+        ) as temp:
+            ppm_path = Path(temp) / provenance["frame_image_name"]
+            ppm_path.write_bytes(ppm_image)
+            observed = FRAME.validate(
+                frame_runtime_report,
+                FRAME.read_ppm(ppm_path),
+                runtime_report["build"]["platform_policy"],
+                runtime_report,
+            )
+        self.assertEqual(observed["rgb8_fnv1a64"], "47f35fe4bdec9207")
         self.assertNotIn("build_artifact_path", provenance)
         self.assertFalse(provenance["build_artifact_retained"])
         self.assertRegex(

@@ -22,6 +22,9 @@ PROBE_SOURCE = REPOSITORY_ROOT / "tools" / "ogre_next_probe"
 LOCK_PATH = PROBE_SOURCE / "ogre-next.lock.json"
 REPORT_NAME = "ror-ogre-next-probe-report.json"
 BUILD_CONTRACT_NAME = "ogre-next-build-contract.json"
+FRAME_REPORT_NAME = "ror-ogre-next-frame-probe-report.json"
+FRAME_IMAGE_NAME = "ror-ogre-next-frame-probe.ppm"
+FRAME_VALIDATOR = REPOSITORY_ROOT / "tools" / "validate_ogre_next_frame_probe.py"
 BUILD_SENTINEL_NAME = ".ror-ogre-next-probe-build-v1"
 BUILD_SENTINEL_CONTENT = "ror-ogre-next-probe-build-v1\n"
 
@@ -489,6 +492,54 @@ def run(command: list[str]) -> None:
         raise ProbeError(f"command failed: {command[0]}: {error}") from error
 
 
+def run_frame_checkpoint(
+    build_dir: Path,
+    config: str,
+    jobs: int,
+    policy: dict[str, str],
+    capability_report_path: Path,
+) -> None:
+    run(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--target",
+            "ror_ogre_next_frame_probe_report",
+            "--config",
+            config,
+            "--parallel",
+            str(jobs),
+        ]
+    )
+    frame_report_path = build_dir / FRAME_REPORT_NAME
+    frame_image_path = build_dir / FRAME_IMAGE_NAME
+    missing = [
+        path.name
+        for path in (frame_report_path, frame_image_path, capability_report_path)
+        if not path.is_file()
+    ]
+    if missing:
+        raise ProbeError(
+            "OGRE-Next frame checkpoint did not produce required artifacts: "
+            + ", ".join(missing)
+        )
+    run(
+        [
+            sys.executable,
+            str(FRAME_VALIDATOR),
+            "--report",
+            str(frame_report_path),
+            "--image",
+            str(frame_image_path),
+            "--capability-report",
+            str(capability_report_path),
+            "--platform-policy",
+            policy["name"],
+        ]
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -614,6 +665,14 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, json.JSONDecodeError) as error:
             raise ProbeError(f"could not read probe report: {error}") from error
         validate_report(report, lock, policy)
+
+        run_frame_checkpoint(
+            build_dir,
+            args.config,
+            args.jobs,
+            policy,
+            report_path,
+        )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0
     except ProbeError as error:

@@ -85,7 +85,11 @@ The generated files are:
 
 - `ogre-next-build-contract.json`: configured provenance, platform, compiler,
   ABI, and component policy; and
-- `ror-ogre-next-probe-report.json`: runtime registration/linkage evidence.
+- `ror-ogre-next-probe-report.json`: runtime registration/linkage evidence;
+- `ror-ogre-next-frame-probe-report.json`: native-window, HLMS PBS,
+  Compositor2, and GPU-readback claims; and
+- `ror-ogre-next-frame-probe.ppm`: the UI-free RGB8 pixels independently
+  checked against the frame report.
 
 `--validate-contract-only` checks pins, patch hashes, and the current platform
 policy without accessing the network or compiling.
@@ -96,14 +100,27 @@ On 2026-07-31 the Release probe configured and built natively with AppleClang
 21 for macOS arm64 and the macOS 11.0 deployment floor. The executable found
 the Apple M5 through OGRE-Next Metal, registered exactly one reviewed renderer,
 reported three Metal configuration options, linked HLMS PBS with
-`Hlms/Pbs/Metal`, and observed Compositor2's pre-window deferred state. The
-report retained `native_ray_tracing: not_evaluated`. The checked-in
+`Hlms/Pbs/Metal`, and observed Compositor2's pre-window deferred state. A
+second executable then created a hidden native Metal window, rendered a manual
+PBR triangle through HLMS PBS and Compositor2 into a 192x128 UI-free RGB8
+target, and read the pixels back from the GPU after four frames. An independent
+validator confirmed 203 distinct RGB8 values, 5,514 non-background pixels, a
+0.011497 to 0.922464 luminance range, and the FNV-1a-64 pixel hash
+`47f35fe4bdec9207`. The version-2 frame report is joined to the capability
+report by the exact OGRE-Next commit/archive, ABI cookie, platform policy, and
+renderer; it also records the initialized Apple M5, surface mode, and clean
+renderer shutdown. Validation recomputes the luminance extrema and requires a
+dominant four-corner background plus bounded foreground geometry through the
+frame center, so plausible metadata over blank or noisy pixels fails closed.
+Both reports retained
+`native_ray_tracing: not_evaluated`. The checked-in
 [machine-readable evidence record](evidence/OGRE_NEXT_METAL_PROBE_M5_2026-07-31.json)
 captures the source, dependency, build-contract, executable, and runtime-report
-hashes plus the exact host and toolchain. The build contract and runtime report
-are retained beside that record. The locally built executable is not committed;
-its basename, hash, and explicit non-retention state are recorded without an
-ephemeral absolute path.
+hashes plus the exact host and toolchain. The build contract, both runtime
+reports, and the exact P6 PPM encoded as deterministic base64-gzip evidence are
+retained beside that record. The locally built executables are not committed;
+their basenames, hashes, and explicit non-retention state are recorded without
+ephemeral absolute paths.
 
 ## Next gates
 
@@ -111,8 +128,8 @@ This checkpoint is ready to become an optional CI matrix. The renderer remains
 non-shipping until these later checkpoints pass:
 
 1. build/run this exact probe on Windows x64/D3D11 and Linux x86_64/Vulkan;
-2. create a native window and execute a minimal Compositor2 + HLMS PBS frame on
-   all three platforms, including shutdown and fallback tests;
+2. reproduce the completed macOS native-window Compositor2 + HLMS PBS frame on
+   Windows and Linux, including shutdown and fallback tests;
 3. consume renderer-neutral RoR scene snapshots without touching solver state;
 4. prove material/mesh conversion, HDR output, UI ordering, and lifecycle;
 5. prove same-device native RT scene interop separately; and
