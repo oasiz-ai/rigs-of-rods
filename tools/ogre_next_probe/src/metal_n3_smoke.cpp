@@ -289,11 +289,7 @@ RenderAssetId AssetId(std::uint64_t low) {
 }
 
 RenderAssetReference AssetRef(RenderAssetKind kind, std::uint64_t low) {
-  RenderAssetReference reference;
-  reference.kind = kind;
-  reference.id = AssetId(low);
-  reference.generation = 1U;
-  return reference;
+  return RenderAssetReference::Create(kind, AssetId(low), 1U);
 }
 
 RenderAssetDelta MakeCatalog() {
