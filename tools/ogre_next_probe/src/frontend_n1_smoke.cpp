@@ -34,6 +34,8 @@ using namespace RoR::Render;
 constexpr std::uint32_t kWidth = 192U;
 constexpr std::uint32_t kHeight = 128U;
 constexpr std::uint64_t kRegistryId = UINT64_C(0x4E315F534D4F4B45);
+constexpr std::uint64_t kRetirementRegistryId =
+    UINT64_C(0x5254345F52455449);
 
 struct Arguments {
   std::string media_root;
@@ -70,6 +72,17 @@ struct SmokeResult final {
   std::vector<VariantEvidence> variants;
   OgreNextN1TextureAllocationAudit texture_allocations;
   bool live_replacement_retirement = false;
+  struct TextureRetirementEvidence final {
+    OgreNextN1TextureAllocationAudit initial;
+    OgreNextN1TextureAllocationAudit expanded;
+    OgreNextN1TextureAllocationAudit restored;
+    OgreNextN1TextureAllocationAudit first_shutdown;
+    OgreNextN1TextureAllocationAudit restarted;
+    OgreNextN1TextureAllocationAudit final_shutdown;
+    bool exact_extent_and_mip_transitions = false;
+    bool renders_through_transitions_and_restart = false;
+    bool old_names_rejected = false;
+  } retirement;
 };
 
 enum class TextureVariant : std::uint8_t {
@@ -244,6 +257,103 @@ TextureResourceDescriptor MakeTexture(TextureColorSpace color_space,
   std::memcpy(mip.bytes.data() + 12U, rgba.data() + 8U, 8U);
   texture.mip_levels.push_back(std::move(mip));
   return texture;
+}
+
+TextureResourceDescriptor MakeRetirementTexture(std::uint64_t revision) {
+  if (revision == 1U || revision == 3U) {
+    std::vector<std::uint8_t> rgba =
+        revision == 1U
+            ? std::vector<std::uint8_t>{
+                  250U, 30U, 20U, 255U, 20U, 230U, 40U, 255U,
+                  25U, 45U, 245U, 255U, 245U, 205U, 25U, 255U}
+            : std::vector<std::uint8_t>{
+                  25U, 210U, 245U, 255U, 230U, 25U, 210U, 255U,
+                  240U, 215U, 20U, 255U, 35U, 50U, 235U, 255U};
+    TextureResourceDescriptor texture =
+        MakeTexture(TextureColorSpace::SRGB, std::move(rgba));
+    texture.debug_name = "RT4 retirement 2x2 one-mip padded-row texture";
+    return texture;
+  }
+  Require(revision == 2U, "RT4 retirement requested an unknown revision");
+  TextureResourceDescriptor texture;
+  texture.debug_name = "RT4 retirement 4x2 two-mip padded-row texture";
+  texture.color_space = TextureColorSpace::SRGB;
+  texture.width = 4U;
+  texture.height = 2U;
+
+  TextureMipLevelDescriptor level_zero;
+  level_zero.width = 4U;
+  level_zero.height = 2U;
+  level_zero.row_pitch_bytes = 20U;
+  level_zero.layer_pitch_bytes = 40U;
+  level_zero.bytes.assign(40U, 0xA5U);
+  const std::array<std::uint8_t, 32U> level_zero_rgba{{
+      255U, 20U, 20U, 255U, 20U, 255U, 20U, 255U,
+      20U, 20U, 255U, 255U, 255U, 220U, 20U, 255U,
+      20U, 255U, 255U, 255U, 255U, 20U, 255U, 255U,
+      240U, 120U, 20U, 255U, 100U, 40U, 240U, 255U,
+  }};
+  std::memcpy(level_zero.bytes.data(), level_zero_rgba.data(), 16U);
+  std::memcpy(level_zero.bytes.data() + 20U,
+              level_zero_rgba.data() + 16U, 16U);
+  texture.mip_levels.push_back(std::move(level_zero));
+
+  TextureMipLevelDescriptor level_one;
+  level_one.width = 2U;
+  level_one.height = 1U;
+  level_one.row_pitch_bytes = 12U;
+  level_one.layer_pitch_bytes = 12U;
+  level_one.bytes = {
+      200U, 80U, 30U, 255U, 30U, 120U, 220U, 255U,
+      0x5AU, 0x5AU, 0x5AU, 0x5AU,
+  };
+  texture.mip_levels.push_back(std::move(level_one));
+  return texture;
+}
+
+RenderAssetDelta MakeRetirementCatalog(std::uint64_t revision) {
+  RenderAssetDelta delta;
+  delta.registry_id = kRetirementRegistryId;
+  delta.sequence = revision;
+  delta.full_snapshot = true;
+
+  RenderAssetMutation mesh;
+  mesh.asset = AssetRef(RenderAssetKind::MESH, 1U);
+  mesh.payload = MakeMesh(true);
+  delta.mutations.push_back(std::move(mesh));
+
+  MaterialDescriptor material = MakeMaterial();
+  material.debug_name = "RT4 isolated retirement base-color material";
+  material.base_color_factor = {0.8F, 0.85F, 0.9F, 1.0F};
+  material.metallic_factor = 0.15F;
+  material.roughness_factor = 0.42F;
+  material.emissive_factor = {0.0F, 0.0F, 0.0F};
+  material.emissive_strength = 0.0F;
+  material.base_color_texture.texture =
+      AssetRef(RenderAssetKind::TEXTURE, 30U, revision);
+  material.base_color_texture.sampler =
+      AssetRef(RenderAssetKind::SAMPLER, 31U);
+  RenderAssetMutation material_mutation;
+  material_mutation.asset =
+      AssetRef(RenderAssetKind::MATERIAL, 32U, revision);
+  material_mutation.payload = std::move(material);
+  delta.mutations.push_back(std::move(material_mutation));
+
+  RenderAssetMutation texture;
+  texture.asset = AssetRef(RenderAssetKind::TEXTURE, 30U, revision);
+  texture.payload = MakeRetirementTexture(revision);
+  delta.mutations.push_back(std::move(texture));
+
+  SamplerResourceDescriptor sampler_descriptor;
+  sampler_descriptor.debug_name = "RT4 isolated retirement sampler";
+  sampler_descriptor.address_u = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler_descriptor.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler_descriptor.maximum_lod = 1.0F;
+  RenderAssetMutation sampler;
+  sampler.asset = AssetRef(RenderAssetKind::SAMPLER, 31U);
+  sampler.payload = sampler_descriptor;
+  delta.mutations.push_back(std::move(sampler));
+  return delta;
 }
 
 RenderAssetDelta MakeCatalog(bool modern_pbr = false,
@@ -570,6 +680,38 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
   SceneSnapshotCreateResult result = CreateSceneSnapshot(std::move(descriptor));
   if (!result) {
     Fail("could not create N1 smoke scene: " + result.validation.field +
+         ": " + result.validation.detail);
+  }
+  return result.snapshot;
+}
+
+std::shared_ptr<const SceneSnapshot>
+MakeRetirementScene(std::uint64_t revision) {
+  SceneSnapshotDescriptor descriptor;
+  descriptor.snapshot_id = 900U + revision;
+  descriptor.asset_registry_id = kRetirementRegistryId;
+  descriptor.asset_sequence = revision;
+  descriptor.simulation_tick = revision;
+  descriptor.simulation_time_seconds = static_cast<double>(revision) / 48.0;
+  descriptor.environment.ambient_radiance = {0.01F, 0.012F, 0.015F};
+  LightDescriptor light;
+  light.light_id = 1U;
+  light.type = LightType::DIRECTIONAL;
+  light.color_linear = {1.0F, 0.92F, 0.82F};
+  light.intensity = 1024.0F;
+  light.direction = {0.0F, 0.0F, -1.0F};
+  light.casts_shadows = false;
+  descriptor.lights.push_back(light);
+
+  MeshInstanceDescriptor instance;
+  instance.instance_id = 1U;
+  instance.mesh = AssetRef(RenderAssetKind::MESH, 1U);
+  instance.material = AssetRef(RenderAssetKind::MATERIAL, 32U, revision);
+  instance.local_bounds = MakeMesh(true).local_bounds;
+  descriptor.mesh_instances.push_back(instance);
+  SceneSnapshotCreateResult result = CreateSceneSnapshot(std::move(descriptor));
+  if (!result) {
+    Fail("could not create RT4 retirement scene: " + result.validation.field +
          ": " + result.validation.detail);
   }
   return result.snapshot;
@@ -1046,6 +1188,50 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << (result.texture_allocations.exact_usage ? "true" : "false")
            << "\n"
            << "  },\n"
+           << "  \"texture_retirement\": {\n"
+           << "    \"schema\": \"ror.ogre_next_rt4_texture_retirement.v1\",\n"
+           << "    \"isolated_from_visual_variants\": true,\n"
+           << "    \"transitions\": [\n"
+           << "      {\"revision\": 1, \"width\": 2, \"height\": 2, \"mip_levels\": 1},\n"
+           << "      {\"revision\": 2, \"width\": 4, \"height\": 2, \"mip_levels\": 2, \"padded_rows\": true},\n"
+           << "      {\"revision\": 3, \"width\": 2, \"height\": 2, \"mip_levels\": 1}\n"
+           << "    ],\n"
+           << "    \"exact_extent_and_mip_transitions\": "
+           << (result.retirement.exact_extent_and_mip_transitions ? "true"
+                                                                  : "false")
+           << ",\n"
+           << "    \"renders_through_transitions_and_restart\": "
+           << (result.retirement.renders_through_transitions_and_restart
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"find_texture_no_throw_rejected_old_names\": "
+           << (result.retirement.old_names_rejected ? "true" : "false")
+           << ",\n"
+           << "    \"audits\": {\n";
+    const auto write_retirement_audit =
+        [&](const char *name,
+            const OgreNextN1TextureAllocationAudit &audit, bool last) {
+          report << "      \"" << name << "\": {"
+                 << "\"creates\": " << audit.native_allocation_creates
+                 << ", \"destroys\": " << audit.native_allocation_destroys
+                 << ", \"live\": " << audit.live_native_allocations
+                 << ", \"retired_name_lookups\": "
+                 << audit.retired_name_lookups
+                 << ", \"retired_name_rejections\": "
+                 << audit.retired_name_rejections << "}"
+                 << (last ? "\n" : ",\n");
+        };
+    write_retirement_audit("initial", result.retirement.initial, false);
+    write_retirement_audit("expanded", result.retirement.expanded, false);
+    write_retirement_audit("restored", result.retirement.restored, false);
+    write_retirement_audit("first_shutdown",
+                           result.retirement.first_shutdown, false);
+    write_retirement_audit("restarted", result.retirement.restarted, false);
+    write_retirement_audit("final_shutdown",
+                           result.retirement.final_shutdown, true);
+    report << "    }\n"
+           << "  },\n"
            << "  \"texture_isolation\": {\n"
            << "    \"schema\": \"ror.ogre_next_rt4_texture_isolation.v1\",\n"
            << "    \"evidence_file\": \""
@@ -1157,6 +1343,102 @@ void InitializeAndSync(OgreNextN1Frontend &frontend,
   RequireSuccess(frontend.SynchronizeAssets(catalog), "SynchronizeAssets");
 }
 
+void RequireRetirementAudit(const OgreNextN1TextureAllocationAudit &audit,
+                            std::uint64_t creates,
+                            std::uint64_t destroys,
+                            std::uint64_t live,
+                            const std::string &label,
+                            bool require_exact_usage = true) {
+  Require(audit.version == 1U && audit.live_source_textures == (live > 0U ? 1U : 0U) &&
+              audit.sampled_rgba_allocations == live &&
+              audit.roughness_r8_allocations == 0U &&
+              audit.metallic_r8_allocations == 0U &&
+              audit.native_allocation_creates == creates &&
+              audit.native_allocation_destroys == destroys &&
+              audit.live_native_allocations == live &&
+              audit.retired_name_lookups == destroys &&
+              audit.retired_name_rejections == destroys &&
+              (!require_exact_usage || audit.exact_usage),
+          "RT4 retirement allocation/name audit drifted at " + label);
+}
+
+SmokeResult::TextureRetirementEvidence
+RunTextureRetirementProof(const std::string &media_root) {
+  SmokeResult::TextureRetirementEvidence evidence;
+  OgreNextN1Frontend frontend(OgreNextN1Configuration{
+      media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1});
+  const RenderAssetDelta initial_catalog = MakeRetirementCatalog(1U);
+  InitializeAndSync(frontend, initial_catalog);
+  evidence.initial = frontend.QueryTextureAllocationAudit();
+  RequireRetirementAudit(evidence.initial, 1U, 0U, 1U, "initial 2x2/one-mip");
+  RenderFrameOutput initial_output;
+  RequireSuccess(frontend.Render(
+                     MakeFrame(1U, MakeRetirementScene(1U),
+                               PixelFormat::RGBA8_SRGB),
+                     initial_output),
+                 "RT4 retirement initial Render");
+  static_cast<void>(InspectSdr(initial_output));
+
+  const RenderAssetDelta expanded_catalog = MakeRetirementCatalog(2U);
+  RequireSuccess(frontend.SynchronizeAssets(expanded_catalog),
+                 "RT4 retirement expand SynchronizeAssets");
+  evidence.expanded = frontend.QueryTextureAllocationAudit();
+  RequireRetirementAudit(evidence.expanded, 2U, 1U, 1U,
+                         "expanded 4x2/two-mip");
+  RenderFrameOutput expanded_output;
+  RequireSuccess(frontend.Render(
+                     MakeFrame(2U, MakeRetirementScene(2U),
+                               PixelFormat::RGBA8_SRGB),
+                     expanded_output),
+                 "RT4 retirement expanded Render");
+  static_cast<void>(InspectSdr(expanded_output));
+
+  const RenderAssetDelta restored_catalog = MakeRetirementCatalog(3U);
+  RequireSuccess(frontend.SynchronizeAssets(restored_catalog),
+                 "RT4 retirement restore SynchronizeAssets");
+  evidence.restored = frontend.QueryTextureAllocationAudit();
+  RequireRetirementAudit(evidence.restored, 3U, 2U, 1U,
+                         "restored 2x2/one-mip");
+  RenderFrameOutput restored_output;
+  RequireSuccess(frontend.Render(
+                     MakeFrame(3U, MakeRetirementScene(3U),
+                               PixelFormat::RGBA8_SRGB),
+                     restored_output),
+                 "RT4 retirement restored Render");
+  static_cast<void>(InspectSdr(restored_output));
+
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "RT4 retirement first Shutdown");
+  evidence.first_shutdown = frontend.QueryTextureAllocationAudit();
+  RequireRetirementAudit(evidence.first_shutdown, 3U, 3U, 0U,
+                         "first shutdown", false);
+
+  InitializeAndSync(frontend, restored_catalog);
+  evidence.restarted = frontend.QueryTextureAllocationAudit();
+  RequireRetirementAudit(evidence.restarted, 4U, 3U, 1U, "restart");
+  RenderFrameOutput restarted_output;
+  RequireSuccess(frontend.Render(
+                     MakeFrame(1U, MakeRetirementScene(3U),
+                               PixelFormat::RGBA8_SRGB),
+                     restarted_output),
+                 "RT4 retirement restart Render");
+  static_cast<void>(InspectSdr(restarted_output));
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "RT4 retirement final Shutdown");
+  evidence.final_shutdown = frontend.QueryTextureAllocationAudit();
+  RequireRetirementAudit(evidence.final_shutdown, 4U, 4U, 0U,
+                         "final shutdown", false);
+
+  evidence.exact_extent_and_mip_transitions = true;
+  evidence.renders_through_transitions_and_restart = true;
+  evidence.old_names_rejected =
+      evidence.final_shutdown.retired_name_lookups == 4U &&
+      evidence.final_shutdown.retired_name_rejections == 4U;
+  Require(evidence.old_names_rejected,
+          "RT4 retirement old names remained discoverable");
+  return evidence;
+}
+
 SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
   const VariantSpec *baseline_spec = modern_pbr ? &kVariantSpecs.front()
                                                  : nullptr;
@@ -1210,8 +1492,11 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
   Require(frontend.GetNativeInterop() == nullptr,
           "N1 unexpectedly exported native interop");
 
-  InitializeAndSync(frontend, catalog);
   SmokeResult result;
+  if (modern_pbr) {
+    result.retirement = RunTextureRetirementProof(media_root);
+  }
+  InitializeAndSync(frontend, catalog);
   if (modern_pbr) {
     result.texture_allocations = frontend.QueryTextureAllocationAudit();
     Require(result.texture_allocations.version == 1U &&

@@ -204,6 +204,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "variants": variants,
                 "evidence_bytes": len(evidence),
             },
+            "texture_retirement": VERIFY.RT4_EXPECTED_RETIREMENT,
         }
         report_path = root / VERIFY.RT4_REPORT_ARTIFACT
         report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")

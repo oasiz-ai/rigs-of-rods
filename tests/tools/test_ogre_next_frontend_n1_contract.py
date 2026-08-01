@@ -255,6 +255,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "allocated an unused sampled RGBA texture",
             "rejects aliases between sampled sRGB and packed linear",
             "QueryTextureAllocationAudit",
+            "native_allocation_creates",
+            "native_allocation_destroys",
+            "live_native_allocations",
+            "findTextureNoThrow",
+            "texture_retired_name_rejections",
         ):
             self.assertIn(token, self.frontend)
         self.assertIn("pinned PBS reconstructs positive Z", self.policy)
@@ -274,6 +279,13 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("packed_blue_metallic", self.smoke)
         self.assertIn("sampler_address_over_uv0", self.smoke)
         self.assertIn("unused_packed_rgba_allocations", self.smoke)
+        self.assertIn("MakeRetirementTexture", self.smoke)
+        self.assertIn("RunTextureRetirementProof", self.smoke)
+        self.assertIn("4x2 two-mip padded-row", self.smoke)
+        self.assertIn(
+            "find_texture_no_throw_rejected_old_names", self.smoke
+        )
+        self.assertIn("isolated_from_visual_variants", self.smoke)
 
         create_texture = self.frontend[
             self.frontend.index("NativeTexture CreateTexture(") :
