@@ -329,7 +329,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 )
 
     def test_metal_n3_gate_requires_v2_image_contract(self) -> None:
-        for value in (None, 1, True):
+        for value in (None, 1, True, 2.0):
             with self.subTest(image_version=value):
                 def mutate(report, replacement=value):
                     if replacement is None:
@@ -338,6 +338,45 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                         report["contract"]["image_version"] = replacement
 
                 self.assert_metal_n3_report_rejected(mutate, "image_contract")
+
+    def test_metal_n3_gate_requires_exact_build_contract_json_types(self) -> None:
+        mutations = (
+            ("schema", lambda contract: contract.__setitem__("schema_version", 2.0)),
+            (
+                "ror_commit",
+                lambda contract: contract["ror_source"].__setitem__(
+                    "commit", int("1" * 40)
+                ),
+            ),
+            (
+                "ogre_commit",
+                lambda contract: contract["provenance"].__setitem__(
+                    "commit", int("2" * 40)
+                ),
+            ),
+        )
+        for label, mutation in mutations:
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory(
+                    prefix="ror-ogre-n3-contract-type-"
+                ) as temp:
+                    root = Path(temp)
+                    self.write_baseline(root)
+                    self.write_metal_n3(root, "pass")
+                    contract_path = root / VERIFY.REQUIRED_ARTIFACTS[0]
+                    contract = json.loads(
+                        contract_path.read_text(encoding="utf-8")
+                    )
+                    mutation(contract)
+                    contract_path.write_text(
+                        json.dumps(contract) + "\n", encoding="utf-8"
+                    )
+                    with self.assertRaisesRegex(
+                        VERIFY.ArtifactSetError, "source identity is invalid"
+                    ):
+                        VERIFY.verify_artifact_set(
+                            root, verify_metal_n3_evidence=True
+                        )
 
     def test_metal_n3_gate_cross_checks_build_contract_provenance(self) -> None:
         for field, value in (

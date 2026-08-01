@@ -107,18 +107,21 @@ def _read_build_contract(root: Path) -> dict[str, object]:
     ror_source = contract.get("ror_source")
     ogre_source = contract.get("provenance")
     if (
-        contract.get("schema_version") != 2
+        type(contract.get("schema_version")) is not int
+        or contract.get("schema_version") != 2
         or not isinstance(ror_source, dict)
         or not isinstance(ogre_source, dict)
         or not isinstance(ror_source.get("repository"), str)
         or not ror_source["repository"]
         or not isinstance(ror_source.get("ref"), str)
         or not ror_source["ref"]
-        or re.fullmatch(r"[0-9a-f]{40}", str(ror_source.get("commit"))) is None
+        or not isinstance(ror_source.get("commit"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", ror_source["commit"]) is None
         or not _is_sha256(ror_source.get("relevant_manifest_sha256"))
         or not isinstance(ogre_source.get("repository"), str)
         or not ogre_source["repository"]
-        or re.fullmatch(r"[0-9a-f]{40}", str(ogre_source.get("commit"))) is None
+        or not isinstance(ogre_source.get("commit"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", ogre_source["commit"]) is None
         or not _is_sha256(ogre_source.get("archive_sha256"))
     ):
         raise ArtifactSetError("OGRE-Next build contract source identity is invalid")
@@ -287,7 +290,8 @@ def _verify_metal_n3_pass_semantics(
         and device.get("same_ogre_device") is True
         and device.get("same_ogre_queue") is True
         and device.get("apple_family_9") is True,
-        "image_contract": contract.get("image_version") == 2
+        "image_contract": type(contract.get("image_version")) is int
+        and contract.get("image_version") == 2
         and _is_positive_int(contract.get("image_generation"))
         and contract.get("usage")
         == "COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE"

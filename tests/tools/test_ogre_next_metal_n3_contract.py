@@ -189,6 +189,12 @@ class MetalN3ContractTests(unittest.TestCase):
                 with self.assertRaises(RUNNER.ProbeError):
                     self.validate(report)
 
+    def test_float_does_not_impersonate_image_contract_version(self) -> None:
+        report = copy.deepcopy(self.report)
+        report["contract"]["image_version"] = 2.0
+        with self.assertRaises(RUNNER.ProbeError):
+            self.validate(report)
+
     def test_hybrid_change_without_contribution_fails(self) -> None:
         tampered = bytearray(self.hybrid)
         tampered[8:10] = struct.pack("<e", 0.5)

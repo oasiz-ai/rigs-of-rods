@@ -257,7 +257,7 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_patch_sha256 = (
         "84916d0d1abf61a15d19d2c89a7d9b1a445f1a37a5067a9f8b558395fe10ead1"
     )
-    if lock.get("schema_version") != 2:
+    if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 2:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
         raise ProbeError("OGRE-Next repository contract changed")
@@ -2027,7 +2027,8 @@ def validate_n3_checkpoint(
         and device.get("same_ogre_device") is True
         and device.get("same_ogre_queue") is True
         and device.get("apple_family_9") is True,
-        "image_contract": contract.get("image_version") == 2
+        "image_contract": type(contract.get("image_version")) is int
+        and contract.get("image_version") == 2
         and type(contract.get("image_generation")) is int
         and contract["image_generation"] > 0
         and contract.get("usage")
