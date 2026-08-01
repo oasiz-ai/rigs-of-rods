@@ -59,3 +59,7 @@ resources/nextgen/cityworld/**/*.odef text eol=lf
 resources/materials/ror.material text eol=lf
 resources/postprocess/** text eol=lf
 content-source/cityworld_next/provenance/*.json text eol=lf
+
+# OGRE-Next dependency, patch, and shader-license contracts are verified by
+# exact byte hashes. Keep the isolated probe identical on every checkout.
+tools/ogre_next_probe/** text eol=lf

@@ -43,7 +43,7 @@ jobs:
             platform: windows-x64-d3d11
             jobs: 4
           - name: Linux x86_64 Vulkan null-window
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
             platform: linux-x86_64-vulkan
             jobs: 4
     env:

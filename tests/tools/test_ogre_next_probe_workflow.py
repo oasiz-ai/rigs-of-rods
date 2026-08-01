@@ -24,7 +24,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         for runner, policy in (
             ("macos-15", "macos-arm64-metal"),
             ("windows-2022", "windows-x64-d3d11"),
-            ("ubuntu-22.04", "linux-x86_64-vulkan"),
+            ("ubuntu-24.04", "linux-x86_64-vulkan"),
         ):
             with self.subTest(runner=runner):
                 self.assertIn(f"runner: {runner}", self.workflow)
@@ -69,6 +69,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(required=required):
                 self.assertIn(required, self.workflow)
+
+    def test_byte_hashed_probe_inputs_are_checkout_stable(self) -> None:
+        attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("tools/ogre_next_probe/** text eol=lf", attributes)
 
     def test_reports_and_exact_frame_are_always_retained(self) -> None:
         self.assertIn("if: always()", self.workflow)
