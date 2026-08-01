@@ -42,6 +42,8 @@ public:
 
 private:
 
+    void Shutdown() noexcept;
+
     static const unsigned int NUM_FACES = 6;
 
     Ogre::Camera*        m_cameras[NUM_FACES];

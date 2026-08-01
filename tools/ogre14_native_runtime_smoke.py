@@ -29,12 +29,14 @@ COMMON_ENGINE_REQUIRED_MARKERS = (
     "[RoR|Shutdown] Leaving the main loop after the shutdown message",
     "*** Terminating OIS ***",
     "[RoR|Shutdown] Window-bound runtime integrations released",
+    "[RoR|Shutdown] Environment map renderer resources released",
     "*-*-* OGRE Shutdown",
 )
 SHUTDOWN_ENGINE_REQUIRED_MARKERS = (
     "[RoR|Shutdown] Leaving the main loop after the shutdown message",
     "*** Terminating OIS ***",
     "[RoR|Shutdown] Window-bound runtime integrations released",
+    "[RoR|Shutdown] Environment map renderer resources released",
     "*-*-* OGRE Shutdown",
 )
 LINUX_ENGINE_REQUIRED_MARKERS = (

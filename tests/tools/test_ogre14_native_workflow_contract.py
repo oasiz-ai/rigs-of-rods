@@ -24,6 +24,12 @@ APP_COMMAND_LINE = (
 MAIN_SOURCE = REPOSITORY_ROOT / "source" / "main" / "main.cpp"
 APP_CONTEXT_HEADER = REPOSITORY_ROOT / "source" / "main" / "AppContext.h"
 APP_CONTEXT_SOURCE = REPOSITORY_ROOT / "source" / "main" / "AppContext.cpp"
+ENVIRONMENT_MAP_HEADER = (
+    REPOSITORY_ROOT / "source" / "main" / "gfx" / "EnvironmentMap.h"
+)
+ENVIRONMENT_MAP_SOURCE = (
+    REPOSITORY_ROOT / "source" / "main" / "gfx" / "EnvironmentMap.cpp"
+)
 TEST_CMAKE = REPOSITORY_ROOT / "tests" / "CMakeLists.txt"
 MYGUI_RESOURCE_ROOT = REPOSITORY_ROOT / "resources" / "mygui"
 CONAN_SOURCE_FALLBACK = (
@@ -70,6 +76,12 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         cls.app_context_source_text = APP_CONTEXT_SOURCE.read_text(
+            encoding="utf-8"
+        )
+        cls.environment_map_header_text = ENVIRONMENT_MAP_HEADER.read_text(
+            encoding="utf-8"
+        )
+        cls.environment_map_source_text = ENVIRONMENT_MAP_SOURCE.read_text(
             encoding="utf-8"
         )
         cls.test_cmake_text = TEST_CMAKE.read_text(encoding="utf-8")
@@ -653,6 +665,48 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             destructor,
         )
         self.assertLess(detach_in_destructor, destroy_target)
+
+        self.assertIn(
+            "void Shutdown() noexcept;",
+            self.environment_map_header_text,
+        )
+        envmap_shutdown = self.environment_map_source_text.index(
+            "void RoR::GfxEnvmap::Shutdown() noexcept"
+        )
+        remove_viewports = self.environment_map_source_text.index(
+            "removeAllViewports()",
+            envmap_shutdown,
+        )
+        destroy_camera = self.environment_map_source_text.index(
+            "destroyCamera",
+            envmap_shutdown,
+        )
+        viewport_failure_guard = self.environment_map_source_text.index(
+            "viewports_released = false",
+            remove_viewports,
+        )
+        guarded_camera_release = self.environment_map_source_text.index(
+            "m_cameras[face] != nullptr && viewports_released",
+            viewport_failure_guard,
+        )
+        all_faces_guard = self.environment_map_source_text.index(
+            "if (all_face_resources_released)",
+            destroy_camera,
+        )
+        release_texture = self.environment_map_source_text.index(
+            "m_rtt_texture.reset()",
+            all_faces_guard,
+        )
+        release_marker = self.environment_map_source_text.index(
+            "Environment map renderer resources released",
+            release_texture,
+        )
+        self.assertLess(remove_viewports, destroy_camera)
+        self.assertLess(viewport_failure_guard, guarded_camera_release)
+        self.assertLess(guarded_camera_release, destroy_camera)
+        self.assertLess(destroy_camera, all_faces_guard)
+        self.assertLess(destroy_camera, release_texture)
+        self.assertLess(release_texture, release_marker)
 
     def test_failure_diagnostics_and_verified_runtime_are_artifacts(
         self,

@@ -41,12 +41,14 @@ EXPECTED_COMMON_ENGINE_MARKERS = (
     "[RoR|Shutdown] Leaving the main loop after the shutdown message",
     "*** Terminating OIS ***",
     "[RoR|Shutdown] Window-bound runtime integrations released",
+    "[RoR|Shutdown] Environment map renderer resources released",
     "*-*-* OGRE Shutdown",
 )
 EXPECTED_SHUTDOWN_ENGINE_MARKERS = (
     "[RoR|Shutdown] Leaving the main loop after the shutdown message",
     "*** Terminating OIS ***",
     "[RoR|Shutdown] Window-bound runtime integrations released",
+    "[RoR|Shutdown] Environment map renderer resources released",
     "*-*-* OGRE Shutdown",
 )
 EXPECTED_LINUX_ENGINE_MARKERS = (
@@ -94,6 +96,7 @@ def engine_log(platform: str, user_directory: Path) -> str:
         "[RoR|Shutdown] Leaving the main loop after the shutdown message\n"
         "*** Terminating OIS ***\n"
         "[RoR|Shutdown] Window-bound runtime integrations released\n"
+        "[RoR|Shutdown] Environment map renderer resources released\n"
         "*-*-* OGRE Shutdown\n"
     )
     return common + renderer + shutdown
