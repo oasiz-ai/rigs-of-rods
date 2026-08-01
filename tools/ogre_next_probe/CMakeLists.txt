@@ -416,7 +416,39 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyN2SourceProvenance.cmake"
             COMMENT "Verifying clean Metal N2 source provenance"
             VERBATIM)
-        list(APPEND _ror_n1_targets ror_ogre_next_metal_n2_smoke)
+        add_executable(
+            ror_ogre_next_metal_n3_smoke
+            src/metal_n3_smoke.cpp)
+        target_include_directories(
+            ror_ogre_next_metal_n3_smoke
+            PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+        target_compile_definitions(
+            ror_ogre_next_metal_n3_smoke
+            PRIVATE
+                ROR_OGRE_NEXT_N2_TEST_SEAM=1
+                ROR_OGRE_NEXT_N3_SOURCE_REPOSITORY="${ROR_SOURCE_REPOSITORY}"
+                ROR_OGRE_NEXT_N3_SOURCE_COMMIT="${_ror_n2_source_commit}"
+                ROR_OGRE_NEXT_N3_SOURCE_REF="${_ror_n2_source_ref}"
+                ROR_OGRE_NEXT_N3_RELEVANT_SOURCE_CLEAN=1
+                ROR_OGRE_NEXT_N3_SOURCE_MANIFEST_SHA256="${ROR_SOURCE_MANIFEST_SHA256}")
+        target_link_libraries(
+            ror_ogre_next_metal_n3_smoke
+            PRIVATE ror_ogre_next_frontend_n1)
+        set_target_properties(
+            ror_ogre_next_metal_n3_smoke
+            PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+        add_custom_command(
+            TARGET ror_ogre_next_metal_n3_smoke PRE_LINK
+            COMMAND
+                "${CMAKE_COMMAND}"
+                "-DN2_REPOSITORY_ROOT=${_ror_n2_repository_root}"
+                "-DN2_EXPECTED_SOURCE_MANIFEST_SHA256=${ROR_SOURCE_MANIFEST_SHA256}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyN2SourceProvenance.cmake"
+            COMMENT "Verifying clean Metal N3 source provenance"
+            VERBATIM)
+        list(APPEND _ror_n1_targets
+            ror_ogre_next_metal_n2_smoke
+            ror_ogre_next_metal_n3_smoke)
     endif ()
 
     set(ROR_OGRE_NEXT_N1_PACKAGE_ROOT
@@ -692,6 +724,54 @@ if (TARGET ror_ogre_next_metal_n2_smoke)
         ror_ogre_next_metal_n2_runtime
         PROPERTIES
             TIMEOUT 120
+            SKIP_RETURN_CODE 77
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif ()
+
+if (TARGET ror_ogre_next_metal_n3_smoke)
+    set(ROR_OGRE_NEXT_N3_RASTER
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n3-raster.bin")
+    set(ROR_OGRE_NEXT_N3_CONTRIBUTION
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n3-contribution.bin")
+    set(ROR_OGRE_NEXT_N3_HYBRID
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n3-hybrid.bin")
+    set(ROR_OGRE_NEXT_N3_REPORT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n3-report.json")
+    set(ROR_OGRE_NEXT_N3_CTEST_REPORT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n3-ctest-report.json")
+    add_custom_target(
+        ror_ogre_next_metal_n3_report
+        COMMAND
+            "${CMAKE_COMMAND}" -E rm -f
+            "${ROR_OGRE_NEXT_N3_RASTER}"
+            "${ROR_OGRE_NEXT_N3_CONTRIBUTION}"
+            "${ROR_OGRE_NEXT_N3_HYBRID}"
+            "${ROR_OGRE_NEXT_N3_REPORT}"
+        COMMAND
+            $<TARGET_FILE:ror_ogre_next_metal_n3_smoke>
+            --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+            --raster "${ROR_OGRE_NEXT_N3_RASTER}"
+            --contribution "${ROR_OGRE_NEXT_N3_CONTRIBUTION}"
+            --hybrid "${ROR_OGRE_NEXT_N3_HYBRID}"
+            --report "${ROR_OGRE_NEXT_N3_REPORT}"
+        DEPENDS
+            ror_ogre_next_metal_n3_smoke
+            ror_ogre_next_frontend_n1_package
+        BYPRODUCTS
+            "${ROR_OGRE_NEXT_N3_RASTER}"
+            "${ROR_OGRE_NEXT_N3_CONTRIBUTION}"
+            "${ROR_OGRE_NEXT_N3_HYBRID}"
+            "${ROR_OGRE_NEXT_N3_REPORT}"
+        COMMENT "Running Ogre-Next Metal N3 view-dependent hybrid HDR proof"
+        VERBATIM)
+    add_test(NAME ror_ogre_next_metal_n3_runtime
+        COMMAND $<TARGET_FILE:ror_ogre_next_metal_n3_smoke>
+                --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+                --report "${ROR_OGRE_NEXT_N3_CTEST_REPORT}")
+    set_tests_properties(
+        ror_ogre_next_metal_n3_runtime
+        PROPERTIES
+            TIMEOUT 180
             SKIP_RETURN_CODE 77
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif ()

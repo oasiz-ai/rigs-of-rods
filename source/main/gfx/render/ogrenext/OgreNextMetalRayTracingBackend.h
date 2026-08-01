@@ -7,7 +7,7 @@
 */
 
 /// @file
-/// @brief Metal hardware-ray-tracing acceptance backend for Ogre-Next N2.
+/// @brief Metal hardware-ray-tracing backend for Ogre-Next N2/N3.
 
 #pragma once
 
@@ -31,9 +31,10 @@ enum class OgreNextMetalN2TestObservation : std::uint8_t {
 };
 #endif
 
-/// Captured live evidence from the one-ray same-device acceptance dispatch.
-/// This proves API/hardware/dispatch and exact Ogre geometry interoperability;
-/// it deliberately does not claim ray-traced material or compositing parity.
+/// Captured evidence from the same-device acceptance dispatches. N2 fills the
+/// single-ray fields and retains its leases until Shutdown(). N3 fills the
+/// image fields only after a real view-dependent dispatch has completed,
+/// returned the exact Ogre image to its queue, and released every frame lease.
 struct OgreNextMetalRayTracingEvidence {
   NativeContextExport context;
   NativeGeometryExportRequest geometry_request;
@@ -58,11 +59,28 @@ struct OgreNextMetalRayTracingEvidence {
   bool exact_exported_index_slice_used = false;
   bool dispatch_readback_passed = false;
   bool geometry_interop_passed = false;
+
+  NativeImageExportRequest image_request;
+  NativeImageExport image_export;
+  NativeFrameSynchronization image_frame_synchronization;
+  std::uint64_t image_row_pitch_bytes = 0U;
+  /// Each vector is tightly packed RGBA16_FLOAT, independently copied from a
+  /// GPU readback. `raster` is captured before the RT dispatch, `contribution`
+  /// is a separate hit-only texture, and `hybrid` is the exact Ogre image
+  /// after GPU composition.
+  std::vector<std::uint8_t> raster_readback_bytes;
+  std::vector<std::uint8_t> contribution_readback_bytes;
+  std::vector<std::uint8_t> hybrid_readback_bytes;
+  std::uint64_t contribution_pixel_count = 0U;
+  bool exact_exported_color_image_used = false;
+  bool image_state_handoff_passed = false;
+  bool view_dependent_image_passed = false;
+  bool hybrid_composite_passed = false;
 };
 
-/// macOS-only N2 acceptance backend. Its implementation is ObjC++ and must be
-/// compiled only in the Apple Metal target; this header remains pure C++ so
-/// callers and contract tests do not import native platform headers.
+/// macOS-only N2/N3 backend. Its implementation is ObjC++ and must be compiled
+/// only in the Apple Metal target; this header remains pure C++ so callers and
+/// contract tests do not import native platform headers.
 class OgreNextMetalRayTracingBackend final
     : public INativeRayTracingBackend {
 public:
@@ -80,9 +98,9 @@ public:
   [[nodiscard]] NativeRayTracingCapabilityReport
   QueryCapabilities() const override;
   RenderOperationResult Initialize(NativeRenderInterop &interop) override;
-  /// INativeRayTracingBackend::Render remains unsupported until this backend
-  /// can produce a view-dependent image. N2 is deliberately a geometry-
-  /// interop capability probe rather than a renderer.
+  /// N2 interop reports UNSUPPORTED here. N3 consumes the exact frontend HDR
+  /// image and exported geometry on Ogre's Metal device/queue, traces primary
+  /// camera rays, and returns a tightly packed hybrid CPU readback.
   RenderOperationResult Render(const NativeRayTracingFrameRequest &request,
                                RenderFrameOutput &output) override;
   RenderOperationResult RunGeometryInteropProbe(
