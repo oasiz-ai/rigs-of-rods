@@ -155,7 +155,7 @@ jobs:
           --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --build-config Release
           --output-on-failure
-          -R '^ror_ogre_next_frontend_n1_'
+          -R '^ror_ogre_next_frontend_(n1_|rt4_)'
 
       - name: Build and validate the independent Apple Metal N2 proof
         if: runner.os == 'macOS'
@@ -294,6 +294,8 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-linux-static-closure.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/provenance/
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/licenses/

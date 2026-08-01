@@ -37,6 +37,7 @@ struct Arguments {
   std::string media_root;
   std::string image_path;
   std::string report_path;
+  bool modern_pbr = false;
 };
 
 struct Metrics {
@@ -75,8 +76,10 @@ Arguments ParseArguments(int argc, char **argv) {
       arguments.image_path = argv[++index];
     } else if (option == "--report" && index + 1 < argc) {
       arguments.report_path = argv[++index];
+    } else if (option == "--modern-pbr") {
+      arguments.modern_pbr = true;
     } else {
-      Fail("usage: ror_ogre_next_frontend_n1_smoke --media-root ABSOLUTE_PATH [--output FRAME.ppm] [--report REPORT.json]");
+      Fail("usage: ror_ogre_next_frontend_n1_smoke --media-root ABSOLUTE_PATH [--modern-pbr] [--output FRAME.ppm] [--report REPORT.json]");
     }
   }
   if (arguments.media_root.empty()) {
@@ -93,7 +96,7 @@ RenderAssetReference AssetRef(RenderAssetKind kind, std::uint64_t low) {
   return RenderAssetReference::Create(kind, AssetId(low), 1U);
 }
 
-MeshResourceDescriptor MakeMesh() {
+MeshResourceDescriptor MakeMesh(bool modern_pbr = false) {
   MeshResourceDescriptor mesh;
   mesh.debug_name = "N1 native v2 VAO smoke triangle";
   mesh.index_format = MeshIndexFormat::UINT16;
@@ -105,11 +108,21 @@ MeshResourceDescriptor MakeMesh() {
       {0.0F, 0.95F, 0.0F},
   };
   mesh.normals.assign(mesh.positions.size(), Float3{0.0F, 0.0F, 1.0F});
+  if (modern_pbr) {
+    mesh.debug_name = "RT4/V1 authored tangent UV0 smoke triangle";
+    mesh.tangents.assign(mesh.positions.size(),
+                         Float4{1.0F, 0.0F, 0.0F, 1.0F});
+    mesh.texture_coordinates_0 = {
+        {0.0F, 1.0F},
+        {1.0F, 1.0F},
+        {0.5F, 0.0F},
+    };
+  }
   mesh.indices = {0U, 1U, 2U};
   return mesh;
 }
 
-MaterialDescriptor MakeMaterial() {
+MaterialDescriptor MakeMaterial(bool modern_pbr = false) {
   MaterialDescriptor material;
   material.debug_name = "N1 texture-free emissive metallic-roughness PBS";
   material.base_color_factor = {0.05F, 0.32F, 0.92F, 1.0F};
@@ -118,10 +131,50 @@ MaterialDescriptor MakeMaterial() {
   material.double_sided = true;
   material.emissive_factor = {0.78F, 0.12F, 0.035F};
   material.emissive_strength = 6.0F;
+  if (modern_pbr) {
+    material.debug_name = "RT4/V1 texture-backed metallic-roughness PBS";
+    material.base_color_factor = {0.7F, 0.8F, 0.9F, 1.0F};
+    material.metallic_factor = 0.85F;
+    material.roughness_factor = 0.65F;
+    material.emissive_factor = {1.0F, 0.7F, 0.4F};
+    material.emissive_strength = 6.0F;
+    material.base_color_texture.texture =
+        AssetRef(RenderAssetKind::TEXTURE, 3U);
+    material.base_color_texture.sampler =
+        AssetRef(RenderAssetKind::SAMPLER, 6U);
+    material.metallic_roughness_texture.texture =
+        AssetRef(RenderAssetKind::TEXTURE, 4U);
+    material.metallic_roughness_texture.sampler =
+        AssetRef(RenderAssetKind::SAMPLER, 6U);
+    material.emissive_texture.texture =
+        AssetRef(RenderAssetKind::TEXTURE, 5U);
+    material.emissive_texture.sampler =
+        AssetRef(RenderAssetKind::SAMPLER, 6U);
+  }
   return material;
 }
 
-RenderAssetDelta MakeCatalog() {
+TextureResourceDescriptor MakeTexture(TextureColorSpace color_space,
+                                      std::vector<std::uint8_t> rgba) {
+  Require(rgba.size() == 16U, "RT4/V1 texture fixture is not 2x2 RGBA8");
+  TextureResourceDescriptor texture;
+  texture.debug_name = "RT4/V1 padded-row 2x2 texture";
+  texture.color_space = color_space;
+  texture.width = 2U;
+  texture.height = 2U;
+  TextureMipLevelDescriptor mip;
+  mip.width = 2U;
+  mip.height = 2U;
+  mip.row_pitch_bytes = 12U;
+  mip.layer_pitch_bytes = 24U;
+  mip.bytes.assign(24U, 0xCDU);
+  std::memcpy(mip.bytes.data(), rgba.data(), 8U);
+  std::memcpy(mip.bytes.data() + 12U, rgba.data() + 8U, 8U);
+  texture.mip_levels.push_back(std::move(mip));
+  return texture;
+}
+
+RenderAssetDelta MakeCatalog(bool modern_pbr = false) {
   RenderAssetDelta delta;
   delta.registry_id = kRegistryId;
   delta.sequence = 1U;
@@ -129,18 +182,84 @@ RenderAssetDelta MakeCatalog() {
 
   RenderAssetMutation mesh;
   mesh.asset = AssetRef(RenderAssetKind::MESH, 1U);
-  mesh.payload = MakeMesh();
+  mesh.payload = MakeMesh(modern_pbr);
   delta.mutations.push_back(std::move(mesh));
 
   RenderAssetMutation material;
   material.asset = AssetRef(RenderAssetKind::MATERIAL, 2U);
-  material.payload = MakeMaterial();
+  material.payload = MakeMaterial(modern_pbr);
   delta.mutations.push_back(std::move(material));
+  if (modern_pbr) {
+    RenderAssetMutation base_color;
+    base_color.asset = AssetRef(RenderAssetKind::TEXTURE, 3U);
+    base_color.payload = MakeTexture(
+        TextureColorSpace::SRGB,
+        {255U, 28U, 12U, 255U, 18U, 220U, 42U, 255U,
+         24U, 42U, 255U, 255U, 255U, 190U, 30U, 255U});
+    delta.mutations.push_back(std::move(base_color));
+
+    RenderAssetMutation metallic_roughness;
+    metallic_roughness.asset = AssetRef(RenderAssetKind::TEXTURE, 4U);
+    metallic_roughness.payload = MakeTexture(
+        TextureColorSpace::LINEAR,
+        {255U, 40U, 230U, 255U, 255U, 96U, 180U, 255U,
+         255U, 170U, 80U, 255U, 255U, 220U, 25U, 255U});
+    delta.mutations.push_back(std::move(metallic_roughness));
+
+    RenderAssetMutation emissive;
+    emissive.asset = AssetRef(RenderAssetKind::TEXTURE, 5U);
+    emissive.payload = MakeTexture(
+        TextureColorSpace::SRGB,
+        {255U, 96U, 12U, 255U, 18U, 255U, 80U, 255U,
+         20U, 90U, 255U, 255U, 255U, 235U, 42U, 255U});
+    delta.mutations.push_back(std::move(emissive));
+
+    SamplerResourceDescriptor sampler_descriptor;
+    sampler_descriptor.debug_name = "RT4/V1 linear mirror-edge sampler";
+    sampler_descriptor.address_u = SamplerAddressMode::MIRRORED_REPEAT;
+    sampler_descriptor.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
+    sampler_descriptor.address_w = SamplerAddressMode::REPEAT;
+    sampler_descriptor.maximum_lod = 0.0F;
+    RenderAssetMutation sampler;
+    sampler.asset = AssetRef(RenderAssetKind::SAMPLER, 6U);
+    sampler.payload = sampler_descriptor;
+    delta.mutations.push_back(std::move(sampler));
+
+    TextureResourceDescriptor unreferenced_texture;
+    unreferenced_texture.debug_name =
+        "shared-catalog unreferenced R8 texture";
+    unreferenced_texture.format = TextureResourceFormat::R8_UNORM;
+    unreferenced_texture.width = 1U;
+    unreferenced_texture.height = 1U;
+    TextureMipLevelDescriptor unreferenced_mip;
+    unreferenced_mip.width = 1U;
+    unreferenced_mip.height = 1U;
+    unreferenced_mip.row_pitch_bytes = 1U;
+    unreferenced_mip.layer_pitch_bytes = 1U;
+    unreferenced_mip.bytes = {127U};
+    unreferenced_texture.mip_levels.push_back(std::move(unreferenced_mip));
+    RenderAssetMutation unreferenced_texture_mutation;
+    unreferenced_texture_mutation.asset =
+        AssetRef(RenderAssetKind::TEXTURE, 7U);
+    unreferenced_texture_mutation.payload = std::move(unreferenced_texture);
+    delta.mutations.push_back(std::move(unreferenced_texture_mutation));
+
+    SamplerResourceDescriptor unreferenced_sampler_descriptor;
+    unreferenced_sampler_descriptor.debug_name =
+        "shared-catalog unreferenced border sampler";
+    unreferenced_sampler_descriptor.address_u =
+        SamplerAddressMode::CLAMP_TO_BORDER;
+    RenderAssetMutation unreferenced_sampler;
+    unreferenced_sampler.asset = AssetRef(RenderAssetKind::SAMPLER, 8U);
+    unreferenced_sampler.payload = unreferenced_sampler_descriptor;
+    delta.mutations.push_back(std::move(unreferenced_sampler));
+  }
   return delta;
 }
 
 std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
-                                               bool shifted = false) {
+                                               bool shifted = false,
+                                               bool modern_pbr = false) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kRegistryId;
@@ -157,7 +276,7 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
     instance.render_from_object.elements[12U] = 0.15F;
     instance.previous_render_from_object = instance.render_from_object;
   }
-  instance.local_bounds = MakeMesh().local_bounds;
+  instance.local_bounds = MakeMesh(modern_pbr).local_bounds;
   descriptor.mesh_instances.push_back(instance);
 
   SceneSnapshotCreateResult result = CreateSceneSnapshot(std::move(descriptor));
@@ -394,10 +513,14 @@ std::string HexHash(std::uint64_t hash) {
   return value.str();
 }
 
-std::string MakeReport(const Metrics &hdr, const Metrics &sdr) {
+std::string MakeReport(const Metrics &hdr, const Metrics &sdr,
+                       bool modern_pbr) {
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_frontend_n1_smoke.v1\",\n"
+         << "  \"schema\": \""
+         << (modern_pbr ? "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1"
+                        : "ror.ogre_next_frontend_n1_smoke.v1")
+         << "\",\n"
          << "  \"status\": \"pass\",\n"
          << "  \"provenance\": {\n"
          << "    \"ror_repository\": \""
@@ -437,7 +560,21 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr) {
          << "    \"native_mesh_path\": \"Ogre v2 Mesh plus immutable VertexArrayObject\",\n"
          << "    \"material_path\": \"HLMS PBS metallic-roughness\",\n"
          << "    \"brdf\": \"PbsBrdf::Default height-correlated GGX\",\n"
-         << "    \"pbr_datablock_readback_verified\": true,\n"
+         << "    \"pbr_datablock_readback_verified\": true,\n";
+  if (modern_pbr) {
+    report
+        << "    \"raster_feature_tier\": \"MODERN_PBR_RT4_V1\",\n"
+        << "    \"vertex_layout\": \"position_normal_tangent_uv0\",\n"
+        << "    \"base_color_upload\": \"RGBA8_UNORM_SRGB\",\n"
+        << "    \"metallic_roughness_upload\": \"linear_G_to_R8_roughness_B_to_R8_metallic\",\n"
+        << "    \"emissive_upload\": \"RGBA8_UNORM_SRGB\",\n"
+        << "    \"padded_source_rows_verified\": true,\n"
+        << "    \"portable_sampler_mapping_verified\": true,\n"
+        << "    \"normal_texture_admitted\": false,\n"
+        << "    \"normal_texture_blocker\": \"pinned_PBS_reconstructs_positive_Z_from_RG\",\n"
+        << "    \"occlusion_texture_admitted\": false,\n";
+  }
+  report
          << "    \"runtime_media_root\": \"explicit_absolute\",\n"
          << "    \"package_media_relative_path\": \""
          << ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_RELATIVE << "\",\n"
@@ -452,7 +589,13 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr) {
          << "  },\n"
          << "  \"catalog\": {\n"
          << "    \"registry_id\": " << kRegistryId << ",\n"
-         << "    \"sequence\": 1,\n"
+         << "    \"sequence\": 1,\n";
+  if (modern_pbr) {
+    report << "    \"referenced_texture_count\": 3,\n"
+           << "    \"referenced_sampler_count\": 1,\n"
+           << "    \"unreferenced_assets_not_uploaded\": true,\n";
+  }
+  report
          << "    \"transactional_replay_after_restart\": true\n"
          << "  },\n"
          << "  \"hdr\": {\n"
@@ -509,22 +652,39 @@ void InitializeAndSync(OgreNextN1Frontend &frontend,
   RequireSuccess(frontend.SynchronizeAssets(catalog), "SynchronizeAssets");
 }
 
-std::pair<Metrics, Metrics> RunSmoke(const std::string &media_root) {
-  const RenderAssetDelta catalog = MakeCatalog();
-  const auto scene_one = MakeScene(1U);
-  const auto scene_two = MakeScene(2U, true);
+std::pair<Metrics, Metrics> RunSmoke(const std::string &media_root,
+                                    bool modern_pbr) {
+  const RenderAssetDelta catalog = MakeCatalog(modern_pbr);
+  const auto scene_one = MakeScene(1U, false, modern_pbr);
+  const auto scene_two = MakeScene(2U, true, modern_pbr);
+  const OgreNextRasterFeatureTier raster_feature_tier =
+      modern_pbr ? OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1
+                 : OgreNextRasterFeatureTier::STATIC_PBR_N1;
   OgreNextN1Frontend relative_media(
-      OgreNextN1Configuration{"relative/shader/media"});
+      OgreNextN1Configuration{"relative/shader/media", raster_feature_tier});
   Require(relative_media.Initialize(Initialization()).code ==
               RenderOperationCode::INVALID_ARGUMENT,
           "relative shader media root did not fail closed");
   OgreNextN1Frontend missing_media(
-      OgreNextN1Configuration{media_root + "/missing"});
+      OgreNextN1Configuration{media_root + "/missing", raster_feature_tier});
   Require(missing_media.Initialize(Initialization()).code ==
               RenderOperationCode::INVALID_ARGUMENT,
           "missing shader media root did not fail closed");
 
-  OgreNextN1Frontend frontend(OgreNextN1Configuration{media_root});
+  if (modern_pbr) {
+    OgreNextN1Frontend legacy_rejection(OgreNextN1Configuration{media_root});
+    RequireSuccess(legacy_rejection.Initialize(Initialization()),
+                   "legacy rejection Initialize");
+    Require(legacy_rejection.SynchronizeAssets(catalog).code ==
+                RenderOperationCode::UNSUPPORTED,
+            "default N1 runtime silently enabled the opt-in RT4/V1 catalog");
+    RequireSuccess(
+        legacy_rejection.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+        "legacy rejection Shutdown");
+  }
+
+  OgreNextN1Frontend frontend(
+      OgreNextN1Configuration{media_root, raster_feature_tier});
 
   const FrontendCapabilityReport capabilities = frontend.QueryCapabilities();
   Require(capabilities.frontend_kind == RendererFrontendKind::OGRE_NEXT &&
@@ -545,7 +705,8 @@ std::pair<Metrics, Metrics> RunSmoke(const std::string &media_root) {
           "N1 unexpectedly exported native interop");
 
   InitializeAndSync(frontend, catalog);
-  OgreNextN1Frontend concurrent(OgreNextN1Configuration{media_root});
+  OgreNextN1Frontend concurrent(
+      OgreNextN1Configuration{media_root, raster_feature_tier});
   const RenderOperationResult concurrent_result =
       concurrent.Initialize(Initialization());
   Require(concurrent_result.code == RenderOperationCode::BACKEND_FAILURE &&
@@ -624,9 +785,10 @@ std::pair<Metrics, Metrics> RunSmoke(const std::string &media_root) {
 int main(int argc, char **argv) {
   try {
     const Arguments arguments = ParseArguments(argc, argv);
-    const auto metrics = RunSmoke(arguments.media_root);
+    const auto metrics = RunSmoke(arguments.media_root, arguments.modern_pbr);
     WritePpm(arguments.image_path, metrics.second);
-    const std::string report = MakeReport(metrics.first, metrics.second);
+    const std::string report =
+        MakeReport(metrics.first, metrics.second, arguments.modern_pbr);
     WriteText(arguments.report_path, report);
     std::cout << report;
     return 0;
