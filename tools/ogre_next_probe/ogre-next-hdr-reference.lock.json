@@ -17,6 +17,11 @@
       "sha256": "a224111f54304d2759c9c4e7abf23fc754ad7f5ee272374e757f1a586d0fc2ab"
     },
     {
+      "role": "shader_bindings_parameters_and_sampling",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/HDR.material",
+      "sha256": "fcc532f1c6c3566d9c2a68fd9ed0bcd786e54be752f1d8c41626247ed3fa7a57"
+    },
+    {
       "role": "downscale03_metal",
       "path": "Samples/Media/2.0/scripts/materials/HDR/Metal/DownScale03_SumLumEnd_ps.metal",
       "sha256": "31a4009153b00f1214cbcd9c0d47554fc83211a267f84d5069cffb04020c30e3"
