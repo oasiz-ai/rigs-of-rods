@@ -429,8 +429,12 @@ std::shared_ptr<const SceneSnapshot> MakeScene(
 
 Matrix4x4 OffAxisFarPlaneTransform() {
   Matrix4x4 transform;
+  // The far-plane proof needs a larger planar target, not a non-uniform
+  // tangent transform. Keep all three axes uniform so the same scene remains
+  // valid under RT4's authored tangent-frame contract.
   transform.elements[0U] = 3.0F;
   transform.elements[5U] = 3.0F;
+  transform.elements[10U] = 3.0F;
   transform.elements[12U] = 20.0F;
   transform.elements[14U] = -16.0F;
   return transform;

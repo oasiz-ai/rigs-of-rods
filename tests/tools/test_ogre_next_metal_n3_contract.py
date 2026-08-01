@@ -348,6 +348,12 @@ class MetalN3ContractTests(unittest.TestCase):
             "ray_material_parity_claimed",
         ):
             self.assertIn(token, self.smoke)
+        off_axis = self.smoke[
+            self.smoke.index("Matrix4x4 OffAxisFarPlaneTransform()") :
+            self.smoke.index("Matrix4x4 Projection(")
+        ]
+        for axis in ("0U", "5U", "10U"):
+            self.assertIn(f"transform.elements[{axis}] = 3.0F;", off_axis)
 
     def test_native_interop_discriminates_both_reviewed_vertex_layouts(self) -> None:
         native_interop = (
