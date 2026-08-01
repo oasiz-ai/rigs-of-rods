@@ -12,6 +12,7 @@
 #pragma once
 
 #include "../RendererFrontend.h"
+#include "OgreNextRasterFeatureTier.h"
 
 #include <map>
 #include <memory>
@@ -81,14 +82,20 @@ BuildOgreNextN1CapabilityReport(RasterGraphicsApi raster_api,
     const FrontendCapabilityReport &capabilities);
 [[nodiscard]] ValidationResult
 ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
-                               bool allow_dynamic_meshes = false);
+                               bool allow_dynamic_meshes = false,
+                               OgreNextRasterFeatureTier raster_feature_tier =
+                                   OgreNextRasterFeatureTier::STATIC_PBR_N1);
 [[nodiscard]] ValidationResult ValidateOgreNextN1Scene(
     const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
-    bool allow_dynamic_meshes = false);
+    bool allow_dynamic_meshes = false,
+    OgreNextRasterFeatureTier raster_feature_tier =
+        OgreNextRasterFeatureTier::STATIC_PBR_N1);
 [[nodiscard]] ValidationResult ValidateOgreNextN1Frame(
     const RenderFrameRequest &request,
     const FrontendCapabilityReport &capabilities,
-    const RenderAssetRegistry &registry);
+    const RenderAssetRegistry &registry,
+    OgreNextRasterFeatureTier raster_feature_tier =
+        OgreNextRasterFeatureTier::STATIC_PBR_N1);
 
 [[nodiscard]] RenderOperationResult
 OgreNextN1OperationFromValidation(const ValidationResult &validation);
