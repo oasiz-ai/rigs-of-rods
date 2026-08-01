@@ -2505,6 +2505,7 @@ def validate_n3_checkpoint(
 
     device = object_field("device")
     contract = object_field("contract")
+    raster_contract = object_field("raster_contract")
     proof = object_field("proof")
     second = object_field("second_view_contribution")
     resized = object_field("resized_hybrid")
@@ -2514,6 +2515,17 @@ def validate_n3_checkpoint(
         raise ProbeError("Metal N3 follow-up image hashes are missing")
     _require_sha256(second_sha256, "Metal N3 second-view contribution")
     _require_sha256(resized_sha256, "Metal N3 resized hybrid")
+    texture_allocations = raster_contract.get("texture_allocations")
+    live_allocations = (
+        texture_allocations.get("live")
+        if isinstance(texture_allocations, dict)
+        else None
+    )
+    shutdown_allocations = (
+        texture_allocations.get("after_shutdown")
+        if isinstance(texture_allocations, dict)
+        else None
+    )
     pass_checks = {
         "device": isinstance(device.get("name"), str)
         and bool(device["name"])
@@ -2528,6 +2540,43 @@ def validate_n3_checkpoint(
         == "COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE"
         and contract.get("release_state") == "GENERAL_READ_WRITE"
         and contract.get("return_state") == "GENERAL_READ_WRITE",
+        "simultaneous_raster_contract": raster_contract.get(
+            "raster_feature_tier"
+        )
+        == "MODERN_PBR_RT4_V1"
+        and raster_contract.get("native_feature_tier")
+        == "METAL_RAY_TRACING_N3"
+        and raster_contract.get("vertex_layout")
+        == "POSITION_NORMAL_TANGENT_UV0_FLOAT32_48"
+        and type(raster_contract.get("vertex_stride_bytes")) is int
+        and raster_contract.get("vertex_stride_bytes") == 48
+        and raster_contract.get("authored_tangent_uv0") is True
+        and raster_contract.get("base_color_texture") == "RGBA8_UNORM_SRGB"
+        and type(raster_contract.get("directional_light_lux")) is int
+        and raster_contract.get("directional_light_lux") == 1024
+        and raster_contract.get("ray_material_parity_claimed") is False,
+        "texture_allocation_contract": isinstance(live_allocations, dict)
+        and live_allocations
+        == {
+            "source_textures": 1,
+            "sampled_rgba": 1,
+            "roughness_r8": 0,
+            "metallic_r8": 0,
+            "creates": 1,
+            "destroys": 0,
+            "live": 1,
+            "exact_usage": True,
+        }
+        and live_allocations.get("exact_usage") is True
+        and isinstance(shutdown_allocations, dict)
+        and shutdown_allocations
+        == {
+            "creates": 1,
+            "destroys": 1,
+            "live": 0,
+            "retired_name_lookups": 1,
+            "retired_name_rejections": 1,
+        },
         "distinct_artifacts": len(
             {
                 raster_metrics["sha256"],
@@ -2576,6 +2625,12 @@ def validate_n3_checkpoint(
                 "off_axis_far_plane_hit_passed",
                 "released_frame_allows_extent_change",
                 "submitted_device_loss_and_timeout_paths_tested",
+                "simultaneous_rt4_n3",
+                "textured_rt4_geometry_rendered",
+                "calibrated_directional_light_applied",
+                "exact_48_byte_vertex_layout_exported",
+                "texture_allocation_audit_exact",
+                "texture_teardown_audit_exact",
                 "view_dependent_output_ready",
                 "hybrid_composite_ready",
             )

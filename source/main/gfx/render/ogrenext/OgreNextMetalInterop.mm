@@ -616,13 +616,43 @@ private:
     }
     const Ogre::VertexElement2Vec &elements =
         vertex_buffer->getVertexElements();
-    if (elements.size() != 2U || elements[0].mSemantic != Ogre::VES_POSITION ||
-        elements[0].mType != Ogre::VET_FLOAT3 ||
-        elements[1].mSemantic != Ogre::VES_NORMAL ||
-        elements[1].mType != Ogre::VET_FLOAT3 ||
-        binding.position_offset_bytes != 0U) {
+    const auto exact_element = [&](std::size_t index,
+                                   Ogre::VertexElementType type,
+                                   Ogre::VertexElementSemantic semantic) {
+      return index < elements.size() && elements[index].mType == type &&
+             elements[index].mSemantic == semantic &&
+             elements[index].mInstancingStepRate == 0U;
+    };
+    bool reviewed_layout = false;
+    std::uint32_t expected_stride = 0U;
+    switch (binding.vertex_layout) {
+    case OgreNextNativeVertexLayout::POSITION_NORMAL_FLOAT32_24:
+      expected_stride = kOgreNextPositionNormalVertexStrideBytes;
+      reviewed_layout =
+          elements.size() == 2U &&
+          exact_element(0U, Ogre::VET_FLOAT3, Ogre::VES_POSITION) &&
+          exact_element(1U, Ogre::VET_FLOAT3, Ogre::VES_NORMAL);
+      break;
+    case OgreNextNativeVertexLayout::
+        POSITION_NORMAL_TANGENT_UV0_FLOAT32_48:
+      expected_stride =
+          kOgreNextPositionNormalTangentUv0VertexStrideBytes;
+      reviewed_layout =
+          elements.size() == 4U &&
+          exact_element(0U, Ogre::VET_FLOAT3, Ogre::VES_POSITION) &&
+          exact_element(1U, Ogre::VET_FLOAT3, Ogre::VES_NORMAL) &&
+          exact_element(2U, Ogre::VET_FLOAT4, Ogre::VES_TANGENT) &&
+          exact_element(3U, Ogre::VET_FLOAT2,
+                        Ogre::VES_TEXTURE_COORDINATES);
+      break;
+    case OgreNextNativeVertexLayout::INVALID:
+      break;
+    }
+    if (!reviewed_layout || binding.position_offset_bytes != 0U ||
+        binding.vertex_stride_bytes != expected_stride ||
+        vertex_buffer->getBytesPerElement() != expected_stride) {
       return BackendFailure(
-          "Ogre v2 vertex layout is not the reviewed interleaved position/normal layout");
+          "Ogre v2 vertex layout is not an exact reviewed interop layout");
     }
     const NativeIndexFormat actual_index_format =
         index_buffer->getIndexType() == Ogre::IndexBufferPacked::IT_16BIT

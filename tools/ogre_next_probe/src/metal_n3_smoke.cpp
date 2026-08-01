@@ -303,15 +303,50 @@ RenderAssetDelta MakeCatalog() {
                     {0.5F, -0.5F, 0.0F},
                     {0.0F, 0.5F, 0.0F}};
   mesh.normals.assign(mesh.positions.size(), Float3{0.0F, 0.0F, 1.0F});
+  mesh.tangents.assign(mesh.positions.size(),
+                       Float4{1.0F, 0.0F, 0.0F, 1.0F});
+  mesh.texture_coordinates_0 = {
+      {0.0F, 1.0F},
+      {1.0F, 1.0F},
+      {0.5F, 0.0F},
+  };
   mesh.indices = {0U, 1U, 2U};
 
   MaterialDescriptor material;
-  material.debug_name = "N3 raster witness";
-  material.base_color_factor = {0.06F, 0.45F, 0.9F, 1.0F};
+  material.debug_name = "simultaneous RT4 textured N3 raster witness";
+  material.base_color_factor = {0.72F, 0.82F, 0.94F, 1.0F};
   material.metallic_factor = 0.15F;
-  material.roughness_factor = 0.3F;
-  material.emissive_factor = {0.35F, 0.08F, 0.02F};
-  material.emissive_strength = 2.5F;
+  material.roughness_factor = 0.38F;
+  material.emissive_factor = {0.02F, 0.01F, 0.005F};
+  material.emissive_strength = 0.25F;
+  material.base_color_texture.texture =
+      AssetRef(RenderAssetKind::TEXTURE, 3U);
+  material.base_color_texture.sampler =
+      AssetRef(RenderAssetKind::SAMPLER, 4U);
+
+  TextureResourceDescriptor texture;
+  texture.debug_name = "N3 RT4 sRGB padded-row base-color texture";
+  texture.color_space = TextureColorSpace::SRGB;
+  texture.width = 2U;
+  texture.height = 2U;
+  TextureMipLevelDescriptor mip;
+  mip.width = 2U;
+  mip.height = 2U;
+  mip.row_pitch_bytes = 12U;
+  mip.layer_pitch_bytes = 24U;
+  mip.bytes.assign(24U, 0xA7U);
+  const std::array<std::uint8_t, 16U> rgba{{
+      245U, 35U, 20U, 255U, 25U, 225U, 55U, 255U,
+      30U, 60U, 240U, 255U, 245U, 205U, 25U, 255U,
+  }};
+  std::memcpy(mip.bytes.data(), rgba.data(), 8U);
+  std::memcpy(mip.bytes.data() + 12U, rgba.data() + 8U, 8U);
+  texture.mip_levels.push_back(std::move(mip));
+
+  SamplerResourceDescriptor sampler;
+  sampler.debug_name = "N3 RT4 base-color sampler";
+  sampler.address_u = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
 
   RenderAssetDelta delta;
   delta.registry_id = kRegistryId;
@@ -325,6 +360,14 @@ RenderAssetDelta MakeCatalog() {
   material_mutation.asset = AssetRef(RenderAssetKind::MATERIAL, 2U);
   material_mutation.payload = std::move(material);
   delta.mutations.push_back(std::move(material_mutation));
+  RenderAssetMutation texture_mutation;
+  texture_mutation.asset = AssetRef(RenderAssetKind::TEXTURE, 3U);
+  texture_mutation.payload = std::move(texture);
+  delta.mutations.push_back(std::move(texture_mutation));
+  RenderAssetMutation sampler_mutation;
+  sampler_mutation.asset = AssetRef(RenderAssetKind::SAMPLER, 4U);
+  sampler_mutation.payload = std::move(sampler);
+  delta.mutations.push_back(std::move(sampler_mutation));
   return delta;
 }
 
@@ -337,7 +380,15 @@ std::shared_ptr<const SceneSnapshot> MakeScene(
   descriptor.asset_sequence = 1U;
   descriptor.simulation_tick = snapshot_id;
   descriptor.simulation_time_seconds = static_cast<double>(snapshot_id) / 48.0;
-  descriptor.environment.ambient_radiance = {0.04F, 0.04F, 0.04F};
+  descriptor.environment.ambient_radiance = {0.01F, 0.012F, 0.015F};
+  LightDescriptor light;
+  light.light_id = 1U;
+  light.type = LightType::DIRECTIONAL;
+  light.color_linear = {1.0F, 0.92F, 0.82F};
+  light.intensity = 1024.0F;
+  light.direction = {0.0F, 0.0F, -1.0F};
+  light.casts_shadows = false;
+  descriptor.lights.push_back(light);
 
   MeshInstanceDescriptor instance;
   instance.instance_id = 1U;
@@ -361,6 +412,8 @@ std::shared_ptr<const SceneSnapshot> MakeScene(
                       {0.5F, -0.5F, 0.0F},
                       {0.0F, 0.5F, 0.0F}};
   update.normals.assign(update.positions.size(), Float3{0.0F, 0.0F, 1.0F});
+  update.tangents.assign(update.positions.size(),
+                         Float4{1.0F, 0.0F, 0.0F, 1.0F});
   update.has_updated_bounds = true;
   update.updated_local_bounds = instance.local_bounds;
   descriptor.dynamic_mesh_updates.push_back(std::move(update));
@@ -506,6 +559,8 @@ std::string PassReport(
     const ImageMetrics &raster, const ImageMetrics &contribution,
     const ImageMetrics &hybrid, const ImageMetrics &second_contribution,
     const ImageMetrics &resized_hybrid, std::uint64_t far_edge_pixels,
+    const OgreNextN1TextureAllocationAudit &live_texture_audit,
+    const OgreNextN1TextureAllocationAudit &shutdown_texture_audit,
     const FileDigest &executable) {
   std::ostringstream report;
   report << "{\n"
@@ -537,6 +592,44 @@ std::string PassReport(
          << evidence.image_export.version
          << ", \"image_generation\": " << evidence.image_export.image.generation
          << ", \"usage\": \"COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE\", \"release_state\": \"GENERAL_READ_WRITE\", \"return_state\": \"GENERAL_READ_WRITE\"},\n"
+         << "  \"raster_contract\": {\n"
+         << "    \"raster_feature_tier\": \"MODERN_PBR_RT4_V1\",\n"
+         << "    \"native_feature_tier\": \"METAL_RAY_TRACING_N3\",\n"
+         << "    \"vertex_layout\": \"POSITION_NORMAL_TANGENT_UV0_FLOAT32_48\",\n"
+         << "    \"vertex_stride_bytes\": 48,\n"
+         << "    \"authored_tangent_uv0\": true,\n"
+         << "    \"base_color_texture\": \"RGBA8_UNORM_SRGB\",\n"
+         << "    \"directional_light_lux\": 1024,\n"
+         << "    \"ray_material_parity_claimed\": false,\n"
+         << "    \"texture_allocations\": {\n"
+         << "      \"live\": {\"source_textures\": "
+         << live_texture_audit.live_source_textures
+         << ", \"sampled_rgba\": "
+         << live_texture_audit.sampled_rgba_allocations
+         << ", \"roughness_r8\": "
+         << live_texture_audit.roughness_r8_allocations
+         << ", \"metallic_r8\": "
+         << live_texture_audit.metallic_r8_allocations
+         << ", \"creates\": "
+         << live_texture_audit.native_allocation_creates
+         << ", \"destroys\": "
+         << live_texture_audit.native_allocation_destroys
+         << ", \"live\": "
+         << live_texture_audit.live_native_allocations
+         << ", \"exact_usage\": "
+         << (live_texture_audit.exact_usage ? "true" : "false") << "},\n"
+         << "      \"after_shutdown\": {\"creates\": "
+         << shutdown_texture_audit.native_allocation_creates
+         << ", \"destroys\": "
+         << shutdown_texture_audit.native_allocation_destroys
+         << ", \"live\": "
+         << shutdown_texture_audit.live_native_allocations
+         << ", \"retired_name_lookups\": "
+         << shutdown_texture_audit.retired_name_lookups
+         << ", \"retired_name_rejections\": "
+         << shutdown_texture_audit.retired_name_rejections << "}\n"
+         << "    }\n"
+         << "  },\n"
          << "  \"raster_only_hdr\": " << MetricsJson(raster) << ",\n"
          << "  \"rt_contribution\": " << MetricsJson(contribution) << ",\n"
          << "  \"hybrid_hdr\": " << MetricsJson(hybrid) << ",\n"
@@ -560,6 +653,12 @@ std::string PassReport(
          << "    \"off_axis_far_plane_hit_passed\": true,\n"
          << "    \"released_frame_allows_extent_change\": true,\n"
          << "    \"submitted_device_loss_and_timeout_paths_tested\": true,\n"
+         << "    \"simultaneous_rt4_n3\": true,\n"
+         << "    \"textured_rt4_geometry_rendered\": true,\n"
+         << "    \"calibrated_directional_light_applied\": true,\n"
+         << "    \"exact_48_byte_vertex_layout_exported\": true,\n"
+         << "    \"texture_allocation_audit_exact\": true,\n"
+         << "    \"texture_teardown_audit_exact\": true,\n"
          << "    \"view_dependent_output_ready\": "
          << (capabilities.view_dependent_output_ready ? "true" : "false")
          << ",\n"
@@ -573,7 +672,8 @@ void ProveInjectedObservation(OgreNextMetalN2TestObservation observation,
                               RenderOperationCode expected,
                               const std::string &media_root) {
   OgreNextN1Frontend frontend(
-      OgreNextN1Configuration{media_root},
+      OgreNextN1Configuration{
+          media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1},
       OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3);
   FrontendInitializationRequest initialization;
   initialization.initial_width = kWidth;
@@ -625,7 +725,9 @@ void ProveInjectedObservation(OgreNextMetalN2TestObservation observation,
 std::pair<std::string, int> Run(const Arguments &arguments) {
   const FileDigest executable = HashFile(arguments.executable_path);
   OgreNextN1Frontend frontend(
-      OgreNextN1Configuration{arguments.media_root},
+      OgreNextN1Configuration{
+          arguments.media_root,
+          OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1},
       OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3);
   FrontendInitializationRequest initialization;
   initialization.initial_width = kWidth;
@@ -636,6 +738,18 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
   RequireSuccess(frontend.Initialize(initialization), "frontend Initialize");
   RequireSuccess(frontend.SynchronizeAssets(MakeCatalog()),
                  "frontend SynchronizeAssets");
+  const OgreNextN1TextureAllocationAudit live_texture_audit =
+      frontend.QueryTextureAllocationAudit();
+  Require(live_texture_audit.version == 1U &&
+              live_texture_audit.live_source_textures == 1U &&
+              live_texture_audit.sampled_rgba_allocations == 1U &&
+              live_texture_audit.roughness_r8_allocations == 0U &&
+              live_texture_audit.metallic_r8_allocations == 0U &&
+              live_texture_audit.native_allocation_creates == 1U &&
+              live_texture_audit.native_allocation_destroys == 0U &&
+              live_texture_audit.live_native_allocations == 1U &&
+              live_texture_audit.exact_usage,
+          "simultaneous RT4+N3 texture allocation audit drifted");
   NativeRenderInterop *interop = frontend.GetNativeInterop();
   Require(interop != nullptr, "N3 frontend did not expose interop");
   const NativeInteropCapabilityReport interop_capabilities =
@@ -688,6 +802,9 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
                       .external_image_return_state ==
                   NativeImageState::GENERAL_READ_WRITE,
           "N3 evidence does not identify the exact HDR image handoff");
+  Require(first_evidence.geometry_export.positions.stride_bytes ==
+              kOgreNextPositionNormalTangentUv0VertexStrideBytes,
+          "N3 did not export the exact reviewed 48-byte RT4 vertex layout");
   Require(frontend_raster.attachments.size() == 1U &&
               first_hybrid.attachments.size() == 1U &&
               frontend_raster.attachments.front().bytes ==
@@ -770,6 +887,14 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
           "successful shutdown retained its exact scene snapshot evidence");
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "frontend Shutdown");
+  const OgreNextN1TextureAllocationAudit shutdown_texture_audit =
+      frontend.QueryTextureAllocationAudit();
+  Require(shutdown_texture_audit.native_allocation_creates == 1U &&
+              shutdown_texture_audit.native_allocation_destroys == 1U &&
+              shutdown_texture_audit.live_native_allocations == 0U &&
+              shutdown_texture_audit.retired_name_lookups == 1U &&
+              shutdown_texture_audit.retired_name_rejections == 1U,
+          "simultaneous RT4+N3 texture teardown audit drifted");
   Require(far_edge_snapshot.expired(),
           "successful teardown retained the final world snapshot");
 
@@ -788,7 +913,8 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
               first_evidence.hybrid_readback_bytes);
   return {PassReport(first_evidence, capabilities, raster, contribution,
                      hybrid, second_contribution, resized_hybrid,
-                     far_edge_contribution_pixels, executable),
+                     far_edge_contribution_pixels, live_texture_audit,
+                     shutdown_texture_audit, executable),
           EXIT_SUCCESS};
 }
 

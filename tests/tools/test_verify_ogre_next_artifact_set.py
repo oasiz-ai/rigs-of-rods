@@ -379,6 +379,37 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                         "release_state": "GENERAL_READ_WRITE",
                         "return_state": "GENERAL_READ_WRITE",
                     },
+                    "raster_contract": {
+                        "raster_feature_tier": "MODERN_PBR_RT4_V1",
+                        "native_feature_tier": "METAL_RAY_TRACING_N3",
+                        "vertex_layout": (
+                            "POSITION_NORMAL_TANGENT_UV0_FLOAT32_48"
+                        ),
+                        "vertex_stride_bytes": 48,
+                        "authored_tangent_uv0": True,
+                        "base_color_texture": "RGBA8_UNORM_SRGB",
+                        "directional_light_lux": 1024,
+                        "ray_material_parity_claimed": False,
+                        "texture_allocations": {
+                            "live": {
+                                "source_textures": 1,
+                                "sampled_rgba": 1,
+                                "roughness_r8": 0,
+                                "metallic_r8": 0,
+                                "creates": 1,
+                                "destroys": 0,
+                                "live": 1,
+                                "exact_usage": True,
+                            },
+                            "after_shutdown": {
+                                "creates": 1,
+                                "destroys": 1,
+                                "live": 0,
+                                "retired_name_lookups": 1,
+                                "retired_name_rejections": 1,
+                            },
+                        },
+                    },
                     "second_view_contribution": {
                         "width": 96,
                         "height": 64,
@@ -652,6 +683,53 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                         report["contract"]["image_version"] = replacement
 
                 self.assert_metal_n3_report_rejected(mutate, "image_contract")
+
+    def test_metal_n3_gate_requires_simultaneous_rt4_layout_contract(self) -> None:
+        mutations = (
+            ("raster_feature_tier", "STATIC_PBR_N1"),
+            ("native_feature_tier", "METAL_RAY_TRACING_N2"),
+            ("vertex_layout", "POSITION_NORMAL_FLOAT32_24"),
+            ("vertex_stride_bytes", 24),
+            ("vertex_stride_bytes", True),
+            ("authored_tangent_uv0", False),
+            ("base_color_texture", "RGBA8_UNORM"),
+            ("directional_light_lux", 0),
+            ("directional_light_lux", True),
+            ("ray_material_parity_claimed", True),
+        )
+        for field, value in mutations:
+            with self.subTest(field=field, value=value):
+                def mutate(report, name=field, replacement=value):
+                    report["raster_contract"][name] = replacement
+
+                self.assert_metal_n3_report_rejected(
+                    mutate, "simultaneous_raster_contract"
+                )
+
+    def test_metal_n3_gate_requires_exact_texture_allocation_audit(self) -> None:
+        paths = (
+            ("live", "source_textures", 0),
+            ("live", "sampled_rgba", 0),
+            ("live", "exact_usage", False),
+            ("after_shutdown", "destroys", 0),
+            ("after_shutdown", "live", 1),
+            ("after_shutdown", "retired_name_rejections", 0),
+        )
+        for phase, field, value in paths:
+            with self.subTest(phase=phase, field=field):
+                def mutate(
+                    report,
+                    allocation_phase=phase,
+                    name=field,
+                    replacement=value,
+                ):
+                    report["raster_contract"]["texture_allocations"][
+                        allocation_phase
+                    ][name] = replacement
+
+                self.assert_metal_n3_report_rejected(
+                    mutate, "texture_allocation_contract"
+                )
 
     def test_metal_n3_gate_requires_exact_build_contract_json_types(self) -> None:
         mutations = (

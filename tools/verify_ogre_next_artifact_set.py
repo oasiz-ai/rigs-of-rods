@@ -136,6 +136,12 @@ METAL_N3_REQUIRED_PROOF_BOOLEANS = (
     "off_axis_far_plane_hit_passed",
     "released_frame_allows_extent_change",
     "submitted_device_loss_and_timeout_paths_tested",
+    "simultaneous_rt4_n3",
+    "textured_rt4_geometry_rendered",
+    "calibrated_directional_light_applied",
+    "exact_48_byte_vertex_layout_exported",
+    "texture_allocation_audit_exact",
+    "texture_teardown_audit_exact",
     "view_dependent_output_ready",
     "hybrid_composite_ready",
 )
@@ -709,17 +715,31 @@ def _verify_metal_n3_pass_semantics(
                 )
 
     contract = report.get("contract")
+    raster_contract = report.get("raster_contract")
     proof = report.get("proof")
     device = report.get("device")
     second = report.get("second_view_contribution")
     resized = report.get("resized_hybrid")
-    if not isinstance(contract, dict) or not isinstance(proof, dict):
+    if (
+        not isinstance(contract, dict)
+        or not isinstance(raster_contract, dict)
+        or not isinstance(proof, dict)
+    ):
         raise ArtifactSetError("Metal N3 contract or proof is missing")
     if not isinstance(device, dict):
         raise ArtifactSetError("Metal N3 device proof is missing")
     second_valid = _valid_metal_n3_followup(second, 96, 64)
     resized_valid = _valid_metal_n3_followup(resized, 80, 48)
     second_hash = second.get("sha256") if isinstance(second, dict) else None
+    allocations = raster_contract.get("texture_allocations")
+    live_allocations = (
+        allocations.get("live") if isinstance(allocations, dict) else None
+    )
+    shutdown_allocations = (
+        allocations.get("after_shutdown")
+        if isinstance(allocations, dict)
+        else None
+    )
     checks = {
         "scope": report.get("scope") == METAL_N3_SCOPE,
         "device": isinstance(device.get("name"), str)
@@ -734,6 +754,43 @@ def _verify_metal_n3_pass_semantics(
         == "COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE"
         and contract.get("release_state") == "GENERAL_READ_WRITE"
         and contract.get("return_state") == "GENERAL_READ_WRITE",
+        "simultaneous_raster_contract": raster_contract.get(
+            "raster_feature_tier"
+        )
+        == "MODERN_PBR_RT4_V1"
+        and raster_contract.get("native_feature_tier")
+        == "METAL_RAY_TRACING_N3"
+        and raster_contract.get("vertex_layout")
+        == "POSITION_NORMAL_TANGENT_UV0_FLOAT32_48"
+        and type(raster_contract.get("vertex_stride_bytes")) is int
+        and raster_contract.get("vertex_stride_bytes") == 48
+        and raster_contract.get("authored_tangent_uv0") is True
+        and raster_contract.get("base_color_texture") == "RGBA8_UNORM_SRGB"
+        and type(raster_contract.get("directional_light_lux")) is int
+        and raster_contract.get("directional_light_lux") == 1024
+        and raster_contract.get("ray_material_parity_claimed") is False,
+        "texture_allocation_contract": isinstance(live_allocations, dict)
+        and live_allocations
+        == {
+            "source_textures": 1,
+            "sampled_rgba": 1,
+            "roughness_r8": 0,
+            "metallic_r8": 0,
+            "creates": 1,
+            "destroys": 0,
+            "live": 1,
+            "exact_usage": True,
+        }
+        and live_allocations.get("exact_usage") is True
+        and isinstance(shutdown_allocations, dict)
+        and shutdown_allocations
+        == {
+            "creates": 1,
+            "destroys": 1,
+            "live": 0,
+            "retired_name_lookups": 1,
+            "retired_name_rejections": 1,
+        },
         "distinct_nonempty_images": len(
             {metrics[key]["sha256"] for key, _ in METAL_N3_IMAGE_ARTIFACTS}
         )

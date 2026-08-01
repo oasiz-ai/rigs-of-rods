@@ -25,6 +25,20 @@ enum class OgreNextNativeFeatureTier : std::uint8_t {
   METAL_RAY_TRACING_N3 = 2,
 };
 
+/// Exact reviewed interleaved vertex layouts which may cross the Ogre/native
+/// interop boundary. A binding never asks the native adapter to infer layout
+/// from a stride: both the discriminator and exact stride must agree with the
+/// live Ogre declaration before a native buffer is exported.
+enum class OgreNextNativeVertexLayout : std::uint8_t {
+  INVALID = 0,
+  POSITION_NORMAL_FLOAT32_24 = 1,
+  POSITION_NORMAL_TANGENT_UV0_FLOAT32_48 = 2,
+};
+
+constexpr std::uint32_t kOgreNextPositionNormalVertexStrideBytes = 24U;
+constexpr std::uint32_t
+    kOgreNextPositionNormalTangentUv0VertexStrideBytes = 48U;
+
 /// Opaque references to the exact Ogre v2 buffers selected for a raster Item.
 /// Only the compile-isolated platform adapter may decode the two identities.
 struct OgreNextN2FrameGeometryBinding {
@@ -37,7 +51,10 @@ struct OgreNextN2FrameGeometryBinding {
   MeshPrimitiveTopology topology = MeshPrimitiveTopology::TRIANGLE_LIST;
   std::uintptr_t ogre_vertex_buffer = 0U;
   std::uintptr_t ogre_index_buffer = 0U;
+  OgreNextNativeVertexLayout vertex_layout =
+      OgreNextNativeVertexLayout::INVALID;
   std::uint32_t position_offset_bytes = 0U;
+  std::uint32_t vertex_stride_bytes = 0U;
   std::uint32_t vertex_count = 0U;
   std::uint32_t index_count = 0U;
   NativeIndexFormat index_format = NativeIndexFormat::UINT32;
