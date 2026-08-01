@@ -47,6 +47,18 @@ MeshResourceDescriptor MakeMesh() {
   return mesh;
 }
 
+MeshResourceDescriptor MakeModernMesh() {
+  MeshResourceDescriptor mesh = MakeMesh();
+  mesh.debug_name = "RT4/V1 textured triangle";
+  mesh.tangents.assign(3U, Float4{1.0F, 0.0F, 0.0F, 1.0F});
+  mesh.texture_coordinates_0 = {
+      {0.0F, 1.0F},
+      {1.0F, 1.0F},
+      {0.5F, 0.0F},
+  };
+  return mesh;
+}
+
 MaterialDescriptor MakeMaterial() {
   MaterialDescriptor material;
   material.debug_name = "N1 blue metal";
@@ -71,6 +83,63 @@ RenderAssetDelta MakeCatalogDelta(std::uint64_t registry_id,
   material_mutation.asset = Ref(RenderAssetKind::MATERIAL, 2U);
   material_mutation.payload = std::move(material);
   delta.mutations.push_back(std::move(material_mutation));
+  return delta;
+}
+
+TextureResourceDescriptor MakeRgba8Texture(TextureColorSpace color_space,
+                                           std::uint8_t red,
+                                           std::uint8_t green,
+                                           std::uint8_t blue) {
+  TextureResourceDescriptor texture;
+  texture.debug_name = "RT4/V1 one-pixel texture";
+  texture.format = TextureResourceFormat::RGBA8_UNORM;
+  texture.color_space = color_space;
+  texture.width = 1U;
+  texture.height = 1U;
+  TextureMipLevelDescriptor mip;
+  mip.width = 1U;
+  mip.height = 1U;
+  mip.row_pitch_bytes = 4U;
+  mip.layer_pitch_bytes = 4U;
+  mip.bytes = {red, green, blue, 255U};
+  texture.mip_levels.push_back(std::move(mip));
+  return texture;
+}
+
+RenderAssetDelta MakeModernCatalogDelta(std::uint64_t registry_id) {
+  MaterialDescriptor material = MakeMaterial();
+  material.debug_name = "RT4/V1 complete textured PBS";
+  material.base_color_texture.texture = Ref(RenderAssetKind::TEXTURE, 3U);
+  material.base_color_texture.sampler = Ref(RenderAssetKind::SAMPLER, 7U);
+  material.metallic_roughness_texture.texture =
+      Ref(RenderAssetKind::TEXTURE, 4U);
+  material.metallic_roughness_texture.sampler =
+      Ref(RenderAssetKind::SAMPLER, 7U);
+  material.normal_texture.texture = Ref(RenderAssetKind::TEXTURE, 5U);
+  material.normal_texture.sampler = Ref(RenderAssetKind::SAMPLER, 7U);
+  material.emissive_texture.texture = Ref(RenderAssetKind::TEXTURE, 6U);
+  material.emissive_texture.sampler = Ref(RenderAssetKind::SAMPLER, 7U);
+
+  RenderAssetDelta delta =
+      MakeCatalogDelta(registry_id, MakeModernMesh(), material);
+  const TextureResourceDescriptor textures[] = {
+      MakeRgba8Texture(TextureColorSpace::SRGB, 180U, 80U, 30U),
+      MakeRgba8Texture(TextureColorSpace::LINEAR, 255U, 96U, 210U),
+      MakeRgba8Texture(TextureColorSpace::LINEAR, 128U, 128U, 255U),
+      MakeRgba8Texture(TextureColorSpace::SRGB, 20U, 10U, 5U),
+  };
+  for (std::size_t index = 0U; index < 4U; ++index) {
+    RenderAssetMutation texture;
+    texture.asset = Ref(RenderAssetKind::TEXTURE, 3U + index);
+    texture.payload = textures[index];
+    delta.mutations.push_back(std::move(texture));
+  }
+  SamplerResourceDescriptor sampler;
+  sampler.debug_name = "RT4/V1 trilinear repeat";
+  RenderAssetMutation sampler_mutation;
+  sampler_mutation.asset = Ref(RenderAssetKind::SAMPLER, 7U);
+  sampler_mutation.payload = sampler;
+  delta.mutations.push_back(std::move(sampler_mutation));
   return delta;
 }
 
@@ -408,6 +477,84 @@ void TestAssetPolicy() {
           "texture resources escaped N1 admission");
 }
 
+void TestModernPbrAssetPolicy() {
+  constexpr std::uint64_t kRegistryId = 73U;
+  constexpr OgreNextRasterFeatureTier kModern =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  RenderAssetRegistry registry(kRegistryId);
+  Require(registry.Apply(MakeModernCatalogDelta(kRegistryId)).ok(),
+          "valid RT4/V1 catalog could not be constructed");
+  Require(ValidateOgreNextN1AssetCatalog(registry).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "default N1 silently enabled the opt-in textured tier");
+  Require(ValidateOgreNextN1AssetCatalog(registry, false, kModern).ok(),
+          "valid RT4/V1 texture, sampler, tangent, and UV0 catalog was rejected");
+
+  RenderAssetDelta transformed_delta = MakeModernCatalogDelta(kRegistryId + 1U);
+  std::get<MaterialDescriptor>(transformed_delta.mutations[1U].payload)
+      .normal_texture.rotation_radians = 0.25F;
+  RenderAssetRegistry transformed_registry(kRegistryId + 1U);
+  Require(transformed_registry.Apply(transformed_delta).ok(),
+          "texture-transform fixture is not renderer-contract valid");
+  Require(ValidateOgreNextN1AssetCatalog(transformed_registry, false, kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "unmapped general texture transform escaped RT4/V1 admission");
+
+  RenderAssetDelta occlusion_delta = MakeModernCatalogDelta(kRegistryId + 2U);
+  MaterialDescriptor &occluded =
+      std::get<MaterialDescriptor>(occlusion_delta.mutations[1U].payload);
+  occluded.occlusion_texture.texture = Ref(RenderAssetKind::TEXTURE, 4U);
+  occluded.occlusion_texture.sampler = Ref(RenderAssetKind::SAMPLER, 7U);
+  RenderAssetRegistry occlusion_registry(kRegistryId + 2U);
+  Require(occlusion_registry.Apply(occlusion_delta).ok(),
+          "packed ORM occlusion fixture is not renderer-contract valid");
+  Require(ValidateOgreNextN1AssetCatalog(occlusion_registry, false, kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "pinned-PBS ambient-occlusion mismatch escaped RT4/V1 admission");
+
+  RenderAssetDelta scaled_normal_delta =
+      MakeModernCatalogDelta(kRegistryId + 3U);
+  std::get<MaterialDescriptor>(scaled_normal_delta.mutations[1U].payload)
+      .normal_scale = 0.5F;
+  RenderAssetRegistry scaled_normal_registry(kRegistryId + 3U);
+  Require(scaled_normal_registry.Apply(scaled_normal_delta).ok(),
+          "normal-scale fixture is not renderer-contract valid");
+  Require(ValidateOgreNextN1AssetCatalog(scaled_normal_registry, false, kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "noncanonical pinned-PBS normal weight escaped RT4/V1 admission");
+
+  RenderAssetDelta border_delta = MakeModernCatalogDelta(kRegistryId + 4U);
+  std::get<SamplerResourceDescriptor>(border_delta.mutations.back().payload)
+      .address_u = SamplerAddressMode::CLAMP_TO_BORDER;
+  RenderAssetRegistry border_registry(kRegistryId + 4U);
+  Require(border_registry.Apply(border_delta).ok(),
+          "border sampler fixture is not renderer-contract valid");
+  Require(ValidateOgreNextN1AssetCatalog(border_registry, false, kModern).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "cross-renderer clamp-to-border mismatch escaped RT4/V1 admission");
+
+  RenderAssetDelta biased_delta = MakeModernCatalogDelta(kRegistryId + 5U);
+  std::get<SamplerResourceDescriptor>(biased_delta.mutations.back().payload)
+      .mip_lod_bias = 1.0F;
+  RenderAssetRegistry biased_registry(kRegistryId + 5U);
+  Require(biased_registry.Apply(biased_delta).ok(),
+          "LOD-bias sampler fixture is not renderer-contract valid");
+  Require(ValidateOgreNextN1AssetCatalog(biased_registry, false, kModern).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "Metal-omitted mip LOD bias escaped RT4/V1 admission");
+
+  RenderAssetDelta missing_tangent_delta =
+      MakeModernCatalogDelta(kRegistryId + 6U);
+  std::get<MeshResourceDescriptor>(missing_tangent_delta.mutations[0U].payload)
+      .tangents.clear();
+  RenderAssetRegistry missing_tangent_registry(kRegistryId + 6U);
+  Require(missing_tangent_registry.Apply(missing_tangent_delta).ok(),
+          "missing-tangent catalog fixture is not structurally valid");
+  Require(ValidateOgreNextN1AssetCatalog(missing_tangent_registry, false, kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "missing authored tangent stream escaped RT4/V1 admission");
+}
+
 void TestFrameAndScenePolicy() {
   constexpr std::uint64_t kRegistryId = 72U;
   RenderAssetRegistry registry(kRegistryId);
@@ -557,6 +704,7 @@ int main() {
   TestCapabilitiesFailClosed();
   TestInitializationPolicy();
   TestAssetPolicy();
+  TestModernPbrAssetPolicy();
   TestFrameAndScenePolicy();
   std::cout << "Ogre-Next N1 fail-closed policy tests passed\n";
   return EXIT_SUCCESS;

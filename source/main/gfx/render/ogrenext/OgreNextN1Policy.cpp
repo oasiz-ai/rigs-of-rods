@@ -39,6 +39,59 @@ bool IsTextureFree(const MaterialDescriptor &material) noexcept {
   return true;
 }
 
+bool IsIdentityTextureTransform(const TextureBinding &binding) noexcept {
+  return binding.texture_coordinate_set == 0U &&
+         binding.scale == Float2{1.0F, 1.0F} && binding.offset == Float2{} &&
+         binding.rotation_radians == 0.0F;
+}
+
+bool UsesClampToBorder(const SamplerResourceDescriptor &sampler) noexcept {
+  return sampler.address_u == SamplerAddressMode::CLAMP_TO_BORDER ||
+         sampler.address_v == SamplerAddressMode::CLAMP_TO_BORDER ||
+         sampler.address_w == SamplerAddressMode::CLAMP_TO_BORDER;
+}
+
+ValidationResult ValidateModernTexturePolicy(
+    const TextureResourceDescriptor &texture, std::size_t index) {
+  if (texture.type != TextureResourceType::TEXTURE_2D ||
+      texture.array_layers != 1U ||
+      texture.format != TextureResourceFormat::RGBA8_UNORM) {
+    return Unsupported(
+        "assets.texture.format",
+        "RT4/V1 admits non-array RGBA8 textures only; this keeps sRGB decode and linear ORM/normal uploads identical on Metal, D3D11, and Vulkan",
+        index);
+  }
+  return ValidationResult::Success();
+}
+
+ValidationResult ValidateModernSamplerPolicy(
+    const SamplerResourceDescriptor &sampler, std::size_t index) {
+  if (UsesClampToBorder(sampler)) {
+    return Unsupported(
+        "assets.sampler.address",
+        "RT4/V1 rejects clamp-to-border because pinned Ogre maps it to clamp-to-edge on Metal and does not preserve the portable border colour on Vulkan",
+        index);
+  }
+  if (sampler.mip_lod_bias != 0.0F) {
+    return Unsupported(
+        "assets.sampler.mip_lod_bias",
+        "RT4/V1 requires zero mip LOD bias because pinned Ogre does not forward it to Metal samplers",
+        index);
+  }
+  if (sampler.anisotropy_enabled &&
+      (sampler.minification_filter != SamplerFilter::LINEAR ||
+       sampler.magnification_filter != SamplerFilter::LINEAR ||
+       sampler.mip_filter != SamplerFilter::LINEAR ||
+       std::floor(sampler.maximum_anisotropy) !=
+           sampler.maximum_anisotropy)) {
+    return Unsupported(
+        "assets.sampler.maximum_anisotropy",
+        "RT4/V1 anisotropy requires linear min/mag/mip filters and an integral level so D3D11, Metal, and Vulkan receive the same state",
+        index);
+  }
+  return ValidationResult::Success();
+}
+
 bool IsFiniteScaled(const Float3 &value, float scale) noexcept {
   return IsFinite(value.x * scale) && IsFinite(value.y * scale) &&
          IsFinite(value.z * scale);
@@ -85,7 +138,8 @@ bool IsTrsRepresentable(const Matrix4x4 &matrix) noexcept {
 
 ValidationResult ValidateMeshPolicy(const MeshResourceDescriptor &mesh,
                                     std::size_t index,
-                                    bool allow_dynamic_meshes) {
+                                    bool allow_dynamic_meshes,
+                                    OgreNextRasterFeatureTier raster_feature_tier) {
   if (mesh.dynamic && !allow_dynamic_meshes) {
     return Unsupported("assets.mesh.dynamic",
                        "N1 accepts immutable static meshes only", index);
@@ -98,12 +152,27 @@ ValidationResult ValidateMeshPolicy(const MeshResourceDescriptor &mesh,
     return Unsupported("assets.mesh.normals",
                        "N1 PBR meshes require authored normals", index);
   }
-  if (!mesh.tangents.empty() || !mesh.velocities.empty() ||
-      !mesh.texture_coordinates_0.empty() ||
-      !mesh.texture_coordinates_1.empty() || !mesh.colors.empty()) {
+  if (raster_feature_tier ==
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+    if (mesh.tangents.empty() || mesh.texture_coordinates_0.empty()) {
+      return Unsupported(
+          "assets.mesh.vertex_streams",
+          "RT4/V1 requires authored tangent and UV0 streams for its cross-renderer PBS layout",
+          index);
+    }
+    if (!mesh.velocities.empty() || !mesh.texture_coordinates_1.empty() ||
+        !mesh.colors.empty()) {
+      return Unsupported(
+          "assets.mesh.vertex_streams",
+          "RT4/V1 admits position, normal, tangent, and UV0 streams only",
+          index);
+    }
+  } else if (!mesh.tangents.empty() || !mesh.velocities.empty() ||
+             !mesh.texture_coordinates_0.empty() ||
+             !mesh.texture_coordinates_1.empty() || !mesh.colors.empty()) {
     return Unsupported(
         "assets.mesh.vertex_streams",
-        "N1 preserves only position and normal streams; richer streams must wait for their reviewed adapter",
+        "N1 preserves only position and normal streams; richer streams require the explicit RT4/V1 tier",
         index);
   }
   OgreNextN1NativeMeshBounds native_bounds;
@@ -117,14 +186,16 @@ ValidationResult ValidateMeshPolicy(const MeshResourceDescriptor &mesh,
 }
 
 ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
-                                        std::size_t index) {
+                                        std::size_t index,
+                                        OgreNextRasterFeatureTier raster_feature_tier) {
   if (material.model != MaterialModel::PBR_METALLIC_ROUGHNESS ||
       material.alpha_mode != MaterialAlphaMode::OPAQUE) {
     return Unsupported(
         "assets.material.model",
         "N1 accepts opaque metallic-roughness PBR materials only", index);
   }
-  if (!IsTextureFree(material)) {
+  if (raster_feature_tier == OgreNextRasterFeatureTier::STATIC_PBR_N1 &&
+      !IsTextureFree(material)) {
     return Unsupported("assets.material.textures",
                        "N1 materials must be completely texture free", index);
   }
@@ -151,6 +222,36 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
         "assets.material.emissive",
         "finite emissive inputs overflow Ogre's native PBS color arithmetic",
         index);
+  }
+  if (raster_feature_tier ==
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+    const TextureBinding *supported_bindings[] = {
+        &material.base_color_texture,
+        &material.metallic_roughness_texture,
+        &material.normal_texture,
+        &material.emissive_texture,
+    };
+    for (const TextureBinding *binding : supported_bindings) {
+      if (binding->texture.valid() && !IsIdentityTextureTransform(*binding)) {
+        return Unsupported(
+            "assets.material.texture_transform",
+            "RT4/V1 supports authored UV0 with an identity texture transform only; pinned PBS has no exact general base/normal/emissive transform API",
+            index);
+      }
+    }
+    if (material.occlusion_texture.texture.valid()) {
+      return Unsupported(
+          "assets.material.occlusion_texture",
+          "RT4/V1 keeps occlusion fail-closed because pinned HLMS PBS has no ambient-occlusion texture slot",
+          index);
+    }
+    if (material.normal_texture.texture.valid() &&
+        material.normal_scale != 1.0F) {
+      return Unsupported(
+          "assets.material.normal_scale",
+          "RT4/V1 requires unit normal scale because pinned PBS normal weighting is not the canonical glTF XY scale operation",
+          index);
+    }
   }
   return ValidationResult::Success();
 }
@@ -377,11 +478,17 @@ ValidationResult ValidateOgreNextN1Initialization(
 
 ValidationResult
 ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
-                               bool allow_dynamic_meshes) {
+                               bool allow_dynamic_meshes,
+                               OgreNextRasterFeatureTier raster_feature_tier) {
   if (registry.registry_id() == 0U || registry.sequence() == 0U) {
     return ValidationResult::Failure(
         ValidationCode::MISSING_REFERENCE, "asset_registry",
         "N1 requires a synchronized nonzero asset catalog");
+  }
+  if (!IsKnownOgreNextRasterFeatureTier(raster_feature_tier)) {
+    return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
+                                     "raster_feature_tier",
+                                     "unknown Ogre-Next raster feature tier");
   }
   std::size_t index = 0U;
   return registry.VisitRecords([&](const RenderAssetRecord &record) {
@@ -392,7 +499,8 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
     if (const auto *mesh =
             std::get_if<MeshResourceDescriptor>(record.payload.get())) {
       const ValidationResult validation =
-          ValidateMeshPolicy(*mesh, record_index, allow_dynamic_meshes);
+          ValidateMeshPolicy(*mesh, record_index, allow_dynamic_meshes,
+                             raster_feature_tier);
       if (!validation) {
         return validation;
       }
@@ -401,22 +509,39 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
     if (const auto *material =
             std::get_if<MaterialDescriptor>(record.payload.get())) {
       const ValidationResult validation =
-          ValidateMaterialPolicy(*material, record_index);
+          ValidateMaterialPolicy(*material, record_index,
+                                 raster_feature_tier);
       if (!validation) {
         return validation;
       }
       return ValidationResult::Success();
     }
-    return Unsupported(
-        "assets.kind",
-        "N1 catalog accepts only live meshes and PBR materials",
-        record_index);
+    if (raster_feature_tier ==
+        OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+      if (const auto *texture =
+              std::get_if<TextureResourceDescriptor>(record.payload.get())) {
+        return ValidateModernTexturePolicy(*texture, record_index);
+      }
+      if (const auto *sampler =
+              std::get_if<SamplerResourceDescriptor>(record.payload.get())) {
+        return ValidateModernSamplerPolicy(*sampler, record_index);
+      }
+    }
+    return Unsupported("assets.kind",
+                       "N1 catalog accepts only live meshes and PBR materials unless RT4/V1 is explicitly selected",
+                       record_index);
   });
 }
 
 ValidationResult ValidateOgreNextN1Scene(
     const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
-    bool allow_dynamic_meshes) {
+    bool allow_dynamic_meshes,
+    OgreNextRasterFeatureTier raster_feature_tier) {
+  if (!IsKnownOgreNextRasterFeatureTier(raster_feature_tier)) {
+    return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
+                                     "raster_feature_tier",
+                                     "unknown Ogre-Next raster feature tier");
+  }
   ValidationResult validation = ValidateSceneSnapshotAssets(snapshot, registry);
   if (!validation) {
     return validation;
@@ -476,7 +601,8 @@ ValidationResult ValidateOgreNextN1Scene(
 ValidationResult ValidateOgreNextN1Frame(
     const RenderFrameRequest &request,
     const FrontendCapabilityReport &capabilities,
-    const RenderAssetRegistry &registry) {
+    const RenderAssetRegistry &registry,
+    OgreNextRasterFeatureTier raster_feature_tier) {
   ValidationResult validation =
       ValidateRenderFrameRequestAgainstCapabilities(request, capabilities);
   if (!validation) {
@@ -517,7 +643,7 @@ ValidationResult ValidateOgreNextN1Frame(
   }
   return ValidateOgreNextN1Scene(
       *request.scene_snapshot, registry,
-      capabilities.supports_dynamic_mesh_updates);
+      capabilities.supports_dynamic_mesh_updates, raster_feature_tier);
 }
 
 RenderOperationResult

@@ -12,6 +12,7 @@
 #pragma once
 
 #include "../RendererFrontend.h"
+#include "OgreNextRasterFeatureTier.h"
 
 #include <cstdint>
 #include <memory>
@@ -26,6 +27,8 @@ enum class OgreNextNativeFeatureTier : std::uint8_t;
 /// resource layout before constructing the frontend.
 struct OgreNextN1Configuration final {
   std::string shader_media_root;
+  OgreNextRasterFeatureTier raster_feature_tier =
+      OgreNextRasterFeatureTier::STATIC_PBR_N1;
 };
 
 /// First production adapter behind the renderer-neutral boundary.
