@@ -22,7 +22,8 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kSceneSnapshotVersion = 2U;
+constexpr std::uint32_t kSceneSnapshotVersion = 3U;
+constexpr std::uint32_t kSceneLightingHashVersion = 1U;
 
 class RenderAssetRegistry;
 
@@ -30,6 +31,13 @@ enum class LightType : std::uint8_t {
   DIRECTIONAL = 0,
   POINT = 1,
   SPOT = 2,
+};
+
+enum LightShadowFlag : std::uint32_t {
+  LIGHT_SHADOW_STATIC_GEOMETRY = 1U << 0U,
+  LIGHT_SHADOW_DYNAMIC_GEOMETRY = 1U << 1U,
+  LIGHT_SHADOW_DEFAULT_FLAGS = LIGHT_SHADOW_STATIC_GEOMETRY |
+                               LIGHT_SHADOW_DYNAMIC_GEOMETRY,
 };
 
 enum class ParticleEffect : std::uint8_t {
@@ -51,10 +59,26 @@ enum MeshInstanceFlag : std::uint32_t {
                                 MESH_INSTANCE_VISIBLE_IN_REFLECTIONS,
 };
 
+/// Renderer-independent analytic background used in addition to an optional
+/// environment texture. Above the horizon, radiance is the linear blend from
+/// horizon_radiance at direction.y=0 to zenith_radiance at direction.y=1;
+/// below it, ground_radiance is constant. The sun disk adds
+/// sun_disk_radiance within sun_angular_radius_radians of the directional light
+/// named by sun_light_id. All radiance fields use linear RGB W/(m^2 sr).
+struct AnalyticSkyDescriptor {
+  bool enabled = false;
+  std::uint64_t sun_light_id = 0U;
+  Float3 zenith_radiance{};
+  Float3 horizon_radiance{};
+  Float3 ground_radiance{};
+  Float3 sun_disk_radiance{};
+  float sun_angular_radius_radians = 0.0F;
+};
+
 struct SceneEnvironmentDescriptor {
   /// Linear RGB radiance in W/(m^2 sr). Environment texture RGB uses the same
   /// units and environment_intensity is a dimensionless multiplier applied to
-  /// both the constant and texture radiance.
+  /// the constant, texture, and analytic-sky radiance.
   Float3 ambient_radiance{0.03F, 0.03F, 0.03F};
   /// Optional equirectangular, linear-color float texture: U maps longitude
   /// [-pi, pi], V maps latitude [+pi/2, -pi/2], with +Z at U=0.5 and
@@ -64,6 +88,10 @@ struct SceneEnvironmentDescriptor {
   /// ValidateEnvironmentTextureCompatibility().
   RenderAssetReference environment_sampler;
   float environment_intensity = 1.0F;
+  AnalyticSkyDescriptor analytic_sky;
+  /// Scene-level exposure compensation in stops. A frontend combines it with
+  /// the view exposure as `view_exposure * exp2(exposure_compensation_ev)`.
+  float exposure_compensation_ev = 0.0F;
 };
 
 struct MeshInstanceDescriptor {
@@ -94,20 +122,27 @@ struct LightDescriptor {
   /// lux; point and spot intensity is luminous intensity in candela.
   Float3 color_linear{1.0F, 1.0F, 1.0F};
   float intensity = 1.0F;
+  /// Render-relative meters at this snapshot's absolute origin. Directional
+  /// lights use exact zero for both current and previous positions.
   Float3 position{};
+  Float3 previous_position{};
   /// Unit direction in which emitted rays travel. Surface-to-light for a
-  /// directional light is therefore -direction.
+  /// directional light is therefore -direction. Point lights use the canonical
+  /// direction (0,-1,0) because their orientation is not meaningful.
   Float3 direction{0.0F, -1.0F, 0.0F};
+  Float3 previous_direction{0.0F, -1.0F, 0.0F};
   /// Local-light range cutoff in meters. For distance d, attenuation is
   /// `(1 - clamp(d/range, 0, 1)^4)^2 / max(d^2, 0.0001)` and is zero at or
   /// beyond range. Directional lights ignore position and range.
-  float range = 100.0F;
+  float range = 0.0F;
   /// Spot half-angles. With c=dot(direction, light_to_point), angular falloff
   /// is smoothstep(cos(outer), cos(inner), c), or a hard step when equal.
   /// Point and directional lights ignore both cone values.
-  float inner_cone_radians = 0.5F;
-  float outer_cone_radians = 0.75F;
-  bool casts_shadows = true;
+  float inner_cone_radians = 0.0F;
+  float outer_cone_radians = 0.0F;
+  /// Independent visibility of static and deformable/dynamic geometry to the
+  /// light's shadow path. Zero explicitly disables shadow generation.
+  std::uint32_t shadow_flags = LIGHT_SHADOW_DEFAULT_FLAGS;
 };
 
 /// Self-contained deformable state for one complete live mesh allocation.
@@ -185,6 +220,14 @@ struct SceneSnapshotDescriptor {
 
 struct SceneSnapshotCreateResult;
 
+/// Stable, non-cryptographic FNV-1a-64 digest of the exact validated lighting
+/// and environment payload. The canonical byte encoding is little-endian,
+/// folds -0 to +0, contains no structure padding, and includes the absolute
+/// render origin plus current/previous light state. Snapshot/time identities,
+/// geometry, particles, and camera state are deliberately excluded.
+[[nodiscard]] std::uint64_t ComputeSceneLightingEnvironmentHash(
+    const SceneSnapshotDescriptor &descriptor) noexcept;
+
 class SceneSnapshot final {
 public:
   SceneSnapshot(const SceneSnapshot &) = delete;
@@ -232,12 +275,18 @@ public:
   particle_events() const noexcept {
     return descriptor_.particle_events;
   }
+  [[nodiscard]] std::uint64_t lighting_environment_hash() const noexcept {
+    return lighting_environment_hash_;
+  }
 
 private:
   explicit SceneSnapshot(SceneSnapshotDescriptor &&descriptor)
-      : descriptor_(std::move(descriptor)) {}
+      : descriptor_(std::move(descriptor)),
+        lighting_environment_hash_(
+            ComputeSceneLightingEnvironmentHash(descriptor_)) {}
 
   SceneSnapshotDescriptor descriptor_;
+  std::uint64_t lighting_environment_hash_ = 0U;
 
   friend SceneSnapshotCreateResult
   CreateSceneSnapshot(SceneSnapshotDescriptor descriptor);

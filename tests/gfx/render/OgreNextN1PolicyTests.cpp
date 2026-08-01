@@ -669,7 +669,7 @@ void TestFrameAndScenePolicy() {
   lit_descriptor.mesh_instances.push_back(lit_instance);
   LightDescriptor uncalibrated_light;
   uncalibrated_light.light_id = 1U;
-  uncalibrated_light.casts_shadows = false;
+  uncalibrated_light.shadow_flags = 0U;
   lit_descriptor.lights.push_back(uncalibrated_light);
   SceneSnapshotCreateResult lit_scene =
       CreateSceneSnapshot(std::move(lit_descriptor));
