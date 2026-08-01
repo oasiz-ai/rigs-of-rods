@@ -286,6 +286,18 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "find_texture_no_throw_rejected_old_names", self.smoke
         )
         self.assertIn("isolated_from_visual_variants", self.smoke)
+        retirement_catalog = self.smoke[
+            self.smoke.index("RenderAssetDelta MakeRetirementCatalog") :
+            self.smoke.index("RenderAssetDelta MakeCatalog")
+        ]
+        self.assertLess(
+            retirement_catalog.index("RenderAssetKind::TEXTURE, 30U"),
+            retirement_catalog.index("RenderAssetKind::SAMPLER, 31U"),
+        )
+        self.assertLess(
+            retirement_catalog.index("RenderAssetKind::SAMPLER, 31U"),
+            retirement_catalog.index("RenderAssetKind::MATERIAL, 32U"),
+        )
 
         create_texture = self.frontend[
             self.frontend.index("NativeTexture CreateTexture(") :
