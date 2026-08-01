@@ -502,11 +502,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $false
           $evidenceRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts/cityworld-bridge-crash-evidence-${{ matrix.platform }}"
           $dumpDir = Join-Path $evidenceRoot "dumps/async"
+          $sceneArtifact = Join-Path $env:GITHUB_WORKSPACE "artifacts/cityworld-bridge-${{ matrix.platform }}"
           New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
           $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR.exe"
-          Set-ItemProperty -Path $werKey -Name "DumpFolder" -Value $dumpDir
+          New-ItemProperty -Path $werKey -Name "DumpFolder" -PropertyType ExpandString -Value $dumpDir -Force | Out-Null
 
           $driverStdout = Join-Path $evidenceRoot "async-driver.stdout.log"
           $driverStderr = Join-Path $evidenceRoot "async-driver.stderr.log"
@@ -519,7 +521,7 @@ jobs:
             "--runtime-content",
             "$env:GITHUB_WORKSPACE/artifacts/runtime-${{ matrix.platform }}/content",
             "--artifact-dir",
-            "$env:GITHUB_WORKSPACE/artifacts/cityworld-bridge-${{ matrix.platform }}",
+            $sceneArtifact,
             "--postprocess-mode",
             "v0a",
             "--physics-mode",
@@ -538,6 +540,16 @@ jobs:
             "[driver stderr]",
             $stderrText
           ) | Set-Content -LiteralPath "artifacts/cityworld-bridge-${{ matrix.platform }}.driver.log" -Encoding utf8
+          $processDiagnostic = Join-Path $sceneArtifact "diagnostics/runtime-process.json"
+          $executable = Join-Path $env:GITHUB_WORKSPACE "artifacts/runtime-${{ matrix.platform }}/RoR.exe"
+          $pdb = Join-Path $evidenceRoot "symbols/RoR.pdb"
+          $manifest = Join-Path $evidenceRoot "async-dumps.json"
+          & python tools/collect_windows_cityworld_crash_evidence.py --mode async --driver-exit-code $process.ExitCode --process-diagnostic $processDiagnostic --dump-dir $dumpDir --executable $executable --pdb $pdb --output $manifest --poll-attempts 40 --poll-interval-ms 250
+          $evidenceExitCode = $LASTEXITCODE
+          if ($evidenceExitCode -ne 0) {
+            Write-Error "Async CityWorld crash evidence gate failed with $evidenceExitCode" -ErrorAction Continue
+            exit $evidenceExitCode
+          }
           exit $process.ExitCode
 
       - name: Isolate CityWorld bridge with relocated Windows D3D11 sync physics and V0A
@@ -548,11 +560,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $false
           $evidenceRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts/cityworld-bridge-crash-evidence-${{ matrix.platform }}"
           $dumpDir = Join-Path $evidenceRoot "dumps/sync"
+          $sceneArtifact = Join-Path $env:GITHUB_WORKSPACE "artifacts/cityworld-bridge-sync-${{ matrix.platform }}"
           New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
           $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR.exe"
-          Set-ItemProperty -Path $werKey -Name "DumpFolder" -Value $dumpDir
+          New-ItemProperty -Path $werKey -Name "DumpFolder" -PropertyType ExpandString -Value $dumpDir -Force | Out-Null
 
           $driverStdout = Join-Path $evidenceRoot "sync-driver.stdout.log"
           $driverStderr = Join-Path $evidenceRoot "sync-driver.stderr.log"
@@ -565,7 +579,7 @@ jobs:
             "--runtime-content",
             "$env:GITHUB_WORKSPACE/artifacts/runtime-${{ matrix.platform }}/content",
             "--artifact-dir",
-            "$env:GITHUB_WORKSPACE/artifacts/cityworld-bridge-sync-${{ matrix.platform }}",
+            $sceneArtifact,
             "--postprocess-mode",
             "v0a",
             "--physics-mode",
@@ -584,6 +598,16 @@ jobs:
             "[driver stderr]",
             $stderrText
           ) | Set-Content -LiteralPath "artifacts/cityworld-bridge-sync-${{ matrix.platform }}.driver.log" -Encoding utf8
+          $processDiagnostic = Join-Path $sceneArtifact "diagnostics/runtime-process.json"
+          $executable = Join-Path $env:GITHUB_WORKSPACE "artifacts/runtime-${{ matrix.platform }}/RoR.exe"
+          $pdb = Join-Path $evidenceRoot "symbols/RoR.pdb"
+          $manifest = Join-Path $evidenceRoot "sync-dumps.json"
+          & python tools/collect_windows_cityworld_crash_evidence.py --mode sync --driver-exit-code $process.ExitCode --process-diagnostic $processDiagnostic --dump-dir $dumpDir --executable $executable --pdb $pdb --output $manifest --poll-attempts 40 --poll-interval-ms 250
+          $evidenceExitCode = $LASTEXITCODE
+          if ($evidenceExitCode -ne 0) {
+            Write-Error "Sync CityWorld crash evidence gate failed with $evidenceExitCode" -ErrorAction Continue
+            exit $evidenceExitCode
+          }
           exit $process.ExitCode
 
       - name: Disable Windows CityWorld LocalDumps override

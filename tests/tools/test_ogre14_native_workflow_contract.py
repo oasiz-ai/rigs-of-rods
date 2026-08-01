@@ -649,6 +649,17 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
                 self.assertIn(artifact, gate)
                 self.assertIn("RedirectStandardOutput", gate)
                 self.assertIn("RedirectStandardError", gate)
+                self.assertIn(
+                    "collect_windows_cityworld_crash_evidence.py",
+                    gate,
+                )
+                self.assertIn("-PropertyType ExpandString", gate)
+                self.assertIn("--driver-exit-code $process.ExitCode", gate)
+                self.assertIn("diagnostics/runtime-process.json", gate)
+                self.assertIn("--poll-attempts 40", gate)
+                self.assertIn("--poll-interval-ms 250", gate)
+                self.assertIn(f'"{mode}-dumps.json"', gate)
+                self.assertIn("exit $evidenceExitCode", gate)
                 self.assertIn("exit $process.ExitCode", gate)
                 self.assertNotIn("continue-on-error", gate)
 
