@@ -77,6 +77,13 @@ struct RenderAssetRecord {
 IsKnownRenderAssetMutationType(RenderAssetMutationType type) noexcept;
 [[nodiscard]] RenderAssetKind
 RenderAssetPayloadKind(const RenderAssetPayload &payload) noexcept;
+/// Bit-exact mesh allocation contents, excluding the diagnostic name and the
+/// source-owned topology lineage counter. A producer uses this to decide
+/// whether an unchanged topology revision still identifies the same immutable
+/// upload bytes.
+[[nodiscard]] bool EquivalentMeshResourceContents(
+    const MeshResourceDescriptor &lhs,
+    const MeshResourceDescriptor &rhs) noexcept;
 [[nodiscard]] bool EquivalentRenderAssetPayload(
     const RenderAssetPayload &lhs, const RenderAssetPayload &rhs) noexcept;
 [[nodiscard]] ValidationResult

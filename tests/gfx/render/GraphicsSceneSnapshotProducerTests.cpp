@@ -9,18 +9,75 @@
 #include "GraphicsSceneSnapshotProducer.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <new>
 #include <utility>
 
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+#define ROR_ALLOCATION_PROBE_USES_SANITIZER_HOOK 1
+#endif
+#endif
+#if !defined(ROR_ALLOCATION_PROBE_USES_SANITIZER_HOOK) &&                    \
+    (defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__))
+#define ROR_ALLOCATION_PROBE_USES_SANITIZER_HOOK 1
+#endif
+#if !defined(ROR_ALLOCATION_PROBE_USES_SANITIZER_HOOK)
+#define ROR_ALLOCATION_PROBE_USES_SANITIZER_HOOK 0
+#endif
+
+#if ROR_ALLOCATION_PROBE_USES_SANITIZER_HOOK
+#include <sanitizer/allocator_interface.h>
+#endif
+
 namespace AllocationProbe {
 constexpr std::size_t kLargeAllocationBytes = 512U * 1024U;
-bool enabled = false;
-std::size_t allocations = 0U;
-std::size_t large_allocations = 0U;
+std::atomic<bool> enabled{false};
+std::atomic<std::size_t> allocations{0U};
+std::atomic<std::size_t> large_allocations{0U};
+
+void Record(std::size_t size) noexcept {
+  if (!enabled.load(std::memory_order_relaxed)) {
+    return;
+  }
+  allocations.fetch_add(1U, std::memory_order_relaxed);
+  if (size >= kLargeAllocationBytes) {
+    large_allocations.fetch_add(1U, std::memory_order_relaxed);
+  }
+}
+
+void Reset() noexcept {
+  allocations.store(0U, std::memory_order_relaxed);
+  large_allocations.store(0U, std::memory_order_relaxed);
+}
+
+void Enable() noexcept { enabled.store(true, std::memory_order_relaxed); }
+
+void Disable() noexcept { enabled.store(false, std::memory_order_relaxed); }
+
+std::size_t Count() noexcept {
+  return allocations.load(std::memory_order_relaxed);
+}
+
+std::size_t LargeCount() noexcept {
+  return large_allocations.load(std::memory_order_relaxed);
+}
 } // namespace AllocationProbe
+
+#if ROR_ALLOCATION_PROBE_USES_SANITIZER_HOOK
+
+// Sanitizer runtimes own the replaceable global new/delete symbols. Their
+// documented allocator hook observes the same allocations without colliding
+// with libclang_rt.{a,t}san_cxx at link time.
+extern "C" void SANITIZER_CDECL
+__sanitizer_malloc_hook(const volatile void *, std::size_t size) {
+  AllocationProbe::Record(size);
+}
+
+#else
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
@@ -30,12 +87,7 @@ std::size_t large_allocations = 0U;
 #endif
 
 void *operator new(std::size_t size) {
-  if (AllocationProbe::enabled) {
-    ++AllocationProbe::allocations;
-    if (size >= AllocationProbe::kLargeAllocationBytes) {
-      ++AllocationProbe::large_allocations;
-    }
-  }
+  AllocationProbe::Record(size);
   if (void *allocation = std::malloc(size == 0U ? 1U : size)) {
     return allocation;
   }
@@ -60,6 +112,8 @@ void operator delete[](void *allocation, std::size_t) noexcept {
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
+#endif
+
 #endif
 
 namespace {
@@ -471,6 +525,53 @@ void TestAssetUpdatesDependencyRevisionAndDestroyRecovery() {
           "rejected reuse consumed snapshot identity or catalog state");
 }
 
+void TestMeshSignedZeroBytesRequireTopologyRevision() {
+  using namespace RoR::Render;
+  GraphicsSceneSnapshotProducer producer = MakeProducer(203U);
+  GraphicsSceneFrameInput frame = MakeFrame();
+  Require(producer.Produce(frame).ok(),
+          "signed-zero mesh base frame was rejected");
+
+  frame.simulation_tick = 42U;
+  frame.simulation_time_seconds = 2.0;
+  MeshResourceDescriptor mesh =
+      std::get<MeshResourceDescriptor>(*frame.assets[3U].payload);
+  mesh.positions.front().x = -0.0F;
+  frame.assets[3U].payload =
+      std::make_shared<const RenderAssetPayload>(mesh);
+  const GraphicsSceneSnapshotProduceResult missing_revision =
+      producer.Produce(frame);
+  Require(missing_revision.validation.code ==
+                  ValidationCode::REVISION_MISMATCH &&
+              missing_revision.validation.element_index == 3U &&
+              producer.asset_sequence() == 1U,
+          "signed-zero mesh bytes changed without a topology revision");
+
+  mesh.topology_revision = 2U;
+  frame.assets[3U].payload =
+      std::make_shared<const RenderAssetPayload>(mesh);
+  const GraphicsSceneSnapshotProduceResult accepted = producer.Produce(frame);
+  Require(accepted.ok() && accepted.production.asset_delta.has_value() &&
+              accepted.production.asset_delta->sequence == 2U &&
+              accepted.production.asset_delta->mutations.size() == 1U &&
+              accepted.production.scene_snapshot->snapshot_id() == 2U,
+          "revised signed-zero mesh bytes did not advance exact lineage");
+  const RenderAssetMutation &mesh_mutation =
+      MutationWithLowId(*accepted.production.asset_delta, 1U);
+  Require(mesh_mutation.asset.revision == 2U &&
+              EquivalentRenderAssetPayload(mesh_mutation.payload,
+                                           *frame.assets[3U].payload),
+          "mesh revision did not retain the exact signed-zero payload");
+
+  const GraphicsSceneAssetRecoveryResult recovery =
+      producer.BuildRecoveryAssetSnapshot();
+  Require(recovery.ok() &&
+              EquivalentRenderAssetPayload(
+                  MutationWithLowId(recovery.full_snapshot, 1U).payload,
+                  *frame.assets[3U].payload),
+          "asset recovery lost revised signed-zero mesh bytes");
+}
+
 void TestMalformedFramesAreAtomicAndFailClosed() {
   using namespace RoR::Render;
   GraphicsSceneSnapshotProducer producer = MakeProducer(303U);
@@ -763,14 +864,13 @@ void TestStableFrameAvoidsLargePayloadCopiesAndComparisons() {
   frame.simulation_tick = 42U;
   frame.simulation_time_seconds = 2.0;
   frame.static_meshes.front().render_from_object = Translation(6.0F);
-  AllocationProbe::large_allocations = 0U;
-  AllocationProbe::allocations = 0U;
-  AllocationProbe::enabled = true;
+  AllocationProbe::Reset();
+  AllocationProbe::Enable();
   const GraphicsSceneSnapshotProduceResult transformed = producer.Produce(frame);
-  AllocationProbe::enabled = false;
+  AllocationProbe::Disable();
   Require(transformed.ok() && !transformed.production.asset_delta.has_value(),
           "large transform-only frame was rejected or emitted an asset delta");
-  Require(AllocationProbe::large_allocations == 0U,
+  Require(AllocationProbe::LargeCount() == 0U,
           "transform-only transaction deep-copied immutable mesh/texture bytes");
   Require(transformed.production.diagnostics
                   .asset_payload_full_validations == 0U &&
@@ -885,11 +985,10 @@ std::size_t StableFrameAllocationCount(
           "allocation-count base frame was rejected");
   frame.simulation_tick = 42U;
   frame.simulation_time_seconds = 2.0;
-  AllocationProbe::allocations = 0U;
-  AllocationProbe::large_allocations = 0U;
-  AllocationProbe::enabled = true;
+  AllocationProbe::Reset();
+  AllocationProbe::Enable();
   const GraphicsSceneSnapshotProduceResult produced = producer.Produce(frame);
-  AllocationProbe::enabled = false;
+  AllocationProbe::Disable();
   Require(produced.ok() && !produced.production.asset_delta.has_value(),
           "stable allocation-count frame was rejected or rebuilt assets");
   Require(produced.production.diagnostics
@@ -903,7 +1002,7 @@ std::size_t StableFrameAllocationCount(
               produced.production.diagnostics
                       .asset_payload_candidate_bytes_compared == 0U,
           "stable allocation-count frame fell back to payload comparison");
-  return AllocationProbe::allocations;
+  return AllocationProbe::Count();
 }
 
 void TestStableCatalogAllocationCountDoesNotScalePerElement() {
@@ -946,7 +1045,17 @@ void TestStableCatalogAllocationCountDoesNotScalePerElement() {
   // remain exactly constant: no map/set node may be allocated per element.
   Require(large_count == small_count,
           "stable catalog allocation count scaled with asset/object elements");
-  Require(large_count <= 16U,
+#if defined(_MSC_VER) && defined(_ITERATOR_DEBUG_LEVEL) &&                     \
+    _ITERATOR_DEBUG_LEVEL != 0
+  // MSVC's checked containers allocate one bookkeeping proxy per temporary
+  // vector/string even when the logical buffer is empty. The exact scale
+  // equality above still catches every per-element allocation; this larger
+  // fixed ceiling admits only the platform's constant Debug bookkeeping.
+  constexpr std::size_t kStableAllocationBudget = 64U;
+#else
+  constexpr std::size_t kStableAllocationBudget = 16U;
+#endif
+  Require(large_count <= kStableAllocationBudget,
           "stable frame exceeded the fixed allocation budget");
 }
 
@@ -1057,6 +1166,7 @@ int main() {
   TestJoinedSourceInitialSnapshotAndCanonicalOrder();
   TestTransformCameraHistoryAndOriginRebase();
   TestAssetUpdatesDependencyRevisionAndDestroyRecovery();
+  TestMeshSignedZeroBytesRequireTopologyRevision();
   TestMalformedFramesAreAtomicAndFailClosed();
   TestCanonicalSortingPreservesOriginalFailureIndices();
   TestStableFrameAvoidsLargePayloadCopiesAndComparisons();

@@ -19,41 +19,46 @@
 namespace RoR::Render {
 namespace {
 
-ValidationResult ValidateAssetReference(const RenderAssetReference &reference,
-                                        RenderAssetKind kind,
-                                        const char *field,
-                                        std::size_t index) {
+bool ValidateAssetReference(const RenderAssetReference &reference,
+                            RenderAssetKind kind, const char *field,
+                            std::size_t index, ValidationResult &failure) {
   if (!reference.valid()) {
-    return ValidationResult::Failure(
+    failure = ValidationResult::Failure(
         ValidationCode::INVALID_ASSET_REFERENCE, field,
         "required renderer-neutral asset reference is invalid", index);
+    return false;
   }
   if (reference.kind != kind) {
-    return ValidationResult::Failure(ValidationCode::WRONG_ASSET_KIND, field,
-                                     "asset kind does not match", index);
+    failure = ValidationResult::Failure(ValidationCode::WRONG_ASSET_KIND, field,
+                                        "asset kind does not match", index);
+    return false;
   }
-  return ValidationResult::Success();
+  return true;
 }
 
-ValidationResult ValidateIncreasingIdentifier(std::uint64_t identifier,
-                                              std::uint64_t previous,
-                                              bool has_previous,
-                                              const char *field,
-                                              std::size_t index) {
+bool ValidateIncreasingIdentifier(std::uint64_t identifier,
+                                  std::uint64_t previous, bool has_previous,
+                                  const char *field, std::size_t index,
+                                  ValidationResult &failure) {
   if (identifier == 0U) {
-    return ValidationResult::Failure(ValidationCode::INVALID_IDENTIFIER, field,
-                                     "identifier must be nonzero", index);
+    failure = ValidationResult::Failure(ValidationCode::INVALID_IDENTIFIER,
+                                        field, "identifier must be nonzero",
+                                        index);
+    return false;
   }
   if (has_previous && identifier == previous) {
-    return ValidationResult::Failure(ValidationCode::DUPLICATE_IDENTIFIER,
-                                     field, "identifier is duplicated", index);
+    failure = ValidationResult::Failure(ValidationCode::DUPLICATE_IDENTIFIER,
+                                        field, "identifier is duplicated",
+                                        index);
+    return false;
   }
   if (has_previous && identifier < previous) {
-    return ValidationResult::Failure(
+    failure = ValidationResult::Failure(
         ValidationCode::NON_DETERMINISTIC_ORDER, field,
         "identifiers must be strictly increasing", index);
+    return false;
   }
-  return ValidationResult::Success();
+  return true;
 }
 
 bool EqualBounds(const Bounds3 &lhs, const Bounds3 &rhs) noexcept {
@@ -62,49 +67,55 @@ bool EqualBounds(const Bounds3 &lhs, const Bounds3 &rhs) noexcept {
          lhs.maximum.y == rhs.maximum.y && lhs.maximum.z == rhs.maximum.z;
 }
 
-ValidationResult
-ValidateFiniteVertices(const DynamicMeshUpdateDescriptor &update,
-                       std::size_t update_index) {
+bool ValidateFiniteVertices(const DynamicMeshUpdateDescriptor &update,
+                            std::size_t update_index,
+                            ValidationResult &failure) {
   for (const Float3 &position : update.positions) {
     if (!IsFinite(position)) {
-      return ValidationResult::Failure(
+      failure = ValidationResult::Failure(
           ValidationCode::NON_FINITE_VALUE, "dynamic_mesh_updates.positions",
           "all positions must be finite", update_index);
+      return false;
     }
   }
   for (const Float3 &normal : update.normals) {
     if (!IsFinite(normal)) {
-      return ValidationResult::Failure(
+      failure = ValidationResult::Failure(
           ValidationCode::NON_FINITE_VALUE, "dynamic_mesh_updates.normals",
           "all normals must be finite", update_index);
+      return false;
     }
     if (!IsNormalized(normal)) {
-      return ValidationResult::Failure(
+      failure = ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "dynamic_mesh_updates.normals",
           "all supplied normals must have unit length", update_index);
+      return false;
     }
   }
   for (const Float4 &tangent : update.tangents) {
     if (!IsFinite(tangent)) {
-      return ValidationResult::Failure(
+      failure = ValidationResult::Failure(
           ValidationCode::NON_FINITE_VALUE, "dynamic_mesh_updates.tangents",
           "all tangents must be finite", update_index);
+      return false;
     }
     if (!IsNormalizedTangent(tangent)) {
-      return ValidationResult::Failure(
+      failure = ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "dynamic_mesh_updates.tangents",
           "tangent xyz must have unit length and handedness must be -1 or 1",
           update_index);
+      return false;
     }
   }
   for (const Float3 &velocity : update.velocities) {
     if (!IsFinite(velocity)) {
-      return ValidationResult::Failure(
+      failure = ValidationResult::Failure(
           ValidationCode::NON_FINITE_VALUE, "dynamic_mesh_updates.velocities",
           "all velocities must be finite", update_index);
+      return false;
     }
   }
-  return ValidationResult::Success();
+  return true;
 }
 
 } // namespace
@@ -215,27 +226,28 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
         "environment texture and explicit sampler must be supplied together");
   }
 
+  // Reuse one failure carrier throughout the collection walks. In an MSVC
+  // checked-iterator Debug build, constructing a successful ValidationResult
+  // would otherwise allocate two std::string proxies for every scene element.
+  ValidationResult validation;
   std::uint64_t previous_identifier = 0U;
   for (std::size_t index = 0U; index < descriptor.mesh_instances.size();
        ++index) {
     const MeshInstanceDescriptor &instance = descriptor.mesh_instances[index];
-    ValidationResult validation = ValidateIncreasingIdentifier(
-        instance.instance_id, previous_identifier, index != 0U,
-        "mesh_instances.instance_id", index);
-    if (!validation) {
+    if (!ValidateIncreasingIdentifier(
+            instance.instance_id, previous_identifier, index != 0U,
+            "mesh_instances.instance_id", index, validation)) {
       return validation;
     }
     previous_identifier = instance.instance_id;
 
-    validation = ValidateAssetReference(instance.mesh, RenderAssetKind::MESH,
-                                        "mesh_instances.mesh", index);
-    if (!validation) {
+    if (!ValidateAssetReference(instance.mesh, RenderAssetKind::MESH,
+                                "mesh_instances.mesh", index, validation)) {
       return validation;
     }
-    validation = ValidateAssetReference(instance.material,
-                                        RenderAssetKind::MATERIAL,
-                                        "mesh_instances.material", index);
-    if (!validation) {
+    if (!ValidateAssetReference(instance.material, RenderAssetKind::MATERIAL,
+                                "mesh_instances.material", index,
+                                validation)) {
       return validation;
     }
     if (instance.topology_revision == 0U ||
@@ -280,10 +292,9 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
   constexpr float kHalfPi = 1.57079632679489661923F;
   for (std::size_t index = 0U; index < descriptor.lights.size(); ++index) {
     const LightDescriptor &light = descriptor.lights[index];
-    ValidationResult validation =
-        ValidateIncreasingIdentifier(light.light_id, previous_identifier,
-                                     index != 0U, "lights.light_id", index);
-    if (!validation) {
+    if (!ValidateIncreasingIdentifier(light.light_id, previous_identifier,
+                                      index != 0U, "lights.light_id", index,
+                                      validation)) {
       return validation;
     }
     previous_identifier = light.light_id;
@@ -331,10 +342,9 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
        ++index) {
     const DynamicMeshUpdateDescriptor &update =
         descriptor.dynamic_mesh_updates[index];
-    ValidationResult validation = ValidateIncreasingIdentifier(
-        update.update_sequence, previous_identifier, index != 0U,
-        "dynamic_mesh_updates.update_sequence", index);
-    if (!validation) {
+    if (!ValidateIncreasingIdentifier(
+            update.update_sequence, previous_identifier, index != 0U,
+            "dynamic_mesh_updates.update_sequence", index, validation)) {
       return validation;
     }
     previous_identifier = update.update_sequence;
@@ -346,9 +356,9 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
                                    : "dynamic_mesh_updates.revision",
           "instance and geometry revisions must be nonzero", index);
     }
-    validation = ValidateAssetReference(update.mesh, RenderAssetKind::MESH,
-                                        "dynamic_mesh_updates.mesh", index);
-    if (!validation) {
+    if (!ValidateAssetReference(update.mesh, RenderAssetKind::MESH,
+                                "dynamic_mesh_updates.mesh", index,
+                                validation)) {
       return validation;
     }
     const auto instance = std::lower_bound(
@@ -409,8 +419,7 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
           ValidationCode::SIZE_MISMATCH, "dynamic_mesh_updates.vertex_streams",
           "optional vertex streams must match the position count", index);
     }
-    validation = ValidateFiniteVertices(update, index);
-    if (!validation) {
+    if (!ValidateFiniteVertices(update, index, validation)) {
       return validation;
     }
     if (!update.has_updated_bounds || !IsValid(update.updated_local_bounds)) {
@@ -447,10 +456,9 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
   for (std::size_t index = 0U; index < descriptor.particle_events.size();
        ++index) {
     const ParticleEvent &event = descriptor.particle_events[index];
-    ValidationResult validation = ValidateIncreasingIdentifier(
-        event.event_id, previous_identifier, index != 0U,
-        "particle_events.event_id", index);
-    if (!validation) {
+    if (!ValidateIncreasingIdentifier(
+            event.event_id, previous_identifier, index != 0U,
+            "particle_events.event_id", index, validation)) {
       return validation;
     }
     previous_identifier = event.event_id;

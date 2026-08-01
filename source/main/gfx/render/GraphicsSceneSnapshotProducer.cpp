@@ -153,22 +153,25 @@ ValidationResult RemapStaticMeshElementIndex(
   return validation;
 }
 
-ValidationResult
-ValidateSourceAssetMetadata(const GraphicsSceneAssetInput &asset,
-                            std::size_t index) {
+bool ValidateSourceAssetMetadata(const GraphicsSceneAssetInput &asset,
+                                 std::size_t index,
+                                 ValidationResult &failure) {
   if (asset.source_asset_id == 0U) {
-    return Failure(ValidationCode::INVALID_IDENTIFIER,
-                   "assets.source_asset_id",
-                   "source asset identity must be nonzero", index);
+    failure = Failure(ValidationCode::INVALID_IDENTIFIER,
+                      "assets.source_asset_id",
+                      "source asset identity must be nonzero", index);
+    return false;
   }
   if (asset.payload == nullptr) {
-    return Failure(ValidationCode::EMPTY_PAYLOAD, "assets.payload",
-                   "source asset requires a portable descriptor", index);
+    failure = Failure(ValidationCode::EMPTY_PAYLOAD, "assets.payload",
+                      "source asset requires a portable descriptor", index);
+    return false;
   }
   const RenderAssetKind kind = RenderAssetPayloadKind(*asset.payload);
   if (kind == RenderAssetKind::INVALID) {
-    return Failure(ValidationCode::EMPTY_PAYLOAD, "assets.payload",
-                   "source asset requires a portable descriptor", index);
+    failure = Failure(ValidationCode::EMPTY_PAYLOAD, "assets.payload",
+                      "source asset requires a portable descriptor", index);
+    return false;
   }
 
   if (kind == RenderAssetKind::MATERIAL) {
@@ -177,11 +180,12 @@ ValidateSourceAssetMetadata(const GraphicsSceneAssetInput &asset,
     for (const TextureBinding *binding : MaterialBindings(material)) {
       if (!IsAbsentRenderAssetReference(binding->texture) ||
           !IsAbsentRenderAssetReference(binding->sampler)) {
-        return Failure(
+        failure = Failure(
             ValidationCode::INVALID_ASSET_REFERENCE,
             "assets.material.texture_binding",
             "source materials must leave producer-owned asset references absent",
             index);
+        return false;
       }
     }
   }
@@ -189,18 +193,20 @@ ValidateSourceAssetMetadata(const GraphicsSceneAssetInput &asset,
   for (std::size_t slot = 0U; slot < asset.material_bindings.size(); ++slot) {
     const GraphicsSceneAssetBinding &binding = asset.material_bindings[slot];
     if (!BindingIsPaired(binding)) {
-      return Failure(
+      failure = Failure(
           ValidationCode::MISSING_REFERENCE, "assets.material_bindings",
           "texture and sampler source identities must be supplied together",
           index);
+      return false;
     }
     if (kind != RenderAssetKind::MATERIAL && !BindingIsAbsent(binding)) {
-      return Failure(
+      failure = Failure(
           ValidationCode::WRONG_ASSET_KIND, "assets.material_bindings",
           "only material assets may declare texture dependencies", index);
+      return false;
     }
   }
-  return ValidationResult::Success();
+  return true;
 }
 
 ValidationResult
@@ -243,18 +249,6 @@ ValidateSourceAssetPayload(const GraphicsSceneAssetInput &asset,
     return AtAsset(std::move(validation), index);
   }
   return ValidationResult::Success();
-}
-
-bool EquivalentMeshContents(const MeshResourceDescriptor &lhs,
-                            const MeshResourceDescriptor &rhs) noexcept {
-  return lhs.version == rhs.version && lhs.topology == rhs.topology &&
-         lhs.index_format == rhs.index_format && lhs.dynamic == rhs.dynamic &&
-         lhs.local_bounds == rhs.local_bounds &&
-         lhs.positions == rhs.positions && lhs.normals == rhs.normals &&
-         lhs.tangents == rhs.tangents && lhs.velocities == rhs.velocities &&
-         lhs.texture_coordinates_0 == rhs.texture_coordinates_0 &&
-         lhs.texture_coordinates_1 == rhs.texture_coordinates_1 &&
-         lhs.colors == rhs.colors && lhs.indices == rhs.indices;
 }
 
 ValidationResult ValidateMeshRevisionLineage(
@@ -570,9 +564,11 @@ public:
     std::uint64_t payload_bytes = 0U;
     for (std::size_t index = 0U; index < frame.assets.size(); ++index) {
       const GraphicsSceneAssetInput &input = frame.assets[index];
-      ValidationResult validation = ValidateSourceAssetMetadata(input, index);
-      if (!validation) {
-        result.validation = std::move(validation);
+      // Avoid constructing two successful std::strings per asset. MSVC's
+      // checked-iterator Debug STL allocates a proxy for each such string,
+      // which would turn the stable-catalog path into O(asset count) heap
+      // allocation calls despite doing no logical per-asset allocation.
+      if (!ValidateSourceAssetMetadata(input, index, result.validation)) {
         return result;
       }
       std::uint64_t candidate_payload_bytes = 0U;
@@ -590,9 +586,8 @@ public:
               "validated payload byte count overflowed", index);
           return result;
         }
-        validation = ValidateSourceAssetPayload(input, index);
-        if (!validation) {
-          result.validation = std::move(validation);
+        result.validation = ValidateSourceAssetPayload(input, index);
+        if (!result.validation) {
           return result;
         }
       }
@@ -805,7 +800,8 @@ public:
                   "fallback comparison byte count overflowed", input_index);
               return result;
             }
-            contents_changed = !EquivalentMeshContents(*previous_mesh, *mesh);
+            contents_changed =
+                !EquivalentMeshResourceContents(*previous_mesh, *mesh);
             payload_equivalent =
                 !contents_changed &&
                 previous_mesh->debug_name == mesh->debug_name;

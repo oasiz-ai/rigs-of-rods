@@ -75,21 +75,9 @@ bool EqualMip(const TextureMipLevelDescriptor &lhs,
 
 bool EqualMesh(const MeshResourceDescriptor &lhs,
                const MeshResourceDescriptor &rhs) noexcept {
-  return lhs.version == rhs.version && lhs.debug_name == rhs.debug_name &&
-         lhs.topology == rhs.topology && lhs.index_format == rhs.index_format &&
+  return lhs.debug_name == rhs.debug_name &&
          lhs.topology_revision == rhs.topology_revision &&
-         lhs.dynamic == rhs.dynamic &&
-         EqualBoundsBits(lhs.local_bounds, rhs.local_bounds) &&
-         EqualVector(lhs.positions, rhs.positions, EqualFloat3Bits) &&
-         EqualVector(lhs.normals, rhs.normals, EqualFloat3Bits) &&
-         EqualVector(lhs.tangents, rhs.tangents, EqualFloat4Bits) &&
-         EqualVector(lhs.velocities, rhs.velocities, EqualFloat3Bits) &&
-         EqualVector(lhs.texture_coordinates_0, rhs.texture_coordinates_0,
-                     EqualFloat2Bits) &&
-         EqualVector(lhs.texture_coordinates_1, rhs.texture_coordinates_1,
-                     EqualFloat2Bits) &&
-         EqualVector(lhs.colors, rhs.colors, EqualFloat4Bits) &&
-         lhs.indices == rhs.indices;
+         EquivalentMeshResourceContents(lhs, rhs);
 }
 
 bool EqualTexture(const TextureResourceDescriptor &lhs,
@@ -263,6 +251,23 @@ RenderAssetPayloadKind(const RenderAssetPayload &payload) noexcept {
     return RenderAssetKind::SAMPLER;
   }
   return RenderAssetKind::INVALID;
+}
+
+bool EquivalentMeshResourceContents(const MeshResourceDescriptor &lhs,
+                                    const MeshResourceDescriptor &rhs) noexcept {
+  return lhs.version == rhs.version && lhs.topology == rhs.topology &&
+         lhs.index_format == rhs.index_format && lhs.dynamic == rhs.dynamic &&
+         EqualBoundsBits(lhs.local_bounds, rhs.local_bounds) &&
+         EqualVector(lhs.positions, rhs.positions, EqualFloat3Bits) &&
+         EqualVector(lhs.normals, rhs.normals, EqualFloat3Bits) &&
+         EqualVector(lhs.tangents, rhs.tangents, EqualFloat4Bits) &&
+         EqualVector(lhs.velocities, rhs.velocities, EqualFloat3Bits) &&
+         EqualVector(lhs.texture_coordinates_0, rhs.texture_coordinates_0,
+                     EqualFloat2Bits) &&
+         EqualVector(lhs.texture_coordinates_1, rhs.texture_coordinates_1,
+                     EqualFloat2Bits) &&
+         EqualVector(lhs.colors, rhs.colors, EqualFloat4Bits) &&
+         lhs.indices == rhs.indices;
 }
 
 bool EquivalentRenderAssetPayload(const RenderAssetPayload &lhs,
