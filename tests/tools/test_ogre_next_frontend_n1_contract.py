@@ -686,12 +686,27 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "native_r16_history_validated",
             "exact_current_to_old_copy_verified",
             "history_allowed_error",
+            "InitializeExactHdrHistory",
+            "initial_image.uploadTo(history_texture, 0U, 0U)",
+            "exact initial R16 history upload did not round-trip",
             "hdr_temporal_state.PrepareCommit",
             "hdr_temporal_state.CanCommitPrepared",
             "hdr_temporal_state.CommitPrepared",
             "hdr_temporal_state.AbortPrepared",
         ):
             self.assertIn(token, self.frontend)
+        warmup_loop = self.frontend.index(
+            "for (std::uint64_t warmup = 0U; warmup < 2U; ++warmup)"
+        )
+        exact_history_seed = self.frontend.index(
+            "InitializeExactHdrHistory(initial_history, observed_history)",
+            warmup_loop,
+        )
+        history_validation = self.frontend.index(
+            "hdr_native_history_validated = true", exact_history_seed
+        )
+        self.assertLess(warmup_loop, exact_history_seed)
+        self.assertLess(exact_history_seed, history_validation)
         self.assertIn("Ogre::v1::OverlaySystem", self.frontend)
         self.assertIn("Ogre::v1::OverlayManager", self.frontend)
         self.assertIn("kOgreNextHdrUiNode", self.frontend)

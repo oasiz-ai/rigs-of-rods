@@ -2287,6 +2287,64 @@ public:
     return true;
   }
 
+  [[nodiscard]] RenderOperationResult InitializeExactHdrHistory(
+      const HdrR16Float &initial_history, HdrR16Float &observed_history) {
+    if (hdr_workspace == nullptr) {
+      return HdrBackendFailure(
+          "persistent workspace is unavailable for exact history initialization");
+    }
+    Ogre::CompositorNode *rendering =
+        hdr_workspace->findNode(kOgreNextHdrRenderingNode);
+    Ogre::TextureGpu *history_texture =
+        rendering != nullptr ? rendering->getDefinedTexture("oldLumRt")
+                             : nullptr;
+    if (history_texture == nullptr ||
+        history_texture->getPixelFormat() != Ogre::PFG_R16_FLOAT ||
+        history_texture->getWidth() != 1U ||
+        history_texture->getHeight() != 1U ||
+        history_texture->getDepth() != 1U ||
+        history_texture->getNumMipmaps() != 1U) {
+      return HdrBackendFailure(
+          "persistent history texture changed before exact initialization");
+    }
+
+    // Shader expressions such as mix(newLum, oldLum, pow(0.25, 0.0)) are
+    // mathematically identity operations, but backend compilers are not
+    // required to preserve the source R16 payload exactly. Seed the temporal
+    // boundary from the validated CPU binary16 bits after shader warmup, then
+    // prove those same bits survived a real staging upload and GPU readback.
+    Ogre::Image2 initial_image;
+    initial_image.createEmptyImage(1U, 1U, 1U,
+                                   Ogre::TextureTypes::Type2D,
+                                   Ogre::PFG_R16_FLOAT, 1U);
+    const Ogre::TextureBox pixels = initial_image.getData(0U);
+    if (pixels.data == nullptr || pixels.width != 1U || pixels.height != 1U ||
+        pixels.depth != 1U || pixels.numSlices != 1U ||
+        pixels.bytesPerPixel != sizeof(initial_history.bits) ||
+        pixels.bytesPerRow < sizeof(initial_history.bits)) {
+      return HdrBackendFailure(
+          "exact initial history staging layout changed");
+    }
+    std::memcpy(pixels.at(0U, 0U, 0U), &initial_history.bits,
+                sizeof(initial_history.bits));
+    std::uint16_t staged_bits = 0U;
+    std::memcpy(&staged_bits, pixels.at(0U, 0U, 0U), sizeof(staged_bits));
+    if (staged_bits != initial_history.bits) {
+      return HdrBackendFailure(
+          "exact initial history staging changed the R16 payload");
+    }
+    initial_image.uploadTo(history_texture, 0U, 0U);
+
+    HdrR16Float candidate;
+    if (!ReadHdrHistory(candidate) || candidate.bits != initial_history.bits ||
+        candidate.decoded != initial_history.decoded) {
+      return HdrBackendFailure(
+          "exact initial R16 history upload did not round-trip");
+    }
+    observed_history = candidate;
+    return RenderOperationResult::Success();
+  }
+
   [[nodiscard]] RenderOperationResult CreateHdrCompositor(
       std::uint32_t width, std::uint32_t height) {
     if (!hdr_enabled || root == nullptr || renderer == nullptr ||
@@ -2422,8 +2480,9 @@ public:
     }
 #endif
     // Compile and allocate the complete graph before the first public frame.
-    // A zero simulation delta makes both warmups identity operations on the
-    // R16 history, so launch duration cannot leak into exposure.
+    // A zero simulation delta prevents launch duration from advancing the
+    // intended exposure timeline. Exact history initialization follows the
+    // warmup because shader arithmetic is not an exact cross-backend copy.
     for (std::uint64_t warmup = 0U; warmup < 2U; ++warmup) {
       if (!root->renderOneFrame()) {
         return HdrBackendFailure("Ogre-Next ended the HDR warmup loop");
@@ -2441,11 +2500,10 @@ public:
 #endif
     }
     HdrR16Float observed_history;
-    if (!ReadHdrHistory(observed_history) ||
-        observed_history.bits != initial_history.bits ||
-        observed_history.decoded != initial_history.decoded) {
-      return HdrBackendFailure(
-          "zero-delta warmup modified the exact initial R16 history");
+    const RenderOperationResult exact_history =
+        InitializeExactHdrHistory(initial_history, observed_history);
+    if (!exact_history) {
+      return exact_history;
     }
     hdr_history_comparison = OgreNextHdrHistoryComparison{};
     hdr_history_comparison.mode = OgreNextHdrHistoryValidationMode::
