@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "HdrReference.h"
 #include "GraphicsSceneSnapshotProducer.h"
 #include "MaterialDescriptor.h"
 #include "ParallaxProbeReference.h"

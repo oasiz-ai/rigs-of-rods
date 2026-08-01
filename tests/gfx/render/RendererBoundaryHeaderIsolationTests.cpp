@@ -33,6 +33,10 @@ static_assert(std::is_trivially_copyable_v<
               RoR::Render::ReflectionProbeRuntimeDescriptor>);
 static_assert(std::is_trivially_copyable_v<
               RoR::Render::ReflectionProbeUpdateRequest>);
+static_assert(std::is_trivially_copyable_v<
+              RoR::Render::HdrAutoExposureReferenceInput>);
+static_assert(std::is_trivially_copyable_v<
+              RoR::Render::HdrFinalToneMapReferenceResult>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::ResourceHandle>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::RenderAssetId>);
 static_assert(std::is_standard_layout_v<RoR::Render::NativeObjectToken>);
