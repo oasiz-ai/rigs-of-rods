@@ -209,3 +209,17 @@ failed captures leave the prior complete cubemap authoritative. Selection and
 capture seeds depend only on validated scene identities and simulation ticks,
 never wall time or backend iteration order. This is the portable control plane,
 not evidence that a Metal, Vulkan, or D3D11 cubemap has rendered yet.
+Revision enforcement compares the complete canonical descriptor field by field
+(with signed zero folded); the 64-bit fingerprint is only a digest/cache key,
+so a hash collision cannot authorize changed contents at an old revision.
+
+`ReflectionProbeCaptureReceipt` closes the portable-to-native completion edge.
+It accepts only the immutable scheduler request plus an independently measured
+native IBL receipt and exactly one RGBA16F readback for every required face and
+mip, ordered mip-major then face-major. Its stable digest binds backend, probe,
+revision, generation, simulation tick, deterministic seed, descriptor, native
+execution, dimensions, and active texel bytes while deliberately excluding row
+padding. Missing, duplicate, reordered, under-pitched, stale, or partial data
+fails transactionally with no publishable digest. Scheduler reset clears scene
+lineage but never reuses a transaction ID during that object lifetime, closing
+late-GPU-completion ABA across terrain changes.

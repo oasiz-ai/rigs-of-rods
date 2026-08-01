@@ -187,6 +187,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ParallaxProbeReference.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/PbrReference.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ReflectionProbeCaptureReceipt.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ReflectionProbeRuntime.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetId.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetRegistry.cpp"
@@ -226,6 +227,10 @@ add_executable(
 add_executable(
     ror_render_pbr_reference_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/PbrReferenceTests.cpp"
+)
+add_executable(
+    ror_render_reflection_probe_capture_receipt_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ReflectionProbeCaptureReceiptTests.cpp"
 )
 add_executable(
     ror_render_reflection_probe_runtime_tests
@@ -304,6 +309,7 @@ target_include_directories(
 set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_graphics_scene_snapshot_producer_tests
     ror_render_parallax_probe_reference_tests
+    ror_render_reflection_probe_capture_receipt_tests
     ror_render_reflection_probe_runtime_tests
     ror_render_resource_handle_tests
     ror_render_material_descriptor_tests
@@ -1204,6 +1210,11 @@ add_test(
 add_test(
     NAME render_parallax_probe_reference
     COMMAND ror_render_parallax_probe_reference_tests
+)
+
+add_test(
+    NAME render_reflection_probe_capture_receipt
+    COMMAND ror_render_reflection_probe_capture_receipt_tests
 )
 
 add_test(

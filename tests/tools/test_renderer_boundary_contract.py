@@ -202,6 +202,47 @@ class RendererBoundaryContractTests(unittest.TestCase):
         ):
             self.assertIn(required, strict_test_block)
 
+    def test_reflection_runtime_and_receipt_are_shipping_strict_sources(self) -> None:
+        main_cmake = (
+            REPOSITORY_ROOT / "source" / "main" / "CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        tests_cmake = (REPOSITORY_ROOT / "tests" / "CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+        for stem in (
+            "ReflectionProbeRuntime",
+            "ReflectionProbeCaptureReceipt",
+        ):
+            self.assertIn(
+                f"gfx/render/{stem}.{{h,cpp}}",
+                _cmake_set(main_cmake, "SOURCE_FILES"),
+            )
+            for variable in (
+                "ROR_RENDER_CONTRACT_SOURCES",
+                "ROR_RENDER_CONTRACT_STRICT_FP_SOURCES",
+            ):
+                self.assertIn(
+                    f"gfx/render/{stem}.cpp", _cmake_set(main_cmake, variable)
+                )
+            self.assertIn(
+                f'"${{ROR_REPOSITORY_ROOT}}/source/main/gfx/render/{stem}.cpp"',
+                _cmake_set(tests_cmake, "ROR_RENDER_CONTRACT_SOURCES"),
+            )
+            self.assertTrue(
+                (
+                    REPOSITORY_ROOT
+                    / "tests"
+                    / "gfx"
+                    / "render"
+                    / f"{stem}Tests.cpp"
+                ).is_file()
+            )
+
+        self.assertIn(
+            "ror_render_reflection_probe_capture_receipt_tests",
+            _cmake_set(tests_cmake, "ROR_RENDER_CONTRACT_TEST_TARGETS"),
+        )
+
     def test_pbr_reference_provenance_binds_canonical_lock_and_sources(self) -> None:
         canonical = json.loads(
             (PROBE_ROOT / "ogre-next.lock.json").read_text(encoding="utf-8")

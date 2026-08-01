@@ -44,6 +44,8 @@ set(SOURCE_FILES
         gfx/render/MaterialDescriptor.{h,cpp}
         gfx/render/ParallaxProbeReference.{h,cpp}
         gfx/render/PbrReference.{h,cpp}
+        gfx/render/ReflectionProbeCaptureReceipt.{h,cpp}
+        gfx/render/ReflectionProbeRuntime.{h,cpp}
         gfx/render/RenderAssetId.{h,cpp}
         gfx/render/RenderAssetRegistry.{h,cpp}
         gfx/render/README.md
@@ -365,6 +367,8 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/MaterialDescriptor.cpp
         gfx/render/ParallaxProbeReference.cpp
         gfx/render/PbrReference.cpp
+        gfx/render/ReflectionProbeCaptureReceipt.cpp
+        gfx/render/ReflectionProbeRuntime.cpp
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
         gfx/render/RenderFrame.cpp
@@ -383,6 +387,8 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/MaterialDescriptor.cpp
         gfx/render/ParallaxProbeReference.cpp
         gfx/render/PbrReference.cpp
+        gfx/render/ReflectionProbeCaptureReceipt.cpp
+        gfx/render/ReflectionProbeRuntime.cpp
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
         gfx/render/RenderFrame.cpp

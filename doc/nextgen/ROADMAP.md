@@ -1207,9 +1207,13 @@ priority budget, and publishes only atomic six-face/all-mip generations with
 revision lineage, retry/abort semantics, deterministic seeds, and permanent ID
 tombstones. Binary64 world positions are converted transactionally against each
 frame's render origin, so large-world rebasing is distinct from authored probe
-changes. Native Ogre-Next cubemap rendering/filtering, scene-producer
-wiring, three-backend images, authoring, performance, and image quality remain
-open acceptance work.
+changes. Joined-scene producer wiring and the portable scheduler/receipt are
+implemented; native Ogre-Next cubemap rendering/filtering, three-backend images,
+authoring, performance, and image quality remain open acceptance work. The
+capture-receipt edge binds the immutable schedule request, backend/IBL execution
+receipt, and exact
+active RGBA16F bytes for every face/mip while rejecting padding dependence,
+partial data, stale lineage, and reset-era transaction ABA.
 
 ## V2 — AirSim-referenced visual fidelity and scene import
 

@@ -366,6 +366,32 @@ std::uint64_t ComputeReflectionProbeDescriptorFingerprint(
   return hash.value();
 }
 
+bool AreReflectionProbeRuntimeDescriptorsEquivalent(
+    const ReflectionProbeRuntimeDescriptor &lhs,
+    const ReflectionProbeRuntimeDescriptor &rhs) noexcept {
+  return lhs.version == rhs.version && lhs.probe_id == rhs.probe_id &&
+         lhs.content_revision == rhs.content_revision &&
+         lhs.absolute_world_position_meters ==
+             rhs.absolute_world_position_meters &&
+         lhs.world_from_probe_orientation ==
+             rhs.world_from_probe_orientation &&
+         lhs.capture_position_local == rhs.capture_position_local &&
+         lhs.influence_center_local == rhs.influence_center_local &&
+         lhs.influence_half_size == rhs.influence_half_size &&
+         lhs.influence_inner_fraction == rhs.influence_inner_fraction &&
+         lhs.correction_shape_center_local ==
+             rhs.correction_shape_center_local &&
+         lhs.correction_shape_half_size == rhs.correction_shape_half_size &&
+         lhs.priority == rhs.priority && lhs.resolution == rhs.resolution &&
+         lhs.capture_near_meters == rhs.capture_near_meters &&
+         lhs.capture_far_meters == rhs.capture_far_meters &&
+         lhs.visibility_mask == rhs.visibility_mask &&
+         lhs.update_mode == rhs.update_mode &&
+         lhs.update_interval_simulation_ticks ==
+             rhs.update_interval_simulation_ticks &&
+         lhs.include_dynamic_geometry == rhs.include_dynamic_geometry;
+}
+
 class ReflectionProbeUpdateScheduler::Impl final {
 public:
   struct ProbeState {
@@ -552,7 +578,8 @@ ReflectionProbePlanResult ReflectionProbeUpdateScheduler::BeginFrame(
       return result;
     }
     if (descriptor.content_revision == state.descriptor.content_revision &&
-        fingerprint != state.descriptor_fingerprint) {
+        !AreReflectionProbeRuntimeDescriptorsEquivalent(descriptor,
+                                                        state.descriptor)) {
       result.validation = Failure(
           ValidationCode::REVISION_MISMATCH,
           "descriptors.content_revision",
@@ -777,7 +804,11 @@ ValidationResult ReflectionProbeUpdateScheduler::Abort(std::uint64_t plan_id) {
 void ReflectionProbeUpdateScheduler::Reset() noexcept {
   impl_->states.clear();
   impl_->pending.reset();
-  impl_->next_plan_id = 1U;
+  // Plan identities belong to this scheduler object's entire lifetime, not
+  // one scene epoch. Reusing them here would let a delayed pre-reset native
+  // completion authenticate a post-reset plan with the same probe/generation
+  // tuple (an ABA). Exhaustion therefore remains permanent until the scheduler
+  // object itself is destroyed and replaced after native work is quiescent.
   impl_->last_committed_render_frame_id = 0U;
   impl_->last_committed_simulation_tick = 0U;
   impl_->has_committed_frame = false;

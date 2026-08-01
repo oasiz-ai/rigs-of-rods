@@ -434,7 +434,7 @@ public:
   struct ReflectionProbeState {
     std::uint64_t probe_id = 0U;
     std::uint64_t content_revision = 0U;
-    std::uint64_t descriptor_fingerprint = 0U;
+    ReflectionProbeRuntimeDescriptor descriptor;
     bool live = false;
   };
 
@@ -1389,8 +1389,6 @@ public:
             input_index);
         return result;
       }
-      const std::uint64_t fingerprint =
-          ComputeReflectionProbeDescriptorFingerprint(input);
       if (prior_probe != nullptr &&
           input.content_revision < prior_probe->content_revision) {
         result.validation = Failure(
@@ -1401,7 +1399,8 @@ public:
       }
       if (prior_probe != nullptr &&
           input.content_revision == prior_probe->content_revision &&
-          fingerprint != prior_probe->descriptor_fingerprint) {
+          !AreReflectionProbeRuntimeDescriptorsEquivalent(
+              input, prior_probe->descriptor)) {
         result.validation = Failure(
             ValidationCode::REVISION_MISMATCH,
             "reflection_probes.content_revision",
@@ -1414,7 +1413,7 @@ public:
       }
       descriptor.reflection_probes.push_back(input);
       candidate_reflection_probes.push_back(ReflectionProbeState{
-          input.probe_id, input.content_revision, fingerprint, true});
+          input.probe_id, input.content_revision, input, true});
     }
     while (prior_probe_index < reflection_probes.size()) {
       ReflectionProbeState removed = reflection_probes[prior_probe_index];

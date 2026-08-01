@@ -15,6 +15,7 @@
 #include "MaterialDescriptor.h"
 #include "ParallaxProbeReference.h"
 #include "PbrReference.h"
+#include "ReflectionProbeCaptureReceipt.h"
 #include "ReflectionProbeRuntime.h"
 #include "RenderAssetId.h"
 #include "RenderAssetRegistry.h"

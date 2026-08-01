@@ -122,6 +122,21 @@ void TestDescriptorAdmissionAndFingerprint() {
   signed_zero.influence_center_local.y = -0.0F;
   Require(ComputeReflectionProbeDescriptorFingerprint(signed_zero) == baseline,
           "descriptor fingerprint did not canonicalize signed zero");
+  Require(AreReflectionProbeRuntimeDescriptorsEquivalent(descriptor,
+                                                          signed_zero),
+          "signed zero changed exact descriptor semantics");
+
+  ReflectionProbeRuntimeDescriptor changed_semantics = descriptor;
+  ++changed_semantics.priority;
+  Require(!AreReflectionProbeRuntimeDescriptorsEquivalent(
+              descriptor, changed_semantics),
+          "exact descriptor equality ignored a categorical field");
+  changed_semantics = descriptor;
+  changed_semantics.include_dynamic_geometry =
+      !changed_semantics.include_dynamic_geometry;
+  Require(!AreReflectionProbeRuntimeDescriptorsEquivalent(
+              descriptor, changed_semantics),
+          "exact descriptor equality ignored dynamic-geometry policy");
 
   descriptor.version += 1U;
   Require(!ValidateReflectionProbeRuntimeDescriptor(descriptor),
@@ -394,6 +409,34 @@ void TestRetirementFrameAndTickLineage() {
   CommitAll(scheduler, plan);
 }
 
+void TestResetNeverReusesPlanIdentity() {
+  ReflectionProbeUpdateScheduler scheduler;
+  ReflectionProbeRuntimeDescriptor before = Probe(11U);
+  const ReflectionProbeUpdatePlan old_plan =
+      Begin(scheduler, 1U, 10U, {before});
+  const std::vector<ReflectionProbeCaptureCompletion> delayed =
+      CompleteAll(old_plan);
+
+  scheduler.Reset();
+  ++before.content_revision;
+  before.capture_position_local.x = 0.25F;
+  const ReflectionProbeUpdatePlan new_plan =
+      Begin(scheduler, 1U, 10U, {before});
+  Require(new_plan.plan_id != old_plan.plan_id &&
+              new_plan.requests.size() == 1U &&
+              new_plan.requests[0U].candidate_generation == 1U,
+          "reset reused a scheduler-lifetime plan identity");
+  const ReflectionProbeCommitResult stale =
+      scheduler.Commit(old_plan.plan_id, delayed);
+  Require(!stale && stale.validation.code == ValidationCode::SEQUENCE_MISMATCH &&
+              scheduler.has_pending_plan() &&
+              scheduler.completed_generation(before.probe_id) == 0U,
+          "delayed pre-reset completion authenticated post-reset state");
+  CommitAll(scheduler, new_plan);
+  Require(scheduler.completed_generation(before.probe_id) == 1U,
+          "valid post-reset completion did not recover after stale rejection");
+}
+
 void TestLargeWorldOriginRebasing() {
   ReflectionProbeUpdateScheduler scheduler;
   ReflectionProbeRuntimeDescriptor descriptor = Probe(77U);
@@ -570,6 +613,7 @@ int main() {
   TestPeriodicTicksAndOverdueFairness();
   TestFailureAbortAndTransactionalCompletion();
   TestRetirementFrameAndTickLineage();
+  TestResetNeverReusesPlanIdentity();
   TestLargeWorldOriginRebasing();
   TestConfigurationAndCapacityFailures();
   TestFixedSeedReplayDeterminism();

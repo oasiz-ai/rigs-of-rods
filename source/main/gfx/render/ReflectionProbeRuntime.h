@@ -142,6 +142,13 @@ IsKnownReflectionProbeUpdateMode(ReflectionProbeUpdateMode mode) noexcept;
     const std::vector<ReflectionProbeRuntimeDescriptor> &descriptors);
 [[nodiscard]] std::uint64_t ComputeReflectionProbeDescriptorFingerprint(
     const ReflectionProbeRuntimeDescriptor &descriptor) noexcept;
+/// Exact semantic equality for revision enforcement. IEEE signed zero is
+/// intentionally equivalent; every admitted nonzero value and categorical
+/// field must otherwise match. The 64-bit fingerprint remains a digest/cache
+/// key and is never trusted as collision-free identity.
+[[nodiscard]] bool AreReflectionProbeRuntimeDescriptorsEquivalent(
+    const ReflectionProbeRuntimeDescriptor &lhs,
+    const ReflectionProbeRuntimeDescriptor &rhs) noexcept;
 
 /// Stateful deterministic scheduler for expensive cubemap capture work.
 ///
@@ -172,6 +179,9 @@ public:
       std::uint64_t plan_id,
       const std::vector<ReflectionProbeCaptureCompletion> &completions);
   [[nodiscard]] ValidationResult Abort(std::uint64_t plan_id);
+  /// Clears scene/tombstone/frame lineage after all caller-owned native work
+  /// has been quiesced. Plan IDs remain scheduler-lifetime monotonic so a late
+  /// pre-reset completion can never authenticate a post-reset transaction.
   void Reset() noexcept;
 
   [[nodiscard]] bool has_pending_plan() const noexcept;
