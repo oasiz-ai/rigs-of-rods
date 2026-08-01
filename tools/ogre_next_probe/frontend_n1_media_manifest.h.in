@@ -20,4 +20,13 @@ inline constexpr std::size_t kOgreNextN1ShaderMediaManifestCount =
 inline constexpr char kOgreNextN1ShaderMediaManifestSha256[] =
     "@ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_SHA256@";
 
+inline constexpr OgreNextN1MediaManifestEntry
+    kOgreNextN1HdrMediaManifest[]{
+@ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_ENTRIES@};
+
+inline constexpr std::size_t kOgreNextN1HdrMediaManifestCount =
+    @ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_COUNT@U;
+inline constexpr char kOgreNextN1HdrMediaManifestSha256[] =
+    "@ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_SHA256@";
+
 } // namespace RoR::Render

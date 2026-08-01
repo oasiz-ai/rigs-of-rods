@@ -15,6 +15,7 @@
 #include "ror_ogre_next_n1_config.h"
 
 #include "Compositor/OgreCompositorManager2.h"
+#include "Compositor/OgreCompositorNode.h"
 #include "Compositor/OgreCompositorNodeDef.h"
 #include "Compositor/OgreCompositorShadowNode.h"
 #include "Compositor/OgreCompositorShadowNodeDef.h"
@@ -25,6 +26,7 @@
 #include "Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h"
 #include "OgreAbiUtils.h"
 #include "OgreArchiveManager.h"
+#include "OgreBitwise.h"
 #include "OgreCamera.h"
 #include "OgreColourValue.h"
 #include "OgreException.h"
@@ -36,6 +38,8 @@
 #include "OgreImage2.h"
 #include "OgreItem.h"
 #include "OgreLight.h"
+#include "OgreMaterial.h"
+#include "OgreMaterialManager.h"
 #include "OgreMatrix4.h"
 #include "OgreMesh2.h"
 #include "OgreMeshManager2.h"
@@ -49,6 +53,9 @@
 #include "OgreSceneNode.h"
 #include "OgreSubItem.h"
 #include "OgreSubMesh2.h"
+#include "OgreTechnique.h"
+#include "OgrePass.h"
+#include "OgreGpuProgramParams.h"
 #include "OgreTextureBox.h"
 #include "OgreTextureGpu.h"
 #include "OgreTextureGpuManager.h"
@@ -944,6 +951,76 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
   return result;
 }
 
+constexpr const char kOgreNextHdrResourceGroup[] = "RoROgreNextHdrV1";
+constexpr const char kOgreNextHdrWorkspace[] = "HdrWorkspace";
+constexpr const char kOgreNextHdrRenderingNode[] = "HdrRenderingNode";
+constexpr const char kOgreNextHdrPostprocessingNode[] =
+    "HdrPostprocessingNode";
+
+RenderOperationResult HdrBackendFailure(const std::string &detail) {
+  return RenderOperationResult::Failure(
+      RenderOperationCode::BACKEND_FAILURE,
+      "Ogre-Next RT4 HDR compositor failure: " + detail);
+}
+
+bool TryReadR16Texture(Ogre::TextureGpu *texture,
+                       std::uint32_t expected_width,
+                       std::uint32_t expected_height,
+                       std::vector<HdrR16Float> &output) {
+  if (texture == nullptr || texture->getPixelFormat() != Ogre::PFG_R16_FLOAT ||
+      texture->getWidth() != expected_width ||
+      texture->getHeight() != expected_height || texture->getDepth() != 1U) {
+    return false;
+  }
+  Ogre::Image2 image;
+  image.convertFromTexture(texture, 0U, 0U);
+  const Ogre::TextureBox pixels = image.getData(0U);
+  std::vector<HdrR16Float> candidate;
+  candidate.reserve(static_cast<std::size_t>(expected_width) *
+                    expected_height);
+  for (std::uint32_t row = 0U; row < expected_height; ++row) {
+    for (std::uint32_t column = 0U; column < expected_width; ++column) {
+      std::uint16_t bits = 0U;
+      std::memcpy(&bits, pixels.at(column, row, 0U), sizeof(bits));
+      const float decoded = Ogre::Bitwise::halfToFloat(bits);
+      HdrR16Float canonical;
+      const ValidationResult validation = QuantizeHdrR16Float(decoded, canonical);
+      if (!validation || canonical.bits != bits ||
+          canonical.decoded != decoded) {
+        return false;
+      }
+      candidate.push_back(canonical);
+    }
+  }
+  output = std::move(candidate);
+  return true;
+}
+
+bool TryComputeHdrAverageLogLuminance(
+    const std::vector<HdrR16Float> &iterative_luminance,
+    float &average) noexcept {
+  if (iterative_luminance.size() != 16U) {
+    return false;
+  }
+  const auto quadrant = [&](std::size_t x, std::size_t y) {
+    float value = iterative_luminance[y * 4U + x].decoded;
+    value += iterative_luminance[y * 4U + x + 1U].decoded;
+    value += iterative_luminance[(y + 1U) * 4U + x].decoded;
+    value += iterative_luminance[(y + 1U) * 4U + x + 1U].decoded;
+    return value * 0.25F;
+  };
+  float candidate = quadrant(0U, 0U);
+  candidate += quadrant(2U, 0U);
+  candidate += quadrant(0U, 2U);
+  candidate += quadrant(2U, 2U);
+  candidate *= 0.25F;
+  if (!std::isfinite(candidate)) {
+    return false;
+  }
+  average = candidate;
+  return true;
+}
+
 } // namespace
 
 class OgreNextN1Frontend::Impl final {
@@ -952,7 +1029,9 @@ public:
       : raster_feature_tier(configuration.raster_feature_tier),
         directional_shadow_mode(configuration.directional_shadow_mode),
         configured_shader_media_root(
-            std::move(configuration.shader_media_root))
+            std::move(configuration.shader_media_root)),
+        hdr_configuration(configuration.hdr_temporal_configuration),
+        hdr_enabled(configuration.enable_hdr_compositor)
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
         , texture_upload_failure_stage(
               configuration.texture_upload_failure_stage),
@@ -1789,6 +1868,277 @@ public:
     }
   }
 
+  [[nodiscard]] OgreNextHdrCompositorAudit HdrCompositorAudit() const noexcept {
+    OgreNextHdrCompositorAudit audit;
+    audit.enabled = hdr_enabled;
+    audit.native_workspace_live = hdr_workspace != nullptr &&
+                                  hdr_output_target != nullptr;
+    audit.deterministic_delta_bound = hdr_manual_delta_bound;
+    audit.exact_r16_history_verified = hdr_exact_history_verified;
+    audit.width = hdr_width;
+    audit.height = hdr_height;
+    audit.warmup_frames = hdr_warmup_frames;
+    audit.committed_frames = hdr_temporal_state.committed_frame_id();
+    audit.previous_inverse_luminance_r16_bits =
+        hdr_temporal_state.previous_inverse_luminance().bits;
+    return audit;
+  }
+
+  [[nodiscard]] bool DestroyHdrCompositor() noexcept {
+    bool clean = true;
+    if (root && hdr_workspace != nullptr) {
+      try {
+        root->getCompositorManager2()->removeWorkspace(hdr_workspace);
+      } catch (...) {
+        clean = false;
+      }
+    }
+    hdr_workspace = nullptr;
+    if (renderer != nullptr && hdr_output_target != nullptr) {
+      try {
+        renderer->getTextureGpuManager()->destroyTexture(hdr_output_target);
+      } catch (...) {
+        clean = false;
+      }
+    } else if (hdr_output_target != nullptr) {
+      clean = false;
+    }
+    hdr_output_target = nullptr;
+    if (hdr_resource_group_created) {
+      try {
+        Ogre::ResourceGroupManager::getSingleton().destroyResourceGroup(
+            kOgreNextHdrResourceGroup);
+      } catch (...) {
+        clean = false;
+      }
+    }
+    hdr_resource_group_created = false;
+    hdr_temporal_state.Reset();
+    hdr_width = 0U;
+    hdr_height = 0U;
+    hdr_warmup_frames = 0U;
+    hdr_manual_delta_bound = false;
+    hdr_exact_history_verified = false;
+    return clean;
+  }
+
+  [[nodiscard]] RenderOperationResult ConfigureHdrParameters(
+      float ogre_exposure, float minimum_auto_exposure,
+      float maximum_auto_exposure, float bloom_minimum_threshold,
+      float bloom_inverse_transition_width, float delta_seconds) {
+    Ogre::MaterialPtr luminance_material =
+        std::static_pointer_cast<Ogre::Material>(
+            Ogre::MaterialManager::getSingleton().load(
+                "HDR/DownScale03_SumLumEnd",
+                Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME));
+    Ogre::Pass *luminance_pass =
+        luminance_material->getTechnique(0U)->getPass(0U);
+    Ogre::GpuProgramParametersSharedPtr luminance_parameters =
+        luminance_pass->getFragmentProgramParameters();
+    luminance_parameters->clearNamedAutoConstant("timeSinceLast");
+    if (luminance_parameters->findAutoConstantEntry("timeSinceLast") !=
+        nullptr) {
+      return HdrBackendFailure(
+          "wall-clock frame_time remained bound after deterministic override");
+    }
+    const float exposure_exponent = ogre_exposure - 2.0F;
+    const float exposure_numerator =
+        1024.0F * std::exp(exposure_exponent);
+    const Ogre::Vector3 exposure(
+        exposure_numerator, 7.5F - maximum_auto_exposure,
+        7.5F - minimum_auto_exposure);
+    luminance_parameters->setNamedConstant("exposure", exposure);
+    luminance_parameters->setNamedConstant("timeSinceLast", delta_seconds);
+
+    float observed_exposure[3U]{};
+    float observed_delta = -1.0F;
+    const Ogre::GpuConstantDefinition &exposure_definition =
+        luminance_parameters->getConstantDefinition("exposure");
+    const Ogre::GpuConstantDefinition &delta_definition =
+        luminance_parameters->getConstantDefinition("timeSinceLast");
+    luminance_parameters->_readRawConstants(
+        exposure_definition.physicalIndex, 3U, observed_exposure);
+    luminance_parameters->_readRawConstants(
+        delta_definition.physicalIndex, 1U, &observed_delta);
+    if (observed_exposure[0U] != exposure.x ||
+        observed_exposure[1U] != exposure.y ||
+        observed_exposure[2U] != exposure.z ||
+        observed_delta != delta_seconds) {
+      return HdrBackendFailure(
+          "native exposure or simulation-delta constant changed after binding");
+    }
+
+    Ogre::MaterialPtr bloom_material =
+        std::static_pointer_cast<Ogre::Material>(
+            Ogre::MaterialManager::getSingleton().load(
+                "HDR/BrightPass_Start",
+                Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME));
+    Ogre::Pass *bloom_pass = bloom_material->getTechnique(0U)->getPass(0U);
+    Ogre::GpuProgramParametersSharedPtr bloom_parameters =
+        bloom_pass->getFragmentProgramParameters();
+    const Ogre::Vector2 threshold(bloom_minimum_threshold,
+                                  bloom_inverse_transition_width);
+    bloom_parameters->setNamedConstant("brightThreshold", threshold);
+    float observed_threshold[2U]{};
+    const Ogre::GpuConstantDefinition &threshold_definition =
+        bloom_parameters->getConstantDefinition("brightThreshold");
+    bloom_parameters->_readRawConstants(
+        threshold_definition.physicalIndex, 2U, observed_threshold);
+    if (observed_threshold[0U] != threshold.x ||
+        observed_threshold[1U] != threshold.y) {
+      return HdrBackendFailure(
+          "native bloom threshold changed after deterministic binding");
+    }
+    hdr_manual_delta_bound = true;
+    return RenderOperationResult::Success();
+  }
+
+  [[nodiscard]] bool ReadHdrHistory(HdrR16Float &history) {
+    if (hdr_workspace == nullptr) {
+      return false;
+    }
+    Ogre::CompositorNode *rendering =
+        hdr_workspace->findNode(kOgreNextHdrRenderingNode);
+    if (rendering == nullptr) {
+      return false;
+    }
+    std::vector<HdrR16Float> values;
+    if (!TryReadR16Texture(rendering->getDefinedTexture("oldLumRt"), 1U, 1U,
+                           values) ||
+        values.size() != 1U) {
+      return false;
+    }
+    history = values.front();
+    return true;
+  }
+
+  [[nodiscard]] RenderOperationResult CreateHdrCompositor(
+      std::uint32_t width, std::uint32_t height) {
+    if (!hdr_enabled || root == nullptr || renderer == nullptr ||
+        scene_manager == nullptr || camera == nullptr ||
+        hdr_workspace != nullptr || hdr_output_target != nullptr) {
+      return HdrBackendFailure("invalid persistent-workspace lifecycle");
+    }
+    Ogre::ResourceGroupManager &resources =
+        Ogre::ResourceGroupManager::getSingleton();
+    resources.createResourceGroup(kOgreNextHdrResourceGroup, true);
+    hdr_resource_group_created = true;
+    const std::filesystem::path media_root =
+        std::filesystem::u8path(resolved_shader_media_root);
+    // FileSystem archives do not resolve shader source files from nested
+    // directories by basename, even when recursive enumeration is enabled.
+    // Match Ogre-Next's own resources2.cfg/HDR sample registration exactly so
+    // every backend can resolve the source selected by the unified program.
+    const std::array<const char *, 11U> relative_locations{{
+        "2.0/scripts/Compositors",
+        "2.0/scripts/materials/Common",
+        "2.0/scripts/materials/Common/Any",
+        "2.0/scripts/materials/Common/GLSL",
+        "2.0/scripts/materials/Common/GLSLES",
+        "2.0/scripts/materials/Common/HLSL",
+        "2.0/scripts/materials/Common/Metal",
+        "2.0/scripts/materials/HDR",
+        "2.0/scripts/materials/HDR/GLSL",
+        "2.0/scripts/materials/HDR/HLSL",
+        "2.0/scripts/materials/HDR/Metal"}};
+    for (const char *relative : relative_locations) {
+      resources.addResourceLocation(
+          (media_root / relative).generic_u8string(), "FileSystem",
+          kOgreNextHdrResourceGroup, true, true);
+    }
+    resources.initialiseResourceGroup(kOgreNextHdrResourceGroup, true);
+
+    hdr_output_target = renderer->getTextureGpuManager()->createTexture(
+        "RoRN1HdrOutput", Ogre::GpuPageOutStrategy::Discard,
+        Ogre::TextureFlags::RenderToTexture, Ogre::TextureTypes::Type2D);
+    hdr_output_target->setResolution(width, height);
+    hdr_output_target->setPixelFormat(Ogre::PFG_RGBA8_UNORM_SRGB);
+    hdr_output_target->scheduleTransitionTo(Ogre::GpuResidency::Resident);
+    hdr_workspace = root->getCompositorManager2()->addWorkspace(
+        scene_manager, hdr_output_target, camera, kOgreNextHdrWorkspace, true);
+    hdr_width = width;
+    hdr_height = height;
+
+    HdrR16Float initial_history;
+    const ValidationResult initial_quantization = QuantizeHdrR16Float(
+        hdr_configuration.initial_inverse_luminance, initial_history);
+    if (!initial_quantization) {
+      return HdrBackendFailure(
+          "validated initial exposure history became unrepresentable");
+    }
+    const float inverse_width =
+        1.0F / (hdr_configuration.bloom_full_colour_threshold -
+                hdr_configuration.bloom_minimum_threshold);
+    const RenderOperationResult parameters = ConfigureHdrParameters(
+        0.0F, hdr_configuration.minimum_auto_exposure,
+        hdr_configuration.maximum_auto_exposure,
+        hdr_configuration.bloom_minimum_threshold, inverse_width, 0.0F);
+    if (!parameters) {
+      return parameters;
+    }
+    // Compile and allocate the complete graph before the first public frame.
+    // A zero simulation delta makes both warmups identity operations on the
+    // R16 history, so launch duration cannot leak into exposure.
+    for (std::uint64_t warmup = 0U; warmup < 2U; ++warmup) {
+      if (!root->renderOneFrame()) {
+        return HdrBackendFailure("Ogre-Next ended the HDR warmup loop");
+      }
+      ++hdr_warmup_frames;
+    }
+    HdrR16Float observed_history;
+    if (!ReadHdrHistory(observed_history) ||
+        observed_history.bits != initial_history.bits ||
+        observed_history.decoded != initial_history.decoded) {
+      return HdrBackendFailure(
+          "zero-delta warmup modified the exact initial R16 history");
+    }
+    hdr_exact_history_verified = true;
+    return RenderOperationResult::Success();
+  }
+
+  [[nodiscard]] RenderOperationResult VerifyAndCommitHdrFrame(
+      const OgreNextHdrTemporalFramePlan &plan) {
+    if (hdr_workspace == nullptr) {
+      return HdrBackendFailure("persistent workspace is unavailable");
+    }
+    Ogre::CompositorNode *postprocessing =
+        hdr_workspace->findNode(kOgreNextHdrPostprocessingNode);
+    Ogre::CompositorNode *rendering =
+        hdr_workspace->findNode(kOgreNextHdrRenderingNode);
+    if (postprocessing == nullptr || rendering == nullptr) {
+      return HdrBackendFailure("required upstream HDR nodes are unavailable");
+    }
+    std::vector<HdrR16Float> iterative;
+    std::vector<HdrR16Float> current;
+    std::vector<HdrR16Float> copied;
+    if (!TryReadR16Texture(postprocessing->getDefinedTexture("rtIter2"), 4U,
+                           4U, iterative) ||
+        !TryReadR16Texture(postprocessing->getDefinedTexture("lumRt0"), 1U,
+                           1U, current) ||
+        !TryReadR16Texture(rendering->getDefinedTexture("oldLumRt"), 1U, 1U,
+                           copied) ||
+        current.size() != 1U || copied.size() != 1U ||
+        current.front().bits != copied.front().bits ||
+        current.front().decoded != copied.front().decoded) {
+      return HdrBackendFailure(
+          "native luminance reduction or persistent copy is not exact R16");
+    }
+    float average_log_luminance = 0.0F;
+    if (!TryComputeHdrAverageLogLuminance(iterative,
+                                          average_log_luminance)) {
+      return HdrBackendFailure(
+          "native 4x4 log-luminance reduction is not finite");
+    }
+    const ValidationResult committed = hdr_temporal_state.CommitFrame(
+        plan, average_log_luminance, copied.front());
+    if (!committed) {
+      return HdrBackendFailure("native history failed the shader oracle: " +
+                               committed.field + ": " + committed.detail);
+    }
+    hdr_exact_history_verified = true;
+    return RenderOperationResult::Success();
+  }
+
   [[nodiscard]] bool RollbackCandidateAllocations(
       std::map<RenderAssetId, NativeMesh> &candidate_meshes,
       std::map<RenderAssetId, NativeMaterial> &candidate_materials,
@@ -1832,6 +2182,7 @@ public:
       reflection_probe_runtime.reset();
     }
     clean = DestroyRetainedOutputTarget() && clean;
+    clean = DestroyHdrCompositor() && clean;
     clean = DestroyFrameMeshes() && clean;
     clean = DestroyCatalog() && clean;
     if (root && scene_manager != nullptr) {
@@ -1895,9 +2246,20 @@ public:
   std::thread::id owner_thread;
   std::string configured_shader_media_root;
   std::string resolved_shader_media_root;
+  OgreNextHdrTemporalConfiguration hdr_configuration;
+  OgreNextHdrTemporalState hdr_temporal_state;
+  Ogre::TextureGpu *hdr_output_target = nullptr;
+  Ogre::CompositorWorkspace *hdr_workspace = nullptr;
+  std::uint32_t hdr_width = 0U;
+  std::uint32_t hdr_height = 0U;
+  std::uint64_t hdr_warmup_frames = 0U;
   bool initialized = false;
   bool faulted = false;
   bool owns_root_claim = false;
+  bool hdr_enabled = false;
+  bool hdr_resource_group_created = false;
+  bool hdr_manual_delta_bound = false;
+  bool hdr_exact_history_verified = false;
   std::uint64_t texture_allocation_creates = 0U;
   std::uint64_t texture_allocation_destroys = 0U;
   std::uint64_t texture_retired_name_lookups = 0U;
@@ -1977,6 +2339,11 @@ OgreNextN1Frontend::QueryDirectionalShadowAudit() const noexcept {
   return impl_->DirectionalShadowAudit();
 }
 
+OgreNextHdrCompositorAudit
+OgreNextN1Frontend::QueryHdrCompositorAudit() const noexcept {
+  return impl_->HdrCompositorAudit();
+}
+
 RenderOperationResult OgreNextN1Frontend::Initialize(
     const FrontendInitializationRequest &request) {
   if (impl_->initialized) {
@@ -1995,12 +2362,28 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
   if (!shadow_configuration) {
     return OgreNextN1OperationFromValidation(shadow_configuration);
   }
+  if (impl_->hdr_enabled &&
+      impl_->directional_shadow_mode !=
+          OgreNextDirectionalShadowMode::DISABLED) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "the persistent HDR compositor does not yet bind the reviewed PSSM shadow node");
+  }
   if (!TryResolveNativeVertexLayout(
           impl_->raster_feature_tier, impl_->native_feature_tier,
           impl_->native_vertex_layout)) {
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
         "Ogre-Next raster/native feature tiers have no reviewed exact vertex-layout contract");
+  }
+  if (impl_->hdr_enabled &&
+      (impl_->raster_feature_tier !=
+           OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 ||
+       impl_->native_feature_tier !=
+           OgreNextNativeFeatureTier::RASTER_N1)) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "the persistent HDR compositor requires RT4/V1 raster without native N2/N3 image interop");
   }
 #if !defined(ROR_OGRE_NEXT_N1_METAL)
   if (impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1) {
@@ -2026,9 +2409,14 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
   }
   if (impl_->raster_feature_tier ==
       OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+    const RenderOperationResult hdr_media_integrity =
+        VerifyOgreNextN1HdrMedia(impl_->resolved_shader_media_root);
+    if (!hdr_media_integrity) {
+      return hdr_media_integrity;
+    }
     const RenderOperationResult reflection_media_integrity =
         VerifyOgreNextReflectionProbeMedia(
-            impl_->resolved_shader_media_root);
+            impl_->resolved_shader_media_root, true);
     if (!reflection_media_integrity) {
       return reflection_media_integrity;
     }
@@ -2045,6 +2433,15 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     }
     return failure;
   };
+
+  if (impl_->hdr_enabled) {
+    const ValidationResult hdr_configuration =
+        impl_->hdr_temporal_state.Initialize(impl_->hdr_configuration);
+    if (!hdr_configuration) {
+      return fail_after_cleanup(OgreNextN1OperationFromValidation(
+          hdr_configuration));
+    }
+  }
 
   try {
     impl_->plugin = std::make_unique<N1RendererPlugin>();
@@ -2214,6 +2611,13 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
         return fail_after_cleanup(reflection_initialization);
       }
     }
+    if (impl_->hdr_enabled) {
+      const RenderOperationResult hdr_compositor = impl_->CreateHdrCompositor(
+          request.initial_width, request.initial_height);
+      if (!hdr_compositor) {
+        return fail_after_cleanup(hdr_compositor);
+      }
+    }
     impl_->surface.version = request.version;
     impl_->surface.surface_revision = request.initial_surface_revision;
     impl_->surface.pixel_width = request.initial_width;
@@ -2262,6 +2666,13 @@ RenderOperationResult OgreNextN1Frontend::UpdateSurface(
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
         "surface extent exceeds the initialized Ogre-Next device limit");
+  }
+  if (impl_->hdr_enabled &&
+      (update.pixel_width != impl_->hdr_width ||
+       update.pixel_height != impl_->hdr_height)) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "the first persistent HDR compositor keeps a fixed initialized extent");
   }
   impl_->surface = update;
   return RenderOperationResult::Success();
@@ -2634,7 +3045,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
   }
   const ValidationResult validation = ValidateOgreNextN1Frame(
       request, impl_->Capabilities(), *impl_->registry,
-      impl_->raster_feature_tier, impl_->directional_shadow_mode);
+      impl_->raster_feature_tier, impl_->directional_shadow_mode,
+      impl_->hdr_enabled);
   if (!validation) {
     return OgreNextN1OperationFromValidation(validation);
   }
@@ -2647,6 +3059,40 @@ RenderOperationResult OgreNextN1Frontend::Render(
           shadow_plan);
   if (!shadow_validation) {
     return OgreNextN1OperationFromValidation(shadow_validation);
+  }
+  OgreNextHdrTemporalFramePlan hdr_plan;
+  if (impl_->hdr_enabled) {
+    if (validated_view.width != impl_->hdr_width ||
+        validated_view.height != impl_->hdr_height ||
+        impl_->hdr_workspace == nullptr ||
+        impl_->hdr_output_target == nullptr) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "the persistent HDR compositor requires its fixed initialized extent");
+    }
+    const ValidationResult planned = impl_->hdr_temporal_state.PrepareFrame(
+        request, impl_->raster_feature_tier, hdr_plan);
+    if (!planned) {
+      return OgreNextN1OperationFromValidation(planned);
+    }
+    HdrR16Float native_previous;
+    if (!impl_->ReadHdrHistory(native_previous) ||
+        native_previous.bits !=
+            hdr_plan.previous_inverse_luminance_r16.bits ||
+        native_previous.decoded !=
+            hdr_plan.previous_inverse_luminance_r16.decoded) {
+      impl_->faulted = true;
+      return HdrBackendFailure(
+          "persistent R16 history diverged before frame submission");
+    }
+    const RenderOperationResult configured = impl_->ConfigureHdrParameters(
+        hdr_plan.ogre_exposure, hdr_plan.minimum_auto_exposure,
+        hdr_plan.maximum_auto_exposure, hdr_plan.bloom_minimum_threshold,
+        hdr_plan.bloom_inverse_transition_width, hdr_plan.delta_seconds);
+    if (!configured) {
+      impl_->faulted = true;
+      return configured;
+    }
   }
   std::uint64_t readback_row_pitch = 0U;
   std::size_t readback_total_bytes = 0U;
@@ -2696,9 +3142,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
         "Ogre-Next Metal N3 requires a linear RGBA16_FLOAT colour target");
   }
 
-  Ogre::TextureGpu *target = nullptr;
+  const bool persistent_hdr = impl_->hdr_enabled;
+  Ogre::TextureGpu *target =
+      persistent_hdr ? impl_->hdr_output_target : nullptr;
   Ogre::TextureGpu *retained_target = nullptr;
-  Ogre::CompositorWorkspace *workspace = nullptr;
+  Ogre::CompositorWorkspace *workspace =
+      persistent_hdr ? impl_->hdr_workspace : nullptr;
   Ogre::IdString workspace_name;
   bool reflection_frame_prepared = false;
   bool submission_commit_prepared = false;
@@ -2709,6 +3158,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
   std::string shadow_node_text;
   bool shadow_node_creation_counted = false;
   std::string target_text;
+  bool hdr_native_frame_executed = false;
   std::vector<std::pair<Ogre::Item *, Ogre::SceneNode *>> items;
   std::vector<OgreNextReflectionProbeItemBinding> reflection_items;
   std::vector<std::pair<Ogre::Light *, Ogre::SceneNode *>> lights;
@@ -2732,7 +3182,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
     bool clean = true;
     Ogre::CompositorManager2 *compositors =
         impl_->root->getCompositorManager2();
-    if (workspace != nullptr) {
+    if (!persistent_hdr && workspace != nullptr) {
       try {
         compositors->removeWorkspace(workspace);
       } catch (...) {
@@ -2834,7 +3284,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       shadow_node_text.clear();
     }
-    if (target != nullptr || !target_text.empty()) {
+    if (!persistent_hdr && (target != nullptr || !target_text.empty())) {
       Ogre::TextureGpuManager *texture_manager =
           impl_->renderer->getTextureGpuManager();
       Ogre::TextureGpu *registered_target = target;
@@ -3002,6 +3452,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
     clean = cleanup_scene(false) && clean;
     clean = destroy_retained_target() && clean;
     clean = destroy_submitted_frame_meshes() && clean;
+    if (hdr_native_frame_executed) {
+      impl_->faulted = true;
+    }
     if (!clean) {
       impl_->faulted = true;
       return FrameCleanupFailure();
@@ -3399,7 +3852,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
       reflection_frame_prepared = true;
     }
 
-    target_text = "RoRN1Target_" + std::to_string(request.frame_id);
+    if (!persistent_hdr) {
+      target_text = "RoRN1Target_" + std::to_string(request.frame_id);
     std::uint32_t target_flags = Ogre::TextureFlags::RenderToTexture;
     if (impl_->native_feature_tier ==
         OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3) {
@@ -3491,7 +3945,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
       throw std::runtime_error(
           "Ogre-Next did not instantiate the reviewed PSSM shadow node");
     }
-    for (std::size_t warmup = 0U; warmup < 3U; ++warmup) {
+    }
+    const std::size_t render_iterations = persistent_hdr ? 1U : 3U;
+    for (std::size_t warmup = 0U; warmup < render_iterations; ++warmup) {
+      if (persistent_hdr) {
+        hdr_native_frame_executed = true;
+      }
       if (!impl_->root->renderOneFrame()) {
         return fail_after_cleanup(RenderOperationResult::Failure(
             RenderOperationCode::BACKEND_FAILURE,
@@ -3590,6 +4049,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
       static_cast<void>(abort_reflection_frame());
       static_cast<void>(abort_submission_commit());
       return FrameCleanupFailure();
+    }
+    if (persistent_hdr) {
+      const RenderOperationResult hdr_commit =
+          impl_->VerifyAndCommitHdrFrame(hdr_plan);
+      if (!hdr_commit) {
+        return fail_after_cleanup(hdr_commit);
+      }
     }
     if (!impl_->submission_state.CanCommitPrepared(request)) {
       impl_->faulted = true;

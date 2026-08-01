@@ -229,6 +229,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.assertIn(license_name, self.entry_cmake)
         self.assertIn("validate_n1_package", RUNNER_PATH.read_text(encoding="utf-8"))
         self.assertIn("ror_ogre_next_frontend_n1_media_tamper", self.entry_cmake)
+        self.assertIn("ror_ogre_next_frontend_hdr_media_tamper", self.entry_cmake)
         self.assertIn("VerifyN1MediaTamper.cmake", self.entry_cmake)
         self.assertIn("--media-root", self.entry_cmake)
         self.assertIn("relative shader media root did not fail closed", self.smoke)
@@ -274,7 +275,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "digest != expected.sha256",
         ):
             self.assertIn(token, self.entry_cmake + self.media_integrity)
-        self.assertIn(".stage-v8", self.entry_cmake)
+        self.assertIn(".stage-v9", self.entry_cmake)
         self.assertIn(
             '"Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any"',
             self.entry_cmake,
@@ -630,6 +631,35 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.smoke)
 
+    def test_hdr_compositor_is_persistent_deterministic_and_packaged(self) -> None:
+        for token in (
+            "enable_hdr_compositor",
+            "OgreNextHdrTemporalConfiguration",
+            "QueryHdrCompositorAudit",
+        ):
+            self.assertIn(token, self.header)
+        for token in (
+            "HdrWorkspace",
+            "PFG_RGBA16_FLOAT",
+            "PFG_R16_FLOAT",
+            "PFG_RGBA8_UNORM_SRGB",
+            "2.0/scripts/materials/Common/Metal",
+            "2.0/scripts/materials/HDR/Metal",
+            "exact_r16_history_verified",
+            "hdr_temporal_state.CommitFrame",
+        ):
+            self.assertIn(token, self.frontend)
+        for token in (
+            "_ror_n1_hdr_media_roots",
+            "ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_ENTRIES",
+            "Samples/Media/2.0/scripts/Compositors",
+            "Samples/Media/2.0/scripts/materials/Common",
+            "Samples/Media/2.0/scripts/materials/HDR",
+        ):
+            self.assertIn(token, self.entry_cmake)
+        self.assertIn("RunHdrCompositorProof", self.smoke)
+        self.assertIn("ror.ogre_next_hdr_compositor.v1", self.smoke)
+
     def test_projection_and_device_extent_paths_fail_closed(self) -> None:
         self.assertIn("TryConvertPortableProjectionToOgreClip", self.policy_header)
         self.assertIn("2.0F * portable.elements[row_two]", self.policy)
@@ -663,6 +693,16 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             ("normal_rg", "canonical_positive_z_normal_rg"),
             ("sampler_uv", "sampler_address_over_uv0"),
         )
+
+        sampler_start = self.smoke.index(
+            "variant->variant == TextureVariant::SAMPLER_UV"
+        )
+        sampler_end = self.smoke.index(
+            "sampler_descriptor.address_v", sampler_start
+        )
+        sampler_fixture = self.smoke[sampler_start:sampler_end]
+        self.assertIn("? SamplerAddressMode::REPEAT", sampler_fixture)
+        self.assertNotIn("MIRRORED_REPEAT", sampler_fixture)
         report: dict = {
             "texture_isolation": {
                 "schema": "ror.ogre_next_rt4_texture_isolation.v1",
@@ -1070,13 +1110,25 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "file_count": 107,
                 "entries": [("file", 1, "4" * 64)],
             }
+            hdr_manifest = {
+                "sha256": "5" * 64,
+                "file_count": 137,
+                "entries": [("2.0/scripts/file", 1, "6" * 64)],
+            }
+            expected = {
+                **manifest,
+                "hdr_sha256": hdr_manifest["sha256"],
+                "hdr_file_count": hdr_manifest["file_count"],
+            }
             with mock.patch.object(
                 RUNNER, "sha256_file", side_effect=fake_sha256
             ), mock.patch.object(
                 RUNNER, "shader_media_manifest", return_value=manifest
+            ), mock.patch.object(
+                RUNNER, "hdr_media_manifest", return_value=hdr_manifest
             ):
                 self.assertEqual(
-                    RUNNER.validate_n1_package(Path(temp), lock), manifest
+                    RUNNER.validate_n1_package(Path(temp), lock), expected
                 )
                 (package / "RapidJSON-license.txt").unlink()
                 with self.assertRaisesRegex(
@@ -1100,6 +1152,30 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             (root / "two.any").write_bytes(b"changed")
             self.assertNotEqual(
                 RUNNER.shader_media_manifest(root)["sha256"], original_digest
+            )
+
+    def test_hdr_media_manifest_is_cross_backend_and_byte_exact(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-n1-hdr-media-") as temp:
+            root = Path(temp)
+            files = {
+                "2.0/scripts/Compositors/HDR.compositor": b"compositor",
+                "2.0/scripts/materials/Common/Metal/Quad_vs.metal": b"metal",
+                "2.0/scripts/materials/HDR/HLSL/ToneMap.hlsl": b"hlsl",
+            }
+            for relative, payload in files.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(payload)
+            manifest = RUNNER.hdr_media_manifest(root)
+            self.assertEqual(manifest["file_count"], len(files))
+            self.assertEqual(
+                [entry[0] for entry in manifest["entries"]], sorted(files)
+            )
+            original_digest = manifest["sha256"]
+            target = root / "2.0/scripts/materials/Common/Metal/Quad_vs.metal"
+            target.write_bytes(b"tampered")
+            self.assertNotEqual(
+                RUNNER.hdr_media_manifest(root)["sha256"], original_digest
             )
 
 

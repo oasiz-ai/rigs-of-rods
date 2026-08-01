@@ -775,11 +775,18 @@ ValidationResult ValidateOgreNextN1Scene(
     const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
     bool allow_dynamic_meshes,
     OgreNextRasterFeatureTier raster_feature_tier,
-    OgreNextDirectionalShadowMode shadow_mode) {
+    OgreNextDirectionalShadowMode shadow_mode,
+    bool hdr_compositor_enabled) {
   if (!IsKnownOgreNextRasterFeatureTier(raster_feature_tier)) {
     return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
                                      "raster_feature_tier",
                                      "unknown Ogre-Next raster feature tier");
+  }
+  if (hdr_compositor_enabled &&
+      shadow_mode != OgreNextDirectionalShadowMode::DISABLED) {
+    return Unsupported(
+        "directional_shadow_mode",
+        "persistent HDR and PSSM require a reviewed shared compositor node");
   }
   ValidationResult validation = ValidateSceneSnapshotAssets(snapshot, registry);
   if (!validation) {
@@ -790,7 +797,8 @@ ValidationResult ValidateOgreNextN1Scene(
     return Unsupported("environment.texture",
                        "N1 supports constant ambient radiance only");
   }
-  if (snapshot.environment().exposure_compensation_ev != 0.0F) {
+  if (!hdr_compositor_enabled &&
+      snapshot.environment().exposure_compensation_ev != 0.0F) {
     return Unsupported(
         "environment.exposure_compensation_ev",
         "N1 does not apply scene-level exposure compensation");
@@ -931,7 +939,8 @@ ValidationResult ValidateOgreNextN1Frame(
     const FrontendCapabilityReport &capabilities,
     const RenderAssetRegistry &registry,
     OgreNextRasterFeatureTier raster_feature_tier,
-    OgreNextDirectionalShadowMode shadow_mode) {
+    OgreNextDirectionalShadowMode shadow_mode,
+    bool hdr_compositor_enabled) {
   ValidationResult validation =
       ValidateRenderFrameRequestAgainstCapabilities(request, capabilities);
   if (!validation) {
@@ -944,6 +953,14 @@ ValidationResult ValidateOgreNextN1Frame(
       request.views.size() != 1U) {
     return Unsupported("requested_outputs",
                        "N1 renders exactly one colour view");
+  }
+  if (hdr_compositor_enabled &&
+      (raster_feature_tier !=
+           OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 ||
+       request.color_format != PixelFormat::RGBA8_SRGB)) {
+    return Unsupported(
+        "request.color_format",
+        "the RT4 HDR compositor produces exactly one display-referred RGBA8_SRGB view");
   }
   const CameraViewRequest &view = request.views.front();
   const bool modern_pbr =
@@ -965,7 +982,7 @@ ValidationResult ValidateOgreNextN1Frame(
             ? "RT4/V1 reserves visibility bits 28-29 for native PCC state and 30-31 for Ogre layers"
             : "N1 reserves visibility bits 30-31 for Ogre layers");
   }
-  if (view.exposure != 1.0F) {
+  if (!hdr_compositor_enabled && view.exposure != 1.0F) {
     return Unsupported(
         "views.exposure",
         "N1 exposes raw fixed-exposure PBS colour; exposure must be one");
@@ -992,7 +1009,7 @@ ValidationResult ValidateOgreNextN1Frame(
   validation = ValidateOgreNextN1Scene(
       *request.scene_snapshot, registry,
       capabilities.supports_dynamic_mesh_updates, raster_feature_tier,
-      shadow_mode);
+      shadow_mode, hdr_compositor_enabled);
   if (!validation) {
     return validation;
   }

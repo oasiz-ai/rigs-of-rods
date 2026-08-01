@@ -372,7 +372,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 ),
             },
         }
-        identity = VERIFY._expected_rt4_build_identity(contract, report)
+        identity = VERIFY._expected_base_build_identity(contract, report)
         report["provenance"]["executable_build_identity"] = identity
         (root / VERIFY.PSSM_REPORT_ARTIFACT).write_text(
             json.dumps(report) + "\n", encoding="utf-8"
@@ -850,6 +850,46 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         }
         hdr_metrics = VERIFY._attachment_metrics(baseline_hdr, True)
         sdr_metrics = VERIFY._attachment_metrics(baseline_sdr, False)
+        package_media_root = (
+            root
+            / "ror-ogre-next-n1-package"
+            / "share"
+            / "rigsofrods"
+            / "ogre-next"
+            / "Samples"
+            / "Media"
+        )
+        media_files = {
+            "Hlms/Pbs/Any/Main_piece.any": b"hlms",
+            "2.0/scripts/Compositors/HDR.compositor": b"compositor",
+            "2.0/scripts/materials/Common/Metal/Quad_vs.metal": b"common",
+            "2.0/scripts/materials/HDR/HLSL/ToneMap.hlsl": b"hdr",
+            (
+                "2.0/scripts/materials/LocalCubemaps/"
+                "BlendProjectCubemap.material"
+            ): b"reflection-local-cubemap",
+            (
+                "Compute/Algorithms/IBL/"
+                "SpecularIblIntegrator_piece_cs.any"
+            ): b"reflection-ibl",
+            "Compute/Tools/Any/sRGB.any": b"reflection-compute-tool",
+        }
+        for relative, payload in media_files.items():
+            path = package_media_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+        hlms_manifest = VERIFY._packaged_media_manifest(
+            package_media_root / "Hlms", (Path("."),), "fixture HLMS"
+        )
+        hdr_media_manifest = VERIFY._packaged_media_manifest(
+            package_media_root,
+            (
+                Path("2.0/scripts/Compositors"),
+                Path("2.0/scripts/materials/Common"),
+                Path("2.0/scripts/materials/HDR"),
+            ),
+            "fixture HDR",
+        )
         shader_media = contract["shader_media"]
         notice = shader_media["third_party_notice"]
         report = {
@@ -872,8 +912,12 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 ],
                 "shader_media_notice_path": notice["notice_path"],
                 "shader_media_notice_sha256": self.shader_notice,
-                "shader_media_manifest_sha256": "c" * 64,
-                "shader_media_manifest_file_count": 107,
+                "shader_media_manifest_sha256": hlms_manifest["sha256"],
+                "shader_media_manifest_file_count": hlms_manifest["file_count"],
+                "hdr_media_manifest_sha256": hdr_media_manifest["sha256"],
+                "hdr_media_manifest_file_count": hdr_media_manifest[
+                    "file_count"
+                ],
             },
             "platform_policy": "macos-arm64-metal",
             "renderer": "Metal Rendering Subsystem",
@@ -936,6 +980,25 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             "texture_upload_rollback": copy.deepcopy(
                 VERIFY.RT4_EXPECTED_TEXTURE_UPLOAD_ROLLBACK
             ),
+            "hdr_compositor": {
+                "schema": "ror.ogre_next_hdr_compositor.v1",
+                "workspace": "HdrWorkspace",
+                "persistent_workspace": True,
+                "scene_format": "RGBA16_FLOAT",
+                "history_format": "R16_FLOAT",
+                "output_format": "RGBA8_SRGB",
+                "ui_included": False,
+                "deterministic_simulation_delta": True,
+                "exact_r16_history_verified": True,
+                "warmup_frames": 2,
+                "committed_frames": 2,
+                "initial_inverse_luminance_r16_bits": 8479,
+                "final_inverse_luminance_r16_bits": 9000,
+                "exposure_changed_pixels": 1024,
+                "first_attachment_fnv1a64": "0123456789abcdef",
+                "final_attachment_fnv1a64": "fedcba9876543210",
+                "clean_shutdown": True,
+            },
             "hdr": {
                 "format": "RGBA16_FLOAT",
                 "width": width,
@@ -1066,8 +1129,10 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "source_sha256": self.shader_source,
                 "notice_path": notice["notice_path"],
                 "notice_sha256": self.shader_notice,
-                "manifest_sha256": "c" * 64,
-                "manifest_file_count": 107,
+                "manifest_sha256": hlms_manifest["sha256"],
+                "manifest_file_count": hlms_manifest["file_count"],
+                "hdr_manifest_sha256": hdr_media_manifest["sha256"],
+                "hdr_manifest_file_count": hdr_media_manifest["file_count"],
             },
             "files": {
                 "build_contract": file_entry(root / VERIFY.REQUIRED_ARTIFACTS[0]),
@@ -1346,8 +1411,23 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             root = Path(temp)
             self.write_baseline(root)
             manifest = VERIFY.verify_artifact_set(root)
+            manifest_paths = [entry["path"] for entry in manifest]
+            package_media_root = (
+                root
+                / "ror-ogre-next-n1-package"
+                / "share"
+                / "rigsofrods"
+                / "ogre-next"
+                / "Samples"
+                / "Media"
+            )
+            packaged_media_paths = sorted(
+                path.relative_to(root).as_posix()
+                for path in package_media_root.rglob("*")
+                if path.is_file()
+            )
             self.assertEqual(
-                [entry["path"] for entry in manifest],
+                manifest_paths,
                 [
                     *VERIFY.REQUIRED_ARTIFACTS,
                     "bin/ror_ogre_next_pssm_shadow_smoke",
@@ -1355,11 +1435,12 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     VERIFY.PSSM_EXECUTION_RECEIPT_ARTIFACT,
                     VERIFY.PSSM_ATTESTATION_ARTIFACT,
                     VERIFY.PSSM_ARTIFACT_MANIFEST_ARTIFACT,
-                    (
-                        "ror-ogre-next-n1-package/bin/"
-                        "ror_ogre_next_frontend_n1_smoke"
-                    ),
+                    *packaged_media_paths,
+                    "ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke",
                 ],
+            )
+            self.assertTrue(
+                any("n1-package/share/" in path for path in manifest_paths)
             )
             missing = root / VERIFY.REQUIRED_ARTIFACTS[-1]
             missing.unlink()
@@ -1541,6 +1622,35 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "unsupported capability evidence is not exact",
             ):
                 VERIFY.verify_artifact_set(root)
+
+    def test_rt4_package_media_is_byte_exact_and_required(self) -> None:
+        relatives = (
+            "Hlms/Pbs/Any/Main_piece.any",
+            "2.0/scripts/materials/HDR/HLSL/ToneMap.hlsl",
+        )
+        for relative in relatives:
+            with self.subTest(relative=relative):
+                with tempfile.TemporaryDirectory(
+                    prefix="ror-ogre-rt4-package-media-"
+                ) as temp:
+                    root = Path(temp)
+                    self.write_baseline(root)
+                    path = (
+                        root
+                        / "ror-ogre-next-n1-package"
+                        / "share"
+                        / "rigsofrods"
+                        / "ogre-next"
+                        / "Samples"
+                        / "Media"
+                        / relative
+                    )
+                    path.write_bytes(path.read_bytes() + b"tamper")
+                    with self.assertRaisesRegex(
+                        VERIFY.ArtifactSetError,
+                        "packaged shader-media manifest mismatch",
+                    ):
+                        VERIFY.verify_artifact_set(root)
 
     def test_rt4_gate_recomputes_report_semantics_after_reattestation(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-report-") as temp:
@@ -1821,6 +1931,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             "texture_retirement",
             "texture_isolation",
             "tangent_handedness",
+            "hdr_compositor",
             "lifecycle",
             "platform_policy",
             "renderer",
@@ -1870,6 +1981,39 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     with self.assertRaisesRegex(
                         VERIFY.ArtifactSetError,
                         "RT4 PPM/isolation report mismatch",
+                    ):
+                        VERIFY.verify_artifact_set(root)
+
+    def test_rt4_hdr_compositor_evidence_is_fail_closed(self) -> None:
+        mutations = (
+            lambda report: report["hdr_compositor"].__setitem__(
+                "committed_frames", True
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "initial_inverse_luminance_r16_bits", 0
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "final_attachment_fnv1a64",
+                report["hdr_compositor"]["first_attachment_fnv1a64"],
+            ),
+        )
+        for index, mutation in enumerate(mutations):
+            with self.subTest(mutation=index):
+                with tempfile.TemporaryDirectory(
+                    prefix="ror-ogre-rt4-hdr-compositor-"
+                ) as temp:
+                    root = Path(temp)
+                    self.write_baseline(root)
+                    report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    mutation(report)
+                    report_path.write_text(
+                        json.dumps(report) + "\n", encoding="utf-8"
+                    )
+                    self.refresh_rt4_attestation(root, ("report",))
+                    with self.assertRaisesRegex(
+                        VERIFY.ArtifactSetError,
+                        "RT4 HDR compositor evidence failed",
                     ):
                         VERIFY.verify_artifact_set(root)
 

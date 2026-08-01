@@ -219,10 +219,12 @@ bool HashFile(const std::filesystem::path &path, std::uint64_t expected_size,
   return true;
 }
 
-RenderOperationResult IntegrityFailure(const std::string &detail) {
+RenderOperationResult IntegrityFailure(const char *kind,
+                                       const std::string &detail) {
   return RenderOperationResult::Failure(
       RenderOperationCode::RESOURCE_STALE,
-      "Ogre-Next N1 shader media integrity failure: " + detail);
+      std::string("Ogre-Next N1 ") + kind +
+          " media integrity failure: " + detail);
 }
 
 RenderOperationResult ReflectionIntegrityFailure(const std::string &detail) {
@@ -236,99 +238,377 @@ struct RuntimeFile final {
   std::filesystem::path absolute_path;
 };
 
-} // namespace
+RenderOperationResult ResolveSafeManifestDirectory(
+    const std::filesystem::path &media_root,
+    const std::string &relative_root, const char *kind,
+    std::filesystem::path &resolved_root) {
+  std::error_code error;
+  const std::filesystem::file_status media_status =
+      std::filesystem::symlink_status(media_root, error);
+  if (error || std::filesystem::is_symlink(media_status) ||
+      !std::filesystem::is_directory(media_status)) {
+    return IntegrityFailure(kind,
+                            "media root is missing, indirect, or not a directory");
+  }
 
-RenderOperationResult VerifyOgreNextN1ShaderMedia(
-    const std::string &resolved_media_root) {
-  try {
-    const std::filesystem::path root =
-        std::filesystem::u8path(resolved_media_root) / "Hlms";
-    std::error_code error;
-    if (!std::filesystem::is_directory(root, error) || error) {
-      return IntegrityFailure("HLMS root is missing");
+  const std::filesystem::path relative =
+      std::filesystem::u8path(relative_root);
+  if (relative.empty() || relative.is_absolute() || relative.has_root_path()) {
+    return IntegrityFailure(kind, relative_root + " root path is invalid");
+  }
+
+  std::filesystem::path current = media_root;
+  for (const std::filesystem::path &component : relative) {
+    const std::string component_text = component.generic_u8string();
+    if (component_text.empty() || component_text == "." ||
+        component_text == "..") {
+      return IntegrityFailure(kind, relative_root + " root path is invalid");
+    }
+    current /= component;
+    error.clear();
+    const std::filesystem::file_status status =
+        std::filesystem::symlink_status(current, error);
+    if (error || std::filesystem::is_symlink(status) ||
+        !std::filesystem::is_directory(status)) {
+      return IntegrityFailure(kind,
+                              relative_root +
+                                  " root is missing, indirect, or not a directory");
+    }
+  }
+  resolved_root = std::move(current);
+  return RenderOperationResult::Success();
+}
+
+RenderOperationResult VerifyMediaManifest(
+    const std::string &resolved_media_root,
+    const std::vector<std::string> &scan_roots,
+    bool paths_are_relative_to_media_root,
+    const OgreNextN1MediaManifestEntry *manifest,
+    std::size_t manifest_count, const char *kind) {
+  const std::filesystem::path media_root =
+      std::filesystem::u8path(resolved_media_root);
+  std::vector<RuntimeFile> runtime_files;
+  std::error_code error;
+  for (const std::string &relative_root : scan_roots) {
+    std::filesystem::path root;
+    const RenderOperationResult root_result = ResolveSafeManifestDirectory(
+        media_root, relative_root, kind, root);
+    if (!root_result.ok()) {
+      return root_result;
     }
 
-    std::vector<RuntimeFile> runtime_files;
+    error.clear();
     std::filesystem::recursive_directory_iterator iterator(
         root, std::filesystem::directory_options::none, error);
     const std::filesystem::recursive_directory_iterator end;
     if (error) {
-      return IntegrityFailure("HLMS tree cannot be enumerated");
+      return IntegrityFailure(kind, relative_root + " tree cannot be enumerated");
     }
     while (iterator != end) {
       const std::filesystem::directory_entry &entry = *iterator;
       const std::filesystem::file_status status = entry.symlink_status(error);
       if (error) {
-        return IntegrityFailure("HLMS entry status cannot be read");
+        return IntegrityFailure(kind, relative_root + " entry status cannot be read");
       }
       if (std::filesystem::is_symlink(status)) {
-        return IntegrityFailure("HLMS tree contains a symbolic link");
+        return IntegrityFailure(kind, relative_root + " tree contains a symbolic link");
       }
       if (std::filesystem::is_regular_file(status)) {
-        const std::filesystem::path relative =
-            entry.path().lexically_relative(root);
+        const std::filesystem::path relative = entry.path().lexically_relative(
+            paths_are_relative_to_media_root ? media_root : root);
         const std::string generic = relative.generic_u8string();
         if (generic.empty() || generic == "." ||
             generic.rfind("../", 0U) == 0U) {
-          return IntegrityFailure("HLMS entry escaped its manifest root");
+          return IntegrityFailure(kind, relative_root +
+                                            " entry escaped its manifest root");
         }
         runtime_files.push_back(RuntimeFile{generic, entry.path()});
       } else if (!std::filesystem::is_directory(status)) {
-        return IntegrityFailure("HLMS tree contains a non-file entry");
+        return IntegrityFailure(kind, relative_root +
+                                          " tree contains a non-file entry");
       }
       iterator.increment(error);
       if (error) {
-        return IntegrityFailure("HLMS tree enumeration failed");
+        return IntegrityFailure(kind, relative_root + " tree enumeration failed");
       }
     }
-    std::sort(runtime_files.begin(), runtime_files.end(),
-              [](const RuntimeFile &lhs, const RuntimeFile &rhs) {
-                return lhs.relative_path < rhs.relative_path;
-              });
-    if (runtime_files.size() != kOgreNextN1ShaderMediaManifestCount) {
-      return IntegrityFailure("HLMS file count differs from the pinned manifest");
-    }
+  }
 
-    for (std::size_t index = 0U; index < runtime_files.size(); ++index) {
-      const RuntimeFile &runtime = runtime_files[index];
-      const OgreNextN1MediaManifestEntry &expected =
-          kOgreNextN1ShaderMediaManifest[index];
-      if (runtime.relative_path != expected.relative_path) {
-        return IntegrityFailure("HLMS path set differs from the pinned manifest");
-      }
-      error.clear();
-      const std::uintmax_t size =
-          std::filesystem::file_size(runtime.absolute_path, error);
-      if (error || size != expected.size) {
-        return IntegrityFailure("HLMS byte size differs for " +
-                                runtime.relative_path);
-      }
-      std::string digest;
-      if (!HashFile(runtime.absolute_path, expected.size, digest)) {
-        return IntegrityFailure("HLMS file could not be hashed exactly: " +
-                                runtime.relative_path);
-      }
-      error.clear();
-      const std::uintmax_t size_after_hash =
-          std::filesystem::file_size(runtime.absolute_path, error);
-      if (error || size_after_hash != expected.size ||
-          digest != expected.sha256) {
-        return IntegrityFailure("HLMS SHA-256 differs for " +
-                                runtime.relative_path);
-      }
+  std::sort(runtime_files.begin(), runtime_files.end(),
+            [](const RuntimeFile &lhs, const RuntimeFile &rhs) {
+              return lhs.relative_path < rhs.relative_path;
+            });
+  if (runtime_files.size() != manifest_count) {
+    return IntegrityFailure(kind,
+                            "file count differs from the pinned manifest");
+  }
+  for (std::size_t index = 0U; index < runtime_files.size(); ++index) {
+    const RuntimeFile &runtime = runtime_files[index];
+    const OgreNextN1MediaManifestEntry &expected = manifest[index];
+    if (runtime.relative_path != expected.relative_path) {
+      return IntegrityFailure(kind,
+                              "path set differs from the pinned manifest");
     }
-    return RenderOperationResult::Success();
+    error.clear();
+    const std::uintmax_t size =
+        std::filesystem::file_size(runtime.absolute_path, error);
+    if (error || size != expected.size) {
+      return IntegrityFailure(kind, "byte size differs for " +
+                                        runtime.relative_path);
+    }
+    std::string digest;
+    if (!HashFile(runtime.absolute_path, expected.size, digest)) {
+      return IntegrityFailure(kind, "file could not be hashed exactly: " +
+                                        runtime.relative_path);
+    }
+    error.clear();
+    const std::filesystem::file_status status_after_hash =
+        std::filesystem::symlink_status(runtime.absolute_path, error);
+    if (error || std::filesystem::is_symlink(status_after_hash) ||
+        !std::filesystem::is_regular_file(status_after_hash)) {
+      return IntegrityFailure(kind, "file became indirect while hashing: " +
+                                        runtime.relative_path);
+    }
+    error.clear();
+    const std::uintmax_t size_after_hash =
+        std::filesystem::file_size(runtime.absolute_path, error);
+    if (error || size_after_hash != expected.size ||
+        digest != expected.sha256) {
+      return IntegrityFailure(kind, "SHA-256 differs for " +
+                                        runtime.relative_path);
+    }
+  }
+  return RenderOperationResult::Success();
+}
+
+constexpr std::array<const char *, 4U> kReflectionManifestRoots{{
+    "2.0/scripts/materials/Common",
+    "2.0/scripts/materials/LocalCubemaps",
+    "Compute/Algorithms/IBL",
+    "Compute/Tools/Any",
+}};
+
+constexpr const char *kReflectionCommonRoot =
+    "2.0/scripts/materials/Common";
+
+bool ManifestPathIsUnderRoot(const std::string &relative_path,
+                             const char *relative_root) {
+  const std::string root(relative_root);
+  return relative_path.size() > root.size() &&
+         relative_path.compare(0U, root.size(), root) == 0 &&
+         relative_path[root.size()] == '/';
+}
+
+RenderOperationResult ResolveSafeReflectionDirectory(
+    const std::filesystem::path &media_root, const char *relative_root,
+    std::filesystem::path &resolved_root) {
+  const std::filesystem::path relative =
+      std::filesystem::u8path(relative_root);
+  if (relative.empty() || relative.is_absolute() || relative.has_root_path()) {
+    return ReflectionIntegrityFailure(std::string(relative_root) +
+                                      " root path is invalid");
+  }
+
+  std::filesystem::path current = media_root;
+  std::error_code error;
+  for (const std::filesystem::path &component : relative) {
+    const std::string component_text = component.generic_u8string();
+    if (component_text.empty() || component_text == "." ||
+        component_text == "..") {
+      return ReflectionIntegrityFailure(std::string(relative_root) +
+                                        " root path is invalid");
+    }
+    current /= component;
+    error.clear();
+    const std::filesystem::file_status status =
+        std::filesystem::symlink_status(current, error);
+    if (error || std::filesystem::is_symlink(status) ||
+        !std::filesystem::is_directory(status)) {
+      return ReflectionIntegrityFailure(
+          std::string(relative_root) +
+          " is missing, indirect, or not a directory");
+    }
+  }
+  resolved_root = std::move(current);
+  return RenderOperationResult::Success();
+}
+
+RenderOperationResult EnumerateReflectionRoot(
+    const std::filesystem::path &media_root, const char *relative_root,
+    std::vector<RuntimeFile> &runtime_files) {
+  std::filesystem::path root;
+  const RenderOperationResult root_result = ResolveSafeReflectionDirectory(
+      media_root, relative_root, root);
+  if (!root_result.ok()) {
+    return root_result;
+  }
+
+  std::error_code error;
+  std::filesystem::recursive_directory_iterator iterator(
+      root, std::filesystem::directory_options::none, error);
+  const std::filesystem::recursive_directory_iterator end;
+  if (error) {
+    return ReflectionIntegrityFailure(std::string(relative_root) +
+                                      " cannot be enumerated");
+  }
+  while (iterator != end) {
+    const std::filesystem::directory_entry &entry = *iterator;
+    const std::filesystem::file_status status = entry.symlink_status(error);
+    if (error) {
+      return ReflectionIntegrityFailure(
+          "reflection media entry status cannot be read");
+    }
+    if (std::filesystem::is_symlink(status)) {
+      return ReflectionIntegrityFailure(
+          "reflection media contains a symbolic link");
+    }
+    if (std::filesystem::is_regular_file(status)) {
+      const std::filesystem::path manifest_relative =
+          entry.path().lexically_relative(media_root);
+      const std::string generic = manifest_relative.generic_u8string();
+      if (generic.empty() || generic == "." ||
+          generic.rfind("../", 0U) == 0U) {
+        return ReflectionIntegrityFailure(
+            "reflection media escaped its manifest root");
+      }
+      runtime_files.push_back(RuntimeFile{generic, entry.path()});
+    } else if (!std::filesystem::is_directory(status)) {
+      return ReflectionIntegrityFailure(
+          "reflection media contains a non-file entry");
+    }
+    iterator.increment(error);
+    if (error) {
+      return ReflectionIntegrityFailure(
+          "reflection media enumeration failed");
+    }
+  }
+  return RenderOperationResult::Success();
+}
+
+RenderOperationResult ValidateReflectionManifestEntry(
+    const std::filesystem::path &media_root,
+    const OgreNextReflectionMediaManifestEntry &expected) {
+  if (expected.relative_path == nullptr || expected.sha256 == nullptr) {
+    return ReflectionIntegrityFailure("manifest contains a null field");
+  }
+  const std::string relative_text(expected.relative_path);
+  bool belongs_to_declared_root = false;
+  for (const char *relative_root : kReflectionManifestRoots) {
+    belongs_to_declared_root =
+        belongs_to_declared_root ||
+        ManifestPathIsUnderRoot(relative_text, relative_root);
+  }
+  if (!belongs_to_declared_root || relative_text.find('\\') != std::string::npos) {
+    return ReflectionIntegrityFailure("manifest path is outside its declared roots");
+  }
+
+  const std::filesystem::path relative =
+      std::filesystem::u8path(relative_text);
+  if (relative.empty() || relative.is_absolute() || relative.has_root_path() ||
+      relative.filename().empty() ||
+      relative.generic_u8string() != relative_text) {
+    return ReflectionIntegrityFailure("manifest path is invalid");
+  }
+
+  std::filesystem::path current = media_root;
+  std::error_code error;
+  for (const std::filesystem::path &component : relative.parent_path()) {
+    const std::string component_text = component.generic_u8string();
+    if (component_text.empty() || component_text == "." ||
+        component_text == "..") {
+      return ReflectionIntegrityFailure("manifest path is invalid");
+    }
+    current /= component;
+    error.clear();
+    const std::filesystem::file_status status =
+        std::filesystem::symlink_status(current, error);
+    if (error || std::filesystem::is_symlink(status) ||
+        !std::filesystem::is_directory(status)) {
+      return ReflectionIntegrityFailure(relative_text +
+                                        " has an indirect or missing parent");
+    }
+  }
+
+  const std::string filename = relative.filename().generic_u8string();
+  if (filename.empty() || filename == "." || filename == "..") {
+    return ReflectionIntegrityFailure("manifest path is invalid");
+  }
+  current /= relative.filename();
+  error.clear();
+  const std::filesystem::file_status status =
+      std::filesystem::symlink_status(current, error);
+  if (error || std::filesystem::is_symlink(status) ||
+      !std::filesystem::is_regular_file(status)) {
+    return ReflectionIntegrityFailure(relative_text +
+                                      " is missing, indirect, or not a regular file");
+  }
+
+  const std::uintmax_t size = std::filesystem::file_size(current, error);
+  if (error || size != expected.size) {
+    return ReflectionIntegrityFailure("byte size differs for " + relative_text);
+  }
+  std::string digest;
+  if (!HashFile(current, expected.size, digest)) {
+    return ReflectionIntegrityFailure("file could not be hashed exactly: " +
+                                      relative_text);
+  }
+  error.clear();
+  const std::filesystem::file_status status_after_hash =
+      std::filesystem::symlink_status(current, error);
+  if (error || std::filesystem::is_symlink(status_after_hash) ||
+      !std::filesystem::is_regular_file(status_after_hash)) {
+    return ReflectionIntegrityFailure(relative_text +
+                                      " became indirect while hashing");
+  }
+  error.clear();
+  const std::uintmax_t size_after_hash =
+      std::filesystem::file_size(current, error);
+  if (error || size_after_hash != expected.size || digest != expected.sha256) {
+    return ReflectionIntegrityFailure("SHA-256 differs for " + relative_text);
+  }
+  return RenderOperationResult::Success();
+}
+
+} // namespace
+
+RenderOperationResult VerifyOgreNextN1ShaderMedia(
+    const std::string &resolved_media_root) {
+  try {
+    return VerifyMediaManifest(
+        resolved_media_root, {"Hlms"}, false,
+        kOgreNextN1ShaderMediaManifest,
+        kOgreNextN1ShaderMediaManifestCount, "shader");
   } catch (const std::bad_alloc &) {
     return RenderOperationResult::Failure(
         RenderOperationCode::OUT_OF_MEMORY,
         "Ogre-Next N1 shader media integrity check ran out of memory");
   } catch (const std::filesystem::filesystem_error &) {
-    return IntegrityFailure("HLMS filesystem operation failed");
+    return IntegrityFailure("shader", "HLMS filesystem operation failed");
+  }
+}
+
+RenderOperationResult VerifyOgreNextN1HdrMedia(
+    const std::string &resolved_media_root) {
+  try {
+    return VerifyMediaManifest(
+        resolved_media_root,
+        {"2.0/scripts/Compositors", "2.0/scripts/materials/Common",
+         "2.0/scripts/materials/HDR"},
+        true, kOgreNextN1HdrMediaManifest,
+        kOgreNextN1HdrMediaManifestCount, "HDR compositor");
+  } catch (const std::bad_alloc &) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUT_OF_MEMORY,
+        "Ogre-Next N1 HDR compositor media integrity check ran out of memory");
+  } catch (const std::filesystem::filesystem_error &) {
+    return IntegrityFailure("HDR compositor",
+                            "filesystem operation failed");
   }
 }
 
 RenderOperationResult VerifyOgreNextReflectionProbeMedia(
-    const std::string &resolved_media_root) {
+    const std::string &resolved_media_root,
+    bool hdr_common_tree_authenticated) {
   try {
     const std::filesystem::path media_root =
         std::filesystem::u8path(resolved_media_root);
@@ -341,68 +621,16 @@ RenderOperationResult VerifyOgreNextReflectionProbeMedia(
           "media root is missing, indirect, or not a directory");
     }
 
-    constexpr std::array<const char *, 4U> kManifestRoots{{
-        "2.0/scripts/materials/Common",
-        "2.0/scripts/materials/LocalCubemaps",
-        "Compute/Algorithms/IBL",
-        "Compute/Tools/Any",
-    }};
     std::vector<RuntimeFile> runtime_files;
-    for (const char *relative_root : kManifestRoots) {
-      std::filesystem::path current = media_root;
-      const std::filesystem::path relative =
-          std::filesystem::u8path(relative_root);
-      for (const std::filesystem::path &component : relative) {
-        current /= component;
-        error.clear();
-        const std::filesystem::file_status status =
-            std::filesystem::symlink_status(current, error);
-        if (error || std::filesystem::is_symlink(status) ||
-            !std::filesystem::is_directory(status)) {
-          return ReflectionIntegrityFailure(
-              std::string(relative_root) +
-              " is missing, indirect, or not a directory");
-        }
+    for (const char *relative_root : kReflectionManifestRoots) {
+      if (hdr_common_tree_authenticated &&
+          std::string(relative_root) == kReflectionCommonRoot) {
+        continue;
       }
-
-      std::filesystem::recursive_directory_iterator iterator(
-          current, std::filesystem::directory_options::none, error);
-      const std::filesystem::recursive_directory_iterator end;
-      if (error) {
-        return ReflectionIntegrityFailure(
-            std::string(relative_root) + " cannot be enumerated");
-      }
-      while (iterator != end) {
-        const std::filesystem::directory_entry &entry = *iterator;
-        const std::filesystem::file_status status =
-            entry.symlink_status(error);
-        if (error) {
-          return ReflectionIntegrityFailure(
-              "reflection media entry status cannot be read");
-        }
-        if (std::filesystem::is_symlink(status)) {
-          return ReflectionIntegrityFailure(
-              "reflection media contains a symbolic link");
-        }
-        if (std::filesystem::is_regular_file(status)) {
-          const std::filesystem::path manifest_relative =
-              entry.path().lexically_relative(media_root);
-          const std::string generic = manifest_relative.generic_u8string();
-          if (generic.empty() || generic == "." ||
-              generic.rfind("../", 0U) == 0U) {
-            return ReflectionIntegrityFailure(
-                "reflection media escaped its manifest root");
-          }
-          runtime_files.push_back(RuntimeFile{generic, entry.path()});
-        } else if (!std::filesystem::is_directory(status)) {
-          return ReflectionIntegrityFailure(
-              "reflection media contains a non-file entry");
-        }
-        iterator.increment(error);
-        if (error) {
-          return ReflectionIntegrityFailure(
-              "reflection media enumeration failed");
-        }
+      const RenderOperationResult enumeration_result =
+          EnumerateReflectionRoot(media_root, relative_root, runtime_files);
+      if (!enumeration_result.ok()) {
+        return enumeration_result;
       }
     }
 
@@ -410,37 +638,53 @@ RenderOperationResult VerifyOgreNextReflectionProbeMedia(
               [](const RuntimeFile &lhs, const RuntimeFile &rhs) {
                 return lhs.relative_path < rhs.relative_path;
               });
-    if (runtime_files.size() != kOgreNextReflectionMediaManifestCount) {
+    std::vector<const OgreNextReflectionMediaManifestEntry *>
+        exact_manifest_entries;
+    exact_manifest_entries.reserve(kOgreNextReflectionMediaManifestCount);
+    for (std::size_t index = 0U;
+         index < kOgreNextReflectionMediaManifestCount; ++index) {
+      const OgreNextReflectionMediaManifestEntry &entry =
+          kOgreNextReflectionMediaManifest[index];
+      if (entry.relative_path == nullptr || entry.sha256 == nullptr) {
+        return ReflectionIntegrityFailure("manifest contains a null field");
+      }
+      if (!hdr_common_tree_authenticated ||
+          !ManifestPathIsUnderRoot(entry.relative_path,
+                                   kReflectionCommonRoot)) {
+        exact_manifest_entries.push_back(&entry);
+      }
+    }
+    std::sort(exact_manifest_entries.begin(), exact_manifest_entries.end(),
+              [](const OgreNextReflectionMediaManifestEntry *lhs,
+                 const OgreNextReflectionMediaManifestEntry *rhs) {
+                return std::string(lhs->relative_path) <
+                       std::string(rhs->relative_path);
+              });
+    if (runtime_files.size() != exact_manifest_entries.size()) {
       return ReflectionIntegrityFailure(
           "file count differs from the pinned manifest");
     }
     for (std::size_t index = 0U; index < runtime_files.size(); ++index) {
       const RuntimeFile &runtime = runtime_files[index];
       const OgreNextReflectionMediaManifestEntry &expected =
-          kOgreNextReflectionMediaManifest[index];
+          *exact_manifest_entries[index];
       if (runtime.relative_path != expected.relative_path) {
         return ReflectionIntegrityFailure(
             "path set differs from the pinned manifest");
       }
-      error.clear();
-      const std::uintmax_t size =
-          std::filesystem::file_size(runtime.absolute_path, error);
-      if (error || size != expected.size) {
-        return ReflectionIntegrityFailure(
-            "byte size differs for " + runtime.relative_path);
-      }
-      std::string digest;
-      if (!HashFile(runtime.absolute_path, expected.size, digest)) {
-        return ReflectionIntegrityFailure(
-            "file could not be hashed exactly: " + runtime.relative_path);
-      }
-      error.clear();
-      const std::uintmax_t size_after_hash =
-          std::filesystem::file_size(runtime.absolute_path, error);
-      if (error || size_after_hash != expected.size ||
-          digest != expected.sha256) {
-        return ReflectionIntegrityFailure(
-            "SHA-256 differs for " + runtime.relative_path);
+    }
+
+    // Exact closure and per-entry authenticity are separate invariants. In
+    // HDR mode the HDR manifest proves the entire shared Common tree, while
+    // this pass still proves that every Common resource declared by the
+    // reflection manifest is the expected regular file and exact bytes.
+    for (std::size_t index = 0U;
+         index < kOgreNextReflectionMediaManifestCount; ++index) {
+      const RenderOperationResult entry_result =
+          ValidateReflectionManifestEntry(
+              media_root, kOgreNextReflectionMediaManifest[index]);
+      if (!entry_result.ok()) {
+        return entry_result;
       }
     }
     return RenderOperationResult::Success();

@@ -150,6 +150,60 @@ list(LENGTH _ror_n1_hlms_files ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_COUNT)
 list(GET _ror_n1_hlms_files 0 ROR_OGRE_NEXT_N1_MEDIA_TAMPER_RELATIVE)
 string(SHA256 ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_SHA256
     "${_ror_n1_media_manifest_serialized}")
+
+# The production HDR path consumes Ogre-Next's compositor/material programs in
+# addition to HLMS.  Keep the complete compositor, Common, and HDR directories
+# instead of a hand-picked backend subset: unified programs select Metal,
+# HLSL, or GLSL/Vulkan at runtime and every packaged platform therefore
+# carries the same byte-exact media closure.
+set(_ror_n1_hdr_media_roots
+    "2.0/scripts/Compositors"
+    "2.0/scripts/materials/Common"
+    "2.0/scripts/materials/HDR")
+set(_ror_n1_hdr_media_files "")
+foreach (_ror_n1_hdr_root IN LISTS _ror_n1_hdr_media_roots)
+    file(GLOB_RECURSE _ror_n1_hdr_root_files
+        LIST_DIRECTORIES false
+        RELATIVE "${ROR_OGRE_NEXT_MEDIA_ROOT}"
+        "${ROR_OGRE_NEXT_MEDIA_ROOT}/${_ror_n1_hdr_root}/*")
+    list(APPEND _ror_n1_hdr_media_files ${_ror_n1_hdr_root_files})
+endforeach ()
+list(REMOVE_DUPLICATES _ror_n1_hdr_media_files)
+list(SORT _ror_n1_hdr_media_files)
+if (NOT _ror_n1_hdr_media_files)
+    message(FATAL_ERROR "The pinned Ogre-Next HDR media manifest is empty")
+endif ()
+set(ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_ENTRIES "")
+set(_ror_n1_hdr_media_manifest_serialized "")
+foreach (_ror_n1_hdr_relative IN LISTS _ror_n1_hdr_media_files)
+    set(_ror_n1_hdr_file
+        "${ROR_OGRE_NEXT_MEDIA_ROOT}/${_ror_n1_hdr_relative}")
+    if (IS_SYMLINK "${_ror_n1_hdr_file}")
+        message(FATAL_ERROR
+            "Pinned Ogre-Next HDR manifest contains a symbolic link: "
+            "${_ror_n1_hdr_relative}")
+    endif ()
+    if (_ror_n1_hdr_relative MATCHES "[;\\\\\"]")
+        message(FATAL_ERROR
+            "Pinned Ogre-Next HDR path cannot be represented exactly: "
+            "${_ror_n1_hdr_relative}")
+    endif ()
+    file(SIZE "${_ror_n1_hdr_file}" _ror_n1_hdr_size)
+    file(SHA256 "${_ror_n1_hdr_file}" _ror_n1_hdr_sha256)
+    string(APPEND ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_ENTRIES
+        "    {\"${_ror_n1_hdr_relative}\", "
+        "static_cast<std::uint64_t>(${_ror_n1_hdr_size}), "
+        "\"${_ror_n1_hdr_sha256}\"},\n")
+    string(APPEND _ror_n1_hdr_media_manifest_serialized
+        "${_ror_n1_hdr_relative}|${_ror_n1_hdr_size}|"
+        "${_ror_n1_hdr_sha256}\n")
+endforeach ()
+list(LENGTH _ror_n1_hdr_media_files
+    ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_COUNT)
+list(GET _ror_n1_hdr_media_files 0
+    ROR_OGRE_NEXT_N1_HDR_MEDIA_TAMPER_RELATIVE)
+string(SHA256 ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_SHA256
+    "${_ror_n1_hdr_media_manifest_serialized}")
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend_n1_media_manifest.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_n1_media_manifest.h"
@@ -337,6 +391,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${CMAKE_CURRENT_SOURCE_DIR}/../../source/main/gfx/render")
     add_library(
         ror_ogre_next_n1_contract STATIC
+        "${_ror_render_root}/HdrReference.cpp"
         "${_ror_render_root}/MaterialDescriptor.cpp"
         "${_ror_render_root}/ReflectionProbeCaptureReceipt.cpp"
         "${_ror_render_root}/ReflectionProbeRuntime.cpp"
@@ -353,6 +408,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
 
     add_library(
         ror_ogre_next_frontend_n1 STATIC
+        "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp"
@@ -816,7 +872,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     set(ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE
         "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/bin/$<TARGET_FILE_NAME:ror_ogre_next_frontend_n1_smoke>")
     set(ROR_OGRE_NEXT_N1_PACKAGE_STAMP
-        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v8")
+        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v9")
     set(_ror_n1_package_commands
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
@@ -932,6 +988,15 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
                 "${ogre_next_SOURCE_DIR}/Samples/Media/Hlms"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${ogre_next_SOURCE_DIR}/Samples/Media/2.0/scripts/Compositors"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/2.0/scripts/Compositors"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${ogre_next_SOURCE_DIR}/Samples/Media/2.0/scripts/materials/Common"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/2.0/scripts/materials/Common"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${ogre_next_SOURCE_DIR}/Samples/Media/2.0/scripts/materials/HDR"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/2.0/scripts/materials/HDR"
         ${_ror_n1_package_commands}
         COMMAND "${CMAKE_COMMAND}" -E touch
                 "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
@@ -1231,6 +1296,17 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
     add_dependencies(
         ror_ogre_next_frontend_n1_report
         ror_ogre_next_pssm_shadow_report)
+    add_test(NAME ror_ogre_next_frontend_hdr_media_tamper
+        COMMAND "${CMAKE_COMMAND}"
+            "-DN1_EXECUTABLE=${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"
+            "-DN1_MEDIA_ROOT=${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+            "-DN1_TAMPER_RELATIVE=${ROR_OGRE_NEXT_N1_HDR_MEDIA_TAMPER_RELATIVE}"
+            "-DN1_WORK_ROOT=${CMAKE_BINARY_DIR}/n1-hdr-media-tamper"
+            -DN1_MODERN_PBR=ON
+            "-DN1_EXPECTED_INTEGRITY_KIND=HDR compositor"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyN1MediaTamper.cmake")
+    set_tests_properties(ror_ogre_next_frontend_hdr_media_tamper PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif ()
 
 if (TARGET ror_ogre_next_metal_n2_smoke)

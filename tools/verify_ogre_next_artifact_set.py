@@ -725,6 +725,49 @@ def _is_sha256(value: object) -> bool:
     )
 
 
+def _packaged_media_manifest(
+    base: Path, scan_roots: tuple[Path, ...], label: str
+) -> dict[str, object]:
+    entries_by_path: dict[str, tuple[str, int, str, Path]] = {}
+    for relative_root in scan_roots:
+        tree = base / relative_root
+        if tree.is_symlink() or not tree.is_dir():
+            raise ArtifactSetError(
+                f"{label} media root is missing or symbolic: "
+                + relative_root.as_posix()
+            )
+        for path in sorted(tree.rglob("*"), key=lambda item: item.as_posix()):
+            relative = path.relative_to(base).as_posix()
+            if path.is_symlink():
+                raise ArtifactSetError(
+                    f"{label} media contains a symbolic link: {relative}"
+                )
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                raise ArtifactSetError(
+                    f"{label} media contains a non-file entry: {relative}"
+                )
+            entries_by_path[relative] = (
+                relative,
+                path.stat().st_size,
+                sha256_file(path),
+                path,
+            )
+    entries = [entries_by_path[key] for key in sorted(entries_by_path)]
+    if not entries:
+        raise ArtifactSetError(f"{label} media closure is empty")
+    serialized = "".join(
+        f"{relative}|{size}|{digest}\n"
+        for relative, size, digest, _ in entries
+    ).encode("utf-8")
+    return {
+        "sha256": hashlib.sha256(serialized).hexdigest(),
+        "file_count": len(entries),
+        "entries": entries,
+    }
+
+
 def _fnv1a64(payload: bytes) -> str:
     value = 14695981039346656037
     for byte in payload:
@@ -733,7 +776,7 @@ def _fnv1a64(payload: bytes) -> str:
     return f"{value:016x}"
 
 
-def _expected_rt4_build_identity(
+def _expected_base_build_identity(
     build_contract: dict[str, object], report: dict[str, object]
 ) -> str:
     platform = build_contract["platform"]
@@ -745,7 +788,7 @@ def _expected_rt4_build_identity(
         isinstance(value, dict)
         for value in (platform, compiler, source, ogre, provenance)
     ):
-        raise ArtifactSetError("RT4 executable build identity inputs are missing")
+        raise ArtifactSetError("executable build identity inputs are missing")
     return (
         f"{RT4_EXECUTABLE_IDENTITY_SCHEMA}"
         f"|platform={platform['policy']}"
@@ -756,6 +799,19 @@ def _expected_rt4_build_identity(
         f"|ogre_archive={ogre['archive_sha256']}"
         "|shader_manifest="
         f"{provenance.get('shader_media_manifest_sha256')}"
+    )
+
+
+def _expected_rt4_build_identity(
+    build_contract: dict[str, object], report: dict[str, object]
+) -> str:
+    provenance = report.get("provenance")
+    if not isinstance(provenance, dict):
+        raise ArtifactSetError("RT4 executable build identity inputs are missing")
+    return (
+        _expected_base_build_identity(build_contract, report)
+        + "|hdr_media_manifest="
+        + str(provenance.get("hdr_media_manifest_sha256"))
     )
 
 
@@ -1362,6 +1418,71 @@ def _verify_rt4_reflection_semantics(
     return reflection_slices
 
 
+def _verify_hdr_compositor(value: object) -> None:
+    compositor = _require_exact_keys(
+        value,
+        {
+            "schema",
+            "workspace",
+            "persistent_workspace",
+            "scene_format",
+            "history_format",
+            "output_format",
+            "ui_included",
+            "deterministic_simulation_delta",
+            "exact_r16_history_verified",
+            "warmup_frames",
+            "committed_frames",
+            "initial_inverse_luminance_r16_bits",
+            "final_inverse_luminance_r16_bits",
+            "exposure_changed_pixels",
+            "first_attachment_fnv1a64",
+            "final_attachment_fnv1a64",
+            "clean_shutdown",
+        },
+        "RT4 HDR compositor report",
+    )
+    initial_bits = compositor.get("initial_inverse_luminance_r16_bits")
+    final_bits = compositor.get("final_inverse_luminance_r16_bits")
+    first_hash = compositor.get("first_attachment_fnv1a64")
+    final_hash = compositor.get("final_attachment_fnv1a64")
+    checks = {
+        "schema": compositor.get("schema")
+        == "ror.ogre_next_hdr_compositor.v1",
+        "workspace": compositor.get("workspace") == "HdrWorkspace",
+        "persistence": compositor.get("persistent_workspace") is True,
+        "formats": compositor.get("scene_format") == "RGBA16_FLOAT"
+        and compositor.get("history_format") == "R16_FLOAT"
+        and compositor.get("output_format") == "RGBA8_SRGB",
+        "ui_free": compositor.get("ui_included") is False,
+        "deterministic_delta": compositor.get(
+            "deterministic_simulation_delta"
+        )
+        is True,
+        "native_history": compositor.get("exact_r16_history_verified") is True,
+        "frame_lineage": _json_exact(compositor.get("warmup_frames"), 2)
+        and _json_exact(compositor.get("committed_frames"), 2),
+        "initial_history": _json_exact(
+            initial_bits, int.from_bytes(struct.pack("<e", 0.01), "little")
+        ),
+        "final_history": type(final_bits) is int and 0 < final_bits <= 0xFFFF,
+        "visual_response": type(compositor.get("exposure_changed_pixels"))
+        is int
+        and compositor.get("exposure_changed_pixels") >= 512,
+        "hashes": isinstance(first_hash, str)
+        and re.fullmatch(r"[0-9a-f]{16}", first_hash) is not None
+        and isinstance(final_hash, str)
+        and re.fullmatch(r"[0-9a-f]{16}", final_hash) is not None
+        and first_hash != final_hash,
+        "shutdown": compositor.get("clean_shutdown") is True,
+    }
+    failed = sorted(name for name, passed in checks.items() if not passed)
+    if failed:
+        raise ArtifactSetError(
+            "RT4 HDR compositor evidence failed: " + ", ".join(failed)
+        )
+
+
 def _verify_rt4_semantics(
     report: dict[str, object],
     ppm_path: Path,
@@ -1405,6 +1526,7 @@ def _verify_rt4_semantics(
             "texture_isolation",
             "tangent_handedness",
             "reflection_probes",
+            "hdr_compositor",
             "hdr",
             "sdr",
             "lifecycle",
@@ -1424,6 +1546,7 @@ def _verify_rt4_semantics(
         raise ArtifactSetError("RT4 HDR/SDR report metrics are missing")
     if not isinstance(isolation, dict):
         raise ArtifactSetError("RT4 isolation report is missing")
+    _verify_hdr_compositor(report.get("hdr_compositor"))
     _require_exact_keys(
         hdr,
         {
@@ -1895,6 +2018,10 @@ def _verify_rt4(
         "notice_sha256": notice.get("notice_sha256"),
         "manifest_sha256": provenance.get("shader_media_manifest_sha256"),
         "manifest_file_count": provenance.get("shader_media_manifest_file_count"),
+        "hdr_manifest_sha256": provenance.get("hdr_media_manifest_sha256"),
+        "hdr_manifest_file_count": provenance.get(
+            "hdr_media_manifest_file_count"
+        ),
     }
     expected_provenance = {
         "ror_repository": expected_source["repository"],
@@ -1919,11 +2046,66 @@ def _verify_rt4(
         "shader_media_manifest_file_count": expected_shader[
             "manifest_file_count"
         ],
+        "hdr_media_manifest_sha256": expected_shader[
+            "hdr_manifest_sha256"
+        ],
+        "hdr_media_manifest_file_count": expected_shader[
+            "hdr_manifest_file_count"
+        ],
     }
     if not _is_sha256(expected_shader["manifest_sha256"]) or not _is_positive_int(
         expected_shader["manifest_file_count"]
-    ):
+    ) or not _is_sha256(
+        expected_shader["hdr_manifest_sha256"]
+    ) or not _is_positive_int(expected_shader["hdr_manifest_file_count"]):
         raise ArtifactSetError("RT4 shader-media manifest identity is invalid")
+    package_media_root = (
+        root
+        / "ror-ogre-next-n1-package"
+        / "share"
+        / "rigsofrods"
+        / "ogre-next"
+        / "Samples"
+        / "Media"
+    )
+    packaged_hlms = _packaged_media_manifest(
+        package_media_root / "Hlms", (Path("."),), "RT4 HLMS"
+    )
+    packaged_hdr = _packaged_media_manifest(
+        package_media_root,
+        (
+            Path("2.0/scripts/Compositors"),
+            Path("2.0/scripts/materials/Common"),
+            Path("2.0/scripts/materials/HDR"),
+        ),
+        "RT4 HDR",
+    )
+    packaged_reflection = _packaged_media_manifest(
+        package_media_root,
+        (
+            Path("2.0/scripts/materials/LocalCubemaps"),
+            Path("Compute/Algorithms/IBL"),
+            Path("Compute/Tools/Any"),
+        ),
+        "RT4 reflection",
+    )
+    if (
+        not _json_exact(
+            packaged_hlms["sha256"], expected_shader["manifest_sha256"]
+        )
+        or not _json_exact(
+            packaged_hlms["file_count"],
+            expected_shader["manifest_file_count"],
+        )
+        or not _json_exact(
+            packaged_hdr["sha256"], expected_shader["hdr_manifest_sha256"]
+        )
+        or not _json_exact(
+            packaged_hdr["file_count"],
+            expected_shader["hdr_manifest_file_count"],
+        )
+    ):
+        raise ArtifactSetError("RT4 packaged shader-media manifest mismatch")
     if not _json_exact(attestation.get("source"), expected_source):
         raise ArtifactSetError("RT4 source attestation mismatch")
     if not _json_exact(attestation.get("ogre_next"), expected_ogre):
@@ -2009,6 +2191,19 @@ def _verify_rt4(
         attestation.get("reflection_slices"), reflection_slices
     ):
         raise ArtifactSetError("RT4 reflection SHA-256 slice attestation mismatch")
+    packaged_paths = {
+        entry[3]
+        for media in (packaged_hlms, packaged_hdr, packaged_reflection)
+        for entry in media["entries"]
+    }
+    for path in sorted(packaged_paths, key=lambda item: item.as_posix()):
+        manifest.append(
+            {
+                "path": path.relative_to(root).as_posix(),
+                "bytes": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+        )
     manifest.append(
         {
             "path": executable_relative,
@@ -2046,7 +2241,7 @@ def _expected_pssm_provenance(
         "shader_media_manifest_sha256": provenance.get(
             "shader_media_manifest_sha256"
         ),
-        "executable_build_identity": _expected_rt4_build_identity(
+        "executable_build_identity": _expected_base_build_identity(
             build_contract, report
         ),
     }
@@ -2140,7 +2335,7 @@ def _verify_pssm_executable(
         path.stat().st_mode & 0o111 == 0
     ):
         raise ArtifactSetError("PSSM packaged executable has no execute permission")
-    identity = _expected_rt4_build_identity(build_contract, report)
+    identity = _expected_base_build_identity(build_contract, report)
     if payload.count(identity.encode()) != 1:
         raise ArtifactSetError("PSSM executable build identity is missing or ambiguous")
     required_tokens = (

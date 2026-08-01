@@ -117,6 +117,13 @@ struct SmokeResult final {
     bool only_tangent_w_changed = false;
   } tangent_handedness;
   bool non_uniform_scale_rejected_before_submission = false;
+  struct HdrCompositorEvidence final {
+    OgreNextHdrCompositorAudit initialized;
+    OgreNextHdrCompositorAudit committed;
+    std::size_t exposure_changed_pixels = 0U;
+    std::uint64_t first_attachment_fnv1a64 = 0U;
+    std::uint64_t final_attachment_fnv1a64 = 0U;
+  } hdr_compositor;
 };
 
 enum class TextureVariant : std::uint8_t {
@@ -507,9 +514,14 @@ RenderAssetDelta MakeCatalog(bool modern_pbr = false,
 
     SamplerResourceDescriptor sampler_descriptor;
     sampler_descriptor.debug_name = "RT4/V1 controlled UV0 sampler";
+    // REPEAT deliberately maps both authored out-of-range UV0 sides to
+    // interior texels.  MIRRORED_REPEAT made the two top vertices converge on
+    // nearly the same coordinate and the hosted Apple paravirtual Metal
+    // rasterizer could quantize that fixture below the exact isolation
+    // threshold even though the sampler block was bound correctly.
     sampler_descriptor.address_u =
         variant->variant == TextureVariant::SAMPLER_UV
-            ? SamplerAddressMode::MIRRORED_REPEAT
+            ? SamplerAddressMode::REPEAT
             : SamplerAddressMode::CLAMP_TO_EDGE;
     sampler_descriptor.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
     sampler_descriptor.address_w = SamplerAddressMode::REPEAT;
@@ -809,7 +821,9 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
                                                    Matrix4x4{},
                                                std::uint64_t mesh_revision = 1U,
                                                Float3 light_direction =
-                                                   {0.0F, 0.0F, -1.0F}) {
+                                                   {0.0F, 0.0F, -1.0F},
+                                               float exposure_compensation_ev =
+                                                   0.0F) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kRegistryId;
@@ -817,6 +831,8 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
   descriptor.simulation_tick = snapshot_id;
   descriptor.simulation_time_seconds = static_cast<double>(snapshot_id) / 48.0;
   descriptor.environment.ambient_radiance = {0.03F, 0.04F, 0.055F};
+  descriptor.environment.exposure_compensation_ev =
+      exposure_compensation_ev;
   if (modern_pbr) {
     descriptor.environment.ambient_radiance = {0.01F, 0.012F, 0.015F};
     LightDescriptor light;
@@ -1457,8 +1473,17 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << "    \"shader_media_manifest_sha256\": \""
          << ROR_OGRE_NEXT_N1_SHADER_MEDIA_MANIFEST_SHA256 << "\",\n"
          << "    \"shader_media_manifest_file_count\": "
-         << ROR_OGRE_NEXT_N1_SHADER_MEDIA_MANIFEST_FILE_COUNT << "\n"
-         << "  },\n"
+         << ROR_OGRE_NEXT_N1_SHADER_MEDIA_MANIFEST_FILE_COUNT;
+  if (modern_pbr) {
+    report << ",\n"
+           << "    \"hdr_media_manifest_sha256\": \""
+           << ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_SHA256 << "\",\n"
+           << "    \"hdr_media_manifest_file_count\": "
+           << ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_FILE_COUNT << "\n";
+  } else {
+    report << "\n";
+  }
+  report << "  },\n"
          << "  \"platform_policy\": \""
          << ROR_OGRE_NEXT_N1_PLATFORM_POLICY << "\",\n"
          << "  \"renderer\": \"" << ROR_OGRE_NEXT_N1_RENDERER_NAME
@@ -1866,6 +1891,42 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << "    \"sdr_changed_pixels\": "
            << result.tangent_handedness.sdr_changed_pixels << "\n"
            << "  },\n";
+    const SmokeResult::HdrCompositorEvidence &compositor =
+        result.hdr_compositor;
+    report << "  \"hdr_compositor\": {\n"
+           << "    \"schema\": \"ror.ogre_next_hdr_compositor.v1\",\n"
+           << "    \"workspace\": \"HdrWorkspace\",\n"
+           << "    \"persistent_workspace\": true,\n"
+           << "    \"scene_format\": \"RGBA16_FLOAT\",\n"
+           << "    \"history_format\": \"R16_FLOAT\",\n"
+           << "    \"output_format\": \"RGBA8_SRGB\",\n"
+           << "    \"ui_included\": false,\n"
+           << "    \"deterministic_simulation_delta\": "
+           << (compositor.committed.deterministic_delta_bound ? "true"
+                                                              : "false")
+           << ",\n"
+           << "    \"exact_r16_history_verified\": "
+           << (compositor.committed.exact_r16_history_verified ? "true"
+                                                               : "false")
+           << ",\n"
+           << "    \"warmup_frames\": "
+           << compositor.committed.warmup_frames << ",\n"
+           << "    \"committed_frames\": "
+           << compositor.committed.committed_frames << ",\n"
+           << "    \"initial_inverse_luminance_r16_bits\": "
+           << compositor.initialized.previous_inverse_luminance_r16_bits
+           << ",\n"
+           << "    \"final_inverse_luminance_r16_bits\": "
+           << compositor.committed.previous_inverse_luminance_r16_bits
+           << ",\n"
+           << "    \"exposure_changed_pixels\": "
+           << compositor.exposure_changed_pixels << ",\n"
+           << "    \"first_attachment_fnv1a64\": \""
+           << HexHash(compositor.first_attachment_fnv1a64) << "\",\n"
+           << "    \"final_attachment_fnv1a64\": \""
+           << HexHash(compositor.final_attachment_fnv1a64) << "\",\n"
+           << "    \"clean_shutdown\": true\n"
+           << "  },\n";
   }
   report
          << "  \"hdr\": {\n"
@@ -2205,6 +2266,77 @@ RunTextureUploadRollbackProof(const std::string &media_root) {
   return evidence;
 }
 
+SmokeResult::HdrCompositorEvidence
+RunHdrCompositorProof(const std::string &media_root) {
+  SmokeResult::HdrCompositorEvidence evidence;
+  OgreNextN1Configuration configuration;
+  configuration.shader_media_root = media_root;
+  configuration.raster_feature_tier =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  configuration.enable_hdr_compositor = true;
+  OgreNextN1Frontend frontend(std::move(configuration));
+  InitializeAndSync(frontend,
+                    MakeCatalog(true, &kVariantSpecs.front()));
+
+  evidence.initialized = frontend.QueryHdrCompositorAudit();
+  HdrR16Float expected_initial;
+  Require(QuantizeHdrR16Float(0.01F, expected_initial).ok(),
+          "HDR compositor initial R16 fixture is invalid");
+  Require(evidence.initialized.version == 1U &&
+              evidence.initialized.enabled &&
+              evidence.initialized.native_workspace_live &&
+              evidence.initialized.deterministic_delta_bound &&
+              evidence.initialized.exact_r16_history_verified &&
+              evidence.initialized.width == kWidth &&
+              evidence.initialized.height == kHeight &&
+              evidence.initialized.warmup_frames == 2U &&
+              evidence.initialized.committed_frames == 0U &&
+              evidence.initialized.previous_inverse_luminance_r16_bits ==
+                  expected_initial.bits,
+          "HDR compositor initialization audit is incomplete");
+
+  RenderFrameRequest first = MakeFrame(
+      1U, MakeScene(100U, false, true), PixelFormat::RGBA8_SRGB);
+  RenderFrameOutput first_output;
+  RequireSuccess(frontend.Render(first, first_output),
+                 "HDR compositor first Render");
+  const Metrics first_metrics = InspectSdr(first_output);
+
+  RenderFrameRequest second = MakeFrame(
+      2U, MakeScene(101U, false, true, 1U, 1U, Matrix4x4{}, 1U,
+                   {0.0F, 0.0F, -1.0F}, 0.5F),
+      PixelFormat::RGBA8_SRGB);
+  second.views.front().exposure = 1.25F;
+  RenderFrameOutput second_output;
+  RequireSuccess(frontend.Render(second, second_output),
+                 "HDR compositor second Render");
+  const Metrics second_metrics = InspectSdr(second_output);
+
+  evidence.exposure_changed_pixels = CountChangedPixels(
+      first_metrics.attachment_bytes, second_metrics.attachment_bytes, 4U);
+  evidence.first_attachment_fnv1a64 = first_metrics.attachment_fnv1a64;
+  evidence.final_attachment_fnv1a64 = second_metrics.attachment_fnv1a64;
+  evidence.committed = frontend.QueryHdrCompositorAudit();
+  Require(evidence.exposure_changed_pixels >= 512U &&
+              evidence.committed.native_workspace_live &&
+              evidence.committed.deterministic_delta_bound &&
+              evidence.committed.exact_r16_history_verified &&
+              evidence.committed.warmup_frames == 2U &&
+              evidence.committed.committed_frames == 2U &&
+              evidence.committed.previous_inverse_luminance_r16_bits != 0U,
+          "HDR compositor did not prove persistent deterministic adaptation");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "HDR compositor Shutdown");
+  const OgreNextHdrCompositorAudit shutdown =
+      frontend.QueryHdrCompositorAudit();
+  Require(shutdown.enabled && !shutdown.native_workspace_live &&
+              shutdown.width == 0U && shutdown.height == 0U &&
+              shutdown.warmup_frames == 0U &&
+              shutdown.committed_frames == 0U,
+          "HDR compositor shutdown did not retire its persistent graph");
+  return evidence;
+}
+
 SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
   const VariantSpec *baseline_spec = modern_pbr ? &kVariantSpecs.front()
                                                  : nullptr;
@@ -2216,14 +2348,22 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
                  : OgreNextRasterFeatureTier::STATIC_PBR_N1;
   OgreNextN1Frontend relative_media(
       OgreNextN1Configuration{"relative/shader/media", raster_feature_tier});
-  Require(relative_media.Initialize(Initialization()).code ==
-              RenderOperationCode::INVALID_ARGUMENT,
-          "relative shader media root did not fail closed");
+  const RenderOperationResult relative_media_result =
+      relative_media.Initialize(Initialization());
+  Require(relative_media_result.code == RenderOperationCode::INVALID_ARGUMENT,
+          "relative shader media root did not fail closed (code " +
+              std::to_string(static_cast<unsigned int>(
+                  relative_media_result.code)) +
+              "): " + relative_media_result.detail);
   OgreNextN1Frontend missing_media(
       OgreNextN1Configuration{media_root + "/missing", raster_feature_tier});
-  Require(missing_media.Initialize(Initialization()).code ==
-              RenderOperationCode::INVALID_ARGUMENT,
-          "missing shader media root did not fail closed");
+  const RenderOperationResult missing_media_result =
+      missing_media.Initialize(Initialization());
+  Require(missing_media_result.code == RenderOperationCode::INVALID_ARGUMENT,
+          "missing shader media root did not fail closed (code " +
+              std::to_string(static_cast<unsigned int>(
+                  missing_media_result.code)) +
+              "): " + missing_media_result.detail);
 
   if (modern_pbr) {
     OgreNextN1Frontend legacy_rejection(OgreNextN1Configuration{media_root});
@@ -2266,6 +2406,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
     result.texture_upload_rollback =
         RunTextureUploadRollbackProof(media_root);
     result.retirement = RunTextureRetirementProof(media_root);
+    result.hdr_compositor = RunHdrCompositorProof(media_root);
   }
   InitializeAndSync(frontend, catalog);
   if (modern_pbr) {

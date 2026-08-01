@@ -12,6 +12,7 @@
 #pragma once
 
 #include "../RendererFrontend.h"
+#include "OgreNextHdrTemporalContract.h"
 #include "OgreNextPssmShadowPolicy.h"
 #include "RasterFeatureTier.h"
 
@@ -91,6 +92,27 @@ struct OgreNextN1Configuration final {
   OgreNextN1PssmFailureStage pssm_failure_stage =
       OgreNextN1PssmFailureStage::NONE;
 #endif
+  /// Enables Ogre-Next's persistent RGBA16 scene, R16 auto-exposure,
+  /// multi-pass bloom, filmic tone-map, and sRGB output compositor.  It is an
+  /// explicit RT4 raster mode so raw linear-HDR capture remains unchanged.
+  bool enable_hdr_compositor = false;
+  OgreNextHdrTemporalConfiguration hdr_temporal_configuration{};
+};
+
+/// Exact observable state of the opt-in persistent HDR compositor.  Counts
+/// advance only after a native R16 history sample has passed the deterministic
+/// temporal oracle and the corresponding public frame has been committed.
+struct OgreNextHdrCompositorAudit final {
+  std::uint32_t version = 1U;
+  bool enabled = false;
+  bool native_workspace_live = false;
+  bool deterministic_delta_bound = false;
+  bool exact_r16_history_verified = false;
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
+  std::uint64_t warmup_frames = 0U;
+  std::uint64_t committed_frames = 0U;
+  std::uint16_t previous_inverse_luminance_r16_bits = 0U;
 };
 
 struct OgreNextPssmNativeAabb final {
@@ -201,6 +223,8 @@ public:
 #endif
   [[nodiscard]] OgreNextPssmShadowRuntimeAudit
   QueryDirectionalShadowAudit() const noexcept;
+  [[nodiscard]] OgreNextHdrCompositorAudit
+  QueryHdrCompositorAudit() const noexcept;
   RenderOperationResult
   Initialize(const FrontendInitializationRequest &request) override;
   RenderOperationResult

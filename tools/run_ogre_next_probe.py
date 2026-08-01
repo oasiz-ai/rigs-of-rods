@@ -1883,6 +1883,7 @@ def validate_n1_checkpoint(
     texture_allocations = report.get("texture_allocations", {})
     texture_upload_rollback = report.get("texture_upload_rollback", {})
     texture_retirement = report.get("texture_retirement", {})
+    hdr_compositor = report.get("hdr_compositor", {})
     hdr = report.get("hdr", {})
     sdr = report.get("sdr", {})
     lifecycle = report.get("lifecycle", {})
@@ -1989,6 +1990,12 @@ def validate_n1_checkpoint(
             {
                 "rt4_tier": adapter.get("raster_feature_tier")
                 == "MODERN_PBR_RT4_V1",
+                "rt4_hdr_media_manifest": provenance.get(
+                    "hdr_media_manifest_sha256"
+                )
+                == media_manifest.get("hdr_sha256")
+                and provenance.get("hdr_media_manifest_file_count")
+                == media_manifest.get("hdr_file_count"),
                 "rt4_vertex_layout": adapter.get("vertex_layout")
                 == "position_normal_tangent_uv0",
                 "rt4_srgb": adapter.get("base_color_upload")
@@ -2150,6 +2157,76 @@ def validate_n1_checkpoint(
                         },
                     },
                 },
+                "rt4_hdr_compositor": isinstance(hdr_compositor, dict)
+                and set(hdr_compositor)
+                == {
+                    "schema",
+                    "workspace",
+                    "persistent_workspace",
+                    "scene_format",
+                    "history_format",
+                    "output_format",
+                    "ui_included",
+                    "deterministic_simulation_delta",
+                    "exact_r16_history_verified",
+                    "warmup_frames",
+                    "committed_frames",
+                    "initial_inverse_luminance_r16_bits",
+                    "final_inverse_luminance_r16_bits",
+                    "exposure_changed_pixels",
+                    "first_attachment_fnv1a64",
+                    "final_attachment_fnv1a64",
+                    "clean_shutdown",
+                }
+                and hdr_compositor.get("schema")
+                == "ror.ogre_next_hdr_compositor.v1"
+                and hdr_compositor.get("workspace") == "HdrWorkspace"
+                and hdr_compositor.get("persistent_workspace") is True
+                and hdr_compositor.get("scene_format") == "RGBA16_FLOAT"
+                and hdr_compositor.get("history_format") == "R16_FLOAT"
+                and hdr_compositor.get("output_format") == "RGBA8_SRGB"
+                and hdr_compositor.get("ui_included") is False
+                and hdr_compositor.get("deterministic_simulation_delta")
+                is True
+                and hdr_compositor.get("exact_r16_history_verified") is True
+                and type(hdr_compositor.get("warmup_frames")) is int
+                and hdr_compositor.get("warmup_frames") == 2
+                and type(hdr_compositor.get("committed_frames")) is int
+                and hdr_compositor.get("committed_frames") == 2
+                and type(
+                    hdr_compositor.get("initial_inverse_luminance_r16_bits")
+                )
+                is int
+                and hdr_compositor.get("initial_inverse_luminance_r16_bits")
+                == int.from_bytes(struct.pack("<e", 0.01), "little")
+                and type(
+                    hdr_compositor.get("final_inverse_luminance_r16_bits")
+                )
+                is int
+                and 0
+                < hdr_compositor.get("final_inverse_luminance_r16_bits")
+                <= 0xFFFF
+                and type(hdr_compositor.get("exposure_changed_pixels")) is int
+                and hdr_compositor.get("exposure_changed_pixels") >= 512
+                and isinstance(
+                    hdr_compositor.get("first_attachment_fnv1a64"), str
+                )
+                and re.fullmatch(
+                    r"[0-9a-f]{16}",
+                    hdr_compositor.get("first_attachment_fnv1a64"),
+                )
+                is not None
+                and isinstance(
+                    hdr_compositor.get("final_attachment_fnv1a64"), str
+                )
+                and re.fullmatch(
+                    r"[0-9a-f]{16}",
+                    hdr_compositor.get("final_attachment_fnv1a64"),
+                )
+                is not None
+                and hdr_compositor.get("first_attachment_fnv1a64")
+                != hdr_compositor.get("final_attachment_fnv1a64")
+                and hdr_compositor.get("clean_shutdown") is True,
             }
         )
     failed = [name for name, passed in checks.items() if not passed]
@@ -2317,6 +2394,8 @@ def write_rt4_attestation(
             "notice_sha256": notice["notice_sha256"],
             "manifest_sha256": media_manifest["sha256"],
             "manifest_file_count": media_manifest["file_count"],
+            "hdr_manifest_sha256": media_manifest["hdr_sha256"],
+            "hdr_manifest_file_count": media_manifest["hdr_file_count"],
         },
         "files": {
             "build_contract": _attest_regular_file(build_contract_path, build_dir),
@@ -2379,6 +2458,51 @@ def shader_media_manifest(root: Path) -> dict[str, Any]:
     }
 
 
+def hdr_media_manifest(media_root: Path) -> dict[str, Any]:
+    roots = (
+        Path("2.0/scripts/Compositors"),
+        Path("2.0/scripts/materials/Common"),
+        Path("2.0/scripts/materials/HDR"),
+    )
+    entries_by_path: dict[str, tuple[str, int, str]] = {}
+    for relative_root in roots:
+        root = media_root / relative_root
+        if root.is_symlink() or not root.is_dir():
+            raise ProbeError(
+                "OGRE-Next HDR media root is missing or symbolic: "
+                + relative_root.as_posix()
+            )
+        for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
+            relative = path.relative_to(media_root).as_posix()
+            if path.is_symlink():
+                raise ProbeError(
+                    "OGRE-Next HDR media contains a symbolic link: " + relative
+                )
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                raise ProbeError(
+                    "OGRE-Next HDR media contains a non-file entry: " + relative
+                )
+            entries_by_path[relative] = (
+                relative,
+                path.stat().st_size,
+                sha256_file(path),
+            )
+    entries = [entries_by_path[key] for key in sorted(entries_by_path)]
+    if not entries:
+        raise ProbeError("OGRE-Next HDR media closure is empty")
+    serialized = "".join(
+        f"{relative}|{size}|{digest}\n"
+        for relative, size, digest in entries
+    ).encode("utf-8")
+    return {
+        "sha256": hashlib.sha256(serialized).hexdigest(),
+        "file_count": len(entries),
+        "entries": entries,
+    }
+
+
 def validate_n1_package(
     build_dir: Path, lock: dict[str, Any]
 ) -> dict[str, Any]:
@@ -2411,18 +2535,33 @@ def validate_n1_package(
             "OGRE-Next N1 package license validation failed closed: "
             + ", ".join(failures)
         )
-    source_manifest = shader_media_manifest(
-        build_dir / "_deps" / "ogre_next-src" / "Samples" / "Media" / "Hlms"
+    source_media_root = (
+        build_dir / "_deps" / "ogre_next-src" / "Samples" / "Media"
     )
-    package_manifest = shader_media_manifest(
-        package_root / "share" / "rigsofrods" / "ogre-next" /
-        "Samples" / "Media" / "Hlms"
+    package_media_root = (
+        package_root
+        / "share"
+        / "rigsofrods"
+        / "ogre-next"
+        / "Samples"
+        / "Media"
     )
+    source_manifest = shader_media_manifest(source_media_root / "Hlms")
+    package_manifest = shader_media_manifest(package_media_root / "Hlms")
     if package_manifest != source_manifest:
         raise ProbeError(
             "OGRE-Next N1 staged HLMS tree differs from the pinned source manifest"
         )
-    return source_manifest
+    source_hdr_manifest = hdr_media_manifest(source_media_root)
+    package_hdr_manifest = hdr_media_manifest(package_media_root)
+    if package_hdr_manifest != source_hdr_manifest:
+        raise ProbeError(
+            "OGRE-Next N1 staged HDR media differs from the pinned source manifest"
+        )
+    combined = dict(source_manifest)
+    combined["hdr_sha256"] = source_hdr_manifest["sha256"]
+    combined["hdr_file_count"] = source_hdr_manifest["file_count"]
+    return combined
 
 
 def run_n1_checkpoint(

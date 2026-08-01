@@ -26,7 +26,18 @@ namespace RoR::Render {
 /// Verifies the exact pinned PCC depth-compressor, local-cubemap, and IBL
 /// shader closure used by the modern RT4 reflection path. The check rejects
 /// missing, extra, indirect, or byte-modified resources before device creation.
+/// When the caller has already authenticated the complete HDR manifest, that
+/// manifest owns exact closure of the shared Common tree; reflection still
+/// authenticates every Common entry that its own manifest declares. Passing
+/// true without first successfully calling VerifyOgreNextN1HdrMedia is invalid.
 [[nodiscard]] RenderOperationResult VerifyOgreNextReflectionProbeMedia(
+    const std::string &resolved_media_root,
+    bool hdr_common_tree_authenticated = false);
+
+/// Verifies the complete, byte-exact Ogre-Next compositor, Common-material,
+/// and HDR-material trees compiled into the standalone frontend. This is a
+/// separate opt-in gate because raw N1/RT4 does not execute post-processing.
+[[nodiscard]] RenderOperationResult VerifyOgreNextN1HdrMedia(
     const std::string &resolved_media_root);
 
 } // namespace RoR::Render
