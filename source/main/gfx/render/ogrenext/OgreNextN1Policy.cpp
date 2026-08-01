@@ -194,42 +194,50 @@ OgreNextN1SubmissionState::Validate(const RenderFrameRequest &request) const {
                                           "N1 scene snapshot is missing");
   }
   const std::uint64_t snapshot_id = request.scene_snapshot->snapshot_id();
-  const bool repeats_last =
-      snapshot_id == last_snapshot_id_ && last_snapshot_ != nullptr;
-  if (repeats_last && last_snapshot_.get() != request.scene_snapshot.get()) {
+  const auto seen = snapshots_.find(snapshot_id);
+  if (seen != snapshots_.end() &&
+      seen->second.get() != request.scene_snapshot.get()) {
     return RenderOperationResult::Failure(
         RenderOperationCode::RESOURCE_STALE,
         "one N1 snapshot ID identified a different immutable object");
   }
-  if (!repeats_last && snapshot_id <= last_snapshot_id_) {
+  if (seen == snapshots_.end() && snapshot_id <= last_snapshot_id_) {
     return RenderOperationResult::Failure(
         RenderOperationCode::INVALID_ARGUMENT,
-        "N1 snapshot IDs must increase; its bounded identity window permits replay of only the latest snapshot");
+        "new N1 snapshot IDs must exceed every first-seen snapshot ID");
   }
   return RenderOperationResult::Success();
 }
 
 void OgreNextN1SubmissionState::Commit(const RenderFrameRequest &request) {
-  completed_frames_.push_back(request.frame_id);
-  if (completed_frames_.size() > kOgreNextN1CompletedFrameHistoryLimit) {
-    completed_frames_.pop_front();
+  const std::uint64_t snapshot_id = request.scene_snapshot->snapshot_id();
+  auto inserted = snapshots_.end();
+  if (snapshots_.find(snapshot_id) == snapshots_.end()) {
+    inserted = snapshots_.emplace(snapshot_id, request.scene_snapshot).first;
   }
-  if (request.scene_snapshot->snapshot_id() != last_snapshot_id_) {
-    last_snapshot_id_ = request.scene_snapshot->snapshot_id();
-    last_snapshot_ = request.scene_snapshot;
+  try {
+    completed_frames_.push_back(request.frame_id);
+  } catch (...) {
+    if (inserted != snapshots_.end()) {
+      snapshots_.erase(inserted);
+    }
+    throw;
+  }
+  if (inserted != snapshots_.end()) {
+    last_snapshot_id_ = snapshot_id;
   }
   last_frame_id_ = request.frame_id;
 }
 
 bool OgreNextN1SubmissionState::IsFrameComplete(
     std::uint64_t frame_id) const noexcept {
-  return std::find(completed_frames_.begin(), completed_frames_.end(),
-                   frame_id) != completed_frames_.end();
+  return std::binary_search(completed_frames_.begin(), completed_frames_.end(),
+                            frame_id);
 }
 
 void OgreNextN1SubmissionState::Reset() noexcept {
   completed_frames_.clear();
-  last_snapshot_.reset();
+  snapshots_.clear();
   last_frame_id_ = 0U;
   last_snapshot_id_ = 0U;
 }

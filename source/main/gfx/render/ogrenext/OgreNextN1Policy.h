@@ -13,8 +13,9 @@
 
 #include "../RendererFrontend.h"
 
-#include <deque>
+#include <map>
 #include <memory>
+#include <vector>
 
 namespace RoR::Render {
 
@@ -23,7 +24,6 @@ namespace RoR::Render {
 // initialization and validates the requested offscreen extent against it.
 constexpr std::uint32_t kOgreNextN1ConservativeMaximumTextureDimension = 2048U;
 constexpr std::size_t kOgreNextN1MaximumDirectionalLights = 0U;
-constexpr std::size_t kOgreNextN1CompletedFrameHistoryLimit = 64U;
 
 /// Bounds after the portable descriptor has been reduced with overflow-safe
 /// float arithmetic into Ogre's center/half-size representation.
@@ -39,9 +39,9 @@ struct OgreNextN1NativeMeshBounds final {
     const Bounds3 &portable,
     OgreNextN1NativeMeshBounds &native) noexcept;
 
-/// Bounded lifetime identity state for N1's synchronous one-frame adapter.
-/// Only the latest snapshot may be replayed; this avoids an unbounded pointer
-/// identity cache while preserving the producer's monotonic-ID contract.
+/// Lifetime identity state for N1's synchronous one-frame adapter. It retains
+/// exact first-seen snapshot owners and successful frame IDs until Shutdown so
+/// replay and completion queries preserve the renderer-boundary contract.
 class OgreNextN1SubmissionState final {
 public:
   [[nodiscard]] RenderOperationResult
@@ -51,8 +51,8 @@ public:
   void Reset() noexcept;
 
 private:
-  std::deque<std::uint64_t> completed_frames_;
-  std::shared_ptr<const SceneSnapshot> last_snapshot_;
+  std::vector<std::uint64_t> completed_frames_;
+  std::map<std::uint64_t, std::shared_ptr<const SceneSnapshot>> snapshots_;
   std::uint64_t last_frame_id_ = 0U;
   std::uint64_t last_snapshot_id_ = 0U;
 };

@@ -459,7 +459,8 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr) {
          << "  \"lifecycle\": {\n"
          << "    \"unsupported_depth_failed_before_submission\": true,\n"
          << "    \"double_sided_mirrored_pbs_readback\": true,\n"
-         << "    \"latest_snapshot_only_identity_window\": true,\n"
+         << "    \"lifetime_snapshot_identity_replay\": true,\n"
+         << "    \"lifetime_completed_frame_queries\": true,\n"
          << "    \"shutdown_reinitialize_render_shutdown\": true\n"
          << "  }\n"
          << "}\n";
@@ -544,11 +545,13 @@ std::pair<Metrics, Metrics> RunSmoke() {
                  "new snapshot Render");
   static_cast<void>(InspectSdr(newer_output));
   RenderFrameOutput old_output;
-  const RenderOperationResult old_result = frontend.Render(
-      MakeFrame(4U, scene_one, PixelFormat::RGBA8_SRGB), old_output);
-  Require(old_result.code == RenderOperationCode::INVALID_ARGUMENT &&
-              !frontend.IsFrameComplete(4U),
-          "older snapshot escaped N1's bounded latest-snapshot identity window");
+  RequireSuccess(frontend.Render(
+                     MakeFrame(4U, scene_one, PixelFormat::RGBA8_SRGB),
+                     old_output),
+                 "older snapshot replay Render");
+  static_cast<void>(InspectSdr(old_output));
+  Require(frontend.IsFrameComplete(1U) && frontend.IsFrameComplete(4U),
+          "successful N1 frame fell out of lifetime completion history");
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "first Shutdown");
 

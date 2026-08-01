@@ -128,17 +128,19 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.frontend)
 
-    def test_submission_and_cleanup_state_are_bounded_and_fault_latched(self) -> None:
-        self.assertIn("kOgreNextN1CompletedFrameHistoryLimit = 64U", self.policy_header)
-        self.assertIn("completed_frames_.pop_front()", self.policy)
-        self.assertIn("replay of only the latest snapshot", self.policy)
+    def test_submission_and_cleanup_state_are_lifetime_exact_and_fault_latched(self) -> None:
+        self.assertIn("std::map<std::uint64_t", self.policy_header)
+        self.assertIn("std::vector<std::uint64_t> completed_frames_", self.policy_header)
+        self.assertIn("snapshots_.find(snapshot_id)", self.policy)
+        self.assertIn("std::binary_search(completed_frames_.begin()", self.policy)
+        self.assertNotIn("CompletedFrameHistoryLimit", self.policy_header)
+        self.assertNotIn("completed_frames_.pop_front()", self.policy)
         self.assertIn("impl_->faulted = true", self.frontend)
         self.assertIn("return FrameCleanupFailure()", self.frontend)
         self.assertIn("fail_after_cleanup", self.frontend)
         self.assertIn("[[nodiscard]] bool DestroyCatalog()", self.frontend)
         self.assertIn("[[nodiscard]] bool CleanupBackend()", self.frontend)
         self.assertIn("if (!impl_->CleanupBackend())", self.frontend)
-        self.assertNotIn("seen_snapshots", self.frontend)
 
     def test_projection_and_device_extent_paths_fail_closed(self) -> None:
         self.assertIn("ConvertPortableProjectionToOgreClip", self.policy_header)
@@ -234,7 +236,8 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "lifecycle": {
                 "unsupported_depth_failed_before_submission": True,
                 "double_sided_mirrored_pbs_readback": True,
-                "latest_snapshot_only_identity_window": True,
+                "lifetime_snapshot_identity_replay": True,
+                "lifetime_completed_frame_queries": True,
                 "shutdown_reinitialize_render_shutdown": True,
             },
         }

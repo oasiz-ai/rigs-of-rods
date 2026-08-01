@@ -710,7 +710,8 @@ def validate_n1_checkpoint(
             for field in (
                 "unsupported_depth_failed_before_submission",
                 "double_sided_mirrored_pbs_readback",
-                "latest_snapshot_only_identity_window",
+                "lifetime_snapshot_identity_replay",
+                "lifetime_completed_frame_queries",
                 "shutdown_reinitialize_render_shutdown",
             )
         ),

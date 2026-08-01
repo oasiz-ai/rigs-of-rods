@@ -94,7 +94,7 @@ in flight. Its supported slice is intentionally small:
 | Lighting | Constant ambient/environment radiance only |
 | Output | One UI-free `RGBA16_FLOAT` HDR or `RGBA8_SRGB` CPU readback |
 | Camera | Current rigid view and canonical portable `[0,1]` projection; N1 explicitly converts depth to Ogre `[-1,1]` before the active RenderSystem performs one API-native conversion |
-| Lifecycle | Transactional catalog replacement, RAII rollback for newly allocated native assets, teardown failure propagation/fault latch, bounded 64-frame completion history, and latest-snapshot-only identity replay |
+| Lifecycle | Transactional catalog replacement, RAII rollback for newly allocated native assets, teardown failure propagation/fault latch, and exact frame/snapshot identity retained until shutdown |
 
 N1 fails closed for textures/samplers, richer vertex streams, deformable or
 dynamic meshes, particles, every analytic light, shadows, depth/motion/object

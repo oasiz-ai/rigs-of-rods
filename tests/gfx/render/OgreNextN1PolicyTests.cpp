@@ -138,7 +138,7 @@ void TestProjectionDepthConversion() {
           "depth conversion changed non-depth projection rows");
 }
 
-void TestBoundedSubmissionState() {
+void TestLifetimeSubmissionState() {
   constexpr std::uint64_t kRegistryId = 70U;
   const auto first_scene = MakeScene(kRegistryId);
   OgreNextN1SubmissionState state;
@@ -162,19 +162,27 @@ void TestBoundedSubmissionState() {
   Require(state.Validate(newer).ok(), "new monotonic snapshot was rejected");
   state.Commit(newer);
   request.frame_id = 4U;
-  Require(state.Validate(request).code == RenderOperationCode::INVALID_ARGUMENT,
-          "older snapshot escaped the bounded latest-snapshot window");
+  Require(state.Validate(request).ok(),
+          "exact older snapshot replay was rejected");
+  state.Commit(request);
 
-  for (std::uint64_t frame_id = 4U;
-       frame_id <= kOgreNextN1CompletedFrameHistoryLimit + 3U; ++frame_id) {
+  aliased.frame_id = 5U;
+  Require(state.Validate(aliased).code == RenderOperationCode::RESOURCE_STALE,
+          "older snapshot ID alias escaped lifetime identity checks");
+
+  for (std::uint64_t frame_id = 5U; frame_id <= 130U; ++frame_id) {
     newer.frame_id = frame_id;
-    Require(state.Validate(newer).ok(), "bounded history fixture was rejected");
+    Require(state.Validate(newer).ok(), "lifetime history fixture was rejected");
     state.Commit(newer);
   }
-  Require(!state.IsFrameComplete(1U),
-          "completed-frame history grew beyond its explicit bound");
-  Require(state.IsFrameComplete(kOgreNextN1CompletedFrameHistoryLimit + 3U),
-          "latest completed frame fell out of bounded history");
+  newer.frame_id = 132U;
+  Require(state.Validate(newer).ok(), "sparse frame ID was rejected");
+  state.Commit(newer);
+  Require(state.IsFrameComplete(1U) && state.IsFrameComplete(130U) &&
+              state.IsFrameComplete(132U),
+          "successful frame fell out of lifetime completion history");
+  Require(!state.IsFrameComplete(131U),
+          "never-submitted frame appeared in completion history");
   state.Reset();
   request.frame_id = 1U;
   Require(state.Validate(request).ok(),
@@ -425,7 +433,7 @@ void TestFrameAndScenePolicy() {
 
 int main() {
   TestProjectionDepthConversion();
-  TestBoundedSubmissionState();
+  TestLifetimeSubmissionState();
   TestCapabilitiesFailClosed();
   TestInitializationPolicy();
   TestAssetPolicy();
