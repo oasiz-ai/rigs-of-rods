@@ -74,7 +74,14 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(
             encoding="utf-8"
         )
-        self.assertIn("tools/ogre_next_probe/** text eol=lf", attributes)
+        for path in (
+            "tools/ogre_next_probe/**",
+            "tools/run_ogre_next_probe.py",
+            "tools/validate_ogre_next_frame_probe.py",
+            "doc/nextgen/evidence/OGRE_NEXT_METAL_*",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(f"{path} text eol=lf", attributes)
 
     def test_reports_and_exact_frame_are_always_retained(self) -> None:
         self.assertIn("if: always()", self.workflow)

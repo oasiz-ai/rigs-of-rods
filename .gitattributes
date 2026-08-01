@@ -63,3 +63,6 @@ content-source/cityworld_next/provenance/*.json text eol=lf
 # OGRE-Next dependency, patch, and shader-license contracts are verified by
 # exact byte hashes. Keep the isolated probe identical on every checkout.
 tools/ogre_next_probe/** text eol=lf
+tools/run_ogre_next_probe.py text eol=lf
+tools/validate_ogre_next_frame_probe.py text eol=lf
+doc/nextgen/evidence/OGRE_NEXT_METAL_* text eol=lf
