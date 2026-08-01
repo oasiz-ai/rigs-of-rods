@@ -50,12 +50,34 @@ struct ImagePair final {
   std::uint64_t occluder_hash = UINT64_C(14695981039346656037);
 };
 
+struct ReviewedRegion final {
+  std::uint32_t receiver_min_x = 0U;
+  std::uint32_t receiver_max_x = 0U;
+  std::uint32_t receiver_min_y = 0U;
+  std::uint32_t receiver_max_y = 0U;
+  std::uint32_t occluder_min_x = 0U;
+  std::uint32_t occluder_max_x = 0U;
+  std::uint32_t occluder_min_y = 0U;
+  std::uint32_t occluder_max_y = 0U;
+};
+
+struct CascadeProof final {
+  std::uint32_t cascade_index = 0U;
+  float receiver_depth_m = 0.0F;
+  float occluder_depth_m = 0.0F;
+  ImagePair sdr;
+};
+
 struct SmokeResult final {
   ImagePair hdr;
   ImagePair sdr;
+  std::array<CascadeProof, 2U> distant_cascades;
   OgreNextPssmShadowRuntimeAudit audit;
   std::uint64_t disabled_default_hash = 0U;
   std::uint64_t disabled_explicit_hash = 0U;
+  bool normalized_visibility_mask_verified = false;
+  bool receiver_clone_retry_verified = false;
+  bool workspace_node_retry_verified = false;
 };
 
 [[noreturn]] void Fail(const std::string &detail) {
@@ -223,14 +245,17 @@ RenderAssetDelta Catalog() {
 
 std::shared_ptr<const SceneSnapshot> Scene(std::uint64_t snapshot_id,
                                            bool casts_shadow,
-                                           bool shadows_enabled = true) {
+                                           bool shadows_enabled = true,
+                                           float scale = 1.0F,
+                                           float horizontal_offset = 0.0F,
+                                           float occluder_vertical_offset =
+                                               0.0F) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kRegistryId;
   descriptor.asset_sequence = 1U;
-  descriptor.simulation_tick = snapshot_id;
-  descriptor.simulation_time_seconds =
-      static_cast<double>(snapshot_id) / 48.0;
+  descriptor.simulation_tick = 1U;
+  descriptor.simulation_time_seconds = 1.0 / 48.0;
   descriptor.environment.ambient_radiance = {0.01F, 0.012F, 0.015F};
 
   MeshInstanceDescriptor receiver;
@@ -240,6 +265,11 @@ std::shared_ptr<const SceneSnapshot> Scene(std::uint64_t snapshot_id,
   receiver.local_bounds = ReceiverMesh().local_bounds;
   receiver.flags =
       MESH_INSTANCE_CASTS_SHADOW | MESH_INSTANCE_RECEIVES_SHADOW;
+  receiver.render_from_object.elements[0U] = scale;
+  receiver.render_from_object.elements[5U] = scale;
+  receiver.render_from_object.elements[10U] = scale;
+  receiver.render_from_object.elements[12U] = horizontal_offset;
+  receiver.previous_render_from_object = receiver.render_from_object;
   descriptor.mesh_instances.push_back(receiver);
 
   MeshInstanceDescriptor occluder;
@@ -247,7 +277,12 @@ std::shared_ptr<const SceneSnapshot> Scene(std::uint64_t snapshot_id,
   occluder.mesh = Asset(RenderAssetKind::MESH, 2U);
   occluder.material = Asset(RenderAssetKind::MATERIAL, 4U);
   occluder.local_bounds = QuadMesh(0.45F, 0.45F, "occluder").local_bounds;
-  occluder.render_from_object.elements[14U] = 1.5F;
+  occluder.render_from_object.elements[0U] = scale;
+  occluder.render_from_object.elements[5U] = scale;
+  occluder.render_from_object.elements[10U] = scale;
+  occluder.render_from_object.elements[12U] = horizontal_offset;
+  occluder.render_from_object.elements[13U] = occluder_vertical_offset;
+  occluder.render_from_object.elements[14U] = 1.5F * scale;
   occluder.previous_render_from_object = occluder.render_from_object;
   occluder.flags = casts_shadow ? MESH_INSTANCE_CASTS_SHADOW : 0U;
   descriptor.mesh_instances.push_back(occluder);
@@ -292,7 +327,9 @@ Matrix4x4 Projection() {
 
 RenderFrameRequest Frame(
     std::uint64_t frame_id,
-    const std::shared_ptr<const SceneSnapshot> &scene, PixelFormat format) {
+    const std::shared_ptr<const SceneSnapshot> &scene, PixelFormat format,
+    float camera_depth = 4.0F,
+    std::uint32_t visibility_mask = 0xffffffffU) {
   RenderFrameRequest request;
   request.frame_id = frame_id;
   request.scene_snapshot = scene;
@@ -304,10 +341,11 @@ RenderFrameRequest Frame(
   view.height = kHeight;
   view.near_plane = kOgreNextPssmNearMeters;
   view.far_plane = kOgreNextPssmFarMeters;
-  view.view_from_render.elements[14U] = -4.0F;
+  view.view_from_render.elements[14U] = -camera_depth;
   view.previous_view_from_render = view.view_from_render;
   view.clip_from_view = Projection();
   view.previous_clip_from_view = view.clip_from_view;
+  view.visibility_mask = visibility_mask;
   request.views.push_back(view);
   return request;
 }
@@ -380,7 +418,7 @@ float Luminance(const std::uint8_t *pixel, PixelFormat format) {
 
 ImagePair Compare(const RenderFrameOutput &without_occluder,
                   const RenderFrameOutput &with_occluder,
-                  PixelFormat format) {
+                  PixelFormat format, const ReviewedRegion &region) {
   ImagePair result;
   result.no_occluder = Bytes(without_occluder, format);
   result.occluder = Bytes(with_occluder, format);
@@ -402,9 +440,12 @@ ImagePair Compare(const RenderFrameOutput &without_occluder,
       // The reviewed projection puts the receiver wholly inside this mask.
       // A changed background or visible-occluder pixel is a hard isolation
       // failure; no backend-specific mask widening is permitted.
-      const bool in_receiver = x >= 34U && x <= 158U && y >= 18U && y <= 110U;
+      const bool in_receiver =
+          x >= region.receiver_min_x && x <= region.receiver_max_x &&
+          y >= region.receiver_min_y && y <= region.receiver_max_y;
       const bool in_visible_occluder =
-          x >= 80U && x <= 111U && y >= 48U && y <= 79U;
+          x >= region.occluder_min_x && x <= region.occluder_max_x &&
+          y >= region.occluder_min_y && y <= region.occluder_max_y;
       if (!in_receiver || in_visible_occluder) {
         std::ostringstream detail;
         detail << "occluder cast flag changed a non-receiver pixel at ("
@@ -482,6 +523,7 @@ RenderOperationResult RunShadow(const std::string &media_root,
   OgreNextN1Frontend frontend(std::move(configuration));
   const RenderOperationResult initialization = InitializeAndSync(frontend);
   if (!initialization) {
+    result.audit = frontend.QueryDirectionalShadowAudit();
     return initialization;
   }
 
@@ -507,8 +549,66 @@ RenderOperationResult RunShadow(const std::string &media_root,
                      Frame(4U, with_occluder, PixelFormat::RGBA8_SRGB),
                      sdr_with),
                  "PSSM SDR occluder Render");
-  result.hdr = Compare(hdr_without, hdr_with, PixelFormat::RGBA16_FLOAT);
-  result.sdr = Compare(sdr_without, sdr_with, PixelFormat::RGBA8_SRGB);
+  constexpr ReviewedRegion kNearRegion{34U, 158U, 18U, 110U,
+                                        80U, 111U, 48U, 79U};
+  result.hdr =
+      Compare(hdr_without, hdr_with, PixelFormat::RGBA16_FLOAT, kNearRegion);
+  result.sdr =
+      Compare(sdr_without, sdr_with, PixelFormat::RGBA8_SRGB, kNearRegion);
+
+  // Distant occluders sit wholly above the image while their directional
+  // projections land on the off-axis receiver. Thus every changed image
+  // pixel is receiver evidence, not a self-shadowed visible caster.
+  constexpr ReviewedRegion kOffAxisRegion{68U, 191U, 18U, 110U,
+                                           192U, 192U, 128U, 128U};
+  struct DistantScenario final {
+    std::uint32_t cascade_index;
+    float camera_depth;
+    float scale;
+    float horizontal_offset;
+    float occluder_vertical_offset;
+    std::uint32_t visibility_mask;
+  };
+  constexpr std::array<DistantScenario, 2U> kDistantScenarios{{
+      {1U, 20.0F, 5.0F, 7.5F, 11.0F, 0x00000001U},
+      {2U, 100.0F, 25.0F, 37.5F, 55.0F, 0x00000001U},
+  }};
+  std::uint64_t frame_id = 5U;
+  std::uint64_t snapshot_id = 3U;
+  for (std::size_t index = 0U; index < kDistantScenarios.size(); ++index) {
+    const DistantScenario &scenario = kDistantScenarios[index];
+    const auto distant_without =
+        Scene(snapshot_id++, false, true, scenario.scale,
+              scenario.horizontal_offset,
+              scenario.occluder_vertical_offset);
+    const auto distant_with =
+        Scene(snapshot_id++, true, true, scenario.scale,
+              scenario.horizontal_offset,
+              scenario.occluder_vertical_offset);
+    RenderFrameOutput distant_without_output;
+    RenderFrameOutput distant_with_output;
+    RequireSuccess(frontend.Render(
+                       Frame(frame_id++, distant_without,
+                             PixelFormat::RGBA8_SRGB,
+                             scenario.camera_depth,
+                             scenario.visibility_mask),
+                       distant_without_output),
+                   "PSSM distant no-occluder Render");
+    RequireSuccess(frontend.Render(
+                       Frame(frame_id++, distant_with,
+                             PixelFormat::RGBA8_SRGB,
+                             scenario.camera_depth,
+                             scenario.visibility_mask),
+                       distant_with_output),
+                   "PSSM distant occluder Render");
+    CascadeProof &proof = result.distant_cascades[index];
+    proof.cascade_index = scenario.cascade_index;
+    proof.receiver_depth_m = scenario.camera_depth;
+    proof.occluder_depth_m = scenario.camera_depth - 1.5F * scenario.scale;
+    proof.sdr = Compare(distant_without_output, distant_with_output,
+                        PixelFormat::RGBA8_SRGB, kOffAxisRegion);
+  }
+  result.normalized_visibility_mask_verified = true;
   result.audit = frontend.QueryDirectionalShadowAudit();
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "PSSM Shutdown");
@@ -516,19 +616,69 @@ RenderOperationResult RunShadow(const std::string &media_root,
   Require(result.audit.version == kOgreNextPssmShadowContractVersion &&
               result.audit.configured_mode ==
                   OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1 &&
-              result.audit.shadow_frames_completed == 4U &&
-              result.audit.shadow_node_creates == 4U &&
-              result.audit.shadow_node_destroys == 4U &&
-              result.audit.receiver_datablock_creates == 4U &&
-              result.audit.receiver_datablock_destroys == 4U &&
+              result.audit.shadow_frames_completed == 8U &&
+              result.audit.shadow_node_creates == 8U &&
+              result.audit.shadow_node_creates ==
+                  result.audit.shadow_node_destroys &&
+              result.audit.workspace_node_definition_creates == 8U &&
+              result.audit.workspace_node_definition_creates ==
+                  result.audit.workspace_node_definition_destroys &&
+              result.audit.receiver_datablock_creates == 8U &&
+              result.audit.receiver_datablock_creates ==
+                  result.audit.receiver_datablock_destroys &&
               result.audit.last_frame.enabled &&
               result.audit.last_frame.static_caster_count == 2U &&
               result.audit.last_frame.dynamic_caster_count == 0U &&
               result.audit.last_frame.receiver_count == 1U &&
-              result.audit.exact_native_readback,
+              result.audit.last_frame.native_visibility_mask == 1U &&
+              result.audit.native_projection_extents_verified &&
+              result.audit.native_readback_verified &&
+              std::all_of(
+                  result.audit.last_native_normal_offset_bias.begin(),
+                  result.audit.last_native_normal_offset_bias.end(),
+                  [](float bias) {
+                    return std::isfinite(bias) &&
+                           bias >= kOgreNextPssmNormalOffsetBias;
+                  }),
           "PSSM runtime topology/caster/receiver audit is incomplete");
   return RenderOperationResult::Success();
 }
+
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+bool ProveTransactionalRetry(const std::string &media_root,
+                             OgreNextN1PssmFailureStage stage) {
+  OgreNextN1Configuration configuration{
+      media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1};
+  configuration.directional_shadow_mode =
+      OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+  configuration.pssm_failure_stage = stage;
+  OgreNextN1Frontend frontend(std::move(configuration));
+  RequireSuccess(InitializeAndSync(frontend),
+                 "PSSM transactional retry Initialize/sync");
+  const RenderFrameRequest request =
+      Frame(1U, Scene(201U + static_cast<std::uint64_t>(stage), true),
+            PixelFormat::RGBA8_SRGB);
+  RenderFrameOutput ignored;
+  const RenderOperationResult injected = frontend.Render(request, ignored);
+  Require(injected.code == RenderOperationCode::BACKEND_FAILURE,
+          "PSSM transactional fault seam did not fail closed");
+  RenderFrameOutput recovered;
+  RequireSuccess(frontend.Render(request, recovered),
+                 "PSSM same-frame transactional retry");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "PSSM transactional retry Shutdown");
+  const OgreNextPssmShadowRuntimeAudit audit =
+      frontend.QueryDirectionalShadowAudit();
+  Require(audit.shadow_frames_completed == 1U &&
+              audit.shadow_node_creates == audit.shadow_node_destroys &&
+              audit.workspace_node_definition_creates ==
+                  audit.workspace_node_definition_destroys &&
+              audit.receiver_datablock_creates ==
+                  audit.receiver_datablock_destroys,
+          "PSSM transactional retry leaked native frame-local state");
+  return true;
+}
+#endif
 
 void WriteEvidence(const std::string &path, const SmokeResult &result) {
   std::ofstream output(path, std::ios::binary | std::ios::trunc);
@@ -539,16 +689,69 @@ void WriteEvidence(const std::string &path, const SmokeResult &result) {
     output.write(reinterpret_cast<const char *>(bytes->data()),
                  static_cast<std::streamsize>(bytes->size()));
   }
+  for (const CascadeProof &proof : result.distant_cascades) {
+    for (const std::vector<std::uint8_t> *bytes :
+         {&proof.sdr.no_occluder, &proof.sdr.occluder}) {
+      output.write(reinterpret_cast<const char *>(bytes->data()),
+                   static_cast<std::streamsize>(bytes->size()));
+    }
+  }
   Require(static_cast<bool>(output), "could not write complete PSSM evidence");
 }
 
-std::string UnsupportedReport(const RenderOperationResult &failure) {
+std::string UnsupportedReport(
+    const RenderOperationResult &failure,
+    const OgreNextPssmShadowRuntimeAudit &audit) {
+  Require(failure.code == RenderOperationCode::UNSUPPORTED &&
+              failure.detail == kOgreNextPssmCapabilityUnsupportedDetail &&
+              audit.capability_check_completed &&
+              (!audit.atlas_dimensions_supported ||
+               !audit.texture_gather_supported ||
+               !audit.d32_render_target_supported),
+          "PSSM unsupported result was not exact native capability evidence");
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v1\",\n"
+         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v2\",\n"
          << "  \"status\": \"unsupported\",\n"
-         << "  \"reason\": \"" << JsonEscape(failure.detail) << "\",\n"
-         << "  \"required\": \"2048x3072 D32_FLOAT RTT plus texture-gather PCF4\",\n"
+         << "  \"provenance\": {\n"
+         << "    \"ror_repository\": \"" << ROR_OGRE_NEXT_N1_ROR_REPOSITORY
+         << "\",\n"
+         << "    \"ror_ref\": \"" << ROR_OGRE_NEXT_N1_ROR_REF << "\",\n"
+         << "    \"ror_commit\": \"" << ROR_OGRE_NEXT_N1_ROR_COMMIT
+         << "\",\n"
+         << "    \"ror_relevant_source_manifest_sha256\": \""
+         << ROR_OGRE_NEXT_N1_ROR_SOURCE_MANIFEST_SHA256 << "\",\n"
+         << "    \"ogre_next_commit\": \"" << ROR_OGRE_NEXT_N1_OGRE_COMMIT
+         << "\",\n"
+         << "    \"ogre_next_archive_sha256\": \""
+         << ROR_OGRE_NEXT_N1_OGRE_ARCHIVE_SHA256 << "\",\n"
+         << "    \"shader_media_manifest_sha256\": \""
+         << ROR_OGRE_NEXT_N1_SHADER_MEDIA_MANIFEST_SHA256 << "\",\n"
+         << "    \"executable_build_identity\": \""
+         << ROR_OGRE_NEXT_N1_BUILD_IDENTITY << "\"\n"
+         << "  },\n"
+         << "  \"platform_policy\": \""
+         << ROR_OGRE_NEXT_N1_PLATFORM_POLICY << "\",\n"
+         << "  \"renderer\": \"" << ROR_OGRE_NEXT_N1_RENDERER_NAME
+         << "\",\n"
+         << "  \"capability_evidence\": {\n"
+         << "    \"code\": \"PSSM_REQUIRED_NATIVE_CAPABILITY_MISSING\",\n"
+         << "    \"reason\": \"" << JsonEscape(failure.detail) << "\",\n"
+         << "    \"required_atlas_width\": " << kOgreNextPssmAtlasWidth
+         << ",\n"
+         << "    \"required_atlas_height\": " << kOgreNextPssmAtlasHeight
+         << ",\n"
+         << "    \"required_format\": \"D32_FLOAT\",\n"
+         << "    \"required_filter\": \"PCF_4x4_TEXTURE_GATHER\",\n"
+         << "    \"observed_maximum_texture_dimension\": "
+         << audit.observed_maximum_texture_dimension << ",\n"
+         << "    \"atlas_dimensions_supported\": "
+         << (audit.atlas_dimensions_supported ? "true" : "false") << ",\n"
+         << "    \"texture_gather_supported\": "
+         << (audit.texture_gather_supported ? "true" : "false") << ",\n"
+         << "    \"d32_render_target_supported\": "
+         << (audit.d32_render_target_supported ? "true" : "false") << "\n"
+         << "  },\n"
          << "  \"backend_substitution\": false\n"
          << "}\n";
   return report.str();
@@ -561,11 +764,15 @@ std::string PassReport(const SmokeResult &result,
           "fixed PSSM splits disappeared while writing evidence");
   const std::size_t evidence_bytes =
       result.hdr.no_occluder.size() + result.hdr.occluder.size() +
-      result.sdr.no_occluder.size() + result.sdr.occluder.size();
+      result.sdr.no_occluder.size() + result.sdr.occluder.size() +
+      result.distant_cascades[0U].sdr.no_occluder.size() +
+      result.distant_cascades[0U].sdr.occluder.size() +
+      result.distant_cascades[1U].sdr.no_occluder.size() +
+      result.distant_cascades[1U].sdr.occluder.size();
   std::ostringstream report;
   report << std::setprecision(9)
          << "{\n"
-         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v1\",\n"
+         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v2\",\n"
          << "  \"status\": \"pass\",\n"
          << "  \"provenance\": {\n"
          << "    \"ror_repository\": \"" << ROR_OGRE_NEXT_N1_ROR_REPOSITORY
@@ -579,6 +786,8 @@ std::string PassReport(const SmokeResult &result,
          << "\",\n"
          << "    \"ogre_next_archive_sha256\": \""
          << ROR_OGRE_NEXT_N1_OGRE_ARCHIVE_SHA256 << "\",\n"
+         << "    \"shader_media_manifest_sha256\": \""
+         << ROR_OGRE_NEXT_N1_SHADER_MEDIA_MANIFEST_SHA256 << "\",\n"
          << "    \"executable_build_identity\": \""
          << ROR_OGRE_NEXT_N1_BUILD_IDENTITY << "\"\n"
          << "  },\n"
@@ -605,12 +814,18 @@ std::string PassReport(const SmokeResult &result,
          << "    \"programmatic_compositor2\": true,\n"
          << "    \"ui_included\": false,\n"
          << "    \"backend_substitution\": false,\n"
-         << "    \"native_definition_and_split_readback\": true\n"
+         << "    \"split_stable_tangent_projection\": true,\n"
+         << "    \"native_definition_split_and_runtime_bias_readback\": true,\n"
+         << "    \"runtime_normal_offset_bias\": ["
+         << result.audit.last_native_normal_offset_bias[0U] << ", "
+         << result.audit.last_native_normal_offset_bias[1U] << ", "
+         << result.audit.last_native_normal_offset_bias[2U] << "]\n"
          << "  },\n"
          << "  \"isolation\": {\n"
-         << "    \"only_changed_input\": \"occluder_instance_casts_shadow\",\n"
-         << "    \"changed_pixels_outside_receiver\": 0,\n"
-         << "    \"changed_visible_occluder_pixels\": 0,\n"
+         << "    \"controlled_visual_change\": \"occluder_instance_casts_shadow\",\n"
+         << "    \"nonvisual_snapshot_identity_changed\": true,\n"
+         << "    \"changed_pixels_outside_reviewed_receiver_region\": 0,\n"
+         << "    \"changed_pixels_inside_reviewed_occluder_region\": 0,\n"
          << "    \"hdr_changed_receiver_pixels\": "
          << result.hdr.changed_pixels << ",\n"
          << "    \"hdr_darkened_receiver_pixels\": "
@@ -619,10 +834,26 @@ std::string PassReport(const SmokeResult &result,
          << result.sdr.changed_pixels << ",\n"
          << "    \"sdr_darkened_receiver_pixels\": "
          << result.sdr.darkened_pixels << ",\n"
+         << "    \"normalized_visibility_mask_0x1_verified\": "
+         << (result.normalized_visibility_mask_verified ? "true" : "false")
+         << ",\n"
          << "    \"shadow_disabled_default_equals_explicit\": true,\n"
          << "    \"shadow_disabled_exact_fnv1a64\": \""
          << Hex(result.disabled_default_hash) << "\"\n"
          << "  },\n"
+         << "  \"distant_cascade_proof\": [\n";
+  for (std::size_t index = 0U; index < result.distant_cascades.size(); ++index) {
+    const CascadeProof &proof = result.distant_cascades[index];
+    report << "    {\"cascade_index\": " << proof.cascade_index
+           << ", \"receiver_depth_m\": " << proof.receiver_depth_m
+           << ", \"occluder_depth_m\": " << proof.occluder_depth_m
+           << ", \"off_axis\": true, \"sdr_changed_receiver_pixels\": "
+           << proof.sdr.changed_pixels
+           << ", \"sdr_darkened_receiver_pixels\": "
+           << proof.sdr.darkened_pixels << "}"
+           << (index + 1U == result.distant_cascades.size() ? "\n" : ",\n");
+  }
+  report << "  ],\n"
          << "  \"lifecycle\": {\n"
          << "    \"shadow_frames_completed\": "
          << result.audit.shadow_frames_completed << ",\n"
@@ -630,10 +861,20 @@ std::string PassReport(const SmokeResult &result,
          << result.audit.shadow_node_creates << ",\n"
          << "    \"shadow_node_destroys\": "
          << result.audit.shadow_node_destroys << ",\n"
+         << "    \"workspace_node_definition_creates\": "
+         << result.audit.workspace_node_definition_creates << ",\n"
+         << "    \"workspace_node_definition_destroys\": "
+         << result.audit.workspace_node_definition_destroys << ",\n"
          << "    \"receiver_datablock_creates\": "
          << result.audit.receiver_datablock_creates << ",\n"
          << "    \"receiver_datablock_destroys\": "
-         << result.audit.receiver_datablock_destroys << "\n"
+         << result.audit.receiver_datablock_destroys << ",\n"
+         << "    \"receiver_clone_same_frame_retry_verified\": "
+         << (result.receiver_clone_retry_verified ? "true" : "false")
+         << ",\n"
+         << "    \"workspace_node_same_frame_retry_verified\": "
+         << (result.workspace_node_retry_verified ? "true" : "false")
+         << "\n"
          << "  },\n"
          << "  \"evidence\": {\n"
          << "    \"file\": \""
@@ -649,7 +890,17 @@ std::string PassReport(const SmokeResult &result,
          << "    \"sdr_no_occluder_fnv1a64\": \""
          << Hex(result.sdr.no_occluder_hash) << "\",\n"
          << "    \"sdr_occluder_fnv1a64\": \""
-         << Hex(result.sdr.occluder_hash) << "\"\n"
+         << Hex(result.sdr.occluder_hash) << "\",\n"
+         << "    \"cascade_2_sdr_no_occluder_fnv1a64\": \""
+         << Hex(result.distant_cascades[0U].sdr.no_occluder_hash)
+         << "\",\n"
+         << "    \"cascade_2_sdr_occluder_fnv1a64\": \""
+         << Hex(result.distant_cascades[0U].sdr.occluder_hash) << "\",\n"
+         << "    \"cascade_3_sdr_no_occluder_fnv1a64\": \""
+         << Hex(result.distant_cascades[1U].sdr.no_occluder_hash)
+         << "\",\n"
+         << "    \"cascade_3_sdr_occluder_fnv1a64\": \""
+         << Hex(result.distant_cascades[1U].sdr.occluder_hash) << "\"\n"
          << "  }\n"
          << "}\n";
   return report.str();
@@ -664,13 +915,23 @@ int main(int argc, char **argv) {
     const RenderOperationResult shadow = RunShadow(arguments.media_root, result);
     if (!shadow) {
       if (shadow.code == RenderOperationCode::UNSUPPORTED) {
-        const std::string report = UnsupportedReport(shadow);
+        const std::string report = UnsupportedReport(shadow, result.audit);
         WriteText(arguments.report_path, report);
         std::cout << report;
         return kUnsupportedExitCode;
       }
       Fail("PSSM initialization/sync failed: " + shadow.detail);
     }
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+    result.receiver_clone_retry_verified = ProveTransactionalRetry(
+        arguments.media_root,
+        OgreNextN1PssmFailureStage::AFTER_RECEIVER_DATABLOCK_CLONE);
+    result.workspace_node_retry_verified = ProveTransactionalRetry(
+        arguments.media_root,
+        OgreNextN1PssmFailureStage::AFTER_WORKSPACE_NODE_DEFINITION);
+#else
+    Fail("PSSM transactional retry proof was not compiled");
+#endif
     const std::vector<std::uint8_t> disabled_default =
         RenderDisabled(arguments.media_root, false);
     const std::vector<std::uint8_t> disabled_explicit =

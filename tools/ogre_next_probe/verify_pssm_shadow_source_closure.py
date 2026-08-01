@@ -45,6 +45,16 @@ SOURCE_ROLES_AND_PATHS = [
         "workspace_first_only_ordering",
         "OgreMain/src/Compositor/OgreCompositorWorkspace.cpp",
     ),
+    ("frustum_projection_api", "OgreMain/include/OgreFrustum.h"),
+    ("frustum_projection_runtime", "OgreMain/src/OgreFrustum.cpp"),
+    (
+        "compositor_node_definition_api",
+        "OgreMain/include/Compositor/OgreCompositorManager2.h",
+    ),
+    (
+        "compositor_node_definition_lifecycle",
+        "OgreMain/src/Compositor/OgreCompositorManager2.cpp",
+    ),
     ("pssm_split_api", "OgreMain/include/OgreShadowCameraSetupPSSM.h"),
     ("pssm_split_runtime", "OgreMain/src/OgreShadowCameraSetupPSSM.cpp"),
     ("focused_shadow_api", "OgreMain/include/OgreShadowCameraSetupFocused.h"),
@@ -72,6 +82,10 @@ SOURCE_ROLES_AND_PATHS = [
         "pbs_receive_shadow_runtime",
         "Components/Hlms/Pbs/src/OgreHlmsPbsDatablock.cpp",
     ),
+    ("hlms_datablock_clone_api", "OgreMain/include/OgreHlmsDatablock.h"),
+    ("hlms_datablock_clone_runtime", "OgreMain/src/OgreHlmsDatablock.cpp"),
+    ("hlms_datablock_owner_api", "OgreMain/include/OgreHlms.h"),
+    ("hlms_datablock_owner_runtime", "OgreMain/src/OgreHlms.cpp"),
     (
         "shared_shadow_math",
         "Samples/Media/Hlms/Pbs/Any/ShadowMapping_piece_all.any",
@@ -139,8 +153,19 @@ def _require_exact_keys(value: object, keys: set[str], context: str) -> dict:
 
 
 def _load_object(path: Path, context: str) -> dict:
+    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                _reject(f"{context} contains duplicate JSON object key {key!r}")
+            result[key] = value
+        return result
+
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise VerificationError(f"could not load {context}: {error}") from error
     if type(value) is not dict:
@@ -254,6 +279,33 @@ def verify_source_root(lock: dict, source_root: Path) -> None:
     )
     _require_tokens(
         canonical_root,
+        "OgreMain/include/OgreFrustum.h",
+        (
+            "FET_TAN_HALF_ANGLES",
+            "setFrustumExtents",
+            "getFrustumExtents",
+            "setCustomProjectionMatrix",
+        ),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreFrustum.cpp",
+        (
+            "mFrustrumExtentsType == FET_TAN_HALF_ANGLES",
+            "Frustum::setCustomProjectionMatrix",
+            "Frustum::setFrustumExtents",
+        ),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/Compositor/OgreCompositorManager2.cpp",
+        (
+            "CompositorManager2::addNodeDefinition",
+            "CompositorManager2::removeNodeDefinition",
+        ),
+    )
+    _require_tokens(
+        canonical_root,
         "OgreMain/src/OgreShadowCameraSetupPSSM.cpp",
         ("PSSMShadowCameraSetup::calculateSplitPoints", "Math::Pow"),
     )
@@ -271,6 +323,16 @@ def verify_source_root(lock: dict, source_root: Path) -> None:
         canonical_root,
         "Components/Hlms/Pbs/src/OgreHlmsPbsDatablock.cpp",
         ("HlmsPbsDatablock::setReceiveShadows", "mReceiveShadows"),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreHlmsDatablock.cpp",
+        ("HlmsDatablock::clone", "cloneImpl( datablock )"),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreHlms.cpp",
+        ("Hlms::destroyDatablock",),
     )
     _require_tokens(
         canonical_root,

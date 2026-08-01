@@ -197,58 +197,21 @@ jobs:
         shell: bash
         run: |
           build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
-          python - \
-            "$build_root/ror-ogre-next-pssm-shadow-report.json" \
-            "$build_root/ror-ogre-next-pssm-shadow-isolation.bin" <<'PY'
-          import json
+          python - "$build_root" <<'PY'
           from pathlib import Path
           import sys
 
-          report_path = Path(sys.argv[1])
-          evidence_path = Path(sys.argv[2])
-          report = json.loads(report_path.read_text(encoding="utf-8"))
-          if report.get("schema") != "ror.ogre_next_pssm_shadow_smoke.v1":
-              raise SystemExit("directional PSSM report schema is not exact")
-          status = report.get("status")
-          if status == "unsupported":
-              if not report.get("reason") or report.get("backend_substitution") is not False:
-                  raise SystemExit("directional PSSM unsupported evidence is incomplete")
-              if evidence_path.exists():
-                  raise SystemExit("unsupported directional PSSM emitted pass evidence")
-          elif status == "pass":
-              contract = report.get("shadow_contract", {})
-              isolation = report.get("isolation", {})
-              lifecycle = report.get("lifecycle", {})
-              evidence = report.get("evidence", {})
-              if contract.get("mode") != "PSSM_3_CASCADE_V1":
-                  raise SystemExit("directional PSSM mode changed")
-              if contract.get("cascade_count") != 3 or contract.get("filter") != "PCF_4x4":
-                  raise SystemExit("directional PSSM topology or filter changed")
-              if contract.get("atlas") != {"format": "D32_FLOAT", "width": 2048, "height": 3072}:
-                  raise SystemExit("directional PSSM atlas changed")
-              if contract.get("programmatic_compositor2") is not True or contract.get("ui_included") is not False:
-                  raise SystemExit("directional PSSM compositor contract changed")
-              if contract.get("backend_substitution") is not False or contract.get("native_definition_and_split_readback") is not True:
-                  raise SystemExit("directional PSSM native readback is incomplete")
-              for key in ("hdr_changed_receiver_pixels", "sdr_changed_receiver_pixels"):
-                  if not isinstance(isolation.get(key), int) or isolation[key] <= 0:
-                      raise SystemExit(f"directional PSSM isolation has no {key}")
-              if isolation.get("hdr_changed_receiver_pixels") != isolation.get("hdr_darkened_receiver_pixels"):
-                  raise SystemExit("directional PSSM HDR isolation includes non-shadow changes")
-              if isolation.get("sdr_changed_receiver_pixels") != isolation.get("sdr_darkened_receiver_pixels"):
-                  raise SystemExit("directional PSSM SDR isolation includes non-shadow changes")
-              if isolation.get("changed_pixels_outside_receiver") != 0 or isolation.get("changed_visible_occluder_pixels") != 0:
-                  raise SystemExit("directional PSSM isolation escaped the receiver")
-              if isolation.get("shadow_disabled_default_equals_explicit") is not True:
-                  raise SystemExit("shadow-disabled rendering is not byte-exact")
-              if lifecycle.get("shadow_frames_completed") != 4 or lifecycle.get("shadow_node_creates") != lifecycle.get("shadow_node_destroys"):
-                  raise SystemExit("directional PSSM lifecycle is incomplete")
-              if lifecycle.get("receiver_datablock_creates") != lifecycle.get("receiver_datablock_destroys"):
-                  raise SystemExit("directional PSSM receiver lifecycle is incomplete")
-              if not evidence_path.is_file() or evidence_path.stat().st_size != evidence.get("bytes"):
-                  raise SystemExit("directional PSSM evidence size is not exact")
-          else:
-              raise SystemExit("directional PSSM did not pass or fail closed as unsupported")
+          from tools.verify_ogre_next_artifact_set import (
+              _current_source_identity,
+              _read_build_contract,
+              _verify_pssm,
+          )
+
+          root = Path(sys.argv[1]).resolve(strict=True)
+          build_contract = _read_build_contract(
+              root, _current_source_identity()
+          )
+          _verify_pssm(root, [], build_contract)
           PY
 
       - name: Prove N1 lifecycle and media-integrity failures independently

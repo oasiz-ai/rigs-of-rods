@@ -15,6 +15,7 @@
 #include "OgreNextPssmShadowPolicy.h"
 #include "RasterFeatureTier.h"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -34,6 +35,13 @@ enum class OgreNextN1TextureUploadFailureStage : std::uint8_t {
   AFTER_SET_PIXEL_FORMAT,
   AFTER_SCHEDULE_TRANSITION,
 };
+
+/// PSSM-only transactional fault seam for the standalone native smoke.
+enum class OgreNextN1PssmFailureStage : std::uint8_t {
+  NONE = 0,
+  AFTER_RECEIVER_DATABLOCK_CLONE,
+  AFTER_WORKSPACE_NODE_DEFINITION,
+};
 #endif
 
 /// Runtime-owned Ogre shader media. The root is an absolute UTF-8 path containing
@@ -52,6 +60,10 @@ struct OgreNextN1Configuration final {
   // this field by name after constructing the configuration.
   OgreNextDirectionalShadowMode directional_shadow_mode =
       OgreNextDirectionalShadowMode::DISABLED;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  OgreNextN1PssmFailureStage pssm_failure_stage =
+      OgreNextN1PssmFailureStage::NONE;
+#endif
 };
 
 struct OgreNextPssmShadowRuntimeAudit final {
@@ -61,11 +73,21 @@ struct OgreNextPssmShadowRuntimeAudit final {
   std::uint64_t shadow_frames_completed = 0U;
   std::uint64_t shadow_node_creates = 0U;
   std::uint64_t shadow_node_destroys = 0U;
+  std::uint64_t workspace_node_definition_creates = 0U;
+  std::uint64_t workspace_node_definition_destroys = 0U;
   std::uint64_t receiver_datablock_creates = 0U;
   std::uint64_t receiver_datablock_destroys = 0U;
+  bool capability_check_completed = false;
+  std::uint32_t observed_maximum_texture_dimension = 0U;
+  bool atlas_dimensions_supported = false;
+  bool texture_gather_supported = false;
+  bool d32_render_target_supported = false;
   OgreNextPssmShadowFramePlan last_frame;
   OgreNextPssmSplitPolicy last_native_splits;
-  bool exact_native_readback = false;
+  std::array<float, kOgreNextPssmCascadeCount>
+      last_native_normal_offset_bias{};
+  bool native_projection_extents_verified = false;
+  bool native_readback_verified = false;
 };
 
 /// Runtime audit of the native RT4/V1 texture variants owned by one frontend.
