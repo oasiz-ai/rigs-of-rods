@@ -48,7 +48,11 @@ Dxr7FenceCompletionDecision EvaluateDxr7FenceCompletion(
 bool Dxr7OgreTeardownTracker::Record(
     Dxr7OgreTeardownStep step) noexcept {
   const auto observed = static_cast<std::uint8_t>(step);
-  if (observed != next_step_) {
+  constexpr auto kStepCount =
+      static_cast<std::uint8_t>(
+          Dxr7OgreTeardownStep::ROOT_SHUTDOWN_COMPLETED) +
+      1U;
+  if (observed >= kStepCount || observed != next_step_) {
     return false;
   }
   switch (step) {
@@ -76,6 +80,8 @@ bool Dxr7OgreTeardownTracker::Record(
     case Dxr7OgreTeardownStep::ROOT_SHUTDOWN_COMPLETED:
       contract_.root_shutdown_completed = true;
       break;
+    default:
+      return false;
   }
   ++next_step_;
   return true;
