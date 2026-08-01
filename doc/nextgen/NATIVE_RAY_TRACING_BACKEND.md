@@ -489,8 +489,12 @@ shared-scene integration, validation layers, resize, soak, and compositing.
 ### RT7 — DXR interop decision
 
 - Complete the D3D12/D3D11On12/Ogre-Next proof.
+- Bind every pass/unsupported result to the exact executable, DXIL, Windows SDK
+  compiler closure, clean source manifest, build contract, observed process
+  exit, and CI rerun receipt.
 - Pass DXR tier query, triangle probe, shared-scene pass, resource-state
-  validation, resize, device removal, and soak.
+  validation, a native UI-free Ogre frame readback, resize, device removal, and
+  soak. Initialise-only or fabricated offline artifacts never satisfy RT7.
 
 Exit: either `native_rt=dxr` is proven or the project records a renderer
 architecture no-go and chooses the D3D12-renderer/alternative-engine path.

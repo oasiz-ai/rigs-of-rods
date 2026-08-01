@@ -236,6 +236,10 @@ option(
     ROR_OGRE_NEXT_VULKAN_RT6
     "Expose the opt-in Linux Vulkan KHR ray-dispatch RT6 proof target"
     ON)
+option(
+    ROR_OGRE_NEXT_WINDOWS_DXR7
+    "Expose the opt-in Windows D3D11On12/DXR RT7 proof target"
+    ON)
 if (ROR_OGRE_NEXT_FRONTEND_N1)
     if (TARGET OgreMain)
         message(FATAL_ERROR
@@ -394,6 +398,87 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             ror_ogre_next_vulkan_rt6_smoke
             PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
         list(APPEND _ror_n1_targets ror_ogre_next_vulkan_rt6_smoke)
+    endif ()
+    if (ROR_OGRE_NEXT_WINDOWS_DXR7 AND WIN32)
+        set(ROR_OGRE_NEXT_DXC_EXECUTABLE "" CACHE FILEPATH
+            "Exact Windows SDK dxc.exe used for the DXR7 proof")
+        if (ROR_OGRE_NEXT_DXC_EXECUTABLE STREQUAL "")
+            find_program(
+                ROR_OGRE_NEXT_DXC_EXECUTABLE
+                NAMES dxc.exe dxc
+                HINTS "$ENV{WindowsSdkVerBinPath}/x64"
+                REQUIRED)
+        endif ()
+        if (NOT EXISTS "${ROR_OGRE_NEXT_DXC_EXECUTABLE}" OR
+                IS_DIRECTORY "${ROR_OGRE_NEXT_DXC_EXECUTABLE}")
+            message(FATAL_ERROR
+                "ROR_OGRE_NEXT_DXC_EXECUTABLE must name an exact dxc.exe")
+        endif ()
+        file(SHA256 "${ROR_OGRE_NEXT_DXC_EXECUTABLE}"
+            ROR_WINDOWS_DXR7_DXC_SHA256)
+        file(TO_CMAKE_PATH "${ROR_OGRE_NEXT_DXC_EXECUTABLE}"
+            ROR_WINDOWS_DXR7_DXC_PATH)
+        set(_ror_dxr7_hlsl
+            "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_WINDOWS_DXR7_SHADER_PATH}")
+        file(SHA256 "${_ror_dxr7_hlsl}"
+            ROR_WINDOWS_DXR7_HLSL_SOURCE_SHA256)
+        set(_ror_dxr7_dxil
+            "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_windows_dxr7_probe.dxil")
+        configure_file(
+            "${CMAKE_CURRENT_SOURCE_DIR}/windows_dxr7_config.h.in"
+            "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_windows_dxr7_config.h"
+            @ONLY)
+        add_custom_command(
+            OUTPUT "${_ror_dxr7_dxil}"
+            COMMAND
+                "${ROR_OGRE_NEXT_DXC_EXECUTABLE}"
+                -T "${ROR_WINDOWS_DXR7_SHADER_TARGET}"
+                -HV 2021 -O3 -Qstrip_debug -Qstrip_reflect
+                -Fo "${_ror_dxr7_dxil}"
+                "${_ror_dxr7_hlsl}"
+            DEPENDS
+                "${_ror_dxr7_hlsl}"
+                "${ROR_OGRE_NEXT_WINDOWS_DXR7_LOCK_PATH}"
+            COMMENT "Compiling the exact Windows DXR7 shader library"
+            VERBATIM)
+        add_custom_target(ror_ogre_next_windows_dxr7_shader
+            DEPENDS "${_ror_dxr7_dxil}")
+        add_executable(
+            ror_ogre_next_windows_dxr7_smoke
+            src/windows_dxr7_smoke.cpp
+            "${_ror_render_root}/ogrenext/OgreNextD3D12DxrBootstrap.cpp"
+            "${_ror_render_root}/ogrenext/OgreNextDxr7Contract.cpp")
+        add_dependencies(
+            ror_ogre_next_windows_dxr7_smoke
+            ror_ogre_next_windows_dxr7_shader)
+        target_compile_definitions(
+            ror_ogre_next_windows_dxr7_smoke
+            PRIVATE ROR_OGRE_NEXT_N1_D3D11=1)
+        target_include_directories(
+            ror_ogre_next_windows_dxr7_smoke
+            PRIVATE
+                "${CMAKE_CURRENT_BINARY_DIR}/generated"
+                "${_ror_render_root}/ogrenext")
+        target_include_directories(
+            ror_ogre_next_windows_dxr7_smoke
+            SYSTEM PRIVATE
+                "${ogre_next_SOURCE_DIR}/OgreMain/include"
+                "${ogre_next_BINARY_DIR}/include"
+                "${ogre_next_SOURCE_DIR}/RenderSystems/Direct3D11/include")
+        target_link_libraries(
+            ror_ogre_next_windows_dxr7_smoke
+            PRIVATE
+                RenderSystem_Direct3D11
+                OgreNextMain
+                d3d11
+                d3d12
+                d3dcompiler
+                dxgi)
+        set_target_properties(
+            ror_ogre_next_windows_dxr7_smoke
+            PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+        list(APPEND _ror_n1_targets
+            ror_ogre_next_windows_dxr7_smoke)
     endif ()
     if (APPLE)
         set(_ror_n2_repository_root
@@ -705,6 +790,21 @@ if (TARGET ror_ogre_next_vulkan_rt6_smoke)
                 --report "${ROR_OGRE_NEXT_RT6_CTEST_REPORT}")
     set_tests_properties(
         ror_ogre_next_vulkan_rt6_runtime
+        PROPERTIES
+            TIMEOUT 180
+            SKIP_RETURN_CODE 77
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif ()
+
+if (TARGET ror_ogre_next_windows_dxr7_smoke)
+    set(ROR_OGRE_NEXT_DXR7_CTEST_REPORT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-windows-dxr7-ctest-report.json")
+    add_test(NAME ror_ogre_next_windows_dxr7_runtime
+        COMMAND $<TARGET_FILE:ror_ogre_next_windows_dxr7_smoke>
+                --shader "${_ror_dxr7_dxil}"
+                --report "${ROR_OGRE_NEXT_DXR7_CTEST_REPORT}")
+    set_tests_properties(
+        ror_ogre_next_windows_dxr7_runtime
         PROPERTIES
             TIMEOUT 180
             SKIP_RETURN_CODE 77

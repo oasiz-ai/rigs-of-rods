@@ -74,6 +74,38 @@ if (NOT _ror_linux_toolchain_lock_sha256 STREQUAL
 endif ()
 file(READ "${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
     _ror_linux_toolchain_lock_json)
+
+# The Windows native-RT adaptation is independently locked so the shared
+# OGRE archive/ABI lock and the unmodified Metal/Vulkan patch sets remain
+# byte-for-byte stable.
+set(ROR_OGRE_NEXT_WINDOWS_DXR7_LOCK_PATH
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/windows-dxr7.lock.json")
+set(ROR_OGRE_NEXT_WINDOWS_DXR7_LOCK_SHA256
+    "b49f61500496213576fb2cfb74915463f743a3bde61a52991991da04baa87a0e")
+file(SHA256 "${ROR_OGRE_NEXT_WINDOWS_DXR7_LOCK_PATH}"
+    _ror_windows_dxr7_lock_sha256)
+if (NOT _ror_windows_dxr7_lock_sha256 STREQUAL
+        ROR_OGRE_NEXT_WINDOWS_DXR7_LOCK_SHA256)
+    message(FATAL_ERROR "The reviewed Windows DXR7 source lock changed")
+endif ()
+file(READ "${ROR_OGRE_NEXT_WINDOWS_DXR7_LOCK_PATH}"
+    _ror_windows_dxr7_lock_json)
+string(JSON ROR_WINDOWS_DXR7_LOCK_SCHEMA GET
+    "${_ror_windows_dxr7_lock_json}" schema)
+string(JSON ROR_WINDOWS_DXR7_PLATFORM_POLICY GET
+    "${_ror_windows_dxr7_lock_json}" platform_policy)
+string(JSON ROR_WINDOWS_DXR7_OGRE_COMMIT GET
+    "${_ror_windows_dxr7_lock_json}" ogre_next_commit)
+string(JSON ROR_WINDOWS_DXR7_PATCH_PATH GET
+    "${_ror_windows_dxr7_lock_json}" adaptation_patch path)
+string(JSON ROR_WINDOWS_DXR7_PATCH_SHA256 GET
+    "${_ror_windows_dxr7_lock_json}" adaptation_patch sha256)
+string(JSON ROR_WINDOWS_DXR7_SHADER_PATH GET
+    "${_ror_windows_dxr7_lock_json}" shader path)
+string(JSON ROR_WINDOWS_DXR7_SHADER_SHA256 GET
+    "${_ror_windows_dxr7_lock_json}" shader sha256)
+string(JSON ROR_WINDOWS_DXR7_SHADER_TARGET GET
+    "${_ror_windows_dxr7_lock_json}" shader target)
 string(JSON ROR_LINUX_SHADER_LOCK_SCHEMA GET
     "${_ror_linux_toolchain_lock_json}" schema)
 string(JSON ROR_LINUX_SHADER_PLATFORM_POLICY GET
@@ -149,6 +181,15 @@ if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 2 OR
         "37149a802de747f6806996fa3067b0748ecc1084")
     message(FATAL_ERROR "The OGRE-Next lock moved without an integration review")
 endif ()
+if (NOT ROR_WINDOWS_DXR7_LOCK_SCHEMA STREQUAL
+        "ror.ogre_next_windows_dxr7_toolchain.v1" OR
+        NOT ROR_WINDOWS_DXR7_PLATFORM_POLICY STREQUAL
+        "windows-x64-d3d11on12-dxr" OR
+        NOT ROR_WINDOWS_DXR7_OGRE_COMMIT STREQUAL
+        ROR_OGRE_NEXT_COMMIT OR
+        NOT ROR_WINDOWS_DXR7_SHADER_TARGET STREQUAL "lib_6_5")
+    message(FATAL_ERROR "The Windows DXR7 toolchain contract changed")
+endif ()
 if (NOT ROR_LINUX_SHADER_LOCK_SCHEMA STREQUAL
         "ror.ogre_next_linux_shader_toolchain.v1" OR
         NOT ROR_LINUX_SHADER_PLATFORM_POLICY STREQUAL
@@ -221,6 +262,20 @@ if (NOT ROR_OGRE_NEXT_PATCH_SHA256 STREQUAL
         "84916d0d1abf61a15d19d2c89a7d9b1a445f1a37a5067a9f8b558395fe10ead1" OR
         NOT _ror_patch_sha256 STREQUAL ROR_OGRE_NEXT_PATCH_SHA256)
     message(FATAL_ERROR "The pinned OGRE-Next adaptation patch changed")
+endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_WINDOWS_DXR7_PATCH_PATH}"
+    _ror_windows_dxr7_patch_sha256)
+if (NOT _ror_windows_dxr7_patch_sha256 STREQUAL
+        ROR_WINDOWS_DXR7_PATCH_SHA256)
+    message(FATAL_ERROR "The pinned Windows D3D11 adoption patch changed")
+endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_WINDOWS_DXR7_SHADER_PATH}"
+    _ror_windows_dxr7_shader_sha256)
+if (NOT _ror_windows_dxr7_shader_sha256 STREQUAL
+        ROR_WINDOWS_DXR7_SHADER_SHA256)
+    message(FATAL_ERROR "The pinned Windows DXR7 shader source changed")
 endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_LINUX_OGRE_GLSLANG_PATCH_PATH}"
@@ -728,7 +783,10 @@ set(Rapidjson_HOME "${rapidjson_SOURCE_DIR}" CACHE PATH "" FORCE)
 
 set(_ror_ogre_next_patch_paths
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_PATCH_PATH}")
-if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
+if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "windows-x64-d3d11")
+    list(APPEND _ror_ogre_next_patch_paths
+        "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_WINDOWS_DXR7_PATCH_PATH}")
+elseif (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
     list(APPEND _ror_ogre_next_patch_paths
         "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_LINUX_OGRE_GLSLANG_PATCH_PATH}")
 endif ()
