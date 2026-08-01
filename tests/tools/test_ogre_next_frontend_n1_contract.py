@@ -217,6 +217,12 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "VerifySamplerMapping",
             "PendingTextureAllocation",
             "impl_->textures.swap(candidate_textures)",
+            "NativeTextureUsage",
+            "ReferencedTextureUsage",
+            "existing->second.usage == referenced->second.usage",
+            "allocated an unused sampled RGBA texture",
+            "rejects aliases between sampled sRGB and packed linear",
+            "QueryTextureAllocationAudit",
         ):
             self.assertIn(token, self.frontend)
         self.assertIn("pinned PBS reconstructs positive Z", self.policy)
@@ -228,6 +234,23 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         )
         self.assertIn(
             "ror_ogre_next_frontend_rt4_pbr_v1_runtime", self.entry_cmake
+        )
+        self.assertIn("--evidence", self.entry_cmake)
+        self.assertIn("RequireControlledCatalog", self.smoke)
+        self.assertIn("RequireControlledSceneAndView", self.smoke)
+        self.assertIn("packed_green_roughness", self.smoke)
+        self.assertIn("packed_blue_metallic", self.smoke)
+        self.assertIn("sampler_address_over_uv0", self.smoke)
+        self.assertIn("unused_packed_rgba_allocations", self.smoke)
+
+        create_texture = self.frontend[
+            self.frontend.index("NativeTexture CreateTexture(") :
+            self.frontend.index("void VerifyTexture(")
+        ]
+        self.assertIn("if (usage.sampled_rgba)", create_texture)
+        self.assertLess(
+            create_texture.index("if (usage.sampled_rgba)"),
+            create_texture.index("UploadedTextureChannel::RGBA"),
         )
 
         destroy_catalog = self.frontend[
@@ -254,7 +277,80 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "ToOgreMatrix(converted_projection)",
             self.frontend,
         )
+        self.assertIn("TryComputeReadbackLayout", self.frontend)
+        self.assertLess(
+            self.frontend.index("TryComputeReadbackLayout(validated_view.width"),
+            self.frontend.index("createTexture(\n        target_name"),
+        )
         self.assertEqual(self.frontend.count("createRenderWindow("), 1)
+
+    def test_rt4_isolation_validator_is_exact_and_tamper_closed(self) -> None:
+        names = (
+            ("baseline", "none"),
+            ("base_color", "base_color_rgb"),
+            ("roughness_g", "packed_green_roughness"),
+            ("metallic_b", "packed_blue_metallic"),
+            ("emissive", "emissive_rgb"),
+            ("sampler_uv", "sampler_address_over_uv0"),
+        )
+        report: dict = {
+            "texture_isolation": {
+                "schema": "ror.ogre_next_rt4_texture_isolation.v1",
+                "evidence_file": RUNNER.RT4_PBR_EVIDENCE_NAME,
+                "width": 192,
+                "height": 128,
+                "geometry_identical": True,
+                "material_factors_constants_identical": True,
+                "camera_identical": True,
+                "lights_identical": True,
+                "ui_included": False,
+                "variants": [],
+            },
+            "hdr": {},
+            "sdr": {},
+        }
+        evidence = bytearray()
+        baseline_blocks: dict[str, bytes] = {}
+        for index, (name, changed_input) in enumerate(names):
+            entry = {
+                "name": name,
+                "changed_input": changed_input,
+                "asset_sequence": index + 1,
+            }
+            for label, bytes_per_pixel in (("hdr", 8), ("sdr", 4)):
+                block = bytearray(192 * 128 * bytes_per_pixel)
+                if index:
+                    for pixel in range(64 + index):
+                        block[pixel * bytes_per_pixel] = index
+                block_bytes = bytes(block)
+                if index == 0:
+                    baseline_blocks[label] = block_bytes
+                entry[label] = {
+                    "offset": len(evidence),
+                    "bytes": len(block_bytes),
+                    "exact_fnv1a64": RUNNER._fnv1a64(block_bytes),
+                    "changed_pixels_from_baseline": RUNNER._changed_pixels(
+                        baseline_blocks[label], block_bytes, bytes_per_pixel
+                    ),
+                }
+                evidence.extend(block_bytes)
+            report["texture_isolation"]["variants"].append(entry)
+        report["texture_isolation"]["evidence_bytes"] = len(evidence)
+        report["hdr"]["exact_attachment_fnv1a64"] = RUNNER._fnv1a64(
+            baseline_blocks["hdr"]
+        )
+        report["sdr"]["exact_attachment_fnv1a64"] = RUNNER._fnv1a64(
+            baseline_blocks["sdr"]
+        )
+        with tempfile.TemporaryDirectory(prefix="ror-rt4-isolation-") as temp:
+            path = Path(temp) / RUNNER.RT4_PBR_EVIDENCE_NAME
+            path.write_bytes(evidence)
+            RUNNER.validate_rt4_isolation_evidence(report, path)
+            tampered = bytearray(evidence)
+            tampered[-1] ^= 1
+            path.write_bytes(tampered)
+            with self.assertRaises(RUNNER.ProbeError):
+                RUNNER.validate_rt4_isolation_evidence(report, path)
 
     def test_real_smoke_covers_hdr_sdr_readback_and_recovery(self) -> None:
         for token in (

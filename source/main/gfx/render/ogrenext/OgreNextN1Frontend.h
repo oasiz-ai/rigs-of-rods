@@ -31,6 +31,21 @@ struct OgreNextN1Configuration final {
       OgreNextRasterFeatureTier::STATIC_PBR_N1;
 };
 
+/// Runtime audit of the native RT4/V1 texture variants owned by one frontend.
+///
+/// A source texture may require one sampled RGBA allocation (base colour or
+/// emissive), or the two R8 derivatives used by a packed metallic-roughness
+/// binding. `exact_usage` is false unless every live native allocation exactly
+/// matches the roles discovered from the currently published material graph.
+struct OgreNextN1TextureAllocationAudit final {
+  std::uint32_t version = 1U;
+  std::uint32_t live_source_textures = 0U;
+  std::uint32_t sampled_rgba_allocations = 0U;
+  std::uint32_t roughness_r8_allocations = 0U;
+  std::uint32_t metallic_r8_allocations = 0U;
+  bool exact_usage = false;
+};
+
 /// First production adapter behind the renderer-neutral boundary.
 ///
 /// Ogre headers and native objects are confined to the private implementation.
@@ -49,6 +64,8 @@ public:
   OgreNextN1Frontend &operator=(OgreNextN1Frontend &&) = delete;
 
   [[nodiscard]] FrontendCapabilityReport QueryCapabilities() const override;
+  [[nodiscard]] OgreNextN1TextureAllocationAudit
+  QueryTextureAllocationAudit() const noexcept;
   RenderOperationResult
   Initialize(const FrontendInitializationRequest &request) override;
   RenderOperationResult

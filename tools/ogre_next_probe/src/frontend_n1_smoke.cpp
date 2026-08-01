@@ -11,9 +11,11 @@
 #include "ror_ogre_next_n1_config.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -37,6 +39,7 @@ struct Arguments {
   std::string media_root;
   std::string image_path;
   std::string report_path;
+  std::string evidence_path;
   bool modern_pbr = false;
 };
 
@@ -46,8 +49,64 @@ struct Metrics {
   float minimum_luminance = std::numeric_limits<float>::infinity();
   float maximum_luminance = -std::numeric_limits<float>::infinity();
   std::uint64_t fnv1a64 = UINT64_C(14695981039346656037);
+  std::uint64_t attachment_fnv1a64 = UINT64_C(14695981039346656037);
   std::vector<std::uint8_t> rgb;
+  std::vector<std::uint8_t> attachment_bytes;
 };
+
+struct VariantEvidence final {
+  std::string name;
+  std::string changed_input;
+  std::uint64_t asset_sequence = 0U;
+  Metrics hdr;
+  Metrics sdr;
+  std::size_t hdr_changed_pixels = 0U;
+  std::size_t sdr_changed_pixels = 0U;
+};
+
+struct SmokeResult final {
+  Metrics hdr;
+  Metrics sdr;
+  std::vector<VariantEvidence> variants;
+  OgreNextN1TextureAllocationAudit texture_allocations;
+  bool live_replacement_retirement = false;
+};
+
+enum class TextureVariant : std::uint8_t {
+  BASELINE,
+  BASE_COLOR,
+  ROUGHNESS_G,
+  METALLIC_B,
+  EMISSIVE,
+  SAMPLER_UV,
+};
+
+struct VariantSpec final {
+  TextureVariant variant;
+  const char *name;
+  const char *changed_input;
+  std::uint64_t sequence;
+  std::uint64_t material_revision;
+  std::uint64_t base_color_revision;
+  std::uint64_t packed_revision;
+  std::uint64_t emissive_revision;
+  std::uint64_t sampler_revision;
+};
+
+constexpr std::array<VariantSpec, 6U> kVariantSpecs{{
+    {TextureVariant::BASELINE, "baseline", "none", 1U, 1U, 1U, 1U, 1U,
+     1U},
+    {TextureVariant::BASE_COLOR, "base_color", "base_color_rgb", 2U, 2U,
+     2U, 1U, 1U, 1U},
+    {TextureVariant::ROUGHNESS_G, "roughness_g", "packed_green_roughness",
+     3U, 3U, 3U, 2U, 1U, 1U},
+    {TextureVariant::METALLIC_B, "metallic_b", "packed_blue_metallic", 4U,
+     4U, 3U, 3U, 1U, 1U},
+    {TextureVariant::EMISSIVE, "emissive", "emissive_rgb", 5U, 5U, 3U,
+     4U, 2U, 1U},
+    {TextureVariant::SAMPLER_UV, "sampler_uv", "sampler_address_over_uv0",
+     6U, 6U, 3U, 4U, 3U, 2U},
+}};
 
 [[noreturn]] void Fail(const std::string &message) {
   throw std::runtime_error(message);
@@ -76,14 +135,19 @@ Arguments ParseArguments(int argc, char **argv) {
       arguments.image_path = argv[++index];
     } else if (option == "--report" && index + 1 < argc) {
       arguments.report_path = argv[++index];
+    } else if (option == "--evidence" && index + 1 < argc) {
+      arguments.evidence_path = argv[++index];
     } else if (option == "--modern-pbr") {
       arguments.modern_pbr = true;
     } else {
-      Fail("usage: ror_ogre_next_frontend_n1_smoke --media-root ABSOLUTE_PATH [--modern-pbr] [--output FRAME.ppm] [--report REPORT.json]");
+      Fail("usage: ror_ogre_next_frontend_n1_smoke --media-root ABSOLUTE_PATH [--modern-pbr --evidence ISOLATION.bin] [--output FRAME.ppm] [--report REPORT.json]");
     }
   }
   if (arguments.media_root.empty()) {
     Fail("--media-root is required for the relocatable N1 frontend");
+  }
+  if (arguments.modern_pbr && arguments.evidence_path.empty()) {
+    Fail("--evidence is required for exact RT4/V1 texture-isolation output");
   }
   return arguments;
 }
@@ -92,8 +156,9 @@ RenderAssetId AssetId(std::uint64_t low) {
   return RenderAssetId::FromWords(UINT64_C(0x4E315F4153534554), low);
 }
 
-RenderAssetReference AssetRef(RenderAssetKind kind, std::uint64_t low) {
-  return RenderAssetReference::Create(kind, AssetId(low), 1U);
+RenderAssetReference AssetRef(RenderAssetKind kind, std::uint64_t low,
+                              std::uint64_t revision = 1U) {
+  return RenderAssetReference::Create(kind, AssetId(low), revision);
 }
 
 MeshResourceDescriptor MakeMesh(bool modern_pbr = false) {
@@ -113,16 +178,17 @@ MeshResourceDescriptor MakeMesh(bool modern_pbr = false) {
     mesh.tangents.assign(mesh.positions.size(),
                          Float4{1.0F, 0.0F, 0.0F, 1.0F});
     mesh.texture_coordinates_0 = {
-        {0.0F, 1.0F},
-        {1.0F, 1.0F},
-        {0.5F, 0.0F},
+        {-0.35F, 1.35F},
+        {1.65F, 1.35F},
+        {0.5F, -0.35F},
     };
   }
   mesh.indices = {0U, 1U, 2U};
   return mesh;
 }
 
-MaterialDescriptor MakeMaterial(bool modern_pbr = false) {
+MaterialDescriptor MakeMaterial(bool modern_pbr = false,
+                                const VariantSpec *variant = nullptr) {
   MaterialDescriptor material;
   material.debug_name = "N1 texture-free emissive metallic-roughness PBS";
   material.base_color_factor = {0.05F, 0.32F, 0.92F, 1.0F};
@@ -132,6 +198,7 @@ MaterialDescriptor MakeMaterial(bool modern_pbr = false) {
   material.emissive_factor = {0.78F, 0.12F, 0.035F};
   material.emissive_strength = 6.0F;
   if (modern_pbr) {
+    Require(variant != nullptr, "RT4/V1 material lacks its revision plan");
     material.debug_name = "RT4/V1 texture-backed metallic-roughness PBS";
     material.base_color_factor = {0.7F, 0.8F, 0.9F, 1.0F};
     material.metallic_factor = 0.85F;
@@ -139,17 +206,22 @@ MaterialDescriptor MakeMaterial(bool modern_pbr = false) {
     material.emissive_factor = {1.0F, 0.7F, 0.4F};
     material.emissive_strength = 6.0F;
     material.base_color_texture.texture =
-        AssetRef(RenderAssetKind::TEXTURE, 3U);
+        AssetRef(RenderAssetKind::TEXTURE, 3U,
+                 variant->base_color_revision);
     material.base_color_texture.sampler =
-        AssetRef(RenderAssetKind::SAMPLER, 6U);
+        AssetRef(RenderAssetKind::SAMPLER, 6U,
+                 variant->sampler_revision);
     material.metallic_roughness_texture.texture =
-        AssetRef(RenderAssetKind::TEXTURE, 4U);
+        AssetRef(RenderAssetKind::TEXTURE, 4U, variant->packed_revision);
     material.metallic_roughness_texture.sampler =
-        AssetRef(RenderAssetKind::SAMPLER, 6U);
+        AssetRef(RenderAssetKind::SAMPLER, 6U,
+                 variant->sampler_revision);
     material.emissive_texture.texture =
-        AssetRef(RenderAssetKind::TEXTURE, 5U);
+        AssetRef(RenderAssetKind::TEXTURE, 5U,
+                 variant->emissive_revision);
     material.emissive_texture.sampler =
-        AssetRef(RenderAssetKind::SAMPLER, 6U);
+        AssetRef(RenderAssetKind::SAMPLER, 6U,
+                 variant->sampler_revision);
   }
   return material;
 }
@@ -174,10 +246,14 @@ TextureResourceDescriptor MakeTexture(TextureColorSpace color_space,
   return texture;
 }
 
-RenderAssetDelta MakeCatalog(bool modern_pbr = false) {
+RenderAssetDelta MakeCatalog(bool modern_pbr = false,
+                             const VariantSpec *variant = nullptr) {
+  if (modern_pbr) {
+    Require(variant != nullptr, "RT4/V1 catalog lacks its variant plan");
+  }
   RenderAssetDelta delta;
   delta.registry_id = kRegistryId;
-  delta.sequence = 1U;
+  delta.sequence = modern_pbr ? variant->sequence : 1U;
   delta.full_snapshot = true;
 
   RenderAssetMutation mesh;
@@ -186,42 +262,72 @@ RenderAssetDelta MakeCatalog(bool modern_pbr = false) {
   delta.mutations.push_back(std::move(mesh));
 
   RenderAssetMutation material;
-  material.asset = AssetRef(RenderAssetKind::MATERIAL, 2U);
-  material.payload = MakeMaterial(modern_pbr);
+  material.asset = AssetRef(RenderAssetKind::MATERIAL, 2U,
+                            modern_pbr ? variant->material_revision : 1U);
+  material.payload = MakeMaterial(modern_pbr, variant);
   delta.mutations.push_back(std::move(material));
   if (modern_pbr) {
+    std::vector<std::uint8_t> base_color_bytes{
+        255U, 28U, 12U, 255U, 18U, 220U, 42U, 255U,
+        24U, 42U, 255U, 255U, 255U, 190U, 30U, 255U};
+    if (variant->variant == TextureVariant::BASE_COLOR) {
+      base_color_bytes = {
+          12U, 238U, 255U, 255U, 245U, 18U, 210U, 255U,
+          250U, 220U, 15U, 255U, 20U, 35U, 245U, 255U};
+    }
     RenderAssetMutation base_color;
-    base_color.asset = AssetRef(RenderAssetKind::TEXTURE, 3U);
+    base_color.asset = AssetRef(RenderAssetKind::TEXTURE, 3U,
+                                variant->base_color_revision);
     base_color.payload = MakeTexture(
-        TextureColorSpace::SRGB,
-        {255U, 28U, 12U, 255U, 18U, 220U, 42U, 255U,
-         24U, 42U, 255U, 255U, 255U, 190U, 30U, 255U});
+        TextureColorSpace::SRGB, std::move(base_color_bytes));
     delta.mutations.push_back(std::move(base_color));
 
+    std::vector<std::uint8_t> packed_bytes{
+        255U, 32U, 220U, 255U, 255U, 64U, 180U, 255U,
+        255U, 96U, 96U, 255U, 255U, 128U, 40U, 255U};
+    if (variant->variant == TextureVariant::ROUGHNESS_G) {
+      for (std::size_t index = 1U; index < packed_bytes.size(); index += 4U) {
+        packed_bytes[index] = 245U;
+      }
+    } else if (variant->variant == TextureVariant::METALLIC_B) {
+      for (std::size_t index = 2U; index < packed_bytes.size(); index += 4U) {
+        packed_bytes[index] = 5U;
+      }
+    }
     RenderAssetMutation metallic_roughness;
-    metallic_roughness.asset = AssetRef(RenderAssetKind::TEXTURE, 4U);
+    metallic_roughness.asset = AssetRef(RenderAssetKind::TEXTURE, 4U,
+                                        variant->packed_revision);
     metallic_roughness.payload = MakeTexture(
-        TextureColorSpace::LINEAR,
-        {255U, 40U, 230U, 255U, 255U, 96U, 180U, 255U,
-         255U, 170U, 80U, 255U, 255U, 220U, 25U, 255U});
+        TextureColorSpace::LINEAR, std::move(packed_bytes));
     delta.mutations.push_back(std::move(metallic_roughness));
 
+    std::vector<std::uint8_t> emissive_bytes{
+        255U, 96U, 12U, 255U, 18U, 255U, 80U, 255U,
+        20U, 90U, 255U, 255U, 255U, 235U, 42U, 255U};
+    if (variant->variant == TextureVariant::EMISSIVE) {
+      emissive_bytes = {
+          8U, 18U, 255U, 255U, 255U, 12U, 18U, 255U,
+          20U, 255U, 30U, 255U, 255U, 25U, 220U, 255U};
+    }
     RenderAssetMutation emissive;
-    emissive.asset = AssetRef(RenderAssetKind::TEXTURE, 5U);
+    emissive.asset = AssetRef(RenderAssetKind::TEXTURE, 5U,
+                              variant->emissive_revision);
     emissive.payload = MakeTexture(
-        TextureColorSpace::SRGB,
-        {255U, 96U, 12U, 255U, 18U, 255U, 80U, 255U,
-         20U, 90U, 255U, 255U, 255U, 235U, 42U, 255U});
+        TextureColorSpace::SRGB, std::move(emissive_bytes));
     delta.mutations.push_back(std::move(emissive));
 
     SamplerResourceDescriptor sampler_descriptor;
-    sampler_descriptor.debug_name = "RT4/V1 linear mirror-edge sampler";
-    sampler_descriptor.address_u = SamplerAddressMode::MIRRORED_REPEAT;
+    sampler_descriptor.debug_name = "RT4/V1 controlled UV0 sampler";
+    sampler_descriptor.address_u =
+        variant->variant == TextureVariant::SAMPLER_UV
+            ? SamplerAddressMode::MIRRORED_REPEAT
+            : SamplerAddressMode::CLAMP_TO_EDGE;
     sampler_descriptor.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
     sampler_descriptor.address_w = SamplerAddressMode::REPEAT;
     sampler_descriptor.maximum_lod = 0.0F;
     RenderAssetMutation sampler;
-    sampler.asset = AssetRef(RenderAssetKind::SAMPLER, 6U);
+    sampler.asset = AssetRef(RenderAssetKind::SAMPLER, 6U,
+                             variant->sampler_revision);
     sampler.payload = sampler_descriptor;
     delta.mutations.push_back(std::move(sampler));
 
@@ -257,13 +363,183 @@ RenderAssetDelta MakeCatalog(bool modern_pbr = false) {
   return delta;
 }
 
+const RenderAssetMutation &MutationFor(const RenderAssetDelta &catalog,
+                                       std::uint64_t low) {
+  const auto found = std::find_if(
+      catalog.mutations.begin(), catalog.mutations.end(),
+      [low](const RenderAssetMutation &mutation) {
+        return mutation.asset.id == AssetId(low);
+      });
+  Require(found != catalog.mutations.end(),
+          "RT4/V1 controlled catalog lost a required asset");
+  return *found;
+}
+
+void RequireEquivalentPayload(const RenderAssetPayload &lhs,
+                              const RenderAssetPayload &rhs,
+                              const std::string &label) {
+  Require(EquivalentRenderAssetPayload(lhs, rhs),
+          "RT4/V1 controlled " + label + " changed unexpectedly");
+}
+
+void RequireTextureOnlyChannelChange(
+    const TextureResourceDescriptor &baseline,
+    const TextureResourceDescriptor &variant, std::size_t allowed_channel,
+    const std::string &label) {
+  TextureResourceDescriptor normalized = variant;
+  normalized.mip_levels = baseline.mip_levels;
+  RequireEquivalentPayload(RenderAssetPayload{baseline},
+                           RenderAssetPayload{normalized}, label + " metadata");
+  Require(baseline.mip_levels.size() == variant.mip_levels.size(),
+          "RT4/V1 controlled texture mip count changed");
+  std::size_t changed = 0U;
+  for (std::size_t mip_index = 0U;
+       mip_index < baseline.mip_levels.size(); ++mip_index) {
+    const TextureMipLevelDescriptor &expected =
+        baseline.mip_levels[mip_index];
+    const TextureMipLevelDescriptor &actual = variant.mip_levels[mip_index];
+    Require(expected.bytes.size() == actual.bytes.size(),
+            "RT4/V1 controlled texture byte count changed");
+    for (std::size_t offset = 0U; offset < expected.bytes.size(); ++offset) {
+      if (expected.bytes[offset] == actual.bytes[offset]) {
+        continue;
+      }
+      const std::size_t row = offset / expected.row_pitch_bytes;
+      const std::size_t row_offset = offset % expected.row_pitch_bytes;
+      Require(row < expected.height && row_offset < expected.width * 4U &&
+                  row_offset % 4U == allowed_channel,
+              "RT4/V1 controlled texture changed padding, alpha, or the wrong packed channel");
+      ++changed;
+    }
+  }
+  Require(changed > 0U,
+          "RT4/V1 controlled " + label + " variant changed no texels");
+}
+
+void RequireControlledCatalog(const RenderAssetDelta &baseline,
+                              const RenderAssetDelta &variant,
+                              const VariantSpec &spec) {
+  Require(variant.registry_id == baseline.registry_id &&
+              variant.full_snapshot &&
+              variant.mutations.size() == baseline.mutations.size() &&
+              variant.sequence == spec.sequence,
+          "RT4/V1 controlled catalog envelope changed");
+  RequireEquivalentPayload(MutationFor(baseline, 1U).payload,
+                           MutationFor(variant, 1U).payload,
+                           "geometry, normals, tangents, or UV0");
+
+  const MaterialDescriptor &baseline_material =
+      std::get<MaterialDescriptor>(MutationFor(baseline, 2U).payload);
+  MaterialDescriptor normalized_material =
+      std::get<MaterialDescriptor>(MutationFor(variant, 2U).payload);
+  normalized_material.base_color_texture =
+      baseline_material.base_color_texture;
+  normalized_material.metallic_roughness_texture =
+      baseline_material.metallic_roughness_texture;
+  normalized_material.normal_texture = baseline_material.normal_texture;
+  normalized_material.occlusion_texture = baseline_material.occlusion_texture;
+  normalized_material.emissive_texture = baseline_material.emissive_texture;
+  RequireEquivalentPayload(RenderAssetPayload{baseline_material},
+                           RenderAssetPayload{normalized_material},
+                           "material factors or constants");
+
+  const std::uint64_t changed_texture =
+      spec.variant == TextureVariant::BASE_COLOR
+          ? 3U
+          : spec.variant == TextureVariant::ROUGHNESS_G ||
+                    spec.variant == TextureVariant::METALLIC_B
+                ? 4U
+                : spec.variant == TextureVariant::EMISSIVE ? 5U : 0U;
+  for (std::uint64_t low = 3U; low <= 5U; ++low) {
+    const TextureResourceDescriptor &expected =
+        std::get<TextureResourceDescriptor>(MutationFor(baseline, low).payload);
+    const TextureResourceDescriptor &actual =
+        std::get<TextureResourceDescriptor>(MutationFor(variant, low).payload);
+    if (low != changed_texture) {
+      RequireEquivalentPayload(RenderAssetPayload{expected},
+                               RenderAssetPayload{actual},
+                               "non-target texture");
+      continue;
+    }
+    const std::size_t allowed_channel =
+        spec.variant == TextureVariant::ROUGHNESS_G
+            ? 1U
+            : spec.variant == TextureVariant::METALLIC_B ? 2U : 0U;
+    if (allowed_channel == 0U) {
+      TextureResourceDescriptor normalized = actual;
+      normalized.mip_levels = expected.mip_levels;
+      RequireEquivalentPayload(RenderAssetPayload{expected},
+                               RenderAssetPayload{normalized},
+                               "target texture metadata");
+      std::size_t changed_rgb = 0U;
+      for (std::size_t mip_index = 0U;
+           mip_index < expected.mip_levels.size(); ++mip_index) {
+        const TextureMipLevelDescriptor &expected_mip =
+            expected.mip_levels[mip_index];
+        const TextureMipLevelDescriptor &actual_mip =
+            actual.mip_levels[mip_index];
+        Require(expected_mip.bytes.size() == actual_mip.bytes.size(),
+                "RT4/V1 target texture byte count changed");
+        for (std::size_t offset = 0U; offset < expected_mip.bytes.size();
+             ++offset) {
+          if (expected_mip.bytes[offset] == actual_mip.bytes[offset]) {
+            continue;
+          }
+          const std::size_t row = offset / expected_mip.row_pitch_bytes;
+          const std::size_t row_offset = offset % expected_mip.row_pitch_bytes;
+          Require(row < expected_mip.height &&
+                      row_offset < expected_mip.width * 4U &&
+                      row_offset % 4U < 3U,
+                  "RT4/V1 base/emissive variant changed padding or alpha");
+          ++changed_rgb;
+        }
+      }
+      Require(changed_rgb > 0U,
+              "RT4/V1 base/emissive variant changed no RGB texels");
+    } else {
+      RequireTextureOnlyChannelChange(expected, actual, allowed_channel,
+                                      spec.name);
+    }
+  }
+
+  const SamplerResourceDescriptor &baseline_sampler =
+      std::get<SamplerResourceDescriptor>(MutationFor(baseline, 6U).payload);
+  SamplerResourceDescriptor normalized_sampler =
+      std::get<SamplerResourceDescriptor>(MutationFor(variant, 6U).payload);
+  if (spec.variant == TextureVariant::SAMPLER_UV) {
+    Require(normalized_sampler.address_u != baseline_sampler.address_u,
+            "RT4/V1 sampler/UV variant changed no addressing state");
+    normalized_sampler.address_u = baseline_sampler.address_u;
+  }
+  RequireEquivalentPayload(RenderAssetPayload{baseline_sampler},
+                           RenderAssetPayload{normalized_sampler},
+                           "non-target sampler state");
+  RequireEquivalentPayload(MutationFor(baseline, 7U).payload,
+                           MutationFor(variant, 7U).payload,
+                           "unreferenced shared-catalog texture");
+
+  Require(MutationFor(variant, 2U).asset.revision ==
+              spec.material_revision &&
+              MutationFor(variant, 3U).asset.revision ==
+                  spec.base_color_revision &&
+              MutationFor(variant, 4U).asset.revision ==
+                  spec.packed_revision &&
+              MutationFor(variant, 5U).asset.revision ==
+                  spec.emissive_revision &&
+              MutationFor(variant, 6U).asset.revision ==
+                  spec.sampler_revision,
+          "RT4/V1 controlled replacement revision plan drifted");
+}
+
 std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
                                                bool shifted = false,
-                                               bool modern_pbr = false) {
+                                               bool modern_pbr = false,
+                                               std::uint64_t asset_sequence = 1U,
+                                               std::uint64_t material_revision = 1U) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kRegistryId;
-  descriptor.asset_sequence = 1U;
+  descriptor.asset_sequence = asset_sequence;
   descriptor.simulation_tick = snapshot_id;
   descriptor.simulation_time_seconds = static_cast<double>(snapshot_id) / 48.0;
   descriptor.environment.ambient_radiance = {0.03F, 0.04F, 0.055F};
@@ -271,7 +547,8 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
   MeshInstanceDescriptor instance;
   instance.instance_id = 1U;
   instance.mesh = AssetRef(RenderAssetKind::MESH, 1U);
-  instance.material = AssetRef(RenderAssetKind::MATERIAL, 2U);
+  instance.material = AssetRef(RenderAssetKind::MATERIAL, 2U,
+                               material_revision);
   if (shifted) {
     instance.render_from_object.elements[12U] = 0.15F;
     instance.previous_render_from_object = instance.render_from_object;
@@ -324,6 +601,86 @@ RenderFrameRequest MakeFrame(
   return request;
 }
 
+void RequireControlledSceneAndView(const SceneSnapshot &baseline_scene,
+                                   const SceneSnapshot &variant_scene,
+                                   const RenderFrameRequest &baseline_frame,
+                                   const RenderFrameRequest &variant_frame) {
+  const SceneEnvironmentDescriptor &expected = baseline_scene.environment();
+  const SceneEnvironmentDescriptor &actual = variant_scene.environment();
+  Require(expected.ambient_radiance == actual.ambient_radiance &&
+              expected.environment_intensity ==
+                  actual.environment_intensity &&
+              expected.environment_texture == actual.environment_texture &&
+              expected.environment_sampler == actual.environment_sampler &&
+              baseline_scene.lights().empty() &&
+              variant_scene.lights().empty(),
+          "RT4/V1 controlled environment or lights changed");
+  Require(baseline_scene.mesh_instances().size() == 1U &&
+              variant_scene.mesh_instances().size() == 1U,
+          "RT4/V1 controlled instance count changed");
+  const MeshInstanceDescriptor &expected_instance =
+      baseline_scene.mesh_instances().front();
+  const MeshInstanceDescriptor &actual_instance =
+      variant_scene.mesh_instances().front();
+  Require(expected_instance.instance_id == actual_instance.instance_id &&
+              expected_instance.mesh == actual_instance.mesh &&
+              expected_instance.material.id == actual_instance.material.id &&
+              expected_instance.material.kind == actual_instance.material.kind &&
+              expected_instance.render_from_object ==
+                  actual_instance.render_from_object &&
+              expected_instance.previous_render_from_object ==
+                  actual_instance.previous_render_from_object &&
+              expected_instance.local_bounds == actual_instance.local_bounds &&
+              expected_instance.visibility_mask ==
+                  actual_instance.visibility_mask &&
+              expected_instance.flags == actual_instance.flags,
+          "RT4/V1 controlled geometry or transform changed");
+  Require(baseline_frame.color_format == variant_frame.color_format &&
+              baseline_frame.present == variant_frame.present &&
+              baseline_frame.requested_outputs ==
+                  variant_frame.requested_outputs &&
+              baseline_frame.views.size() == 1U &&
+              variant_frame.views.size() == 1U,
+          "RT4/V1 controlled frame envelope changed");
+  const CameraViewRequest &expected_view = baseline_frame.views.front();
+  const CameraViewRequest &actual_view = variant_frame.views.front();
+  Require(expected_view.view_id == actual_view.view_id &&
+              expected_view.width == actual_view.width &&
+              expected_view.height == actual_view.height &&
+              expected_view.near_plane == actual_view.near_plane &&
+              expected_view.far_plane == actual_view.far_plane &&
+              expected_view.view_from_render == actual_view.view_from_render &&
+              expected_view.previous_view_from_render ==
+                  actual_view.previous_view_from_render &&
+              expected_view.clip_from_view == actual_view.clip_from_view &&
+              expected_view.previous_clip_from_view ==
+                  actual_view.previous_clip_from_view &&
+              expected_view.exposure == actual_view.exposure &&
+              expected_view.temporal_jitter_pixels ==
+                  actual_view.temporal_jitter_pixels &&
+              expected_view.visibility_mask == actual_view.visibility_mask,
+          "RT4/V1 controlled camera changed");
+}
+
+std::size_t CountChangedPixels(const std::vector<std::uint8_t> &baseline,
+                               const std::vector<std::uint8_t> &variant,
+                               std::size_t bytes_per_pixel) {
+  Require(baseline.size() == variant.size() && bytes_per_pixel != 0U &&
+              baseline.size() % bytes_per_pixel == 0U,
+          "RT4/V1 evidence attachment layout changed");
+  std::size_t changed = 0U;
+  for (std::size_t offset = 0U; offset < baseline.size();
+       offset += bytes_per_pixel) {
+    if (!std::equal(baseline.begin() + static_cast<std::ptrdiff_t>(offset),
+                    baseline.begin() + static_cast<std::ptrdiff_t>(
+                                           offset + bytes_per_pixel),
+                    variant.begin() + static_cast<std::ptrdiff_t>(offset))) {
+      ++changed;
+    }
+  }
+  return changed;
+}
+
 float HalfToFloat(std::uint16_t half) {
   const bool negative = (half & 0x8000U) != 0U;
   const std::uint16_t exponent = (half >> 10U) & 0x1FU;
@@ -352,6 +709,14 @@ std::uint8_t Quantize(float value) {
 void Hash(std::uint64_t &hash, std::uint8_t value) {
   hash ^= value;
   hash *= UINT64_C(1099511628211);
+}
+
+std::uint64_t HashBytes(const std::vector<std::uint8_t> &bytes) {
+  std::uint64_t hash = UINT64_C(14695981039346656037);
+  for (const std::uint8_t value : bytes) {
+    Hash(hash, value);
+  }
+  return hash;
 }
 
 std::string HexHash(std::uint64_t hash);
@@ -408,6 +773,8 @@ Metrics InspectHdr(const RenderFrameOutput &output) {
               static_cast<std::size_t>(attachment.row_pitch_bytes) * kHeight,
           "HDR readback byte count is incomplete");
   Metrics metrics;
+  metrics.attachment_bytes = attachment.bytes;
+  metrics.attachment_fnv1a64 = HashBytes(metrics.attachment_bytes);
   std::map<std::uint32_t, std::size_t> runs;
   for (std::size_t pixel = 0U;
        pixel < static_cast<std::size_t>(kWidth) * kHeight; ++pixel) {
@@ -456,6 +823,8 @@ Metrics InspectSdr(const RenderFrameOutput &output) {
               static_cast<std::size_t>(attachment.row_pitch_bytes) * kHeight,
           "SDR readback byte count is incomplete");
   Metrics metrics;
+  metrics.attachment_bytes = attachment.bytes;
+  metrics.attachment_fnv1a64 = HashBytes(metrics.attachment_bytes);
   metrics.rgb.reserve(static_cast<std::size_t>(kWidth) * kHeight * 3U);
   std::map<std::uint32_t, std::size_t> runs;
   for (std::size_t pixel = 0U;
@@ -507,14 +876,38 @@ void WritePpm(const std::string &path, const Metrics &metrics) {
   }
 }
 
+void WriteIsolationEvidence(const std::string &path,
+                            const std::vector<VariantEvidence> &variants) {
+  Require(!path.empty(), "RT4/V1 isolation evidence path is empty");
+  Require(variants.size() == kVariantSpecs.size(),
+          "RT4/V1 isolation evidence is incomplete");
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  if (!output) {
+    Fail("could not open RT4/V1 isolation evidence: " + path);
+  }
+  for (const VariantEvidence &variant : variants) {
+    output.write(
+        reinterpret_cast<const char *>(variant.hdr.attachment_bytes.data()),
+        static_cast<std::streamsize>(variant.hdr.attachment_bytes.size()));
+    output.write(
+        reinterpret_cast<const char *>(variant.sdr.attachment_bytes.data()),
+        static_cast<std::streamsize>(variant.sdr.attachment_bytes.size()));
+  }
+  if (!output) {
+    Fail("could not write complete RT4/V1 isolation evidence: " + path);
+  }
+}
+
 std::string HexHash(std::uint64_t hash) {
   std::ostringstream value;
   value << std::hex << std::setfill('0') << std::setw(16) << hash;
   return value.str();
 }
 
-std::string MakeReport(const Metrics &hdr, const Metrics &sdr,
-                       bool modern_pbr) {
+std::string MakeReport(const SmokeResult &result, bool modern_pbr,
+                       const std::string &evidence_path) {
+  const Metrics &hdr = result.hdr;
+  const Metrics &sdr = result.sdr;
   std::ostringstream report;
   report << "{\n"
          << "  \"schema\": \""
@@ -589,15 +982,82 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr,
          << "  },\n"
          << "  \"catalog\": {\n"
          << "    \"registry_id\": " << kRegistryId << ",\n"
-         << "    \"sequence\": 1,\n";
+         << "    \"sequence\": "
+         << (modern_pbr ? kVariantSpecs.back().sequence : 1U) << ",\n";
   if (modern_pbr) {
-    report << "    \"referenced_texture_count\": 3,\n"
+    report << "    \"baseline_sequence\": 1,\n"
+           << "    \"live_replacement_count\": 5,\n"
+           << "    \"referenced_texture_count\": 3,\n"
            << "    \"referenced_sampler_count\": 1,\n"
            << "    \"unreferenced_assets_not_uploaded\": true,\n";
   }
   report
          << "    \"transactional_replay_after_restart\": true\n"
          << "  },\n"
+         ;
+  if (modern_pbr) {
+    report << "  \"texture_allocations\": {\n"
+           << "    \"version\": " << result.texture_allocations.version
+           << ",\n"
+           << "    \"live_source_textures\": "
+           << result.texture_allocations.live_source_textures << ",\n"
+           << "    \"sampled_rgba_allocations\": "
+           << result.texture_allocations.sampled_rgba_allocations << ",\n"
+           << "    \"roughness_r8_allocations\": "
+           << result.texture_allocations.roughness_r8_allocations << ",\n"
+           << "    \"metallic_r8_allocations\": "
+           << result.texture_allocations.metallic_r8_allocations << ",\n"
+           << "    \"unused_packed_rgba_allocations\": 0,\n"
+           << "    \"exact_usage\": "
+           << (result.texture_allocations.exact_usage ? "true" : "false")
+           << "\n"
+           << "  },\n"
+           << "  \"texture_isolation\": {\n"
+           << "    \"schema\": \"ror.ogre_next_rt4_texture_isolation.v1\",\n"
+           << "    \"evidence_file\": \""
+           << std::filesystem::u8path(evidence_path)
+                  .filename()
+                  .generic_u8string()
+           << "\",\n"
+           << "    \"width\": " << kWidth << ",\n"
+           << "    \"height\": " << kHeight << ",\n"
+           << "    \"geometry_identical\": true,\n"
+           << "    \"material_factors_constants_identical\": true,\n"
+           << "    \"camera_identical\": true,\n"
+           << "    \"lights_identical\": true,\n"
+           << "    \"ui_included\": false,\n"
+           << "    \"variants\": [\n";
+    std::size_t offset = 0U;
+    for (std::size_t index = 0U; index < result.variants.size(); ++index) {
+      const VariantEvidence &variant = result.variants[index];
+      report << "      {\n"
+             << "        \"name\": \"" << variant.name << "\",\n"
+             << "        \"changed_input\": \"" << variant.changed_input
+             << "\",\n"
+             << "        \"asset_sequence\": " << variant.asset_sequence
+             << ",\n"
+             << "        \"hdr\": {\"offset\": " << offset
+             << ", \"bytes\": " << variant.hdr.attachment_bytes.size()
+             << ", \"exact_fnv1a64\": \""
+             << HexHash(variant.hdr.attachment_fnv1a64)
+             << "\", \"changed_pixels_from_baseline\": "
+             << variant.hdr_changed_pixels << "},\n";
+      offset += variant.hdr.attachment_bytes.size();
+      report << "        \"sdr\": {\"offset\": " << offset
+             << ", \"bytes\": " << variant.sdr.attachment_bytes.size()
+             << ", \"exact_fnv1a64\": \""
+             << HexHash(variant.sdr.attachment_fnv1a64)
+             << "\", \"changed_pixels_from_baseline\": "
+             << variant.sdr_changed_pixels << "}\n"
+             << "      }";
+      offset += variant.sdr.attachment_bytes.size();
+      report << (index + 1U == result.variants.size() ? "\n" : ",\n");
+    }
+    report << "    ],\n"
+           << "    \"evidence_bytes\": " << offset << "\n"
+           << "  },\n";
+  }
+  report
          << "  \"hdr\": {\n"
          << "    \"format\": \"RGBA16_FLOAT\",\n"
          << "    \"width\": " << kWidth << ",\n"
@@ -608,6 +1068,8 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr,
          << "    \"minimum_luminance\": " << std::setprecision(9)
          << hdr.minimum_luminance << ",\n"
          << "    \"maximum_luminance\": " << hdr.maximum_luminance << ",\n"
+         << "    \"exact_attachment_fnv1a64\": \""
+         << HexHash(hdr.attachment_fnv1a64) << "\",\n"
          << "    \"rgb8_fnv1a64\": \"" << HexHash(hdr.fnv1a64)
          << "\"\n"
          << "  },\n"
@@ -620,6 +1082,8 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr,
          << sdr.non_background_pixels << ",\n"
          << "    \"minimum_luminance\": " << sdr.minimum_luminance << ",\n"
          << "    \"maximum_luminance\": " << sdr.maximum_luminance << ",\n"
+         << "    \"exact_attachment_fnv1a64\": \""
+         << HexHash(sdr.attachment_fnv1a64) << "\",\n"
          << "    \"rgb8_fnv1a64\": \"" << HexHash(sdr.fnv1a64)
          << "\"\n"
          << "  },\n"
@@ -629,6 +1093,13 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr,
          << "    \"lifetime_snapshot_identity_replay\": true,\n"
          << "    \"lifetime_completed_frame_queries\": true,\n"
          << "    \"process_global_root_exclusion\": true,\n"
+         ;
+  if (modern_pbr) {
+    report << "    \"live_texture_replacement_retirement\": "
+           << (result.live_replacement_retirement ? "true" : "false")
+           << ",\n";
+  }
+  report
          << "    \"shutdown_reinitialize_render_shutdown\": true\n"
          << "  }\n"
          << "}\n";
@@ -652,9 +1123,10 @@ void InitializeAndSync(OgreNextN1Frontend &frontend,
   RequireSuccess(frontend.SynchronizeAssets(catalog), "SynchronizeAssets");
 }
 
-std::pair<Metrics, Metrics> RunSmoke(const std::string &media_root,
-                                    bool modern_pbr) {
-  const RenderAssetDelta catalog = MakeCatalog(modern_pbr);
+SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
+  const VariantSpec *baseline_spec = modern_pbr ? &kVariantSpecs.front()
+                                                 : nullptr;
+  const RenderAssetDelta catalog = MakeCatalog(modern_pbr, baseline_spec);
   const auto scene_one = MakeScene(1U, false, modern_pbr);
   const auto scene_two = MakeScene(2U, true, modern_pbr);
   const OgreNextRasterFeatureTier raster_feature_tier =
@@ -705,6 +1177,17 @@ std::pair<Metrics, Metrics> RunSmoke(const std::string &media_root,
           "N1 unexpectedly exported native interop");
 
   InitializeAndSync(frontend, catalog);
+  SmokeResult result;
+  if (modern_pbr) {
+    result.texture_allocations = frontend.QueryTextureAllocationAudit();
+    Require(result.texture_allocations.version == 1U &&
+                result.texture_allocations.live_source_textures == 3U &&
+                result.texture_allocations.sampled_rgba_allocations == 2U &&
+                result.texture_allocations.roughness_r8_allocations == 1U &&
+                result.texture_allocations.metallic_r8_allocations == 1U &&
+                result.texture_allocations.exact_usage,
+            "RT4/V1 allocated an unused packed RGBA variant or lost a required derivative");
+  }
   OgreNextN1Frontend concurrent(
       OgreNextN1Configuration{media_root, raster_feature_tier});
   const RenderOperationResult concurrent_result =
@@ -738,14 +1221,24 @@ std::pair<Metrics, Metrics> RunSmoke(const std::string &media_root,
   Require(frontend.IsFrameComplete(1U),
           "synchronous HDR frame was not complete on return");
   RequireSuccess(frontend.WaitForFrame(1U, 0U), "WaitForFrame(HDR)");
-  const Metrics hdr = InspectHdr(hdr_output);
+  result.hdr = InspectHdr(hdr_output);
 
   RenderFrameOutput sdr_output;
   RequireSuccess(frontend.Render(
                      MakeFrame(2U, scene_one, PixelFormat::RGBA8_SRGB),
                      sdr_output),
                  "SDR Render");
-  const Metrics sdr = InspectSdr(sdr_output);
+  result.sdr = InspectSdr(sdr_output);
+
+  if (modern_pbr) {
+    VariantEvidence baseline;
+    baseline.name = kVariantSpecs.front().name;
+    baseline.changed_input = kVariantSpecs.front().changed_input;
+    baseline.asset_sequence = kVariantSpecs.front().sequence;
+    baseline.hdr = result.hdr;
+    baseline.sdr = result.sdr;
+    result.variants.push_back(std::move(baseline));
+  }
 
   RenderFrameOutput newer_output;
   RequireSuccess(frontend.Render(
@@ -761,23 +1254,94 @@ std::pair<Metrics, Metrics> RunSmoke(const std::string &media_root,
   static_cast<void>(InspectSdr(old_output));
   Require(frontend.IsFrameComplete(1U) && frontend.IsFrameComplete(4U),
           "successful N1 frame fell out of lifetime completion history");
+
+  RenderAssetDelta final_catalog = catalog;
+  std::shared_ptr<const SceneSnapshot> final_scene = scene_one;
+  std::uint64_t next_frame_id = 5U;
+  if (modern_pbr) {
+    const RenderFrameRequest baseline_hdr_frame =
+        MakeFrame(1U, scene_one, PixelFormat::RGBA16_FLOAT);
+    const RenderFrameRequest baseline_sdr_frame =
+        MakeFrame(2U, scene_one, PixelFormat::RGBA8_SRGB);
+    for (std::size_t variant_index = 1U;
+         variant_index < kVariantSpecs.size(); ++variant_index) {
+      const VariantSpec &spec = kVariantSpecs[variant_index];
+      RenderAssetDelta variant_catalog = MakeCatalog(true, &spec);
+      RequireControlledCatalog(catalog, variant_catalog, spec);
+      RequireSuccess(frontend.SynchronizeAssets(variant_catalog),
+                     std::string("SynchronizeAssets(") + spec.name + ')');
+      const OgreNextN1TextureAllocationAudit audit =
+          frontend.QueryTextureAllocationAudit();
+      Require(audit.version == 1U && audit.live_source_textures == 3U &&
+                  audit.sampled_rgba_allocations == 2U &&
+                  audit.roughness_r8_allocations == 1U &&
+                  audit.metallic_r8_allocations == 1U && audit.exact_usage,
+              std::string("RT4/V1 replacement allocation drifted for ") +
+                  spec.name);
+
+      const auto variant_scene = MakeScene(
+          100U + variant_index, false, true, spec.sequence,
+          spec.material_revision);
+      RenderFrameRequest variant_hdr_frame =
+          MakeFrame(next_frame_id++, variant_scene,
+                    PixelFormat::RGBA16_FLOAT);
+      RenderFrameRequest variant_sdr_frame =
+          MakeFrame(next_frame_id++, variant_scene,
+                    PixelFormat::RGBA8_SRGB);
+      RequireControlledSceneAndView(*scene_one, *variant_scene,
+                                    baseline_hdr_frame, variant_hdr_frame);
+      RequireControlledSceneAndView(*scene_one, *variant_scene,
+                                    baseline_sdr_frame, variant_sdr_frame);
+
+      RenderFrameOutput variant_hdr_output;
+      RequireSuccess(frontend.Render(variant_hdr_frame, variant_hdr_output),
+                     std::string("HDR Render(") + spec.name + ')');
+      RenderFrameOutput variant_sdr_output;
+      RequireSuccess(frontend.Render(variant_sdr_frame, variant_sdr_output),
+                     std::string("SDR Render(") + spec.name + ')');
+      VariantEvidence evidence;
+      evidence.name = spec.name;
+      evidence.changed_input = spec.changed_input;
+      evidence.asset_sequence = spec.sequence;
+      evidence.hdr = InspectHdr(variant_hdr_output);
+      evidence.sdr = InspectSdr(variant_sdr_output);
+      evidence.hdr_changed_pixels = CountChangedPixels(
+          result.hdr.attachment_bytes, evidence.hdr.attachment_bytes, 8U);
+      evidence.sdr_changed_pixels = CountChangedPixels(
+          result.sdr.attachment_bytes, evidence.sdr.attachment_bytes, 4U);
+      Require(evidence.hdr_changed_pixels >= 64U &&
+                  evidence.sdr_changed_pixels >= 64U &&
+                  evidence.hdr.attachment_fnv1a64 !=
+                      result.hdr.attachment_fnv1a64 &&
+                  evidence.sdr.attachment_fnv1a64 !=
+                      result.sdr.attachment_fnv1a64,
+              std::string("RT4/V1 isolated texture input produced no exact HDR/SDR effect: ") +
+                  spec.name);
+      result.variants.push_back(std::move(evidence));
+      final_catalog = std::move(variant_catalog);
+      final_scene = variant_scene;
+    }
+    result.live_replacement_retirement =
+        result.variants.size() == kVariantSpecs.size() &&
+        frontend.QueryTextureAllocationAudit().exact_usage;
+  }
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "first Shutdown");
 
-  InitializeAndSync(concurrent, catalog);
+  InitializeAndSync(concurrent, final_catalog);
   RequireSuccess(concurrent.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "post-owner-release concurrent Shutdown");
 
-  InitializeAndSync(frontend, catalog);
+  InitializeAndSync(frontend, final_catalog);
   RenderFrameOutput recovered_output;
   RequireSuccess(frontend.Render(
-                     MakeFrame(1U, scene_one, PixelFormat::RGBA8_SRGB),
+                     MakeFrame(1U, final_scene, PixelFormat::RGBA8_SRGB),
                      recovered_output),
                  "post-reinitialize Render");
   static_cast<void>(InspectSdr(recovered_output));
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "recovery Shutdown");
-  return {hdr, sdr};
+  return result;
 }
 
 } // namespace
@@ -785,10 +1349,14 @@ std::pair<Metrics, Metrics> RunSmoke(const std::string &media_root,
 int main(int argc, char **argv) {
   try {
     const Arguments arguments = ParseArguments(argc, argv);
-    const auto metrics = RunSmoke(arguments.media_root, arguments.modern_pbr);
-    WritePpm(arguments.image_path, metrics.second);
-    const std::string report =
-        MakeReport(metrics.first, metrics.second, arguments.modern_pbr);
+    const SmokeResult result =
+        RunSmoke(arguments.media_root, arguments.modern_pbr);
+    WritePpm(arguments.image_path, result.sdr);
+    if (arguments.modern_pbr) {
+      WriteIsolationEvidence(arguments.evidence_path, result.variants);
+    }
+    const std::string report = MakeReport(
+        result, arguments.modern_pbr, arguments.evidence_path);
     WriteText(arguments.report_path, report);
     std::cout << report;
     return 0;

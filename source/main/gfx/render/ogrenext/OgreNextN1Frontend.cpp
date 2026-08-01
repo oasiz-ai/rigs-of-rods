@@ -68,6 +68,7 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #include <cstring>
 #include <exception>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <new>
 #include <sstream>
@@ -107,6 +108,33 @@ enum class UploadedTextureChannel : std::uint8_t {
   RGBA,
   GREEN,
   BLUE,
+};
+
+struct NativeTextureUsage final {
+  bool sampled_rgba = false;
+  bool roughness_g = false;
+  bool metallic_b = false;
+
+  [[nodiscard]] bool empty() const noexcept {
+    return !sampled_rgba && !roughness_g && !metallic_b;
+  }
+
+  friend bool operator==(const NativeTextureUsage &lhs,
+                         const NativeTextureUsage &rhs) noexcept {
+    return lhs.sampled_rgba == rhs.sampled_rgba &&
+           lhs.roughness_g == rhs.roughness_g &&
+           lhs.metallic_b == rhs.metallic_b;
+  }
+
+  friend bool operator!=(const NativeTextureUsage &lhs,
+                         const NativeTextureUsage &rhs) noexcept {
+    return !(lhs == rhs);
+  }
+};
+
+struct ReferencedTextureUsage final {
+  RenderAssetReference asset;
+  NativeTextureUsage usage;
 };
 
 RasterGraphicsApi CompiledRasterApi() noexcept {
@@ -378,6 +406,30 @@ RenderOperationResult BackendFailure(const Ogre::Exception &error) {
                                         error.getFullDescription());
 }
 
+bool TryComputeReadbackLayout(std::uint32_t width, std::uint32_t height,
+                              PixelFormat format,
+                              std::uint64_t &row_pitch_bytes,
+                              std::size_t &total_bytes) noexcept {
+  const std::uint64_t bytes_per_pixel =
+      format == PixelFormat::RGBA16_FLOAT ? 8U : 4U;
+  if (width == 0U || height == 0U ||
+      static_cast<std::uint64_t>(width) >
+          (std::numeric_limits<std::uint64_t>::max)() / bytes_per_pixel) {
+    return false;
+  }
+  row_pitch_bytes = static_cast<std::uint64_t>(width) * bytes_per_pixel;
+  if (static_cast<std::uint64_t>(height) >
+      (std::numeric_limits<std::uint64_t>::max)() / row_pitch_bytes) {
+    return false;
+  }
+  const std::uint64_t total = row_pitch_bytes * height;
+  if (total > (std::numeric_limits<std::size_t>::max)()) {
+    return false;
+  }
+  total_bytes = static_cast<std::size_t>(total);
+  return true;
+}
+
 } // namespace
 
 class OgreNextN1Frontend::Impl final {
@@ -403,6 +455,7 @@ public:
 
   struct NativeTexture {
     RenderAssetReference asset;
+    NativeTextureUsage usage;
     Ogre::TextureGpu *sampled = nullptr;
     Ogre::TextureGpu *roughness = nullptr;
     Ogre::TextureGpu *metallic = nullptr;
@@ -419,6 +472,26 @@ public:
       native_interop->DecorateFrontendCapabilities(report);
     }
     return report;
+  }
+
+  OgreNextN1TextureAllocationAudit TextureAllocationAudit() const noexcept {
+    OgreNextN1TextureAllocationAudit audit;
+    audit.live_source_textures =
+        static_cast<std::uint32_t>(textures.size());
+    audit.exact_usage = initialized && !faulted;
+    for (const auto &entry : textures) {
+      const NativeTexture &texture = entry.second;
+      audit.sampled_rgba_allocations += texture.sampled != nullptr ? 1U : 0U;
+      audit.roughness_r8_allocations +=
+          texture.roughness != nullptr ? 1U : 0U;
+      audit.metallic_r8_allocations += texture.metallic != nullptr ? 1U : 0U;
+      audit.exact_usage =
+          audit.exact_usage && !texture.usage.empty() &&
+          (texture.sampled != nullptr) == texture.usage.sampled_rgba &&
+          (texture.roughness != nullptr) == texture.usage.roughness_g &&
+          (texture.metallic != nullptr) == texture.usage.metallic_b;
+    }
+    return audit;
   }
 
   bool OnOwnerThread() const noexcept {
@@ -705,19 +778,34 @@ public:
   }
 
   NativeTexture CreateTexture(const RenderAssetReference &asset,
-                              const TextureResourceDescriptor &descriptor) {
+                              const TextureResourceDescriptor &descriptor,
+                              NativeTextureUsage usage) {
     NativeTexture native;
     native.asset = asset;
+    native.usage = usage;
     native.sampled_name = AssetName("RoRRT4Texture", asset);
     native.roughness_name = native.sampled_name + "_roughness_g";
     native.metallic_name = native.sampled_name + "_metallic_b";
+    if (usage.empty() ||
+        (usage.sampled_rgba && (usage.roughness_g || usage.metallic_b)) ||
+        (usage.sampled_rgba &&
+         descriptor.color_space != TextureColorSpace::SRGB) ||
+        ((usage.roughness_g || usage.metallic_b) &&
+         descriptor.color_space != TextureColorSpace::LINEAR)) {
+      throw std::logic_error(
+          "RT4/V1 texture alias or usage is incompatible with its sampled color-space role");
+    }
     try {
-      native.sampled = CreateUploadedTexture(
-          descriptor, native.sampled_name, UploadedTextureChannel::RGBA);
-      if (descriptor.color_space == TextureColorSpace::LINEAR) {
+      if (usage.sampled_rgba) {
+        native.sampled = CreateUploadedTexture(
+            descriptor, native.sampled_name, UploadedTextureChannel::RGBA);
+      }
+      if (usage.roughness_g) {
         native.roughness = CreateUploadedTexture(
             descriptor, native.roughness_name,
             UploadedTextureChannel::GREEN);
+      }
+      if (usage.metallic_b) {
         native.metallic = CreateUploadedTexture(
             descriptor, native.metallic_name, UploadedTextureChannel::BLUE);
       }
@@ -731,7 +819,8 @@ public:
   }
 
   void VerifyTexture(const NativeTexture &native,
-                     const TextureResourceDescriptor &descriptor) const {
+                     const TextureResourceDescriptor &descriptor,
+                     NativeTextureUsage expected_usage) const {
     const auto verify_one = [&](const Ogre::TextureGpu *texture,
                                 Ogre::PixelFormatGpu format) {
       if (texture == nullptr || !texture->isDataReady() ||
@@ -744,16 +833,27 @@ public:
             "Ogre-Next RT4/V1 texture upload failed strict metadata or residency validation");
       }
     };
-    verify_one(native.sampled,
-               descriptor.color_space == TextureColorSpace::SRGB
-                   ? Ogre::PFG_RGBA8_UNORM_SRGB
-                   : Ogre::PFG_RGBA8_UNORM);
-    if (descriptor.color_space == TextureColorSpace::LINEAR) {
-      verify_one(native.roughness, Ogre::PFG_R8_UNORM);
-      verify_one(native.metallic, Ogre::PFG_R8_UNORM);
-    } else if (native.roughness != nullptr || native.metallic != nullptr) {
+    if (native.usage != expected_usage || expected_usage.empty()) {
       throw std::runtime_error(
-          "Ogre-Next RT4/V1 manufactured linear channels for an sRGB texture");
+          "Ogre-Next RT4/V1 native texture usage differs from the current material graph");
+    }
+    if (expected_usage.sampled_rgba) {
+      verify_one(native.sampled, Ogre::PFG_RGBA8_UNORM_SRGB);
+    } else if (native.sampled != nullptr) {
+      throw std::runtime_error(
+          "Ogre-Next RT4/V1 allocated an unused sampled RGBA texture");
+    }
+    if (expected_usage.roughness_g) {
+      verify_one(native.roughness, Ogre::PFG_R8_UNORM);
+    } else if (native.roughness != nullptr) {
+      throw std::runtime_error(
+          "Ogre-Next RT4/V1 allocated an unused roughness derivative");
+    }
+    if (expected_usage.metallic_b) {
+      verify_one(native.metallic, Ogre::PFG_R8_UNORM);
+    } else if (native.metallic != nullptr) {
+      throw std::runtime_error(
+          "Ogre-Next RT4/V1 allocated an unused metallic derivative");
     }
   }
 
@@ -1069,6 +1169,11 @@ FrontendCapabilityReport OgreNextN1Frontend::QueryCapabilities() const {
   return impl_->Capabilities();
 }
 
+OgreNextN1TextureAllocationAudit
+OgreNextN1Frontend::QueryTextureAllocationAudit() const noexcept {
+  return impl_->TextureAllocationAudit();
+}
+
 RenderOperationResult OgreNextN1Frontend::Initialize(
     const FrontendInitializationRequest &request) {
   if (impl_->initialized) {
@@ -1320,7 +1425,7 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
     std::map<RenderAssetId, Impl::NativeMaterial> candidate_materials;
     std::map<RenderAssetId, Impl::NativeTexture> candidate_textures;
     try {
-      std::map<RenderAssetId, RenderAssetReference> referenced_textures;
+      std::map<RenderAssetId, ReferencedTextureUsage> referenced_textures;
       ValidationResult visit = candidate->VisitRecords(
           [&](const RenderAssetRecord &record) {
             const auto *material =
@@ -1330,40 +1435,77 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
                     OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
               return ValidationResult::Success();
             }
-            const TextureBinding *bindings[] = {
-                &material->base_color_texture,
-                &material->metallic_roughness_texture,
-                &material->emissive_texture,
+            struct BindingUsage final {
+              const TextureBinding *binding;
+              NativeTextureUsage usage;
             };
-            for (const TextureBinding *binding : bindings) {
-              if (binding->texture.valid()) {
-                referenced_textures.emplace(binding->texture.id,
-                                            binding->texture);
+            const BindingUsage bindings[] = {
+                {&material->base_color_texture, {true, false, false}},
+                {&material->metallic_roughness_texture,
+                 {false, true, true}},
+                {&material->emissive_texture, {true, false, false}},
+            };
+            for (const BindingUsage &binding_usage : bindings) {
+              const TextureBinding &binding = *binding_usage.binding;
+              if (!binding.texture.valid()) {
+                continue;
+              }
+              const auto inserted = referenced_textures.emplace(
+                  binding.texture.id,
+                  ReferencedTextureUsage{binding.texture,
+                                         binding_usage.usage});
+              if (!inserted.second) {
+                ReferencedTextureUsage &existing = inserted.first->second;
+                if (existing.asset != binding.texture) {
+                  return ValidationResult::Failure(
+                      ValidationCode::REVISION_MISMATCH,
+                      "assets.material.texture_binding",
+                      "RT4/V1 aliases one texture ID through different revisions");
+                }
+                existing.usage.sampled_rgba =
+                    existing.usage.sampled_rgba ||
+                    binding_usage.usage.sampled_rgba;
+                existing.usage.roughness_g =
+                    existing.usage.roughness_g ||
+                    binding_usage.usage.roughness_g;
+                existing.usage.metallic_b =
+                    existing.usage.metallic_b ||
+                    binding_usage.usage.metallic_b;
+                if (existing.usage.sampled_rgba &&
+                    (existing.usage.roughness_g ||
+                     existing.usage.metallic_b)) {
+                  return ValidationResult::Failure(
+                      ValidationCode::UNSUPPORTED_FEATURE,
+                      "assets.material.texture_binding",
+                      "RT4/V1 rejects aliases between sampled sRGB and packed linear texture roles");
+                }
               }
             }
             return ValidationResult::Success();
           });
       if (!visit) {
-        throw std::logic_error("N1 zero-copy catalog visitation failed");
+        return OgreNextN1OperationFromValidation(visit);
       }
 
       visit = candidate->VisitRecords([&](const RenderAssetRecord &record) {
         const auto referenced = referenced_textures.find(record.asset.id);
         if (!record.live() || record.asset.kind != RenderAssetKind::TEXTURE ||
             referenced == referenced_textures.end() ||
-            referenced->second != record.asset) {
+            referenced->second.asset != record.asset) {
           return ValidationResult::Success();
         }
         const auto existing = impl_->textures.find(record.asset.id);
         if (existing != impl_->textures.end() &&
-            existing->second.asset == record.asset) {
+            existing->second.asset == record.asset &&
+            existing->second.usage == referenced->second.usage) {
           candidate_textures.emplace(record.asset.id, existing->second);
         } else {
           PendingTextureAllocation created{
               impl_.get(),
               impl_->CreateTexture(
                   record.asset,
-                  std::get<TextureResourceDescriptor>(*record.payload)),
+                  std::get<TextureResourceDescriptor>(*record.payload),
+                  referenced->second.usage),
               true};
           candidate_textures.emplace(record.asset.id, created.native);
           created.owns = false;
@@ -1383,7 +1525,14 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
           throw std::logic_error(
               "RT4/V1 texture disappeared before upload verification");
         }
-        impl_->VerifyTexture(entry.second, *descriptor);
+        const auto usage = referenced_textures.find(entry.first);
+        if (usage == referenced_textures.end() ||
+            usage->second.asset != entry.second.asset) {
+          throw std::logic_error(
+              "RT4/V1 texture usage disappeared before upload verification");
+        }
+        impl_->VerifyTexture(entry.second, *descriptor,
+                             usage->second.usage);
       }
 
       visit = candidate->VisitRecords([&](const RenderAssetRecord &record) {
@@ -1569,6 +1718,18 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->raster_feature_tier);
   if (!validation) {
     return OgreNextN1OperationFromValidation(validation);
+  }
+  const CameraViewRequest &validated_view = request.views.front();
+  std::uint64_t readback_row_pitch = 0U;
+  std::size_t readback_total_bytes = 0U;
+  if (!TryComputeReadbackLayout(validated_view.width,
+                                validated_view.height,
+                                request.color_format,
+                                readback_row_pitch,
+                                readback_total_bytes)) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "N1 readback extent cannot be represented by the host allocation model");
   }
   const RenderOperationResult identity_validation =
       impl_->submission_state.Validate(request);
@@ -1873,18 +2034,14 @@ RenderOperationResult OgreNextN1Frontend::Render(
     Ogre::Image2 image;
     image.convertFromTexture(target, 0U, 0U);
     const Ogre::TextureBox pixels = image.getData(0U);
-    const std::uint64_t bytes_per_pixel =
-        request.color_format == PixelFormat::RGBA16_FLOAT ? 8U : 4U;
     FrameAttachment attachment;
     attachment.view_id = view.view_id;
     attachment.output = FrameOutputMask::COLOR;
     attachment.format = request.color_format;
     attachment.width = view.width;
     attachment.height = view.height;
-    attachment.row_pitch_bytes =
-        static_cast<std::uint64_t>(view.width) * bytes_per_pixel;
-    attachment.bytes.resize(static_cast<std::size_t>(
-        attachment.row_pitch_bytes * view.height));
+    attachment.row_pitch_bytes = readback_row_pitch;
+    attachment.bytes.resize(readback_total_bytes);
     for (std::uint32_t row = 0U; row < view.height; ++row) {
       const void *source = pixels.at(0U, row, 0U);
       void *destination = attachment.bytes.data() +

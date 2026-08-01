@@ -22,6 +22,7 @@ REQUIRED_ARTIFACTS = (
     "ror-ogre-next-frontend-n1.ppm",
     "ror-ogre-next-frontend-rt4-pbr-v1-report.json",
     "ror-ogre-next-frontend-rt4-pbr-v1.ppm",
+    "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin",
 )
 METAL_N2_REQUIRED_ARTIFACTS = (
     "ror-ogre-next-metal-n2-report.json",
