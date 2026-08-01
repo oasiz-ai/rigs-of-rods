@@ -195,6 +195,23 @@ void TestAdmissionAndMasks() {
                   1.0e-6F,
           "static/dynamic shadow mask or receiver plan is wrong");
 
+  CameraViewRequest off_center_view = view;
+  off_center_view.clip_from_view.elements[8U] = 0.25F;
+  off_center_view.clip_from_view.elements[9U] = -0.125F;
+  off_center_view.previous_clip_from_view = off_center_view.clip_from_view;
+  Require(TryBuildOgreNextPssmShadowFramePlan(
+              *static_only, registry, off_center_view,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+              OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, plan)
+                  .ok() &&
+              std::fabs(plan.projection_extents.left + 0.75F) < 1.0e-6F &&
+              std::fabs(plan.projection_extents.right - 1.25F) < 1.0e-6F &&
+              std::fabs(plan.projection_extents.top - (0.875F / 1.5F)) <
+                  1.0e-6F &&
+              std::fabs(plan.projection_extents.bottom - (-1.125F / 1.5F)) <
+                  1.0e-6F,
+          "nonzero off-center lens terms did not produce exact tangent extents");
+
   CameraViewRequest narrow_mask_view = view;
   narrow_mask_view.visibility_mask = 1U;
   Require(TryBuildOgreNextPssmShadowFramePlan(

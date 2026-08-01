@@ -1101,9 +1101,17 @@ Gate R1:
   tangents while Ogre mutates the camera near/far planes, and proves isolated
   receiver shadows in all three cascades (HDR and SDR for the near cascade).
   Frame-local datablock and generated-workspace-node fault seams prove clean
-  same-frame retry. The 35 upstream Ogre/HLMS source files used by the feature
+  same-frame retry. A separate off-center-lens and zero-thickness receiver-AABB
+  fixture binds the native tangent and caster-bound path to UI-free pixels. A
+  transactional D32 allocation/residency/readback/cleanup probe replaces
+  generic format support as the backend capability gate. The 86 upstream
+  Ogre/HLMS source files used by the feature
   have their own exact
-  source lock and build-time verifier. The smoke passed locally on Apple Metal;
+  source lock and build-time verifier, including Mesh/Item/SceneManager/AABB and
+  the Metal, Vulkan, and D3D11 allocation/readback owners. A fresh child-process
+  challenge is atomically bound through an execution receipt, exact attestation,
+  artifact manifest, and (on trusted CI runs) GitHub OIDC/DSSE provenance. The
+  smoke passed locally on Apple Metal;
   Linux Vulkan and Windows D3D11 run the same fail-closed test in CI and may
   report only a real pass or explicit unsupported capability evidence. This
   does not close local-light shadows, CityWorld quality, ray-traced shadows,

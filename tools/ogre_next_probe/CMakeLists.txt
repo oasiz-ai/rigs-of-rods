@@ -1098,6 +1098,16 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
         "${CMAKE_BINARY_DIR}/ror-ogre-next-pssm-shadow-report.json")
     set(ROR_OGRE_NEXT_PSSM_EVIDENCE
         "${CMAKE_BINARY_DIR}/ror-ogre-next-pssm-shadow-isolation.bin")
+    set(ROR_OGRE_NEXT_PSSM_EXECUTION_RECEIPT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-pssm-shadow-execution-receipt.json")
+    set(ROR_OGRE_NEXT_PSSM_ATTESTATION
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-pssm-shadow-attestation.json")
+    set(ROR_OGRE_NEXT_PSSM_ARTIFACT_MANIFEST
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-pssm-shadow-artifact-manifest.json")
+    set(ROR_OGRE_NEXT_PSSM_CTEST_REPORT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-pssm-shadow-ctest-report.json")
+    set(ROR_OGRE_NEXT_PSSM_CTEST_EVIDENCE
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-pssm-shadow-ctest-isolation.bin")
     add_custom_target(
         ror_ogre_next_frontend_n1_report
         COMMAND
@@ -1174,8 +1184,10 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
     add_test(NAME ror_ogre_next_pssm_shadow_runtime
         COMMAND $<TARGET_FILE:ror_ogre_next_pssm_shadow_smoke>
                 --media-root "${ROR_OGRE_NEXT_MEDIA_ROOT}"
-                --report "${ROR_OGRE_NEXT_PSSM_REPORT}"
-                --evidence "${ROR_OGRE_NEXT_PSSM_EVIDENCE}")
+                --report "${ROR_OGRE_NEXT_PSSM_CTEST_REPORT}"
+                --evidence "${ROR_OGRE_NEXT_PSSM_CTEST_EVIDENCE}"
+                --execution-challenge
+                "0000000000000000000000000000000000000000000000000000000000000000")
     set_tests_properties(
         ror_ogre_next_pssm_shadow_runtime
         PROPERTIES
@@ -1189,17 +1201,32 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "${CMAKE_COMMAND}" -E rm -f
             "${ROR_OGRE_NEXT_PSSM_REPORT}"
             "${ROR_OGRE_NEXT_PSSM_EVIDENCE}"
+            "${ROR_OGRE_NEXT_PSSM_EXECUTION_RECEIPT}"
+            "${ROR_OGRE_NEXT_PSSM_ATTESTATION}"
+            "${ROR_OGRE_NEXT_PSSM_ARTIFACT_MANIFEST}"
         COMMAND
-            "${CMAKE_CTEST_COMMAND}"
-            --test-dir "${CMAKE_BINARY_DIR}"
-            --build-config Release
-            --output-on-failure
-            -R "^ror_ogre_next_pssm_shadow_runtime$"
-        DEPENDS ror_ogre_next_pssm_shadow_smoke
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/run_pssm_shadow.py"
+            --build-dir "${CMAKE_BINARY_DIR}"
+            --executable $<TARGET_FILE:ror_ogre_next_pssm_shadow_smoke>
+            --media-root "${ROR_OGRE_NEXT_MEDIA_ROOT}"
+            --build-contract
+                "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
+            --report "${ROR_OGRE_NEXT_PSSM_REPORT}"
+            --evidence "${ROR_OGRE_NEXT_PSSM_EVIDENCE}"
+            --execution-receipt "${ROR_OGRE_NEXT_PSSM_EXECUTION_RECEIPT}"
+            --attestation "${ROR_OGRE_NEXT_PSSM_ATTESTATION}"
+            --artifact-manifest "${ROR_OGRE_NEXT_PSSM_ARTIFACT_MANIFEST}"
+        DEPENDS
+            ror_ogre_next_pssm_shadow_smoke
+            "${CMAKE_CURRENT_SOURCE_DIR}/run_pssm_shadow.py"
         BYPRODUCTS
             "${ROR_OGRE_NEXT_PSSM_REPORT}"
             "${ROR_OGRE_NEXT_PSSM_EVIDENCE}"
-        COMMENT "Running the opt-in directional PSSM isolation proof"
+            "${ROR_OGRE_NEXT_PSSM_EXECUTION_RECEIPT}"
+            "${ROR_OGRE_NEXT_PSSM_ATTESTATION}"
+            "${ROR_OGRE_NEXT_PSSM_ARTIFACT_MANIFEST}"
+        COMMENT "Running and atomically attesting the challenged directional PSSM isolation proof"
         VERBATIM)
     add_dependencies(
         ror_ogre_next_frontend_n1_report

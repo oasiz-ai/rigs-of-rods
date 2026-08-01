@@ -101,6 +101,9 @@ struct OgreNextPssmShadowRuntimeAudit final {
   bool atlas_dimensions_supported = false;
   bool texture_gather_supported = false;
   bool d32_render_target_supported = false;
+  bool d32_atlas_allocation_verified = false;
+  bool d32_atlas_readback_verified = false;
+  bool d32_atlas_cleanup_verified = false;
   OgreNextPssmShadowFramePlan last_frame;
   OgreNextPssmSplitPolicy last_native_splits;
   std::array<float, kOgreNextPssmCascadeCount>

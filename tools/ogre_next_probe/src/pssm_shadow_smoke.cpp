@@ -39,6 +39,7 @@ struct Arguments final {
   std::string media_root;
   std::string report_path;
   std::string evidence_path;
+  std::string execution_challenge;
 };
 
 struct ImagePair final {
@@ -78,6 +79,9 @@ struct SmokeResult final {
   bool normalized_visibility_mask_verified = false;
   bool receiver_clone_retry_verified = false;
   bool workspace_node_retry_verified = false;
+  ImagePair off_center_tight_bounds;
+  bool off_center_projection_verified = false;
+  bool tight_caster_bounds_verified = false;
 };
 
 [[noreturn]] void Fail(const std::string &detail) {
@@ -139,13 +143,22 @@ Arguments ParseArguments(int argc, char **argv) {
       arguments.report_path = argv[++index];
     } else if (option == "--evidence" && index + 1 < argc) {
       arguments.evidence_path = argv[++index];
+    } else if (option == "--execution-challenge" && index + 1 < argc) {
+      arguments.execution_challenge = argv[++index];
     } else {
-      Fail("usage: ror_ogre_next_pssm_shadow_smoke --media-root ABSOLUTE_PATH --report REPORT.json --evidence EVIDENCE.bin");
+      Fail("usage: ror_ogre_next_pssm_shadow_smoke --media-root ABSOLUTE_PATH --report REPORT.json --evidence EVIDENCE.bin --execution-challenge 64_LOWER_HEX");
     }
   }
   Require(!arguments.media_root.empty() && !arguments.report_path.empty() &&
-              !arguments.evidence_path.empty(),
-          "media, report, and evidence paths are required");
+              !arguments.evidence_path.empty() &&
+              arguments.execution_challenge.size() == 64U &&
+              std::all_of(arguments.execution_challenge.begin(),
+                          arguments.execution_challenge.end(),
+                          [](char character) {
+                            return (character >= '0' && character <= '9') ||
+                                   (character >= 'a' && character <= 'f');
+                          }),
+          "media, report, evidence, and a 64-lowercase-hex execution challenge are required");
   return arguments;
 }
 
@@ -208,6 +221,10 @@ MeshResourceDescriptor ReceiverMesh() {
   return mesh;
 }
 
+MeshResourceDescriptor TightReceiverMesh() {
+  return QuadMesh(2.5F, 1.8F, "PSSM exact-bounds receiver quad");
+}
+
 MaterialDescriptor Material(const char *name, Float4 color,
                             float roughness) {
   MaterialDescriptor material;
@@ -234,6 +251,7 @@ RenderAssetDelta Catalog() {
   add(RenderAssetKind::MESH, 1U, ReceiverMesh());
   add(RenderAssetKind::MESH, 2U,
       QuadMesh(0.45F, 0.45F, "PSSM isolated occluder quad"));
+  add(RenderAssetKind::MESH, 5U, TightReceiverMesh());
   add(RenderAssetKind::MATERIAL, 3U,
       Material("PSSM matte receiver", {0.72F, 0.74F, 0.78F, 1.0F},
                0.72F));
@@ -249,7 +267,8 @@ std::shared_ptr<const SceneSnapshot> Scene(std::uint64_t snapshot_id,
                                            float scale = 1.0F,
                                            float horizontal_offset = 0.0F,
                                            float occluder_vertical_offset =
-                                               0.0F) {
+                                               0.0F,
+                                           bool tight_receiver_bounds = false) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kRegistryId;
@@ -260,9 +279,12 @@ std::shared_ptr<const SceneSnapshot> Scene(std::uint64_t snapshot_id,
 
   MeshInstanceDescriptor receiver;
   receiver.instance_id = 1U;
-  receiver.mesh = Asset(RenderAssetKind::MESH, 1U);
+  receiver.mesh = Asset(RenderAssetKind::MESH,
+                        tight_receiver_bounds ? 5U : 1U);
   receiver.material = Asset(RenderAssetKind::MATERIAL, 3U);
-  receiver.local_bounds = ReceiverMesh().local_bounds;
+  receiver.local_bounds = tight_receiver_bounds
+                              ? TightReceiverMesh().local_bounds
+                              : ReceiverMesh().local_bounds;
   receiver.flags =
       MESH_INSTANCE_CASTS_SHADOW | MESH_INSTANCE_RECEIVES_SHADOW;
   receiver.render_from_object.elements[0U] = scale;
@@ -310,11 +332,14 @@ std::shared_ptr<const SceneSnapshot> Scene(std::uint64_t snapshot_id,
   return created.snapshot;
 }
 
-Matrix4x4 Projection() {
+Matrix4x4 Projection(float horizontal_lens_offset = 0.0F,
+                     float vertical_lens_offset = 0.0F) {
   Matrix4x4 projection;
   projection.elements.fill(0.0F);
   projection.elements[0U] = 1.0F;
   projection.elements[5U] = 1.5F;
+  projection.elements[8U] = horizontal_lens_offset;
+  projection.elements[9U] = vertical_lens_offset;
   projection.elements[10U] =
       kOgreNextPssmFarMeters /
       (kOgreNextPssmNearMeters - kOgreNextPssmFarMeters);
@@ -329,7 +354,9 @@ RenderFrameRequest Frame(
     std::uint64_t frame_id,
     const std::shared_ptr<const SceneSnapshot> &scene, PixelFormat format,
     float camera_depth = 4.0F,
-    std::uint32_t visibility_mask = 0xffffffffU) {
+    std::uint32_t visibility_mask = 0xffffffffU,
+    float horizontal_lens_offset = 0.0F,
+    float vertical_lens_offset = 0.0F) {
   RenderFrameRequest request;
   request.frame_id = frame_id;
   request.scene_snapshot = scene;
@@ -343,7 +370,8 @@ RenderFrameRequest Frame(
   view.far_plane = kOgreNextPssmFarMeters;
   view.view_from_render.elements[14U] = -camera_depth;
   view.previous_view_from_render = view.view_from_render;
-  view.clip_from_view = Projection();
+  view.clip_from_view =
+      Projection(horizontal_lens_offset, vertical_lens_offset);
   view.previous_clip_from_view = view.clip_from_view;
   view.visibility_mask = visibility_mask;
   request.views.push_back(view);
@@ -608,6 +636,53 @@ RenderOperationResult RunShadow(const std::string &media_root,
     proof.sdr = Compare(distant_without_output, distant_with_output,
                         PixelFormat::RGBA8_SRGB, kOffAxisRegion);
   }
+
+  constexpr float kHorizontalLensOffset = 0.25F;
+  constexpr float kVerticalLensOffset = -0.125F;
+  const auto tight_without =
+      Scene(snapshot_id++, false, true, 1.0F, 0.0F, 0.0F, true);
+  const auto tight_with =
+      Scene(snapshot_id++, true, true, 1.0F, 0.0F, 0.0F, true);
+  RenderFrameOutput tight_without_output;
+  RenderFrameOutput tight_with_output;
+  RequireSuccess(frontend.Render(
+                     Frame(frame_id++, tight_without, PixelFormat::RGBA8_SRGB,
+                           4.0F, 0x00000001U, kHorizontalLensOffset,
+                           kVerticalLensOffset),
+                     tight_without_output),
+                 "PSSM off-center exact-bounds no-occluder Render");
+  RequireSuccess(frontend.Render(
+                     Frame(frame_id++, tight_with, PixelFormat::RGBA8_SRGB,
+                           4.0F, 0x00000001U, kHorizontalLensOffset,
+                           kVerticalLensOffset),
+                     tight_with_output),
+                 "PSSM off-center exact-bounds occluder Render");
+  // This fixture deliberately uses exact zero-thickness geometry bounds. A
+  // full-frame mask admits cascade-fit movement while still requiring a
+  // predominantly darkened caster response. Its evidence is kept separate
+  // from the stricter receiver-local isolation pairs above.
+  constexpr ReviewedRegion kFullFrameRegion{0U, 191U, 0U, 127U,
+                                             192U, 192U, 128U, 128U};
+  result.off_center_tight_bounds =
+      Compare(tight_without_output, tight_with_output,
+              PixelFormat::RGBA8_SRGB, kFullFrameRegion);
+  const OgreNextPssmShadowRuntimeAudit fixture_audit =
+      frontend.QueryDirectionalShadowAudit();
+  result.off_center_projection_verified =
+      std::fabs(fixture_audit.last_frame.projection_extents.left + 0.75F) <
+          1.0e-6F &&
+      std::fabs(fixture_audit.last_frame.projection_extents.right - 1.25F) <
+          1.0e-6F &&
+      std::fabs(fixture_audit.last_frame.projection_extents.top -
+                (0.875F / 1.5F)) < 1.0e-6F &&
+      std::fabs(fixture_audit.last_frame.projection_extents.bottom -
+                (-1.125F / 1.5F)) < 1.0e-6F;
+  result.tight_caster_bounds_verified =
+      tight_with->mesh_instances().front().local_bounds.minimum.z == 0.0F &&
+      tight_with->mesh_instances().front().local_bounds.maximum.z == 0.0F;
+  Require(result.off_center_projection_verified &&
+              result.tight_caster_bounds_verified,
+          "PSSM off-center tangent or exact caster-bounds fixture failed");
   result.normalized_visibility_mask_verified = true;
   result.audit = frontend.QueryDirectionalShadowAudit();
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
@@ -616,14 +691,14 @@ RenderOperationResult RunShadow(const std::string &media_root,
   Require(result.audit.version == kOgreNextPssmShadowContractVersion &&
               result.audit.configured_mode ==
                   OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1 &&
-              result.audit.shadow_frames_completed == 8U &&
-              result.audit.shadow_node_creates == 8U &&
+              result.audit.shadow_frames_completed == 10U &&
+              result.audit.shadow_node_creates == 10U &&
               result.audit.shadow_node_creates ==
                   result.audit.shadow_node_destroys &&
-              result.audit.workspace_node_definition_creates == 8U &&
+              result.audit.workspace_node_definition_creates == 10U &&
               result.audit.workspace_node_definition_creates ==
                   result.audit.workspace_node_definition_destroys &&
-              result.audit.receiver_datablock_creates == 8U &&
+              result.audit.receiver_datablock_creates == 10U &&
               result.audit.receiver_datablock_creates ==
                   result.audit.receiver_datablock_destroys &&
               result.audit.last_frame.enabled &&
@@ -631,6 +706,10 @@ RenderOperationResult RunShadow(const std::string &media_root,
               result.audit.last_frame.dynamic_caster_count == 0U &&
               result.audit.last_frame.receiver_count == 1U &&
               result.audit.last_frame.native_visibility_mask == 1U &&
+              result.audit.d32_render_target_supported &&
+              result.audit.d32_atlas_allocation_verified &&
+              result.audit.d32_atlas_readback_verified &&
+              result.audit.d32_atlas_cleanup_verified &&
               result.audit.native_projection_extents_verified &&
               result.audit.native_readback_verified &&
               std::all_of(
@@ -696,12 +775,19 @@ void WriteEvidence(const std::string &path, const SmokeResult &result) {
                    static_cast<std::streamsize>(bytes->size()));
     }
   }
+  for (const std::vector<std::uint8_t> *bytes :
+       {&result.off_center_tight_bounds.no_occluder,
+        &result.off_center_tight_bounds.occluder}) {
+    output.write(reinterpret_cast<const char *>(bytes->data()),
+                 static_cast<std::streamsize>(bytes->size()));
+  }
   Require(static_cast<bool>(output), "could not write complete PSSM evidence");
 }
 
 std::string UnsupportedReport(
     const RenderOperationResult &failure,
-    const OgreNextPssmShadowRuntimeAudit &audit) {
+    const OgreNextPssmShadowRuntimeAudit &audit,
+    const std::string &execution_challenge) {
   Require(failure.code == RenderOperationCode::UNSUPPORTED &&
               failure.detail == kOgreNextPssmCapabilityUnsupportedDetail &&
               audit.capability_check_completed &&
@@ -711,8 +797,12 @@ std::string UnsupportedReport(
           "PSSM unsupported result was not exact native capability evidence");
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v2\",\n"
+         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v3\",\n"
          << "  \"status\": \"unsupported\",\n"
+         << "  \"execution\": {\"schema\": "
+            "\"ror.ogre_next_pssm_shadow_execution_challenge.v1\", "
+            "\"challenge_nonce\": \""
+         << execution_challenge << "\"},\n"
          << "  \"provenance\": {\n"
          << "    \"ror_repository\": \"" << ROR_OGRE_NEXT_N1_ROR_REPOSITORY
          << "\",\n"
@@ -750,7 +840,15 @@ std::string UnsupportedReport(
          << "    \"texture_gather_supported\": "
          << (audit.texture_gather_supported ? "true" : "false") << ",\n"
          << "    \"d32_render_target_supported\": "
-         << (audit.d32_render_target_supported ? "true" : "false") << "\n"
+         << (audit.d32_render_target_supported ? "true" : "false") << ",\n"
+         << "    \"d32_atlas_allocation_verified\": "
+         << (audit.d32_atlas_allocation_verified ? "true" : "false")
+         << ",\n"
+         << "    \"d32_atlas_readback_verified\": "
+         << (audit.d32_atlas_readback_verified ? "true" : "false")
+         << ",\n"
+         << "    \"d32_atlas_cleanup_verified\": "
+         << (audit.d32_atlas_cleanup_verified ? "true" : "false") << "\n"
          << "  },\n"
          << "  \"backend_substitution\": false\n"
          << "}\n";
@@ -758,7 +856,8 @@ std::string UnsupportedReport(
 }
 
 std::string PassReport(const SmokeResult &result,
-                       const std::string &evidence_path) {
+                       const std::string &evidence_path,
+                       const std::string &execution_challenge) {
   OgreNextPssmSplitPolicy splits;
   Require(TryBuildOgreNextPssmSplitPolicy(splits),
           "fixed PSSM splits disappeared while writing evidence");
@@ -768,12 +867,18 @@ std::string PassReport(const SmokeResult &result,
       result.distant_cascades[0U].sdr.no_occluder.size() +
       result.distant_cascades[0U].sdr.occluder.size() +
       result.distant_cascades[1U].sdr.no_occluder.size() +
-      result.distant_cascades[1U].sdr.occluder.size();
+      result.distant_cascades[1U].sdr.occluder.size() +
+      result.off_center_tight_bounds.no_occluder.size() +
+      result.off_center_tight_bounds.occluder.size();
   std::ostringstream report;
   report << std::setprecision(9)
          << "{\n"
-         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v2\",\n"
+         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v3\",\n"
          << "  \"status\": \"pass\",\n"
+         << "  \"execution\": {\"schema\": "
+            "\"ror.ogre_next_pssm_shadow_execution_challenge.v1\", "
+            "\"challenge_nonce\": \""
+         << execution_challenge << "\"},\n"
          << "  \"provenance\": {\n"
          << "    \"ror_repository\": \"" << ROR_OGRE_NEXT_N1_ROR_REPOSITORY
          << "\",\n"
@@ -816,6 +921,8 @@ std::string PassReport(const SmokeResult &result,
          << "    \"backend_substitution\": false,\n"
          << "    \"split_stable_tangent_projection\": true,\n"
          << "    \"native_definition_split_and_runtime_bias_readback\": true,\n"
+         << "    \"native_d32_atlas_allocation_use_readback_verified\": true,\n"
+         << "    \"native_d32_atlas_cleanup_verified\": true,\n"
          << "    \"runtime_normal_offset_bias\": ["
          << result.audit.last_native_normal_offset_bias[0U] << ", "
          << result.audit.last_native_normal_offset_bias[1U] << ", "
@@ -854,6 +961,24 @@ std::string PassReport(const SmokeResult &result,
            << (index + 1U == result.distant_cascades.size() ? "\n" : ",\n");
   }
   report << "  ],\n"
+         << "  \"projection_and_bounds_fixture\": {\n"
+         << "    \"horizontal_lens_offset\": 0.25,\n"
+         << "    \"vertical_lens_offset\": -0.125,\n"
+         << "    \"expected_tangent_extents\": [-0.75, 1.25, "
+            "0.583333313, -0.75],\n"
+         << "    \"off_center_projection_verified\": "
+         << (result.off_center_projection_verified ? "true" : "false")
+         << ",\n"
+         << "    \"receiver_bounds_min_z\": 0,\n"
+         << "    \"receiver_bounds_max_z\": 0,\n"
+         << "    \"tight_caster_bounds_verified\": "
+         << (result.tight_caster_bounds_verified ? "true" : "false")
+         << ",\n"
+         << "    \"sdr_changed_pixels\": "
+         << result.off_center_tight_bounds.changed_pixels << ",\n"
+         << "    \"sdr_darkened_pixels\": "
+         << result.off_center_tight_bounds.darkened_pixels << "\n"
+         << "  },\n"
          << "  \"lifecycle\": {\n"
          << "    \"shadow_frames_completed\": "
          << result.audit.shadow_frames_completed << ",\n"
@@ -900,7 +1025,11 @@ std::string PassReport(const SmokeResult &result,
          << Hex(result.distant_cascades[1U].sdr.no_occluder_hash)
          << "\",\n"
          << "    \"cascade_3_sdr_occluder_fnv1a64\": \""
-         << Hex(result.distant_cascades[1U].sdr.occluder_hash) << "\"\n"
+         << Hex(result.distant_cascades[1U].sdr.occluder_hash) << "\",\n"
+         << "    \"off_center_tight_bounds_sdr_no_occluder_fnv1a64\": \""
+         << Hex(result.off_center_tight_bounds.no_occluder_hash) << "\",\n"
+         << "    \"off_center_tight_bounds_sdr_occluder_fnv1a64\": \""
+         << Hex(result.off_center_tight_bounds.occluder_hash) << "\"\n"
          << "  }\n"
          << "}\n";
   return report.str();
@@ -915,7 +1044,8 @@ int main(int argc, char **argv) {
     const RenderOperationResult shadow = RunShadow(arguments.media_root, result);
     if (!shadow) {
       if (shadow.code == RenderOperationCode::UNSUPPORTED) {
-        const std::string report = UnsupportedReport(shadow, result.audit);
+        const std::string report = UnsupportedReport(
+            shadow, result.audit, arguments.execution_challenge);
         WriteText(arguments.report_path, report);
         std::cout << report;
         return kUnsupportedExitCode;
@@ -941,7 +1071,8 @@ int main(int argc, char **argv) {
     result.disabled_default_hash = Hash(disabled_default);
     result.disabled_explicit_hash = Hash(disabled_explicit);
     WriteEvidence(arguments.evidence_path, result);
-    const std::string report = PassReport(result, arguments.evidence_path);
+    const std::string report = PassReport(
+        result, arguments.evidence_path, arguments.execution_challenge);
     WriteText(arguments.report_path, report);
     std::cout << report;
     return 0;

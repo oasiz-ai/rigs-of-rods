@@ -31,8 +31,28 @@ REQUIRED_ARTIFACTS = (
 )
 PSSM_REPORT_ARTIFACT = "ror-ogre-next-pssm-shadow-report.json"
 PSSM_EVIDENCE_ARTIFACT = "ror-ogre-next-pssm-shadow-isolation.bin"
+PSSM_EXECUTION_RECEIPT_ARTIFACT = (
+    "ror-ogre-next-pssm-shadow-execution-receipt.json"
+)
+PSSM_ATTESTATION_ARTIFACT = "ror-ogre-next-pssm-shadow-attestation.json"
+PSSM_ARTIFACT_MANIFEST_ARTIFACT = (
+    "ror-ogre-next-pssm-shadow-artifact-manifest.json"
+)
 PSSM_EXECUTABLE_STEM = "ror_ogre_next_pssm_shadow_smoke"
-PSSM_REPORT_SCHEMA = "ror.ogre_next_pssm_shadow_smoke.v2"
+PSSM_REPORT_SCHEMA = "ror.ogre_next_pssm_shadow_smoke.v3"
+PSSM_EXECUTION_SCHEMA = "ror.ogre_next_pssm_shadow_execution_challenge.v1"
+PSSM_EXECUTION_RECEIPT_SCHEMA = (
+    "ror.ogre_next_pssm_shadow_execution_receipt.v1"
+)
+PSSM_ATTESTATION_SCHEMA = "ror.ogre_next_pssm_shadow_attestation.v1"
+PSSM_ARTIFACT_MANIFEST_SCHEMA = (
+    "ror.ogre_next_pssm_shadow_artifact_manifest.v1"
+)
+PSSM_OFFLINE_EXECUTION_LIMITATION = (
+    "hashes, binary structure, report semantics, and a fresh challenge can be "
+    "verified offline, but the receipt is not a cryptographic proof that its "
+    "executable ran; require the GitHub artifact attestation for that receipt"
+)
 PSSM_UNSUPPORTED_DETAIL = (
     "PSSM_3_CASCADE_V1 native capability gate rejected the required atlas "
     "or PCF4 support"
@@ -2032,6 +2052,56 @@ def _expected_pssm_provenance(
     }
 
 
+def _pssm_entrypoint_bytes(payload: bytes, binary_format: str) -> bytes:
+    file_offset: int | None = None
+    if binary_format == "mach-o-64":
+        _, _, _, _, command_count, command_bytes, _, _ = struct.unpack_from(
+            "<IiiIIIII", payload, 0
+        )
+        offset = 32
+        for _ in range(command_count):
+            command, command_size = struct.unpack_from("<II", payload, offset)
+            if command == 0x80000028 and command_size >= 24:
+                file_offset = struct.unpack_from("<Q", payload, offset + 8)[0]
+                break
+            offset += command_size
+    elif binary_format == "pe32+":
+        pe_offset = struct.unpack_from("<I", payload, 0x3C)[0]
+        _, section_count, _, _, _, optional_size, _ = struct.unpack_from(
+            "<HHIIIHH", payload, pe_offset + 4
+        )
+        optional_offset = pe_offset + 24
+        entry_rva = struct.unpack_from("<I", payload, optional_offset + 16)[0]
+        section_offset = optional_offset + optional_size
+        for index in range(section_count):
+            offset = section_offset + index * 40
+            virtual_size, virtual_address, raw_size, raw_offset = struct.unpack_from(
+                "<IIII", payload, offset + 8
+            )
+            extent = max(virtual_size, raw_size)
+            if virtual_address <= entry_rva < virtual_address + extent:
+                file_offset = raw_offset + entry_rva - virtual_address
+                break
+    elif binary_format == "elf64":
+        entrypoint, program_offset = struct.unpack_from("<QQ", payload, 24)
+        program_entry_size, program_count = struct.unpack_from("<HH", payload, 54)
+        for index in range(program_count):
+            offset = program_offset + index * program_entry_size
+            segment_type, flags = struct.unpack_from("<II", payload, offset)
+            segment_offset, virtual_address = struct.unpack_from("<QQ", payload, offset + 8)
+            file_size = struct.unpack_from("<Q", payload, offset + 32)[0]
+            if (
+                segment_type == 1
+                and flags & 0x1
+                and virtual_address <= entrypoint < virtual_address + file_size
+            ):
+                file_offset = segment_offset + entrypoint - virtual_address
+                break
+    if file_offset is None or file_offset < 0 or file_offset + 16 > len(payload):
+        raise ArtifactSetError("PSSM executable entrypoint is not file-backed")
+    return payload[file_offset : file_offset + 32]
+
+
 def _verify_pssm_executable(
     path: Path,
     build_contract: dict[str, object],
@@ -2057,6 +2127,15 @@ def _verify_pssm_executable(
     }
     if verifier(payload) != expected_structure:
         raise ArtifactSetError("PSSM executable platform structure mismatch")
+    entrypoint = _pssm_entrypoint_bytes(payload, policy["binary_format"])
+    if (
+        not any(byte != 0 for byte in entrypoint)
+        or len(set(entrypoint)) < 4
+        or not any(byte < 0x20 or byte > 0x7E for byte in entrypoint)
+    ):
+        raise ArtifactSetError(
+            "PSSM executable entrypoint contains no plausible machine code"
+        )
     if policy["binary_format"] in ("mach-o-64", "elf64") and (
         path.stat().st_mode & 0o111 == 0
     ):
@@ -2067,6 +2146,7 @@ def _verify_pssm_executable(
     required_tokens = (
         PSSM_REPORT_SCHEMA,
         "--media-root",
+        "--execution-challenge",
         "PSSM_3_CASCADE_V1",
         PSSM_UNSUPPORTED_DETAIL,
         policy["renderer_name"],
@@ -2145,12 +2225,14 @@ def _verify_pssm_pass(
         {
             "schema",
             "status",
+            "execution",
             "provenance",
             "platform_policy",
             "renderer",
             "shadow_contract",
             "isolation",
             "distant_cascade_proof",
+            "projection_and_bounds_fixture",
             "lifecycle",
             "evidence",
         },
@@ -2172,6 +2254,8 @@ def _verify_pssm_pass(
             "backend_substitution",
             "split_stable_tangent_projection",
             "native_definition_split_and_runtime_bias_readback",
+            "native_d32_atlas_allocation_use_readback_verified",
+            "native_d32_atlas_cleanup_verified",
             "runtime_normal_offset_bias",
         },
         "PSSM shadow contract",
@@ -2204,7 +2288,12 @@ def _verify_pssm_pass(
         and shadow_contract.get(
             "native_definition_split_and_runtime_bias_readback"
         )
-        is True,
+        is True
+        and shadow_contract.get(
+            "native_d32_atlas_allocation_use_readback_verified"
+        )
+        is True
+        and shadow_contract.get("native_d32_atlas_cleanup_verified") is True,
         "biases": isinstance(biases, list)
         and len(biases) == 3
         and all(
@@ -2289,13 +2378,13 @@ def _verify_pssm_pass(
     if not _json_exact(
         lifecycle,
         {
-            "shadow_frames_completed": 8,
-            "shadow_node_creates": 8,
-            "shadow_node_destroys": 8,
-            "workspace_node_definition_creates": 8,
-            "workspace_node_definition_destroys": 8,
-            "receiver_datablock_creates": 8,
-            "receiver_datablock_destroys": 8,
+            "shadow_frames_completed": 10,
+            "shadow_node_creates": 10,
+            "shadow_node_destroys": 10,
+            "workspace_node_definition_creates": 10,
+            "workspace_node_definition_destroys": 10,
+            "receiver_datablock_creates": 10,
+            "receiver_datablock_destroys": 10,
             "receiver_clone_same_frame_retry_verified": True,
             "workspace_node_same_frame_retry_verified": True,
         },
@@ -2315,6 +2404,8 @@ def _verify_pssm_pass(
             "cascade_2_sdr_occluder_fnv1a64",
             "cascade_3_sdr_no_occluder_fnv1a64",
             "cascade_3_sdr_occluder_fnv1a64",
+            "off_center_tight_bounds_sdr_no_occluder_fnv1a64",
+            "off_center_tight_bounds_sdr_occluder_fnv1a64",
         },
         "PSSM evidence metadata",
     )
@@ -2338,6 +2429,8 @@ def _verify_pssm_pass(
         ("cascade_2_sdr_occluder_fnv1a64", 192 * 128 * 4),
         ("cascade_3_sdr_no_occluder_fnv1a64", 192 * 128 * 4),
         ("cascade_3_sdr_occluder_fnv1a64", 192 * 128 * 4),
+        ("off_center_tight_bounds_sdr_no_occluder_fnv1a64", 192 * 128 * 4),
+        ("off_center_tight_bounds_sdr_occluder_fnv1a64", 192 * 128 * 4),
     )
     slices: list[bytes] = []
     offset = 0
@@ -2404,12 +2497,268 @@ def _verify_pssm_pass(
             and _json_exact(entry.get("sdr_darkened_receiver_pixels"), computed[1])
         ):
             raise ArtifactSetError("PSSM distant-cascade report differs from evidence")
+
+    fixture = _require_exact_keys(
+        report.get("projection_and_bounds_fixture"),
+        {
+            "horizontal_lens_offset",
+            "vertical_lens_offset",
+            "expected_tangent_extents",
+            "off_center_projection_verified",
+            "receiver_bounds_min_z",
+            "receiver_bounds_max_z",
+            "tight_caster_bounds_verified",
+            "sdr_changed_pixels",
+            "sdr_darkened_pixels",
+        },
+        "PSSM projection and bounds fixture",
+    )
+    fixture_metrics = _pssm_pair_metrics(
+        slices[8],
+        slices[9],
+        hdr=False,
+        receiver=(0, 191, 0, 127),
+        occluder=(192, 192, 128, 128),
+    )
+    extents = fixture.get("expected_tangent_extents")
+    if not (
+        _number_matches(fixture.get("horizontal_lens_offset"), 0.25)
+        and _number_matches(fixture.get("vertical_lens_offset"), -0.125)
+        and isinstance(extents, list)
+        and len(extents) == 4
+        and all(
+            _number_matches(value, expected)
+            for value, expected in zip(
+                extents, (-0.75, 1.25, 0.875 / 1.5, -0.75)
+            )
+        )
+        and fixture.get("off_center_projection_verified") is True
+        and _number_matches(fixture.get("receiver_bounds_min_z"), 0.0)
+        and _number_matches(fixture.get("receiver_bounds_max_z"), 0.0)
+        and fixture.get("tight_caster_bounds_verified") is True
+        and _json_exact(fixture.get("sdr_changed_pixels"), fixture_metrics[0])
+        and _json_exact(fixture.get("sdr_darkened_pixels"), fixture_metrics[1])
+    ):
+        raise ArtifactSetError(
+            "PSSM off-center projection or exact-bounds fixture differs from evidence"
+        )
     manifest.append(
         {
             "path": PSSM_EVIDENCE_ARTIFACT,
             "bytes": evidence_path.stat().st_size,
             "sha256": sha256_file(evidence_path),
         }
+    )
+
+
+def _verify_pssm_workflow_identity(
+    workflow: object, source: dict[str, object]
+) -> dict[str, object]:
+    value = _require_exact_keys(
+        workflow,
+        {
+            "provider",
+            "repository",
+            "workflow_ref",
+            "run_id",
+            "run_attempt",
+            "sha",
+            "ref",
+            "job",
+            "external_dsse_required",
+        },
+        "PSSM workflow identity",
+    )
+    provider = value.get("provider")
+    if provider == "local":
+        if not _json_exact(
+            value,
+            {
+                "provider": "local",
+                "repository": "",
+                "workflow_ref": "",
+                "run_id": "",
+                "run_attempt": "",
+                "sha": "",
+                "ref": "",
+                "job": "",
+                "external_dsse_required": False,
+            },
+        ):
+            raise ArtifactSetError("local PSSM workflow identity is not exact")
+        return value
+    fields = ("repository", "workflow_ref", "run_id", "run_attempt", "sha", "ref", "job")
+    if not (
+        provider == "github-actions"
+        and all(isinstance(value.get(field), str) and value[field] for field in fields)
+        and value.get("repository") == "oasiz-ai/rigs-of-rods"
+        and value.get("workflow_ref", "").startswith(
+            "oasiz-ai/rigs-of-rods/.github/workflows/ogre-next-probe.yml@"
+        )
+        and value.get("sha") == source.get("commit")
+        and value.get("external_dsse_required") is True
+    ):
+        raise ArtifactSetError("GitHub PSSM workflow identity is not exact")
+    return value
+
+
+def _verify_pssm_integrity(
+    root: Path,
+    report: dict[str, object],
+    build_contract: dict[str, object],
+    executable_path: Path,
+    executable_relative: str,
+    manifest: list[dict[str, object]],
+) -> None:
+    receipt_path = root / PSSM_EXECUTION_RECEIPT_ARTIFACT
+    attestation_path = root / PSSM_ATTESTATION_ARTIFACT
+    artifact_manifest_path = root / PSSM_ARTIFACT_MANIFEST_ARTIFACT
+    for path, label in (
+        (receipt_path, "execution receipt"),
+        (attestation_path, "attestation"),
+        (artifact_manifest_path, "artifact manifest"),
+    ):
+        if path.is_symlink() or not path.is_file() or path.stat().st_size <= 0:
+            raise ArtifactSetError(f"PSSM {label} is missing, empty, or indirect")
+
+    def record(path: Path, relative: str) -> dict[str, object]:
+        return {
+            "path": relative,
+            "bytes": path.stat().st_size,
+            "sha256": sha256_file(path),
+        }
+
+    status = report.get("status")
+    source = build_contract["ror_source"]
+    build_identity = report["provenance"]["executable_build_identity"]
+    evidence_path = root / PSSM_EVIDENCE_ARTIFACT
+    subjects = {
+        "build_contract": record(root / REQUIRED_ARTIFACTS[0], REQUIRED_ARTIFACTS[0]),
+        "executable": record(executable_path, executable_relative),
+        "report": record(root / PSSM_REPORT_ARTIFACT, PSSM_REPORT_ARTIFACT),
+        "evidence": (
+            record(evidence_path, PSSM_EVIDENCE_ARTIFACT)
+            if status == "pass"
+            else None
+        ),
+    }
+
+    receipt = _read_json_object(receipt_path, "PSSM execution receipt")
+    _require_exact_keys(
+        receipt,
+        {
+            "schema",
+            "status",
+            "observation",
+            "subjects",
+            "build_identity",
+            "source",
+            "workflow",
+            "complete",
+        },
+        "PSSM execution receipt",
+    )
+    observation = _require_exact_keys(
+        receipt.get("observation"),
+        {
+            "mode",
+            "challenge_nonce",
+            "observed_process_exit_code",
+            "offline_cryptographic_execution_proof",
+            "limitation",
+        },
+        "PSSM execution observation",
+    )
+    execution = report["execution"]
+    expected_exit = 0 if status == "pass" else 77
+    if not (
+        receipt.get("schema") == PSSM_EXECUTION_RECEIPT_SCHEMA
+        and receipt.get("status") == status
+        and observation.get("mode") == "fresh_child_process_challenge"
+        and observation.get("challenge_nonce") == execution["challenge_nonce"]
+        and _json_exact(observation.get("observed_process_exit_code"), expected_exit)
+        and observation.get("offline_cryptographic_execution_proof") is False
+        and observation.get("limitation") == PSSM_OFFLINE_EXECUTION_LIMITATION
+        and _json_exact(receipt.get("subjects"), subjects)
+        and receipt.get("build_identity") == build_identity
+        and _json_exact(receipt.get("source"), source)
+        and receipt.get("complete") is True
+    ):
+        raise ArtifactSetError("PSSM challenged execution receipt is invalid")
+    workflow = _verify_pssm_workflow_identity(receipt.get("workflow"), source)
+
+    receipt_record = record(receipt_path, PSSM_EXECUTION_RECEIPT_ARTIFACT)
+    attestation = _read_json_object(attestation_path, "PSSM attestation")
+    _require_exact_keys(
+        attestation,
+        {
+            "schema",
+            "status",
+            "integrity_model",
+            "source",
+            "workflow",
+            "build_identity",
+            "files",
+            "complete",
+        },
+        "PSSM attestation",
+    )
+    expected_files = {**subjects, "execution_receipt": receipt_record}
+    if not (
+        attestation.get("schema") == PSSM_ATTESTATION_SCHEMA
+        and attestation.get("status") == status
+        and attestation.get("integrity_model")
+        == (
+            "atomic-self-contained-sha256-plus-challenged-execution-receipt; "
+            "external-github-dsse-required-in-ci"
+        )
+        and _json_exact(attestation.get("source"), source)
+        and _json_exact(attestation.get("workflow"), workflow)
+        and attestation.get("build_identity") == build_identity
+        and _json_exact(attestation.get("files"), expected_files)
+        and attestation.get("complete") is True
+    ):
+        raise ArtifactSetError("PSSM atomic attestation is invalid")
+
+    attestation_record = record(attestation_path, PSSM_ATTESTATION_ARTIFACT)
+    expected_artifacts = sorted(
+        [entry for entry in subjects.values() if entry is not None]
+        + [receipt_record, attestation_record],
+        key=lambda entry: entry["path"],
+    )
+    persisted_manifest = _read_json_object(
+        artifact_manifest_path, "PSSM artifact manifest"
+    )
+    _require_exact_keys(
+        persisted_manifest,
+        {
+            "schema",
+            "status",
+            "source",
+            "workflow",
+            "build_identity",
+            "artifacts",
+            "complete",
+        },
+        "PSSM artifact manifest",
+    )
+    if not (
+        persisted_manifest.get("schema") == PSSM_ARTIFACT_MANIFEST_SCHEMA
+        and persisted_manifest.get("status") == status
+        and _json_exact(persisted_manifest.get("source"), source)
+        and _json_exact(persisted_manifest.get("workflow"), workflow)
+        and persisted_manifest.get("build_identity") == build_identity
+        and _json_exact(persisted_manifest.get("artifacts"), expected_artifacts)
+        and persisted_manifest.get("complete") is True
+    ):
+        raise ArtifactSetError("PSSM persisted artifact manifest is invalid")
+
+    manifest.extend(
+        (
+            receipt_record,
+            attestation_record,
+            record(artifact_manifest_path, PSSM_ARTIFACT_MANIFEST_ARTIFACT),
+        )
     )
 
 
@@ -2422,6 +2771,17 @@ def _verify_pssm(
     report = _read_json_object(report_path, "PSSM report")
     if report.get("schema") != PSSM_REPORT_SCHEMA:
         raise ArtifactSetError("PSSM report schema is invalid")
+    execution = _require_exact_keys(
+        report.get("execution"),
+        {"schema", "challenge_nonce"},
+        "PSSM execution challenge",
+    )
+    if (
+        execution.get("schema") != PSSM_EXECUTION_SCHEMA
+        or not isinstance(execution.get("challenge_nonce"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", execution["challenge_nonce"]) is None
+    ):
+        raise ArtifactSetError("PSSM execution challenge is invalid")
     provenance = _require_exact_keys(
         report.get("provenance"),
         {
@@ -2465,62 +2825,80 @@ def _verify_pssm(
     status = report.get("status")
     if status == "pass":
         _verify_pssm_pass(root, report, manifest)
-        return
-    if status != "unsupported":
+    elif status != "unsupported":
         raise ArtifactSetError("PSSM report did not pass or fail closed")
-    _require_exact_keys(
+    else:
+        _require_exact_keys(
+            report,
+            {
+                "schema",
+                "status",
+                "execution",
+                "provenance",
+                "platform_policy",
+                "renderer",
+                "capability_evidence",
+                "backend_substitution",
+            },
+            "PSSM unsupported report",
+        )
+        capability = _require_exact_keys(
+            report.get("capability_evidence"),
+            {
+                "code",
+                "reason",
+                "required_atlas_width",
+                "required_atlas_height",
+                "required_format",
+                "required_filter",
+                "observed_maximum_texture_dimension",
+                "atlas_dimensions_supported",
+                "texture_gather_supported",
+                "d32_render_target_supported",
+                "d32_atlas_allocation_verified",
+                "d32_atlas_readback_verified",
+                "d32_atlas_cleanup_verified",
+            },
+            "PSSM unsupported capability evidence",
+        )
+        maximum = capability.get("observed_maximum_texture_dimension")
+        booleans = (
+            capability.get("atlas_dimensions_supported"),
+            capability.get("texture_gather_supported"),
+            capability.get("d32_render_target_supported"),
+            capability.get("d32_atlas_allocation_verified"),
+            capability.get("d32_atlas_readback_verified"),
+            capability.get("d32_atlas_cleanup_verified"),
+        )
+        unsupported_valid = (
+            capability.get("code") == "PSSM_REQUIRED_NATIVE_CAPABILITY_MISSING"
+            and capability.get("reason") == PSSM_UNSUPPORTED_DETAIL
+            and _json_exact(capability.get("required_atlas_width"), 2048)
+            and _json_exact(capability.get("required_atlas_height"), 3072)
+            and capability.get("required_format") == "D32_FLOAT"
+            and capability.get("required_filter") == "PCF_4x4_TEXTURE_GATHER"
+            and type(maximum) is int
+            and maximum > 0
+            and all(type(value) is bool for value in booleans)
+            and booleans[0] is (maximum >= 3072)
+            and booleans[2] is (booleans[3] and booleans[4] and booleans[5])
+            and booleans[5] is True
+            and not (booleans[0] and booleans[1] and booleans[2])
+            and report.get("backend_substitution") is False
+        )
+        if not unsupported_valid:
+            raise ArtifactSetError("PSSM unsupported capability evidence is not exact")
+        if (root / PSSM_EVIDENCE_ARTIFACT).exists():
+            raise ArtifactSetError("unsupported PSSM report retained stale pass evidence")
+
+    _verify_pssm_integrity(
+        root,
         report,
-        {
-            "schema",
-            "status",
-            "provenance",
-            "platform_policy",
-            "renderer",
-            "capability_evidence",
-            "backend_substitution",
-        },
-        "PSSM unsupported report",
+        build_contract,
+        executable_path,
+        executable_relative,
+        manifest,
     )
-    capability = _require_exact_keys(
-        report.get("capability_evidence"),
-        {
-            "code",
-            "reason",
-            "required_atlas_width",
-            "required_atlas_height",
-            "required_format",
-            "required_filter",
-            "observed_maximum_texture_dimension",
-            "atlas_dimensions_supported",
-            "texture_gather_supported",
-            "d32_render_target_supported",
-        },
-        "PSSM unsupported capability evidence",
-    )
-    maximum = capability.get("observed_maximum_texture_dimension")
-    booleans = (
-        capability.get("atlas_dimensions_supported"),
-        capability.get("texture_gather_supported"),
-        capability.get("d32_render_target_supported"),
-    )
-    unsupported_valid = (
-        capability.get("code") == "PSSM_REQUIRED_NATIVE_CAPABILITY_MISSING"
-        and capability.get("reason") == PSSM_UNSUPPORTED_DETAIL
-        and _json_exact(capability.get("required_atlas_width"), 2048)
-        and _json_exact(capability.get("required_atlas_height"), 3072)
-        and capability.get("required_format") == "D32_FLOAT"
-        and capability.get("required_filter") == "PCF_4x4_TEXTURE_GATHER"
-        and type(maximum) is int
-        and maximum > 0
-        and all(type(value) is bool for value in booleans)
-        and booleans[0] is (maximum >= 3072)
-        and not all(booleans)
-        and report.get("backend_substitution") is False
-    )
-    if not unsupported_valid:
-        raise ArtifactSetError("PSSM unsupported capability evidence is not exact")
-    if (root / PSSM_EVIDENCE_ARTIFACT).exists():
-        raise ArtifactSetError("unsupported PSSM report retained stale pass evidence")
 
 
 def _metal_n3_image_metrics(payload: bytes) -> dict[str, int | float | str]:

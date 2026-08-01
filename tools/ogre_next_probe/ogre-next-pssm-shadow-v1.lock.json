@@ -105,6 +105,261 @@
       "sha256": "b1de6a98f71c82e4c7e659305082dfa5d97f71c2fc1f2b2c4e84ac1de118336c"
     },
     {
+      "role": "mesh_bounds_api",
+      "path": "OgreMain/include/OgreMesh2.h",
+      "sha256": "93e3c9e623a112089b2fbe09e316fe9d194a4b3344bb40aabb370474b91238cb"
+    },
+    {
+      "role": "mesh_bounds_runtime",
+      "path": "OgreMain/src/OgreMesh2.cpp",
+      "sha256": "736c531d279be765590a641845fae23f7dff5dcdbe32e832a59c0cc614198538"
+    },
+    {
+      "role": "item_bounds_api",
+      "path": "OgreMain/include/OgreItem.h",
+      "sha256": "f7633258960858d9155a185c697178c17b1f849d3ef5b6305f341eb828f33e71"
+    },
+    {
+      "role": "item_bounds_runtime",
+      "path": "OgreMain/src/OgreItem.cpp",
+      "sha256": "2f40f4dac4bd888e9f018c1707f26d142c660a1c3aa033aa4c7c3bf271b20f68"
+    },
+    {
+      "role": "scene_caster_bounds_api",
+      "path": "OgreMain/include/OgreSceneManager.h",
+      "sha256": "014e263d9582832d2ff76a3c801d5f34dedb63d6ecf28ea9ff60baff46da08f3"
+    },
+    {
+      "role": "scene_caster_bounds_runtime",
+      "path": "OgreMain/src/OgreSceneManager.cpp",
+      "sha256": "6cf2e3556321588dfcd4b21501c9eb5882b0fc2ccbd81266903c9d9c9521e31f"
+    },
+    {
+      "role": "scalar_aabb_dispatch",
+      "path": "OgreMain/include/Math/Simple/OgreAabb.h",
+      "sha256": "06d6f8945492abc1ecffa61d88d1e675878857d8270d2d4989249f13b27517a5"
+    },
+    {
+      "role": "scalar_aabb_api",
+      "path": "OgreMain/include/Math/Simple/C/OgreAabb.h",
+      "sha256": "1e1c7228052f7123b747839bc5452514fb23d2bc470277ccf4e6999946e984ca"
+    },
+    {
+      "role": "scalar_aabb_runtime",
+      "path": "OgreMain/include/Math/Simple/C/OgreAabb.inl",
+      "sha256": "34b3050257404166525509b55af4deb6abbaf0a593a73ab0258fc63ca137bfd7"
+    },
+    {
+      "role": "packed_aabb_dispatch",
+      "path": "OgreMain/include/Math/Array/OgreArrayAabb.h",
+      "sha256": "80a196fbc5f0a7ee921805d4785147f432ed9b65e81b4c974c2dbc5955bf2e4e"
+    },
+    {
+      "role": "packed_aabb_scalar_api",
+      "path": "OgreMain/include/Math/Array/C/OgreArrayAabb.h",
+      "sha256": "5aff3ade5f78bb483b8cbacc7a18d5589871cb4eaaafe8eb115c019b661ad541"
+    },
+    {
+      "role": "packed_aabb_scalar_runtime",
+      "path": "OgreMain/include/Math/Array/C/OgreArrayAabb.inl",
+      "sha256": "3a83cf7af2681162fb9959ea998d1c12f66c32644100c8ed929952fcdad1cf7b"
+    },
+    {
+      "role": "packed_aabb_neon_api",
+      "path": "OgreMain/include/Math/Array/NEON/Single/OgreArrayAabb.h",
+      "sha256": "a8d9aff922ae95a61a58a3ceafbde4f6ec1c86588ca379e47aeaee3695258abf"
+    },
+    {
+      "role": "packed_aabb_neon_runtime",
+      "path": "OgreMain/include/Math/Array/NEON/Single/OgreArrayAabb.inl",
+      "sha256": "4e9d5f1210daf9563c76edf4222fe1a8f81ea7adc09b04b58e8b9c8952bd5920"
+    },
+    {
+      "role": "packed_aabb_sse2_api",
+      "path": "OgreMain/include/Math/Array/SSE2/Single/OgreArrayAabb.h",
+      "sha256": "3fa7f5760a7db964b86ad26d25c37ce3f4391680da6a4b7a8704f8f9e7635518"
+    },
+    {
+      "role": "packed_aabb_sse2_runtime",
+      "path": "OgreMain/include/Math/Array/SSE2/Single/OgreArrayAabb.inl",
+      "sha256": "800beefafa6025cef2f4a116e895336c9161aebf705eaba5108d9a726aa4c2d7"
+    },
+    {
+      "role": "object_data_aabb_layout",
+      "path": "OgreMain/include/Math/Array/OgreObjectData.h",
+      "sha256": "6117f6467df2e0197ed65c57772b8e1af11530ea214f744d9d4748f998561dbc"
+    },
+    {
+      "role": "render_system_capabilities_api",
+      "path": "OgreMain/include/OgreRenderSystemCapabilities.h",
+      "sha256": "da084dfaa025d594e91e4657a644859a7141c1afbdb3f28d0586789365e32840"
+    },
+    {
+      "role": "render_system_capabilities_runtime",
+      "path": "OgreMain/src/OgreRenderSystemCapabilities.cpp",
+      "sha256": "9a7adb55c99c44598023bc3d10f73e068f514d19031d8c204ffd07d464d674ec"
+    },
+    {
+      "role": "texture_gpu_api",
+      "path": "OgreMain/include/OgreTextureGpu.h",
+      "sha256": "122eb3b35e038d586596b9f06c70582f87798dc09cd6bd43471ed6d1084f60c0"
+    },
+    {
+      "role": "texture_gpu_residency_runtime",
+      "path": "OgreMain/src/OgreTextureGpu.cpp",
+      "sha256": "aa307bbf20e473c3985b8969a5df16a205fabcd432421181b871369ef9a9eadc"
+    },
+    {
+      "role": "texture_gpu_manager_api",
+      "path": "OgreMain/include/OgreTextureGpuManager.h",
+      "sha256": "413e19db7aef3f32bcdf717c69277d1010d77b7ec432382aed4cecae2a9eb91a"
+    },
+    {
+      "role": "texture_gpu_manager_allocation_runtime",
+      "path": "OgreMain/src/OgreTextureGpuManager.cpp",
+      "sha256": "9db903623cea3e61db10caace8eb8e16ca109cb0ca6f3503a42074f4e1c07226"
+    },
+    {
+      "role": "image_readback_api",
+      "path": "OgreMain/include/OgreImage2.h",
+      "sha256": "bc4edcd87f6d047561b170c6efa428ed7e4a43d7bd18b95cbda4f2ff518d7600"
+    },
+    {
+      "role": "image_readback_runtime",
+      "path": "OgreMain/src/OgreImage2.cpp",
+      "sha256": "abe69b04d9b41570f61159a93ac88ea387b5a70dcb7517021f45d3c4922f5d5e"
+    },
+    {
+      "role": "async_texture_ticket_api",
+      "path": "OgreMain/include/OgreAsyncTextureTicket.h",
+      "sha256": "ab4de7c519bc05fd56d3fda406c967989e89db85e3e782e90dbcb334a2869ba9"
+    },
+    {
+      "role": "async_texture_ticket_runtime",
+      "path": "OgreMain/src/OgreAsyncTextureTicket.cpp",
+      "sha256": "c824ca8ceb8f81d2a2928dc4512da394c973ee453c17dd275ecf2d3f56d7ff4e"
+    },
+    {
+      "role": "metal_d32_mapping",
+      "path": "RenderSystems/Metal/src/OgreMetalMappings.mm",
+      "sha256": "514630607640e0f594353f359099340be1d6ba7c6dd87a9d1d4fbc215d97466a"
+    },
+    {
+      "role": "metal_texture_allocation_api",
+      "path": "RenderSystems/Metal/include/OgreMetalTextureGpu.h",
+      "sha256": "889efabc81ab03d97b7321548d93ae74cd5000fa328a696d97adfe5473697656"
+    },
+    {
+      "role": "metal_texture_allocation_runtime",
+      "path": "RenderSystems/Metal/src/OgreMetalTextureGpu.mm",
+      "sha256": "3724bd24576b0cc8a4ab6f37045d9b685c93ab5c36e2d73939cdccb613a52f21"
+    },
+    {
+      "role": "metal_texture_manager_api",
+      "path": "RenderSystems/Metal/include/OgreMetalTextureGpuManager.h",
+      "sha256": "96ac4955d46f0749b10b9d6c16ea0d60ab95202373cdef1b4e0bb8fe1b385d64"
+    },
+    {
+      "role": "metal_texture_manager_runtime",
+      "path": "RenderSystems/Metal/src/OgreMetalTextureGpuManager.mm",
+      "sha256": "4e7f6196e081fe469f12cd8982b60d1b87490fb5809b1e2d78371c83e75a3c4f"
+    },
+    {
+      "role": "metal_readback_ticket_api",
+      "path": "RenderSystems/Metal/include/OgreMetalAsyncTextureTicket.h",
+      "sha256": "cc5546fb8bb0be401407785acfbdf89ce03e16251eed6ce4a5e16b584776aa16"
+    },
+    {
+      "role": "metal_readback_ticket_runtime",
+      "path": "RenderSystems/Metal/src/OgreMetalAsyncTextureTicket.mm",
+      "sha256": "9ff58be45a147823ed313027be8dbd983dd3039f6f0dc40387bf7a7daa089764"
+    },
+    {
+      "role": "metal_render_system_capabilities",
+      "path": "RenderSystems/Metal/src/OgreMetalRenderSystem.mm",
+      "sha256": "bebe97dd2cb318d6aa2331eaaf0f8b181e18ac66660b02d4160802e0ed8ed0eb"
+    },
+    {
+      "role": "vulkan_d32_mapping",
+      "path": "RenderSystems/Vulkan/src/OgreVulkanMappings.cpp",
+      "sha256": "87595fe1d7cdce927cfb873095e17d21ae298140f969f7fd62a2fc2a310a5be8"
+    },
+    {
+      "role": "vulkan_texture_allocation_api",
+      "path": "RenderSystems/Vulkan/include/OgreVulkanTextureGpu.h",
+      "sha256": "9976de973099a3fe1be9ce0ded5aa0b8ab68f9f7b75586c8c8d4388b6d75597c"
+    },
+    {
+      "role": "vulkan_texture_allocation_runtime",
+      "path": "RenderSystems/Vulkan/src/OgreVulkanTextureGpu.cpp",
+      "sha256": "b297ee1f088ebc904a0e09ca3a986fdf29a921dfbdf37c71e116dd4caf61e3d4"
+    },
+    {
+      "role": "vulkan_texture_manager_api",
+      "path": "RenderSystems/Vulkan/include/OgreVulkanTextureGpuManager.h",
+      "sha256": "6a3e2b201c80201639e34e6dc23dc5d4ab60fc6d981179b56e4582292f948932"
+    },
+    {
+      "role": "vulkan_texture_manager_runtime",
+      "path": "RenderSystems/Vulkan/src/OgreVulkanTextureGpuManager.cpp",
+      "sha256": "8c845ebbbdf1dec8d8572d8fd384363f5c85533bac36662572a412424fc3efd4"
+    },
+    {
+      "role": "vulkan_readback_ticket_api",
+      "path": "RenderSystems/Vulkan/include/OgreVulkanAsyncTextureTicket.h",
+      "sha256": "f10b54a32e09d9322e90c4b72f23facbe3cd99a758a32934c8088a27c05a0a20"
+    },
+    {
+      "role": "vulkan_readback_ticket_runtime",
+      "path": "RenderSystems/Vulkan/src/OgreVulkanAsyncTextureTicket.cpp",
+      "sha256": "fe5482d7bb7e00bace09d975a13121f3bd6208fb3bcbd30a008ffb4ee58c51b6"
+    },
+    {
+      "role": "vulkan_render_system_capabilities",
+      "path": "RenderSystems/Vulkan/src/OgreVulkanRenderSystem.cpp",
+      "sha256": "45bb5e693b53427220364807dd927a199a0c6d24bcec8a70f75267f4cc26ddf5"
+    },
+    {
+      "role": "d3d11_d32_mapping",
+      "path": "RenderSystems/Direct3D11/src/OgreD3D11Mappings.cpp",
+      "sha256": "22c0febeadb4a1f9d2868a56830a305b57994676e40cd329b7716a5e52fc4088"
+    },
+    {
+      "role": "d3d11_texture_allocation_api",
+      "path": "RenderSystems/Direct3D11/include/OgreD3D11TextureGpu.h",
+      "sha256": "c9a32143825d1e4d5cdc797f62d45bbccadb28b45de5b68fe30df5b9d51c56b1"
+    },
+    {
+      "role": "d3d11_texture_allocation_runtime",
+      "path": "RenderSystems/Direct3D11/src/OgreD3D11TextureGpu.cpp",
+      "sha256": "0307af9a71801282662d7c9c8815f0432084b4f16e3e07d9c6faaa1cde579848"
+    },
+    {
+      "role": "d3d11_texture_manager_api",
+      "path": "RenderSystems/Direct3D11/include/OgreD3D11TextureGpuManager.h",
+      "sha256": "75fcaa46c2ad5926d015d08ff91deee3652dd8af0e01bef5f37e0550726f0c99"
+    },
+    {
+      "role": "d3d11_texture_manager_runtime",
+      "path": "RenderSystems/Direct3D11/src/OgreD3D11TextureGpuManager.cpp",
+      "sha256": "a4998dce6c493958bf19683501584777fc38c46b06229c8cdd8cf6feeb082c07"
+    },
+    {
+      "role": "d3d11_readback_ticket_api",
+      "path": "RenderSystems/Direct3D11/include/OgreD3D11AsyncTextureTicket.h",
+      "sha256": "ddafa5a1c06110038ebac6fd84e362c08b508222e61d4c68633e76dc2b3660a4"
+    },
+    {
+      "role": "d3d11_readback_ticket_runtime",
+      "path": "RenderSystems/Direct3D11/src/OgreD3D11AsyncTextureTicket.cpp",
+      "sha256": "597da05b965fa791525fff2a955ba958200a93d6df68fb35e2658670c1e23fed"
+    },
+    {
+      "role": "d3d11_render_system_capabilities",
+      "path": "RenderSystems/Direct3D11/src/OgreD3D11RenderSystem.cpp",
+      "sha256": "036cb9ed4666a36839d03c8fe66eb0de05e516dc94c1f6642e3192a9e6acea41"
+    },
+    {
       "role": "pbs_shadow_filter_api",
       "path": "Components/Hlms/Pbs/include/OgreHlmsPbs.h",
       "sha256": "80f96c3c2e789b66af42d4828cab8070cf183ac88f6c25d07f26907c05c25d9a"
