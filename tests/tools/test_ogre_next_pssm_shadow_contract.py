@@ -190,6 +190,9 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
             "d32_atlas_allocation_verified",
             "d32_atlas_readback_verified",
             "d32_atlas_cleanup_verified",
+            "AFTER_D32_ATLAS_CREATE",
+            "DURING_D32_ATLAS_CLEANUP_LOOKUP",
+            "std::rethrow_exception(operation_failure)",
         ):
             self.assertIn(token, self.frontend)
         self.assertNotIn("checkSupport(", self.frontend)
@@ -198,7 +201,8 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         for token in (
             "TightReceiverMesh",
             "tight_receiver_bounds",
-            "tight_instances[1U].local_bounds.minimum.z",
+            "last_native_bounds_observations",
+            "native_aabb_observations",
             "0.25F",
             "-0.125F",
             "off_center_tight_bounds",
@@ -207,6 +211,12 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
             '\\"projection_and_bounds_fixture\\"',
         ):
             self.assertIn(token, self.smoke)
+        for token in (
+            "render_mesh->mesh->getAabb()",
+            "item->getLocalAabb()",
+            "item->getWorldAabbUpdated()",
+        ):
+            self.assertIn(token, self.frontend)
 
     def test_challenged_execution_is_atomically_bound_to_all_artifacts(self) -> None:
         for token in (
@@ -248,16 +258,23 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
 
     def test_native_isolation_proof_toggles_only_casting_and_fails_closed(self) -> None:
         for token in (
-            '\\"controlled_visual_change\\": \\"occluder_instance_casts_shadow\\"',
-            '\\"changed_pixels_outside_reviewed_receiver_region\\": 0',
-            '\\"changed_pixels_inside_reviewed_occluder_region\\": 0',
-            '\\"shadow_disabled_default_equals_explicit\\": true',
+            "controlled_visual_change",
+            "occluder_instance_casts_shadow",
+            "changed_pixels_outside_reviewed_receiver_region",
+            "changed_pixels_inside_reviewed_occluder_region",
+            "shadow_disabled_default_equals_explicit",
             "disabled_default == disabled_explicit",
-            '\\"backend_substitution\\": false',
-            '\\"split_stable_tangent_projection\\": true',
-            '\\"cascade_index\\": ',
+            "backend_substitution",
+            "split_stable_tangent_projection",
+            "cascade_index",
             "AFTER_RECEIVER_DATABLOCK_CLONE",
             "AFTER_WORKSPACE_NODE_DEFINITION",
+            "DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP",
+            "DURING_WORKSPACE_DEFINITION_CLEANUP_LOOKUP",
+            "DURING_WORKSPACE_NODE_CLEANUP_LOOKUP",
+            "DURING_SHADOW_NODE_CLEANUP_LOOKUP",
+            "DURING_TARGET_TEXTURE_CLEANUP_LOOKUP",
+            "cleanup_absence_checks",
             "return kUnsupportedExitCode",
         ):
             self.assertIn(token, self.smoke)
@@ -289,6 +306,12 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         ):
             self.assertIn(artifact, self.workflow)
         self.assertIn("_verify_pssm", self.workflow)
+        self.assertIn("require_pass=True", self.workflow)
+        self.assertIn("Require directional PSSM native pass", self.workflow)
+        self.assertNotIn(
+            "Require directional PSSM pass or explicit unsupported evidence",
+            self.workflow,
+        )
         self.assertIn("attest_pssm_receipt", self.workflow)
         self.assertIn("gh attestation verify", self.workflow)
 

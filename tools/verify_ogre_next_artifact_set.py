@@ -38,7 +38,7 @@ PSSM_ARTIFACT_MANIFEST_ARTIFACT = (
     "ror-ogre-next-pssm-shadow-artifact-manifest.json"
 )
 PSSM_EXECUTABLE_STEM = "ror_ogre_next_pssm_shadow_smoke"
-PSSM_REPORT_SCHEMA = "ror.ogre_next_pssm_shadow_smoke.v3"
+PSSM_REPORT_SCHEMA = "ror.ogre_next_pssm_shadow_smoke.v4"
 PSSM_EXECUTION_SCHEMA = "ror.ogre_next_pssm_shadow_execution_challenge.v1"
 PSSM_EXECUTION_RECEIPT_SCHEMA = (
     "ror.ogre_next_pssm_shadow_execution_receipt.v1"
@@ -54,7 +54,7 @@ PSSM_OFFLINE_EXECUTION_LIMITATION = (
 )
 PSSM_UNSUPPORTED_DETAIL = (
     "PSSM_3_CASCADE_V1 native capability gate rejected the required atlas "
-    "or PCF4 support"
+    "dimensions or PCF4 texture-gather support"
 )
 RT4_REPORT_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1-report.json"
 RT4_PPM_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1.ppm"
@@ -1668,6 +1668,32 @@ def _pssm_pair_metrics(
     return changed, darkened
 
 
+def _require_pssm_aabb(
+    value: object,
+    expected_minimum: tuple[float, float, float],
+    expected_maximum: tuple[float, float, float],
+    context: str,
+) -> None:
+    aabb = _require_exact_keys(value, {"minimum", "maximum"}, context)
+    minimum = aabb.get("minimum")
+    maximum = aabb.get("maximum")
+    if not (
+        isinstance(minimum, list)
+        and isinstance(maximum, list)
+        and len(minimum) == 3
+        and len(maximum) == 3
+        and all(
+            _number_matches(observed, expected)
+            for observed, expected in zip(minimum, expected_minimum)
+        )
+        and all(
+            _number_matches(observed, expected)
+            for observed, expected in zip(maximum, expected_maximum)
+        )
+    ):
+        raise ArtifactSetError(f"{context} differs from the exact native AABB")
+
+
 def _verify_pssm_pass(
     root: Path,
     report: dict[str, object],
@@ -1707,8 +1733,10 @@ def _verify_pssm_pass(
             "backend_substitution",
             "split_stable_tangent_projection",
             "native_definition_split_and_runtime_bias_readback",
+            "native_d32_probe_attempted",
             "native_d32_atlas_allocation_use_readback_verified",
             "native_d32_atlas_cleanup_verified",
+            "native_d32_atlas_cleanup_absence_checks",
             "runtime_normal_offset_bias",
         },
         "PSSM shadow contract",
@@ -1742,11 +1770,15 @@ def _verify_pssm_pass(
             "native_definition_split_and_runtime_bias_readback"
         )
         is True
+        and shadow_contract.get("native_d32_probe_attempted") is True
         and shadow_contract.get(
             "native_d32_atlas_allocation_use_readback_verified"
         )
         is True
-        and shadow_contract.get("native_d32_atlas_cleanup_verified") is True,
+        and shadow_contract.get("native_d32_atlas_cleanup_verified") is True
+        and _json_exact(
+            shadow_contract.get("native_d32_atlas_cleanup_absence_checks"), 1
+        ),
         "biases": isinstance(biases, list)
         and len(biases) == 3
         and all(
@@ -1823,8 +1855,21 @@ def _verify_pssm_pass(
             "workspace_node_definition_destroys",
             "receiver_datablock_creates",
             "receiver_datablock_destroys",
+            "d32_atlas_cleanup_absence_checks",
+            "workspace_definition_cleanup_absence_checks",
+            "workspace_node_cleanup_absence_checks",
+            "shadow_node_cleanup_absence_checks",
+            "receiver_datablock_cleanup_absence_checks",
+            "target_texture_cleanup_absence_checks",
+            "d32_post_create_same_instance_retry_verified",
+            "d32_cleanup_lookup_failure_closed_retry_verified",
             "receiver_clone_same_frame_retry_verified",
             "workspace_node_same_frame_retry_verified",
+            "receiver_cleanup_lookup_failure_closed_retry_verified",
+            "workspace_definition_cleanup_lookup_failure_closed_retry_verified",
+            "workspace_cleanup_lookup_failure_closed_retry_verified",
+            "shadow_cleanup_lookup_failure_closed_retry_verified",
+            "target_cleanup_lookup_failure_closed_retry_verified",
         },
         "PSSM lifecycle",
     )
@@ -1838,8 +1883,21 @@ def _verify_pssm_pass(
             "workspace_node_definition_destroys": 10,
             "receiver_datablock_creates": 10,
             "receiver_datablock_destroys": 10,
+            "d32_atlas_cleanup_absence_checks": 1,
+            "workspace_definition_cleanup_absence_checks": 10,
+            "workspace_node_cleanup_absence_checks": 10,
+            "shadow_node_cleanup_absence_checks": 10,
+            "receiver_datablock_cleanup_absence_checks": 10,
+            "target_texture_cleanup_absence_checks": 10,
+            "d32_post_create_same_instance_retry_verified": True,
+            "d32_cleanup_lookup_failure_closed_retry_verified": True,
             "receiver_clone_same_frame_retry_verified": True,
             "workspace_node_same_frame_retry_verified": True,
+            "receiver_cleanup_lookup_failure_closed_retry_verified": True,
+            "workspace_definition_cleanup_lookup_failure_closed_retry_verified": True,
+            "workspace_cleanup_lookup_failure_closed_retry_verified": True,
+            "shadow_cleanup_lookup_failure_closed_retry_verified": True,
+            "target_cleanup_lookup_failure_closed_retry_verified": True,
         },
     ):
         raise ArtifactSetError("PSSM lifecycle and transactional retry proof is invalid")
@@ -1963,6 +2021,8 @@ def _verify_pssm_pass(
             "caster_bounds_min_z",
             "caster_bounds_max_z",
             "tight_caster_bounds_verified",
+            "native_bounds_readback_verified",
+            "native_aabb_observations",
             "sdr_changed_pixels",
             "sdr_darkened_pixels",
         },
@@ -1976,6 +2036,67 @@ def _verify_pssm_pass(
         occluder=(192, 192, 128, 128),
     )
     extents = fixture.get("expected_tangent_extents")
+    observations = fixture.get("native_aabb_observations")
+    if not isinstance(observations, list) or len(observations) != 2:
+        raise ArtifactSetError("PSSM native AABB observation set is incomplete")
+    expected_observations = (
+        {
+            "instance_id": 1,
+            "casts_shadow": True,
+            "receives_shadow": True,
+            "local_minimum": (-2.5, -1.8, 0.0),
+            "local_maximum": (2.5, 1.8, 0.0),
+            "world_minimum": (-2.5, -1.8, 0.0),
+            "world_maximum": (2.5, 1.8, 0.0),
+        },
+        {
+            "instance_id": 2,
+            "casts_shadow": True,
+            "receives_shadow": False,
+            "local_minimum": (-0.45, -0.45, 0.0),
+            "local_maximum": (0.45, 0.45, 0.0),
+            "world_minimum": (-0.45, -0.45, 1.5),
+            "world_maximum": (0.45, 0.45, 1.5),
+        },
+    )
+    for index, (observation, expected) in enumerate(
+        zip(observations, expected_observations)
+    ):
+        observation = _require_exact_keys(
+            observation,
+            {
+                "instance_id",
+                "casts_shadow",
+                "receives_shadow",
+                "expected_local",
+                "ogre_mesh_local",
+                "ogre_item_local",
+                "expected_world",
+                "ogre_item_world",
+            },
+            f"PSSM native AABB observation {index}",
+        )
+        if not (
+            _json_exact(observation.get("instance_id"), expected["instance_id"])
+            and observation.get("casts_shadow") is expected["casts_shadow"]
+            and observation.get("receives_shadow")
+            is expected["receives_shadow"]
+        ):
+            raise ArtifactSetError("PSSM native AABB role classification changed")
+        for field in ("expected_local", "ogre_mesh_local", "ogre_item_local"):
+            _require_pssm_aabb(
+                observation.get(field),
+                expected["local_minimum"],
+                expected["local_maximum"],
+                f"PSSM native AABB observation {index} {field}",
+            )
+        for field in ("expected_world", "ogre_item_world"):
+            _require_pssm_aabb(
+                observation.get(field),
+                expected["world_minimum"],
+                expected["world_maximum"],
+                f"PSSM native AABB observation {index} {field}",
+            )
     if not (
         _number_matches(fixture.get("horizontal_lens_offset"), 0.25)
         and _number_matches(fixture.get("vertical_lens_offset"), -0.125)
@@ -1993,6 +2114,7 @@ def _verify_pssm_pass(
         and _number_matches(fixture.get("caster_bounds_min_z"), 0.0)
         and _number_matches(fixture.get("caster_bounds_max_z"), 0.0)
         and fixture.get("tight_caster_bounds_verified") is True
+        and fixture.get("native_bounds_readback_verified") is True
         and _json_exact(fixture.get("sdr_changed_pixels"), fixture_metrics[0])
         and _json_exact(fixture.get("sdr_darkened_pixels"), fixture_metrics[1])
     ):
@@ -2223,6 +2345,8 @@ def _verify_pssm(
     root: Path,
     manifest: list[dict[str, object]],
     build_contract: dict[str, object],
+    *,
+    require_pass: bool = False,
 ) -> None:
     report_path = root / PSSM_REPORT_ARTIFACT
     report = _read_json_object(report_path, "PSSM report")
@@ -2280,6 +2404,10 @@ def _verify_pssm(
         }
     )
     status = report.get("status")
+    if require_pass and status != "pass":
+        raise ArtifactSetError(
+            "declared platform job requires an actual PSSM native pass"
+        )
     if status == "pass":
         _verify_pssm_pass(root, report, manifest)
     elif status != "unsupported":
@@ -2311,10 +2439,12 @@ def _verify_pssm(
                 "observed_maximum_texture_dimension",
                 "atlas_dimensions_supported",
                 "texture_gather_supported",
+                "d32_probe_attempted",
                 "d32_render_target_supported",
                 "d32_atlas_allocation_verified",
                 "d32_atlas_readback_verified",
                 "d32_atlas_cleanup_verified",
+                "d32_atlas_cleanup_absence_checks",
             },
             "PSSM unsupported capability evidence",
         )
@@ -2322,6 +2452,7 @@ def _verify_pssm(
         booleans = (
             capability.get("atlas_dimensions_supported"),
             capability.get("texture_gather_supported"),
+            capability.get("d32_probe_attempted"),
             capability.get("d32_render_target_supported"),
             capability.get("d32_atlas_allocation_verified"),
             capability.get("d32_atlas_readback_verified"),
@@ -2338,9 +2469,15 @@ def _verify_pssm(
             and maximum > 0
             and all(type(value) is bool for value in booleans)
             and booleans[0] is (maximum >= 3072)
-            and booleans[2] is (booleans[3] and booleans[4] and booleans[5])
-            and booleans[5] is True
-            and not (booleans[0] and booleans[1] and booleans[2])
+            and booleans[2] is False
+            and booleans[3] is False
+            and booleans[4] is False
+            and booleans[5] is False
+            and booleans[6] is True
+            and _json_exact(
+                capability.get("d32_atlas_cleanup_absence_checks"), 1
+            )
+            and not (booleans[0] and booleans[1])
             and report.get("backend_substitution") is False
         )
         if not unsupported_valid:

@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace RoR::Render {
 
@@ -39,8 +40,15 @@ enum class OgreNextN1TextureUploadFailureStage : std::uint8_t {
 /// PSSM-only transactional fault seam for the standalone native smoke.
 enum class OgreNextN1PssmFailureStage : std::uint8_t {
   NONE = 0,
+  AFTER_D32_ATLAS_CREATE,
+  DURING_D32_ATLAS_CLEANUP_LOOKUP,
   AFTER_RECEIVER_DATABLOCK_CLONE,
   AFTER_WORKSPACE_NODE_DEFINITION,
+  DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP,
+  DURING_WORKSPACE_DEFINITION_CLEANUP_LOOKUP,
+  DURING_WORKSPACE_NODE_CLEANUP_LOOKUP,
+  DURING_SHADOW_NODE_CLEANUP_LOOKUP,
+  DURING_TARGET_TEXTURE_CLEANUP_LOOKUP,
 };
 #endif
 
@@ -66,6 +74,25 @@ struct OgreNextN1Configuration final {
 #endif
 };
 
+struct OgreNextPssmNativeAabb final {
+  Float3 minimum;
+  Float3 maximum;
+};
+
+/// One direct native bounds observation for a PSSM frame item. The expected
+/// values are retained beside Ogre's Mesh and Item readbacks so an evidence
+/// consumer can reject a report that mutates either side of the comparison.
+struct OgreNextPssmNativeBoundsObservation final {
+  std::uint64_t instance_id = 0U;
+  bool casts_shadow = false;
+  bool receives_shadow = false;
+  OgreNextPssmNativeAabb expected_local;
+  OgreNextPssmNativeAabb ogre_mesh_local;
+  OgreNextPssmNativeAabb ogre_item_local;
+  OgreNextPssmNativeAabb expected_world;
+  OgreNextPssmNativeAabb ogre_item_world;
+};
+
 struct OgreNextPssmShadowRuntimeAudit final {
   std::uint32_t version = kOgreNextPssmShadowContractVersion;
   OgreNextDirectionalShadowMode configured_mode =
@@ -81,16 +108,26 @@ struct OgreNextPssmShadowRuntimeAudit final {
   std::uint32_t observed_maximum_texture_dimension = 0U;
   bool atlas_dimensions_supported = false;
   bool texture_gather_supported = false;
+  bool d32_probe_attempted = false;
   bool d32_render_target_supported = false;
   bool d32_atlas_allocation_verified = false;
   bool d32_atlas_readback_verified = false;
   bool d32_atlas_cleanup_verified = false;
+  std::uint64_t d32_atlas_cleanup_absence_checks = 0U;
+  std::uint64_t workspace_definition_cleanup_absence_checks = 0U;
+  std::uint64_t workspace_node_cleanup_absence_checks = 0U;
+  std::uint64_t shadow_node_cleanup_absence_checks = 0U;
+  std::uint64_t receiver_datablock_cleanup_absence_checks = 0U;
+  std::uint64_t target_texture_cleanup_absence_checks = 0U;
   OgreNextPssmShadowFramePlan last_frame;
   OgreNextPssmSplitPolicy last_native_splits;
   std::array<float, kOgreNextPssmCascadeCount>
       last_native_normal_offset_bias{};
   bool native_projection_extents_verified = false;
   bool native_readback_verified = false;
+  bool native_bounds_readback_verified = false;
+  std::vector<OgreNextPssmNativeBoundsObservation>
+      last_native_bounds_observations;
 };
 
 /// Runtime audit of the native RT4/V1 texture variants owned by one frontend.

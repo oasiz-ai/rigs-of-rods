@@ -250,6 +250,20 @@ bool NearlyEqual(const Ogre::Vector3 &lhs,
          NearlyEqual(lhs.z, rhs.z);
 }
 
+bool NearlyEqual(const Ogre::Aabb &lhs, const Ogre::Aabb &rhs) noexcept {
+  return NearlyEqual(lhs.mCenter, rhs.mCenter) &&
+         NearlyEqual(lhs.mHalfSize, rhs.mHalfSize);
+}
+
+OgreNextPssmNativeAabb ObserveNativeAabb(const Ogre::Aabb &aabb) noexcept {
+  const Ogre::Vector3 minimum = aabb.getMinimum();
+  const Ogre::Vector3 maximum = aabb.getMaximum();
+  OgreNextPssmNativeAabb observed;
+  observed.minimum = {minimum.x, minimum.y, minimum.z};
+  observed.maximum = {maximum.x, maximum.y, maximum.z};
+  return observed;
+}
+
 bool NearlyEqual(const Ogre::ColourValue &lhs,
                  const Ogre::ColourValue &rhs) noexcept {
   return NearlyEqual(lhs.r, rhs.r) && NearlyEqual(lhs.g, rhs.g) &&
@@ -772,14 +786,34 @@ void ConfigureAndVerifyPssmProjection(
 }
 
 struct PssmD32AtlasProbeResult final {
+  bool attempted = false;
   bool supported = false;
   bool allocation_verified = false;
   bool readback_verified = false;
   bool cleanup_verified = false;
+  std::uint64_t cleanup_absence_checks = 0U;
 };
 
-PssmD32AtlasProbeResult ProbePssmD32Atlas(
-    Ogre::TextureGpuManager &texture_manager) {
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+void MaybeInjectPssmFailureStage(OgreNextN1PssmFailureStage configured,
+                                 bool &pending,
+                                 OgreNextN1PssmFailureStage expected,
+                                 const char *detail) {
+  if (pending && configured == expected) {
+    pending = false;
+    throw std::runtime_error(detail);
+  }
+}
+#endif
+
+PssmD32AtlasProbeResult
+ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+                  ,
+                  OgreNextN1PssmFailureStage failure_stage,
+                  bool &failure_pending
+#endif
+) {
   constexpr char kProbeTextureName[] = "RoRPssmD32AtlasCapabilityProbe";
   if (texture_manager.findTextureNoThrow(Ogre::IdString(kProbeTextureName)) !=
       nullptr) {
@@ -788,6 +822,7 @@ PssmD32AtlasProbeResult ProbePssmD32Atlas(
   }
 
   PssmD32AtlasProbeResult result;
+  result.attempted = true;
   Ogre::TextureGpu *texture = nullptr;
   std::exception_ptr operation_failure;
   try {
@@ -796,8 +831,13 @@ PssmD32AtlasProbeResult ProbePssmD32Atlas(
         Ogre::TextureFlags::RenderToTexture |
             Ogre::TextureFlags::DiscardableContent,
         Ogre::TextureTypes::Type2D);
-    texture->setResolution(kOgreNextPssmAtlasWidth,
-                           kOgreNextPssmAtlasHeight);
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+    MaybeInjectPssmFailureStage(
+        failure_stage, failure_pending,
+        OgreNextN1PssmFailureStage::AFTER_D32_ATLAS_CREATE,
+        "injected PSSM D32 post-create rollback failure");
+#endif
+    texture->setResolution(kOgreNextPssmAtlasWidth, kOgreNextPssmAtlasHeight);
     texture->setNumMipmaps(1U);
     texture->setPixelFormat(Ogre::PFG_D32_FLOAT);
     texture->scheduleTransitionTo(Ogre::GpuResidency::Resident);
@@ -837,41 +877,62 @@ PssmD32AtlasProbeResult ProbePssmD32Atlas(
   }
 
   bool cleanup_complete = false;
+  bool absence_lookup_completed = false;
+  bool absence_proven = false;
   if (texture == nullptr) {
     try {
-      texture = texture_manager.findTextureNoThrow(
-          Ogre::IdString(kProbeTextureName));
+      texture =
+          texture_manager.findTextureNoThrow(Ogre::IdString(kProbeTextureName));
+      absence_lookup_completed = true;
+      absence_proven = texture == nullptr;
     } catch (...) {
-      texture = nullptr;
+      absence_lookup_completed = false;
+      absence_proven = false;
     }
   }
   if (texture != nullptr) {
+    bool destroy_returned = false;
     try {
       texture_manager.destroyTexture(texture);
       texture = nullptr;
       texture_manager.waitForStreamingCompletion();
-      cleanup_complete =
-          texture_manager.findTextureNoThrow(Ogre::IdString(kProbeTextureName)) ==
-          nullptr;
+      destroy_returned = true;
     } catch (...) {
-      cleanup_complete = false;
+      texture = nullptr;
+      destroy_returned = false;
     }
-  } else {
-    cleanup_complete = true;
+    if (destroy_returned) {
+      try {
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+        MaybeInjectPssmFailureStage(
+            failure_stage, failure_pending,
+            OgreNextN1PssmFailureStage::DURING_D32_ATLAS_CLEANUP_LOOKUP,
+            "injected PSSM D32 cleanup absence-lookup failure");
+#endif
+        absence_proven = texture_manager.findTextureNoThrow(
+                             Ogre::IdString(kProbeTextureName)) == nullptr;
+        absence_lookup_completed = true;
+      } catch (...) {
+        absence_lookup_completed = false;
+        absence_proven = false;
+      }
+    }
+    cleanup_complete =
+        destroy_returned && absence_lookup_completed && absence_proven;
+  } else if (absence_lookup_completed) {
+    cleanup_complete = absence_proven;
   }
   result.cleanup_verified = cleanup_complete;
+  result.cleanup_absence_checks = cleanup_complete ? 1U : 0U;
   if (!cleanup_complete) {
     throw std::runtime_error(
-        "Ogre-Next PSSM D32 capability probe could not retire its atlas");
+        "Ogre-Next PSSM D32 capability probe could not prove its atlas absent");
   }
   if (operation_failure != nullptr) {
-    try {
-      std::rethrow_exception(operation_failure);
-    } catch (const std::bad_alloc &) {
-      throw;
-    } catch (...) {
-      return result;
-    }
+    // Native allocation, transition, and readback errors are backend failures,
+    // never capability-based skips. The caller may classify only static,
+    // explicitly queried device limits as unsupported.
+    std::rethrow_exception(operation_failure);
   }
   result.supported = result.allocation_verified && result.readback_verified &&
                      result.cleanup_verified;
@@ -1896,8 +1957,32 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
           impl_->maximum_texture_dimension >= kOgreNextPssmAtlasHeight;
       impl_->shadow_audit.texture_gather_supported =
           device_capabilities->hasCapability(Ogre::RSC_TEXTURE_GATHER);
-      const PssmD32AtlasProbeResult d32_probe =
-          ProbePssmD32Atlas(*texture_manager);
+      if (!impl_->shadow_audit.atlas_dimensions_supported ||
+          !impl_->shadow_audit.texture_gather_supported) {
+        // These are the only reviewed unsupported classifications. Prove that
+        // no capability-probe allocation exists even though the native D32
+        // transaction was deliberately not attempted.
+        if (texture_manager->findTextureNoThrow(
+                Ogre::IdString("RoRPssmD32AtlasCapabilityProbe")) != nullptr) {
+          return fail_after_cleanup(RenderOperationResult::Failure(
+              RenderOperationCode::BACKEND_FAILURE,
+              "Ogre-Next retained a PSSM D32 capability-probe allocation "
+              "before admission"));
+        }
+        impl_->shadow_audit.d32_atlas_cleanup_verified = true;
+        impl_->shadow_audit.d32_atlas_cleanup_absence_checks = 1U;
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            kOgreNextPssmCapabilityUnsupportedDetail));
+      }
+      const PssmD32AtlasProbeResult d32_probe = ProbePssmD32Atlas(
+          *texture_manager
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+          ,
+          impl_->pssm_failure_stage, impl_->pssm_failure_pending
+#endif
+      );
+      impl_->shadow_audit.d32_probe_attempted = d32_probe.attempted;
       impl_->shadow_audit.d32_render_target_supported = d32_probe.supported;
       impl_->shadow_audit.d32_atlas_allocation_verified =
           d32_probe.allocation_verified;
@@ -1905,12 +1990,13 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
           d32_probe.readback_verified;
       impl_->shadow_audit.d32_atlas_cleanup_verified =
           d32_probe.cleanup_verified;
-      if (!impl_->shadow_audit.atlas_dimensions_supported ||
-          !impl_->shadow_audit.texture_gather_supported ||
+      impl_->shadow_audit.d32_atlas_cleanup_absence_checks =
+          d32_probe.cleanup_absence_checks;
+      if (!impl_->shadow_audit.d32_probe_attempted ||
           !impl_->shadow_audit.d32_render_target_supported) {
         return fail_after_cleanup(RenderOperationResult::Failure(
-            RenderOperationCode::UNSUPPORTED,
-            kOgreNextPssmCapabilityUnsupportedDetail));
+            RenderOperationCode::BACKEND_FAILURE,
+            "Ogre-Next PSSM D32 native capability transaction was incomplete"));
       }
     }
 #if defined(ROR_OGRE_NEXT_N1_METAL)
@@ -2414,14 +2500,18 @@ RenderOperationResult OgreNextN1Frontend::Render(
   Ogre::CompositorWorkspace *workspace = nullptr;
   Ogre::IdString workspace_name;
   bool workspace_name_prepared = false;
-  bool workspace_definition_created = false;
   std::string workspace_node_text;
   bool workspace_node_creation_counted = false;
   std::string shadow_node_text;
   bool shadow_node_creation_counted = false;
+  std::string target_text;
   std::vector<std::pair<Ogre::Item *, Ogre::SceneNode *>> items;
   std::vector<std::pair<Ogre::Light *, Ogre::SceneNode *>> lights;
-  std::vector<Ogre::HlmsPbsDatablock *> receiver_datablocks;
+  struct ReceiverDatablock final {
+    Ogre::IdString name;
+  };
+  std::vector<ReceiverDatablock> receiver_datablocks;
+  std::vector<OgreNextPssmNativeBoundsObservation> native_bounds_observations;
   std::vector<Impl::NativeMesh> submitted_frame_meshes;
   std::vector<OgreNextN2FrameGeometryBinding> interop_geometry;
   std::vector<OgreNextN3FrameImageBinding> interop_images;
@@ -2445,20 +2535,41 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       workspace = nullptr;
     }
-    if (workspace_name_prepared &&
-        (workspace_definition_created ||
-         compositors->hasWorkspaceDefinition(workspace_name))) {
+    if (workspace_name_prepared) {
+      bool present = false;
       try {
-        compositors->removeWorkspaceDefinition(workspace_name);
+        present = compositors->hasWorkspaceDefinition(workspace_name);
       } catch (...) {
         clean = false;
       }
-      workspace_definition_created = false;
+      if (present) {
+        try {
+          compositors->removeWorkspaceDefinition(workspace_name);
+        } catch (...) {
+          clean = false;
+        }
+      }
+      try {
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+        MaybeInjectPssmFailureStage(
+            impl_->pssm_failure_stage, impl_->pssm_failure_pending,
+            OgreNextN1PssmFailureStage::
+                DURING_WORKSPACE_DEFINITION_CLEANUP_LOOKUP,
+            "injected PSSM workspace-definition cleanup absence-lookup failure");
+#endif
+        if (compositors->hasWorkspaceDefinition(workspace_name)) {
+          clean = false;
+        } else if (shadow_plan.enabled) {
+          ++impl_->shadow_audit.workspace_definition_cleanup_absence_checks;
+        }
+      } catch (...) {
+        clean = false;
+      }
       workspace_name_prepared = false;
     }
     if (!workspace_node_text.empty()) {
+      const Ogre::IdString workspace_node_name(workspace_node_text);
       try {
-        const Ogre::IdString workspace_node_name(workspace_node_text);
         if (compositors->hasNodeDefinition(workspace_node_name)) {
           if (!workspace_node_creation_counted) {
             ++impl_->shadow_audit.workspace_node_definition_creates;
@@ -2470,11 +2581,26 @@ RenderOperationResult OgreNextN1Frontend::Render(
       } catch (...) {
         clean = false;
       }
+      try {
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+        MaybeInjectPssmFailureStage(
+            impl_->pssm_failure_stage, impl_->pssm_failure_pending,
+            OgreNextN1PssmFailureStage::DURING_WORKSPACE_NODE_CLEANUP_LOOKUP,
+            "injected PSSM workspace-node cleanup absence-lookup failure");
+#endif
+        if (compositors->hasNodeDefinition(workspace_node_name)) {
+          clean = false;
+        } else if (shadow_plan.enabled) {
+          ++impl_->shadow_audit.workspace_node_cleanup_absence_checks;
+        }
+      } catch (...) {
+        clean = false;
+      }
       workspace_node_text.clear();
     }
     if (!shadow_node_text.empty()) {
+      const Ogre::IdString shadow_node_name(shadow_node_text);
       try {
-        const Ogre::IdString shadow_node_name(shadow_node_text);
         if (compositors->hasShadowNodeDefinition(shadow_node_name)) {
           if (!shadow_node_creation_counted) {
             ++impl_->shadow_audit.shadow_node_creates;
@@ -2486,15 +2612,65 @@ RenderOperationResult OgreNextN1Frontend::Render(
       } catch (...) {
         clean = false;
       }
-      shadow_node_text.clear();
-    }
-    if (target != nullptr) {
       try {
-        impl_->renderer->getTextureGpuManager()->destroyTexture(target);
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+        MaybeInjectPssmFailureStage(
+            impl_->pssm_failure_stage, impl_->pssm_failure_pending,
+            OgreNextN1PssmFailureStage::DURING_SHADOW_NODE_CLEANUP_LOOKUP,
+            "injected PSSM shadow-node cleanup absence-lookup failure");
+#endif
+        if (compositors->hasShadowNodeDefinition(shadow_node_name)) {
+          clean = false;
+        } else {
+          ++impl_->shadow_audit.shadow_node_cleanup_absence_checks;
+        }
       } catch (...) {
         clean = false;
       }
+      shadow_node_text.clear();
+    }
+    if (target != nullptr || !target_text.empty()) {
+      Ogre::TextureGpuManager *texture_manager =
+          impl_->renderer->getTextureGpuManager();
+      Ogre::TextureGpu *registered_target = target;
+      if (registered_target == nullptr) {
+        try {
+          registered_target =
+              texture_manager->findTextureNoThrow(Ogre::IdString(target_text));
+        } catch (...) {
+          clean = false;
+        }
+      }
+      bool destroy_returned = registered_target == nullptr;
+      if (registered_target != nullptr) {
+        try {
+          texture_manager->destroyTexture(registered_target);
+          texture_manager->waitForStreamingCompletion();
+          destroy_returned = true;
+        } catch (...) {
+          clean = false;
+          destroy_returned = false;
+        }
+      }
       target = nullptr;
+      try {
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+        MaybeInjectPssmFailureStage(
+            impl_->pssm_failure_stage, impl_->pssm_failure_pending,
+            OgreNextN1PssmFailureStage::
+                DURING_TARGET_TEXTURE_CLEANUP_LOOKUP,
+            "injected PSSM target-texture cleanup absence-lookup failure");
+#endif
+        if (!destroy_returned || texture_manager->findTextureNoThrow(
+                                     Ogre::IdString(target_text)) != nullptr) {
+          clean = false;
+        } else if (shadow_plan.enabled) {
+          ++impl_->shadow_audit.target_texture_cleanup_absence_checks;
+        }
+      } catch (...) {
+        clean = false;
+      }
+      target_text.clear();
     }
     for (auto iterator = items.rbegin(); iterator != items.rend(); ++iterator) {
       if (iterator->second != nullptr) {
@@ -2522,9 +2698,28 @@ RenderOperationResult OgreNextN1Frontend::Render(
     items.clear();
     for (auto iterator = receiver_datablocks.rbegin();
          iterator != receiver_datablocks.rend(); ++iterator) {
+      bool destroy_returned = false;
       try {
-        impl_->pbs->destroyDatablock((*iterator)->getName());
+        impl_->pbs->destroyDatablock(iterator->name);
         ++impl_->shadow_audit.receiver_datablock_destroys;
+        destroy_returned = true;
+      } catch (...) {
+        clean = false;
+      }
+      try {
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+        MaybeInjectPssmFailureStage(
+            impl_->pssm_failure_stage, impl_->pssm_failure_pending,
+            OgreNextN1PssmFailureStage::
+                DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP,
+            "injected PSSM receiver-datablock cleanup absence-lookup failure");
+#endif
+        if (!destroy_returned ||
+            impl_->pbs->getDatablock(iterator->name) != nullptr) {
+          clean = false;
+        } else {
+          ++impl_->shadow_audit.receiver_datablock_cleanup_absence_checks;
+        }
       } catch (...) {
         clean = false;
       }
@@ -2589,6 +2784,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
     if (shadow_plan.enabled) {
       impl_->shadow_audit.native_projection_extents_verified = false;
       impl_->shadow_audit.native_readback_verified = false;
+      impl_->shadow_audit.native_bounds_readback_verified = false;
+      impl_->shadow_audit.last_native_bounds_observations.clear();
       impl_->scene_manager->setShadowFarDistance(kOgreNextPssmFarMeters);
       impl_->scene_manager->setShadowDirectionalLightExtrusionDistance(
           kOgreNextPssmFarMeters);
@@ -2658,6 +2855,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
     if (shadow_plan.enabled) {
       // Allocate tracking storage before any Ogre datablock is registered.
       receiver_datablocks.reserve(snapshot.mesh_instances().size());
+      native_bounds_observations.reserve(snapshot.mesh_instances().size());
     }
     submitted_frame_meshes.reserve(snapshot.dynamic_mesh_updates().size());
     if (impl_->native_interop) {
@@ -2752,7 +2950,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
             throw std::runtime_error(
                 "Ogre-Next PSSM receiver clone changed HLMS type");
           }
-          receiver_datablocks.push_back(instance_datablock);
+          receiver_datablocks.push_back(
+              ReceiverDatablock{instance_datablock->getName()});
           tracked = true;
         } catch (...) {
           const std::exception_ptr failure = std::current_exception();
@@ -2765,8 +2964,21 @@ RenderOperationResult OgreNextN1Frontend::Render(
               if (!creation_counted) {
                 ++impl_->shadow_audit.receiver_datablock_creates;
               }
-              impl_->pbs->destroyDatablock(orphan->getName());
+              const Ogre::IdString orphan_name = orphan->getName();
+              impl_->pbs->destroyDatablock(orphan_name);
               ++impl_->shadow_audit.receiver_datablock_destroys;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+              MaybeInjectPssmFailureStage(
+                  impl_->pssm_failure_stage, impl_->pssm_failure_pending,
+                  OgreNextN1PssmFailureStage::
+                      DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP,
+                  "injected PSSM receiver rollback absence-lookup failure");
+#endif
+              if (impl_->pbs->getDatablock(orphan_name) != nullptr) {
+                throw std::runtime_error(
+                    "Ogre-Next PSSM receiver rollback retained its datablock");
+              }
+              ++impl_->shadow_audit.receiver_datablock_cleanup_absence_checks;
             }
           } catch (...) {
             throw std::runtime_error(
@@ -2814,6 +3026,42 @@ RenderOperationResult OgreNextN1Frontend::Render(
       node->setOrientation(orientation);
       node->attachObject(item);
 
+      if (shadow_plan.enabled) {
+        OgreNextN1NativeMeshBounds expected_bounds;
+        if (!TryBuildOgreNextN1NativeMeshBounds(instance.local_bounds,
+                                                expected_bounds)) {
+          throw std::logic_error(
+              "validated PSSM bounds became non-finite before native readback");
+        }
+        const Ogre::Aabb expected_local(
+            Ogre::Vector3(expected_bounds.center.x, expected_bounds.center.y,
+                          expected_bounds.center.z),
+            Ogre::Vector3(expected_bounds.half_size.x,
+                          expected_bounds.half_size.y,
+                          expected_bounds.half_size.z));
+        Ogre::Aabb expected_world = expected_local;
+        expected_world.transformAffine(reconstructed);
+        const Ogre::Aabb mesh_local = render_mesh->mesh->getAabb();
+        const Ogre::Aabb item_local = item->getLocalAabb();
+        const Ogre::Aabb item_world = item->getWorldAabbUpdated();
+        if (!NearlyEqual(mesh_local, expected_local) ||
+            !NearlyEqual(item_local, expected_local) ||
+            !NearlyEqual(item_world, expected_world)) {
+          throw std::runtime_error("Ogre-Next PSSM Mesh/Item local or world "
+                                   "AABB failed native readback");
+        }
+        OgreNextPssmNativeBoundsObservation observation;
+        observation.instance_id = instance.instance_id;
+        observation.casts_shadow = casts_shadow;
+        observation.receives_shadow = receives_shadow;
+        observation.expected_local = ObserveNativeAabb(expected_local);
+        observation.ogre_mesh_local = ObserveNativeAabb(mesh_local);
+        observation.ogre_item_local = ObserveNativeAabb(item_local);
+        observation.expected_world = ObserveNativeAabb(expected_world);
+        observation.ogre_item_world = ObserveNativeAabb(item_world);
+        native_bounds_observations.push_back(observation);
+      }
+
       if (impl_->native_interop) {
         OgreNextN2FrameGeometryBinding binding;
         binding.frame_id = request.frame_id;
@@ -2841,6 +3089,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
                 : NativeIndexFormat::UINT32;
         interop_geometry.push_back(binding);
       }
+    }
+
+    if (shadow_plan.enabled && native_bounds_observations.size() !=
+                                   snapshot.mesh_instances().size()) {
+      throw std::runtime_error(
+          "Ogre-Next PSSM native bounds observation set is incomplete");
     }
 
     impl_->camera->setNearClipDistance(view.near_plane);
@@ -2892,16 +3146,15 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->camera->setCustomProjectionMatrix(true, native_projection, false);
     }
 
-    const std::string target_name =
-        "RoRN1Target_" + std::to_string(request.frame_id);
+    target_text = "RoRN1Target_" + std::to_string(request.frame_id);
     std::uint32_t target_flags = Ogre::TextureFlags::RenderToTexture;
     if (impl_->native_feature_tier ==
         OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3) {
       target_flags |= Ogre::TextureFlags::Uav;
     }
     target = impl_->renderer->getTextureGpuManager()->createTexture(
-        target_name, Ogre::GpuPageOutStrategy::Discard,
-        target_flags, Ogre::TextureTypes::Type2D);
+        target_text, Ogre::GpuPageOutStrategy::Discard, target_flags,
+        Ogre::TextureTypes::Type2D);
     target->setResolution(view.width, view.height);
     target->setPixelFormat(request.color_format == PixelFormat::RGBA16_FLOAT
                                ? Ogre::PFG_RGBA16_FLOAT
@@ -2920,7 +3173,6 @@ RenderOperationResult OgreNextN1Frontend::Render(
     compositors->createBasicWorkspaceDef(
         workspace_text, Ogre::ColourValue(0.0F, 0.0F, 0.0F, 1.0F),
         Ogre::IdString());
-    workspace_definition_created = true;
     if (!compositors->hasNodeDefinition(
             Ogre::IdString(workspace_node_text))) {
       throw std::runtime_error(
@@ -3012,6 +3264,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
       interop_images.push_back(binding);
       retained_target = target;
       target = nullptr;
+      target_text.clear();
     }
 
     // Keep only the N3 target alive across ordinary scene cleanup. The
@@ -3088,6 +3341,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->shadow_audit.last_native_normal_offset_bias =
           observed_shadow_state.normal_offset_bias;
       impl_->shadow_audit.native_readback_verified = true;
+      impl_->shadow_audit.native_bounds_readback_verified = true;
+      impl_->shadow_audit.last_native_bounds_observations =
+          std::move(native_bounds_observations);
       ++impl_->shadow_audit.shadow_frames_completed;
     }
     impl_->submission_state.Commit(request);

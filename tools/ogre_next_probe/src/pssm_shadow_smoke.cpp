@@ -77,8 +77,15 @@ struct SmokeResult final {
   std::uint64_t disabled_default_hash = 0U;
   std::uint64_t disabled_explicit_hash = 0U;
   bool normalized_visibility_mask_verified = false;
+  bool d32_post_create_retry_verified = false;
+  bool d32_cleanup_lookup_retry_verified = false;
   bool receiver_clone_retry_verified = false;
   bool workspace_node_retry_verified = false;
+  bool receiver_cleanup_lookup_retry_verified = false;
+  bool workspace_definition_cleanup_lookup_retry_verified = false;
+  bool workspace_cleanup_lookup_retry_verified = false;
+  bool shadow_cleanup_lookup_retry_verified = false;
+  bool target_cleanup_lookup_retry_verified = false;
   ImagePair off_center_tight_bounds;
   bool off_center_projection_verified = false;
   bool tight_caster_bounds_verified = false;
@@ -92,6 +99,20 @@ void Require(bool condition, const std::string &detail) {
   if (!condition) {
     Fail(detail);
   }
+}
+
+bool Matches(const Float3 &value, float x, float y, float z) noexcept {
+  constexpr float kTolerance = 1.0e-6F;
+  return std::fabs(value.x - x) <= kTolerance &&
+         std::fabs(value.y - y) <= kTolerance &&
+         std::fabs(value.z - z) <= kTolerance;
+}
+
+bool Matches(const OgreNextPssmNativeAabb &value, float minimum_x,
+             float minimum_y, float minimum_z, float maximum_x, float maximum_y,
+             float maximum_z) noexcept {
+  return Matches(value.minimum, minimum_x, minimum_y, minimum_z) &&
+         Matches(value.maximum, maximum_x, maximum_y, maximum_z);
 }
 
 std::string JsonEscape(const std::string &value) {
@@ -182,6 +203,12 @@ std::string Hex(std::uint64_t value) {
   std::ostringstream text;
   text << std::hex << std::setfill('0') << std::setw(16) << value;
   return text.str();
+}
+
+void WriteAabbJson(std::ostream &output, const OgreNextPssmNativeAabb &aabb) {
+  output << "{\"minimum\": [" << aabb.minimum.x << ", " << aabb.minimum.y
+         << ", " << aabb.minimum.z << "], \"maximum\": [" << aabb.maximum.x
+         << ", " << aabb.maximum.y << ", " << aabb.maximum.z << "]}";
 }
 
 RenderAssetId AssetId(std::uint64_t low) {
@@ -677,14 +704,31 @@ RenderOperationResult RunShadow(const std::string &media_root,
                 (0.875F / 1.5F)) < 1.0e-6F &&
       std::fabs(fixture_audit.last_frame.projection_extents.bottom -
                 (-1.125F / 1.5F)) < 1.0e-6F;
-  const std::vector<MeshInstanceDescriptor> &tight_instances =
-      tight_with->mesh_instances();
+  const auto &native_bounds = fixture_audit.last_native_bounds_observations;
+  const auto receiver_local_matches = [](const OgreNextPssmNativeAabb &aabb) {
+    return Matches(aabb, -2.5F, -1.8F, 0.0F, 2.5F, 1.8F, 0.0F);
+  };
+  const auto caster_local_matches = [](const OgreNextPssmNativeAabb &aabb) {
+    return Matches(aabb, -0.45F, -0.45F, 0.0F, 0.45F, 0.45F, 0.0F);
+  };
   result.tight_caster_bounds_verified =
-      tight_instances.size() == 2U &&
-      tight_instances[0U].local_bounds.minimum.z == 0.0F &&
-      tight_instances[0U].local_bounds.maximum.z == 0.0F &&
-      tight_instances[1U].local_bounds.minimum.z == 0.0F &&
-      tight_instances[1U].local_bounds.maximum.z == 0.0F;
+      fixture_audit.native_bounds_readback_verified &&
+      native_bounds.size() == 2U && native_bounds[0U].instance_id == 1U &&
+      native_bounds[0U].casts_shadow && native_bounds[0U].receives_shadow &&
+      receiver_local_matches(native_bounds[0U].expected_local) &&
+      receiver_local_matches(native_bounds[0U].ogre_mesh_local) &&
+      receiver_local_matches(native_bounds[0U].ogre_item_local) &&
+      receiver_local_matches(native_bounds[0U].expected_world) &&
+      receiver_local_matches(native_bounds[0U].ogre_item_world) &&
+      native_bounds[1U].instance_id == 2U && native_bounds[1U].casts_shadow &&
+      !native_bounds[1U].receives_shadow &&
+      caster_local_matches(native_bounds[1U].expected_local) &&
+      caster_local_matches(native_bounds[1U].ogre_mesh_local) &&
+      caster_local_matches(native_bounds[1U].ogre_item_local) &&
+      Matches(native_bounds[1U].expected_world, -0.45F, -0.45F, 1.5F, 0.45F,
+              0.45F, 1.5F) &&
+      Matches(native_bounds[1U].ogre_item_world, -0.45F, -0.45F, 1.5F, 0.45F,
+              0.45F, 1.5F);
   Require(result.off_center_projection_verified &&
               result.tight_caster_bounds_verified,
           "PSSM off-center tangent or exact caster-bounds fixture failed");
@@ -706,24 +750,32 @@ RenderOperationResult RunShadow(const std::string &media_root,
               result.audit.receiver_datablock_creates == 10U &&
               result.audit.receiver_datablock_creates ==
                   result.audit.receiver_datablock_destroys &&
+              result.audit.workspace_definition_cleanup_absence_checks == 10U &&
+              result.audit.workspace_node_cleanup_absence_checks == 10U &&
+              result.audit.shadow_node_cleanup_absence_checks == 10U &&
+              result.audit.receiver_datablock_cleanup_absence_checks == 10U &&
+              result.audit.target_texture_cleanup_absence_checks == 10U &&
               result.audit.last_frame.enabled &&
               result.audit.last_frame.static_caster_count == 2U &&
               result.audit.last_frame.dynamic_caster_count == 0U &&
               result.audit.last_frame.receiver_count == 1U &&
               result.audit.last_frame.native_visibility_mask == 1U &&
+              result.audit.d32_probe_attempted &&
               result.audit.d32_render_target_supported &&
               result.audit.d32_atlas_allocation_verified &&
               result.audit.d32_atlas_readback_verified &&
               result.audit.d32_atlas_cleanup_verified &&
+              result.audit.d32_atlas_cleanup_absence_checks == 1U &&
               result.audit.native_projection_extents_verified &&
               result.audit.native_readback_verified &&
-              std::all_of(
-                  result.audit.last_native_normal_offset_bias.begin(),
-                  result.audit.last_native_normal_offset_bias.end(),
-                  [](float bias) {
-                    return std::isfinite(bias) &&
-                           bias >= kOgreNextPssmNormalOffsetBias;
-                  }),
+              result.audit.native_bounds_readback_verified &&
+              result.audit.last_native_bounds_observations.size() == 2U &&
+              std::all_of(result.audit.last_native_normal_offset_bias.begin(),
+                          result.audit.last_native_normal_offset_bias.end(),
+                          [](float bias) {
+                            return std::isfinite(bias) &&
+                                   bias >= kOgreNextPssmNormalOffsetBias;
+                          }),
           "PSSM runtime topology/caster/receiver audit is incomplete");
   return RenderOperationResult::Success();
 }
@@ -762,6 +814,129 @@ bool ProveTransactionalRetry(const std::string &media_root,
           "PSSM transactional retry leaked native frame-local state");
   return true;
 }
+
+bool ProveInitializationRetry(const std::string &media_root,
+                              OgreNextN1PssmFailureStage stage) {
+  OgreNextN1Configuration configuration{
+      media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1};
+  configuration.directional_shadow_mode =
+      OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+  configuration.pssm_failure_stage = stage;
+  OgreNextN1Frontend frontend(std::move(configuration));
+  const RenderOperationResult injected = frontend.Initialize(Initialization());
+  Require(injected.code == RenderOperationCode::BACKEND_FAILURE,
+          "PSSM initialization fault was misclassified as unsupported");
+  RequireSuccess(InitializeAndSync(frontend),
+                 "PSSM same-instance initialization retry");
+  const OgreNextPssmShadowRuntimeAudit audit =
+      frontend.QueryDirectionalShadowAudit();
+  Require(audit.d32_probe_attempted && audit.d32_render_target_supported &&
+              audit.d32_atlas_allocation_verified &&
+              audit.d32_atlas_readback_verified &&
+              audit.d32_atlas_cleanup_verified &&
+              audit.d32_atlas_cleanup_absence_checks == 1U,
+          "PSSM D32 retry did not prove exact native cleanup and reuse");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "PSSM initialization retry Shutdown");
+  return true;
+}
+
+bool ProveCleanupLookupRetry(const std::string &media_root,
+                             OgreNextN1PssmFailureStage stage) {
+  OgreNextN1Configuration configuration{
+      media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1};
+  configuration.directional_shadow_mode =
+      OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+  configuration.pssm_failure_stage = stage;
+  OgreNextN1Frontend frontend(std::move(configuration));
+  RequireSuccess(InitializeAndSync(frontend),
+                 "PSSM cleanup-lookup Initialize/sync");
+  const RenderFrameRequest request =
+      Frame(1U, Scene(301U + static_cast<std::uint64_t>(stage), true),
+            PixelFormat::RGBA8_SRGB);
+  RenderFrameOutput ignored;
+  const RenderOperationResult injected = frontend.Render(request, ignored);
+  Require(injected.code == RenderOperationCode::BACKEND_FAILURE &&
+              !frontend.IsFrameComplete(request.frame_id),
+          "PSSM cleanup lookup exception did not fail the frame closed");
+  const OgreNextPssmShadowRuntimeAudit failed_audit =
+      frontend.QueryDirectionalShadowAudit();
+  bool missing_expected_absence_proof = false;
+  switch (stage) {
+  case OgreNextN1PssmFailureStage::DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP:
+    missing_expected_absence_proof =
+        failed_audit.receiver_datablock_cleanup_absence_checks == 0U;
+    break;
+  case OgreNextN1PssmFailureStage::DURING_WORKSPACE_DEFINITION_CLEANUP_LOOKUP:
+    missing_expected_absence_proof =
+        failed_audit.workspace_definition_cleanup_absence_checks == 0U;
+    break;
+  case OgreNextN1PssmFailureStage::DURING_WORKSPACE_NODE_CLEANUP_LOOKUP:
+    missing_expected_absence_proof =
+        failed_audit.workspace_node_cleanup_absence_checks == 0U;
+    break;
+  case OgreNextN1PssmFailureStage::DURING_SHADOW_NODE_CLEANUP_LOOKUP:
+    missing_expected_absence_proof =
+        failed_audit.shadow_node_cleanup_absence_checks == 0U;
+    break;
+  case OgreNextN1PssmFailureStage::DURING_TARGET_TEXTURE_CLEANUP_LOOKUP:
+    missing_expected_absence_proof =
+        failed_audit.target_texture_cleanup_absence_checks == 0U;
+    break;
+  default:
+    break;
+  }
+  Require(
+      missing_expected_absence_proof &&
+          failed_audit.shadow_frames_completed == 0U,
+      "PSSM cleanup lookup fault was incorrectly recorded as proven absent");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "PSSM cleanup-lookup fault Shutdown");
+  RequireSuccess(InitializeAndSync(frontend),
+                 "PSSM cleanup-lookup same-instance reinitialize/sync");
+  RenderFrameOutput recovered;
+  RequireSuccess(frontend.Render(request, recovered),
+                 "PSSM cleanup-lookup same-frame retry");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "PSSM cleanup-lookup retry Shutdown");
+  const OgreNextPssmShadowRuntimeAudit recovered_audit =
+      frontend.QueryDirectionalShadowAudit();
+  bool recovered_absence_proven = false;
+  switch (stage) {
+  case OgreNextN1PssmFailureStage::DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP:
+    recovered_absence_proven =
+        recovered_audit.receiver_datablock_cleanup_absence_checks == 1U;
+    break;
+  case OgreNextN1PssmFailureStage::DURING_WORKSPACE_DEFINITION_CLEANUP_LOOKUP:
+    recovered_absence_proven =
+        recovered_audit.workspace_definition_cleanup_absence_checks == 1U;
+    break;
+  case OgreNextN1PssmFailureStage::DURING_WORKSPACE_NODE_CLEANUP_LOOKUP:
+    recovered_absence_proven =
+        recovered_audit.workspace_node_cleanup_absence_checks == 1U;
+    break;
+  case OgreNextN1PssmFailureStage::DURING_SHADOW_NODE_CLEANUP_LOOKUP:
+    recovered_absence_proven =
+        recovered_audit.shadow_node_cleanup_absence_checks == 1U;
+    break;
+  case OgreNextN1PssmFailureStage::DURING_TARGET_TEXTURE_CLEANUP_LOOKUP:
+    recovered_absence_proven =
+        recovered_audit.target_texture_cleanup_absence_checks == 1U;
+    break;
+  default:
+    break;
+  }
+  Require(recovered_absence_proven &&
+              recovered_audit.shadow_frames_completed == 1U &&
+              recovered_audit.shadow_node_creates ==
+                  recovered_audit.shadow_node_destroys &&
+              recovered_audit.workspace_node_definition_creates ==
+                  recovered_audit.workspace_node_definition_destroys &&
+              recovered_audit.receiver_datablock_creates ==
+                  recovered_audit.receiver_datablock_destroys,
+          "PSSM cleanup lookup retry leaked a named native resource");
+  return true;
+}
 #endif
 
 void WriteEvidence(const std::string &path, const SmokeResult &result) {
@@ -797,12 +972,17 @@ std::string UnsupportedReport(
               failure.detail == kOgreNextPssmCapabilityUnsupportedDetail &&
               audit.capability_check_completed &&
               (!audit.atlas_dimensions_supported ||
-               !audit.texture_gather_supported ||
-               !audit.d32_render_target_supported),
+               !audit.texture_gather_supported) &&
+              !audit.d32_probe_attempted &&
+              !audit.d32_render_target_supported &&
+              !audit.d32_atlas_allocation_verified &&
+              !audit.d32_atlas_readback_verified &&
+              audit.d32_atlas_cleanup_verified &&
+              audit.d32_atlas_cleanup_absence_checks == 1U,
           "PSSM unsupported result was not exact native capability evidence");
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v3\",\n"
+         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v4\",\n"
          << "  \"status\": \"unsupported\",\n"
          << "  \"execution\": {\"schema\": "
             "\"ror.ogre_next_pssm_shadow_execution_challenge.v1\", "
@@ -844,6 +1024,8 @@ std::string UnsupportedReport(
          << (audit.atlas_dimensions_supported ? "true" : "false") << ",\n"
          << "    \"texture_gather_supported\": "
          << (audit.texture_gather_supported ? "true" : "false") << ",\n"
+         << "    \"d32_probe_attempted\": "
+         << (audit.d32_probe_attempted ? "true" : "false") << ",\n"
          << "    \"d32_render_target_supported\": "
          << (audit.d32_render_target_supported ? "true" : "false") << ",\n"
          << "    \"d32_atlas_allocation_verified\": "
@@ -853,7 +1035,9 @@ std::string UnsupportedReport(
          << (audit.d32_atlas_readback_verified ? "true" : "false")
          << ",\n"
          << "    \"d32_atlas_cleanup_verified\": "
-         << (audit.d32_atlas_cleanup_verified ? "true" : "false") << "\n"
+         << (audit.d32_atlas_cleanup_verified ? "true" : "false") << ",\n"
+         << "    \"d32_atlas_cleanup_absence_checks\": "
+         << audit.d32_atlas_cleanup_absence_checks << "\n"
          << "  },\n"
          << "  \"backend_substitution\": false\n"
          << "}\n";
@@ -876,9 +1060,8 @@ std::string PassReport(const SmokeResult &result,
       result.off_center_tight_bounds.no_occluder.size() +
       result.off_center_tight_bounds.occluder.size();
   std::ostringstream report;
-  report << std::setprecision(9)
-         << "{\n"
-         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v3\",\n"
+  report << std::setprecision(9) << "{\n"
+         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v4\",\n"
          << "  \"status\": \"pass\",\n"
          << "  \"execution\": {\"schema\": "
             "\"ror.ogre_next_pssm_shadow_execution_challenge.v1\", "
@@ -926,8 +1109,10 @@ std::string PassReport(const SmokeResult &result,
          << "    \"backend_substitution\": false,\n"
          << "    \"split_stable_tangent_projection\": true,\n"
          << "    \"native_definition_split_and_runtime_bias_readback\": true,\n"
+         << "    \"native_d32_probe_attempted\": true,\n"
          << "    \"native_d32_atlas_allocation_use_readback_verified\": true,\n"
          << "    \"native_d32_atlas_cleanup_verified\": true,\n"
+         << "    \"native_d32_atlas_cleanup_absence_checks\": 1,\n"
          << "    \"runtime_normal_offset_bias\": ["
          << result.audit.last_native_normal_offset_bias[0U] << ", "
          << result.audit.last_native_normal_offset_bias[1U] << ", "
@@ -972,15 +1157,42 @@ std::string PassReport(const SmokeResult &result,
          << "    \"expected_tangent_extents\": [-0.75, 1.25, "
             "0.583333313, -0.75],\n"
          << "    \"off_center_projection_verified\": "
-         << (result.off_center_projection_verified ? "true" : "false")
-         << ",\n"
+         << (result.off_center_projection_verified ? "true" : "false") << ",\n"
          << "    \"receiver_bounds_min_z\": 0,\n"
          << "    \"receiver_bounds_max_z\": 0,\n"
          << "    \"caster_bounds_min_z\": 0,\n"
          << "    \"caster_bounds_max_z\": 0,\n"
          << "    \"tight_caster_bounds_verified\": "
-         << (result.tight_caster_bounds_verified ? "true" : "false")
+         << (result.tight_caster_bounds_verified ? "true" : "false") << ",\n"
+         << "    \"native_bounds_readback_verified\": "
+         << (result.audit.native_bounds_readback_verified ? "true" : "false")
          << ",\n"
+         << "    \"native_aabb_observations\": [\n";
+  for (std::size_t index = 0U;
+       index < result.audit.last_native_bounds_observations.size(); ++index) {
+    const OgreNextPssmNativeBoundsObservation &observation =
+        result.audit.last_native_bounds_observations[index];
+    report << "      {\"instance_id\": " << observation.instance_id
+           << ", \"casts_shadow\": "
+           << (observation.casts_shadow ? "true" : "false")
+           << ", \"receives_shadow\": "
+           << (observation.receives_shadow ? "true" : "false")
+           << ", \"expected_local\": ";
+    WriteAabbJson(report, observation.expected_local);
+    report << ", \"ogre_mesh_local\": ";
+    WriteAabbJson(report, observation.ogre_mesh_local);
+    report << ", \"ogre_item_local\": ";
+    WriteAabbJson(report, observation.ogre_item_local);
+    report << ", \"expected_world\": ";
+    WriteAabbJson(report, observation.expected_world);
+    report << ", \"ogre_item_world\": ";
+    WriteAabbJson(report, observation.ogre_item_world);
+    report << "}"
+           << (index + 1U == result.audit.last_native_bounds_observations.size()
+                   ? "\n"
+                   : ",\n");
+  }
+  report << "    ],\n"
          << "    \"sdr_changed_pixels\": "
          << result.off_center_tight_bounds.changed_pixels << ",\n"
          << "    \"sdr_darkened_pixels\": "
@@ -1001,11 +1213,42 @@ std::string PassReport(const SmokeResult &result,
          << result.audit.receiver_datablock_creates << ",\n"
          << "    \"receiver_datablock_destroys\": "
          << result.audit.receiver_datablock_destroys << ",\n"
-         << "    \"receiver_clone_same_frame_retry_verified\": "
-         << (result.receiver_clone_retry_verified ? "true" : "false")
+         << "    \"d32_atlas_cleanup_absence_checks\": "
+         << result.audit.d32_atlas_cleanup_absence_checks << ",\n"
+         << "    \"workspace_definition_cleanup_absence_checks\": "
+         << result.audit.workspace_definition_cleanup_absence_checks << ",\n"
+         << "    \"workspace_node_cleanup_absence_checks\": "
+         << result.audit.workspace_node_cleanup_absence_checks << ",\n"
+         << "    \"shadow_node_cleanup_absence_checks\": "
+         << result.audit.shadow_node_cleanup_absence_checks << ",\n"
+         << "    \"receiver_datablock_cleanup_absence_checks\": "
+         << result.audit.receiver_datablock_cleanup_absence_checks << ",\n"
+         << "    \"target_texture_cleanup_absence_checks\": "
+         << result.audit.target_texture_cleanup_absence_checks << ",\n"
+         << "    \"d32_post_create_same_instance_retry_verified\": "
+         << (result.d32_post_create_retry_verified ? "true" : "false") << ",\n"
+         << "    \"d32_cleanup_lookup_failure_closed_retry_verified\": "
+         << (result.d32_cleanup_lookup_retry_verified ? "true" : "false")
          << ",\n"
+         << "    \"receiver_clone_same_frame_retry_verified\": "
+         << (result.receiver_clone_retry_verified ? "true" : "false") << ",\n"
          << "    \"workspace_node_same_frame_retry_verified\": "
-         << (result.workspace_node_retry_verified ? "true" : "false")
+         << (result.workspace_node_retry_verified ? "true" : "false") << ",\n"
+         << "    \"receiver_cleanup_lookup_failure_closed_retry_verified\": "
+         << (result.receiver_cleanup_lookup_retry_verified ? "true" : "false")
+         << ",\n"
+         << "    \"workspace_definition_cleanup_lookup_failure_closed_retry_verified\": "
+         << (result.workspace_definition_cleanup_lookup_retry_verified ? "true"
+                                                                        : "false")
+         << ",\n"
+         << "    \"workspace_cleanup_lookup_failure_closed_retry_verified\": "
+         << (result.workspace_cleanup_lookup_retry_verified ? "true" : "false")
+         << ",\n"
+         << "    \"shadow_cleanup_lookup_failure_closed_retry_verified\": "
+         << (result.shadow_cleanup_lookup_retry_verified ? "true" : "false")
+         << ",\n"
+         << "    \"target_cleanup_lookup_failure_closed_retry_verified\": "
+         << (result.target_cleanup_lookup_retry_verified ? "true" : "false")
          << "\n"
          << "  },\n"
          << "  \"evidence\": {\n"
@@ -1060,12 +1303,35 @@ int main(int argc, char **argv) {
       Fail("PSSM initialization/sync failed: " + shadow.detail);
     }
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+    result.d32_post_create_retry_verified = ProveInitializationRetry(
+        arguments.media_root,
+        OgreNextN1PssmFailureStage::AFTER_D32_ATLAS_CREATE);
+    result.d32_cleanup_lookup_retry_verified = ProveInitializationRetry(
+        arguments.media_root,
+        OgreNextN1PssmFailureStage::DURING_D32_ATLAS_CLEANUP_LOOKUP);
     result.receiver_clone_retry_verified = ProveTransactionalRetry(
         arguments.media_root,
         OgreNextN1PssmFailureStage::AFTER_RECEIVER_DATABLOCK_CLONE);
     result.workspace_node_retry_verified = ProveTransactionalRetry(
         arguments.media_root,
         OgreNextN1PssmFailureStage::AFTER_WORKSPACE_NODE_DEFINITION);
+    result.receiver_cleanup_lookup_retry_verified = ProveCleanupLookupRetry(
+        arguments.media_root,
+        OgreNextN1PssmFailureStage::DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP);
+    result.workspace_definition_cleanup_lookup_retry_verified =
+        ProveCleanupLookupRetry(
+            arguments.media_root,
+            OgreNextN1PssmFailureStage::
+                DURING_WORKSPACE_DEFINITION_CLEANUP_LOOKUP);
+    result.workspace_cleanup_lookup_retry_verified = ProveCleanupLookupRetry(
+        arguments.media_root,
+        OgreNextN1PssmFailureStage::DURING_WORKSPACE_NODE_CLEANUP_LOOKUP);
+    result.shadow_cleanup_lookup_retry_verified = ProveCleanupLookupRetry(
+        arguments.media_root,
+        OgreNextN1PssmFailureStage::DURING_SHADOW_NODE_CLEANUP_LOOKUP);
+    result.target_cleanup_lookup_retry_verified = ProveCleanupLookupRetry(
+        arguments.media_root,
+        OgreNextN1PssmFailureStage::DURING_TARGET_TEXTURE_CLEANUP_LOOKUP);
 #else
     Fail("PSSM transactional retry proof was not compiled");
 #endif

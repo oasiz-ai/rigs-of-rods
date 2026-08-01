@@ -51,7 +51,8 @@ constexpr float kOgreNextPssmAutoNormalOffsetBiasScale = 4.0F;
 constexpr std::uint32_t kOgreNextPssmNativeVisibilityMask = 0x3fffffffU;
 
 constexpr char kOgreNextPssmCapabilityUnsupportedDetail[] =
-    "PSSM_3_CASCADE_V1 native capability gate rejected the required atlas or PCF4 support";
+    "PSSM_3_CASCADE_V1 native capability gate rejected the required atlas "
+    "dimensions or PCF4 texture-gather support";
 
 // One D32_FLOAT atlas. Cascade zero occupies the full-width upper region;
 // cascades one and two occupy the lower-left and lower-right regions.
