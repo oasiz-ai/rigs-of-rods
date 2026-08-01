@@ -140,7 +140,7 @@ RenderAssetDelta MakeCatalog() {
 }
 
 std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
-                                               bool mirrored = false) {
+                                               bool shifted = false) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kRegistryId;
@@ -153,8 +153,8 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
   instance.instance_id = 1U;
   instance.mesh = AssetRef(RenderAssetKind::MESH, 1U);
   instance.material = AssetRef(RenderAssetKind::MATERIAL, 2U);
-  if (mirrored) {
-    instance.render_from_object.elements[0U] = -1.0F;
+  if (shifted) {
+    instance.render_from_object.elements[12U] = 0.15F;
     instance.previous_render_from_object = instance.render_from_object;
   }
   instance.local_bounds = MakeMesh().local_bounds;
@@ -400,6 +400,16 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr) {
          << "  \"schema\": \"ror.ogre_next_frontend_n1_smoke.v1\",\n"
          << "  \"status\": \"pass\",\n"
          << "  \"provenance\": {\n"
+         << "    \"ror_repository\": \""
+         << ROR_OGRE_NEXT_N1_ROR_REPOSITORY << "\",\n"
+         << "    \"ror_ref\": \"" << ROR_OGRE_NEXT_N1_ROR_REF
+         << "\",\n"
+         << "    \"ror_commit\": \"" << ROR_OGRE_NEXT_N1_ROR_COMMIT
+         << "\",\n"
+         << "    \"ror_relevant_source_manifest_sha256\": \""
+         << ROR_OGRE_NEXT_N1_ROR_SOURCE_MANIFEST_SHA256 << "\",\n"
+         << "    \"ror_relevant_source_manifest_file_count\": "
+         << ROR_OGRE_NEXT_N1_ROR_SOURCE_MANIFEST_FILE_COUNT << ",\n"
          << "    \"ogre_next_commit\": \""
          << ROR_OGRE_NEXT_N1_OGRE_COMMIT << "\",\n"
          << "    \"ogre_next_archive_sha256\": \""
@@ -411,7 +421,11 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr) {
          << "    \"shader_media_notice_path\": \""
          << ROR_OGRE_NEXT_N1_SHADER_MEDIA_NOTICE_PATH << "\",\n"
          << "    \"shader_media_notice_sha256\": \""
-         << ROR_OGRE_NEXT_N1_SHADER_MEDIA_NOTICE_SHA256 << "\"\n"
+         << ROR_OGRE_NEXT_N1_SHADER_MEDIA_NOTICE_SHA256 << "\",\n"
+         << "    \"shader_media_manifest_sha256\": \""
+         << ROR_OGRE_NEXT_N1_SHADER_MEDIA_MANIFEST_SHA256 << "\",\n"
+         << "    \"shader_media_manifest_file_count\": "
+         << ROR_OGRE_NEXT_N1_SHADER_MEDIA_MANIFEST_FILE_COUNT << "\n"
          << "  },\n"
          << "  \"platform_policy\": \""
          << ROR_OGRE_NEXT_N1_PLATFORM_POLICY << "\",\n"
@@ -468,9 +482,10 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr) {
          << "  },\n"
          << "  \"lifecycle\": {\n"
          << "    \"unsupported_depth_failed_before_submission\": true,\n"
-         << "    \"double_sided_mirrored_pbs_readback\": true,\n"
+         << "    \"double_sided_pbs_readback\": true,\n"
          << "    \"lifetime_snapshot_identity_replay\": true,\n"
          << "    \"lifetime_completed_frame_queries\": true,\n"
+         << "    \"process_global_root_exclusion\": true,\n"
          << "    \"shutdown_reinitialize_render_shutdown\": true\n"
          << "  }\n"
          << "}\n";
@@ -530,6 +545,13 @@ std::pair<Metrics, Metrics> RunSmoke(const std::string &media_root) {
           "N1 unexpectedly exported native interop");
 
   InitializeAndSync(frontend, catalog);
+  OgreNextN1Frontend concurrent(OgreNextN1Configuration{media_root});
+  const RenderOperationResult concurrent_result =
+      concurrent.Initialize(Initialization());
+  Require(concurrent_result.code == RenderOperationCode::BACKEND_FAILURE &&
+              concurrent_result.detail.find("process-global Root") !=
+                  std::string::npos,
+          "a second simultaneous frontend escaped Ogre Root ownership");
   const FrontendCapabilityReport initialized_capabilities =
       frontend.QueryCapabilities();
   Require(initialized_capabilities.maximum_texture_dimension_2d >= kWidth &&
@@ -580,6 +602,10 @@ std::pair<Metrics, Metrics> RunSmoke(const std::string &media_root) {
           "successful N1 frame fell out of lifetime completion history");
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "first Shutdown");
+
+  InitializeAndSync(concurrent, catalog);
+  RequireSuccess(concurrent.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "post-owner-release concurrent Shutdown");
 
   InitializeAndSync(frontend, catalog);
   RenderFrameOutput recovered_output;

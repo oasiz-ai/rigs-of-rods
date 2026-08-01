@@ -44,6 +44,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/tools/test_ogre_next_probe_contract.py",
             "tests/tools/test_ogre_next_frame_probe.py",
             SELF_PATH,
+            "tests/tools/test_verify_ogre_next_artifact_set.py",
         ):
             with self.subTest(test_path=test_path):
                 self.assertEqual(self.workflow.count(test_path), 2)
@@ -108,6 +109,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror-ogre-next-probe-report.json",
             "ror-ogre-next-frame-probe-report.json",
             "ror-ogre-next-frame-probe.ppm",
+            "ror-ogre-next-frontend-n1-report.json",
+            "ror-ogre-next-frontend-n1.ppm",
         ):
             with self.subTest(artifact=artifact):
                 self.assertIn(artifact, self.workflow)
@@ -115,9 +118,31 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         revalidate = self.workflow.index(
             "- name: Revalidate the exact artifacts selected for upload"
         )
+        complete = self.workflow.index(
+            "- name: Require every exact upload artifact"
+        )
         upload = self.workflow.index("- name: Upload exact reports and UI-free frame")
         self.assertLess(lifecycle, revalidate)
-        self.assertLess(revalidate, upload)
+        self.assertLess(revalidate, complete)
+        self.assertLess(complete, upload)
+        self.assertIn("verify_ogre_next_artifact_set.py", self.workflow)
+
+    def test_n1_is_independent_of_legacy_frame_runtime(self) -> None:
+        n1 = self.workflow.index(
+            "- name: Build, render, and validate the independent N1 frontend"
+        )
+        legacy = self.workflow.index(
+            "- name: Build, render, read back, and validate the legacy probes"
+        )
+        n1_native = self.workflow.index(
+            "- name: Prove N1 lifecycle and media-integrity failures independently"
+        )
+        self.assertLess(n1, n1_native)
+        self.assertLess(n1_native, legacy)
+        self.assertIn("--checkpoint n1", self.workflow)
+        self.assertIn("--checkpoint legacy", self.workflow)
+        self.assertIn("--reuse-build-dir", self.workflow)
+        self.assertIn("-R '^ror_ogre_next_frontend_n1_'", self.workflow)
         self.assertGreaterEqual(
             self.workflow.count("tools/validate_ogre_next_frame_probe.py"), 2
         )

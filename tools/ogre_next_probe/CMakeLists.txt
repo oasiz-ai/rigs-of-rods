@@ -22,13 +22,119 @@ endif ()
 
 set(ROR_OGRE_NEXT_STANDALONE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PinnedOgreNext.cmake")
+get_filename_component(ROR_REPOSITORY_ROOT
+    "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+set(ROR_SOURCE_REPOSITORY "https://github.com/oasiz-ai/rigs-of-rods")
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" -C "${ROR_REPOSITORY_ROOT}" rev-parse HEAD
+    RESULT_VARIABLE _ror_git_commit_result
+    OUTPUT_VARIABLE ROR_SOURCE_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" -C "${ROR_REPOSITORY_ROOT}"
+            rev-parse --abbrev-ref HEAD
+    RESULT_VARIABLE _ror_git_ref_result
+    OUTPUT_VARIABLE ROR_SOURCE_REF
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+string(LENGTH "${ROR_SOURCE_COMMIT}" _ror_source_commit_length)
+if (NOT _ror_git_commit_result EQUAL 0 OR
+        NOT _ror_source_commit_length EQUAL 40 OR
+        NOT ROR_SOURCE_COMMIT MATCHES "^[0-9a-f]+$" OR
+        NOT _ror_git_ref_result EQUAL 0 OR
+        NOT ROR_SOURCE_REF MATCHES "^[A-Za-z0-9._/-]+$")
+    message(FATAL_ERROR "RoR source Git identity cannot be attested")
+endif ()
+file(GLOB_RECURSE _ror_relevant_source_files
+    LIST_DIRECTORIES false
+    RELATIVE "${ROR_REPOSITORY_ROOT}"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/*"
+    "${ROR_REPOSITORY_ROOT}/tools/ogre_next_probe/*")
+list(APPEND _ror_relevant_source_files
+    "tools/run_ogre_next_probe.py"
+    "tools/validate_ogre_next_frame_probe.py"
+    "tools/verify_ogre_next_artifact_set.py")
+list(FILTER _ror_relevant_source_files EXCLUDE REGEX
+    "(^|/)__pycache__/|\\.py[co]$|(^|/)\\.DS_Store$")
+list(REMOVE_DUPLICATES _ror_relevant_source_files)
+list(SORT _ror_relevant_source_files)
+set(_ror_source_manifest_serialized "")
+foreach (_ror_source_relative IN LISTS _ror_relevant_source_files)
+    set(_ror_source_file "${ROR_REPOSITORY_ROOT}/${_ror_source_relative}")
+    if (NOT EXISTS "${_ror_source_file}" OR IS_SYMLINK "${_ror_source_file}")
+        message(FATAL_ERROR
+            "RoR relevant source is missing or indirect: ${_ror_source_relative}")
+    endif ()
+    if (_ror_source_relative MATCHES "[;\\\\\"]")
+        message(FATAL_ERROR
+            "RoR relevant source path cannot be attested: ${_ror_source_relative}")
+    endif ()
+    file(SIZE "${_ror_source_file}" _ror_source_size)
+    file(SHA256 "${_ror_source_file}" _ror_source_sha256)
+    string(APPEND _ror_source_manifest_serialized
+        "${_ror_source_relative}|${_ror_source_size}|${_ror_source_sha256}\n")
+endforeach ()
+list(LENGTH _ror_relevant_source_files ROR_SOURCE_MANIFEST_FILE_COUNT)
+string(SHA256 ROR_SOURCE_MANIFEST_SHA256
+    "${_ror_source_manifest_serialized}")
 set(ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_RELATIVE
     "share/rigsofrods/ogre-next/Samples/Media")
+set(ROR_OGRE_NEXT_N1_PACKAGE_ROR_LICENSE_RELATIVE
+    "licenses/Rigs-of-Rods-GPL-3.0.txt")
+set(ROR_OGRE_NEXT_N1_PACKAGE_OGRE_LICENSE_RELATIVE
+    "licenses/Ogre-Next-MIT.txt")
+set(ROR_OGRE_NEXT_N1_PACKAGE_RAPIDJSON_LICENSE_RELATIVE
+    "licenses/RapidJSON-license.txt")
+set(ROR_OGRE_NEXT_N1_PACKAGE_SHADER_NOTICE_RELATIVE
+    "licenses/LicenseRef-Heitz-LTC-Paper-Notice.txt")
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/probe_config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_probe_config.h"
     @ONLY)
 set(ROR_OGRE_NEXT_MEDIA_ROOT "${ogre_next_SOURCE_DIR}/Samples/Media")
+set(_ror_n1_hlms_root "${ROR_OGRE_NEXT_MEDIA_ROOT}/Hlms")
+file(GLOB_RECURSE _ror_n1_hlms_files
+    LIST_DIRECTORIES false
+    RELATIVE "${_ror_n1_hlms_root}"
+    "${_ror_n1_hlms_root}/*")
+list(SORT _ror_n1_hlms_files)
+if (NOT _ror_n1_hlms_files)
+    message(FATAL_ERROR "The pinned Ogre-Next HLMS file manifest is empty")
+endif ()
+set(ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_ENTRIES "")
+set(_ror_n1_media_manifest_serialized "")
+foreach (_ror_n1_hlms_relative IN LISTS _ror_n1_hlms_files)
+    set(_ror_n1_hlms_file
+        "${_ror_n1_hlms_root}/${_ror_n1_hlms_relative}")
+    if (IS_SYMLINK "${_ror_n1_hlms_file}")
+        message(FATAL_ERROR
+            "Pinned Ogre-Next HLMS manifest contains a symbolic link: "
+            "${_ror_n1_hlms_relative}")
+    endif ()
+    if (_ror_n1_hlms_relative MATCHES "[;\\\\\"]")
+        message(FATAL_ERROR
+            "Pinned Ogre-Next HLMS path cannot be represented exactly: "
+            "${_ror_n1_hlms_relative}")
+    endif ()
+    file(SIZE "${_ror_n1_hlms_file}" _ror_n1_hlms_size)
+    file(SHA256 "${_ror_n1_hlms_file}" _ror_n1_hlms_sha256)
+    string(APPEND ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_ENTRIES
+        "    {\"${_ror_n1_hlms_relative}\", "
+        "static_cast<std::uint64_t>(${_ror_n1_hlms_size}), "
+        "\"${_ror_n1_hlms_sha256}\"},\n")
+    string(APPEND _ror_n1_media_manifest_serialized
+        "${_ror_n1_hlms_relative}|${_ror_n1_hlms_size}|"
+        "${_ror_n1_hlms_sha256}\n")
+endforeach ()
+list(LENGTH _ror_n1_hlms_files ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_COUNT)
+list(GET _ror_n1_hlms_files 0 ROR_OGRE_NEXT_N1_MEDIA_TAMPER_RELATIVE)
+string(SHA256 ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_SHA256
+    "${_ror_n1_media_manifest_serialized}")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend_n1_media_manifest.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_n1_media_manifest.h"
+    @ONLY)
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/frame_probe_config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_frame_probe_config.h"
@@ -123,6 +229,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     add_library(
         ror_ogre_next_frontend_n1 STATIC
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp")
     if (APPLE)
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_METAL=1)
@@ -193,12 +300,24 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
-                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_SHADER_NOTICE_RELATIVE}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_ROR_LICENSE_RELATIVE}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_LICENSE_PATH}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_OGRE_LICENSE_RELATIVE}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${rapidjson_SOURCE_DIR}/${ROR_RAPIDJSON_LICENSE_PATH}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_RAPIDJSON_LICENSE_RELATIVE}"
         COMMAND "${CMAKE_COMMAND}" -E touch
                 "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
         DEPENDS
             ror_ogre_next_frontend_n1_smoke
             "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
+            "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_LICENSE_PATH}"
+            "${rapidjson_SOURCE_DIR}/${ROR_RAPIDJSON_LICENSE_PATH}"
         COMMENT "Staging relocatable Ogre-Next N1 runtime and shader media"
         VERBATIM)
     add_custom_target(ror_ogre_next_frontend_n1_package ALL
@@ -303,5 +422,14 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
                 --output "${ROR_OGRE_NEXT_N1_CTEST_IMAGE}"
                 --report "${ROR_OGRE_NEXT_N1_CTEST_REPORT}")
     set_tests_properties(ror_ogre_next_frontend_n1_runtime PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+    add_test(NAME ror_ogre_next_frontend_n1_media_tamper
+        COMMAND "${CMAKE_COMMAND}"
+            "-DN1_EXECUTABLE=${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"
+            "-DN1_MEDIA_ROOT=${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+            "-DN1_TAMPER_RELATIVE=${ROR_OGRE_NEXT_N1_MEDIA_TAMPER_RELATIVE}"
+            "-DN1_WORK_ROOT=${CMAKE_BINARY_DIR}/n1-media-tamper"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyN1MediaTamper.cmake")
+    set_tests_properties(ror_ogre_next_frontend_n1_media_tamper PROPERTIES
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif ()

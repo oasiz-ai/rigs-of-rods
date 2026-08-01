@@ -1,0 +1,23 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+namespace RoR::Render {
+
+struct OgreNextN1MediaManifestEntry final {
+  const char *relative_path;
+  std::uint64_t size;
+  const char *sha256;
+};
+
+inline constexpr OgreNextN1MediaManifestEntry
+    kOgreNextN1ShaderMediaManifest[]{
+@ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_ENTRIES@};
+
+inline constexpr std::size_t kOgreNextN1ShaderMediaManifestCount =
+    @ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_COUNT@U;
+inline constexpr char kOgreNextN1ShaderMediaManifestSha256[] =
+    "@ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_SHA256@";
+
+} // namespace RoR::Render

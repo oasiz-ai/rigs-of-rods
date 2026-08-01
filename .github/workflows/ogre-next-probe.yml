@@ -8,6 +8,7 @@ on:
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
       - tools/validate_ogre_next_frame_probe.py
+      - tools/verify_ogre_next_artifact_set.py
       - source/main/gfx/render/**
       - tests/gfx/render/**
       - tests/tools/test_ogre_next_*.py
@@ -17,6 +18,7 @@ on:
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
       - tools/validate_ogre_next_frame_probe.py
+      - tools/verify_ogre_next_artifact_set.py
       - source/main/gfx/render/**
       - tests/gfx/render/**
       - tests/tools/test_ogre_next_*.py
@@ -114,16 +116,35 @@ jobs:
           python tests/tools/test_ogre_next_frame_probe.py
           python tests/tools/test_ogre_next_frontend_n1_contract.py
           python tests/tools/test_ogre_next_probe_workflow.py
+          python tests/tools/test_verify_ogre_next_artifact_set.py
           python -O tests/tools/test_ogre_next_probe_contract.py
           python -O tests/tools/test_ogre_next_frame_probe.py
           python -O tests/tools/test_ogre_next_frontend_n1_contract.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
+          python -O tests/tools/test_verify_ogre_next_artifact_set.py
           python tools/run_ogre_next_probe.py --validate-contract-only
 
-      - name: Build, render, read back, and validate the pinned probe
+      - name: Build, render, and validate the independent N1 frontend
         run: >-
           python tools/run_ogre_next_probe.py
           --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --checkpoint n1
+          --jobs ${{ matrix.jobs }}
+
+      - name: Prove N1 lifecycle and media-integrity failures independently
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre_next_frontend_n1_'
+
+      - name: Build, render, read back, and validate the legacy probes
+        run: >-
+          python tools/run_ogre_next_probe.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --reuse-build-dir
+          --checkpoint legacy
           --jobs ${{ matrix.jobs }}
 
       - name: Re-run native lifecycle tests
@@ -140,6 +161,12 @@ jobs:
           --image "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm"
           --capability-report "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-probe-report.json"
           --platform-policy "${{ matrix.platform }}"
+
+      - name: Require every exact upload artifact
+        if: always()
+        run: >-
+          python tools/verify_ogre_next_artifact_set.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
 
       - name: Upload exact reports and UI-free frame
         if: always()

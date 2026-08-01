@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <sstream>
 
 namespace RoR::Render {
@@ -41,6 +42,13 @@ bool IsTextureFree(const MaterialDescriptor &material) noexcept {
 bool IsFiniteScaled(const Float3 &value, float scale) noexcept {
   return IsFinite(value.x * scale) && IsFinite(value.y * scale) &&
          IsFinite(value.z * scale);
+}
+
+bool IsWithinNativeFloatAccumulation(double magnitude) noexcept {
+  const double guarded_maximum = static_cast<double>(std::nextafter(
+      (std::numeric_limits<float>::max)(), 0.0F));
+  return std::isfinite(magnitude) &&
+         magnitude <= guarded_maximum;
 }
 
 bool IsTrsRepresentable(const Matrix4x4 &matrix) noexcept {
@@ -182,12 +190,68 @@ bool TryBuildOgreNextN1NativeMeshBounds(
   return true;
 }
 
+bool CanRepresentOgreNextN1WorldBounds(
+    const Bounds3 &local_bounds,
+    const Matrix4x4 &render_from_object) noexcept {
+  if (!IsTrsRepresentable(render_from_object)) {
+    return false;
+  }
+  OgreNextN1NativeMeshBounds bounds;
+  if (!TryBuildOgreNextN1NativeMeshBounds(local_bounds, bounds)) {
+    return false;
+  }
+
+  for (std::size_t row = 0U; row < 3U; ++row) {
+    const float matrix_x = render_from_object.elements[row];
+    const float matrix_y = render_from_object.elements[4U + row];
+    const float matrix_z = render_from_object.elements[8U + row];
+    const float translation = render_from_object.elements[12U + row];
+    const double center_magnitude =
+        std::fabs(static_cast<double>(matrix_x) * bounds.center.x) +
+        std::fabs(static_cast<double>(matrix_y) * bounds.center.y) +
+        std::fabs(static_cast<double>(matrix_z) * bounds.center.z) +
+        std::fabs(static_cast<double>(translation));
+    if (!IsWithinNativeFloatAccumulation(center_magnitude)) {
+      return false;
+    }
+    const double half_magnitude =
+        std::fabs(static_cast<double>(matrix_x)) * bounds.half_size.x +
+        std::fabs(static_cast<double>(matrix_y)) * bounds.half_size.y +
+        std::fabs(static_cast<double>(matrix_z)) * bounds.half_size.z;
+    if (!IsWithinNativeFloatAccumulation(half_magnitude)) {
+      return false;
+    }
+    // Bound the complete endpoint from the original operands. Ogre's SIMD
+    // implementation is free to regroup or fuse the center and half-size
+    // arithmetic, so checking one scalar evaluation order is not sufficient.
+    if (!IsWithinNativeFloatAccumulation(center_magnitude + half_magnitude)) {
+      return false;
+    }
+  }
+
+  float maximum_scale = 0.0F;
+  for (std::size_t column = 0U; column < 3U; ++column) {
+    const float x = render_from_object.elements[column * 4U];
+    const float y = render_from_object.elements[column * 4U + 1U];
+    const float z = render_from_object.elements[column * 4U + 2U];
+    const float length_squared = x * x + y * y + z * z;
+    const float length = std::sqrt(length_squared);
+    if (!IsFinite(length_squared) || !IsFinite(length)) {
+      return false;
+    }
+    maximum_scale = (std::max)(maximum_scale, length);
+  }
+  return IsWithinNativeFloatAccumulation(
+      static_cast<double>(bounds.radius) * maximum_scale);
+}
+
 RenderOperationResult
 OgreNextN1SubmissionState::Validate(const RenderFrameRequest &request) const {
-  if (request.frame_id <= last_frame_id_) {
+  if (last_frame_id_ == (std::numeric_limits<std::uint64_t>::max)() ||
+      request.frame_id != last_frame_id_ + 1U) {
     return RenderOperationResult::Failure(
         RenderOperationCode::INVALID_ARGUMENT,
-        "N1 frame IDs must increase after every successful submission");
+        "N1 frame IDs must be contiguous from one after every successful submission");
   }
   if (!request.scene_snapshot) {
     return RenderOperationResult::Failure(RenderOperationCode::INVALID_ARGUMENT,
@@ -195,11 +259,15 @@ OgreNextN1SubmissionState::Validate(const RenderFrameRequest &request) const {
   }
   const std::uint64_t snapshot_id = request.scene_snapshot->snapshot_id();
   const auto seen = snapshots_.find(snapshot_id);
-  if (seen != snapshots_.end() &&
-      seen->second.get() != request.scene_snapshot.get()) {
-    return RenderOperationResult::Failure(
-        RenderOperationCode::RESOURCE_STALE,
-        "one N1 snapshot ID identified a different immutable object");
+  if (seen != snapshots_.end()) {
+    const std::shared_ptr<const SceneSnapshot> expected = seen->second.lock();
+    if (!expected || expected.get() != request.scene_snapshot.get() ||
+        expected.owner_before(request.scene_snapshot) ||
+        request.scene_snapshot.owner_before(expected)) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::RESOURCE_STALE,
+          "one N1 snapshot ID identified a different immutable object");
+    }
   }
   if (seen == snapshots_.end() && snapshot_id <= last_snapshot_id_) {
     return RenderOperationResult::Failure(
@@ -210,20 +278,18 @@ OgreNextN1SubmissionState::Validate(const RenderFrameRequest &request) const {
 }
 
 void OgreNextN1SubmissionState::Commit(const RenderFrameRequest &request) {
-  const std::uint64_t snapshot_id = request.scene_snapshot->snapshot_id();
-  auto inserted = snapshots_.end();
-  if (snapshots_.find(snapshot_id) == snapshots_.end()) {
-    inserted = snapshots_.emplace(snapshot_id, request.scene_snapshot).first;
-  }
-  try {
-    completed_frames_.push_back(request.frame_id);
-  } catch (...) {
-    if (inserted != snapshots_.end()) {
-      snapshots_.erase(inserted);
+  for (auto iterator = snapshots_.begin(); iterator != snapshots_.end();) {
+    if (iterator->second.expired()) {
+      iterator = snapshots_.erase(iterator);
+    } else {
+      ++iterator;
     }
-    throw;
   }
-  if (inserted != snapshots_.end()) {
+  const std::uint64_t snapshot_id = request.scene_snapshot->snapshot_id();
+  if (snapshots_.find(snapshot_id) == snapshots_.end()) {
+    snapshots_.emplace(snapshot_id,
+                       std::weak_ptr<const SceneSnapshot>(
+                           request.scene_snapshot));
     last_snapshot_id_ = snapshot_id;
   }
   last_frame_id_ = request.frame_id;
@@ -231,27 +297,34 @@ void OgreNextN1SubmissionState::Commit(const RenderFrameRequest &request) {
 
 bool OgreNextN1SubmissionState::IsFrameComplete(
     std::uint64_t frame_id) const noexcept {
-  return std::binary_search(completed_frames_.begin(), completed_frames_.end(),
-                            frame_id);
+  return frame_id != 0U && frame_id <= last_frame_id_;
+}
+
+std::size_t
+OgreNextN1SubmissionState::TrackedSnapshotIdentityCount() const noexcept {
+  return snapshots_.size();
 }
 
 void OgreNextN1SubmissionState::Reset() noexcept {
-  completed_frames_.clear();
   snapshots_.clear();
   last_frame_id_ = 0U;
   last_snapshot_id_ = 0U;
 }
 
-Matrix4x4
-ConvertPortableProjectionToOgreClip(const Matrix4x4 &portable) noexcept {
-  Matrix4x4 converted = portable;
+bool TryConvertPortableProjectionToOgreClip(
+    const Matrix4x4 &portable, Matrix4x4 &converted) noexcept {
+  Matrix4x4 candidate = portable;
   for (std::size_t column = 0U; column < 4U; ++column) {
     const std::size_t row_two = column * 4U + 2U;
     const std::size_t row_three = column * 4U + 3U;
-    converted.elements[row_two] =
+    candidate.elements[row_two] =
         2.0F * portable.elements[row_two] - portable.elements[row_three];
   }
-  return converted;
+  if (!IsFinite(candidate)) {
+    return false;
+  }
+  converted = candidate;
+  return true;
 }
 
 FrontendCapabilityReport
@@ -380,17 +453,18 @@ ValidationResult ValidateOgreNextN1Scene(
           "mesh_instances.render_from_object",
           "N1 scene nodes cannot represent affine shear", index);
     }
-    const MaterialDescriptor *material = registry.ResolveMaterial(instance.material);
-    if (material == nullptr) {
-      return ValidationResult::Failure(
-          ValidationCode::MISSING_REFERENCE, "mesh_instances.material",
-          "N1 material revision is unavailable", index);
+    if (!CanRepresentOgreNextN1WorldBounds(instance.local_bounds,
+                                           instance.render_from_object)) {
+      return Unsupported(
+          "mesh_instances.world_bounds",
+          "finite local bounds and TRS overflow Ogre's world-bound arithmetic",
+          index);
     }
-    if (LinearDeterminant(instance.render_from_object) < 0.0F &&
-        !material->double_sided) {
+    if (LinearDeterminant(instance.render_from_object) < 0.0F) {
       return Unsupported(
           "mesh_instances.render_from_object",
-          "mirrored N1 instances require a double-sided material", index);
+          "N1 rejects mirrored TRS because Ogre's signed parent scale can manufacture a negative world radius",
+          index);
     }
   }
   return ValidationResult::Success();
@@ -422,6 +496,15 @@ ValidationResult ValidateOgreNextN1Frame(
   if (view.temporal_jitter_pixels != Float2{}) {
     return Unsupported("views.temporal_jitter_pixels",
                        "N1 does not apply temporal jitter");
+  }
+  Matrix4x4 converted_projection;
+  if (!TryConvertPortableProjectionToOgreClip(view.clip_from_view,
+                                               converted_projection) ||
+      !TryConvertPortableProjectionToOgreClip(view.previous_clip_from_view,
+                                               converted_projection)) {
+    return Unsupported(
+        "views.clip_from_view",
+        "finite portable projection overflows Ogre's clip-depth conversion");
   }
   if (request.scene_snapshot->asset_registry_id() != registry.registry_id() ||
       request.scene_snapshot->asset_sequence() != registry.sequence()) {

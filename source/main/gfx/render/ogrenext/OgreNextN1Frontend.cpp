@@ -8,6 +8,7 @@
 
 #include "OgreNextN1Frontend.h"
 
+#include "OgreNextN1MediaIntegrity.h"
 #include "OgreNextN1Policy.h"
 #include "ror_ogre_next_n1_config.h"
 
@@ -57,6 +58,7 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -72,6 +74,18 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 
 namespace RoR::Render {
 namespace {
+
+std::atomic<bool> g_ogre_next_n1_root_claimed{false};
+
+bool TryClaimOgreNextN1Root() noexcept {
+  bool expected = false;
+  return g_ogre_next_n1_root_claimed.compare_exchange_strong(
+      expected, true, std::memory_order_acq_rel, std::memory_order_acquire);
+}
+
+void ReleaseOgreNextN1Root() noexcept {
+  g_ogre_next_n1_root_claimed.store(false, std::memory_order_release);
+}
 
 struct N1Vertex {
   float position[3];
@@ -101,6 +115,16 @@ Ogre::Matrix4 ToOgreMatrix(const Matrix4x4 &source) {
   for (std::size_t column = 0U; column < 4U; ++column) {
     for (std::size_t row = 0U; row < 4U; ++row) {
       result[row][column] = source.elements[column * 4U + row];
+    }
+  }
+  return result;
+}
+
+Matrix4x4 FromOgreMatrix(const Ogre::Matrix4 &source) {
+  Matrix4x4 result;
+  for (std::size_t column = 0U; column < 4U; ++column) {
+    for (std::size_t row = 0U; row < 4U; ++row) {
+      result.elements[column * 4U + row] = source[row][column];
     }
   }
   return result;
@@ -142,10 +166,10 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
 }
 
 bool DecomposeTrs(const Matrix4x4 &source, Ogre::Vector3 &position,
-                  Ogre::Vector3 &scale, Ogre::Quaternion &orientation) {
+                  Ogre::Vector3 &scale, Ogre::Quaternion &orientation,
+                  Ogre::Matrix4 &reconstructed) {
   const Ogre::Matrix4 matrix = ToOgreMatrix(source);
   matrix.decomposition(position, scale, orientation);
-  Ogre::Matrix4 reconstructed;
   reconstructed.makeTransform(position, scale, orientation);
   constexpr float kRoundTripTolerance = 2.0e-4F;
   for (std::size_t row = 0U; row < 4U; ++row) {
@@ -553,6 +577,10 @@ public:
     bootstrap_window = nullptr;
     root.reset();
     plugin.reset();
+    if (owns_root_claim) {
+      ReleaseOgreNextN1Root();
+      owns_root_claim = false;
+    }
     submission_state.Reset();
     maximum_texture_dimension =
         kOgreNextN1ConservativeMaximumTextureDimension;
@@ -581,6 +609,7 @@ public:
   std::string resolved_shader_media_root;
   bool initialized = false;
   bool faulted = false;
+  bool owns_root_claim = false;
   std::uint32_t maximum_texture_dimension =
       kOgreNextN1ConservativeMaximumTextureDimension;
 };
@@ -616,6 +645,17 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
   if (!media_validation) {
     return media_validation;
   }
+  const RenderOperationResult media_integrity =
+      VerifyOgreNextN1ShaderMedia(impl_->resolved_shader_media_root);
+  if (!media_integrity) {
+    return media_integrity;
+  }
+  if (!TryClaimOgreNextN1Root()) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::BACKEND_FAILURE,
+        "another Ogre-Next N1 frontend owns Ogre's process-global Root");
+  }
+  impl_->owns_root_claim = true;
   const auto fail_after_cleanup = [&](RenderOperationResult failure) {
     if (!impl_->CleanupBackend()) {
       return NativeTeardownFailure("Ogre-Next N1 initialization rollback");
@@ -1020,11 +1060,18 @@ RenderOperationResult OgreNextN1Frontend::Render(
       Ogre::Vector3 position;
       Ogre::Vector3 scale;
       Ogre::Quaternion orientation;
+      Ogre::Matrix4 reconstructed;
       if (!DecomposeTrs(instance.render_from_object, position, scale,
-                        orientation)) {
+                        orientation, reconstructed)) {
         return fail_after_cleanup(RenderOperationResult::Failure(
             RenderOperationCode::UNSUPPORTED,
             "N1 transform did not survive exact Ogre TRS decomposition"));
+      }
+      if (!CanRepresentOgreNextN1WorldBounds(instance.local_bounds,
+                                              FromOgreMatrix(reconstructed))) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "N1 reconstructed Ogre TRS can overflow native world bounds"));
       }
       Ogre::Item *item = impl_->scene_manager->createItem(
           mesh->second.mesh, Ogre::SCENE_DYNAMIC);
@@ -1051,10 +1098,15 @@ RenderOperationResult OgreNextN1Frontend::Render(
     // alternateDepthRange path applies the inverse transform here, so N1
     // supplies canonical [-1,1] clip depth and lets the active RenderSystem
     // perform exactly one native Metal/D3D11/Vulkan conversion.
+    Matrix4x4 converted_projection;
+    if (!TryConvertPortableProjectionToOgreClip(view.clip_from_view,
+                                                 converted_projection)) {
+      return fail_after_cleanup(RenderOperationResult::Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "N1 projection did not survive Ogre clip-depth conversion"));
+    }
     impl_->camera->setCustomProjectionMatrix(
-        true,
-        ToOgreMatrix(ConvertPortableProjectionToOgreClip(view.clip_from_view)),
-        false);
+        true, ToOgreMatrix(converted_projection), false);
 
     const std::string target_name =
         "RoRN1Target_" + std::to_string(request.frame_id);

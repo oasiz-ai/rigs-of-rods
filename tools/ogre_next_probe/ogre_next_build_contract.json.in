@@ -1,5 +1,12 @@
 {
   "schema_version": 2,
+  "ror_source": {
+    "repository": "@ROR_SOURCE_REPOSITORY@",
+    "ref": "@ROR_SOURCE_REF@",
+    "commit": "@ROR_SOURCE_COMMIT@",
+    "relevant_manifest_sha256": "@ROR_SOURCE_MANIFEST_SHA256@",
+    "relevant_manifest_file_count": @ROR_SOURCE_MANIFEST_FILE_COUNT@
+  },
   "provenance": {
     "repository": "@ROR_OGRE_NEXT_REPOSITORY@",
     "branch": "@ROR_OGRE_NEXT_BRANCH@",

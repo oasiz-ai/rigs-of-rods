@@ -26,10 +26,12 @@ FRAME_REPORT_NAME = "ror-ogre-next-frame-probe-report.json"
 FRAME_IMAGE_NAME = "ror-ogre-next-frame-probe.ppm"
 N1_REPORT_NAME = "ror-ogre-next-frontend-n1-report.json"
 N1_IMAGE_NAME = "ror-ogre-next-frontend-n1.ppm"
+N1_PACKAGE_NAME = "ror-ogre-next-n1-package"
 FRAME_VALIDATOR = REPOSITORY_ROOT / "tools" / "validate_ogre_next_frame_probe.py"
 BUILD_SENTINEL_NAME = ".ror-ogre-next-probe-build-v1"
 BUILD_SENTINEL_CONTENT = "ror-ogre-next-probe-build-v1\n"
 REQUIRED_CONFIG = "Release"
+ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
 
 
 class ProbeError(RuntimeError):
@@ -42,6 +44,97 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def relevant_source_manifest() -> dict[str, Any]:
+    roots = (
+        REPOSITORY_ROOT / "source" / "main" / "gfx" / "render",
+        PROBE_SOURCE,
+    )
+    paths: set[Path] = set()
+    for root in roots:
+        paths.update(root.rglob("*"))
+    paths.update(
+        {
+            REPOSITORY_ROOT / "tools" / "run_ogre_next_probe.py",
+            REPOSITORY_ROOT / "tools" / "validate_ogre_next_frame_probe.py",
+            REPOSITORY_ROOT / "tools" / "verify_ogre_next_artifact_set.py",
+        }
+    )
+    entries: list[tuple[str, int, str]] = []
+    for path in sorted(paths, key=lambda item: item.as_posix()):
+        relative = path.relative_to(REPOSITORY_ROOT)
+        if "__pycache__" in relative.parts or path.suffix in (".pyc", ".pyo"):
+            continue
+        if path.name == ".DS_Store":
+            continue
+        if path.is_symlink():
+            raise ProbeError(
+                "RoR relevant source contains a symbolic link: "
+                + relative.as_posix()
+            )
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise ProbeError(
+                "RoR relevant source is missing or irregular: "
+                + relative.as_posix()
+            )
+        entries.append(
+            (relative.as_posix(), path.stat().st_size, sha256_file(path))
+        )
+    if not entries:
+        raise ProbeError("RoR relevant source manifest is empty")
+    serialized = "".join(
+        f"{relative}|{size}|{digest}\n"
+        for relative, size, digest in entries
+    ).encode("utf-8")
+    return {
+        "sha256": hashlib.sha256(serialized).hexdigest(),
+        "file_count": len(entries),
+    }
+
+
+def ror_source_identity() -> dict[str, Any]:
+    def git_output(*arguments: str) -> str:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(REPOSITORY_ROOT), *arguments],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except OSError as error:
+            raise ProbeError(f"could not execute Git for RoR provenance: {error}") from error
+        value = result.stdout.strip()
+        if result.returncode != 0 or not value:
+            raise ProbeError("could not resolve RoR Git provenance")
+        return value
+
+    commit = git_output("rev-parse", "HEAD")
+    ref = git_output("rev-parse", "--abbrev-ref", "HEAD")
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None or re.fullmatch(
+        r"[A-Za-z0-9._/-]+", ref
+    ) is None:
+        raise ProbeError("RoR Git provenance is not canonical")
+    manifest = relevant_source_manifest()
+    return {
+        "repository": ROR_SOURCE_REPOSITORY,
+        "ref": ref,
+        "commit": commit,
+        "relevant_manifest_sha256": manifest["sha256"],
+        "relevant_manifest_file_count": manifest["file_count"],
+    }
+
+
+def require_source_identity_unchanged(
+    expected: dict[str, Any],
+) -> None:
+    if ror_source_identity() != expected:
+        raise ProbeError(
+            "RoR relevant source or Git identity changed during the probe"
+        )
 
 
 def _require_sha256(value: object, label: str) -> None:
@@ -283,7 +376,7 @@ def default_build_dir() -> Path:
     return Path(tempfile.gettempdir()) / f"ror-ogre-next-probe-{platform_token}"
 
 
-def prepare_build_dir(path: Path, clean: bool) -> Path:
+def prepare_build_dir(path: Path, clean: bool, reuse: bool = False) -> Path:
     requested = path.expanduser()
     if requested.is_symlink():
         raise ProbeError("--build-dir must not be a symbolic link")
@@ -309,6 +402,27 @@ def prepare_build_dir(path: Path, clean: bool) -> Path:
         has_entries = exists and any(resolved.iterdir())
     except OSError as error:
         raise ProbeError(f"could not inspect --build-dir: {error}") from error
+
+    if reuse:
+        if clean:
+            raise ProbeError("--reuse-build-dir and --clean-build-dir conflict")
+        if not has_entries:
+            raise ProbeError("--reuse-build-dir requires a configured probe build")
+        sentinel = resolved / BUILD_SENTINEL_NAME
+        cache = resolved / "CMakeCache.txt"
+        try:
+            sentinel_content = sentinel.read_text(encoding="utf-8")
+            cache_text = cache.read_text(encoding="utf-8")
+        except OSError as error:
+            raise ProbeError(
+                "--reuse-build-dir requires an owned configured probe build"
+            ) from error
+        expected_source = f"CMAKE_HOME_DIRECTORY:INTERNAL={PROBE_SOURCE.resolve()}"
+        if sentinel_content != BUILD_SENTINEL_CONTENT or expected_source not in cache_text:
+            raise ProbeError(
+                "--reuse-build-dir does not identify this exact probe source"
+            )
+        return resolved
 
     if has_entries:
         sentinel = resolved / BUILD_SENTINEL_NAME
@@ -489,7 +603,8 @@ def validate_report(
 
 
 def validate_build_contract(
-    contract: dict[str, Any], lock: dict[str, Any], policy: dict[str, str]
+    contract: dict[str, Any], lock: dict[str, Any], policy: dict[str, str],
+    source_identity: dict[str, Any] | None = None,
 ) -> None:
     provenance = contract.get("provenance", {})
     rapidjson_contract = contract.get("dependencies", {}).get("rapidjson", {})
@@ -566,6 +681,8 @@ def validate_build_contract(
         and bool(compiler["version"]),
         "build_type": compiler.get("build_type") == REQUIRED_CONFIG,
     }
+    if source_identity is not None:
+        checks["ror_source"] = contract.get("ror_source") == source_identity
     failed = [name for name, passed in checks.items() if not passed]
     if failed:
         raise ProbeError(
@@ -635,6 +752,8 @@ def validate_n1_checkpoint(
     image_path: Path,
     lock: dict[str, Any],
     policy: dict[str, str],
+    media_manifest: dict[str, Any],
+    source_identity: dict[str, Any],
 ) -> None:
     try:
         image = image_path.read_bytes()
@@ -670,12 +789,33 @@ def validate_n1_checkpoint(
         "commit": provenance.get("ogre_next_commit") == lock["commit"],
         "archive": provenance.get("ogre_next_archive_sha256")
         == lock["archive_sha256"],
+        "ror_repository": provenance.get("ror_repository")
+        == source_identity["repository"],
+        "ror_ref": provenance.get("ror_ref") == source_identity["ref"],
+        "ror_commit": provenance.get("ror_commit")
+        == source_identity["commit"],
+        "ror_source_manifest": provenance.get(
+            "ror_relevant_source_manifest_sha256"
+        )
+        == source_identity["relevant_manifest_sha256"],
+        "ror_source_count": provenance.get(
+            "ror_relevant_source_manifest_file_count"
+        )
+        == source_identity["relevant_manifest_file_count"],
         "shader_root": provenance.get("shader_media_root")
         == shader_media["root"],
         "shader_license": provenance.get("shader_media_license_expression")
         == shader_media["license_expression"],
         "shader_notice": provenance.get("shader_media_notice_sha256")
         == shader_media["third_party_notice"]["notice_sha256"],
+        "shader_manifest_hash": provenance.get(
+            "shader_media_manifest_sha256"
+        )
+        == media_manifest["sha256"],
+        "shader_manifest_count": provenance.get(
+            "shader_media_manifest_file_count"
+        )
+        == media_manifest["file_count"],
         "platform": report.get("platform_policy") == policy["name"],
         "renderer": report.get("renderer") == policy["renderer_name"],
         "v2_vao": adapter.get("native_mesh_path")
@@ -714,9 +854,10 @@ def validate_n1_checkpoint(
             lifecycle.get(field) is True
             for field in (
                 "unsupported_depth_failed_before_submission",
-                "double_sided_mirrored_pbs_readback",
+                "double_sided_pbs_readback",
                 "lifetime_snapshot_identity_replay",
                 "lifetime_completed_frame_queries",
+                "process_global_root_exclusion",
                 "shutdown_reinitialize_render_shutdown",
             )
         ),
@@ -729,12 +870,92 @@ def validate_n1_checkpoint(
         )
 
 
+def shader_media_manifest(root: Path) -> dict[str, Any]:
+    if not root.is_dir():
+        raise ProbeError(f"OGRE-Next N1 HLMS tree is missing: {root}")
+    entries: list[tuple[str, int, str]] = []
+    for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
+        if path.is_symlink():
+            raise ProbeError(
+                "OGRE-Next N1 HLMS tree contains a symbolic link: "
+                + path.relative_to(root).as_posix()
+            )
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise ProbeError(
+                "OGRE-Next N1 HLMS tree contains a non-file entry: "
+                + path.relative_to(root).as_posix()
+            )
+        entries.append(
+            (
+                path.relative_to(root).as_posix(),
+                path.stat().st_size,
+                sha256_file(path),
+            )
+        )
+    if not entries:
+        raise ProbeError("OGRE-Next N1 HLMS tree is empty")
+    serialized = "".join(
+        f"{relative}|{size}|{digest}\n"
+        for relative, size, digest in entries
+    ).encode("utf-8")
+    return {
+        "sha256": hashlib.sha256(serialized).hexdigest(),
+        "file_count": len(entries),
+        "entries": entries,
+    }
+
+
+def validate_n1_package(
+    build_dir: Path, lock: dict[str, Any]
+) -> dict[str, Any]:
+    package_root = build_dir / N1_PACKAGE_NAME
+    shader_notice = lock["shader_media"]["third_party_notice"]
+    expected_hashes = {
+        Path("licenses/Rigs-of-Rods-GPL-3.0.txt"): sha256_file(
+            REPOSITORY_ROOT / "COPYING"
+        ),
+        Path("licenses/Ogre-Next-MIT.txt"): lock["license"]["sha256"],
+        Path("licenses/RapidJSON-license.txt"): lock["dependencies"][
+            "rapidjson"
+        ]["license_sha256"],
+        Path(shader_notice["notice_path"]): shader_notice["notice_sha256"],
+    }
+    failures: list[str] = []
+    for relative_path, expected_hash in expected_hashes.items():
+        staged_path = package_root / relative_path
+        if not staged_path.is_file():
+            failures.append(f"missing {relative_path.as_posix()}")
+            continue
+        if sha256_file(staged_path) != expected_hash:
+            failures.append(f"hash mismatch {relative_path.as_posix()}")
+    if failures:
+        raise ProbeError(
+            "OGRE-Next N1 package license validation failed closed: "
+            + ", ".join(failures)
+        )
+    source_manifest = shader_media_manifest(
+        build_dir / "_deps" / "ogre_next-src" / "Samples" / "Media" / "Hlms"
+    )
+    package_manifest = shader_media_manifest(
+        package_root / "share" / "rigsofrods" / "ogre-next" /
+        "Samples" / "Media" / "Hlms"
+    )
+    if package_manifest != source_manifest:
+        raise ProbeError(
+            "OGRE-Next N1 staged HLMS tree differs from the pinned source manifest"
+        )
+    return source_manifest
+
+
 def run_n1_checkpoint(
     build_dir: Path,
     config: str,
     jobs: int,
     lock: dict[str, Any],
     policy: dict[str, str],
+    source_identity: dict[str, Any],
 ) -> None:
     run(
         [
@@ -749,6 +970,7 @@ def run_n1_checkpoint(
             str(jobs),
         ]
     )
+    require_source_identity_unchanged(source_identity)
     report_path = build_dir / N1_REPORT_NAME
     image_path = build_dir / N1_IMAGE_NAME
     missing = [path.name for path in (report_path, image_path) if not path.is_file()]
@@ -761,7 +983,10 @@ def run_n1_checkpoint(
         report = json.loads(report_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ProbeError(f"could not read N1 report: {error}") from error
-    validate_n1_checkpoint(report, image_path, lock, policy)
+    media_manifest = validate_n1_package(build_dir, lock)
+    validate_n1_checkpoint(
+        report, image_path, lock, policy, media_manifest, source_identity
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -776,6 +1001,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--clean-build-dir",
         action="store_true",
         help="clean a non-empty build directory only when its probe sentinel matches",
+    )
+    parser.add_argument(
+        "--reuse-build-dir",
+        action="store_true",
+        help="reuse an owned configured build for a later independent checkpoint",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        choices=("all", "n1", "legacy"),
+        default="all",
+        help="run all gates, the independent N1 gate, or the legacy probes",
     )
     parser.add_argument(
         "--ogre-archive",
@@ -829,7 +1065,21 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
 
-        build_dir = prepare_build_dir(args.build_dir, args.clean_build_dir)
+        source_identity = ror_source_identity()
+
+        if args.reuse_build_dir and args.checkpoint == "all":
+            raise ProbeError(
+                "--reuse-build-dir requires --checkpoint n1 or legacy"
+            )
+        if args.reuse_build_dir and (
+            args.ogre_archive or args.rapidjson_archive or args.generator
+        ):
+            raise ProbeError(
+                "reused checkpoints cannot change archives or the generator"
+            )
+        build_dir = prepare_build_dir(
+            args.build_dir, args.clean_build_dir, args.reuse_build_dir
+        )
         configure = [
             "cmake",
             "-S",
@@ -865,20 +1115,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             configure.append(f"-DROR_RAPIDJSON_ARCHIVE={archive}")
 
-        run(configure)
-        run(
-            [
-                "cmake",
-                "--build",
-                str(build_dir),
-                "--target",
-                "ror_ogre_next_probe_report",
-                "--config",
-                args.config,
-                "--parallel",
-                str(args.jobs),
-            ]
-        )
+        if not args.reuse_build_dir:
+            run(configure)
 
         build_contract_path = build_dir / BUILD_CONTRACT_NAME
         try:
@@ -887,29 +1125,53 @@ def main(argv: list[str] | None = None) -> int:
             )
         except (OSError, json.JSONDecodeError) as error:
             raise ProbeError(f"could not read build contract: {error}") from error
-        validate_build_contract(build_contract, lock, policy)
+        validate_build_contract(build_contract, lock, policy, source_identity)
 
-        report_path = build_dir / REPORT_NAME
-        try:
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            raise ProbeError(f"could not read probe report: {error}") from error
-        validate_report(report, lock, policy)
+        if args.checkpoint in ("all", "n1"):
+            run_n1_checkpoint(
+                build_dir,
+                args.config,
+                args.jobs,
+                lock,
+                policy,
+                source_identity,
+            )
 
-        run_frame_checkpoint(
-            build_dir,
-            args.config,
-            args.jobs,
-            policy,
-            report_path,
-        )
-        run_n1_checkpoint(
-            build_dir,
-            args.config,
-            args.jobs,
-            lock,
-            policy,
-        )
+        report: dict[str, Any] = {
+            "schema_version": 2,
+            "status": "pass",
+            "checkpoint": args.checkpoint,
+            "platform_policy": policy["name"],
+        }
+        if args.checkpoint in ("all", "legacy"):
+            run(
+                [
+                    "cmake",
+                    "--build",
+                    str(build_dir),
+                    "--target",
+                    "ror_ogre_next_probe_report",
+                    "--config",
+                    args.config,
+                    "--parallel",
+                    str(args.jobs),
+                ]
+            )
+            require_source_identity_unchanged(source_identity)
+            report_path = build_dir / REPORT_NAME
+            try:
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise ProbeError(f"could not read probe report: {error}") from error
+            validate_report(report, lock, policy)
+            run_frame_checkpoint(
+                build_dir,
+                args.config,
+                args.jobs,
+                policy,
+                report_path,
+            )
+            require_source_identity_unchanged(source_identity)
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0
     except ProbeError as error:

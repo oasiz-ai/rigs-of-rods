@@ -52,28 +52,41 @@ The entry project and N1 target include that one policy rather than copying its
 pin block. Both the shared module and the N1 CMake guard reject an existing
 `OgreMain` target, preventing OGRE 1.14 and Ogre-Next from entering one binary.
 
+The generated build contract and N1 runtime report also identify the canonical
+RoR repository, exact Git commit/ref, and a sorted path/size/SHA-256 manifest of
+the renderer sources and probe implementation used by the build. The wrapper
+independently regenerates that manifest from the checkout, so locally modified
+relevant source cannot masquerade as the named commit.
+
 FetchContent uses URL hashes and a build-local `_deps` population area. A local
 archive can be supplied, but it is hashed before CMake sees it. Direct
 `FETCHCONTENT_SOURCE_DIR_*` overrides are rejected because they bypass archive
-verification. The wrapper and standalone CMake project both reject reuse of a
-configured build directory, because FetchContent does not re-hash an already
-extracted source tree. `--clean-build-dir` recovers only a directory carrying
-the exact probe ownership sentinel. No OGRE-Next source archive is stored in
-this repository.
+verification. A normal invocation requires a fresh build directory. The sole
+reuse path is `--reuse-build-dir` with an explicitly selected `n1` or `legacy`
+checkpoint; it requires the exact ownership sentinel and source directory,
+revalidates the build contract, and rejects archive or generator changes.
+`--clean-build-dir` recovers only a directory carrying the exact probe
+ownership sentinel. No OGRE-Next source archive is stored in this repository.
 
 The adaptation fixes only two non-Xcode macOS assumptions in the pinned
 upstream CMake: SDK path resolution and Xcode-only framework staging tokens in
 Ninja files. It is applied from a hash-locked patch before configuration.
 
 The N1 frontend never compiles the FetchContent `_deps` path into its library.
-Its constructor requires a caller-owned absolute shader-media root, canonicalizes
-it, and verifies every HLMS PBS archive before creating an Ogre device. The
-standalone build stages a relocatable proof package with this layout:
+Its constructor requires a caller-owned absolute shader-media root,
+canonicalizes it, and verifies the exact regular-file set, byte sizes, and
+SHA-256 digests of all pinned HLMS media before claiming the process-global
+Ogre Root or creating a device. Symlinks, missing files, extra files, and
+changed bytes fail closed. The standalone build stages a relocatable proof
+package with this layout:
 
 ```text
 ror-ogre-next-n1-package/
   bin/ror_ogre_next_frontend_n1_smoke[.exe]
   share/rigsofrods/ogre-next/Samples/Media/Hlms/
+  licenses/Rigs-of-Rods-GPL-3.0.txt
+  licenses/Ogre-Next-MIT.txt
+  licenses/RapidJSON-license.txt
   licenses/LicenseRef-Heitz-LTC-Paper-Notice.txt
 ```
 
@@ -82,6 +95,12 @@ The staged executable is run with the resolved absolute form of
 Application packaging must resolve that same relative resource path using the
 platform bundle/install locator and pass it through `OgreNextN1Configuration`;
 relative, missing, or incomplete roots fail before native initialization.
+The build wrapper also hashes all four staged license files against the
+checked-in RoR license and the locked Ogre-Next, RapidJSON, and shader-notice
+provenance, then independently compares the staged HLMS manifest with the
+pinned source tree before accepting the package. A native negative test
+corrupts one staged shader and requires an integrity-specific initialization
+failure.
 
 ## Platform policy
 
@@ -112,14 +131,15 @@ in flight. Its supported slice is intentionally small:
 | Lighting | Constant ambient/environment radiance only |
 | Output | One UI-free `RGBA16_FLOAT` HDR or `RGBA8_SRGB` CPU readback |
 | Camera | Current rigid view and canonical portable `[0,1]` projection; N1 explicitly converts depth to Ogre `[-1,1]` before the active RenderSystem performs one API-native conversion |
-| Lifecycle | Transactional catalog replacement, RAII rollback for newly allocated native assets, teardown failure propagation/fault latch, and exact frame/snapshot identity retained until shutdown |
+| Lifecycle | Transactional catalog replacement, RAII rollback for newly allocated native assets, teardown failure propagation/fault latch, process-global Ogre Root exclusion, contiguous frame IDs represented by a completion high-water mark, and weak snapshot-owner identities pruned after caller release |
 
 N1 fails closed for textures/samplers, richer vertex streams, deformable or
 dynamic meshes, particles, every analytic light, shadows, depth/motion/object
 ID attachments, exposure/jitter, multiple views, presentation, native interop,
-and ray tracing. Analytic lights remain rejected because the portable units and
-Ogre power/attenuation path are not yet calibrated; N1 does not substitute an
-approximate local-light curve.
+and ray tracing. Mirrored TRS is also rejected because Ogre's signed parent
+scale can produce a negative world-bound radius. Analytic lights remain
+rejected because the portable units and Ogre power/attenuation path are not yet
+calibrated; N1 does not substitute an approximate local-light curve.
 
 Before a device exists, the capability query reports a conservative 2048
 texture extent without treating it as an initialization ceiling. Initialization
@@ -162,8 +182,8 @@ without its ownership sentinel or any path overlapping the source checkout.
 
 The generated files are:
 
-- `ogre-next-build-contract.json`: configured provenance, platform, compiler,
-  ABI, and component policy; and
+- `ogre-next-build-contract.json`: configured dependency and RoR source
+  provenance, platform, compiler, ABI, and component policy;
 - `ror-ogre-next-probe-report.json`: runtime registration/linkage evidence;
 - `ror-ogre-next-frame-probe-report.json`: native-window, HLMS PBS,
   Compositor2, and GPU-readback claims; and
@@ -212,25 +232,27 @@ frame identity, and rendered both readback formats. `RGBA16_FLOAT` produced
 0 to 1.52817905, and FNV-1a-64 hash `ae63b06b829ba785` while preserving HDR
 energy above 1.05. `RGBA8_SRGB` produced 2 distinct colors, the same 2,104
 foreground pixels, luminance 0 to 0.869247854, and hash
-`55526239ca9bd6a5`. The executable then accepted replay of only the latest
-immutable snapshot, rejected an older snapshot, shut down, reinitialized,
-resynchronized, rendered again, and shut down cleanly. Its report also records
-that live HLMS getters matched the reviewed metallic workflow and
-height-correlated GGX mapping. These values are local macOS evidence, not
-cross-platform golden pixels.
+`55526239ca9bd6a5`. The executable then accepted replay of both the latest and
+an older immutable snapshot only when the exact caller-owned snapshot identity
+matched, rejected identity aliases, proved simultaneous process-global Root
+ownership is denied, shut down, transferred Root ownership to a second
+frontend, reinitialized, resynchronized, rendered again, and shut down cleanly.
+Its report also records that live HLMS getters matched the reviewed metallic
+workflow and height-correlated GGX mapping. These values are local macOS
+evidence, not cross-platform golden pixels.
 
 ## Next gates
 
 The checked-in optional CI matrix runs the exact probe on macOS arm64 Metal,
 Windows x64 Direct3D 11, and Linux x86_64 software Vulkan/null-window. It keeps
-the three jobs independent, reruns the native lifecycle tests into separate
-artifacts, and revalidates the exact reports and PPM selected for upload. The
-always-running upload step preserves whichever diagnostic artifacts exist; an
-early build or frame failure can leave artifacts absent, which intentionally
-fails the upload contract. Only the local macOS result is proven at this
-checkpoint; the Windows and Linux jobs must still execute successfully before
-their gates can close. The renderer remains non-shipping until these later
-checkpoints pass:
+the three jobs independent, runs N1 plus its lifecycle/media-tamper tests before
+the legacy probes, reruns the complete native test set, and revalidates the
+exact reports and PPM selected for upload. An explicit always-running artifact
+gate requires all six regular, non-empty artifacts before upload, so a partial
+result cannot be published as a complete checkpoint. Only the local macOS
+result is proven at this checkpoint; the Windows and Linux jobs must still
+execute successfully before their gates can close. The renderer remains
+non-shipping until these later checkpoints pass:
 
 1. build/run this exact probe on Windows x64/D3D11 and Linux x86_64/Vulkan;
 2. reproduce the completed macOS native-window Compositor2 + HLMS PBS frame on

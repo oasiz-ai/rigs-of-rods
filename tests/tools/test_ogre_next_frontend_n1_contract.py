@@ -38,6 +38,9 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         cls.frontend = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1Frontend.cpp"
         ).read_text(encoding="utf-8")
+        cls.media_integrity = (
+            RENDER_ROOT / "ogrenext" / "OgreNextN1MediaIntegrity.cpp"
+        ).read_text(encoding="utf-8")
         cls.policy = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1Policy.cpp"
         ).read_text(encoding="utf-8")
@@ -57,6 +60,9 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertNotIn("add_subdirectory(tools/ogre_next_probe", (
             REPOSITORY_ROOT / "CMakeLists.txt"
         ).read_text(encoding="utf-8"))
+        self.assertIn("ROR_SOURCE_MANIFEST_SHA256", self.entry_cmake)
+        self.assertIn("ror_source_identity", RUNNER_PATH.read_text(encoding="utf-8"))
+        self.assertIn("ror_relevant_source_manifest_sha256", self.smoke)
 
     def test_public_boundary_contains_no_ogre_types(self) -> None:
         self.assertNotIn('#include "Ogre', self.header)
@@ -73,6 +79,30 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertNotIn("ROR_OGRE_NEXT_N1_MEDIA_ROOT", self.entry_cmake)
         self.assertIn("ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_RELATIVE", self.entry_cmake)
         self.assertIn("copy_directory", self.entry_cmake)
+        self.assertIn("ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_ENTRIES", self.entry_cmake)
+        self.assertIn("file(SHA256", self.entry_cmake)
+        self.assertIn("VerifyOgreNextN1ShaderMedia", self.frontend)
+        self.assertLess(
+            self.frontend.index("VerifyOgreNextN1ShaderMedia"),
+            self.frontend.index("if (!TryClaimOgreNextN1Root())"),
+        )
+        for token in (
+            "kOgreNextN1ShaderMediaManifestCount",
+            "recursive_directory_iterator",
+            "is_symlink(status)",
+            "digest != expected.sha256",
+        ):
+            self.assertIn(token, self.media_integrity)
+        for license_name in (
+            "Rigs-of-Rods-GPL-3.0.txt",
+            "Ogre-Next-MIT.txt",
+            "RapidJSON-license.txt",
+            "LicenseRef-Heitz-LTC-Paper-Notice.txt",
+        ):
+            self.assertIn(license_name, self.entry_cmake)
+        self.assertIn("validate_n1_package", RUNNER_PATH.read_text(encoding="utf-8"))
+        self.assertIn("ror_ogre_next_frontend_n1_media_tamper", self.entry_cmake)
+        self.assertIn("VerifyN1MediaTamper.cmake", self.entry_cmake)
         self.assertIn("--media-root", self.entry_cmake)
         self.assertIn("relative shader media root did not fail closed", self.smoke)
         self.assertIn("missing shader media root did not fail closed", self.smoke)
@@ -144,20 +174,33 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
 
     def test_submission_and_cleanup_state_are_lifetime_exact_and_fault_latched(self) -> None:
         self.assertIn("std::map<std::uint64_t", self.policy_header)
-        self.assertIn("std::vector<std::uint64_t> completed_frames_", self.policy_header)
+        self.assertIn("std::weak_ptr<const SceneSnapshot>", self.policy_header)
         self.assertIn("snapshots_.find(snapshot_id)", self.policy)
-        self.assertIn("std::binary_search(completed_frames_.begin()", self.policy)
-        self.assertNotIn("CompletedFrameHistoryLimit", self.policy_header)
-        self.assertNotIn("completed_frames_.pop_front()", self.policy)
+        self.assertIn("owner_before", self.policy)
+        self.assertIn("TrackedSnapshotIdentityCount", self.policy_header)
+        self.assertIn("request.frame_id != last_frame_id_ + 1U", self.policy)
+        self.assertIn("iterator->second.expired()", self.policy)
+        self.assertNotIn(
+            "std::shared_ptr<const SceneSnapshot>> snapshots_", self.policy_header
+        )
+        self.assertNotIn("completed_frame_ranges_", self.policy_header)
         self.assertIn("impl_->faulted = true", self.frontend)
         self.assertIn("return FrameCleanupFailure()", self.frontend)
         self.assertIn("fail_after_cleanup", self.frontend)
         self.assertIn("[[nodiscard]] bool DestroyCatalog()", self.frontend)
         self.assertIn("[[nodiscard]] bool CleanupBackend()", self.frontend)
         self.assertIn("if (!impl_->CleanupBackend())", self.frontend)
+        self.assertIn("TryClaimOgreNextN1Root", self.frontend)
+        self.assertIn("ReleaseOgreNextN1Root", self.frontend)
+        self.assertIn("owns_root_claim", self.frontend)
+        self.assertIn("FromOgreMatrix(reconstructed)", self.frontend)
+        self.assertIn(
+            "N1 reconstructed Ogre TRS can overflow native world bounds",
+            self.frontend,
+        )
 
     def test_projection_and_device_extent_paths_fail_closed(self) -> None:
-        self.assertIn("ConvertPortableProjectionToOgreClip", self.policy_header)
+        self.assertIn("TryConvertPortableProjectionToOgreClip", self.policy_header)
         self.assertIn("2.0F * portable.elements[row_two]", self.policy)
         self.assertIn(
             "kOgreNextN1ConservativeMaximumTextureDimension = 2048U",
@@ -169,7 +212,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.frontend,
         )
         self.assertIn(
-            "ToOgreMatrix(ConvertPortableProjectionToOgreClip(view.clip_from_view))",
+            "ToOgreMatrix(converted_projection)",
             self.frontend,
         )
         self.assertEqual(self.frontend.count("createRenderWindow("), 1)
@@ -182,6 +225,8 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "maximum_luminance <= 1.05F",
             "unsupported depth request",
             "post-reinitialize Render",
+            "a second simultaneous frontend escaped Ogre Root ownership",
+            "process_global_root_exclusion",
             "Ogre v2 Mesh plus immutable VertexArrayObject",
             "PbsBrdf::Default height-correlated GGX",
             "pbr_datablock_readback_verified",
@@ -205,6 +250,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "schema": "ror.ogre_next_frontend_n1_smoke.v1",
             "status": "pass",
             "provenance": {
+                "ror_repository": RUNNER.ROR_SOURCE_REPOSITORY,
+                "ror_ref": "codex/test",
+                "ror_commit": "1" * 40,
+                "ror_relevant_source_manifest_sha256": "5" * 64,
+                "ror_relevant_source_manifest_file_count": 123,
                 "ogre_next_commit": lock["commit"],
                 "ogre_next_archive_sha256": lock["archive_sha256"],
                 "shader_media_root": lock["shader_media"]["root"],
@@ -214,6 +264,8 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "shader_media_notice_sha256": lock["shader_media"][
                     "third_party_notice"
                 ]["notice_sha256"],
+                "shader_media_manifest_sha256": "2" * 64,
+                "shader_media_manifest_file_count": 107,
             },
             "platform_policy": policy["name"],
             "renderer": policy["renderer_name"],
@@ -254,33 +306,119 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             },
             "lifecycle": {
                 "unsupported_depth_failed_before_submission": True,
-                "double_sided_mirrored_pbs_readback": True,
+                "double_sided_pbs_readback": True,
                 "lifetime_snapshot_identity_replay": True,
                 "lifetime_completed_frame_queries": True,
+                "process_global_root_exclusion": True,
                 "shutdown_reinitialize_render_shutdown": True,
             },
         }
         with tempfile.TemporaryDirectory(prefix="ror-n1-validator-") as temp:
             image = Path(temp) / "n1.ppm"
             image.write_bytes(b"P6\n192 128\n255\n" + pixels)
-            RUNNER.validate_n1_checkpoint(report, image, lock, policy)
+            manifest = {"sha256": "2" * 64, "file_count": 107}
+            source_identity = {
+                "repository": RUNNER.ROR_SOURCE_REPOSITORY,
+                "ref": "codex/test",
+                "commit": "1" * 40,
+                "relevant_manifest_sha256": "5" * 64,
+                "relevant_manifest_file_count": 123,
+            }
+            RUNNER.validate_n1_checkpoint(
+                report, image, lock, policy, manifest, source_identity
+            )
             invalid = copy.deepcopy(report)
             invalid["hdr"]["maximum_luminance"] = 1.0
             with self.assertRaises(RUNNER.ProbeError):
-                RUNNER.validate_n1_checkpoint(invalid, image, lock, policy)
+                RUNNER.validate_n1_checkpoint(
+                    invalid, image, lock, policy, manifest, source_identity
+                )
 
     def test_wrapper_makes_n1_artifacts_mandatory(self) -> None:
         lock = RUNNER.load_lock()
         policy = RUNNER.detect_policy("Darwin", "arm64")
+        source_identity = {
+            "repository": RUNNER.ROR_SOURCE_REPOSITORY,
+            "ref": "codex/test",
+            "commit": "1" * 40,
+            "relevant_manifest_sha256": "5" * 64,
+            "relevant_manifest_file_count": 123,
+        }
         with tempfile.TemporaryDirectory(prefix="ror-n1-orchestration-") as temp:
             with mock.patch.object(RUNNER, "run") as run:
-                with self.assertRaisesRegex(
-                    RUNNER.ProbeError, "did not produce required artifacts"
-                ):
-                    RUNNER.run_n1_checkpoint(
-                        Path(temp), "Release", 2, lock, policy
-                    )
+                with mock.patch.object(
+                    RUNNER, "require_source_identity_unchanged"
+                ) as unchanged:
+                    with self.assertRaisesRegex(
+                        RUNNER.ProbeError, "did not produce required artifacts"
+                    ):
+                        RUNNER.run_n1_checkpoint(
+                            Path(temp), "Release", 2, lock, policy,
+                            source_identity,
+                        )
                 self.assertEqual(run.call_count, 1)
+                unchanged.assert_called_once_with(source_identity)
+
+    def test_package_license_bundle_is_hash_validated(self) -> None:
+        lock = RUNNER.load_lock()
+        ror_hash = "1" * 64
+        with tempfile.TemporaryDirectory(prefix="ror-n1-package-") as temp:
+            package = Path(temp) / RUNNER.N1_PACKAGE_NAME / "licenses"
+            package.mkdir(parents=True)
+            paths = {
+                "Rigs-of-Rods-GPL-3.0.txt": ror_hash,
+                "Ogre-Next-MIT.txt": lock["license"]["sha256"],
+                "RapidJSON-license.txt": lock["dependencies"]["rapidjson"][
+                    "license_sha256"
+                ],
+                "LicenseRef-Heitz-LTC-Paper-Notice.txt": lock[
+                    "shader_media"
+                ]["third_party_notice"]["notice_sha256"],
+            }
+            for name in paths:
+                (package / name).write_text(name, encoding="utf-8")
+
+            def fake_sha256(path: Path) -> str:
+                if path == REPOSITORY_ROOT / "COPYING":
+                    return ror_hash
+                return paths[path.name]
+
+            manifest = {
+                "sha256": "3" * 64,
+                "file_count": 107,
+                "entries": [("file", 1, "4" * 64)],
+            }
+            with mock.patch.object(
+                RUNNER, "sha256_file", side_effect=fake_sha256
+            ), mock.patch.object(
+                RUNNER, "shader_media_manifest", return_value=manifest
+            ):
+                self.assertEqual(
+                    RUNNER.validate_n1_package(Path(temp), lock), manifest
+                )
+                (package / "RapidJSON-license.txt").unlink()
+                with self.assertRaisesRegex(
+                    RUNNER.ProbeError, "missing licenses/RapidJSON-license.txt"
+                ):
+                    RUNNER.validate_n1_package(Path(temp), lock)
+
+    def test_shader_media_manifest_is_path_size_and_sha_exact(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-n1-media-") as temp:
+            root = Path(temp)
+            (root / "A").mkdir()
+            (root / "A" / "one.any").write_bytes(b"one")
+            (root / "two.any").write_bytes(b"two")
+            manifest = RUNNER.shader_media_manifest(root)
+            self.assertEqual(manifest["file_count"], 2)
+            self.assertEqual(
+                [entry[0] for entry in manifest["entries"]],
+                ["A/one.any", "two.any"],
+            )
+            original_digest = manifest["sha256"]
+            (root / "two.any").write_bytes(b"changed")
+            self.assertNotEqual(
+                RUNNER.shader_media_manifest(root)["sha256"], original_digest
+            )
 
 
 if __name__ == "__main__":

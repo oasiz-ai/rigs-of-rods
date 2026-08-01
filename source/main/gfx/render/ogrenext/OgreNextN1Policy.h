@@ -15,7 +15,6 @@
 
 #include <map>
 #include <memory>
-#include <vector>
 
 namespace RoR::Render {
 
@@ -39,20 +38,27 @@ struct OgreNextN1NativeMeshBounds final {
     const Bounds3 &portable,
     OgreNextN1NativeMeshBounds &native) noexcept;
 
+/// Returns false when Ogre's float TRS/Aabb evaluation could overflow while
+/// composing an otherwise valid local bound with an otherwise valid TRS.
+[[nodiscard]] bool CanRepresentOgreNextN1WorldBounds(
+    const Bounds3 &local_bounds,
+    const Matrix4x4 &render_from_object) noexcept;
+
 /// Lifetime identity state for N1's synchronous one-frame adapter. It retains
-/// exact first-seen snapshot owners and successful frame IDs until Shutdown so
-/// replay and completion queries preserve the renderer-boundary contract.
+/// weak ownership identities only while their caller-owned snapshots remain
+/// alive. N1 additionally requires contiguous frame IDs beginning at one, so
+/// completion is represented by one high-water mark instead of per-frame data.
 class OgreNextN1SubmissionState final {
 public:
   [[nodiscard]] RenderOperationResult
   Validate(const RenderFrameRequest &request) const;
   void Commit(const RenderFrameRequest &request);
   [[nodiscard]] bool IsFrameComplete(std::uint64_t frame_id) const noexcept;
+  [[nodiscard]] std::size_t TrackedSnapshotIdentityCount() const noexcept;
   void Reset() noexcept;
 
 private:
-  std::vector<std::uint64_t> completed_frames_;
-  std::map<std::uint64_t, std::shared_ptr<const SceneSnapshot>> snapshots_;
+  std::map<std::uint64_t, std::weak_ptr<const SceneSnapshot>> snapshots_;
   std::uint64_t last_frame_id_ = 0U;
   std::uint64_t last_snapshot_id_ = 0U;
 };
@@ -60,8 +66,8 @@ private:
 /// Converts the renderer-boundary right-handed [0, 1] depth projection into
 /// Ogre's canonical right-handed [-1, 1] clip convention. The native render
 /// system then performs its one normal API-specific projection conversion.
-[[nodiscard]] Matrix4x4
-ConvertPortableProjectionToOgreClip(const Matrix4x4 &portable) noexcept;
+[[nodiscard]] bool TryConvertPortableProjectionToOgreClip(
+    const Matrix4x4 &portable, Matrix4x4 &converted) noexcept;
 
 /// The N1 adapter deliberately reports only what its shipping code path has
 /// proved: one offscreen colour view, static v2 geometry, and synchronous CPU

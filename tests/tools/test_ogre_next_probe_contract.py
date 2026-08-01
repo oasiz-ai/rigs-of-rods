@@ -235,6 +235,14 @@ class OgreNextProbeContractTests(unittest.TestCase):
             with self.assertRaises(PROBE.ProbeError):
                 PROBE.verify_archive(archive, "0" * 64, "fixture")
 
+    def test_source_identity_drift_fails_closed(self) -> None:
+        identity = PROBE.ror_source_identity()
+        PROBE.require_source_identity_unchanged(identity)
+        drifted = copy.deepcopy(identity)
+        drifted["relevant_manifest_sha256"] = "0" * 64
+        with self.assertRaisesRegex(PROBE.ProbeError, "changed during"):
+            PROBE.require_source_identity_unchanged(drifted)
+
     def test_mutated_reused_build_is_rejected_and_explicitly_recovered(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-next-reuse-") as temp:
             build_dir = Path(temp) / "build"
@@ -262,6 +270,23 @@ class OgreNextProbeContractTests(unittest.TestCase):
             with self.assertRaisesRegex(PROBE.ProbeError, "not owned"):
                 PROBE.prepare_build_dir(build_dir, clean=True)
             self.assertTrue((build_dir / "user-data").is_file())
+
+    def test_reuse_requires_owned_exact_configured_probe(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-next-resume-") as temp:
+            build_dir = Path(temp) / "build"
+            prepared = PROBE.prepare_build_dir(build_dir, clean=False)
+            with self.assertRaisesRegex(PROBE.ProbeError, "configured probe"):
+                PROBE.prepare_build_dir(build_dir, clean=False, reuse=True)
+            (prepared / "CMakeCache.txt").write_text(
+                f"CMAKE_HOME_DIRECTORY:INTERNAL={PROBE.PROBE_SOURCE.resolve()}\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                PROBE.prepare_build_dir(build_dir, clean=False, reuse=True),
+                build_dir.resolve(),
+            )
+            with self.assertRaisesRegex(PROBE.ProbeError, "conflict"):
+                PROBE.prepare_build_dir(build_dir, clean=True, reuse=True)
 
     def test_report_requires_every_capability_and_no_rt_claim(self) -> None:
         report = self.make_report()
@@ -403,6 +428,10 @@ class OgreNextProbeContractTests(unittest.TestCase):
     def test_only_release_configuration_is_accepted(self) -> None:
         parser = PROBE.build_parser()
         self.assertEqual(parser.parse_args([]).config, PROBE.REQUIRED_CONFIG)
+        self.assertEqual(parser.parse_args([]).checkpoint, "all")
+        self.assertEqual(
+            parser.parse_args(["--checkpoint", "n1"]).checkpoint, "n1"
+        )
         for config in ("", "Debug", "RelWithDebInfo", "Arbitrary"):
             with self.subTest(config=config):
                 with self.assertRaises(SystemExit):
@@ -482,10 +511,6 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 "frame_config_template_path",
                 "frame_config_template_sha256",
             ),
-            (
-                "build_contract_template_path",
-                "build_contract_template_sha256",
-            ),
             ("lock_path", "lock_sha256"),
             (
                 "shader_media_notice_repository_path",
@@ -510,7 +535,11 @@ class OgreNextProbeContractTests(unittest.TestCase):
         # that prevents the standalone CMake entrypoint or wrapper from
         # evolving. Their exact hashes remain recorded for provenance while
         # the live files are checked by the contract tests above.
-        for historical_hash in ("cmake_sha256", "wrapper_sha256"):
+        for historical_hash in (
+            "cmake_sha256",
+            "wrapper_sha256",
+            "build_contract_template_sha256",
+        ):
             self.assertRegex(provenance[historical_hash], r"^[0-9a-f]{64}$")
         build_contract = json.loads(
             (REPOSITORY_ROOT / provenance["build_contract_path"]).read_text(

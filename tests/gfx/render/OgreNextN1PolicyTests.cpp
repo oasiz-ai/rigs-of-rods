@@ -90,7 +90,8 @@ std::shared_ptr<const SceneSnapshot>
 MakeScene(std::uint64_t registry_id, Matrix4x4 transform = Matrix4x4{},
           std::uint64_t snapshot_id = 1U,
           Float3 ambient_radiance = {0.03F, 0.03F, 0.03F},
-          float environment_intensity = 1.0F) {
+          float environment_intensity = 1.0F,
+          Bounds3 local_bounds = MakeMesh().local_bounds) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = registry_id;
@@ -103,7 +104,7 @@ MakeScene(std::uint64_t registry_id, Matrix4x4 transform = Matrix4x4{},
   instance.material = Ref(RenderAssetKind::MATERIAL, 2U);
   instance.render_from_object = transform;
   instance.previous_render_from_object = transform;
-  instance.local_bounds = MakeMesh().local_bounds;
+  instance.local_bounds = local_bounds;
   descriptor.mesh_instances.push_back(instance);
   SceneSnapshotCreateResult result = CreateSceneSnapshot(std::move(descriptor));
   Require(result.ok(), "test scene contract is invalid");
@@ -124,8 +125,9 @@ void TestProjectionDepthConversion() {
   constexpr float kNear = 0.1F;
   constexpr float kFar = 20.0F;
   const Matrix4x4 portable = Projection(kNear, kFar);
-  const Matrix4x4 converted =
-      ConvertPortableProjectionToOgreClip(portable);
+  Matrix4x4 converted;
+  Require(TryConvertPortableProjectionToOgreClip(portable, converted),
+          "finite perspective projection conversion failed");
   Require(std::fabs(ProjectDepth(portable, -kNear)) < 1.0e-5F &&
               std::fabs(ProjectDepth(portable, -kFar) - 1.0F) < 1.0e-5F,
           "portable projection fixture is not [0,1]");
@@ -136,11 +138,30 @@ void TestProjectionDepthConversion() {
               converted.elements[5U] == portable.elements[5U] &&
               converted.elements[11U] == portable.elements[11U],
           "depth conversion changed non-depth projection rows");
+
+  const float minimum_normal = (std::numeric_limits<float>::min)();
+  const float hostile_near = minimum_normal * 0.5F;
+  const float hostile_far = minimum_normal;
+  Matrix4x4 hostile;
+  hostile.elements.fill(0.0F);
+  hostile.elements[0U] = 1.0F;
+  hostile.elements[5U] = 1.0F;
+  hostile.elements[10U] = 1.0F / (hostile_near - hostile_far);
+  hostile.elements[14U] = hostile_near * hostile.elements[10U];
+  hostile.elements[15U] = 1.0F;
+  Require(IsCanonicalProjection(hostile, hostile_near, hostile_far),
+          "hostile finite orthographic projection fixture is not canonical");
+  Matrix4x4 untouched;
+  const Matrix4x4 original_untouched = untouched;
+  Require(!TryConvertPortableProjectionToOgreClip(hostile, untouched) &&
+              untouched == original_untouched,
+          "projection conversion manufactured infinity or mutated output");
 }
 
 void TestLifetimeSubmissionState() {
   constexpr std::uint64_t kRegistryId = 70U;
-  const auto first_scene = MakeScene(kRegistryId);
+  auto first_scene = MakeScene(kRegistryId);
+  const std::weak_ptr<const SceneSnapshot> first_scene_lifetime = first_scene;
   OgreNextN1SubmissionState state;
   RenderFrameRequest request = MakeFrame(first_scene);
   Require(state.Validate(request).ok(), "first submission identity was rejected");
@@ -156,6 +177,15 @@ void TestLifetimeSubmissionState() {
   Require(state.Validate(aliased).code == RenderOperationCode::RESOURCE_STALE,
           "same snapshot ID with a different owner escaped identity checks");
 
+  const auto alias_target = MakeScene(kRegistryId);
+  RenderFrameRequest aliased_owner = MakeFrame(
+      std::shared_ptr<const SceneSnapshot>(first_scene, alias_target.get()));
+  aliased_owner.frame_id = 3U;
+  Require(state.Validate(aliased_owner).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "aliasing owner with a different snapshot pointee escaped identity checks");
+  aliased_owner.scene_snapshot.reset();
+
   RenderFrameRequest newer =
       MakeFrame(MakeScene(kRegistryId, Matrix4x4{}, 2U));
   newer.frame_id = 3U;
@@ -170,21 +200,37 @@ void TestLifetimeSubmissionState() {
   Require(state.Validate(aliased).code == RenderOperationCode::RESOURCE_STALE,
           "older snapshot ID alias escaped lifetime identity checks");
 
-  for (std::uint64_t frame_id = 5U; frame_id <= 130U; ++frame_id) {
-    newer.frame_id = frame_id;
-    Require(state.Validate(newer).ok(), "lifetime history fixture was rejected");
-    state.Commit(newer);
-  }
-  newer.frame_id = 132U;
-  Require(state.Validate(newer).ok(), "sparse frame ID was rejected");
+  newer.frame_id = 5U;
+  Require(state.Validate(newer).ok(), "contiguous frame ID was rejected");
   state.Commit(newer);
-  Require(state.IsFrameComplete(1U) && state.IsFrameComplete(130U) &&
-              state.IsFrameComplete(132U),
+  newer.frame_id = 7U;
+  Require(state.Validate(newer).code == RenderOperationCode::INVALID_ARGUMENT,
+          "sparse frame ID escaped bounded N1 completion policy");
+  Require(state.IsFrameComplete(1U) && state.IsFrameComplete(5U),
           "successful frame fell out of lifetime completion history");
-  Require(!state.IsFrameComplete(131U),
+  Require(!state.IsFrameComplete(6U),
           "never-submitted frame appeared in completion history");
+  first_scene.reset();
+  request.scene_snapshot.reset();
+  Require(first_scene_lifetime.expired(),
+          "submission history retained a completed snapshot payload");
+  RenderFrameRequest expired_alias = MakeFrame(MakeScene(kRegistryId));
+  expired_alias.frame_id = 6U;
+  Require(state.Validate(expired_alias).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "expired snapshot owner identity allowed an ID alias");
+  for (std::uint64_t snapshot_id = 3U; snapshot_id <= 4096U; ++snapshot_id) {
+    auto transient = MakeScene(kRegistryId, Matrix4x4{}, snapshot_id);
+    RenderFrameRequest transient_request = MakeFrame(transient);
+    transient_request.frame_id = snapshot_id + 3U;
+    Require(state.Validate(transient_request).ok(),
+            "sustained unique-snapshot fixture was rejected");
+    state.Commit(transient_request);
+  }
+  Require(state.TrackedSnapshotIdentityCount() <= 2U,
+          "expired snapshot identity metadata grew linearly");
   state.Reset();
-  request.frame_id = 1U;
+  request = MakeFrame(MakeScene(kRegistryId));
   Require(state.Validate(request).ok(),
           "shutdown-style reset did not clear submission identities");
 }
@@ -421,12 +467,86 @@ void TestFrameAndScenePolicy() {
               ValidationCode::UNSUPPORTED_FEATURE,
           "affine shear was silently decomposed");
 
+  MaterialDescriptor double_sided = MakeMaterial();
+  double_sided.double_sided = true;
+  RenderAssetRegistry double_sided_registry(kRegistryId + 2U);
+  Require(double_sided_registry
+              .Apply(MakeCatalogDelta(kRegistryId + 2U, MakeMesh(),
+                                      double_sided))
+              .ok(),
+          "double-sided mirror fixture catalog is invalid");
+  Matrix4x4 mirrored;
+  mirrored.elements[0U] = -1.0F;
+  request = MakeFrame(MakeScene(kRegistryId + 2U, mirrored));
+  Require(ValidateOgreNextN1Frame(request, capabilities,
+                                  double_sided_registry)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "mirrored TRS escaped Ogre signed-radius admission");
+
   request = MakeFrame(MakeScene(
       kRegistryId, Matrix4x4{}, 3U,
       {(std::numeric_limits<float>::max)(), 0.0F, 0.0F}, 2.0F));
   Require(ValidateOgreNextN1Frame(request, capabilities, registry).code ==
               ValidationCode::UNSUPPORTED_FEATURE,
           "finite ambient values that overflow Ogre color escaped admission");
+
+  MeshResourceDescriptor hostile_mesh = MakeMesh();
+  const float maximum = (std::numeric_limits<float>::max)();
+  hostile_mesh.local_bounds.minimum = {maximum, maximum, maximum};
+  hostile_mesh.local_bounds.maximum = hostile_mesh.local_bounds.minimum;
+  hostile_mesh.positions.assign(3U, hostile_mesh.local_bounds.minimum);
+  RenderAssetRegistry hostile_registry(kRegistryId + 1U);
+  Require(hostile_registry
+              .Apply(MakeCatalogDelta(kRegistryId + 1U, hostile_mesh,
+                                      MakeMaterial()))
+              .ok() &&
+              ValidateOgreNextN1AssetCatalog(hostile_registry).ok(),
+          "hostile world-bound fixture did not pass isolated asset admission");
+  Matrix4x4 hostile_transform;
+  hostile_transform.elements[12U] = maximum;
+  request = MakeFrame(MakeScene(kRegistryId + 1U, hostile_transform, 1U,
+                                {0.03F, 0.03F, 0.03F}, 1.0F,
+                                hostile_mesh.local_bounds));
+  Require(ValidateOgreNextN1Frame(request, capabilities, hostile_registry)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "finite local bounds plus TRS overflow escaped world-bound admission");
+
+  constexpr float kSqrtHalf = 0.707106769F;
+  Matrix4x4 cancellation_transform;
+  cancellation_transform.elements[0U] = -kSqrtHalf;
+  cancellation_transform.elements[2U] = kSqrtHalf;
+  cancellation_transform.elements[8U] = kSqrtHalf;
+  cancellation_transform.elements[10U] = kSqrtHalf;
+  cancellation_transform.elements[12U] = maximum * 0.55F;
+  Bounds3 cancellation_point;
+  cancellation_point.minimum = {maximum, 0.0F, maximum * 0.75F};
+  cancellation_point.maximum = cancellation_point.minimum;
+  Require(!CanRepresentOgreNextN1WorldBounds(cancellation_point,
+                                              cancellation_transform),
+          "cancellation-heavy TRS escaped native SIMD-order overflow admission");
+
+  const float minimum_normal = (std::numeric_limits<float>::min)();
+  const float hostile_near = minimum_normal * 0.5F;
+  const float hostile_far = minimum_normal;
+  Matrix4x4 hostile_projection;
+  hostile_projection.elements.fill(0.0F);
+  hostile_projection.elements[0U] = 1.0F;
+  hostile_projection.elements[5U] = 1.0F;
+  hostile_projection.elements[10U] =
+      1.0F / (hostile_near - hostile_far);
+  hostile_projection.elements[14U] =
+      hostile_near * hostile_projection.elements[10U];
+  hostile_projection.elements[15U] = 1.0F;
+  request = MakeFrame(MakeScene(kRegistryId));
+  request.views.front().near_plane = hostile_near;
+  request.views.front().far_plane = hostile_far;
+  request.views.front().clip_from_view = hostile_projection;
+  request.views.front().previous_clip_from_view = hostile_projection;
+  Require(ValidateRenderFrameRequest(request).ok(),
+          "hostile finite projection frame fixture is not contract valid");
+  Require(ValidateOgreNextN1Frame(request, capabilities, registry).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "finite projection overflow escaped N1 native admission");
 }
 
 } // namespace
