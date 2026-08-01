@@ -684,6 +684,11 @@ def validate_n1_checkpoint(
         "brdf": adapter.get("brdf")
         == "PbsBrdf::Default height-correlated GGX",
         "pbr_readback": adapter.get("pbr_datablock_readback_verified") is True,
+        "runtime_media_root": adapter.get("runtime_media_root")
+        == "explicit_absolute",
+        "package_media": adapter.get("package_media_relative_path")
+        == "share/rigsofrods/ogre-next/Samples/Media",
+        "relocated_executable": adapter.get("relocated_executable") is True,
         "compositor2": adapter.get("compositor2") is True,
         "ui_free": adapter.get("ui_included") is False,
         "readback": adapter.get("cpu_readback_completed") is True,

@@ -34,6 +34,7 @@ constexpr std::uint32_t kHeight = 128U;
 constexpr std::uint64_t kRegistryId = UINT64_C(0x4E315F534D4F4B45);
 
 struct Arguments {
+  std::string media_root;
   std::string image_path;
   std::string report_path;
 };
@@ -68,13 +69,18 @@ Arguments ParseArguments(int argc, char **argv) {
   Arguments arguments;
   for (int index = 1; index < argc; ++index) {
     const std::string option = argv[index];
-    if (option == "--output" && index + 1 < argc) {
+    if (option == "--media-root" && index + 1 < argc) {
+      arguments.media_root = argv[++index];
+    } else if (option == "--output" && index + 1 < argc) {
       arguments.image_path = argv[++index];
     } else if (option == "--report" && index + 1 < argc) {
       arguments.report_path = argv[++index];
     } else {
-      Fail("usage: ror_ogre_next_frontend_n1_smoke [--output FRAME.ppm] [--report REPORT.json]");
+      Fail("usage: ror_ogre_next_frontend_n1_smoke --media-root ABSOLUTE_PATH [--output FRAME.ppm] [--report REPORT.json]");
     }
+  }
+  if (arguments.media_root.empty()) {
+    Fail("--media-root is required for the relocatable N1 frontend");
   }
   return arguments;
 }
@@ -418,6 +424,10 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr) {
          << "    \"material_path\": \"HLMS PBS metallic-roughness\",\n"
          << "    \"brdf\": \"PbsBrdf::Default height-correlated GGX\",\n"
          << "    \"pbr_datablock_readback_verified\": true,\n"
+         << "    \"runtime_media_root\": \"explicit_absolute\",\n"
+         << "    \"package_media_relative_path\": \""
+         << ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_RELATIVE << "\",\n"
+         << "    \"relocated_executable\": true,\n"
          << "    \"compositor2\": true,\n"
          << "    \"ui_included\": false,\n"
          << "    \"cpu_readback_completed\": true,\n"
@@ -467,23 +477,39 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr) {
   return report.str();
 }
 
-void InitializeAndSync(OgreNextN1Frontend &frontend,
-                       const RenderAssetDelta &catalog) {
+FrontendInitializationRequest Initialization() {
   FrontendInitializationRequest initialization;
   initialization.initial_width = kWidth;
   initialization.initial_height = kHeight;
   initialization.maximum_frames_in_flight = 1U;
   initialization.headless = true;
   initialization.vertical_sync = false;
+  return initialization;
+}
+
+void InitializeAndSync(OgreNextN1Frontend &frontend,
+                       const RenderAssetDelta &catalog) {
+  const FrontendInitializationRequest initialization = Initialization();
   RequireSuccess(frontend.Initialize(initialization), "Initialize");
   RequireSuccess(frontend.SynchronizeAssets(catalog), "SynchronizeAssets");
 }
 
-std::pair<Metrics, Metrics> RunSmoke() {
+std::pair<Metrics, Metrics> RunSmoke(const std::string &media_root) {
   const RenderAssetDelta catalog = MakeCatalog();
   const auto scene_one = MakeScene(1U);
   const auto scene_two = MakeScene(2U, true);
-  OgreNextN1Frontend frontend;
+  OgreNextN1Frontend relative_media(
+      OgreNextN1Configuration{"relative/shader/media"});
+  Require(relative_media.Initialize(Initialization()).code ==
+              RenderOperationCode::INVALID_ARGUMENT,
+          "relative shader media root did not fail closed");
+  OgreNextN1Frontend missing_media(
+      OgreNextN1Configuration{media_root + "/missing"});
+  Require(missing_media.Initialize(Initialization()).code ==
+              RenderOperationCode::INVALID_ARGUMENT,
+          "missing shader media root did not fail closed");
+
+  OgreNextN1Frontend frontend(OgreNextN1Configuration{media_root});
 
   const FrontendCapabilityReport capabilities = frontend.QueryCapabilities();
   Require(capabilities.frontend_kind == RendererFrontendKind::OGRE_NEXT &&
@@ -572,7 +598,7 @@ std::pair<Metrics, Metrics> RunSmoke() {
 int main(int argc, char **argv) {
   try {
     const Arguments arguments = ParseArguments(argc, argv);
-    const auto metrics = RunSmoke();
+    const auto metrics = RunSmoke(arguments.media_root);
     WritePpm(arguments.image_path, metrics.second);
     const std::string report = MakeReport(metrics.first, metrics.second);
     WriteText(arguments.report_path, report);

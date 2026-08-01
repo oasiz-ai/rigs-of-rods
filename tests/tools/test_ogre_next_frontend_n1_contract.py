@@ -63,6 +63,20 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertNotIn("Ogre::", self.header)
         self.assertIn("std::unique_ptr<Impl>", self.header)
 
+    def test_shader_media_is_runtime_owned_relocatable_and_fail_closed(self) -> None:
+        self.assertIn("OgreNextN1Configuration", self.header)
+        self.assertIn("std::string shader_media_root", self.header)
+        self.assertIn("ResolveShaderMediaRoot", self.frontend)
+        self.assertIn("std::filesystem::weakly_canonical", self.frontend)
+        self.assertIn("requested.is_absolute()", self.frontend)
+        self.assertNotIn("ROR_OGRE_NEXT_N1_MEDIA_ROOT", self.frontend)
+        self.assertNotIn("ROR_OGRE_NEXT_N1_MEDIA_ROOT", self.entry_cmake)
+        self.assertIn("ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_RELATIVE", self.entry_cmake)
+        self.assertIn("copy_directory", self.entry_cmake)
+        self.assertIn("--media-root", self.entry_cmake)
+        self.assertIn("relative shader media root did not fail closed", self.smoke)
+        self.assertIn("missing shader media root did not fail closed", self.smoke)
+
     def test_native_mesh_path_uses_v2_vao_not_manual_object(self) -> None:
         for token in (
             "createVertexBuffer(",
@@ -210,6 +224,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "material_path": "HLMS PBS metallic-roughness",
                 "brdf": "PbsBrdf::Default height-correlated GGX",
                 "pbr_datablock_readback_verified": True,
+                "runtime_media_root": "explicit_absolute",
+                "package_media_relative_path": (
+                    "share/rigsofrods/ogre-next/Samples/Media"
+                ),
+                "relocated_executable": True,
                 "compositor2": True,
                 "ui_included": False,
                 "cpu_readback_completed": True,

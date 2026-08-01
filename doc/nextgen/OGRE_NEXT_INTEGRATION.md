@@ -65,6 +65,24 @@ The adaptation fixes only two non-Xcode macOS assumptions in the pinned
 upstream CMake: SDK path resolution and Xcode-only framework staging tokens in
 Ninja files. It is applied from a hash-locked patch before configuration.
 
+The N1 frontend never compiles the FetchContent `_deps` path into its library.
+Its constructor requires a caller-owned absolute shader-media root, canonicalizes
+it, and verifies every HLMS PBS archive before creating an Ogre device. The
+standalone build stages a relocatable proof package with this layout:
+
+```text
+ror-ogre-next-n1-package/
+  bin/ror_ogre_next_frontend_n1_smoke[.exe]
+  share/rigsofrods/ogre-next/Samples/Media/Hlms/
+  licenses/LicenseRef-Heitz-LTC-Paper-Notice.txt
+```
+
+The staged executable is run with the resolved absolute form of
+`share/rigsofrods/ogre-next/Samples/Media` from outside its `bin` directory.
+Application packaging must resolve that same relative resource path using the
+platform bundle/install locator and pass it through `OgreNextN1Configuration`;
+relative, missing, or incomplete roots fail before native initialization.
+
 ## Platform policy
 
 | Host | Required architecture | Probe renderer | HLMS shader family |

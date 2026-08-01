@@ -22,6 +22,8 @@ endif ()
 
 set(ROR_OGRE_NEXT_STANDALONE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PinnedOgreNext.cmake")
+set(ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_RELATIVE
+    "share/rigsofrods/ogre-next/Samples/Media")
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/probe_config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_probe_config.h"
@@ -167,6 +169,41 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre_next_frontend_n1_smoke
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+    set(ROR_OGRE_NEXT_N1_PACKAGE_ROOT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-n1-package")
+    set(ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT
+        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_RELATIVE}")
+    set(ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE
+        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/bin/$<TARGET_FILE_NAME:ror_ogre_next_frontend_n1_smoke>")
+    set(ROR_OGRE_NEXT_N1_PACKAGE_STAMP
+        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v1")
+    add_custom_command(
+        OUTPUT "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
+        COMMAND "${CMAKE_COMMAND}" -E remove_directory
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/bin"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/licenses"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                $<TARGET_FILE:ror_ogre_next_frontend_n1_smoke>
+                "${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${ogre_next_SOURCE_DIR}/Samples/Media/Hlms"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+        COMMAND "${CMAKE_COMMAND}" -E touch
+                "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
+        DEPENDS
+            ror_ogre_next_frontend_n1_smoke
+            "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+        COMMENT "Staging relocatable Ogre-Next N1 runtime and shader media"
+        VERBATIM)
+    add_custom_target(ror_ogre_next_frontend_n1_package ALL
+        DEPENDS "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}")
+
     foreach (_ror_n1_target IN ITEMS
             ror_ogre_next_n1_contract ror_ogre_next_frontend_n1
             ror_ogre_next_frontend_n1_smoke)
@@ -250,17 +287,21 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "${ROR_OGRE_NEXT_N1_IMAGE}"
             "${ROR_OGRE_NEXT_N1_REPORT}"
         COMMAND
-            $<TARGET_FILE:ror_ogre_next_frontend_n1_smoke>
+            "${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"
+            --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
             --output "${ROR_OGRE_NEXT_N1_IMAGE}"
             --report "${ROR_OGRE_NEXT_N1_REPORT}"
-        DEPENDS ror_ogre_next_frontend_n1_smoke
+        DEPENDS ror_ogre_next_frontend_n1_package
         BYPRODUCTS
             "${ROR_OGRE_NEXT_N1_IMAGE}"
             "${ROR_OGRE_NEXT_N1_REPORT}"
         COMMENT "Running isolated Ogre-Next N1 v2-VAO HDR/SDR frontend smoke"
         VERBATIM)
     add_test(NAME ror_ogre_next_frontend_n1_runtime
-        COMMAND $<TARGET_FILE:ror_ogre_next_frontend_n1_smoke>
+        COMMAND "${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"
+                --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
                 --output "${ROR_OGRE_NEXT_N1_CTEST_IMAGE}"
                 --report "${ROR_OGRE_NEXT_N1_CTEST_REPORT}")
+    set_tests_properties(ror_ogre_next_frontend_n1_runtime PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif ()

@@ -61,6 +61,7 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #include <cmath>
 #include <cstring>
 #include <exception>
+#include <filesystem>
 #include <map>
 #include <new>
 #include <sstream>
@@ -161,12 +162,69 @@ bool DecomposeTrs(const Matrix4x4 &source, Ogre::Vector3 &position,
   return true;
 }
 
-Ogre::HlmsPbs *RegisterPbs(Ogre::Root &root) {
+RenderOperationResult ResolveShaderMediaRoot(const std::string &configured,
+                                             std::string &resolved) {
+  if (configured.empty() || configured.find('\0') != std::string::npos) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "Ogre-Next N1 shader media root is empty or contains NUL");
+  }
+  try {
+    const std::filesystem::path requested = std::filesystem::u8path(configured);
+    if (!requested.is_absolute()) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::INVALID_ARGUMENT,
+          "Ogre-Next N1 shader media root must be an absolute runtime path");
+    }
+    std::error_code error;
+    const std::filesystem::path canonical =
+        std::filesystem::weakly_canonical(requested, error);
+    if (error || !std::filesystem::is_directory(canonical, error) || error) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::INVALID_ARGUMENT,
+          "Ogre-Next N1 shader media root is not a readable directory");
+    }
+
+    error.clear();
+    if (!std::filesystem::is_directory(canonical / "Hlms", error) || error) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::INVALID_ARGUMENT,
+          "Ogre-Next N1 shader media root lacks its HLMS directory");
+    }
+    resolved = canonical.generic_u8string();
+    return RenderOperationResult::Success();
+  } catch (const std::filesystem::filesystem_error &) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "Ogre-Next N1 shader media root cannot be resolved");
+  }
+}
+
+RenderOperationResult ValidateShaderArchives(
+    const std::string &resolved_media_root) {
   Ogre::String data_path;
   Ogre::StringVector library_paths;
   Ogre::HlmsPbs::getDefaultPaths(data_path, library_paths);
-  const Ogre::String media_root =
-      Ogre::String(ROR_OGRE_NEXT_N1_MEDIA_ROOT) + "/";
+  library_paths.push_back(data_path);
+  for (const Ogre::String &relative : library_paths) {
+    std::error_code error;
+    const std::filesystem::path archive =
+        std::filesystem::u8path(resolved_media_root) / relative;
+    if (!std::filesystem::is_directory(archive, error) || error) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::INVALID_ARGUMENT,
+          "Ogre-Next N1 shader media root lacks required HLMS archives");
+    }
+  }
+  return RenderOperationResult::Success();
+}
+
+Ogre::HlmsPbs *RegisterPbs(Ogre::Root &root,
+                           const std::string &resolved_media_root) {
+  Ogre::String data_path;
+  Ogre::StringVector library_paths;
+  Ogre::HlmsPbs::getDefaultPaths(data_path, library_paths);
+  const Ogre::String media_root = Ogre::String(resolved_media_root) + "/";
   Ogre::ArchiveManager &archives = Ogre::ArchiveManager::getSingleton();
   Ogre::Archive *data =
       archives.load(media_root + data_path, "FileSystem", true);
@@ -219,6 +277,10 @@ RenderOperationResult BackendFailure(const Ogre::Exception &error) {
 
 class OgreNextN1Frontend::Impl final {
 public:
+  explicit Impl(OgreNextN1Configuration configuration)
+      : configured_shader_media_root(
+            std::move(configuration.shader_media_root)) {}
+
   struct NativeMesh {
     RenderAssetReference asset;
     Ogre::MeshPtr mesh;
@@ -515,13 +577,17 @@ public:
   std::map<RenderAssetId, NativeMaterial> materials;
   OgreNextN1SubmissionState submission_state;
   std::thread::id owner_thread;
+  std::string configured_shader_media_root;
+  std::string resolved_shader_media_root;
   bool initialized = false;
   bool faulted = false;
   std::uint32_t maximum_texture_dimension =
       kOgreNextN1ConservativeMaximumTextureDimension;
 };
 
-OgreNextN1Frontend::OgreNextN1Frontend() : impl_(std::make_unique<Impl>()) {}
+OgreNextN1Frontend::OgreNextN1Frontend(
+    OgreNextN1Configuration configuration)
+    : impl_(std::make_unique<Impl>(std::move(configuration))) {}
 
 OgreNextN1Frontend::~OgreNextN1Frontend() {
   if (impl_) {
@@ -545,6 +611,11 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
   if (!validation) {
     return OgreNextN1OperationFromValidation(validation);
   }
+  const RenderOperationResult media_validation = ResolveShaderMediaRoot(
+      impl_->configured_shader_media_root, impl_->resolved_shader_media_root);
+  if (!media_validation) {
+    return media_validation;
+  }
   const auto fail_after_cleanup = [&](RenderOperationResult failure) {
     if (!impl_->CleanupBackend()) {
       return NativeTeardownFailure("Ogre-Next N1 initialization rollback");
@@ -565,6 +636,11 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
           "reviewed Ogre-Next renderer did not register"));
     }
     impl_->root->setRenderSystem(impl_->renderer);
+    const RenderOperationResult archive_validation =
+        ValidateShaderArchives(impl_->resolved_shader_media_root);
+    if (!archive_validation) {
+      return fail_after_cleanup(archive_validation);
+    }
     const Ogre::ConfigOptionMap options = impl_->renderer->getConfigOptions();
     if (options.find("sRGB Gamma Conversion") != options.end()) {
       impl_->renderer->setConfigOption("sRGB Gamma Conversion", "Yes");
@@ -601,7 +677,7 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
           "initial extent exceeds the initialized Ogre-Next device limit"));
     }
     impl_->maximum_texture_dimension = device_maximum_texture_dimension;
-    impl_->pbs = RegisterPbs(*impl_->root);
+    impl_->pbs = RegisterPbs(*impl_->root, impl_->resolved_shader_media_root);
     impl_->scene_manager = impl_->root->createSceneManager(
         Ogre::ST_GENERIC, 1U, "RoROgreNextN1Scene");
     impl_->camera =

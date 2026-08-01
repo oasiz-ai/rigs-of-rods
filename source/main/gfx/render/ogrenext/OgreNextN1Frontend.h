@@ -14,8 +14,16 @@
 #include "../RendererFrontend.h"
 
 #include <memory>
+#include <string>
 
 namespace RoR::Render {
+
+/// Runtime-owned Ogre shader media. The root is an absolute UTF-8 path containing
+/// the pinned `Hlms` directory; packaging code resolves its own relative
+/// resource layout before constructing the frontend.
+struct OgreNextN1Configuration final {
+  std::string shader_media_root;
+};
 
 /// First production adapter behind the renderer-neutral boundary.
 ///
@@ -24,7 +32,7 @@ namespace RoR::Render {
 /// never be linked into the OGRE 1.14 RoR executable.
 class OgreNextN1Frontend final : public IRendererFrontend {
 public:
-  OgreNextN1Frontend();
+  explicit OgreNextN1Frontend(OgreNextN1Configuration configuration);
   ~OgreNextN1Frontend() override;
 
   OgreNextN1Frontend(const OgreNextN1Frontend &) = delete;
