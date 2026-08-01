@@ -559,6 +559,29 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                 {"async_physics": False, "num_workers": 1},
             )
 
+            effective_sync = sync_text.replace(
+                "app_async_physics=false",
+                "app_async_physics=No",
+            )
+            self.assertEqual(
+                SCENE.validate_physics_config(
+                    effective_sync.encode("utf-8"),
+                    "sync",
+                ),
+                {"async_physics": False, "num_workers": 1},
+            )
+            effective_async = sync_text.replace(
+                "app_async_physics=false",
+                "app_async_physics=Yes",
+            )
+            self.assertEqual(
+                SCENE.validate_physics_config(
+                    effective_async.encode("utf-8"),
+                    "async",
+                ),
+                {"async_physics": True, "num_workers": 1},
+            )
+
             invalid_physics_configs = (
                 sync_text.replace(
                     "app_async_physics=false",
@@ -566,6 +589,15 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                 ),
                 sync_text.replace("app_num_workers=1", "app_num_workers=2"),
                 sync_text + "app_async_physics=false\n",
+                effective_sync + "app_async_physics=No\n",
+                sync_text.replace(
+                    "app_async_physics=false",
+                    "app_async_physics=no",
+                ),
+                sync_text.replace(
+                    "app_async_physics=false",
+                    "app_async_physics=0",
+                ),
             )
             for invalid in invalid_physics_configs:
                 with self.subTest(invalid=invalid):

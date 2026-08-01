@@ -781,8 +781,23 @@ def validate_physics_config(
             prefix = name + "="
             if line.startswith(prefix):
                 settings[name].append(line[len(prefix) :].strip())
-    expected_async = str(PHYSICS_MODES[physics_mode]).lower()
-    if settings["app_async_physics"] != [expected_async]:
+    async_values = settings["app_async_physics"]
+    if len(async_values) != 1:
+        raise BridgeSceneFailure(
+            "RoR configuration does not prove the requested physics mode"
+        )
+    # The generated input uses true/false, while RoR's CVar serializer rewrites
+    # the effective saved configuration to its canonical Yes/No spelling.
+    # Admit only those two exact representations and continue rejecting
+    # missing, duplicate, ambiguous, or otherwise permissive boolean text.
+    normalized_booleans = {
+        "true": True,
+        "false": False,
+        "Yes": True,
+        "No": False,
+    }
+    async_physics = normalized_booleans.get(async_values[0])
+    if async_physics is None or async_physics != PHYSICS_MODES[physics_mode]:
         raise BridgeSceneFailure(
             "RoR configuration does not prove the requested physics mode"
         )
@@ -791,7 +806,7 @@ def validate_physics_config(
             "RoR configuration does not prove single-worker physics"
         )
     return {
-        "async_physics": PHYSICS_MODES[physics_mode],
+        "async_physics": async_physics,
         "num_workers": 1,
     }
 
