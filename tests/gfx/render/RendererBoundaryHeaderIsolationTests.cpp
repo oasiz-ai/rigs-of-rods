@@ -25,6 +25,10 @@ static_assert(__cplusplus >= 201703L,
               "renderer-neutral contracts require portable C++17");
 static_assert(std::is_trivially_copyable_v<RoR::Render::Float3>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::Double3>);
+static_assert(
+    std::is_trivially_copyable_v<RoR::Render::ParallaxProbeReferenceInput>);
+static_assert(
+    std::is_trivially_copyable_v<RoR::Render::ParallaxProbeReferenceResult>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::ResourceHandle>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::RenderAssetId>);
 static_assert(std::is_standard_layout_v<RoR::Render::NativeObjectToken>);

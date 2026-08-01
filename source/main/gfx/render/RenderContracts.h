@@ -12,6 +12,7 @@
 #pragma once
 
 #include "MaterialDescriptor.h"
+#include "ParallaxProbeReference.h"
 #include "GraphicsSceneSnapshotProducer.h"
 #include "RenderAssetId.h"
 #include "RenderAssetRegistry.h"
