@@ -217,6 +217,14 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
                 "nonblank": True,
                 "ui_included": False,
                 "resources_destroyed_before_ogre_shutdown": True,
+                "workspace_removed": True,
+                "workspace_definition_removed": True,
+                "render_target_destroyed": True,
+                "scene_destroyed": True,
+                "pbs_datablock_destroyed": True,
+                "pbs_hlms_unregistered": True,
+                "native_window_destroyed": True,
+                "root_shutdown_completed": True,
                 **self.frame_metrics,
             },
             "synchronization": {
@@ -271,6 +279,14 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             "nonblank": False,
             "ui_included": False,
             "resources_destroyed_before_ogre_shutdown": False,
+            "workspace_removed": False,
+            "workspace_definition_removed": False,
+            "render_target_destroyed": False,
+            "scene_destroyed": False,
+            "pbs_datablock_destroyed": False,
+            "pbs_hlms_unregistered": False,
+            "native_window_destroyed": False,
+            "root_shutdown_completed": False,
             "width": 0,
             "height": 0,
             "distinct_rgb8_values": 0,
@@ -305,6 +321,75 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
                 self.dxc_closure,
                 self.nonce,
                 frame,
+            )
+
+    def verify_fixture(
+        self,
+        root: Path,
+        *,
+        integrity_only: bool = False,
+        trusted_attestation_bundle: Path | None = None,
+        expected_source_ref: str | None = None,
+    ) -> dict[str, object]:
+        executable = root / "bin/ror_ogre_next_windows_dxr7_smoke.exe"
+        executable.parent.mkdir(exist_ok=True)
+        executable.write_bytes(b"fixture executable")
+        dxil = root / RUNNER.DXIL_RELATIVE
+        dxil.parent.mkdir(exist_ok=True)
+        dxil.write_bytes(b"fixture dxil")
+        report = self.make_pass_report()
+        (root / RUNNER.REPORT_NAME).write_text(
+            json.dumps(report), encoding="utf-8"
+        )
+        (root / RUNNER.ATTESTATION_NAME).write_text(
+            json.dumps(
+                {
+                    "execution": {
+                        "observed_process_exit_code": 0,
+                        "challenge_nonce": self.nonce,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        (root / RUNNER.EXECUTION_RECEIPT_NAME).write_text(
+            "{}\n", encoding="utf-8"
+        )
+        build_context = {"fixture": True}
+        with mock.patch.object(
+            RUNNER.MAIN_RUNNER, "require_relevant_source_clean"
+        ), mock.patch.object(
+            RUNNER.MAIN_RUNNER,
+            "ror_source_identity",
+            return_value=self.source_identity,
+        ), mock.patch.object(
+            RUNNER, "validate_build_context", return_value=build_context
+        ), mock.patch.object(
+            RUNNER, "recorded_dxc_closure", return_value=self.dxc_closure
+        ), mock.patch.object(
+            RUNNER, "executable_path", return_value=executable
+        ), mock.patch.object(
+            RUNNER, "validate_pe_executable", return_value={"format": "PE32+"}
+        ), mock.patch.object(
+            RUNNER,
+            "validate_dxil_container",
+            return_value={"format": "DXBC/DXIL"},
+        ), mock.patch.object(
+            RUNNER, "validate_report"
+        ), mock.patch.object(
+            RUNNER, "validate_execution_receipt"
+        ), mock.patch.object(
+            RUNNER, "validate_attestation"
+        ), mock.patch.object(
+            RUNNER, "require_dxc_closure_unchanged"
+        ), mock.patch.object(
+            RUNNER.MAIN_RUNNER, "require_source_identity_unchanged"
+        ):
+            return RUNNER.verify_existing(
+                root,
+                integrity_only=integrity_only,
+                trusted_attestation_bundle=trusted_attestation_bundle,
+                expected_source_ref=expected_source_ref,
             )
 
     def test_static_contract_and_locked_sources(self) -> None:
@@ -343,6 +428,8 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             ("ray_tracing", "readback_value", 0x0BADCAFE),
             ("ogre_frame", "native_hidden_window_created", False),
             ("ogre_frame", "gpu_readback_completed", False),
+            ("ogre_frame", "pbs_datablock_destroyed", False),
+            ("ogre_frame", "root_shutdown_completed", False),
             ("ogre_frame", "non_background_pixels", 1),
             ("synchronization", "fence_after_ogre", 2),
             ("lifecycle", "d3d12_queue_released_before_device", False),
@@ -513,6 +600,33 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
                         arbitrary, root, execute_version=False
                     )
 
+    def test_recorded_dxc_closure_is_offline_and_cache_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "CMakeCache.txt").write_text(
+                "ROR_OGRE_NEXT_DXC_EXECUTABLE:FILEPATH="
+                + self.dxc_closure["dxc_path"]
+                + "\nROR_OGRE_NEXT_DXC_SDK_BIN_ROOT:PATH="
+                + self.dxc_closure["sdk_bin_root"]
+                + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                RUNNER.recorded_dxc_closure(root, self.dxc_closure),
+                self.dxc_closure,
+            )
+            mutated = copy.deepcopy(self.dxc_closure)
+            mutated["components"]["dxc.exe"]["bytes"] = True
+            with self.assertRaises(RUNNER.Dxr7Error):
+                RUNNER.recorded_dxc_closure(root, mutated)
+            mutated = copy.deepcopy(self.dxc_closure)
+            mutated["dxc_path"] = (
+                "c:/program files (x86)/windows kits/10/bin/"
+                "10.0.26100.0/x64/stale-dxc.exe"
+            )
+            with self.assertRaises(RUNNER.Dxr7Error):
+                RUNNER.recorded_dxc_closure(root, mutated)
+
     def test_attestation_binds_exit_build_receipt_and_honest_claim_scope(self) -> None:
         report = self.make_pass_report()
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
@@ -539,6 +653,31 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
                 self.source_identity, build_context, self.dxc_closure, False,
             )
             RUNNER.write_json_atomically(receipt_path, receipt)
+            RUNNER.validate_execution_receipt(
+                receipt,
+                report_path,
+                executable,
+                dxil,
+                frame,
+                report,
+                self.source_identity,
+                build_context,
+                self.dxc_closure,
+            )
+            mutated_receipt = copy.deepcopy(receipt)
+            mutated_receipt["subjects"]["report"]["bytes"] = True
+            with self.assertRaises(RUNNER.Dxr7Error):
+                RUNNER.validate_execution_receipt(
+                    mutated_receipt,
+                    report_path,
+                    executable,
+                    dxil,
+                    frame,
+                    report,
+                    self.source_identity,
+                    build_context,
+                    self.dxc_closure,
+                )
             pe_semantics = {"format": "PE32+"}
             dxil_semantics = {"format": "DXBC/DXIL"}
             attestation = RUNNER.make_attestation(
@@ -556,6 +695,14 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             )
             mutated = copy.deepcopy(attestation)
             mutated["execution"]["observed_process_exit_code"] = 77
+            with self.assertRaises(RUNNER.Dxr7Error):
+                RUNNER.validate_attestation(
+                    mutated, report_path, executable, dxil, frame,
+                    receipt_path, report, self.source_identity, build_context,
+                    self.dxc_closure, pe_semantics, dxil_semantics,
+                )
+            mutated = copy.deepcopy(attestation)
+            mutated["build_context"]["sentinel"]["bytes"] = True
             with self.assertRaises(RUNNER.Dxr7Error):
                 RUNNER.validate_attestation(
                     mutated, report_path, executable, dxil, frame,
@@ -584,13 +731,181 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
                 "ror_source_identity",
                 return_value=self.source_identity,
             ), self.assertRaises(RUNNER.Dxr7Error):
-                RUNNER.verify_existing(root)
+                RUNNER.verify_existing(root, integrity_only=True)
+
+    def test_unsigned_verification_requires_explicit_untrusted_scope(self) -> None:
+        with self.assertRaisesRegex(RUNNER.Dxr7Error, "integrity-only"):
+            RUNNER.verify_existing(Path("synthetic-unsigned-pass"))
+
+    def test_integrity_only_pass_is_never_reported_as_trusted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.verify_fixture(
+                Path(directory), integrity_only=True
+            )
+        self.assertEqual(result["artifact_status"], "pass")
+        self.assertEqual(result["verification_scope"], "integrity_only")
+        self.assertFalse(result["trusted_hardware_dxr_pass"])
+        self.assertFalse(result["dsse_bundle"]["present"])
+        self.assertNotIn("status", result)
+
+    def test_trusted_pass_requires_dsse_verifier_success(self) -> None:
+        source_ref = "refs/heads/codex/dxr7-fixture"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = root / RUNNER.DSSE_BUNDLE_NAME
+            bundle.write_text("{}\n", encoding="utf-8")
+            dsse_record = {
+                "present": True,
+                **RUNNER.artifact_record(bundle, RUNNER.DSSE_BUNDLE_NAME),
+                "verified_attestations": 1,
+            }
+            with mock.patch.object(
+                RUNNER,
+                "validate_trusted_dsse_bundle",
+                return_value=dsse_record,
+            ) as verify_dsse:
+                result = self.verify_fixture(
+                    root,
+                    trusted_attestation_bundle=bundle,
+                    expected_source_ref=source_ref,
+                )
+        verify_dsse.assert_called_once()
+        self.assertEqual(result["verification_scope"], "github_sigstore_dsse")
+        self.assertTrue(result["trusted_hardware_dxr_pass"])
+        self.assertEqual(result["signer"]["source_ref"], source_ref)
+
+    def test_trusted_dsse_binds_repository_workflow_ref_and_commit(self) -> None:
+        source_ref = "refs/heads/codex/dxr7-fixture"
+        receipt = {
+            "ci": {
+                "provider": "github-actions",
+                "repository": RUNNER.TRUSTED_REPOSITORY,
+                "workflow_ref": (
+                    RUNNER.TRUSTED_SIGNER_WORKFLOW + "@" + source_ref
+                ),
+                "ref": source_ref,
+                "sha": self.source_identity["commit"],
+            }
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            receipt_path = root / RUNNER.EXECUTION_RECEIPT_NAME
+            receipt_path.write_text("{}\n", encoding="utf-8")
+            bundle = root / RUNNER.DSSE_BUNDLE_NAME
+            bundle.write_text(
+                '{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}\n',
+                encoding="utf-8",
+            )
+            completed = mock.Mock(
+                returncode=0,
+                stdout='[{"verificationResult":{}}]',
+                stderr="",
+            )
+            with mock.patch.object(
+                RUNNER.shutil,
+                "which",
+                return_value="C:/Program Files/GitHub CLI/gh.exe",
+            ), mock.patch.object(
+                RUNNER.subprocess, "run", return_value=completed
+            ) as run:
+                result = RUNNER.validate_trusted_dsse_bundle(
+                    bundle,
+                    receipt_path,
+                    receipt,
+                    self.source_identity,
+                    source_ref,
+                )
+            self.assertTrue(result["present"])
+            self.assertEqual(result["verified_attestations"], 1)
+            command = run.call_args.args[0]
+            self.assertIn(RUNNER.TRUSTED_REPOSITORY, command)
+            self.assertIn(RUNNER.TRUSTED_SIGNER_WORKFLOW, command)
+            self.assertIn(source_ref, command)
+            self.assertIn(self.source_identity["commit"], command)
+            self.assertIn("--deny-self-hosted-runners", command)
+
+            for field, value in (
+                ("repository", "attacker/fork"),
+                (
+                    "workflow_ref",
+                    "attacker/fork/.github/workflows/fake.yml@" + source_ref,
+                ),
+                ("ref", "refs/heads/stale"),
+                ("sha", "f" * 40),
+            ):
+                with self.subTest(field=field):
+                    mutated = copy.deepcopy(receipt)
+                    mutated["ci"][field] = value
+                    with self.assertRaises(RUNNER.Dxr7Error):
+                        RUNNER.validate_trusted_dsse_bundle(
+                            bundle,
+                            receipt_path,
+                            mutated,
+                            self.source_identity,
+                            source_ref,
+                        )
+
+    def test_trusted_dsse_fails_closed_on_cli_or_bundle_faults(self) -> None:
+        source_ref = "refs/tags/dxr7-fixture"
+        receipt = {
+            "ci": {
+                "provider": "github-actions",
+                "repository": RUNNER.TRUSTED_REPOSITORY,
+                "workflow_ref": (
+                    RUNNER.TRUSTED_SIGNER_WORKFLOW + "@" + source_ref
+                ),
+                "ref": source_ref,
+                "sha": self.source_identity["commit"],
+            }
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            receipt_path = root / RUNNER.EXECUTION_RECEIPT_NAME
+            receipt_path.write_text("{}\n", encoding="utf-8")
+            bundle = root / RUNNER.DSSE_BUNDLE_NAME
+            bundle.write_text("not-json\n", encoding="utf-8")
+            with self.assertRaises(RUNNER.Dxr7Error):
+                RUNNER.validate_trusted_dsse_bundle(
+                    bundle,
+                    receipt_path,
+                    receipt,
+                    self.source_identity,
+                    source_ref,
+                )
+            bundle.write_text("{}\n", encoding="utf-8")
+            failed = mock.Mock(
+                returncode=1, stdout="", stderr="invalid signature"
+            )
+            with mock.patch.object(
+                RUNNER.shutil, "which", return_value="gh"
+            ), mock.patch.object(RUNNER.subprocess, "run", return_value=failed):
+                with self.assertRaisesRegex(RUNNER.Dxr7Error, "invalid signature"):
+                    RUNNER.validate_trusted_dsse_bundle(
+                        bundle,
+                        receipt_path,
+                        receipt,
+                        self.source_identity,
+                        source_ref,
+                    )
+
+    def test_exact_json_comparison_rejects_boolean_integer_aliases(self) -> None:
+        self.assertFalse(RUNNER.exact_json_equal({"bytes": True}, {"bytes": 1}))
+        self.assertFalse(
+            RUNNER.exact_json_equal({"complete": 1}, {"complete": True})
+        )
 
     def test_atomic_json_publication_replaces_existing_without_temp_leak(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "report.json"
-            RUNNER.write_json_atomically(path, {"generation": 1})
-            RUNNER.write_json_atomically(path, {"generation": 2})
+            with mock.patch.object(
+                RUNNER,
+                "fsync_parent_directory",
+                wraps=RUNNER.fsync_parent_directory,
+            ) as parent_fsync:
+                RUNNER.write_json_atomically(path, {"generation": 1})
+                RUNNER.write_json_atomically(path, {"generation": 2})
+            if os.name != "nt":
+                self.assertEqual(parent_fsync.call_count, 2)
             self.assertEqual(json.loads(path.read_text()), {"generation": 2})
             self.assertEqual(list(path.parent.glob(path.name + ".tmp-*")), [])
 
@@ -628,14 +943,28 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             "Build and attest app-owned D3D12/D3D11On12/DXR RT7",
             "--require-ci-context",
             "--verify-existing",
+            "--integrity-only",
+            "--trusted-attestation-bundle",
+            "--expected-source-ref $env:GITHUB_REF",
             "actions/attest-build-provenance@",
-            "gh attestation verify",
+            "attest_windows_dxr7_receipt.outputs.bundle-path",
             "ror-ogre-next-windows-dxr7-execution-receipt.json",
+            "ror-ogre-next-windows-dxr7-execution-receipt.sigstore.jsonl",
             "ror-ogre-next-windows-dxr7-ogre-frame.ppm",
+            "CMakeCache.txt",
             "Upload attested Windows D3D12/D3D11On12/DXR RT7 evidence",
         ):
             self.assertIn(token, self.workflow)
         self.assertNotIn("Get-Command dxc.exe", self.workflow)
+        signing_block = self.workflow[
+            self.workflow.index(
+                "Cryptographically attest the Windows DXR RT7 execution receipt"
+            ) : self.workflow.index(
+                "Upload exact reports and UI-free frame"
+            )
+        ]
+        self.assertIn("success() && runner.os == 'Windows'", signing_block)
+        self.assertNotIn("always()", signing_block)
         self.assertLess(
             self.workflow.index("Locate and attest the Windows SDK DXC compiler"),
             self.workflow.index("Build, render, and validate the independent N1 frontend"),

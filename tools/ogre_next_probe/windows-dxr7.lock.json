@@ -4,7 +4,7 @@
   "ogre_next_commit": "37149a802de747f6806996fa3067b0748ecc1084",
   "adaptation_patch": {
     "path": "patches/0004-d3d11-adopt-external-device.patch",
-    "sha256": "c0b14bfc5f6bdf3fa377dfbc15c235b1823345fce84dece852ddc86f9b9444f3",
+    "sha256": "a9adf369ab03b8b14b1d81aa7a3f3303663606ce60c61bd6f5418048cd137834",
     "scope": "D3D11 plugin external-device adoption with shared post-device initialization"
   },
   "shader": {

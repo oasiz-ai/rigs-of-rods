@@ -32,6 +32,7 @@ RoR::Render::Dxr7PassContract CompletePass() {
   proof.ogre_frame_nonblank = true;
   proof.ogre_frame_ui_free = true;
   proof.ogre_frame_resources_destroyed = true;
+  proof.ogre_teardown = {true, true, true, true, true, true, true, true};
   proof.blas_built = true;
   proof.tlas_built = true;
   proof.state_object_created = true;
@@ -84,6 +85,32 @@ int main() {
               Dxr7FenceCompletionDecision::DEVICE_REMOVED,
           "device-removal fence sentinel was accepted as completion");
 
+  Dxr7OgreTeardownTracker teardown;
+  Require(!teardown.Record(Dxr7OgreTeardownStep::RENDER_TARGET_DESTROYED),
+          "out-of-order teardown fault was accepted");
+  Require(teardown.Record(Dxr7OgreTeardownStep::WORKSPACE_REMOVED),
+          "teardown retry did not recover at the required first step");
+  Require(teardown.Record(
+              Dxr7OgreTeardownStep::WORKSPACE_DEFINITION_REMOVED),
+          "workspace definition teardown was rejected");
+  Require(teardown.Record(Dxr7OgreTeardownStep::RENDER_TARGET_DESTROYED),
+          "render target teardown was rejected");
+  Require(teardown.Record(Dxr7OgreTeardownStep::SCENE_DESTROYED),
+          "scene teardown was rejected");
+  Require(teardown.Record(Dxr7OgreTeardownStep::PBS_DATABLOCK_DESTROYED),
+          "PBS datablock teardown was rejected");
+  Require(teardown.Record(Dxr7OgreTeardownStep::PBS_HLMS_UNREGISTERED),
+          "PBS HLMS teardown was rejected");
+  Require(teardown.Record(Dxr7OgreTeardownStep::NATIVE_WINDOW_DESTROYED),
+          "native window teardown was rejected");
+  Require(!teardown.complete(),
+          "teardown completed before Ogre Root shutdown");
+  Require(teardown.Record(Dxr7OgreTeardownStep::ROOT_SHUTDOWN_COMPLETED),
+          "Ogre Root shutdown was rejected");
+  Require(teardown.complete(), "complete ordered teardown was rejected");
+  Require(!teardown.Record(Dxr7OgreTeardownStep::ROOT_SHUTDOWN_COMPLETED),
+          "duplicate teardown completion was accepted");
+
   Dxr7PassContract proof = CompletePass();
   Require(ValidateDxr7PassContract(proof), "complete RT7 proof rejected");
   proof.dispatch_rays_called = false;
@@ -101,6 +128,14 @@ int main() {
   proof.ogre_frame_resources_destroyed = false;
   Require(!ValidateDxr7PassContract(proof),
           "pass accepted without Ogre frame-resource teardown");
+  proof = CompletePass();
+  proof.ogre_teardown.native_window_destroyed = false;
+  Require(!ValidateDxr7PassContract(proof),
+          "pass accepted without native-window teardown");
+  proof = CompletePass();
+  proof.ogre_teardown.root_shutdown_completed = false;
+  Require(!ValidateDxr7PassContract(proof),
+          "pass accepted before Ogre Root shutdown");
   proof = CompletePass();
   proof.d3d12_queue_released_before_device = false;
   Require(!ValidateDxr7PassContract(proof),

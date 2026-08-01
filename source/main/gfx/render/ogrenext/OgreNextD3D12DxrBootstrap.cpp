@@ -875,13 +875,19 @@ Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::RecordOgreFrameProof(
     std::uint32_t distinct_pixels,
     std::uint32_t non_background_pixels,
     std::uint64_t fnv1a64, bool ui_free,
-    bool resources_destroyed) noexcept {
+    const Dxr7OgreTeardownContract& teardown) noexcept {
   if (!impl_->ogre_attached ||
       !impl_->evidence.ogre_d3d11_device_exact ||
       !impl_->evidence.ogre_external_device_active || width == 0U ||
       height == 0U || distinct_pixels < 8U ||
       non_background_pixels < 512U || fnv1a64 == 0U || !ui_free ||
-      !resources_destroyed) {
+      !teardown.workspace_removed ||
+      !teardown.workspace_definition_removed ||
+      !teardown.render_target_destroyed || !teardown.scene_destroyed ||
+      !teardown.pbs_datablock_destroyed ||
+      !teardown.pbs_hlms_unregistered ||
+      !teardown.native_window_destroyed ||
+      !teardown.root_shutdown_completed) {
     return Failure("DXR7 Ogre frame proof is incomplete or out of order");
   }
   impl_->evidence.ogre_native_window_created = true;
@@ -891,7 +897,8 @@ Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::RecordOgreFrameProof(
   impl_->evidence.ogre_frame_readback_completed = true;
   impl_->evidence.ogre_frame_nonblank = true;
   impl_->evidence.ogre_frame_ui_free = ui_free;
-  impl_->evidence.ogre_frame_resources_destroyed = resources_destroyed;
+  impl_->evidence.ogre_frame_resources_destroyed = true;
+  impl_->evidence.ogre_teardown = teardown;
   impl_->evidence.ogre_frame_width = width;
   impl_->evidence.ogre_frame_height = height;
   impl_->evidence.ogre_frame_distinct_pixels = distinct_pixels;
@@ -982,6 +989,7 @@ Dxr7PassContract OgreNextD3D12DxrBootstrap::pass_contract() const noexcept {
   contract.ogre_frame_ui_free = impl_->evidence.ogre_frame_ui_free;
   contract.ogre_frame_resources_destroyed =
       impl_->evidence.ogre_frame_resources_destroyed;
+  contract.ogre_teardown = impl_->evidence.ogre_teardown;
   contract.blas_built = impl_->evidence.blas_built;
   contract.tlas_built = impl_->evidence.tlas_built;
   contract.state_object_created = impl_->evidence.state_object_created;
