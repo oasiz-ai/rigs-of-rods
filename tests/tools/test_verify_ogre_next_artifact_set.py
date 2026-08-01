@@ -40,6 +40,24 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         self.shader_source = notice["source_sha256"]
         self.shader_notice = notice["notice_sha256"]
 
+    def test_executable_mode_policy_is_host_metadata_aware(self) -> None:
+        self.assertTrue(
+            VERIFY._requires_posix_executable_permission("mach-o-64", "posix")
+        )
+        self.assertTrue(
+            VERIFY._requires_posix_executable_permission("elf64", "posix")
+        )
+        self.assertFalse(
+            VERIFY._requires_posix_executable_permission("pe32+", "posix")
+        )
+        for binary_format in ("mach-o-64", "elf64", "pe32+"):
+            with self.subTest(binary_format=binary_format):
+                self.assertFalse(
+                    VERIFY._requires_posix_executable_permission(
+                        binary_format, "nt"
+                    )
+                )
+
     def build_contract(self) -> dict[str, object]:
         rapidjson = self.lock["dependencies"]["rapidjson"]
         lock_abi = self.lock["abi_contract"]

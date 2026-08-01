@@ -779,6 +779,17 @@ def _verify_elf64(payload: bytes) -> dict[str, str]:
     return {"format": "elf64", "architecture": "x86_64"}
 
 
+def _requires_posix_executable_permission(
+    binary_format: str, host_os_name: str | None = None
+) -> bool:
+    """Return whether this host can meaningfully enforce Unix execute bits."""
+    effective_os_name = os.name if host_os_name is None else host_os_name
+    return effective_os_name == "posix" and binary_format in (
+        "mach-o-64",
+        "elf64",
+    )
+
+
 def _verify_rt4_executable(
     path: Path,
     build_contract: dict[str, object],
@@ -805,7 +816,13 @@ def _verify_rt4_executable(
     }
     if structure != expected_structure:
         raise ArtifactSetError("RT4 executable platform structure mismatch")
-    if policy["binary_format"] in ("mach-o-64", "elf64") and (
+    # Windows filesystems do not carry POSIX executable mode bits.  The PE
+    # policy is already validated structurally above, and a Windows-hosted
+    # unit test may intentionally exercise a synthetic Mach-O/ELF fixture.
+    # Enforce Unix execute permission only on hosts where that metadata exists;
+    # never reinterpret a missing Windows mode bit as evidence about the
+    # packaged foreign binary.
+    if _requires_posix_executable_permission(policy["binary_format"]) and (
         path.stat().st_mode & 0o111 == 0
     ):
         raise ArtifactSetError("RT4 packaged executable has no execute permission")
