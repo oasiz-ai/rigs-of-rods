@@ -73,11 +73,19 @@ class ParallaxProbeReferenceContractTests(unittest.TestCase):
     def test_manifest_sources_are_path_bound_and_match_header(self) -> None:
         sources = self.reference["sources"]
         self.assertIs(type(sources), list)
-        self.assertEqual(len(sources), 3)
+        self.assertEqual(len(sources), 5)
         expected_constants = {
             "shader_equations": (
                 "kParallaxProbeReferenceShaderPath",
                 "kParallaxProbeReferenceShaderSha256",
+            ),
+            "manual_weight_shader": (
+                "kParallaxProbeReferenceManualWeightShaderPath",
+                "kParallaxProbeReferenceManualWeightShaderSha256",
+            ),
+            "automatic_weight_shader": (
+                "kParallaxProbeReferenceAutomaticWeightShaderPath",
+                "kParallaxProbeReferenceAutomaticWeightShaderSha256",
             ),
             "constant_buffer_layout": (
                 "kParallaxProbeReferenceBufferSourcePath",
@@ -125,6 +133,34 @@ class ParallaxProbeReferenceContractTests(unittest.TestCase):
                 source["sha256"],
                 f"pinned source hash mismatch: {source['path']}",
             )
+
+        source_text_by_role = {
+            source["role"]: (source_root / source["path"]).read_text(
+                encoding="utf-8"
+            )
+            for source in self.reference["sources"]
+        }
+        self.assertRegex(
+            source_text_by_role["manual_weight_shader"],
+            r"probeFade\s*=\s*saturate\s*\(\s*probeFade\s*\*\s*_h\(\s*200\.0\s*\)\s*\)",
+        )
+        automatic = source_text_by_role["automatic_weight_shader"]
+        for equation in (
+            r"ndf\s*=\s*saturate\s*\(\s*ndf\s*\)",
+            r"probeFade\s*=\s*_h\(\s*1\.0\s*\)\s*-\s*ndf",
+            r"probeFade\s*\*=\s*midf_c\(\s*probePriority\s*\)",
+        ):
+            self.assertRegex(automatic, equation)
+        self.assertEqual(
+            len(
+                re.findall(
+                    r"probeFade\s*=\s*probeFade\s*\*\s*probeFade",
+                    automatic,
+                )
+            ),
+            2,
+            "automatic probe weight must retain exactly two squarings",
+        )
 
 
 if __name__ == "__main__":

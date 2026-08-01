@@ -173,9 +173,10 @@ integrates to at most one. Backend success alone remains no fidelity claim.
 
 `ParallaxProbeReference` is the strict-CPU numerical oracle for Ogre-Next's
 box-projected cubemap sampling and automatic-probe influence math. It pins the
-exact common shader and C++ buffer/probe sources, reproduces strict box
-membership, manual edge fade, fourth-power automatic NDF weighting, ray-box
-intersection, and Ogre's left-handed cubemap sampling vector. The API consumes
+exact common-equation, manual-weight, automatic-weight, and C++ buffer/probe
+sources; reproduces strict box membership, manual edge fade, fourth-power
+automatic NDF weighting, ray-box intersection, and Ogre's left-handed cubemap
+sampling vector. The API consumes
 already transformed probe-local values so Metal, HLSL, GLSL, and CPU adapters
 can compare one result without leaking backend matrix types into the boundary.
 The path-bound source closure lives in
