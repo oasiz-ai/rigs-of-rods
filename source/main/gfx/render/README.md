@@ -151,3 +151,11 @@ Linux continue to report native RT false until their explicit backends exist.
 The richer lighting/environment snapshot is likewise transport and validation,
 not evidence that N1/N3 or a shipping frontend already maps its photometry,
 shadows, sky, exposure, reflections, or GI.
+
+`PbrReference` is the strict-CPU numerical oracle for the portable direct-light
+material slice. Version 1 records the exact pinned Ogre-Next commit and mirrors
+its full-precision `PbsBrdf::Default` metallic workflow: squared perceptual
+roughness, the 0.001 alpha floor, GGX distribution, height-correlated Smith
+visibility, Schlick Fresnel, and normalized Disney diffuse. It deliberately
+does not turn backend success into a fidelity claim; Metal, Vulkan, and D3D
+captures must compare their resolved shader samples to this same oracle.
