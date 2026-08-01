@@ -65,6 +65,7 @@
 #endif
 
 #include <cmath>
+#include <cstdlib>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
@@ -474,7 +475,7 @@ bool AppContext::SetUpRendering()
     miscParams["gamma"] = ropts["sRGB Gamma Conversion"].currentValue;
     if (!App::diag_allow_window_resize->getBool())
     {
-    miscParams["border"] = "fixed";
+        miscParams["border"] = "fixed";
     }
 #if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
     const auto rd = ropts["Rendering Device"];
@@ -515,6 +516,35 @@ bool AppContext::SetUpRendering()
         LOG(fmt::format("[RoR|Startup|Rendering] WARNING - invalid 'ogre.cfg', auto-detected resolution {}x{}", width, height));
         m_ogre_root->saveConfig();
     }
+
+#if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
+    // OGRE's D3D11 window backend expands a requested client extent by the
+    // title-bar/border size and then clamps that outer window to rcWork. The
+    // hosted Windows desktop is smaller than the D0 gate's 1280x720 target,
+    // so a decorated window silently becomes a smaller render target. Only
+    // the isolated scene harness may request a borderless outer-dimension
+    // window, for which outer and client extents are identical. Ordinary
+    // launches and malformed diagnostic environments keep the fixed border.
+    const char* d0_scene_home = std::getenv("ROR_D0_SCENE_HOME");
+    const char* d0_exact_window_extent =
+        std::getenv("ROR_D0_EXACT_WINDOW_EXTENT");
+    const std::string selected_extent =
+        fmt::format("{}x{}", width, height);
+    const bool use_d0_exact_window =
+        d0_scene_home != nullptr && IsAbsolutePath(d0_scene_home) &&
+        d0_exact_window_extent != nullptr &&
+        selected_extent == d0_exact_window_extent &&
+        ropts["Full Screen"].currentValue == "No" &&
+        !App::diag_allow_window_resize->getBool();
+    if (use_d0_exact_window)
+    {
+        miscParams["border"] = "none";
+        miscParams["outerDimensions"] = "true";
+        LOG(fmt::format(
+            "[RoR|Startup|Rendering] D0 exact window extent enabled: {}",
+            selected_extent));
+    }
+#endif
 
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     // OGRE's macOS video modes are backing-pixel dimensions, while SDL sizes

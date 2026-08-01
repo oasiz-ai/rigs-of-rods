@@ -188,6 +188,7 @@ def runtime_environment(
         "LD_PRELOAD",
         "MESA_LOADER_DRIVER_OVERRIDE",
         "OGRE_PLUGIN_DIR",
+        "ROR_D0_EXACT_WINDOW_EXTENT",
         "ROR_D0_SCENE_HOME",
     )
     stripped_keys = {variable.casefold() for variable in stripped_variables}

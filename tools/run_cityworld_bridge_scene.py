@@ -59,6 +59,7 @@ VEHICLE_ARCHIVE = "dafsemi.zip"
 VEHICLE_ENTRY = "b6b0UID-semi.truck"
 EXPECTED_WIDTH = 1280
 EXPECTED_HEIGHT = 720
+EXACT_WINDOW_EXTENT_CONTRACT = f"{EXPECTED_WIDTH}x{EXPECTED_HEIGHT}"
 MAX_SCREENSHOT_BYTES = 32 * 1024 * 1024
 MAX_PACK_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_CONFIG_BYTES = 1024 * 1024
@@ -643,6 +644,9 @@ def isolated_runtime_environment(isolated_home: Path) -> dict[str, str]:
     environment = os.environ.copy()
     environment.pop("SNAP_USER_COMMON", None)
     environment["ROR_D0_SCENE_HOME"] = str(isolated_home)
+    environment["ROR_D0_EXACT_WINDOW_EXTENT"] = (
+        EXACT_WINDOW_EXTENT_CONTRACT
+    )
     environment["ALSOFT_DRIVERS"] = "null"
     environment["ALSOFT_LOGLEVEL"] = "0"
     return environment

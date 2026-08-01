@@ -20,6 +20,7 @@ FIXTURE_ROOT = (
     REPOSITORY_ROOT / "tests/fixtures/cityworld_bridge_runtime"
 )
 PLATFORM_UTILS = REPOSITORY_ROOT / "source/main/utils/PlatformUtils.cpp"
+APP_CONTEXT = REPOSITORY_ROOT / "source/main/AppContext.cpp"
 
 SPEC = importlib.util.spec_from_file_location(
     "run_cityworld_bridge_scene",
@@ -319,6 +320,7 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
             SCENE.os.environ,
             {
                 "KEEP_ME": "yes",
+                "ROR_D0_EXACT_WINDOW_EXTENT": "640x360",
                 "SNAP_USER_COMMON": "/real/snap/home",
             },
             clear=True,
@@ -329,6 +331,10 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         self.assertEqual(
             environment["ROR_D0_SCENE_HOME"],
             str(isolated),
+        )
+        self.assertEqual(
+            environment["ROR_D0_EXACT_WINDOW_EXTENT"],
+            "1280x720",
         )
         self.assertEqual(environment["ALSOFT_DRIVERS"], "null")
         self.assertEqual(environment["ALSOFT_LOGLEVEL"], "0")
@@ -762,6 +768,28 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         known_folder = windows_source.index("SHGetFolderPathW")
         self.assertLess(override, known_folder)
         self.assertIn("IsAbsolutePath(d0_scene_home)", windows_source)
+
+    def test_windows_exact_extent_is_isolated_and_fail_closed(self) -> None:
+        source = APP_CONTEXT.read_text(encoding="utf-8")
+        windows_start = source.index(
+            "#if OGRE_PLATFORM == OGRE_PLATFORM_WIN32",
+            source.index("// Validate rendering resolution"),
+        )
+        windows_end = source.index("#endif", windows_start)
+        windows_source = source[windows_start:windows_end]
+        for required in (
+            'std::getenv("ROR_D0_SCENE_HOME")',
+            'std::getenv("ROR_D0_EXACT_WINDOW_EXTENT")',
+            "IsAbsolutePath(d0_scene_home)",
+            "selected_extent == d0_exact_window_extent",
+            'ropts["Full Screen"].currentValue == "No"',
+            "!App::diag_allow_window_resize->getBool()",
+            'miscParams["border"] = "none"',
+            'miscParams["outerDimensions"] = "true"',
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, windows_source)
+        self.assertNotIn("ROR_D0_EXACT_WINDOW_EXTENT", source[:windows_start])
 
 
 if __name__ == "__main__":

@@ -306,6 +306,7 @@ class Ogre14NativeRuntimeSmokeTests(unittest.TestCase):
             "LD_LIBRARY_PATH": "/tmp/injected-library",
             "LD_PRELOAD": "/tmp/injected-preload.so",
             "MESA_LOADER_DRIVER_OVERRIDE": "host-driver",
+            "RoR_D0_Exact_Window_Extent": "1280x720",
             "ROR_D0_SCENE_HOME": "/host/scene",
         }
         linux = SMOKE.runtime_environment(
@@ -321,6 +322,7 @@ class Ogre14NativeRuntimeSmokeTests(unittest.TestCase):
         self.assertNotIn("LD_AUDIT", linux)
         self.assertNotIn("LD_LIBRARY_PATH", linux)
         self.assertNotIn("LD_PRELOAD", linux)
+        self.assertNotIn("RoR_D0_Exact_Window_Extent", linux)
 
         windows = SMOKE.runtime_environment(
             "windows-x86_64",
@@ -331,12 +333,14 @@ class Ogre14NativeRuntimeSmokeTests(unittest.TestCase):
                 "GALLIUM_DRIVER": "host",
                 "LIBGL_ALWAYS_SOFTWARE": "1",
                 "DyLd_LiBrArY_PaTh": r"C:\injected",
+                "ROR_D0_EXACT_WINDOW_EXTENT": "1280x720",
             },
         )
         self.assertNotIn("GALLIUM_DRIVER", windows)
         self.assertNotIn("LIBGL_ALWAYS_SOFTWARE", windows)
         self.assertNotIn("Path", windows)
         self.assertNotIn("DyLd_LiBrArY_PaTh", windows)
+        self.assertNotIn("ROR_D0_EXACT_WINDOW_EXTENT", windows)
         self.assertEqual(
             windows["PATH"],
             r"C:\Windows\System32;C:\Windows",
