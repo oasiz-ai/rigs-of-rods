@@ -71,6 +71,10 @@ claim.
   `AreaLights_LTC_piece_ps.any` source hash and a checked-in notice preserving
   its Eric Heitz, Jonathan Dupuy, Stephen Hill, and David Neubelt attribution,
   paper-reference condition, and source/binary redistribution terms;
+- FreeType `2.14.3` from its official Savannah release archive, including the
+  archive SHA-256, its `FTL OR GPL-2.0-or-later` license expression, the
+  selected `GPL-2.0-or-later` license and overview hashes, static linkage, and
+  the disabled BZip2, Brotli, HarfBuzz, PNG, and ZLIB optional dependencies;
 - RapidJSON `v1.1.0`, required by OGRE core even when optional tools and scene
   components are disabled, with its source archive's
   `MIT AND BSD-3-Clause AND JSON` expression, the active reviewed header
@@ -94,14 +98,22 @@ The entry project and N1 target include that one policy rather than copying its
 pin block. Both the shared module and the N1 CMake guard reject an existing
 `OgreMain` target, preventing OGRE 1.14 and Ogre-Next from entering one binary.
 
-The generated build contract and N1 runtime report also identify the canonical
-RoR repository, exact Git commit/ref, and a sorted path/size/SHA-256 manifest of
-the renderer sources and probe implementation used by the build. The wrapper
-independently regenerates that manifest from the checkout, so locally modified
-relevant source cannot masquerade as the named commit.
+The generated schema-5 build contract records the exact FreeType version,
+archive, source/package license paths and hashes, derived `STATIC_LIBRARY`
+target type, Overlay target linkage, and disabled optional dependency set
+alongside the Ogre-Next and RapidJSON pins. Schema 4 remains the historical HDR
+contract and is read only for older evidence. The build contract and N1
+runtime report also identify the canonical RoR repository, exact Git
+commit/ref, and a sorted path/size/SHA-256 manifest of the renderer sources and
+probe implementation used by the build. The wrapper independently regenerates
+that manifest from the checkout, so locally modified relevant source cannot
+masquerade as the named commit.
 
-FetchContent uses URL hashes and a build-local `_deps` population area. A local
-archive can be supplied, but it is hashed before CMake sees it. Direct
+FetchContent uses URL hashes and a build-local `_deps` population area. Local
+Ogre-Next, RapidJSON, and FreeType archives can be supplied, but each is hashed
+before CMake sees it. FreeType is built first as the reviewed static target and
+is explicitly wired into Ogre's Overlay component instead of accepting a host
+Homebrew, distro, or Windows package-cache library. Direct
 `FETCHCONTENT_SOURCE_DIR_*` overrides are rejected because they bypass archive
 verification. A normal invocation requires a fresh build directory. The sole
 reuse path is `--reuse-build-dir` with an explicitly selected `n1`, `n2`,
@@ -159,7 +171,10 @@ ror-ogre-next-n1-package/
   licenses/Rigs-of-Rods-GPL-3.0.txt
   licenses/Ogre-Next-MIT.txt
   licenses/RapidJSON-license.txt
+  licenses/FreeType-GPLv2.txt
+  licenses/FreeType-LICENSE.txt
   licenses/LicenseRef-Heitz-LTC-Paper-Notice.txt
+  licenses/IBLBaker.txt
   # Linux additionally carries:
   licenses/Apache-2.0.txt
   licenses/glslang-LICENSE.txt
@@ -169,22 +184,24 @@ ror-ogre-next-n1-package/
   provenance/ogre-next-linux-static-closure.json
 ```
 
-Every staged notice is copied from its hash-validated source and byte-compared
-before the package stamp is written. The Linux source lock and built-archive
-manifest are likewise byte-compared into `provenance/`; incomplete or changed
-licensing/provenance data prevents package completion.
+All seven common staged license/notice files are copied from hash-validated
+sources and byte-compared before the package stamp is written. Linux adds four
+shader-toolchain notices, for eleven total. The Linux source lock and
+built-archive manifest are likewise byte-compared into `provenance/`;
+incomplete or changed licensing/provenance data prevents package completion.
 
 The staged executable is run with the resolved absolute form of
 `share/rigsofrods/ogre-next/Samples/Media` from outside its `bin` directory.
 Application packaging must resolve that same relative resource path using the
 platform bundle/install locator and pass it through `OgreNextN1Configuration`;
 relative, missing, or incomplete roots fail before native initialization.
-The build wrapper also hashes all four staged license files against the
-checked-in RoR license and the locked Ogre-Next, RapidJSON, and shader-notice
-provenance, then independently compares the staged HLMS manifest with the
-pinned source tree before accepting the package. A native negative test
-corrupts one staged shader and requires an integrity-specific initialization
-failure.
+The build wrapper also hashes all seven common staged license/notice files
+against the checked-in RoR license and the locked Ogre-Next, RapidJSON,
+FreeType, HLMS shader, and IBLBaker provenance. On Linux it verifies the four
+additional shader-toolchain notices as well. It then independently compares
+the staged HLMS manifest with the pinned source tree before accepting the
+package. A native negative test corrupts one staged shader and requires an
+integrity-specific initialization failure.
 
 ## Platform policy
 
@@ -420,7 +437,8 @@ python3 tools/run_ogre_next_probe.py \
   --build-dir /tmp/ror-ogre-next-probe \
   --clean-build-dir \
   --ogre-archive /path/to/ogre-next-pinned.tar.gz \
-  --rapidjson-archive /path/to/rapidjson-pinned.tar.gz
+  --rapidjson-archive /path/to/rapidjson-pinned.tar.gz \
+  --freetype-archive /path/to/freetype-2.14.3.tar.xz
 ```
 
 The build directory must be fresh. Pass `--clean-build-dir` only to recover a

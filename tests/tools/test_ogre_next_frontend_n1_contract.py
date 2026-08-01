@@ -226,10 +226,14 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "Rigs-of-Rods-GPL-3.0.txt",
             "Ogre-Next-MIT.txt",
             "RapidJSON-license.txt",
+            "FreeType-GPLv2.txt",
+            "FreeType-LICENSE.txt",
             "LicenseRef-Heitz-LTC-Paper-Notice.txt",
             "IBLBaker.txt",
         ):
-            self.assertIn(license_name, self.entry_cmake)
+            self.assertIn(
+                license_name, self.entry_cmake + self.pinned_cmake
+            )
         self.assertIn("validate_n1_package", RUNNER_PATH.read_text(encoding="utf-8"))
         self.assertIn("ror_ogre_next_frontend_n1_media_tamper", self.entry_cmake)
         self.assertIn("ror_ogre_next_frontend_hdr_media_tamper", self.entry_cmake)
@@ -282,7 +286,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "digest != expected.sha256",
         ):
             self.assertIn(token, self.entry_cmake + self.media_integrity)
-        self.assertIn(".stage-v9", self.entry_cmake)
+        self.assertIn(".stage-v10", self.entry_cmake)
         self.assertIn(
             '"Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any"',
             self.entry_cmake,
@@ -1219,6 +1223,12 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "Ogre-Next-MIT.txt": lock["license"]["sha256"],
                 "RapidJSON-license.txt": lock["dependencies"]["rapidjson"][
                     "license_sha256"
+                ],
+                "FreeType-GPLv2.txt": lock["dependencies"]["freetype"][
+                    "license_sha256"
+                ],
+                "FreeType-LICENSE.txt": lock["dependencies"]["freetype"][
+                    "overview_sha256"
                 ],
                 "LicenseRef-Heitz-LTC-Paper-Notice.txt": lock[
                     "shader_media"

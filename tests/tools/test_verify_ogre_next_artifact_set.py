@@ -40,6 +40,23 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         notice = lock["shader_media"]["third_party_notice"]
         self.shader_source = notice["source_sha256"]
         self.shader_notice = notice["notice_sha256"]
+        self.production_freetype_license_contract = copy.deepcopy(
+            VERIFY.FREETYPE_PACKAGE_LICENSE_CONTRACT
+        )
+        self.freetype_license_payloads = {
+            "licenses/FreeType-GPLv2.txt": b"FreeType GPL fixture\n",
+            "licenses/FreeType-LICENSE.txt": b"FreeType overview fixture\n",
+        }
+        VERIFY.FREETYPE_PACKAGE_LICENSE_CONTRACT = tuple(
+            (path, hashlib.sha256(payload).hexdigest())
+            for path, payload in self.freetype_license_payloads.items()
+        )
+        self.addCleanup(
+            setattr,
+            VERIFY,
+            "FREETYPE_PACKAGE_LICENSE_CONTRACT",
+            self.production_freetype_license_contract,
+        )
 
     def test_executable_mode_policy_is_host_metadata_aware(self) -> None:
         self.assertTrue(
@@ -87,6 +104,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
 
     def build_contract(self) -> dict[str, object]:
         rapidjson = self.lock["dependencies"]["rapidjson"]
+        freetype = self.lock["dependencies"]["freetype"]
         lock_abi = self.lock["abi_contract"]
         expected_abi = {
             key: copy.deepcopy(value)
@@ -103,7 +121,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             }
         )
         return {
-            "schema_version": 4,
+            "schema_version": 5,
             "ror_source": {
                 "repository": self.ror_repository,
                 "ref": self.ror_ref,
@@ -121,6 +139,33 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             },
             "patches": copy.deepcopy(self.lock["patches"]),
             "dependencies": {
+                "freetype": {
+                    "repository": freetype["repository"],
+                    "version": freetype["version"],
+                    "archive_url": freetype["archive_url"],
+                    "archive_sha256": freetype["archive_sha256"],
+                    "license_expression": freetype["license_expression"],
+                    "selected_license_spdx": freetype[
+                        "selected_license_spdx"
+                    ],
+                    "license_path": freetype["license_path"],
+                    "license_sha256": freetype["license_sha256"],
+                    "package_license_path": freetype[
+                        "package_license_path"
+                    ],
+                    "overview_path": freetype["overview_path"],
+                    "overview_sha256": freetype["overview_sha256"],
+                    "package_overview_path": freetype[
+                        "package_overview_path"
+                    ],
+                    "target": "freetype",
+                    "target_type": "STATIC_LIBRARY",
+                    "static_link": True,
+                    "overlay_link_target": True,
+                    "disabled_optional_dependencies": copy.deepcopy(
+                        freetype["disabled_optional_dependencies"]
+                    ),
+                },
                 "rapidjson": {
                     "tag": rapidjson["tag"],
                     "archive_sha256": rapidjson["archive_sha256"],
@@ -942,6 +987,10 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             / "Samples"
             / "Media"
         )
+        for relative, payload in self.freetype_license_payloads.items():
+            license_path = root / "ror-ogre-next-n1-package" / relative
+            license_path.parent.mkdir(parents=True, exist_ok=True)
+            license_path.write_bytes(payload)
         media_files = {
             "Hlms/Pbs/Any/Main_piece.any": b"hlms",
             "2.0/scripts/Compositors/HDR.compositor": b"compositor",
@@ -1619,6 +1668,8 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     VERIFY.PSSM_ARTIFACT_MANIFEST_ARTIFACT,
                     *packaged_media_paths,
                     "ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke",
+                    "ror-ogre-next-n1-package/licenses/FreeType-GPLv2.txt",
+                    "ror-ogre-next-n1-package/licenses/FreeType-LICENSE.txt",
                 ],
             )
             self.assertTrue(
@@ -1628,6 +1679,81 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             missing.unlink()
             with self.assertRaisesRegex(VERIFY.ArtifactSetError, "missing"):
                 VERIFY.verify_artifact_set(root)
+
+    def test_freetype_license_contract_matches_the_canonical_lock(self) -> None:
+        freetype = self.lock["dependencies"]["freetype"]
+        self.assertEqual(
+            dict(self.production_freetype_license_contract),
+            {
+                freetype["package_license_path"]: freetype[
+                    "license_sha256"
+                ],
+                freetype["package_overview_path"]: freetype[
+                    "overview_sha256"
+                ],
+            },
+        )
+
+    def test_rejects_tampered_freetype_package_license(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-freetype-license-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            license_path = (
+                root
+                / "ror-ogre-next-n1-package"
+                / "licenses"
+                / "FreeType-GPLv2.txt"
+            )
+            license_path.write_bytes(license_path.read_bytes() + b"tampered")
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError,
+                "FreeType package license hash mismatch",
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rejects_missing_or_indirect_freetype_package_license(self) -> None:
+        for mode in ("missing", "symlink"):
+            with self.subTest(mode=mode):
+                with tempfile.TemporaryDirectory(
+                    prefix="ror-ogre-freetype-license-layout-"
+                ) as temp:
+                    root = Path(temp)
+                    self.write_baseline(root)
+                    license_path = (
+                        root
+                        / "ror-ogre-next-n1-package"
+                        / "licenses"
+                        / "FreeType-LICENSE.txt"
+                    )
+                    license_path.unlink()
+                    if mode == "symlink":
+                        license_path.write_bytes(
+                            self.freetype_license_payloads[
+                                "licenses/FreeType-LICENSE.txt"
+                            ]
+                        )
+                        license_path = license_path.resolve()
+                        original_is_symlink = Path.is_symlink
+                        with mock.patch.object(
+                            Path,
+                            "is_symlink",
+                            autospec=True,
+                            side_effect=lambda candidate: (
+                                candidate == license_path
+                                or original_is_symlink(candidate)
+                            ),
+                        ):
+                            with self.assertRaisesRegex(
+                                VERIFY.ArtifactSetError,
+                                "FreeType package license is missing or indirect",
+                            ):
+                                VERIFY.verify_artifact_set(root)
+                    else:
+                        with self.assertRaisesRegex(
+                            VERIFY.ArtifactSetError,
+                            "FreeType package license is missing or indirect",
+                        ):
+                            VERIFY.verify_artifact_set(root)
 
     def test_rejects_empty_artifact(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-artifacts-") as temp:
@@ -2487,7 +2613,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
 
     def test_metal_n3_gate_requires_exact_build_contract_json_types(self) -> None:
         mutations = (
-            ("schema", lambda contract: contract.__setitem__("schema_version", 4.0)),
+            ("schema", lambda contract: contract.__setitem__("schema_version", 5.0)),
             (
                 "ror_commit",
                 lambda contract: contract["ror_source"].__setitem__(

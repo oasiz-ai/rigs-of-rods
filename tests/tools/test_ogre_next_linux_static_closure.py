@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -51,6 +52,35 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
         self.assertEqual(
             self.lock["host_dynamic_boundary"]["component"], "Vulkan-Loader"
         )
+
+    def test_dynamic_boundary_rejects_host_freetype_dso(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-linux-freetype-dso-") as temp:
+            root = Path(temp)
+            package_bin = root / RUNNER.N1_PACKAGE_NAME / "bin"
+            package_bin.mkdir(parents=True)
+            (package_bin / "ror_ogre_next_frontend_n1_smoke").write_bytes(
+                b"synthetic executable"
+            )
+            completed = subprocess.CompletedProcess(
+                args=["ldd"],
+                returncode=0,
+                stdout=(
+                    "libfreetype.so.6 => /usr/lib/libfreetype.so.6 "
+                    "(0x00007f00)\n"
+                ),
+            )
+            with mock.patch.object(
+                RUNNER.subprocess, "run", return_value=completed
+            ):
+                with self.assertRaisesRegex(
+                    RUNNER.ProbeError,
+                    "pinned static dependency boundary: libfreetype",
+                ):
+                    RUNNER.validate_linux_dynamic_boundary(
+                        root,
+                        require_frame_probe=False,
+                        require_packaged_frontend=True,
+                    )
 
     def test_exact_compatible_source_family_and_patch_are_locked(self) -> None:
         expected = {
@@ -182,8 +212,20 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
         ):
             with self.subTest(relative_path=relative_path):
                 self.assertIn(relative_path, self.entry_cmake)
+        for relative_path in (
+            "licenses/FreeType-GPLv2.txt",
+            "licenses/FreeType-LICENSE.txt",
+        ):
+            with self.subTest(relative_path=relative_path):
+                self.assertIn(relative_path, self.pinned_cmake)
+        self.assertIn(
+            "${ROR_FREETYPE_PACKAGE_LICENSE_PATH}", self.entry_cmake
+        )
+        self.assertIn(
+            "${ROR_FREETYPE_PACKAGE_OVERVIEW_PATH}", self.entry_cmake
+        )
         self.assertGreaterEqual(self.entry_cmake.count("-E compare_files"), 10)
-        self.assertIn(".stage-v9", self.entry_cmake)
+        self.assertIn(".stage-v10", self.entry_cmake)
         self.assertIn(
             "ror_ogre_next_linux_static_closure_manifest",
             self.entry_cmake,

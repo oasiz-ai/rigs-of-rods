@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "ror_source": {
     "repository": "@ROR_SOURCE_REPOSITORY@",
     "ref": "@ROR_SOURCE_REF@",
@@ -31,6 +31,31 @@
     }
   ],
   "dependencies": {
+    "freetype": {
+      "repository": "@ROR_FREETYPE_REPOSITORY@",
+      "version": "@ROR_FREETYPE_VERSION@",
+      "archive_url": "@ROR_FREETYPE_ARCHIVE_URL@",
+      "archive_sha256": "@ROR_FREETYPE_ARCHIVE_SHA256@",
+      "license_expression": "@ROR_FREETYPE_LICENSE_EXPRESSION@",
+      "selected_license_spdx": "@ROR_FREETYPE_SELECTED_LICENSE_SPDX@",
+      "license_path": "@ROR_FREETYPE_LICENSE_PATH@",
+      "license_sha256": "@ROR_FREETYPE_LICENSE_SHA256@",
+      "package_license_path": "@ROR_FREETYPE_PACKAGE_LICENSE_PATH@",
+      "overview_path": "@ROR_FREETYPE_OVERVIEW_PATH@",
+      "overview_sha256": "@ROR_FREETYPE_OVERVIEW_SHA256@",
+      "package_overview_path": "@ROR_FREETYPE_PACKAGE_OVERVIEW_PATH@",
+      "target": "freetype",
+      "target_type": "@ROR_FREETYPE_TARGET_TYPE@",
+      "static_link": @ROR_FREETYPE_STATIC_LINK_JSON@,
+      "overlay_link_target": @ROR_FREETYPE_OVERLAY_LINK_TARGET_JSON@,
+      "disabled_optional_dependencies": [
+        "BZip2",
+        "Brotli",
+        "HarfBuzz",
+        "PNG",
+        "ZLIB"
+      ]
+    },
     "rapidjson": {
       "tag": "@ROR_RAPIDJSON_TAG@",
       "archive_sha256": "@ROR_RAPIDJSON_ARCHIVE_SHA256@",

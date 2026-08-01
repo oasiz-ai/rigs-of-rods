@@ -364,7 +364,7 @@ jobs:
           --checkpoint legacy
           --jobs ${{ matrix.jobs }}
 
-      - name: Rehash Linux static closure and reject shader compiler DSOs
+      - name: Rehash Linux static closure and reject pinned dependency DSOs
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -390,9 +390,9 @@ jobs:
             "$package_root/bin/ror_ogre_next_frontend_n1_smoke"; do
             ldd "$executable" | tee "${executable##*/}.ldd.txt"
             if grep -Eiq \
-                'lib(shaderc|glslang|SPIRV(-Tools(-opt)?)?|MachineIndependent|GenericCodeGen|OSDependent)' \
+                'lib(freetype|shaderc|glslang|SPIRV(-Tools(-opt)?)?|MachineIndependent|GenericCodeGen|OSDependent)' \
                 "${executable##*/}.ldd.txt"; then
-              echo "unexpected dynamically linked shader compiler in $executable"
+              echo "unexpected dynamically linked pinned dependency in $executable"
               exit 1
             fi
           done

@@ -89,7 +89,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, self.workflow)
 
-        for prohibited in ("libshaderc-dev", "glslang-dev", "spirv-tools"):
+        for prohibited in (
+            "libfreetype6-dev",
+            "libshaderc-dev",
+            "glslang-dev",
+            "spirv-tools",
+        ):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, self.workflow)
 
@@ -110,6 +115,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertNotIn("glslang-dev", self.workflow)
         self.assertNotIn("libshaderc-dev", self.workflow)
         self.assertIn("cmp tools/ogre_next_probe/linux-shader-toolchain.lock.json", self.workflow)
+        self.assertIn("lib(freetype|shaderc|glslang", self.workflow)
         self.assertIn("MachineIndependent|GenericCodeGen|OSDependent", self.workflow)
         self.assertIn("ror_ogre_next_frame_probe", self.workflow)
         self.assertIn("ror_ogre_next_frontend_n1_smoke", self.workflow)

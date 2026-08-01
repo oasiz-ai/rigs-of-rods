@@ -475,13 +475,22 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_rapidjson_license_sha256 = (
         "a140e5d46fe734a1c78f1a3c3ef207871dd75648be71fdda8e309b23ab8b1f32"
     )
+    expected_freetype_archive_sha256 = (
+        "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f"
+    )
+    expected_freetype_license_sha256 = (
+        "c4120c6752c910c299e3bd9cb3a46ff262c268303ca2069b61f92f10a5656c18"
+    )
+    expected_freetype_overview_sha256 = (
+        "bd36c8b474855fa294c2ec5c184544478ef3720aad37d65a6296a4f264fd2d3b"
+    )
     expected_patch_sha256 = (
         "84916d0d1abf61a15d19d2c89a7d9b1a445f1a37a5067a9f8b558395fe10ead1"
     )
     expected_ibl_patch_sha256 = (
         "2a4792a553a3911db197750ae6e4de2155f7b9604e9bc6d730cc19bba0b1075f"
     )
-    if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 3:
+    if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 4:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
         raise ProbeError("OGRE-Next repository contract changed")
@@ -590,6 +599,37 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
         raise ProbeError("RapidJSON dependency contract changed")
     _require_sha256(rapidjson.get("archive_sha256"), "RapidJSON archive hash")
     _require_sha256(rapidjson.get("license_sha256"), "RapidJSON license hash")
+
+    freetype = lock.get("dependencies", {}).get("freetype", {})
+    expected_freetype = {
+        "repository": "https://gitlab.freedesktop.org/freetype/freetype",
+        "version": "2.14.3",
+        "archive_url": (
+            "https://download.savannah.gnu.org/releases/freetype/"
+            "freetype-2.14.3.tar.xz"
+        ),
+        "archive_sha256": expected_freetype_archive_sha256,
+        "license_expression": "FTL OR GPL-2.0-or-later",
+        "selected_license_spdx": "GPL-2.0-or-later",
+        "license_path": "docs/GPLv2.TXT",
+        "license_sha256": expected_freetype_license_sha256,
+        "package_license_path": "licenses/FreeType-GPLv2.txt",
+        "overview_path": "LICENSE.TXT",
+        "overview_sha256": expected_freetype_overview_sha256,
+        "package_overview_path": "licenses/FreeType-LICENSE.txt",
+        "static_link": True,
+        "disabled_optional_dependencies": [
+            "BZip2",
+            "Brotli",
+            "HarfBuzz",
+            "PNG",
+            "ZLIB",
+        ],
+    }
+    if freetype != expected_freetype:
+        raise ProbeError("FreeType dependency contract changed")
+    for field in ("archive_sha256", "license_sha256", "overview_sha256"):
+        _require_sha256(freetype.get(field), f"FreeType {field}")
 
     expected_patches = [
         {
@@ -1148,11 +1188,13 @@ def validate_build_contract(
 ) -> None:
     provenance = contract.get("provenance", {})
     rapidjson_contract = contract.get("dependencies", {}).get("rapidjson", {})
+    freetype_contract = contract.get("dependencies", {}).get("freetype", {})
     platform_contract = contract.get("platform", {})
     contract_abi = contract.get("abi", {})
     components = contract.get("components", {})
     compiler = contract.get("compiler", {})
     rapidjson = lock["dependencies"]["rapidjson"]
+    freetype = lock["dependencies"]["freetype"]
     shader_media = lock["shader_media"]
     reflection_shader_media = lock["reflection_shader_media"]
     abi = lock["abi_contract"]
@@ -1181,7 +1223,7 @@ def validate_build_contract(
         "dds_codec": True,
         "native_ray_tracing": "not_evaluated",
     }
-    if schema_version == 4:
+    if schema_version in (4, 5):
         expected_components.update(
             {
                 "hlms_unlit": True,
@@ -1196,10 +1238,11 @@ def validate_build_contract(
         )
     checks = {
         # Schema 2 remains readable for the immutable checked-in M5 evidence,
-        # and schema 3 remains the reflection/IBL lineage contract. Every newly
-        # generated reflection-plus-HDR contract is schema 4.
+        # schema 3 remains the reflection/IBL lineage contract, and schema 4
+        # remains the original HDR contract. Every newly generated contract
+        # with the pinned static FreeType/Overlay closure is schema 5.
         "schema_version": type(schema_version) is int
-        and schema_version in (2, 3, 4),
+        and schema_version in (2, 3, 4, 5),
         "repository": provenance.get("repository") == lock["repository"],
         "branch": provenance.get("branch") == lock["branch"],
         "commit": provenance.get("commit") == lock["commit"],
@@ -1222,11 +1265,43 @@ def validate_build_contract(
         == rapidjson["compiled_headers_spdx"],
         "rapidjson_license_hash": rapidjson_contract.get("license_sha256")
         == rapidjson["license_sha256"],
+        "freetype": freetype_contract
+        == (
+            {
+                "repository": freetype["repository"],
+                "version": freetype["version"],
+                "archive_url": freetype["archive_url"],
+                "archive_sha256": freetype["archive_sha256"],
+                "license_expression": freetype["license_expression"],
+                "selected_license_spdx": freetype[
+                    "selected_license_spdx"
+                ],
+                "license_path": freetype["license_path"],
+                "license_sha256": freetype["license_sha256"],
+                "package_license_path": freetype[
+                    "package_license_path"
+                ],
+                "overview_path": freetype["overview_path"],
+                "overview_sha256": freetype["overview_sha256"],
+                "package_overview_path": freetype[
+                    "package_overview_path"
+                ],
+                "target": "freetype",
+                "target_type": "STATIC_LIBRARY",
+                "static_link": True,
+                "overlay_link_target": True,
+                "disabled_optional_dependencies": freetype[
+                    "disabled_optional_dependencies"
+                ],
+            }
+            if schema_version == 5
+            else {}
+        ),
         "shader_media": contract.get("shader_media") == shader_media,
         "reflection_shader_media": contract.get("reflection_shader_media")
-        == (reflection_shader_media if schema_version in (3, 4) else None),
+        == (reflection_shader_media if schema_version in (3, 4, 5) else None),
         "patches": contract.get("patches")
-        == (lock["patches"] if schema_version in (3, 4) else None),
+        == (lock["patches"] if schema_version in (3, 4, 5) else None),
         "platform_policy": platform_contract.get("policy") == policy["name"],
         "renderer_target": platform_contract.get("renderer_target")
         == policy["renderer_target"],
@@ -3006,6 +3081,12 @@ def validate_n1_package(
         Path("licenses/RapidJSON-license.txt"): lock["dependencies"][
             "rapidjson"
         ]["license_sha256"],
+        Path(lock["dependencies"]["freetype"]["package_license_path"]): lock[
+            "dependencies"
+        ]["freetype"]["license_sha256"],
+        Path(lock["dependencies"]["freetype"]["package_overview_path"]): lock[
+            "dependencies"
+        ]["freetype"]["overview_sha256"],
         Path(shader_notice["notice_path"]): shader_notice["notice_sha256"],
         Path(reflection_notice["package_path"]): reflection_notice[
             "source_sha256"
@@ -3742,6 +3823,12 @@ def validate_n1_package_provenance(
         "licenses/RapidJSON-license.txt": lock["dependencies"]["rapidjson"][
             "license_sha256"
         ],
+        lock["dependencies"]["freetype"]["package_license_path"]: lock[
+            "dependencies"
+        ]["freetype"]["license_sha256"],
+        lock["dependencies"]["freetype"]["package_overview_path"]: lock[
+            "dependencies"
+        ]["freetype"]["overview_sha256"],
         lock["shader_media"]["third_party_notice"]["notice_path"]: lock[
             "shader_media"
         ]["third_party_notice"]["notice_sha256"],
@@ -3823,7 +3910,7 @@ def validate_linux_dynamic_boundary(
     if not executables:
         raise ProbeError("Linux linkage audit has no required executable")
     forbidden = re.compile(
-        r"lib(?:shaderc|glslang|SPIRV(?:-Tools(?:-opt)?)?|"
+        r"lib(?:freetype|shaderc|glslang|SPIRV(?:-Tools(?:-opt)?)?|"
         r"MachineIndependent|GenericCodeGen|OSDependent)",
         re.IGNORECASE,
     )
@@ -3843,8 +3930,11 @@ def validate_linux_dynamic_boundary(
         match = forbidden.search(result.stdout)
         if match:
             raise ProbeError(
-                f"Linux executable crossed static shader boundary: {match.group(0)}"
+                "Linux executable crossed a pinned static dependency "
+                f"boundary: {match.group(0)}"
             )
+
+
 def validate_n3_checkpoint(
     report: dict[str, Any],
     raster_path: Path | None,
@@ -4265,6 +4355,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="optional already-downloaded pinned RapidJSON archive",
     )
+    parser.add_argument(
+        "--freetype-archive",
+        type=Path,
+        help="optional already-downloaded pinned FreeType archive",
+    )
     parser.add_argument("--generator", help="optional CMake generator")
     parser.add_argument(
         "--config",
@@ -4326,7 +4421,10 @@ def main(argv: list[str] | None = None) -> int:
                 "--reuse-build-dir requires --checkpoint n1, n2, n3, or legacy"
             )
         if args.reuse_build_dir and (
-            args.ogre_archive or args.rapidjson_archive or args.generator
+            args.ogre_archive
+            or args.rapidjson_archive
+            or args.freetype_archive
+            or args.generator
         ):
             raise ProbeError(
                 "reused checkpoints cannot change archives or the generator"
@@ -4368,6 +4466,14 @@ def main(argv: list[str] | None = None) -> int:
                 "RapidJSON",
             )
             configure.append(f"-DROR_RAPIDJSON_ARCHIVE={archive}")
+        if args.freetype_archive:
+            freetype_lock = lock["dependencies"]["freetype"]
+            archive = verify_archive(
+                args.freetype_archive,
+                freetype_lock["archive_sha256"],
+                "FreeType",
+            )
+            configure.append(f"-DROR_FREETYPE_ARCHIVE={archive}")
 
         if not args.reuse_build_dir:
             run(configure)

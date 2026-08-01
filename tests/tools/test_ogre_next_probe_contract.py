@@ -152,7 +152,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
         }
 
     def test_exact_upstream_and_dependency_pins(self) -> None:
-        self.assertEqual(self.lock["schema_version"], 3)
+        self.assertEqual(self.lock["schema_version"], 4)
         self.assertEqual(
             self.lock["commit"],
             "37149a802de747f6806996fa3067b0748ecc1084",
@@ -176,6 +176,26 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertEqual(
             self.lock["dependencies"]["rapidjson"]["compiled_headers_spdx"],
             "MIT",
+        )
+        freetype = self.lock["dependencies"]["freetype"]
+        self.assertEqual(freetype["version"], "2.14.3")
+        self.assertEqual(
+            freetype["archive_sha256"],
+            "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
+        )
+        self.assertEqual(freetype["selected_license_spdx"], "GPL-2.0-or-later")
+        self.assertEqual(
+            freetype["package_license_path"],
+            "licenses/FreeType-GPLv2.txt",
+        )
+        self.assertEqual(
+            freetype["package_overview_path"],
+            "licenses/FreeType-LICENSE.txt",
+        )
+        self.assertTrue(freetype["static_link"])
+        self.assertEqual(
+            freetype["disabled_optional_dependencies"],
+            ["BZip2", "Brotli", "HarfBuzz", "PNG", "ZLIB"],
         )
         shader_media = self.lock["shader_media"]
         self.assertEqual(
@@ -450,6 +470,32 @@ class OgreNextProbeContractTests(unittest.TestCase):
         PROBE.validate_build_contract(
             current_contract, self.lock, self.policy
         )
+        current_contract["schema_version"] = 5
+        freetype = self.lock["dependencies"]["freetype"]
+        current_contract["dependencies"]["freetype"] = {
+            "repository": freetype["repository"],
+            "version": freetype["version"],
+            "archive_url": freetype["archive_url"],
+            "archive_sha256": freetype["archive_sha256"],
+            "license_expression": freetype["license_expression"],
+            "selected_license_spdx": freetype["selected_license_spdx"],
+            "license_path": freetype["license_path"],
+            "license_sha256": freetype["license_sha256"],
+            "package_license_path": freetype["package_license_path"],
+            "overview_path": freetype["overview_path"],
+            "overview_sha256": freetype["overview_sha256"],
+            "package_overview_path": freetype["package_overview_path"],
+            "target": "freetype",
+            "target_type": "STATIC_LIBRARY",
+            "static_link": True,
+            "overlay_link_target": True,
+            "disabled_optional_dependencies": copy.deepcopy(
+                freetype["disabled_optional_dependencies"]
+            ),
+        }
+        PROBE.validate_build_contract(
+            current_contract, self.lock, self.policy
+        )
         for name, mutate in (
             (
                 "simd",
@@ -459,6 +505,12 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 "license",
                 lambda value: value["dependencies"]["rapidjson"].update(
                     source_archive_license_spdx="MIT"
+                ),
+            ),
+            (
+                "freetype_license",
+                lambda value: value["dependencies"]["freetype"].update(
+                    selected_license_spdx="FTL"
                 ),
             ),
             (
@@ -487,18 +539,56 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertIn("if (TARGET OgreMain)", pinned_cmake)
         self.assertIn("URL_HASH \"SHA256=${ROR_OGRE_NEXT_ARCHIVE_SHA256}\"", cmake)
         self.assertIn("URL_HASH \"SHA256=${ROR_RAPIDJSON_ARCHIVE_SHA256}\"", cmake)
+        self.assertIn("URL_HASH \"SHA256=${ROR_FREETYPE_ARCHIVE_SHA256}\"", cmake)
         self.assertIn("FETCHCONTENT_SOURCE_DIR_OGRE_NEXT", cmake)
         self.assertIn("FETCHCONTENT_SOURCE_DIR_RAPIDJSON", cmake)
+        self.assertIn("FETCHCONTENT_SOURCE_DIR_ROR_FREETYPE", cmake)
+        self.assertIn("FetchContent_MakeAvailable(ror_freetype)", cmake)
+        self.assertIn("set(FREETYPE_LIBRARIES freetype", cmake)
+        self.assertIn("get_target_property(ROR_FREETYPE_TARGET_TYPE", cmake)
+        self.assertIn(
+            "OgreNextOverlay does not link the pinned FreeType", cmake
+        )
+        self.assertIn("OGRE-Next selected a host FreeType", cmake)
+        for option in (
+            "FT_DISABLE_ZLIB",
+            "FT_DISABLE_BZIP2",
+            "FT_DISABLE_PNG",
+            "FT_DISABLE_HARFBUZZ",
+            "FT_DISABLE_BROTLI",
+        ):
+            with self.subTest(freetype_option=option):
+                self.assertIn(f"set({option} ON", cmake)
         self.assertIn("SHADERC ROR_GLSLANG_SOURCE", cmake)
         self.assertNotIn("ROR_SHADERC_SOURCE ROR_GLSLANG_SOURCE", cmake)
         self.assertLess(
             cmake.index("_ror_fresh_configure_guard"),
             cmake.index("FetchContent_Declare(\n    rapidjson"),
         )
+        self.assertLess(
+            cmake.index("_ror_fresh_configure_guard"),
+            cmake.index("FetchContent_Declare(\n    ror_freetype"),
+        )
         self.assertNotIn(PROBE.BUILD_SENTINEL_NAME, cmake)
         self.assertIn("OgreNextHlmsPbs", cmake)
         self.assertIn("OgreNextHlmsUnlit", cmake)
         self.assertIn("OgreNextOverlay", cmake)
+        required_targets = pinned_cmake[
+            pinned_cmake.index("foreach (_ror_required_target IN ITEMS") :
+            pinned_cmake.index(
+                "endforeach ()",
+                pinned_cmake.index("foreach (_ror_required_target IN ITEMS"),
+            )
+        ]
+        for target in (
+            "OgreNextMain",
+            "OgreNextHlmsPbs",
+            "OgreNextHlmsUnlit",
+            "OgreNextOverlay",
+            "${ROR_OGRE_NEXT_RENDERER_TARGET}",
+        ):
+            with self.subTest(required_target=target):
+                self.assertIn(target, required_targets)
         self.assertIn('CMAKE_BUILD_TYPE STREQUAL "Release"', cmake)
         self.assertIn("_ror_extracted_shader_media_source_sha256", cmake)
         self.assertNotEqual(
@@ -512,6 +602,16 @@ class OgreNextProbeContractTests(unittest.TestCase):
         build_contract = (
             PROBE_DIR / "ogre_next_build_contract.json.in"
         ).read_text(encoding="utf-8")
+        self.assertIn('"schema_version": 5', build_contract)
+        self.assertIn(
+            '"target_type": "@ROR_FREETYPE_TARGET_TYPE@"',
+            build_contract,
+        )
+        self.assertIn(
+            '"overlay_link_target": '
+            "@ROR_FREETYPE_OVERLAY_LINK_TARGET_JSON@",
+            build_contract,
+        )
         self.assertIn("native_ray_tracing\": \"not_evaluated", build_contract)
         self.assertNotIn(
             "ogre_next_probe",
@@ -534,6 +634,12 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertEqual(
             parser.parse_args(["--checkpoint", "n1"]).checkpoint, "n1"
         )
+        self.assertEqual(
+            parser.parse_args(
+                ["--freetype-archive", "/tmp/freetype.tar.xz"]
+            ).freetype_archive,
+            Path("/tmp/freetype.tar.xz"),
+        )
         for config in ("", "Debug", "RelWithDebInfo", "Arbitrary"):
             with self.subTest(config=config):
                 with self.assertRaises(SystemExit):
@@ -550,6 +656,28 @@ class OgreNextProbeContractTests(unittest.TestCase):
             )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("probe is opt-in", result.stdout)
+
+    def test_cmake_rejects_freetype_source_override_before_fetch(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-freetype-override-") as temp:
+            result = subprocess.run(
+                [
+                    "cmake",
+                    "-S",
+                    str(PROBE_DIR),
+                    "-B",
+                    temp,
+                    "-DROR_OGRE_NEXT_PROBE=ON",
+                    "-DCMAKE_BUILD_TYPE=Release",
+                    "-DFETCHCONTENT_SOURCE_DIR_ROR_FREETYPE=untrusted-source",
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("FETCHCONTENT_SOURCE_DIR_ROR_FREETYPE", result.stdout)
+        self.assertIn("bypasses archive verification", result.stdout)
 
     def test_lock_is_canonical_json(self) -> None:
         text = LOCK_PATH.read_text(encoding="utf-8")

@@ -86,6 +86,16 @@ RT4_ATTESTATION_ARTIFACT = (
     "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json"
 )
 RT4_PACKAGE_EXECUTABLE_STEM = "ror_ogre_next_frontend_n1_smoke"
+FREETYPE_PACKAGE_LICENSE_CONTRACT = (
+    (
+        "licenses/FreeType-GPLv2.txt",
+        "c4120c6752c910c299e3bd9cb3a46ff262c268303ca2069b61f92f10a5656c18",
+    ),
+    (
+        "licenses/FreeType-LICENSE.txt",
+        "bd36c8b474855fa294c2ec5c184544478ef3720aad37d65a6296a4f264fd2d3b",
+    ),
+)
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PINNED_LOCK_PATH = REPOSITORY_ROOT / "tools/ogre_next_probe/ogre-next.lock.json"
 NORMAL_MAP_SOURCE_LOCK_PATH = (
@@ -567,7 +577,7 @@ def _read_pinned_lock() -> dict[str, object]:
     lock = _read_json_object(PINNED_LOCK_PATH, "pinned OGRE-Next lock")
     if (
         type(lock.get("schema_version")) is not int
-        or lock.get("schema_version") != 3
+        or lock.get("schema_version") != 4
         or lock.get("name") != "OGRE-Next"
     ):
         raise ArtifactSetError("pinned OGRE-Next lock identity is invalid")
@@ -614,7 +624,7 @@ def _read_build_contract(
     )
     if (
         type(contract.get("schema_version")) is not int
-        or contract.get("schema_version") != 4
+        or contract.get("schema_version") != 5
         or not isinstance(ror_source, dict)
         or not isinstance(ogre_source, dict)
         or not isinstance(ror_source.get("repository"), str)
@@ -658,6 +668,7 @@ def _read_build_contract(
     lock = _read_pinned_lock()
     policy = PLATFORM_CONTRACTS[platform["policy"]]
     rapidjson = lock.get("dependencies", {}).get("rapidjson", {})
+    freetype = lock.get("dependencies", {}).get("freetype", {})
     lock_abi = lock.get("abi_contract", {})
     expected_abi = {
         key: value for key, value in lock_abi.items() if key != "simd"
@@ -673,6 +684,27 @@ def _read_build_contract(
         }
     )
     expected_dependencies = {
+        "freetype": {
+            "repository": freetype.get("repository"),
+            "version": freetype.get("version"),
+            "archive_url": freetype.get("archive_url"),
+            "archive_sha256": freetype.get("archive_sha256"),
+            "license_expression": freetype.get("license_expression"),
+            "selected_license_spdx": freetype.get("selected_license_spdx"),
+            "license_path": freetype.get("license_path"),
+            "license_sha256": freetype.get("license_sha256"),
+            "package_license_path": freetype.get("package_license_path"),
+            "overview_path": freetype.get("overview_path"),
+            "overview_sha256": freetype.get("overview_sha256"),
+            "package_overview_path": freetype.get("package_overview_path"),
+            "target": "freetype",
+            "target_type": "STATIC_LIBRARY",
+            "static_link": True,
+            "overlay_link_target": True,
+            "disabled_optional_dependencies": freetype.get(
+                "disabled_optional_dependencies"
+            ),
+        },
         "rapidjson": {
             "tag": rapidjson.get("tag"),
             "archive_sha256": rapidjson.get("archive_sha256"),
@@ -744,6 +776,33 @@ def _read_build_contract(
             "OGRE-Next build contract identity mismatch: " + ", ".join(failed)
         )
     return contract
+
+
+def _verify_freetype_package_licenses(
+    root: Path, manifest: list[dict[str, object]]
+) -> None:
+    package_root = root / "ror-ogre-next-n1-package"
+    for relative, expected_sha256 in FREETYPE_PACKAGE_LICENSE_CONTRACT:
+        path = package_root / relative
+        artifact_relative = f"ror-ogre-next-n1-package/{relative}"
+        if path.is_symlink() or not path.is_file():
+            raise ArtifactSetError(
+                f"FreeType package license is missing or indirect: {relative}"
+            )
+        size = path.stat().st_size
+        if size <= 0:
+            raise ArtifactSetError(f"FreeType package license is empty: {relative}")
+        if sha256_file(path) != expected_sha256:
+            raise ArtifactSetError(
+                f"FreeType package license hash mismatch: {relative}"
+            )
+        manifest.append(
+            {
+                "path": artifact_relative,
+                "bytes": size,
+                "sha256": expected_sha256,
+            }
+        )
 
 
 def _is_positive_int(value: object) -> bool:
@@ -4230,6 +4289,7 @@ def verify_artifact_set(
     build_contract = _read_build_contract(root, expected_source)
     _verify_pssm(root, manifest, build_contract)
     _verify_rt4(root, manifest, build_contract)
+    _verify_freetype_package_licenses(root, manifest)
     if verify_metal_n2_evidence:
         _verify_metal_n2(root, manifest, build_contract)
     if verify_metal_n3_evidence:

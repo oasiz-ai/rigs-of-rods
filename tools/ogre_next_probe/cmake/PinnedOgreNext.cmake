@@ -82,6 +82,38 @@ string(JSON ROR_RAPIDJSON_LICENSE_SPDX GET "${_ror_lock_json}" dependencies rapi
 string(JSON ROR_RAPIDJSON_COMPILED_HEADERS_SPDX GET "${_ror_lock_json}" dependencies rapidjson compiled_headers_spdx)
 string(JSON ROR_RAPIDJSON_LICENSE_PATH GET "${_ror_lock_json}" dependencies rapidjson license_path)
 string(JSON ROR_RAPIDJSON_LICENSE_SHA256 GET "${_ror_lock_json}" dependencies rapidjson license_sha256)
+string(JSON ROR_FREETYPE_REPOSITORY GET "${_ror_lock_json}" dependencies freetype repository)
+string(JSON ROR_FREETYPE_VERSION GET "${_ror_lock_json}" dependencies freetype version)
+string(JSON ROR_FREETYPE_ARCHIVE_URL GET "${_ror_lock_json}" dependencies freetype archive_url)
+string(JSON ROR_FREETYPE_ARCHIVE_SHA256 GET "${_ror_lock_json}" dependencies freetype archive_sha256)
+string(JSON ROR_FREETYPE_LICENSE_EXPRESSION GET "${_ror_lock_json}" dependencies freetype license_expression)
+string(JSON ROR_FREETYPE_SELECTED_LICENSE_SPDX GET "${_ror_lock_json}" dependencies freetype selected_license_spdx)
+string(JSON ROR_FREETYPE_LICENSE_PATH GET "${_ror_lock_json}" dependencies freetype license_path)
+string(JSON ROR_FREETYPE_LICENSE_SHA256 GET "${_ror_lock_json}" dependencies freetype license_sha256)
+string(JSON ROR_FREETYPE_PACKAGE_LICENSE_PATH GET "${_ror_lock_json}" dependencies freetype package_license_path)
+string(JSON ROR_FREETYPE_OVERVIEW_PATH GET "${_ror_lock_json}" dependencies freetype overview_path)
+string(JSON ROR_FREETYPE_OVERVIEW_SHA256 GET "${_ror_lock_json}" dependencies freetype overview_sha256)
+string(JSON ROR_FREETYPE_PACKAGE_OVERVIEW_PATH GET "${_ror_lock_json}" dependencies freetype package_overview_path)
+string(JSON ROR_FREETYPE_STATIC_LINK_TYPE TYPE "${_ror_lock_json}" dependencies freetype static_link)
+string(JSON ROR_FREETYPE_STATIC_LINK GET "${_ror_lock_json}" dependencies freetype static_link)
+string(JSON ROR_FREETYPE_DISABLED_DEPENDENCIES_TYPE TYPE
+    "${_ror_lock_json}" dependencies freetype disabled_optional_dependencies)
+string(JSON ROR_FREETYPE_DISABLED_DEPENDENCY_COUNT LENGTH
+    "${_ror_lock_json}" dependencies freetype disabled_optional_dependencies)
+set(ROR_FREETYPE_DISABLED_DEPENDENCIES "")
+if (ROR_FREETYPE_DISABLED_DEPENDENCY_COUNT GREATER 0)
+    math(EXPR _ror_freetype_disabled_dependency_last
+        "${ROR_FREETYPE_DISABLED_DEPENDENCY_COUNT} - 1")
+    foreach (_ror_freetype_dependency_index RANGE 0
+            ${_ror_freetype_disabled_dependency_last})
+        string(JSON _ror_freetype_disabled_dependency GET
+            "${_ror_lock_json}" dependencies freetype
+            disabled_optional_dependencies
+            ${_ror_freetype_dependency_index})
+        list(APPEND ROR_FREETYPE_DISABLED_DEPENDENCIES
+            "${_ror_freetype_disabled_dependency}")
+    endforeach ()
+endif ()
 
 # RT4's first normal-map slice is coupled to exact upstream shader,
 # datablock, and pixel-format owners. The whole-file digest makes duplicate
@@ -293,7 +325,7 @@ string(JSON ROR_LINUX_SPIRV_REFLECT_HEADER_PATH GET
 string(JSON ROR_LINUX_SPIRV_REFLECT_HEADER_SHA256 GET
     "${_ror_linux_toolchain_lock_json}" ogre_embedded_components spirv_reflect header_sha256)
 
-if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 3 OR
+if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 4 OR
         NOT ROR_OGRE_NEXT_REPOSITORY STREQUAL
         "https://github.com/OGRECave/ogre-next" OR
         NOT ROR_OGRE_NEXT_BRANCH STREQUAL "v3-0" OR
@@ -391,6 +423,34 @@ if (NOT ROR_RAPIDJSON_REPOSITORY STREQUAL
         "a140e5d46fe734a1c78f1a3c3ef207871dd75648be71fdda8e309b23ab8b1f32")
     message(FATAL_ERROR "The reviewed RapidJSON pin or license contract changed")
 endif ()
+if (NOT ROR_FREETYPE_REPOSITORY STREQUAL
+        "https://gitlab.freedesktop.org/freetype/freetype" OR
+        NOT ROR_FREETYPE_VERSION STREQUAL "2.14.3" OR
+        NOT ROR_FREETYPE_ARCHIVE_URL STREQUAL
+        "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz" OR
+        NOT ROR_FREETYPE_ARCHIVE_SHA256 STREQUAL
+        "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f" OR
+        NOT ROR_FREETYPE_LICENSE_EXPRESSION STREQUAL
+        "FTL OR GPL-2.0-or-later" OR
+        NOT ROR_FREETYPE_SELECTED_LICENSE_SPDX STREQUAL
+        "GPL-2.0-or-later" OR
+        NOT ROR_FREETYPE_LICENSE_PATH STREQUAL "docs/GPLv2.TXT" OR
+        NOT ROR_FREETYPE_LICENSE_SHA256 STREQUAL
+        "c4120c6752c910c299e3bd9cb3a46ff262c268303ca2069b61f92f10a5656c18" OR
+        NOT ROR_FREETYPE_PACKAGE_LICENSE_PATH STREQUAL
+        "licenses/FreeType-GPLv2.txt" OR
+        NOT ROR_FREETYPE_OVERVIEW_PATH STREQUAL "LICENSE.TXT" OR
+        NOT ROR_FREETYPE_OVERVIEW_SHA256 STREQUAL
+        "bd36c8b474855fa294c2ec5c184544478ef3720aad37d65a6296a4f264fd2d3b" OR
+        NOT ROR_FREETYPE_PACKAGE_OVERVIEW_PATH STREQUAL
+        "licenses/FreeType-LICENSE.txt" OR
+        NOT ROR_FREETYPE_STATIC_LINK_TYPE STREQUAL "BOOLEAN" OR
+        NOT ROR_FREETYPE_STATIC_LINK OR
+        NOT ROR_FREETYPE_DISABLED_DEPENDENCIES_TYPE STREQUAL "ARRAY" OR
+        NOT "${ROR_FREETYPE_DISABLED_DEPENDENCIES}" STREQUAL
+        "BZip2;Brotli;HarfBuzz;PNG;ZLIB")
+    message(FATAL_ERROR "The reviewed FreeType pin or license contract changed")
+endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_PATCH_PATH}"
     _ror_patch_sha256)
@@ -449,6 +509,8 @@ set(ROR_OGRE_NEXT_ARCHIVE "" CACHE FILEPATH
     "Optional local copy of the pinned OGRE-Next archive")
 set(ROR_RAPIDJSON_ARCHIVE "" CACHE FILEPATH
     "Optional local copy of the pinned RapidJSON archive")
+set(ROR_FREETYPE_ARCHIVE "" CACHE FILEPATH
+    "Optional local copy of the pinned FreeType archive")
 set(ROR_OGRE_NEXT_SHADERC_ARCHIVE "" CACHE FILEPATH
     "Optional local copy of the pinned shaderc source archive")
 set(ROR_OGRE_NEXT_GLSLANG_ARCHIVE "" CACHE FILEPATH
@@ -466,6 +528,11 @@ if (DEFINED FETCHCONTENT_SOURCE_DIR_RAPIDJSON AND
         NOT FETCHCONTENT_SOURCE_DIR_RAPIDJSON STREQUAL "")
     message(FATAL_ERROR
         "FETCHCONTENT_SOURCE_DIR_RAPIDJSON bypasses archive verification and is prohibited")
+endif ()
+if (DEFINED FETCHCONTENT_SOURCE_DIR_ROR_FREETYPE AND
+        NOT FETCHCONTENT_SOURCE_DIR_ROR_FREETYPE STREQUAL "")
+    message(FATAL_ERROR
+        "FETCHCONTENT_SOURCE_DIR_ROR_FREETYPE bypasses archive verification and is prohibited")
 endif ()
 foreach (_ror_content_name IN ITEMS
         SHADERC ROR_GLSLANG_SOURCE ROR_SPIRV_TOOLS_SOURCE
@@ -543,6 +610,22 @@ if (ROR_RAPIDJSON_ARCHIVE)
     set(_ror_rapidjson_url "${ROR_RAPIDJSON_ARCHIVE}")
 else ()
     set(_ror_rapidjson_url "${ROR_RAPIDJSON_ARCHIVE_URL}")
+endif ()
+if (ROR_FREETYPE_ARCHIVE)
+    if (NOT EXISTS "${ROR_FREETYPE_ARCHIVE}")
+        message(FATAL_ERROR
+            "Pinned FreeType archive does not exist: ${ROR_FREETYPE_ARCHIVE}")
+    endif ()
+    file(SHA256 "${ROR_FREETYPE_ARCHIVE}" _ror_local_freetype_sha256)
+    if (NOT _ror_local_freetype_sha256 STREQUAL
+            ROR_FREETYPE_ARCHIVE_SHA256)
+        message(FATAL_ERROR
+            "Pinned FreeType SHA-256 mismatch: expected "
+            "${ROR_FREETYPE_ARCHIVE_SHA256}, got ${_ror_local_freetype_sha256}")
+    endif ()
+    set(_ror_freetype_url "${ROR_FREETYPE_ARCHIVE}")
+else ()
+    set(_ror_freetype_url "${ROR_FREETYPE_ARCHIVE_URL}")
 endif ()
 
 if (APPLE)
@@ -934,6 +1017,63 @@ if (NOT _ror_extracted_rapidjson_license_sha256 STREQUAL ROR_RAPIDJSON_LICENSE_S
 endif ()
 set(Rapidjson_HOME "${rapidjson_SOURCE_DIR}" CACHE PATH "" FORCE)
 
+# Overlay is part of the cross-platform HDR/UI-isolation contract. Build one
+# reviewed static FreeType closure on every host instead of accepting an
+# unstaged Homebrew/distro library or relying on an unpopulated Windows vcpkg
+# cache. Optional codecs and shaping libraries are disabled so the closure is
+# identical and self-contained on Metal, D3D11, and Vulkan.
+set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+set(FT_ENABLE_ERROR_STRINGS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    ror_freetype
+    URL "${_ror_freetype_url}"
+    URL_HASH "SHA256=${ROR_FREETYPE_ARCHIVE_SHA256}"
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(ror_freetype)
+if (NOT TARGET freetype OR BUILD_SHARED_LIBS OR
+        NOT FT_DISABLE_ZLIB OR NOT FT_DISABLE_BZIP2 OR
+        NOT FT_DISABLE_PNG OR NOT FT_DISABLE_HARFBUZZ OR
+        NOT FT_DISABLE_BROTLI)
+    message(FATAL_ERROR "The pinned static FreeType closure changed")
+endif ()
+get_target_property(ROR_FREETYPE_TARGET_TYPE freetype TYPE)
+if (NOT ROR_FREETYPE_TARGET_TYPE STREQUAL "STATIC_LIBRARY")
+    message(FATAL_ERROR
+        "The pinned FreeType target is not a derived static library")
+endif ()
+set(ROR_FREETYPE_STATIC_LINK_JSON true)
+file(SHA256
+    "${ror_freetype_SOURCE_DIR}/${ROR_FREETYPE_LICENSE_PATH}"
+    _ror_extracted_freetype_license_sha256)
+file(SHA256
+    "${ror_freetype_SOURCE_DIR}/${ROR_FREETYPE_OVERVIEW_PATH}"
+    _ror_extracted_freetype_overview_sha256)
+if (NOT _ror_extracted_freetype_license_sha256 STREQUAL
+        ROR_FREETYPE_LICENSE_SHA256 OR
+        NOT _ror_extracted_freetype_overview_sha256 STREQUAL
+        ROR_FREETYPE_OVERVIEW_SHA256)
+    message(FATAL_ERROR
+        "The extracted FreeType license contract does not match the pin")
+endif ()
+
+# Ogre-Next v3-0 uses its legacy FindFreetype module. Seed that interface with
+# the source-owned target and generated/source include roots so its dependency
+# option resolves to this target without probing a host library.
+set(FREETYPE_HOME "${ror_freetype_SOURCE_DIR}" CACHE PATH "" FORCE)
+set(FREETYPE_FOUND TRUE CACHE BOOL "" FORCE)
+set(FREETYPE_INCLUDE_DIR "${ror_freetype_SOURCE_DIR}/include"
+    CACHE PATH "" FORCE)
+set(FREETYPE_FT2BUILD_INCLUDE_DIR "${ror_freetype_SOURCE_DIR}/include"
+    CACHE PATH "" FORCE)
+set(FREETYPE_INCLUDE_DIRS
+    "${ror_freetype_BINARY_DIR}/include;${ror_freetype_SOURCE_DIR}/include"
+    CACHE STRING "" FORCE)
+set(FREETYPE_LIBRARIES freetype CACHE STRING "" FORCE)
+
 set(_ror_ogre_next_patch_paths
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}")
@@ -954,6 +1094,43 @@ FetchContent_Declare(
         ${_ror_ogre_next_patch_paths}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(ogre_next)
+
+# Ogre-Next's legacy finder is allowed to populate diagnostic cache entries,
+# but the actual include and link interfaces must remain entirely source-owned.
+if (NOT "${FREETYPE_LIBRARIES}" STREQUAL "freetype" OR
+        NOT FREETYPE_INCLUDE_DIRS)
+    message(FATAL_ERROR
+        "OGRE-Next did not retain the source-owned FreeType interface")
+endif ()
+foreach (_ror_freetype_include IN LISTS FREETYPE_INCLUDE_DIRS)
+    cmake_path(IS_PREFIX ror_freetype_SOURCE_DIR
+        "${_ror_freetype_include}" NORMALIZE _ror_include_in_freetype_source)
+    cmake_path(IS_PREFIX ror_freetype_BINARY_DIR
+        "${_ror_freetype_include}" NORMALIZE _ror_include_in_freetype_binary)
+    if (NOT _ror_include_in_freetype_source AND
+            NOT _ror_include_in_freetype_binary)
+        message(FATAL_ERROR
+            "OGRE-Next selected a host FreeType include directory: "
+            "${_ror_freetype_include}")
+    endif ()
+endforeach ()
+get_target_property(_ror_overlay_link_libraries OgreNextOverlay LINK_LIBRARIES)
+list(FIND _ror_overlay_link_libraries freetype _ror_overlay_freetype_index)
+if (_ror_overlay_freetype_index LESS 0)
+    message(FATAL_ERROR
+        "OgreNextOverlay does not link the pinned FreeType target")
+endif ()
+foreach (_ror_overlay_link_library IN LISTS _ror_overlay_link_libraries)
+    string(TOLOWER "${_ror_overlay_link_library}"
+        _ror_overlay_link_library_lower)
+    if (_ror_overlay_link_library_lower MATCHES "freetype" AND
+            NOT _ror_overlay_link_library STREQUAL "freetype")
+        message(FATAL_ERROR
+            "OgreNextOverlay selected an unpinned FreeType link input: "
+            "${_ror_overlay_link_library}")
+    endif ()
+endforeach ()
+set(ROR_FREETYPE_OVERLAY_LINK_TARGET_JSON true)
 
 file(SHA256
     "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_IBL_PATCH_SOURCE_PATH}"
@@ -1008,6 +1185,10 @@ set(ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE
     "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_LICENSE_PATH}")
 set(ROR_OGRE_NEXT_PACKAGE_RAPIDJSON_LICENSE_SOURCE
     "${rapidjson_SOURCE_DIR}/${ROR_RAPIDJSON_LICENSE_PATH}")
+set(ROR_OGRE_NEXT_PACKAGE_FREETYPE_LICENSE_SOURCE
+    "${ror_freetype_SOURCE_DIR}/${ROR_FREETYPE_LICENSE_PATH}")
+set(ROR_OGRE_NEXT_PACKAGE_FREETYPE_OVERVIEW_SOURCE
+    "${ror_freetype_SOURCE_DIR}/${ROR_FREETYPE_OVERVIEW_PATH}")
 set(ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE
     "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_SOURCE_PATH}")
 file(SHA256 "${ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE}"
@@ -1045,7 +1226,11 @@ if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
 endif ()
 
 foreach (_ror_required_target IN ITEMS
-        OgreNextMain OgreNextHlmsPbs ${ROR_OGRE_NEXT_RENDERER_TARGET})
+        OgreNextMain
+        OgreNextHlmsPbs
+        OgreNextHlmsUnlit
+        OgreNextOverlay
+        ${ROR_OGRE_NEXT_RENDERER_TARGET})
     if (NOT TARGET ${_ror_required_target})
         message(FATAL_ERROR
             "Required OGRE-Next capability target is unavailable: "
@@ -1054,6 +1239,8 @@ foreach (_ror_required_target IN ITEMS
 endforeach ()
 
 if (NOT OGRE_STATIC OR NOT OGRE_USE_NEW_PROJECT_NAME OR OGRE_CONFIG_DOUBLE OR
-        NOT OGRE_BUILD_COMPONENT_HLMS_PBS)
+        NOT OGRE_BUILD_COMPONENT_HLMS_PBS OR
+        NOT OGRE_BUILD_COMPONENT_HLMS_UNLIT OR
+        NOT OGRE_BUILD_COMPONENT_OVERLAY)
     message(FATAL_ERROR "OGRE-Next changed a required ABI/capability option")
 endif ()
