@@ -102,6 +102,15 @@ public:
       std::uint64_t frame_id, std::uint64_t snapshot_id,
       const std::vector<OgreNextN2FrameGeometryBinding> &geometry,
       const std::vector<OgreNextN3FrameImageBinding> &images = {}) = 0;
+  virtual RenderOperationResult PreparePublishFrame(
+      std::uint64_t frame_id, std::uint64_t snapshot_id,
+      const std::vector<OgreNextN2FrameGeometryBinding> &geometry,
+      const std::vector<OgreNextN3FrameImageBinding> &images = {}) = 0;
+  [[nodiscard]] virtual bool CanCommitPreparedFrame(
+      std::uint64_t frame_id,
+      std::uint64_t snapshot_id) const noexcept = 0;
+  virtual void CommitPreparedFrame() noexcept = 0;
+  virtual void AbortPreparedFrame() noexcept = 0;
   virtual RenderOperationResult DiscardPublishedFrame() = 0;
 
   virtual RenderOperationResult ArmExternalCompletion(

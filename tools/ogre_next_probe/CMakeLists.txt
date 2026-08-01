@@ -329,7 +329,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre_next_frontend_n1 STATIC
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
-        "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp")
+        "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextReflectionProbeRuntime.cpp")
     if (APPLE)
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_METAL=1)
         target_sources(
@@ -1032,12 +1033,16 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
         "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-report.json")
     set(ROR_OGRE_NEXT_RT4_PBR_EVIDENCE
         "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin")
+    set(ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin")
     set(ROR_OGRE_NEXT_RT4_PBR_CTEST_IMAGE
         "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-ctest.ppm")
     set(ROR_OGRE_NEXT_RT4_PBR_CTEST_REPORT
         "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-ctest-report.json")
     set(ROR_OGRE_NEXT_RT4_PBR_CTEST_EVIDENCE
         "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-ctest-isolation.bin")
+    set(ROR_OGRE_NEXT_RT4_PBR_CTEST_REFLECTION_EVIDENCE
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-ctest-reflection.bin")
     add_custom_target(
         ror_ogre_next_frontend_n1_report
         COMMAND
@@ -1047,6 +1052,7 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "${ROR_OGRE_NEXT_RT4_PBR_IMAGE}"
             "${ROR_OGRE_NEXT_RT4_PBR_REPORT}"
             "${ROR_OGRE_NEXT_RT4_PBR_EVIDENCE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
         COMMAND
             "${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"
             --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
@@ -1059,6 +1065,8 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             --output "${ROR_OGRE_NEXT_RT4_PBR_IMAGE}"
             --report "${ROR_OGRE_NEXT_RT4_PBR_REPORT}"
             --evidence "${ROR_OGRE_NEXT_RT4_PBR_EVIDENCE}"
+            --reflection-evidence
+                "${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
         DEPENDS ror_ogre_next_frontend_n1_package
         BYPRODUCTS
             "${ROR_OGRE_NEXT_N1_IMAGE}"
@@ -1066,6 +1074,7 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "${ROR_OGRE_NEXT_RT4_PBR_IMAGE}"
             "${ROR_OGRE_NEXT_RT4_PBR_REPORT}"
             "${ROR_OGRE_NEXT_RT4_PBR_EVIDENCE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
         COMMENT "Running isolated Ogre-Next N1 and RT4/V1 HDR/SDR frontend smokes"
         VERBATIM)
     add_test(NAME ror_ogre_next_frontend_n1_runtime
@@ -1081,7 +1090,9 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
                 --modern-pbr
                 --output "${ROR_OGRE_NEXT_RT4_PBR_CTEST_IMAGE}"
                 --report "${ROR_OGRE_NEXT_RT4_PBR_CTEST_REPORT}"
-                --evidence "${ROR_OGRE_NEXT_RT4_PBR_CTEST_EVIDENCE}")
+                --evidence "${ROR_OGRE_NEXT_RT4_PBR_CTEST_EVIDENCE}"
+                --reflection-evidence
+                    "${ROR_OGRE_NEXT_RT4_PBR_CTEST_REFLECTION_EVIDENCE}")
     set_tests_properties(
         ror_ogre_next_frontend_rt4_pbr_v1_runtime
         PROPERTIES WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")

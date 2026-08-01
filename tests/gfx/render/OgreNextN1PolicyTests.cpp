@@ -185,7 +185,12 @@ MakeScene(std::uint64_t registry_id, Matrix4x4 transform = Matrix4x4{},
 }
 
 std::shared_ptr<const SceneSnapshot>
-MakeReflectionScene(std::uint64_t registry_id) {
+MakeReflectionScene(
+    std::uint64_t registry_id,
+    std::uint32_t instance_visibility =
+        (std::numeric_limits<std::uint32_t>::max)(),
+    std::uint32_t probe_visibility =
+        (std::numeric_limits<std::uint32_t>::max)()) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = 4U;
   descriptor.asset_registry_id = registry_id;
@@ -195,9 +200,11 @@ MakeReflectionScene(std::uint64_t registry_id) {
   instance.mesh = Ref(RenderAssetKind::MESH, 1U);
   instance.material = Ref(RenderAssetKind::MATERIAL, 2U);
   instance.local_bounds = MakeMesh().local_bounds;
+  instance.visibility_mask = instance_visibility;
   descriptor.mesh_instances.push_back(instance);
   ReflectionProbeRuntimeDescriptor probe;
   probe.probe_id = 1U;
+  probe.visibility_mask = probe_visibility;
   descriptor.reflection_probes.push_back(probe);
   SceneSnapshotCreateResult result = CreateSceneSnapshot(std::move(descriptor));
   Require(result.ok(), "reflection-probe policy fixture is invalid");
@@ -258,7 +265,17 @@ void TestLifetimeSubmissionState() {
   OgreNextN1SubmissionState state;
   RenderFrameRequest request = MakeFrame(first_scene);
   Require(state.Validate(request).ok(), "first submission identity was rejected");
-  state.Commit(request);
+  Require(state.PrepareCommit(request).ok() &&
+              state.CanCommitPrepared(request),
+          "first submission could not be prepared atomically");
+  state.AbortPrepared();
+  Require(!state.IsFrameComplete(1U) &&
+              state.TrackedSnapshotIdentityCount() == 0U,
+          "aborted submission leaked completion or snapshot identity state");
+  Require(state.PrepareCommit(request).ok() &&
+              state.CanCommitPrepared(request),
+          "aborted submission could not be retried with the same identity");
+  state.CommitPrepared(request);
   Require(state.IsFrameComplete(1U), "committed synchronous frame is incomplete");
 
   request.frame_id = 2U;
@@ -287,7 +304,10 @@ void TestLifetimeSubmissionState() {
   request.frame_id = 4U;
   Require(state.Validate(request).ok(),
           "exact older snapshot replay was rejected");
-  state.Commit(request);
+  Require(state.PrepareCommit(request).ok() &&
+              state.CanCommitPrepared(request),
+          "exact older snapshot replay failed prepared-commit validation");
+  state.CommitPrepared(request);
 
   aliased.frame_id = 5U;
   Require(state.Validate(aliased).code == RenderOperationCode::RESOURCE_STALE,
@@ -758,12 +778,41 @@ void TestFrameAndScenePolicy() {
           "valid static PBR colour frame was rejected");
 
   request = MakeFrame(MakeReflectionScene(kRegistryId));
-  const ValidationResult reflection_validation =
-      ValidateOgreNextN1Frame(request, capabilities, registry,
-                              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1);
-  Require(reflection_validation.code == ValidationCode::UNSUPPORTED_FEATURE &&
-              reflection_validation.field == "reflection_probes",
-          "authored probes were silently ignored before native PCC publication");
+  const ValidationResult legacy_reflection_validation =
+      ValidateOgreNextN1Frame(request, capabilities, registry);
+  Require(legacy_reflection_validation.code ==
+              ValidationCode::UNSUPPORTED_FEATURE &&
+              legacy_reflection_validation.field == "reflection_probes",
+          "legacy N1 silently admitted authored reflection probes");
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1)
+              .ok(),
+          "RT4/V1 rejected its native reflection-probe contract");
+
+  request = MakeFrame(MakeReflectionScene(
+      kRegistryId, (1U << 29U) | 1U,
+      (std::numeric_limits<std::uint32_t>::max)()));
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1)
+              .field == "mesh_instances.visibility_mask",
+          "RT4/V1 admitted an authored item mask that aliases PCC proxy state");
+  request = MakeFrame(MakeReflectionScene(
+      kRegistryId, (std::numeric_limits<std::uint32_t>::max)(),
+      (1U << 28U) | 1U));
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1)
+              .field == "reflection_probes.visibility_mask",
+          "RT4/V1 admitted an authored probe mask that aliases PCC capture state");
+  request = MakeFrame(MakeReflectionScene(kRegistryId));
+  request.views.front().visibility_mask = (1U << 29U) | 1U;
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1)
+              .field == "views.visibility_mask",
+          "RT4/V1 admitted a view mask that aliases PCC proxy state");
 
   SceneSnapshotDescriptor lit_descriptor;
   lit_descriptor.snapshot_id = 2U;

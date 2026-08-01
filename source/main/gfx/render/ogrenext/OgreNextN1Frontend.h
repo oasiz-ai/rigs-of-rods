@@ -21,6 +21,10 @@
 namespace RoR::Render {
 
 enum class OgreNextNativeFeatureTier : std::uint8_t;
+struct OgreNextReflectionProbeAudit;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+struct OgreNextReflectionProbeCaptureEvidence;
+#endif
 
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
 /// Isolated native-smoke fault seam; never compiled into the production RoR
@@ -59,6 +63,7 @@ struct OgreNextN1Configuration final {
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
   OgreNextN1TextureUploadFailureStage texture_upload_failure_stage =
       OgreNextN1TextureUploadFailureStage::NONE;
+  bool retain_reflection_capture_evidence = false;
 #endif
 };
 
@@ -104,9 +109,13 @@ public:
   [[nodiscard]] FrontendCapabilityReport QueryCapabilities() const override;
   [[nodiscard]] OgreNextN1TextureAllocationAudit
   QueryTextureAllocationAudit() const noexcept;
+  [[nodiscard]] OgreNextReflectionProbeAudit
+  QueryReflectionProbeAudit() const noexcept;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
   [[nodiscard]] OgreNextN1NormalUploadAudit
   QueryNormalUploadAudit() const noexcept;
+  [[nodiscard]] OgreNextReflectionProbeCaptureEvidence
+  QueryReflectionProbeCaptureEvidence() const;
 #endif
   RenderOperationResult
   Initialize(const FrontendInitializationRequest &request) override;

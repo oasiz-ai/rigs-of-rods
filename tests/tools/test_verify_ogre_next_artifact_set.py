@@ -136,6 +136,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             VERIFY.RT4_REPORT_ARTIFACT,
             VERIFY.RT4_PPM_ARTIFACT,
             VERIFY.RT4_ISOLATION_ARTIFACT,
+            VERIFY.RT4_REFLECTION_ARTIFACT,
             VERIFY.RT4_ATTESTATION_ARTIFACT,
         }
         for name in VERIFY.REQUIRED_ARTIFACTS[1:]:
@@ -272,8 +273,114 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             ),
         }
 
+        raw_pixels = VERIFY.RT4_REFLECTION_RAW_BYTES // 8
+        filtered_pixels = VERIFY.RT4_REFLECTION_FILTERED_BYTES // 8
+        reflection_raw = (
+            struct.pack("<4e", 1.0, 0.5, 0.25, 0.75) * (raw_pixels - 1)
+            + struct.pack("<4e", 0.25, 1.0, 0.5, 0.25)
+        )
+        reflection_filtered = (
+            struct.pack("<4e", 0.75, 0.375, 0.125, 1.0)
+            * (filtered_pixels - 1)
+            + struct.pack("<4e", 0.125, 0.75, 0.375, 1.0)
+        )
+        reflection_payload = reflection_raw + reflection_filtered
+        reflection_slices: list[dict[str, object]] = []
+        reflection_offset = 0
+        for texture, dimensions in (
+            ("raw", (VERIFY.RT4_REFLECTION_RESOLUTION,)),
+            ("filtered", VERIFY.RT4_REFLECTION_FILTERED_DIMENSIONS),
+        ):
+            for mip, dimension in enumerate(dimensions):
+                slice_bytes = dimension * dimension * 8
+                for face in range(VERIFY.RT4_REFLECTION_FACE_COUNT):
+                    payload = reflection_payload[
+                        reflection_offset : reflection_offset + slice_bytes
+                    ]
+                    reflection_slices.append(
+                        {
+                            "texture": texture,
+                            "mip": mip,
+                            "face": face,
+                            "offset": reflection_offset,
+                            "bytes": slice_bytes,
+                            "sha256": hashlib.sha256(payload).hexdigest(),
+                        }
+                    )
+                    reflection_offset += slice_bytes
+
+        def reflection_section(
+            payload: bytes, section_offset: int, dimensions: list[int]
+        ) -> dict[str, object]:
+            metrics = VERIFY._reflection_half_metrics(payload, "fixture")
+            return {
+                "offset": section_offset,
+                "bytes": len(payload),
+                "face_count": VERIFY.RT4_REFLECTION_FACE_COUNT,
+                "mip_dimensions": dimensions,
+                "exact_fnv1a64": VERIFY._fnv1a64(payload),
+                **metrics,
+            }
+
+        reflection_report = {
+            "schema": VERIFY.RT4_REFLECTION_SCHEMA,
+            "evidence_file": VERIFY.RT4_REFLECTION_ARTIFACT,
+            "evidence_bytes": VERIFY.RT4_REFLECTION_EVIDENCE_BYTES,
+            "backend": "OGRE_NEXT_METAL",
+            "render_system": "Metal Rendering Subsystem",
+            "device_name": "Synthetic GPU",
+            "driver_version": "1.2.3",
+            "pixel_format": "RGBA16_FLOAT",
+            "byte_order": "little_endian",
+            "row_padding_included": False,
+            "subresource_order": (
+                "raw_face_major_then_filtered_mip_major_face_major"
+            ),
+            "ui_included": False,
+            "same_device_exact_replay": True,
+            "capture": {
+                "render_frame_id": 1,
+                "simulation_tick": 1,
+                "probe_id": 1,
+                "content_revision": 1,
+                "candidate_generation": 1,
+                "deterministic_seed": "0123456789abcdef",
+                "resolution": VERIFY.RT4_REFLECTION_RESOLUTION,
+            },
+            "runtime_audit": {
+                "version": 2,
+                "successful_capture_count": 1,
+                "failed_capture_count": 0,
+                "live_probe_count": 1,
+                "blend_resolution": 2048,
+                "blend_texture_ready": True,
+                "committed_state_digest": "1111111111111111",
+                "native_execution_evidence": "2222222222222222",
+                "capture_digest": "3333333333333333",
+                "canonical_filtered_payload_bytes": (
+                    VERIFY.RT4_REFLECTION_FILTERED_BYTES
+                ),
+                "completed_face_count": VERIFY.RT4_REFLECTION_FACE_COUNT,
+                "completed_mip_count": len(
+                    VERIFY.RT4_REFLECTION_FILTERED_DIMENSIONS
+                ),
+                "ui_free_capture": True,
+                "reserved_render_queue_excluded": True,
+            },
+            "raw": reflection_section(
+                reflection_raw, 0, [VERIFY.RT4_REFLECTION_RESOLUTION]
+            ),
+            "filtered": reflection_section(
+                reflection_filtered,
+                VERIFY.RT4_REFLECTION_RAW_BYTES,
+                list(VERIFY.RT4_REFLECTION_FILTERED_DIMENSIONS),
+            ),
+        }
+
         isolation_path = root / VERIFY.RT4_ISOLATION_ARTIFACT
         isolation_path.write_bytes(evidence)
+        reflection_path = root / VERIFY.RT4_REFLECTION_ARTIFACT
+        reflection_path.write_bytes(reflection_payload)
         ppm_pixels = bytes(
             channel
             for pixel_offset in range(0, len(baseline_sdr), 4)
@@ -290,7 +397,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         shader_media = contract["shader_media"]
         notice = shader_media["third_party_notice"]
         report = {
-            "schema": "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1",
+            "schema": VERIFY.RT4_REPORT_SCHEMA,
             "status": "pass",
             "provenance": {
                 "ror_repository": self.ror_repository,
@@ -407,6 +514,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "evidence_bytes": texture_evidence_bytes,
             },
             "tangent_handedness": tangent_handedness,
+            "reflection_probes": reflection_report,
             "texture_retirement": VERIFY.RT4_EXPECTED_RETIREMENT,
             "lifecycle": copy.deepcopy(VERIFY.RT4_EXPECTED_LIFECYCLE),
         }
@@ -510,9 +618,11 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "report": file_entry(report_path),
                 "ppm": file_entry(ppm_path),
                 "isolation": file_entry(isolation_path),
+                "reflection": file_entry(reflection_path),
                 "executable": file_entry(executable_path),
             },
             "isolation_slices": slices,
+            "reflection_slices": reflection_slices,
         }
         (root / VERIFY.RT4_ATTESTATION_ARTIFACT).write_text(
             json.dumps(attestation) + "\n", encoding="utf-8"
@@ -540,6 +650,13 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 start = entry["offset"]
                 end = start + entry["bytes"]
                 entry["sha256"] = hashlib.sha256(payload[start:end]).hexdigest()
+            reflection = (root / VERIFY.RT4_REFLECTION_ARTIFACT).read_bytes()
+            for entry in attestation["reflection_slices"]:
+                start = entry["offset"]
+                end = start + entry["bytes"]
+                entry["sha256"] = hashlib.sha256(
+                    reflection[start:end]
+                ).hexdigest()
         path.write_text(json.dumps(attestation) + "\n", encoding="utf-8")
 
     def write_metal_n2(self, root: Path, status: str) -> None:
@@ -837,6 +954,125 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 VERIFY.ArtifactSetError, "exact hash mismatch"
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rt4_reflection_semantics_are_cross_platform_and_tamper_closed(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-reflection-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            report = json.loads(
+                (root / VERIFY.RT4_REPORT_ARTIFACT).read_text(encoding="utf-8")
+            )
+            contract = self.build_contract()
+            reflection_path = root / VERIFY.RT4_REFLECTION_ARTIFACT
+            renderers = {
+                "macos-arm64-metal": "Metal Rendering Subsystem",
+                "windows-x64-d3d11": "Direct3D11 Rendering Subsystem",
+                "linux-x86_64-vulkan": "Vulkan Rendering Subsystem",
+            }
+            for policy_name, backend in VERIFY.RT4_REFLECTION_BACKENDS.items():
+                with self.subTest(policy=policy_name):
+                    policy_report = copy.deepcopy(report)
+                    policy_contract = copy.deepcopy(contract)
+                    policy_contract["platform"]["policy"] = policy_name
+                    policy_report["renderer"] = renderers[policy_name]
+                    reflection = policy_report["reflection_probes"]
+                    reflection["backend"] = backend
+                    reflection["render_system"] = renderers[policy_name]
+                    slices = VERIFY._verify_rt4_reflection_semantics(
+                        policy_report, reflection_path, policy_contract
+                    )
+                    self.assertEqual(len(slices), 18)
+
+            valid_payload = reflection_path.read_bytes()
+            changed = bytearray(valid_payload)
+            changed[0] ^= 1
+            reflection_path.write_bytes(changed)
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "reflection raw evidence failed"
+            ):
+                VERIFY._verify_rt4_reflection_semantics(
+                    report, reflection_path, contract
+                )
+
+            nonfinite = bytearray(valid_payload)
+            nonfinite[:8] = struct.pack(
+                "<4e", float("nan"), 1.0, 1.0, 1.0
+            )
+            reflection_path.write_bytes(nonfinite)
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "non-finite"
+            ):
+                VERIFY._verify_rt4_reflection_semantics(
+                    report, reflection_path, contract
+                )
+
+            reflection_path.write_bytes(valid_payload + b"\x00")
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "trailing bytes"
+            ):
+                VERIFY._verify_rt4_reflection_semantics(
+                    report, reflection_path, contract
+                )
+
+            mip_one_start = (
+                VERIFY.RT4_REFLECTION_RAW_BYTES
+                + VERIFY.RT4_REFLECTION_RESOLUTION
+                * VERIFY.RT4_REFLECTION_RESOLUTION
+                * VERIFY.RT4_REFLECTION_FACE_COUNT
+                * 8
+            )
+            no_mip_one = valid_payload[:mip_one_start] + bytes(
+                len(valid_payload) - mip_one_start
+            )
+            no_mip_report = copy.deepcopy(report)
+            filtered = no_mip_one[VERIFY.RT4_REFLECTION_RAW_BYTES :]
+            metrics = VERIFY._reflection_half_metrics(filtered, "filtered")
+            filtered_report = no_mip_report["reflection_probes"]["filtered"]
+            filtered_report["exact_fnv1a64"] = VERIFY._fnv1a64(filtered)
+            for key, value in metrics.items():
+                filtered_report[key] = value
+            reflection_path.write_bytes(no_mip_one)
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "subresource coverage"
+            ):
+                VERIFY._verify_rt4_reflection_semantics(
+                    no_mip_report, reflection_path, contract
+                )
+
+    def test_rt4_gate_recomputes_reflection_and_requires_slice_attestation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-reflection-gate-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            reflection_path = root / VERIFY.RT4_REFLECTION_ARTIFACT
+            payload = bytearray(reflection_path.read_bytes())
+            payload[0] ^= 1
+            reflection_path.write_bytes(payload)
+            self.refresh_rt4_attestation(
+                root, ("reflection",), refresh_slices=True
+            )
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "reflection raw evidence failed"
+            ):
+                VERIFY.verify_artifact_set(root)
+
+            self.write_baseline(root)
+            attestation_path = root / VERIFY.RT4_ATTESTATION_ARTIFACT
+            attestation = json.loads(
+                attestation_path.read_text(encoding="utf-8")
+            )
+            attestation["reflection_slices"][7]["sha256"] = "0" * 64
+            attestation_path.write_text(
+                json.dumps(attestation) + "\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError,
+                "reflection SHA-256 slice attestation mismatch",
             ):
                 VERIFY.verify_artifact_set(root)
 

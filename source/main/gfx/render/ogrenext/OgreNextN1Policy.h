@@ -29,6 +29,13 @@ constexpr std::size_t kOgreNextRt4MaximumDirectionalLights = 1U;
 /// direct-sun values inside RGBA16_FLOAT headroom. RT4/V1 adopts that exact,
 /// renderer-independent mapping for its one admitted directional light.
 constexpr float kOgreNextRt4LuxToNativePowerScale = 1.0F / 1024.0F;
+/// Bits reserved by the native PCC adapter. Authored masks are intersected
+/// with the complement before they reach Ogre so probe capture/proxy objects
+/// can never alias caller-defined visibility groups.
+constexpr std::uint32_t kOgreNextRt4InternalVisibilityMask =
+    (1U << 28U) | (1U << 29U);
+constexpr std::uint32_t kOgreNextRt4AuthoredVisibilityMask =
+    ~kOgreNextRt4InternalVisibilityMask;
 /// An 8-bit UNORM channel spans [-1, 1] in steps of 2/255 after canonical
 /// normal decoding. A nearest-quantized authored B channel may therefore
 /// differ from Ogre's reconstructed positive Z by at most half a step.
@@ -62,6 +69,16 @@ class OgreNextN1SubmissionState final {
 public:
   [[nodiscard]] RenderOperationResult
   Validate(const RenderFrameRequest &request) const;
+  /// Performs the only potentially allocating identity insertion before a
+  /// backend frame transaction reaches its no-fail publication point.
+  [[nodiscard]] RenderOperationResult
+  PrepareCommit(const RenderFrameRequest &request);
+  [[nodiscard]] bool
+  CanCommitPrepared(const RenderFrameRequest &request) const noexcept;
+  /// Publishes a request previously accepted by PrepareCommit. This operation
+  /// is allocation-free so it can follow native reflection finalization.
+  void CommitPrepared(const RenderFrameRequest &request) noexcept;
+  void AbortPrepared() noexcept;
   void Commit(const RenderFrameRequest &request);
   [[nodiscard]] bool IsFrameComplete(std::uint64_t frame_id) const noexcept;
   [[nodiscard]] std::size_t TrackedSnapshotIdentityCount() const noexcept;
@@ -69,6 +86,10 @@ public:
 
 private:
   std::map<std::uint64_t, std::weak_ptr<const SceneSnapshot>> snapshots_;
+  std::shared_ptr<const SceneSnapshot> pending_snapshot_;
+  std::uint64_t pending_frame_id_ = 0U;
+  std::uint64_t pending_snapshot_id_ = 0U;
+  bool pending_inserted_snapshot_ = false;
   std::uint64_t last_frame_id_ = 0U;
   std::uint64_t last_snapshot_id_ = 0U;
 };

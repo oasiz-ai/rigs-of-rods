@@ -47,6 +47,19 @@ public:
       std::uint64_t frame_id, std::uint64_t snapshot_id,
       const std::vector<OgreNextN2PublishedGeometry> &geometry,
       const std::vector<OgreNextN3PublishedImage> &images = {});
+  /// Validates and owns a complete replacement without making it observable.
+  /// This is the only allocating phase used by the enclosing render
+  /// transaction.
+  RenderOperationResult PreparePublishFrame(
+      std::uint64_t frame_id, std::uint64_t snapshot_id,
+      const std::vector<OgreNextN2PublishedGeometry> &geometry,
+      const std::vector<OgreNextN3PublishedImage> &images = {});
+  [[nodiscard]] bool CanCommitPreparedFrame(
+      std::uint64_t frame_id, std::uint64_t snapshot_id) const noexcept;
+  /// Atomically swaps the prepared replacement into the public state. Callers
+  /// must prove CanCommitPreparedFrame immediately before this no-fail step.
+  void CommitPreparedFrame() noexcept;
+  void AbortPreparedFrame() noexcept;
   [[nodiscard]] RenderOperationResult CanPublishFrame() const;
   RenderOperationResult DiscardPublishedFrame();
 
@@ -109,15 +122,20 @@ private:
   NativeContextExport context_;
   NativeObjectToken frontend_timeline_;
   std::map<std::uint64_t, NativeGeometryExport> published_geometry_;
+  std::map<std::uint64_t, NativeGeometryExport> prepared_geometry_;
   std::map<std::uint64_t, NativeGeometryExport> geometry_leases_;
   std::map<std::uint64_t, NativeImageExport> published_images_;
+  std::map<std::uint64_t, NativeImageExport> prepared_images_;
   std::map<std::uint64_t, NativeImageExport> image_leases_;
   ActiveFrame active_frame_;
   std::uint64_t published_frame_id_ = 0U;
   std::uint64_t published_snapshot_id_ = 0U;
+  std::uint64_t prepared_frame_id_ = 0U;
+  std::uint64_t prepared_snapshot_id_ = 0U;
   std::uint64_t next_export_id_ = 1U;
   std::uint64_t next_timeline_value_ = 1U;
   bool initialized_ = false;
+  bool prepared_frame_live_ = false;
   bool active_frame_live_ = false;
   bool ray_tracing_backend_registered_ = false;
 };

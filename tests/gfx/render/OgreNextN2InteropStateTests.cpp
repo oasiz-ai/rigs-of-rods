@@ -282,6 +282,55 @@ void TestTransactionalPublicationAndStaleGeneration() {
   Require(state.Reset().ok(), "state reset failed");
 }
 
+void TestPreparedPublicationIsInvisibleAndAbortable() {
+  OgreNextN2InteropState state;
+  Require(state.Initialize(Context(),
+                           Token(NativeObjectKind::TIMELINE_SYNC, 102U))
+              .ok(),
+          "prepared-publication state initialization failed");
+  Require(state.PublishFrame(31U, 41U, {Published(31U, 41U, 2U)}).ok(),
+          "prepared-publication baseline failed");
+  Require(state.PreparePublishFrame(
+              32U, 42U, {Published(32U, 42U, 3U, 8U)})
+              .ok(),
+          "valid native replacement could not be prepared");
+  Require(state.PreparePublishFrame(
+              32U, 42U, {Published(32U, 42U, 3U, 8U)})
+              .code == RenderOperationCode::INVALID_ARGUMENT,
+          "a second native publication transaction was accepted");
+
+  NativeGeometryExport hidden;
+  Require(state.AcquireGeometry(Request(32U, 42U, 3U), hidden).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "prepared native geometry became externally visible before commit");
+  NativeGeometryExport old_lease;
+  Require(state.AcquireGeometry(Request(31U, 41U, 2U), old_lease).ok(),
+          "preparation hid the last committed native frame");
+  Require(!state.CanCommitPreparedFrame(32U, 42U),
+          "prepared replacement ignored a late lease of the prior frame");
+  state.ReleaseGeometry(old_lease.export_id);
+  Require(state.CanCommitPreparedFrame(32U, 42U),
+          "prepared replacement was not commit-ready after leases drained");
+  state.AbortPreparedFrame();
+  Require(!state.CanCommitPreparedFrame(32U, 42U),
+          "aborted native replacement remained commit-ready");
+  Require(state.AcquireGeometry(Request(31U, 41U, 2U), old_lease).ok(),
+          "aborting preparation damaged the committed frame");
+  state.ReleaseGeometry(old_lease.export_id);
+
+  Require(state.PreparePublishFrame(
+              32U, 42U, {Published(32U, 42U, 3U, 8U)})
+              .ok() &&
+              state.CanCommitPreparedFrame(32U, 42U),
+          "aborted native replacement could not be retried");
+  state.CommitPreparedFrame();
+  NativeGeometryExport replacement;
+  Require(state.AcquireGeometry(Request(32U, 42U, 3U), replacement).ok(),
+          "committed prepared replacement was not externally visible");
+  state.ReleaseGeometry(replacement.export_id);
+  Require(state.Reset().ok(), "prepared-publication state reset failed");
+}
+
 void TestSubmittedLeaseIsRetryableButNotAbortable() {
   OgreNextN2InteropState state;
   Require(state.Initialize(Context(),
@@ -443,6 +492,7 @@ int main() {
   try {
     TestLifecycleAndImmutableRevision();
     TestTransactionalPublicationAndStaleGeneration();
+    TestPreparedPublicationIsInvisibleAndAbortable();
     TestSubmittedLeaseIsRetryableButNotAbortable();
     TestPreSubmissionAbortAndShutdownOrder();
     TestSubmittedDeviceLossCanDrainForTeardown();

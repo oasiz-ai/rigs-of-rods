@@ -9,6 +9,7 @@
 #include "OgreNextN2InteropState.h"
 
 #include <limits>
+#include <new>
 #include <sstream>
 
 namespace RoR::Render {
@@ -154,9 +155,31 @@ RenderOperationResult OgreNextN2InteropState::PublishFrame(
     std::uint64_t frame_id, std::uint64_t snapshot_id,
     const std::vector<OgreNextN2PublishedGeometry> &geometry,
     const std::vector<OgreNextN3PublishedImage> &images) {
+  const RenderOperationResult prepared =
+      PreparePublishFrame(frame_id, snapshot_id, geometry, images);
+  if (!prepared) {
+    return prepared;
+  }
+  if (!CanCommitPreparedFrame(frame_id, snapshot_id)) {
+    AbortPreparedFrame();
+    return RenderOperationResult::Failure(
+        RenderOperationCode::BACKEND_FAILURE,
+        "prepared native frame changed before publication");
+  }
+  CommitPreparedFrame();
+  return RenderOperationResult::Success();
+}
+
+RenderOperationResult OgreNextN2InteropState::PreparePublishFrame(
+    std::uint64_t frame_id, std::uint64_t snapshot_id,
+    const std::vector<OgreNextN2PublishedGeometry> &geometry,
+    const std::vector<OgreNextN3PublishedImage> &images) {
   const RenderOperationResult initialized = RequireInitialized();
   if (!initialized) {
     return initialized;
+  }
+  if (prepared_frame_live_) {
+    return Invalid("a native frame publication transaction is already prepared");
   }
   if (frame_id == 0U || snapshot_id == 0U || geometry.empty()) {
     return Invalid("published N2 frame requires nonzero identities and geometry");
@@ -167,59 +190,98 @@ RenderOperationResult OgreNextN2InteropState::PublishFrame(
         "a prior native geometry revision remains leased by external work");
   }
 
-  std::map<std::uint64_t, NativeGeometryExport> candidate;
-  for (const OgreNextN2PublishedGeometry &entry : geometry) {
-    NativeGeometryExport validated = entry.geometry;
-    if (validated.export_id != 0U || validated.frame_id != frame_id ||
-        validated.snapshot_id != snapshot_id) {
-      return Invalid(
-          "published geometry must have a zero export ID and match its frame");
+  try {
+    std::map<std::uint64_t, NativeGeometryExport> candidate;
+    for (const OgreNextN2PublishedGeometry &entry : geometry) {
+      NativeGeometryExport validated = entry.geometry;
+      if (validated.export_id != 0U || validated.frame_id != frame_id ||
+          validated.snapshot_id != snapshot_id) {
+        return Invalid(
+            "published geometry must have a zero export ID and match its frame");
+      }
+      validated.export_id = 1U;
+      const ValidationResult validation = ValidateNativeGeometryExport(
+          validated, context_.native_api, context_.context_id);
+      if (!validation) {
+        return Invalid("invalid published geometry: " + validation.field +
+                       ": " + validation.detail);
+      }
+      validated.export_id = 0U;
+      if (!candidate.emplace(validated.instance_id, validated).second) {
+        return Invalid("published frame repeats a mesh instance ID");
+      }
     }
-    validated.export_id = 1U;
-    const ValidationResult validation = ValidateNativeGeometryExport(
-        validated, context_.native_api, context_.context_id);
-    if (!validation) {
-      return Invalid("invalid published geometry: " + validation.field +
-                     ": " + validation.detail);
-    }
-    validated.export_id = 0U;
-    if (!candidate.emplace(validated.instance_id, validated).second) {
-      return Invalid("published frame repeats a mesh instance ID");
-    }
-  }
 
-  std::map<std::uint64_t, NativeImageExport> image_candidate;
-  for (const OgreNextN3PublishedImage &entry : images) {
-    NativeImageExport validated = entry.image;
-    if (validated.export_id != 0U || validated.frame_id != frame_id ||
-        validated.snapshot_id != snapshot_id) {
-      return Invalid(
-          "published image must have a zero export ID and match its frame");
+    std::map<std::uint64_t, NativeImageExport> image_candidate;
+    for (const OgreNextN3PublishedImage &entry : images) {
+      NativeImageExport validated = entry.image;
+      if (validated.export_id != 0U || validated.frame_id != frame_id ||
+          validated.snapshot_id != snapshot_id) {
+        return Invalid(
+            "published image must have a zero export ID and match its frame");
+      }
+      validated.export_id = 1U;
+      const ValidationResult validation = ValidateNativeImageExport(
+          validated, context_.native_api, context_.context_id);
+      if (!validation) {
+        return Invalid("invalid published image: " + validation.field +
+                       ": " + validation.detail);
+      }
+      validated.export_id = 0U;
+      if (!image_candidate.emplace(validated.view_id, validated).second) {
+        return Invalid("published frame repeats a native image view ID");
+      }
     }
-    validated.export_id = 1U;
-    const ValidationResult validation = ValidateNativeImageExport(
-        validated, context_.native_api, context_.context_id);
-    if (!validation) {
-      return Invalid("invalid published image: " + validation.field + ": " +
-                     validation.detail);
-    }
-    validated.export_id = 0U;
-    if (!image_candidate.emplace(validated.view_id, validated).second) {
-      return Invalid("published frame repeats a native image view ID");
-    }
-  }
 
-  published_geometry_.swap(candidate);
-  published_images_.swap(image_candidate);
-  published_frame_id_ = frame_id;
-  published_snapshot_id_ = snapshot_id;
+    prepared_geometry_.swap(candidate);
+    prepared_images_.swap(image_candidate);
+    prepared_frame_id_ = frame_id;
+    prepared_snapshot_id_ = snapshot_id;
+    prepared_frame_live_ = true;
+  } catch (const std::bad_alloc &) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUT_OF_MEMORY,
+        "native frame publication preparation ran out of memory");
+  }
   return RenderOperationResult::Success();
+}
+
+bool OgreNextN2InteropState::CanCommitPreparedFrame(
+    std::uint64_t frame_id, std::uint64_t snapshot_id) const noexcept {
+  return initialized_ && prepared_frame_live_ && frame_id != 0U &&
+         snapshot_id != 0U && prepared_frame_id_ == frame_id &&
+         prepared_snapshot_id_ == snapshot_id &&
+         !prepared_geometry_.empty() && !active_frame_live_ &&
+         geometry_leases_.empty() && image_leases_.empty();
+}
+
+void OgreNextN2InteropState::CommitPreparedFrame() noexcept {
+  published_geometry_.swap(prepared_geometry_);
+  published_images_.swap(prepared_images_);
+  published_frame_id_ = prepared_frame_id_;
+  published_snapshot_id_ = prepared_snapshot_id_;
+  prepared_geometry_.clear();
+  prepared_images_.clear();
+  prepared_frame_id_ = 0U;
+  prepared_snapshot_id_ = 0U;
+  prepared_frame_live_ = false;
+}
+
+void OgreNextN2InteropState::AbortPreparedFrame() noexcept {
+  prepared_geometry_.clear();
+  prepared_images_.clear();
+  prepared_frame_id_ = 0U;
+  prepared_snapshot_id_ = 0U;
+  prepared_frame_live_ = false;
 }
 
 RenderOperationResult OgreNextN2InteropState::CanPublishFrame() const {
   const RenderOperationResult initialized = RequireInitialized();
   if (!initialized) {
     return initialized;
+  }
+  if (prepared_frame_live_) {
+    return Invalid("a native frame publication transaction is already prepared");
   }
   if (active_frame_live_ || !geometry_leases_.empty() ||
       !image_leases_.empty()) {
@@ -596,10 +658,10 @@ RenderOperationResult OgreNextN2InteropState::UnregisterRayTracingBackend() {
   if (!ray_tracing_backend_registered_) {
     return Invalid("no native RT backend is registered");
   }
-  if (active_frame_live_ || !geometry_leases_.empty() ||
-      !image_leases_.empty()) {
+  if (prepared_frame_live_ || active_frame_live_ ||
+      !geometry_leases_.empty() || !image_leases_.empty()) {
     return Outstanding(
-        "native RT backend still owns geometry or frame leases");
+        "native RT backend still owns a prepared frame or live leases");
   }
   ray_tracing_backend_registered_ = false;
   return RenderOperationResult::Success();
@@ -619,6 +681,7 @@ OgreNextN2InteropState::AbandonRayTracingBackendAfterFault() {
   // command buffers retain every resource they reference until completion, so
   // logical leases can now be revoked without permitting buffer reuse.
   published_geometry_.clear();
+  AbortPreparedFrame();
   geometry_leases_.clear();
   published_images_.clear();
   image_leases_.clear();
@@ -659,6 +722,7 @@ RenderOperationResult OgreNextN2InteropState::Reset() {
   context_ = {};
   frontend_timeline_ = {};
   published_geometry_.clear();
+  AbortPreparedFrame();
   geometry_leases_.clear();
   published_images_.clear();
   image_leases_.clear();

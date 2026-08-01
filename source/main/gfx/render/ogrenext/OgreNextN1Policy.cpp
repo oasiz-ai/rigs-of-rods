@@ -11,7 +11,9 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <new>
 #include <sstream>
+#include <stdexcept>
 
 namespace RoR::Render {
 namespace {
@@ -480,7 +482,63 @@ OgreNextN1SubmissionState::Validate(const RenderFrameRequest &request) const {
   return RenderOperationResult::Success();
 }
 
-void OgreNextN1SubmissionState::Commit(const RenderFrameRequest &request) {
+RenderOperationResult OgreNextN1SubmissionState::PrepareCommit(
+    const RenderFrameRequest &request) {
+  if (pending_snapshot_) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "N1 already has a prepared submission transaction");
+  }
+  const RenderOperationResult validation = Validate(request);
+  if (!validation) {
+    return validation;
+  }
+  const std::uint64_t snapshot_id = request.scene_snapshot->snapshot_id();
+  bool inserted = false;
+  if (snapshots_.find(snapshot_id) == snapshots_.end()) {
+    try {
+      inserted = snapshots_.emplace(
+          snapshot_id,
+          std::weak_ptr<const SceneSnapshot>(request.scene_snapshot)).second;
+    } catch (const std::bad_alloc &) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::OUT_OF_MEMORY,
+          "N1 snapshot identity preparation ran out of memory");
+    }
+  }
+  pending_snapshot_ = request.scene_snapshot;
+  pending_frame_id_ = request.frame_id;
+  pending_snapshot_id_ = snapshot_id;
+  pending_inserted_snapshot_ = inserted;
+  return RenderOperationResult::Success();
+}
+
+bool OgreNextN1SubmissionState::CanCommitPrepared(
+    const RenderFrameRequest &request) const noexcept {
+  if (!pending_snapshot_ || !request.scene_snapshot ||
+      request.frame_id != pending_frame_id_ ||
+      request.scene_snapshot->snapshot_id() != pending_snapshot_id_ ||
+      pending_snapshot_.get() != request.scene_snapshot.get() ||
+      pending_snapshot_.owner_before(request.scene_snapshot) ||
+      request.scene_snapshot.owner_before(pending_snapshot_)) {
+    return false;
+  }
+  const auto prepared = snapshots_.find(pending_snapshot_id_);
+  if (prepared == snapshots_.end()) {
+    return false;
+  }
+  const std::shared_ptr<const SceneSnapshot> expected =
+      prepared->second.lock();
+  return expected && expected.get() == pending_snapshot_.get() &&
+         !expected.owner_before(pending_snapshot_) &&
+         !pending_snapshot_.owner_before(expected) &&
+         last_frame_id_ != (std::numeric_limits<std::uint64_t>::max)() &&
+         pending_frame_id_ == last_frame_id_ + 1U;
+}
+
+void OgreNextN1SubmissionState::CommitPrepared(
+    const RenderFrameRequest &request) noexcept {
+  const std::uint64_t snapshot_id = pending_snapshot_id_;
   for (auto iterator = snapshots_.begin(); iterator != snapshots_.end();) {
     if (iterator->second.expired()) {
       iterator = snapshots_.erase(iterator);
@@ -488,14 +546,44 @@ void OgreNextN1SubmissionState::Commit(const RenderFrameRequest &request) {
       ++iterator;
     }
   }
-  const std::uint64_t snapshot_id = request.scene_snapshot->snapshot_id();
-  if (snapshots_.find(snapshot_id) == snapshots_.end()) {
-    snapshots_.emplace(snapshot_id,
-                       std::weak_ptr<const SceneSnapshot>(
-                           request.scene_snapshot));
+  if (snapshot_id > last_snapshot_id_) {
     last_snapshot_id_ = snapshot_id;
   }
   last_frame_id_ = request.frame_id;
+  pending_snapshot_.reset();
+  pending_frame_id_ = 0U;
+  pending_snapshot_id_ = 0U;
+  pending_inserted_snapshot_ = false;
+}
+
+void OgreNextN1SubmissionState::AbortPrepared() noexcept {
+  if (pending_snapshot_ && pending_inserted_snapshot_) {
+    const auto inserted = snapshots_.find(pending_snapshot_id_);
+    if (inserted != snapshots_.end()) {
+      const std::shared_ptr<const SceneSnapshot> expected =
+          inserted->second.lock();
+      if (expected && expected.get() == pending_snapshot_.get() &&
+          !expected.owner_before(pending_snapshot_) &&
+          !pending_snapshot_.owner_before(expected)) {
+        snapshots_.erase(inserted);
+      }
+    }
+  }
+  pending_snapshot_.reset();
+  pending_frame_id_ = 0U;
+  pending_snapshot_id_ = 0U;
+  pending_inserted_snapshot_ = false;
+}
+
+void OgreNextN1SubmissionState::Commit(const RenderFrameRequest &request) {
+  const RenderOperationResult preparation = PrepareCommit(request);
+  if (!preparation) {
+    throw std::runtime_error(preparation.detail);
+  }
+  if (!CanCommitPrepared(request)) {
+    throw std::logic_error("N1 prepared snapshot identity changed");
+  }
+  CommitPrepared(request);
 }
 
 bool OgreNextN1SubmissionState::IsFrameComplete(
@@ -509,6 +597,7 @@ OgreNextN1SubmissionState::TrackedSnapshotIdentityCount() const noexcept {
 }
 
 void OgreNextN1SubmissionState::Reset() noexcept {
+  AbortPrepared();
   snapshots_.clear();
   last_frame_id_ = 0U;
   last_snapshot_id_ = 0U;
@@ -712,10 +801,27 @@ ValidationResult ValidateOgreNextN1Scene(
   if (!snapshot.particle_events().empty()) {
     return Unsupported("particle_events", "N1 does not support particles");
   }
-  if (!snapshot.reflection_probes().empty()) {
+  if (raster_feature_tier == OgreNextRasterFeatureTier::STATIC_PBR_N1 &&
+      !snapshot.reflection_probes().empty()) {
     return Unsupported(
         "reflection_probes",
-        "this Ogre-Next checkpoint has not published its native PCC capture adapter and will not silently ignore authored probes");
+        "N1 has no native reflection-probe capture adapter; select RT4/V1");
+  }
+  if (raster_feature_tier ==
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+    for (std::size_t index = 0U;
+         index < snapshot.reflection_probes().size(); ++index) {
+      const std::uint32_t mask =
+          snapshot.reflection_probes()[index].visibility_mask;
+      if ((mask & kOgreNextRt4AuthoredVisibilityMask) == 0U ||
+          (mask != (std::numeric_limits<std::uint32_t>::max)() &&
+           (mask & kOgreNextRt4InternalVisibilityMask) != 0U)) {
+        return Unsupported(
+            "reflection_probes.visibility_mask",
+            "RT4/V1 reserves visibility bits 28 and 29 for native PCC capture and proxy geometry",
+            index);
+      }
+    }
   }
   if (raster_feature_tier ==
           OgreNextRasterFeatureTier::STATIC_PBR_N1 &&
@@ -766,6 +872,19 @@ ValidationResult ValidateOgreNextN1Scene(
   for (std::size_t index = 0U; index < snapshot.mesh_instances().size();
        ++index) {
     const MeshInstanceDescriptor &instance = snapshot.mesh_instances()[index];
+    if (raster_feature_tier ==
+            OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
+        ((instance.visibility_mask & kOgreNextRt4AuthoredVisibilityMask) ==
+             0U ||
+         (instance.visibility_mask !=
+              (std::numeric_limits<std::uint32_t>::max)() &&
+          (instance.visibility_mask & kOgreNextRt4InternalVisibilityMask) !=
+              0U))) {
+      return Unsupported(
+          "mesh_instances.visibility_mask",
+          "RT4/V1 reserves visibility bits 28 and 29 for native PCC capture and proxy geometry",
+          index);
+    }
     if (!allow_dynamic_meshes && instance.deformation_revision != 1U) {
       return Unsupported("mesh_instances.deformation_revision",
                          "N1 renders base static geometry only", index);
@@ -819,6 +938,16 @@ ValidationResult ValidateOgreNextN1Frame(
                        "N1 renders exactly one colour view");
   }
   const CameraViewRequest &view = request.views.front();
+  if (raster_feature_tier ==
+          OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
+      ((view.visibility_mask & kOgreNextRt4AuthoredVisibilityMask) == 0U ||
+       (view.visibility_mask !=
+            (std::numeric_limits<std::uint32_t>::max)() &&
+        (view.visibility_mask & kOgreNextRt4InternalVisibilityMask) != 0U))) {
+    return Unsupported(
+        "views.visibility_mask",
+        "RT4/V1 reserves visibility bits 28 and 29 for native PCC capture and proxy geometry");
+  }
   if (view.exposure != 1.0F) {
     return Unsupported(
         "views.exposure",

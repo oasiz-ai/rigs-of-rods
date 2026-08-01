@@ -8,6 +8,7 @@
 
 #include "OgreNextN1Frontend.h"
 #include "OgreNextN1Policy.h"
+#include "OgreNextReflectionProbeRuntime.h"
 #include "ror_ogre_next_n1_config.h"
 
 #include <algorithm>
@@ -21,6 +22,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -42,6 +44,7 @@ struct Arguments {
   std::string image_path;
   std::string report_path;
   std::string evidence_path;
+  std::string reflection_evidence_path;
   bool modern_pbr = false;
 };
 
@@ -54,6 +57,14 @@ struct Metrics {
   std::uint64_t attachment_fnv1a64 = UINT64_C(14695981039346656037);
   std::vector<std::uint8_t> rgb;
   std::vector<std::uint8_t> attachment_bytes;
+};
+
+struct ReflectionSectionMetrics final {
+  std::uint64_t exact_fnv1a64 = UINT64_C(14695981039346656037);
+  std::uint64_t finite_component_count = 0U;
+  std::uint64_t nonzero_rgb_component_count = 0U;
+  std::size_t distinct_texel_count = 0U;
+  float max_absolute_rgb = 0.0F;
 };
 
 struct VariantEvidence final {
@@ -71,6 +82,9 @@ struct SmokeResult final {
   Metrics sdr;
   std::vector<VariantEvidence> variants;
   OgreNextN1TextureAllocationAudit texture_allocations;
+  OgreNextReflectionProbeAudit reflection_probes;
+  OgreNextReflectionProbeCaptureEvidence reflection_capture;
+  bool reflection_same_device_deterministic_replay = false;
   OgreNextN1TextureAllocationAudit replacement_final_audit;
   bool live_replacement_retirement = false;
   struct TextureRetirementEvidence final {
@@ -176,10 +190,12 @@ Arguments ParseArguments(int argc, char **argv) {
       arguments.report_path = argv[++index];
     } else if (option == "--evidence" && index + 1 < argc) {
       arguments.evidence_path = argv[++index];
+    } else if (option == "--reflection-evidence" && index + 1 < argc) {
+      arguments.reflection_evidence_path = argv[++index];
     } else if (option == "--modern-pbr") {
       arguments.modern_pbr = true;
     } else {
-      Fail("usage: ror_ogre_next_frontend_n1_smoke --media-root ABSOLUTE_PATH [--modern-pbr --evidence ISOLATION.bin] [--output FRAME.ppm] [--report REPORT.json]");
+      Fail("usage: ror_ogre_next_frontend_n1_smoke --media-root ABSOLUTE_PATH [--modern-pbr --evidence ISOLATION.bin --reflection-evidence REFLECTION.bin] [--output FRAME.ppm] [--report REPORT.json]");
     }
   }
   if (arguments.media_root.empty()) {
@@ -187,6 +203,9 @@ Arguments ParseArguments(int argc, char **argv) {
   }
   if (arguments.modern_pbr && arguments.evidence_path.empty()) {
     Fail("--evidence is required for exact RT4/V1 texture-isolation output");
+  }
+  if (arguments.modern_pbr && arguments.reflection_evidence_path.empty()) {
+    Fail("--reflection-evidence is required for native PCC capture output");
   }
   return arguments;
 }
@@ -810,6 +829,18 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
     light.direction = light_direction;
     light.shadow_flags = 0U;
     descriptor.lights.push_back(light);
+
+    ReflectionProbeRuntimeDescriptor probe;
+    probe.probe_id = 1U;
+    probe.content_revision = 1U;
+    probe.capture_position_local = {0.0F, 0.0F, 1.0F};
+    probe.influence_half_size = {3.0F, 3.0F, 3.0F};
+    probe.influence_inner_fraction = {0.75F, 0.75F, 0.75F};
+    probe.correction_shape_half_size = {4.0F, 4.0F, 4.0F};
+    probe.resolution = 32U;
+    probe.capture_near_meters = 0.05F;
+    probe.capture_far_meters = 10.0F;
+    descriptor.reflection_probes.push_back(probe);
   }
 
   MeshInstanceDescriptor instance;
@@ -919,6 +950,12 @@ void RequireControlledSceneAndView(const SceneSnapshot &baseline_scene,
               baseline_scene.lights().size() == 1U &&
               variant_scene.lights().size() == 1U,
           "RT4/V1 controlled environment or lights changed");
+  Require(baseline_scene.reflection_probes().size() == 1U &&
+              variant_scene.reflection_probes().size() == 1U &&
+              AreReflectionProbeRuntimeDescriptorsEquivalent(
+                  baseline_scene.reflection_probes().front(),
+                  variant_scene.reflection_probes().front()),
+          "RT4/V1 controlled reflection probe changed");
   const LightDescriptor &expected_light = baseline_scene.lights().front();
   const LightDescriptor &actual_light = variant_scene.lights().front();
   Require(expected_light.light_id == actual_light.light_id &&
@@ -1044,6 +1081,98 @@ std::uint64_t HashBytes(const std::vector<std::uint8_t> &bytes) {
     Hash(hash, value);
   }
   return hash;
+}
+
+ReflectionSectionMetrics InspectReflectionSection(
+    const std::vector<std::uint8_t> &bytes, std::size_t begin,
+    std::size_t end, const char *section) {
+  Require(begin <= end && end <= bytes.size() && (end - begin) % 8U == 0U,
+          std::string("invalid RGBA16F reflection layout for ") + section);
+  ReflectionSectionMetrics metrics;
+  std::set<std::array<std::uint16_t, 4U>> distinct_texels;
+  for (std::size_t offset = begin; offset < end; offset += 8U) {
+    std::array<std::uint16_t, 4U> texel{};
+    for (std::size_t channel = 0U; channel < texel.size(); ++channel) {
+      std::memcpy(&texel[channel], bytes.data() + offset + channel * 2U,
+                  sizeof(texel[channel]));
+      const float value = HalfToFloat(texel[channel]);
+      Require(std::isfinite(value),
+              std::string("non-finite RGBA16F reflection component in ") +
+                  section);
+      ++metrics.finite_component_count;
+      if (channel < 3U) {
+        if (value != 0.0F) {
+          ++metrics.nonzero_rgb_component_count;
+        }
+        metrics.max_absolute_rgb =
+            std::max(metrics.max_absolute_rgb, std::fabs(value));
+      }
+    }
+    distinct_texels.insert(texel);
+  }
+  metrics.distinct_texel_count = distinct_texels.size();
+  std::vector<std::uint8_t> section_bytes(
+      bytes.begin() + static_cast<std::ptrdiff_t>(begin),
+      bytes.begin() + static_cast<std::ptrdiff_t>(end));
+  metrics.exact_fnv1a64 = HashBytes(section_bytes);
+  Require(metrics.nonzero_rgb_component_count != 0U &&
+              metrics.distinct_texel_count >= 2U &&
+              metrics.max_absolute_rgb > 0.0F,
+          std::string("reflection evidence lacks spatial radiance in ") +
+              section);
+  return metrics;
+}
+
+const char *ReflectionBackendName(ReflectionProbeCaptureBackend backend) {
+  switch (backend) {
+  case ReflectionProbeCaptureBackend::OGRE_NEXT_METAL:
+    return "OGRE_NEXT_METAL";
+  case ReflectionProbeCaptureBackend::OGRE_NEXT_D3D11:
+    return "OGRE_NEXT_D3D11";
+  case ReflectionProbeCaptureBackend::OGRE_NEXT_VULKAN:
+    return "OGRE_NEXT_VULKAN";
+  case ReflectionProbeCaptureBackend::OGRE_NEXT_D3D12:
+    return "OGRE_NEXT_D3D12";
+  }
+  Fail("unknown native reflection capture backend");
+}
+
+std::string JsonEscape(const std::string &value) {
+  std::ostringstream escaped;
+  escaped << std::hex << std::setfill('0');
+  for (const unsigned char byte : value) {
+    switch (byte) {
+    case '"':
+      escaped << "\\\"";
+      break;
+    case '\\':
+      escaped << "\\\\";
+      break;
+    case '\b':
+      escaped << "\\b";
+      break;
+    case '\f':
+      escaped << "\\f";
+      break;
+    case '\n':
+      escaped << "\\n";
+      break;
+    case '\r':
+      escaped << "\\r";
+      break;
+    case '\t':
+      escaped << "\\t";
+      break;
+    default:
+      if (byte < 0x20U) {
+        escaped << "\\u00" << std::setw(2) << static_cast<unsigned>(byte);
+      } else {
+        escaped << static_cast<char>(byte);
+      }
+      break;
+    }
+  }
+  return escaped.str();
 }
 
 std::string HexHash(std::uint64_t hash);
@@ -1231,6 +1360,30 @@ void WriteIsolationEvidence(const std::string &path,
   }
 }
 
+void WriteReflectionEvidence(const std::string &path,
+                             const SmokeResult &result) {
+  Require(!path.empty(), "RT4/V1 reflection evidence path is empty");
+  Require(result.reflection_capture.valid,
+          "RT4/V1 reflection evidence is unavailable");
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  if (!output) {
+    Fail("could not open RT4/V1 reflection evidence: " + path);
+  }
+  output.write(
+      reinterpret_cast<const char *>(
+          result.reflection_capture.raw_mip_zero_rgba16f.data()),
+      static_cast<std::streamsize>(
+          result.reflection_capture.raw_mip_zero_rgba16f.size()));
+  output.write(
+      reinterpret_cast<const char *>(
+          result.reflection_capture.filtered_rgba16f.data()),
+      static_cast<std::streamsize>(
+          result.reflection_capture.filtered_rgba16f.size()));
+  if (!output) {
+    Fail("could not write complete RT4/V1 reflection evidence: " + path);
+  }
+}
+
 std::string HexHash(std::uint64_t hash) {
   std::ostringstream value;
   value << std::hex << std::setfill('0') << std::setw(16) << hash;
@@ -1238,13 +1391,37 @@ std::string HexHash(std::uint64_t hash) {
 }
 
 std::string MakeReport(const SmokeResult &result, bool modern_pbr,
-                       const std::string &evidence_path) {
+                       const std::string &evidence_path,
+                       const std::string &reflection_evidence_path) {
   const Metrics &hdr = result.hdr;
   const Metrics &sdr = result.sdr;
+  ReflectionSectionMetrics raw_reflection;
+  ReflectionSectionMetrics filtered_reflection;
+  if (modern_pbr) {
+    constexpr std::size_t kRawReflectionBytes = 32U * 32U * 6U * 8U;
+    constexpr std::size_t kFilteredMipZeroBytes = kRawReflectionBytes;
+    constexpr std::size_t kFilteredReflectionBytes =
+        (32U * 32U + 16U * 16U) * 6U * 8U;
+    Require(result.reflection_capture.raw_mip_zero_rgba16f.size() ==
+                kRawReflectionBytes &&
+                result.reflection_capture.filtered_rgba16f.size() ==
+                    kFilteredReflectionBytes,
+            "RT4/V1 reflection evidence has an unexpected byte layout");
+    raw_reflection = InspectReflectionSection(
+        result.reflection_capture.raw_mip_zero_rgba16f, 0U,
+        kRawReflectionBytes, "raw mip zero");
+    filtered_reflection = InspectReflectionSection(
+        result.reflection_capture.filtered_rgba16f, 0U,
+        kFilteredReflectionBytes, "filtered mip chain");
+    static_cast<void>(InspectReflectionSection(
+        result.reflection_capture.filtered_rgba16f,
+        kFilteredMipZeroBytes, kFilteredReflectionBytes,
+        "filtered mip one"));
+  }
   std::ostringstream report;
   report << "{\n"
          << "  \"schema\": \""
-         << (modern_pbr ? "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1"
+         << (modern_pbr ? "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v2"
                         : "ror.ogre_next_frontend_n1_smoke.v1")
          << "\",\n"
          << "  \"status\": \"pass\",\n"
@@ -1349,7 +1526,116 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << "  },\n"
          ;
   if (modern_pbr) {
-    report << "  \"texture_allocations\": {\n"
+    constexpr std::size_t kRawReflectionBytes = 32U * 32U * 6U * 8U;
+    constexpr std::size_t kFilteredReflectionBytes =
+        (32U * 32U + 16U * 16U) * 6U * 8U;
+    const OgreNextReflectionProbeCaptureEvidence &capture =
+        result.reflection_capture;
+    const OgreNextReflectionProbeAudit &audit = result.reflection_probes;
+    report << "  \"reflection_probes\": {\n"
+           << "    \"schema\": \"ror.ogre_next_rt4_reflection_probes.v1\",\n"
+           << "    \"evidence_file\": \""
+           << JsonEscape(std::filesystem::u8path(reflection_evidence_path)
+                             .filename()
+                             .generic_u8string())
+           << "\",\n"
+           << "    \"evidence_bytes\": "
+           << kRawReflectionBytes + kFilteredReflectionBytes << ",\n"
+           << "    \"backend\": \""
+           << ReflectionBackendName(capture.backend) << "\",\n"
+           << "    \"render_system\": \""
+           << JsonEscape(capture.render_system) << "\",\n"
+           << "    \"device_name\": \"" << JsonEscape(capture.device_name)
+           << "\",\n"
+           << "    \"driver_version\": \""
+           << JsonEscape(capture.driver_version) << "\",\n"
+           << "    \"pixel_format\": \"RGBA16_FLOAT\",\n"
+           << "    \"byte_order\": \"little_endian\",\n"
+           << "    \"row_padding_included\": false,\n"
+           << "    \"subresource_order\": \"raw_face_major_then_filtered_mip_major_face_major\",\n"
+           << "    \"ui_included\": false,\n"
+           << "    \"same_device_exact_replay\": "
+           << (result.reflection_same_device_deterministic_replay ? "true"
+                                                                  : "false")
+           << ",\n"
+           << "    \"capture\": {\n"
+           << "      \"render_frame_id\": " << capture.render_frame_id
+           << ",\n"
+           << "      \"simulation_tick\": " << capture.simulation_tick
+           << ",\n"
+           << "      \"probe_id\": " << capture.probe_id << ",\n"
+           << "      \"content_revision\": " << capture.content_revision
+           << ",\n"
+           << "      \"candidate_generation\": "
+           << capture.candidate_generation << ",\n"
+           << "      \"deterministic_seed\": \""
+           << HexHash(capture.deterministic_seed) << "\",\n"
+           << "      \"resolution\": " << capture.capture_resolution << "\n"
+           << "    },\n"
+           << "    \"runtime_audit\": {\n"
+           << "      \"version\": " << audit.version << ",\n"
+           << "      \"successful_capture_count\": "
+           << audit.successful_capture_count << ",\n"
+           << "      \"failed_capture_count\": "
+           << audit.failed_capture_count << ",\n"
+           << "      \"live_probe_count\": " << audit.live_probe_count
+           << ",\n"
+           << "      \"blend_resolution\": " << audit.blend_resolution
+           << ",\n"
+           << "      \"blend_texture_ready\": "
+           << (audit.blend_texture_ready ? "true" : "false") << ",\n"
+           << "      \"committed_state_digest\": \""
+           << HexHash(audit.committed_state_digest) << "\",\n"
+           << "      \"native_execution_evidence\": \""
+           << HexHash(audit.native_execution_evidence) << "\",\n"
+           << "      \"capture_digest\": \""
+           << HexHash(audit.last_capture_digest) << "\",\n"
+           << "      \"canonical_filtered_payload_bytes\": "
+           << audit.last_canonical_payload_bytes << ",\n"
+           << "      \"completed_face_count\": "
+           << audit.completed_face_count << ",\n"
+           << "      \"completed_mip_count\": "
+           << audit.completed_mip_count << ",\n"
+           << "      \"ui_free_capture\": "
+           << (audit.ui_free_capture ? "true" : "false") << ",\n"
+           << "      \"reserved_render_queue_excluded\": "
+           << (audit.reserved_render_queue_excluded ? "true" : "false")
+           << "\n"
+           << "    },\n"
+           << "    \"raw\": {\n"
+           << "      \"offset\": 0,\n"
+           << "      \"bytes\": " << kRawReflectionBytes << ",\n"
+           << "      \"face_count\": 6,\n"
+           << "      \"mip_dimensions\": [32],\n"
+           << "      \"exact_fnv1a64\": \""
+           << HexHash(raw_reflection.exact_fnv1a64) << "\",\n"
+           << "      \"finite_component_count\": "
+           << raw_reflection.finite_component_count << ",\n"
+           << "      \"nonzero_rgb_component_count\": "
+           << raw_reflection.nonzero_rgb_component_count << ",\n"
+           << "      \"distinct_texel_count\": "
+           << raw_reflection.distinct_texel_count << ",\n"
+           << "      \"max_absolute_rgb\": " << std::setprecision(9)
+           << raw_reflection.max_absolute_rgb << "\n"
+           << "    },\n"
+           << "    \"filtered\": {\n"
+           << "      \"offset\": " << kRawReflectionBytes << ",\n"
+           << "      \"bytes\": " << kFilteredReflectionBytes << ",\n"
+           << "      \"face_count\": 6,\n"
+           << "      \"mip_dimensions\": [32, 16],\n"
+           << "      \"exact_fnv1a64\": \""
+           << HexHash(filtered_reflection.exact_fnv1a64) << "\",\n"
+           << "      \"finite_component_count\": "
+           << filtered_reflection.finite_component_count << ",\n"
+           << "      \"nonzero_rgb_component_count\": "
+           << filtered_reflection.nonzero_rgb_component_count << ",\n"
+           << "      \"distinct_texel_count\": "
+           << filtered_reflection.distinct_texel_count << ",\n"
+           << "      \"max_absolute_rgb\": "
+           << filtered_reflection.max_absolute_rgb << "\n"
+           << "    }\n"
+           << "  },\n"
+           << "  \"texture_allocations\": {\n"
            << "    \"version\": " << result.texture_allocations.version
            << ",\n"
            << "    \"live_source_textures\": "
@@ -1951,8 +2237,10 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
         "legacy rejection Shutdown");
   }
 
-  OgreNextN1Frontend frontend(
-      OgreNextN1Configuration{media_root, raster_feature_tier});
+  OgreNextN1Configuration frontend_configuration{media_root,
+                                                  raster_feature_tier};
+  frontend_configuration.retain_reflection_capture_evidence = modern_pbr;
+  OgreNextN1Frontend frontend(std::move(frontend_configuration));
 
   const FrontendCapabilityReport capabilities = frontend.QueryCapabilities();
   Require(capabilities.frontend_kind == RendererFrontendKind::OGRE_NEXT &&
@@ -2044,6 +2332,38 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
           "synchronous HDR frame was not complete on return");
   RequireSuccess(frontend.WaitForFrame(1U, 0U), "WaitForFrame(HDR)");
   result.hdr = InspectHdr(hdr_output);
+  if (modern_pbr) {
+    result.reflection_probes = frontend.QueryReflectionProbeAudit();
+    Require(result.reflection_probes.version == 2U &&
+                result.reflection_probes.initialized &&
+                result.reflection_probes.compositor_defined_in_code &&
+                result.reflection_probes.exact_resources_loaded &&
+                result.reflection_probes.pcc_enabled &&
+                result.reflection_probes.pbs_bound &&
+                result.reflection_probes.successful_capture_count == 1U &&
+                result.reflection_probes.failed_capture_count == 0U &&
+                result.reflection_probes.live_probe_count == 1U &&
+                result.reflection_probes.blend_resolution == 2048U &&
+                result.reflection_probes.committed_state_digest != 0U &&
+                result.reflection_probes.native_execution_evidence != 0U &&
+                result.reflection_probes.last_capture_frame_id == 1U &&
+                result.reflection_probes.last_capture_simulation_tick == 1U &&
+                result.reflection_probes.last_probe_id == 1U &&
+                result.reflection_probes.last_content_revision == 1U &&
+                result.reflection_probes.last_candidate_generation == 1U &&
+                result.reflection_probes.last_deterministic_seed != 0U &&
+                result.reflection_probes.last_capture_digest != 0U &&
+                result.reflection_probes.last_canonical_payload_bytes != 0U &&
+                result.reflection_probes.filtered_finite_component_count != 0U &&
+                result.reflection_probes.filtered_nonzero_rgb_component_count !=
+                    0U &&
+                result.reflection_probes.filtered_max_absolute_rgb > 0.0F &&
+                result.reflection_probes.completed_face_count == 6U &&
+                result.reflection_probes.completed_mip_count == 2U &&
+                result.reflection_probes.ui_free_capture &&
+                result.reflection_probes.reserved_render_queue_excluded,
+            "RT4/V1 did not publish one complete native PCC probe generation");
+  }
 
   RenderFrameOutput sdr_output;
   RequireSuccess(frontend.Render(
@@ -2051,6 +2371,29 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
                      sdr_output),
                  "SDR Render");
   result.sdr = InspectSdr(sdr_output);
+  if (modern_pbr) {
+    result.reflection_probes = frontend.QueryReflectionProbeAudit();
+    result.reflection_capture =
+        frontend.QueryReflectionProbeCaptureEvidence();
+    Require(result.reflection_probes.blend_texture_ready &&
+                result.reflection_probes.successful_capture_count == 1U &&
+                result.reflection_probes.live_probe_count == 1U &&
+                result.reflection_capture.valid &&
+                result.reflection_capture.version == 1U &&
+                result.reflection_capture.render_frame_id == 1U &&
+                result.reflection_capture.simulation_tick == 1U &&
+                result.reflection_capture.probe_id == 1U &&
+                result.reflection_capture.content_revision == 1U &&
+                result.reflection_capture.candidate_generation == 1U &&
+                result.reflection_capture.capture_resolution == 32U &&
+                result.reflection_capture.filtered_mips.face_count == 6U &&
+                result.reflection_capture.filtered_mips.mip_count == 2U &&
+                result.reflection_capture.raw_mip_zero_rgba16f.size() ==
+                    32U * 32U * 6U * 8U &&
+                result.reflection_capture.filtered_rgba16f.size() ==
+                    (32U * 32U + 16U * 16U) * 6U * 8U,
+            "RT4/V1 PCC blend texture was not consumed on the next main frame");
+  }
 
   if (modern_pbr) {
     VariantEvidence baseline;
@@ -2169,6 +2512,40 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "first Shutdown");
 
+  if (modern_pbr) {
+    OgreNextN1Configuration replay_configuration{
+        media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1};
+    replay_configuration.retain_reflection_capture_evidence = true;
+    OgreNextN1Frontend replay(std::move(replay_configuration));
+    InitializeAndSync(replay, catalog);
+    RenderFrameOutput replay_output;
+    RequireSuccess(replay.Render(
+                       MakeFrame(1U, scene_one, PixelFormat::RGBA16_FLOAT),
+                       replay_output),
+                   "reflection deterministic replay Render");
+    static_cast<void>(InspectHdr(replay_output));
+    const OgreNextReflectionProbeCaptureEvidence replay_capture =
+        replay.QueryReflectionProbeCaptureEvidence();
+    result.reflection_same_device_deterministic_replay =
+        replay_capture.valid &&
+        replay_capture.backend == result.reflection_capture.backend &&
+        replay_capture.render_system ==
+            result.reflection_capture.render_system &&
+        replay_capture.device_name == result.reflection_capture.device_name &&
+        replay_capture.driver_version ==
+            result.reflection_capture.driver_version &&
+        replay_capture.deterministic_seed ==
+            result.reflection_capture.deterministic_seed &&
+        replay_capture.raw_mip_zero_rgba16f ==
+            result.reflection_capture.raw_mip_zero_rgba16f &&
+        replay_capture.filtered_rgba16f ==
+            result.reflection_capture.filtered_rgba16f;
+    Require(result.reflection_same_device_deterministic_replay,
+            "RT4/V1 reflection capture changed across same-device replay");
+    RequireSuccess(replay.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                   "reflection deterministic replay Shutdown");
+  }
+
   InitializeAndSync(concurrent, final_catalog);
   RequireSuccess(concurrent.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "post-owner-release concurrent Shutdown");
@@ -2195,9 +2572,11 @@ int main(int argc, char **argv) {
     WritePpm(arguments.image_path, result.sdr);
     if (arguments.modern_pbr) {
       WriteIsolationEvidence(arguments.evidence_path, result);
+      WriteReflectionEvidence(arguments.reflection_evidence_path, result);
     }
     const std::string report = MakeReport(
-        result, arguments.modern_pbr, arguments.evidence_path);
+        result, arguments.modern_pbr, arguments.evidence_path,
+        arguments.reflection_evidence_path);
     WriteText(arguments.report_path, report);
     std::cout << report;
     return 0;

@@ -46,9 +46,38 @@ RT4_PBR_IMAGE_NAME = "ror-ogre-next-frontend-rt4-pbr-v1.ppm"
 RT4_PBR_EVIDENCE_NAME = (
     "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin"
 )
+RT4_PBR_REFLECTION_EVIDENCE_NAME = (
+    "ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin"
+)
 RT4_PBR_ATTESTATION_NAME = (
     "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json"
 )
+RT4_PBR_REPORT_SCHEMA = "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v2"
+RT4_PBR_ATTESTATION_SCHEMA = (
+    "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v3"
+)
+RT4_REFLECTION_SCHEMA = "ror.ogre_next_rt4_reflection_probes.v1"
+RT4_REFLECTION_RESOLUTION = 32
+RT4_REFLECTION_FACE_COUNT = 6
+RT4_REFLECTION_RAW_BYTES = (
+    RT4_REFLECTION_RESOLUTION
+    * RT4_REFLECTION_RESOLUTION
+    * RT4_REFLECTION_FACE_COUNT
+    * 8
+)
+RT4_REFLECTION_FILTERED_DIMENSIONS = (32, 16)
+RT4_REFLECTION_FILTERED_BYTES = sum(
+    dimension * dimension * RT4_REFLECTION_FACE_COUNT * 8
+    for dimension in RT4_REFLECTION_FILTERED_DIMENSIONS
+)
+RT4_REFLECTION_EVIDENCE_BYTES = (
+    RT4_REFLECTION_RAW_BYTES + RT4_REFLECTION_FILTERED_BYTES
+)
+RT4_REFLECTION_BACKENDS = {
+    "macos-arm64-metal": "OGRE_NEXT_METAL",
+    "windows-x64-d3d11": "OGRE_NEXT_D3D11",
+    "linux-x86_64-vulkan": "OGRE_NEXT_VULKAN",
+}
 N1_PACKAGE_NAME = "ror-ogre-next-n1-package"
 N1_PACKAGE_EXECUTABLE_STEM = "ror_ogre_next_frontend_n1_smoke"
 N2_REPORT_NAME = "ror-ogre-next-metal-n2-report.json"
@@ -1456,6 +1485,314 @@ def validate_rt4_isolation_evidence(
     return slice_attestations
 
 
+def _is_nonzero_u64_hex(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and re.fullmatch(r"[0-9a-f]{16}", value) is not None
+        and value != "0" * 16
+    )
+
+
+def _is_exact_int(value: object, expected: int) -> bool:
+    return type(value) is int and value == expected
+
+
+def _is_exact_int_list(value: object, expected: tuple[int, ...]) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) == len(expected)
+        and all(
+            _is_exact_int(actual, wanted)
+            for actual, wanted in zip(value, expected)
+        )
+    )
+
+
+def _is_bounded_evidence_string(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= 512
+        and "\x00" not in value
+    )
+
+
+def _reflection_half_metrics(payload: bytes, label: str) -> dict[str, int | float]:
+    if not payload or len(payload) % 8 != 0:
+        raise ProbeError(f"RT4/V1 {label} RGBA16F layout is invalid")
+    finite_components = 0
+    nonzero_rgb_components = 0
+    max_absolute_rgb = 0.0
+    for channels in struct.iter_unpack("<4e", payload):
+        if not all(math.isfinite(channel) for channel in channels):
+            raise ProbeError(
+                f"RT4/V1 {label} reflection evidence contains non-finite data"
+            )
+        finite_components += 4
+        for channel in channels[:3]:
+            magnitude = abs(channel)
+            if magnitude > 0.0:
+                nonzero_rgb_components += 1
+            max_absolute_rgb = max(max_absolute_rgb, magnitude)
+    return {
+        "finite_component_count": finite_components,
+        "nonzero_rgb_component_count": nonzero_rgb_components,
+        "distinct_texel_count": len(
+            {payload[offset : offset + 8] for offset in range(0, len(payload), 8)}
+        ),
+        "max_absolute_rgb": max_absolute_rgb,
+    }
+
+
+def _reported_reflection_metric_matches(
+    reported: object, computed: float
+) -> bool:
+    return (
+        isinstance(reported, (int, float))
+        and not isinstance(reported, bool)
+        and math.isfinite(float(reported))
+        and math.isclose(
+            float(reported), computed, rel_tol=2.0e-7, abs_tol=2.0e-7
+        )
+    )
+
+
+def validate_rt4_reflection_evidence(
+    report: dict[str, Any], evidence_path: Path, policy: dict[str, str]
+) -> list[dict[str, Any]]:
+    try:
+        evidence = evidence_path.read_bytes()
+    except OSError as error:
+        raise ProbeError(
+            f"could not read RT4/V1 reflection evidence: {error}"
+        ) from error
+    if len(evidence) != RT4_REFLECTION_EVIDENCE_BYTES:
+        raise ProbeError(
+            "RT4/V1 reflection evidence is truncated or has trailing bytes"
+        )
+    reflection = report.get("reflection_probes")
+    expected_root_keys = {
+        "schema",
+        "evidence_file",
+        "evidence_bytes",
+        "backend",
+        "render_system",
+        "device_name",
+        "driver_version",
+        "pixel_format",
+        "byte_order",
+        "row_padding_included",
+        "subresource_order",
+        "ui_included",
+        "same_device_exact_replay",
+        "capture",
+        "runtime_audit",
+        "raw",
+        "filtered",
+    }
+    if not isinstance(reflection, dict) or set(reflection) != expected_root_keys:
+        raise ProbeError("RT4/V1 reflection report schema drifted")
+    policy_name = policy.get("name")
+    expected_backend = RT4_REFLECTION_BACKENDS.get(str(policy_name))
+    common_checks = {
+        "schema": reflection.get("schema") == RT4_REFLECTION_SCHEMA,
+        "file": reflection.get("evidence_file") == evidence_path.name,
+        "bytes": _is_exact_int(
+            reflection.get("evidence_bytes"), RT4_REFLECTION_EVIDENCE_BYTES
+        ),
+        "backend": expected_backend is not None
+        and reflection.get("backend") == expected_backend,
+        "render_system": reflection.get("render_system")
+        == policy.get("renderer_name")
+        and reflection.get("render_system") == report.get("renderer"),
+        "device": _is_bounded_evidence_string(reflection.get("device_name")),
+        "driver": _is_bounded_evidence_string(
+            reflection.get("driver_version")
+        ),
+        "format": reflection.get("pixel_format") == "RGBA16_FLOAT",
+        "byte_order": reflection.get("byte_order") == "little_endian",
+        "tight_rows": reflection.get("row_padding_included") is False,
+        "order": reflection.get("subresource_order")
+        == "raw_face_major_then_filtered_mip_major_face_major",
+        "ui_free": reflection.get("ui_included") is False,
+        "replay": reflection.get("same_device_exact_replay") is True,
+    }
+    failed = sorted(name for name, passed in common_checks.items() if not passed)
+    if failed:
+        raise ProbeError(
+            "RT4/V1 reflection evidence controls failed closed: "
+            + ", ".join(failed)
+        )
+
+    capture = reflection.get("capture")
+    expected_capture_keys = {
+        "render_frame_id",
+        "simulation_tick",
+        "probe_id",
+        "content_revision",
+        "candidate_generation",
+        "deterministic_seed",
+        "resolution",
+    }
+    if not isinstance(capture, dict) or set(capture) != expected_capture_keys:
+        raise ProbeError("RT4/V1 reflection capture lineage schema drifted")
+    if not (
+        _is_exact_int(capture.get("render_frame_id"), 1)
+        and _is_exact_int(capture.get("simulation_tick"), 1)
+        and _is_exact_int(capture.get("probe_id"), 1)
+        and _is_exact_int(capture.get("content_revision"), 1)
+        and _is_exact_int(capture.get("candidate_generation"), 1)
+        and _is_nonzero_u64_hex(capture.get("deterministic_seed"))
+        and _is_exact_int(
+            capture.get("resolution"), RT4_REFLECTION_RESOLUTION
+        )
+    ):
+        raise ProbeError("RT4/V1 reflection capture lineage is invalid")
+
+    runtime = reflection.get("runtime_audit")
+    expected_runtime_keys = {
+        "version",
+        "successful_capture_count",
+        "failed_capture_count",
+        "live_probe_count",
+        "blend_resolution",
+        "blend_texture_ready",
+        "committed_state_digest",
+        "native_execution_evidence",
+        "capture_digest",
+        "canonical_filtered_payload_bytes",
+        "completed_face_count",
+        "completed_mip_count",
+        "ui_free_capture",
+        "reserved_render_queue_excluded",
+    }
+    if not isinstance(runtime, dict) or set(runtime) != expected_runtime_keys:
+        raise ProbeError("RT4/V1 reflection runtime-audit schema drifted")
+    if not (
+        _is_exact_int(runtime.get("version"), 2)
+        and _is_exact_int(runtime.get("successful_capture_count"), 1)
+        and _is_exact_int(runtime.get("failed_capture_count"), 0)
+        and _is_exact_int(runtime.get("live_probe_count"), 1)
+        and _is_exact_int(runtime.get("blend_resolution"), 2048)
+        and runtime.get("blend_texture_ready") is True
+        and _is_nonzero_u64_hex(runtime.get("committed_state_digest"))
+        and _is_nonzero_u64_hex(runtime.get("native_execution_evidence"))
+        and _is_nonzero_u64_hex(runtime.get("capture_digest"))
+        and _is_exact_int(
+            runtime.get("canonical_filtered_payload_bytes"),
+            RT4_REFLECTION_FILTERED_BYTES,
+        )
+        and _is_exact_int(
+            runtime.get("completed_face_count"), RT4_REFLECTION_FACE_COUNT
+        )
+        and _is_exact_int(
+            runtime.get("completed_mip_count"),
+            len(RT4_REFLECTION_FILTERED_DIMENSIONS),
+        )
+        and runtime.get("ui_free_capture") is True
+        and runtime.get("reserved_render_queue_excluded") is True
+    ):
+        raise ProbeError("RT4/V1 reflection runtime audit is invalid")
+
+    section_specs = (
+        (
+            "raw",
+            0,
+            RT4_REFLECTION_RAW_BYTES,
+            (RT4_REFLECTION_RESOLUTION,),
+        ),
+        (
+            "filtered",
+            RT4_REFLECTION_RAW_BYTES,
+            RT4_REFLECTION_FILTERED_BYTES,
+            RT4_REFLECTION_FILTERED_DIMENSIONS,
+        ),
+    )
+    for name, offset, byte_count, dimensions in section_specs:
+        section = reflection.get(name)
+        expected_section_keys = {
+            "offset",
+            "bytes",
+            "face_count",
+            "mip_dimensions",
+            "exact_fnv1a64",
+            "finite_component_count",
+            "nonzero_rgb_component_count",
+            "distinct_texel_count",
+            "max_absolute_rgb",
+        }
+        if not isinstance(section, dict) or set(section) != expected_section_keys:
+            raise ProbeError(f"RT4/V1 reflection {name} schema drifted")
+        payload = evidence[offset : offset + byte_count]
+        metrics = _reflection_half_metrics(payload, name)
+        if not (
+            _is_exact_int(section.get("offset"), offset)
+            and _is_exact_int(section.get("bytes"), byte_count)
+            and _is_exact_int(
+                section.get("face_count"), RT4_REFLECTION_FACE_COUNT
+            )
+            and _is_exact_int_list(section.get("mip_dimensions"), dimensions)
+            and section.get("exact_fnv1a64") == _fnv1a64(payload)
+            and _is_exact_int(
+                section.get("finite_component_count"),
+                int(metrics["finite_component_count"]),
+            )
+            and _is_exact_int(
+                section.get("nonzero_rgb_component_count"),
+                int(metrics["nonzero_rgb_component_count"]),
+            )
+            and _is_exact_int(
+                section.get("distinct_texel_count"),
+                int(metrics["distinct_texel_count"]),
+            )
+            and _reported_reflection_metric_matches(
+                section.get("max_absolute_rgb"),
+                float(metrics["max_absolute_rgb"]),
+            )
+            and int(metrics["nonzero_rgb_component_count"]) > 0
+            and int(metrics["distinct_texel_count"]) >= 2
+            and float(metrics["max_absolute_rgb"]) > 0.0
+        ):
+            raise ProbeError(f"RT4/V1 reflection {name} evidence is invalid")
+
+    offset = 0
+    slices: list[dict[str, Any]] = []
+    for texture, dimensions in (
+        ("raw", (RT4_REFLECTION_RESOLUTION,)),
+        ("filtered", RT4_REFLECTION_FILTERED_DIMENSIONS),
+    ):
+        for mip, dimension in enumerate(dimensions):
+            slice_bytes = dimension * dimension * 8
+            for face in range(RT4_REFLECTION_FACE_COUNT):
+                payload = evidence[offset : offset + slice_bytes]
+                _reflection_half_metrics(
+                    payload, f"{texture} mip {mip} face {face}"
+                )
+                slices.append(
+                    {
+                        "texture": texture,
+                        "mip": mip,
+                        "face": face,
+                        "offset": offset,
+                        "bytes": slice_bytes,
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    }
+                )
+                offset += slice_bytes
+    filtered_mip_one_offset = RT4_REFLECTION_RAW_BYTES * 2
+    filtered_mip_one = _reflection_half_metrics(
+        evidence[filtered_mip_one_offset:], "filtered mip one"
+    )
+    if (
+        offset != len(evidence)
+        or len(slices) != 18
+        or int(filtered_mip_one["nonzero_rgb_component_count"]) == 0
+        or int(filtered_mip_one["distinct_texel_count"]) < 2
+        or float(filtered_mip_one["max_absolute_rgb"]) <= 0.0
+    ):
+        raise ProbeError("RT4/V1 reflection subresource coverage is incomplete")
+    return slices
+
+
 def validate_n1_checkpoint(
     report: dict[str, Any],
     image_path: Path,
@@ -1499,7 +1836,7 @@ def validate_n1_checkpoint(
     checks = {
         "schema": report.get("schema")
         == (
-            "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1"
+            RT4_PBR_REPORT_SCHEMA
             if modern_pbr
             else "ror.ogre_next_frontend_n1_smoke.v1"
         ),
@@ -1876,12 +2213,14 @@ def write_rt4_attestation(
     report_path: Path,
     image_path: Path,
     evidence_path: Path,
+    reflection_evidence_path: Path,
     executable_path: Path,
     build_contract_path: Path,
     source_identity: dict[str, Any],
     lock: dict[str, Any],
     media_manifest: dict[str, Any],
     isolation_slices: list[dict[str, Any]],
+    reflection_slices: list[dict[str, Any]],
 ) -> dict[str, Any]:
     provenance = report.get("provenance")
     if not isinstance(provenance, dict):
@@ -1889,7 +2228,7 @@ def write_rt4_attestation(
     shader_media = lock["shader_media"]
     notice = shader_media["third_party_notice"]
     attestation = {
-        "schema": "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v2",
+        "schema": RT4_PBR_ATTESTATION_SCHEMA,
         "status": "pass",
         "integrity_model": (
             "self-contained-checksums-plus-independent-semantics; "
@@ -1930,9 +2269,13 @@ def write_rt4_attestation(
             "report": _attest_regular_file(report_path, build_dir),
             "ppm": _attest_regular_file(image_path, build_dir),
             "isolation": _attest_regular_file(evidence_path, build_dir),
+            "reflection": _attest_regular_file(
+                reflection_evidence_path, build_dir
+            ),
             "executable": _attest_regular_file(executable_path, build_dir),
         },
         "isolation_slices": isolation_slices,
+        "reflection_slices": reflection_slices,
     }
     attestation_path = build_dir / RT4_PBR_ATTESTATION_NAME
     _atomic_write_json(attestation_path, attestation)
@@ -2053,6 +2396,9 @@ def run_n1_checkpoint(
     rt4_report_path = build_dir / RT4_PBR_REPORT_NAME
     rt4_image_path = build_dir / RT4_PBR_IMAGE_NAME
     rt4_evidence_path = build_dir / RT4_PBR_EVIDENCE_NAME
+    rt4_reflection_evidence_path = (
+        build_dir / RT4_PBR_REFLECTION_EVIDENCE_NAME
+    )
     missing = [
         path.name
         for path in (
@@ -2061,6 +2407,7 @@ def run_n1_checkpoint(
             rt4_report_path,
             rt4_image_path,
             rt4_evidence_path,
+            rt4_reflection_evidence_path,
         )
         if not path.is_file()
     ]
@@ -2090,6 +2437,9 @@ def run_n1_checkpoint(
     )
     if isolation_slices is None:
         raise ProbeError("RT4/V1 isolation slice attestation is missing")
+    reflection_slices = validate_rt4_reflection_evidence(
+        rt4_report, rt4_reflection_evidence_path, policy
+    )
     if rt4_report["sdr"]["rgb8_fnv1a64"] == report["sdr"]["rgb8_fnv1a64"]:
         raise ProbeError(
             "RT4/V1 texture-backed evidence is indistinguishable from static N1"
@@ -2102,12 +2452,14 @@ def run_n1_checkpoint(
         rt4_report_path,
         rt4_image_path,
         rt4_evidence_path,
+        rt4_reflection_evidence_path,
         _packaged_n1_executable(build_dir, policy),
         build_dir / BUILD_CONTRACT_NAME,
         source_identity,
         lock,
         media_manifest,
         isolation_slices,
+        reflection_slices,
     )
 
 

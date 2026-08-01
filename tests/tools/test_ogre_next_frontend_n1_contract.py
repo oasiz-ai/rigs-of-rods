@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 from unittest import mock
@@ -21,6 +22,108 @@ RUNNER_SPEC = importlib.util.spec_from_file_location(
 assert RUNNER_SPEC and RUNNER_SPEC.loader
 RUNNER = importlib.util.module_from_spec(RUNNER_SPEC)
 RUNNER_SPEC.loader.exec_module(RUNNER)
+
+
+def reflection_fixture(
+    policy_name: str = "macos-arm64-metal",
+    payload: bytes | None = None,
+) -> tuple[dict, bytes, dict[str, str]]:
+    renderers = {
+        "macos-arm64-metal": "Metal Rendering Subsystem",
+        "windows-x64-d3d11": "Direct3D11 Rendering Subsystem",
+        "linux-x86_64-vulkan": "Vulkan Rendering Subsystem",
+    }
+    if payload is None:
+        raw_pixels = RUNNER.RT4_REFLECTION_RAW_BYTES // 8
+        filtered_pixels = RUNNER.RT4_REFLECTION_FILTERED_BYTES // 8
+        raw = (
+            struct.pack("<4e", 1.0, 0.5, 0.25, 0.75) * (raw_pixels - 1)
+            + struct.pack("<4e", 0.25, 1.0, 0.5, 0.25)
+        )
+        filtered = (
+            struct.pack("<4e", 0.75, 0.375, 0.125, 1.0)
+            * (filtered_pixels - 1)
+            + struct.pack("<4e", 0.125, 0.75, 0.375, 1.0)
+        )
+        payload = raw + filtered
+    raw = payload[: RUNNER.RT4_REFLECTION_RAW_BYTES]
+    filtered = payload[RUNNER.RT4_REFLECTION_RAW_BYTES :]
+
+    def section(
+        block: bytes, offset: int, dimensions: list[int]
+    ) -> dict:
+        metrics = RUNNER._reflection_half_metrics(block, "fixture")
+        return {
+            "offset": offset,
+            "bytes": len(block),
+            "face_count": RUNNER.RT4_REFLECTION_FACE_COUNT,
+            "mip_dimensions": dimensions,
+            "exact_fnv1a64": RUNNER._fnv1a64(block),
+            **metrics,
+        }
+
+    policy = {
+        "name": policy_name,
+        "renderer_name": renderers[policy_name],
+    }
+    report = {
+        "renderer": policy["renderer_name"],
+        "reflection_probes": {
+            "schema": RUNNER.RT4_REFLECTION_SCHEMA,
+            "evidence_file": RUNNER.RT4_PBR_REFLECTION_EVIDENCE_NAME,
+            "evidence_bytes": RUNNER.RT4_REFLECTION_EVIDENCE_BYTES,
+            "backend": RUNNER.RT4_REFLECTION_BACKENDS[policy_name],
+            "render_system": policy["renderer_name"],
+            "device_name": "Synthetic GPU",
+            "driver_version": "1.2.3",
+            "pixel_format": "RGBA16_FLOAT",
+            "byte_order": "little_endian",
+            "row_padding_included": False,
+            "subresource_order": (
+                "raw_face_major_then_filtered_mip_major_face_major"
+            ),
+            "ui_included": False,
+            "same_device_exact_replay": True,
+            "capture": {
+                "render_frame_id": 1,
+                "simulation_tick": 1,
+                "probe_id": 1,
+                "content_revision": 1,
+                "candidate_generation": 1,
+                "deterministic_seed": "0123456789abcdef",
+                "resolution": RUNNER.RT4_REFLECTION_RESOLUTION,
+            },
+            "runtime_audit": {
+                "version": 2,
+                "successful_capture_count": 1,
+                "failed_capture_count": 0,
+                "live_probe_count": 1,
+                "blend_resolution": 2048,
+                "blend_texture_ready": True,
+                "committed_state_digest": "1111111111111111",
+                "native_execution_evidence": "2222222222222222",
+                "capture_digest": "3333333333333333",
+                "canonical_filtered_payload_bytes": (
+                    RUNNER.RT4_REFLECTION_FILTERED_BYTES
+                ),
+                "completed_face_count": RUNNER.RT4_REFLECTION_FACE_COUNT,
+                "completed_mip_count": len(
+                    RUNNER.RT4_REFLECTION_FILTERED_DIMENSIONS
+                ),
+                "ui_free_capture": True,
+                "reserved_render_queue_excluded": True,
+            },
+            "raw": section(
+                raw, 0, [RUNNER.RT4_REFLECTION_RESOLUTION]
+            ),
+            "filtered": section(
+                filtered,
+                RUNNER.RT4_REFLECTION_RAW_BYTES,
+                list(RUNNER.RT4_REFLECTION_FILTERED_DIMENSIONS),
+            ),
+        },
+    }
+    return report, payload, policy
 
 
 class OgreNextN1FrontendContractTests(unittest.TestCase):
@@ -46,6 +149,12 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         cls.policy_header = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1Policy.h"
+        ).read_text(encoding="utf-8")
+        cls.reflection_header = (
+            RENDER_ROOT / "ogrenext" / "OgreNextReflectionProbeRuntime.h"
+        ).read_text(encoding="utf-8")
+        cls.reflection_runtime = (
+            RENDER_ROOT / "ogrenext" / "OgreNextReflectionProbeRuntime.cpp"
         ).read_text(encoding="utf-8")
         cls.smoke = (
             PROBE_ROOT / "src" / "frontend_n1_smoke.cpp"
@@ -157,6 +266,15 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.entry_cmake,
         )
         self.assertIn("VerifyReflectionMediaTamper.cmake", self.entry_cmake)
+        self.assertIn("--reflection-evidence", self.entry_cmake)
+        self.assertIn(
+            "ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin",
+            self.entry_cmake,
+        )
+        reflection_tamper = (
+            PROBE_ROOT / "cmake" / "VerifyReflectionMediaTamper.cmake"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--reflection-evidence", reflection_tamper)
         self.assertLess(
             self.frontend.index("VerifyOgreNextReflectionProbeMedia"),
             self.frontend.index("if (!TryClaimOgreNextN1Root())"),
@@ -168,10 +286,87 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 self.frontend.index("if (!TryClaimOgreNextN1Root())")
             ],
         )
-        self.assertIn(
-            "will not silently ignore authored probes",
-            self.policy,
+        self.assertIn("N1 has no native reflection-probe capture adapter", self.policy)
+        self.assertIn("OgreNextReflectionProbeRuntime.cpp", self.entry_cmake)
+
+    def test_rt4_reflection_probe_adapter_is_native_atomic_and_cross_platform(self) -> None:
+        for token in (
+            "ROR_OGRE_NEXT_N1_METAL",
+            "ROR_OGRE_NEXT_N1_D3D11",
+            "OGRE_NEXT_VULKAN",
+            "Ogre::ParallaxCorrectedCubemap",
+            "PCC/DepthCompressor",
+            "IblSpecular/Integrate",
+            "Ogre::PFG_RGBA16_FLOAT",
+            "Ogre::PFG_D32_FLOAT",
+            "Ogre::PASS_IBL_SPECULAR",
+            "ComputeReflectionProbeCaptureMeasurement",
+            "IssueFromConcreteAdapter",
+            "scheduler.Commit(pending->plan_id, pending->receipts)",
+            "kOgreNextPccReservedRenderQueue",
+            "kOgreNextPccCaptureVisibilityBit",
+            "MESH_INSTANCE_VISIBLE_IN_REFLECTIONS",
+            "include_dynamic_geometry",
+            "PrepareFrame",
+            "FinalizeFrame",
+            "AbortFrame",
+            "filtered_nonzero_rgb_component_count",
+            "view.inverseAffine().getTrans()",
+            "owner_thread",
+        ):
+            self.assertIn(
+                token, self.reflection_header + self.reflection_runtime
+            )
+        self.assertNotIn("setPriority(", self.reflection_runtime)
+        self.assertLess(
+            self.reflection_runtime.index(
+                "scheduler.Commit(pending->plan_id, pending->receipts)"
+            ),
+            self.reflection_runtime.index("states.swap(published->candidate_states)"),
         )
+        self.assertLess(
+            self.reflection_runtime.index("states.swap(published->candidate_states)"),
+            self.reflection_runtime.index(
+                "audit.native_execution_evidence ="
+            ),
+        )
+        self.assertLess(
+            self.frontend.index("reflection_probe_runtime->PrepareFrame("),
+            self.frontend.index("createTexture(\n        target_name"),
+        )
+        self.assertLess(
+            self.frontend.index("ValidateRenderFrameOutput(request, candidate)"),
+            self.frontend.index("reflection_probe_runtime->FinalizeFrame("),
+        )
+        self.assertLess(
+            self.frontend.index("native_interop->PreparePublishFrame("),
+            self.frontend.index("reflection_probe_runtime->FinalizeFrame("),
+        )
+        self.assertLess(
+            self.frontend.index("reflection_probe_runtime->FinalizeFrame("),
+            self.frontend.index("native_interop->CommitPreparedFrame()"),
+        )
+        self.assertLess(
+            self.frontend.index("native_interop->CommitPreparedFrame()"),
+            self.frontend.index("submission_state.CommitPrepared(request)"),
+        )
+        self.assertIn("native_interop->AbortPreparedFrame()", self.frontend)
+        self.assertLess(
+            self.frontend.index("reflection_probe_runtime->Shutdown()"),
+            self.frontend.index("root->destroySceneManager(scene_manager)"),
+        )
+        for token in (
+            "native_execution_evidence",
+            "successful_capture_count == 1U",
+            "compositor_defined_in_code",
+            "pbs_bound",
+        ):
+            self.assertIn(token, self.smoke)
+        self.assertIn(
+            "scene->mLastRQ = kOgreNextPccReservedRenderQueue;",
+            self.frontend,
+        )
+        self.assertNotIn("createBasicWorkspaceDef(", self.frontend)
 
     def test_native_mesh_path_uses_v2_vao_not_manual_object(self) -> None:
         for token in (
@@ -340,7 +535,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("texture/sampler pairs actually referenced", self.policy)
         self.assertIn("--modern-pbr", self.smoke)
         self.assertIn(
-            "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1", self.smoke
+            "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v2", self.smoke
         )
         self.assertIn(
             "ror_ogre_next_frontend_rt4_pbr_v1_runtime", self.entry_cmake
@@ -546,6 +741,72 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             path.write_bytes(tampered)
             with self.assertRaises(RUNNER.ProbeError):
                 RUNNER.validate_rt4_isolation_evidence(report, path)
+
+    def test_rt4_reflection_validator_is_cross_platform_and_tamper_closed(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-rt4-reflection-") as temp:
+            path = Path(temp) / RUNNER.RT4_PBR_REFLECTION_EVIDENCE_NAME
+            for policy_name in RUNNER.RT4_REFLECTION_BACKENDS:
+                with self.subTest(policy=policy_name):
+                    report, payload, policy = reflection_fixture(policy_name)
+                    path.write_bytes(payload)
+                    slices = RUNNER.validate_rt4_reflection_evidence(
+                        report, path, policy
+                    )
+                    self.assertEqual(len(slices), 18)
+                    self.assertEqual(slices[0]["texture"], "raw")
+                    self.assertEqual(slices[6]["texture"], "filtered")
+                    self.assertEqual(slices[-1]["mip"], 1)
+                    self.assertEqual(
+                        slices[-1]["offset"] + slices[-1]["bytes"],
+                        RUNNER.RT4_REFLECTION_EVIDENCE_BYTES,
+                    )
+
+            report, payload, policy = reflection_fixture()
+            cases: list[tuple[str, bytes, dict]] = []
+            raw_tamper = bytearray(payload)
+            raw_tamper[0] ^= 1
+            cases.append(("raw hash", bytes(raw_tamper), report))
+            filtered_tamper = bytearray(payload)
+            filtered_tamper[RUNNER.RT4_REFLECTION_RAW_BYTES] ^= 1
+            cases.append(("filtered hash", bytes(filtered_tamper), report))
+            nonfinite = bytearray(payload)
+            nonfinite[:8] = struct.pack("<4e", float("nan"), 1.0, 1.0, 1.0)
+            cases.append(("non-finite", bytes(nonfinite), report))
+            cases.append(("truncated", payload[:-1], report))
+            cases.append(("trailing", payload + b"\x00", report))
+            wrong_backend = copy.deepcopy(report)
+            wrong_backend["reflection_probes"]["backend"] = "OGRE_NEXT_VULKAN"
+            cases.append(("backend", payload, wrong_backend))
+            for label, changed_payload, changed_report in cases:
+                with self.subTest(tamper=label):
+                    path.write_bytes(changed_payload)
+                    with self.assertRaises(RUNNER.ProbeError):
+                        RUNNER.validate_rt4_reflection_evidence(
+                            changed_report, path, policy
+                        )
+
+            mip_one_start = (
+                RUNNER.RT4_REFLECTION_RAW_BYTES
+                + RUNNER.RT4_REFLECTION_RESOLUTION
+                * RUNNER.RT4_REFLECTION_RESOLUTION
+                * RUNNER.RT4_REFLECTION_FACE_COUNT
+                * 8
+            )
+            missing_mip_one = payload[:mip_one_start] + bytes(
+                len(payload) - mip_one_start
+            )
+            missing_report, _, _ = reflection_fixture(
+                payload=missing_mip_one
+            )
+            path.write_bytes(missing_mip_one)
+            with self.assertRaisesRegex(
+                RUNNER.ProbeError, "subresource coverage"
+            ):
+                RUNNER.validate_rt4_reflection_evidence(
+                    missing_report, path, policy
+                )
 
     def test_real_smoke_covers_hdr_sdr_readback_and_recovery(self) -> None:
         for token in (

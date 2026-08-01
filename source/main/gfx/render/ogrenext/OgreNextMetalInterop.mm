@@ -361,6 +361,24 @@ public:
       std::uint64_t frame_id, std::uint64_t snapshot_id,
       const std::vector<OgreNextN2FrameGeometryBinding> &geometry,
       const std::vector<OgreNextN3FrameImageBinding> &images) override {
+    const RenderOperationResult prepared =
+        PreparePublishFrame(frame_id, snapshot_id, geometry, images);
+    if (!prepared) {
+      return prepared;
+    }
+    if (!CanCommitPreparedFrame(frame_id, snapshot_id)) {
+      AbortPreparedFrame();
+      return BackendFailure(
+          "prepared Metal frame changed before publication");
+    }
+    CommitPreparedFrame();
+    return RenderOperationResult::Success();
+  }
+
+  RenderOperationResult PreparePublishFrame(
+      std::uint64_t frame_id, std::uint64_t snapshot_id,
+      const std::vector<OgreNextN2FrameGeometryBinding> &geometry,
+      const std::vector<OgreNextN3FrameImageBinding> &images) override {
     const RenderOperationResult ready = Ready();
     if (!ready) {
       return ready;
@@ -403,8 +421,23 @@ public:
           RenderOperationCode::OUT_OF_MEMORY,
           "Metal geometry publication allocation failed");
     }
-    return state_.PublishFrame(frame_id, snapshot_id, published,
-                               published_images);
+    return state_.PreparePublishFrame(frame_id, snapshot_id, published,
+                                      published_images);
+  }
+
+  bool CanCommitPreparedFrame(
+      std::uint64_t frame_id,
+      std::uint64_t snapshot_id) const noexcept override {
+    return valid_ && !faulted_ && !frontend_revoked_ && OnOwnerThread() &&
+           state_.CanCommitPreparedFrame(frame_id, snapshot_id);
+  }
+
+  void CommitPreparedFrame() noexcept override {
+    state_.CommitPreparedFrame();
+  }
+
+  void AbortPreparedFrame() noexcept override {
+    state_.AbortPreparedFrame();
   }
 
   RenderOperationResult DiscardPublishedFrame() override {

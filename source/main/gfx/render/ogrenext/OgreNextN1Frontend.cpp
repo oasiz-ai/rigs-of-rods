@@ -11,10 +11,16 @@
 #include "OgreNextN1MediaIntegrity.h"
 #include "OgreNextN1NativeInterop.h"
 #include "OgreNextN1Policy.h"
+#include "OgreNextReflectionProbeRuntime.h"
 #include "ror_ogre_next_n1_config.h"
 
 #include "Compositor/OgreCompositorManager2.h"
+#include "Compositor/OgreCompositorNodeDef.h"
 #include "Compositor/OgreCompositorWorkspace.h"
+#include "Compositor/OgreCompositorWorkspaceDef.h"
+#include "Compositor/OgreTextureDefinition.h"
+#include "Compositor/Pass/OgreCompositorPassDef.h"
+#include "Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h"
 #include "OgreAbiUtils.h"
 #include "OgreArchiveManager.h"
 #include "OgreCamera.h"
@@ -125,6 +131,8 @@ static_assert(offsetof(Rt4PbrVertex, position) == 0U &&
                   offsetof(Rt4PbrVertex, tangent) == 24U &&
                   offsetof(Rt4PbrVertex, texture_coordinates_0) == 40U,
               "reviewed RT4 vertex offsets changed");
+static_assert(std::is_nothrow_move_assignable<RenderFrameOutput>::value,
+              "frontend publication requires no-throw output ownership transfer");
 
 bool TryResolveNativeVertexLayout(
     OgreNextRasterFeatureTier raster_feature_tier,
@@ -504,7 +512,9 @@ public:
             std::move(configuration.shader_media_root))
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
         , texture_upload_failure_stage(
-              configuration.texture_upload_failure_stage)
+              configuration.texture_upload_failure_stage),
+        retain_reflection_capture_evidence(
+              configuration.retain_reflection_capture_evidence)
 #endif
   {}
 
@@ -1359,7 +1369,12 @@ public:
       native_interop->RevokeFrontend();
       native_interop.reset();
     }
-    bool clean = DestroyRetainedOutputTarget();
+    bool clean = true;
+    if (reflection_probe_runtime) {
+      clean = reflection_probe_runtime->Shutdown() && clean;
+      reflection_probe_runtime.reset();
+    }
+    clean = DestroyRetainedOutputTarget() && clean;
     clean = DestroyFrameMeshes() && clean;
     clean = DestroyCatalog() && clean;
     if (root && scene_manager != nullptr) {
@@ -1409,6 +1424,7 @@ public:
   /// is discarded, or until frontend shutdown first revokes every token.
   Ogre::TextureGpu *retained_output_target = nullptr;
   std::shared_ptr<OgreNextN1NativeInteropBridge> native_interop;
+  std::unique_ptr<OgreNextReflectionProbeRuntime> reflection_probe_runtime;
   OgreNextN1SubmissionState submission_state;
   OgreNextNativeFeatureTier native_feature_tier =
       OgreNextNativeFeatureTier::RASTER_N1;
@@ -1432,6 +1448,7 @@ public:
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
   OgreNextN1TextureUploadFailureStage texture_upload_failure_stage =
       OgreNextN1TextureUploadFailureStage::NONE;
+  bool retain_reflection_capture_evidence = false;
   bool texture_upload_failure_pending =
       texture_upload_failure_stage != OgreNextN1TextureUploadFailureStage::NONE;
   std::uint64_t normal_uploads_verified = 0U;
@@ -1470,10 +1487,24 @@ OgreNextN1Frontend::QueryTextureAllocationAudit() const noexcept {
   return impl_->TextureAllocationAudit();
 }
 
+OgreNextReflectionProbeAudit
+OgreNextN1Frontend::QueryReflectionProbeAudit() const noexcept {
+  return impl_->reflection_probe_runtime
+             ? impl_->reflection_probe_runtime->QueryAudit()
+             : OgreNextReflectionProbeAudit{};
+}
+
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
 OgreNextN1NormalUploadAudit
 OgreNextN1Frontend::QueryNormalUploadAudit() const noexcept {
   return impl_->NormalUploadAudit();
+}
+
+OgreNextReflectionProbeCaptureEvidence
+OgreNextN1Frontend::QueryReflectionProbeCaptureEvidence() const {
+  return impl_->reflection_probe_runtime
+             ? impl_->reflection_probe_runtime->QueryLastCaptureEvidence()
+             : OgreNextReflectionProbeCaptureEvidence{};
 }
 #endif
 
@@ -1615,6 +1646,31 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
         Ogre::ST_GENERIC, 1U, "RoROgreNextN1Scene");
     impl_->camera =
         impl_->scene_manager->createCamera("RoROgreNextN1Camera");
+    if (impl_->raster_feature_tier ==
+        OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+      impl_->reflection_probe_runtime =
+          std::make_unique<OgreNextReflectionProbeRuntime>();
+      OgreNextReflectionProbeRuntimeConfiguration reflection_configuration;
+      reflection_configuration.ogre_root =
+          reinterpret_cast<std::uintptr_t>(impl_->root.get());
+      reflection_configuration.ogre_scene_manager =
+          reinterpret_cast<std::uintptr_t>(impl_->scene_manager);
+      reflection_configuration.ogre_hlms_pbs =
+          reinterpret_cast<std::uintptr_t>(impl_->pbs);
+      reflection_configuration.shader_media_root =
+          impl_->resolved_shader_media_root;
+      reflection_configuration.maximum_blend_resolution = 2048U;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      reflection_configuration.retain_capture_evidence =
+          impl_->retain_reflection_capture_evidence;
+#endif
+      const RenderOperationResult reflection_initialization =
+          impl_->reflection_probe_runtime->Initialize(
+              std::move(reflection_configuration));
+      if (!reflection_initialization) {
+        return fail_after_cleanup(reflection_initialization);
+      }
+    }
     impl_->surface.version = request.version;
     impl_->surface.surface_revision = request.initial_surface_revision;
     impl_->surface.pixel_width = request.initial_width;
@@ -2062,17 +2118,22 @@ RenderOperationResult OgreNextN1Frontend::Render(
     if (!can_publish) {
       return can_publish;
     }
+    const RenderOperationResult discarded =
+        impl_->native_interop->DiscardPublishedFrame();
+    if (!discarded) {
+      return discarded;
+    }
     if (impl_->retained_output_target != nullptr) {
-      const RenderOperationResult discarded =
-          impl_->native_interop->DiscardPublishedFrame();
-      if (!discarded) {
-        return discarded;
-      }
       if (!impl_->DestroyRetainedOutputTarget()) {
         impl_->faulted = true;
         return NativeTeardownFailure(
             "Ogre-Next N3 prior output image retirement");
       }
+    }
+    if (!impl_->DestroyFrameMeshes()) {
+      impl_->faulted = true;
+      return NativeTeardownFailure(
+          "Ogre-Next N2 prior frame geometry retirement");
     }
   }
   if (impl_->native_feature_tier ==
@@ -2087,8 +2148,14 @@ RenderOperationResult OgreNextN1Frontend::Render(
   Ogre::TextureGpu *retained_target = nullptr;
   Ogre::CompositorWorkspace *workspace = nullptr;
   Ogre::IdString workspace_name;
+  Ogre::IdString node_name;
   bool workspace_definition_created = false;
+  bool node_definition_created = false;
+  bool reflection_frame_prepared = false;
+  bool submission_commit_prepared = false;
+  bool interop_commit_prepared = false;
   std::vector<std::pair<Ogre::Item *, Ogre::SceneNode *>> items;
+  std::vector<OgreNextReflectionProbeItemBinding> reflection_items;
   std::vector<std::pair<Ogre::Light *, Ogre::SceneNode *>> lights;
   std::vector<Impl::NativeMesh> submitted_frame_meshes;
   std::vector<OgreNextN2FrameGeometryBinding> interop_geometry;
@@ -2120,6 +2187,14 @@ RenderOperationResult OgreNextN1Frontend::Render(
         clean = false;
       }
       workspace_definition_created = false;
+    }
+    if (node_definition_created) {
+      try {
+        compositors->removeNodeDefinition(node_name);
+      } catch (...) {
+        clean = false;
+      }
+      node_definition_created = false;
     }
     if (target != nullptr) {
       try {
@@ -2195,9 +2270,36 @@ RenderOperationResult OgreNextN1Frontend::Render(
       return false;
     }
   };
+  const auto abort_reflection_frame = [&]() noexcept {
+    if (!reflection_frame_prepared || !impl_->reflection_probe_runtime) {
+      return true;
+    }
+    const bool clean =
+        impl_->reflection_probe_runtime->AbortFrame(request.frame_id);
+    reflection_frame_prepared = false;
+    return clean;
+  };
+  const auto abort_submission_commit = [&]() noexcept {
+    if (submission_commit_prepared) {
+      impl_->submission_state.AbortPrepared();
+      submission_commit_prepared = false;
+    }
+    return true;
+  };
+  const auto abort_interop_commit = [&]() noexcept {
+    if (interop_commit_prepared && impl_->native_interop) {
+      impl_->native_interop->AbortPreparedFrame();
+      interop_commit_prepared = false;
+    }
+    return true;
+  };
   const auto fail_after_cleanup = [&](RenderOperationResult failure) {
-    bool clean = cleanup_scene(true);
+    bool clean = abort_reflection_frame();
+    clean = abort_submission_commit() && clean;
+    clean = abort_interop_commit() && clean;
+    clean = cleanup_scene(false) && clean;
     clean = destroy_retained_target() && clean;
+    clean = destroy_submitted_frame_meshes() && clean;
     if (!clean) {
       impl_->faulted = true;
       return FrameCleanupFailure();
@@ -2219,7 +2321,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
                           snapshot.environment().ambient_radiance.z) *
             snapshot.environment().environment_intensity,
         Ogre::Vector3::UNIT_Y);
-    impl_->scene_manager->setVisibilityMask(view.visibility_mask);
+    const std::uint32_t authored_view_visibility =
+        view.visibility_mask & kOgreNextRt4AuthoredVisibilityMask;
+    impl_->scene_manager->setVisibilityMask(authored_view_visibility);
 
     lights.reserve(snapshot.lights().size());
     for (const LightDescriptor &descriptor : snapshot.lights()) {
@@ -2262,6 +2366,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
 
     items.reserve(snapshot.mesh_instances().size());
+    reflection_items.reserve(snapshot.mesh_instances().size());
     submitted_frame_meshes.reserve(snapshot.dynamic_mesh_updates().size());
     if (impl_->native_interop) {
       interop_geometry.reserve(snapshot.mesh_instances().size());
@@ -2269,15 +2374,16 @@ RenderOperationResult OgreNextN1Frontend::Render(
     for (const MeshInstanceDescriptor &instance : snapshot.mesh_instances()) {
       const auto mesh = impl_->meshes.find(instance.mesh.id);
       const auto material = impl_->materials.find(instance.material.id);
-      if (mesh == impl_->meshes.end() || material == impl_->materials.end()) {
+      const MeshResourceDescriptor *base_mesh =
+          impl_->registry->ResolveMesh(instance.mesh);
+      if (mesh == impl_->meshes.end() || material == impl_->materials.end() ||
+          base_mesh == nullptr) {
         return fail_after_cleanup(RenderOperationResult::Failure(
             RenderOperationCode::RESOURCE_STALE,
             "N1 native asset allocation is missing for a validated scene"));
       }
       const Impl::NativeMesh *render_mesh = &mesh->second;
       if (instance.deformation_revision > 1U) {
-        const MeshResourceDescriptor *base_mesh =
-            impl_->registry->ResolveMesh(instance.mesh);
         const auto update = std::find_if(
             snapshot.dynamic_mesh_updates().begin(),
             snapshot.dynamic_mesh_updates().end(),
@@ -2325,7 +2431,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
           render_mesh->mesh, Ogre::SCENE_DYNAMIC);
       items.emplace_back(item, nullptr);
       item->setDatablock(material->second.datablock);
-      item->setVisibilityFlags(instance.visibility_mask);
+      const std::uint32_t authored_instance_visibility =
+          instance.visibility_mask & kOgreNextRt4AuthoredVisibilityMask;
+      item->setVisibilityFlags(authored_instance_visibility);
       item->setCastShadows(false);
       Ogre::SceneNode *node = impl_->scene_manager
                                   ->getRootSceneNode(Ogre::SCENE_DYNAMIC)
@@ -2335,6 +2443,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
       node->setScale(scale);
       node->setOrientation(orientation);
       node->attachObject(item);
+      reflection_items.push_back(OgreNextReflectionProbeItemBinding{
+          reinterpret_cast<std::uintptr_t>(item),
+          authored_instance_visibility,
+          instance.flags, base_mesh->dynamic});
 
       if (impl_->native_interop) {
         OgreNextN2FrameGeometryBinding binding;
@@ -2384,6 +2496,19 @@ RenderOperationResult OgreNextN1Frontend::Render(
     impl_->camera->setCustomProjectionMatrix(
         true, ToOgreMatrix(converted_projection), false);
 
+    if (impl_->reflection_probe_runtime) {
+      const RenderOperationResult reflection_capture =
+          impl_->reflection_probe_runtime->PrepareFrame(
+              request.frame_id, snapshot.simulation_tick(),
+              snapshot.absolute_world_origin_meters(),
+              snapshot.reflection_probes(), reflection_items,
+              reinterpret_cast<std::uintptr_t>(impl_->camera));
+      if (!reflection_capture) {
+        return fail_after_cleanup(reflection_capture);
+      }
+      reflection_frame_prepared = true;
+    }
+
     const std::string target_name =
         "RoRN1Target_" + std::to_string(request.frame_id);
     std::uint32_t target_flags = Ogre::TextureFlags::RenderToTexture;
@@ -2402,13 +2527,40 @@ RenderOperationResult OgreNextN1Frontend::Render(
 
     const std::string workspace_text =
         "RoRN1Workspace_" + std::to_string(request.frame_id);
+    const std::string node_text = workspace_text + "_MainNode";
     workspace_name = Ogre::IdString(workspace_text);
+    node_name = Ogre::IdString(node_text);
     Ogre::CompositorManager2 *compositors =
         impl_->root->getCompositorManager2();
-    compositors->createBasicWorkspaceDef(
-        workspace_text, Ogre::ColourValue(0.0F, 0.0F, 0.0F, 1.0F),
-        Ogre::IdString());
+    if (compositors->hasNodeDefinition(node_name) ||
+        compositors->hasWorkspaceDefinition(workspace_name)) {
+      throw std::runtime_error(
+          "N1 main compositor identity already exists");
+    }
+    Ogre::CompositorNodeDef *node =
+        compositors->addNodeDefinition(node_text);
+    node_definition_created = true;
+    node->addTextureSourceName(
+        "MainRT", 0U, Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+    node->setNumTargetPass(1U);
+    Ogre::CompositorTargetDef *main_target =
+        node->addTargetPass("MainRT");
+    main_target->setNumPasses(1U);
+    auto *scene = static_cast<Ogre::CompositorPassSceneDef *>(
+        main_target->addPass(Ogre::PASS_SCENE));
+    scene->mFirstRQ = 0U;
+    scene->mLastRQ = kOgreNextPccReservedRenderQueue;
+    scene->mIncludeOverlays = false;
+    scene->mEnableForwardPlus = true;
+    scene->setVisibilityMask(authored_view_visibility);
+    scene->setAllClearColours(Ogre::ColourValue(0.0F, 0.0F, 0.0F, 1.0F));
+    scene->setAllLoadActions(Ogre::LoadAction::Clear);
+    scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
+    scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
+    Ogre::CompositorWorkspaceDef *workspace_definition =
+        compositors->addWorkspaceDefinition(workspace_text);
     workspace_definition_created = true;
+    workspace_definition->connectExternal(0U, node->getName(), 0U);
     workspace = compositors->addWorkspace(impl_->scene_manager, target,
                                           impl_->camera, workspace_text, true);
     for (std::size_t warmup = 0U; warmup < 3U; ++warmup) {
@@ -2479,53 +2631,63 @@ RenderOperationResult OgreNextN1Frontend::Render(
     const ValidationResult output_validation =
         ValidateRenderFrameOutput(request, candidate);
     if (!output_validation) {
-      if (!destroy_retained_target()) {
-        impl_->faulted = true;
-        static_cast<void>(destroy_submitted_frame_meshes());
-        return FrameCleanupFailure();
-      }
-      if (!destroy_submitted_frame_meshes()) {
-        impl_->faulted = true;
-        return FrameCleanupFailure();
-      }
-      return RenderOperationResult::Failure(
+      return fail_after_cleanup(RenderOperationResult::Failure(
           RenderOperationCode::BACKEND_FAILURE,
           "N1 generated an invalid frame output: " + output_validation.field +
-              ": " + output_validation.detail);
+              ": " + output_validation.detail));
     }
+    const RenderOperationResult commit_preparation =
+        impl_->submission_state.PrepareCommit(request);
+    if (!commit_preparation) {
+      return fail_after_cleanup(commit_preparation);
+    }
+    submission_commit_prepared = true;
     if (impl_->native_interop) {
-      const RenderOperationResult publication =
-          impl_->native_interop->PublishFrame(
+      const RenderOperationResult publication_preparation =
+          impl_->native_interop->PreparePublishFrame(
               request.frame_id, snapshot.snapshot_id(), interop_geometry,
               interop_images);
-      if (!publication) {
-        bool clean = destroy_retained_target();
-        clean = destroy_submitted_frame_meshes() && clean;
-        if (!clean) {
-          impl_->faulted = true;
-          return FrameCleanupFailure();
-        }
-        return publication;
+      if (!publication_preparation) {
+        return fail_after_cleanup(publication_preparation);
       }
-      impl_->retained_output_target = retained_target;
-      retained_target = nullptr;
-      std::vector<Impl::NativeMesh> retired_frame_meshes;
-      retired_frame_meshes.swap(impl_->frame_meshes);
-      impl_->frame_meshes = std::move(submitted_frame_meshes);
-      bool retired_cleanly = true;
-      for (Impl::NativeMesh &native : retired_frame_meshes) {
-        retired_cleanly = impl_->DestroyMesh(native) && retired_cleanly;
-      }
-      if (!retired_cleanly) {
-        impl_->faulted = true;
-        return NativeTeardownFailure(
-            "Ogre-Next N2 prior frame geometry retirement");
-      }
+      interop_commit_prepared = true;
     } else if (!destroy_submitted_frame_meshes()) {
       impl_->faulted = true;
+      static_cast<void>(abort_reflection_frame());
+      static_cast<void>(abort_submission_commit());
       return FrameCleanupFailure();
     }
-    impl_->submission_state.Commit(request);
+    if (!impl_->submission_state.CanCommitPrepared(request)) {
+      impl_->faulted = true;
+      return fail_after_cleanup(RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "N1 prepared submission identity changed before publication"));
+    }
+    if (impl_->native_interop &&
+        !impl_->native_interop->CanCommitPreparedFrame(
+            request.frame_id, snapshot.snapshot_id())) {
+      impl_->faulted = true;
+      return fail_after_cleanup(RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "N1 prepared native interop frame changed before publication"));
+    }
+    if (impl_->reflection_probe_runtime) {
+      const RenderOperationResult reflection_finalization =
+          impl_->reflection_probe_runtime->FinalizeFrame(request.frame_id);
+      if (!reflection_finalization) {
+        return fail_after_cleanup(reflection_finalization);
+      }
+      reflection_frame_prepared = false;
+    }
+    if (impl_->native_interop) {
+      impl_->native_interop->CommitPreparedFrame();
+      interop_commit_prepared = false;
+      impl_->retained_output_target = retained_target;
+      retained_target = nullptr;
+      impl_->frame_meshes.swap(submitted_frame_meshes);
+    }
+    impl_->submission_state.CommitPrepared(request);
+    submission_commit_prepared = false;
     output = std::move(candidate);
     return RenderOperationResult::Success();
   } catch (const std::bad_alloc &) {

@@ -25,11 +25,13 @@ REQUIRED_ARTIFACTS = (
     "ror-ogre-next-frontend-rt4-pbr-v1-report.json",
     "ror-ogre-next-frontend-rt4-pbr-v1.ppm",
     "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin",
+    "ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin",
     "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json",
 )
 RT4_REPORT_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1-report.json"
 RT4_PPM_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1.ppm"
 RT4_ISOLATION_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin"
+RT4_REFLECTION_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin"
 RT4_ATTESTATION_ARTIFACT = (
     "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json"
 )
@@ -52,13 +54,35 @@ RELEVANT_SOURCE_PATHS = (
     "tools/verify_ogre_next_artifact_set.py",
 )
 RT4_ATTESTATION_SCHEMA = (
-    "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v2"
+    "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v3"
 )
 RT4_INTEGRITY_MODEL = (
     "self-contained-checksums-plus-independent-semantics; "
     "not-a-cryptographic-signature"
 )
-RT4_REPORT_SCHEMA = "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1"
+RT4_REPORT_SCHEMA = "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v2"
+RT4_REFLECTION_SCHEMA = "ror.ogre_next_rt4_reflection_probes.v1"
+RT4_REFLECTION_RESOLUTION = 32
+RT4_REFLECTION_FACE_COUNT = 6
+RT4_REFLECTION_RAW_BYTES = (
+    RT4_REFLECTION_RESOLUTION
+    * RT4_REFLECTION_RESOLUTION
+    * RT4_REFLECTION_FACE_COUNT
+    * 8
+)
+RT4_REFLECTION_FILTERED_DIMENSIONS = (32, 16)
+RT4_REFLECTION_FILTERED_BYTES = sum(
+    dimension * dimension * RT4_REFLECTION_FACE_COUNT * 8
+    for dimension in RT4_REFLECTION_FILTERED_DIMENSIONS
+)
+RT4_REFLECTION_EVIDENCE_BYTES = (
+    RT4_REFLECTION_RAW_BYTES + RT4_REFLECTION_FILTERED_BYTES
+)
+RT4_REFLECTION_BACKENDS = {
+    "macos-arm64-metal": "OGRE_NEXT_METAL",
+    "windows-x64-d3d11": "OGRE_NEXT_D3D11",
+    "linux-x86_64-vulkan": "OGRE_NEXT_VULKAN",
+}
 RT4_EXECUTABLE_IDENTITY_SCHEMA = (
     "ror.ogre_next_frontend_n1.build_identity.v1"
 )
@@ -957,6 +981,335 @@ def _reported_metric_matches(reported: object, computed: float) -> bool:
     )
 
 
+def _is_nonzero_u64_hex(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and re.fullmatch(r"[0-9a-f]{16}", value) is not None
+        and value != "0" * 16
+    )
+
+
+def _is_bounded_evidence_string(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= 512
+        and "\x00" not in value
+    )
+
+
+def _reflection_half_metrics(
+    payload: bytes, label: str
+) -> dict[str, int | float]:
+    if not payload or len(payload) % 8 != 0:
+        raise ArtifactSetError(f"RT4 {label} RGBA16F layout is invalid")
+    finite_components = 0
+    nonzero_rgb_components = 0
+    max_absolute_rgb = 0.0
+    for channels in struct.iter_unpack("<4e", payload):
+        if not all(math.isfinite(channel) for channel in channels):
+            raise ArtifactSetError(
+                f"RT4 {label} reflection evidence contains non-finite data"
+            )
+        finite_components += 4
+        for channel in channels[:3]:
+            magnitude = abs(channel)
+            if magnitude > 0.0:
+                nonzero_rgb_components += 1
+            max_absolute_rgb = max(max_absolute_rgb, magnitude)
+    return {
+        "finite_component_count": finite_components,
+        "nonzero_rgb_component_count": nonzero_rgb_components,
+        "distinct_texel_count": len(
+            {payload[offset : offset + 8] for offset in range(0, len(payload), 8)}
+        ),
+        "max_absolute_rgb": max_absolute_rgb,
+    }
+
+
+def _verify_rt4_reflection_semantics(
+    report: dict[str, object],
+    reflection_path: Path,
+    build_contract: dict[str, object],
+) -> list[dict[str, object]]:
+    try:
+        evidence = reflection_path.read_bytes()
+    except OSError as error:
+        raise ArtifactSetError(
+            f"could not read RT4 reflection evidence: {error}"
+        ) from error
+    if len(evidence) != RT4_REFLECTION_EVIDENCE_BYTES:
+        raise ArtifactSetError(
+            "RT4 reflection evidence is truncated or has trailing bytes"
+        )
+    reflection = report.get("reflection_probes")
+    if not isinstance(reflection, dict):
+        raise ArtifactSetError("RT4 reflection report is missing")
+    _require_exact_keys(
+        reflection,
+        {
+            "schema",
+            "evidence_file",
+            "evidence_bytes",
+            "backend",
+            "render_system",
+            "device_name",
+            "driver_version",
+            "pixel_format",
+            "byte_order",
+            "row_padding_included",
+            "subresource_order",
+            "ui_included",
+            "same_device_exact_replay",
+            "capture",
+            "runtime_audit",
+            "raw",
+            "filtered",
+        },
+        "RT4 reflection report",
+    )
+    platform = build_contract.get("platform")
+    if not isinstance(platform, dict):
+        raise ArtifactSetError("RT4 reflection platform contract is missing")
+    policy_name = platform.get("policy")
+    policy = PLATFORM_CONTRACTS.get(str(policy_name))
+    expected_backend = RT4_REFLECTION_BACKENDS.get(str(policy_name))
+    controls = {
+        "schema": reflection.get("schema") == RT4_REFLECTION_SCHEMA,
+        "file": reflection.get("evidence_file") == reflection_path.name,
+        "bytes": _json_exact(
+            reflection.get("evidence_bytes"), RT4_REFLECTION_EVIDENCE_BYTES
+        ),
+        "backend": expected_backend is not None
+        and reflection.get("backend") == expected_backend,
+        "render_system": policy is not None
+        and reflection.get("render_system") == policy["renderer_name"]
+        and reflection.get("render_system") == report.get("renderer"),
+        "device": _is_bounded_evidence_string(reflection.get("device_name")),
+        "driver": _is_bounded_evidence_string(
+            reflection.get("driver_version")
+        ),
+        "format": reflection.get("pixel_format") == "RGBA16_FLOAT",
+        "byte_order": reflection.get("byte_order") == "little_endian",
+        "tight_rows": reflection.get("row_padding_included") is False,
+        "order": reflection.get("subresource_order")
+        == "raw_face_major_then_filtered_mip_major_face_major",
+        "ui_free": reflection.get("ui_included") is False,
+        "replay": reflection.get("same_device_exact_replay") is True,
+    }
+    failed_controls = sorted(
+        name for name, passed in controls.items() if not passed
+    )
+    if failed_controls:
+        raise ArtifactSetError(
+            "RT4 reflection controls failed: " + ", ".join(failed_controls)
+        )
+
+    capture = reflection.get("capture")
+    if not isinstance(capture, dict):
+        raise ArtifactSetError("RT4 reflection capture lineage is missing")
+    _require_exact_keys(
+        capture,
+        {
+            "render_frame_id",
+            "simulation_tick",
+            "probe_id",
+            "content_revision",
+            "candidate_generation",
+            "deterministic_seed",
+            "resolution",
+        },
+        "RT4 reflection capture lineage",
+    )
+    capture_checks = {
+        "frame": _json_exact(capture.get("render_frame_id"), 1),
+        "tick": _json_exact(capture.get("simulation_tick"), 1),
+        "probe": _json_exact(capture.get("probe_id"), 1),
+        "revision": _json_exact(capture.get("content_revision"), 1),
+        "generation": _json_exact(capture.get("candidate_generation"), 1),
+        "seed": _is_nonzero_u64_hex(capture.get("deterministic_seed")),
+        "resolution": _json_exact(
+            capture.get("resolution"), RT4_REFLECTION_RESOLUTION
+        ),
+    }
+    failed_capture = sorted(
+        name for name, passed in capture_checks.items() if not passed
+    )
+    if failed_capture:
+        raise ArtifactSetError(
+            "RT4 reflection capture lineage failed: "
+            + ", ".join(failed_capture)
+        )
+
+    runtime = reflection.get("runtime_audit")
+    if not isinstance(runtime, dict):
+        raise ArtifactSetError("RT4 reflection runtime audit is missing")
+    _require_exact_keys(
+        runtime,
+        {
+            "version",
+            "successful_capture_count",
+            "failed_capture_count",
+            "live_probe_count",
+            "blend_resolution",
+            "blend_texture_ready",
+            "committed_state_digest",
+            "native_execution_evidence",
+            "capture_digest",
+            "canonical_filtered_payload_bytes",
+            "completed_face_count",
+            "completed_mip_count",
+            "ui_free_capture",
+            "reserved_render_queue_excluded",
+        },
+        "RT4 reflection runtime audit",
+    )
+    runtime_checks = {
+        "version": _json_exact(runtime.get("version"), 2),
+        "success": _json_exact(runtime.get("successful_capture_count"), 1),
+        "failure": _json_exact(runtime.get("failed_capture_count"), 0),
+        "live": _json_exact(runtime.get("live_probe_count"), 1),
+        "blend_resolution": _json_exact(runtime.get("blend_resolution"), 2048),
+        "blend_ready": runtime.get("blend_texture_ready") is True,
+        "state_digest": _is_nonzero_u64_hex(
+            runtime.get("committed_state_digest")
+        ),
+        "native_evidence": _is_nonzero_u64_hex(
+            runtime.get("native_execution_evidence")
+        ),
+        "capture_digest": _is_nonzero_u64_hex(runtime.get("capture_digest")),
+        "payload": _json_exact(
+            runtime.get("canonical_filtered_payload_bytes"),
+            RT4_REFLECTION_FILTERED_BYTES,
+        ),
+        "faces": _json_exact(
+            runtime.get("completed_face_count"), RT4_REFLECTION_FACE_COUNT
+        ),
+        "mips": _json_exact(
+            runtime.get("completed_mip_count"),
+            len(RT4_REFLECTION_FILTERED_DIMENSIONS),
+        ),
+        "ui_free": runtime.get("ui_free_capture") is True,
+        "queue_excluded": runtime.get("reserved_render_queue_excluded") is True,
+    }
+    failed_runtime = sorted(
+        name for name, passed in runtime_checks.items() if not passed
+    )
+    if failed_runtime:
+        raise ArtifactSetError(
+            "RT4 reflection runtime audit failed: "
+            + ", ".join(failed_runtime)
+        )
+
+    for name, offset, byte_count, dimensions in (
+        (
+            "raw",
+            0,
+            RT4_REFLECTION_RAW_BYTES,
+            (RT4_REFLECTION_RESOLUTION,),
+        ),
+        (
+            "filtered",
+            RT4_REFLECTION_RAW_BYTES,
+            RT4_REFLECTION_FILTERED_BYTES,
+            RT4_REFLECTION_FILTERED_DIMENSIONS,
+        ),
+    ):
+        section = reflection.get(name)
+        if not isinstance(section, dict):
+            raise ArtifactSetError(f"RT4 reflection {name} report is missing")
+        _require_exact_keys(
+            section,
+            {
+                "offset",
+                "bytes",
+                "face_count",
+                "mip_dimensions",
+                "exact_fnv1a64",
+                "finite_component_count",
+                "nonzero_rgb_component_count",
+                "distinct_texel_count",
+                "max_absolute_rgb",
+            },
+            f"RT4 reflection {name} report",
+        )
+        payload = evidence[offset : offset + byte_count]
+        metrics = _reflection_half_metrics(payload, name)
+        checks = {
+            "offset": _json_exact(section.get("offset"), offset),
+            "bytes": _json_exact(section.get("bytes"), byte_count),
+            "faces": _json_exact(
+                section.get("face_count"), RT4_REFLECTION_FACE_COUNT
+            ),
+            "dimensions": _json_exact(
+                section.get("mip_dimensions"), list(dimensions)
+            ),
+            "hash": section.get("exact_fnv1a64") == _fnv1a64(payload),
+            "finite": _json_exact(
+                section.get("finite_component_count"),
+                metrics["finite_component_count"],
+            ),
+            "nonzero": _json_exact(
+                section.get("nonzero_rgb_component_count"),
+                metrics["nonzero_rgb_component_count"],
+            )
+            and int(metrics["nonzero_rgb_component_count"]) > 0,
+            "distinct": _json_exact(
+                section.get("distinct_texel_count"),
+                metrics["distinct_texel_count"],
+            )
+            and int(metrics["distinct_texel_count"]) >= 2,
+            "maximum": _reported_metric_matches(
+                section.get("max_absolute_rgb"),
+                float(metrics["max_absolute_rgb"]),
+            )
+            and float(metrics["max_absolute_rgb"]) > 0.0,
+        }
+        failed = sorted(key for key, passed in checks.items() if not passed)
+        if failed:
+            raise ArtifactSetError(
+                f"RT4 reflection {name} evidence failed: "
+                + ", ".join(failed)
+            )
+
+    offset = 0
+    reflection_slices: list[dict[str, object]] = []
+    for texture, dimensions in (
+        ("raw", (RT4_REFLECTION_RESOLUTION,)),
+        ("filtered", RT4_REFLECTION_FILTERED_DIMENSIONS),
+    ):
+        for mip, dimension in enumerate(dimensions):
+            slice_bytes = dimension * dimension * 8
+            for face in range(RT4_REFLECTION_FACE_COUNT):
+                payload = evidence[offset : offset + slice_bytes]
+                _reflection_half_metrics(
+                    payload, f"{texture} mip {mip} face {face}"
+                )
+                reflection_slices.append(
+                    {
+                        "texture": texture,
+                        "mip": mip,
+                        "face": face,
+                        "offset": offset,
+                        "bytes": slice_bytes,
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    }
+                )
+                offset += slice_bytes
+    filtered_mip_one_offset = RT4_REFLECTION_RAW_BYTES * 2
+    filtered_mip_one = _reflection_half_metrics(
+        evidence[filtered_mip_one_offset:], "filtered mip one"
+    )
+    if (
+        offset != len(evidence)
+        or len(reflection_slices) != 18
+        or int(filtered_mip_one["nonzero_rgb_component_count"]) == 0
+        or int(filtered_mip_one["distinct_texel_count"]) < 2
+        or float(filtered_mip_one["max_absolute_rgb"]) <= 0.0
+    ):
+        raise ArtifactSetError("RT4 reflection subresource coverage is incomplete")
+    return reflection_slices
+
+
 def _verify_rt4_semantics(
     report: dict[str, object],
     ppm_path: Path,
@@ -999,6 +1352,7 @@ def _verify_rt4_semantics(
             "texture_retirement",
             "texture_isolation",
             "tangent_handedness",
+            "reflection_probes",
             "hdr",
             "sdr",
             "lifecycle",
@@ -1388,6 +1742,7 @@ def _verify_rt4(
     report_path = root / RT4_REPORT_ARTIFACT
     ppm_path = root / RT4_PPM_ARTIFACT
     isolation_path = root / RT4_ISOLATION_ARTIFACT
+    reflection_path = root / RT4_REFLECTION_ARTIFACT
     attestation_path = root / RT4_ATTESTATION_ARTIFACT
     report = _read_json_object(report_path, "RT4 report")
     attestation = _read_json_object(attestation_path, "RT4 attestation")
@@ -1402,6 +1757,7 @@ def _verify_rt4(
             "shader_media",
             "files",
             "isolation_slices",
+            "reflection_slices",
         },
         "RT4 attestation",
     )
@@ -1434,6 +1790,7 @@ def _verify_rt4(
         "report",
         "ppm",
         "isolation",
+        "reflection",
         "executable",
     }:
         raise ArtifactSetError("RT4 attested file set is invalid")
@@ -1442,6 +1799,7 @@ def _verify_rt4(
         ("report", report_path, RT4_REPORT_ARTIFACT),
         ("ppm", ppm_path, RT4_PPM_ARTIFACT),
         ("isolation", isolation_path, RT4_ISOLATION_ARTIFACT),
+        ("reflection", reflection_path, RT4_REFLECTION_ARTIFACT),
         ("executable", executable_path, executable_relative),
     ):
         _verify_attested_file(files.get(key), path, relative, "RT4", key)
@@ -1592,6 +1950,13 @@ def _verify_rt4(
     )
     if not _json_exact(attestation.get("isolation_slices"), computed_slices):
         raise ArtifactSetError("RT4 SHA-256 slice attestation mismatch")
+    reflection_slices = _verify_rt4_reflection_semantics(
+        report, reflection_path, build_contract
+    )
+    if not _json_exact(
+        attestation.get("reflection_slices"), reflection_slices
+    ):
+        raise ArtifactSetError("RT4 reflection SHA-256 slice attestation mismatch")
     manifest.append(
         {
             "path": executable_relative,
