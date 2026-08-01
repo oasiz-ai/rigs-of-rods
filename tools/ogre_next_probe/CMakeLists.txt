@@ -312,6 +312,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     add_library(
         ror_ogre_next_n1_contract STATIC
         "${_ror_render_root}/MaterialDescriptor.cpp"
+        "${_ror_render_root}/ReflectionProbeCaptureReceipt.cpp"
+        "${_ror_render_root}/ReflectionProbeRuntime.cpp"
         "${_ror_render_root}/RenderAssetId.cpp"
         "${_ror_render_root}/RenderAssetRegistry.cpp"
         "${_ror_render_root}/RenderFrame.cpp"

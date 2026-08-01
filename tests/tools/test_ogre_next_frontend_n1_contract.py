@@ -63,6 +63,14 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("ROR_SOURCE_MANIFEST_SHA256", self.entry_cmake)
         self.assertIn("ror_source_identity", RUNNER_PATH.read_text(encoding="utf-8"))
         self.assertIn("ror_relevant_source_manifest_sha256", self.smoke)
+        contract_sources = self.entry_cmake[
+            self.entry_cmake.index("ror_ogre_next_n1_contract STATIC") :
+            self.entry_cmake.index(
+                "target_include_directories(\n        ror_ogre_next_n1_contract"
+            )
+        ]
+        self.assertIn("ReflectionProbeRuntime.cpp", contract_sources)
+        self.assertIn("ReflectionProbeCaptureReceipt.cpp", contract_sources)
 
     def test_public_boundary_contains_no_ogre_types(self) -> None:
         self.assertNotIn('#include "Ogre', self.header)
