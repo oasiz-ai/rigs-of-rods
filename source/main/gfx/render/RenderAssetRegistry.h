@@ -111,6 +111,22 @@ public:
   /// An uninitialized sequence-zero registry cannot produce a valid snapshot.
   [[nodiscard]] RenderAssetDelta BuildFullSnapshot() const;
 
+  /// Visits each immutable record in stable asset-ID order without copying
+  /// descriptor payload bytes or exposing the registry's container type.
+  /// Returning a failure stops visitation and forwards that exact result.
+  /// The record reference is borrowed only for that callback invocation and
+  /// must not escape it; registry mutation or destruction invalidates it.
+  template <typename Visitor>
+  [[nodiscard]] ValidationResult VisitRecords(Visitor &&visitor) const {
+    for (const auto &entry : records_) {
+      const ValidationResult result = visitor(entry.second);
+      if (!result) {
+        return result;
+      }
+    }
+    return ValidationResult::Success();
+  }
+
   [[nodiscard]] const RenderAssetRecord *
   Find(RenderAssetId id) const noexcept;
   [[nodiscard]] const RenderAssetRecord *

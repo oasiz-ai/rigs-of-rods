@@ -16,6 +16,7 @@
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -426,6 +427,63 @@ void TestDependencySafeTombstones() {
           "authoritative full snapshot resurrected a tombstone");
 }
 
+void TestZeroCopyStableRecordVisitation() {
+  using namespace RoR::Render;
+  constexpr std::uint64_t kRegistry = 75U;
+  RenderAssetDelta base = MakeBaseDelta(kRegistry);
+  base.mutations.push_back(
+      Upsert(Ref(RenderAssetKind::TEXTURE, 3U), MakeBaseColorTexture()));
+  RenderAssetRegistry registry(kRegistry);
+  Require(registry.Apply(base).ok(),
+          "record visitation fixture could not apply its base catalog");
+
+  RenderAssetDelta tombstone;
+  tombstone.registry_id = kRegistry;
+  tombstone.base_sequence = 1U;
+  tombstone.sequence = 2U;
+  tombstone.mutations.push_back(
+      Destroy(Ref(RenderAssetKind::TEXTURE, 3U, 2U)));
+  Require(registry.Apply(tombstone).ok(),
+          "record visitation fixture could not create a tombstone");
+
+  std::vector<std::uint64_t> visited_ids;
+  std::vector<const RenderAssetPayload *> visited_payloads;
+  const ValidationResult visited = registry.VisitRecords(
+      [&](const RenderAssetRecord &record) {
+        visited_ids.push_back(record.asset.id.low());
+        visited_payloads.push_back(record.payload.get());
+        const RenderAssetRecord *stored = registry.Find(record.asset.id);
+        Require(stored != nullptr && stored->payload.get() == record.payload.get(),
+                "record visitation copied or substituted an immutable payload");
+        return ValidationResult::Success();
+      });
+  Require(visited.ok() &&
+              visited_ids == std::vector<std::uint64_t>({1U, 2U, 3U}),
+          "record visitation was not stable asset-ID order");
+  Require(visited_payloads.size() == 3U &&
+              visited_payloads[0U] != nullptr &&
+              visited_payloads[1U] != nullptr &&
+              visited_payloads[2U] != nullptr &&
+              std::holds_alternative<std::monostate>(*visited_payloads[2U]) &&
+              !registry.Find(Id(3U))->live(),
+          "record visitation omitted or materialized a tombstone payload");
+
+  std::size_t calls = 0U;
+  const ValidationResult stopped = registry.VisitRecords(
+      [&](const RenderAssetRecord &) {
+        ++calls;
+        if (calls == 2U) {
+          return ValidationResult::Failure(
+              ValidationCode::VALUE_OUT_OF_RANGE, "visitor.stop",
+              "intentional early-stop sentinel", 17U);
+        }
+        return ValidationResult::Success();
+      });
+  Require(calls == 2U && stopped.code == ValidationCode::VALUE_OUT_OF_RANGE &&
+              stopped.field == "visitor.stop" && stopped.element_index == 17U,
+          "record visitation did not forward and stop on visitor failure");
+}
+
 void TestDeterministicOrderingAndRegistryIsolation() {
   using namespace RoR::Render;
   RenderAssetDelta reversed = MakeBaseDelta(77U);
@@ -483,6 +541,7 @@ int main() {
   TestOneSceneCanFeedTwoFrontendCatalogs();
   TestRevisionSequenceAndRecovery();
   TestDependencySafeTombstones();
+  TestZeroCopyStableRecordVisitation();
   TestDeterministicOrderingAndRegistryIsolation();
   TestValuelessPayloadFailsClosed();
   std::cout << "render asset registry tests passed\n";
