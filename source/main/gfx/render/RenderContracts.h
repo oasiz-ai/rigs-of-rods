@@ -11,9 +11,10 @@
 
 #pragma once
 
-#include "MaterialDescriptor.h"
-#include "PbrReference.h"
 #include "GraphicsSceneSnapshotProducer.h"
+#include "MaterialDescriptor.h"
+#include "ParallaxProbeReference.h"
+#include "PbrReference.h"
 #include "RenderAssetId.h"
 #include "RenderAssetRegistry.h"
 #include "RenderFrame.h"

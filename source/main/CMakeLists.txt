@@ -42,6 +42,7 @@ set(SOURCE_FILES
         gfx/RenderDisplayMetrics.h
         gfx/render/GraphicsSceneSnapshotProducer.{h,cpp}
         gfx/render/MaterialDescriptor.{h,cpp}
+        gfx/render/ParallaxProbeReference.{h,cpp}
         gfx/render/PbrReference.{h,cpp}
         gfx/render/RenderAssetId.{h,cpp}
         gfx/render/RenderAssetRegistry.{h,cpp}
@@ -362,6 +363,7 @@ expand_file_extensions(SOURCE_FILES ${SOURCE_FILES})
 set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/GraphicsSceneSnapshotProducer.cpp
         gfx/render/MaterialDescriptor.cpp
+        gfx/render/ParallaxProbeReference.cpp
         gfx/render/PbrReference.cpp
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
@@ -379,6 +381,7 @@ set_source_files_properties(
 set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/GraphicsSceneSnapshotProducer.cpp
         gfx/render/MaterialDescriptor.cpp
+        gfx/render/ParallaxProbeReference.cpp
         gfx/render/PbrReference.cpp
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp

@@ -460,6 +460,9 @@ provenance artifacts pass. Only then may the macOS build report
   reproduce the implemented slice on Windows and Linux.
 - Add probes/SSR or accepted non-RT reflection path and a measured diffuse-GI
   path.
+- Bind the probe fallback to the pinned portable box-projection/influence
+  oracle before accepting backend images; separately gate capture scheduling,
+  IBL filtering, and probe authoring.
 - Pass CityWorld/starter-content missing-material, luminance, reflection,
   temporal, and performance gates with RT disabled.
 

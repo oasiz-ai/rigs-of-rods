@@ -1195,6 +1195,13 @@ Gate V1:
 - The PBR DAF and terrain slice meets a recorded render budget on each reference
   platform before additional assets are converted.
 
+The first reflection-fallback reference now pins Ogre-Next's box-projected
+cubemap shader and probe-buffer sources. Its portable oracle fixes strict box
+membership, manual and automatic probe weights, ray-box correction, and the
+left-handed sampling-vector convention before Metal/HLSL/GLSL backend captures
+are compared. Probe capture scheduling, filtering, scene authoring, and image
+quality remain open acceptance work.
+
 ## V2 — AirSim-referenced visual fidelity and scene import
 
 AirSim is a simulator plugin whose visual quality depends on its Unreal/Unity

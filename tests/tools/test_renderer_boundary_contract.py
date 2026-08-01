@@ -106,6 +106,43 @@ class RendererBoundaryContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, asset_registry)
 
+    def test_numerical_references_are_shipping_strict_fp_sources(self) -> None:
+        production_cmake = (
+            REPOSITORY_ROOT / "source" / "main" / "CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        test_cmake = (REPOSITORY_ROOT / "tests" / "CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+        references = sorted(BOUNDARY_ROOT.glob("*Reference.cpp"))
+        self.assertTrue(references)
+        for source in references:
+            stem = source.stem
+            self.assertIn(
+                f"gfx/render/{stem}.{{h,cpp}}",
+                production_cmake,
+                f"{stem} is absent from the shipping source list",
+            )
+            self.assertGreaterEqual(
+                production_cmake.count(f"gfx/render/{stem}.cpp"),
+                2,
+                f"{stem} must be in renderer-contract and strict-FP lists",
+            )
+            self.assertIn(
+                f"source/main/gfx/render/{stem}.cpp",
+                test_cmake,
+                f"{stem} is absent from the portable contract library",
+            )
+            self.assertTrue(
+                (
+                    REPOSITORY_ROOT
+                    / "tests"
+                    / "gfx"
+                    / "render"
+                    / f"{stem}Tests.cpp"
+                ).is_file(),
+                f"{stem} has no focused C++ contract test",
+            )
+
     def test_pbr_reference_is_shipped_and_kept_in_strict_fp_mode(self) -> None:
         main_cmake = (
             REPOSITORY_ROOT / "source" / "main" / "CMakeLists.txt"
