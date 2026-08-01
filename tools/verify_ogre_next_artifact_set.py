@@ -26,6 +26,12 @@ REQUIRED_ARTIFACTS = (
     "ror-ogre-next-frontend-rt4-pbr-v1.ppm",
     "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin",
     "ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin",
+    "ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin",
+    "ror-ogre-next-frontend-rt4-pbr-v1-repeat/ror-ogre-next-frontend-rt4-pbr-v1-report.json",
+    "ror-ogre-next-frontend-rt4-pbr-v1-repeat/ror-ogre-next-frontend-rt4-pbr-v1.ppm",
+    "ror-ogre-next-frontend-rt4-pbr-v1-repeat/ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin",
+    "ror-ogre-next-frontend-rt4-pbr-v1-repeat/ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin",
+    "ror-ogre-next-frontend-rt4-pbr-v1-repeat/ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin",
     "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json",
     "ror-ogre-next-pssm-shadow-report.json",
 )
@@ -61,6 +67,21 @@ RT4_REPORT_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1-report.json"
 RT4_PPM_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1.ppm"
 RT4_ISOLATION_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin"
 RT4_REFLECTION_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin"
+RT4_COMPOSITOR_ARTIFACT = (
+    "ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin"
+)
+RT4_REPEAT_DIRECTORY = "ror-ogre-next-frontend-rt4-pbr-v1-repeat"
+RT4_REPEAT_REPORT_ARTIFACT = f"{RT4_REPEAT_DIRECTORY}/{RT4_REPORT_ARTIFACT}"
+RT4_REPEAT_PPM_ARTIFACT = f"{RT4_REPEAT_DIRECTORY}/{RT4_PPM_ARTIFACT}"
+RT4_REPEAT_ISOLATION_ARTIFACT = (
+    f"{RT4_REPEAT_DIRECTORY}/{RT4_ISOLATION_ARTIFACT}"
+)
+RT4_REPEAT_REFLECTION_ARTIFACT = (
+    f"{RT4_REPEAT_DIRECTORY}/{RT4_REFLECTION_ARTIFACT}"
+)
+RT4_REPEAT_COMPOSITOR_ARTIFACT = (
+    f"{RT4_REPEAT_DIRECTORY}/{RT4_COMPOSITOR_ARTIFACT}"
+)
 RT4_ATTESTATION_ARTIFACT = (
     "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json"
 )
@@ -83,13 +104,13 @@ RELEVANT_SOURCE_PATHS = (
     "tools/verify_ogre_next_artifact_set.py",
 )
 RT4_ATTESTATION_SCHEMA = (
-    "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v3"
+    "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v4"
 )
 RT4_INTEGRITY_MODEL = (
     "self-contained-checksums-plus-independent-semantics; "
     "not-a-cryptographic-signature"
 )
-RT4_REPORT_SCHEMA = "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v2"
+RT4_REPORT_SCHEMA = "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v3"
 RT4_REFLECTION_SCHEMA = "ror.ogre_next_rt4_reflection_probes.v1"
 RT4_REFLECTION_RESOLUTION = 32
 RT4_REFLECTION_FACE_COUNT = 6
@@ -664,6 +685,8 @@ def _read_build_contract(
     }
     expected_components = {
         "hlms_pbs": True,
+        "hlms_unlit": True,
+        "overlay": True,
         "compositor2_core": True,
         "json_materials": True,
         "mesh_lod": True,
@@ -673,6 +696,7 @@ def _read_build_contract(
             "native_authoritative_conditioning_plus_one_r16_ulp_v2"
         ),
         "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
+        "hdr_visual_evidence_version": 1,
         "native_ray_tracing": "not_evaluated",
     }
     expected_platform = {
@@ -1441,6 +1465,123 @@ def _verify_rt4_reflection_semantics(
     return reflection_slices
 
 
+def _binary32(value: float) -> float:
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+def _decode_positive_r16(bits: object) -> float | None:
+    if type(bits) is not int or not 0 < bits <= 0x7BFF:
+        return None
+    decoded = struct.unpack("<e", struct.pack("<H", bits))[0]
+    return decoded if math.isfinite(decoded) and decoded > 0.0 else None
+
+
+def _positive_r16_storage_ulp(bits: object) -> float | None:
+    decoded = _decode_positive_r16(bits)
+    if decoded is None:
+        return None
+    spacings = []
+    if bits > 1:
+        lower = _decode_positive_r16(bits - 1)
+        if lower is None:
+            return None
+        spacings.append(decoded - lower)
+    else:
+        spacings.append(2.0**-24)
+    if bits < 0x7BFF:
+        upper = _decode_positive_r16(bits + 1)
+        if upper is None:
+            return None
+        spacings.append(upper - decoded)
+    result = max(spacings)
+    return result if math.isfinite(result) and result > 0.0 else None
+
+
+def _recompute_hdr_history_oracle(compositor: dict[str, object]) -> dict[str, object]:
+    input_fields = (
+        "history_ogre_exposure",
+        "history_minimum_auto_exposure",
+        "history_maximum_auto_exposure",
+        "history_average_log_luminance",
+        "history_delta_seconds",
+    )
+    if any(
+        not isinstance(compositor.get(field), (int, float))
+        or isinstance(compositor.get(field), bool)
+        or not math.isfinite(float(compositor[field]))
+        for field in input_fields
+    ):
+        raise ArtifactSetError("RT4 HDR history oracle inputs are invalid")
+    previous = _decode_positive_r16(
+        compositor.get("history_previous_inverse_luminance_r16_bits")
+    )
+    if previous is None:
+        raise ArtifactSetError("RT4 HDR history previous R16 input is invalid")
+
+    exposure = _binary32(float(compositor["history_ogre_exposure"]))
+    minimum = _binary32(float(compositor["history_minimum_auto_exposure"]))
+    maximum = _binary32(float(compositor["history_maximum_auto_exposure"]))
+    average = _binary32(float(compositor["history_average_log_luminance"]))
+    delta = _binary32(float(compositor["history_delta_seconds"]))
+    if not (-16.0 <= exposure <= 16.0 and -16.0 <= minimum <= maximum <= 16.0):
+        raise ArtifactSetError("RT4 HDR history exposure inputs are out of range")
+    if not 0.0 <= delta <= 60.0:
+        raise ArtifactSetError("RT4 HDR history delta is out of range")
+
+    analytic_numerator = 1024.0 * math.exp(exposure - 2.0)
+    analytic_clamped = max(7.5 - maximum, min(7.5 - minimum, average))
+    analytic_target = analytic_numerator / math.exp(analytic_clamped)
+    analytic_weight = math.pow(0.25, delta)
+
+    shader_exponent = _binary32(exposure - _binary32(2.0))
+    shader_exp = _binary32(math.exp(shader_exponent))
+    shader_numerator = _binary32(_binary32(1024.0) * shader_exp)
+    shader_minimum = _binary32(_binary32(7.5) - maximum)
+    shader_maximum = _binary32(_binary32(7.5) - minimum)
+    shader_clamped = max(shader_minimum, min(shader_maximum, average))
+    shader_denominator = _binary32(math.exp(shader_clamped))
+    shader_target = _binary32(shader_numerator / shader_denominator)
+    shader_weight = _binary32(math.pow(_binary32(0.25), delta))
+    new_weight = _binary32(_binary32(1.0) - shader_weight)
+    weighted_target = _binary32(shader_target * new_weight)
+    weighted_previous = _binary32(previous * shader_weight)
+    adapted = _binary32(weighted_target + weighted_previous)
+    try:
+        reference_bits = int.from_bytes(struct.pack("<e", adapted), "little")
+    except (OverflowError, struct.error) as error:
+        raise ArtifactSetError("RT4 HDR history oracle is not R16 representable") from error
+    storage_ulp = _positive_r16_storage_ulp(reference_bits)
+    if storage_ulp is None:
+        raise ArtifactSetError("RT4 HDR history oracle storage ULP is invalid")
+
+    conditioning = abs(1.0 - analytic_weight) * abs(
+        analytic_target - shader_target
+    ) + abs(shader_target - previous) * abs(analytic_weight - shader_weight)
+    gamma5 = (5.0 * 2.0**-24) / (1.0 - 5.0 * 2.0**-24)
+    rounding = gamma5 * (
+        abs(shader_target * (1.0 - shader_weight))
+        + abs(previous * shader_weight)
+    ) + 4.0 * 2.0**-149
+    return {
+        "reference_bits": reference_bits,
+        "conditioning_bound": conditioning,
+        "rounding_bound": rounding,
+        "storage_ulp": storage_ulp,
+        "allowed_error": conditioning + rounding + storage_ulp,
+    }
+
+
+def _history_oracle_matches(reported: object, computed: float) -> bool:
+    return (
+        isinstance(reported, (int, float))
+        and not isinstance(reported, bool)
+        and math.isfinite(float(reported))
+        and math.isclose(
+            float(reported), computed, rel_tol=2.0e-6, abs_tol=1.0e-12
+        )
+    )
+
+
 def _verify_hdr_compositor(value: object) -> None:
     compositor = _require_exact_keys(
         value,
@@ -1462,6 +1603,12 @@ def _verify_hdr_compositor(value: object) -> None:
             "initial_inverse_luminance_r16_bits",
             "final_inverse_luminance_r16_bits",
             "reference_inverse_luminance_r16_bits",
+            "history_ogre_exposure",
+            "history_minimum_auto_exposure",
+            "history_maximum_auto_exposure",
+            "history_average_log_luminance",
+            "history_previous_inverse_luminance_r16_bits",
+            "history_delta_seconds",
             "history_absolute_error",
             "history_allowed_error",
             "history_conditioning_bound",
@@ -1470,9 +1617,11 @@ def _verify_hdr_compositor(value: object) -> None:
             "history_r16_ulp_distance",
             "history_changed_from_initial",
             "exposure_changed_pixels",
-            "visible_overlay_contamination_changed_pixels",
-            "visible_overlay_magenta_pixels",
-            "visible_overlay_contamination_fnv1a64",
+            "ui_overlay_control_node",
+            "ui_overlay_control_kind",
+            "ui_overlay_control_changed_pixels",
+            "ui_overlay_control_magenta_pixels",
+            "ui_overlay_control_fnv1a64",
             "initialization_failure_stages_verified",
             "same_object_reinitialize_verified",
             "first_attachment_fnv1a64",
@@ -1491,9 +1640,7 @@ def _verify_hdr_compositor(value: object) -> None:
     storage_ulp = compositor.get("history_storage_ulp")
     first_hash = compositor.get("first_attachment_fnv1a64")
     final_hash = compositor.get("final_attachment_fnv1a64")
-    contamination_hash = compositor.get(
-        "visible_overlay_contamination_fnv1a64"
-    )
+    overlay_hash = compositor.get("ui_overlay_control_fnv1a64")
 
     def finite_nonnegative(metric: object) -> bool:
         return (
@@ -1503,38 +1650,13 @@ def _verify_hdr_compositor(value: object) -> None:
             and metric >= 0.0
         )
 
-    def decode_positive_r16(bits: object) -> float | None:
-        if type(bits) is not int or not 0 < bits <= 0x7BFF:
-            return None
-        decoded = struct.unpack("<e", struct.pack("<H", bits))[0]
-        return decoded if math.isfinite(decoded) and decoded > 0.0 else None
-
-    def positive_r16_storage_ulp(bits: object) -> float | None:
-        decoded = decode_positive_r16(bits)
-        if decoded is None:
-            return None
-        spacings = []
-        if bits > 1:
-            lower = decode_positive_r16(bits - 1)
-            if lower is None:
-                return None
-            spacings.append(decoded - lower)
-        else:
-            spacings.append(2.0**-24)
-        if bits < 0x7BFF:
-            upper = decode_positive_r16(bits + 1)
-            if upper is None:
-                return None
-            spacings.append(upper - decoded)
-        result = max(spacings)
-        return result if math.isfinite(result) and result > 0.0 else None
-
-    native_history = decode_positive_r16(final_bits)
-    reference_history = decode_positive_r16(reference_bits)
-    expected_storage_ulp = positive_r16_storage_ulp(reference_bits)
+    native_history = _decode_positive_r16(final_bits)
+    reference_history = _decode_positive_r16(reference_bits)
+    expected_storage_ulp = _positive_r16_storage_ulp(reference_bits)
+    oracle = _recompute_hdr_history_oracle(compositor)
     checks = {
         "schema": compositor.get("schema")
-        == "ror.ogre_next_hdr_compositor.v2",
+        == "ror.ogre_next_hdr_compositor.v3",
         "workspace": compositor.get("workspace") == "RoRHdrWorkspaceUiFreeV2",
         "persistence": compositor.get("persistent_workspace") is True,
         "formats": compositor.get("scene_format") == "RGBA16_FLOAT"
@@ -1574,6 +1696,21 @@ def _verify_hdr_compositor(value: object) -> None:
         and native_history is not None
         and reference_history is not None
         and expected_storage_ulp is not None
+        and _decode_positive_r16(
+            compositor.get("history_previous_inverse_luminance_r16_bits")
+        )
+        is not None
+        and reference_bits == oracle["reference_bits"]
+        and _history_oracle_matches(
+            conditioning_bound, float(oracle["conditioning_bound"])
+        )
+        and _history_oracle_matches(
+            rounding_bound, float(oracle["rounding_bound"])
+        )
+        and _history_oracle_matches(storage_ulp, float(oracle["storage_ulp"]))
+        and _history_oracle_matches(
+            allowed_error, float(oracle["allowed_error"])
+        )
         and math.isclose(
             float(absolute_error),
             abs(native_history - reference_history),
@@ -1599,16 +1736,17 @@ def _verify_hdr_compositor(value: object) -> None:
         "visual_response": type(compositor.get("exposure_changed_pixels"))
         is int
         and compositor.get("exposure_changed_pixels") >= 512,
-        "visible_overlay_control": type(
-            compositor.get("visible_overlay_contamination_changed_pixels")
-        )
+        "ui_overlay_control": compositor.get("ui_overlay_control_node")
+        == "HdrRenderUi"
+        and compositor.get("ui_overlay_control_kind") == "Ogre::v1::Overlay"
+        and type(compositor.get("ui_overlay_control_changed_pixels"))
         is int
-        and compositor.get("visible_overlay_contamination_changed_pixels")
+        and compositor.get("ui_overlay_control_changed_pixels")
         >= 18432
-        and type(compositor.get("visible_overlay_magenta_pixels")) is int
-        and compositor.get("visible_overlay_magenta_pixels") >= 18432
-        and isinstance(contamination_hash, str)
-        and re.fullmatch(r"[0-9a-f]{16}", contamination_hash) is not None,
+        and type(compositor.get("ui_overlay_control_magenta_pixels")) is int
+        and compositor.get("ui_overlay_control_magenta_pixels") >= 18432
+        and isinstance(overlay_hash, str)
+        and re.fullmatch(r"[0-9a-f]{16}", overlay_hash) is not None,
         "recovery": _json_exact(
             compositor.get("initialization_failure_stages_verified"), 10
         )
@@ -1618,7 +1756,7 @@ def _verify_hdr_compositor(value: object) -> None:
         and isinstance(final_hash, str)
         and re.fullmatch(r"[0-9a-f]{16}", final_hash) is not None
         and first_hash != final_hash
-        and first_hash != contamination_hash,
+        and first_hash != overlay_hash,
         "shutdown": compositor.get("clean_shutdown") is True,
     }
     failed = sorted(name for name, passed in checks.items() if not passed)
@@ -1628,12 +1766,140 @@ def _verify_hdr_compositor(value: object) -> None:
         )
 
 
+def _verify_hdr_compositor_visual(
+    report: dict[str, object], ppm_pixels: bytes, evidence_path: Path
+) -> list[dict[str, object]]:
+    try:
+        payload = evidence_path.read_bytes()
+    except OSError as error:
+        raise ArtifactSetError(
+            f"could not read RT4 HDR compositor evidence: {error}"
+        ) from error
+    visual = report.get("hdr_compositor_visual")
+    compositor = report.get("hdr_compositor")
+    visual = _require_exact_keys(
+        visual,
+        {
+            "schema",
+            "evidence_file",
+            "ppm_attachment",
+            "width",
+            "height",
+            "bytes_per_pixel",
+            "attachments",
+            "evidence_bytes",
+        },
+        "RT4 HDR compositor visual evidence",
+    )
+    if not isinstance(compositor, dict):
+        raise ArtifactSetError("RT4 HDR compositor report is missing")
+    attachments = visual.get("attachments")
+    names = ("first_ui_free", "final_ui_free", "ui_overlay_control")
+    width = 192
+    height = 128
+    attachment_bytes = width * height * 4
+    if (
+        visual.get("schema") != "ror.ogre_next_hdr_compositor_visual.v1"
+        or visual.get("evidence_file") != evidence_path.name
+        or visual.get("ppm_attachment") != "final_ui_free"
+        or not _json_exact(visual.get("width"), width)
+        or not _json_exact(visual.get("height"), height)
+        or not _json_exact(visual.get("bytes_per_pixel"), 4)
+        or not _json_exact(visual.get("evidence_bytes"), len(payload))
+        or not isinstance(attachments, list)
+        or len(attachments) != len(names)
+        or len(payload) != attachment_bytes * len(names)
+    ):
+        raise ArtifactSetError("RT4 HDR compositor visual contract mismatch")
+
+    baseline = payload[:attachment_bytes]
+    observed: dict[str, bytes] = {}
+    slices: list[dict[str, object]] = []
+    for index, (entry, name) in enumerate(zip(attachments, names)):
+        entry = _require_exact_keys(
+            entry,
+            {
+                "name",
+                "offset",
+                "bytes",
+                "exact_fnv1a64",
+                "changed_pixels_from_first",
+            },
+            f"RT4 HDR compositor {name} attachment",
+        )
+        offset = index * attachment_bytes
+        block = payload[offset : offset + attachment_bytes]
+        changed = _changed_pixels(baseline, block, 4)
+        if (
+            entry.get("name") != name
+            or not _json_exact(entry.get("offset"), offset)
+            or not _json_exact(entry.get("bytes"), attachment_bytes)
+            or entry.get("exact_fnv1a64") != _fnv1a64(block)
+            or not _json_exact(entry.get("changed_pixels_from_first"), changed)
+            or any(block[pixel + 3] < 250 for pixel in range(0, len(block), 4))
+        ):
+            raise ArtifactSetError(
+                f"RT4 HDR compositor {name} attachment mismatch"
+            )
+        observed[name] = block
+        slices.append(
+            {
+                "attachment": name,
+                "offset": offset,
+                "bytes": attachment_bytes,
+                "sha256": hashlib.sha256(block).hexdigest(),
+            }
+        )
+
+    final_rgb = bytes(
+        channel
+        for offset in range(0, len(observed["final_ui_free"]), 4)
+        for channel in observed["final_ui_free"][offset : offset + 3]
+    )
+    exposure_changed = _changed_pixels(
+        observed["first_ui_free"], observed["final_ui_free"], 4
+    )
+    overlay_changed = _changed_pixels(
+        observed["first_ui_free"], observed["ui_overlay_control"], 4
+    )
+    overlay = observed["ui_overlay_control"]
+    magenta = sum(
+        overlay[offset] >= 250
+        and overlay[offset + 1] <= 5
+        and overlay[offset + 2] >= 250
+        for offset in range(0, len(overlay), 4)
+    )
+    checks = {
+        "ppm": final_rgb == ppm_pixels,
+        "exposure": exposure_changed >= 512
+        and compositor.get("exposure_changed_pixels") == exposure_changed,
+        "overlay_delta": overlay_changed >= 18432
+        and compositor.get("ui_overlay_control_changed_pixels")
+        == overlay_changed,
+        "overlay_magenta": magenta >= 18432
+        and compositor.get("ui_overlay_control_magenta_pixels") == magenta,
+        "first_hash": compositor.get("first_attachment_fnv1a64")
+        == _fnv1a64(observed["first_ui_free"]),
+        "final_hash": compositor.get("final_attachment_fnv1a64")
+        == _fnv1a64(observed["final_ui_free"]),
+        "overlay_hash": compositor.get("ui_overlay_control_fnv1a64")
+        == _fnv1a64(overlay),
+    }
+    failed = sorted(name for name, passed in checks.items() if not passed)
+    if failed:
+        raise ArtifactSetError(
+            "RT4 HDR compositor visual evidence failed: " + ", ".join(failed)
+        )
+    return slices
+
+
 def _verify_rt4_semantics(
     report: dict[str, object],
     ppm_path: Path,
     isolation_path: Path,
+    compositor_path: Path,
     build_contract: dict[str, object],
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     try:
         ppm = ppm_path.read_bytes()
         isolation_payload = isolation_path.read_bytes()
@@ -1672,6 +1938,7 @@ def _verify_rt4_semantics(
             "tangent_handedness",
             "reflection_probes",
             "hdr_compositor",
+            "hdr_compositor_visual",
             "hdr",
             "sdr",
             "lifecycle",
@@ -1692,6 +1959,9 @@ def _verify_rt4_semantics(
     if not isinstance(isolation, dict):
         raise ArtifactSetError("RT4 isolation report is missing")
     _verify_hdr_compositor(report.get("hdr_compositor"))
+    compositor_slices = _verify_hdr_compositor_visual(
+        report, ppm_pixels, compositor_path
+    )
     _require_exact_keys(
         hdr,
         {
@@ -1962,6 +2232,13 @@ def _verify_rt4_semantics(
         for pixel_offset in range(0, len(baseline["sdr"]), 4)
         for channel in baseline["sdr"][pixel_offset : pixel_offset + 3]
     )
+    baseline_colour_counts: dict[bytes, int] = {}
+    for rgb_offset in range(0, len(baseline_sdr_rgb), 3):
+        colour = baseline_sdr_rgb[rgb_offset : rgb_offset + 3]
+        baseline_colour_counts[colour] = baseline_colour_counts.get(colour, 0) + 1
+    baseline_non_background = (
+        width * height - max(baseline_colour_counts.values())
+    )
     hdr_metrics = _attachment_metrics(baseline["hdr"], True)
     sdr_metrics = _attachment_metrics(baseline["sdr"], False)
     if hdr_metrics["rgb"] != bytes(
@@ -1975,7 +2252,8 @@ def _verify_rt4_semantics(
     sdr_maximum = sdr_metrics["maximum_luminance"]
     sdr_minimum = sdr_metrics["minimum_luminance"]
     report_checks = {
-        "ppm_baseline": ppm_pixels == baseline_sdr_rgb,
+        "ppm_is_compositor": ppm_pixels != baseline_sdr_rgb,
+        "ppm_geometry": len(colour_counts) >= 2 and ppm_non_background >= 512,
         "retirement": _json_exact(
             report.get("texture_retirement"), RT4_EXPECTED_RETIREMENT
         ),
@@ -2030,12 +2308,13 @@ def _verify_rt4_semantics(
         "sdr_maximum": _reported_metric_matches(
             sdr.get("maximum_luminance"), sdr_maximum
         ),
-        "sdr_ppm_hash": sdr_metrics["rgb8_fnv1a64"] == _fnv1a64(ppm_pixels),
+        "sdr_isolation_hash": sdr_metrics["rgb8_fnv1a64"]
+        == _fnv1a64(baseline_sdr_rgb),
         "sdr_distinct": sdr_metrics["distinct_rgb8_values"]
-        == len(colour_counts),
+        == len(baseline_colour_counts),
         "sdr_geometry": sdr_metrics["non_background_pixels"]
-        == ppm_non_background
-        and ppm_non_background >= 512
+        == baseline_non_background
+        and baseline_non_background >= 512
         and sdr_maximum - sdr_minimum > 0.05,
     }
     failed_report = sorted(
@@ -2045,7 +2324,7 @@ def _verify_rt4_semantics(
         raise ArtifactSetError(
             "RT4 PPM/isolation report mismatch: " + ", ".join(failed_report)
         )
-    return slice_attestations
+    return slice_attestations, compositor_slices
 
 
 def _verify_rt4(
@@ -2063,6 +2342,12 @@ def _verify_rt4(
     ppm_path = root / RT4_PPM_ARTIFACT
     isolation_path = root / RT4_ISOLATION_ARTIFACT
     reflection_path = root / RT4_REFLECTION_ARTIFACT
+    compositor_path = root / RT4_COMPOSITOR_ARTIFACT
+    repeat_report_path = root / RT4_REPEAT_REPORT_ARTIFACT
+    repeat_ppm_path = root / RT4_REPEAT_PPM_ARTIFACT
+    repeat_isolation_path = root / RT4_REPEAT_ISOLATION_ARTIFACT
+    repeat_reflection_path = root / RT4_REPEAT_REFLECTION_ARTIFACT
+    repeat_compositor_path = root / RT4_REPEAT_COMPOSITOR_ARTIFACT
     attestation_path = root / RT4_ATTESTATION_ARTIFACT
     report = _read_json_object(report_path, "RT4 report")
     attestation = _read_json_object(attestation_path, "RT4 attestation")
@@ -2078,6 +2363,7 @@ def _verify_rt4(
             "files",
             "isolation_slices",
             "reflection_slices",
+            "compositor_slices",
         },
         "RT4 attestation",
     )
@@ -2111,6 +2397,12 @@ def _verify_rt4(
         "ppm",
         "isolation",
         "reflection",
+        "compositor",
+        "repeat_report",
+        "repeat_ppm",
+        "repeat_isolation",
+        "repeat_reflection",
+        "repeat_compositor",
         "executable",
     }:
         raise ArtifactSetError("RT4 attested file set is invalid")
@@ -2120,6 +2412,24 @@ def _verify_rt4(
         ("ppm", ppm_path, RT4_PPM_ARTIFACT),
         ("isolation", isolation_path, RT4_ISOLATION_ARTIFACT),
         ("reflection", reflection_path, RT4_REFLECTION_ARTIFACT),
+        ("compositor", compositor_path, RT4_COMPOSITOR_ARTIFACT),
+        ("repeat_report", repeat_report_path, RT4_REPEAT_REPORT_ARTIFACT),
+        ("repeat_ppm", repeat_ppm_path, RT4_REPEAT_PPM_ARTIFACT),
+        (
+            "repeat_isolation",
+            repeat_isolation_path,
+            RT4_REPEAT_ISOLATION_ARTIFACT,
+        ),
+        (
+            "repeat_reflection",
+            repeat_reflection_path,
+            RT4_REPEAT_REFLECTION_ARTIFACT,
+        ),
+        (
+            "repeat_compositor",
+            repeat_compositor_path,
+            RT4_REPEAT_COMPOSITOR_ARTIFACT,
+        ),
         ("executable", executable_path, executable_relative),
     ):
         _verify_attested_file(files.get(key), path, relative, "RT4", key)
@@ -2324,8 +2634,8 @@ def _verify_rt4(
             "RT4 report contract mismatch: " + ", ".join(failed_report_contract)
         )
 
-    computed_slices = _verify_rt4_semantics(
-        report, ppm_path, isolation_path, build_contract
+    computed_slices, compositor_slices = _verify_rt4_semantics(
+        report, ppm_path, isolation_path, compositor_path, build_contract
     )
     if not _json_exact(attestation.get("isolation_slices"), computed_slices):
         raise ArtifactSetError("RT4 SHA-256 slice attestation mismatch")
@@ -2336,6 +2646,36 @@ def _verify_rt4(
         attestation.get("reflection_slices"), reflection_slices
     ):
         raise ArtifactSetError("RT4 reflection SHA-256 slice attestation mismatch")
+    if not _json_exact(attestation.get("compositor_slices"), compositor_slices):
+        raise ArtifactSetError("RT4 compositor slice attestation mismatch")
+    repeat_report = _read_json_object(repeat_report_path, "RT4 repeat report")
+    repeat_slices, repeat_compositor_slices = _verify_rt4_semantics(
+        repeat_report,
+        repeat_ppm_path,
+        repeat_isolation_path,
+        repeat_compositor_path,
+        build_contract,
+    )
+    repeat_reflection_slices = _verify_rt4_reflection_semantics(
+        repeat_report, repeat_reflection_path, build_contract
+    )
+    if (
+        not _json_exact(repeat_slices, computed_slices)
+        or not _json_exact(repeat_compositor_slices, compositor_slices)
+        or not _json_exact(repeat_reflection_slices, reflection_slices)
+    ):
+        raise ArtifactSetError("RT4 deterministic repeat semantics differ")
+    for primary, repeat in (
+        (report_path, repeat_report_path),
+        (ppm_path, repeat_ppm_path),
+        (isolation_path, repeat_isolation_path),
+        (reflection_path, repeat_reflection_path),
+        (compositor_path, repeat_compositor_path),
+    ):
+        if sha256_file(primary) != sha256_file(repeat):
+            raise ArtifactSetError(
+                f"RT4 deterministic repeat bytes differ: {primary.name}"
+            )
     packaged_paths = {
         entry[3]
         for media in (packaged_hlms, packaged_hdr, packaged_reflection)

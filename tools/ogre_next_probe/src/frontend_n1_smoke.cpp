@@ -45,6 +45,7 @@ struct Arguments {
   std::string report_path;
   std::string evidence_path;
   std::string reflection_evidence_path;
+  std::string compositor_evidence_path;
   bool modern_pbr = false;
 };
 
@@ -120,12 +121,12 @@ struct SmokeResult final {
   struct HdrCompositorEvidence final {
     OgreNextHdrCompositorAudit initialized;
     OgreNextHdrCompositorAudit committed;
+    Metrics first;
+    Metrics final;
+    Metrics ui_overlay_control;
     std::size_t exposure_changed_pixels = 0U;
-    std::size_t visible_overlay_contamination_changed_pixels = 0U;
-    std::size_t visible_overlay_magenta_pixels = 0U;
-    std::uint64_t first_attachment_fnv1a64 = 0U;
-    std::uint64_t final_attachment_fnv1a64 = 0U;
-    std::uint64_t visible_overlay_contamination_fnv1a64 = 0U;
+    std::size_t ui_overlay_control_changed_pixels = 0U;
+    std::size_t ui_overlay_control_magenta_pixels = 0U;
     std::uint32_t initialization_failure_stages_verified = 0U;
     bool same_object_reinitialize_verified = false;
   } hdr_compositor;
@@ -204,10 +205,12 @@ Arguments ParseArguments(int argc, char **argv) {
       arguments.evidence_path = argv[++index];
     } else if (option == "--reflection-evidence" && index + 1 < argc) {
       arguments.reflection_evidence_path = argv[++index];
+    } else if (option == "--compositor-evidence" && index + 1 < argc) {
+      arguments.compositor_evidence_path = argv[++index];
     } else if (option == "--modern-pbr") {
       arguments.modern_pbr = true;
     } else {
-      Fail("usage: ror_ogre_next_frontend_n1_smoke --media-root ABSOLUTE_PATH [--modern-pbr --evidence ISOLATION.bin --reflection-evidence REFLECTION.bin] [--output FRAME.ppm] [--report REPORT.json]");
+      Fail("usage: ror_ogre_next_frontend_n1_smoke --media-root ABSOLUTE_PATH [--modern-pbr --evidence ISOLATION.bin --reflection-evidence REFLECTION.bin --compositor-evidence HDR.bin] [--output FRAME.ppm] [--report REPORT.json]");
     }
   }
   if (arguments.media_root.empty()) {
@@ -218,6 +221,9 @@ Arguments ParseArguments(int argc, char **argv) {
   }
   if (arguments.modern_pbr && arguments.reflection_evidence_path.empty()) {
     Fail("--reflection-evidence is required for native PCC capture output");
+  }
+  if (arguments.modern_pbr && arguments.compositor_evidence_path.empty()) {
+    Fail("--compositor-evidence is required for exact RT4/V1 HDR output");
   }
   return arguments;
 }
@@ -1410,6 +1416,31 @@ void WriteReflectionEvidence(const std::string &path,
   }
 }
 
+void WriteHdrCompositorEvidence(
+    const std::string &path,
+    const SmokeResult::HdrCompositorEvidence &evidence) {
+  Require(!path.empty(), "HDR compositor evidence path is empty");
+  const std::size_t expected_bytes =
+      static_cast<std::size_t>(kWidth) * kHeight * 4U;
+  const std::array<const Metrics *, 3U> attachments{{
+      &evidence.first, &evidence.final, &evidence.ui_overlay_control}};
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  if (!output) {
+    Fail("could not open HDR compositor evidence: " + path);
+  }
+  for (const Metrics *metrics : attachments) {
+    Require(metrics != nullptr &&
+                metrics->attachment_bytes.size() == expected_bytes,
+            "HDR compositor evidence attachment is incomplete");
+    output.write(
+        reinterpret_cast<const char *>(metrics->attachment_bytes.data()),
+        static_cast<std::streamsize>(metrics->attachment_bytes.size()));
+  }
+  if (!output) {
+    Fail("could not write complete HDR compositor evidence: " + path);
+  }
+}
+
 std::string HexHash(std::uint64_t hash) {
   std::ostringstream value;
   value << std::hex << std::setfill('0') << std::setw(16) << hash;
@@ -1430,7 +1461,8 @@ const char *HdrHistoryValidationModeName(
 
 std::string MakeReport(const SmokeResult &result, bool modern_pbr,
                        const std::string &evidence_path,
-                       const std::string &reflection_evidence_path) {
+                       const std::string &reflection_evidence_path,
+                       const std::string &compositor_evidence_path) {
   const Metrics &hdr = result.hdr;
   const Metrics &sdr = result.sdr;
   ReflectionSectionMetrics raw_reflection;
@@ -1460,7 +1492,7 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
   report << std::setprecision(std::numeric_limits<double>::max_digits10);
   report << "{\n"
          << "  \"schema\": \""
-         << (modern_pbr ? "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v2"
+         << (modern_pbr ? "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v3"
                         : "ror.ogre_next_frontend_n1_smoke.v1")
          << "\",\n"
          << "  \"status\": \"pass\",\n"
@@ -1917,7 +1949,7 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
     const SmokeResult::HdrCompositorEvidence &compositor =
         result.hdr_compositor;
     report << "  \"hdr_compositor\": {\n"
-           << "    \"schema\": \"ror.ogre_next_hdr_compositor.v2\",\n"
+           << "    \"schema\": \"ror.ogre_next_hdr_compositor.v3\",\n"
            << "    \"workspace\": \"RoRHdrWorkspaceUiFreeV2\",\n"
            << "    \"persistent_workspace\": true,\n"
            << "    \"scene_format\": \"RGBA16_FLOAT\",\n"
@@ -1961,6 +1993,19 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << "    \"reference_inverse_luminance_r16_bits\": "
            << compositor.committed.reference_inverse_luminance_r16_bits
            << ",\n"
+           << "    \"history_ogre_exposure\": "
+           << compositor.committed.history_ogre_exposure << ",\n"
+           << "    \"history_minimum_auto_exposure\": "
+           << compositor.committed.history_minimum_auto_exposure << ",\n"
+           << "    \"history_maximum_auto_exposure\": "
+           << compositor.committed.history_maximum_auto_exposure << ",\n"
+           << "    \"history_average_log_luminance\": "
+           << compositor.committed.history_average_log_luminance << ",\n"
+           << "    \"history_previous_inverse_luminance_r16_bits\": "
+           << compositor.committed.history_previous_inverse_luminance_r16_bits
+           << ",\n"
+           << "    \"history_delta_seconds\": "
+           << compositor.committed.history_delta_seconds << ",\n"
            << "    \"history_absolute_error\": "
            << compositor.committed.history_absolute_error << ",\n"
            << "    \"history_allowed_error\": "
@@ -1981,13 +2026,15 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << ",\n"
            << "    \"exposure_changed_pixels\": "
            << compositor.exposure_changed_pixels << ",\n"
-           << "    \"visible_overlay_contamination_changed_pixels\": "
-           << compositor.visible_overlay_contamination_changed_pixels
+           << "    \"ui_overlay_control_node\": \"HdrRenderUi\",\n"
+           << "    \"ui_overlay_control_kind\": \"Ogre::v1::Overlay\",\n"
+           << "    \"ui_overlay_control_changed_pixels\": "
+           << compositor.ui_overlay_control_changed_pixels
            << ",\n"
-           << "    \"visible_overlay_magenta_pixels\": "
-           << compositor.visible_overlay_magenta_pixels << ",\n"
-           << "    \"visible_overlay_contamination_fnv1a64\": \""
-           << HexHash(compositor.visible_overlay_contamination_fnv1a64)
+           << "    \"ui_overlay_control_magenta_pixels\": "
+           << compositor.ui_overlay_control_magenta_pixels << ",\n"
+           << "    \"ui_overlay_control_fnv1a64\": \""
+           << HexHash(compositor.ui_overlay_control.attachment_fnv1a64)
            << "\",\n"
            << "    \"initialization_failure_stages_verified\": "
            << compositor.initialization_failure_stages_verified << ",\n"
@@ -1995,10 +2042,51 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << (compositor.same_object_reinitialize_verified ? "true" : "false")
            << ",\n"
            << "    \"first_attachment_fnv1a64\": \""
-           << HexHash(compositor.first_attachment_fnv1a64) << "\",\n"
+           << HexHash(compositor.first.attachment_fnv1a64) << "\",\n"
            << "    \"final_attachment_fnv1a64\": \""
-           << HexHash(compositor.final_attachment_fnv1a64) << "\",\n"
+           << HexHash(compositor.final.attachment_fnv1a64) << "\",\n"
            << "    \"clean_shutdown\": true\n"
+           << "  },\n"
+           << "  \"hdr_compositor_visual\": {\n"
+           << "    \"schema\": \"ror.ogre_next_hdr_compositor_visual.v1\",\n"
+           << "    \"evidence_file\": \""
+           << std::filesystem::u8path(compositor_evidence_path)
+                  .filename()
+                  .generic_u8string()
+           << "\",\n"
+           << "    \"ppm_attachment\": \"final_ui_free\",\n"
+           << "    \"width\": " << kWidth << ",\n"
+           << "    \"height\": " << kHeight << ",\n"
+           << "    \"bytes_per_pixel\": 4,\n"
+           << "    \"attachments\": [\n";
+    const std::array<std::pair<const char *, const Metrics *>, 3U>
+        compositor_attachments{{
+            {"first_ui_free", &compositor.first},
+            {"final_ui_free", &compositor.final},
+            {"ui_overlay_control", &compositor.ui_overlay_control},
+        }};
+    std::size_t compositor_offset = 0U;
+    for (std::size_t index = 0U; index < compositor_attachments.size();
+         ++index) {
+      const Metrics &metrics = *compositor_attachments[index].second;
+      const std::size_t changed =
+          index == 0U
+              ? 0U
+              : CountChangedPixels(compositor.first.attachment_bytes,
+                                   metrics.attachment_bytes, 4U);
+      report << "      {\"name\": \""
+             << compositor_attachments[index].first << "\", \"offset\": "
+             << compositor_offset << ", \"bytes\": "
+             << metrics.attachment_bytes.size()
+             << ", \"exact_fnv1a64\": \""
+             << HexHash(metrics.attachment_fnv1a64)
+             << "\", \"changed_pixels_from_first\": " << changed << "}"
+             << (index + 1U == compositor_attachments.size() ? "\n"
+                                                             : ",\n");
+      compositor_offset += metrics.attachment_bytes.size();
+    }
+    report << "    ],\n"
+           << "    \"evidence_bytes\": " << compositor_offset << "\n"
            << "  },\n";
   }
   report
@@ -2380,7 +2468,7 @@ RunHdrCompositorProof(const std::string &media_root) {
   RenderFrameOutput first_output;
   RequireSuccess(frontend.Render(first, first_output),
                  "HDR compositor first Render");
-  const Metrics first_metrics = InspectSdr(first_output);
+  evidence.first = InspectSdr(first_output);
 
   RenderFrameRequest second = MakeFrame(
       2U, MakeScene(101U, false, true, 1U, 1U, Matrix4x4{}, 1U,
@@ -2390,12 +2478,10 @@ RunHdrCompositorProof(const std::string &media_root) {
   RenderFrameOutput second_output;
   RequireSuccess(frontend.Render(second, second_output),
                  "HDR compositor second Render");
-  const Metrics second_metrics = InspectSdr(second_output);
+  evidence.final = InspectSdr(second_output);
 
   evidence.exposure_changed_pixels = CountChangedPixels(
-      first_metrics.attachment_bytes, second_metrics.attachment_bytes, 4U);
-  evidence.first_attachment_fnv1a64 = first_metrics.attachment_fnv1a64;
-  evidence.final_attachment_fnv1a64 = second_metrics.attachment_fnv1a64;
+      evidence.first.attachment_bytes, evidence.final.attachment_bytes, 4U);
   evidence.committed = frontend.QueryHdrCompositorAudit();
   Require(evidence.exposure_changed_pixels >= 512U &&
               evidence.committed.version == 2U &&
@@ -2500,48 +2586,46 @@ RunHdrCompositorProof(const std::string &media_root) {
   evidence.same_object_reinitialize_verified =
       evidence.initialization_failure_stages_verified == failure_stages.size();
 
-  OgreNextN1Configuration contamination_configuration;
-  contamination_configuration.shader_media_root = media_root;
-  contamination_configuration.raster_feature_tier =
+  OgreNextN1Configuration overlay_configuration;
+  overlay_configuration.shader_media_root = media_root;
+  overlay_configuration.raster_feature_tier =
       OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
-  contamination_configuration.enable_hdr_compositor = true;
-  contamination_configuration.hdr_visible_overlay_contamination = true;
-  OgreNextN1Frontend contaminated(std::move(contamination_configuration));
-  InitializeAndSync(contaminated, MakeCatalog(true, &kVariantSpecs.front()));
-  RenderFrameOutput contaminated_output;
+  overlay_configuration.enable_hdr_compositor = true;
+  overlay_configuration.hdr_ui_overlay_control = true;
+  OgreNextN1Frontend overlay_control(std::move(overlay_configuration));
+  InitializeAndSync(overlay_control, MakeCatalog(true, &kVariantSpecs.front()));
+  RenderFrameOutput overlay_output;
   RequireSuccess(
-      contaminated.Render(
+      overlay_control.Render(
           MakeFrame(1U, MakeScene(100U, false, true),
                     PixelFormat::RGBA8_SRGB),
-          contaminated_output),
-      "HDR visible-overlay contamination Render");
-  const Metrics contamination_metrics =
-      ReadSdrAttachment(contaminated_output);
-  evidence.visible_overlay_contamination_changed_pixels = CountChangedPixels(
-      first_metrics.attachment_bytes, contamination_metrics.attachment_bytes,
+          overlay_output),
+      "HDR real UI-overlay control Render");
+  evidence.ui_overlay_control = ReadSdrAttachment(overlay_output);
+  evidence.ui_overlay_control_changed_pixels = CountChangedPixels(
+      evidence.first.attachment_bytes,
+      evidence.ui_overlay_control.attachment_bytes,
       4U);
-  evidence.visible_overlay_contamination_fnv1a64 =
-      contamination_metrics.attachment_fnv1a64;
   for (std::size_t offset = 0U;
-       offset + 3U < contamination_metrics.attachment_bytes.size();
+       offset + 3U < evidence.ui_overlay_control.attachment_bytes.size();
        offset += 4U) {
-    if (contamination_metrics.attachment_bytes[offset] >= 250U &&
-        contamination_metrics.attachment_bytes[offset + 1U] <= 5U &&
-        contamination_metrics.attachment_bytes[offset + 2U] >= 250U) {
-      ++evidence.visible_overlay_magenta_pixels;
+    if (evidence.ui_overlay_control.attachment_bytes[offset] >= 250U &&
+        evidence.ui_overlay_control.attachment_bytes[offset + 1U] <= 5U &&
+        evidence.ui_overlay_control.attachment_bytes[offset + 2U] >= 250U) {
+      ++evidence.ui_overlay_control_magenta_pixels;
     }
   }
-  Require(evidence.visible_overlay_contamination_changed_pixels >=
+  Require(evidence.ui_overlay_control_changed_pixels >=
                   static_cast<std::size_t>(kWidth) * kHeight * 3U / 4U &&
-              evidence.visible_overlay_magenta_pixels >=
+              evidence.ui_overlay_control_magenta_pixels >=
                   static_cast<std::size_t>(kWidth) * kHeight * 3U / 4U &&
-              evidence.visible_overlay_contamination_fnv1a64 !=
-                  evidence.first_attachment_fnv1a64 &&
-              !contaminated.QueryHdrCompositorAudit()
+              evidence.ui_overlay_control.attachment_fnv1a64 !=
+                  evidence.first.attachment_fnv1a64 &&
+              !overlay_control.QueryHdrCompositorAudit()
                    .ui_free_workspace_verified,
-          "visible overlay contamination seam did not visibly alter output");
-  RequireSuccess(contaminated.Shutdown(kInfiniteRenderTimeoutNanoseconds),
-                 "HDR visible-overlay contamination Shutdown");
+          "real HdrRenderUi Overlay control did not visibly alter output");
+  RequireSuccess(overlay_control.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "HDR real UI-overlay control Shutdown");
 #endif
   return evidence;
 }
@@ -2919,14 +3003,18 @@ int main(int argc, char **argv) {
     const Arguments arguments = ParseArguments(argc, argv);
     const SmokeResult result =
         RunSmoke(arguments.media_root, arguments.modern_pbr);
-    WritePpm(arguments.image_path, result.sdr);
+    WritePpm(arguments.image_path,
+             arguments.modern_pbr ? result.hdr_compositor.final : result.sdr);
     if (arguments.modern_pbr) {
       WriteIsolationEvidence(arguments.evidence_path, result);
       WriteReflectionEvidence(arguments.reflection_evidence_path, result);
+      WriteHdrCompositorEvidence(arguments.compositor_evidence_path,
+                                 result.hdr_compositor);
     }
     const std::string report = MakeReport(
         result, arguments.modern_pbr, arguments.evidence_path,
-        arguments.reflection_evidence_path);
+        arguments.reflection_evidence_path,
+        arguments.compositor_evidence_path);
     WriteText(arguments.report_path, report);
     std::cout << report;
     return 0;

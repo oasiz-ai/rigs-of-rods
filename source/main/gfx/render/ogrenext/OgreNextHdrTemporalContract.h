@@ -73,6 +73,14 @@ struct OgreNextHdrHistoryComparison final {
       OgreNextHdrHistoryValidationMode::NONE;
   HdrR16Float native_inverse_luminance_r16{};
   HdrR16Float reference_inverse_luminance_r16{};
+  /// Exact shader-domain inputs used to derive the independently reproducible
+  /// CPU oracle for this committed frame.
+  float ogre_exposure = 0.0F;
+  float minimum_auto_exposure = 0.0F;
+  float maximum_auto_exposure = 0.0F;
+  float average_log_luminance = 0.0F;
+  HdrR16Float previous_inverse_luminance_r16{};
+  float delta_seconds = 0.0F;
   double absolute_error = 0.0;
   double allowed_error = 0.0;
   double conditioning_bound = 0.0;

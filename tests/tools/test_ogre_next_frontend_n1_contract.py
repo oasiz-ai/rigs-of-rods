@@ -555,7 +555,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("texture/sampler pairs actually referenced", self.policy)
         self.assertIn("--modern-pbr", self.smoke)
         self.assertIn(
-            "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v2", self.smoke
+            "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v3", self.smoke
         )
         self.assertIn(
             "ror_ogre_next_frontend_rt4_pbr_v1_runtime", self.entry_cmake
@@ -640,7 +640,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.assertIn(token, self.header)
         for token in (
             "RoRHdrWorkspaceUiFreeV2",
-            "RoRHdrWorkspaceVisibleOverlayContaminationTestV2",
+            "RoRHdrWorkspaceUiOverlayControlV3",
             "PFG_RGBA16_FLOAT",
             "PFG_R16_FLOAT",
             "PFG_RGBA8_UNORM_SRGB",
@@ -652,10 +652,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "hdr_temporal_state.CommitFrame",
         ):
             self.assertIn(token, self.frontend)
-        self.assertNotIn(
-            'definition->connect(Ogre::IdString("HdrRenderUi")',
-            self.frontend,
-        )
+        self.assertIn("Ogre::v1::OverlaySystem", self.frontend)
+        self.assertIn("Ogre::v1::OverlayManager", self.frontend)
+        self.assertIn("kOgreNextHdrUiNode", self.frontend)
+        self.assertIn("hdr_ui_overlay_control", self.frontend)
         self.assertIn("definition->getNodeAliasMap()", self.frontend)
         for stage in (
             "AFTER_RESOURCE_GROUP_CREATE",
@@ -680,8 +680,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.entry_cmake)
         self.assertIn("RunHdrCompositorProof", self.smoke)
-        self.assertIn("ror.ogre_next_hdr_compositor.v2", self.smoke)
-        self.assertIn("visible-overlay contamination", self.smoke)
+        self.assertIn("ror.ogre_next_hdr_compositor.v3", self.smoke)
+        self.assertIn("Ogre::v1::Overlay", self.smoke)
+        self.assertIn("--compositor-evidence", self.smoke)
+        self.assertIn("VerifyRt4DeterministicRepeat.cmake", self.entry_cmake)
         self.assertIn("same_object_reinitialize_verified", self.smoke)
 
     def test_projection_and_device_extent_paths_fail_closed(self) -> None:

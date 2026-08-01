@@ -437,11 +437,14 @@ class OgreNextProbeContractTests(unittest.TestCase):
         current_contract["schema_version"] = 4
         current_contract["components"].update(
             {
+                "hlms_unlit": True,
+                "overlay": True,
                 "hdr_temporal_contract_version": 2,
                 "hdr_history_validation_mode": (
                     "native_authoritative_conditioning_plus_one_r16_ulp_v2"
                 ),
                 "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
+                "hdr_visual_evidence_version": 1,
             }
         )
         PROBE.validate_build_contract(
@@ -494,6 +497,8 @@ class OgreNextProbeContractTests(unittest.TestCase):
         )
         self.assertNotIn(PROBE.BUILD_SENTINEL_NAME, cmake)
         self.assertIn("OgreNextHlmsPbs", cmake)
+        self.assertIn("OgreNextHlmsUnlit", cmake)
+        self.assertIn("OgreNextOverlay", cmake)
         self.assertIn('CMAKE_BUILD_TYPE STREQUAL "Release"', cmake)
         self.assertIn("_ror_extracted_shader_media_source_sha256", cmake)
         self.assertNotEqual(

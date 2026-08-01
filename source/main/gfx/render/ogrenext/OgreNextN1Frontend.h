@@ -101,9 +101,10 @@ struct OgreNextN1Configuration final {
       OgreNextN1PssmFailureStage::NONE;
   OgreNextN1HdrFailureStage hdr_failure_stage =
       OgreNextN1HdrFailureStage::NONE;
-  /// Builds a visibly destructive magenta compositor tail for the isolated
-  /// smoke proof. Production callers must leave this false.
-  bool hdr_visible_overlay_contamination = false;
+  /// Connects Ogre's real `HdrRenderUi` node and creates a full-screen magenta
+  /// Overlay panel for the isolated negative-control proof. Production callers
+  /// must leave this false.
+  bool hdr_ui_overlay_control = false;
 #endif
   // Kept after the optional fault-injection seam so the existing standalone
   // test aggregate remains source-compatible. Production callers should set
@@ -137,6 +138,12 @@ struct OgreNextHdrCompositorAudit final {
   std::uint64_t committed_frames = 0U;
   std::uint16_t previous_inverse_luminance_r16_bits = 0U;
   std::uint16_t reference_inverse_luminance_r16_bits = 0U;
+  float history_ogre_exposure = 0.0F;
+  float history_minimum_auto_exposure = 0.0F;
+  float history_maximum_auto_exposure = 0.0F;
+  float history_average_log_luminance = 0.0F;
+  std::uint16_t history_previous_inverse_luminance_r16_bits = 0U;
+  float history_delta_seconds = 0.0F;
   double history_absolute_error = 0.0;
   double history_allowed_error = 0.0;
   double history_conditioning_bound = 0.0;

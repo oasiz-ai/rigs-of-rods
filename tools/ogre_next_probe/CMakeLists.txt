@@ -448,6 +448,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             "${ogre_next_BINARY_DIR}/include"
             "${ogre_next_SOURCE_DIR}/Components/Hlms/Common/include"
             "${ogre_next_SOURCE_DIR}/Components/Hlms/Pbs/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Unlit/include"
+            "${ogre_next_SOURCE_DIR}/Components/Overlay/include"
             "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
             "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX"
             "${ogre_next_SOURCE_DIR}/RenderSystems/Direct3D11/include"
@@ -457,6 +459,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PUBLIC ror_ogre_next_n1_contract
         PRIVATE
             OgreNextHlmsPbs
+            OgreNextHlmsUnlit
+            OgreNextOverlay
             ${ROR_OGRE_NEXT_RENDERER_TARGET}
             OgreNextMain)
     set_target_properties(
@@ -1151,14 +1155,20 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
         "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin")
     set(ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE
         "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin")
-    set(ROR_OGRE_NEXT_RT4_PBR_CTEST_IMAGE
-        "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-ctest.ppm")
-    set(ROR_OGRE_NEXT_RT4_PBR_CTEST_REPORT
-        "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-ctest-report.json")
-    set(ROR_OGRE_NEXT_RT4_PBR_CTEST_EVIDENCE
-        "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-ctest-isolation.bin")
-    set(ROR_OGRE_NEXT_RT4_PBR_CTEST_REFLECTION_EVIDENCE
-        "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-ctest-reflection.bin")
+    set(ROR_OGRE_NEXT_RT4_PBR_COMPOSITOR_EVIDENCE
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin")
+    set(ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-repeat")
+    set(ROR_OGRE_NEXT_RT4_PBR_REPEAT_IMAGE
+        "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT}/ror-ogre-next-frontend-rt4-pbr-v1.ppm")
+    set(ROR_OGRE_NEXT_RT4_PBR_REPEAT_REPORT
+        "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT}/ror-ogre-next-frontend-rt4-pbr-v1-report.json")
+    set(ROR_OGRE_NEXT_RT4_PBR_REPEAT_EVIDENCE
+        "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT}/ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin")
+    set(ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE
+        "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT}/ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin")
+    set(ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE
+        "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT}/ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin")
     set(ROR_OGRE_NEXT_PSSM_REPORT
         "${CMAKE_BINARY_DIR}/ror-ogre-next-pssm-shadow-report.json")
     set(ROR_OGRE_NEXT_PSSM_EVIDENCE
@@ -1183,6 +1193,13 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "${ROR_OGRE_NEXT_RT4_PBR_REPORT}"
             "${ROR_OGRE_NEXT_RT4_PBR_EVIDENCE}"
             "${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_COMPOSITOR_EVIDENCE}"
+        COMMAND
+            "${CMAKE_COMMAND}" -E rm -rf
+            "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT}"
+        COMMAND
+            "${CMAKE_COMMAND}" -E make_directory
+            "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT}"
         COMMAND
             "${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"
             --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
@@ -1197,6 +1214,32 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             --evidence "${ROR_OGRE_NEXT_RT4_PBR_EVIDENCE}"
             --reflection-evidence
                 "${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
+            --compositor-evidence
+                "${ROR_OGRE_NEXT_RT4_PBR_COMPOSITOR_EVIDENCE}"
+        COMMAND
+            "${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"
+            --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+            --modern-pbr
+            --output "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_IMAGE}"
+            --report "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REPORT}"
+            --evidence "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_EVIDENCE}"
+            --reflection-evidence
+                "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE}"
+            --compositor-evidence
+                "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}"
+        COMMAND
+            "${CMAKE_COMMAND}"
+            "-DPRIMARY_REPORT=${ROR_OGRE_NEXT_RT4_PBR_REPORT}"
+            "-DPRIMARY_IMAGE=${ROR_OGRE_NEXT_RT4_PBR_IMAGE}"
+            "-DPRIMARY_ISOLATION=${ROR_OGRE_NEXT_RT4_PBR_EVIDENCE}"
+            "-DPRIMARY_REFLECTION=${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
+            "-DPRIMARY_COMPOSITOR=${ROR_OGRE_NEXT_RT4_PBR_COMPOSITOR_EVIDENCE}"
+            "-DREPEAT_REPORT=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REPORT}"
+            "-DREPEAT_IMAGE=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_IMAGE}"
+            "-DREPEAT_ISOLATION=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_EVIDENCE}"
+            "-DREPEAT_REFLECTION=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE}"
+            "-DREPEAT_COMPOSITOR=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyRt4DeterministicRepeat.cmake"
         DEPENDS ror_ogre_next_frontend_n1_package
         BYPRODUCTS
             "${ROR_OGRE_NEXT_N1_IMAGE}"
@@ -1205,6 +1248,12 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "${ROR_OGRE_NEXT_RT4_PBR_REPORT}"
             "${ROR_OGRE_NEXT_RT4_PBR_EVIDENCE}"
             "${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_COMPOSITOR_EVIDENCE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_IMAGE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REPORT}"
+            "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_EVIDENCE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}"
         COMMENT "Running isolated Ogre-Next N1 and RT4/V1 HDR/SDR frontend smokes"
         VERBATIM)
     add_test(NAME ror_ogre_next_frontend_n1_runtime
@@ -1218,14 +1267,34 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
         COMMAND "${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"
                 --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
                 --modern-pbr
-                --output "${ROR_OGRE_NEXT_RT4_PBR_CTEST_IMAGE}"
-                --report "${ROR_OGRE_NEXT_RT4_PBR_CTEST_REPORT}"
-                --evidence "${ROR_OGRE_NEXT_RT4_PBR_CTEST_EVIDENCE}"
+                --output "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_IMAGE}"
+                --report "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REPORT}"
+                --evidence "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_EVIDENCE}"
                 --reflection-evidence
-                    "${ROR_OGRE_NEXT_RT4_PBR_CTEST_REFLECTION_EVIDENCE}")
+                    "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE}"
+                --compositor-evidence
+                    "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}")
     set_tests_properties(
         ror_ogre_next_frontend_rt4_pbr_v1_runtime
         PROPERTIES WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+    add_test(NAME ror_ogre_next_frontend_rt4_pbr_v1_repeat
+        COMMAND "${CMAKE_COMMAND}"
+            "-DPRIMARY_REPORT=${ROR_OGRE_NEXT_RT4_PBR_REPORT}"
+            "-DPRIMARY_IMAGE=${ROR_OGRE_NEXT_RT4_PBR_IMAGE}"
+            "-DPRIMARY_ISOLATION=${ROR_OGRE_NEXT_RT4_PBR_EVIDENCE}"
+            "-DPRIMARY_REFLECTION=${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
+            "-DPRIMARY_COMPOSITOR=${ROR_OGRE_NEXT_RT4_PBR_COMPOSITOR_EVIDENCE}"
+            "-DREPEAT_REPORT=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REPORT}"
+            "-DREPEAT_IMAGE=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_IMAGE}"
+            "-DREPEAT_ISOLATION=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_EVIDENCE}"
+            "-DREPEAT_REFLECTION=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE}"
+            "-DREPEAT_COMPOSITOR=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyRt4DeterministicRepeat.cmake")
+    set_tests_properties(
+        ror_ogre_next_frontend_rt4_pbr_v1_repeat
+        PROPERTIES
+            DEPENDS ror_ogre_next_frontend_rt4_pbr_v1_runtime
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
     add_test(NAME ror_ogre_next_frontend_n1_media_tamper
         COMMAND "${CMAKE_COMMAND}"
             "-DN1_EXECUTABLE=${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"

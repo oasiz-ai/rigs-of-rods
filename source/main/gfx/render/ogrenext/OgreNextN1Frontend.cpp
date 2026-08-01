@@ -24,7 +24,6 @@
 #include "Compositor/OgreTextureDefinition.h"
 #include "Compositor/Pass/OgreCompositorPassDef.h"
 #include "Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h"
-#include "Compositor/Pass/PassClear/OgreCompositorPassClearDef.h"
 #include "OgreAbiUtils.h"
 #include "OgreArchiveManager.h"
 #include "OgreCamera.h"
@@ -35,6 +34,8 @@
 #include "OgreHlmsDatablock.h"
 #include "OgreHlmsPbs.h"
 #include "OgreHlmsPbsDatablock.h"
+#include "OgreHlmsUnlit.h"
+#include "OgreHlmsUnlitDatablock.h"
 #include "OgreImage2.h"
 #include "OgreItem.h"
 #include "OgreLight.h"
@@ -55,6 +56,10 @@
 #include "OgreSubMesh2.h"
 #include "OgreTechnique.h"
 #include "OgrePass.h"
+#include "OgreOverlay.h"
+#include "OgreOverlayContainer.h"
+#include "OgreOverlayManager.h"
+#include "OgreOverlaySystem.h"
 #include "OgreGpuProgramParams.h"
 #include "OgreTextureBox.h"
 #include "OgreTextureGpu.h"
@@ -443,19 +448,30 @@ RenderOperationResult ResolveShaderMediaRoot(const std::string &configured,
 
 RenderOperationResult ValidateShaderArchives(
     const std::string &resolved_media_root) {
-  Ogre::String data_path;
-  Ogre::StringVector library_paths;
-  Ogre::HlmsPbs::getDefaultPaths(data_path, library_paths);
-  library_paths.push_back(data_path);
-  for (const Ogre::String &relative : library_paths) {
-    std::error_code error;
-    const std::filesystem::path archive =
-        std::filesystem::u8path(resolved_media_root) / relative;
-    if (!std::filesystem::is_directory(archive, error) || error) {
-      return RenderOperationResult::Failure(
-          RenderOperationCode::INVALID_ARGUMENT,
-          "Ogre-Next N1 shader media root lacks required HLMS archives");
+  const auto require_paths = [&](Ogre::String data_path,
+                                 Ogre::StringVector library_paths) {
+    library_paths.push_back(std::move(data_path));
+    for (const Ogre::String &relative : library_paths) {
+      std::error_code error;
+      const std::filesystem::path archive =
+          std::filesystem::u8path(resolved_media_root) / relative;
+      if (!std::filesystem::is_directory(archive, error) || error) {
+        return false;
+      }
     }
+    return true;
+  };
+  Ogre::String pbs_data;
+  Ogre::StringVector pbs_libraries;
+  Ogre::HlmsPbs::getDefaultPaths(pbs_data, pbs_libraries);
+  Ogre::String unlit_data;
+  Ogre::StringVector unlit_libraries;
+  Ogre::HlmsUnlit::getDefaultPaths(unlit_data, unlit_libraries);
+  if (!require_paths(std::move(pbs_data), std::move(pbs_libraries)) ||
+      !require_paths(std::move(unlit_data), std::move(unlit_libraries))) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "Ogre-Next N1 shader media root lacks required PBS/Unlit HLMS archives");
   }
   return RenderOperationResult::Success();
 }
@@ -477,6 +493,25 @@ Ogre::HlmsPbs *RegisterPbs(Ogre::Root &root,
   Ogre::HlmsPbs *pbs = OGRE_NEW Ogre::HlmsPbs(data, &libraries);
   root.getHlmsManager()->registerHlms(pbs);
   return pbs;
+}
+
+Ogre::HlmsUnlit *RegisterUnlit(Ogre::Root &root,
+                               const std::string &resolved_media_root) {
+  Ogre::String data_path;
+  Ogre::StringVector library_paths;
+  Ogre::HlmsUnlit::getDefaultPaths(data_path, library_paths);
+  const Ogre::String media_root = Ogre::String(resolved_media_root) + "/";
+  Ogre::ArchiveManager &archives = Ogre::ArchiveManager::getSingleton();
+  Ogre::Archive *data =
+      archives.load(media_root + data_path, "FileSystem", true);
+  Ogre::ArchiveVec libraries;
+  for (const Ogre::String &library_path : library_paths) {
+    libraries.push_back(
+        archives.load(media_root + library_path, "FileSystem", true));
+  }
+  Ogre::HlmsUnlit *unlit = OGRE_NEW Ogre::HlmsUnlit(data, &libraries);
+  root.getHlmsManager()->registerHlms(unlit);
+  return unlit;
 }
 
 RenderOperationResult NotInitialized() {
@@ -953,13 +988,16 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
 
 constexpr const char kOgreNextHdrResourceGroup[] = "RoROgreNextHdrV2";
 constexpr const char kOgreNextHdrWorkspace[] = "RoRHdrWorkspaceUiFreeV2";
-constexpr const char kOgreNextHdrContaminatedWorkspace[] =
-    "RoRHdrWorkspaceVisibleOverlayContaminationTestV2";
-constexpr const char kOgreNextHdrContaminationNode[] =
-    "RoRVisibleOverlayContaminationNodeV2";
+constexpr const char kOgreNextHdrUiOverlayControlWorkspace[] =
+    "RoRHdrWorkspaceUiOverlayControlV3";
 constexpr const char kOgreNextHdrRenderingNode[] = "HdrRenderingNode";
 constexpr const char kOgreNextHdrPostprocessingNode[] =
     "HdrPostprocessingNode";
+constexpr const char kOgreNextHdrUiNode[] = "HdrRenderUi";
+constexpr const char kOgreNextHdrUiOverlayName[] = "RoRHdrUiOverlayControl";
+constexpr const char kOgreNextHdrUiPanelName[] = "RoRHdrUiOverlayPanel";
+constexpr const char kOgreNextHdrUiDatablockName[] =
+    "RoRHdrUiOverlayMagenta";
 
 RenderOperationResult HdrBackendFailure(const std::string &detail) {
   return RenderOperationResult::Failure(
@@ -1060,8 +1098,7 @@ public:
               configuration.retain_reflection_capture_evidence),
         pssm_failure_stage(configuration.pssm_failure_stage),
         hdr_failure_stage(configuration.hdr_failure_stage),
-        hdr_visible_overlay_contamination(
-            configuration.hdr_visible_overlay_contamination)
+        hdr_ui_overlay_control(configuration.hdr_ui_overlay_control)
 #endif
   {}
 
@@ -1911,6 +1948,16 @@ public:
     audit.history_validation_mode = hdr_history_comparison.mode;
     audit.reference_inverse_luminance_r16_bits =
         hdr_history_comparison.reference_inverse_luminance_r16.bits;
+    audit.history_ogre_exposure = hdr_history_comparison.ogre_exposure;
+    audit.history_minimum_auto_exposure =
+        hdr_history_comparison.minimum_auto_exposure;
+    audit.history_maximum_auto_exposure =
+        hdr_history_comparison.maximum_auto_exposure;
+    audit.history_average_log_luminance =
+        hdr_history_comparison.average_log_luminance;
+    audit.history_previous_inverse_luminance_r16_bits =
+        hdr_history_comparison.previous_inverse_luminance_r16.bits;
+    audit.history_delta_seconds = hdr_history_comparison.delta_seconds;
     audit.history_absolute_error = hdr_history_comparison.absolute_error;
     audit.history_allowed_error = hdr_history_comparison.allowed_error;
     audit.history_conditioning_bound =
@@ -1925,12 +1972,110 @@ public:
 
   [[nodiscard]] const char *HdrWorkspaceName() const noexcept {
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-    if (hdr_visible_overlay_contamination) {
-      return kOgreNextHdrContaminatedWorkspace;
+    if (hdr_ui_overlay_control) {
+      return kOgreNextHdrUiOverlayControlWorkspace;
     }
 #endif
     return kOgreNextHdrWorkspace;
   }
+
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  [[nodiscard]] RenderOperationResult CreateHdrUiOverlayControl() {
+    if (!hdr_ui_overlay_control) {
+      return RenderOperationResult::Success();
+    }
+    if (scene_manager == nullptr || unlit == nullptr || hdr_overlay_system ||
+        hdr_overlay != nullptr || hdr_overlay_panel != nullptr) {
+      return HdrBackendFailure(
+          "real UI-overlay control lifecycle is not empty");
+    }
+
+    hdr_overlay_system = std::make_unique<Ogre::v1::OverlaySystem>();
+    scene_manager->addRenderQueueListener(hdr_overlay_system.get());
+    hdr_overlay_listener_registered = true;
+
+    Ogre::HlmsMacroblock macroblock;
+    macroblock.mDepthCheck = false;
+    macroblock.mDepthWrite = false;
+    macroblock.mCullMode = Ogre::CULL_NONE;
+    Ogre::HlmsDatablock *base_datablock = unlit->createDatablock(
+        Ogre::IdString(kOgreNextHdrUiDatablockName),
+        kOgreNextHdrUiDatablockName, macroblock, Ogre::HlmsBlendblock(),
+        Ogre::HlmsParamVec());
+    auto *datablock = dynamic_cast<Ogre::HlmsUnlitDatablock *>(base_datablock);
+    if (datablock == nullptr) {
+      return HdrBackendFailure(
+          "real UI-overlay control did not create an Unlit datablock");
+    }
+    datablock->setUseColour(true);
+    datablock->setColour(Ogre::ColourValue(1.0F, 0.0F, 1.0F, 1.0F));
+
+    Ogre::v1::OverlayManager &manager =
+        Ogre::v1::OverlayManager::getSingleton();
+    hdr_overlay = manager.create(kOgreNextHdrUiOverlayName);
+    Ogre::v1::OverlayElement *element = manager.createOverlayElement(
+        "Panel", kOgreNextHdrUiPanelName);
+    hdr_overlay_panel =
+        dynamic_cast<Ogre::v1::OverlayContainer *>(element);
+    if (hdr_overlay == nullptr || hdr_overlay_panel == nullptr) {
+      return HdrBackendFailure(
+          "real UI-overlay control did not create an Overlay panel");
+    }
+    hdr_overlay_panel->setMetricsMode(Ogre::v1::GMM_RELATIVE);
+    hdr_overlay_panel->setPosition(0.0F, 0.0F);
+    hdr_overlay_panel->setDimensions(1.0F, 1.0F);
+    hdr_overlay_panel->setMaterialName(kOgreNextHdrUiDatablockName);
+    hdr_overlay->add2D(hdr_overlay_panel);
+    hdr_overlay->show();
+    return RenderOperationResult::Success();
+  }
+
+  [[nodiscard]] bool DestroyHdrUiOverlayControl() noexcept {
+    bool clean = true;
+    if (hdr_overlay != nullptr && hdr_overlay_panel != nullptr) {
+      try {
+        hdr_overlay->remove2D(hdr_overlay_panel);
+      } catch (...) {
+        clean = false;
+      }
+    }
+    if (Ogre::v1::OverlayManager::getSingletonPtr() != nullptr) {
+      Ogre::v1::OverlayManager &manager =
+          Ogre::v1::OverlayManager::getSingleton();
+      if (hdr_overlay_panel != nullptr) {
+        try {
+          manager.destroyOverlayElement(hdr_overlay_panel);
+        } catch (...) {
+          clean = false;
+        }
+      }
+      if (hdr_overlay != nullptr) {
+        try {
+          manager.destroy(hdr_overlay);
+        } catch (...) {
+          clean = false;
+        }
+      }
+    } else if (hdr_overlay_panel != nullptr || hdr_overlay != nullptr) {
+      clean = false;
+    }
+    hdr_overlay_panel = nullptr;
+    hdr_overlay = nullptr;
+    if (hdr_overlay_listener_registered && scene_manager != nullptr &&
+        hdr_overlay_system) {
+      try {
+        scene_manager->removeRenderQueueListener(hdr_overlay_system.get());
+      } catch (...) {
+        clean = false;
+      }
+    } else if (hdr_overlay_listener_registered) {
+      clean = false;
+    }
+    hdr_overlay_listener_registered = false;
+    hdr_overlay_system.reset();
+    return clean;
+  }
+#endif
 
   [[nodiscard]] RenderOperationResult MaybeInjectHdrFailure(
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -1957,32 +2102,6 @@ public:
           "UI-free workspace definition lifecycle is not empty");
     }
 
-#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-    if (hdr_visible_overlay_contamination) {
-      if (compositors->hasNodeDefinition(
-              Ogre::IdString(kOgreNextHdrContaminationNode))) {
-        return HdrBackendFailure(
-            "visible-overlay contamination node lifecycle is not empty");
-      }
-      Ogre::CompositorNodeDef *contamination =
-          compositors->addNodeDefinition(kOgreNextHdrContaminationNode);
-      hdr_contamination_node_definition_created = true;
-      contamination->addTextureSourceName(
-          "rt_output", 0U, Ogre::TextureDefinitionBase::TEXTURE_INPUT);
-      contamination->setNumTargetPass(1U);
-      Ogre::CompositorTargetDef *target =
-          contamination->addTargetPass("rt_output");
-      target->setNumPasses(1U);
-      Ogre::CompositorPassClearDef *clear =
-          static_cast<Ogre::CompositorPassClearDef *>(
-              target->addPass(Ogre::PASS_CLEAR));
-      clear->setAllLoadActions(Ogre::LoadAction::Clear);
-      clear->setAllClearColours(Ogre::ColourValue(1.0F, 0.0F, 1.0F, 1.0F));
-      contamination->setNumOutputChannels(1U);
-      contamination->mapOutputChannel(0U, "rt_output");
-    }
-#endif
-
     Ogre::CompositorWorkspaceDef *definition =
         compositors->addWorkspaceDefinition(workspace_name);
     hdr_workspace_definition_created = true;
@@ -1993,9 +2112,9 @@ public:
     definition->connectExternal(
         0U, Ogre::IdString(kOgreNextHdrPostprocessingNode), 2U);
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-    if (hdr_visible_overlay_contamination) {
+    if (hdr_ui_overlay_control) {
       definition->connect(Ogre::IdString(kOgreNextHdrPostprocessingNode), 0U,
-                          Ogre::IdString(kOgreNextHdrContaminationNode), 0U);
+                          Ogre::IdString(kOgreNextHdrUiNode), 0U);
     }
 #endif
 
@@ -2005,20 +2124,18 @@ public:
     const bool has_postprocessing =
         aliases.find(Ogre::IdString(kOgreNextHdrPostprocessingNode)) != aliases.end();
     const bool has_upstream_ui =
-        aliases.find(Ogre::IdString("HdrRenderUi")) != aliases.end();
-    const bool has_contamination =
-        aliases.find(Ogre::IdString(kOgreNextHdrContaminationNode)) != aliases.end();
+        aliases.find(Ogre::IdString(kOgreNextHdrUiNode)) != aliases.end();
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-    const bool expected_contamination = hdr_visible_overlay_contamination;
+    const bool expected_ui = hdr_ui_overlay_control;
 #else
-    constexpr bool expected_contamination = false;
+    constexpr bool expected_ui = false;
 #endif
-    if (!has_rendering || !has_postprocessing || has_upstream_ui ||
-        has_contamination != expected_contamination) {
+    if (!has_rendering || !has_postprocessing ||
+        has_upstream_ui != expected_ui) {
       return HdrBackendFailure(
           "programmatic HDR workspace node closure is not exact");
     }
-    hdr_ui_free_workspace_verified = !has_upstream_ui && !has_contamination;
+    hdr_ui_free_workspace_verified = !has_upstream_ui;
     return RenderOperationResult::Success();
   }
 
@@ -2032,6 +2149,9 @@ public:
       }
     }
     hdr_workspace = nullptr;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+    clean = DestroyHdrUiOverlayControl() && clean;
+#endif
     if (renderer != nullptr && hdr_output_target != nullptr) {
       try {
         renderer->getTextureGpuManager()->destroyTexture(hdr_output_target);
@@ -2053,17 +2173,6 @@ public:
       clean = false;
     }
     hdr_workspace_definition_created = false;
-    if (root && hdr_contamination_node_definition_created) {
-      try {
-        root->getCompositorManager2()->removeNodeDefinition(
-            Ogre::IdString(kOgreNextHdrContaminationNode));
-      } catch (...) {
-        clean = false;
-      }
-    } else if (hdr_contamination_node_definition_created) {
-      clean = false;
-    }
-    hdr_contamination_node_definition_created = false;
     if (hdr_resource_group_created) {
       try {
         Ogre::ResourceGroupManager::getSingleton().destroyResourceGroup(
@@ -2229,6 +2338,14 @@ public:
         OgreNextN1HdrFailureStage::AFTER_RESOURCE_GROUP_INITIALIZE);
     if (!injected) {
       return injected;
+    }
+#endif
+
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+    const RenderOperationResult overlay_control =
+        CreateHdrUiOverlayControl();
+    if (!overlay_control) {
+      return overlay_control;
     }
 #endif
 
@@ -2438,6 +2555,7 @@ public:
     scene_manager = nullptr;
     camera = nullptr;
     pbs = nullptr;
+    unlit = nullptr;
     renderer = nullptr;
     bootstrap_window = nullptr;
     root.reset();
@@ -2463,6 +2581,7 @@ public:
   Ogre::RenderSystem *renderer = nullptr;
   Ogre::Window *bootstrap_window = nullptr;
   Ogre::HlmsPbs *pbs = nullptr;
+  Ogre::HlmsUnlit *unlit = nullptr;
   Ogre::SceneManager *scene_manager = nullptr;
   Ogre::Camera *camera = nullptr;
   FrontendSurfaceUpdate surface;
@@ -2503,7 +2622,6 @@ public:
   bool hdr_enabled = false;
   bool hdr_resource_group_created = false;
   bool hdr_workspace_definition_created = false;
-  bool hdr_contamination_node_definition_created = false;
   bool hdr_manual_delta_bound = false;
   bool hdr_native_history_validated = false;
   bool hdr_exact_current_to_old_copy_verified = false;
@@ -2534,7 +2652,11 @@ public:
   OgreNextN1HdrFailureStage hdr_failure_stage =
       OgreNextN1HdrFailureStage::NONE;
   bool hdr_failure_pending = hdr_failure_stage != OgreNextN1HdrFailureStage::NONE;
-  bool hdr_visible_overlay_contamination = false;
+  bool hdr_ui_overlay_control = false;
+  std::unique_ptr<Ogre::v1::OverlaySystem> hdr_overlay_system;
+  Ogre::v1::Overlay *hdr_overlay = nullptr;
+  Ogre::v1::OverlayContainer *hdr_overlay_panel = nullptr;
+  bool hdr_overlay_listener_registered = false;
 #endif
 };
 
@@ -2834,6 +2956,8 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
             "Ogre-Next substituted the reviewed PCF4 shadow filter"));
       }
     }
+    impl_->unlit =
+        RegisterUnlit(*impl_->root, impl_->resolved_shader_media_root);
     impl_->scene_manager = impl_->root->createSceneManager(
         Ogre::ST_GENERIC, 1U, "RoROgreNextN1Scene");
     impl_->camera =

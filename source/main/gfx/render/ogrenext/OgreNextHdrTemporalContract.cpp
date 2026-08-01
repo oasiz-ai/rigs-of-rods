@@ -345,6 +345,13 @@ ValidationResult OgreNextHdrTemporalState::CommitFrame(
   comparison.native_inverse_luminance_r16 = canonical_native;
   comparison.reference_inverse_luminance_r16 =
       reference.shader.stored_inverse_luminance_r16;
+  comparison.ogre_exposure = input.exposure;
+  comparison.minimum_auto_exposure = input.minimum_auto_exposure;
+  comparison.maximum_auto_exposure = input.maximum_auto_exposure;
+  comparison.average_log_luminance = input.average_log_luminance;
+  comparison.previous_inverse_luminance_r16 =
+      reference.shader.previous_inverse_luminance_r16;
+  comparison.delta_seconds = input.delta_seconds;
   comparison.conditioning_bound = reference.adapted_conditioning_bound;
   comparison.binary32_rounding_bound =
       reference.adapted_binary32_rounding_bound;

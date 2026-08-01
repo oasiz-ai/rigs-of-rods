@@ -27,6 +27,8 @@ execute_process(
             --evidence "${N1_WORK_ROOT}/must-not-exist.bin"
             --reflection-evidence
                 "${N1_WORK_ROOT}/must-not-exist-reflection.bin"
+            --compositor-evidence
+                "${N1_WORK_ROOT}/must-not-exist-compositor.bin"
     RESULT_VARIABLE _ror_result
     OUTPUT_VARIABLE _ror_stdout
     ERROR_VARIABLE _ror_stderr

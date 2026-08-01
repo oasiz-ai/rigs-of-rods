@@ -477,8 +477,10 @@ provenance artifacts pass. Only then may the macOS build report
   and binary32 rounding bound plus one storage ULP; also reject stale lineage,
   unchanged history, or a non-exact current-to-old compositor copy.
 - Keep the HDR workspace RoR-owned, programmatic, source-manifested, and free of
-  `HdrRenderUi`; require the visible-overlay contamination negative control and
-  all staged same-object reinitialization checks in native evidence.
+  `HdrRenderUi`; require a negative-control workspace wired to the actual
+  `HdrRenderUi` output and a real `Ogre::v1::Overlay`, independently recomputed
+  raw compositor attachments, canonical exact-byte repeat artifacts, and all
+  staged same-object reinitialization checks in native evidence.
 - Add probes/SSR or accepted non-RT reflection path and a measured diffuse-GI
   path.
 - Bind the probe fallback to the pinned portable box-projection/influence

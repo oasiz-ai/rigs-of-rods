@@ -49,12 +49,16 @@ RT4_PBR_EVIDENCE_NAME = (
 RT4_PBR_REFLECTION_EVIDENCE_NAME = (
     "ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin"
 )
+RT4_PBR_COMPOSITOR_EVIDENCE_NAME = (
+    "ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin"
+)
+RT4_PBR_REPEAT_DIRECTORY = "ror-ogre-next-frontend-rt4-pbr-v1-repeat"
 RT4_PBR_ATTESTATION_NAME = (
     "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json"
 )
-RT4_PBR_REPORT_SCHEMA = "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v2"
+RT4_PBR_REPORT_SCHEMA = "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v3"
 RT4_PBR_ATTESTATION_SCHEMA = (
-    "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v3"
+    "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v4"
 )
 RT4_REFLECTION_SCHEMA = "ror.ogre_next_rt4_reflection_probes.v1"
 RT4_REFLECTION_RESOLUTION = 32
@@ -1180,11 +1184,14 @@ def validate_build_contract(
     if schema_version == 4:
         expected_components.update(
             {
+                "hlms_unlit": True,
+                "overlay": True,
                 "hdr_temporal_contract_version": 2,
                 "hdr_history_validation_mode": (
                     "native_authoritative_conditioning_plus_one_r16_ulp_v2"
                 ),
                 "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
+                "hdr_visual_evidence_version": 1,
             }
         )
     checks = {
@@ -1893,6 +1900,203 @@ def _positive_r16_storage_ulp(bits: object) -> float | None:
     return storage_ulp if math.isfinite(storage_ulp) and storage_ulp > 0.0 else None
 
 
+def _binary32(value: float) -> float:
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+def _recompute_hdr_history_oracle(compositor: dict[str, Any]) -> dict[str, Any]:
+    fields = (
+        "history_ogre_exposure",
+        "history_minimum_auto_exposure",
+        "history_maximum_auto_exposure",
+        "history_average_log_luminance",
+        "history_delta_seconds",
+    )
+    if any(
+        not isinstance(compositor.get(field), (int, float))
+        or isinstance(compositor.get(field), bool)
+        or not math.isfinite(float(compositor[field]))
+        for field in fields
+    ):
+        raise ProbeError("HDR history oracle inputs are not finite numbers")
+    previous_bits = compositor.get(
+        "history_previous_inverse_luminance_r16_bits"
+    )
+    previous = _decode_positive_r16(previous_bits)
+    if previous is None:
+        raise ProbeError("HDR history oracle previous R16 input is invalid")
+
+    exposure = _binary32(float(compositor["history_ogre_exposure"]))
+    minimum = _binary32(
+        float(compositor["history_minimum_auto_exposure"])
+    )
+    maximum = _binary32(
+        float(compositor["history_maximum_auto_exposure"])
+    )
+    average = _binary32(
+        float(compositor["history_average_log_luminance"])
+    )
+    delta = _binary32(float(compositor["history_delta_seconds"]))
+    if not (-16.0 <= exposure <= 16.0 and -16.0 <= minimum <= maximum <= 16.0):
+        raise ProbeError("HDR history oracle exposure inputs are out of range")
+    if not (0.0 <= delta <= 60.0):
+        raise ProbeError("HDR history oracle delta is out of range")
+
+    analytic_numerator = 1024.0 * math.exp(exposure - 2.0)
+    analytic_clamped = max(7.5 - maximum, min(7.5 - minimum, average))
+    analytic_target = analytic_numerator / math.exp(analytic_clamped)
+    analytic_weight = math.pow(0.25, delta)
+
+    shader_exponent = _binary32(exposure - _binary32(2.0))
+    shader_exp = _binary32(math.exp(shader_exponent))
+    shader_numerator = _binary32(_binary32(1024.0) * shader_exp)
+    shader_minimum = _binary32(_binary32(7.5) - maximum)
+    shader_maximum = _binary32(_binary32(7.5) - minimum)
+    shader_clamped = max(shader_minimum, min(shader_maximum, average))
+    shader_denominator = _binary32(math.exp(shader_clamped))
+    shader_target = _binary32(shader_numerator / shader_denominator)
+    shader_weight = _binary32(math.pow(_binary32(0.25), delta))
+    shader_new_weight = _binary32(_binary32(1.0) - shader_weight)
+    shader_weighted_target = _binary32(shader_target * shader_new_weight)
+    shader_weighted_previous = _binary32(previous * shader_weight)
+    shader_adapted = _binary32(
+        shader_weighted_target + shader_weighted_previous
+    )
+    try:
+        reference_bits = int.from_bytes(struct.pack("<e", shader_adapted), "little")
+    except (OverflowError, struct.error) as error:
+        raise ProbeError("HDR history oracle is not R16 representable") from error
+    storage_ulp = _positive_r16_storage_ulp(reference_bits)
+    if storage_ulp is None:
+        raise ProbeError("HDR history oracle has no positive storage ULP")
+
+    conditioning = abs(1.0 - analytic_weight) * abs(
+        analytic_target - shader_target
+    ) + abs(shader_target - previous) * abs(
+        analytic_weight - shader_weight
+    )
+    gamma5 = (5.0 * 2.0**-24) / (1.0 - 5.0 * 2.0**-24)
+    rounding = gamma5 * (
+        abs(shader_target * (1.0 - shader_weight))
+        + abs(previous * shader_weight)
+    ) + 4.0 * 2.0**-149
+    return {
+        "reference_bits": reference_bits,
+        "conditioning_bound": conditioning,
+        "rounding_bound": rounding,
+        "storage_ulp": storage_ulp,
+        "allowed_error": conditioning + rounding + storage_ulp,
+    }
+
+
+def _history_oracle_matches(reported: object, computed: float) -> bool:
+    return (
+        isinstance(reported, (int, float))
+        and not isinstance(reported, bool)
+        and math.isfinite(float(reported))
+        and math.isclose(
+            float(reported), computed, rel_tol=2.0e-6, abs_tol=1.0e-12
+        )
+    )
+
+
+def validate_hdr_compositor_visual_evidence(
+    report: dict[str, Any], evidence_path: Path, ppm_pixels: bytes
+) -> list[dict[str, Any]]:
+    try:
+        payload = evidence_path.read_bytes()
+    except OSError as error:
+        raise ProbeError(f"could not read HDR compositor evidence: {error}") from error
+    visual = report.get("hdr_compositor_visual")
+    compositor = report.get("hdr_compositor")
+    if not isinstance(visual, dict) or not isinstance(compositor, dict):
+        raise ProbeError("HDR compositor visual evidence metadata is missing")
+    attachments = visual.get("attachments")
+    expected_names = ("first_ui_free", "final_ui_free", "ui_overlay_control")
+    expected_bytes = 192 * 128 * 4
+    if (
+        visual.get("schema") != "ror.ogre_next_hdr_compositor_visual.v1"
+        or visual.get("evidence_file") != evidence_path.name
+        or visual.get("ppm_attachment") != "final_ui_free"
+        or visual.get("width") != 192
+        or visual.get("height") != 128
+        or visual.get("bytes_per_pixel") != 4
+        or visual.get("evidence_bytes") != len(payload)
+        or not isinstance(attachments, list)
+        or len(attachments) != len(expected_names)
+        or len(payload) != expected_bytes * len(expected_names)
+    ):
+        raise ProbeError("HDR compositor visual evidence contract is invalid")
+    baseline = payload[:expected_bytes]
+    slices: list[dict[str, Any]] = []
+    observed: dict[str, bytes] = {}
+    for index, (entry, name) in enumerate(zip(attachments, expected_names)):
+        if not isinstance(entry, dict) or set(entry) != {
+            "name",
+            "offset",
+            "bytes",
+            "exact_fnv1a64",
+            "changed_pixels_from_first",
+        }:
+            raise ProbeError("HDR compositor attachment metadata is invalid")
+        offset = index * expected_bytes
+        block = payload[offset : offset + expected_bytes]
+        changed = _changed_pixels(baseline, block, 4)
+        if (
+            entry.get("name") != name
+            or entry.get("offset") != offset
+            or entry.get("bytes") != expected_bytes
+            or entry.get("exact_fnv1a64") != _fnv1a64(block)
+            or entry.get("changed_pixels_from_first") != changed
+            or any(block[pixel + 3] < 250 for pixel in range(0, len(block), 4))
+        ):
+            raise ProbeError("HDR compositor attachment evidence mismatch")
+        observed[name] = block
+        slices.append(
+            {
+                "attachment": name,
+                "offset": offset,
+                "bytes": expected_bytes,
+                "sha256": hashlib.sha256(block).hexdigest(),
+            }
+        )
+    final_rgb = bytes(
+        channel
+        for offset in range(0, len(observed["final_ui_free"]), 4)
+        for channel in observed["final_ui_free"][offset : offset + 3]
+    )
+    magenta = sum(
+        block[offset] >= 250
+        and block[offset + 1] <= 5
+        and block[offset + 2] >= 250
+        for block in (observed["ui_overlay_control"],)
+        for offset in range(0, len(block), 4)
+    )
+    exposure_changed = _changed_pixels(
+        observed["first_ui_free"], observed["final_ui_free"], 4
+    )
+    overlay_changed = _changed_pixels(
+        observed["first_ui_free"], observed["ui_overlay_control"], 4
+    )
+    if (
+        final_rgb != ppm_pixels
+        or exposure_changed < 512
+        or overlay_changed < 18432
+        or magenta < 18432
+        or compositor.get("exposure_changed_pixels") != exposure_changed
+        or compositor.get("ui_overlay_control_changed_pixels") != overlay_changed
+        or compositor.get("ui_overlay_control_magenta_pixels") != magenta
+        or compositor.get("first_attachment_fnv1a64")
+        != _fnv1a64(observed["first_ui_free"])
+        or compositor.get("final_attachment_fnv1a64")
+        != _fnv1a64(observed["final_ui_free"])
+        or compositor.get("ui_overlay_control_fnv1a64")
+        != _fnv1a64(observed["ui_overlay_control"])
+    ):
+        raise ProbeError("HDR compositor visual evidence failed closed")
+    return slices
+
+
 def validate_n1_checkpoint(
     report: dict[str, Any],
     image_path: Path,
@@ -1902,6 +2106,7 @@ def validate_n1_checkpoint(
     source_identity: dict[str, Any],
     modern_pbr: bool = False,
     isolation_evidence_path: Path | None = None,
+    compositor_evidence_path: Path | None = None,
 ) -> list[dict[str, Any]] | None:
     try:
         image = image_path.read_bytes()
@@ -1951,6 +2156,15 @@ def validate_n1_checkpoint(
         "history_binary32_rounding_bound"
     )
     reported_storage_ulp = hdr_compositor.get("history_storage_ulp")
+    history_oracle = (
+        _recompute_hdr_history_oracle(hdr_compositor) if modern_pbr else None
+    )
+    if modern_pbr:
+        if compositor_evidence_path is None:
+            raise ProbeError("RT4/V1 HDR compositor evidence path is missing")
+        validate_hdr_compositor_visual_evidence(
+            report, compositor_evidence_path, pixels
+        )
     shader_media = lock["shader_media"]
     checks = {
         "schema": report.get("schema")
@@ -2032,11 +2246,16 @@ def validate_n1_checkpoint(
         "hdr_geometry": isinstance(hdr.get("non_background_pixels"), int)
         and hdr["non_background_pixels"] >= 512,
         "sdr_format": sdr.get("format") == "RGBA8_SRGB",
-        "sdr_hash": sdr.get("rgb8_fnv1a64") == f"{hash_value:016x}",
-        "sdr_distinct": sdr.get("distinct_rgb8_values") == len(counts),
-        "sdr_geometry": sdr.get("non_background_pixels")
-        == observed_non_background
-        and observed_non_background >= 512,
+        "sdr_hash": modern_pbr
+        or sdr.get("rgb8_fnv1a64") == f"{hash_value:016x}",
+        "sdr_distinct": modern_pbr
+        or sdr.get("distinct_rgb8_values") == len(counts),
+        "sdr_geometry": (
+            observed_non_background >= 512
+            if modern_pbr
+            else sdr.get("non_background_pixels") == observed_non_background
+            and observed_non_background >= 512
+        ),
         "lifecycle": all(
             lifecycle.get(field) is True
             for field in (
@@ -2241,6 +2460,12 @@ def validate_n1_checkpoint(
                     "initial_inverse_luminance_r16_bits",
                     "final_inverse_luminance_r16_bits",
                     "reference_inverse_luminance_r16_bits",
+                    "history_ogre_exposure",
+                    "history_minimum_auto_exposure",
+                    "history_maximum_auto_exposure",
+                    "history_average_log_luminance",
+                    "history_previous_inverse_luminance_r16_bits",
+                    "history_delta_seconds",
                     "history_absolute_error",
                     "history_allowed_error",
                     "history_conditioning_bound",
@@ -2249,9 +2474,11 @@ def validate_n1_checkpoint(
                     "history_r16_ulp_distance",
                     "history_changed_from_initial",
                     "exposure_changed_pixels",
-                    "visible_overlay_contamination_changed_pixels",
-                    "visible_overlay_magenta_pixels",
-                    "visible_overlay_contamination_fnv1a64",
+                    "ui_overlay_control_node",
+                    "ui_overlay_control_kind",
+                    "ui_overlay_control_changed_pixels",
+                    "ui_overlay_control_magenta_pixels",
+                    "ui_overlay_control_fnv1a64",
                     "initialization_failure_stages_verified",
                     "same_object_reinitialize_verified",
                     "first_attachment_fnv1a64",
@@ -2259,7 +2486,7 @@ def validate_n1_checkpoint(
                     "clean_shutdown",
                 }
                 and hdr_compositor.get("schema")
-                == "ror.ogre_next_hdr_compositor.v2"
+                == "ror.ogre_next_hdr_compositor.v3"
                 and hdr_compositor.get("workspace") == "RoRHdrWorkspaceUiFreeV2"
                 and hdr_compositor.get("persistent_workspace") is True
                 and hdr_compositor.get("scene_format") == "RGBA16_FLOAT"
@@ -2342,6 +2569,28 @@ def validate_n1_checkpoint(
                 and native_history is not None
                 and reference_history is not None
                 and expected_storage_ulp is not None
+                and history_oracle is not None
+                and _decode_positive_r16(
+                    hdr_compositor.get(
+                        "history_previous_inverse_luminance_r16_bits"
+                    )
+                )
+                is not None
+                and hdr_compositor.get("reference_inverse_luminance_r16_bits")
+                == history_oracle["reference_bits"]
+                and _history_oracle_matches(
+                    reported_conditioning_bound,
+                    history_oracle["conditioning_bound"],
+                )
+                and _history_oracle_matches(
+                    reported_rounding_bound, history_oracle["rounding_bound"]
+                )
+                and _history_oracle_matches(
+                    reported_storage_ulp, history_oracle["storage_ulp"]
+                )
+                and _history_oracle_matches(
+                    reported_allowed_error, history_oracle["allowed_error"]
+                )
                 and math.isclose(
                     float(reported_absolute_error),
                     abs(native_history - reference_history),
@@ -2372,28 +2621,29 @@ def validate_n1_checkpoint(
                 and hdr_compositor.get("history_changed_from_initial") is True
                 and type(hdr_compositor.get("exposure_changed_pixels")) is int
                 and hdr_compositor.get("exposure_changed_pixels") >= 512
+                and hdr_compositor.get("ui_overlay_control_node")
+                == "HdrRenderUi"
+                and hdr_compositor.get("ui_overlay_control_kind")
+                == "Ogre::v1::Overlay"
                 and type(
-                    hdr_compositor.get(
-                        "visible_overlay_contamination_changed_pixels"
-                    )
+                    hdr_compositor.get("ui_overlay_control_changed_pixels")
                 )
                 is int
-                and hdr_compositor.get(
-                    "visible_overlay_contamination_changed_pixels"
-                )
+                and hdr_compositor.get("ui_overlay_control_changed_pixels")
                 >= 18432
-                and type(hdr_compositor.get("visible_overlay_magenta_pixels"))
+                and type(
+                    hdr_compositor.get("ui_overlay_control_magenta_pixels")
+                )
                 is int
-                and hdr_compositor.get("visible_overlay_magenta_pixels") >= 18432
+                and hdr_compositor.get("ui_overlay_control_magenta_pixels")
+                >= 18432
                 and isinstance(
-                    hdr_compositor.get("visible_overlay_contamination_fnv1a64"),
+                    hdr_compositor.get("ui_overlay_control_fnv1a64"),
                     str,
                 )
                 and re.fullmatch(
                     r"[0-9a-f]{16}",
-                    hdr_compositor.get(
-                        "visible_overlay_contamination_fnv1a64"
-                    ),
+                    hdr_compositor.get("ui_overlay_control_fnv1a64"),
                 )
                 is not None
                 and type(
@@ -2423,7 +2673,7 @@ def validate_n1_checkpoint(
                 and hdr_compositor.get("first_attachment_fnv1a64")
                 != hdr_compositor.get("final_attachment_fnv1a64")
                 and hdr_compositor.get("first_attachment_fnv1a64")
-                != hdr_compositor.get("visible_overlay_contamination_fnv1a64")
+                != hdr_compositor.get("ui_overlay_control_fnv1a64")
                 and hdr_compositor.get("clean_shutdown") is True,
             }
         )
@@ -2543,6 +2793,12 @@ def write_rt4_attestation(
     image_path: Path,
     evidence_path: Path,
     reflection_evidence_path: Path,
+    compositor_evidence_path: Path,
+    repeat_report_path: Path,
+    repeat_image_path: Path,
+    repeat_evidence_path: Path,
+    repeat_reflection_evidence_path: Path,
+    repeat_compositor_evidence_path: Path,
     executable_path: Path,
     build_contract_path: Path,
     source_identity: dict[str, Any],
@@ -2550,6 +2806,7 @@ def write_rt4_attestation(
     media_manifest: dict[str, Any],
     isolation_slices: list[dict[str, Any]],
     reflection_slices: list[dict[str, Any]],
+    compositor_slices: list[dict[str, Any]],
 ) -> dict[str, Any]:
     provenance = report.get("provenance")
     if not isinstance(provenance, dict):
@@ -2603,10 +2860,27 @@ def write_rt4_attestation(
             "reflection": _attest_regular_file(
                 reflection_evidence_path, build_dir
             ),
+            "compositor": _attest_regular_file(
+                compositor_evidence_path, build_dir
+            ),
+            "repeat_report": _attest_regular_file(
+                repeat_report_path, build_dir
+            ),
+            "repeat_ppm": _attest_regular_file(repeat_image_path, build_dir),
+            "repeat_isolation": _attest_regular_file(
+                repeat_evidence_path, build_dir
+            ),
+            "repeat_reflection": _attest_regular_file(
+                repeat_reflection_evidence_path, build_dir
+            ),
+            "repeat_compositor": _attest_regular_file(
+                repeat_compositor_evidence_path, build_dir
+            ),
             "executable": _attest_regular_file(executable_path, build_dir),
         },
         "isolation_slices": isolation_slices,
         "reflection_slices": reflection_slices,
+        "compositor_slices": compositor_slices,
     }
     attestation_path = build_dir / RT4_PBR_ATTESTATION_NAME
     _atomic_write_json(attestation_path, attestation)
@@ -2794,6 +3068,19 @@ def run_n1_checkpoint(
     rt4_reflection_evidence_path = (
         build_dir / RT4_PBR_REFLECTION_EVIDENCE_NAME
     )
+    rt4_compositor_evidence_path = (
+        build_dir / RT4_PBR_COMPOSITOR_EVIDENCE_NAME
+    )
+    repeat_root = build_dir / RT4_PBR_REPEAT_DIRECTORY
+    repeat_report_path = repeat_root / RT4_PBR_REPORT_NAME
+    repeat_image_path = repeat_root / RT4_PBR_IMAGE_NAME
+    repeat_evidence_path = repeat_root / RT4_PBR_EVIDENCE_NAME
+    repeat_reflection_evidence_path = (
+        repeat_root / RT4_PBR_REFLECTION_EVIDENCE_NAME
+    )
+    repeat_compositor_evidence_path = (
+        repeat_root / RT4_PBR_COMPOSITOR_EVIDENCE_NAME
+    )
     missing = [
         path.name
         for path in (
@@ -2803,6 +3090,12 @@ def run_n1_checkpoint(
             rt4_image_path,
             rt4_evidence_path,
             rt4_reflection_evidence_path,
+            rt4_compositor_evidence_path,
+            repeat_report_path,
+            repeat_image_path,
+            repeat_evidence_path,
+            repeat_reflection_evidence_path,
+            repeat_compositor_evidence_path,
         )
         if not path.is_file()
     ]
@@ -2829,12 +3122,60 @@ def run_n1_checkpoint(
         source_identity,
         modern_pbr=True,
         isolation_evidence_path=rt4_evidence_path,
+        compositor_evidence_path=rt4_compositor_evidence_path,
     )
     if isolation_slices is None:
         raise ProbeError("RT4/V1 isolation slice attestation is missing")
     reflection_slices = validate_rt4_reflection_evidence(
         rt4_report, rt4_reflection_evidence_path, policy
     )
+    compositor_slices = validate_hdr_compositor_visual_evidence(
+        rt4_report,
+        rt4_compositor_evidence_path,
+        rt4_image_path.read_bytes()[len(b"P6\n192 128\n255\n") :],
+    )
+    try:
+        repeat_report = json.loads(
+            repeat_report_path.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as error:
+        raise ProbeError(f"could not read RT4 repeat report: {error}") from error
+    repeat_slices = validate_n1_checkpoint(
+        repeat_report,
+        repeat_image_path,
+        lock,
+        policy,
+        media_manifest,
+        source_identity,
+        modern_pbr=True,
+        isolation_evidence_path=repeat_evidence_path,
+        compositor_evidence_path=repeat_compositor_evidence_path,
+    )
+    if repeat_slices != isolation_slices:
+        raise ProbeError("RT4 deterministic repeat isolation slices differ")
+    repeat_reflection_slices = validate_rt4_reflection_evidence(
+        repeat_report, repeat_reflection_evidence_path, policy
+    )
+    repeat_compositor_slices = validate_hdr_compositor_visual_evidence(
+        repeat_report,
+        repeat_compositor_evidence_path,
+        repeat_image_path.read_bytes()[len(b"P6\n192 128\n255\n") :],
+    )
+    if repeat_reflection_slices != reflection_slices:
+        raise ProbeError("RT4 deterministic repeat reflection slices differ")
+    if repeat_compositor_slices != compositor_slices:
+        raise ProbeError("RT4 deterministic repeat compositor slices differ")
+    for primary, repeat in (
+        (rt4_report_path, repeat_report_path),
+        (rt4_image_path, repeat_image_path),
+        (rt4_evidence_path, repeat_evidence_path),
+        (rt4_reflection_evidence_path, repeat_reflection_evidence_path),
+        (rt4_compositor_evidence_path, repeat_compositor_evidence_path),
+    ):
+        if sha256_file(primary) != sha256_file(repeat):
+            raise ProbeError(
+                f"RT4 deterministic repeat differs: {primary.name}"
+            )
     if rt4_report["sdr"]["rgb8_fnv1a64"] == report["sdr"]["rgb8_fnv1a64"]:
         raise ProbeError(
             "RT4/V1 texture-backed evidence is indistinguishable from static N1"
@@ -2848,6 +3189,12 @@ def run_n1_checkpoint(
         rt4_image_path,
         rt4_evidence_path,
         rt4_reflection_evidence_path,
+        rt4_compositor_evidence_path,
+        repeat_report_path,
+        repeat_image_path,
+        repeat_evidence_path,
+        repeat_reflection_evidence_path,
+        repeat_compositor_evidence_path,
         _packaged_n1_executable(build_dir, policy),
         build_dir / BUILD_CONTRACT_NAME,
         source_identity,
@@ -2855,6 +3202,7 @@ def run_n1_checkpoint(
         media_manifest,
         isolation_slices,
         reflection_slices,
+        compositor_slices,
     )
 
 

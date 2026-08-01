@@ -307,8 +307,9 @@ void TestSignedFiniteBinary16Decode() {
           "minimum finite R16 did not decode exactly");
 
   const HdrR16Float sentinel{0x4321U, 9.0F};
-  for (const std::uint16_t non_finite : {0x7c00U, 0xfc00U, 0x7e00U,
-                                        0xfe00U}) {
+  constexpr std::array<std::uint16_t, 4U> kNonFinitePatterns{{
+      0x7c00U, 0xfc00U, 0x7e00U, 0xfe00U}};
+  for (const std::uint16_t non_finite : kNonFinitePatterns) {
     output = sentinel;
     Require(!DecodeFiniteHdrR16Float(non_finite, output).ok() &&
                 Equal(output, sentinel),

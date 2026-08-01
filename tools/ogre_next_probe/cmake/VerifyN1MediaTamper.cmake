@@ -41,7 +41,9 @@ if (N1_MODERN_PBR)
         --modern-pbr
         --output "${N1_WORK_ROOT}/tamper.ppm"
         --report "${N1_WORK_ROOT}/tamper.json"
-        --evidence "${N1_WORK_ROOT}/tamper.bin")
+        --evidence "${N1_WORK_ROOT}/tamper.bin"
+        --reflection-evidence "${N1_WORK_ROOT}/tamper-reflection.bin"
+        --compositor-evidence "${N1_WORK_ROOT}/tamper-compositor.bin")
 endif ()
 execute_process(
     COMMAND ${_ror_command}

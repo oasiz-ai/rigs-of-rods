@@ -118,6 +118,8 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             "abi": expected_abi,
             "components": {
                 "hlms_pbs": True,
+                "hlms_unlit": True,
+                "overlay": True,
                 "compositor2_core": True,
                 "json_materials": True,
                 "mesh_lod": True,
@@ -127,6 +129,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     "native_authoritative_conditioning_plus_one_r16_ulp_v2"
                 ),
                 "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
+                "hdr_visual_evidence_version": 1,
                 "native_ray_tracing": "not_evaluated",
             },
             "compiler": {
@@ -146,6 +149,12 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             VERIFY.RT4_PPM_ARTIFACT,
             VERIFY.RT4_ISOLATION_ARTIFACT,
             VERIFY.RT4_REFLECTION_ARTIFACT,
+            VERIFY.RT4_COMPOSITOR_ARTIFACT,
+            VERIFY.RT4_REPEAT_REPORT_ARTIFACT,
+            VERIFY.RT4_REPEAT_PPM_ARTIFACT,
+            VERIFY.RT4_REPEAT_ISOLATION_ARTIFACT,
+            VERIFY.RT4_REPEAT_REFLECTION_ARTIFACT,
+            VERIFY.RT4_REPEAT_COMPOSITOR_ARTIFACT,
             VERIFY.RT4_ATTESTATION_ARTIFACT,
         }
         for name in VERIFY.REQUIRED_ARTIFACTS[1:]:
@@ -842,10 +851,52 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         isolation_path.write_bytes(evidence)
         reflection_path = root / VERIFY.RT4_REFLECTION_ARTIFACT
         reflection_path.write_bytes(reflection_payload)
+        compositor_first = baseline_sdr
+        final_foreground = bytes((110, 130, 150, 255))
+        compositor_final = (
+            final_foreground * 1024
+            + background * (pixel_count - 1024)
+        )
+        compositor_overlay = bytes((255, 0, 255, 255)) * pixel_count
+        compositor_payload = (
+            compositor_first + compositor_final + compositor_overlay
+        )
+        compositor_path = root / VERIFY.RT4_COMPOSITOR_ARTIFACT
+        compositor_path.write_bytes(compositor_payload)
+        compositor_attachments = []
+        compositor_slices = []
+        for index, (name, payload) in enumerate(
+            (
+                ("first_ui_free", compositor_first),
+                ("final_ui_free", compositor_final),
+                ("ui_overlay_control", compositor_overlay),
+            )
+        ):
+            attachment_offset = index * len(payload)
+            changed = VERIFY._changed_pixels(
+                compositor_first, payload, 4
+            )
+            compositor_attachments.append(
+                {
+                    "name": name,
+                    "offset": attachment_offset,
+                    "bytes": len(payload),
+                    "exact_fnv1a64": VERIFY._fnv1a64(payload),
+                    "changed_pixels_from_first": changed,
+                }
+            )
+            compositor_slices.append(
+                {
+                    "attachment": name,
+                    "offset": attachment_offset,
+                    "bytes": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            )
         ppm_pixels = bytes(
             channel
-            for pixel_offset in range(0, len(baseline_sdr), 4)
-            for channel in baseline_sdr[pixel_offset : pixel_offset + 3]
+            for pixel_offset in range(0, len(compositor_final), 4)
+            for channel in compositor_final[pixel_offset : pixel_offset + 3]
         )
         ppm_path = root / VERIFY.RT4_PPM_ARTIFACT
         ppm_path.write_bytes(b"P6\n192 128\n255\n" + ppm_pixels)
@@ -897,6 +948,19 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         )
         shader_media = contract["shader_media"]
         notice = shader_media["third_party_notice"]
+        history_inputs = {
+            "history_ogre_exposure": 0.0,
+            "history_minimum_auto_exposure": -2.5,
+            "history_maximum_auto_exposure": 2.5,
+            "history_average_log_luminance": 7.5,
+            "history_previous_inverse_luminance_r16_bits": int.from_bytes(
+                struct.pack("<e", 0.02), "little"
+            ),
+            "history_delta_seconds": struct.unpack(
+                "<f", struct.pack("<f", 1.0 / 48.0)
+            )[0],
+        }
+        history_oracle = VERIFY._recompute_hdr_history_oracle(history_inputs)
         report = {
             "schema": VERIFY.RT4_REPORT_SCHEMA,
             "status": "pass",
@@ -986,7 +1050,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 VERIFY.RT4_EXPECTED_TEXTURE_UPLOAD_ROLLBACK
             ),
             "hdr_compositor": {
-                "schema": "ror.ogre_next_hdr_compositor.v2",
+                "schema": "ror.ogre_next_hdr_compositor.v3",
                 "workspace": "RoRHdrWorkspaceUiFreeV2",
                 "persistent_workspace": True,
                 "scene_format": "RGBA16_FLOAT",
@@ -1003,24 +1067,51 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "warmup_frames": 2,
                 "committed_frames": 2,
                 "initial_inverse_luminance_r16_bits": 8479,
-                "final_inverse_luminance_r16_bits": 9000,
-                "reference_inverse_luminance_r16_bits": 9001,
-                "history_absolute_error": 0.00000762939453125,
-                "history_allowed_error": 0.00200762939453125,
-                "history_conditioning_bound": 0.001,
-                "history_binary32_rounding_bound": 0.001,
-                "history_storage_ulp": 0.00000762939453125,
-                "history_r16_ulp_distance": 1,
+                "final_inverse_luminance_r16_bits": history_oracle[
+                    "reference_bits"
+                ],
+                "reference_inverse_luminance_r16_bits": history_oracle[
+                    "reference_bits"
+                ],
+                **history_inputs,
+                "history_absolute_error": 0.0,
+                "history_allowed_error": history_oracle["allowed_error"],
+                "history_conditioning_bound": history_oracle[
+                    "conditioning_bound"
+                ],
+                "history_binary32_rounding_bound": history_oracle[
+                    "rounding_bound"
+                ],
+                "history_storage_ulp": history_oracle["storage_ulp"],
+                "history_r16_ulp_distance": 0,
                 "history_changed_from_initial": True,
                 "exposure_changed_pixels": 1024,
-                "visible_overlay_contamination_changed_pixels": 20000,
-                "visible_overlay_magenta_pixels": 20000,
-                "visible_overlay_contamination_fnv1a64": "1111111111111111",
+                "ui_overlay_control_node": "HdrRenderUi",
+                "ui_overlay_control_kind": "Ogre::v1::Overlay",
+                "ui_overlay_control_changed_pixels": pixel_count,
+                "ui_overlay_control_magenta_pixels": pixel_count,
+                "ui_overlay_control_fnv1a64": VERIFY._fnv1a64(
+                    compositor_overlay
+                ),
                 "initialization_failure_stages_verified": 10,
                 "same_object_reinitialize_verified": True,
-                "first_attachment_fnv1a64": "0123456789abcdef",
-                "final_attachment_fnv1a64": "fedcba9876543210",
+                "first_attachment_fnv1a64": VERIFY._fnv1a64(
+                    compositor_first
+                ),
+                "final_attachment_fnv1a64": VERIFY._fnv1a64(
+                    compositor_final
+                ),
                 "clean_shutdown": True,
+            },
+            "hdr_compositor_visual": {
+                "schema": "ror.ogre_next_hdr_compositor_visual.v1",
+                "evidence_file": VERIFY.RT4_COMPOSITOR_ARTIFACT,
+                "ppm_attachment": "final_ui_free",
+                "width": width,
+                "height": height,
+                "bytes_per_pixel": 4,
+                "attachments": compositor_attachments,
+                "evidence_bytes": len(compositor_payload),
             },
             "hdr": {
                 "format": "RGBA16_FLOAT",
@@ -1065,6 +1156,17 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         )
         report_path = root / VERIFY.RT4_REPORT_ARTIFACT
         report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+        repeat_paths = {
+            VERIFY.RT4_REPEAT_REPORT_ARTIFACT: report_path,
+            VERIFY.RT4_REPEAT_PPM_ARTIFACT: ppm_path,
+            VERIFY.RT4_REPEAT_ISOLATION_ARTIFACT: isolation_path,
+            VERIFY.RT4_REPEAT_REFLECTION_ARTIFACT: reflection_path,
+            VERIFY.RT4_REPEAT_COMPOSITOR_ARTIFACT: compositor_path,
+        }
+        for relative, primary in repeat_paths.items():
+            repeat = root / relative
+            repeat.parent.mkdir(parents=True, exist_ok=True)
+            repeat.write_bytes(primary.read_bytes())
         executable_path = (
             root
             / "ror-ogre-next-n1-package"
@@ -1163,10 +1265,27 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "ppm": file_entry(ppm_path),
                 "isolation": file_entry(isolation_path),
                 "reflection": file_entry(reflection_path),
+                "compositor": file_entry(compositor_path),
+                "repeat_report": file_entry(
+                    root / VERIFY.RT4_REPEAT_REPORT_ARTIFACT
+                ),
+                "repeat_ppm": file_entry(
+                    root / VERIFY.RT4_REPEAT_PPM_ARTIFACT
+                ),
+                "repeat_isolation": file_entry(
+                    root / VERIFY.RT4_REPEAT_ISOLATION_ARTIFACT
+                ),
+                "repeat_reflection": file_entry(
+                    root / VERIFY.RT4_REPEAT_REFLECTION_ARTIFACT
+                ),
+                "repeat_compositor": file_entry(
+                    root / VERIFY.RT4_REPEAT_COMPOSITOR_ARTIFACT
+                ),
                 "executable": file_entry(executable_path),
             },
             "isolation_slices": slices,
             "reflection_slices": reflection_slices,
+            "compositor_slices": compositor_slices,
         }
         (root / VERIFY.RT4_ATTESTATION_ARTIFACT).write_text(
             json.dumps(attestation) + "\n", encoding="utf-8"
@@ -1177,6 +1296,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         root: Path,
         file_keys: tuple[str, ...] = (),
         refresh_slices: bool = False,
+        refresh_compositor_slices: bool = False,
     ) -> None:
         path = root / VERIFY.RT4_ATTESTATION_ARTIFACT
         attestation = json.loads(path.read_text(encoding="utf-8"))
@@ -1201,6 +1321,12 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 entry["sha256"] = hashlib.sha256(
                     reflection[start:end]
                 ).hexdigest()
+        if refresh_compositor_slices:
+            payload = (root / VERIFY.RT4_COMPOSITOR_ARTIFACT).read_bytes()
+            for entry in attestation["compositor_slices"]:
+                start = entry["offset"]
+                end = start + entry["bytes"]
+                entry["sha256"] = hashlib.sha256(payload[start:end]).hexdigest()
         path.write_text(json.dumps(attestation) + "\n", encoding="utf-8")
 
     def write_metal_n2(self, root: Path, status: str) -> None:
@@ -1699,7 +1825,8 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             ppm_path.write_bytes(ppm)
             self.refresh_rt4_attestation(root, ("ppm",))
             with self.assertRaisesRegex(
-                VERIFY.ArtifactSetError, "RT4 PPM/isolation report mismatch"
+                VERIFY.ArtifactSetError,
+                "RT4 HDR compositor visual evidence failed",
             ):
                 VERIFY.verify_artifact_set(root)
 
@@ -2037,7 +2164,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "history_r16_ulp_distance", 2
             ),
             lambda report: report["hdr_compositor"].__setitem__(
-                "visible_overlay_magenta_pixels", 0
+                "ui_overlay_control_magenta_pixels", 0
             ),
             lambda report: report["hdr_compositor"].__setitem__(
                 "initialization_failure_stages_verified", 9
@@ -2062,6 +2189,79 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                         "RT4 HDR compositor evidence failed",
                     ):
                         VERIFY.verify_artifact_set(root)
+
+    def test_rt4_history_oracle_rejects_co_mutated_tolerance_claims(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre-rt4-history-oracle-"
+        ) as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            compositor = report["hdr_compositor"]
+            forged_bits = (
+                compositor["reference_inverse_luminance_r16_bits"] + 2999
+            )
+            forged_history = VERIFY._decode_positive_r16(forged_bits)
+            reference_history = VERIFY._decode_positive_r16(
+                compositor["reference_inverse_luminance_r16_bits"]
+            )
+            self.assertIsNotNone(forged_history)
+            self.assertIsNotNone(reference_history)
+            forged_error = abs(forged_history - reference_history)
+            compositor["final_inverse_luminance_r16_bits"] = forged_bits
+            compositor["history_absolute_error"] = forged_error
+            compositor["history_r16_ulp_distance"] = 2999
+            compositor["history_conditioning_bound"] = forged_error
+            compositor["history_binary32_rounding_bound"] = 0.0
+            compositor["history_allowed_error"] = (
+                forged_error + compositor["history_storage_ulp"]
+            )
+            report_path.write_text(
+                json.dumps(report) + "\n", encoding="utf-8"
+            )
+            self.refresh_rt4_attestation(root, ("report",))
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError,
+                "RT4 HDR compositor evidence failed",
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rt4_compositor_bytes_are_independently_recomputed(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre-rt4-compositor-bytes-"
+        ) as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            compositor_path = root / VERIFY.RT4_COMPOSITOR_ARTIFACT
+            payload = bytearray(compositor_path.read_bytes())
+            payload[0] ^= 0x01
+            compositor_path.write_bytes(payload)
+            self.refresh_rt4_attestation(
+                root,
+                ("compositor",),
+                refresh_compositor_slices=True,
+            )
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError,
+                "RT4 HDR compositor first_ui_free attachment mismatch",
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rt4_repeat_requires_exact_canonical_bytes(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre-rt4-repeat-bytes-"
+        ) as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            repeat_report = root / VERIFY.RT4_REPEAT_REPORT_ARTIFACT
+            repeat_report.write_bytes(repeat_report.read_bytes() + b" \n")
+            self.refresh_rt4_attestation(root, ("repeat_report",))
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError,
+                "RT4 deterministic repeat bytes differ",
+            ):
+                VERIFY.verify_artifact_set(root)
 
     def test_rt4_gate_rejects_explicit_source_anchor_mismatch(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-anchor-") as temp:

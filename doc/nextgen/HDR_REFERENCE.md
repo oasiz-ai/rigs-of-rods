@@ -154,18 +154,35 @@ After each native frame, `CommitFrame` compares the finite-positive native R16
 readback with the CPU reference using the documented conditioning and binary32
 rounding bound plus one binary16 storage ULP. The accepted native bits, not the
 CPU bits, become authoritative history. Evidence records both bit patterns,
-absolute error, every bound component, storage ULP, ULP distance, and validation
-mode. The next render also proves that the compositor copied current luminance
-to old luminance bit-for-bit. Invalid input, stale plans, out-of-bound native
-results, and unchanged history leave the temporal state unchanged.
+absolute error, every bound component, storage ULP, ULP distance, validation
+mode, and the exposure/luminance/previous-history inputs needed to reproduce the
+calculation. Both the native runner and artifact-set gate independently replay
+the binary32/R16 oracle from those inputs; mutating the claimed bound alongside
+a bad native result cannot make it admissible. The next render also proves that
+the compositor copied current luminance to old luminance bit-for-bit. Invalid
+input, stale plans, out-of-bound native results, and unchanged history leave the
+temporal state unchanged.
 
 The Metal proof creates the RoR-owned `RoRHdrWorkspaceUiFreeV2` definition in
 code and verifies its node aliases never include `HdrRenderUi`. Its name and
 version are pinned into the build identity and its source is covered by the RoR
-source manifest. A test-only workspace deliberately appends a visible magenta
-overlay pass and must contaminate at least 75 percent of the output, proving the
-negative control is observable. Ten staged initialization failures must clean
-up and then reinitialize/render successfully on the same frontend object.
-Persistent compositor resources, spatial bloom, native readback, sRGB output,
-and deterministic repeat hashes are therefore native runtime gates; broader
-cross-platform image and performance acceptance remains separately versioned.
+source manifest. A test-only workspace connects the real upstream
+`HdrRenderUi` node to a visible full-screen `Ogre::v1::Overlay`; it must
+contaminate at least 75 percent of the output, proving that the UI-free workspace
+excludes an observable engine UI path rather than a synthetic clear pass.
+
+The native artifact is the raw byte concatenation of first UI-free, final
+UI-free, and UI-overlay-control compositor readbacks. The report records exact
+slices, while the verifier recomputes their hashes, alpha, deltas, overlay
+coverage, and the final PPM directly from those bytes. The CMake target runs the
+same packaged executable again into a canonical repeat directory, compares all
+four report/PPM/isolation/compositor files byte-for-byte, and CTest repeats that
+comparison. Both sets and their slice attestations are required by the
+artifact-set verifier and CI upload.
+
+Ten staged initialization failures must clean up and then
+reinitialize/render successfully on the same frontend object. Persistent
+compositor resources, spatial bloom, native readback, sRGB output, independently
+recomputable visual evidence, and deterministic repeat bytes are therefore
+native runtime gates; broader cross-platform image and performance acceptance
+remains separately versioned.

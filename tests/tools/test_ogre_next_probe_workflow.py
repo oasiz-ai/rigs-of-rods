@@ -113,10 +113,13 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn("MachineIndependent|GenericCodeGen|OSDependent", self.workflow)
         self.assertIn("ror_ogre_next_frame_probe", self.workflow)
         self.assertIn("ror_ogre_next_frontend_n1_smoke", self.workflow)
-        self.assertIn(
+        for artifact in (
             "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin",
-            self.workflow,
-        )
+            "ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin",
+            "ror-ogre-next-frontend-rt4-pbr-v1-repeat/",
+        ):
+            with self.subTest(artifact=artifact):
+                self.assertIn(artifact, self.workflow)
 
     def test_byte_hashed_probe_inputs_are_checkout_stable(self) -> None:
         attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(
@@ -145,6 +148,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror-ogre-next-frontend-rt4-pbr-v1-report.json",
             "ror-ogre-next-frontend-rt4-pbr-v1.ppm",
             "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin",
+            "ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin",
+            "ror-ogre-next-frontend-rt4-pbr-v1-repeat/",
             "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json",
             "ror-ogre-next-pssm-shadow-report.json",
             "ror-ogre-next-pssm-shadow-isolation.bin",
@@ -258,7 +263,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "Upload attested Apple Metal N3 hybrid evidence", self.workflow
         )
         self.assertIn(
-            "Require directional PSSM pass or explicit unsupported evidence",
+            "Require directional PSSM native pass",
             self.workflow,
         )
 
