@@ -36,6 +36,7 @@ ATTESTATION_SCHEMA = (
 )
 UNSUPPORTED_EXIT_CODE = 77
 REQUIRED_CONFIG = "Release"
+UINT32_MAX = (1 << 32) - 1
 
 
 class Rt5Error(RuntimeError):
@@ -53,6 +54,123 @@ def sha256_file(path: Path) -> str:
 def require_sha256(value: object, label: str) -> None:
     if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
         raise Rt5Error(f"{label} is not a lowercase SHA-256")
+
+
+def api_version_tuple(value: object) -> tuple[int, int, int] | None:
+    if not isinstance(value, str):
+        return None
+    piece_pattern = r"(0|[1-9][0-9]*)"
+    match = re.fullmatch(
+        rf"{piece_pattern}\.{piece_pattern}\.{piece_pattern}", value
+    )
+    if match is None:
+        return None
+    major, minor, patch = (int(piece) for piece in match.groups())
+    if major > 0x7F or minor > 0x3FF or patch > 0xFFF:
+        return None
+    return major, minor, patch
+
+
+def is_uint32(value: object) -> bool:
+    return type(value) is int and 0 <= value <= UINT32_MAX
+
+
+def is_uint64(value: object) -> bool:
+    return type(value) is int and 0 <= value <= (1 << 64) - 1
+
+
+def unsupported_reason_is_consistent(
+    reason: object,
+    vulkan: dict[str, Any],
+    enabled: dict[str, Any],
+) -> bool:
+    if not isinstance(reason, str) or not reason:
+        return False
+    loader_version = api_version_tuple(vulkan.get("loader_api_version"))
+    physical_version = api_version_tuple(
+        vulkan.get("physical_device_api_version")
+    )
+    decision = vulkan.get("candidate_decision")
+    device_class = vulkan.get("device_class")
+    known_software = vulkan.get("known_software_adapter")
+    loader_ready = loader_version is not None and loader_version >= (1, 2, 0)
+    no_candidate_identity = (
+        physical_version == (0, 0, 0)
+        and vulkan.get("driver_version_packed") == 0
+        and vulkan.get("vendor_id") == 0
+        and vulkan.get("device_id") == 0
+        and vulkan.get("device_name") == ""
+        and vulkan.get("device_uuid") == ""
+        and device_class == "other"
+        and known_software is False
+        and enabled.get("graphics_queue_available") is False
+        and enabled.get("timeline_semaphore_supported") is False
+        and enabled.get("all_supported_core_features_enabled") is False
+        and enabled.get("enabled_instance_extensions_exact") is False
+        and enabled.get("enabled_device_extensions_exact") is False
+    )
+
+    if reason == "Vulkan loader does not expose Vulkan 1.2":
+        return (
+            loader_version is not None
+            and loader_version < (1, 2, 0)
+            and no_candidate_identity
+            and decision == "software_or_unattested_device"
+        )
+    if reason in {
+        "Vulkan reported no physical devices",
+        "Vulkan physical-device enumeration became empty",
+    }:
+        return (
+            loader_version is not None
+            and loader_version >= (1, 2, 0)
+            and no_candidate_identity
+            and decision == "software_or_unattested_device"
+        )
+
+    prefix = "no attested RT5 hardware device: "
+    if (
+        not loader_ready
+        or not reason.startswith(prefix)
+        or reason[len(prefix) :] != decision
+        or not isinstance(vulkan.get("device_name"), str)
+        or not vulkan["device_name"]
+        or not isinstance(vulkan.get("device_uuid"), str)
+        or re.fullmatch(r"[0-9a-f]{32}", vulkan["device_uuid"]) is None
+        or vulkan["device_uuid"] == "0" * 32
+        or enabled.get("enabled_instance_extensions_exact") is not True
+        or enabled.get("enabled_device_extensions_exact") is not False
+    ):
+        return False
+    hardware_class = device_class in {"integrated_gpu", "discrete_gpu"}
+    api_ready = physical_version is not None and physical_version >= (1, 2, 0)
+    graphics_ready = enabled.get("graphics_queue_available") is True
+    timeline_ready = enabled.get("timeline_semaphore_supported") is True
+    preceding_ready = api_ready and hardware_class and known_software is False
+    if decision == "api_too_old":
+        return physical_version is not None and physical_version < (1, 2, 0)
+    if decision == "software_or_unattested_device":
+        return api_ready and (known_software is True or not hardware_class)
+    if decision == "graphics_queue_unavailable":
+        return preceding_ready and not graphics_ready
+    if decision == "timeline_semaphore_unavailable":
+        return preceding_ready and graphics_ready and not timeline_ready
+    if decision == "enabled_feature_state_ambiguous":
+        return (
+            preceding_ready
+            and graphics_ready
+            and timeline_ready
+            and enabled.get("all_supported_core_features_enabled") is False
+        )
+    if decision == "enabled_extension_state_ambiguous":
+        return (
+            preceding_ready
+            and graphics_ready
+            and timeline_ready
+            and enabled.get("all_supported_core_features_enabled") is True
+            and enabled.get("enabled_device_extensions_exact") is False
+        )
+    return False
 
 
 def read_json(path: Path, label: str) -> dict[str, Any]:
@@ -102,7 +220,9 @@ def validate_report(
     source_identity: dict[str, Any],
 ) -> None:
     status = report.get("status")
-    expected_status = "pass" if process_exit_code == 0 else "unsupported"
+    expected_status = {0: "pass", UNSUPPORTED_EXIT_CODE: "unsupported"}.get(
+        process_exit_code
+    )
     provenance = report.get("provenance", {})
     build = report.get("build", {})
     scope = report.get("scope", {})
@@ -111,10 +231,36 @@ def validate_report(
     adoption = report.get("ogre_external_adoption", {})
     timeline = report.get("timeline", {})
     lifecycle = report.get("lifecycle", {})
+    loader_version = api_version_tuple(vulkan.get("loader_api_version"))
+    physical_version = api_version_tuple(
+        vulkan.get("physical_device_api_version")
+    )
+    enabled_boolean_fields = (
+        "graphics_queue_available",
+        "timeline_semaphore_supported",
+        "timeline_semaphore_enabled",
+        "all_supported_core_features_enabled",
+        "enabled_instance_extensions_exact",
+        "enabled_device_extensions_exact",
+    )
+    adoption_boolean_fields = (
+        "instance_injected_exactly",
+        "physical_device_injected_exactly",
+        "logical_device_injected_exactly",
+        "graphics_queue_injected_exactly",
+        "ogre_external_ownership_observed",
+    )
+    lifecycle_boolean_fields = (
+        "ogre_shutdown_before_owner_teardown",
+        "timeline_destroyed_before_device",
+        "device_destroyed_before_instance",
+        "shutdown_completed",
+    )
 
     checks = {
         "schema": report.get("schema") == SCHEMA,
-        "status": status == expected_status,
+        "exit_code": expected_status is not None,
+        "status": expected_status is not None and status == expected_status,
         "reason_type": isinstance(report.get("reason"), str),
         "ror_repository": provenance.get("ror_repository")
         == source_identity["repository"],
@@ -154,6 +300,42 @@ def validate_report(
         "no_acceleration_structure": scope.get("acceleration_structure_built")
         is False,
         "api_floor": vulkan.get("requested_instance_api_version") == "1.2.0",
+        "loader_api_format": loader_version is not None,
+        "physical_api_format": physical_version is not None,
+        "driver_version": is_uint32(vulkan.get("driver_version_packed")),
+        "vendor_id": is_uint32(vulkan.get("vendor_id")),
+        "device_id": is_uint32(vulkan.get("device_id")),
+        "device_name_type": isinstance(vulkan.get("device_name"), str),
+        "device_class": vulkan.get("device_class")
+        in {"other", "integrated_gpu", "discrete_gpu", "virtual_gpu", "cpu"},
+        "software_flag": type(vulkan.get("known_software_adapter")) is bool,
+        "candidate_decision": vulkan.get("candidate_decision")
+        in {
+            "accept",
+            "api_too_old",
+            "software_or_unattested_device",
+            "graphics_queue_unavailable",
+            "timeline_semaphore_unavailable",
+            "enabled_feature_state_ambiguous",
+            "enabled_extension_state_ambiguous",
+        },
+        "queue_family_type": is_uint32(vulkan.get("graphics_queue_family")),
+        "queue_index_type": is_uint32(vulkan.get("graphics_queue_index")),
+        "enabled_boolean_types": all(
+            type(enabled.get(field)) is bool for field in enabled_boolean_fields
+        ),
+        "adoption_boolean_types": all(
+            type(adoption.get(field)) is bool
+            for field in adoption_boolean_fields
+        ),
+        "timeline_before_type": is_uint64(timeline.get("value_before_ogre")),
+        "timeline_after_type": is_uint64(
+            timeline.get("value_after_ogre_shutdown")
+        ),
+        "lifecycle_boolean_types": all(
+            type(lifecycle.get(field)) is bool
+            for field in lifecycle_boolean_fields
+        ),
         "plugin_option": adoption.get("plugin_option") == "external_instance",
         "window_option": adoption.get("first_window_option")
         == "external_device",
@@ -161,11 +343,13 @@ def validate_report(
         "exact_instance_extension_count": enabled.get(
             "claimed_instance_extension_count"
         )
-        == 0,
+        == 0
+        and type(enabled.get("claimed_instance_extension_count")) is int,
         "exact_device_extension_count": enabled.get(
             "claimed_device_extension_count"
         )
-        == 0,
+        == 0
+        and type(enabled.get("claimed_device_extension_count")) is int,
         "shutdown": lifecycle.get("shutdown_completed") is True,
     }
     if status == "pass":
@@ -173,14 +357,27 @@ def validate_report(
             {
                 "no_reason": report.get("reason") == "",
                 "hardware_pass": scope.get("hardware_bootstrap_pass") is True,
+                "loader_api_ready": loader_version is not None
+                and loader_version >= (1, 2, 0),
+                "physical_api_ready": physical_version is not None
+                and physical_version >= (1, 2, 0),
                 "attested_device": vulkan.get("device_class")
                 in {"integrated_gpu", "discrete_gpu"},
+                "device_name": isinstance(vulkan.get("device_name"), str)
+                and bool(vulkan["device_name"]),
                 "not_software": vulkan.get("known_software_adapter") is False,
                 "candidate_accepted": vulkan.get("candidate_decision")
                 == "accept",
                 "device_uuid": isinstance(vulkan.get("device_uuid"), str)
                 and re.fullmatch(r"[0-9a-f]{32}", vulkan["device_uuid"])
-                is not None,
+                is not None
+                and vulkan["device_uuid"] != "0" * 32,
+                "queue_family": is_uint32(
+                    vulkan.get("graphics_queue_family")
+                )
+                and vulkan["graphics_queue_family"] < UINT32_MAX,
+                "queue_index": vulkan.get("graphics_queue_index") == 0
+                and type(vulkan.get("graphics_queue_index")) is int,
                 "graphics_queue": enabled.get("graphics_queue_available")
                 is True,
                 "timeline_supported": enabled.get(
@@ -243,8 +440,13 @@ def validate_report(
             {
                 "explicit_reason": isinstance(report.get("reason"), str)
                 and bool(report["reason"]),
+                "reason_consistent": unsupported_reason_is_consistent(
+                    report.get("reason"), vulkan, enabled
+                ),
                 "no_hardware_pass": scope.get("hardware_bootstrap_pass")
                 is False,
+                "candidate_not_accepted": vulkan.get("candidate_decision")
+                != "accept",
                 "no_instance_identity_claim": adoption.get(
                     "instance_injected_exactly"
                 )
@@ -255,6 +457,18 @@ def validate_report(
                 is False,
                 "no_queue_identity_claim": adoption.get(
                     "graphics_queue_injected_exactly"
+                )
+                is False,
+                "no_physical_identity_claim": adoption.get(
+                    "physical_device_injected_exactly"
+                )
+                is False,
+                "no_external_ownership_claim": adoption.get(
+                    "ogre_external_ownership_observed"
+                )
+                is False,
+                "timeline_not_enabled": enabled.get(
+                    "timeline_semaphore_enabled"
                 )
                 is False,
                 "timeline_not_claimed": timeline.get("value_before_ogre") == 0
@@ -301,6 +515,7 @@ def validate_attestation(
     report_path: Path,
     executable: Path,
     report: dict[str, Any],
+    source_identity: dict[str, Any],
 ) -> None:
     report_record = attestation.get("report", {})
     executable_record = attestation.get("executable", {})
@@ -315,6 +530,7 @@ def validate_attestation(
         "executable_name": executable_record.get("name") == executable.name,
         "executable_hash": executable_record.get("sha256")
         == sha256_file(executable),
+        "ror_source": attestation.get("ror_source") == source_identity,
         "foundation": claims.get("external_instance_device_foundation") is True,
         "hardware": claims.get("hardware_bootstrap_pass")
         is (report.get("status") == "pass"),
@@ -457,7 +673,9 @@ def run_proof(args: argparse.Namespace) -> dict[str, Any]:
         report_path, executable, report, result.returncode, source_identity
     )
     write_json_atomically(attestation_path, attestation)
-    validate_attestation(attestation, report_path, executable, report)
+    validate_attestation(
+        attestation, report_path, executable, report, source_identity
+    )
     return report
 
 
@@ -471,7 +689,9 @@ def verify_existing(build_dir: Path) -> dict[str, Any]:
     lock = MAIN_RUNNER.load_lock()
     source_identity = MAIN_RUNNER.ror_source_identity()
     validate_report(report, exit_code, lock, source_identity)
-    validate_attestation(attestation, report_path, executable, report)
+    validate_attestation(
+        attestation, report_path, executable, report, source_identity
+    )
     return report
 
 

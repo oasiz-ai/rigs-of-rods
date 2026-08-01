@@ -156,6 +156,12 @@ class OgreNextVulkanRt5ContractTests(unittest.TestCase):
             "software_or_unattested_device"
         )
         report["enabled_state_contract"]["timeline_semaphore_enabled"] = False
+        report["enabled_state_contract"][
+            "all_supported_core_features_enabled"
+        ] = False
+        report["enabled_state_contract"][
+            "enabled_device_extensions_exact"
+        ] = False
         for key in (
             "instance_injected_exactly",
             "physical_device_injected_exactly",
@@ -172,6 +178,35 @@ class OgreNextVulkanRt5ContractTests(unittest.TestCase):
         report["lifecycle"]["ogre_shutdown_before_owner_teardown"] = False
         report["lifecycle"]["timeline_destroyed_before_device"] = False
         report["lifecycle"]["device_destroyed_before_instance"] = False
+        return report
+
+    def make_pre_candidate_skip_report(
+        self, reason: str, loader_version: str
+    ) -> dict[str, object]:
+        report = self.make_skip_report()
+        report["reason"] = reason
+        report["vulkan"].update(
+            loader_api_version=loader_version,
+            physical_device_api_version="0.0.0",
+            driver_version_packed=0,
+            vendor_id=0,
+            device_id=0,
+            device_name="",
+            device_uuid="",
+            device_class="other",
+            known_software_adapter=False,
+            candidate_decision="software_or_unattested_device",
+            graphics_queue_family=0,
+            graphics_queue_index=0,
+        )
+        report["enabled_state_contract"].update(
+            graphics_queue_available=False,
+            timeline_semaphore_supported=False,
+            timeline_semaphore_enabled=False,
+            all_supported_core_features_enabled=False,
+            enabled_instance_extensions_exact=False,
+            enabled_device_extensions_exact=False,
+        )
         return report
 
     def test_exact_ogre_external_instance_and_device_seams_are_used(self) -> None:
@@ -293,6 +328,56 @@ class OgreNextVulkanRt5ContractTests(unittest.TestCase):
                         report, 0, self.lock, self.source_identity
                     )
 
+    def test_report_accepts_every_runtime_unsupported_stage(self) -> None:
+        loader_skip = self.make_pre_candidate_skip_report(
+            "Vulkan loader does not expose Vulkan 1.2", "1.1.0"
+        )
+        no_device_skip = self.make_pre_candidate_skip_report(
+            "Vulkan reported no physical devices", "1.3.0"
+        )
+        candidate_skips = []
+        for decision, updates in (
+            (
+                "api_too_old",
+                {
+                    "physical_device_api_version": "1.1.0",
+                    "device_class": "discrete_gpu",
+                    "known_software_adapter": False,
+                },
+            ),
+            (
+                "graphics_queue_unavailable",
+                {
+                    "device_class": "discrete_gpu",
+                    "known_software_adapter": False,
+                    "graphics_queue_available": False,
+                },
+            ),
+            (
+                "timeline_semaphore_unavailable",
+                {
+                    "device_class": "discrete_gpu",
+                    "known_software_adapter": False,
+                    "timeline_semaphore_supported": False,
+                },
+            ),
+        ):
+            report = self.make_skip_report()
+            report["reason"] = f"no attested RT5 hardware device: {decision}"
+            report["vulkan"]["candidate_decision"] = decision
+            for key, value in updates.items():
+                if key in report["enabled_state_contract"]:
+                    report["enabled_state_contract"][key] = value
+                else:
+                    report["vulkan"][key] = value
+            candidate_skips.append(report)
+
+        for report in (loader_skip, no_device_skip, *candidate_skips):
+            with self.subTest(reason=report["reason"]):
+                RUNNER.validate_report(
+                    report, 77, self.lock, self.source_identity
+                )
+
     def test_attestation_hashes_exact_report_and_executable(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-vulkan-rt5-") as temp:
             root = Path(temp)
@@ -309,12 +394,102 @@ class OgreNextVulkanRt5ContractTests(unittest.TestCase):
                 self.source_identity,
             )
             RUNNER.validate_attestation(
-                attestation, report_path, executable, report
+                attestation,
+                report_path,
+                executable,
+                report,
+                self.source_identity,
             )
             report_path.write_text(json.dumps({"tampered": True}), encoding="utf-8")
             with self.assertRaises(RUNNER.Rt5Error):
                 RUNNER.validate_attestation(
-                    attestation, report_path, executable, report
+                    attestation,
+                    report_path,
+                    executable,
+                    report,
+                    self.source_identity,
+                )
+
+    def test_report_rejects_impossible_versions_ids_and_skip_decisions(self) -> None:
+        for label, mutate in (
+            (
+                "old loader pass",
+                lambda report: report["vulkan"].update(
+                    loader_api_version="0.0.0"
+                ),
+            ),
+            (
+                "old physical API pass",
+                lambda report: report["vulkan"].update(
+                    physical_device_api_version="1.0.0"
+                ),
+            ),
+            (
+                "non-numeric vendor",
+                lambda report: report["vulkan"].update(vendor_id="bad"),
+            ),
+            (
+                "negative queue family",
+                lambda report: report["vulkan"].update(
+                    graphics_queue_family=-1
+                ),
+            ),
+            (
+                "zero device UUID",
+                lambda report: report["vulkan"].update(device_uuid="0" * 32),
+            ),
+        ):
+            with self.subTest(label=label):
+                report = self.make_pass_report()
+                mutate(report)
+                with self.assertRaises(RUNNER.Rt5Error):
+                    RUNNER.validate_report(
+                        report, 0, self.lock, self.source_identity
+                    )
+
+        skip = self.make_skip_report()
+        skip["reason"] = "arbitrary"
+        skip["vulkan"].update(
+            candidate_decision="accept",
+            device_class="discrete_gpu",
+            known_software_adapter=False,
+        )
+        with self.assertRaises(RUNNER.Rt5Error):
+            RUNNER.validate_report(skip, 77, self.lock, self.source_identity)
+
+        wrong_precedence = self.make_skip_report()
+        wrong_precedence["vulkan"].update(
+            physical_device_api_version="1.0.0",
+            candidate_decision="software_or_unattested_device",
+        )
+        with self.assertRaises(RUNNER.Rt5Error):
+            RUNNER.validate_report(
+                wrong_precedence, 77, self.lock, self.source_identity
+            )
+
+    def test_attestation_is_bound_to_exact_ror_source(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-vulkan-rt5-source-") as temp:
+            root = Path(temp)
+            report_path = root / RUNNER.REPORT_NAME
+            executable = root / "ror_ogre_next_vulkan_rt5_smoke"
+            report = self.make_skip_report()
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            executable.write_bytes(b"exact rt5 executable\n")
+            attestation = RUNNER.make_attestation(
+                report_path,
+                executable,
+                report,
+                77,
+                self.source_identity,
+            )
+            attestation["ror_source"] = {"commit": "forged"}
+            with self.assertRaises(RUNNER.Rt5Error):
+                RUNNER.validate_attestation(
+                    attestation,
+                    report_path,
+                    executable,
+                    report,
+                    self.source_identity,
                 )
 
     def test_target_is_linux_only_opt_in_and_ctest_skips_unsupported(self) -> None:
