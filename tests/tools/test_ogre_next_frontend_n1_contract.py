@@ -180,6 +180,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "destroyLight(iterator->first)",
         ):
             self.assertIn(token, self.frontend)
+        self.assertLess(
+            self.frontend.index("node->attachObject(light)"),
+            self.frontend.index("light->setDirection(Ogre::Vector3"),
+        )
         self.assertIn(
             '"directional_lux_to_native_power_scale"',
             RUNNER_PATH.read_text(encoding="utf-8"),

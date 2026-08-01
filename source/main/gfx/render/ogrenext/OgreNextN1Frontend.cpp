@@ -1924,11 +1924,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
                                descriptor.color_linear.z);
       light->setPowerScale(
           descriptor.intensity * kOgreNextRt4LuxToNativePowerScale);
+      node->attachObject(light);
       light->setDirection(Ogre::Vector3(descriptor.direction.x,
                                         descriptor.direction.y,
                                         descriptor.direction.z));
       light->setCastShadows(false);
-      node->attachObject(light);
       const Ogre::ColourValue expected_color(descriptor.color_linear.x,
                                              descriptor.color_linear.y,
                                              descriptor.color_linear.z);
