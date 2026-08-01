@@ -1037,6 +1037,37 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     mutate, "texture_allocation_contract"
                 )
 
+    def test_metal_n3_gate_rejects_boolean_allocation_count_aliases(self) -> None:
+        paths = (
+            ("live", "source_textures", True),
+            ("live", "sampled_rgba", True),
+            ("live", "roughness_r8", False),
+            ("live", "metallic_r8", False),
+            ("live", "creates", True),
+            ("live", "destroys", False),
+            ("live", "live", True),
+            ("after_shutdown", "creates", True),
+            ("after_shutdown", "destroys", True),
+            ("after_shutdown", "live", False),
+            ("after_shutdown", "retired_name_lookups", True),
+            ("after_shutdown", "retired_name_rejections", True),
+        )
+        for phase, field, value in paths:
+            with self.subTest(phase=phase, field=field):
+                def mutate(
+                    report,
+                    allocation_phase=phase,
+                    name=field,
+                    replacement=value,
+                ):
+                    report["raster_contract"]["texture_allocations"][
+                        allocation_phase
+                    ][name] = replacement
+
+                self.assert_metal_n3_report_rejected(
+                    mutate, "texture_allocation_contract"
+                )
+
     def test_metal_n3_gate_requires_exact_build_contract_json_types(self) -> None:
         mutations = (
             ("schema", lambda contract: contract.__setitem__("schema_version", 2.0)),
