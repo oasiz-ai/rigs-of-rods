@@ -268,6 +268,7 @@ OgreNextVulkanExternalDeviceBootstrap::Initialize() {
   impl_->evidence.loader_api_version = loader_version;
   impl_->evidence.requested_instance_api_version = VK_API_VERSION_1_2;
   if (loader_version < VK_API_VERSION_1_2) {
+    static_cast<void>(impl_->DestroyPartial());
     return Unsupported("Vulkan loader does not expose Vulkan 1.2");
   }
 

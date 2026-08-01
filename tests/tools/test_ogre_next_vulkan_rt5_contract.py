@@ -243,6 +243,17 @@ class OgreNextVulkanRt5ContractTests(unittest.TestCase):
         self.assertIn("hosted lavapipe runner must not report", self.workflow)
         self.assertIn('report.get("status") != "unsupported"', self.workflow)
 
+    def test_unsupported_loader_completes_empty_teardown(self) -> None:
+        guard_start = self.bootstrap.index(
+            "if (loader_version < VK_API_VERSION_1_2)"
+        )
+        guard_end = self.bootstrap.index("VkApplicationInfo application_info")
+        loader_guard = self.bootstrap[guard_start:guard_end]
+        self.assertLess(
+            loader_guard.index("impl_->DestroyPartial()"),
+            loader_guard.index("return Unsupported"),
+        )
+
     def test_report_validator_accepts_only_scoped_pass_or_skip(self) -> None:
         RUNNER.validate_report(
             self.make_pass_report(), 0, self.lock, self.source_identity
