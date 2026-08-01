@@ -56,6 +56,8 @@ struct ParallaxProbeReferenceInput {
   /// cubemap path. The area center is expressed relative to the probe center.
   Float3 area_center_offset_local{};
   Float3 area_inner_range{};
+  /// Ogre permits collapsed area axes; its pinned NDF denominator epsilon
+  /// keeps zero outer/inner ranges defined.
   Float3 area_outer_range{1.0F, 1.0F, 1.0F};
   std::uint16_t priority = 1U;
 };

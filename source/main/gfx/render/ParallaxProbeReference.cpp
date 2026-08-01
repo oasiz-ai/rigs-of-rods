@@ -89,11 +89,11 @@ EvaluateParallaxProbeReference(const ParallaxProbeReferenceInput &input,
                                          : ValidationCode::NON_FINITE_VALUE,
         "area_inner_range", "inner range must be finite and nonnegative");
   }
-  if (!IsStrictlyPositive(input.area_outer_range)) {
+  if (!IsNonNegative(input.area_outer_range)) {
     return ValidationResult::Failure(
         IsFinite(input.area_outer_range) ? ValidationCode::VALUE_OUT_OF_RANGE
                                          : ValidationCode::NON_FINITE_VALUE,
-        "area_outer_range", "outer range must be finite and positive");
+        "area_outer_range", "outer range must be finite and nonnegative");
   }
   if (input.area_inner_range.x > input.area_outer_range.x ||
       input.area_inner_range.y > input.area_outer_range.y ||
