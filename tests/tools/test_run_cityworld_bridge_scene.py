@@ -344,6 +344,7 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                     ["RoR.exe"],
                     0xC0000005,
                     b"native stdout\xff\n",
+                    b"native stderr\xfe\n",
                 ),
                 engine_log,
                 script_log,
@@ -381,12 +382,24 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                 "native stdout\ufffd",
             )
             self.assertEqual(
+                document["last_lines"]["runtime.stderr"],
+                "native stderr\ufffd",
+            )
+            self.assertEqual(
                 (
                     artifact_dir
                     / "diagnostics"
                     / "runtime.stdout"
                 ).read_bytes(),
                 b"native stdout\xff\n",
+            )
+            self.assertEqual(
+                (
+                    artifact_dir
+                    / "diagnostics"
+                    / "runtime.stderr"
+                ).read_bytes(),
+                b"native stderr\xfe\n",
             )
             for name in (
                 "RoR.log",
@@ -498,6 +511,7 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                         "app_force_cache_update=true",
                         ror_text,
                     )
+                    self.assertIn("app_async_physics=true", ror_text)
                     self.assertIn(
                         "gfx_shadow_type=No shadows (fastest)",
                         ror_text,
@@ -528,6 +542,53 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                     self.assertNotIn(gl_only_option, d3d11_text)
             self.assertEqual(len(set(ror_payloads)), 1)
 
+            sync_ror, _ = SCENE.write_runtime_config(
+                root / "win32-sync",
+                physics_mode="sync",
+                target_platform="win32",
+            )
+            sync_text = sync_ror.read_text(encoding="utf-8")
+            self.assertIn("app_num_workers=1", sync_text)
+            self.assertIn("app_async_physics=false", sync_text)
+            self.assertNotIn("app_async_physics=true", sync_text)
+            self.assertEqual(
+                SCENE.validate_physics_config(
+                    sync_ror.read_bytes(),
+                    "sync",
+                ),
+                {"async_physics": False, "num_workers": 1},
+            )
+
+            invalid_physics_configs = (
+                sync_text.replace(
+                    "app_async_physics=false",
+                    "app_async_physics=true",
+                ),
+                sync_text.replace("app_num_workers=1", "app_num_workers=2"),
+                sync_text + "app_async_physics=false\n",
+            )
+            for invalid in invalid_physics_configs:
+                with self.subTest(invalid=invalid):
+                    with self.assertRaises(SCENE.BridgeSceneFailure):
+                        SCENE.validate_physics_config(
+                            invalid.encode("utf-8"),
+                            "sync",
+                        )
+
+            self.assertEqual(
+                SCENE.parse_args(
+                    (
+                        "--executable",
+                        "RoR.exe",
+                        "--artifact-dir",
+                        "artifact",
+                        "--physics-mode",
+                        "sync",
+                    )
+                ).physics_mode,
+                "sync",
+            )
+
             unsupported = root / "freebsd14"
             with self.assertRaisesRegex(
                 SCENE.BridgeSceneFailure,
@@ -538,6 +599,15 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                     target_platform="freebsd14",
                 )
             self.assertFalse(unsupported.exists())
+            with self.assertRaisesRegex(
+                SCENE.BridgeSceneFailure,
+                "unsupported physics mode",
+            ):
+                SCENE.write_runtime_config(
+                    root / "invalid-physics-mode",
+                    physics_mode="parallel",
+                    target_platform="win32",
+                )
 
     def test_generated_config_can_lock_high_quality_pssm(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
