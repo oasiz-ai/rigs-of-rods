@@ -336,6 +336,8 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "PrepareFrame",
             "FinalizeFrame",
             "AbortFrame",
+            "pcc_created",
+            "DestroyUncommittedPcc",
             "filtered_nonzero_rgb_component_count",
             "view.inverseAffine().getTrans()",
             "owner_thread",
@@ -344,11 +346,18 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 token, self.reflection_header + self.reflection_runtime
             )
         self.assertNotIn("setPriority(", self.reflection_runtime)
+        self.assertNotIn("audit.pcc_enabled = true", self.reflection_runtime)
         self.assertLess(
             self.reflection_runtime.index(
                 "scheduler.Commit(pending->plan_id, pending->receipts)"
             ),
             self.reflection_runtime.index("states.swap(published->candidate_states)"),
+        )
+        self.assertLess(
+            self.reflection_runtime.index(
+                "scheduler.Commit(pending->plan_id, pending->receipts)"
+            ),
+            self.reflection_runtime.index("audit.pcc_enabled = pcc != nullptr"),
         )
         self.assertLess(
             self.reflection_runtime.index("states.swap(published->candidate_states)"),

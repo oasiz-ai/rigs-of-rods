@@ -568,6 +568,7 @@ public:
     std::uint32_t prospective_live_probe_count = 0U;
     bool prior_pbs_bound = false;
     bool pbs_binding_changed = false;
+    bool pcc_created = false;
     bool captured = false;
   };
 
@@ -699,7 +700,6 @@ public:
       throw;
     }
     pcc = created;
-    audit.pcc_enabled = true;
   }
 
   void ApplyDescriptor(Ogre::CubemapProbe &probe,
@@ -842,10 +842,27 @@ public:
     return clean;
   }
 
+  [[nodiscard]] bool DestroyUncommittedPcc() noexcept {
+    if (pcc == nullptr || !states.empty() || !deferred_probes.empty()) {
+      return false;
+    }
+    try {
+      if (pbs == nullptr || pbs->getParallaxCorrectedCubemap() != nullptr) {
+        return false;
+      }
+      delete pcc;
+      pcc = nullptr;
+      return true;
+    } catch (...) {
+      return false;
+    }
+  }
+
   [[nodiscard]] bool AbortLocalPlan(std::uint64_t plan_id,
                                     Ogre::CubemapProbe *candidate,
                                     bool pbs_binding_changed,
-                                    bool prior_pbs_bound) noexcept {
+                                    bool prior_pbs_bound,
+                                    bool pcc_created) noexcept {
     bool clean = true;
     if (scheduler.has_pending_plan()) {
       try {
@@ -857,6 +874,9 @@ public:
     clean = DestroyProbe(candidate) && clean;
     if (pbs_binding_changed) {
       clean = SetPbsBinding(prior_pbs_bound) && clean;
+    }
+    if (pcc_created) {
+      clean = DestroyUncommittedPcc() && clean;
     }
     if (!clean) {
       faulted = true;
@@ -942,6 +962,7 @@ public:
 
     Ogre::CubemapProbe *candidate = nullptr;
     bool pbs_binding_changed = false;
+    bool pcc_created = false;
     const bool prior_pbs_bound = audit.pbs_bound;
     bool native_capture_started = false;
     try {
@@ -951,7 +972,9 @@ public:
       staged->prior_pbs_bound = prior_pbs_bound;
       staged->receipts.reserve(plan.requests.size());
       if (!descriptors.empty() || !states.empty()) {
+        const bool had_pcc = pcc != nullptr;
         EnsurePcc();
+        pcc_created = !had_pcc && pcc != nullptr;
       }
       if (pcc != nullptr) {
         for (auto &entry : states) {
@@ -1180,21 +1203,25 @@ public:
       // not-yet-populated blend texture. FinalizeFrame changes the PBS binding
       // only after the main pass has completed and before scheduler commit.
       staged->pbs_binding_changed = pbs_binding_changed;
+      staged->pcc_created = pcc_created;
       pending = std::move(staged);
       return RenderOperationResult::Success();
     } catch (const std::bad_alloc &) {
       static_cast<void>(AbortLocalPlan(plan.plan_id, candidate,
-                                       pbs_binding_changed, prior_pbs_bound));
+                                       pbs_binding_changed, prior_pbs_bound,
+                                       pcc_created));
       return Failure(RenderOperationCode::OUT_OF_MEMORY,
                      "native capture ran out of memory");
     } catch (const Ogre::Exception &error) {
       static_cast<void>(AbortLocalPlan(plan.plan_id, candidate,
-                                       pbs_binding_changed, prior_pbs_bound));
+                                       pbs_binding_changed, prior_pbs_bound,
+                                       pcc_created));
       return Failure(RenderOperationCode::BACKEND_FAILURE,
                      error.getFullDescription());
     } catch (const std::exception &error) {
       static_cast<void>(AbortLocalPlan(plan.plan_id, candidate,
-                                       pbs_binding_changed, prior_pbs_bound));
+                                       pbs_binding_changed, prior_pbs_bound,
+                                       pcc_created));
       return Failure(RenderOperationCode::BACKEND_FAILURE, error.what());
     }
   }
@@ -1276,6 +1303,7 @@ public:
                               bind_texture->getNumMipmaps());
     }
     audit.committed_state_digest = committed.committed_state_digest;
+    audit.pcc_enabled = pcc != nullptr;
     audit.successful_capture_count += committed.completed_capture_count;
     audit.failed_capture_count += committed.failed_capture_count;
     audit.live_probe_count = published->prospective_live_probe_count;
@@ -1339,6 +1367,9 @@ public:
     pending->candidate = nullptr;
     if (pending->pbs_binding_changed) {
       clean = SetPbsBinding(pending->prior_pbs_bound) && clean;
+    }
+    if (pending->pcc_created) {
+      clean = DestroyUncommittedPcc() && clean;
     }
     pending.reset();
     if (!clean) {

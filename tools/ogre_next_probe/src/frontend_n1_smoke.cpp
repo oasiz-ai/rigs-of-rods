@@ -2727,7 +2727,19 @@ RunHdrCompositorProof(const std::string &media_root) {
       evidence.aborted_output_unchanged &&
       evidence.post_render_failure_fault_latched;
   Require(evidence.frame_commit_prepare_failure_verified,
-          "HDR frame commit-prepare failure published partial state");
+          "HDR frame commit-prepare failure published partial state: hdr=" +
+              std::string(evidence.aborted_hdr_audit_unchanged ? "true"
+                                                               : "false") +
+              ", reflection=" +
+              (evidence.aborted_reflection_audit_unchanged ? "true"
+                                                           : "false") +
+              ", submission=" +
+              (evidence.aborted_submission_uncommitted ? "true" : "false") +
+              ", output=" +
+              (evidence.aborted_output_unchanged ? "true" : "false") +
+              ", fault_latch=" +
+              (evidence.post_render_failure_fault_latched ? "true"
+                                                          : "false"));
   RequireSuccess(transaction.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "HDR frame commit-prepare failure Shutdown");
 
