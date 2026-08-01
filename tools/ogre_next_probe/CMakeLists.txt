@@ -748,12 +748,14 @@ if (TARGET ror_ogre_next_metal_n3_smoke)
             "${ROR_OGRE_NEXT_N3_HYBRID}"
             "${ROR_OGRE_NEXT_N3_REPORT}"
         COMMAND
-            $<TARGET_FILE:ror_ogre_next_metal_n3_smoke>
-            --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
-            --raster "${ROR_OGRE_NEXT_N3_RASTER}"
-            --contribution "${ROR_OGRE_NEXT_N3_CONTRIBUTION}"
-            --hybrid "${ROR_OGRE_NEXT_N3_HYBRID}"
-            --report "${ROR_OGRE_NEXT_N3_REPORT}"
+            "${CMAKE_COMMAND}"
+            "-DN3_EXECUTABLE=$<TARGET_FILE:ror_ogre_next_metal_n3_smoke>"
+            "-DN3_MEDIA_ROOT=${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+            "-DN3_RASTER=${ROR_OGRE_NEXT_N3_RASTER}"
+            "-DN3_CONTRIBUTION=${ROR_OGRE_NEXT_N3_CONTRIBUTION}"
+            "-DN3_HYBRID=${ROR_OGRE_NEXT_N3_HYBRID}"
+            "-DN3_REPORT=${ROR_OGRE_NEXT_N3_REPORT}"
+            -P "${CMAKE_CURRENT_LIST_DIR}/cmake/RunN3Smoke.cmake"
         DEPENDS
             ror_ogre_next_metal_n3_smoke
             ror_ogre_next_frontend_n1_package

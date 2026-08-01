@@ -48,10 +48,13 @@ BeamNG-derived product name without written permission, in accordance with
   behind the audited `master`, and its Conan/platform assumptions remain biased
   toward Linux and Windows. Treat it as research, not as a merge base.
 - Native ray tracing is now a renderer-selection priority. The opt-in Apple M5
-  N2 checkpoint proves one same-device Metal geometry export, BLAS/TLAS build,
-  ray query/eight-byte probe readback, and guarded lifecycle; it is not a
-  shipping RT renderer, rendered-image output,
-  or a visual-fidelity claim. Ogre-Next's audited tree provides a materially
+  N2 checkpoint proves same-device Metal geometry export, BLAS/TLAS build,
+  ray query/eight-byte probe readback, and guarded lifecycle. N3 additionally
+  exports the exact UI-free Ogre HDR target, derives rays from the submitted
+  camera, writes a hit-only Metal contribution, GPU-composites it into that
+  target, and independently reads back raster, contribution, and hybrid images.
+  This is still not a shipping RT renderer, reflection/GI implementation,
+  performance result, or visual-fidelity claim. Ogre-Next's audited tree provides a materially
   stronger PBS/HDR raster foundation and Metal/Vulkan integration seams, not a
   complete cross-platform native RT implementation or a D3D12 renderer. The
   [Ogre-Next/native RT decision RFC](NATIVE_RAY_TRACING_BACKEND.md) makes a real
@@ -1048,13 +1051,20 @@ Gate R1:
 - A dependency-free selector defaults to OGRE14/RT-disabled and refuses to
   report RT without a compiled backend, accepted hardware capability, real
   BLAS/TLAS dispatch/readback probe, and scene interop.
-- The standalone Metal admission probe and the Ogre-Next N2 interop probe have
-  passed on the recorded Apple M5. N2 rastered a renderer-neutral deformed RoR
+- The standalone Metal admission probe and the Ogre-Next N2/N3 interop probes
+  have passed on the recorded Apple M5. N2 rastered a renderer-neutral deformed RoR
   scene, exported the exact pooled Ogre v2 position/index slices from that
   raster `Item`, built BLAS/TLAS from those buffers on Ogre's own device and
   queue, dispatched one ray, and validated its eight-byte GPU probe. This closes
-  API/hardware/dispatch and geometry-interoperability subgates only; it does
-  not enable a shipping `native_rt=metal` path or claim RT shading/compositing.
+  API/hardware/dispatch and geometry-interoperability subgates. N3 retained and
+  exported the exact Ogre `RGBA16_FLOAT` target through a renderer-neutral
+  image lease, traced view-dependent primary rays, wrote a separate hit-only
+  contribution, and GPU-composited that contribution into the target on the
+  same device and queue. The independent readbacks prove 80 affected pixels,
+  bit-identical misses, camera-dependent output, resize after release, and
+  bounded device-loss/timeout cleanup. It still does not enable a shipping
+  `native_rt=metal` path or claim reflection, shadow, GI, denoising, material,
+  image-quality, or performance parity.
 - Ogre-Next `v3.0.0` is evaluated as an exact pin on macOS arm64, Windows
   x86_64, and Linux x86_64; development `master` is not a shipping dependency.
 - The first isolated dependency checkpoint now pins `v3-0` commit
@@ -1071,14 +1081,17 @@ Gate R1:
   and records clean renderer shutdown. The following Apple N2 checkpoint adds
   a shared-event ownership boundary, immutable deformation revisions, exact
   pooled-buffer bounds/generations, same-device BLAS/TLAS/query evidence, and
-  explicit shutdown plus both frontend/backend destructor orders. Operational
+  explicit shutdown plus both frontend/backend destructor orders. The N3
+  checkpoint then adds the versioned color-image handoff, exact retained Ogre
+  HDR target, GPU-only contribution/composite path, three independently hashed
+  image artifacts, view change, resize, and post-submission fault seams. Operational
   Metal faults revoke leases and backend registration while latching the
   frontend unusable, so device loss cannot permanently block cleanup. Windows
   D3D11 and Linux Vulkan
   reproduction remain open; Linux is deliberately an offscreen null-window
-  raster gate rather than a presentation-window claim. RT material attributes,
-  lights, target import/compositing, presentation, image quality, performance,
-  DXR, and Vulkan KHR interop remain open; see the
+  raster gate rather than a presentation-window claim. RT reflection/shadow
+  semantics, material attributes, lights, presentation, image quality,
+  performance, DXR, and Vulkan KHR interop remain open; see the
   [isolated integration checkpoint](OGRE_NEXT_INTEGRATION.md).
 - macOS first renders a measured RT contribution in a real UI-free RoR frame
   on Apple family 9 or newer. M1/M2 and unsupported OS versions retain the

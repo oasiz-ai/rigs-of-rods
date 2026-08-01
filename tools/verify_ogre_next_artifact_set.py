@@ -24,6 +24,16 @@ METAL_N2_REQUIRED_ARTIFACTS = (
     "bin/ror_ogre_next_metal_n2_smoke",
 )
 METAL_N2_PROBE_ARTIFACT = "ror-ogre-next-metal-n2-probe.bin"
+METAL_N3_REQUIRED_ARTIFACTS = (
+    "ror-ogre-next-metal-n3-report.json",
+    "ror-ogre-next-metal-n3-attestation.json",
+    "bin/ror_ogre_next_metal_n3_smoke",
+)
+METAL_N3_IMAGE_ARTIFACTS = (
+    ("raster_only_hdr", "ror-ogre-next-metal-n3-raster.bin"),
+    ("rt_contribution", "ror-ogre-next-metal-n3-contribution.bin"),
+    ("hybrid_hdr", "ror-ogre-next-metal-n3-hybrid.bin"),
+)
 
 
 class ArtifactSetError(RuntimeError):
@@ -49,17 +59,21 @@ def _read_json_object(path: Path, label: str) -> dict[str, object]:
 
 
 def _verify_attested_file(
-    entry: object, path: Path, expected_name: str, label: str
+    entry: object,
+    path: Path,
+    expected_name: str,
+    checkpoint: str,
+    label: str,
 ) -> None:
     if not isinstance(entry, dict):
-        raise ArtifactSetError(f"invalid Metal N2 {label} attestation")
+        raise ArtifactSetError(f"invalid {checkpoint} {label} attestation")
     expected = {
         "path": expected_name,
         "bytes": path.stat().st_size,
         "sha256": sha256_file(path),
     }
     if entry != expected:
-        raise ArtifactSetError(f"Metal N2 {label} attestation mismatch")
+        raise ArtifactSetError(f"{checkpoint} {label} attestation mismatch")
 
 
 def _verify_metal_n2(root: Path, manifest: list[dict[str, object]]) -> None:
@@ -96,12 +110,17 @@ def _verify_metal_n2(root: Path, manifest: list[dict[str, object]]) -> None:
     if source != expected_source or source.get("relevant_source_clean") is not True:
         raise ArtifactSetError("Metal N2 source attestation mismatch")
     _verify_attested_file(
-        attestation.get("report"), report_path, report_path.name, "report"
+        attestation.get("report"),
+        report_path,
+        report_path.name,
+        "Metal N2",
+        "report",
     )
     _verify_attested_file(
         attestation.get("executable"),
         executable_path,
         executable_path.name,
+        "Metal N2",
         "executable",
     )
     if (
@@ -116,7 +135,11 @@ def _verify_metal_n2(root: Path, manifest: list[dict[str, object]]) -> None:
         if probe_path.stat().st_size == 0:
             raise ArtifactSetError(f"empty: {METAL_N2_PROBE_ARTIFACT}")
         _verify_attested_file(
-            attestation.get("probe"), probe_path, probe_path.name, "probe"
+            attestation.get("probe"),
+            probe_path,
+            probe_path.name,
+            "Metal N2",
+            "probe",
         )
         manifest.append(
             {
@@ -129,14 +152,105 @@ def _verify_metal_n2(root: Path, manifest: list[dict[str, object]]) -> None:
         raise ArtifactSetError("skipped Metal N2 evidence retained a stale probe")
 
 
+def _verify_metal_n3(root: Path, manifest: list[dict[str, object]]) -> None:
+    report_path = root / METAL_N3_REQUIRED_ARTIFACTS[0]
+    attestation_path = root / METAL_N3_REQUIRED_ARTIFACTS[1]
+    executable_path = root / METAL_N3_REQUIRED_ARTIFACTS[2]
+    report = _read_json_object(report_path, "Metal N3 report")
+    attestation = _read_json_object(attestation_path, "Metal N3 attestation")
+    status = report.get("status")
+    if report.get("schema") != "ror.ogre_next_metal_rt_n3.v1" or status not in (
+        "pass",
+        "skip",
+    ):
+        raise ArtifactSetError("Metal N3 report schema or status is invalid")
+    if (
+        attestation.get("schema")
+        != "ror.ogre_next_metal_rt_n3.attestation.v1"
+        or attestation.get("status") != status
+    ):
+        raise ArtifactSetError("Metal N3 attestation schema or status mismatch")
+    provenance = report.get("provenance")
+    source = attestation.get("source")
+    if not isinstance(provenance, dict) or not isinstance(source, dict):
+        raise ArtifactSetError("Metal N3 source provenance is missing")
+    expected_source = {
+        "ror_commit": provenance.get("ror_commit"),
+        "ror_ref": provenance.get("ror_ref"),
+        "relevant_source_clean": provenance.get("relevant_source_clean"),
+        "relevant_source_manifest_sha256": provenance.get(
+            "relevant_source_manifest_sha256"
+        ),
+    }
+    if source != expected_source or source.get("relevant_source_clean") is not True:
+        raise ArtifactSetError("Metal N3 source attestation mismatch")
+    _verify_attested_file(
+        attestation.get("report"),
+        report_path,
+        report_path.name,
+        "Metal N3",
+        "report",
+    )
+    _verify_attested_file(
+        attestation.get("executable"),
+        executable_path,
+        executable_path.name,
+        "Metal N3",
+        "executable",
+    )
+    if (
+        provenance.get("build_artifact") != executable_path.name
+        or provenance.get("build_artifact_bytes") != executable_path.stat().st_size
+        or provenance.get("build_artifact_sha256") != sha256_file(executable_path)
+    ):
+        raise ArtifactSetError("Metal N3 executable provenance mismatch")
+
+    for key, name in METAL_N3_IMAGE_ARTIFACTS:
+        path = root / name
+        attested = attestation.get(key)
+        if status == "skip":
+            if attested is not None or path.exists():
+                raise ArtifactSetError(
+                    f"skipped Metal N3 evidence retained a stale {key} image"
+                )
+            continue
+        if path.is_symlink() or not path.is_file():
+            raise ArtifactSetError(f"missing: {name}")
+        if path.stat().st_size == 0:
+            raise ArtifactSetError(f"empty: {name}")
+        _verify_attested_file(attested, path, path.name, "Metal N3", key)
+        metrics = report.get(key)
+        if not isinstance(metrics, dict):
+            raise ArtifactSetError(f"Metal N3 {key} report metrics are missing")
+        if (
+            metrics.get("width") != 96
+            or metrics.get("height") != 64
+            or metrics.get("format") != "RGBA16_FLOAT"
+            or metrics.get("bytes") != path.stat().st_size
+            or metrics.get("sha256") != sha256_file(path)
+        ):
+            raise ArtifactSetError(f"Metal N3 {key} report metrics mismatch")
+        manifest.append(
+            {
+                "path": name,
+                "bytes": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+        )
+
+
 def verify_artifact_set(
-    build_dir: Path, verify_metal_n2_evidence: bool = False
+    build_dir: Path,
+    verify_metal_n2_evidence: bool = False,
+    verify_metal_n3_evidence: bool = False,
 ) -> list[dict[str, object]]:
     root = build_dir.expanduser().resolve()
     failures: list[str] = []
     manifest: list[dict[str, object]] = []
     required = REQUIRED_ARTIFACTS + (
         METAL_N2_REQUIRED_ARTIFACTS if verify_metal_n2_evidence else ()
+    ) + (
+        METAL_N3_REQUIRED_ARTIFACTS if verify_metal_n3_evidence else ()
     )
     for name in required:
         path = root / name
@@ -159,6 +273,8 @@ def verify_artifact_set(
         )
     if verify_metal_n2_evidence:
         _verify_metal_n2(root, manifest)
+    if verify_metal_n3_evidence:
+        _verify_metal_n3(root, manifest)
     return manifest
 
 
@@ -173,10 +289,20 @@ def main(argv: list[str] | None = None) -> int:
             "evidence"
         ),
     )
+    parser.add_argument(
+        "--verify-metal-n3-evidence",
+        action="store_true",
+        help=(
+            "cross-check attested Apple Metal N3 pass or capability-skip "
+            "evidence"
+        ),
+    )
     args = parser.parse_args(argv)
     try:
         manifest = verify_artifact_set(
-            args.build_dir, args.verify_metal_n2_evidence
+            args.build_dir,
+            args.verify_metal_n2_evidence,
+            args.verify_metal_n3_evidence,
         )
     except (ArtifactSetError, OSError) as error:
         print(str(error), file=sys.stderr)

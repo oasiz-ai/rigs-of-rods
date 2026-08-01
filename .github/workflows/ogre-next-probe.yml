@@ -1,4 +1,4 @@
-name: OGRE-Next raster, Metal N2, and Vulkan RT5 capability probes
+name: OGRE-Next raster, Metal N2/N3, and Vulkan RT5 capability probes
 
 on:
   push:
@@ -50,7 +50,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS arm64 Metal raster plus N2 capability
+          - name: macOS arm64 Metal raster plus N2/N3 capability
             runner: macos-15
             platform: macos-arm64-metal
             jobs: 8
@@ -127,6 +127,7 @@ jobs:
           python tests/tools/test_ogre_next_metal_n2_contract.py
           python tests/tools/test_ogre_next_vulkan_rt5_contract.py
           python tests/tools/test_ogre_next_linux_static_closure.py
+          python tests/tools/test_ogre_next_metal_n3_contract.py
           python tests/tools/test_ogre_next_probe_workflow.py
           python tests/tools/test_verify_ogre_next_artifact_set.py
           python -O tests/tools/test_ogre_next_probe_contract.py
@@ -135,6 +136,7 @@ jobs:
           python -O tests/tools/test_ogre_next_metal_n2_contract.py
           python -O tests/tools/test_ogre_next_vulkan_rt5_contract.py
           python -O tests/tools/test_ogre_next_linux_static_closure.py
+          python -O tests/tools/test_ogre_next_metal_n3_contract.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
           python -O tests/tools/test_verify_ogre_next_artifact_set.py
           python tools/run_ogre_next_probe.py --validate-contract-only
@@ -162,6 +164,15 @@ jobs:
           --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --reuse-build-dir
           --checkpoint n2
+          --jobs ${{ matrix.jobs }}
+
+      - name: Build and validate the independent Apple Metal N3 hybrid proof
+        if: runner.os == 'macOS'
+        run: >-
+          python tools/run_ogre_next_probe.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --reuse-build-dir
+          --checkpoint n3
           --jobs ${{ matrix.jobs }}
 
       - name: Attest RoR-owned Vulkan instance and device injection
@@ -255,6 +266,13 @@ jobs:
           --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --verify-metal-n2-evidence
 
+      - name: Verify attested Apple Metal N3 pass or skip evidence
+        if: always() && runner.os == 'macOS'
+        run: >-
+          python tools/verify_ogre_next_artifact_set.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --verify-metal-n3-evidence
+
       - name: Verify attested Vulkan RT5 pass or explicit unsupported evidence
         if: always() && runner.os == 'Linux'
         run: >-
@@ -292,6 +310,21 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2-probe.bin
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2-attestation.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_metal_n2_smoke
+
+      - name: Upload attested Apple Metal N3 hybrid evidence
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-metal-n3-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-raster.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-contribution.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-hybrid.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_metal_n3_smoke
 
       - name: Upload attested Vulkan RT5 external-device evidence
         if: always() && runner.os == 'Linux'

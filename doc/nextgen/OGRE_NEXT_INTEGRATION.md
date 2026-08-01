@@ -1,8 +1,9 @@
 # OGRE-Next isolated integration checkpoint
 
-Status: **opt-in N1 raster frontend plus an Apple Metal N2 geometry/RT capability probe; no shipping renderer switch**
+Status: **opt-in N1 raster frontend plus Apple Metal N2 geometry and N3
+view-dependent hybrid-HDR proofs; no shipping renderer switch**
 
-This checkpoint compiles four standalone executables against an exact
+This checkpoint compiles five standalone executables against an exact
 OGRE-Next `v3-0` revision while leaving every default RoR and OGRE 14 build
 unchanged. The capability executable proves that the reviewed platform
 renderer registers with OGRE core, HLMS PBS links and selects the expected
@@ -28,13 +29,25 @@ exported triangle at one metre and survive an independently validated eight-byte
 GPU probe readback. It creates no second device or queue and produces no
 ray-traced image.
 
+The fifth executable is the explicit macOS-only N3 image slice. The frontend
+retains the exact UI-free Ogre `RGBA16_FLOAT` render target, exports it through
+the version-1 renderer-neutral image lease, and hands it to the native backend
+on Ogre's own Metal device and queue. The backend derives camera rays from the
+submitted view, traces the exact N2 geometry, writes a separate hit-only
+contribution texture, and GPU-composites that contribution into the exported
+HDR target. Independent raster-only, contribution-only, and hybrid GPU
+readbacks prove both affected and untouched pixels. The slice supports one
+view, one instance, one sample, and one primary-ray hit contribution; it does
+not implement reflections, shadows, GI, denoising, multi-bounce transport, or
+production material parity.
+
 The original capability and frame probes do not consume a RoR scene. The N1
-and N2 executables consume the renderer-neutral RoR scene and asset contracts,
+through N3 executables consume the renderer-neutral RoR scene and asset contracts,
 but never link into the OGRE 1.14 executable or touch simulation/solver state.
-Only the N2 executable evaluates native ray tracing. Its result is deliberately
-limited to API, hardware, one-ray dispatch/readback, exact geometry interop,
-and lifecycle acceptance; none of the four executables is a shipping
-presentation-window or visual-quality claim.
+N2 evaluates capability and exact geometry interop without producing an image;
+N3 adds the first measured view-dependent hybrid scene output. None of the five
+executables is a shipping presentation-window, performance, or visual-quality
+claim.
 
 ## Reproducible dependency contract
 
@@ -52,7 +65,6 @@ presentation-window or visual-quality claim.
   components are disabled, with its source archive's
   `MIT AND BSD-3-Clause AND JSON` expression, the active reviewed header
   subset's `MIT` expression, and the complete upstream notice hash;
-- the one small reviewed upstream CMake adaptation and its SHA-256; and
 - ABI-relevant choices: C++17, static linking, allocator/threading/string
   layout, precision, `IdString` width, node inheritance, and SIMD family.
 
@@ -73,7 +85,8 @@ FetchContent uses URL hashes and a build-local `_deps` population area. A local
 archive can be supplied, but it is hashed before CMake sees it. Direct
 `FETCHCONTENT_SOURCE_DIR_*` overrides are rejected because they bypass archive
 verification. A normal invocation requires a fresh build directory. The sole
-reuse path is `--reuse-build-dir` with an explicitly selected `n1` or `legacy`
+reuse path is `--reuse-build-dir` with an explicitly selected `n1`, `n2`,
+`n3`, or `legacy`
 checkpoint; it requires the exact ownership sentinel and source directory,
 revalidates the build contract, and rejects archive or generator changes.
 `--clean-build-dir` recovers only a directory carrying the exact probe
@@ -213,6 +226,16 @@ the exact Ogre queue. Every encoder ends before its signal; the only CPU wait
 is bounded and happens after submission. Stale generations, replacement while
 leased, timeout, and frontend-before-backend shutdown all fail closed.
 
+N3 extends that neutral contract with a versioned color-image request/export,
+explicit usage and state handoff, generation validation, and a separately
+released image lease. The Metal implementation exports the exact live
+`MTLTexture`; no Metal type enters the public renderer contract. A completed
+frame releases both geometry and image leases before resize or replacement.
+Submitted timeout/device-loss paths keep ownership conservative until bounded
+backend shutdown abandons the native work, after which frontend shutdown can
+complete. Vulkan KHR and D3D12/DXR backends must mirror the same neutral
+contract rather than adding Metal assumptions to shared code.
+
 Before a device exists, the capability query reports a conservative 2048
 texture extent without treating it as an initialization ceiling. Initialization
 creates only a 64x64 hidden/null bootstrap, reads
@@ -276,12 +299,21 @@ The generated files are:
 - `ror-ogre-next-metal-n2-attestation.json`: checked-out RoR commit/ref plus
   SHA-256 identities for the report, executable, and optional probe; and
 - `bin/ror_ogre_next_metal_n2_smoke`: the exact executable independently hashed
-  by the wrapper and retained with the report.
+  by the wrapper and retained with the report; and
+- `ror-ogre-next-metal-n3-report.json`: versioned device, image-contract,
+  view-dependence, resize, fault-path, and image-metric evidence;
+- `ror-ogre-next-metal-n3-{raster,contribution,hybrid}.bin`: exact tightly
+  packed 96x64 `RGBA16_FLOAT` GPU readbacks, present only when N3 passes;
+- `ror-ogre-next-metal-n3-attestation.json`: source and SHA-256 identities for
+  the N3 report, executable, and optional image artifacts; and
+- `bin/ror_ogre_next_metal_n3_smoke`: the exact N3 executable retained with
+  those artifacts.
 
 The baseline GitHub `macos-15` runner currently identifies an M1/family-7 GPU,
-so it compiles all N2 code and records an explicit capability skip (CTest exit
+so it compiles all N2/N3 code and records explicit capability skips (CTest exit
 77) instead of claiming a family-9 runtime pass. A genuine M3-or-newer runner
-must produce the probe artifact and pass the full validator.
+must produce the N2 probe and all three N3 image artifacts and pass their
+independent validators.
 
 `--validate-contract-only` checks pins, patch hashes, and the current platform
 policy without accessing the network or compiling.
@@ -345,15 +377,28 @@ frontend. These measurements prove this M5 geometry path;
 they do not prove ray-traced materials, lighting, denoising, Ogre texture
 import, compositing, presentation, image quality, or performance parity.
 
+The opt-in N3 smoke then passed on the same Apple M5. Its exact 96x64 GPU
+readbacks contained 80 affected pixels and 6,064 bit-identical miss pixels.
+Raster-only, hit-contribution, and hybrid SHA-256 values were respectively
+`b00d575ae105ff80bc02fc5b238cd109f1956afd9aa9ceda01614b9307eab444`,
+`1780912f67a6ac39e029e6de62b7f5c2cfb72848f5de8a8a557335147b0f79fb`,
+and `5df5301227b4f5316a2567e84396ec627f969a257dd6bf468427941bb7f87d81`.
+Moving the camera changed the contribution hash and affected-pixel count, an
+80x48 follow-up frame proved lease release and target replacement, and real
+post-submission device-loss/timeout seams proved conservative cleanup. These
+measurements close the first view-dependent same-device HDR-composite slice;
+they do not close reflection/shadow quality, material, timing, GPU-capture,
+fallback-soak, presentation, Vulkan KHR, or DXR gates.
+
 ## Next gates
 
 The checked-in optional CI matrix runs the exact probe on macOS arm64 Metal,
 Windows x64 Direct3D 11, and Linux x86_64 software Vulkan/null-window. It keeps
-the three jobs independent, runs N1 plus its lifecycle/media-tamper tests before
-the legacy probes, reruns the complete native test set, and revalidates the
-exact reports and PPM selected for upload. An explicit always-running artifact
-gate requires all six regular, non-empty artifacts before upload, so a partial
-result cannot be published as a complete checkpoint. Only the local macOS
+the three jobs independent, runs N1, N2, and N3 before the legacy probes,
+reruns the complete native test set, and revalidates the exact reports and
+images selected for upload. Explicit always-running artifact gates require the
+baseline set plus internally consistent N2/N3 pass-or-skip attestations, so a
+partial result cannot be published as a complete checkpoint. Only the local macOS
 result is proven at this checkpoint; the Windows and Linux jobs must still
 execute successfully before their gates can close. The renderer remains
 non-shipping until these later checkpoints pass:
@@ -364,8 +409,9 @@ non-shipping until these later checkpoints pass:
 3. expand the renderer-neutral adapter beyond N1 with calibrated lighting,
    textures, richer geometry streams, UI ordering, and presentation;
 4. add depth, motion, and stable object-ID outputs only with their own tests;
-5. extend the proven M5 same-device geometry path to RT materials, lighting,
-   frontend texture import/compositing, image and performance gates, then
+5. extend the proven M5 same-device geometry/image path to RT
+   reflection/shadow semantics, materials, calibrated lighting, GPU capture,
+   image and performance gates, then
    reproduce equivalent explicit interop on Windows/DXR and Linux/Vulkan KHR;
    and
 6. keep OGRE 14 as the default until image, performance, content, and fallback

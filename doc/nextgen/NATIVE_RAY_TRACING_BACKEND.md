@@ -1,9 +1,9 @@
 # Ogre-Next and Native Ray-Tracing Decision RFC
 
-Status: **priority architecture gate; standalone Apple M5 Metal proof passed,
-Ogre-Next/RoR scene RT not yet implemented**
+Status: **priority architecture gate; Apple M5 N3 same-device
+view-dependent hybrid-HDR slice passed, production RT not yet implemented**
 
-Audit date: **2026-07-30**
+Audit date: **2026-08-01**
 
 RoR baseline: `6e7c81d3cf5cac8501af1a2be8158a5d7f14202d`
 
@@ -436,8 +436,12 @@ world-model dependency exists.
 
 - The standalone Apple capability, BLAS/TLAS, dispatch, and readback subgate is
   complete on the recorded Apple M5; retain it as a CTest admission probe.
-- Share an Ogre-Next Metal mesh and HDR target.
-- Render one RT reflection/shadow contribution in a UI-free RoR frame.
+- Sharing the exact Ogre-Next Metal mesh and retained `RGBA16_FLOAT` target is
+  complete in N3 through versioned renderer-neutral geometry/image leases.
+- A view-dependent primary-ray hit contribution is now GPU-composited into the
+  exact UI-free Ogre target and independently read back as raster-only,
+  contribution-only, and hybrid artifacts. A calibrated reflection or shadow
+  contribution remains open.
 - Validate M3-class or newer hardware; validate raster fallback on M1/M2.
 
 Exit: exact probe, scene image, GPU capture, frame timings, lifecycle soak, and
@@ -517,8 +521,10 @@ parity.
 
 ## Immediate go/no-go
 
-**Passed locally:** the RT0 contract tests and standalone Apple M5 Metal
-BLAS/TLAS/dispatch/readback subgate.
+**Passed locally:** the RT0 contract tests, standalone Apple M5 Metal
+BLAS/TLAS/dispatch/readback subgate, and the N3 view-dependent same-device
+hybrid-HDR contribution slice including camera change, resize, and bounded
+post-submission fault cleanup.
 
 **Go:** RT1, RT2, and the remaining Ogre-Next/RoR-scene work in the
 macOS-first RT3 spike.
@@ -528,8 +534,9 @@ Ogre-Next development `master`, or claiming native RT.
 
 **Hard continuation gates:**
 
-- Metal RT must render and composite a real RoR scene on Apple family 9 or
-  newer while M1/M2 fall back cleanly.
+- Metal RT must advance the proven family-9 scene composite to calibrated
+  reflection/shadow semantics, GPU capture/timing, and soak evidence while
+  M1/M2 fall back cleanly.
 - The D3D11On12/DXR spike must prove Ogre-Next and DXR can share one correct
   Windows frame lifecycle. If it cannot, the renderer architecture must be
   revisited before a large content migration.

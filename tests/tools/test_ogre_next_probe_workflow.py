@@ -58,7 +58,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/tools/test_ogre_next_frame_probe.py",
             "tests/tools/test_ogre_next_frontend_n1_contract.py",
             "tests/tools/test_ogre_next_metal_n2_contract.py",
+            "tests/tools/test_ogre_next_vulkan_rt5_contract.py",
             "tests/tools/test_ogre_next_linux_static_closure.py",
+            "tests/tools/test_ogre_next_metal_n3_contract.py",
             SELF_PATH,
             "tests/tools/test_verify_ogre_next_artifact_set.py",
         ):
@@ -139,6 +141,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror-ogre-next-metal-n2-probe.bin",
             "ror-ogre-next-metal-n2-attestation.json",
             "bin/ror_ogre_next_metal_n2_smoke",
+            "ror-ogre-next-metal-n3-report.json",
+            "ror-ogre-next-metal-n3-raster.bin",
+            "ror-ogre-next-metal-n3-contribution.bin",
+            "ror-ogre-next-metal-n3-hybrid.bin",
+            "ror-ogre-next-metal-n3-attestation.json",
+            "bin/ror_ogre_next_metal_n3_smoke",
         ):
             with self.subTest(artifact=artifact):
                 self.assertIn(artifact, self.workflow)
@@ -152,13 +160,18 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         n2_complete = self.workflow.index(
             "- name: Verify attested Apple Metal N2 pass or skip evidence"
         )
+        n3_complete = self.workflow.index(
+            "- name: Verify attested Apple Metal N3 pass or skip evidence"
+        )
         upload = self.workflow.index("- name: Upload exact reports and UI-free frame")
         self.assertLess(lifecycle, revalidate)
         self.assertLess(revalidate, complete)
         self.assertLess(complete, n2_complete)
-        self.assertLess(n2_complete, upload)
+        self.assertLess(n2_complete, n3_complete)
+        self.assertLess(n3_complete, upload)
         self.assertIn("verify_ogre_next_artifact_set.py", self.workflow)
         self.assertIn("--verify-metal-n2-evidence", self.workflow)
+        self.assertIn("--verify-metal-n3-evidence", self.workflow)
 
     def test_n1_is_independent_of_legacy_frame_runtime(self) -> None:
         n1 = self.workflow.index(
@@ -170,14 +183,19 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         n2 = self.workflow.index(
             "- name: Build and validate the independent Apple Metal N2 proof"
         )
+        n3 = self.workflow.index(
+            "- name: Build and validate the independent Apple Metal N3 hybrid proof"
+        )
         n1_native = self.workflow.index(
             "- name: Prove N1 lifecycle and media-integrity failures independently"
         )
         self.assertLess(n1, n1_native)
         self.assertLess(n1_native, n2)
-        self.assertLess(n2, legacy)
+        self.assertLess(n2, n3)
+        self.assertLess(n3, legacy)
         self.assertIn("--checkpoint n1", self.workflow)
         self.assertIn("--checkpoint n2", self.workflow)
+        self.assertIn("--checkpoint n3", self.workflow)
         self.assertIn("--checkpoint legacy", self.workflow)
         self.assertIn("--reuse-build-dir", self.workflow)
         self.assertIn("-R '^ror_ogre_next_frontend_n1_'", self.workflow)
@@ -189,6 +207,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         )
         self.assertIn(
             "Upload attested Apple Metal N2 capability evidence", self.workflow
+        )
+        self.assertIn(
+            "Upload attested Apple Metal N3 hybrid evidence", self.workflow
         )
 
     def test_verified_wrapper_owns_source_and_build_lifecycle(self) -> None:

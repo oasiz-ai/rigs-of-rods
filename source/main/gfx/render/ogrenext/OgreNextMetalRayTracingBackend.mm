@@ -579,6 +579,8 @@ public:
 
   RenderOperationResult RunGeometryInteropProbe(
       const NativeRayTracingFrameRequest &request) {
+    // N2 does not produce a view-dependent RenderFrameOutput. N3 is a
+    // separate, explicitly image-enabled tier.
     if (!initialized_) {
       return Failure(RenderOperationCode::NOT_INITIALIZED,
                      "Metal N2 ray-tracing backend is not initialized");

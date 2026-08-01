@@ -70,6 +70,63 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             json.dumps(attestation) + "\n", encoding="utf-8"
         )
 
+    def write_metal_n3(self, root: Path, status: str) -> None:
+        executable_path = root / VERIFY.METAL_N3_REQUIRED_ARTIFACTS[2]
+        executable_path.parent.mkdir(parents=True, exist_ok=True)
+        executable_path.write_bytes(b"attested-metal-n3")
+        source = {
+            "ror_commit": "3" * 40,
+            "ror_ref": "codex/test-n3",
+            "relevant_source_clean": True,
+            "relevant_source_manifest_sha256": "4" * 64,
+        }
+        report = {
+            "schema": "ror.ogre_next_metal_rt_n3.v1",
+            "status": status,
+            "provenance": {
+                **source,
+                "build_artifact": executable_path.name,
+                "build_artifact_bytes": executable_path.stat().st_size,
+                "build_artifact_sha256": VERIFY.sha256_file(executable_path),
+            },
+        }
+
+        def entry(path: Path) -> dict[str, object]:
+            return {
+                "path": path.name,
+                "bytes": path.stat().st_size,
+                "sha256": VERIFY.sha256_file(path),
+            }
+
+        images: dict[str, dict[str, object] | None] = {}
+        for index, (key, name) in enumerate(VERIFY.METAL_N3_IMAGE_ARTIFACTS, 1):
+            path = root / name
+            if status == "pass":
+                path.write_bytes(bytes((index,)) * (96 * 64 * 8))
+                images[key] = entry(path)
+                report[key] = {
+                    "width": 96,
+                    "height": 64,
+                    "format": "RGBA16_FLOAT",
+                    "bytes": path.stat().st_size,
+                    "sha256": VERIFY.sha256_file(path),
+                }
+            else:
+                images[key] = None
+        report_path = root / VERIFY.METAL_N3_REQUIRED_ARTIFACTS[0]
+        report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+        attestation = {
+            "schema": "ror.ogre_next_metal_rt_n3.attestation.v1",
+            "status": status,
+            "source": source,
+            "executable": entry(executable_path),
+            "report": entry(report_path),
+            **images,
+        }
+        (root / VERIFY.METAL_N3_REQUIRED_ARTIFACTS[1]).write_text(
+            json.dumps(attestation) + "\n", encoding="utf-8"
+        )
+
     def test_requires_every_exact_nonempty_regular_file(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-artifacts-") as temp:
             root = Path(temp)
@@ -126,6 +183,38 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             ):
                 VERIFY.verify_artifact_set(
                     root, verify_metal_n2_evidence=True
+                )
+
+    def test_metal_n3_gate_cross_checks_all_pass_images(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-n3-artifacts-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            self.write_metal_n3(root, "pass")
+            manifest = VERIFY.verify_artifact_set(
+                root, verify_metal_n3_evidence=True
+            )
+            image_names = [name for _, name in VERIFY.METAL_N3_IMAGE_ARTIFACTS]
+            for name in image_names:
+                self.assertIn(name, [entry["path"] for entry in manifest])
+            (root / image_names[1]).write_bytes(b"tampered")
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "attestation mismatch"
+            ):
+                VERIFY.verify_artifact_set(
+                    root, verify_metal_n3_evidence=True
+                )
+
+    def test_metal_n3_gate_accepts_skip_but_rejects_stale_image(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-n3-skip-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            self.write_metal_n3(root, "skip")
+            VERIFY.verify_artifact_set(root, verify_metal_n3_evidence=True)
+            stale = root / VERIFY.METAL_N3_IMAGE_ARTIFACTS[0][1]
+            stale.write_bytes(b"stale")
+            with self.assertRaisesRegex(VERIFY.ArtifactSetError, "stale"):
+                VERIFY.verify_artifact_set(
+                    root, verify_metal_n3_evidence=True
                 )
 
 

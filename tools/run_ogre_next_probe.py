@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import ntpath
 import os
 from pathlib import Path
@@ -39,6 +40,11 @@ N2_REPORT_NAME = "ror-ogre-next-metal-n2-report.json"
 N2_PROBE_NAME = "ror-ogre-next-metal-n2-probe.bin"
 N2_ATTESTATION_NAME = "ror-ogre-next-metal-n2-attestation.json"
 LINUX_STATIC_CLOSURE_MANIFEST_NAME = "ogre-next-linux-static-closure.json"
+N3_REPORT_NAME = "ror-ogre-next-metal-n3-report.json"
+N3_RASTER_NAME = "ror-ogre-next-metal-n3-raster.bin"
+N3_CONTRIBUTION_NAME = "ror-ogre-next-metal-n3-contribution.bin"
+N3_HYBRID_NAME = "ror-ogre-next-metal-n3-hybrid.bin"
+N3_ATTESTATION_NAME = "ror-ogre-next-metal-n3-attestation.json"
 FRAME_VALIDATOR = REPOSITORY_ROOT / "tools" / "validate_ogre_next_frame_probe.py"
 BUILD_SENTINEL_NAME = ".ror-ogre-next-probe-build-v1"
 BUILD_SENTINEL_CONTENT = "ror-ogre-next-probe-build-v1\n"
@@ -1702,6 +1708,62 @@ def validate_linux_static_closure_manifest(
         )
 
 
+def _n3_image_metrics(
+    payload: bytes, width: int, height: int
+) -> dict[str, int | float | str]:
+    expected_bytes = width * height * 8
+    if width <= 0 or height <= 0 or len(payload) != expected_bytes:
+        raise ProbeError("Metal N3 RGBA16F artifact extent/byte count differs")
+    nontrivial = 0
+    luminance_sum = 0.0
+    for offset in range(0, len(payload), 8):
+        channels = struct.unpack_from("<4e", payload, offset)
+        if not all(math.isfinite(channel) for channel in channels):
+            raise ProbeError("Metal N3 RGBA16F artifact contains non-finite data")
+        luminance_sum += (
+            0.2126 * channels[0]
+            + 0.7152 * channels[1]
+            + 0.0722 * channels[2]
+        )
+        if any(abs(channel) > 1.0e-6 for channel in channels[:3]):
+            nontrivial += 1
+    return {
+        "width": width,
+        "height": height,
+        "bytes": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "mean_luminance": luminance_sum / (width * height),
+        "nontrivial_pixels": nontrivial,
+    }
+
+
+def _validate_n3_reported_metrics(
+    reported: dict[str, Any], computed: dict[str, int | float | str], label: str
+) -> None:
+    checks = {
+        "width": reported.get("width") == computed["width"],
+        "height": reported.get("height") == computed["height"],
+        "format": reported.get("format") == "RGBA16_FLOAT",
+        "bytes": reported.get("bytes") == computed["bytes"],
+        "sha256": reported.get("sha256") == computed["sha256"],
+        "nontrivial_pixels": reported.get("nontrivial_pixels")
+        == computed["nontrivial_pixels"],
+        "mean_luminance": isinstance(reported.get("mean_luminance"), (int, float))
+        and math.isclose(
+            float(reported["mean_luminance"]),
+            float(computed["mean_luminance"]),
+            rel_tol=1.0e-9,
+            abs_tol=1.0e-12,
+        ),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise ProbeError(
+            f"Metal N3 {label} metrics failed closed: "
+            + ", ".join(sorted(failed))
+        )
+
+
 def validate_n1_package_provenance(
     build_dir: Path,
     lock: dict[str, Any],
@@ -1815,6 +1877,323 @@ def validate_linux_dynamic_boundary(
             raise ProbeError(
                 f"Linux executable crossed static shader boundary: {match.group(0)}"
             )
+def validate_n3_checkpoint(
+    report: dict[str, Any],
+    raster_path: Path | None,
+    contribution_path: Path | None,
+    hybrid_path: Path | None,
+    executable_path: Path,
+    lock: dict[str, Any],
+    policy: dict[str, str],
+    expected_source_commit: str,
+    expected_source_ref: str,
+    expected_source_manifest_sha256: str,
+) -> None:
+    if policy["name"] != "macos-arm64-metal":
+        raise ProbeError("Metal N3 validation is Apple-only")
+    if re.fullmatch(r"[0-9a-f]{40}", expected_source_commit) is None:
+        raise ProbeError("expected N3 RoR source commit is not a full Git SHA")
+    _require_sha256(
+        expected_source_manifest_sha256,
+        "expected Metal N3 relevant-source manifest",
+    )
+    try:
+        executable_bytes = executable_path.stat().st_size
+        executable_sha256 = sha256_file(executable_path)
+    except OSError as error:
+        raise ProbeError(f"could not attest Metal N3 executable: {error}") from error
+
+    def object_field(name: str) -> dict[str, Any]:
+        value = report.get(name, {})
+        return value if isinstance(value, dict) else {}
+
+    provenance = object_field("provenance")
+    status = report.get("status")
+    common_checks = {
+        "schema": report.get("schema") == "ror.ogre_next_metal_rt_n3.v1",
+        "status": status in ("pass", "skip"),
+        "scope": report.get("scope")
+        == (
+            "same-device Metal primary-ray hit contribution composited into "
+            "exact UI-free Ogre-Next HDR target; no GI, reflection, denoising, "
+            "multi-bounce, or material parity claim"
+        )
+        if status == "pass"
+        else isinstance(report.get("scope"), str),
+        "ror_repository": provenance.get("ror_repository")
+        == ROR_SOURCE_REPOSITORY,
+        "ror_ref": provenance.get("ror_ref") == expected_source_ref,
+        "ror_commit": provenance.get("ror_commit") == expected_source_commit,
+        "relevant_source_clean": provenance.get("relevant_source_clean") is True,
+        "relevant_source_manifest": provenance.get(
+            "relevant_source_manifest_sha256"
+        )
+        == expected_source_manifest_sha256,
+        "ogre_commit": provenance.get("ogre_next_commit") == lock["commit"],
+        "build_artifact": provenance.get("build_artifact")
+        == executable_path.name,
+        "build_artifact_bytes": provenance.get("build_artifact_bytes")
+        == executable_bytes
+        and executable_bytes > 0,
+        "build_artifact_sha256": provenance.get("build_artifact_sha256")
+        == executable_sha256,
+    }
+    failed = [name for name, passed in common_checks.items() if not passed]
+    if failed:
+        raise ProbeError(
+            "OGRE-Next Metal N3 checkpoint failed closed: "
+            + ", ".join(sorted(failed))
+        )
+    if status == "skip":
+        if any(
+            path is not None and path.exists()
+            for path in (raster_path, contribution_path, hybrid_path)
+        ):
+            raise ProbeError("skipped Metal N3 checkpoint emitted image artifacts")
+        if not isinstance(report.get("reason"), str) or not report["reason"]:
+            raise ProbeError("skipped Metal N3 checkpoint has no reason")
+        return
+
+    if raster_path is None or contribution_path is None or hybrid_path is None:
+        raise ProbeError("passed Metal N3 checkpoint is missing an image artifact")
+    try:
+        raster = raster_path.read_bytes()
+        contribution = contribution_path.read_bytes()
+        hybrid = hybrid_path.read_bytes()
+    except OSError as error:
+        raise ProbeError(f"could not read Metal N3 image artifacts: {error}") from error
+    raster_metrics = _n3_image_metrics(raster, 96, 64)
+    contribution_metrics = _n3_image_metrics(contribution, 96, 64)
+    hybrid_metrics = _n3_image_metrics(hybrid, 96, 64)
+    _validate_n3_reported_metrics(
+        object_field("raster_only_hdr"), raster_metrics, "raster"
+    )
+    _validate_n3_reported_metrics(
+        object_field("rt_contribution"), contribution_metrics, "contribution"
+    )
+    _validate_n3_reported_metrics(
+        object_field("hybrid_hdr"), hybrid_metrics, "hybrid"
+    )
+
+    applied = 0
+    untouched = 0
+    for offset in range(0, len(raster), 8):
+        raster_values = struct.unpack_from("<4e", raster, offset)
+        contribution_values = struct.unpack_from("<4e", contribution, offset)
+        hybrid_values = struct.unpack_from("<4e", hybrid, offset)
+        contribution_channels = struct.unpack_from("<4H", contribution, offset)
+        applies = any((channel & 0x7FFF) != 0 for channel in contribution_channels[:3])
+        if contribution_channels[3] != 0:
+            raise ProbeError("Metal N3 contribution changed straight alpha")
+        if hybrid[offset + 6 : offset + 8] != raster[offset + 6 : offset + 8]:
+            raise ProbeError("Metal N3 hybrid changed raster alpha")
+        if applies:
+            applied += 1
+            if hybrid[offset : offset + 6] == raster[offset : offset + 6]:
+                raise ProbeError("Metal N3 contribution did not change hybrid RGB")
+            for channel in range(3):
+                expected = max(
+                    -65504.0,
+                    min(65504.0, raster_values[channel] + contribution_values[channel]),
+                )
+                if not math.isclose(
+                    hybrid_values[channel],
+                    expected,
+                    rel_tol=2.0e-3,
+                    abs_tol=5.0e-4,
+                ):
+                    raise ProbeError(
+                        "Metal N3 hybrid RGB is not the reported GPU contribution"
+                    )
+        else:
+            untouched += 1
+            if hybrid[offset : offset + 8] != raster[offset : offset + 8]:
+                raise ProbeError("Metal N3 changed a pixel outside its contribution")
+
+    device = object_field("device")
+    contract = object_field("contract")
+    proof = object_field("proof")
+    second = object_field("second_view_contribution")
+    resized = object_field("resized_hybrid")
+    second_sha256 = second.get("sha256")
+    resized_sha256 = resized.get("sha256")
+    if not isinstance(second_sha256, str) or not isinstance(resized_sha256, str):
+        raise ProbeError("Metal N3 follow-up image hashes are missing")
+    _require_sha256(second_sha256, "Metal N3 second-view contribution")
+    _require_sha256(resized_sha256, "Metal N3 resized hybrid")
+    pass_checks = {
+        "device": isinstance(device.get("name"), str)
+        and bool(device["name"])
+        and device.get("same_ogre_device") is True
+        and device.get("same_ogre_queue") is True
+        and device.get("apple_family_9") is True,
+        "image_contract": contract.get("image_version") == 1
+        and isinstance(contract.get("image_generation"), int)
+        and contract["image_generation"] > 0
+        and contract.get("usage")
+        == "COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE"
+        and contract.get("release_state") == "GENERAL_READ_WRITE"
+        and contract.get("return_state") == "GENERAL_READ_WRITE",
+        "distinct_artifacts": len(
+            {
+                raster_metrics["sha256"],
+                contribution_metrics["sha256"],
+                hybrid_metrics["sha256"],
+            }
+        )
+        == 3
+        and int(raster_metrics["nontrivial_pixels"]) > 0
+        and int(contribution_metrics["nontrivial_pixels"]) > 0
+        and int(hybrid_metrics["nontrivial_pixels"]) > 0,
+        "mapping": applied > 0
+        and untouched > 0
+        and proof.get("contribution_pixels") == applied,
+        "second_view": second.get("width") == 96
+        and second.get("height") == 64
+        and second.get("format") == "RGBA16_FLOAT"
+        and second.get("bytes") == 96 * 64 * 8
+        and second_sha256 != contribution_metrics["sha256"]
+        and isinstance(second.get("nontrivial_pixels"), int)
+        and second["nontrivial_pixels"] > 0,
+        "resize": resized.get("width") == 80
+        and resized.get("height") == 48
+        and resized.get("format") == "RGBA16_FLOAT"
+        and resized.get("bytes") == 80 * 48 * 8
+        and isinstance(resized.get("nontrivial_pixels"), int)
+        and resized["nontrivial_pixels"] > 0,
+        "proof": all(
+            proof.get(field) is True
+            for field in (
+                "exact_exported_vertex_slice_used",
+                "exact_exported_index_slice_used",
+                "exact_exported_color_image_used",
+                "gpu_composite_not_cpu_postprocess",
+                "hybrid_changes_only_on_contribution",
+                "all_channels_finite",
+                "second_camera_changes_contribution_hash",
+                "released_frame_allows_extent_change",
+                "submitted_device_loss_and_timeout_paths_tested",
+                "view_dependent_output_ready",
+                "hybrid_composite_ready",
+            )
+        ),
+    }
+    failed = [name for name, passed in pass_checks.items() if not passed]
+    if failed:
+        raise ProbeError(
+            "OGRE-Next Metal N3 checkpoint failed closed: "
+            + ", ".join(sorted(failed))
+        )
+
+
+def run_n3_checkpoint(
+    build_dir: Path,
+    config: str,
+    jobs: int,
+    lock: dict[str, Any],
+    policy: dict[str, str],
+) -> None:
+    if policy["name"] != "macos-arm64-metal":
+        return
+    source_commit, source_ref, source_manifest_sha256 = repository_identity()
+    run(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--target",
+            "ror_ogre_next_metal_n3_report",
+            "--config",
+            config,
+            "--parallel",
+            str(jobs),
+        ]
+    )
+    report_path = build_dir / N3_REPORT_NAME
+    candidates = {
+        "raster": build_dir / N3_RASTER_NAME,
+        "contribution": build_dir / N3_CONTRIBUTION_NAME,
+        "hybrid": build_dir / N3_HYBRID_NAME,
+    }
+    artifacts = {
+        name: path if path.is_file() else None for name, path in candidates.items()
+    }
+    executable_candidates = (
+        build_dir / "bin" / "ror_ogre_next_metal_n3_smoke",
+        build_dir / "bin" / config / "ror_ogre_next_metal_n3_smoke",
+    )
+    executable_path = next(
+        (candidate for candidate in executable_candidates if candidate.is_file()),
+        executable_candidates[0],
+    )
+    missing = [path.name for path in (report_path, executable_path) if not path.is_file()]
+    if missing:
+        raise ProbeError(
+            "OGRE-Next Metal N3 checkpoint did not produce required artifacts: "
+            + ", ".join(missing)
+        )
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ProbeError(f"could not read Metal N3 report: {error}") from error
+    if repository_identity() != (
+        source_commit,
+        source_ref,
+        source_manifest_sha256,
+    ):
+        raise ProbeError("RoR source provenance changed while building Metal N3")
+    validate_n3_checkpoint(
+        report,
+        artifacts["raster"],
+        artifacts["contribution"],
+        artifacts["hybrid"],
+        executable_path,
+        lock,
+        policy,
+        source_commit,
+        source_ref,
+        source_manifest_sha256,
+    )
+
+    def attest(path: Path | None) -> dict[str, Any] | None:
+        if path is None:
+            return None
+        return {
+            "path": path.name,
+            "bytes": path.stat().st_size,
+            "sha256": sha256_file(path),
+        }
+
+    attestation = {
+        "schema": "ror.ogre_next_metal_rt_n3.attestation.v1",
+        "status": report.get("status"),
+        "source": {
+            "ror_commit": source_commit,
+            "ror_ref": source_ref,
+            "relevant_source_clean": True,
+            "relevant_source_manifest_sha256": source_manifest_sha256,
+        },
+        "executable": attest(executable_path),
+        "report": attest(report_path),
+        "raster_only_hdr": attest(artifacts["raster"]),
+        "rt_contribution": attest(artifacts["contribution"]),
+        "hybrid_hdr": attest(artifacts["hybrid"]),
+    }
+    attestation_path = build_dir / N3_ATTESTATION_NAME
+    temporary = attestation_path.with_suffix(".json.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(attestation, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(attestation_path)
+        persisted = json.loads(attestation_path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise ProbeError(f"could not write Metal N3 attestation: {error}") from error
+    except json.JSONDecodeError as error:
+        raise ProbeError(f"could not verify Metal N3 attestation: {error}") from error
+    if persisted != attestation:
+        raise ProbeError("persisted Metal N3 attestation differs from verified data")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1837,11 +2216,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--checkpoint",
-        choices=("all", "n1", "n2", "legacy"),
+        choices=("all", "n1", "n2", "n3", "legacy"),
         default="all",
         help=(
-            "run all gates, the independent N1 gate, the Apple Metal N2 "
-            "gate, or the legacy probes"
+            "run all gates, an independent N1/N2/N3 gate, or the legacy probes"
         ),
     )
     parser.add_argument(
@@ -1905,7 +2283,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.reuse_build_dir and args.checkpoint == "all":
             raise ProbeError(
-                "--reuse-build-dir requires --checkpoint n1, n2, or legacy"
+                "--reuse-build-dir requires --checkpoint n1, n2, n3, or legacy"
             )
         if args.reuse_build_dir and (
             args.ogre_archive or args.rapidjson_archive or args.generator
@@ -1999,6 +2377,16 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.checkpoint in ("all", "n2"):
             run_n2_checkpoint(
+                build_dir,
+                args.config,
+                args.jobs,
+                lock,
+                policy,
+            )
+            require_source_identity_unchanged(source_identity)
+
+        if args.checkpoint in ("all", "n3"):
+            run_n3_checkpoint(
                 build_dir,
                 args.config,
                 args.jobs,

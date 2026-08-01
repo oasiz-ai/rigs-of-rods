@@ -463,12 +463,28 @@ std::string SkipReport(const OgreNextMetalRayTracingEvidence &evidence,
          << "  \"status\": \"skip\",\n"
          << "  \"scope\": \"same-device Metal primary-ray hybrid HDR contribution; no GI, reflection, denoising, or material parity claim\",\n"
          << "  \"reason\": \"" << JsonEscape(initialization.detail) << "\",\n"
+         << "  \"provenance\": {\n"
+         << "    \"ror_repository\": \""
+         << JsonEscape(ROR_OGRE_NEXT_N3_SOURCE_REPOSITORY) << "\",\n"
+         << "    \"ror_ref\": \"" << JsonEscape(ROR_OGRE_NEXT_N3_SOURCE_REF)
+         << "\",\n"
+         << "    \"ror_commit\": \""
+         << JsonEscape(ROR_OGRE_NEXT_N3_SOURCE_COMMIT) << "\",\n"
+         << "    \"relevant_source_clean\": "
+         << (ROR_OGRE_NEXT_N3_RELEVANT_SOURCE_CLEAN ? "true" : "false")
+         << ",\n"
+         << "    \"relevant_source_manifest_sha256\": \""
+         << ROR_OGRE_NEXT_N3_SOURCE_MANIFEST_SHA256 << "\",\n"
+         << "    \"ogre_next_commit\": \""
+         << ROR_OGRE_NEXT_N1_OGRE_COMMIT << "\",\n"
+         << "    \"build_artifact\": \"ror_ogre_next_metal_n3_smoke\",\n"
+         << "    \"build_artifact_bytes\": " << executable.bytes << ",\n"
+         << "    \"build_artifact_sha256\": \"" << executable.sha256
+         << "\"\n  },\n"
          << "  \"device_name\": \"" << JsonEscape(evidence.device_name)
          << "\",\n"
          << "  \"required_apple_gpu_family\": 9,\n"
-         << "  \"build_artifact_bytes\": " << executable.bytes << ",\n"
-         << "  \"build_artifact_sha256\": \"" << executable.sha256
-         << "\"\n}\n";
+         << "  \"required_metal_ray_tracing\": true\n}\n";
   return report.str();
 }
 
