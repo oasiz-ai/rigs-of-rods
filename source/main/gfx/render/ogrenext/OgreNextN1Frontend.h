@@ -13,10 +13,13 @@
 
 #include "../RendererFrontend.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
 namespace RoR::Render {
+
+enum class OgreNextNativeFeatureTier : std::uint8_t;
 
 /// Runtime-owned Ogre shader media. The root is an absolute UTF-8 path containing
 /// the pinned `Hlms` directory; packaging code resolves its own relative
@@ -33,6 +36,8 @@ struct OgreNextN1Configuration final {
 class OgreNextN1Frontend final : public IRendererFrontend {
 public:
   explicit OgreNextN1Frontend(OgreNextN1Configuration configuration);
+  OgreNextN1Frontend(OgreNextN1Configuration configuration,
+                     OgreNextNativeFeatureTier native_feature_tier);
   ~OgreNextN1Frontend() override;
 
   OgreNextN1Frontend(const OgreNextN1Frontend &) = delete;

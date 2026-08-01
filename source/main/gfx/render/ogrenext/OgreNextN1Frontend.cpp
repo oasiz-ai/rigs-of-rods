@@ -9,6 +9,7 @@
 #include "OgreNextN1Frontend.h"
 
 #include "OgreNextN1MediaIntegrity.h"
+#include "OgreNextN1NativeInterop.h"
 #include "OgreNextN1Policy.h"
 #include "ror_ogre_next_n1_config.h"
 
@@ -43,6 +44,8 @@
 #include "OgreWindow.h"
 #include "Vao/OgreVaoManager.h"
 #include "Vao/OgreVertexArrayObject.h"
+#include "Vao/OgreVertexBufferPacked.h"
+#include "Vao/OgreIndexBufferPacked.h"
 
 #if defined(ROR_OGRE_NEXT_N1_METAL)
 #include "OgreMetalPlugin.h"
@@ -308,6 +311,8 @@ public:
   struct NativeMesh {
     RenderAssetReference asset;
     Ogre::MeshPtr mesh;
+    Ogre::VertexBufferPacked *vertex_buffer = nullptr;
+    Ogre::IndexBufferPacked *index_buffer = nullptr;
     std::string name;
   };
 
@@ -321,6 +326,9 @@ public:
     FrontendCapabilityReport report = BuildOgreNextN1CapabilityReport(
         CompiledRasterApi(), ROR_OGRE_NEXT_N1_VERSION);
     report.maximum_texture_dimension_2d = maximum_texture_dimension;
+    if (native_interop) {
+      native_interop->DecorateFrontendCapabilities(report);
+    }
     return report;
   }
 
@@ -329,10 +337,11 @@ public:
   }
 
   NativeMesh CreateMesh(const RenderAssetReference &asset,
-                        const MeshResourceDescriptor &descriptor) {
+                        const MeshResourceDescriptor &descriptor,
+                        const std::string &name_suffix = {}) {
     NativeMesh native;
     native.asset = asset;
-    native.name = AssetName("RoRN1Mesh", asset);
+    native.name = AssetName("RoRN1Mesh", asset) + name_suffix;
     native.mesh = Ogre::MeshManager::getSingleton().createManual(
         native.name, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 
@@ -387,6 +396,9 @@ public:
                   : Ogre::IndexBufferPacked::IT_32BIT,
           descriptor.indices.size(), Ogre::BT_IMMUTABLE, indices, true);
       indices = nullptr;
+
+      native.vertex_buffer = vertex_buffer;
+      native.index_buffer = index_buffer;
 
       Ogre::VertexBufferPackedVec vertex_buffers;
       vertex_buffers.push_back(vertex_buffer);
@@ -505,6 +517,8 @@ public:
       clean = false;
     }
     native.mesh.reset();
+    native.vertex_buffer = nullptr;
+    native.index_buffer = nullptr;
     return clean;
   }
 
@@ -538,6 +552,15 @@ public:
     return clean;
   }
 
+  [[nodiscard]] bool DestroyFrameMeshes() noexcept {
+    bool clean = true;
+    for (NativeMesh &native : frame_meshes) {
+      clean = DestroyMesh(native) && clean;
+    }
+    frame_meshes.clear();
+    return clean;
+  }
+
   [[nodiscard]] bool RollbackCandidateAllocations(
       std::map<RenderAssetId, NativeMesh> &candidate_meshes,
       std::map<RenderAssetId, NativeMaterial> &candidate_materials) noexcept {
@@ -562,7 +585,12 @@ public:
   }
 
   [[nodiscard]] bool CleanupBackend() noexcept {
-    bool clean = DestroyCatalog();
+    if (native_interop) {
+      native_interop->ForceInvalidate();
+      native_interop.reset();
+    }
+    bool clean = DestroyFrameMeshes();
+    clean = DestroyCatalog() && clean;
     if (root && scene_manager != nullptr) {
       try {
         root->destroySceneManager(scene_manager);
@@ -603,7 +631,11 @@ public:
   std::unique_ptr<RenderAssetRegistry> registry;
   std::map<RenderAssetId, NativeMesh> meshes;
   std::map<RenderAssetId, NativeMaterial> materials;
+  std::vector<NativeMesh> frame_meshes;
+  std::unique_ptr<OgreNextN1NativeInteropBridge> native_interop;
   OgreNextN1SubmissionState submission_state;
+  OgreNextNativeFeatureTier native_feature_tier =
+      OgreNextNativeFeatureTier::RASTER_N1;
   std::thread::id owner_thread;
   std::string configured_shader_media_root;
   std::string resolved_shader_media_root;
@@ -616,7 +648,15 @@ public:
 
 OgreNextN1Frontend::OgreNextN1Frontend(
     OgreNextN1Configuration configuration)
-    : impl_(std::make_unique<Impl>(std::move(configuration))) {}
+    : OgreNextN1Frontend(std::move(configuration),
+                         OgreNextNativeFeatureTier::RASTER_N1) {}
+
+OgreNextN1Frontend::OgreNextN1Frontend(
+    OgreNextN1Configuration configuration,
+    OgreNextNativeFeatureTier native_feature_tier)
+    : impl_(std::make_unique<Impl>(std::move(configuration))) {
+  impl_->native_feature_tier = native_feature_tier;
+}
 
 OgreNextN1Frontend::~OgreNextN1Frontend() {
   if (impl_) {
@@ -635,6 +675,14 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
         RenderOperationCode::INVALID_ARGUMENT,
         "Ogre-Next N1 is already initialized");
   }
+#if !defined(ROR_OGRE_NEXT_N1_METAL)
+  if (impl_->native_feature_tier ==
+      OgreNextNativeFeatureTier::METAL_RAY_TRACING_N2) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "Ogre-Next Metal N2 interop is available only in the macOS Metal target");
+  }
+#endif
   const ValidationResult validation =
       ValidateOgreNextN1Initialization(request, impl_->Capabilities());
   if (!validation) {
@@ -717,6 +765,17 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
           "initial extent exceeds the initialized Ogre-Next device limit"));
     }
     impl_->maximum_texture_dimension = device_maximum_texture_dimension;
+#if defined(ROR_OGRE_NEXT_N1_METAL)
+    if (impl_->native_feature_tier ==
+        OgreNextNativeFeatureTier::METAL_RAY_TRACING_N2) {
+      const RenderOperationResult interop_result = CreateOgreNextMetalInterop(
+          reinterpret_cast<std::uintptr_t>(impl_->renderer),
+          impl_->native_interop);
+      if (!interop_result) {
+        return fail_after_cleanup(interop_result);
+      }
+    }
+#endif
     impl_->pbs = RegisterPbs(*impl_->root, impl_->resolved_shader_media_root);
     impl_->scene_manager = impl_->root->createSceneManager(
         Ogre::ST_GENERIC, 1U, "RoROgreNextN1Scene");
@@ -817,7 +876,8 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
     if (!validation) {
       return OgreNextN1OperationFromValidation(validation);
     }
-    validation = ValidateOgreNextN1AssetCatalog(*candidate);
+    validation = ValidateOgreNextN1AssetCatalog(
+        *candidate, impl_->Capabilities().supports_dynamic_mesh_updates);
     if (!validation) {
       return OgreNextN1OperationFromValidation(validation);
     }
@@ -872,6 +932,25 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
         impl_->faulted = true;
       }
       throw;
+    }
+
+    if (impl_->native_interop) {
+      const RenderOperationResult discard =
+          impl_->native_interop->DiscardPublishedFrame();
+      if (!discard) {
+        if (!impl_->RollbackCandidateAllocations(candidate_meshes,
+                                                 candidate_materials)) {
+          impl_->faulted = true;
+          return NativeTeardownFailure("Ogre-Next N2 asset rollback");
+        }
+        return discard;
+      }
+      if (!impl_->DestroyFrameMeshes()) {
+        static_cast<void>(impl_->RollbackCandidateAllocations(
+            candidate_meshes, candidate_materials));
+        impl_->faulted = true;
+        return NativeTeardownFailure("Ogre-Next N2 frame geometry retirement");
+      }
     }
 
     bool retired_cleanly = true;
@@ -964,13 +1043,30 @@ RenderOperationResult OgreNextN1Frontend::Render(
   if (!identity_validation) {
     return identity_validation;
   }
+  if (impl_->native_interop) {
+    const RenderOperationResult can_publish =
+        impl_->native_interop->CanPublishFrame();
+    if (!can_publish) {
+      return can_publish;
+    }
+  }
 
   Ogre::TextureGpu *target = nullptr;
   Ogre::CompositorWorkspace *workspace = nullptr;
   Ogre::IdString workspace_name;
   bool workspace_definition_created = false;
   std::vector<std::pair<Ogre::Item *, Ogre::SceneNode *>> items;
-  const auto cleanup_scene = [&]() noexcept {
+  std::vector<Impl::NativeMesh> submitted_frame_meshes;
+  std::vector<OgreNextN2FrameGeometryBinding> interop_geometry;
+  const auto destroy_submitted_frame_meshes = [&]() noexcept {
+    bool clean = true;
+    for (Impl::NativeMesh &native : submitted_frame_meshes) {
+      clean = impl_->DestroyMesh(native) && clean;
+    }
+    submitted_frame_meshes.clear();
+    return clean;
+  };
+  const auto cleanup_scene = [&](bool destroy_frame_geometry) noexcept {
     bool clean = true;
     Ogre::CompositorManager2 *compositors =
         impl_->root->getCompositorManager2();
@@ -1022,10 +1118,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
     }
     items.clear();
+    if (destroy_frame_geometry) {
+      clean = destroy_submitted_frame_meshes() && clean;
+    }
     return clean;
   };
   const auto fail_after_cleanup = [&](RenderOperationResult failure) {
-    if (!cleanup_scene()) {
+    if (!cleanup_scene(true)) {
       impl_->faulted = true;
       return FrameCleanupFailure();
     }
@@ -1049,6 +1148,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
     impl_->scene_manager->setVisibilityMask(view.visibility_mask);
 
     items.reserve(snapshot.mesh_instances().size());
+    submitted_frame_meshes.reserve(snapshot.dynamic_mesh_updates().size());
+    if (impl_->native_interop) {
+      interop_geometry.reserve(snapshot.mesh_instances().size());
+    }
     for (const MeshInstanceDescriptor &instance : snapshot.mesh_instances()) {
       const auto mesh = impl_->meshes.find(instance.mesh.id);
       const auto material = impl_->materials.find(instance.material.id);
@@ -1056,6 +1159,37 @@ RenderOperationResult OgreNextN1Frontend::Render(
         return fail_after_cleanup(RenderOperationResult::Failure(
             RenderOperationCode::RESOURCE_STALE,
             "N1 native asset allocation is missing for a validated scene"));
+      }
+      const Impl::NativeMesh *render_mesh = &mesh->second;
+      if (instance.deformation_revision > 1U) {
+        const MeshResourceDescriptor *base_mesh =
+            impl_->registry->ResolveMesh(instance.mesh);
+        const auto update = std::find_if(
+            snapshot.dynamic_mesh_updates().begin(),
+            snapshot.dynamic_mesh_updates().end(),
+            [&instance](const DynamicMeshUpdateDescriptor &candidate) {
+              return candidate.instance_id == instance.instance_id;
+            });
+        if (base_mesh == nullptr ||
+            update == snapshot.dynamic_mesh_updates().end() ||
+            update->instance_id != instance.instance_id) {
+          return fail_after_cleanup(RenderOperationResult::Failure(
+              RenderOperationCode::RESOURCE_STALE,
+              "N2 could not resolve the validated full deformation update"));
+        }
+        MeshResourceDescriptor deformed = *base_mesh;
+        deformed.positions = update->positions;
+        deformed.normals = update->normals;
+        deformed.tangents = update->tangents;
+        deformed.velocities = update->velocities;
+        deformed.local_bounds = update->updated_local_bounds;
+        const std::string suffix =
+            "_f" + std::to_string(request.frame_id) + "_i" +
+            std::to_string(instance.instance_id) + "_d" +
+            std::to_string(instance.deformation_revision);
+        submitted_frame_meshes.push_back(
+            impl_->CreateMesh(instance.mesh, deformed, suffix));
+        render_mesh = &submitted_frame_meshes.back();
       }
       Ogre::Vector3 position;
       Ogre::Vector3 scale;
@@ -1074,7 +1208,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
             "N1 reconstructed Ogre TRS can overflow native world bounds"));
       }
       Ogre::Item *item = impl_->scene_manager->createItem(
-          mesh->second.mesh, Ogre::SCENE_DYNAMIC);
+          render_mesh->mesh, Ogre::SCENE_DYNAMIC);
       items.emplace_back(item, nullptr);
       item->setDatablock(material->second.datablock);
       item->setVisibilityFlags(instance.visibility_mask);
@@ -1087,6 +1221,32 @@ RenderOperationResult OgreNextN1Frontend::Render(
       node->setScale(scale);
       node->setOrientation(orientation);
       node->attachObject(item);
+
+      if (impl_->native_interop) {
+        OgreNextN2FrameGeometryBinding binding;
+        binding.frame_id = request.frame_id;
+        binding.snapshot_id = snapshot.snapshot_id();
+        binding.instance_id = instance.instance_id;
+        binding.mesh = instance.mesh;
+        binding.topology_revision = instance.topology_revision;
+        binding.deformation_revision = instance.deformation_revision;
+        binding.topology = MeshPrimitiveTopology::TRIANGLE_LIST;
+        binding.ogre_vertex_buffer = reinterpret_cast<std::uintptr_t>(
+            render_mesh->vertex_buffer);
+        binding.ogre_index_buffer = reinterpret_cast<std::uintptr_t>(
+            render_mesh->index_buffer);
+        binding.position_offset_bytes = 0U;
+        binding.vertex_count = static_cast<std::uint32_t>(
+            render_mesh->vertex_buffer->getNumElements());
+        binding.index_count = static_cast<std::uint32_t>(
+            render_mesh->index_buffer->getNumElements());
+        binding.index_format =
+            render_mesh->index_buffer->getIndexType() ==
+                    Ogre::IndexBufferPacked::IT_16BIT
+                ? NativeIndexFormat::UINT16
+                : NativeIndexFormat::UINT32;
+        interop_geometry.push_back(binding);
+      }
     }
 
     impl_->camera->setNearClipDistance(view.near_plane);
@@ -1162,8 +1322,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
                   static_cast<std::size_t>(attachment.row_pitch_bytes));
     }
 
-    if (!cleanup_scene()) {
+    if (!cleanup_scene(false)) {
       impl_->faulted = true;
+      static_cast<void>(destroy_submitted_frame_meshes());
       return FrameCleanupFailure();
     }
     RenderFrameOutput candidate;
@@ -1180,10 +1341,40 @@ RenderOperationResult OgreNextN1Frontend::Render(
     const ValidationResult output_validation =
         ValidateRenderFrameOutput(request, candidate);
     if (!output_validation) {
+      if (!destroy_submitted_frame_meshes()) {
+        impl_->faulted = true;
+        return FrameCleanupFailure();
+      }
       return RenderOperationResult::Failure(
           RenderOperationCode::BACKEND_FAILURE,
           "N1 generated an invalid frame output: " + output_validation.field +
               ": " + output_validation.detail);
+    }
+    if (impl_->native_interop) {
+      const RenderOperationResult publication = impl_->native_interop->PublishFrame(
+          request.frame_id, snapshot.snapshot_id(), interop_geometry);
+      if (!publication) {
+        if (!destroy_submitted_frame_meshes()) {
+          impl_->faulted = true;
+          return FrameCleanupFailure();
+        }
+        return publication;
+      }
+      std::vector<Impl::NativeMesh> retired_frame_meshes;
+      retired_frame_meshes.swap(impl_->frame_meshes);
+      impl_->frame_meshes = std::move(submitted_frame_meshes);
+      bool retired_cleanly = true;
+      for (Impl::NativeMesh &native : retired_frame_meshes) {
+        retired_cleanly = impl_->DestroyMesh(native) && retired_cleanly;
+      }
+      if (!retired_cleanly) {
+        impl_->faulted = true;
+        return NativeTeardownFailure(
+            "Ogre-Next N2 prior frame geometry retirement");
+      }
+    } else if (!destroy_submitted_frame_meshes()) {
+      impl_->faulted = true;
+      return FrameCleanupFailure();
     }
     impl_->submission_state.Commit(request);
     output = std::move(candidate);
@@ -1225,16 +1416,23 @@ RenderOperationResult OgreNextN1Frontend::WaitForFrame(
 }
 
 NativeRenderInterop *OgreNextN1Frontend::GetNativeInterop() noexcept {
-  return nullptr;
+  return impl_->initialized ? impl_->native_interop.get() : nullptr;
 }
 
 RenderOperationResult
-OgreNextN1Frontend::Shutdown(std::uint64_t /*timeout_nanoseconds*/) {
+OgreNextN1Frontend::Shutdown(std::uint64_t timeout_nanoseconds) {
   if (!impl_->initialized) {
     return NotInitialized();
   }
   if (!impl_->OnOwnerThread()) {
     return WrongThread();
+  }
+  if (impl_->native_interop) {
+    const RenderOperationResult interop_shutdown =
+        impl_->native_interop->PrepareFrontendShutdown(timeout_nanoseconds);
+    if (!interop_shutdown) {
+      return interop_shutdown;
+    }
   }
   if (!impl_->CleanupBackend()) {
     return NativeTeardownFailure("Ogre-Next N1 shutdown");

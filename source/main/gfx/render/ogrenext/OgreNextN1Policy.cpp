@@ -84,8 +84,9 @@ bool IsTrsRepresentable(const Matrix4x4 &matrix) noexcept {
 }
 
 ValidationResult ValidateMeshPolicy(const MeshResourceDescriptor &mesh,
-                                    std::size_t index) {
-  if (mesh.dynamic) {
+                                    std::size_t index,
+                                    bool allow_dynamic_meshes) {
+  if (mesh.dynamic && !allow_dynamic_meshes) {
     return Unsupported("assets.mesh.dynamic",
                        "N1 accepts immutable static meshes only", index);
   }
@@ -375,7 +376,8 @@ ValidationResult ValidateOgreNextN1Initialization(
 }
 
 ValidationResult
-ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry) {
+ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
+                               bool allow_dynamic_meshes) {
   if (registry.registry_id() == 0U || registry.sequence() == 0U) {
     return ValidationResult::Failure(
         ValidationCode::MISSING_REFERENCE, "asset_registry",
@@ -390,7 +392,7 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry) {
     if (const auto *mesh =
             std::get_if<MeshResourceDescriptor>(record.payload.get())) {
       const ValidationResult validation =
-          ValidateMeshPolicy(*mesh, record_index);
+          ValidateMeshPolicy(*mesh, record_index, allow_dynamic_meshes);
       if (!validation) {
         return validation;
       }
@@ -407,13 +409,14 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry) {
     }
     return Unsupported(
         "assets.kind",
-        "N1 catalog accepts only live static meshes and PBR materials",
+        "N1 catalog accepts only live meshes and PBR materials",
         record_index);
   });
 }
 
 ValidationResult ValidateOgreNextN1Scene(
-    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry) {
+    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+    bool allow_dynamic_meshes) {
   ValidationResult validation = ValidateSceneSnapshotAssets(snapshot, registry);
   if (!validation) {
     return validation;
@@ -423,7 +426,7 @@ ValidationResult ValidateOgreNextN1Scene(
     return Unsupported("environment.texture",
                        "N1 supports constant ambient radiance only");
   }
-  if (!snapshot.dynamic_mesh_updates().empty()) {
+  if (!allow_dynamic_meshes && !snapshot.dynamic_mesh_updates().empty()) {
     return Unsupported("dynamic_mesh_updates",
                        "N1 does not support deformable geometry");
   }
@@ -444,7 +447,7 @@ ValidationResult ValidateOgreNextN1Scene(
   for (std::size_t index = 0U; index < snapshot.mesh_instances().size();
        ++index) {
     const MeshInstanceDescriptor &instance = snapshot.mesh_instances()[index];
-    if (instance.deformation_revision != 1U) {
+    if (!allow_dynamic_meshes && instance.deformation_revision != 1U) {
       return Unsupported("mesh_instances.deformation_revision",
                          "N1 renders base static geometry only", index);
     }
@@ -512,7 +515,9 @@ ValidationResult ValidateOgreNextN1Frame(
         ValidationCode::REVISION_MISMATCH, "scene_snapshot.asset_sequence",
         "scene requires a different synchronized asset catalog");
   }
-  return ValidateOgreNextN1Scene(*request.scene_snapshot, registry);
+  return ValidateOgreNextN1Scene(
+      *request.scene_snapshot, registry,
+      capabilities.supports_dynamic_mesh_updates);
 }
 
 RenderOperationResult

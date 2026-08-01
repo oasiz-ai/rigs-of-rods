@@ -80,9 +80,11 @@ BuildOgreNextN1CapabilityReport(RasterGraphicsApi raster_api,
     const FrontendInitializationRequest &request,
     const FrontendCapabilityReport &capabilities);
 [[nodiscard]] ValidationResult
-ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry);
+ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
+                               bool allow_dynamic_meshes = false);
 [[nodiscard]] ValidationResult ValidateOgreNextN1Scene(
-    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry);
+    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+    bool allow_dynamic_meshes = false);
 [[nodiscard]] ValidationResult ValidateOgreNextN1Frame(
     const RenderFrameRequest &request,
     const FrontendCapabilityReport &capabilities,
