@@ -216,6 +216,62 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 }
             )
 
+        texture_evidence_bytes = offset
+        positive_hdr = baseline_hdr
+        positive_sdr = baseline_sdr
+        negative_hdr_pixel = struct.pack("<4e", 2.0, 0.5, 0.25, 1.0)
+        negative_hdr = negative_hdr_pixel * 128 + baseline_hdr[128 * 8 :]
+        negative_sdr_pixel = bytes((100, 80, 140, 255))
+        negative_sdr = negative_sdr_pixel * 128 + baseline_sdr[128 * 4 :]
+        handedness_offset = offset
+        handedness_phases: dict[str, dict[str, object]] = {}
+        for sign, hdr_payload, sdr_payload in (
+            ("positive", positive_hdr, positive_sdr),
+            ("negative", negative_hdr, negative_sdr),
+        ):
+            phase: dict[str, object] = {}
+            for attachment, payload in (
+                ("hdr", hdr_payload),
+                ("sdr", sdr_payload),
+            ):
+                phase[attachment] = {
+                    "offset": offset,
+                    "bytes": len(payload),
+                    "exact_fnv1a64": VERIFY._fnv1a64(payload),
+                }
+                slices.append(
+                    {
+                        "variant": f"tangent_{sign}_w",
+                        "attachment": attachment,
+                        "offset": offset,
+                        "bytes": len(payload),
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    }
+                )
+                evidence.extend(payload)
+                offset += len(payload)
+            handedness_phases[sign] = phase
+        tangent_handedness = {
+            "schema": "ror.ogre_next_rt4_tangent_handedness.v1",
+            "evidence_file": VERIFY.RT4_ISOLATION_ARTIFACT,
+            "evidence_offset": handedness_offset,
+            "evidence_bytes": offset - handedness_offset,
+            "authored_tangent_format": "FLOAT4",
+            "positive_tangent_w": 1,
+            "negative_tangent_w": -1,
+            "position_normal_tangent_xyz_uv0_identical": True,
+            "material_camera_lights_identical": True,
+            "ui_included": False,
+            "positive": handedness_phases["positive"],
+            "negative": handedness_phases["negative"],
+            "hdr_changed_pixels": VERIFY._changed_pixels(
+                positive_hdr, negative_hdr, 8
+            ),
+            "sdr_changed_pixels": VERIFY._changed_pixels(
+                positive_sdr, negative_sdr, 4
+            ),
+        }
+
         isolation_path = root / VERIFY.RT4_ISOLATION_ARTIFACT
         isolation_path.write_bytes(evidence)
         ppm_pixels = bytes(
@@ -348,8 +404,9 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "lights_identical": True,
                 "ui_included": False,
                 "variants": variants,
-                "evidence_bytes": len(evidence),
+                "evidence_bytes": texture_evidence_bytes,
             },
+            "tangent_handedness": tangent_handedness,
             "texture_retirement": VERIFY.RT4_EXPECTED_RETIREMENT,
             "lifecycle": copy.deepcopy(VERIFY.RT4_EXPECTED_LIFECYCLE),
         }
@@ -894,6 +951,9 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             "catalog",
             "texture_allocations",
             "texture_upload_rollback",
+            "texture_retirement",
+            "texture_isolation",
+            "tangent_handedness",
             "lifecycle",
             "platform_policy",
             "renderer",

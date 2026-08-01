@@ -41,7 +41,7 @@ NORMAL_MAP_SOURCE_LOCK_PATH = (
     / "tools/ogre_next_probe/ogre-next-normal-map-source.lock.json"
 )
 NORMAL_MAP_SOURCE_LOCK_SHA256 = (
-    "376e5b45afbac7b95333a3c7d3d4c499173ebdec01b1b99ac3d343d121fbfef6"
+    "7d180c54c54e7cc26b0081753c621b7164551d2b631c1127f818fbb22645f682"
 )
 ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
 RELEVANT_SOURCE_PATHS = (
@@ -75,6 +75,16 @@ RT4_EXPECTED_RETIREMENT = {
     "schema": "ror.ogre_next_rt4_texture_retirement.v1",
     "derived_allocation": "normal_RG8_UNORM",
     "isolated_from_visual_variants": True,
+    "native_image_rg8_staging": {
+        "version": 1,
+        "verified_uploads": 2,
+        "verified_mip_levels": 3,
+        "verified_rows": 5,
+        "verified_texels": 14,
+        "verified_rg_bytes": 28,
+        "verified_padded_source_rows": 5,
+        "exact_source_rg_to_native_image": True,
+    },
     "transitions": [
         {"revision": 1, "width": 2, "height": 2, "mip_levels": 1},
         {
@@ -146,6 +156,7 @@ RT4_EXPECTED_TEXTURE_ALLOCATIONS = {
 }
 RT4_EXPECTED_LIFECYCLE = {
     "unsupported_depth_failed_before_submission": True,
+    "non_uniform_scale_rejected_before_submission": True,
     "double_sided_pbs_readback": True,
     "lifetime_snapshot_identity_replay": True,
     "lifetime_completed_frame_queries": True,
@@ -987,6 +998,7 @@ def _verify_rt4_semantics(
             "texture_upload_rollback",
             "texture_retirement",
             "texture_isolation",
+            "tangent_handedness",
             "hdr",
             "sdr",
             "lifecycle",
@@ -1060,9 +1072,8 @@ def _verify_rt4_semantics(
         "file": isolation.get("evidence_file") == isolation_path.name,
         "extent": _json_exact(isolation.get("width"), width)
         and _json_exact(isolation.get("height"), height),
-        "bytes": _json_exact(
-            isolation.get("evidence_bytes"), len(isolation_payload)
-        ),
+        "bytes": _is_positive_int(isolation.get("evidence_bytes"))
+        and isolation["evidence_bytes"] <= len(isolation_payload),
         "geometry": isolation.get("geometry_identical") is True,
         "factors": isolation.get("material_factors_constants_identical") is True,
         "camera": isolation.get("camera_identical") is True,
@@ -1157,13 +1168,121 @@ def _verify_rt4_semantics(
             )
             offset += expected_bytes
 
-    if offset != len(isolation_payload):
-        raise ArtifactSetError("RT4 isolation evidence has trailing bytes")
+    if not _json_exact(isolation.get("evidence_bytes"), offset):
+        raise ArtifactSetError("RT4 texture-isolation byte extent drifted")
     if any(
         len(hashes) != len(RT4_EXPECTED_VARIANTS)
         for hashes in exact_hashes.values()
     ):
         raise ArtifactSetError("RT4 isolation variants are not all distinct")
+
+    handedness = report.get("tangent_handedness")
+    if not isinstance(handedness, dict):
+        raise ArtifactSetError("RT4 tangent-handedness report is missing")
+    _require_exact_keys(
+        handedness,
+        {
+            "schema",
+            "evidence_file",
+            "evidence_offset",
+            "evidence_bytes",
+            "authored_tangent_format",
+            "positive_tangent_w",
+            "negative_tangent_w",
+            "position_normal_tangent_xyz_uv0_identical",
+            "material_camera_lights_identical",
+            "ui_included",
+            "positive",
+            "negative",
+            "hdr_changed_pixels",
+            "sdr_changed_pixels",
+        },
+        "RT4 tangent-handedness report",
+    )
+    handedness_start = offset
+    if (
+        handedness.get("schema")
+        != "ror.ogre_next_rt4_tangent_handedness.v1"
+        or handedness.get("evidence_file") != isolation_path.name
+        or not _json_exact(handedness.get("evidence_offset"), handedness_start)
+        or handedness.get("authored_tangent_format") != "FLOAT4"
+        or not _json_exact(handedness.get("positive_tangent_w"), 1)
+        or not _json_exact(handedness.get("negative_tangent_w"), -1)
+        or handedness.get("position_normal_tangent_xyz_uv0_identical") is not True
+        or handedness.get("material_camera_lights_identical") is not True
+        or handedness.get("ui_included") is not False
+    ):
+        raise ArtifactSetError("RT4 tangent-handedness controls failed")
+    handedness_blocks: dict[str, dict[str, bytes]] = {
+        "positive": {},
+        "negative": {},
+    }
+    for sign in ("positive", "negative"):
+        sign_report = handedness.get(sign)
+        if not isinstance(sign_report, dict):
+            raise ArtifactSetError(f"RT4 {sign} tangent evidence is missing")
+        _require_exact_keys(
+            sign_report, {"hdr", "sdr"}, f"RT4 {sign} tangent evidence"
+        )
+        for attachment, bytes_per_pixel in (("hdr", 8), ("sdr", 4)):
+            reported = sign_report.get(attachment)
+            expected_bytes = width * height * bytes_per_pixel
+            if not isinstance(reported, dict):
+                raise ArtifactSetError(
+                    f"RT4 {sign} tangent {attachment} metadata is missing"
+                )
+            _require_exact_keys(
+                reported,
+                {"offset", "bytes", "exact_fnv1a64"},
+                f"RT4 {sign} tangent {attachment} metadata",
+            )
+            if (
+                not _json_exact(reported.get("offset"), offset)
+                or not _json_exact(reported.get("bytes"), expected_bytes)
+                or offset + expected_bytes > len(isolation_payload)
+            ):
+                raise ArtifactSetError(
+                    f"RT4 {sign} tangent {attachment} slice layout mismatch"
+                )
+            payload = isolation_payload[offset : offset + expected_bytes]
+            _attachment_metrics(payload, attachment == "hdr")
+            if reported.get("exact_fnv1a64") != _fnv1a64(payload):
+                raise ArtifactSetError(
+                    f"RT4 {sign} tangent {attachment} exact hash mismatch"
+                )
+            handedness_blocks[sign][attachment] = payload
+            slice_attestations.append(
+                {
+                    "variant": f"tangent_{sign}_w",
+                    "attachment": attachment,
+                    "offset": offset,
+                    "bytes": expected_bytes,
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            )
+            offset += expected_bytes
+    if (
+        not _json_exact(
+            handedness.get("evidence_bytes"), offset - handedness_start
+        )
+        or offset != len(isolation_payload)
+    ):
+        raise ArtifactSetError("RT4 tangent-handedness byte extent drifted")
+    for attachment, bytes_per_pixel in (("hdr", 8), ("sdr", 4)):
+        changed = _changed_pixels(
+            handedness_blocks["positive"][attachment],
+            handedness_blocks["negative"][attachment],
+            bytes_per_pixel,
+        )
+        if (
+            not _json_exact(
+                handedness.get(f"{attachment}_changed_pixels"), changed
+            )
+            or changed < 64
+        ):
+            raise ArtifactSetError(
+                f"RT4 tangent-w sign produced no exact {attachment.upper()} effect"
+            )
     baseline_sdr_rgb = bytes(
         channel
         for pixel_offset in range(0, len(baseline["sdr"]), 4)

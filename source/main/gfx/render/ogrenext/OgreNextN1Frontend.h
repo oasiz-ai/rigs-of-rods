@@ -33,6 +33,20 @@ enum class OgreNextN1TextureUploadFailureStage : std::uint8_t {
   AFTER_SET_PIXEL_FORMAT,
   AFTER_SCHEDULE_TRANSITION,
 };
+
+/// Native Image2 staging proof exposed only by the standalone smoke seam.
+/// Every counted byte was read back from Ogre's row-pitched RG8 TextureBox
+/// before the same Image2 was handed to TextureGpu residency upload.
+struct OgreNextN1NormalUploadAudit final {
+  std::uint32_t version = 1U;
+  std::uint64_t verified_uploads = 0U;
+  std::uint64_t verified_mip_levels = 0U;
+  std::uint64_t verified_rows = 0U;
+  std::uint64_t verified_texels = 0U;
+  std::uint64_t verified_rg_bytes = 0U;
+  std::uint64_t verified_padded_source_rows = 0U;
+  bool exact_source_rg_to_native_image = false;
+};
 #endif
 
 /// Runtime-owned Ogre shader media. The root is an absolute UTF-8 path containing
@@ -90,6 +104,10 @@ public:
   [[nodiscard]] FrontendCapabilityReport QueryCapabilities() const override;
   [[nodiscard]] OgreNextN1TextureAllocationAudit
   QueryTextureAllocationAudit() const noexcept;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  [[nodiscard]] OgreNextN1NormalUploadAudit
+  QueryNormalUploadAudit() const noexcept;
+#endif
   RenderOperationResult
   Initialize(const FrontendInitializationRequest &request) override;
   RenderOperationResult

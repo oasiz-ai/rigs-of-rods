@@ -22,9 +22,54 @@
       "sha256": "12cebd71e877c1d265df8d68f6c3f2931127679a8e77bb01c92b1221a09f5a7f"
     },
     {
+      "role": "normal_vertex_tbn_shader",
+      "path": "Samples/Media/Hlms/Pbs/Any/Main/800.VertexShader_piece_vs.any",
+      "sha256": "370f108793ebb33f262962acb3016bb60940e5fa6c311a51701b913c20035495"
+    },
+    {
       "role": "normal_weight_shader_uniform",
       "path": "Samples/Media/Hlms/Pbs/Any/Main/500.Structs_piece_vs_piece_ps.any",
       "sha256": "0337472eac1c285d1d5fb14808da9c6ce3e22514f74886789716c5c191c08943"
+    },
+    {
+      "role": "normal_uv_modifier",
+      "path": "Samples/Media/Hlms/Pbs/Any/UvModifierMacros_piece_ps.any",
+      "sha256": "8bc21292bc7517f94bde69d9b063029ba8bdabd8152533db1ab10ff62d3f16b9"
+    },
+    {
+      "role": "metal_vertex_input",
+      "path": "Samples/Media/Hlms/Pbs/Metal/VertexShader_vs.metal",
+      "sha256": "fff4fa5bf753700af48db88dcb3df4b772d8af9273c04adbc12b023d6d8de3c2"
+    },
+    {
+      "role": "glsl_vertex_input",
+      "path": "Samples/Media/Hlms/Pbs/GLSL/VertexShader_vs.glsl",
+      "sha256": "2ef5978c36edb17922fd8fb4b9185f50f61cd03c73ac3d17a7ad7fbfb0080767"
+    },
+    {
+      "role": "hlsl_vertex_input",
+      "path": "Samples/Media/Hlms/Pbs/HLSL/VertexShader_vs.hlsl",
+      "sha256": "6396fbe4a988a9d8614200a4379ebfd18ed67ba79c2a5698a373267fa19a5932"
+    },
+    {
+      "role": "metal_sampling_precision",
+      "path": "Samples/Media/Hlms/Common/Metal/CrossPlatformSettings_piece_all.metal",
+      "sha256": "b5cc90f614a2dd03925175afe238594c93920ebdd8d420276fad8cac295812c4"
+    },
+    {
+      "role": "glsl_sampling_precision",
+      "path": "Samples/Media/Hlms/Common/GLSL/CrossPlatformSettings_piece_all.glsl",
+      "sha256": "ab134ca67e5cb96e6c7358e861f0457eedd9cbf55bdbe9caba9dddcfee89eb71"
+    },
+    {
+      "role": "hlsl_sampling_precision",
+      "path": "Samples/Media/Hlms/Common/HLSL/CrossPlatformSettings_piece_all.hlsl",
+      "sha256": "eff838d25808ca51a4b25fd1e7491f38a500f4dcf0569cf1dd40602762281f6f"
+    },
+    {
+      "role": "hlms_precision_default",
+      "path": "OgreMain/src/OgreHlms.cpp",
+      "sha256": "e8b42404dcaa813b688da12f74e0b0420ca30a00dca06d8fdcf368df38e301e6"
     },
     {
       "role": "pbs_texture_slot",
@@ -55,6 +100,21 @@
       "role": "pixel_format_metadata",
       "path": "OgreMain/src/OgrePixelFormatGpuUtils.cpp",
       "sha256": "a5d810e58f69f1d29df6977569492c946f87cf988f42d789b75f4d3711dee1a6"
+    },
+    {
+      "role": "texture_box_row_layout",
+      "path": "OgreMain/include/OgreTextureBox.h",
+      "sha256": "9a02033233de39d8fc9526826223af6b2817a8b5ae53f59e708bf930d679a6bc"
+    },
+    {
+      "role": "image_api",
+      "path": "OgreMain/include/OgreImage2.h",
+      "sha256": "bc4edcd87f6d047561b170c6efa428ed7e4a43d7bd18b95cbda4f2ff518d7600"
+    },
+    {
+      "role": "image_row_layout_implementation",
+      "path": "OgreMain/src/OgreImage2.cpp",
+      "sha256": "abe69b04d9b41570f61159a93ac88ea387b5a70dcb7517021f45d3c4922f5d5e"
     },
     {
       "role": "d3d11_rg8_mapping",

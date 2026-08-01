@@ -27,7 +27,7 @@ NORMAL_MAP_SOURCE_LOCK_PATH = (
     PROBE_SOURCE / "ogre-next-normal-map-source.lock.json"
 )
 NORMAL_MAP_SOURCE_LOCK_SHA256 = (
-    "376e5b45afbac7b95333a3c7d3d4c499173ebdec01b1b99ac3d343d121fbfef6"
+    "7d180c54c54e7cc26b0081753c621b7164551d2b631c1127f818fbb22645f682"
 )
 LINUX_SHADER_TOOLCHAIN_LOCK_PATH = (
     PROBE_SOURCE / "linux-shader-toolchain.lock.json"
@@ -341,13 +341,25 @@ def load_normal_map_source_lock(
 
     expected_owners = (
         ("normal_decode_shader", "Samples/Media/Hlms/Pbs/Any/Main/800.PixelShader_piece_ps.any"),
+        ("normal_vertex_tbn_shader", "Samples/Media/Hlms/Pbs/Any/Main/800.VertexShader_piece_vs.any"),
         ("normal_weight_shader_uniform", "Samples/Media/Hlms/Pbs/Any/Main/500.Structs_piece_vs_piece_ps.any"),
+        ("normal_uv_modifier", "Samples/Media/Hlms/Pbs/Any/UvModifierMacros_piece_ps.any"),
+        ("metal_vertex_input", "Samples/Media/Hlms/Pbs/Metal/VertexShader_vs.metal"),
+        ("glsl_vertex_input", "Samples/Media/Hlms/Pbs/GLSL/VertexShader_vs.glsl"),
+        ("hlsl_vertex_input", "Samples/Media/Hlms/Pbs/HLSL/VertexShader_vs.hlsl"),
+        ("metal_sampling_precision", "Samples/Media/Hlms/Common/Metal/CrossPlatformSettings_piece_all.metal"),
+        ("glsl_sampling_precision", "Samples/Media/Hlms/Common/GLSL/CrossPlatformSettings_piece_all.glsl"),
+        ("hlsl_sampling_precision", "Samples/Media/Hlms/Common/HLSL/CrossPlatformSettings_piece_all.hlsl"),
+        ("hlms_precision_default", "OgreMain/src/OgreHlms.cpp"),
         ("pbs_texture_slot", "Components/Hlms/Pbs/include/OgreHlmsPbsPrerequisites.h"),
         ("datablock_api", "Components/Hlms/Pbs/include/OgreHlmsPbsDatablock.h"),
         ("datablock_implementation", "Components/Hlms/Pbs/src/OgreHlmsPbsDatablock.cpp"),
         ("normal_format_selection", "Components/Hlms/Pbs/src/OgreHlmsPbs.cpp"),
         ("pixel_format_enum", "OgreMain/include/OgrePixelFormatGpu.h"),
         ("pixel_format_metadata", "OgreMain/src/OgrePixelFormatGpuUtils.cpp"),
+        ("texture_box_row_layout", "OgreMain/include/OgreTextureBox.h"),
+        ("image_api", "OgreMain/include/OgreImage2.h"),
+        ("image_row_layout_implementation", "OgreMain/src/OgreImage2.cpp"),
         ("d3d11_rg8_mapping", "RenderSystems/Direct3D11/src/OgreD3D11Mappings.cpp"),
         ("metal_rg8_mapping", "RenderSystems/Metal/src/OgreMetalMappings.mm"),
         ("vulkan_rg8_mapping", "RenderSystems/Vulkan/src/OgreVulkanMappings.cpp"),
@@ -1245,8 +1257,8 @@ def validate_rt4_isolation_evidence(
         == evidence_path.name,
         "extent": isolation.get("width") == 192
         and isolation.get("height") == 128,
-        "evidence_bytes": isolation.get("evidence_bytes")
-        == len(evidence),
+        "evidence_bytes": type(isolation.get("evidence_bytes")) is int
+        and 0 < isolation["evidence_bytes"] <= len(evidence),
         "geometry_control": isolation.get("geometry_identical") is True,
         "factor_control": isolation.get(
             "material_factors_constants_identical"
@@ -1329,8 +1341,8 @@ def validate_rt4_isolation_evidence(
                 }
             )
             offset += expected_bytes
-    if offset != len(evidence):
-        raise ProbeError("RT4/V1 isolation evidence has trailing bytes")
+    if isolation.get("evidence_bytes") != offset:
+        raise ProbeError("RT4/V1 texture-isolation byte extent drifted")
     if any(len(hashes) != len(expected_variants) for hashes in observed_hashes.values()):
         raise ProbeError(
             "RT4/V1 isolated inputs did not produce distinct HDR and SDR attachments"
@@ -1344,6 +1356,103 @@ def validate_rt4_isolation_evidence(
         raise ProbeError(
             "RT4/V1 baseline isolation evidence differs from the primary report"
         )
+
+    handedness = report.get("tangent_handedness")
+    expected_handedness_keys = {
+        "schema",
+        "evidence_file",
+        "evidence_offset",
+        "evidence_bytes",
+        "authored_tangent_format",
+        "positive_tangent_w",
+        "negative_tangent_w",
+        "position_normal_tangent_xyz_uv0_identical",
+        "material_camera_lights_identical",
+        "ui_included",
+        "positive",
+        "negative",
+        "hdr_changed_pixels",
+        "sdr_changed_pixels",
+    }
+    if not isinstance(handedness, dict) or set(handedness) != expected_handedness_keys:
+        raise ProbeError("RT4/V1 tangent-handedness evidence schema drifted")
+    handedness_start = offset
+    if (
+        handedness.get("schema")
+        != "ror.ogre_next_rt4_tangent_handedness.v1"
+        or handedness.get("evidence_file") != evidence_path.name
+        or handedness.get("evidence_offset") != handedness_start
+        or handedness.get("authored_tangent_format") != "FLOAT4"
+        or type(handedness.get("positive_tangent_w")) is not int
+        or handedness.get("positive_tangent_w") != 1
+        or type(handedness.get("negative_tangent_w")) is not int
+        or handedness.get("negative_tangent_w") != -1
+        or handedness.get("position_normal_tangent_xyz_uv0_identical") is not True
+        or handedness.get("material_camera_lights_identical") is not True
+        or handedness.get("ui_included") is not False
+    ):
+        raise ProbeError("RT4/V1 tangent-handedness controls failed closed")
+    handedness_blocks: dict[str, dict[str, bytes]] = {
+        "positive": {},
+        "negative": {},
+    }
+    for sign in ("positive", "negative"):
+        sign_report = handedness.get(sign)
+        if not isinstance(sign_report, dict) or set(sign_report) != {"hdr", "sdr"}:
+            raise ProbeError(f"RT4/V1 {sign} tangent evidence is invalid")
+        for label, bytes_per_pixel in (("hdr", 8), ("sdr", 4)):
+            attachment = sign_report.get(label)
+            expected_bytes = 192 * 128 * bytes_per_pixel
+            if not isinstance(attachment, dict) or set(attachment) != {
+                "offset",
+                "bytes",
+                "exact_fnv1a64",
+            }:
+                raise ProbeError(
+                    f"RT4/V1 {sign} tangent {label} metadata is invalid"
+                )
+            if (
+                attachment.get("offset") != offset
+                or attachment.get("bytes") != expected_bytes
+                or offset + expected_bytes > len(evidence)
+            ):
+                raise ProbeError(
+                    f"RT4/V1 {sign} tangent {label} slice is invalid"
+                )
+            block = evidence[offset : offset + expected_bytes]
+            if attachment.get("exact_fnv1a64") != _fnv1a64(block):
+                raise ProbeError(
+                    f"RT4/V1 {sign} tangent {label} hash mismatch"
+                )
+            handedness_blocks[sign][label] = block
+            slice_attestations.append(
+                {
+                    "variant": f"tangent_{sign}_w",
+                    "attachment": label,
+                    "offset": offset,
+                    "bytes": expected_bytes,
+                    "sha256": hashlib.sha256(block).hexdigest(),
+                }
+            )
+            offset += expected_bytes
+    if (
+        handedness.get("evidence_bytes") != offset - handedness_start
+        or offset != len(evidence)
+    ):
+        raise ProbeError("RT4/V1 tangent-handedness byte extent drifted")
+    for label, bytes_per_pixel in (("hdr", 8), ("sdr", 4)):
+        changed = _changed_pixels(
+            handedness_blocks["positive"][label],
+            handedness_blocks["negative"][label],
+            bytes_per_pixel,
+        )
+        if (
+            handedness.get(f"{label}_changed_pixels") != changed
+            or changed < 64
+        ):
+            raise ProbeError(
+                f"RT4/V1 tangent-w sign produced no exact {label.upper()} effect"
+            )
     return slice_attestations
 
 
@@ -1554,6 +1663,10 @@ def validate_n1_checkpoint(
                     "retired_name_rejections": 12,
                     "exact_usage": True,
                 },
+                "rt4_non_uniform_scale_closed": lifecycle.get(
+                    "non_uniform_scale_rejected_before_submission"
+                )
+                is True,
                 "rt4_normal_upload_rollback": texture_upload_rollback.get(
                     "derived_allocation"
                 )
@@ -1567,6 +1680,16 @@ def validate_n1_checkpoint(
                     "schema": "ror.ogre_next_rt4_texture_retirement.v1",
                     "derived_allocation": "normal_RG8_UNORM",
                     "isolated_from_visual_variants": True,
+                    "native_image_rg8_staging": {
+                        "version": 1,
+                        "verified_uploads": 2,
+                        "verified_mip_levels": 3,
+                        "verified_rows": 5,
+                        "verified_texels": 14,
+                        "verified_rg_bytes": 28,
+                        "verified_padded_source_rows": 5,
+                        "exact_source_rg_to_native_image": True,
+                    },
                     "transitions": [
                         {
                             "revision": 1,

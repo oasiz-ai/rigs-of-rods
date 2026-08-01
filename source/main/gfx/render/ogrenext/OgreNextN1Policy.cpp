@@ -202,6 +202,42 @@ bool IsTrsRepresentable(const Matrix4x4 &matrix) noexcept {
   return true;
 }
 
+bool HasEffectivelyUniformScale(const Matrix4x4 &matrix) noexcept {
+  const Float3 columns[] = {
+      {matrix.elements[0U], matrix.elements[1U], matrix.elements[2U]},
+      {matrix.elements[4U], matrix.elements[5U], matrix.elements[6U]},
+      {matrix.elements[8U], matrix.elements[9U], matrix.elements[10U]},
+  };
+  const auto length_squared = [](const Float3 &value) noexcept {
+    return value.x * value.x + value.y * value.y + value.z * value.z;
+  };
+  const float lengths_squared[] = {length_squared(columns[0U]),
+                                   length_squared(columns[1U]),
+                                   length_squared(columns[2U])};
+  const float largest = (std::max)(
+      lengths_squared[0U],
+      (std::max)(lengths_squared[1U], lengths_squared[2U]));
+  // A composed float rotation can leave mathematically identical column
+  // lengths a handful of ULPs apart. This bound admits that representation
+  // noise while rejecting a material scale difference. The pinned PBS vertex
+  // path multiplies both authored normals and tangents by worldViewMat; it
+  // does not enable accurate_non_uniform_scaled_normals, and its tangent path
+  // has no inverse-transpose equivalent.
+  constexpr float kRelativeUniformScaleTolerance =
+      64.0F * (std::numeric_limits<float>::epsilon)();
+  if (!IsFinite(largest) || largest <= 0.0F) {
+    return false;
+  }
+  for (const float candidate : lengths_squared) {
+    if (!IsFinite(candidate) ||
+        std::fabs(candidate - largest) >
+            kRelativeUniformScaleTolerance * largest) {
+      return false;
+    }
+  }
+  return true;
+}
+
 ValidationResult ValidateMeshPolicy(const MeshResourceDescriptor &mesh,
                                     std::size_t index,
                                     bool allow_dynamic_meshes,
@@ -738,6 +774,14 @@ ValidationResult ValidateOgreNextN1Scene(
       return Unsupported(
           "mesh_instances.render_from_object",
           "N1 scene nodes cannot represent affine shear", index);
+    }
+    if (raster_feature_tier ==
+            OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
+        !HasEffectivelyUniformScale(instance.render_from_object)) {
+      return Unsupported(
+          "mesh_instances.render_from_object",
+          "RT4/V1 rejects non-uniform scale because pinned PBS does not preserve an authored tangent frame under that transform",
+          index);
     }
     if (!CanRepresentOgreNextN1WorldBounds(instance.local_bounds,
                                            instance.render_from_object)) {

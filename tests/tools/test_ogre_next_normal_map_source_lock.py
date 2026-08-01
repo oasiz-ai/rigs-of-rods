@@ -43,7 +43,23 @@ class OgreNextNormalMapSourceLockTests(unittest.TestCase):
 
     def test_reviewed_lock_is_canonical_and_exact(self) -> None:
         lock = RUNNER.load_normal_map_source_lock()
-        self.assertEqual(len(lock["sources"]), 11)
+        self.assertEqual(len(lock["sources"]), 23)
+        self.assertTrue(
+            {
+                "normal_vertex_tbn_shader",
+                "normal_uv_modifier",
+                "metal_vertex_input",
+                "glsl_vertex_input",
+                "hlsl_vertex_input",
+                "metal_sampling_precision",
+                "glsl_sampling_precision",
+                "hlsl_sampling_precision",
+                "hlms_precision_default",
+                "texture_box_row_layout",
+                "image_api",
+                "image_row_layout_implementation",
+            }.issubset({entry["role"] for entry in lock["sources"]})
+        )
         self.assertEqual(lock["contract"]["pbs_slot"], "PBSM_NORMAL")
         self.assertEqual(
             lock["contract"]["decoded_b_tolerance"],
@@ -140,7 +156,7 @@ class OgreNextNormalMapSourceLockTests(unittest.TestCase):
                 report["normal_map_source_lock_sha256"],
                 RUNNER.NORMAL_MAP_SOURCE_LOCK_SHA256,
             )
-            self.assertEqual(report["normal_map_source_owner_count"], 11)
+            self.assertEqual(report["normal_map_source_owner_count"], 23)
             outputs.append(report)
         self.assertEqual(outputs[0], outputs[1])
 

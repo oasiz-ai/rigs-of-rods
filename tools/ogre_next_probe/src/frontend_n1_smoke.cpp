@@ -80,6 +80,7 @@ struct SmokeResult final {
     OgreNextN1TextureAllocationAudit first_shutdown;
     OgreNextN1TextureAllocationAudit restarted;
     OgreNextN1TextureAllocationAudit final_shutdown;
+    OgreNextN1NormalUploadAudit expanded_normal_upload;
     bool exact_extent_and_mip_transitions = false;
     bool renders_through_transitions_and_restart = false;
     bool old_names_rejected = false;
@@ -92,6 +93,16 @@ struct SmokeResult final {
     OgreNextN1TextureAllocationAudit after_shutdown;
   };
   std::vector<TextureUploadRollbackStageEvidence> texture_upload_rollback;
+  struct TangentHandednessEvidence final {
+    Metrics positive_hdr;
+    Metrics positive_sdr;
+    Metrics negative_hdr;
+    Metrics negative_sdr;
+    std::size_t hdr_changed_pixels = 0U;
+    std::size_t sdr_changed_pixels = 0U;
+    bool only_tangent_w_changed = false;
+  } tangent_handedness;
+  bool non_uniform_scale_rejected_before_submission = false;
 };
 
 enum class TextureVariant : std::uint8_t {
@@ -537,6 +548,79 @@ const RenderAssetMutation &MutationFor(const RenderAssetDelta &catalog,
 
 void RequireEquivalentPayload(const RenderAssetPayload &lhs,
                               const RenderAssetPayload &rhs,
+                              const std::string &label);
+
+RenderAssetDelta MakeTangentHandednessCatalog(bool negative) {
+  RenderAssetDelta catalog = MakeCatalog(true, &kVariantSpecs.front());
+  catalog.sequence = negative ? 2U : 1U;
+  for (RenderAssetMutation &mutation : catalog.mutations) {
+    if (mutation.asset.id == AssetId(1U)) {
+      MeshResourceDescriptor &mesh =
+          std::get<MeshResourceDescriptor>(mutation.payload);
+      for (Float4 &tangent : mesh.tangents) {
+        tangent.w = negative ? -1.0F : 1.0F;
+      }
+      mutation.asset = AssetRef(RenderAssetKind::MESH, 1U,
+                                negative ? 2U : 1U);
+    } else if (mutation.asset.id == AssetId(9U)) {
+      TextureResourceDescriptor &normal =
+          std::get<TextureResourceDescriptor>(mutation.payload);
+      constexpr std::array<std::uint8_t, 16U> kAsymmetricNormal{{
+          180U, 180U, 231U, 255U, 160U, 200U, 227U, 255U,
+          96U, 160U, 247U, 255U, 128U, 220U, 215U, 255U,
+      }};
+      TextureMipLevelDescriptor &mip = normal.mip_levels.front();
+      std::memcpy(mip.bytes.data(), kAsymmetricNormal.data(), 8U);
+      std::memcpy(mip.bytes.data() + mip.row_pitch_bytes,
+                  kAsymmetricNormal.data() + 8U, 8U);
+    }
+  }
+  return catalog;
+}
+
+void RequireControlledTangentHandednessCatalogs(
+    const RenderAssetDelta &positive, const RenderAssetDelta &negative) {
+  Require(positive.registry_id == negative.registry_id &&
+              positive.sequence == 1U && negative.sequence == 2U &&
+              positive.full_snapshot && negative.full_snapshot &&
+              positive.mutations.size() == negative.mutations.size(),
+          "RT4 tangent-handedness catalog envelope changed");
+  for (std::size_t index = 0U; index < positive.mutations.size(); ++index) {
+    const RenderAssetMutation &expected = positive.mutations[index];
+    const RenderAssetMutation &actual = negative.mutations[index];
+    Require(expected.asset.id == actual.asset.id &&
+                expected.asset.kind == actual.asset.kind,
+            "RT4 tangent-handedness asset identity changed");
+    if (expected.asset.id != AssetId(1U)) {
+      Require(expected.asset == actual.asset,
+              "RT4 tangent-handedness changed a non-mesh revision");
+      RequireEquivalentPayload(expected.payload, actual.payload,
+                               "tangent-handedness non-mesh payload");
+      continue;
+    }
+    Require(expected.asset.revision == 1U && actual.asset.revision == 2U,
+            "RT4 tangent-handedness mesh revision plan drifted");
+    const MeshResourceDescriptor &positive_mesh =
+        std::get<MeshResourceDescriptor>(expected.payload);
+    MeshResourceDescriptor normalized_negative =
+        std::get<MeshResourceDescriptor>(actual.payload);
+    Require(positive_mesh.tangents.size() == normalized_negative.tangents.size(),
+            "RT4 tangent-handedness stream size changed");
+    for (std::size_t tangent_index = 0U;
+         tangent_index < positive_mesh.tangents.size(); ++tangent_index) {
+      Require(positive_mesh.tangents[tangent_index].w == 1.0F &&
+                  normalized_negative.tangents[tangent_index].w == -1.0F,
+              "RT4 tangent-handedness fixture does not use exact signs");
+      normalized_negative.tangents[tangent_index].w = 1.0F;
+    }
+    RequireEquivalentPayload(RenderAssetPayload{positive_mesh},
+                             RenderAssetPayload{normalized_negative},
+                             "tangent-handedness mesh attributes");
+  }
+}
+
+void RequireEquivalentPayload(const RenderAssetPayload &lhs,
+                              const RenderAssetPayload &rhs,
                               const std::string &label) {
   Require(EquivalentRenderAssetPayload(lhs, rhs),
           "RT4/V1 controlled " + label + " changed unexpectedly");
@@ -701,7 +785,12 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
                                                bool shifted = false,
                                                bool modern_pbr = false,
                                                std::uint64_t asset_sequence = 1U,
-                                               std::uint64_t material_revision = 1U) {
+                                               std::uint64_t material_revision = 1U,
+                                               Matrix4x4 render_from_object =
+                                                   Matrix4x4{},
+                                               std::uint64_t mesh_revision = 1U,
+                                               Float3 light_direction =
+                                                   {0.0F, 0.0F, -1.0F}) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kRegistryId;
@@ -718,20 +807,21 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
                                             light.color_linear),
             "RT4/V1 directional tint could not be normalized");
     light.intensity = 1024.0F;
-    light.direction = {0.0F, 0.0F, -1.0F};
+    light.direction = light_direction;
     light.shadow_flags = 0U;
     descriptor.lights.push_back(light);
   }
 
   MeshInstanceDescriptor instance;
   instance.instance_id = 1U;
-  instance.mesh = AssetRef(RenderAssetKind::MESH, 1U);
+  instance.mesh = AssetRef(RenderAssetKind::MESH, 1U, mesh_revision);
   instance.material = AssetRef(RenderAssetKind::MATERIAL, 2U,
                                material_revision);
+  instance.render_from_object = render_from_object;
   if (shifted) {
     instance.render_from_object.elements[12U] = 0.15F;
-    instance.previous_render_from_object = instance.render_from_object;
   }
+  instance.previous_render_from_object = instance.render_from_object;
   instance.local_bounds = MakeMesh(modern_pbr).local_bounds;
   descriptor.mesh_instances.push_back(instance);
 
@@ -817,7 +907,8 @@ RenderFrameRequest MakeFrame(
 void RequireControlledSceneAndView(const SceneSnapshot &baseline_scene,
                                    const SceneSnapshot &variant_scene,
                                    const RenderFrameRequest &baseline_frame,
-                                   const RenderFrameRequest &variant_frame) {
+                                   const RenderFrameRequest &variant_frame,
+                                   bool allow_mesh_revision_change = false) {
   const SceneEnvironmentDescriptor &expected = baseline_scene.environment();
   const SceneEnvironmentDescriptor &actual = variant_scene.environment();
   Require(expected.ambient_radiance == actual.ambient_radiance &&
@@ -855,7 +946,11 @@ void RequireControlledSceneAndView(const SceneSnapshot &baseline_scene,
   const MeshInstanceDescriptor &actual_instance =
       variant_scene.mesh_instances().front();
   Require(expected_instance.instance_id == actual_instance.instance_id &&
-              expected_instance.mesh == actual_instance.mesh &&
+              expected_instance.mesh.id == actual_instance.mesh.id &&
+              expected_instance.mesh.kind == actual_instance.mesh.kind &&
+              (allow_mesh_revision_change ||
+               expected_instance.mesh.revision ==
+                   actual_instance.mesh.revision) &&
               expected_instance.material.id == actual_instance.material.id &&
               expected_instance.material.kind == actual_instance.material.kind &&
               expected_instance.render_from_object ==
@@ -1109,22 +1204,27 @@ void WritePpm(const std::string &path, const Metrics &metrics) {
 }
 
 void WriteIsolationEvidence(const std::string &path,
-                            const std::vector<VariantEvidence> &variants) {
+                            const SmokeResult &result) {
   Require(!path.empty(), "RT4/V1 isolation evidence path is empty");
-  Require(variants.size() == kVariantSpecs.size(),
+  Require(result.variants.size() == kVariantSpecs.size(),
           "RT4/V1 isolation evidence is incomplete");
   std::ofstream output(path, std::ios::binary | std::ios::trunc);
   if (!output) {
     Fail("could not open RT4/V1 isolation evidence: " + path);
   }
-  for (const VariantEvidence &variant : variants) {
+  const auto write_attachment = [&](const Metrics &metrics) {
     output.write(
-        reinterpret_cast<const char *>(variant.hdr.attachment_bytes.data()),
-        static_cast<std::streamsize>(variant.hdr.attachment_bytes.size()));
-    output.write(
-        reinterpret_cast<const char *>(variant.sdr.attachment_bytes.data()),
-        static_cast<std::streamsize>(variant.sdr.attachment_bytes.size()));
+        reinterpret_cast<const char *>(metrics.attachment_bytes.data()),
+        static_cast<std::streamsize>(metrics.attachment_bytes.size()));
+  };
+  for (const VariantEvidence &variant : result.variants) {
+    write_attachment(variant.hdr);
+    write_attachment(variant.sdr);
   }
+  write_attachment(result.tangent_handedness.positive_hdr);
+  write_attachment(result.tangent_handedness.positive_sdr);
+  write_attachment(result.tangent_handedness.negative_hdr);
+  write_attachment(result.tangent_handedness.negative_sdr);
   if (!output) {
     Fail("could not write complete RT4/V1 isolation evidence: " + path);
   }
@@ -1312,6 +1412,27 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << "    \"schema\": \"ror.ogre_next_rt4_texture_retirement.v1\",\n"
            << "    \"derived_allocation\": \"normal_RG8_UNORM\",\n"
            << "    \"isolated_from_visual_variants\": true,\n"
+           << "    \"native_image_rg8_staging\": {\"version\": "
+           << result.retirement.expanded_normal_upload.version
+           << ", \"verified_uploads\": "
+           << result.retirement.expanded_normal_upload.verified_uploads
+           << ", \"verified_mip_levels\": "
+           << result.retirement.expanded_normal_upload.verified_mip_levels
+           << ", \"verified_rows\": "
+           << result.retirement.expanded_normal_upload.verified_rows
+           << ", \"verified_texels\": "
+           << result.retirement.expanded_normal_upload.verified_texels
+           << ", \"verified_rg_bytes\": "
+           << result.retirement.expanded_normal_upload.verified_rg_bytes
+           << ", \"verified_padded_source_rows\": "
+           << result.retirement.expanded_normal_upload
+                  .verified_padded_source_rows
+           << ", \"exact_source_rg_to_native_image\": "
+           << (result.retirement.expanded_normal_upload
+                       .exact_source_rg_to_native_image
+                   ? "true"
+                   : "false")
+           << "},\n"
            << "    \"transitions\": [\n"
            << "      {\"revision\": 1, \"width\": 2, \"height\": 2, \"mip_levels\": 1},\n"
            << "      {\"revision\": 2, \"width\": 4, \"height\": 2, \"mip_levels\": 2, \"padded_rows\": true},\n"
@@ -1396,6 +1517,67 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
     }
     report << "    ],\n"
            << "    \"evidence_bytes\": " << offset << "\n"
+           << "  },\n"
+           << "  \"tangent_handedness\": {\n"
+           << "    \"schema\": \"ror.ogre_next_rt4_tangent_handedness.v1\",\n"
+           << "    \"evidence_file\": \""
+           << std::filesystem::u8path(evidence_path)
+                  .filename()
+                  .generic_u8string()
+           << "\",\n"
+           << "    \"evidence_offset\": " << offset << ",\n";
+    const std::size_t handedness_evidence_bytes =
+        result.tangent_handedness.positive_hdr.attachment_bytes.size() +
+        result.tangent_handedness.positive_sdr.attachment_bytes.size() +
+        result.tangent_handedness.negative_hdr.attachment_bytes.size() +
+        result.tangent_handedness.negative_sdr.attachment_bytes.size();
+    report << "    \"evidence_bytes\": " << handedness_evidence_bytes
+           << ",\n"
+           << "    \"authored_tangent_format\": \"FLOAT4\",\n"
+           << "    \"positive_tangent_w\": 1,\n"
+           << "    \"negative_tangent_w\": -1,\n"
+           << "    \"position_normal_tangent_xyz_uv0_identical\": "
+           << (result.tangent_handedness.only_tangent_w_changed ? "true"
+                                                                 : "false")
+           << ",\n"
+           << "    \"material_camera_lights_identical\": true,\n"
+           << "    \"ui_included\": false,\n"
+           << "    \"positive\": {\n"
+           << "      \"hdr\": {\"offset\": " << offset
+           << ", \"bytes\": "
+           << result.tangent_handedness.positive_hdr.attachment_bytes.size()
+           << ", \"exact_fnv1a64\": \""
+           << HexHash(result.tangent_handedness.positive_hdr.attachment_fnv1a64)
+           << "\"},\n";
+    offset += result.tangent_handedness.positive_hdr.attachment_bytes.size();
+    report << "      \"sdr\": {\"offset\": " << offset
+           << ", \"bytes\": "
+           << result.tangent_handedness.positive_sdr.attachment_bytes.size()
+           << ", \"exact_fnv1a64\": \""
+           << HexHash(result.tangent_handedness.positive_sdr.attachment_fnv1a64)
+           << "\"}\n"
+           << "    },\n";
+    offset += result.tangent_handedness.positive_sdr.attachment_bytes.size();
+    report << "    \"negative\": {\n"
+           << "      \"hdr\": {\"offset\": " << offset
+           << ", \"bytes\": "
+           << result.tangent_handedness.negative_hdr.attachment_bytes.size()
+           << ", \"exact_fnv1a64\": \""
+           << HexHash(result.tangent_handedness.negative_hdr.attachment_fnv1a64)
+           << "\"},\n";
+    offset += result.tangent_handedness.negative_hdr.attachment_bytes.size();
+    report << "      \"sdr\": {\"offset\": " << offset
+           << ", \"bytes\": "
+           << result.tangent_handedness.negative_sdr.attachment_bytes.size()
+           << ", \"exact_fnv1a64\": \""
+           << HexHash(result.tangent_handedness.negative_sdr.attachment_fnv1a64)
+           << "\"}\n"
+           << "    },\n";
+    offset += result.tangent_handedness.negative_sdr.attachment_bytes.size();
+    report << "    \"hdr_changed_pixels\": "
+           << result.tangent_handedness.hdr_changed_pixels << ",\n"
+           << "    \"sdr_changed_pixels\": "
+           << result.tangent_handedness.sdr_changed_pixels << "\n"
            << "  },\n";
   }
   report
@@ -1436,7 +1618,11 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << "    \"process_global_root_exclusion\": true,\n"
          ;
   if (modern_pbr) {
-    report << "    \"live_texture_replacement_retirement\": "
+    report << "    \"non_uniform_scale_rejected_before_submission\": "
+           << (result.non_uniform_scale_rejected_before_submission ? "true"
+                                                                    : "false")
+           << ",\n"
+           << "    \"live_texture_replacement_retirement\": "
            << (result.live_replacement_retirement ? "true" : "false")
            << ",\n"
            << "    \"replacement_audit\": {\"creates\": "
@@ -1475,6 +1661,76 @@ void InitializeAndSync(OgreNextN1Frontend &frontend,
   const FrontendInitializationRequest initialization = Initialization();
   RequireSuccess(frontend.Initialize(initialization), "Initialize");
   RequireSuccess(frontend.SynchronizeAssets(catalog), "SynchronizeAssets");
+}
+
+SmokeResult::TangentHandednessEvidence
+RunTangentHandednessProof(const std::string &media_root) {
+  const RenderAssetDelta positive_catalog =
+      MakeTangentHandednessCatalog(false);
+  const RenderAssetDelta negative_catalog =
+      MakeTangentHandednessCatalog(true);
+  RequireControlledTangentHandednessCatalogs(positive_catalog,
+                                             negative_catalog);
+  constexpr float kSqrtHalf = 0.707106769F;
+  const Float3 angled_light{0.0F, -kSqrtHalf, -kSqrtHalf};
+  const auto positive_scene = MakeScene(800U, false, true, 1U, 1U,
+                                        Matrix4x4{}, 1U, angled_light);
+  const auto negative_scene = MakeScene(801U, false, true, 2U, 1U,
+                                        Matrix4x4{}, 2U, angled_light);
+
+  OgreNextN1Frontend frontend(OgreNextN1Configuration{
+      media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1});
+  InitializeAndSync(frontend, positive_catalog);
+  RenderFrameRequest positive_hdr_frame =
+      MakeFrame(1U, positive_scene, PixelFormat::RGBA16_FLOAT);
+  RenderFrameRequest positive_sdr_frame =
+      MakeFrame(2U, positive_scene, PixelFormat::RGBA8_SRGB);
+  RenderFrameOutput positive_hdr_output;
+  RenderFrameOutput positive_sdr_output;
+  RequireSuccess(frontend.Render(positive_hdr_frame, positive_hdr_output),
+                 "RT4 positive tangent-w HDR Render");
+  RequireSuccess(frontend.Render(positive_sdr_frame, positive_sdr_output),
+                 "RT4 positive tangent-w SDR Render");
+
+  RequireSuccess(frontend.SynchronizeAssets(negative_catalog),
+                 "RT4 negative tangent-w SynchronizeAssets");
+  RenderFrameRequest negative_hdr_frame =
+      MakeFrame(3U, negative_scene, PixelFormat::RGBA16_FLOAT);
+  RenderFrameRequest negative_sdr_frame =
+      MakeFrame(4U, negative_scene, PixelFormat::RGBA8_SRGB);
+  RequireControlledSceneAndView(*positive_scene, *negative_scene,
+                                positive_hdr_frame, negative_hdr_frame, true);
+  RequireControlledSceneAndView(*positive_scene, *negative_scene,
+                                positive_sdr_frame, negative_sdr_frame, true);
+  RenderFrameOutput negative_hdr_output;
+  RenderFrameOutput negative_sdr_output;
+  RequireSuccess(frontend.Render(negative_hdr_frame, negative_hdr_output),
+                 "RT4 negative tangent-w HDR Render");
+  RequireSuccess(frontend.Render(negative_sdr_frame, negative_sdr_output),
+                 "RT4 negative tangent-w SDR Render");
+
+  SmokeResult::TangentHandednessEvidence evidence;
+  evidence.positive_hdr = InspectHdr(positive_hdr_output);
+  evidence.positive_sdr = InspectSdr(positive_sdr_output);
+  evidence.negative_hdr = InspectHdr(negative_hdr_output);
+  evidence.negative_sdr = InspectSdr(negative_sdr_output);
+  evidence.hdr_changed_pixels = CountChangedPixels(
+      evidence.positive_hdr.attachment_bytes,
+      evidence.negative_hdr.attachment_bytes, 8U);
+  evidence.sdr_changed_pixels = CountChangedPixels(
+      evidence.positive_sdr.attachment_bytes,
+      evidence.negative_sdr.attachment_bytes, 4U);
+  evidence.only_tangent_w_changed = true;
+  Require(evidence.hdr_changed_pixels >= 64U &&
+              evidence.sdr_changed_pixels >= 64U &&
+              evidence.positive_hdr.attachment_fnv1a64 !=
+                  evidence.negative_hdr.attachment_fnv1a64 &&
+              evidence.positive_sdr.attachment_fnv1a64 !=
+                  evidence.negative_sdr.attachment_fnv1a64,
+          "RT4 authored tangent-w sign produced no exact native HDR/SDR effect");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "RT4 tangent-handedness Shutdown");
+  return evidence;
 }
 
 void RequireRetirementAudit(const OgreNextN1TextureAllocationAudit &audit,
@@ -1520,6 +1776,18 @@ RunTextureRetirementProof(const std::string &media_root) {
   evidence.expanded = frontend.QueryTextureAllocationAudit();
   RequireRetirementAudit(evidence.expanded, 2U, 1U, 1U,
                          "expanded 4x2/two-mip");
+  evidence.expanded_normal_upload = frontend.QueryNormalUploadAudit();
+  Require(evidence.expanded_normal_upload.version == 1U &&
+              evidence.expanded_normal_upload.verified_uploads == 2U &&
+              evidence.expanded_normal_upload.verified_mip_levels == 3U &&
+              evidence.expanded_normal_upload.verified_rows == 5U &&
+              evidence.expanded_normal_upload.verified_texels == 14U &&
+              evidence.expanded_normal_upload.verified_rg_bytes == 28U &&
+              evidence.expanded_normal_upload
+                      .verified_padded_source_rows == 5U &&
+              evidence.expanded_normal_upload
+                  .exact_source_rg_to_native_image,
+          "RT4 padded multi-mip source RG bytes did not survive exactly in Ogre Image2");
   RenderFrameOutput expanded_output;
   RequireSuccess(frontend.Render(
                      MakeFrame(2U, MakeRetirementScene(2U),
@@ -1701,6 +1969,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
 
   SmokeResult result;
   if (modern_pbr) {
+    result.tangent_handedness = RunTangentHandednessProof(media_root);
     result.texture_upload_rollback =
         RunTextureUploadRollbackProof(media_root);
     result.retirement = RunTextureRetirementProof(media_root);
@@ -1743,6 +2012,23 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
   Require(invalid_result.code == RenderOperationCode::UNSUPPORTED &&
               untouched.frame_id == 777U && !frontend.IsFrameComplete(1U),
           "unsupported depth request mutated output or consumed frame identity");
+  if (modern_pbr) {
+    Matrix4x4 non_uniform_scale;
+    non_uniform_scale.elements[0U] = 2.0F;
+    const auto non_uniform_scene =
+        MakeScene(700U, false, true, 1U, 1U, non_uniform_scale);
+    RenderFrameOutput non_uniform_output;
+    non_uniform_output.frame_id = 778U;
+    const RenderOperationResult non_uniform_result = frontend.Render(
+        MakeFrame(1U, non_uniform_scene, PixelFormat::RGBA16_FLOAT),
+        non_uniform_output);
+    result.non_uniform_scale_rejected_before_submission =
+        non_uniform_result.code == RenderOperationCode::UNSUPPORTED &&
+        non_uniform_output.frame_id == 778U &&
+        !frontend.IsFrameComplete(1U);
+    Require(result.non_uniform_scale_rejected_before_submission,
+            "non-uniform RT4/V1 scale mutated output or reached native submission");
+  }
 
   RenderFrameOutput hdr_output;
   RequireSuccess(frontend.Render(
@@ -1903,7 +2189,7 @@ int main(int argc, char **argv) {
         RunSmoke(arguments.media_root, arguments.modern_pbr);
     WritePpm(arguments.image_path, result.sdr);
     if (arguments.modern_pbr) {
-      WriteIsolationEvidence(arguments.evidence_path, result.variants);
+      WriteIsolationEvidence(arguments.evidence_path, result);
     }
     const std::string report = MakeReport(
         result, arguments.modern_pbr, arguments.evidence_path);

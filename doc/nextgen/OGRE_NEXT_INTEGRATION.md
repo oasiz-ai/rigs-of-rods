@@ -71,11 +71,12 @@ claim.
 
 The RT4 normal slice adds a feature-specific
 [`ogre-next-normal-map-source.lock.json`](../../tools/ogre_next_probe/ogre-next-normal-map-source.lock.json).
-Its whole-file digest and eleven ordered owner hashes lock the exact PBS decode,
-slot/datablock behavior, pixel-format metadata, and D3D11, Metal, and Vulkan
-`RG8_UNORM` mappings. CMake verifies those files in the extracted pinned source,
-and both the runtime report and artifact attestation carry the feature-lock
-digest.
+Its whole-file digest and 23 ordered owner hashes lock the exact PBS pixel
+decode and vertex TBN transform, UV and full32 sampling macros, Metal/GLSL/HLSL
+FLOAT4 tangent declarations, slot/datablock behavior, `Image2`/`TextureBox`
+row layout, pixel-format metadata, and D3D11, Metal, and Vulkan `RG8_UNORM`
+mappings. CMake verifies those files in the extracted pinned source, and both
+the runtime report and artifact attestation carry the feature-lock digest.
 
 The lock, license, ABI, platform, and FetchContent policy lives in the shared
 standalone CMake module
@@ -239,12 +240,24 @@ exactly 1. The exact input rows and every mip are copied into Ogre images;
 padded source rows are accepted without uploading their padding. Textures that
 are not referenced by a live material are not allocated.
 
+RT4/V1 additionally rejects genuine non-uniform object scale. The pinned PBS
+vertex template only selects inverse-transpose normal handling behind an
+unset property and always transforms the authored tangent with the world
+matrix; admitting non-uniform scale would therefore manufacture a non-
+orthogonal, renderer-specific TBN. Uniform scale and float-level rotation
+composition noise remain admitted. The native smoke proves this gate fails
+before submission and does not consume the frame identity.
+
 The tier also proves live texture replacement rather than only successful
 creation. Its 2x2/one-mip -> 4x2/two-mip -> 2x2/one-mip sequence records native
 create/destroy/live counts and requires every retired Ogre texture name to be
 absent before reuse. The rollback and replacement sequence uses the derived
 normal `RG8_UNORM` allocation directly, including padded rows and multiple
-mips. Seven otherwise-identical HDR/SDR captures independently show that base
+mips. The smoke reads Ogre's own row-pitched `Image2` RG bytes back exactly
+before residency upload, and the artifact validator independently checks the
+resulting counters. A separate pair of controlled native HDR/SDR captures
+changes only authored FLOAT4 tangent `w` from +1 to -1 and proves the pinned
+handedness path affects pixels. Seven otherwise-identical HDR/SDR captures show that base
 color, roughness, metallic, emissive, the normal map, and sampler/UV changes
 each affect rendered pixels. The report, PPM, packed isolation captures,
 executable, source manifest, build contract, normal-map source-owner lock, and

@@ -454,11 +454,13 @@ provenance artifacts pass. Only then may the macOS build report
   color and emissive, split roughness/metallic channels from a packed linear
   texture, canonical positive-Z unit-scale normal maps derived from validated
   linear RGBA8 into `RG8_UNORM`, padded multi-mip uploads, sampler mapping,
-  deterministic texture retirement, one calibrated directional light,
+  byte-exact native `Image2` RG staging, FLOAT4 tangent-handedness readback,
+  fail-closed non-uniform scale, deterministic texture retirement, one calibrated directional light,
   HDR/SDR readback, and simultaneous Metal N3 geometry/image interop on the
   recorded Apple M5. A strict feature lock binds the exact pinned Ogre shader,
   datablock, pixel-format, and Metal/D3D11/Vulkan mapping owners used by that
-  normal-map contract.
+  normal-map contract, including vertex TBN, UV, sampling-precision, vertex
+  declaration, and native image row-layout owners.
 - Complete the remaining Ogre-Next PBR/HDR material and lighting floor,
   including a semantically correct ambient-occlusion path, shadows, exposure,
   and presentation, and reproduce the implemented slice on Windows and Linux.

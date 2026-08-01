@@ -65,7 +65,7 @@ string(JSON ROR_RAPIDJSON_LICENSE_SHA256 GET "${_ror_lock_json}" dependencies ra
 set(ROR_OGRE_NEXT_NORMAL_MAP_SOURCE_LOCK_PATH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/ogre-next-normal-map-source.lock.json")
 set(ROR_OGRE_NEXT_NORMAL_MAP_SOURCE_LOCK_SHA256
-    "376e5b45afbac7b95333a3c7d3d4c499173ebdec01b1b99ac3d343d121fbfef6")
+    "7d180c54c54e7cc26b0081753c621b7164551d2b631c1127f818fbb22645f682")
 file(SHA256 "${ROR_OGRE_NEXT_NORMAL_MAP_SOURCE_LOCK_PATH}"
     _ror_normal_map_source_lock_sha256)
 if (NOT _ror_normal_map_source_lock_sha256 STREQUAL
@@ -96,7 +96,7 @@ if (NOT ROR_OGRE_NEXT_NORMAL_MAP_LOCK_SCHEMA STREQUAL "STRING" OR
         "ror.ogre_next_rt4_normal_map_source_lock.v1" OR
         NOT ROR_OGRE_NEXT_NORMAL_MAP_LOCK_COMMIT STREQUAL
         "37149a802de747f6806996fa3067b0748ecc1084" OR
-        NOT ROR_OGRE_NEXT_NORMAL_MAP_LOCK_SOURCE_COUNT EQUAL 11)
+        NOT ROR_OGRE_NEXT_NORMAL_MAP_LOCK_SOURCE_COUNT EQUAL 23)
     message(FATAL_ERROR "The normal-map source lock schema changed")
 endif ()
 set(_ror_normal_map_source_paths "")

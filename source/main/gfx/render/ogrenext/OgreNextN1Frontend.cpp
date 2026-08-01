@@ -586,6 +586,28 @@ public:
     return audit;
   }
 
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  OgreNextN1NormalUploadAudit NormalUploadAudit() const noexcept {
+    OgreNextN1NormalUploadAudit audit;
+    audit.verified_uploads = normal_uploads_verified;
+    audit.verified_mip_levels = normal_upload_mip_levels_verified;
+    audit.verified_rows = normal_upload_rows_verified;
+    audit.verified_texels = normal_upload_texels_verified;
+    audit.verified_rg_bytes = normal_upload_rg_bytes_verified;
+    audit.verified_padded_source_rows =
+        normal_upload_padded_source_rows_verified;
+    audit.exact_source_rg_to_native_image =
+        audit.verified_uploads > 0U && audit.verified_mip_levels > 0U &&
+        audit.verified_rows >= audit.verified_mip_levels &&
+        audit.verified_texels > 0U &&
+        audit.verified_texels <=
+            (std::numeric_limits<std::uint64_t>::max)() / 2U &&
+        audit.verified_rg_bytes == audit.verified_texels * 2U &&
+        audit.verified_padded_source_rows <= audit.verified_rows;
+    return audit;
+  }
+#endif
+
   bool OnOwnerThread() const noexcept {
     return initialized && std::this_thread::get_id() == owner_thread;
   }
@@ -879,6 +901,13 @@ public:
              : normal_rg ? Ogre::PFG_RG8_UNORM : Ogre::PFG_R8_UNORM;
     auto *image = new Ogre::Image2();
     Ogre::TextureGpu *texture = nullptr;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+    std::uint64_t verified_mip_levels = 0U;
+    std::uint64_t verified_rows = 0U;
+    std::uint64_t verified_texels = 0U;
+    std::uint64_t verified_rg_bytes = 0U;
+    std::uint64_t verified_padded_source_rows = 0U;
+#endif
     try {
       image->createEmptyImage(
           descriptor.width, descriptor.height, 1U,
@@ -894,6 +923,12 @@ public:
             destination.height != source.height) {
           throw std::logic_error(
               "validated RT4/V1 mip dimensions changed during Ogre upload");
+        }
+        if (normal_rg &&
+            (destination.bytesPerPixel != 2U ||
+             destination.bytesPerRow < source.width * 2U)) {
+          throw std::runtime_error(
+              "Ogre-Next RT4/V1 normal Image2 has an unexpected RG8 row layout");
         }
         for (std::uint32_t row = 0U; row < source.height; ++row) {
           const auto *source_row = source.bytes.data() +
@@ -914,6 +949,27 @@ public:
               destination_row[destination_offset + 1U] =
                   source_row[source_offset + 1U];
             }
+            for (std::uint32_t column = 0U; column < source.width; ++column) {
+              const std::size_t source_offset =
+                  static_cast<std::size_t>(column) * 4U;
+              const std::size_t destination_offset =
+                  static_cast<std::size_t>(column) * 2U;
+              if (destination_row[destination_offset] !=
+                      source_row[source_offset] ||
+                  destination_row[destination_offset + 1U] !=
+                      source_row[source_offset + 1U]) {
+                throw std::runtime_error(
+                    "Ogre-Next RT4/V1 normal Image2 did not preserve exact source RG bytes");
+              }
+            }
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+            ++verified_rows;
+            verified_texels += source.width;
+            verified_rg_bytes += static_cast<std::uint64_t>(source.width) * 2U;
+            if (source.row_pitch_bytes > source.width * 4U) {
+              ++verified_padded_source_rows;
+            }
+#endif
           } else {
             const std::size_t source_channel =
                 channel == UploadedTextureChannel::GREEN ? 1U : 2U;
@@ -924,7 +980,24 @@ public:
             }
           }
         }
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+        if (normal_rg) {
+          ++verified_mip_levels;
+        }
+#endif
       }
+
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      if (normal_rg) {
+        ++normal_uploads_verified;
+        normal_upload_mip_levels_verified += verified_mip_levels;
+        normal_upload_rows_verified += verified_rows;
+        normal_upload_texels_verified += verified_texels;
+        normal_upload_rg_bytes_verified += verified_rg_bytes;
+        normal_upload_padded_source_rows_verified +=
+            verified_padded_source_rows;
+      }
+#endif
 
       Ogre::TextureGpuManager *texture_manager =
           renderer->getTextureGpuManager();
@@ -1361,6 +1434,12 @@ public:
       OgreNextN1TextureUploadFailureStage::NONE;
   bool texture_upload_failure_pending =
       texture_upload_failure_stage != OgreNextN1TextureUploadFailureStage::NONE;
+  std::uint64_t normal_uploads_verified = 0U;
+  std::uint64_t normal_upload_mip_levels_verified = 0U;
+  std::uint64_t normal_upload_rows_verified = 0U;
+  std::uint64_t normal_upload_texels_verified = 0U;
+  std::uint64_t normal_upload_rg_bytes_verified = 0U;
+  std::uint64_t normal_upload_padded_source_rows_verified = 0U;
 #endif
 };
 
@@ -1390,6 +1469,13 @@ OgreNextN1TextureAllocationAudit
 OgreNextN1Frontend::QueryTextureAllocationAudit() const noexcept {
   return impl_->TextureAllocationAudit();
 }
+
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+OgreNextN1NormalUploadAudit
+OgreNextN1Frontend::QueryNormalUploadAudit() const noexcept {
+  return impl_->NormalUploadAudit();
+}
+#endif
 
 RenderOperationResult OgreNextN1Frontend::Initialize(
     const FrontendInitializationRequest &request) {

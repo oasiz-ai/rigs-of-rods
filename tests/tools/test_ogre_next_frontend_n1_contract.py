@@ -392,6 +392,30 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             destroy_catalog.index("DestroyMaterial"),
             destroy_catalog.index("DestroyTexture"),
         )
+
+    def test_normal_map_audit_remediation_is_native_and_fail_closed(self) -> None:
+        for token in (
+            "HasEffectivelyUniformScale",
+            "rejects non-uniform scale",
+            "accurate_non_uniform_scaled_normals",
+        ):
+            self.assertIn(token, self.policy)
+        for token in (
+            "OgreNextN1NormalUploadAudit",
+            "QueryNormalUploadAudit",
+            "exact_source_rg_to_native_image",
+            "verified_padded_source_rows",
+        ):
+            self.assertIn(token, self.header + self.frontend)
+        for token in (
+            "RunTangentHandednessProof",
+            "positive tangent-w HDR Render",
+            "negative tangent-w HDR Render",
+            "non_uniform_scale_rejected_before_submission",
+            "ror.ogre_next_rt4_tangent_handedness.v1",
+        ):
+            self.assertIn(token, self.smoke)
+
     def test_projection_and_device_extent_paths_fail_closed(self) -> None:
         self.assertIn("TryConvertPortableProjectionToOgreClip", self.policy_header)
         self.assertIn("2.0F * portable.elements[row_two]", self.policy)
@@ -468,6 +492,45 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 evidence.extend(block_bytes)
             report["texture_isolation"]["variants"].append(entry)
         report["texture_isolation"]["evidence_bytes"] = len(evidence)
+        handedness_offset = len(evidence)
+        positive_hdr = bytes(192 * 128 * 8)
+        positive_sdr = bytes(192 * 128 * 4)
+        negative_hdr_bytes = bytearray(positive_hdr)
+        negative_sdr_bytes = bytearray(positive_sdr)
+        for pixel in range(64):
+            negative_hdr_bytes[pixel * 8] = 1
+            negative_sdr_bytes[pixel * 4] = 1
+        negative_hdr = bytes(negative_hdr_bytes)
+        negative_sdr = bytes(negative_sdr_bytes)
+        handedness: dict = {}
+        for sign, hdr_block, sdr_block in (
+            ("positive", positive_hdr, positive_sdr),
+            ("negative", negative_hdr, negative_sdr),
+        ):
+            handedness[sign] = {}
+            for label, block in (("hdr", hdr_block), ("sdr", sdr_block)):
+                handedness[sign][label] = {
+                    "offset": len(evidence),
+                    "bytes": len(block),
+                    "exact_fnv1a64": RUNNER._fnv1a64(block),
+                }
+                evidence.extend(block)
+        report["tangent_handedness"] = {
+            "schema": "ror.ogre_next_rt4_tangent_handedness.v1",
+            "evidence_file": RUNNER.RT4_PBR_EVIDENCE_NAME,
+            "evidence_offset": handedness_offset,
+            "evidence_bytes": len(evidence) - handedness_offset,
+            "authored_tangent_format": "FLOAT4",
+            "positive_tangent_w": 1,
+            "negative_tangent_w": -1,
+            "position_normal_tangent_xyz_uv0_identical": True,
+            "material_camera_lights_identical": True,
+            "ui_included": False,
+            "positive": handedness["positive"],
+            "negative": handedness["negative"],
+            "hdr_changed_pixels": 64,
+            "sdr_changed_pixels": 64,
+        }
         report["hdr"]["exact_attachment_fnv1a64"] = RUNNER._fnv1a64(
             baseline_blocks["hdr"]
         )

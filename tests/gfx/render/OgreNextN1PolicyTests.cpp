@@ -514,7 +514,8 @@ void TestModernPbrAssetPolicy() {
   Require(ValidateOgreNextN1AssetCatalog(registry, false, kModern).ok(),
           "valid RT4/V1 texture, sampler, tangent, and UV0 catalog was rejected");
 
-  const auto make_lit_scene = [&](std::vector<LightDescriptor> lights) {
+  const auto make_lit_scene = [&](std::vector<LightDescriptor> lights,
+                                  Matrix4x4 transform = Matrix4x4{}) {
     SceneSnapshotDescriptor descriptor;
     descriptor.snapshot_id = 1U;
     descriptor.asset_registry_id = kRegistryId;
@@ -524,6 +525,8 @@ void TestModernPbrAssetPolicy() {
     instance.mesh = Ref(RenderAssetKind::MESH, 1U);
     instance.material = Ref(RenderAssetKind::MATERIAL, 2U);
     instance.local_bounds = MakeModernMesh().local_bounds;
+    instance.render_from_object = transform;
+    instance.previous_render_from_object = transform;
     descriptor.mesh_instances.push_back(instance);
     descriptor.lights = std::move(lights);
     SceneSnapshotCreateResult scene =
@@ -540,6 +543,26 @@ void TestModernPbrAssetPolicy() {
                                   false, kModern)
               .ok(),
           "one calibrated RT4/V1 directional light was rejected");
+  Matrix4x4 uniform_scale;
+  uniform_scale.elements[0U] = 2.0F;
+  uniform_scale.elements[5U] = 2.0F;
+  uniform_scale.elements[10U] = 2.0F;
+  Require(ValidateOgreNextN1Scene(
+              *make_lit_scene({directional}, uniform_scale), registry, false,
+              kModern)
+              .ok(),
+          "uniform RT4/V1 scale was rejected");
+  Matrix4x4 non_uniform_scale;
+  non_uniform_scale.elements[0U] = 2.0F;
+  const ValidationResult non_uniform_scale_validation =
+      ValidateOgreNextN1Scene(
+          *make_lit_scene({directional}, non_uniform_scale), registry, false,
+          kModern);
+  Require(non_uniform_scale_validation.code ==
+              ValidationCode::UNSUPPORTED_FEATURE &&
+              non_uniform_scale_validation.field ==
+                  "mesh_instances.render_from_object",
+          "non-uniform RT4/V1 scale escaped tangent-frame admission");
   LightDescriptor point = directional;
   point.type = LightType::POINT;
   point.position = {1.0F, 2.0F, 3.0F};
@@ -800,6 +823,12 @@ void TestFrameAndScenePolicy() {
   Require(ValidateOgreNextN1Frame(request, capabilities, registry).code ==
               ValidationCode::UNSUPPORTED_FEATURE,
           "affine shear was silently decomposed");
+
+  Matrix4x4 legacy_non_uniform_scale;
+  legacy_non_uniform_scale.elements[0U] = 2.0F;
+  request = MakeFrame(MakeScene(kRegistryId, legacy_non_uniform_scale));
+  Require(ValidateOgreNextN1Frame(request, capabilities, registry).ok(),
+          "texture-free N1 unexpectedly inherited the RT4/V1 scale gate");
 
   MaterialDescriptor double_sided = MakeMaterial();
   double_sided.double_sided = true;
