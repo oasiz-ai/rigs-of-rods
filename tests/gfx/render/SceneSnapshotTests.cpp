@@ -7,7 +7,9 @@
 */
 
 #include "SceneSnapshot.h"
+#include "RenderResourceDescriptors.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -161,6 +163,16 @@ void TestIdentityOrderAndResourceValidation() {
   using namespace RoR::Render;
 
   SceneSnapshotDescriptor descriptor = MakeValidDescriptor();
+  descriptor.version = 2U;
+  RequireInvalid(descriptor, ValidationCode::UNSUPPORTED_VERSION,
+                 "legacy scene snapshot version two was accepted implicitly");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.version = 1U;
+  RequireInvalid(descriptor, ValidationCode::UNSUPPORTED_VERSION,
+                 "legacy scene snapshot version one was accepted implicitly");
+
+  descriptor = MakeValidDescriptor();
   descriptor.snapshot_id = 0U;
   RequireInvalid(descriptor, ValidationCode::INVALID_IDENTIFIER,
                  "zero snapshot identifier was accepted");
@@ -358,6 +370,16 @@ void TestWorldLightAndParticleValidation() {
                  "unknown light type was accepted");
 
   descriptor = MakeValidDescriptor();
+  descriptor.lights.front().color_linear = {};
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "black photometric multiplier was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.lights.front().color_linear = {2.0F, 2.0F, 2.0F};
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "unnormalized photometric multiplier was accepted");
+
+  descriptor = MakeValidDescriptor();
   descriptor.lights.front().outer_cone_radians = 0.25F;
   RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
                  "inverted spot cone was accepted");
@@ -424,13 +446,153 @@ void TestWorldLightAndParticleValidation() {
                  "particle alpha above one was accepted");
 }
 
+void TestPhotometricColorAndExposureContracts() {
+  using namespace RoR::Render;
+
+  Require(ComputeLinearSrgbRec709D65Luminance({1.0F, 1.0F, 1.0F}) ==
+              1.0,
+          "linear-sRGB white did not have exact unit luminance");
+  const Float3 inputs[] = {{1.0F, 0.0F, 0.0F},
+                           {0.0F, 1.0F, 0.0F},
+                           {0.0F, 0.0F, 1.0F},
+                           {1.0F, 0.5F, 0.25F}};
+  for (const Float3 &input : inputs) {
+    Float3 normalized{-1.0F, -1.0F, -1.0F};
+    Require(NormalizePhotometricColorLinear(input, normalized) &&
+                IsCanonicalPhotometricColorLinear(normalized),
+            "white/saturated/tinted color did not normalize canonically");
+  }
+  Require(IsCanonicalPhotometricColorLinear({1.0F, 1.0F, 1.0F}),
+          "canonical white photometry was rejected");
+  Require(!IsCanonicalPhotometricColorLinear({}) &&
+              !IsCanonicalPhotometricColorLinear({2.0F, 2.0F, 2.0F}) &&
+              !IsCanonicalPhotometricColorLinear({-1.0F, 1.0F, 1.0F}) &&
+              !IsCanonicalPhotometricColorLinear(
+                  {std::numeric_limits<float>::infinity(), 1.0F, 1.0F}),
+          "zero, unnormalized, or nonfinite photometry was accepted");
+  Float3 unchanged{7.0F, 8.0F, 9.0F};
+  Require(!NormalizePhotometricColorLinear({}, unchanged) &&
+              unchanged == Float3{7.0F, 8.0F, 9.0F},
+          "failed photometric normalization modified its output");
+
+  float effective = -1.0F;
+  Require(ComputePortableEffectiveExposure(1.0F, 1.0F, effective) &&
+              effective == 2.0F,
+          "portable effective exposure rejected exact normal binary32");
+  const float preserved = effective;
+  Require(!ComputePortableEffectiveExposure(
+              (std::numeric_limits<float>::max)(), 24.0F, effective) &&
+              effective == preserved,
+          "overflowing effective exposure was accepted or modified output");
+  Require(!ComputePortableEffectiveExposure(
+              (std::numeric_limits<float>::min)(), -24.0F, effective) &&
+              effective == preserved,
+          "subnormal effective exposure was accepted or modified output");
+}
+
+void TestAnalyticSunMembership() {
+  using namespace RoR::Render;
+
+  AnalyticSkyDescriptor sky;
+  sky.enabled = true;
+  sky.sun_light_id = 99U;
+  sky.sun_angular_radius_radians = 0.25F;
+  LightDescriptor sun;
+  sun.light_id = sky.sun_light_id;
+  sun.direction = {0.0F, -1.0F, 0.0F};
+  sun.previous_direction = {0.0F, 0.0F, 1.0F};
+
+  Require(IsViewDirectionInsideAnalyticSunDisk({0.0F, 1.0F, 0.0F}, sky,
+                                                sun),
+          "analytic sun center was outside its disk");
+  Require(!IsViewDirectionInsideAnalyticSunDisk({0.0F, -1.0F, 0.0F}, sky,
+                                                 sun),
+          "direction opposite the analytic sun was inside its disk");
+  const float boundary = static_cast<float>(
+      std::cos(static_cast<double>(sky.sun_angular_radius_radians)));
+  const float boundary_x = static_cast<float>(
+      std::sin(static_cast<double>(sky.sun_angular_radius_radians)));
+  const double boundary_length = std::sqrt(
+      static_cast<double>(boundary_x) * boundary_x +
+      static_cast<double>(boundary) * boundary);
+  const float normalized_boundary_dot =
+      static_cast<float>(static_cast<double>(boundary) / boundary_length);
+  Require(normalized_boundary_dot == boundary &&
+              IsViewDirectionInsideAnalyticSunDisk(
+              {boundary_x, boundary, 0.0F}, sky, sun),
+          "inclusive analytic sun boundary was rejected");
+  Require(IsViewDirectionInsideAnalyticSunDisk(
+              {boundary_x, boundary + 0.001F, 0.0F}, sky, sun) &&
+              !IsViewDirectionInsideAnalyticSunDisk(
+                  {boundary_x, boundary - 0.001F, 0.0F}, sky, sun),
+          "analytic sun just-inside/just-outside membership is wrong");
+  sun.direction = {0.0F, -3.0F, 0.0F};
+  Require(IsViewDirectionInsideAnalyticSunDisk({0.0F, 9.0F, 0.0F}, sky,
+                                                sun),
+          "approximately scaled view/emitted directions were not normalized");
+  Require(!IsViewDirectionInsideAnalyticSunDisk(
+              {0.0F, 1.0F, 0.0F}, sky, sun, LightHistorySample::PREVIOUS) &&
+              IsViewDirectionInsideAnalyticSunDisk(
+                  {0.0F, 0.0F, -2.0F}, sky, sun,
+                  LightHistorySample::PREVIOUS),
+          "current and previous sun direction samples were conflated");
+}
+
+void TestShadowGeometryClassificationAndMasks() {
+  using namespace RoR::Render;
+
+  MeshResourceDescriptor static_mesh;
+  MeshResourceDescriptor dynamic_mesh;
+  dynamic_mesh.dynamic = true;
+  MeshInstanceDescriptor moving_base_instance;
+  moving_base_instance.deformation_revision = 1U;
+  moving_base_instance.render_from_object.elements[12U] = 100.0F;
+  moving_base_instance.previous_render_from_object.elements[12U] = -100.0F;
+  LightDescriptor light;
+
+  Require(ClassifyShadowGeometry(static_mesh) == ShadowGeometryClass::STATIC &&
+              ClassifyShadowGeometry(dynamic_mesh) ==
+                  ShadowGeometryClass::DYNAMIC,
+          "mesh resource dynamic bit did not define shadow class");
+  Require(ClassifyShadowGeometry(static_mesh) == ShadowGeometryClass::STATIC &&
+              ClassifyShadowGeometry(dynamic_mesh) ==
+                  ShadowGeometryClass::DYNAMIC &&
+              moving_base_instance.deformation_revision == 1U &&
+              moving_base_instance.render_from_object !=
+                  moving_base_instance.previous_render_from_object,
+          "motion or base deformation revision changed authored shadow class");
+
+  light.shadow_flags = 0U;
+  Require(!LightShadowMaskIncludesGeometry(light, static_mesh) &&
+              !LightShadowMaskIncludesGeometry(light, dynamic_mesh),
+          "zero shadow mask included geometry");
+  light.shadow_flags = LIGHT_SHADOW_STATIC_GEOMETRY;
+  Require(LightShadowMaskIncludesGeometry(light, static_mesh) &&
+              !LightShadowMaskIncludesGeometry(light, dynamic_mesh),
+          "static-only shadow mask classification is wrong");
+  light.shadow_flags = LIGHT_SHADOW_DYNAMIC_GEOMETRY;
+  Require(!LightShadowMaskIncludesGeometry(light, static_mesh) &&
+              LightShadowMaskIncludesGeometry(light, dynamic_mesh),
+          "dynamic-only shadow mask classification is wrong");
+  light.shadow_flags = LIGHT_SHADOW_DEFAULT_FLAGS;
+  Require(LightShadowMaskIncludesGeometry(light, static_mesh) &&
+              LightShadowMaskIncludesGeometry(light, dynamic_mesh) &&
+              MeshInstanceCastsShadowForLight(light, moving_base_instance,
+                                              static_mesh),
+          "default shadow mask did not include both authored classes");
+  moving_base_instance.flags &= ~MESH_INSTANCE_CASTS_SHADOW;
+  Require(!MeshInstanceCastsShadowForLight(light, moving_base_instance,
+                                           static_mesh),
+          "instance casts-shadow flag was ignored");
+}
+
 void TestCanonicalLightingEnvironmentHash() {
   using namespace RoR::Render;
 
   SceneSnapshotDescriptor descriptor = MakeValidDescriptor();
   const std::uint64_t baseline =
       ComputeSceneLightingEnvironmentHash(descriptor);
-  Require(baseline == 11458088048575903736ULL,
+  Require(baseline == 2462554983718937308ULL,
           "canonical lighting hash fixture drifted");
 
   SceneSnapshotDescriptor unrelated = descriptor;
@@ -441,6 +603,15 @@ void TestCanonicalLightingEnvironmentHash() {
   unrelated.particle_events.front().random_seed += 1U;
   Require(ComputeSceneLightingEnvironmentHash(unrelated) == baseline,
           "lighting digest included unrelated frame or geometry state");
+
+  SceneSnapshotDescriptor changed_registry = descriptor;
+  changed_registry.asset_registry_id += 1U;
+  Require(ComputeSceneLightingEnvironmentHash(changed_registry) != baseline,
+          "lighting digest omitted asset registry identity");
+  SceneSnapshotDescriptor changed_sequence = descriptor;
+  changed_sequence.asset_sequence += 1U;
+  Require(ComputeSceneLightingEnvironmentHash(changed_sequence) == baseline,
+          "lighting digest included asset sequence churn");
 
   SceneSnapshotDescriptor signed_zero = descriptor;
   signed_zero.lights.front().position.x = -0.0F;
@@ -473,6 +644,9 @@ int main() {
   TestIdentityOrderAndResourceValidation();
   TestDynamicMeshValidation();
   TestWorldLightAndParticleValidation();
+  TestPhotometricColorAndExposureContracts();
+  TestAnalyticSunMembership();
+  TestShadowGeometryClassificationAndMasks();
   TestCanonicalLightingEnvironmentHash();
   std::cout << "scene snapshot tests passed\n";
   return EXIT_SUCCESS;

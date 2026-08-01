@@ -450,6 +450,24 @@ void TestJoinedSourceInitialSnapshotAndCanonicalOrder() {
           "immutable scene retained mutable joined-source storage");
 }
 
+void TestLegacyProducerVersionsRequireExplicitMigration() {
+  using namespace RoR::Render;
+
+  GraphicsSceneSnapshotProducer producer = MakeProducer(91U);
+  GraphicsSceneFrameInput frame = MakeFrame();
+  frame.version = 1U;
+  Require(producer.Produce(frame).validation.code ==
+                  ValidationCode::UNSUPPORTED_VERSION &&
+              producer.LoadPublishedSnapshot() == nullptr &&
+              !producer.BuildRecoveryAssetSnapshot(),
+          "legacy producer input was implicitly migrated or changed state");
+  frame.version = 0U;
+  Require(producer.Produce(frame).validation.code ==
+                  ValidationCode::UNSUPPORTED_VERSION &&
+              producer.LoadPublishedSnapshot() == nullptr,
+          "unversioned producer input was accepted");
+}
+
 void TestTransformCameraHistoryAndOriginRebase() {
   using namespace RoR::Render;
   GraphicsSceneSnapshotProducer producer = MakeProducer(101U);
@@ -504,6 +522,112 @@ void TestTransformCameraHistoryAndOriginRebase() {
           "clip-plane transition did not reset unrepresentable projection history");
 }
 
+void TestLargeOriginRebaseRollbackAndRetry() {
+  using namespace RoR::Render;
+
+  GraphicsSceneSnapshotProducer producer = MakeProducer(131U);
+  GraphicsSceneFrameInput frame = MakeFrame();
+  frame.absolute_world_origin_meters = {1.0e16, -1.0e16, 1.0e16};
+  frame.static_meshes[0U].render_from_object.elements[12U] = 0.25F;
+  frame.static_meshes[0U].render_from_object.elements[13U] = -0.5F;
+  frame.static_meshes[0U].render_from_object.elements[14U] = 0.75F;
+  frame.static_meshes[1U].render_from_object.elements[12U] = -1.25F;
+  frame.static_meshes[1U].render_from_object.elements[13U] = 1.5F;
+  frame.static_meshes[1U].render_from_object.elements[14U] = -1.75F;
+  frame.lights[1U].position = {-1.25F, 1.5F, -1.75F};
+  frame.lights[2U].position = {0.25F, -0.5F, 0.75F};
+
+  const GraphicsSceneSnapshotProduceResult first = producer.Produce(frame);
+  const std::shared_ptr<const SceneSnapshot> first_published =
+      producer.LoadPublishedSnapshot();
+  Require(first.ok() && SameSharedOwner(first.production.scene_snapshot,
+                                         first_published),
+          "large-origin base frame was not published");
+
+  GraphicsSceneFrameInput rejected = frame;
+  rejected.simulation_tick = 42U;
+  rejected.simulation_time_seconds = 2.0;
+  rejected.absolute_world_origin_meters.x =
+      (std::numeric_limits<double>::max)();
+  rejected.lights[2U].position = {99.0F, 98.0F, 97.0F};
+  const GraphicsSceneSnapshotProduceResult failed = producer.Produce(rejected);
+  Require(failed.validation.code == ValidationCode::VALUE_OUT_OF_RANGE &&
+              failed.validation.field == "lights.previous_position" &&
+              SameSharedOwner(first_published,
+                              producer.LoadPublishedSnapshot()) &&
+              producer.asset_sequence() == 1U,
+          "failed large-origin rebase mutated publication or lineage");
+  Require(first_published->lights()[0U].position ==
+              Float3{0.25F, -0.5F, 0.75F},
+          "failed rebase mutated previously published light history");
+
+  frame.simulation_tick = 42U;
+  frame.simulation_time_seconds = 2.0;
+  frame.absolute_world_origin_meters = {1.0e16 + 16.0,
+                                        -1.0e16 - 32.0,
+                                        1.0e16 + 64.0};
+  frame.static_meshes[0U].render_from_object.elements[12U] = 10.0F;
+  frame.static_meshes[0U].render_from_object.elements[13U] = 20.0F;
+  frame.static_meshes[0U].render_from_object.elements[14U] = 30.0F;
+  frame.static_meshes[1U].render_from_object.elements[12U] = 40.0F;
+  frame.static_meshes[1U].render_from_object.elements[13U] = 50.0F;
+  frame.static_meshes[1U].render_from_object.elements[14U] = 60.0F;
+  frame.lights[1U].position = {10.0F, 20.0F, 30.0F};
+  frame.lights[2U].position = {40.0F, 50.0F, 60.0F};
+  const GraphicsSceneSnapshotProduceResult retried = producer.Produce(frame);
+  Require(retried.ok() &&
+              retried.production.scene_snapshot->snapshot_id() == 2U &&
+              !SameSharedOwner(first_published,
+                               producer.LoadPublishedSnapshot()),
+          "valid retry after failed rebase did not commit exactly once");
+
+  const auto &objects = retried.production.scene_snapshot->mesh_instances();
+  Require(objects[0U].previous_render_from_object.elements[12U] == -17.25F &&
+              objects[0U].previous_render_from_object.elements[13U] == 33.5F &&
+              objects[0U].previous_render_from_object.elements[14U] ==
+                  -65.75F &&
+              objects[1U].previous_render_from_object.elements[12U] ==
+                  -15.75F &&
+              objects[1U].previous_render_from_object.elements[13U] == 31.5F &&
+              objects[1U].previous_render_from_object.elements[14U] ==
+                  -63.25F,
+          "object origin delta lost small relative terms on one or more axes");
+  const auto &lights = retried.production.scene_snapshot->lights();
+  Require(lights[0U].previous_position ==
+              Float3{-15.75F, 31.5F, -63.25F} &&
+              lights[1U].previous_position ==
+                  Float3{-17.25F, 33.5F, -65.75F},
+          "local-light origin delta lost small relative terms after retry");
+
+  const std::shared_ptr<const SceneSnapshot> retry_published =
+      producer.LoadPublishedSnapshot();
+  GraphicsSceneFrameInput object_rejected = frame;
+  object_rejected.simulation_tick = 43U;
+  object_rejected.simulation_time_seconds = 3.0;
+  object_rejected.absolute_world_origin_meters.x =
+      (std::numeric_limits<double>::max)();
+  object_rejected.lights.resize(1U);
+  const GraphicsSceneSnapshotProduceResult object_failure =
+      producer.Produce(object_rejected);
+  Require(object_failure.validation.code ==
+                  ValidationCode::VALUE_OUT_OF_RANGE &&
+              object_failure.validation.field ==
+                  "static_meshes.previous_transform" &&
+              SameSharedOwner(retry_published,
+                              producer.LoadPublishedSnapshot()) &&
+              retry_published->lights().size() == 3U,
+          "failed object rebase committed light tombstones or publication");
+
+  frame.simulation_tick = 43U;
+  frame.simulation_time_seconds = 3.0;
+  const GraphicsSceneSnapshotProduceResult object_retry =
+      producer.Produce(frame);
+  Require(object_retry.ok() &&
+              object_retry.production.scene_snapshot->snapshot_id() == 3U &&
+              object_retry.production.scene_snapshot->lights().size() == 3U,
+          "object-rebase retry consumed identity or retained staged history");
+}
+
 void TestLightLifecycleAndAtomicPublication() {
   using namespace RoR::Render;
   GraphicsSceneSnapshotProducer producer = MakeProducer(151U);
@@ -541,6 +665,16 @@ void TestLightLifecycleAndAtomicPublication() {
               SameSharedOwner(first_published,
                               producer.LoadPublishedSnapshot()),
           "stable light identity changed type or publication atomically");
+
+  GraphicsSceneFrameInput invalid_type = frame;
+  invalid_type.simulation_tick = 42U;
+  invalid_type.simulation_time_seconds = 2.0;
+  invalid_type.lights[2U].type = static_cast<LightType>(255U);
+  Require(producer.Produce(invalid_type).validation.code ==
+                  ValidationCode::INVALID_ENUM &&
+              SameSharedOwner(first_published,
+                              producer.LoadPublishedSnapshot()),
+          "unknown light enum reached lineage checks or changed publication");
 
   frame.simulation_tick = 42U;
   frame.simulation_time_seconds = 2.0;
@@ -1397,7 +1531,9 @@ void TestDeterministicAcrossAdapterTraversalOrders() {
 
 int main() {
   TestJoinedSourceInitialSnapshotAndCanonicalOrder();
+  TestLegacyProducerVersionsRequireExplicitMigration();
   TestTransformCameraHistoryAndOriginRebase();
+  TestLargeOriginRebaseRollbackAndRetry();
   TestLightLifecycleAndAtomicPublication();
   TestAssetUpdatesDependencyRevisionAndDestroyRecovery();
   TestMeshSignedZeroBytesRequireTopologyRevision();

@@ -23,14 +23,32 @@
 namespace RoR::Render {
 
 constexpr std::uint32_t kSceneSnapshotVersion = 3U;
-constexpr std::uint32_t kSceneLightingHashVersion = 1U;
+constexpr std::uint32_t kSceneLightingHashVersion = 2U;
 
 class RenderAssetRegistry;
+struct MeshResourceDescriptor;
+
+/// IEC 61966-2-1 linear-sRGB / ITU-R BT.709 luminance coefficients for the
+/// D65 white point. These exact decimal coefficients, encoded as binary64,
+/// define the renderer-neutral photometric contract.
+constexpr double kLinearSrgbRec709D65RedLuminance = 0.2126;
+constexpr double kLinearSrgbRec709D65GreenLuminance = 0.7152;
+constexpr double kLinearSrgbRec709D65BlueLuminance = 0.0722;
 
 enum class LightType : std::uint8_t {
   DIRECTIONAL = 0,
   POINT = 1,
   SPOT = 2,
+};
+
+enum class LightHistorySample : std::uint8_t {
+  CURRENT = 0,
+  PREVIOUS = 1,
+};
+
+enum class ShadowGeometryClass : std::uint8_t {
+  STATIC = 0,
+  DYNAMIC = 1,
 };
 
 enum LightShadowFlag : std::uint32_t {
@@ -90,7 +108,8 @@ struct SceneEnvironmentDescriptor {
   float environment_intensity = 1.0F;
   AnalyticSkyDescriptor analytic_sky;
   /// Scene-level exposure compensation in stops. A frontend combines it with
-  /// the view exposure as `view_exposure * exp2(exposure_compensation_ev)`.
+  /// the view exposure as `view_exposure * exp2(exposure_compensation_ev)`;
+  /// validation requires a positive normal binary32 effective result.
   float exposure_compensation_ev = 0.0F;
 };
 
@@ -118,8 +137,10 @@ struct MeshInstanceDescriptor {
 struct LightDescriptor {
   std::uint64_t light_id = 0U;
   LightType type = LightType::DIRECTIONAL;
-  /// Linear RGB chromatic multiplier. Directional intensity is illuminance in
-  /// lux; point and spot intensity is luminous intensity in candela.
+  /// Linear-sRGB Rec.709 D65 chromatic multiplier with canonical photopic
+  /// luminance one. Directional intensity is illuminance in lux; point and
+  /// spot intensity is luminous intensity in candela. Consequently intensity,
+  /// rather than an arbitrary RGB magnitude, is the light's scalar photometry.
   Float3 color_linear{1.0F, 1.0F, 1.0F};
   float intensity = 1.0F;
   /// Render-relative meters at this snapshot's absolute origin. Directional
@@ -220,11 +241,58 @@ struct SceneSnapshotDescriptor {
 
 struct SceneSnapshotCreateResult;
 
+/// Returns the Rec.709/D65 photopic luminance of a linear-sRGB triplet.
+[[nodiscard]] double
+ComputeLinearSrgbRec709D65Luminance(const Float3 &color_linear) noexcept;
+
+/// Converts a finite, nonnegative, non-black linear-sRGB color to the
+/// canonical unit-luminance binary32 representation. The output is unchanged
+/// on failure.
+[[nodiscard]] bool NormalizePhotometricColorLinear(
+    const Float3 &color_linear, Float3 &normalized_color_linear) noexcept;
+
+/// True only for a finite, nonnegative, non-black binary32 triplet whose
+/// Rec.709/D65 luminance lies in the exact round-to-binary32-one interval.
+[[nodiscard]] bool
+IsCanonicalPhotometricColorLinear(const Float3 &color_linear) noexcept;
+
+/// Tests whether a renderer-space view ray intersects the analytic sun disk.
+/// Both inputs are normalized internally. The disk center is the negated
+/// emitted-ray direction; normalized dot and cosine are rounded to binary32
+/// before the inclusive comparison. Invalid sky/light/sample state or a
+/// zero/nonfinite input vector returns false.
+[[nodiscard]] bool IsViewDirectionInsideAnalyticSunDisk(
+    const Float3 &view_direction, const AnalyticSkyDescriptor &sky,
+    const LightDescriptor &sun,
+    LightHistorySample sample = LightHistorySample::CURRENT) noexcept;
+
+/// Shadow geometry is authored resource state. It depends only on
+/// MeshResourceDescriptor::dynamic, never instance motion, deformation
+/// revision, or the presence of a DynamicMeshUpdateDescriptor.
+[[nodiscard]] ShadowGeometryClass
+ClassifyShadowGeometry(const MeshResourceDescriptor &mesh) noexcept;
+[[nodiscard]] std::uint32_t
+ShadowGeometryClassMask(ShadowGeometryClass geometry_class) noexcept;
+[[nodiscard]] bool LightShadowMaskIncludesGeometry(
+    const LightDescriptor &light, const MeshResourceDescriptor &mesh) noexcept;
+[[nodiscard]] bool MeshInstanceCastsShadowForLight(
+    const LightDescriptor &light, const MeshInstanceDescriptor &instance,
+    const MeshResourceDescriptor &mesh) noexcept;
+
+/// Computes `view_exposure * exp2(scene_ev)` and accepts only a positive,
+/// finite, normal IEEE-754 binary32 result. Excluding subnormals makes the
+/// policy stable on FTZ and non-FTZ backends. The output is unchanged on
+/// failure.
+[[nodiscard]] bool ComputePortableEffectiveExposure(
+    float view_exposure, float scene_exposure_compensation_ev,
+    float &effective_exposure) noexcept;
+
 /// Stable, non-cryptographic FNV-1a-64 digest of the exact validated lighting
 /// and environment payload. The canonical byte encoding is little-endian,
-/// folds -0 to +0, contains no structure padding, and includes the absolute
-/// render origin plus current/previous light state. Snapshot/time identities,
-/// geometry, particles, and camera state are deliberately excluded.
+/// folds -0 to +0, contains no structure padding, and includes the asset
+/// registry identity, absolute render origin, and current/previous light state.
+/// Snapshot/time identities, asset sequence, geometry, particles, and camera
+/// state are deliberately excluded.
 [[nodiscard]] std::uint64_t ComputeSceneLightingEnvironmentHash(
     const SceneSnapshotDescriptor &descriptor) noexcept;
 

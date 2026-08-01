@@ -74,16 +74,24 @@ the first successful submission of its snapshot; repeats and multi-view renders
 do not duplicate smoke, dust, sparks, or other effects.
 
 Scene snapshot version 3 defines immutable analytic lighting in explicit
-photometric units: directional intensity is lux, point/spot intensity is
-candela, local attenuation and spot half-cones are exact, and static/dynamic
-shadow participation is a bit mask. Stable sorted identities carry current and
-previous position/direction; point lights have a canonical orientation and
-directional lights have canonical zero local-only fields. Environment state
-adds ambient radiance, optional linear HDR texture radiance, a fully specified
-additive gradient sky/sun disk tied to a directional-light identity, and bounded
-EV compensation. A padding-free little-endian FNV-1a digest covers that exact
-state and folds signed zero for portable change detection. It is not a security
-hash.
+photometric units. `color_linear` is a non-black, unit-photopic-luminance
+linear-sRGB Rec.709 D65 chromatic multiplier; directional `intensity` is lux
+and point/spot `intensity` is candela. This prevents color magnitude from
+silently rescaling the scalar photometry. Local attenuation and spot half-cones
+are exact. Static/dynamic shadow participation is a bit mask, and geometry
+class comes only from the referenced `MeshResourceDescriptor::dynamic` bit;
+instance motion, deformation revision, and update presence never reclassify it.
+Stable sorted identities carry current and previous position/direction; point
+lights have a canonical orientation and directional lights have canonical zero
+local-only fields. Environment state adds ambient radiance, optional linear HDR
+texture radiance, a fully specified additive gradient sky/sun disk tied to a
+directional-light identity, and bounded EV compensation. Sun-disk membership
+normalizes the view and emitted-ray directions, uses `-direction` as the disk
+center, and includes the exact angular boundary. Effective view exposure must
+remain a positive normal binary32 value, avoiding backend-dependent subnormal
+handling. A padding-free little-endian version-two FNV-1a digest covers that
+exact state plus the asset-registry identity and folds signed zero for portable
+change detection. It is not a security hash.
 
 `GraphicsSceneSnapshotProducer` version 2 accepts those lights in arbitrary
 source traversal order, canonicalizes them, rebases local-light history, and
@@ -93,7 +101,18 @@ exact immutable owner returned to the caller. Concurrent consumers acquire-load
 either the previous complete scene or the next complete scene; a failed
 production publishes nothing. The atomic observer pointer does not replace the
 ordered production result: renderer submission still carries that scene's asset
-delta and camera together.
+delta and camera together. Calls into a producer, including observer loads, must
+quiesce before producer destruction starts; immutable snapshot owners already
+acquired by readers remain valid independently.
+
+There is no implicit lighting-schema migration. Scene snapshot versions 1 and 2
+and joined-producer input version 1 are rejected with `UNSUPPORTED_VERSION`.
+An adapter migrating legacy light colors must normalize its non-black
+linear-sRGB color with `NormalizePhotometricColorLinear`, retain the scalar
+lux/candela value separately, populate all version-3 sky/exposure fields, and
+submit producer version 2. Old lighting hash values are not comparable with the
+version-2 digest because the registry identity and calibrated photometry are now
+part of the contract.
 
 The native interop and native ray-tracing interfaces are contracts, not an
 implementation or readiness claim. All related capabilities fail closed by

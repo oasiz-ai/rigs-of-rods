@@ -31,7 +31,7 @@ class SceneLightingSnapshotContractTests(unittest.TestCase):
     def test_versioned_photometric_schema_is_explicit(self) -> None:
         for token in (
             "kSceneSnapshotVersion = 3U",
-            "kSceneLightingHashVersion = 1U",
+            "kSceneLightingHashVersion = 2U",
             "struct AnalyticSkyDescriptor",
             "sun_light_id",
             "sun_disk_radiance",
@@ -41,6 +41,10 @@ class SceneLightingSnapshotContractTests(unittest.TestCase):
             "previous_position",
             "previous_direction",
             "lighting_environment_hash",
+            "kLinearSrgbRec709D65RedLuminance",
+            "IsViewDirectionInsideAnalyticSunDisk",
+            "ClassifyShadowGeometry",
+            "ComputePortableEffectiveExposure",
         ):
             self.assertIn(token, self.scene_header)
         self.assertIn("illuminance in", self.scene_header)
@@ -54,6 +58,7 @@ class SceneLightingSnapshotContractTests(unittest.TestCase):
             "std::memcpy(&bits, &value, sizeof(bits))",
             "if (value == 0.0F)",
             "AddAssetReference",
+            "hasher.AddU64(descriptor.asset_registry_id)",
             "AddU64(static_cast<std::uint64_t>(descriptor.lights.size()))",
         ):
             self.assertIn(token, self.scene_source)
@@ -62,6 +67,21 @@ class SceneLightingSnapshotContractTests(unittest.TestCase):
             re.compile(r"reinterpret_cast\s*<[^>]*char[^>]*>"),
             "hash must not consume compiler-dependent structure bytes",
         )
+
+    def test_photometry_sun_and_shadow_rules_are_canonical(self) -> None:
+        for token in (
+            "IsCanonicalPhotometricColorLinear(light.color_linear)",
+            "kRoundsToOneMinimum",
+            "kRoundsToOneMaximum",
+            "sun.type != LightType::DIRECTIONAL",
+            "center_dot_view >= boundary",
+            "return mesh.dynamic ? ShadowGeometryClass::DYNAMIC",
+            "MeshInstanceCastsShadowForLight",
+        ):
+            self.assertIn(token, self.scene_source)
+        self.assertIn("origin_delta[0U] + static_cast<double>(previous.x)",
+                      self.producer_source)
+        self.assertIn("origin_delta[0U] +", self.producer_source)
 
     def test_producer_canonicalizes_history_and_publishes_release_acquire(self) -> None:
         for token in (

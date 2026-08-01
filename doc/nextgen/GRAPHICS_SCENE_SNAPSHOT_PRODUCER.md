@@ -38,7 +38,8 @@ The first slice supports a complete authoritative inventory of:
 - static `MeshObject`/terrain-object instances with rigid transforms,
   visibility, and shadow/reflection flags;
 - directional lights in lux plus point/spot lights in candela, finite range,
-  spot half-cones, static/dynamic shadow masks, and stable source identities;
+  spot half-cones, unit-luminance linear-sRGB Rec.709 D65 chromatic
+  multipliers, static/dynamic shadow masks, and stable source identities;
 - current and previous local-light positions/directions, including exact render
   origin rebasing and identity/type/tombstone lineage;
 - constant or texture-backed environment radiance, an additive analytic
@@ -71,6 +72,11 @@ and externally serialized; atomic publication does not make concurrent calls to
 renderer frontends must still consume the successful production result so its
 asset delta and camera remain ordered with that scene.
 
+Every method call must quiesce before producer destruction begins. This is a
+normal object-lifetime requirement, not a lock supplied by the atomic observer.
+A reader that already acquired a `shared_ptr<const SceneSnapshot>` may retain
+and inspect that immutable owner after the producer itself is destroyed.
+
 The asset registry and source-asset catalog are one immutable copy-on-write
 state. An unchanged authoritative catalog is shared by the next transaction;
 its node-based maps and immutable payloads are not copied. Object history is a
@@ -100,13 +106,31 @@ authoritative-vector index. Failures after sorting, including lifecycle, kind,
 dependency, object reference, light photometry/history, and snapshot
 compatibility failures, report that original index rather than a sorted rank.
 
-Every immutable snapshot records a version-one FNV-1a-64 digest of the exact
+Every immutable snapshot records a version-two FNV-1a-64 digest of the exact
 lighting/environment payload. Its padding-free little-endian encoding includes
-the absolute render origin, optional environment references, ambient and
-analytic sky radiance, exposure, stable sorted lights, shadow masks, and current
-and previous light transforms. It canonicalizes signed zero and deliberately
-excludes frame IDs, time, geometry, particles, and cameras. This is a stable
-change-detection/test digest, not a collision-resistant security primitive.
+the asset-registry identity, absolute render origin, optional environment
+references, ambient and analytic sky radiance, exposure, stable sorted lights,
+shadow masks, and current and previous light transforms. It canonicalizes
+signed zero and deliberately excludes frame IDs, time, asset sequence,
+geometry, particles, and cameras. This is a stable change-detection/test digest,
+not a collision-resistant security primitive.
+
+Light color uses canonical linear-sRGB Rec.709 D65 photometry. A non-black
+chromatic multiplier is normalized so its weighted luminance is represented as
+binary32 one; the scalar `intensity` therefore remains the authoritative lux or
+candela value. Zero, nonfinite, negative, and unnormalized multipliers fail
+closed. Shadow caster class is derived only from the resolved mesh resource's
+`dynamic` bit. Motion, base/non-base deformation revision, and update presence
+do not change the class selected by a light's static/dynamic mask. The analytic
+sun helper normalizes both directions, centers the disk at the negated emitted
+ray direction, and includes `dot == cos(radius)`. Per-view exposure combined
+with scene EV must remain a finite positive normal binary32 value.
+
+Scene snapshot versions 1 and 2 and joined-frame producer version 1 are not
+implicitly migrated. They return `UNSUPPORTED_VERSION`. A legacy adapter must
+explicitly normalize light chromaticity, preserve scalar photometry separately,
+populate version-3 environment state, and emit producer version 2. Lighting
+hash version 1 must be discarded rather than compared with version 2.
 
 Producer limits bound lifetime asset/object/light records and authoritative
 descriptor payload bytes.

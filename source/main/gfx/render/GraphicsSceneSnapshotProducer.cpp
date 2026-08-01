@@ -299,13 +299,15 @@ bool RebasePreviousObjectTransform(const Matrix4x4 &previous,
                                    const Double3 &current_origin,
                                    Matrix4x4 &rebased) noexcept {
   rebased = previous;
+  const std::array<double, 3U> origin_delta{{
+      previous_origin.x - current_origin.x,
+      previous_origin.y - current_origin.y,
+      previous_origin.z - current_origin.z,
+  }};
   const std::array<double, 3U> translations{{
-      static_cast<double>(previous.elements[12U]) + previous_origin.x -
-          current_origin.x,
-      static_cast<double>(previous.elements[13U]) + previous_origin.y -
-          current_origin.y,
-      static_cast<double>(previous.elements[14U]) + previous_origin.z -
-          current_origin.z,
+      origin_delta[0U] + static_cast<double>(previous.elements[12U]),
+      origin_delta[1U] + static_cast<double>(previous.elements[13U]),
+      origin_delta[2U] + static_cast<double>(previous.elements[14U]),
   }};
   for (std::size_t axis = 0U; axis < translations.size(); ++axis) {
     if (!std::isfinite(translations[axis]) ||
@@ -322,10 +324,15 @@ bool RebasePreviousPosition(const Float3 &previous,
                             const Double3 &previous_origin,
                             const Double3 &current_origin,
                             Float3 &rebased) noexcept {
+  const std::array<double, 3U> origin_delta{{
+      previous_origin.x - current_origin.x,
+      previous_origin.y - current_origin.y,
+      previous_origin.z - current_origin.z,
+  }};
   const std::array<double, 3U> positions{{
-      static_cast<double>(previous.x) + previous_origin.x - current_origin.x,
-      static_cast<double>(previous.y) + previous_origin.y - current_origin.y,
-      static_cast<double>(previous.z) + previous_origin.z - current_origin.z,
+      origin_delta[0U] + static_cast<double>(previous.x),
+      origin_delta[1U] + static_cast<double>(previous.y),
+      origin_delta[2U] + static_cast<double>(previous.z),
   }};
   for (std::size_t axis = 0U; axis < positions.size(); ++axis) {
     if (!std::isfinite(positions[axis]) ||
@@ -724,6 +731,12 @@ public:
         result.validation = Failure(
             ValidationCode::INVALID_IDENTIFIER, "lights.source_light_id",
             "source light identity must be nonzero", index);
+        return result;
+      }
+      if (!IsKnownLightType(light.type)) {
+        result.validation = Failure(ValidationCode::INVALID_ENUM,
+                                    "lights.type", "unknown light type",
+                                    index);
         return result;
       }
       sorted_lights.push_back(IndexedLightInput{&light, index});
