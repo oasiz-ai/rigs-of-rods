@@ -467,8 +467,9 @@ provenance artifacts pass. Only then may the macOS build report
   The pinned PBS surface has no ambient-only occlusion slot; detail-map weight
   and direct-light multiplication remain explicitly rejected substitutes.
 - Keep Metal, HLSL, and GLSL exposure/tone-map results bound to the portable
-  pinned-source HDR oracle; treat output transfer, gamut mapping, dithering,
-  and framebuffer clamping as separately versioned presentation stages.
+  pinned-source analytic/shader HDR references and their explicit tolerance;
+  treat output transfer, gamut mapping, dithering, and framebuffer clamping as
+  separately versioned presentation stages.
 - Add probes/SSR or accepted non-RT reflection path and a measured diffuse-GI
   path.
 - Bind the probe fallback to the pinned portable box-projection/influence

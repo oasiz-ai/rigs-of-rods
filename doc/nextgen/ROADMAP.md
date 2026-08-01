@@ -1192,12 +1192,14 @@ tolerances near zero. Because this Default profile omits diffuse Fresnel,
 "normalized Disney diffuse" does not claim that the combined BRDF always
 integrates to at most one.
 
-The portable HDR numerical reference now pins the exact Ogre-Next source and
-Metal/HLSL/GLSL final-tone-map shader hashes. It covers exposure construction,
-log-luminance clamping, explicit-delta temporal adaptation, bloom conversion,
-and the Hable curve through the pre-framebuffer shader output. Backend captures,
-display transfer/gamut policy, and image/performance acceptance remain open and
-must compare against this oracle rather than renderer-specific defaults.
+The portable HDR numerical reference now has separate ideal-binary64 and
+shader-binary32 behaviors. The shader behavior deterministically models the
+RGBA16/R16 storage boundary and multi-frame exposure feedback; it names Ogre's
+historical bloom transfer gamma-2 rather than sRGB. An HDR-specific source lock
+is bound to the canonical Ogre-Next lock and hashes the complete selected
+utility/shader/compositor closure. Backend captures use the documented numeric
+tolerance and R16 policy in [the HDR reference contract](HDR_REFERENCE.md).
+Display transfer/gamut policy and image/performance acceptance remain open.
 
 Gate V1:
 

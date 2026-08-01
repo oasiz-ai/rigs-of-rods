@@ -41,6 +41,7 @@ set(SOURCE_FILES
         gfx/RendererBackendPolicy.{h,cpp}
         gfx/RenderDisplayMetrics.h
         gfx/render/GraphicsSceneSnapshotProducer.{h,cpp}
+        gfx/render/HdrReference.{h,cpp}
         gfx/render/MaterialDescriptor.{h,cpp}
         gfx/render/ParallaxProbeReference.{h,cpp}
         gfx/render/PbrReference.{h,cpp}
@@ -364,6 +365,7 @@ expand_file_extensions(SOURCE_FILES ${SOURCE_FILES})
 # where the game otherwise enables fast math globally.
 set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/GraphicsSceneSnapshotProducer.cpp
+        gfx/render/HdrReference.cpp
         gfx/render/MaterialDescriptor.cpp
         gfx/render/ParallaxProbeReference.cpp
         gfx/render/PbrReference.cpp
@@ -384,6 +386,7 @@ set_source_files_properties(
         )
 set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/GraphicsSceneSnapshotProducer.cpp
+        gfx/render/HdrReference.cpp
         gfx/render/MaterialDescriptor.cpp
         gfx/render/ParallaxProbeReference.cpp
         gfx/render/PbrReference.cpp
