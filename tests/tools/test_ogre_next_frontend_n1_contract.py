@@ -147,7 +147,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         for token in (
             "report.supported_outputs = FrameOutputMask::COLOR",
             "report.native_api = NativeGraphicsApi::NONE",
-            "snapshot.lights().empty()",
+            "OgreNextRasterFeatureTier::STATIC_PBR_N1",
             "no calibrated physical-light adapter",
             "N1 does not support deformable geometry",
             "N1 does not support particles",
@@ -156,6 +156,34 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.policy)
         self.assertIn("kOgreNextN1MaximumDirectionalLights = 0U", self.policy_header)
+
+    def test_rt4_directional_light_mapping_is_bounded_and_exact(self) -> None:
+        for token in (
+            "kOgreNextRt4MaximumDirectionalLights = 1U",
+            "kOgreNextRt4LuxToNativePowerScale = 1.0F / 1024.0F",
+        ):
+            self.assertIn(token, self.policy_header)
+        for token in (
+            "RT4/V1 admits at most one calibrated directional light",
+            "light.type != LightType::DIRECTIONAL",
+            "light.casts_shadows",
+            "light.intensity * kOgreNextRt4LuxToNativePowerScale",
+        ):
+            self.assertIn(token, self.policy)
+        for token in (
+            "createLight()",
+            "Ogre::Light::LT_DIRECTIONAL",
+            "setPowerScale(",
+            "kOgreNextRt4LuxToNativePowerScale",
+            "getPowerScale()",
+            "failed native readback",
+            "destroyLight(iterator->first)",
+        ):
+            self.assertIn(token, self.frontend)
+        self.assertIn(
+            '"directional_lux_to_native_power_scale"',
+            RUNNER_PATH.read_text(encoding="utf-8"),
+        )
 
     def test_pbr_mapping_uses_reviewed_brdf_and_live_getter_gate(self) -> None:
         self.assertNotIn("importUnity", self.frontend)

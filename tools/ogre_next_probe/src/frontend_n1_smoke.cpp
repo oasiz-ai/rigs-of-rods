@@ -204,7 +204,7 @@ MaterialDescriptor MakeMaterial(bool modern_pbr = false,
     material.metallic_factor = 0.85F;
     material.roughness_factor = 0.65F;
     material.emissive_factor = {1.0F, 0.7F, 0.4F};
-    material.emissive_strength = 6.0F;
+    material.emissive_strength = 1.5F;
     material.base_color_texture.texture =
         AssetRef(RenderAssetKind::TEXTURE, 3U,
                  variant->base_color_revision);
@@ -543,6 +543,17 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
   descriptor.simulation_tick = snapshot_id;
   descriptor.simulation_time_seconds = static_cast<double>(snapshot_id) / 48.0;
   descriptor.environment.ambient_radiance = {0.03F, 0.04F, 0.055F};
+  if (modern_pbr) {
+    descriptor.environment.ambient_radiance = {0.01F, 0.012F, 0.015F};
+    LightDescriptor light;
+    light.light_id = 1U;
+    light.type = LightType::DIRECTIONAL;
+    light.color_linear = {1.0F, 0.92F, 0.82F};
+    light.intensity = 1024.0F;
+    light.direction = {0.0F, 0.0F, -1.0F};
+    light.casts_shadows = false;
+    descriptor.lights.push_back(light);
+  }
 
   MeshInstanceDescriptor instance;
   instance.instance_id = 1U;
@@ -612,9 +623,24 @@ void RequireControlledSceneAndView(const SceneSnapshot &baseline_scene,
                   actual.environment_intensity &&
               expected.environment_texture == actual.environment_texture &&
               expected.environment_sampler == actual.environment_sampler &&
-              baseline_scene.lights().empty() &&
-              variant_scene.lights().empty(),
+              baseline_scene.lights().size() == 1U &&
+              variant_scene.lights().size() == 1U,
           "RT4/V1 controlled environment or lights changed");
+  const LightDescriptor &expected_light = baseline_scene.lights().front();
+  const LightDescriptor &actual_light = variant_scene.lights().front();
+  Require(expected_light.light_id == actual_light.light_id &&
+              expected_light.type == actual_light.type &&
+              expected_light.color_linear == actual_light.color_linear &&
+              expected_light.intensity == actual_light.intensity &&
+              expected_light.position == actual_light.position &&
+              expected_light.direction == actual_light.direction &&
+              expected_light.range == actual_light.range &&
+              expected_light.inner_cone_radians ==
+                  actual_light.inner_cone_radians &&
+              expected_light.outer_cone_radians ==
+                  actual_light.outer_cone_radians &&
+              expected_light.casts_shadows == actual_light.casts_shadows,
+          "RT4/V1 controlled directional light changed");
   Require(baseline_scene.mesh_instances().size() == 1U &&
               variant_scene.mesh_instances().size() == 1U,
           "RT4/V1 controlled instance count changed");
@@ -974,9 +1000,17 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << "    \"relocated_executable\": true,\n"
          << "    \"compositor2\": true,\n"
          << "    \"ui_included\": false,\n"
-         << "    \"cpu_readback_completed\": true,\n"
-         << "    \"analytic_lights_calibrated\": false,\n"
-         << "    \"constant_environment_only\": true,\n"
+         << "    \"cpu_readback_completed\": true,\n";
+  if (modern_pbr) {
+    report << "    \"analytic_lights_calibrated\": true,\n"
+           << "    \"directional_lux_to_native_power_scale\": 0.0009765625,\n"
+           << "    \"maximum_directional_lights\": 1,\n"
+           << "    \"constant_environment_only\": false,\n";
+  } else {
+    report << "    \"analytic_lights_calibrated\": false,\n"
+           << "    \"constant_environment_only\": true,\n";
+  }
+  report
          << "    \"native_interop\": false,\n"
          << "    \"ray_tracing\": false\n"
          << "  },\n"
