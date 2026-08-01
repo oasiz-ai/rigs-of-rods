@@ -183,6 +183,7 @@ target_include_directories(
 )
 
 set(ROR_RENDER_CONTRACT_SOURCES
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/GraphicsSceneSnapshotProducer.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetId.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetRegistry.cpp"
@@ -199,6 +200,10 @@ target_include_directories(
     PUBLIC "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
 )
 
+add_executable(
+    ror_graphics_scene_snapshot_producer_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/GraphicsSceneSnapshotProducerTests.cpp"
+)
 add_executable(
     ror_render_resource_handle_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ResourceHandleTests.cpp"
@@ -233,6 +238,7 @@ target_include_directories(
 )
 
 set(ROR_RENDER_CONTRACT_TEST_TARGETS
+    ror_graphics_scene_snapshot_producer_tests
     ror_render_resource_handle_tests
     ror_render_material_descriptor_tests
     ror_render_asset_registry_tests
@@ -1095,6 +1101,11 @@ add_test(
 add_test(
     NAME renderer_backend_policy
     COMMAND ror_renderer_backend_policy_tests
+)
+
+add_test(
+    NAME graphics_scene_snapshot_producer
+    COMMAND ror_graphics_scene_snapshot_producer_tests
 )
 
 add_test(
