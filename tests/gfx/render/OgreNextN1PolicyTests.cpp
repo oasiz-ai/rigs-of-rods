@@ -488,6 +488,60 @@ void TestModernPbrAssetPolicy() {
   Require(ValidateOgreNextN1AssetCatalog(registry, false, kModern).ok(),
           "valid RT4/V1 texture, sampler, tangent, and UV0 catalog was rejected");
 
+  const auto make_lit_scene = [&](std::vector<LightDescriptor> lights) {
+    SceneSnapshotDescriptor descriptor;
+    descriptor.snapshot_id = 1U;
+    descriptor.asset_registry_id = kRegistryId;
+    descriptor.asset_sequence = 1U;
+    MeshInstanceDescriptor instance;
+    instance.instance_id = 1U;
+    instance.mesh = Ref(RenderAssetKind::MESH, 1U);
+    instance.material = Ref(RenderAssetKind::MATERIAL, 2U);
+    instance.local_bounds = MakeModernMesh().local_bounds;
+    descriptor.mesh_instances.push_back(instance);
+    descriptor.lights = std::move(lights);
+    SceneSnapshotCreateResult scene =
+        CreateSceneSnapshot(std::move(descriptor));
+    Require(scene.ok(), "RT4/V1 light policy fixture is invalid");
+    return scene.snapshot;
+  };
+  LightDescriptor directional;
+  directional.light_id = 1U;
+  directional.intensity = 1024.0F;
+  directional.direction = {0.0F, 0.0F, -1.0F};
+  directional.casts_shadows = false;
+  Require(ValidateOgreNextN1Scene(*make_lit_scene({directional}), registry,
+                                  false, kModern)
+              .ok(),
+          "one calibrated RT4/V1 directional light was rejected");
+  LightDescriptor point = directional;
+  point.type = LightType::POINT;
+  Require(ValidateOgreNextN1Scene(*make_lit_scene({point}), registry, false,
+                                  kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "uncalibrated local light escaped RT4/V1 admission");
+  LightDescriptor shadowed = directional;
+  shadowed.casts_shadows = true;
+  Require(ValidateOgreNextN1Scene(*make_lit_scene({shadowed}), registry,
+                                  false, kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "directional light without a shadow contract escaped RT4/V1 admission");
+  LightDescriptor second = directional;
+  second.light_id = 2U;
+  Require(ValidateOgreNextN1Scene(
+              *make_lit_scene({directional, second}), registry, false, kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "multiple directional lights escaped RT4/V1 admission");
+  LightDescriptor overflowing = directional;
+  overflowing.color_linear = {(std::numeric_limits<float>::max)(),
+                              (std::numeric_limits<float>::max)(),
+                              (std::numeric_limits<float>::max)()};
+  overflowing.intensity = (std::numeric_limits<float>::max)();
+  Require(ValidateOgreNextN1Scene(*make_lit_scene({overflowing}), registry,
+                                  false, kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "overflowing finite RT4/V1 directional photometry escaped admission");
+
   RenderAssetDelta transformed_delta = MakeModernCatalogDelta(kRegistryId + 1U);
   std::get<MaterialDescriptor>(transformed_delta.mutations[1U].payload)
       .base_color_texture.rotation_radians = 0.25F;

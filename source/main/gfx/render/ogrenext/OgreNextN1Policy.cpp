@@ -611,10 +611,45 @@ ValidationResult ValidateOgreNextN1Scene(
   if (!snapshot.particle_events().empty()) {
     return Unsupported("particle_events", "N1 does not support particles");
   }
-  if (!snapshot.lights().empty()) {
+  if (raster_feature_tier ==
+          OgreNextRasterFeatureTier::STATIC_PBR_N1 &&
+      !snapshot.lights().empty()) {
     return Unsupported(
         "lights",
         "N1 has no calibrated physical-light adapter; use constant environment radiance");
+  }
+  if (raster_feature_tier ==
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+    if (snapshot.lights().size() >
+        kOgreNextRt4MaximumDirectionalLights) {
+      return Unsupported(
+          "lights",
+          "RT4/V1 admits at most one calibrated directional light");
+    }
+    for (std::size_t index = 0U; index < snapshot.lights().size(); ++index) {
+      const LightDescriptor &light = snapshot.lights()[index];
+      if (light.type != LightType::DIRECTIONAL) {
+        return Unsupported(
+            "lights.type",
+            "RT4/V1 admits a directional light only; local-light attenuation is not calibrated yet",
+            index);
+      }
+      if (light.casts_shadows) {
+        return Unsupported(
+            "lights.casts_shadows",
+            "RT4/V1 directional shadows require a reviewed shadow-node contract",
+            index);
+      }
+      const float native_power =
+          light.intensity * kOgreNextRt4LuxToNativePowerScale;
+      if (!IsFinite(native_power) ||
+          !IsFiniteScaled(light.color_linear, native_power)) {
+        return Unsupported(
+            "lights.photometry",
+            "finite directional lux and color overflow RT4/V1 native light arithmetic",
+            index);
+      }
+    }
   }
   if (!IsFiniteScaled(snapshot.environment().ambient_radiance,
                       snapshot.environment().environment_intensity)) {

@@ -26,6 +26,7 @@
 #include "OgreHlmsPbsDatablock.h"
 #include "OgreImage2.h"
 #include "OgreItem.h"
+#include "OgreLight.h"
 #include "OgreMatrix4.h"
 #include "OgreMesh2.h"
 #include "OgreMeshManager2.h"
@@ -187,6 +188,12 @@ bool NearlyEqual(const Ogre::Vector3 &lhs,
                  const Ogre::Vector3 &rhs) noexcept {
   return NearlyEqual(lhs.x, rhs.x) && NearlyEqual(lhs.y, rhs.y) &&
          NearlyEqual(lhs.z, rhs.z);
+}
+
+bool NearlyEqual(const Ogre::ColourValue &lhs,
+                 const Ogre::ColourValue &rhs) noexcept {
+  return NearlyEqual(lhs.r, rhs.r) && NearlyEqual(lhs.g, rhs.g) &&
+         NearlyEqual(lhs.b, rhs.b) && NearlyEqual(lhs.a, rhs.a);
 }
 
 Ogre::FilterOptions ToOgreFilter(SamplerFilter filter,
@@ -1769,6 +1776,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
   Ogre::IdString workspace_name;
   bool workspace_definition_created = false;
   std::vector<std::pair<Ogre::Item *, Ogre::SceneNode *>> items;
+  std::vector<std::pair<Ogre::Light *, Ogre::SceneNode *>> lights;
   std::vector<Impl::NativeMesh> submitted_frame_meshes;
   std::vector<OgreNextN2FrameGeometryBinding> interop_geometry;
   std::vector<OgreNextN3FrameImageBinding> interop_images;
@@ -1832,6 +1840,31 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
     }
     items.clear();
+    for (auto iterator = lights.rbegin(); iterator != lights.rend();
+         ++iterator) {
+      if (iterator->second != nullptr && iterator->first != nullptr) {
+        try {
+          iterator->second->detachObject(iterator->first);
+        } catch (...) {
+          clean = false;
+        }
+      }
+      if (iterator->first != nullptr) {
+        try {
+          impl_->scene_manager->destroyLight(iterator->first);
+        } catch (...) {
+          clean = false;
+        }
+      }
+      if (iterator->second != nullptr) {
+        try {
+          impl_->scene_manager->destroySceneNode(iterator->second);
+        } catch (...) {
+          clean = false;
+        }
+      }
+    }
+    lights.clear();
     if (destroy_frame_geometry) {
       clean = destroy_submitted_frame_meshes() && clean;
     }
@@ -1874,6 +1907,45 @@ RenderOperationResult OgreNextN1Frontend::Render(
             snapshot.environment().environment_intensity,
         Ogre::Vector3::UNIT_Y);
     impl_->scene_manager->setVisibilityMask(view.visibility_mask);
+
+    lights.reserve(snapshot.lights().size());
+    for (const LightDescriptor &descriptor : snapshot.lights()) {
+      Ogre::Light *light = impl_->scene_manager->createLight();
+      lights.emplace_back(light, nullptr);
+      Ogre::SceneNode *node =
+          impl_->scene_manager->getRootSceneNode()->createChildSceneNode();
+      lights.back().second = node;
+      light->setType(Ogre::Light::LT_DIRECTIONAL);
+      light->setDiffuseColour(descriptor.color_linear.x,
+                              descriptor.color_linear.y,
+                              descriptor.color_linear.z);
+      light->setSpecularColour(descriptor.color_linear.x,
+                               descriptor.color_linear.y,
+                               descriptor.color_linear.z);
+      light->setPowerScale(
+          descriptor.intensity * kOgreNextRt4LuxToNativePowerScale);
+      light->setDirection(descriptor.direction.x, descriptor.direction.y,
+                          descriptor.direction.z);
+      light->setCastShadows(false);
+      node->attachObject(light);
+      const Ogre::ColourValue expected_color(descriptor.color_linear.x,
+                                             descriptor.color_linear.y,
+                                             descriptor.color_linear.z);
+      const Ogre::Vector3 expected_direction(descriptor.direction.x,
+                                             descriptor.direction.y,
+                                             descriptor.direction.z);
+      const float expected_power =
+          descriptor.intensity * kOgreNextRt4LuxToNativePowerScale;
+      if (light->getType() != Ogre::Light::LT_DIRECTIONAL ||
+          !NearlyEqual(light->getDiffuseColour(), expected_color) ||
+          !NearlyEqual(light->getSpecularColour(), expected_color) ||
+          !NearlyEqual(light->getPowerScale(), expected_power) ||
+          !NearlyEqual(light->getDirection(), expected_direction) ||
+          light->getCastShadows()) {
+        throw std::logic_error(
+            "validated RT4/V1 directional light failed native readback");
+      }
+    }
 
     items.reserve(snapshot.mesh_instances().size());
     submitted_frame_meshes.reserve(snapshot.dynamic_mesh_updates().size());

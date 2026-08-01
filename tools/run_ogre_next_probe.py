@@ -1256,9 +1256,18 @@ def validate_n1_checkpoint(
         "compositor2": adapter.get("compositor2") is True,
         "ui_free": adapter.get("ui_included") is False,
         "readback": adapter.get("cpu_readback_completed") is True,
-        "uncalibrated_lights_rejected": adapter.get("analytic_lights_calibrated")
-        is False
-        and adapter.get("constant_environment_only") is True,
+        "light_policy": (
+            adapter.get("analytic_lights_calibrated") is True
+            and adapter.get("directional_lux_to_native_power_scale")
+            == 1.0 / 1024.0
+            and adapter.get("maximum_directional_lights") == 1
+            and adapter.get("constant_environment_only") is False
+        )
+        if modern_pbr
+        else (
+            adapter.get("analytic_lights_calibrated") is False
+            and adapter.get("constant_environment_only") is True
+        ),
         "interop_closed": adapter.get("native_interop") is False
         and adapter.get("ray_tracing") is False,
         "catalog": catalog.get("sequence") == (6 if modern_pbr else 1)

@@ -24,6 +24,11 @@ namespace RoR::Render {
 // initialization and validates the requested offscreen extent against it.
 constexpr std::uint32_t kOgreNextN1ConservativeMaximumTextureDimension = 2048U;
 constexpr std::size_t kOgreNextN1MaximumDirectionalLights = 0U;
+constexpr std::size_t kOgreNextRt4MaximumDirectionalLights = 1U;
+/// Ogre's reference HDR scene scales physical illuminance by 2^-10 to keep
+/// direct-sun values inside RGBA16_FLOAT headroom. RT4/V1 adopts that exact,
+/// renderer-independent mapping for its one admitted directional light.
+constexpr float kOgreNextRt4LuxToNativePowerScale = 1.0F / 1024.0F;
 
 /// Bounds after the portable descriptor has been reduced with overflow-safe
 /// float arithmetic into Ogre's center/half-size representation.
