@@ -488,11 +488,22 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         string(REGEX REPLACE "[\r\n\t ]+" " "
             ROR_WINDOWS_DXR7_DXC_VERSION
             "${ROR_WINDOWS_DXR7_DXC_VERSION}")
-        if (ROR_WINDOWS_DXR7_DXC_VERSION MATCHES "[\\\";]" OR
-                ROR_WINDOWS_DXR7_DXC_VERSION MATCHES "[^ -~]")
+        if (ROR_WINDOWS_DXR7_DXC_VERSION MATCHES "[^ -~]")
             message(FATAL_ERROR
                 "The Windows SDK DXC version cannot be embedded safely")
         endif ()
+        # Preserve the exact bounded printable SDK version in the runtime
+        # evidence. Semicolons are part of Microsoft's normal `dxc --version`
+        # output; only characters significant to a C string literal need an
+        # escaped configure-file representation.
+        set(ROR_WINDOWS_DXR7_DXC_VERSION_C_LITERAL
+            "${ROR_WINDOWS_DXR7_DXC_VERSION}")
+        string(REPLACE "\\" "\\\\"
+            ROR_WINDOWS_DXR7_DXC_VERSION_C_LITERAL
+            "${ROR_WINDOWS_DXR7_DXC_VERSION_C_LITERAL}")
+        string(REPLACE "\"" "\\\""
+            ROR_WINDOWS_DXR7_DXC_VERSION_C_LITERAL
+            "${ROR_WINDOWS_DXR7_DXC_VERSION_C_LITERAL}")
         file(TO_CMAKE_PATH "${_ror_dxc_real_path}"
             ROR_WINDOWS_DXR7_DXC_PATH)
         file(TO_CMAKE_PATH "${ROR_WINDOWS_DXR7_DXC_X64_DIRECTORY}"

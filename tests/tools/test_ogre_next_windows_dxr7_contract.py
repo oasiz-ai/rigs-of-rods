@@ -54,7 +54,10 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
                 "c:/program files (x86)/windows kits/10/bin/"
                 "10.0.26100.0/x64/dxc.exe"
             ),
-            "dxc_version": "libdxcompiler fixture 1.0",
+            "dxc_version": (
+                "dxcompiler.dll: 1.8 - 1.8.2502.11 (239921522); "
+                "dxil.dll: 1.8(1.8.2502.11)"
+            ),
             "components": {
                 "dxc.exe": {
                     "path": "dxc.exe",
@@ -418,6 +421,18 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
         # passes every non-Windows static test and fails during configure.
         self.assertIn(r"$ENV{ProgramFiles\(x86\)}", cmake_source)
         self.assertNotIn("$ENV{ProgramFiles(x86)}", cmake_source)
+        self.assertIn(
+            "ROR_WINDOWS_DXR7_DXC_VERSION_C_LITERAL", cmake_source
+        )
+        config_template = (
+            RUNNER.PROBE_SOURCE / "windows_dxr7_config.h.in"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "@ROR_WINDOWS_DXR7_DXC_VERSION_C_LITERAL@", config_template
+        )
+        self.assertNotIn(
+            'MATCHES "[\\\\\\\";]"', cmake_source
+        )
 
     def test_complete_dispatch_and_real_ogre_frame_report_passes(self) -> None:
         self.validate(self.make_pass_report())
