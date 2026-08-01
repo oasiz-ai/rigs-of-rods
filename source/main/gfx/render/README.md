@@ -107,3 +107,11 @@ it can produce a view-dependent attachment. These remain standalone gates: N2
 does not yet import a result into an Ogre texture or implement RT
 materials, lighting, denoising, compositing, or presentation, while Windows and
 Linux continue to report native RT false until their explicit backends exist.
+
+`PbrReference` is the strict-CPU numerical oracle for the portable direct-light
+material slice. Version 1 records the exact pinned Ogre-Next commit and mirrors
+its full-precision `PbsBrdf::Default` metallic workflow: squared perceptual
+roughness, the 0.001 alpha floor, GGX distribution, height-correlated Smith
+visibility, Schlick Fresnel, and normalized Disney diffuse. It deliberately
+does not turn backend success into a fidelity claim; Metal, Vulkan, and D3D
+captures must compare their resolved shader samples to this same oracle.

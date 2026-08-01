@@ -1139,6 +1139,17 @@ mode, and legacy fallback. Generate or import tangents rather than pretending
 legacy cab meshes already contain them. Convert one DAF material and one terrain
 layer before bulk conversion.
 
+The renderer-neutral V1 numerical oracle now evaluates the exact supported
+equations from the pinned Ogre-Next `PbsBrdf::Default` source revision in
+strict binary64 arithmetic. It locks the metallic workflow, squared perceptual
+roughness and alpha floor, GGX distribution, height-correlated Smith
+visibility, Schlick Fresnel, and normalized Disney diffuse. Golden dielectric,
+metal, rough, and oblique samples plus 20,000 fixed-seed reciprocity,
+nonnegativity, and rotation fixtures pass under strict AppleClang and GCC 14,
+Release, and ASan/UBSan builds. This is a CPU reference, not GPU shader parity;
+each Metal, Vulkan, and D3D capture still has to demonstrate the V1 1% gate
+against it.
+
 Gate V1:
 
 - Automated BRDF fixtures match the selected reference implementation within 1%
