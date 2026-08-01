@@ -1671,8 +1671,13 @@ RunTangentHandednessProof(const std::string &media_root) {
       MakeTangentHandednessCatalog(true);
   RequireControlledTangentHandednessCatalogs(positive_catalog,
                                              negative_catalog);
-  constexpr float kSqrtHalf = 0.707106769F;
-  const Float3 angled_light{0.0F, -kSqrtHalf, -kSqrtHalf};
+  // A 20-degree common tilt exposes the authored bitangent sign without
+  // turning the negative-handed control away far enough to lose the smoke's
+  // independent scene-referred HDR floor.
+  constexpr float kSinTwentyDegrees = 0.342020154F;
+  constexpr float kCosTwentyDegrees = 0.939692616F;
+  const Float3 angled_light{0.0F, -kSinTwentyDegrees,
+                           -kCosTwentyDegrees};
   const auto positive_scene = MakeScene(800U, false, true, 1U, 1U,
                                         Matrix4x4{}, 1U, angled_light);
   const auto negative_scene = MakeScene(801U, false, true, 2U, 1U,
