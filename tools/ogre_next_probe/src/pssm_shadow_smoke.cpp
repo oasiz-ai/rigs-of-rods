@@ -251,13 +251,13 @@ RenderAssetDelta Catalog() {
   add(RenderAssetKind::MESH, 1U, ReceiverMesh());
   add(RenderAssetKind::MESH, 2U,
       QuadMesh(0.45F, 0.45F, "PSSM isolated occluder quad"));
-  add(RenderAssetKind::MESH, 5U, TightReceiverMesh());
   add(RenderAssetKind::MATERIAL, 3U,
       Material("PSSM matte receiver", {0.72F, 0.74F, 0.78F, 1.0F},
                0.72F));
   add(RenderAssetKind::MATERIAL, 4U,
       Material("PSSM non-receiving occluder",
                {0.82F, 0.22F, 0.08F, 1.0F}, 0.44F));
+  add(RenderAssetKind::MESH, 5U, TightReceiverMesh());
   return delta;
 }
 
