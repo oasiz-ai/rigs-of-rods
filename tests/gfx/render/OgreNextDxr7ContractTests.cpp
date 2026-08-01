@@ -50,6 +50,63 @@ RoR::Render::Dxr7PassContract CompletePass() {
   return proof;
 }
 
+bool SameTeardownContract(
+    const RoR::Render::Dxr7OgreTeardownContract& lhs,
+    const RoR::Render::Dxr7OgreTeardownContract& rhs) {
+  return lhs.workspace_removed == rhs.workspace_removed &&
+         lhs.workspace_definition_removed ==
+             rhs.workspace_definition_removed &&
+         lhs.render_target_destroyed == rhs.render_target_destroyed &&
+         lhs.scene_destroyed == rhs.scene_destroyed &&
+         lhs.pbs_datablock_destroyed == rhs.pbs_datablock_destroyed &&
+         lhs.pbs_hlms_unregistered == rhs.pbs_hlms_unregistered &&
+         lhs.native_window_destroyed == rhs.native_window_destroyed &&
+         lhs.root_shutdown_completed == rhs.root_shutdown_completed;
+}
+
+void RequireInvalidTeardownStepsAreTransactional() {
+  using RoR::Render::Dxr7OgreTeardownStep;
+  using RoR::Render::Dxr7OgreTeardownTracker;
+
+  constexpr auto kStepCount =
+      static_cast<std::uint8_t>(
+          Dxr7OgreTeardownStep::ROOT_SHUTDOWN_COMPLETED) +
+      1U;
+  constexpr auto kUnderlyingMaximum =
+      std::numeric_limits<std::uint8_t>::max();
+
+  // Exercise every non-enumerator byte at every reachable state: before any
+  // teardown, between every ordered pair, and after completion. Each attempt
+  // gets a fresh tracker so one invalid value cannot mask another's mutation.
+  for (std::uint16_t completed_steps = 0U;
+       completed_steps <= kStepCount; ++completed_steps) {
+    for (std::uint16_t raw_step = kStepCount;
+         raw_step <= kUnderlyingMaximum; ++raw_step) {
+      Dxr7OgreTeardownTracker tracker;
+      for (std::uint16_t valid_step = 0U;
+           valid_step < completed_steps; ++valid_step) {
+        Require(tracker.Record(static_cast<Dxr7OgreTeardownStep>(valid_step)),
+                "valid teardown setup step was rejected");
+      }
+
+      const auto before = tracker.contract();
+      const bool was_complete = tracker.complete();
+      Require(!tracker.Record(static_cast<Dxr7OgreTeardownStep>(raw_step)),
+              "invalid teardown enum value was accepted");
+      Require(SameTeardownContract(before, tracker.contract()),
+              "invalid teardown enum value mutated the public contract");
+      Require(tracker.complete() == was_complete,
+              "invalid teardown enum value mutated tracker progress");
+
+      if (completed_steps < kStepCount) {
+        Require(tracker.Record(
+                    static_cast<Dxr7OgreTeardownStep>(completed_steps)),
+                "invalid teardown enum value changed the required next step");
+      }
+    }
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -110,6 +167,7 @@ int main() {
   Require(teardown.complete(), "complete ordered teardown was rejected");
   Require(!teardown.Record(Dxr7OgreTeardownStep::ROOT_SHUTDOWN_COMPLETED),
           "duplicate teardown completion was accepted");
+  RequireInvalidTeardownStepsAreTransactional();
 
   Dxr7PassContract proof = CompletePass();
   Require(ValidateDxr7PassContract(proof), "complete RT7 proof rejected");
