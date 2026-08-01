@@ -458,6 +458,9 @@ provenance artifacts pass. Only then may the macOS build report
 - Complete the remaining Ogre-Next PBR/HDR material and lighting floor,
   including normal/occlusion maps, shadows, exposure, and presentation, and
   reproduce the implemented slice on Windows and Linux.
+- Keep Metal, HLSL, and GLSL exposure/tone-map results bound to the portable
+  pinned-source HDR oracle; treat output transfer, gamut mapping, dithering,
+  and framebuffer clamping as separately versioned presentation stages.
 - Add probes/SSR or accepted non-RT reflection path and a measured diffuse-GI
   path.
 - Bind the probe fallback to the pinned portable box-projection/influence
