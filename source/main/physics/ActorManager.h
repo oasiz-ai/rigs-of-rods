@@ -84,6 +84,9 @@ public:
 
     void           UpdateActors(ActorPtr player_actor);
     void           SyncWithSimThread();
+    /// Stop and join the private physics worker before renderer/static
+    /// lifetime teardown. Idempotent and reserved for final app shutdown.
+    bool           ShutdownWorkerRuntime() noexcept;
     void           UpdatePhysicsSimulation();
     /// Suspend normal render-frame scheduling and grant one exact-step runtime
     /// exclusive ownership of this ActorManager. The opaque token prevents a

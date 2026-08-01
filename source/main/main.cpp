@@ -136,6 +136,30 @@ void ReleaseWindowBoundRuntime(
     }
 }
 
+void ReleaseWorkerRuntime() noexcept
+{
+    using namespace RoR;
+
+    const bool had_general_workers = App::GetThreadPool() != nullptr;
+    bool clean_release =
+        App::GetGameContext()->GetActorManager()->ShutdownWorkerRuntime();
+    clean_release = App::DestroyThreadPool() && clean_release;
+
+    if (had_general_workers && Ogre::LogManager::getSingletonPtr() != nullptr)
+    {
+        try
+        {
+            LOG(clean_release
+                ? "[RoR|Shutdown] Physics and graphics worker pools released"
+                : "[RoR|Shutdown] ERROR releasing physics and graphics worker pools");
+        }
+        catch (...)
+        {
+            // Final shutdown must not throw from a diagnostic path.
+        }
+    }
+}
+
 class WindowBoundRuntimeGuard
 {
 public:
@@ -156,6 +180,20 @@ private:
     Ogre::OverlaySystem*& m_overlay_system;
 };
 
+class WorkerRuntimeGuard
+{
+public:
+    WorkerRuntimeGuard() = default;
+
+    ~WorkerRuntimeGuard()
+    {
+        ReleaseWorkerRuntime();
+    }
+
+    WorkerRuntimeGuard(const WorkerRuntimeGuard&) = delete;
+    WorkerRuntimeGuard& operator=(const WorkerRuntimeGuard&) = delete;
+};
+
 } // namespace
 
 #ifdef __cplusplus
@@ -172,6 +210,7 @@ int main(int argc, char *argv[])
 
     Ogre::OverlaySystem* overlay_system = nullptr;
     WindowBoundRuntimeGuard window_bound_runtime_guard(overlay_system);
+    WorkerRuntimeGuard worker_runtime_guard;
 
 #ifndef _DEBUG
     try

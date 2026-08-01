@@ -446,10 +446,31 @@ ActorManager::ActorManager()
 
 ActorManager::~ActorManager()
 {
-    this->SyncWithSimThread(); // Wait for sim task to finish
-    this->FinishDeterministicStateTrace(
-        "actor manager destruction",
-        false);
+    this->ShutdownWorkerRuntime();
+}
+
+bool ActorManager::ShutdownWorkerRuntime() noexcept
+{
+    if (m_sim_thread_pool == nullptr && m_sim_task == nullptr &&
+        m_deterministic_state_trace == nullptr)
+    {
+        return true;
+    }
+
+    try
+    {
+        this->SyncWithSimThread();
+        this->FinishDeterministicStateTrace(
+            "physics worker shutdown",
+            false);
+        m_sim_task.reset();
+        m_sim_thread_pool.reset();
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
 }
 
 void ActorManager::FinishDeterministicStateTrace(

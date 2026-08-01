@@ -22,6 +22,13 @@ APP_COMMAND_LINE = (
     REPOSITORY_ROOT / "source" / "main" / "system" / "AppCommandLine.cpp"
 )
 MAIN_SOURCE = REPOSITORY_ROOT / "source" / "main" / "main.cpp"
+APPLICATION_SOURCE = REPOSITORY_ROOT / "source" / "main" / "Application.cpp"
+ACTOR_MANAGER_HEADER = (
+    REPOSITORY_ROOT / "source" / "main" / "physics" / "ActorManager.h"
+)
+ACTOR_MANAGER_SOURCE = (
+    REPOSITORY_ROOT / "source" / "main" / "physics" / "ActorManager.cpp"
+)
 APP_CONTEXT_HEADER = REPOSITORY_ROOT / "source" / "main" / "AppContext.h"
 APP_CONTEXT_SOURCE = REPOSITORY_ROOT / "source" / "main" / "AppContext.cpp"
 ENVIRONMENT_MAP_HEADER = (
@@ -72,6 +79,15 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         cls.main_source_text = MAIN_SOURCE.read_text(encoding="utf-8")
+        cls.application_source_text = APPLICATION_SOURCE.read_text(
+            encoding="utf-8"
+        )
+        cls.actor_manager_header_text = ACTOR_MANAGER_HEADER.read_text(
+            encoding="utf-8"
+        )
+        cls.actor_manager_source_text = ACTOR_MANAGER_SOURCE.read_text(
+            encoding="utf-8"
+        )
         cls.app_context_header_text = APP_CONTEXT_HEADER.read_text(
             encoding="utf-8"
         )
@@ -540,6 +556,7 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("MESA_LOADER_DRIVER_OVERRIDE", text)
         self.assertNotIn("continue-on-error:", text)
         self.assertIn("--generation-timeout 600", text)
+        self.assertIn("--generation-workers 1", text)
         self.assertNotRegex(
             text.casefold(),
             r"(?:skip|ignore).*(?:renderer|render probe)",
@@ -576,6 +593,22 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self,
     ) -> None:
         text = self.main_source_text
+        worker_helper = text.index("void ReleaseWorkerRuntime()")
+        private_workers = text.index(
+            "ShutdownWorkerRuntime()",
+            worker_helper,
+        )
+        general_workers = text.index(
+            "App::DestroyThreadPool()",
+            private_workers,
+        )
+        worker_marker = text.index(
+            "Physics and graphics worker pools released",
+            general_workers,
+        )
+        self.assertLess(private_workers, general_workers)
+        self.assertLess(general_workers, worker_marker)
+
         helper_start = text.index("void ReleaseWindowBoundRuntime(")
         detach = text.index("DetachRenderWindowEvents()", helper_start)
         input_cleanup = text.index("App::DestroyInputEngine()", detach)
@@ -606,8 +639,41 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             "WindowBoundRuntimeGuard window_bound_runtime_guard",
             main_start,
         )
-        try_start = text.index("try", guard)
+        worker_guard = text.index(
+            "WorkerRuntimeGuard worker_runtime_guard",
+            guard,
+        )
+        try_start = text.index("try", worker_guard)
         self.assertLess(guard, try_start)
+        self.assertLess(worker_guard, try_start)
+
+        gfx_scene_static = self.application_source_text.index(
+            "static GfxScene             g_gfx_scene;"
+        )
+        game_context_static = self.application_source_text.index(
+            "static GameContext          g_game_context;"
+        )
+        self.assertLess(gfx_scene_static, game_context_static)
+        self.assertIn(
+            "bool           ShutdownWorkerRuntime() noexcept;",
+            self.actor_manager_header_text,
+        )
+        actor_destructor = self.actor_manager_source_text.index(
+            "ActorManager::~ActorManager()"
+        )
+        actor_shutdown = self.actor_manager_source_text.index(
+            "bool ActorManager::ShutdownWorkerRuntime() noexcept"
+        )
+        self.assertIn(
+            "this->ShutdownWorkerRuntime();",
+            self.actor_manager_source_text[
+                actor_destructor:actor_shutdown
+            ],
+        )
+        self.assertIn(
+            "m_sim_thread_pool.reset();",
+            self.actor_manager_source_text[actor_shutdown:],
+        )
 
         queue_end = text.index('OgreProfileEnd("RoR message queue")')
         shutdown_guard = text.index(

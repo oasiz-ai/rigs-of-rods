@@ -87,7 +87,12 @@ class MacOSBundleSmokeTests(unittest.TestCase):
                     )
 
     def test_renderer_smoke_requires_all_runtime_evidence(self) -> None:
-        engine_log = "\n".join(SMOKE.ENGINE_REQUIRED_MARKERS)
+        engine_log = "\n".join(
+            (
+                *SMOKE.ENGINE_REQUIRED_MARKERS[:-2],
+                *SMOKE.SHUTDOWN_ENGINE_REQUIRED_MARKERS,
+            )
+        )
         script_log = "\n".join(SMOKE.SCRIPT_REQUIRED_MARKERS)
         SMOKE.validate_runtime_smoke(0, "normal stdout", engine_log, script_log)
 
@@ -98,6 +103,25 @@ class MacOSBundleSmokeTests(unittest.TestCase):
                         0,
                         "normal stdout",
                         engine_log.replace(missing_marker, ""),
+                        script_log,
+                    )
+
+    def test_renderer_smoke_requires_unique_ordered_shutdown(self) -> None:
+        prefix = "\n".join(SMOKE.ENGINE_REQUIRED_MARKERS[:-2])
+        shutdown = "\n".join(SMOKE.SHUTDOWN_ENGINE_REQUIRED_MARKERS)
+        script_log = "\n".join(SMOKE.SCRIPT_REQUIRED_MARKERS)
+        for invalid_shutdown in (
+            "\n".join(reversed(SMOKE.SHUTDOWN_ENGINE_REQUIRED_MARKERS)),
+            shutdown
+            + "\n"
+            + SMOKE.SHUTDOWN_ENGINE_REQUIRED_MARKERS[1],
+        ):
+            with self.subTest(invalid_shutdown=invalid_shutdown):
+                with self.assertRaises(SMOKE.SmokeFailure):
+                    SMOKE.validate_runtime_smoke(
+                        0,
+                        "normal stdout",
+                        prefix + "\n" + invalid_shutdown,
                         script_log,
                     )
 
@@ -119,7 +143,12 @@ class MacOSBundleSmokeTests(unittest.TestCase):
             SMOKE.validate_runtime_smoke(
                 0,
                 "Segmentation fault",
-                "\n".join(SMOKE.ENGINE_REQUIRED_MARKERS),
+                "\n".join(
+                    (
+                        *SMOKE.ENGINE_REQUIRED_MARKERS[:-2],
+                        *SMOKE.SHUTDOWN_ENGINE_REQUIRED_MARKERS,
+                    )
+                ),
                 "\n".join(SMOKE.SCRIPT_REQUIRED_MARKERS),
             )
 
@@ -238,7 +267,12 @@ class MacOSBundleSmokeTests(unittest.TestCase):
                 result = next(results)
                 if result.stdout == b"runtime stdout":
                     engine_log.write_text(
-                        "\n".join(SMOKE.ENGINE_REQUIRED_MARKERS),
+                        "\n".join(
+                            (
+                                *SMOKE.ENGINE_REQUIRED_MARKERS[:-2],
+                                *SMOKE.SHUTDOWN_ENGINE_REQUIRED_MARKERS,
+                            )
+                        ),
                         encoding="utf-8",
                     )
                     script_log.write_text(

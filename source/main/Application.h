@@ -895,6 +895,7 @@ void CreateScriptEngine();
 // Cleanups
 void DestroyOverlayWrapper();
 void DestroyInputEngine();
+bool DestroyThreadPool() noexcept;
 
 // Live world-model lifecycle hooks used by the main loop.
 void UpdateWorldModelCaptureRequest();

@@ -27,6 +27,7 @@ COMMON_ENGINE_REQUIRED_MARKERS = (
     "[RoR|Startup|Rendering] Creating render window with settings:",
     "RenderSystem::_createRenderWindow",
     "[RoR|Shutdown] Leaving the main loop after the shutdown message",
+    "[RoR|Shutdown] Physics and graphics worker pools released",
     "*** Terminating OIS ***",
     "[RoR|Shutdown] Window-bound runtime integrations released",
     "[RoR|Shutdown] Environment map renderer resources released",
@@ -34,6 +35,7 @@ COMMON_ENGINE_REQUIRED_MARKERS = (
 )
 SHUTDOWN_ENGINE_REQUIRED_MARKERS = (
     "[RoR|Shutdown] Leaving the main loop after the shutdown message",
+    "[RoR|Shutdown] Physics and graphics worker pools released",
     "*** Terminating OIS ***",
     "[RoR|Shutdown] Window-bound runtime integrations released",
     "[RoR|Shutdown] Environment map renderer resources released",

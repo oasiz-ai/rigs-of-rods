@@ -60,8 +60,11 @@ static CameraManager*       g_camera_manager = nullptr;
 static Console              g_console;
 static ContentManager       g_content_manager;
 static DiscordRpc           g_discord_rpc;
-static GameContext          g_game_context;
+// Scene users must finish before the scene registry releases renderer-owned
+// handles. Static objects in one translation unit are destroyed in reverse
+// declaration order, so keep GfxScene before GameContext deliberately.
 static GfxScene             g_gfx_scene;
+static GameContext          g_game_context;
 static GUIManager*          g_gui_manager = nullptr;
 static InputEngine*         g_input_engine = nullptr;
 static LanguageEngine       g_language_engine;
@@ -401,6 +404,28 @@ void DestroyInputEngine()
 {
     delete g_input_engine;
     g_input_engine = nullptr;
+}
+
+bool DestroyThreadPool() noexcept
+{
+    if (g_thread_pool == nullptr)
+    {
+        return true;
+    }
+
+    try
+    {
+        delete g_thread_pool;
+        g_thread_pool = nullptr;
+        return true;
+    }
+    catch (...)
+    {
+        // Preserve the pointer if an implementation-specific worker join
+        // reports failure. The caller must report an unclean shutdown rather
+        // than pretending callbacks can no longer run.
+        return false;
+    }
 }
 
 } // namespace App
