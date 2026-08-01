@@ -72,8 +72,8 @@ std::size_t LargeCount() noexcept {
 // Sanitizer runtimes own the replaceable global new/delete symbols. Their
 // documented allocator hook observes the same allocations without colliding
 // with libclang_rt.{a,t}san_cxx at link time.
-extern "C" void SANITIZER_CDECL
-__sanitizer_malloc_hook(const volatile void *, std::size_t size) {
+extern "C" void __sanitizer_malloc_hook(const volatile void *,
+                                         std::size_t size) {
   AllocationProbe::Record(size);
 }
 

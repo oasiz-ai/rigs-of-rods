@@ -298,6 +298,17 @@ foreach (render_contract_target IN LISTS ROR_RENDER_CONTRACT_BUILD_TARGETS)
     endif ()
 endforeach ()
 
+# This test intentionally replaces global new/delete with one malloc/free pair
+# so it can count allocations. GCC 11's interprocedural analysis diagnoses the
+# replacement delete at unrelated allocator call sites even though the source
+# defines the paired replacement new. Keep every other warning fatal.
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(
+        ror_graphics_scene_snapshot_producer_tests
+        PRIVATE -Wno-mismatched-new-delete
+    )
+endif ()
+
 add_executable(
     ror_local_light_budget_tests
     "${CMAKE_CURRENT_LIST_DIR}/terrain/LocalLightBudgetTests.cpp"
