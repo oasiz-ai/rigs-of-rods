@@ -40,7 +40,11 @@ RT4_PBR_IMAGE_NAME = "ror-ogre-next-frontend-rt4-pbr-v1.ppm"
 RT4_PBR_EVIDENCE_NAME = (
     "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin"
 )
+RT4_PBR_ATTESTATION_NAME = (
+    "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json"
+)
 N1_PACKAGE_NAME = "ror-ogre-next-n1-package"
+N1_PACKAGE_EXECUTABLE_STEM = "ror_ogre_next_frontend_n1_smoke"
 N2_REPORT_NAME = "ror-ogre-next-metal-n2-report.json"
 N2_PROBE_NAME = "ror-ogre-next-metal-n2-probe.bin"
 N2_ATTESTATION_NAME = "ror-ogre-next-metal-n2-attestation.json"
@@ -1047,7 +1051,7 @@ def _changed_pixels(
 
 def validate_rt4_isolation_evidence(
     report: dict[str, Any], evidence_path: Path
-) -> None:
+) -> list[dict[str, Any]]:
     try:
         evidence = evidence_path.read_bytes()
     except OSError as error:
@@ -1098,6 +1102,7 @@ def validate_rt4_isolation_evidence(
     offset = 0
     baseline_blocks: dict[str, bytes] = {}
     observed_hashes: dict[str, set[str]] = {"hdr": set(), "sdr": set()}
+    slice_attestations: list[dict[str, Any]] = []
     for index, (entry, expected) in enumerate(
         zip(variants, expected_variants)
     ):
@@ -1146,6 +1151,15 @@ def validate_rt4_isolation_evidence(
                 raise ProbeError(
                     f"RT4/V1 {entry.get('name')} {label} delta is not isolated evidence"
                 )
+            slice_attestations.append(
+                {
+                    "variant": expected[0],
+                    "attachment": label,
+                    "offset": offset,
+                    "bytes": expected_bytes,
+                    "sha256": hashlib.sha256(block).hexdigest(),
+                }
+            )
             offset += expected_bytes
     if offset != len(evidence):
         raise ProbeError("RT4/V1 isolation evidence has trailing bytes")
@@ -1162,6 +1176,7 @@ def validate_rt4_isolation_evidence(
         raise ProbeError(
             "RT4/V1 baseline isolation evidence differs from the primary report"
         )
+    return slice_attestations
 
 
 def validate_n1_checkpoint(
@@ -1173,7 +1188,7 @@ def validate_n1_checkpoint(
     source_identity: dict[str, Any],
     modern_pbr: bool = False,
     isolation_evidence_path: Path | None = None,
-) -> None:
+) -> list[dict[str, Any]] | None:
     try:
         image = image_path.read_bytes()
     except OSError as error:
@@ -1361,7 +1376,138 @@ def validate_n1_checkpoint(
     if modern_pbr:
         if isolation_evidence_path is None:
             raise ProbeError("RT4/V1 isolation evidence path is required")
-        validate_rt4_isolation_evidence(report, isolation_evidence_path)
+        return validate_rt4_isolation_evidence(report, isolation_evidence_path)
+    return None
+
+
+def _attest_regular_file(path: Path, build_dir: Path) -> dict[str, Any]:
+    try:
+        resolved_root = build_dir.resolve(strict=True)
+        resolved = path.resolve(strict=True)
+    except OSError as error:
+        raise ProbeError(f"could not resolve RT4 attestation input: {error}") from error
+    if path.is_symlink() or not path.is_file() or resolved.parent == resolved:
+        raise ProbeError(f"RT4 attestation input is not a regular file: {path}")
+    try:
+        relative = resolved.relative_to(resolved_root).as_posix()
+    except ValueError as error:
+        raise ProbeError(f"RT4 attestation input escaped the build root: {path}") from error
+    size = resolved.stat().st_size
+    if size <= 0:
+        raise ProbeError(f"RT4 attestation input is empty: {relative}")
+    return {"path": relative, "bytes": size, "sha256": sha256_file(resolved)}
+
+
+def _packaged_n1_executable(
+    build_dir: Path, policy: dict[str, str]
+) -> Path:
+    package_bin = build_dir / N1_PACKAGE_NAME / "bin"
+    suffix = ".exe" if policy["name"] == "windows-x64-d3d11" else ""
+    expected = package_bin / f"{N1_PACKAGE_EXECUTABLE_STEM}{suffix}"
+    if expected.is_symlink() or not expected.is_file():
+        raise ProbeError(f"packaged N1 executable is missing: {expected.name}")
+    files = sorted(path for path in package_bin.iterdir() if path.is_file())
+    if files != [expected]:
+        raise ProbeError("N1 package must contain exactly the reviewed executable")
+    return expected
+
+
+def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as target:
+            temporary = Path(target.name)
+            json.dump(value, target, indent=2, sort_keys=True)
+            target.write("\n")
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    except OSError as error:
+        raise ProbeError(f"could not atomically write {path.name}: {error}") from error
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def write_rt4_attestation(
+    build_dir: Path,
+    report: dict[str, Any],
+    report_path: Path,
+    image_path: Path,
+    evidence_path: Path,
+    executable_path: Path,
+    build_contract_path: Path,
+    source_identity: dict[str, Any],
+    lock: dict[str, Any],
+    media_manifest: dict[str, Any],
+    isolation_slices: list[dict[str, Any]],
+) -> dict[str, Any]:
+    provenance = report.get("provenance")
+    if not isinstance(provenance, dict):
+        raise ProbeError("RT4 report provenance is missing before attestation")
+    shader_media = lock["shader_media"]
+    notice = shader_media["third_party_notice"]
+    attestation = {
+        "schema": "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v1",
+        "status": "pass",
+        "source": {
+            "repository": source_identity["repository"],
+            "ref": source_identity["ref"],
+            "commit": source_identity["commit"],
+            "relevant_manifest_sha256": source_identity[
+                "relevant_manifest_sha256"
+            ],
+            "relevant_manifest_file_count": source_identity[
+                "relevant_manifest_file_count"
+            ],
+        },
+        "ogre_next": {
+            "repository": lock["repository"],
+            "branch": lock["branch"],
+            "commit": lock["commit"],
+            "archive_sha256": lock["archive_sha256"],
+            "license_spdx": lock["license"]["spdx"],
+            "license_sha256": lock["license"]["sha256"],
+        },
+        "shader_media": {
+            "root": shader_media["root"],
+            "license_expression": shader_media["license_expression"],
+            "source_path": notice["source_path"],
+            "source_sha256": notice["source_sha256"],
+            "notice_path": notice["notice_path"],
+            "notice_sha256": notice["notice_sha256"],
+            "manifest_sha256": media_manifest["sha256"],
+            "manifest_file_count": media_manifest["file_count"],
+        },
+        "files": {
+            "build_contract": _attest_regular_file(build_contract_path, build_dir),
+            "report": _attest_regular_file(report_path, build_dir),
+            "ppm": _attest_regular_file(image_path, build_dir),
+            "isolation": _attest_regular_file(evidence_path, build_dir),
+            "executable": _attest_regular_file(executable_path, build_dir),
+        },
+        "isolation_slices": isolation_slices,
+    }
+    attestation_path = build_dir / RT4_PBR_ATTESTATION_NAME
+    _atomic_write_json(attestation_path, attestation)
+    try:
+        persisted = json.loads(attestation_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ProbeError(f"could not verify RT4 attestation: {error}") from error
+    if persisted != attestation:
+        raise ProbeError("persisted RT4 attestation differs from verified data")
+    return attestation
 
 
 def shader_media_manifest(root: Path) -> dict[str, Any]:
@@ -1451,6 +1597,11 @@ def run_n1_checkpoint(
     policy: dict[str, str],
     source_identity: dict[str, Any],
 ) -> None:
+    attestation_path = build_dir / RT4_PBR_ATTESTATION_NAME
+    try:
+        attestation_path.unlink(missing_ok=True)
+    except OSError as error:
+        raise ProbeError(f"could not invalidate stale RT4 attestation: {error}") from error
     run(
         [
             "cmake",
@@ -1495,7 +1646,7 @@ def run_n1_checkpoint(
     validate_n1_checkpoint(
         report, image_path, lock, policy, media_manifest, source_identity
     )
-    validate_n1_checkpoint(
+    isolation_slices = validate_n1_checkpoint(
         rt4_report,
         rt4_image_path,
         lock,
@@ -1505,10 +1656,27 @@ def run_n1_checkpoint(
         modern_pbr=True,
         isolation_evidence_path=rt4_evidence_path,
     )
+    if isolation_slices is None:
+        raise ProbeError("RT4/V1 isolation slice attestation is missing")
     if rt4_report["sdr"]["rgb8_fnv1a64"] == report["sdr"]["rgb8_fnv1a64"]:
         raise ProbeError(
             "RT4/V1 texture-backed evidence is indistinguishable from static N1"
         )
+    require_source_identity_unchanged(source_identity)
+    require_relevant_source_clean()
+    write_rt4_attestation(
+        build_dir,
+        rt4_report,
+        rt4_report_path,
+        rt4_image_path,
+        rt4_evidence_path,
+        _packaged_n1_executable(build_dir, policy),
+        build_dir / BUILD_CONTRACT_NAME,
+        source_identity,
+        lock,
+        media_manifest,
+        isolation_slices,
+    )
 
 
 def validate_n2_checkpoint(
