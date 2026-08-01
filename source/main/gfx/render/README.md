@@ -197,15 +197,16 @@ environment gate is supplied.
 `ReflectionProbeRuntime` is the renderer-neutral admission and scheduling
 contract that feeds that oracle and the future native Ogre-Next capture path.
 Version 1 owns rigid oriented probe coordinates, correction/influence box
-containment, capture planes, resolution/mip shape, static or simulation-tick
+containment, capture planes, resolution/PCC-filtered-mip shape, static or simulation-tick
 periodic updates, stable priority budgeting, revision lineage, and permanent
 identity tombstones. Probe position remains binary64 absolute-world state;
 each plan derives and bounds its exact float render-relative transform from the
 frame origin, so large-world rebasing neither changes authored lineage nor
 forces a static recapture. `BeginFrame` creates a candidate transaction without
-changing committed lineage; `Commit` accepts a generation only with all six
-faces, every required mip, and a nonzero native-receipt digest; `Abort` and
-failed captures leave the prior complete cubemap authoritative. Selection and
+changing committed lineage; `Commit` accepts a generation only through an
+opaque receipt bound to the exact plan, request slot, and complete cubemap
+measurement; `Abort` and failed captures leave the prior complete cubemap
+authoritative. Selection and
 capture seeds depend only on validated scene identities and simulation ticks,
 never wall time or backend iteration order. This is the portable control plane,
 not evidence that a Metal, Vulkan, or D3D11 cubemap has rendered yet.
@@ -213,16 +214,26 @@ Revision enforcement compares the complete canonical descriptor field by field
 (with signed zero folded); the 64-bit fingerprint is only a digest/cache key,
 so a hash collision cannot authorize changed contents at an old revision.
 
-`ReflectionProbeCaptureReceipt` closes the portable-to-native completion edge.
-It accepts only the immutable scheduler request plus an independently measured
-native IBL receipt and exactly one RGBA16F readback for every required face and
-mip, ordered mip-major then face-major. Its stable digest binds backend, probe,
-revision, generation, simulation tick, deterministic seed, descriptor, native
-execution, dimensions, and active texel bytes while deliberately excluding row
-padding. Missing, duplicate, reordered, under-pitched, stale, or partial data
-fails transactionally with no publishable digest. Scheduler reset clears scene
-lineage but never reuses a transaction ID during that object lifetime, closing
-late-GPU-completion ABA across terrain changes.
+`ReflectionProbeCaptureReceipt` keeps the portable-to-native completion edge
+fail-closed. The public measurement function validates the complete immutable
+scheduler request field by field and hashes exactly one RGBA16F readback for
+every required face and filtered IBL mip, ordered mip-major then face-major.
+The output layout mirrors Ogre-Next
+`ParallaxCorrectedCubemapBase::getIblNumMipmaps` exactly:
+`max(full_chain_mips, 5) - 4`, with reviewed resolutions 32..2048 (32 => 2
+mips; 256 => 5). Receipt metadata records every output mip's exact width and
+height, so this contract cannot be mistaken for the source cubemap's full raw
+mip chain. The measurement is explicitly
+non-authoritative and cannot be passed to `Commit`. Successful receipts are
+opaque, bind the exact plan and request rather than trusting a digest as
+identity, and may be issued only by a reviewed concrete adapter after native
+execution. No shipping adapter exists in this milestone; only the contract-test
+adapter can issue successful receipts, so this remains portable control-plane
+work rather than evidence that native IBL ran. Missing, duplicate, reordered,
+under-pitched, stale, partial, transformed, or replayed data fails without
+publication. Scheduler reset clears scene lineage but never reuses a transaction
+ID during that object lifetime, closing late-completion ABA across terrain
+changes.
 
 The standalone modern frontend also stages and authenticates the exact pinned
 Ogre-Next PCC depth-compressor, local-cubemap blend/copy, and compute IBL

@@ -9,6 +9,7 @@
 #include "ReflectionProbeCaptureReceipt.h"
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 
 namespace RoR::Render {
@@ -46,6 +47,96 @@ public:
     }
   }
 
+  void AddBool(bool value) noexcept { AddByte(value ? 1U : 0U); }
+
+  void AddFloat(float value) noexcept {
+    if (value == 0.0F) {
+      value = 0.0F;
+    }
+    std::uint32_t bits = 0U;
+    std::memcpy(&bits, &value, sizeof(bits));
+    AddU32(bits);
+  }
+
+  void AddDouble(double value) noexcept {
+    if (value == 0.0) {
+      value = 0.0;
+    }
+    std::uint64_t bits = 0U;
+    std::memcpy(&bits, &value, sizeof(bits));
+    AddU64(bits);
+  }
+
+  void AddFloat3(const Float3 &value) noexcept {
+    AddFloat(value.x);
+    AddFloat(value.y);
+    AddFloat(value.z);
+  }
+
+  void AddDouble3(const Double3 &value) noexcept {
+    AddDouble(value.x);
+    AddDouble(value.y);
+    AddDouble(value.z);
+  }
+
+  void AddMatrix(const Matrix4x4 &value) noexcept {
+    for (float element : value.elements) {
+      AddFloat(element);
+    }
+  }
+
+  void AddDescriptor(
+      const ReflectionProbeRuntimeDescriptor &descriptor) noexcept {
+    AddU32(descriptor.version);
+    AddU64(descriptor.probe_id);
+    AddU64(descriptor.content_revision);
+    AddDouble3(descriptor.absolute_world_position_meters);
+    AddMatrix(descriptor.world_from_probe_orientation);
+    AddFloat3(descriptor.capture_position_local);
+    AddFloat3(descriptor.influence_center_local);
+    AddFloat3(descriptor.influence_half_size);
+    AddFloat3(descriptor.influence_inner_fraction);
+    AddFloat3(descriptor.correction_shape_center_local);
+    AddFloat3(descriptor.correction_shape_half_size);
+    AddU16(descriptor.priority);
+    AddU16(descriptor.resolution);
+    AddFloat(descriptor.capture_near_meters);
+    AddFloat(descriptor.capture_far_meters);
+    AddU32(descriptor.visibility_mask);
+    AddByte(static_cast<std::uint8_t>(descriptor.update_mode));
+    AddU64(descriptor.update_interval_simulation_ticks);
+    AddBool(descriptor.include_dynamic_geometry);
+  }
+
+  void AddRequest(const ReflectionProbeUpdateRequest &request) noexcept {
+    AddU64(request.probe_id);
+    AddU64(request.content_revision);
+    AddU64(request.candidate_generation);
+    AddU64(request.simulation_tick);
+    AddU64(request.deterministic_seed);
+    AddU64(request.descriptor_fingerprint);
+    AddDouble3(request.absolute_world_origin_meters);
+    AddMatrix(request.render_from_probe);
+    AddByte(static_cast<std::uint8_t>(request.reason));
+    AddU16(request.resolution);
+    AddU16(request.expected_mip_count);
+    AddU32(request.expected_face_count);
+    AddDescriptor(request.descriptor);
+  }
+
+  void AddMipMetadata(
+      const ReflectionProbeCaptureMipMetadata &metadata) noexcept {
+    AddU32(metadata.version);
+    AddByte(static_cast<std::uint8_t>(metadata.contract));
+    AddU32(metadata.face_count);
+    AddU16(metadata.mip_count);
+    for (std::size_t index = 0U;
+         index < kReflectionProbeMaximumFilteredMipCount; ++index) {
+      AddU32(metadata.widths[index]);
+      AddU32(metadata.heights[index]);
+    }
+  }
+
   void AddBytes(const std::uint8_t *bytes, std::size_t count) noexcept {
     for (std::size_t index = 0U; index < count; ++index) {
       AddByte(bytes[index]);
@@ -67,56 +158,24 @@ bool TryMultiply(std::uint64_t lhs, std::uint64_t rhs,
   return true;
 }
 
-ValidationResult ValidateRequest(const ReflectionProbeUpdateRequest &request) {
-  const ValidationResult descriptor =
-      ValidateReflectionProbeRuntimeDescriptor(request.descriptor);
-  if (!descriptor) {
-    return Failure(descriptor.code, "request.descriptor",
-                   "capture request carries an invalid probe descriptor");
-  }
-  if (request.probe_id != request.descriptor.probe_id ||
-      request.probe_id == 0U) {
-    return Failure(ValidationCode::INVALID_IDENTIFIER, "request.probe_id",
-                   "capture request identity differs from its descriptor");
-  }
-  if (request.content_revision != request.descriptor.content_revision ||
-      request.content_revision == 0U) {
-    return Failure(ValidationCode::REVISION_MISMATCH,
-                   "request.content_revision",
-                   "capture request revision differs from its descriptor");
-  }
-  if (request.candidate_generation == 0U ||
-      request.deterministic_seed == 0U) {
-    return Failure(ValidationCode::SEQUENCE_MISMATCH,
-                   "request.capture_lineage",
-                   "capture generation and deterministic seed must be nonzero");
-  }
-  if (request.descriptor_fingerprint !=
-          ComputeReflectionProbeDescriptorFingerprint(request.descriptor) ||
-      request.descriptor_fingerprint == 0U) {
-    return Failure(ValidationCode::REVISION_MISMATCH,
-                   "request.descriptor_fingerprint",
-                   "capture request descriptor fingerprint is stale");
-  }
-  if (request.resolution != request.descriptor.resolution ||
-      request.expected_face_count != kReflectionProbeCubemapFaceCount ||
-      request.expected_mip_count == 0U) {
-    return Failure(ValidationCode::INVALID_DIMENSIONS,
-                   "request.capture_shape",
-                   "capture request shape differs from its descriptor contract");
-  }
-  std::uint16_t available_mips = 1U;
-  std::uint16_t dimension = request.resolution;
-  while (dimension > 1U) {
-    dimension = static_cast<std::uint16_t>(dimension >> 1U);
-    ++available_mips;
-  }
-  if (request.expected_mip_count > available_mips) {
-    return Failure(ValidationCode::INVALID_DIMENSIONS,
-                   "request.expected_mip_count",
-                   "capture request asks for more mips than its resolution owns");
-  }
-  return ValidationResult::Success();
+std::uint64_t ComputeBoundReceiptDigest(
+    std::uint64_t plan_id, std::size_t request_index,
+    std::uint64_t native_execution_evidence,
+    const ReflectionProbeCaptureMeasurementResult &measurement) noexcept {
+  StableHasher hasher;
+  hasher.AddU64(UINT64_C(0x524f525043525631));
+  hasher.AddU64(plan_id);
+  hasher.AddU64(static_cast<std::uint64_t>(request_index));
+  hasher.AddU64(native_execution_evidence);
+  hasher.AddByte(static_cast<std::uint8_t>(measurement.backend));
+  hasher.AddByte(static_cast<std::uint8_t>(measurement.pixel_format));
+  hasher.AddU64(measurement.canonical_capture_digest);
+  hasher.AddU32(measurement.completed_face_count);
+  hasher.AddU16(measurement.completed_mip_count);
+  hasher.AddU64(measurement.canonical_payload_bytes);
+  hasher.AddMipMetadata(measurement.mip_metadata);
+  const std::uint64_t digest = hasher.value();
+  return digest != 0U ? digest : UINT64_C(0x524f525043525631);
 }
 
 } // namespace
@@ -138,14 +197,102 @@ bool IsKnownReflectionProbeCapturePixelFormat(
   return format == ReflectionProbeCapturePixelFormat::RGBA16_FLOAT;
 }
 
-ReflectionProbeCaptureReceiptResult ComputeReflectionProbeCaptureReceipt(
+bool IsKnownReflectionProbeCaptureMipContract(
+    ReflectionProbeCaptureMipContract contract) noexcept {
+  return contract ==
+         ReflectionProbeCaptureMipContract::OGRE_NEXT_PCC_FILTERED_IBL;
+}
+
+ReflectionProbeCaptureMipMetadata
+ComputeReflectionProbeCaptureMipMetadata(std::uint16_t resolution) noexcept {
+  ReflectionProbeCaptureMipMetadata metadata;
+  metadata.face_count = kReflectionProbeCubemapFaceCount;
+  metadata.mip_count = ComputeReflectionProbeRequiredMipCount(resolution);
+  if (metadata.mip_count > kReflectionProbeMaximumFilteredMipCount) {
+    metadata.mip_count = 0U;
+    metadata.face_count = 0U;
+    return metadata;
+  }
+  for (std::size_t index = 0U; index < metadata.mip_count; ++index) {
+    const std::uint32_t dimension =
+        (std::max)(1U, static_cast<std::uint32_t>(resolution) >> index);
+    metadata.widths[index] = dimension;
+    metadata.heights[index] = dimension;
+  }
+  return metadata;
+}
+
+bool AreReflectionProbeCaptureMipMetadataEquivalent(
+    const ReflectionProbeCaptureMipMetadata &lhs,
+    const ReflectionProbeCaptureMipMetadata &rhs) noexcept {
+  return lhs.version == rhs.version && lhs.contract == rhs.contract &&
+         lhs.face_count == rhs.face_count && lhs.mip_count == rhs.mip_count &&
+         lhs.widths == rhs.widths && lhs.heights == rhs.heights;
+}
+
+ReflectionProbeCaptureReceipt ReflectionProbeCaptureReceipt::Failed(
+    std::uint64_t plan_id, std::size_t request_index,
+    const ReflectionProbeUpdateRequest &request) {
+  return ReflectionProbeCaptureReceipt(FailureTag{}, plan_id, request_index,
+                                       request);
+}
+
+ReflectionProbeCaptureReceipt::ReflectionProbeCaptureReceipt(
+    FailureTag, std::uint64_t plan_id, std::size_t request_index,
+    const ReflectionProbeUpdateRequest &request)
+    : plan_id_(plan_id), request_index_(request_index), request_(request) {}
+
+ReflectionProbeCaptureReceipt
+ReflectionProbeCaptureReceipt::IssueFromConcreteAdapter(
+    std::uint64_t plan_id, std::size_t request_index,
+    const ReflectionProbeUpdateRequest &request,
+    std::uint64_t native_execution_evidence,
+    const ReflectionProbeCaptureMeasurementResult &measurement) {
+  return ReflectionProbeCaptureReceipt(plan_id, request_index, request,
+                                       native_execution_evidence, measurement);
+}
+
+ReflectionProbeCaptureReceipt::ReflectionProbeCaptureReceipt(
+    std::uint64_t plan_id, std::size_t request_index,
+    const ReflectionProbeUpdateRequest &request,
+    std::uint64_t native_execution_evidence,
+    const ReflectionProbeCaptureMeasurementResult &measurement)
+    : plan_id_(plan_id), request_index_(request_index), request_(request),
+      backend_(measurement.backend), pixel_format_(measurement.pixel_format),
+      native_execution_evidence_(native_execution_evidence),
+      completed_face_count_(measurement.completed_face_count),
+      completed_mip_count_(measurement.completed_mip_count),
+      canonical_payload_bytes_(measurement.canonical_payload_bytes),
+      mip_metadata_(measurement.mip_metadata),
+      successful_(measurement.ok()) {
+  const ReflectionProbeCaptureMipMetadata expected_mip_metadata =
+      ComputeReflectionProbeCaptureMipMetadata(request.resolution);
+  adapter_authoritative_ =
+      measurement.ok() && native_execution_evidence != 0U &&
+      measurement.canonical_capture_digest != 0U &&
+      IsKnownReflectionProbeCaptureBackend(measurement.backend) &&
+      IsKnownReflectionProbeCapturePixelFormat(measurement.pixel_format) &&
+      measurement.completed_face_count == request.expected_face_count &&
+      measurement.completed_mip_count == request.expected_mip_count &&
+      measurement.canonical_payload_bytes != 0U &&
+      AreReflectionProbeCaptureMipMetadataEquivalent(
+          measurement.mip_metadata, expected_mip_metadata) &&
+      ValidateReflectionProbeUpdateRequest(request).ok() &&
+      AreReflectionProbeUpdateRequestsEquivalent(request, measurement.request);
+  if (adapter_authoritative_) {
+    capture_digest_ = ComputeBoundReceiptDigest(
+        plan_id, request_index, native_execution_evidence, measurement);
+  }
+}
+
+ReflectionProbeCaptureMeasurementResult
+ComputeReflectionProbeCaptureMeasurement(
     const ReflectionProbeUpdateRequest &request,
     ReflectionProbeCaptureBackend backend,
     ReflectionProbeCapturePixelFormat pixel_format,
-    std::uint64_t native_execution_receipt,
     const std::vector<ReflectionProbeCapturedSubresourceView> &subresources) {
-  ReflectionProbeCaptureReceiptResult result;
-  result.validation = ValidateRequest(request);
+  ReflectionProbeCaptureMeasurementResult result;
+  result.validation = ValidateReflectionProbeUpdateRequest(request);
   if (!result.validation) {
     return result;
   }
@@ -159,13 +306,6 @@ ReflectionProbeCaptureReceiptResult ComputeReflectionProbeCaptureReceipt(
                                 "unknown reflection-capture pixel format");
     return result;
   }
-  if (native_execution_receipt == 0U) {
-    result.validation = Failure(
-        ValidationCode::EMPTY_PAYLOAD, "native_execution_receipt",
-        "native IBL execution must supply an independently measured receipt");
-    return result;
-  }
-
   std::uint64_t expected_subresource_count = 0U;
   if (!TryMultiply(request.expected_face_count, request.expected_mip_count,
                    expected_subresource_count) ||
@@ -180,16 +320,19 @@ ReflectionProbeCaptureReceiptResult ComputeReflectionProbeCaptureReceipt(
   hasher.AddU32(kReflectionProbeCaptureReceiptVersion);
   hasher.AddByte(static_cast<std::uint8_t>(backend));
   hasher.AddByte(static_cast<std::uint8_t>(pixel_format));
-  hasher.AddU64(request.probe_id);
-  hasher.AddU64(request.content_revision);
-  hasher.AddU64(request.candidate_generation);
-  hasher.AddU64(request.simulation_tick);
-  hasher.AddU64(request.deterministic_seed);
-  hasher.AddU64(request.descriptor_fingerprint);
-  hasher.AddU16(request.resolution);
-  hasher.AddU16(request.expected_mip_count);
-  hasher.AddU32(request.expected_face_count);
-  hasher.AddU64(native_execution_receipt);
+  hasher.AddRequest(request);
+  const ReflectionProbeCaptureMipMetadata expected_mip_metadata =
+      ComputeReflectionProbeCaptureMipMetadata(request.resolution);
+  if (!IsKnownReflectionProbeCaptureMipContract(
+          expected_mip_metadata.contract) ||
+      expected_mip_metadata.face_count != request.expected_face_count ||
+      expected_mip_metadata.mip_count != request.expected_mip_count) {
+    result.validation = Failure(
+        ValidationCode::INVALID_DIMENSIONS, "request.capture_shape",
+        "capture request has no exact supported PCC filtered-IBL mip layout");
+    return result;
+  }
+  hasher.AddMipMetadata(expected_mip_metadata);
 
   std::uint64_t canonical_payload_bytes = 0U;
   for (std::size_t index = 0U; index < subresources.size(); ++index) {
@@ -262,8 +405,8 @@ ReflectionProbeCaptureReceiptResult ComputeReflectionProbeCaptureReceipt(
     }
   }
 
-  result.capture_digest = hasher.value();
-  if (result.capture_digest == 0U) {
+  result.canonical_capture_digest = hasher.value();
+  if (result.canonical_capture_digest == 0U) {
     result.validation = Failure(ValidationCode::EMPTY_PAYLOAD,
                                 "capture_digest",
                                 "canonical capture digest must be nonzero");
@@ -272,6 +415,10 @@ ReflectionProbeCaptureReceiptResult ComputeReflectionProbeCaptureReceipt(
   result.completed_face_count = request.expected_face_count;
   result.completed_mip_count = request.expected_mip_count;
   result.canonical_payload_bytes = canonical_payload_bytes;
+  result.mip_metadata = expected_mip_metadata;
+  result.request = request;
+  result.backend = backend;
+  result.pixel_format = pixel_format;
   result.validation = ValidationResult::Success();
   return result;
 }

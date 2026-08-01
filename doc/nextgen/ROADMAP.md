@@ -1212,17 +1212,23 @@ left-handed sampling-vector convention before Metal/HLSL/GLSL backend captures
 are compared. The first renderer-neutral runtime layer now validates rigid
 oriented correction/influence volumes and full-shape capture planes, schedules
 static invalidations or periodic updates by simulation tick under a stable
-priority budget, and publishes only atomic six-face/all-mip generations with
+priority budget, and publishes only atomic six-face/all-filtered-mip generations with
 revision lineage, retry/abort semantics, deterministic seeds, and permanent ID
 tombstones. Binary64 world positions are converted transactionally against each
 frame's render origin, so large-world rebasing is distinct from authored probe
-changes. Joined-scene producer wiring and the portable scheduler/receipt are
-implemented; native Ogre-Next cubemap rendering/filtering, three-backend images,
-authoring, performance, and image quality remain open acceptance work. The
-capture-receipt edge binds the immutable schedule request, backend/IBL execution
-receipt, and exact
-active RGBA16F bytes for every face/mip while rejecting padding dependence,
-partial data, stale lineage, and reset-era transaction ABA.
+changes. Joined-scene producer wiring, the portable scheduler, canonical
+readback measurement, and opaque plan/request receipt boundary are implemented;
+native Ogre-Next cubemap rendering/filtering, a shipping receipt issuer,
+three-backend images, authoring, performance, and image quality remain open
+acceptance work. The portable contract mirrors Ogre-Next PCC's owned filtered
+IBL output (`max(full_chain_mips, 5) - 4`) at reviewed 32..2048 resolutions,
+including 32 => 2 mips and 256 => 5; it does not claim the source cubemap's
+full raw chain. Portable measurements bind the complete schedule request,
+exact per-mip dimensions, and active RGBA16F bytes for every face/mip while rejecting padding
+dependence and partial data, but remain non-authoritative until a concrete
+native adapter issues a plan-bound receipt. Commit rejects stale lineage,
+cross-plan replay, and reset-era transaction ABA without treating a caller's
+integer or digest as evidence of backend execution.
 
 ## V2 — AirSim-referenced visual fidelity and scene import
 

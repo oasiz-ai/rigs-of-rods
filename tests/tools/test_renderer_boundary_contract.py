@@ -242,6 +242,27 @@ class RendererBoundaryContractTests(unittest.TestCase):
             "ror_render_reflection_probe_capture_receipt_tests",
             _cmake_set(tests_cmake, "ROR_RENDER_CONTRACT_TEST_TARGETS"),
         )
+        self.assertRegex(
+            tests_cmake,
+            r"add_test\(\s*NAME\s+render_reflection_probe_capture_receipt\s+"
+            r"COMMAND\s+ror_render_reflection_probe_capture_receipt_tests\s*\)",
+        )
+
+        runtime_header = (BOUNDARY_ROOT / "ReflectionProbeRuntime.h").read_text(
+            encoding="utf-8"
+        )
+        receipt_header = (
+            BOUNDARY_ROOT / "ReflectionProbeCaptureReceipt.h"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("ReflectionProbeCaptureCompletion", runtime_header)
+        self.assertIn(
+            "const std::vector<ReflectionProbeCaptureReceipt> &receipts",
+            runtime_header,
+        )
+        self.assertIn("class ReflectionProbeCaptureReceipt final", receipt_header)
+        self.assertIn("ReflectionProbeCaptureMeasurementResult", receipt_header)
+        self.assertNotIn("native_execution_receipt", receipt_header)
+        self.assertNotIn("ReflectionProbeCaptureTestAdapter", main_cmake)
 
     def test_pbr_reference_provenance_binds_canonical_lock_and_sources(self) -> None:
         canonical = json.loads(

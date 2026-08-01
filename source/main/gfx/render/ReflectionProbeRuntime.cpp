@@ -8,6 +8,8 @@
 
 #include "ReflectionProbeRuntime.h"
 
+#include "ReflectionProbeCaptureReceipt.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -21,7 +23,7 @@ namespace {
 
 constexpr float kMinimumProbeHalfExtent = 0.01F;
 constexpr float kMaximumProbeCoordinate = 1000000.0F;
-constexpr std::uint16_t kMinimumProbeResolution = 16U;
+constexpr std::uint16_t kMinimumProbeResolution = 32U;
 constexpr std::uint16_t kMaximumProbeResolution = 2048U;
 constexpr std::uint32_t kMaximumProbeCount = 4096U;
 
@@ -100,12 +102,16 @@ double NearestFaceDistance(const Float3 &point, const Float3 &center,
 }
 
 std::uint16_t RequiredMipCount(std::uint16_t resolution) noexcept {
-  std::uint16_t count = 1U;
+  std::uint16_t full_chain_count = 1U;
   while (resolution > 1U) {
     resolution = static_cast<std::uint16_t>(resolution >> 1U);
-    ++count;
+    ++full_chain_count;
   }
-  return count;
+  // Mirrors Ogre-Next ParallaxCorrectedCubemapBase getIblNumMipmaps exactly.
+  // PCC's manual output owns only the filtered IBL levels down to 16x16; it
+  // does not own the source cubemap's complete raw chain.
+  return static_cast<std::uint16_t>(
+      (std::max)(full_chain_count, static_cast<std::uint16_t>(5U)) - 4U);
 }
 
 class StableHasher final {
@@ -192,6 +198,17 @@ bool IsKnownReflectionProbeUpdateMode(
   return false;
 }
 
+bool IsKnownReflectionProbeUpdateReason(
+    ReflectionProbeUpdateReason reason) noexcept {
+  switch (reason) {
+  case ReflectionProbeUpdateReason::NEVER_CAPTURED:
+  case ReflectionProbeUpdateReason::CONTENT_REVISION_CHANGED:
+  case ReflectionProbeUpdateReason::PERIOD_ELAPSED:
+    return true;
+  }
+  return false;
+}
+
 ValidationResult ValidateReflectionProbeRuntimeDescriptor(
     const ReflectionProbeRuntimeDescriptor &descriptor) {
   if (descriptor.version != kReflectionProbeRuntimeVersion) {
@@ -259,7 +276,7 @@ ValidationResult ValidateReflectionProbeRuntimeDescriptor(
       descriptor.resolution < kMinimumProbeResolution ||
       descriptor.resolution > kMaximumProbeResolution) {
     return Failure(ValidationCode::INVALID_DIMENSIONS, "resolution",
-                   "probe resolution must be a reviewed power of two from 16 to 2048");
+                   "probe resolution must be a reviewed power of two from 32 to 2048");
   }
   if (descriptor.priority == 0U) {
     return Failure(ValidationCode::VALUE_OUT_OF_RANGE, "priority",
@@ -392,6 +409,132 @@ bool AreReflectionProbeRuntimeDescriptorsEquivalent(
          lhs.include_dynamic_geometry == rhs.include_dynamic_geometry;
 }
 
+std::uint16_t ComputeReflectionProbeRequiredMipCount(
+    std::uint16_t resolution) noexcept {
+  return RequiredMipCount(resolution);
+}
+
+std::uint64_t ComputeReflectionProbeCaptureSeed(
+    const ReflectionProbeRuntimeDescriptor &descriptor,
+    std::uint64_t candidate_generation,
+    std::uint64_t simulation_tick) noexcept {
+  StableHasher hash;
+  hash.AddU64(UINT64_C(0x524f525043435631));
+  hash.AddU64(descriptor.probe_id);
+  hash.AddU64(descriptor.content_revision);
+  hash.AddU64(candidate_generation);
+  hash.AddU64(simulation_tick);
+  hash.AddU64(ComputeReflectionProbeDescriptorFingerprint(descriptor));
+  const std::uint64_t value = hash.value();
+  return value != 0U ? value : UINT64_C(0x524f525043435631);
+}
+
+ValidationResult ValidateReflectionProbeUpdateRequest(
+    const ReflectionProbeUpdateRequest &request) {
+  const ValidationResult descriptor =
+      ValidateReflectionProbeRuntimeDescriptor(request.descriptor);
+  if (!descriptor) {
+    return Failure(descriptor.code, "request.descriptor",
+                   "capture request carries an invalid probe descriptor");
+  }
+  if (request.probe_id == 0U ||
+      request.probe_id != request.descriptor.probe_id) {
+    return Failure(ValidationCode::INVALID_IDENTIFIER, "request.probe_id",
+                   "capture request identity differs from its descriptor");
+  }
+  if (request.content_revision == 0U ||
+      request.content_revision != request.descriptor.content_revision) {
+    return Failure(ValidationCode::REVISION_MISMATCH,
+                   "request.content_revision",
+                   "capture request revision differs from its descriptor");
+  }
+  if (request.candidate_generation == 0U) {
+    return Failure(ValidationCode::SEQUENCE_MISMATCH,
+                   "request.candidate_generation",
+                   "capture generation must be nonzero");
+  }
+  const std::uint64_t expected_fingerprint =
+      ComputeReflectionProbeDescriptorFingerprint(request.descriptor);
+  if (expected_fingerprint == 0U ||
+      request.descriptor_fingerprint != expected_fingerprint) {
+    return Failure(ValidationCode::REVISION_MISMATCH,
+                   "request.descriptor_fingerprint",
+                   "capture request descriptor fingerprint is stale");
+  }
+  const std::uint64_t expected_seed = ComputeReflectionProbeCaptureSeed(
+      request.descriptor, request.candidate_generation,
+      request.simulation_tick);
+  if (request.deterministic_seed != expected_seed) {
+    return Failure(ValidationCode::SEQUENCE_MISMATCH,
+                   "request.deterministic_seed",
+                   "capture request seed differs from its exact lineage");
+  }
+  if (!IsKnownReflectionProbeUpdateReason(request.reason)) {
+    return Failure(ValidationCode::INVALID_ENUM, "request.reason",
+                   "capture request carries an unknown update reason");
+  }
+  if (request.resolution != request.descriptor.resolution ||
+      request.expected_face_count != kReflectionProbeCubemapFaceCount ||
+      request.expected_mip_count !=
+          ComputeReflectionProbeRequiredMipCount(request.resolution)) {
+    return Failure(ValidationCode::INVALID_DIMENSIONS,
+                   "request.capture_shape",
+                   "capture request must match Ogre-Next's PCC filtered-IBL mip layout");
+  }
+  if (!IsFinite(request.absolute_world_origin_meters)) {
+    return Failure(ValidationCode::NON_FINITE_VALUE,
+                   "request.absolute_world_origin_meters",
+                   "capture request origin must be finite binary64 meters");
+  }
+
+  Matrix4x4 expected_transform =
+      request.descriptor.world_from_probe_orientation;
+  const std::array<double, 3U> relative_position{{
+      request.descriptor.absolute_world_position_meters.x -
+          request.absolute_world_origin_meters.x,
+      request.descriptor.absolute_world_position_meters.y -
+          request.absolute_world_origin_meters.y,
+      request.descriptor.absolute_world_position_meters.z -
+          request.absolute_world_origin_meters.z,
+  }};
+  for (std::size_t axis = 0U; axis < relative_position.size(); ++axis) {
+    if (!std::isfinite(relative_position[axis]) ||
+        std::fabs(relative_position[axis]) > kMaximumProbeCoordinate) {
+      return Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          "request.absolute_world_origin_meters",
+          "probe position is outside the reviewed render-relative range");
+    }
+    expected_transform.elements[12U + axis] =
+        static_cast<float>(relative_position[axis]);
+  }
+  if (!IsFinite(request.render_from_probe) ||
+      request.render_from_probe != expected_transform) {
+    return Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "request.render_from_probe",
+        "capture transform differs from the exact descriptor/origin transform");
+  }
+  return ValidationResult::Success();
+}
+
+bool AreReflectionProbeUpdateRequestsEquivalent(
+    const ReflectionProbeUpdateRequest &lhs,
+    const ReflectionProbeUpdateRequest &rhs) noexcept {
+  return lhs.probe_id == rhs.probe_id &&
+         lhs.content_revision == rhs.content_revision &&
+         lhs.candidate_generation == rhs.candidate_generation &&
+         lhs.simulation_tick == rhs.simulation_tick &&
+         lhs.deterministic_seed == rhs.deterministic_seed &&
+         lhs.descriptor_fingerprint == rhs.descriptor_fingerprint &&
+         lhs.absolute_world_origin_meters == rhs.absolute_world_origin_meters &&
+         lhs.render_from_probe == rhs.render_from_probe &&
+         lhs.reason == rhs.reason && lhs.resolution == rhs.resolution &&
+         lhs.expected_mip_count == rhs.expected_mip_count &&
+         lhs.expected_face_count == rhs.expected_face_count &&
+         AreReflectionProbeRuntimeDescriptorsEquivalent(lhs.descriptor,
+                                                        rhs.descriptor);
+}
+
 class ReflectionProbeUpdateScheduler::Impl final {
 public:
   struct ProbeState {
@@ -472,19 +615,6 @@ public:
     return hash.value();
   }
 
-  static std::uint64_t CaptureSeed(const ProbeState &state,
-                                   std::uint64_t candidate_generation,
-                                   std::uint64_t simulation_tick) noexcept {
-    StableHasher hash;
-    hash.AddU64(UINT64_C(0x524f525043435631));
-    hash.AddU64(state.descriptor.probe_id);
-    hash.AddU64(state.descriptor.content_revision);
-    hash.AddU64(candidate_generation);
-    hash.AddU64(simulation_tick);
-    hash.AddU64(state.descriptor_fingerprint);
-    const std::uint64_t value = hash.value();
-    return value != 0U ? value : UINT64_C(0x524f525043435631);
-  }
 };
 
 ReflectionProbeUpdateScheduler::ReflectionProbeUpdateScheduler(
@@ -676,12 +806,12 @@ ReflectionProbePlanResult ReflectionProbeUpdateScheduler::BeginFrame(
     request.candidate_generation = state.completed_generation + 1U;
     request.simulation_tick = simulation_tick;
     request.descriptor_fingerprint = state.descriptor_fingerprint;
-    request.deterministic_seed = Impl::CaptureSeed(
-        state, request.candidate_generation, simulation_tick);
+    request.deterministic_seed = ComputeReflectionProbeCaptureSeed(
+        state.descriptor, request.candidate_generation, simulation_tick);
     request.reason = due_probe.reason;
     request.resolution = state.descriptor.resolution;
     request.expected_mip_count =
-        RequiredMipCount(state.descriptor.resolution);
+        ComputeReflectionProbeRequiredMipCount(state.descriptor.resolution);
     request.descriptor = state.descriptor;
     request.absolute_world_origin_meters = absolute_world_origin_meters;
     request.render_from_probe = state.descriptor.world_from_probe_orientation;
@@ -705,6 +835,12 @@ ReflectionProbePlanResult ReflectionProbeUpdateScheduler::BeginFrame(
       request.render_from_probe.elements[12U + axis] =
           static_cast<float>(relative_position[axis]);
     }
+    const ValidationResult request_validation =
+        ValidateReflectionProbeUpdateRequest(request);
+    if (!request_validation) {
+      result.validation = request_validation;
+      return result;
+    }
     pending->plan.requests.push_back(request);
   }
   pending->plan.plan_id = impl_->next_plan_id++;
@@ -717,7 +853,7 @@ ReflectionProbePlanResult ReflectionProbeUpdateScheduler::BeginFrame(
 
 ReflectionProbeCommitResult ReflectionProbeUpdateScheduler::Commit(
     std::uint64_t plan_id,
-    const std::vector<ReflectionProbeCaptureCompletion> &completions) {
+    const std::vector<ReflectionProbeCaptureReceipt> &receipts) {
   ReflectionProbeCommitResult result;
   if (!impl_->pending || plan_id == 0U ||
       plan_id != impl_->pending->plan.plan_id) {
@@ -727,38 +863,62 @@ ReflectionProbeCommitResult ReflectionProbeUpdateScheduler::Commit(
   }
   const std::vector<ReflectionProbeUpdateRequest> &requests =
       impl_->pending->plan.requests;
-  if (completions.size() != requests.size()) {
+  if (receipts.size() != requests.size()) {
     result.validation = Failure(
-        ValidationCode::SIZE_MISMATCH, "completions",
-        "completion count must exactly match the pending request count");
+        ValidationCode::SIZE_MISMATCH, "receipts",
+        "receipt count must exactly match the pending request count");
     return result;
   }
   for (std::size_t index = 0U; index < requests.size(); ++index) {
     const ReflectionProbeUpdateRequest &request = requests[index];
-    const ReflectionProbeCaptureCompletion &completion = completions[index];
-    if (completion.probe_id != request.probe_id ||
-        completion.candidate_generation != request.candidate_generation) {
+    const ReflectionProbeCaptureReceipt &receipt = receipts[index];
+    const ReflectionProbeCaptureMipMetadata expected_mip_metadata =
+        ComputeReflectionProbeCaptureMipMetadata(request.resolution);
+    if (receipt.version_ != kReflectionProbeCaptureReceiptVersion) {
       result.validation = Failure(
-          ValidationCode::SEQUENCE_MISMATCH, "completions.identity",
-          "completion identity or generation differs from its request", index);
+          ValidationCode::UNSUPPORTED_VERSION, "receipts.version",
+          "receipt version differs from the scheduler contract", index);
       return result;
     }
-    if (completion.success) {
-      if (completion.completed_face_count != request.expected_face_count ||
-          completion.completed_mip_count != request.expected_mip_count ||
-          completion.capture_digest == 0U) {
+    if (receipt.plan_id_ != plan_id || receipt.request_index_ != index) {
+      result.validation = Failure(
+          ValidationCode::SEQUENCE_MISMATCH, "receipts.plan_binding",
+          "receipt belongs to a different plan or request slot", index);
+      return result;
+    }
+    if (!AreReflectionProbeUpdateRequestsEquivalent(receipt.request_,
+                                                     request)) {
+      result.validation = Failure(
+          ValidationCode::SEQUENCE_MISMATCH, "receipts.request_binding",
+          "receipt request differs from the exact pending request", index);
+      return result;
+    }
+    if (receipt.successful_) {
+      if (!receipt.adapter_authoritative_ ||
+          receipt.native_execution_evidence_ == 0U ||
+          !IsKnownReflectionProbeCaptureBackend(receipt.backend_) ||
+          !IsKnownReflectionProbeCapturePixelFormat(receipt.pixel_format_) ||
+          receipt.completed_face_count_ != request.expected_face_count ||
+          receipt.completed_mip_count_ != request.expected_mip_count ||
+          !AreReflectionProbeCaptureMipMetadataEquivalent(
+              receipt.mip_metadata_, expected_mip_metadata) ||
+          receipt.canonical_payload_bytes_ == 0U ||
+          receipt.capture_digest_ == 0U) {
         result.validation = Failure(
-            ValidationCode::SIZE_MISMATCH, "completions.native_receipt",
-            "successful capture requires every face, mip, and a native digest",
+            ValidationCode::MISSING_REFERENCE, "receipts.adapter_authority",
+            "successful capture requires an authoritative concrete-adapter receipt",
             index);
         return result;
       }
-    } else if (completion.completed_face_count != 0U ||
-               completion.completed_mip_count != 0U ||
-               completion.capture_digest != 0U) {
+    } else if (receipt.adapter_authoritative_ ||
+               receipt.native_execution_evidence_ != 0U ||
+               receipt.completed_face_count_ != 0U ||
+               receipt.completed_mip_count_ != 0U ||
+               receipt.canonical_payload_bytes_ != 0U ||
+               receipt.capture_digest_ != 0U) {
       result.validation = Failure(
-          ValidationCode::SEQUENCE_MISMATCH, "completions.failure_receipt",
-          "failed capture must not publish partial faces, mips, or a digest",
+          ValidationCode::SEQUENCE_MISMATCH, "receipts.failure",
+          "failed capture must not carry adapter authority or measured payload",
           index);
       return result;
     }
@@ -766,14 +926,14 @@ ReflectionProbeCommitResult ReflectionProbeUpdateScheduler::Commit(
 
   for (std::size_t index = 0U; index < requests.size(); ++index) {
     const ReflectionProbeUpdateRequest &request = requests[index];
-    const ReflectionProbeCaptureCompletion &completion = completions[index];
+    const ReflectionProbeCaptureReceipt &receipt = receipts[index];
     Impl::ProbeState &state =
         impl_->pending->candidate_states.at(request.probe_id);
-    if (completion.success) {
+    if (receipt.successful_) {
       state.completed_generation = request.candidate_generation;
       state.completed_content_revision = request.content_revision;
       state.last_completed_simulation_tick = request.simulation_tick;
-      state.capture_digest = completion.capture_digest;
+      state.capture_digest = receipt.capture_digest_;
       ++result.completed_capture_count;
     } else {
       ++result.failed_capture_count;

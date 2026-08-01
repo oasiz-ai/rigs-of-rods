@@ -20,6 +20,8 @@
 
 namespace RoR::Render {
 
+class ReflectionProbeCaptureReceipt;
+
 constexpr std::uint32_t kReflectionProbeRuntimeVersion = 1U;
 constexpr std::uint32_t kReflectionProbeCubemapFaceCount = 6U;
 
@@ -112,18 +114,6 @@ struct ReflectionProbePlanResult {
   explicit operator bool() const noexcept { return ok(); }
 };
 
-/// Completion is produced only after all six faces and all required mip levels
-/// are resident. `capture_digest` is a nonzero digest of canonical face/mip
-/// bytes plus the backend's independently bound native execution receipt.
-struct ReflectionProbeCaptureCompletion {
-  std::uint64_t probe_id = 0U;
-  std::uint64_t candidate_generation = 0U;
-  bool success = false;
-  std::uint32_t completed_face_count = 0U;
-  std::uint16_t completed_mip_count = 0U;
-  std::uint64_t capture_digest = 0U;
-};
-
 struct ReflectionProbeCommitResult {
   ValidationResult validation;
   std::uint32_t completed_capture_count = 0U;
@@ -136,6 +126,8 @@ struct ReflectionProbeCommitResult {
 
 [[nodiscard]] bool
 IsKnownReflectionProbeUpdateMode(ReflectionProbeUpdateMode mode) noexcept;
+[[nodiscard]] bool
+IsKnownReflectionProbeUpdateReason(ReflectionProbeUpdateReason reason) noexcept;
 [[nodiscard]] ValidationResult ValidateReflectionProbeRuntimeDescriptor(
     const ReflectionProbeRuntimeDescriptor &descriptor);
 [[nodiscard]] ValidationResult ValidateReflectionProbeRuntimeSet(
@@ -149,6 +141,25 @@ IsKnownReflectionProbeUpdateMode(ReflectionProbeUpdateMode mode) noexcept;
 [[nodiscard]] bool AreReflectionProbeRuntimeDescriptorsEquivalent(
     const ReflectionProbeRuntimeDescriptor &lhs,
     const ReflectionProbeRuntimeDescriptor &rhs) noexcept;
+/// Mirrors Ogre-Next ParallaxCorrectedCubemapBase::getIblNumMipmaps:
+/// max(full_chain_mips, 5) - 4. This is the owned filtered-IBL output texture
+/// shape (32 => 2, 256 => 5), not the source cubemap's full raw mip chain.
+[[nodiscard]] std::uint16_t ComputeReflectionProbeRequiredMipCount(
+    std::uint16_t resolution) noexcept;
+[[nodiscard]] std::uint64_t ComputeReflectionProbeCaptureSeed(
+    const ReflectionProbeRuntimeDescriptor &descriptor,
+    std::uint64_t candidate_generation,
+    std::uint64_t simulation_tick) noexcept;
+/// Revalidates every scheduler-derived field, including the exact PCC filtered
+/// IBL mip shape, deterministic seed, render-relative transform, origin, and
+/// update reason.
+[[nodiscard]] ValidationResult ValidateReflectionProbeUpdateRequest(
+    const ReflectionProbeUpdateRequest &request);
+/// Exact semantic equality for transaction authorization. Digests are never
+/// substituted for this comparison.
+[[nodiscard]] bool AreReflectionProbeUpdateRequestsEquivalent(
+    const ReflectionProbeUpdateRequest &lhs,
+    const ReflectionProbeUpdateRequest &rhs) noexcept;
 
 /// Stateful deterministic scheduler for expensive cubemap capture work.
 ///
@@ -177,7 +188,7 @@ public:
       const std::vector<ReflectionProbeRuntimeDescriptor> &descriptors);
   [[nodiscard]] ReflectionProbeCommitResult Commit(
       std::uint64_t plan_id,
-      const std::vector<ReflectionProbeCaptureCompletion> &completions);
+      const std::vector<ReflectionProbeCaptureReceipt> &receipts);
   [[nodiscard]] ValidationResult Abort(std::uint64_t plan_id);
   /// Clears scene/tombstone/frame lineage after all caller-owned native work
   /// has been quiesced. Plan IDs remain scheduler-lifetime monotonic so a late

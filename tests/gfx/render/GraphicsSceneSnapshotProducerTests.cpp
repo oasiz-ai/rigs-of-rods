@@ -280,7 +280,7 @@ ReflectionProbe(std::uint64_t probe_id, double world_x,
   probe.probe_id = probe_id;
   probe.absolute_world_position_meters = {world_x, 20.0, -30.0};
   probe.priority = priority;
-  probe.resolution = 16U;
+  probe.resolution = 32U;
   probe.influence_half_size = {4.0F, 3.0F, 2.0F};
   probe.correction_shape_half_size = {5.0F, 4.0F, 3.0F};
   probe.capture_far_meters = 16.0F;

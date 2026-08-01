@@ -88,7 +88,7 @@ RoR::Render::SceneSnapshotDescriptor MakeValidDescriptor() {
   probe.probe_id = 35U;
   probe.absolute_world_position_meters = {1000000012.5, -2000000000.0,
                                           3000000002.0};
-  probe.resolution = 16U;
+  probe.resolution = 32U;
   probe.influence_half_size = {4.0F, 3.0F, 2.0F};
   probe.correction_shape_half_size = {5.0F, 4.0F, 3.0F};
   probe.capture_far_meters = 16.0F;

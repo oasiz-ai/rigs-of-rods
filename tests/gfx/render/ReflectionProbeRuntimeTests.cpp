@@ -6,6 +6,8 @@
     published by the Free Software Foundation.
 */
 
+#include "ReflectionProbeCaptureReceipt.h"
+#include "ReflectionProbeCaptureTestAdapter.h"
 #include "ReflectionProbeRuntime.h"
 
 #include <algorithm>
@@ -15,11 +17,22 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace {
 
 using namespace RoR::Render;
+using RoR::Render::Testing::ReflectionProbeCaptureTestAdapter;
+
+static_assert(!std::is_default_constructible<ReflectionProbeCaptureReceipt>::value,
+              "raw callers must not default-construct a successful receipt");
+static_assert(!std::is_aggregate<ReflectionProbeCaptureReceipt>::value,
+              "raw callers must not populate receipt authority fields");
+static_assert(
+    !std::is_convertible<ReflectionProbeCaptureMeasurementResult,
+                         ReflectionProbeCaptureReceipt>::value,
+    "portable measurements must not implicitly authorize Commit");
 
 void Require(bool condition, const char *message) {
   if (!condition) {
@@ -36,7 +49,7 @@ ReflectionProbeRuntimeDescriptor Probe(
   ReflectionProbeRuntimeDescriptor descriptor;
   descriptor.probe_id = id;
   descriptor.priority = priority;
-  descriptor.resolution = 16U;
+  descriptor.resolution = 32U;
   descriptor.influence_half_size = {4.0F, 3.0F, 2.0F};
   descriptor.influence_inner_fraction = {0.7F, 0.8F, 0.9F};
   descriptor.correction_shape_half_size = {5.0F, 4.0F, 3.0F};
@@ -47,32 +60,28 @@ ReflectionProbeRuntimeDescriptor Probe(
   return descriptor;
 }
 
-ReflectionProbeCaptureCompletion
-Complete(const ReflectionProbeUpdateRequest &request, bool success = true) {
-  ReflectionProbeCaptureCompletion completion;
-  completion.probe_id = request.probe_id;
-  completion.candidate_generation = request.candidate_generation;
-  completion.success = success;
-  if (success) {
-    completion.completed_face_count = request.expected_face_count;
-    completion.completed_mip_count = request.expected_mip_count;
-    completion.capture_digest =
-        request.deterministic_seed ^ UINT64_C(0x9e3779b97f4a7c15);
-    if (completion.capture_digest == 0U) {
-      completion.capture_digest = 1U;
-    }
+ReflectionProbeCaptureReceipt Complete(
+    std::uint64_t plan_id, std::size_t request_index,
+    const ReflectionProbeUpdateRequest &request, bool success = true) {
+  if (!success) {
+    return ReflectionProbeCaptureReceipt::Failed(plan_id, request_index,
+                                                 request);
   }
-  return completion;
+  return ReflectionProbeCaptureTestAdapter::CaptureSynthetic(
+      plan_id, request_index, request,
+      ReflectionProbeCaptureBackend::OGRE_NEXT_METAL,
+      UINT64_C(0x7465737400000001) + request_index);
 }
 
-std::vector<ReflectionProbeCaptureCompletion>
+std::vector<ReflectionProbeCaptureReceipt>
 CompleteAll(const ReflectionProbeUpdatePlan &plan, bool success = true) {
-  std::vector<ReflectionProbeCaptureCompletion> completions;
-  completions.reserve(plan.requests.size());
-  for (const ReflectionProbeUpdateRequest &request : plan.requests) {
-    completions.push_back(Complete(request, success));
+  std::vector<ReflectionProbeCaptureReceipt> receipts;
+  receipts.reserve(plan.requests.size());
+  for (std::size_t index = 0U; index < plan.requests.size(); ++index) {
+    receipts.push_back(
+        Complete(plan.plan_id, index, plan.requests[index], success));
   }
-  return completions;
+  return receipts;
 }
 
 ReflectionProbeUpdatePlan Begin(
@@ -183,6 +192,10 @@ void TestDescriptorAdmissionAndFingerprint() {
   Require(!ValidateReflectionProbeRuntimeDescriptor(descriptor),
           "zero probe priority was accepted");
   descriptor = Probe(7U);
+  descriptor.resolution = 16U;
+  Require(!ValidateReflectionProbeRuntimeDescriptor(descriptor),
+          "probe resolution below Ogre PCC's reviewed minimum was accepted");
+  descriptor = Probe(7U);
   descriptor.resolution = 96U;
   Require(!ValidateReflectionProbeRuntimeDescriptor(descriptor),
           "non-power-of-two probe resolution was accepted");
@@ -244,8 +257,8 @@ void TestInitialBudgetAndStablePriorityOrder() {
     Require(request.candidate_generation == 1U,
             "initial generation did not start at one");
     Require(request.expected_face_count == 6U &&
-                request.expected_mip_count == 5U,
-            "16-pixel cubemap face/mip contract drifted");
+                request.expected_mip_count == 2U,
+            "32-pixel Ogre PCC filtered-IBL face/mip contract drifted");
     Require(request.descriptor.probe_id == request.probe_id &&
                 request.descriptor.content_revision ==
                     request.content_revision,
@@ -253,7 +266,19 @@ void TestInitialBudgetAndStablePriorityOrder() {
     Require(request.deterministic_seed != 0U,
             "capture request seed is zero");
   }
-  CommitAll(scheduler, first);
+  std::vector<ReflectionProbeCaptureReceipt> first_receipts =
+      CompleteAll(first);
+  std::swap(first_receipts[0U], first_receipts[1U]);
+  const ReflectionProbeCommitResult swapped =
+      scheduler.Commit(first.plan_id, first_receipts);
+  Require(!swapped && swapped.validation.field == "receipts.plan_binding" &&
+              scheduler.has_pending_plan(),
+          "receipt from another request slot was accepted");
+  first_receipts = CompleteAll(first);
+  const ReflectionProbeCommitResult committed =
+      scheduler.Commit(first.plan_id, first_receipts);
+  Require(committed.ok() && committed.completed_capture_count == 2U,
+          "valid initial receipts did not recover after swapped rejection");
   Require(scheduler.completed_generation(20U) == 1U &&
               scheduler.completed_generation(30U) == 1U &&
               scheduler.completed_generation(10U) == 0U,
@@ -348,6 +373,8 @@ void TestFailureAbortAndTransactionalCompletion() {
           "capture seed ignored the new simulation tick");
   const ReflectionProbeUpdateRequest retry = plan.requests[0U];
   const std::uint64_t aborted_plan_id = plan.plan_id;
+  const ReflectionProbeCaptureReceipt delayed_aborted =
+      Complete(aborted_plan_id, 0U, retry);
   Require(scheduler.Abort(aborted_plan_id).ok(), "valid plan abort failed");
   Require(!scheduler.has_pending_plan(), "abort left a pending plan");
 
@@ -359,24 +386,61 @@ void TestFailureAbortAndTransactionalCompletion() {
                   retry.candidate_generation,
           "same-frame replan changed deterministic capture contents");
 
-  ReflectionProbeCaptureCompletion malformed = Complete(plan.requests[0U]);
-  malformed.completed_face_count = 5U;
   const std::uint64_t digest_before = scheduler.committed_state_digest();
   ReflectionProbeCommitResult rejected =
-      scheduler.Commit(plan.plan_id, {malformed});
-  Require(!rejected, "partial successful cubemap was accepted");
+      scheduler.Commit(plan.plan_id, {delayed_aborted});
+  Require(!rejected &&
+              rejected.validation.code == ValidationCode::SEQUENCE_MISMATCH,
+          "receipt from an aborted plan authenticated its identical replan");
   Require(scheduler.has_pending_plan(),
-          "malformed completion destroyed the pending plan");
+          "stale receipt destroyed the pending plan");
   Require(scheduler.committed_state_digest() == digest_before &&
               scheduler.completed_generation(1U) == 0U,
-          "malformed completion changed committed state");
+          "stale receipt changed committed state");
 
-  malformed = Complete(plan.requests[0U], false);
-  malformed.capture_digest = 99U;
-  rejected = scheduler.Commit(plan.plan_id, {malformed});
-  Require(!rejected, "failed capture published a digest");
+  ReflectionProbeUpdateRequest altered = plan.requests[0U];
+  ++altered.descriptor.priority;
+  altered.descriptor_fingerprint =
+      ComputeReflectionProbeDescriptorFingerprint(altered.descriptor);
+  altered.deterministic_seed = ComputeReflectionProbeCaptureSeed(
+      altered.descriptor, altered.candidate_generation,
+      altered.simulation_tick);
+  const ReflectionProbeCaptureReceipt altered_receipt =
+      ReflectionProbeCaptureTestAdapter::CaptureSynthetic(
+          plan.plan_id, 0U, altered,
+          ReflectionProbeCaptureBackend::OGRE_NEXT_METAL,
+          UINT64_C(0x74657374000000aa));
+  rejected = scheduler.Commit(plan.plan_id, {altered_receipt});
+  Require(!rejected &&
+              rejected.validation.field == "receipts.request_binding",
+          "exactly different descriptor receipt authenticated pending state");
+
+  altered = plan.requests[0U];
+  altered.absolute_world_origin_meters.x += 1.0;
+  altered.render_from_probe.elements[12U] -= 1.0F;
+  const ReflectionProbeCaptureReceipt altered_origin_receipt =
+      ReflectionProbeCaptureTestAdapter::CaptureSynthetic(
+          plan.plan_id, 0U, altered,
+          ReflectionProbeCaptureBackend::OGRE_NEXT_METAL,
+          UINT64_C(0x74657374000000ab));
+  rejected = scheduler.Commit(plan.plan_id, {altered_origin_receipt});
+  Require(!rejected &&
+              rejected.validation.field == "receipts.request_binding",
+          "different origin/transform receipt authenticated pending state");
+
+  altered = plan.requests[0U];
+  altered.reason = ReflectionProbeUpdateReason::PERIOD_ELAPSED;
+  const ReflectionProbeCaptureReceipt altered_reason_receipt =
+      ReflectionProbeCaptureTestAdapter::CaptureSynthetic(
+          plan.plan_id, 0U, altered,
+          ReflectionProbeCaptureBackend::OGRE_NEXT_METAL,
+          UINT64_C(0x74657374000000ac));
+  rejected = scheduler.Commit(plan.plan_id, {altered_reason_receipt});
+  Require(!rejected &&
+              rejected.validation.field == "receipts.request_binding",
+          "different update-reason receipt authenticated pending state");
   Require(scheduler.has_pending_plan(),
-          "failed-receipt rejection destroyed the pending plan");
+          "altered-request rejection destroyed the pending plan");
 
   CommitAll(scheduler, plan);
   Require(scheduler.completed_generation(1U) == 1U,
@@ -414,12 +478,10 @@ void TestResetNeverReusesPlanIdentity() {
   ReflectionProbeRuntimeDescriptor before = Probe(11U);
   const ReflectionProbeUpdatePlan old_plan =
       Begin(scheduler, 1U, 10U, {before});
-  const std::vector<ReflectionProbeCaptureCompletion> delayed =
+  const std::vector<ReflectionProbeCaptureReceipt> delayed =
       CompleteAll(old_plan);
 
   scheduler.Reset();
-  ++before.content_revision;
-  before.capture_position_local.x = 0.25F;
   const ReflectionProbeUpdatePlan new_plan =
       Begin(scheduler, 1U, 10U, {before});
   Require(new_plan.plan_id != old_plan.plan_id &&
@@ -427,14 +489,43 @@ void TestResetNeverReusesPlanIdentity() {
               new_plan.requests[0U].candidate_generation == 1U,
           "reset reused a scheduler-lifetime plan identity");
   const ReflectionProbeCommitResult stale =
-      scheduler.Commit(old_plan.plan_id, delayed);
+      scheduler.Commit(new_plan.plan_id, delayed);
   Require(!stale && stale.validation.code == ValidationCode::SEQUENCE_MISMATCH &&
+              stale.validation.field == "receipts.plan_binding" &&
               scheduler.has_pending_plan() &&
               scheduler.completed_generation(before.probe_id) == 0U,
           "delayed pre-reset completion authenticated post-reset state");
   CommitAll(scheduler, new_plan);
   Require(scheduler.completed_generation(before.probe_id) == 1U,
           "valid post-reset completion did not recover after stale rejection");
+}
+
+void TestCommittedReceiptCannotReplay() {
+  ReflectionProbeUpdateScheduler scheduler;
+  const ReflectionProbeRuntimeDescriptor descriptor = Probe(
+      12U, 1U, ReflectionProbeUpdateMode::PERIODIC_SIMULATION_TICKS, 1U);
+  const ReflectionProbeUpdatePlan first =
+      Begin(scheduler, 1U, 10U, {descriptor});
+  const std::vector<ReflectionProbeCaptureReceipt> first_receipts =
+      CompleteAll(first);
+  const ReflectionProbeCommitResult first_commit =
+      scheduler.Commit(first.plan_id, first_receipts);
+  Require(first_commit.ok() && scheduler.completed_generation(12U) == 1U,
+          "initial replay fixture did not commit");
+
+  const ReflectionProbeUpdatePlan second =
+      Begin(scheduler, 2U, 11U, {descriptor});
+  const std::uint64_t before_replay = scheduler.committed_state_digest();
+  const ReflectionProbeCommitResult replay =
+      scheduler.Commit(second.plan_id, first_receipts);
+  Require(!replay && replay.validation.field == "receipts.plan_binding" &&
+              scheduler.has_pending_plan() &&
+              scheduler.completed_generation(12U) == 1U &&
+              scheduler.committed_state_digest() == before_replay,
+          "committed receipt replay advanced or destroyed pending state");
+  CommitAll(scheduler, second);
+  Require(scheduler.completed_generation(12U) == 2U,
+          "valid receipt did not recover after replay rejection");
 }
 
 void TestLargeWorldOriginRebasing() {
@@ -530,20 +621,7 @@ void RequireSamePlan(const ReflectionProbeUpdatePlan &lhs,
   for (std::size_t index = 0U; index < lhs.requests.size(); ++index) {
     const ReflectionProbeUpdateRequest &a = lhs.requests[index];
     const ReflectionProbeUpdateRequest &b = rhs.requests[index];
-    Require(a.probe_id == b.probe_id &&
-                a.content_revision == b.content_revision &&
-                a.candidate_generation == b.candidate_generation &&
-                a.simulation_tick == b.simulation_tick &&
-                a.deterministic_seed == b.deterministic_seed &&
-                a.descriptor_fingerprint == b.descriptor_fingerprint &&
-                a.reason == b.reason && a.resolution == b.resolution &&
-                a.expected_mip_count == b.expected_mip_count &&
-                a.expected_face_count == b.expected_face_count &&
-                a.absolute_world_origin_meters ==
-                    b.absolute_world_origin_meters &&
-                a.render_from_probe == b.render_from_probe &&
-                ComputeReflectionProbeDescriptorFingerprint(a.descriptor) ==
-                    ComputeReflectionProbeDescriptorFingerprint(b.descriptor),
+    Require(AreReflectionProbeUpdateRequestsEquivalent(a, b),
             "replayed capture request diverged");
   }
 }
@@ -576,15 +654,17 @@ void TestFixedSeedReplayDeterminism() {
     ReflectionProbeUpdatePlan b = Begin(second, frame, tick, descriptors);
     RequireSamePlan(a, b);
 
-    std::vector<ReflectionProbeCaptureCompletion> completions_a;
-    std::vector<ReflectionProbeCaptureCompletion> completions_b;
-    for (const ReflectionProbeUpdateRequest &request : a.requests) {
+    std::vector<ReflectionProbeCaptureReceipt> completions_a;
+    std::vector<ReflectionProbeCaptureReceipt> completions_b;
+    for (std::size_t index = 0U; index < a.requests.size(); ++index) {
       const bool success = (NextRandom(random) & 7U) != 0U;
-      completions_a.push_back(Complete(request, success));
+      completions_a.push_back(
+          Complete(a.plan_id, index, a.requests[index], success));
     }
     for (std::size_t index = 0U; index < b.requests.size(); ++index) {
       completions_b.push_back(
-          Complete(b.requests[index], completions_a[index].success));
+          Complete(b.plan_id, index, b.requests[index],
+                   completions_a[index].successful()));
     }
     ReflectionProbeCommitResult committed_a =
         first.Commit(a.plan_id, completions_a);
@@ -614,6 +694,7 @@ int main() {
   TestFailureAbortAndTransactionalCompletion();
   TestRetirementFrameAndTickLineage();
   TestResetNeverReusesPlanIdentity();
+  TestCommittedReceiptCannotReplay();
   TestLargeWorldOriginRebasing();
   TestConfigurationAndCapacityFailures();
   TestFixedSeedReplayDeterminism();
