@@ -105,6 +105,12 @@ void TestConfigurationIsTransactional() {
           "invalid bloom configuration mutated temporal state");
 
   invalid = OgreNextHdrTemporalConfiguration{};
+  invalid.minimum_auto_exposure = 3.0F;
+  invalid.maximum_auto_exposure = 2.0F;
+  Require(!state.Initialize(invalid).ok() && !state.initialized(),
+          "reversed auto-exposure bounds mutated temporal state");
+
+  invalid = OgreNextHdrTemporalConfiguration{};
   invalid.initial_inverse_luminance =
       std::numeric_limits<float>::infinity();
   Require(!state.Initialize(invalid).ok() && !state.initialized(),
@@ -142,11 +148,28 @@ void TestDeterministicSimulationTimeAndGpuLineage() {
           "first temporal plan did not preserve exposure/bloom semantics");
 
   const HdrR16Float first_expected = ExpectedStored(first_plan, 2.0F);
+  OgreNextHdrTemporalFramePlan forged_plan = first_plan;
+  forged_plan.effective_exposure = 8.0F;
+  Require(!state.CommitFrame(forged_plan, 2.0F, first_expected).ok() &&
+              state.committed_frame_id() == 0U,
+          "forged effective/shader exposure relationship advanced state");
+  Require(!state.CommitFrame(
+                    first_plan, std::numeric_limits<float>::quiet_NaN(),
+                    first_expected)
+               .ok() &&
+              state.committed_frame_id() == 0U,
+          "non-finite luminance advanced temporal state");
   HdrR16Float wrong = first_expected;
   ++wrong.bits;
   Require(!state.CommitFrame(first_plan, 2.0F, wrong).ok() &&
               state.committed_frame_id() == 0U,
           "mismatched native R16 history advanced temporal state");
+  wrong = first_expected;
+  wrong.decoded = std::nextafter(wrong.decoded,
+                                 std::numeric_limits<float>::infinity());
+  Require(!state.CommitFrame(first_plan, 2.0F, wrong).ok() &&
+              state.committed_frame_id() == 0U,
+          "inconsistent native R16 bits/decoded value advanced state");
   Require(state.CommitFrame(first_plan, 2.0F, first_expected).ok() &&
               state.committed_frame_id() == 1U &&
               state.previous_inverse_luminance().bits == first_expected.bits,
