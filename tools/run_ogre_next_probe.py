@@ -2028,7 +2028,7 @@ def validate_n3_checkpoint(
         and device.get("same_ogre_queue") is True
         and device.get("apple_family_9") is True,
         "image_contract": contract.get("image_version") == 2
-        and isinstance(contract.get("image_generation"), int)
+        and type(contract.get("image_generation")) is int
         and contract["image_generation"] > 0
         and contract.get("usage")
         == "COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE"
@@ -2047,23 +2047,25 @@ def validate_n3_checkpoint(
         and int(hybrid_metrics["nontrivial_pixels"]) > 0,
         "mapping": applied > 0
         and untouched > 0
+        and type(proof.get("contribution_pixels")) is int
         and proof.get("contribution_pixels") == applied,
-        "far_plane_edge": isinstance(
-            proof.get("off_axis_far_plane_contribution_pixels"), int
+        "far_plane_edge": type(
+            proof.get("off_axis_far_plane_contribution_pixels")
         )
+        is int
         and proof["off_axis_far_plane_contribution_pixels"] > 0,
         "second_view": second.get("width") == 96
         and second.get("height") == 64
         and second.get("format") == "RGBA16_FLOAT"
         and second.get("bytes") == 96 * 64 * 8
         and second_sha256 != contribution_metrics["sha256"]
-        and isinstance(second.get("nontrivial_pixels"), int)
+        and type(second.get("nontrivial_pixels")) is int
         and second["nontrivial_pixels"] > 0,
         "resize": resized.get("width") == 80
         and resized.get("height") == 48
         and resized.get("format") == "RGBA16_FLOAT"
         and resized.get("bytes") == 80 * 48 * 8
-        and isinstance(resized.get("nontrivial_pixels"), int)
+        and type(resized.get("nontrivial_pixels")) is int
         and resized["nontrivial_pixels"] > 0,
         "proof": all(
             proof.get(field) is True

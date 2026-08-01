@@ -174,6 +174,21 @@ class MetalN3ContractTests(unittest.TestCase):
     def test_valid_independent_artifacts_pass(self) -> None:
         self.validate(self.report)
 
+    def test_boolean_values_do_not_impersonate_integer_evidence(self) -> None:
+        paths = (
+            ("contract", "image_generation"),
+            ("proof", "contribution_pixels"),
+            ("proof", "off_axis_far_plane_contribution_pixels"),
+            ("second_view_contribution", "nontrivial_pixels"),
+            ("resized_hybrid", "nontrivial_pixels"),
+        )
+        for parent, field in paths:
+            with self.subTest(parent=parent, field=field):
+                report = copy.deepcopy(self.report)
+                report[parent][field] = True
+                with self.assertRaises(RUNNER.ProbeError):
+                    self.validate(report)
+
     def test_hybrid_change_without_contribution_fails(self) -> None:
         tampered = bytearray(self.hybrid)
         tampered[8:10] = struct.pack("<e", 0.5)

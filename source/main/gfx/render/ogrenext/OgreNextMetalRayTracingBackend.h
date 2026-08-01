@@ -35,6 +35,8 @@ enum class OgreNextMetalN2TestObservation : std::uint8_t {
 /// single-ray fields and retains its leases until Shutdown(). N3 fills the
 /// image fields only after a real view-dependent dispatch has completed,
 /// returned the exact Ogre image to its queue, and released every frame lease.
+/// Shutdown and fault abandonment clear the payload, including its strong
+/// snapshot owners, so evidence never pins a retired world snapshot.
 struct OgreNextMetalRayTracingEvidence {
   NativeContextExport context;
   NativeGeometryExportRequest geometry_request;

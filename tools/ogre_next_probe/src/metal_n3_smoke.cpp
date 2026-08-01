@@ -590,7 +590,9 @@ void ProveInjectedObservation(OgreNextMetalN2TestObservation observation,
   RequireSuccess(backend.Initialize(*interop), "fault backend Initialize");
   RequireSuccess(backend.InjectObservationForTesting(observation),
                  "inject native observation");
-  const RenderFrameRequest frame = MakeFrame(1U, MakeScene(1U, 2U));
+  RenderFrameRequest frame = MakeFrame(1U, MakeScene(1U, 2U));
+  const std::weak_ptr<const SceneSnapshot> frame_snapshot =
+      frame.scene_snapshot;
   RenderFrameOutput raster;
   RequireSuccess(frontend.Render(frame, raster), "fault raster frame");
   RenderFrameOutput hybrid;
@@ -598,6 +600,7 @@ void ProveInjectedObservation(OgreNextMetalN2TestObservation observation,
                                                        hybrid);
   Require(render.code == expected && hybrid.attachments.empty(),
           "injected native observation did not follow a real N3 submission");
+  frame.scene_snapshot.reset();
   const RenderFrameRequest resized =
       MakeFrame(2U, MakeScene(2U, 3U), 80U, 48U, 0.2F);
   RenderFrameOutput blocked;
@@ -610,8 +613,13 @@ void ProveInjectedObservation(OgreNextMetalN2TestObservation observation,
   const RenderOperationResult shutdown = backend.Shutdown(0U);
   Require(shutdown.code == expected,
           "bounded N3 shutdown did not preserve the native fault outcome");
+  Require(!backend.evidence().image_request.scene_snapshot &&
+              !backend.evidence().image_export.scene_snapshot,
+          "fault abandonment retained its exact scene snapshot evidence");
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "fault frontend final Shutdown");
+  Require(frame_snapshot.expired(),
+          "fault teardown retained the submitted world snapshot");
 }
 
 std::pair<std::string, int> Run(const Arguments &arguments) {
@@ -729,17 +737,24 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
   Require(resized_hybrid.width == 80U && resized_hybrid.height == 48U,
           "released N3 frame did not accept a new exact extent");
 
-  const RenderFrameRequest far_edge = MakeFrame(
+  RenderFrameRequest far_edge = MakeFrame(
       4U, MakeScene(4U, 5U, OffAxisFarPlaneTransform()));
+  const std::weak_ptr<const SceneSnapshot> far_edge_snapshot =
+      far_edge.scene_snapshot;
   RenderFrameOutput far_edge_raster;
   RequireSuccess(frontend.Render(far_edge, far_edge_raster),
                  "off-axis far-plane raster");
   RenderFrameOutput far_edge_output;
   RequireSuccess(backend.Render(MakeRayRequest(far_edge), far_edge_output),
                  "off-axis far-plane hybrid");
-  const OgreNextMetalRayTracingEvidence far_edge_evidence = backend.evidence();
+  OgreNextMetalRayTracingEvidence far_edge_evidence = backend.evidence();
   Require(far_edge_evidence.contribution_pixel_count > 0U,
           "off-axis geometry inside the far plane was truncated from primary rays");
+  const std::uint64_t far_edge_contribution_pixels =
+      far_edge_evidence.contribution_pixel_count;
+  far_edge_evidence.image_request.scene_snapshot.reset();
+  far_edge_evidence.image_export.scene_snapshot.reset();
+  far_edge.scene_snapshot.reset();
 
   const NativeRayTracingCapabilityReport capabilities =
       backend.QueryCapabilities();
@@ -750,8 +765,13 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
           "N3 readiness was published before all native evidence passed");
   RequireSuccess(backend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "backend Shutdown");
+  Require(!backend.evidence().image_request.scene_snapshot &&
+              !backend.evidence().image_export.scene_snapshot,
+          "successful shutdown retained its exact scene snapshot evidence");
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "frontend Shutdown");
+  Require(far_edge_snapshot.expired(),
+          "successful teardown retained the final world snapshot");
 
   ProveInjectedObservation(OgreNextMetalN2TestObservation::DEVICE_LOST,
                            RenderOperationCode::DEVICE_LOST,
@@ -768,7 +788,7 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
               first_evidence.hybrid_readback_bytes);
   return {PassReport(first_evidence, capabilities, raster, contribution,
                      hybrid, second_contribution, resized_hybrid,
-                     far_edge_evidence.contribution_pixel_count, executable),
+                     far_edge_contribution_pixels, executable),
           EXIT_SUCCESS};
 }
 

@@ -1256,6 +1256,11 @@ public:
     if (!unregistered) {
       return AbandonAfterFault(unregistered);
     }
+    // Evidence is intentionally live only while the backend is registered.
+    // N3 evidence owns the exact raster snapshot twice (request and export),
+    // so retaining it after teardown would pin the final world snapshot until
+    // reinitialization or object destruction.
+    evidence_ = {};
     ResetNativeState();
     initialized_ = false;
     bridge_.reset();
@@ -1325,6 +1330,7 @@ private:
         cause = abandoned;
       }
     }
+    evidence_ = {};
     ResetNativeState();
     initialized_ = false;
     bridge_.reset();
