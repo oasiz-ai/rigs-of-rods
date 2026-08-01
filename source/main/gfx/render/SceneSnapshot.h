@@ -14,6 +14,7 @@
 #include "RenderAssetId.h"
 #include "RenderMath.h"
 #include "RenderValidation.h"
+#include "ReflectionProbeRuntime.h"
 
 #include <cstdint>
 #include <memory>
@@ -22,8 +23,9 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kSceneSnapshotVersion = 3U;
+constexpr std::uint32_t kSceneSnapshotVersion = 4U;
 constexpr std::uint32_t kSceneLightingHashVersion = 2U;
+constexpr std::uint32_t kSceneReflectionProbeHashVersion = 1U;
 
 class RenderAssetRegistry;
 struct MeshResourceDescriptor;
@@ -235,6 +237,10 @@ struct SceneSnapshotDescriptor {
   SceneEnvironmentDescriptor environment;
   std::vector<MeshInstanceDescriptor> mesh_instances;
   std::vector<LightDescriptor> lights;
+  /// Strictly increasing absolute-world reflection probes. Expensive capture
+  /// scheduling remains frontend/runtime state; the immutable snapshot carries
+  /// the complete authored set required to derive that schedule.
+  std::vector<ReflectionProbeRuntimeDescriptor> reflection_probes;
   std::vector<DynamicMeshUpdateDescriptor> dynamic_mesh_updates;
   std::vector<ParticleEvent> particle_events;
 };
@@ -295,6 +301,11 @@ ShadowGeometryClassMask(ShadowGeometryClass geometry_class) noexcept;
 /// state are deliberately excluded.
 [[nodiscard]] std::uint64_t ComputeSceneLightingEnvironmentHash(
     const SceneSnapshotDescriptor &descriptor) noexcept;
+/// Stable FNV-1a-64 digest of the ordered absolute-world reflection-probe set.
+/// Render-origin, snapshot/time identities, and capture generations are
+/// excluded; authored revision/geometry/update policy are included.
+[[nodiscard]] std::uint64_t ComputeSceneReflectionProbeHash(
+    const SceneSnapshotDescriptor &descriptor) noexcept;
 
 class SceneSnapshot final {
 public:
@@ -335,6 +346,10 @@ public:
   [[nodiscard]] const std::vector<LightDescriptor> &lights() const noexcept {
     return descriptor_.lights;
   }
+  [[nodiscard]] const std::vector<ReflectionProbeRuntimeDescriptor> &
+  reflection_probes() const noexcept {
+    return descriptor_.reflection_probes;
+  }
   [[nodiscard]] const std::vector<DynamicMeshUpdateDescriptor> &
   dynamic_mesh_updates() const noexcept {
     return descriptor_.dynamic_mesh_updates;
@@ -346,15 +361,20 @@ public:
   [[nodiscard]] std::uint64_t lighting_environment_hash() const noexcept {
     return lighting_environment_hash_;
   }
+  [[nodiscard]] std::uint64_t reflection_probe_hash() const noexcept {
+    return reflection_probe_hash_;
+  }
 
 private:
   explicit SceneSnapshot(SceneSnapshotDescriptor &&descriptor)
       : descriptor_(std::move(descriptor)),
         lighting_environment_hash_(
-            ComputeSceneLightingEnvironmentHash(descriptor_)) {}
+            ComputeSceneLightingEnvironmentHash(descriptor_)),
+        reflection_probe_hash_(ComputeSceneReflectionProbeHash(descriptor_)) {}
 
   SceneSnapshotDescriptor descriptor_;
   std::uint64_t lighting_environment_hash_ = 0U;
+  std::uint64_t reflection_probe_hash_ = 0U;
 
   friend SceneSnapshotCreateResult
   CreateSceneSnapshot(SceneSnapshotDescriptor descriptor);

@@ -84,6 +84,16 @@ RoR::Render::SceneSnapshotDescriptor MakeValidDescriptor() {
   sun.previous_direction = sun.direction;
   descriptor.lights.push_back(sun);
 
+  ReflectionProbeRuntimeDescriptor probe;
+  probe.probe_id = 35U;
+  probe.absolute_world_position_meters = {1000000012.5, -2000000000.0,
+                                          3000000002.0};
+  probe.resolution = 16U;
+  probe.influence_half_size = {4.0F, 3.0F, 2.0F};
+  probe.correction_shape_half_size = {5.0F, 4.0F, 3.0F};
+  probe.capture_far_meters = 16.0F;
+  descriptor.reflection_probes.push_back(probe);
+
   DynamicMeshUpdateDescriptor update;
   update.update_sequence = 30U;
   update.instance_id = instance.instance_id;
@@ -142,6 +152,7 @@ void TestValidSnapshotIsDeepCopiedAndImmutable() {
   descriptor.mesh_instances.front().instance_id = 999U;
   descriptor.dynamic_mesh_updates.front().positions.front().x = 1234.0F;
   descriptor.particle_events.clear();
+  descriptor.reflection_probes.clear();
 
   Require(created.snapshot->snapshot_id() == 17U,
           "snapshot retained mutable descriptor identity");
@@ -153,6 +164,10 @@ void TestValidSnapshotIsDeepCopiedAndImmutable() {
       "snapshot retained mutable dynamic vertices");
   Require(created.snapshot->particle_events().size() == 1U,
           "snapshot retained mutable particle storage");
+  Require(created.snapshot->reflection_probes().size() == 1U &&
+              created.snapshot->reflection_probe_hash() ==
+                  ComputeSceneReflectionProbeHash(MakeValidDescriptor()),
+          "snapshot retained mutable reflection probes or lost their hash");
   Require(created.snapshot->lighting_environment_hash() ==
               ComputeSceneLightingEnvironmentHash(
                   MakeValidDescriptor()),
@@ -163,6 +178,11 @@ void TestIdentityOrderAndResourceValidation() {
   using namespace RoR::Render;
 
   SceneSnapshotDescriptor descriptor = MakeValidDescriptor();
+  descriptor.version = 3U;
+  RequireInvalid(descriptor, ValidationCode::UNSUPPORTED_VERSION,
+                 "legacy scene snapshot version three was accepted implicitly");
+
+  descriptor = MakeValidDescriptor();
   descriptor.version = 2U;
   RequireInvalid(descriptor, ValidationCode::UNSUPPORTED_VERSION,
                  "legacy scene snapshot version two was accepted implicitly");
@@ -266,6 +286,59 @@ void TestIdentityOrderAndResourceValidation() {
   descriptor.mesh_instances.front().render_from_object.elements[10U] = huge;
   RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
                  "transform with an overflowing determinant was accepted");
+}
+
+void TestReflectionProbeSnapshotContract() {
+  using namespace RoR::Render;
+
+  SceneSnapshotDescriptor descriptor = MakeValidDescriptor();
+  Require(ValidateSceneSnapshotDescriptor(descriptor).ok(),
+          "valid reflection-probe snapshot was rejected");
+  const std::uint64_t baseline = ComputeSceneReflectionProbeHash(descriptor);
+  Require(baseline != 0U,
+          "valid reflection-probe snapshot hash was zero");
+
+  SceneSnapshotDescriptor unrelated = descriptor;
+  unrelated.snapshot_id += 1U;
+  unrelated.simulation_tick += 1U;
+  unrelated.simulation_time_seconds += 1.0;
+  unrelated.absolute_world_origin_meters = {1000000000.0, -2000000000.0,
+                                            3000000000.0};
+  Require(ComputeSceneReflectionProbeHash(unrelated) == baseline,
+          "reflection-probe hash included frame identity or render origin");
+
+  SceneSnapshotDescriptor changed = descriptor;
+  ++changed.reflection_probes.front().content_revision;
+  changed.reflection_probes.front().capture_position_local.x = 0.25F;
+  Require(ValidateSceneSnapshotDescriptor(changed).ok() &&
+              ComputeSceneReflectionProbeHash(changed) != baseline,
+          "reflection-probe hash omitted authored revision or geometry");
+
+  SceneSnapshotDescriptor signed_zero = descriptor;
+  signed_zero.reflection_probes.front().absolute_world_position_meters.y =
+      -0.0;
+  descriptor.reflection_probes.front().absolute_world_position_meters.y = 0.0;
+  Require(ComputeSceneReflectionProbeHash(signed_zero) ==
+              ComputeSceneReflectionProbeHash(descriptor),
+          "reflection-probe snapshot hash did not canonicalize signed zero");
+
+  SceneSnapshotDescriptor duplicate = MakeValidDescriptor();
+  duplicate.reflection_probes.push_back(duplicate.reflection_probes.front());
+  RequireInvalid(duplicate, ValidationCode::DUPLICATE_IDENTIFIER,
+                 "duplicate reflection-probe identity was accepted");
+
+  SceneSnapshotDescriptor unsorted = MakeValidDescriptor();
+  ReflectionProbeRuntimeDescriptor earlier =
+      unsorted.reflection_probes.front();
+  earlier.probe_id -= 1U;
+  unsorted.reflection_probes.push_back(earlier);
+  RequireInvalid(unsorted, ValidationCode::NON_DETERMINISTIC_ORDER,
+                 "unsorted reflection-probe set was accepted");
+
+  SceneSnapshotDescriptor malformed = MakeValidDescriptor();
+  malformed.reflection_probes.front().resolution = 96U;
+  RequireInvalid(malformed, ValidationCode::INVALID_DIMENSIONS,
+                 "malformed reflection-probe descriptor was accepted");
 }
 
 void TestDynamicMeshValidation() {
@@ -592,7 +665,7 @@ void TestCanonicalLightingEnvironmentHash() {
   SceneSnapshotDescriptor descriptor = MakeValidDescriptor();
   const std::uint64_t baseline =
       ComputeSceneLightingEnvironmentHash(descriptor);
-  Require(baseline == 2462554983718937308ULL,
+  Require(baseline == 3546428629778719113ULL,
           "canonical lighting hash fixture drifted");
 
   SceneSnapshotDescriptor unrelated = descriptor;
@@ -644,6 +717,7 @@ int main() {
   TestIdentityOrderAndResourceValidation();
   TestDynamicMeshValidation();
   TestWorldLightAndParticleValidation();
+  TestReflectionProbeSnapshotContract();
   TestPhotometricColorAndExposureContracts();
   TestAnalyticSunMembership();
   TestShadowGeometryClassificationAndMasks();

@@ -73,7 +73,7 @@ and particle-event IDs increase globally. A frontend emits each event only on
 the first successful submission of its snapshot; repeats and multi-view renders
 do not duplicate smoke, dust, sparks, or other effects.
 
-Scene snapshot version 3 defines immutable analytic lighting in explicit
+Scene snapshot version 4 retains the version-3 immutable analytic lighting in explicit
 photometric units. `color_linear` is a non-black, unit-photopic-luminance
 linear-sRGB Rec.709 D65 chromatic multiplier; directional `intensity` is lux
 and point/spot `intensity` is candela. This prevents color magnitude from
@@ -93,6 +93,14 @@ handling. A padding-free little-endian version-two FNV-1a digest covers that
 exact state plus the asset-registry identity and folds signed zero for portable
 change detection. It is not a security hash.
 
+Version 4 additionally carries a strictly ordered set of absolute-world
+reflection-probe descriptors. Its separate version-one FNV-1a digest covers
+authored probe identities, revisions, orientation, correction/influence boxes,
+capture policy, and binary64 position while deliberately excluding snapshot
+identity, simulation time, capture generations, and the float render origin.
+That separation lets origin rebasing preserve static probe lineage while the
+native plan still binds the exact derived render-relative transform.
+
 `GraphicsSceneSnapshotProducer` version 2 accepts those lights in arbitrary
 source traversal order, canonicalizes them, rebases local-light history, and
 enforces permanent identity/type tombstones. Once the entire asset, scene,
@@ -105,14 +113,15 @@ delta and camera together. Calls into a producer, including observer loads, must
 quiesce before producer destruction starts; immutable snapshot owners already
 acquired by readers remain valid independently.
 
-There is no implicit lighting-schema migration. Scene snapshot versions 1 and 2
+There is no implicit lighting/schema migration. Scene snapshot versions 1, 2, and 3
 and joined-producer input version 1 are rejected with `UNSUPPORTED_VERSION`.
 An adapter migrating legacy light colors must normalize its non-black
 linear-sRGB color with `NormalizePhotometricColorLinear`, retain the scalar
-lux/candela value separately, populate all version-3 sky/exposure fields, and
-submit producer version 2. Old lighting hash values are not comparable with the
-version-2 digest because the registry identity and calibrated photometry are now
-part of the contract.
+lux/candela value separately, populate all version-4 sky/exposure fields and an
+explicit (possibly empty) reflection-probe set, and submit producer version 2.
+Old lighting hash values are not comparable with the current version-2 digest
+because the scene schema, registry identity, and calibrated photometry are part
+of the contract.
 
 The native interop and native ray-tracing interfaces are contracts, not an
 implementation or readiness claim. All related capabilities fail closed by

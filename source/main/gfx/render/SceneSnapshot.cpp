@@ -430,6 +430,26 @@ std::uint64_t ComputeSceneLightingEnvironmentHash(
   return hasher.value();
 }
 
+std::uint64_t ComputeSceneReflectionProbeHash(
+    const SceneSnapshotDescriptor &descriptor) noexcept {
+  CanonicalLightingHasher hasher;
+  constexpr std::uint8_t kDomain[] = {'R', 'o', 'R', '-', 'r', 'e', 'f', 'l',
+                                      'e', 'c', 't', 'i', 'o', 'n', '-', 'p',
+                                      'r', 'o', 'b', 'e'};
+  for (const std::uint8_t byte : kDomain) {
+    hasher.AddByte(byte);
+  }
+  hasher.AddU32(kSceneReflectionProbeHashVersion);
+  hasher.AddU32(descriptor.version);
+  hasher.AddU64(
+      static_cast<std::uint64_t>(descriptor.reflection_probes.size()));
+  for (const ReflectionProbeRuntimeDescriptor &probe :
+       descriptor.reflection_probes) {
+    hasher.AddU64(ComputeReflectionProbeDescriptorFingerprint(probe));
+  }
+  return hasher.value();
+}
+
 ValidationResult
 ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
   if (descriptor.version != kSceneSnapshotVersion) {
@@ -717,6 +737,13 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
           "environment.analytic_sky.sun_light_id",
           "analytic sky sun identity must name a directional light");
     }
+  }
+
+  validation =
+      ValidateReflectionProbeRuntimeSet(descriptor.reflection_probes);
+  if (!validation) {
+    validation.field = "reflection_probes." + validation.field;
+    return validation;
   }
 
   previous_identifier = 0U;

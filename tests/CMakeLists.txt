@@ -1207,6 +1207,11 @@ add_test(
 )
 
 add_test(
+    NAME render_reflection_probe_runtime
+    COMMAND ror_render_reflection_probe_runtime_tests
+)
+
+add_test(
     NAME render_pbr_reference
     COMMAND ror_render_pbr_reference_tests
 )

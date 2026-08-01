@@ -1094,7 +1094,8 @@ Gate R1:
   performance, DXR, and Vulkan KHR interop remain open; see the
   [isolated integration checkpoint](OGRE_NEXT_INTEGRATION.md).
 - The renderer-neutral scene boundary now has the prerequisite lighting slice:
-  snapshot version 3 carries sorted stable directional/point/spot identities,
+  snapshot version 4 retains the sorted stable directional/point/spot identities
+  introduced by version 3 and adds an ordered absolute-world reflection-probe set,
   current/previous transforms, lux/candela photometry, exact local attenuation
   and cones, static/dynamic shadow masks, ambient/texture/analytic-sky radiance,
   sun linkage, bounded EV compensation, and a canonical portable digest. The
