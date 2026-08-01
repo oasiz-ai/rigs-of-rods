@@ -2833,7 +2833,7 @@ def _verify_pssm_executable(
         raise ArtifactSetError(
             "PSSM executable entrypoint contains no plausible machine code"
         )
-    if policy["binary_format"] in ("mach-o-64", "elf64") and (
+    if _requires_posix_executable_permission(policy["binary_format"]) and (
         path.stat().st_mode & 0o111 == 0
     ):
         raise ArtifactSetError("PSSM packaged executable has no execute permission")

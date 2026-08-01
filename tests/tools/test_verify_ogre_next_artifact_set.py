@@ -11,6 +11,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -57,6 +58,32 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                         binary_format, "nt"
                     )
                 )
+
+    def test_pssm_executable_uses_host_metadata_mode_policy(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-pssm-mode-policy-") as temp:
+            root = Path(temp)
+            contract = self.build_contract()
+            (root / VERIFY.REQUIRED_ARTIFACTS[0]).write_text(
+                json.dumps(contract) + "\n", encoding="utf-8"
+            )
+            self.write_pssm(root, contract)
+            report = json.loads(
+                (root / VERIFY.PSSM_REPORT_ARTIFACT).read_text(encoding="utf-8")
+            )
+            executable = root / "bin" / VERIFY.PSSM_EXECUTABLE_STEM
+            executable.chmod(0o644)
+            if VERIFY.os.name == "posix":
+                with self.assertRaisesRegex(
+                    VERIFY.ArtifactSetError, "has no execute permission"
+                ):
+                    VERIFY._verify_pssm_executable(executable, contract, report)
+            with mock.patch.object(
+                VERIFY,
+                "_requires_posix_executable_permission",
+                return_value=False,
+            ) as mode_policy:
+                VERIFY._verify_pssm_executable(executable, contract, report)
+            mode_policy.assert_called_once_with("mach-o-64")
 
     def build_contract(self) -> dict[str, object]:
         rapidjson = self.lock["dependencies"]["rapidjson"]
