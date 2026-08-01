@@ -9,8 +9,11 @@
 #include "HdrReference.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -118,6 +121,47 @@ bool Equal(const RoR::Render::HdrShaderFinalToneMapResult &lhs,
          lhs.shader_output == rhs.shader_output && lhs.alpha == rhs.alpha;
 }
 
+std::uint32_t FloatBits(float value) {
+  std::uint32_t bits = 0U;
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+float FloatFromBits(std::uint32_t bits) {
+  float value = 0.0F;
+  std::memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+float FirstDeltaWhoseAdaptationWeightIsBelowOne() {
+  std::uint32_t lower = FloatBits(0.0F);
+  std::uint32_t upper = FloatBits(1.0e-3F);
+  Require(std::pow(0.25F, FloatFromBits(lower)) == 1.0F,
+          "zero frame delta did not preserve unit adaptation weight");
+  Require(std::pow(0.25F, FloatFromBits(upper)) < 1.0F,
+          "adaptation transition search upper bound is too small");
+  while (lower + 1U < upper) {
+    const std::uint32_t middle = lower + (upper - lower) / 2U;
+    if (std::pow(0.25F, FloatFromBits(middle)) == 1.0F) {
+      lower = middle;
+    } else {
+      upper = middle;
+    }
+  }
+  Require(std::pow(0.25F, FloatFromBits(lower)) == 1.0F &&
+              std::pow(0.25F, FloatFromBits(upper)) < 1.0F,
+          "adaptation transition neighbors are not adjacent");
+  return FloatFromBits(upper);
+}
+
+float NextUnitFloat(std::uint64_t &state) {
+  state ^= state >> 12U;
+  state ^= state << 25U;
+  state ^= state >> 27U;
+  const std::uint64_t sample = state * UINT64_C(2685821657736338717);
+  return static_cast<float>(sample >> 40U) * 0x1p-24F;
+}
+
 RoR::Render::HdrAnalyticAutoExposureResult EvaluateAnalyticExposure(
     const RoR::Render::HdrAnalyticAutoExposureInput &input) {
   RoR::Render::HdrAnalyticAutoExposureResult result;
@@ -166,6 +210,9 @@ void TestIdentityAndDeclaredDomains() {
   Require(kHdrAnalyticShaderAbsoluteTolerance > 0.0 &&
               kHdrAnalyticShaderRelativeTolerance > 0.0,
           "analytic/shader tolerance must remain explicit");
+  Require(kHdrBinary32UnitRoundoff == 0x1p-24 &&
+              kHdrBinary32Gamma5 > 5.0 * kHdrBinary32UnitRoundoff,
+          "binary32 adapted-exposure roundoff constants drifted");
 }
 
 void TestBinary16RoundToNearestEven() {
@@ -224,8 +271,8 @@ void TestBinary16RoundToNearestEven() {
       std::nextafter(65504.0F, (std::numeric_limits<float>::infinity)()),
       output);
   RequireFailure(failure, ValidationCode::VALUE_OUT_OF_RANGE, "value",
-                 "R16 overflow boundary was accepted");
-  Require(Equal(output, sentinel), "R16 overflow changed output");
+                 "R16 source value above the admitted maximum was accepted");
+  Require(Equal(output, sentinel), "R16 source-range failure changed output");
   failure =
       QuantizeHdrR16Float((std::numeric_limits<float>::quiet_NaN)(), output);
   RequireFailure(failure, ValidationCode::NON_FINITE_VALUE, "value",
@@ -307,6 +354,122 @@ void TestShaderExposureAndR16Feedback() {
           "test no longer exposes the material R16 feedback difference");
 }
 
+void TestConditionedExposureComparison() {
+  using namespace RoR::Render;
+  HdrShaderAutoExposureInput input;
+  input.exposure = 10.0F;
+  input.minimum_auto_exposure = -1.0F;
+  input.maximum_auto_exposure = 2.5F;
+  input.average_log_luminance = -100.0F;
+  input.previous_inverse_luminance = 1.0F;
+
+  const float transition_above = FirstDeltaWhoseAdaptationWeightIsBelowOne();
+  const float transition_below =
+      FloatFromBits(FloatBits(transition_above) - 1U);
+  const std::array<float, 8U> deltas{{
+      0.0F,
+      transition_below,
+      transition_above,
+      1.0e-8F,
+      1.0e-3F,
+      1.0F / 48.0F,
+      1.0F / 60.0F,
+      60.0F,
+  }};
+
+  for (const float delta : deltas) {
+    input.delta_seconds = delta;
+    HdrAutoExposureComparisonResult comparison;
+    const ValidationResult validation =
+        CompareHdrAutoExposureReferences(input, comparison);
+    Require(validation.ok(),
+            "valid conditioned exposure comparison was rejected");
+    Require(comparison.analytic_input.previous_inverse_luminance ==
+                static_cast<double>(
+                    comparison.shader.previous_inverse_luminance_r16.decoded),
+            "exposure comparison did not reconstruct prior R16 storage");
+    Require(comparison.target_inverse_luminance.absolute_difference <=
+                    comparison.target_inverse_luminance.allowed_difference &&
+                comparison.previous_frame_weight.absolute_difference <=
+                    comparison.previous_frame_weight.allowed_difference &&
+                comparison.adapted_inverse_luminance.absolute_difference <=
+                    comparison.adapted_inverse_luminance.allowed_difference,
+            "exposure comparison exceeded a declared bound");
+  }
+
+  input.delta_seconds = 1.0e-8F;
+  HdrAutoExposureComparisonResult counterexample;
+  Require(CompareHdrAutoExposureReferences(input, counterexample).ok(),
+          "near-zero-delta conditioning counterexample was rejected");
+  const double obsolete_scalar_bound =
+      kHdrAnalyticShaderAbsoluteTolerance +
+      kHdrAnalyticShaderRelativeTolerance *
+          (std::max)(std::fabs(
+                         counterexample.analytic.adapted_inverse_luminance),
+                     std::fabs(static_cast<double>(
+                         counterexample.shader
+                             .adapted_inverse_luminance_before_storage)));
+  Require(counterexample.shader.previous_frame_weight == 1.0F &&
+              counterexample.analytic.previous_frame_weight < 1.0 &&
+              counterexample.adapted_inverse_luminance.absolute_difference >
+                  obsolete_scalar_bound,
+          "counterexample no longer demonstrates ill-conditioned adaptation");
+  Require(counterexample.adapted_conditioning_bound > 0.0 &&
+              counterexample.adapted_binary32_rounding_bound > 0.0 &&
+              counterexample.adapted_inverse_luminance.allowed_difference ==
+                  counterexample.adapted_conditioning_bound +
+                      counterexample.adapted_binary32_rounding_bound,
+          "adapted exposure did not publish the exact conditioned bound");
+
+  input.delta_seconds = 0.0F;
+  input.exposure = kHdrMinimumExposure;
+  HdrAutoExposureComparisonResult boundary;
+  Require(CompareHdrAutoExposureReferences(input, boundary).ok(),
+          "minimum exposure boundary comparison failed");
+  input.exposure = kHdrMaximumExposure;
+  Require(CompareHdrAutoExposureReferences(input, boundary).ok(),
+          "maximum exposure at zero delta comparison failed");
+  Require(boundary.shader.stored_inverse_luminance_r16.bits == 0x3c00U,
+          "zero delta did not preserve exact prior R16 bits");
+
+  input.exposure = 0.0F;
+  input.previous_inverse_luminance = 0x1p-24F;
+  Require(CompareHdrAutoExposureReferences(input, boundary).ok(),
+          "minimum positive R16 prior comparison failed");
+  Require(boundary.shader.previous_inverse_luminance_r16.bits == 0x0001U &&
+              boundary.shader.stored_inverse_luminance_r16.bits == 0x0001U,
+          "minimum positive R16 exact-bit boundary drifted");
+  input.previous_inverse_luminance = 65504.0F;
+  Require(CompareHdrAutoExposureReferences(input, boundary).ok(),
+          "maximum finite R16 prior comparison failed");
+  Require(boundary.shader.previous_inverse_luminance_r16.bits == 0x7bffU &&
+              boundary.shader.stored_inverse_luminance_r16.bits == 0x7bffU,
+          "maximum finite R16 exact-bit boundary drifted");
+
+  HdrAutoExposureComparisonResult sentinel;
+  sentinel.adapted_conditioning_bound = 123.0;
+  HdrAutoExposureComparisonResult unchanged = sentinel;
+  input.previous_inverse_luminance =
+      std::nextafter(65504.0F, (std::numeric_limits<float>::infinity)());
+  ValidationResult failure = CompareHdrAutoExposureReferences(input, unchanged);
+  RequireFailure(failure, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "previous_inverse_luminance",
+                 "out-of-envelope R16 prior was accepted by comparison");
+  Require(unchanged.adapted_conditioning_bound ==
+              sentinel.adapted_conditioning_bound,
+          "failed exposure comparison modified its output");
+
+  input = {};
+  input.exposure = 16.0F;
+  input.delta_seconds = 1.0F / 48.0F;
+  failure = CompareHdrAutoExposureReferences(input, unchanged);
+  RequireFailure(failure, ValidationCode::VALUE_OUT_OF_RANGE, "evaluation",
+                 "R16-overflowing exposure comparison was accepted");
+  Require(unchanged.adapted_conditioning_bound ==
+              sentinel.adapted_conditioning_bound,
+          "overflowing exposure comparison modified its output");
+}
+
 void TestAnalyticToneMapGolden() {
   using namespace RoR::Render;
   HdrAnalyticFinalToneMapInput input;
@@ -349,29 +512,19 @@ void TestShaderToneMapGoldenAndTolerance() {
               {0.5285918116569519F, 0.8947150707244873F, 1.161243200302124F},
               0.0, "binary32 shader golden drifted");
 
-  HdrAnalyticFinalToneMapInput analytic_input;
-  analytic_input.scene_linear_hdr = {1.0, 2.0, 4.0};
-  analytic_input.bloom_gamma2_encoded = {
-      static_cast<double>(input.bloom_gamma2_encoded.x),
-      static_cast<double>(input.bloom_gamma2_encoded.y),
-      static_cast<double>(input.bloom_gamma2_encoded.z)};
-  analytic_input.inverse_luminance = 0.75;
-  analytic_input.alpha = static_cast<double>(shader.alpha);
-  const HdrAnalyticFinalToneMapResult analytic =
-      EvaluateAnalyticToneMap(analytic_input);
-  const auto within_declared_tolerance = [](double lhs, double rhs) {
-    return std::fabs(lhs - rhs) <=
-           kHdrAnalyticShaderAbsoluteTolerance +
-               kHdrAnalyticShaderRelativeTolerance *
-                   (std::max)(std::fabs(lhs), std::fabs(rhs));
-  };
-  Require(within_declared_tolerance(analytic.analytic_output.x,
-                                    shader.shader_output.x) &&
-              within_declared_tolerance(analytic.analytic_output.y,
-                                        shader.shader_output.y) &&
-              within_declared_tolerance(analytic.analytic_output.z,
-                                        shader.shader_output.z),
-          "analytic/shader golden exceeds declared tolerance");
+  HdrFinalToneMapComparisonResult comparison;
+  Require(CompareHdrFinalToneMapReferences(input, comparison).ok(),
+          "valid tone-map cross-precision comparison failed");
+  Require(
+      comparison.analytic_input.scene_linear_hdr == Double3{1.0, 2.0, 4.0} &&
+          comparison.analytic_input.inverse_luminance == 0.75 &&
+          comparison.analytic_input.alpha == static_cast<double>(shader.alpha),
+      "tone-map comparison did not reconstruct the R16 source boundary");
+  for (const HdrCrossPrecisionComparison &channel :
+       comparison.output_channels) {
+    Require(channel.absolute_difference <= channel.allowed_difference,
+            "tone-map channel exceeds its explicit scalar tolerance");
+  }
 
   HdrShaderFinalToneMapInput quantized;
   quantized.scene_linear_hdr = {1.0003F, 0.0F, 0.0F};
@@ -381,6 +534,18 @@ void TestShaderToneMapGoldenAndTolerance() {
           "scene source was not rounded to RGBA16_FLOAT");
   Require(rounded.inverse_luminance_r16.decoded == 0.736328125F,
           "luminance source was not rounded to R16_FLOAT");
+
+  Require(CompareHdrFinalToneMapReferences(quantized, comparison).ok(),
+          "nonrepresentable tone-map source comparison failed");
+  Require(comparison.analytic_input.scene_linear_hdr.x == 1.0 &&
+              comparison.analytic_input.inverse_luminance == 0.736328125,
+          "tone-map comparison mislabeled R16 quantization as equation error");
+  Require(comparison.shader.scene_linear_hdr_r16_bits[0U] == 0x3c00U &&
+              comparison.shader.inverse_luminance_r16.bits == 0x39e4U,
+          "tone-map comparison lost the independent exact-bit storage gate");
+  Require(comparison.output_channels[0U].absolute_difference <=
+              comparison.output_channels[0U].allowed_difference,
+          "storage-normalized tone-map comparison exceeds scalar tolerance");
 }
 
 void TestFiniteRepresentableExtremesAndMonotonicity() {
@@ -415,6 +580,105 @@ void TestFiniteRepresentableExtremesAndMonotonicity() {
             "shader filmic curve was not monotonic after R16 quantization");
     previous_shader = shader_result.shader_output.x;
   }
+}
+
+void TestRandomizedCrossPrecisionCoverage() {
+  using namespace RoR::Render;
+  std::uint64_t random_state = UINT64_C(0x4844525f52454631);
+  const float transition_above = FirstDeltaWhoseAdaptationWeightIsBelowOne();
+  const float transition_below =
+      FloatFromBits(FloatBits(transition_above) - 1U);
+  std::uint32_t successful_exposure_comparisons = 0U;
+
+  for (std::uint32_t sample = 0U; sample < 100000U; ++sample) {
+    HdrShaderAutoExposureInput exposure;
+    exposure.exposure = -16.0F + 32.0F * NextUnitFloat(random_state);
+    const float first_auto_exposure =
+        -16.0F + 32.0F * NextUnitFloat(random_state);
+    const float second_auto_exposure =
+        -16.0F + 32.0F * NextUnitFloat(random_state);
+    exposure.minimum_auto_exposure =
+        (std::min)(first_auto_exposure, second_auto_exposure);
+    exposure.maximum_auto_exposure =
+        (std::max)(first_auto_exposure, second_auto_exposure);
+    exposure.average_log_luminance =
+        -65504.0F + 131008.0F * NextUnitFloat(random_state);
+    exposure.previous_inverse_luminance =
+        (std::min)(65504.0F,
+                   std::exp2(-24.0F + 40.0F * NextUnitFloat(random_state)));
+    switch (sample % 8U) {
+    case 0U:
+      exposure.delta_seconds = 0.0F;
+      break;
+    case 1U:
+      exposure.delta_seconds = transition_below;
+      break;
+    case 2U:
+      exposure.delta_seconds = transition_above;
+      break;
+    case 3U:
+      exposure.delta_seconds = 1.0e-8F;
+      break;
+    case 4U:
+      exposure.delta_seconds = 1.0e-3F;
+      break;
+    case 5U:
+      exposure.delta_seconds = 1.0F / 48.0F;
+      break;
+    case 6U:
+      exposure.delta_seconds = 1.0F / 60.0F;
+      break;
+    default:
+      exposure.delta_seconds = 60.0F * NextUnitFloat(random_state);
+      break;
+    }
+    HdrShaderAutoExposureResult shader_exposure;
+    const ValidationResult shader_validation =
+        EvaluateHdrShaderAutoExposure(exposure, shader_exposure);
+    HdrAutoExposureComparisonResult exposure_comparison;
+    exposure_comparison.adapted_conditioning_bound = 91.0;
+    const ValidationResult comparison_validation =
+        CompareHdrAutoExposureReferences(exposure, exposure_comparison);
+    if (shader_validation) {
+      Require(comparison_validation.ok(),
+              "randomized exposure comparison exceeded its conditioned bound");
+      ++successful_exposure_comparisons;
+    } else {
+      Require(!comparison_validation.ok() &&
+                  comparison_validation.code == shader_validation.code &&
+                  comparison_validation.field == shader_validation.field,
+              "comparison did not preserve randomized shader failure");
+      Require(exposure_comparison.adapted_conditioning_bound == 91.0,
+              "randomized failed comparison modified its output");
+    }
+
+    HdrShaderFinalToneMapInput tone;
+    tone.scene_linear_hdr = {65504.0F * NextUnitFloat(random_state),
+                             65504.0F * NextUnitFloat(random_state),
+                             65504.0F * NextUnitFloat(random_state)};
+    tone.bloom_gamma2_encoded = {NextUnitFloat(random_state),
+                                 NextUnitFloat(random_state),
+                                 NextUnitFloat(random_state)};
+    tone.inverse_luminance = 0.01F + 3.99F * NextUnitFloat(random_state);
+    tone.alpha = NextUnitFloat(random_state);
+    HdrFinalToneMapComparisonResult tone_comparison;
+    Require(CompareHdrFinalToneMapReferences(tone, tone_comparison).ok(),
+            "randomized tone-map comparison exceeded its scalar bound");
+  }
+  Require(successful_exposure_comparisons > 50000U,
+          "randomized coverage produced too few successful exposure gates");
+
+  HdrFinalToneMapComparisonResult sentinel;
+  sentinel.output_channels[0U].allowed_difference = 77.0;
+  HdrFinalToneMapComparisonResult unchanged = sentinel;
+  HdrShaderFinalToneMapInput invalid;
+  invalid.version += 1U;
+  const ValidationResult failure =
+      CompareHdrFinalToneMapReferences(invalid, unchanged);
+  RequireFailure(failure, ValidationCode::UNSUPPORTED_VERSION, "version",
+                 "invalid tone-map comparison version was accepted");
+  Require(unchanged.output_channels[0U].allowed_difference == 77.0,
+          "failed tone-map comparison modified its output");
 }
 
 void TestExposureFailuresAreOrderedAndTransactional() {
@@ -715,9 +979,11 @@ int main() {
   TestBinary16RoundToNearestEven();
   TestAnalyticExposureGolden();
   TestShaderExposureAndR16Feedback();
+  TestConditionedExposureComparison();
   TestAnalyticToneMapGolden();
   TestShaderToneMapGoldenAndTolerance();
   TestFiniteRepresentableExtremesAndMonotonicity();
+  TestRandomizedCrossPrecisionCoverage();
   TestExposureFailuresAreOrderedAndTransactional();
   TestToneFailuresAreOrderedAndTransactional();
   std::cout

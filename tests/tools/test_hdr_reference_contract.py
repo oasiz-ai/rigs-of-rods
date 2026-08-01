@@ -26,22 +26,29 @@ VERIFY = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFY)
 
 
-EXPECTED_PATHS = {
-    "Samples/2.0/Common/src/Utils/HdrUtils.cpp",
-    "Samples/Media/2.0/scripts/materials/HDR/HDR.compositor",
-    *{
-        f"Samples/Media/2.0/scripts/materials/HDR/{language}/{shader}.{extension}"
+EXPECTED_ROLE_PATHS = {
+    "exposure_parameter_construction": "Samples/2.0/Common/src/Utils/HdrUtils.cpp",
+    "render_target_formats_and_pass_order": (
+        "Samples/Media/2.0/scripts/materials/HDR/HDR.compositor"
+    ),
+    "shader_bindings_parameters_and_sampling": (
+        "Samples/Media/2.0/scripts/materials/HDR/HDR.material"
+    ),
+    **{
+        f"{role}_{language.lower()}": (
+            f"Samples/Media/2.0/scripts/materials/HDR/{language}/{shader}.{extension}"
+        )
         for language, extension in (
             ("GLSL", "glsl"),
             ("HLSL", "hlsl"),
             ("Metal", "metal"),
         )
-        for shader in (
-            "BrightPass_Start_ps",
-            "BoxBlurH_ps",
-            "BoxBlurV_ps",
-            "DownScale03_SumLumEnd_ps",
-            "FinalToneMapping_ps",
+        for role, shader in (
+            ("bright_pass_gamma2_encode", "BrightPass_Start_ps"),
+            ("horizontal_gamma2_blur", "BoxBlurH_ps"),
+            ("vertical_gamma2_blur", "BoxBlurV_ps"),
+            ("downscale03", "DownScale03_SumLumEnd_ps"),
+            ("final_tone_mapping", "FinalToneMapping_ps"),
         )
     },
 }
@@ -56,8 +63,27 @@ class HdrReferenceContractTests(unittest.TestCase):
         )
         cls.header = (RENDER_ROOT / "HdrReference.h").read_text(encoding="utf-8")
 
+    def write_valid_fixture(self, root: Path) -> tuple[Path, Path]:
+        source_root = root / "ogre"
+        canonical = copy.deepcopy(self.canonical_lock)
+        canonical["commit"] = "1" * 40
+        (root / "ogre-next.lock.json").write_text(
+            json.dumps(canonical), encoding="utf-8"
+        )
+        manifest = copy.deepcopy(self.manifest)
+        manifest["ogre_next_commit"] = "1" * 40
+        for entry in manifest["files"]:
+            source_path = source_root / entry["path"]
+            source_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = f"pinned fixture for {entry['role']}\n".encode()
+            source_path.write_bytes(payload)
+            entry["sha256"] = hashlib.sha256(payload).hexdigest()
+        manifest_path = root / "ogre-next-hdr-reference.lock.json"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        return manifest_path, source_root
+
     def test_real_manifest_is_bound_to_canonical_lock_and_complete(self) -> None:
-        self.assertEqual(VERIFY.verify(MANIFEST_PATH), 17)
+        self.assertEqual(VERIFY.verify(MANIFEST_PATH), 18)
         self.assertEqual(
             self.manifest["ogre_next_commit"], self.canonical_lock["commit"]
         )
@@ -71,7 +97,10 @@ class HdrReferenceContractTests(unittest.TestCase):
         self.assertEqual(header_commit.group(1), self.canonical_lock["commit"])
         self.assertEqual(self.manifest["canonical_ogre_next_lock"], "ogre-next.lock.json")
         entries = self.manifest["files"]
-        self.assertEqual({entry["path"] for entry in entries}, EXPECTED_PATHS)
+        self.assertEqual(
+            {entry["role"]: entry["path"] for entry in entries},
+            EXPECTED_ROLE_PATHS,
+        )
         self.assertEqual(len({entry["role"] for entry in entries}), len(entries))
         self.assertEqual(len({entry["path"] for entry in entries}), len(entries))
         for entry in entries:
@@ -80,34 +109,9 @@ class HdrReferenceContractTests(unittest.TestCase):
     def test_verifier_hashes_every_source_and_rejects_tampering(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source_root = root / "ogre"
-            source_path = source_root / "Samples" / "HDR" / "shader.test"
-            source_path.parent.mkdir(parents=True)
-            source_path.write_bytes(b"pinned HDR source\n")
-            digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
-            canonical = copy.deepcopy(self.canonical_lock)
-            canonical["commit"] = "1" * 40
-            (root / "ogre-next.lock.json").write_text(
-                json.dumps(canonical), encoding="utf-8"
-            )
-            manifest = {
-                "schema_version": 1,
-                "name": "fixture",
-                "canonical_ogre_next_lock": "ogre-next.lock.json",
-                "ogre_next_commit": "1" * 40,
-                "analytic_behavior_version": 1,
-                "shader_behavior_version": 1,
-                "files": [
-                    {
-                        "role": "fixture",
-                        "path": "Samples/HDR/shader.test",
-                        "sha256": digest,
-                    }
-                ],
-            }
-            manifest_path = root / "ogre-next-hdr-reference.lock.json"
-            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-            self.assertEqual(VERIFY.verify(manifest_path, source_root), 1)
+            manifest_path, source_root = self.write_valid_fixture(root)
+            self.assertEqual(VERIFY.verify(manifest_path, source_root), 18)
+            source_path = source_root / next(iter(EXPECTED_ROLE_PATHS.values()))
             source_path.write_bytes(b"tampered\n")
             with self.assertRaisesRegex(VERIFY.VerificationError, "hash mismatch"):
                 VERIFY.verify(manifest_path, source_root)
@@ -135,6 +139,123 @@ class HdrReferenceContractTests(unittest.TestCase):
             manifest["files"][0]["path"] = "../escape"
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             with self.assertRaisesRegex(VERIFY.VerificationError, "normalized relative"):
+                VERIFY.verify(manifest_path)
+
+    def test_verifier_rejects_schema_and_role_forgery(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_path, _ = self.write_valid_fixture(root)
+            valid = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+            malformed = copy.deepcopy(valid)
+            malformed["unexpected_attestation"] = "trusted"
+            manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+            with self.assertRaisesRegex(VERIFY.VerificationError, "root fields"):
+                VERIFY.verify(manifest_path)
+
+            malformed = copy.deepcopy(valid)
+            malformed["name"] = "lookalike"
+            manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+            with self.assertRaisesRegex(VERIFY.VerificationError, "lock name"):
+                VERIFY.verify(manifest_path)
+
+            malformed = copy.deepcopy(valid)
+            malformed["canonical_ogre_next_lock"] = "lookalike.json"
+            manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+            with self.assertRaisesRegex(VERIFY.VerificationError, "canonical sibling"):
+                VERIFY.verify(manifest_path)
+
+            malformed = copy.deepcopy(valid)
+            malformed["files"][0]["role"] = "forged_semantics"
+            manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+            with self.assertRaisesRegex(VERIFY.VerificationError, "role/path mapping"):
+                VERIFY.verify(manifest_path)
+
+            malformed = copy.deepcopy(valid)
+            malformed["files"][0]["role"], malformed["files"][1]["role"] = (
+                malformed["files"][1]["role"],
+                malformed["files"][0]["role"],
+            )
+            manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+            with self.assertRaisesRegex(VERIFY.VerificationError, "role/path mapping"):
+                VERIFY.verify(manifest_path)
+
+    def test_verifier_rejects_duplicate_keys_and_exact_type_confusion(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_path, _ = self.write_valid_fixture(root)
+            valid_text = manifest_path.read_text(encoding="utf-8")
+            duplicate_manifest = valid_text.replace(
+                '"schema_version": 1,',
+                '"schema_version": 1, "schema_version": 1,',
+                1,
+            )
+            manifest_path.write_text(duplicate_manifest, encoding="utf-8")
+            with self.assertRaisesRegex(VERIFY.VerificationError, "duplicate JSON"):
+                VERIFY.verify(manifest_path)
+
+            manifest_path, _ = self.write_valid_fixture(root)
+            canonical_path = root / "ogre-next.lock.json"
+            duplicate_canonical = canonical_path.read_text(encoding="utf-8").replace(
+                '"commit": "1111111111111111111111111111111111111111",',
+                '"commit": "1111111111111111111111111111111111111111", '
+                '"commit": "1111111111111111111111111111111111111111",',
+                1,
+            )
+            canonical_path.write_text(duplicate_canonical, encoding="utf-8")
+            with self.assertRaisesRegex(VERIFY.VerificationError, "duplicate JSON"):
+                VERIFY.verify(manifest_path)
+
+            for field in (
+                "schema_version",
+                "analytic_behavior_version",
+                "shader_behavior_version",
+            ):
+                manifest_path, _ = self.write_valid_fixture(root)
+                malformed = json.loads(manifest_path.read_text(encoding="utf-8"))
+                malformed[field] = True
+                manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+                with self.assertRaisesRegex(VERIFY.VerificationError, "integer"):
+                    VERIFY.verify(manifest_path)
+
+            for field, value, message in (
+                ("name", True, "nonempty string"),
+                ("canonical_ogre_next_lock", True, "nonempty string"),
+                ("ogre_next_commit", True, "nonempty string"),
+                ("files", {}, "nonempty array"),
+            ):
+                manifest_path, _ = self.write_valid_fixture(root)
+                malformed = json.loads(manifest_path.read_text(encoding="utf-8"))
+                malformed[field] = value
+                manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+                with self.assertRaisesRegex(VERIFY.VerificationError, message):
+                    VERIFY.verify(manifest_path)
+
+            for field in ("role", "path", "sha256"):
+                manifest_path, _ = self.write_valid_fixture(root)
+                malformed = json.loads(manifest_path.read_text(encoding="utf-8"))
+                malformed["files"][0][field] = True
+                manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+                with self.assertRaisesRegex(
+                    VERIFY.VerificationError, "nonempty string"
+                ):
+                    VERIFY.verify(manifest_path)
+
+            manifest_path, _ = self.write_valid_fixture(root)
+            malformed = json.loads(manifest_path.read_text(encoding="utf-8"))
+            malformed["files"][0] = True
+            manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+            with self.assertRaisesRegex(VERIFY.VerificationError, "must be an object"):
+                VERIFY.verify(manifest_path)
+
+            manifest_path, _ = self.write_valid_fixture(root)
+            canonical_path = root / "ogre-next.lock.json"
+            malformed_canonical = json.loads(canonical_path.read_text(encoding="utf-8"))
+            malformed_canonical["commit"] = True
+            canonical_path.write_text(
+                json.dumps(malformed_canonical), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(VERIFY.VerificationError, "nonempty string"):
                 VERIFY.verify(manifest_path)
 
     def test_every_numerical_reference_is_shipping_and_strict_fp(self) -> None:
@@ -171,9 +292,13 @@ class HdrReferenceContractTests(unittest.TestCase):
             "EvaluateHdrShaderAutoExposure",
             "EvaluateHdrAnalyticFinalToneMap",
             "EvaluateHdrShaderFinalToneMap",
+            "CompareHdrAutoExposureReferences",
+            "CompareHdrFinalToneMapReferences",
+            "HdrCrossPrecisionComparison",
             "bloom_gamma2_encoded",
             "kHdrAnalyticShaderAbsoluteTolerance",
             "kHdrAnalyticShaderRelativeTolerance",
+            "kHdrBinary32Gamma5",
         ):
             self.assertIn(token, self.header)
         self.assertNotIn("bloom_srgb", self.header)

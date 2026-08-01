@@ -113,6 +113,8 @@ sample shared by the Metal, HLSL, and GLSL paths. Analytic v1 evaluates the
 selected equations in ideal binary64. Shader v1 evaluates binary32 and models
 the exact binary16 scene/luminance storage boundary, including multi-frame R16
 exposure feedback. The bloom input is explicitly Ogre's historical gamma-2
-encoding, not standard sRGB. Source hashes, admitted ranges, backend tolerances,
-and the unimplemented output stages are defined in
+encoding, not standard sRGB. Explicit comparison APIs equalize texture storage
+before tone-map comparison and use a conditioning-aware bound for exposure
+adaptation near zero frame time. Source hashes, admitted ranges, backend
+tolerances, and the unimplemented output stages are defined in
 [`HDR_REFERENCE.md`](../../../../doc/nextgen/HDR_REFERENCE.md).

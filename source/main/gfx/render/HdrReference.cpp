@@ -310,6 +310,41 @@ ValidationResult ValidateToneMapDomain(const Double3 &scene_linear_hdr,
   return ValidationResult::Success();
 }
 
+ValidationResult CompareCrossPrecisionScalar(
+    double analytic_value, double shader_value, double allowed_difference,
+    const char *field, HdrCrossPrecisionComparison &output,
+    std::size_t element_index = ValidationResult::kNoElement) {
+  const double absolute_difference = std::fabs(analytic_value - shader_value);
+  if (!IsFinite(analytic_value) || !IsFinite(shader_value) ||
+      !IsFinite(absolute_difference) || !IsFinite(allowed_difference) ||
+      allowed_difference < 0.0) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, field,
+        "HDR cross-precision comparison produced a non-finite bound",
+        element_index);
+  }
+  if (absolute_difference > allowed_difference) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, field,
+        "HDR analytic and shader values exceed their declared comparison bound",
+        element_index);
+  }
+  HdrCrossPrecisionComparison candidate;
+  candidate.analytic_value = analytic_value;
+  candidate.shader_value = shader_value;
+  candidate.absolute_difference = absolute_difference;
+  candidate.allowed_difference = allowed_difference;
+  output = candidate;
+  return ValidationResult::Success();
+}
+
+double ScalarCrossPrecisionTolerance(double analytic_value,
+                                     double shader_value) noexcept {
+  return kHdrAnalyticShaderAbsoluteTolerance +
+         kHdrAnalyticShaderRelativeTolerance *
+             (std::max)(std::fabs(analytic_value), std::fabs(shader_value));
+}
+
 } // namespace
 
 ValidationResult QuantizeHdrR16Float(float input, HdrR16Float &output) {
@@ -477,6 +512,88 @@ EvaluateHdrShaderAutoExposure(const HdrShaderAutoExposureInput &input,
 }
 
 ValidationResult
+CompareHdrAutoExposureReferences(const HdrShaderAutoExposureInput &input,
+                                 HdrAutoExposureComparisonResult &output) {
+  HdrAutoExposureComparisonResult candidate;
+  ValidationResult validation =
+      EvaluateHdrShaderAutoExposure(input, candidate.shader);
+  if (!validation) {
+    return validation;
+  }
+
+  candidate.analytic_input.exposure = static_cast<double>(input.exposure);
+  candidate.analytic_input.minimum_auto_exposure =
+      static_cast<double>(input.minimum_auto_exposure);
+  candidate.analytic_input.maximum_auto_exposure =
+      static_cast<double>(input.maximum_auto_exposure);
+  candidate.analytic_input.average_log_luminance =
+      static_cast<double>(input.average_log_luminance);
+  candidate.analytic_input.previous_inverse_luminance = static_cast<double>(
+      candidate.shader.previous_inverse_luminance_r16.decoded);
+  candidate.analytic_input.delta_seconds =
+      static_cast<double>(input.delta_seconds);
+  validation = EvaluateHdrAnalyticAutoExposure(candidate.analytic_input,
+                                               candidate.analytic);
+  if (!validation) {
+    return validation;
+  }
+
+  validation = CompareCrossPrecisionScalar(
+      candidate.analytic.target_inverse_luminance,
+      static_cast<double>(candidate.shader.target_inverse_luminance),
+      ScalarCrossPrecisionTolerance(
+          candidate.analytic.target_inverse_luminance,
+          static_cast<double>(candidate.shader.target_inverse_luminance)),
+      "target_inverse_luminance_comparison",
+      candidate.target_inverse_luminance);
+  if (!validation) {
+    return validation;
+  }
+  validation = CompareCrossPrecisionScalar(
+      candidate.analytic.previous_frame_weight,
+      static_cast<double>(candidate.shader.previous_frame_weight),
+      ScalarCrossPrecisionTolerance(
+          candidate.analytic.previous_frame_weight,
+          static_cast<double>(candidate.shader.previous_frame_weight)),
+      "previous_frame_weight_comparison", candidate.previous_frame_weight);
+  if (!validation) {
+    return validation;
+  }
+
+  const double analytic_target = candidate.analytic.target_inverse_luminance;
+  const double shader_target =
+      static_cast<double>(candidate.shader.target_inverse_luminance);
+  const double analytic_weight = candidate.analytic.previous_frame_weight;
+  const double shader_weight =
+      static_cast<double>(candidate.shader.previous_frame_weight);
+  const double previous = static_cast<double>(
+      candidate.shader.previous_inverse_luminance_r16.decoded);
+  candidate.adapted_conditioning_bound =
+      std::fabs(1.0 - analytic_weight) *
+          std::fabs(analytic_target - shader_target) +
+      std::fabs(shader_target - previous) *
+          std::fabs(analytic_weight - shader_weight);
+  candidate.adapted_binary32_rounding_bound =
+      kHdrBinary32Gamma5 * (std::fabs(shader_target * (1.0 - shader_weight)) +
+                            std::fabs(previous * shader_weight)) +
+      4.0 * static_cast<double>((std::numeric_limits<float>::denorm_min)());
+  const double adapted_bound = candidate.adapted_conditioning_bound +
+                               candidate.adapted_binary32_rounding_bound;
+  validation = CompareCrossPrecisionScalar(
+      candidate.analytic.adapted_inverse_luminance,
+      static_cast<double>(
+          candidate.shader.adapted_inverse_luminance_before_storage),
+      adapted_bound, "adapted_inverse_luminance_comparison",
+      candidate.adapted_inverse_luminance);
+  if (!validation) {
+    return validation;
+  }
+
+  output = candidate;
+  return ValidationResult::Success();
+}
+
+ValidationResult
 EvaluateHdrAnalyticFinalToneMap(const HdrAnalyticFinalToneMapInput &input,
                                 HdrAnalyticFinalToneMapResult &output) {
   if (input.version != kHdrAnalyticReferenceVersion) {
@@ -631,6 +748,58 @@ EvaluateHdrShaderFinalToneMap(const HdrShaderFinalToneMapInput &input,
     return ValidationResult::Failure(
         ValidationCode::VALUE_OUT_OF_RANGE, "evaluation",
         "shader HDR tone-map evaluation overflowed or produced a NaN");
+  }
+
+  output = candidate;
+  return ValidationResult::Success();
+}
+
+ValidationResult
+CompareHdrFinalToneMapReferences(const HdrShaderFinalToneMapInput &input,
+                                 HdrFinalToneMapComparisonResult &output) {
+  HdrFinalToneMapComparisonResult candidate;
+  ValidationResult validation =
+      EvaluateHdrShaderFinalToneMap(input, candidate.shader);
+  if (!validation) {
+    return validation;
+  }
+
+  candidate.analytic_input.scene_linear_hdr = {
+      static_cast<double>(candidate.shader.scene_linear_hdr_r16.x),
+      static_cast<double>(candidate.shader.scene_linear_hdr_r16.y),
+      static_cast<double>(candidate.shader.scene_linear_hdr_r16.z)};
+  candidate.analytic_input.bloom_gamma2_encoded = {
+      static_cast<double>(input.bloom_gamma2_encoded.x),
+      static_cast<double>(input.bloom_gamma2_encoded.y),
+      static_cast<double>(input.bloom_gamma2_encoded.z)};
+  candidate.analytic_input.inverse_luminance =
+      static_cast<double>(candidate.shader.inverse_luminance_r16.decoded);
+  candidate.analytic_input.alpha =
+      static_cast<double>(candidate.shader.alpha_r16.decoded);
+  validation = EvaluateHdrAnalyticFinalToneMap(candidate.analytic_input,
+                                               candidate.analytic);
+  if (!validation) {
+    return validation;
+  }
+
+  const std::array<double, 3U> analytic_output{
+      {candidate.analytic.analytic_output.x,
+       candidate.analytic.analytic_output.y,
+       candidate.analytic.analytic_output.z}};
+  const std::array<double, 3U> shader_output{
+      {static_cast<double>(candidate.shader.shader_output.x),
+       static_cast<double>(candidate.shader.shader_output.y),
+       static_cast<double>(candidate.shader.shader_output.z)}};
+  for (std::size_t channel = 0U; channel < analytic_output.size(); ++channel) {
+    validation = CompareCrossPrecisionScalar(
+        analytic_output[channel], shader_output[channel],
+        ScalarCrossPrecisionTolerance(analytic_output[channel],
+                                      shader_output[channel]),
+        "tone_map_output_comparison", candidate.output_channels[channel],
+        channel);
+    if (!validation) {
+      return validation;
+    }
   }
 
   output = candidate;
