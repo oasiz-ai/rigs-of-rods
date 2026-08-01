@@ -29,11 +29,12 @@ constexpr std::size_t kOgreNextRt4MaximumDirectionalLights = 1U;
 /// direct-sun values inside RGBA16_FLOAT headroom. RT4/V1 adopts that exact,
 /// renderer-independent mapping for its one admitted directional light.
 constexpr float kOgreNextRt4LuxToNativePowerScale = 1.0F / 1024.0F;
-/// Bits reserved by the native PCC adapter. Authored masks are intersected
-/// with the complement before they reach Ogre so probe capture/proxy objects
-/// can never alias caller-defined visibility groups.
+/// Bits 28 and 29 are reserved by the native PCC adapter; Ogre itself owns
+/// bits 30 and 31 for visibility and shadow-caster layer state. Authored masks
+/// are intersected with the complement before they reach Ogre so caller-defined
+/// groups cannot alias either engine's internal visibility state.
 constexpr std::uint32_t kOgreNextRt4InternalVisibilityMask =
-    (1U << 28U) | (1U << 29U);
+    (1U << 28U) | (1U << 29U) | (1U << 30U) | (1U << 31U);
 constexpr std::uint32_t kOgreNextRt4AuthoredVisibilityMask =
     ~kOgreNextRt4InternalVisibilityMask;
 /// An 8-bit UNORM channel spans [-1, 1] in steps of 2/255 after canonical

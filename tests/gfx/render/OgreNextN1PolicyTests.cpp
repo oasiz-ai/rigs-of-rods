@@ -17,6 +17,11 @@ namespace {
 
 using namespace RoR::Render;
 
+static_assert(kOgreNextRt4InternalVisibilityMask == UINT32_C(0xF0000000),
+              "RT4 must reserve PCC and Ogre layer bits");
+static_assert(kOgreNextRt4AuthoredVisibilityMask == UINT32_C(0x0FFFFFFF),
+              "RT4 authored visibility must match Ogre's public mask range");
+
 void Require(bool condition, const char *message) {
   if (!condition) {
     std::cerr << "Ogre-Next N1 policy test failed: " << message << '\n';
@@ -799,6 +804,14 @@ void TestFrameAndScenePolicy() {
               .field == "mesh_instances.visibility_mask",
           "RT4/V1 admitted an authored item mask that aliases PCC proxy state");
   request = MakeFrame(MakeReflectionScene(
+      kRegistryId, (1U << 30U) | 1U,
+      (std::numeric_limits<std::uint32_t>::max)()));
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1)
+              .field == "mesh_instances.visibility_mask",
+          "RT4/V1 admitted an authored item mask that aliases Ogre layer state");
+  request = MakeFrame(MakeReflectionScene(
       kRegistryId, (std::numeric_limits<std::uint32_t>::max)(),
       (1U << 28U) | 1U));
   Require(ValidateOgreNextN1Frame(
@@ -806,6 +819,14 @@ void TestFrameAndScenePolicy() {
               OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1)
               .field == "reflection_probes.visibility_mask",
           "RT4/V1 admitted an authored probe mask that aliases PCC capture state");
+  request = MakeFrame(MakeReflectionScene(
+      kRegistryId, (std::numeric_limits<std::uint32_t>::max)(),
+      (1U << 31U) | 1U));
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1)
+              .field == "reflection_probes.visibility_mask",
+          "RT4/V1 admitted an authored probe mask that aliases Ogre layer state");
   request = MakeFrame(MakeReflectionScene(kRegistryId));
   request.views.front().visibility_mask = (1U << 29U) | 1U;
   Require(ValidateOgreNextN1Frame(
@@ -813,6 +834,13 @@ void TestFrameAndScenePolicy() {
               OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1)
               .field == "views.visibility_mask",
           "RT4/V1 admitted a view mask that aliases PCC proxy state");
+  request = MakeFrame(MakeReflectionScene(kRegistryId));
+  request.views.front().visibility_mask = (1U << 30U) | 1U;
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1)
+              .field == "views.visibility_mask",
+          "RT4/V1 admitted a view mask that aliases Ogre layer state");
 
   SceneSnapshotDescriptor lit_descriptor;
   lit_descriptor.snapshot_id = 2U;

@@ -818,7 +818,7 @@ ValidationResult ValidateOgreNextN1Scene(
            (mask & kOgreNextRt4InternalVisibilityMask) != 0U)) {
         return Unsupported(
             "reflection_probes.visibility_mask",
-            "RT4/V1 reserves visibility bits 28 and 29 for native PCC capture and proxy geometry",
+            "RT4/V1 reserves visibility bits 28-29 for native PCC state and 30-31 for Ogre layers",
             index);
       }
     }
@@ -882,7 +882,7 @@ ValidationResult ValidateOgreNextN1Scene(
               0U))) {
       return Unsupported(
           "mesh_instances.visibility_mask",
-          "RT4/V1 reserves visibility bits 28 and 29 for native PCC capture and proxy geometry",
+          "RT4/V1 reserves visibility bits 28-29 for native PCC state and 30-31 for Ogre layers",
           index);
     }
     if (!allow_dynamic_meshes && instance.deformation_revision != 1U) {
@@ -946,7 +946,7 @@ ValidationResult ValidateOgreNextN1Frame(
         (view.visibility_mask & kOgreNextRt4InternalVisibilityMask) != 0U))) {
     return Unsupported(
         "views.visibility_mask",
-        "RT4/V1 reserves visibility bits 28 and 29 for native PCC capture and proxy geometry");
+        "RT4/V1 reserves visibility bits 28-29 for native PCC state and 30-31 for Ogre layers");
   }
   if (view.exposure != 1.0F) {
     return Unsupported(
