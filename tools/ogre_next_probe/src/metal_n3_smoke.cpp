@@ -384,10 +384,12 @@ std::shared_ptr<const SceneSnapshot> MakeScene(
   LightDescriptor light;
   light.light_id = 1U;
   light.type = LightType::DIRECTIONAL;
-  light.color_linear = {1.0F, 0.92F, 0.82F};
+  Require(NormalizePhotometricColorLinear({1.0F, 0.92F, 0.82F},
+                                          light.color_linear),
+          "N3 directional tint could not be normalized");
   light.intensity = 1024.0F;
   light.direction = {0.0F, 0.0F, -1.0F};
-  light.casts_shadows = false;
+  light.shadow_flags = 0U;
   descriptor.lights.push_back(light);
 
   MeshInstanceDescriptor instance;

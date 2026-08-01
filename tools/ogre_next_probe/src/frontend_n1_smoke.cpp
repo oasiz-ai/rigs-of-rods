@@ -666,10 +666,12 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
     LightDescriptor light;
     light.light_id = 1U;
     light.type = LightType::DIRECTIONAL;
-    light.color_linear = {1.0F, 0.92F, 0.82F};
+    Require(NormalizePhotometricColorLinear({1.0F, 0.92F, 0.82F},
+                                            light.color_linear),
+            "RT4/V1 directional tint could not be normalized");
     light.intensity = 1024.0F;
     light.direction = {0.0F, 0.0F, -1.0F};
-    light.casts_shadows = false;
+    light.shadow_flags = 0U;
     descriptor.lights.push_back(light);
   }
 
@@ -705,10 +707,12 @@ MakeRetirementScene(std::uint64_t revision) {
   LightDescriptor light;
   light.light_id = 1U;
   light.type = LightType::DIRECTIONAL;
-  light.color_linear = {1.0F, 0.92F, 0.82F};
+  Require(NormalizePhotometricColorLinear({1.0F, 0.92F, 0.82F},
+                                          light.color_linear),
+          "RT4 retirement directional tint could not be normalized");
   light.intensity = 1024.0F;
   light.direction = {0.0F, 0.0F, -1.0F};
-  light.casts_shadows = false;
+  light.shadow_flags = 0U;
   descriptor.lights.push_back(light);
 
   MeshInstanceDescriptor instance;
@@ -783,13 +787,17 @@ void RequireControlledSceneAndView(const SceneSnapshot &baseline_scene,
               expected_light.color_linear == actual_light.color_linear &&
               expected_light.intensity == actual_light.intensity &&
               expected_light.position == actual_light.position &&
+              expected_light.previous_position ==
+                  actual_light.previous_position &&
               expected_light.direction == actual_light.direction &&
+              expected_light.previous_direction ==
+                  actual_light.previous_direction &&
               expected_light.range == actual_light.range &&
               expected_light.inner_cone_radians ==
                   actual_light.inner_cone_radians &&
               expected_light.outer_cone_radians ==
                   actual_light.outer_cone_radians &&
-              expected_light.casts_shadows == actual_light.casts_shadows,
+              expected_light.shadow_flags == actual_light.shadow_flags,
           "RT4/V1 controlled directional light changed");
   Require(baseline_scene.mesh_instances().size() == 1U &&
               variant_scene.mesh_instances().size() == 1U,

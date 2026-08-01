@@ -166,7 +166,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         for token in (
             "RT4/V1 admits at most one calibrated directional light",
             "light.type != LightType::DIRECTIONAL",
-            "light.casts_shadows",
+            "light.shadow_flags != 0U",
             "light.intensity * kOgreNextRt4LuxToNativePowerScale",
         ):
             self.assertIn(token, self.policy)

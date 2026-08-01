@@ -639,9 +639,9 @@ ValidationResult ValidateOgreNextN1Scene(
             "RT4/V1 admits a directional light only; local-light attenuation is not calibrated yet",
             index);
       }
-      if (light.casts_shadows) {
+      if (light.shadow_flags != 0U) {
         return Unsupported(
-            "lights.casts_shadows",
+            "lights.shadow_flags",
             "RT4/V1 directional shadows require a reviewed shadow-node contract",
             index);
       }

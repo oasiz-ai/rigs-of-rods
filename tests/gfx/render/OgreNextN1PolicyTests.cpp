@@ -511,19 +511,24 @@ void TestModernPbrAssetPolicy() {
   directional.light_id = 1U;
   directional.intensity = 1024.0F;
   directional.direction = {0.0F, 0.0F, -1.0F};
-  directional.casts_shadows = false;
+  directional.shadow_flags = 0U;
   Require(ValidateOgreNextN1Scene(*make_lit_scene({directional}), registry,
                                   false, kModern)
               .ok(),
           "one calibrated RT4/V1 directional light was rejected");
   LightDescriptor point = directional;
   point.type = LightType::POINT;
+  point.position = {1.0F, 2.0F, 3.0F};
+  point.previous_position = point.position;
+  point.direction = {0.0F, -1.0F, 0.0F};
+  point.previous_direction = point.direction;
+  point.range = 10.0F;
   Require(ValidateOgreNextN1Scene(*make_lit_scene({point}), registry, false,
                                   kModern)
               .code == ValidationCode::UNSUPPORTED_FEATURE,
           "uncalibrated local light escaped RT4/V1 admission");
   LightDescriptor shadowed = directional;
-  shadowed.casts_shadows = true;
+  shadowed.shadow_flags = LIGHT_SHADOW_DEFAULT_FLAGS;
   Require(ValidateOgreNextN1Scene(*make_lit_scene({shadowed}), registry,
                                   false, kModern)
               .code == ValidationCode::UNSUPPORTED_FEATURE,
@@ -534,15 +539,15 @@ void TestModernPbrAssetPolicy() {
               *make_lit_scene({directional, second}), registry, false, kModern)
               .code == ValidationCode::UNSUPPORTED_FEATURE,
           "multiple directional lights escaped RT4/V1 admission");
-  LightDescriptor overflowing = directional;
-  overflowing.color_linear = {(std::numeric_limits<float>::max)(),
-                              (std::numeric_limits<float>::max)(),
-                              (std::numeric_limits<float>::max)()};
-  overflowing.intensity = (std::numeric_limits<float>::max)();
-  Require(ValidateOgreNextN1Scene(*make_lit_scene({overflowing}), registry,
-                                  false, kModern)
-              .code == ValidationCode::UNSUPPORTED_FEATURE,
-          "overflowing finite RT4/V1 directional photometry escaped admission");
+  LightDescriptor maximum_photometry = directional;
+  Require(NormalizePhotometricColorLinear({0.0F, 0.0F, 1.0F},
+                                          maximum_photometry.color_linear),
+          "canonical saturated-blue RT4/V1 fixture could not be normalized");
+  maximum_photometry.intensity = (std::numeric_limits<float>::max)();
+  Require(ValidateOgreNextN1Scene(*make_lit_scene({maximum_photometry}),
+                                  registry, false, kModern)
+              .ok(),
+          "maximum canonical RT4/V1 photometry was rejected");
 
   RenderAssetDelta transformed_delta = MakeModernCatalogDelta(kRegistryId + 1U);
   std::get<MaterialDescriptor>(transformed_delta.mutations[1U].payload)
