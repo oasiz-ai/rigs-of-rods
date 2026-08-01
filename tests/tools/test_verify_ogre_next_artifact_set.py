@@ -260,6 +260,8 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "off_center_projection_verified": True,
                 "receiver_bounds_min_z": 0,
                 "receiver_bounds_max_z": 0,
+                "caster_bounds_min_z": 0,
+                "caster_bounds_max_z": 0,
                 "tight_caster_bounds_verified": True,
                 "sdr_changed_pixels": 16,
                 "sdr_darkened_pixels": 16,
