@@ -137,6 +137,11 @@ python3 tools/verify_cityworld_storefront_clean_reproducibility.py \
   --converter /absolute/path/to/OgreXMLConverter-14.5.2
 ```
 
+The gate runs the two clean Blender generations serially by default. This
+avoids graphics-context and memory contention on shared or software-rendered
+CI hosts; a dedicated workstation may opt in to two workers with
+`--generation-workers 2`.
+
 No checked `.blend`, preview, GLB, asset manifest, compile report, material,
 ODEF, collision fixture, or render mesh is copied into either root. The final
 comparison covers each freshly built GLB, material fallback, ODEF, collision

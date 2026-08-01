@@ -443,6 +443,10 @@ class CityWorldStorefrontFamilyTests(unittest.TestCase):
             CLEAN_REPRODUCIBILITY.DEFAULT_GENERATION_TIMEOUT_SECONDS,
             600,
         )
+        self.assertEqual(
+            CLEAN_REPRODUCIBILITY.DEFAULT_GENERATION_WORKERS,
+            1,
+        )
         with tempfile.TemporaryDirectory(
             prefix="storefront-artifact-free-root-"
         ) as directory:

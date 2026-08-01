@@ -27,6 +27,7 @@ PINNED_CONVERTER_VERSION = "OgreXMLConverter Tsathoggua (14.5.2)"
 EXPECTED_VARIANTS = 5
 EXPECTED_OUTPUTS = 35
 DEFAULT_GENERATION_TIMEOUT_SECONDS = 600
+DEFAULT_GENERATION_WORKERS = 1
 FAMILY_RELATIVE = Path(
     "content-source/cityworld_next/buildings/storefront_family/"
     "rorng_city_storefront_family.v1.json"
@@ -293,9 +294,20 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_GENERATION_TIMEOUT_SECONDS,
         help="maximum seconds allowed for each clean Blender generation",
     )
+    parser.add_argument(
+        "--generation-workers",
+        type=int,
+        default=DEFAULT_GENERATION_WORKERS,
+        help=(
+            "number of independent Blender generations to run concurrently; "
+            "use one on shared or software-rendered CI hosts"
+        ),
+    )
     args = parser.parse_args()
     if args.generation_timeout <= 0:
         parser.error("--generation-timeout must be positive")
+    if not 1 <= args.generation_workers <= 2:
+        parser.error("--generation-workers must be one or two")
     return args
 
 
@@ -330,7 +342,7 @@ def main() -> int:
             prepare_artifact_free_root(repo_root, left_root)
             prepare_artifact_free_root(repo_root, right_root)
             with ThreadPoolExecutor(
-                max_workers=2,
+                max_workers=args.generation_workers,
                 thread_name_prefix="storefront-clean-build",
             ) as executor:
                 builds = [
