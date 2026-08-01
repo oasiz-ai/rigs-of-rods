@@ -278,6 +278,11 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             OgreNextHlmsPbs
             ${ROR_OGRE_NEXT_RENDERER_TARGET}
             OgreNextMain)
+    set_target_properties(
+        ror_ogre_next_frontend_n1
+        PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES)
 
     add_executable(
         ror_ogre_next_frontend_n1_smoke

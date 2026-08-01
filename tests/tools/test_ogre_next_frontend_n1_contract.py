@@ -68,6 +68,12 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertNotIn('#include "Ogre', self.header)
         self.assertNotIn("Ogre::", self.header)
         self.assertIn("std::unique_ptr<Impl>", self.header)
+        self.assertRegex(
+            self.entry_cmake,
+            r"set_target_properties\(\s*ror_ogre_next_frontend_n1\s+"
+            r"PROPERTIES\s+CXX_VISIBILITY_PRESET hidden\s+"
+            r"VISIBILITY_INLINES_HIDDEN YES\s*\)",
+        )
 
     def test_shader_media_is_runtime_owned_relocatable_and_fail_closed(self) -> None:
         self.assertIn("OgreNextN1Configuration", self.header)
