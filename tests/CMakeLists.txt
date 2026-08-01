@@ -232,6 +232,15 @@ add_executable(
     ror_renderer_boundary_header_isolation_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RendererBoundaryHeaderIsolationTests.cpp"
 )
+add_executable(
+    ror_ogre_next_n1_policy_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/OgreNextN1PolicyTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextN1Policy.cpp"
+)
+target_include_directories(
+    ror_ogre_next_n1_policy_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext"
+)
 target_include_directories(
     ror_renderer_boundary_header_isolation_tests
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
@@ -245,6 +254,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_render_scene_snapshot_tests
     ror_render_resource_descriptor_tests
     ror_renderer_frontend_contract_tests
+    ror_ogre_next_n1_policy_tests
 )
 foreach (render_contract_test IN LISTS ROR_RENDER_CONTRACT_TEST_TARGETS)
     target_link_libraries(${render_contract_test} PRIVATE ror_render_contract)
@@ -1141,6 +1151,11 @@ add_test(
 add_test(
     NAME renderer_boundary_header_isolation
     COMMAND ror_renderer_boundary_header_isolation_tests
+)
+
+add_test(
+    NAME ogre_next_n1_policy
+    COMMAND ror_ogre_next_n1_policy_tests
 )
 
 add_test(

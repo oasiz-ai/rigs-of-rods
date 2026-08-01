@@ -24,6 +24,8 @@ REPORT_NAME = "ror-ogre-next-probe-report.json"
 BUILD_CONTRACT_NAME = "ogre-next-build-contract.json"
 FRAME_REPORT_NAME = "ror-ogre-next-frame-probe-report.json"
 FRAME_IMAGE_NAME = "ror-ogre-next-frame-probe.ppm"
+N1_REPORT_NAME = "ror-ogre-next-frontend-n1-report.json"
+N1_IMAGE_NAME = "ror-ogre-next-frontend-n1.ppm"
 FRAME_VALIDATOR = REPOSITORY_ROOT / "tools" / "validate_ogre_next_frame_probe.py"
 BUILD_SENTINEL_NAME = ".ror-ogre-next-probe-build-v1"
 BUILD_SENTINEL_CONTENT = "ror-ogre-next-probe-build-v1\n"
@@ -628,6 +630,133 @@ def run_frame_checkpoint(
     )
 
 
+def validate_n1_checkpoint(
+    report: dict[str, Any],
+    image_path: Path,
+    lock: dict[str, Any],
+    policy: dict[str, str],
+) -> None:
+    try:
+        image = image_path.read_bytes()
+    except OSError as error:
+        raise ProbeError(f"could not read N1 frame: {error}") from error
+    header = b"P6\n192 128\n255\n"
+    if not image.startswith(header) or len(image) != len(header) + 192 * 128 * 3:
+        raise ProbeError("N1 frame is not the exact 192x128 RGB8 PPM contract")
+    pixels = image[len(header) :]
+    hash_value = 14695981039346656037
+    for value in pixels:
+        hash_value ^= value
+        hash_value = (hash_value * 1099511628211) & ((1 << 64) - 1)
+    colours = [
+        bytes(pixels[offset : offset + 3])
+        for offset in range(0, len(pixels), 3)
+    ]
+    counts: dict[bytes, int] = {}
+    for colour in colours:
+        counts[colour] = counts.get(colour, 0) + 1
+    observed_non_background = len(colours) - max(counts.values())
+    provenance = report.get("provenance", {})
+    adapter = report.get("adapter", {})
+    catalog = report.get("catalog", {})
+    hdr = report.get("hdr", {})
+    sdr = report.get("sdr", {})
+    lifecycle = report.get("lifecycle", {})
+    shader_media = lock["shader_media"]
+    checks = {
+        "schema": report.get("schema")
+        == "ror.ogre_next_frontend_n1_smoke.v1",
+        "status": report.get("status") == "pass",
+        "commit": provenance.get("ogre_next_commit") == lock["commit"],
+        "archive": provenance.get("ogre_next_archive_sha256")
+        == lock["archive_sha256"],
+        "shader_root": provenance.get("shader_media_root")
+        == shader_media["root"],
+        "shader_license": provenance.get("shader_media_license_expression")
+        == shader_media["license_expression"],
+        "shader_notice": provenance.get("shader_media_notice_sha256")
+        == shader_media["third_party_notice"]["notice_sha256"],
+        "platform": report.get("platform_policy") == policy["name"],
+        "renderer": report.get("renderer") == policy["renderer_name"],
+        "v2_vao": adapter.get("native_mesh_path")
+        == "Ogre v2 Mesh plus immutable VertexArrayObject",
+        "pbs": adapter.get("material_path") == "HLMS PBS metallic-roughness",
+        "brdf": adapter.get("brdf")
+        == "PbsBrdf::Default height-correlated GGX",
+        "pbr_readback": adapter.get("pbr_datablock_readback_verified") is True,
+        "compositor2": adapter.get("compositor2") is True,
+        "ui_free": adapter.get("ui_included") is False,
+        "readback": adapter.get("cpu_readback_completed") is True,
+        "uncalibrated_lights_rejected": adapter.get("analytic_lights_calibrated")
+        is False
+        and adapter.get("constant_environment_only") is True,
+        "interop_closed": adapter.get("native_interop") is False
+        and adapter.get("ray_tracing") is False,
+        "catalog": catalog.get("sequence") == 1
+        and catalog.get("transactional_replay_after_restart") is True,
+        "hdr_format": hdr.get("format") == "RGBA16_FLOAT",
+        "hdr_energy": isinstance(hdr.get("maximum_luminance"), (int, float))
+        and hdr["maximum_luminance"] > 1.05,
+        "hdr_geometry": isinstance(hdr.get("non_background_pixels"), int)
+        and hdr["non_background_pixels"] >= 512,
+        "sdr_format": sdr.get("format") == "RGBA8_SRGB",
+        "sdr_hash": sdr.get("rgb8_fnv1a64") == f"{hash_value:016x}",
+        "sdr_distinct": sdr.get("distinct_rgb8_values") == len(counts),
+        "sdr_geometry": sdr.get("non_background_pixels")
+        == observed_non_background
+        and observed_non_background >= 512,
+        "lifecycle": all(
+            lifecycle.get(field) is True
+            for field in (
+                "unsupported_depth_failed_before_submission",
+                "latest_snapshot_only_identity_window",
+                "shutdown_reinitialize_render_shutdown",
+            )
+        ),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise ProbeError(
+            "OGRE-Next N1 checkpoint failed closed: "
+            + ", ".join(sorted(failed))
+        )
+
+
+def run_n1_checkpoint(
+    build_dir: Path,
+    config: str,
+    jobs: int,
+    lock: dict[str, Any],
+    policy: dict[str, str],
+) -> None:
+    run(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--target",
+            "ror_ogre_next_frontend_n1_report",
+            "--config",
+            config,
+            "--parallel",
+            str(jobs),
+        ]
+    )
+    report_path = build_dir / N1_REPORT_NAME
+    image_path = build_dir / N1_IMAGE_NAME
+    missing = [path.name for path in (report_path, image_path) if not path.is_file()]
+    if missing:
+        raise ProbeError(
+            "OGRE-Next N1 checkpoint did not produce required artifacts: "
+            + ", ".join(missing)
+        )
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ProbeError(f"could not read N1 report: {error}") from error
+    validate_n1_checkpoint(report, image_path, lock, policy)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -766,6 +895,13 @@ def main(argv: list[str] | None = None) -> int:
             args.jobs,
             policy,
             report_path,
+        )
+        run_n1_checkpoint(
+            build_dir,
+            args.config,
+            args.jobs,
+            lock,
+            policy,
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0

@@ -8,6 +8,8 @@ on:
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
       - tools/validate_ogre_next_frame_probe.py
+      - source/main/gfx/render/**
+      - tests/gfx/render/**
       - tests/tools/test_ogre_next_*.py
   pull_request:
     paths:
@@ -15,6 +17,8 @@ on:
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
       - tools/validate_ogre_next_frame_probe.py
+      - source/main/gfx/render/**
+      - tests/gfx/render/**
       - tests/tools/test_ogre_next_*.py
   workflow_dispatch:
 
@@ -108,9 +112,11 @@ jobs:
         run: |
           python tests/tools/test_ogre_next_probe_contract.py
           python tests/tools/test_ogre_next_frame_probe.py
+          python tests/tools/test_ogre_next_frontend_n1_contract.py
           python tests/tools/test_ogre_next_probe_workflow.py
           python -O tests/tools/test_ogre_next_probe_contract.py
           python -O tests/tools/test_ogre_next_frame_probe.py
+          python -O tests/tools/test_ogre_next_frontend_n1_contract.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
           python tools/run_ogre_next_probe.py --validate-contract-only
 
@@ -147,3 +153,5 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-probe-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1.ppm

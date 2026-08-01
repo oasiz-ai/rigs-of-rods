@@ -71,9 +71,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 self.assertIn(required, self.workflow)
 
     def test_linux_selects_shadercs_packaged_shared_abi(self) -> None:
-        cmake = (
-            REPOSITORY_ROOT / "tools" / "ogre_next_probe" / "CMakeLists.txt"
-        ).read_text(encoding="utf-8")
+        probe_root = REPOSITORY_ROOT / "tools" / "ogre_next_probe"
+        cmake = (probe_root / "CMakeLists.txt").read_text(encoding="utf-8")
+        cmake += (probe_root / "cmake" / "PinnedOgreNext.cmake").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY", cmake)
         self.assertIn("NAMES shaderc_shared shaderc", cmake)
         self.assertIn('MATCHES "\\\\.a$"', cmake)

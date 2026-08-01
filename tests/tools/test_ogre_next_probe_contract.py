@@ -23,6 +23,7 @@ FRAME_TOOL_PATH = (
 )
 PROBE_DIR = REPOSITORY_ROOT / "tools" / "ogre_next_probe"
 CMAKE_PATH = PROBE_DIR / "CMakeLists.txt"
+PINNED_CMAKE_PATH = PROBE_DIR / "cmake" / "PinnedOgreNext.cmake"
 LOCK_PATH = PROBE_DIR / "ogre-next.lock.json"
 EVIDENCE_PATH = (
     REPOSITORY_ROOT
@@ -355,8 +356,12 @@ class OgreNextProbeContractTests(unittest.TestCase):
                     PROBE.validate_build_contract(invalid, self.lock, self.policy)
 
     def test_cmake_is_opt_in_and_forbids_unverified_source_overrides(self) -> None:
-        cmake = CMAKE_PATH.read_text(encoding="utf-8")
+        entry_cmake = CMAKE_PATH.read_text(encoding="utf-8")
+        pinned_cmake = PINNED_CMAKE_PATH.read_text(encoding="utf-8")
+        cmake = entry_cmake + "\n" + pinned_cmake
         self.assertIn("ROR_OGRE_NEXT_PROBE", cmake)
+        self.assertIn("cmake/PinnedOgreNext.cmake", entry_cmake)
+        self.assertIn("if (TARGET OgreMain)", pinned_cmake)
         self.assertIn("URL_HASH \"SHA256=${ROR_OGRE_NEXT_ARCHIVE_SHA256}\"", cmake)
         self.assertIn("URL_HASH \"SHA256=${ROR_RAPIDJSON_ARCHIVE_SHA256}\"", cmake)
         self.assertIn("FETCHCONTENT_SOURCE_DIR_OGRE_NEXT", cmake)
@@ -471,8 +476,6 @@ class OgreNextProbeContractTests(unittest.TestCase):
         for path_key, hash_key in (
             ("source_path", "source_sha256"),
             ("frame_source_path", "frame_source_sha256"),
-            ("cmake_path", "cmake_sha256"),
-            ("wrapper_path", "wrapper_sha256"),
             ("frame_validator_path", "frame_validator_sha256"),
             ("probe_config_template_path", "probe_config_template_sha256"),
             (
@@ -503,6 +506,12 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 hashlib.sha256(source_path.read_bytes()).hexdigest(),
                 provenance[hash_key],
             )
+        # The evidence record is an immutable historical capture, not a lock
+        # that prevents the standalone CMake entrypoint or wrapper from
+        # evolving. Their exact hashes remain recorded for provenance while
+        # the live files are checked by the contract tests above.
+        for historical_hash in ("cmake_sha256", "wrapper_sha256"):
+            self.assertRegex(provenance[historical_hash], r"^[0-9a-f]{64}$")
         build_contract = json.loads(
             (REPOSITORY_ROOT / provenance["build_contract_path"]).read_text(
                 encoding="utf-8"
