@@ -56,8 +56,6 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
 
     def test_linux_uses_a_declared_software_vulkan_device(self) -> None:
         for required in (
-            "glslang-dev",
-            "glslang-tools",
             "libshaderc-dev",
             "libvulkan-dev",
             "libx11-dev",
@@ -72,16 +70,19 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, self.workflow)
 
-    def test_linux_static_shader_toolchain_is_closed_explicitly(self) -> None:
+    def test_linux_selects_shadercs_packaged_shared_abi(self) -> None:
         cmake = (
             REPOSITORY_ROOT / "tools" / "ogre_next_probe" / "CMakeLists.txt"
         ).read_text(encoding="utf-8")
-        self.assertIn("find_package(glslang CONFIG REQUIRED)", cmake)
-        self.assertIn("NOT TARGET glslang::glslang", cmake)
-        self.assertIn(
-            "APPEND PROPERTY INTERFACE_LINK_LIBRARIES glslang::glslang",
-            cmake,
-        )
+        self.assertIn("ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY", cmake)
+        self.assertIn("NAMES shaderc_shared shaderc", cmake)
+        self.assertIn('MATCHES "\\\\.a$"', cmake)
+        self.assertIn("set(Vulkan_SHADERC_LIB_REL", cmake)
+        self.assertIn("set(Vulkan_SHADERC_LIB_DBG", cmake)
+        self.assertNotIn("find_package(glslang", cmake)
+        self.assertNotIn("glslang::", cmake)
+        self.assertNotIn("glslang-dev", self.workflow)
+        self.assertNotIn("glslang-tools", self.workflow)
 
     def test_byte_hashed_probe_inputs_are_checkout_stable(self) -> None:
         attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(

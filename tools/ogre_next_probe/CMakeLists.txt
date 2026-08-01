@@ -302,15 +302,27 @@ else ()
     set(OGRE_VULKAN_WINDOW_NULL ON CACHE BOOL "" FORCE)
     set(OGRE_VULKAN_WINDOW_XCB OFF CACHE BOOL "" FORCE)
 
-    # Ubuntu packages shaderc as a static archive whose glslang dependency is
-    # not carried by OGRE-Next's legacy FindVulkan module. Resolve the packaged
-    # CMake target explicitly so every Vulkan probe executable gets the full
-    # static dependency closure instead of relying on linker-specific defaults.
-    find_package(glslang CONFIG REQUIRED)
-    if (NOT TARGET glslang::glslang)
+    # OGRE-Next's legacy FindVulkan module asks specifically for the static
+    # shaderc_combined archive. Distribution packages do not consistently
+    # publish that archive's private glslang/SPIRV-Tools closure, and guessing
+    # the archive order makes otherwise portable probes linker-dependent.
+    # Select shaderc's shared ABI before OGRE configures Vulkan instead; its
+    # runtime dependency closure is owned by the distribution package.
+    find_library(
+        ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY
+        NAMES shaderc_shared shaderc
+        REQUIRED)
+    if (ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY MATCHES "\\.a$")
         message(FATAL_ERROR
-            "The Linux Vulkan probe requires the packaged glslang target")
+            "The Linux Vulkan probe requires shared shaderc, but found "
+            "${ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY}")
     endif ()
+    set(Vulkan_SHADERC_LIB_REL
+        "${ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY}"
+        CACHE FILEPATH "Reviewed shared shaderc library" FORCE)
+    set(Vulkan_SHADERC_LIB_DBG
+        "${ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY}"
+        CACHE FILEPATH "Reviewed shared shaderc library" FORCE)
 endif ()
 
 set(OGRE_BUILD_COMPONENT_HLMS_PBS ON CACHE BOOL "" FORCE)
@@ -387,15 +399,6 @@ FetchContent_Declare(
         "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_PATCH_PATH}"
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(ogre_next)
-
-if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
-    # Keep glslang after Vulkan/shaderc on the final static link line. Appending
-    # to the renderer's public closure also covers every present and future
-    # probe executable without duplicating a platform-only library list.
-    set_property(
-        TARGET ${ROR_OGRE_NEXT_RENDERER_TARGET}
-        APPEND PROPERTY INTERFACE_LINK_LIBRARIES glslang::glslang)
-endif ()
 
 file(SHA256
     "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_LICENSE_PATH}"
