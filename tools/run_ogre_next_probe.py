@@ -37,6 +37,9 @@ N1_REPORT_NAME = "ror-ogre-next-frontend-n1-report.json"
 N1_IMAGE_NAME = "ror-ogre-next-frontend-n1.ppm"
 RT4_PBR_REPORT_NAME = "ror-ogre-next-frontend-rt4-pbr-v1-report.json"
 RT4_PBR_IMAGE_NAME = "ror-ogre-next-frontend-rt4-pbr-v1.ppm"
+RT4_PBR_EVIDENCE_NAME = (
+    "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin"
+)
 N1_PACKAGE_NAME = "ror-ogre-next-n1-package"
 N2_REPORT_NAME = "ror-ogre-next-metal-n2-report.json"
 N2_PROBE_NAME = "ror-ogre-next-metal-n2-probe.bin"
@@ -1018,6 +1021,149 @@ def run_frame_checkpoint(
     )
 
 
+def _fnv1a64(data: bytes) -> str:
+    value = 14695981039346656037
+    for byte in data:
+        value ^= byte
+        value = (value * 1099511628211) & ((1 << 64) - 1)
+    return f"{value:016x}"
+
+
+def _changed_pixels(
+    baseline: bytes, variant: bytes, bytes_per_pixel: int
+) -> int:
+    if (
+        bytes_per_pixel <= 0
+        or len(baseline) != len(variant)
+        or len(baseline) % bytes_per_pixel != 0
+    ):
+        raise ProbeError("RT4/V1 isolation attachment layout drifted")
+    return sum(
+        baseline[offset : offset + bytes_per_pixel]
+        != variant[offset : offset + bytes_per_pixel]
+        for offset in range(0, len(baseline), bytes_per_pixel)
+    )
+
+
+def validate_rt4_isolation_evidence(
+    report: dict[str, Any], evidence_path: Path
+) -> None:
+    try:
+        evidence = evidence_path.read_bytes()
+    except OSError as error:
+        raise ProbeError(
+            f"could not read RT4/V1 isolation evidence: {error}"
+        ) from error
+    isolation = report.get("texture_isolation")
+    if not isinstance(isolation, dict):
+        raise ProbeError("RT4/V1 isolation report is missing")
+    expected_variants = (
+        ("baseline", "none"),
+        ("base_color", "base_color_rgb"),
+        ("roughness_g", "packed_green_roughness"),
+        ("metallic_b", "packed_blue_metallic"),
+        ("emissive", "emissive_rgb"),
+        ("sampler_uv", "sampler_address_over_uv0"),
+    )
+    variants = isolation.get("variants")
+    common_checks = {
+        "schema": isolation.get("schema")
+        == "ror.ogre_next_rt4_texture_isolation.v1",
+        "evidence_file": isolation.get("evidence_file")
+        == evidence_path.name,
+        "extent": isolation.get("width") == 192
+        and isolation.get("height") == 128,
+        "evidence_bytes": isolation.get("evidence_bytes")
+        == len(evidence),
+        "geometry_control": isolation.get("geometry_identical") is True,
+        "factor_control": isolation.get(
+            "material_factors_constants_identical"
+        )
+        is True,
+        "camera_control": isolation.get("camera_identical") is True,
+        "light_control": isolation.get("lights_identical") is True,
+        "ui_free": isolation.get("ui_included") is False,
+        "variant_count": isinstance(variants, list)
+        and len(variants) == len(expected_variants),
+    }
+    failed = [name for name, passed in common_checks.items() if not passed]
+    if failed:
+        raise ProbeError(
+            "RT4/V1 isolation evidence failed closed: "
+            + ", ".join(sorted(failed))
+        )
+    if not isinstance(variants, list):
+        raise ProbeError("RT4/V1 isolation variant list is invalid")
+
+    offset = 0
+    baseline_blocks: dict[str, bytes] = {}
+    observed_hashes: dict[str, set[str]] = {"hdr": set(), "sdr": set()}
+    for index, (entry, expected) in enumerate(
+        zip(variants, expected_variants)
+    ):
+        if not isinstance(entry, dict):
+            raise ProbeError("RT4/V1 isolation variant is not an object")
+        if (
+            entry.get("name") != expected[0]
+            or entry.get("changed_input") != expected[1]
+            or entry.get("asset_sequence") != index + 1
+        ):
+            raise ProbeError("RT4/V1 isolation variant identity drifted")
+        for label, bytes_per_pixel in (("hdr", 8), ("sdr", 4)):
+            attachment = entry.get(label)
+            expected_bytes = 192 * 128 * bytes_per_pixel
+            if not isinstance(attachment, dict):
+                raise ProbeError(
+                    f"RT4/V1 {entry.get('name')} {label} metadata is invalid"
+                )
+            if (
+                attachment.get("offset") != offset
+                or attachment.get("bytes") != expected_bytes
+                or offset + expected_bytes > len(evidence)
+            ):
+                raise ProbeError(
+                    f"RT4/V1 {entry.get('name')} {label} slice is invalid"
+                )
+            block = evidence[offset : offset + expected_bytes]
+            exact_hash = _fnv1a64(block)
+            if attachment.get("exact_fnv1a64") != exact_hash:
+                raise ProbeError(
+                    f"RT4/V1 {entry.get('name')} {label} hash mismatch"
+                )
+            observed_hashes[label].add(exact_hash)
+            if index == 0:
+                changed_pixels = 0
+                baseline_blocks[label] = block
+            else:
+                changed_pixels = _changed_pixels(
+                    baseline_blocks[label], block, bytes_per_pixel
+                )
+            if (
+                attachment.get("changed_pixels_from_baseline")
+                != changed_pixels
+                or (index != 0 and changed_pixels < 64)
+            ):
+                raise ProbeError(
+                    f"RT4/V1 {entry.get('name')} {label} delta is not isolated evidence"
+                )
+            offset += expected_bytes
+    if offset != len(evidence):
+        raise ProbeError("RT4/V1 isolation evidence has trailing bytes")
+    if any(len(hashes) != len(expected_variants) for hashes in observed_hashes.values()):
+        raise ProbeError(
+            "RT4/V1 isolated inputs did not produce distinct HDR and SDR attachments"
+        )
+    if (
+        report.get("hdr", {}).get("exact_attachment_fnv1a64")
+        != _fnv1a64(baseline_blocks["hdr"])
+        or report.get("sdr", {}).get("exact_attachment_fnv1a64")
+        != _fnv1a64(baseline_blocks["sdr"])
+    ):
+        raise ProbeError(
+            "RT4/V1 baseline isolation evidence differs from the primary report"
+        )
+
+
 def validate_n1_checkpoint(
     report: dict[str, Any],
     image_path: Path,
@@ -1026,6 +1172,7 @@ def validate_n1_checkpoint(
     media_manifest: dict[str, Any],
     source_identity: dict[str, Any],
     modern_pbr: bool = False,
+    isolation_evidence_path: Path | None = None,
 ) -> None:
     try:
         image = image_path.read_bytes()
@@ -1050,6 +1197,7 @@ def validate_n1_checkpoint(
     provenance = report.get("provenance", {})
     adapter = report.get("adapter", {})
     catalog = report.get("catalog", {})
+    texture_allocations = report.get("texture_allocations", {})
     hdr = report.get("hdr", {})
     sdr = report.get("sdr", {})
     lifecycle = report.get("lifecycle", {})
@@ -1113,7 +1261,7 @@ def validate_n1_checkpoint(
         and adapter.get("constant_environment_only") is True,
         "interop_closed": adapter.get("native_interop") is False
         and adapter.get("ray_tracing") is False,
-        "catalog": catalog.get("sequence") == 1
+        "catalog": catalog.get("sequence") == (6 if modern_pbr else 1)
         and catalog.get("transactional_replay_after_restart") is True,
         "hdr_format": hdr.get("format") == "RGBA16_FLOAT",
         "hdr_energy": isinstance(hdr.get("maximum_luminance"), (int, float))
@@ -1174,6 +1322,25 @@ def validate_n1_checkpoint(
                 == 3
                 and catalog.get("referenced_sampler_count") == 1
                 and catalog.get("unreferenced_assets_not_uploaded") is True,
+                "rt4_replacement_sequence": catalog.get(
+                    "baseline_sequence"
+                )
+                == 1
+                and catalog.get("live_replacement_count") == 5,
+                "rt4_exact_allocations": texture_allocations
+                == {
+                    "version": 1,
+                    "live_source_textures": 3,
+                    "sampled_rgba_allocations": 2,
+                    "roughness_r8_allocations": 1,
+                    "metallic_r8_allocations": 1,
+                    "unused_packed_rgba_allocations": 0,
+                    "exact_usage": True,
+                },
+                "rt4_live_replacement": lifecycle.get(
+                    "live_texture_replacement_retirement"
+                )
+                is True,
             }
         )
     failed = [name for name, passed in checks.items() if not passed]
@@ -1182,6 +1349,10 @@ def validate_n1_checkpoint(
             "OGRE-Next N1 checkpoint failed closed: "
             + ", ".join(sorted(failed))
         )
+    if modern_pbr:
+        if isolation_evidence_path is None:
+            raise ProbeError("RT4/V1 isolation evidence path is required")
+        validate_rt4_isolation_evidence(report, isolation_evidence_path)
 
 
 def shader_media_manifest(root: Path) -> dict[str, Any]:
@@ -1289,6 +1460,7 @@ def run_n1_checkpoint(
     image_path = build_dir / N1_IMAGE_NAME
     rt4_report_path = build_dir / RT4_PBR_REPORT_NAME
     rt4_image_path = build_dir / RT4_PBR_IMAGE_NAME
+    rt4_evidence_path = build_dir / RT4_PBR_EVIDENCE_NAME
     missing = [
         path.name
         for path in (
@@ -1296,6 +1468,7 @@ def run_n1_checkpoint(
             image_path,
             rt4_report_path,
             rt4_image_path,
+            rt4_evidence_path,
         )
         if not path.is_file()
     ]
@@ -1321,6 +1494,7 @@ def run_n1_checkpoint(
         media_manifest,
         source_identity,
         modern_pbr=True,
+        isolation_evidence_path=rt4_evidence_path,
     )
     if rt4_report["sdr"]["rgb8_fnv1a64"] == report["sdr"]["rgb8_fnv1a64"]:
         raise ProbeError(

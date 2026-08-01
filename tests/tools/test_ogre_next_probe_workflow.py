@@ -112,6 +112,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn("MachineIndependent|GenericCodeGen|OSDependent", self.workflow)
         self.assertIn("ror_ogre_next_frame_probe", self.workflow)
         self.assertIn("ror_ogre_next_frontend_n1_smoke", self.workflow)
+        self.assertIn(
+            "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin",
+            self.workflow,
+        )
 
     def test_byte_hashed_probe_inputs_are_checkout_stable(self) -> None:
         attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(
