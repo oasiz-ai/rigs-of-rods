@@ -322,6 +322,21 @@ RenderAssetDelta MakeRetirementCatalog(std::uint64_t revision) {
   mesh.payload = MakeMesh(true);
   delta.mutations.push_back(std::move(mesh));
 
+  RenderAssetMutation texture;
+  texture.asset = AssetRef(RenderAssetKind::TEXTURE, 30U, revision);
+  texture.payload = MakeRetirementTexture(revision);
+  delta.mutations.push_back(std::move(texture));
+
+  SamplerResourceDescriptor sampler_descriptor;
+  sampler_descriptor.debug_name = "RT4 isolated retirement sampler";
+  sampler_descriptor.address_u = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler_descriptor.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler_descriptor.maximum_lod = 1.0F;
+  RenderAssetMutation sampler;
+  sampler.asset = AssetRef(RenderAssetKind::SAMPLER, 31U);
+  sampler.payload = sampler_descriptor;
+  delta.mutations.push_back(std::move(sampler));
+
   MaterialDescriptor material = MakeMaterial();
   material.debug_name = "RT4 isolated retirement base-color material";
   material.base_color_factor = {0.8F, 0.85F, 0.9F, 1.0F};
@@ -338,21 +353,6 @@ RenderAssetDelta MakeRetirementCatalog(std::uint64_t revision) {
       AssetRef(RenderAssetKind::MATERIAL, 32U, revision);
   material_mutation.payload = std::move(material);
   delta.mutations.push_back(std::move(material_mutation));
-
-  RenderAssetMutation texture;
-  texture.asset = AssetRef(RenderAssetKind::TEXTURE, 30U, revision);
-  texture.payload = MakeRetirementTexture(revision);
-  delta.mutations.push_back(std::move(texture));
-
-  SamplerResourceDescriptor sampler_descriptor;
-  sampler_descriptor.debug_name = "RT4 isolated retirement sampler";
-  sampler_descriptor.address_u = SamplerAddressMode::CLAMP_TO_EDGE;
-  sampler_descriptor.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
-  sampler_descriptor.maximum_lod = 1.0F;
-  RenderAssetMutation sampler;
-  sampler.asset = AssetRef(RenderAssetKind::SAMPLER, 31U);
-  sampler.payload = sampler_descriptor;
-  delta.mutations.push_back(std::move(sampler));
   return delta;
 }
 
