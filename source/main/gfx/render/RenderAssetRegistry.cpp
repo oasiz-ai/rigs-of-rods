@@ -9,12 +9,61 @@
 #include "RenderAssetRegistry.h"
 
 #include <array>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <utility>
 
 namespace RoR::Render {
 namespace {
+
+// A revision identifies exact immutable upload bytes. Numeric equality would
+// collapse the observably different IEEE encodings of positive and negative
+// zero, so catalog replay compares every floating object representation.
+static_assert(sizeof(float) == sizeof(std::uint32_t) &&
+                  (std::numeric_limits<float>::is_iec559),
+              "renderer asset payloads require IEEE-754 binary32 floats");
+
+bool EqualFloatBits(const float &lhs, const float &rhs) noexcept {
+  std::uint32_t lhs_bits = 0U;
+  std::uint32_t rhs_bits = 0U;
+  std::memcpy(&lhs_bits, &lhs, sizeof(lhs_bits));
+  std::memcpy(&rhs_bits, &rhs, sizeof(rhs_bits));
+  return lhs_bits == rhs_bits;
+}
+
+bool EqualFloat2Bits(const Float2 &lhs, const Float2 &rhs) noexcept {
+  return EqualFloatBits(lhs.x, rhs.x) && EqualFloatBits(lhs.y, rhs.y);
+}
+
+bool EqualFloat3Bits(const Float3 &lhs, const Float3 &rhs) noexcept {
+  return EqualFloatBits(lhs.x, rhs.x) && EqualFloatBits(lhs.y, rhs.y) &&
+         EqualFloatBits(lhs.z, rhs.z);
+}
+
+bool EqualFloat4Bits(const Float4 &lhs, const Float4 &rhs) noexcept {
+  return EqualFloatBits(lhs.x, rhs.x) && EqualFloatBits(lhs.y, rhs.y) &&
+         EqualFloatBits(lhs.z, rhs.z) && EqualFloatBits(lhs.w, rhs.w);
+}
+
+bool EqualBoundsBits(const Bounds3 &lhs, const Bounds3 &rhs) noexcept {
+  return EqualFloat3Bits(lhs.minimum, rhs.minimum) &&
+         EqualFloat3Bits(lhs.maximum, rhs.maximum);
+}
+
+template <typename Value, typename Equal>
+bool EqualVector(const std::vector<Value> &lhs, const std::vector<Value> &rhs,
+                 Equal equal) noexcept {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < lhs.size(); ++index) {
+    if (!equal(lhs[index], rhs[index])) {
+      return false;
+    }
+  }
+  return true;
+}
 
 bool EqualMip(const TextureMipLevelDescriptor &lhs,
               const TextureMipLevelDescriptor &rhs) noexcept {
@@ -29,12 +78,18 @@ bool EqualMesh(const MeshResourceDescriptor &lhs,
   return lhs.version == rhs.version && lhs.debug_name == rhs.debug_name &&
          lhs.topology == rhs.topology && lhs.index_format == rhs.index_format &&
          lhs.topology_revision == rhs.topology_revision &&
-         lhs.dynamic == rhs.dynamic && lhs.local_bounds == rhs.local_bounds &&
-         lhs.positions == rhs.positions && lhs.normals == rhs.normals &&
-         lhs.tangents == rhs.tangents && lhs.velocities == rhs.velocities &&
-         lhs.texture_coordinates_0 == rhs.texture_coordinates_0 &&
-         lhs.texture_coordinates_1 == rhs.texture_coordinates_1 &&
-         lhs.colors == rhs.colors && lhs.indices == rhs.indices;
+         lhs.dynamic == rhs.dynamic &&
+         EqualBoundsBits(lhs.local_bounds, rhs.local_bounds) &&
+         EqualVector(lhs.positions, rhs.positions, EqualFloat3Bits) &&
+         EqualVector(lhs.normals, rhs.normals, EqualFloat3Bits) &&
+         EqualVector(lhs.tangents, rhs.tangents, EqualFloat4Bits) &&
+         EqualVector(lhs.velocities, rhs.velocities, EqualFloat3Bits) &&
+         EqualVector(lhs.texture_coordinates_0, rhs.texture_coordinates_0,
+                     EqualFloat2Bits) &&
+         EqualVector(lhs.texture_coordinates_1, rhs.texture_coordinates_1,
+                     EqualFloat2Bits) &&
+         EqualVector(lhs.colors, rhs.colors, EqualFloat4Bits) &&
+         lhs.indices == rhs.indices;
 }
 
 bool EqualTexture(const TextureResourceDescriptor &lhs,
@@ -61,22 +116,23 @@ bool EqualSampler(const SamplerResourceDescriptor &lhs,
          lhs.magnification_filter == rhs.magnification_filter &&
          lhs.mip_filter == rhs.mip_filter && lhs.address_u == rhs.address_u &&
          lhs.address_v == rhs.address_v && lhs.address_w == rhs.address_w &&
-         lhs.mip_lod_bias == rhs.mip_lod_bias &&
-         lhs.minimum_lod == rhs.minimum_lod &&
-         lhs.maximum_lod == rhs.maximum_lod &&
+         EqualFloatBits(lhs.mip_lod_bias, rhs.mip_lod_bias) &&
+         EqualFloatBits(lhs.minimum_lod, rhs.minimum_lod) &&
+         EqualFloatBits(lhs.maximum_lod, rhs.maximum_lod) &&
          lhs.anisotropy_enabled == rhs.anisotropy_enabled &&
-         lhs.maximum_anisotropy == rhs.maximum_anisotropy &&
+         EqualFloatBits(lhs.maximum_anisotropy, rhs.maximum_anisotropy) &&
          lhs.compare_enabled == rhs.compare_enabled &&
          lhs.compare_operation == rhs.compare_operation &&
-         lhs.border_color == rhs.border_color;
+         EqualFloat4Bits(lhs.border_color, rhs.border_color);
 }
 
 bool EqualBinding(const TextureBinding &lhs,
                   const TextureBinding &rhs) noexcept {
   return lhs.texture == rhs.texture && lhs.sampler == rhs.sampler &&
          lhs.texture_coordinate_set == rhs.texture_coordinate_set &&
-         lhs.scale == rhs.scale && lhs.offset == rhs.offset &&
-         lhs.rotation_radians == rhs.rotation_radians;
+         EqualFloat2Bits(lhs.scale, rhs.scale) &&
+         EqualFloat2Bits(lhs.offset, rhs.offset) &&
+         EqualFloatBits(lhs.rotation_radians, rhs.rotation_radians);
 }
 
 bool EqualMaterial(const MaterialDescriptor &lhs,
@@ -84,15 +140,15 @@ bool EqualMaterial(const MaterialDescriptor &lhs,
   return lhs.version == rhs.version && lhs.debug_name == rhs.debug_name &&
          lhs.model == rhs.model && lhs.alpha_mode == rhs.alpha_mode &&
          lhs.double_sided == rhs.double_sided &&
-         lhs.base_color_factor == rhs.base_color_factor &&
-         lhs.metallic_factor == rhs.metallic_factor &&
-         lhs.roughness_factor == rhs.roughness_factor &&
-         lhs.normal_scale == rhs.normal_scale &&
-         lhs.occlusion_strength == rhs.occlusion_strength &&
-         lhs.emissive_factor == rhs.emissive_factor &&
-         lhs.emissive_strength == rhs.emissive_strength &&
-         lhs.alpha_cutoff == rhs.alpha_cutoff &&
-         lhs.index_of_refraction == rhs.index_of_refraction &&
+         EqualFloat4Bits(lhs.base_color_factor, rhs.base_color_factor) &&
+         EqualFloatBits(lhs.metallic_factor, rhs.metallic_factor) &&
+         EqualFloatBits(lhs.roughness_factor, rhs.roughness_factor) &&
+         EqualFloatBits(lhs.normal_scale, rhs.normal_scale) &&
+         EqualFloatBits(lhs.occlusion_strength, rhs.occlusion_strength) &&
+         EqualFloat3Bits(lhs.emissive_factor, rhs.emissive_factor) &&
+         EqualFloatBits(lhs.emissive_strength, rhs.emissive_strength) &&
+         EqualFloatBits(lhs.alpha_cutoff, rhs.alpha_cutoff) &&
+         EqualFloatBits(lhs.index_of_refraction, rhs.index_of_refraction) &&
          EqualBinding(lhs.base_color_texture, rhs.base_color_texture) &&
          EqualBinding(lhs.metallic_roughness_texture,
                       rhs.metallic_roughness_texture) &&
@@ -103,9 +159,14 @@ bool EqualMaterial(const MaterialDescriptor &lhs,
 
 ValidationResult ValidatePayload(const RenderAssetMutation &mutation,
                                  std::size_t index) {
+  if (mutation.payload.valueless_by_exception()) {
+    return ValidationResult::Failure(
+        ValidationCode::EMPTY_PAYLOAD, "mutations.payload",
+        "asset payload variant is valueless after an exception", index);
+  }
   const RenderAssetKind payload_kind = RenderAssetPayloadKind(mutation.payload);
   if (mutation.type == RenderAssetMutationType::DESTROY) {
-    if (payload_kind != RenderAssetKind::INVALID) {
+    if (!std::holds_alternative<std::monostate>(mutation.payload)) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "mutations.payload",
           "destroy mutations must carry no descriptor", index);
@@ -206,6 +267,9 @@ RenderAssetPayloadKind(const RenderAssetPayload &payload) noexcept {
 
 bool EquivalentRenderAssetPayload(const RenderAssetPayload &lhs,
                                   const RenderAssetPayload &rhs) noexcept {
+  if (lhs.valueless_by_exception() || rhs.valueless_by_exception()) {
+    return false;
+  }
   if (lhs.index() != rhs.index()) {
     return false;
   }
@@ -221,8 +285,12 @@ bool EquivalentRenderAssetPayload(const RenderAssetPayload &lhs,
   if (const auto *material = std::get_if<MaterialDescriptor>(&lhs)) {
     return EqualMaterial(*material, std::get<MaterialDescriptor>(rhs));
   }
-  return EqualSampler(std::get<SamplerResourceDescriptor>(lhs),
-                      std::get<SamplerResourceDescriptor>(rhs));
+  if (const auto *sampler =
+          std::get_if<SamplerResourceDescriptor>(&lhs)) {
+    return EqualSampler(*sampler,
+                        std::get<SamplerResourceDescriptor>(rhs));
+  }
+  return false;
 }
 
 ValidationResult ValidateRenderAssetDelta(const RenderAssetDelta &delta) {

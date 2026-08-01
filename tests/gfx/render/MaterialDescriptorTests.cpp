@@ -96,7 +96,12 @@ void TestInvalidVersionEnumsAndNames() {
   using namespace RoR::Render;
 
   MaterialDescriptor descriptor;
-  descriptor.version = 2U;
+  descriptor.version = 1U;
+  RequireCode(descriptor, ValidationCode::UNSUPPORTED_VERSION,
+              "legacy handle-based material version was accepted");
+
+  descriptor = {};
+  descriptor.version = kMaterialDescriptorVersion + 1U;
   RequireCode(descriptor, ValidationCode::UNSUPPORTED_VERSION,
               "unknown material version was accepted");
 

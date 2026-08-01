@@ -68,7 +68,7 @@ struct RenderAssetRecord {
   std::shared_ptr<const RenderAssetPayload> payload;
 
   [[nodiscard]] bool live() const noexcept {
-    return payload != nullptr &&
+    return payload != nullptr && !payload->valueless_by_exception() &&
            !std::holds_alternative<std::monostate>(*payload);
   }
 };

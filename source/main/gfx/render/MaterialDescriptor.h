@@ -24,7 +24,9 @@ struct MeshResourceDescriptor;
 struct SamplerResourceDescriptor;
 struct TextureResourceDescriptor;
 
-constexpr std::uint32_t kMaterialDescriptorVersion = 1U;
+// Version 2 replaces frontend-local ResourceHandle texture bindings with exact
+// renderer-neutral RenderAssetReference values.
+constexpr std::uint32_t kMaterialDescriptorVersion = 2U;
 constexpr std::size_t kMaximumMaterialDebugNameBytes = 255U;
 
 enum class MaterialModel : std::uint8_t {

@@ -11,6 +11,8 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <memory>
+#include <stdexcept>
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
@@ -100,6 +102,24 @@ RoR::Render::RenderAssetDelta MakeBaseDelta(std::uint64_t registry_id) {
   return delta;
 }
 
+struct ThrowingMeshPayload {
+  operator RoR::Render::MeshResourceDescriptor() const {
+    throw std::runtime_error("injected payload construction failure");
+  }
+};
+
+RoR::Render::RenderAssetPayload MakeValuelessPayload() {
+  using namespace RoR::Render;
+  RenderAssetPayload payload;
+  try {
+    payload.emplace<MeshResourceDescriptor>(ThrowingMeshPayload{});
+  } catch (const std::runtime_error &) {
+  }
+  Require(payload.valueless_by_exception(),
+          "test could not produce a valueless asset payload");
+  return payload;
+}
+
 RoR::Render::SceneSnapshotDescriptor MakeScene(std::uint64_t registry_id,
                                                std::uint64_t sequence,
                                                std::uint64_t material_revision) {
@@ -139,6 +159,41 @@ void TestStableIdentity() {
   Require(ids.size() == 2U, "asset ID hashing changed equality semantics");
 }
 
+void TestFloatingPayloadBitIdentity() {
+  using namespace RoR::Render;
+
+  RenderAssetPayload positive_zero_mesh = MakeMesh();
+  RenderAssetPayload negative_zero_mesh = positive_zero_mesh;
+  std::get<MeshResourceDescriptor>(negative_zero_mesh).positions.front().x =
+      -0.0F;
+  Require(!EquivalentRenderAssetPayload(positive_zero_mesh,
+                                        negative_zero_mesh),
+          "mesh payload equality collapsed signed-zero vertex bytes");
+
+  RenderAssetPayload positive_zero_material = MaterialDescriptor{};
+  RenderAssetPayload negative_zero_material = positive_zero_material;
+  std::get<MaterialDescriptor>(negative_zero_material).metallic_factor = -0.0F;
+  Require(ValidateMaterialDescriptor(
+              std::get<MaterialDescriptor>(negative_zero_material))
+              .ok(),
+          "legal signed-zero material fixture was rejected");
+  Require(!EquivalentRenderAssetPayload(positive_zero_material,
+                                        negative_zero_material),
+          "material payload equality collapsed signed-zero factor bytes");
+
+  RenderAssetPayload positive_zero_sampler = SamplerResourceDescriptor{};
+  RenderAssetPayload negative_zero_sampler = positive_zero_sampler;
+  std::get<SamplerResourceDescriptor>(negative_zero_sampler).mip_lod_bias =
+      -0.0F;
+  Require(ValidateSamplerResourceDescriptor(
+              std::get<SamplerResourceDescriptor>(negative_zero_sampler))
+              .ok(),
+          "legal signed-zero sampler fixture was rejected");
+  Require(!EquivalentRenderAssetPayload(positive_zero_sampler,
+                                        negative_zero_sampler),
+          "sampler payload equality collapsed signed-zero state bytes");
+}
+
 void TestOneSceneCanFeedTwoFrontendCatalogs() {
   using namespace RoR::Render;
   constexpr std::uint64_t kRegistry = 44U;
@@ -172,6 +227,15 @@ void TestOneSceneCanFeedTwoFrontendCatalogs() {
   Require(ogre_next_catalog.Apply(conflicting).code ==
               ValidationCode::REVISION_MISMATCH,
           "same sequence was allowed to identify different contents");
+
+  RenderAssetDelta signed_zero_conflict = snapshot;
+  MeshResourceDescriptor &signed_zero_mesh =
+      std::get<MeshResourceDescriptor>(
+          signed_zero_conflict.mutations.front().payload);
+  signed_zero_mesh.positions.front().x = -0.0F;
+  Require(ogre_next_catalog.Apply(signed_zero_conflict).code ==
+              ValidationCode::REVISION_MISMATCH,
+          "same asset revision accepted a different signed-zero bit pattern");
 }
 
 void TestRevisionSequenceAndRecovery() {
@@ -378,14 +442,49 @@ void TestDeterministicOrderingAndRegistryIsolation() {
           "foreign transaction mutated the registry");
 }
 
+void TestValuelessPayloadFailsClosed() {
+  using namespace RoR::Render;
+  constexpr std::uint64_t kRegistry = 88U;
+
+  RenderAssetPayload first_valueless = MakeValuelessPayload();
+  RenderAssetPayload second_valueless = MakeValuelessPayload();
+  Require(!EquivalentRenderAssetPayload(first_valueless, second_valueless),
+          "valueless payloads were treated as equivalent contents");
+
+  RenderAssetRecord hostile_record;
+  hostile_record.asset = Ref(RenderAssetKind::MESH, 1U, 2U);
+  hostile_record.payload = std::make_shared<const RenderAssetPayload>(
+      std::move(first_valueless));
+  Require(!hostile_record.live(),
+          "valueless payload was reported as a live asset record");
+
+  RenderAssetMutation destroy = Destroy(Ref(RenderAssetKind::MESH, 1U, 2U));
+  destroy.payload = std::move(second_valueless);
+  RenderAssetDelta delta;
+  delta.registry_id = kRegistry;
+  delta.sequence = 2U;
+  delta.full_snapshot = true;
+  delta.mutations.push_back(std::move(destroy));
+  Require(ValidateRenderAssetDelta(delta).code == ValidationCode::EMPTY_PAYLOAD,
+          "valueless destroy payload passed structural validation");
+
+  RenderAssetRegistry registry(kRegistry);
+  Require(registry.Apply(delta).code == ValidationCode::EMPTY_PAYLOAD,
+          "registry accepted a valueless destroy payload");
+  Require(registry.sequence() == 0U && registry.record_count() == 0U,
+          "failed valueless transaction mutated the registry");
+}
+
 } // namespace
 
 int main() {
   TestStableIdentity();
+  TestFloatingPayloadBitIdentity();
   TestOneSceneCanFeedTwoFrontendCatalogs();
   TestRevisionSequenceAndRecovery();
   TestDependencySafeTombstones();
   TestDeterministicOrderingAndRegistryIsolation();
+  TestValuelessPayloadFailsClosed();
   std::cout << "render asset registry tests passed\n";
   return EXIT_SUCCESS;
 }
