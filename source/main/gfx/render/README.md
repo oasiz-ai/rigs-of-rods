@@ -223,3 +223,10 @@ padding. Missing, duplicate, reordered, under-pitched, stale, or partial data
 fails transactionally with no publishable digest. Scheduler reset clears scene
 lineage but never reuses a transaction ID during that object lifetime, closing
 late-GPU-completion ABA across terrain changes.
+
+The standalone modern frontend also stages and authenticates the exact pinned
+Ogre-Next PCC depth-compressor, local-cubemap blend/copy, and compute IBL
+resource closure. Metal, Vulkan, and D3D11 consume the same 22-file manifest;
+missing, additional, indirect, or byte-modified files are rejected before
+`Ogre::Root` or a GPU device is created. This media gate is necessary plumbing
+for native captures, not by itself evidence that a cubemap was executed.

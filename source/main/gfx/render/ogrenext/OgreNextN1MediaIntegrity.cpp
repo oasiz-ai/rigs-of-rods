@@ -9,6 +9,7 @@
 #include "OgreNextN1MediaIntegrity.h"
 
 #include "ror_ogre_next_n1_media_manifest.h"
+#include "ror_ogre_next_reflection_media_manifest.h"
 
 #include <algorithm>
 #include <array>
@@ -224,6 +225,12 @@ RenderOperationResult IntegrityFailure(const std::string &detail) {
       "Ogre-Next N1 shader media integrity failure: " + detail);
 }
 
+RenderOperationResult ReflectionIntegrityFailure(const std::string &detail) {
+  return RenderOperationResult::Failure(
+      RenderOperationCode::RESOURCE_STALE,
+      "Ogre-Next reflection media integrity failure: " + detail);
+}
+
 struct RuntimeFile final {
   std::string relative_path;
   std::filesystem::path absolute_path;
@@ -317,6 +324,132 @@ RenderOperationResult VerifyOgreNextN1ShaderMedia(
         "Ogre-Next N1 shader media integrity check ran out of memory");
   } catch (const std::filesystem::filesystem_error &) {
     return IntegrityFailure("HLMS filesystem operation failed");
+  }
+}
+
+RenderOperationResult VerifyOgreNextReflectionProbeMedia(
+    const std::string &resolved_media_root) {
+  try {
+    const std::filesystem::path media_root =
+        std::filesystem::u8path(resolved_media_root);
+    std::error_code error;
+    const std::filesystem::file_status media_status =
+        std::filesystem::symlink_status(media_root, error);
+    if (error || !std::filesystem::is_directory(media_status) ||
+        std::filesystem::is_symlink(media_status)) {
+      return ReflectionIntegrityFailure(
+          "media root is missing, indirect, or not a directory");
+    }
+
+    constexpr std::array<const char *, 4U> kManifestRoots{{
+        "2.0/scripts/materials/Common",
+        "2.0/scripts/materials/LocalCubemaps",
+        "Compute/Algorithms/IBL",
+        "Compute/Tools/Any",
+    }};
+    std::vector<RuntimeFile> runtime_files;
+    for (const char *relative_root : kManifestRoots) {
+      std::filesystem::path current = media_root;
+      const std::filesystem::path relative =
+          std::filesystem::u8path(relative_root);
+      for (const std::filesystem::path &component : relative) {
+        current /= component;
+        error.clear();
+        const std::filesystem::file_status status =
+            std::filesystem::symlink_status(current, error);
+        if (error || std::filesystem::is_symlink(status) ||
+            !std::filesystem::is_directory(status)) {
+          return ReflectionIntegrityFailure(
+              std::string(relative_root) +
+              " is missing, indirect, or not a directory");
+        }
+      }
+
+      std::filesystem::recursive_directory_iterator iterator(
+          current, std::filesystem::directory_options::none, error);
+      const std::filesystem::recursive_directory_iterator end;
+      if (error) {
+        return ReflectionIntegrityFailure(
+            std::string(relative_root) + " cannot be enumerated");
+      }
+      while (iterator != end) {
+        const std::filesystem::directory_entry &entry = *iterator;
+        const std::filesystem::file_status status =
+            entry.symlink_status(error);
+        if (error) {
+          return ReflectionIntegrityFailure(
+              "reflection media entry status cannot be read");
+        }
+        if (std::filesystem::is_symlink(status)) {
+          return ReflectionIntegrityFailure(
+              "reflection media contains a symbolic link");
+        }
+        if (std::filesystem::is_regular_file(status)) {
+          const std::filesystem::path manifest_relative =
+              entry.path().lexically_relative(media_root);
+          const std::string generic = manifest_relative.generic_u8string();
+          if (generic.empty() || generic == "." ||
+              generic.rfind("../", 0U) == 0U) {
+            return ReflectionIntegrityFailure(
+                "reflection media escaped its manifest root");
+          }
+          runtime_files.push_back(RuntimeFile{generic, entry.path()});
+        } else if (!std::filesystem::is_directory(status)) {
+          return ReflectionIntegrityFailure(
+              "reflection media contains a non-file entry");
+        }
+        iterator.increment(error);
+        if (error) {
+          return ReflectionIntegrityFailure(
+              "reflection media enumeration failed");
+        }
+      }
+    }
+
+    std::sort(runtime_files.begin(), runtime_files.end(),
+              [](const RuntimeFile &lhs, const RuntimeFile &rhs) {
+                return lhs.relative_path < rhs.relative_path;
+              });
+    if (runtime_files.size() != kOgreNextReflectionMediaManifestCount) {
+      return ReflectionIntegrityFailure(
+          "file count differs from the pinned manifest");
+    }
+    for (std::size_t index = 0U; index < runtime_files.size(); ++index) {
+      const RuntimeFile &runtime = runtime_files[index];
+      const OgreNextReflectionMediaManifestEntry &expected =
+          kOgreNextReflectionMediaManifest[index];
+      if (runtime.relative_path != expected.relative_path) {
+        return ReflectionIntegrityFailure(
+            "path set differs from the pinned manifest");
+      }
+      error.clear();
+      const std::uintmax_t size =
+          std::filesystem::file_size(runtime.absolute_path, error);
+      if (error || size != expected.size) {
+        return ReflectionIntegrityFailure(
+            "byte size differs for " + runtime.relative_path);
+      }
+      std::string digest;
+      if (!HashFile(runtime.absolute_path, expected.size, digest)) {
+        return ReflectionIntegrityFailure(
+            "file could not be hashed exactly: " + runtime.relative_path);
+      }
+      error.clear();
+      const std::uintmax_t size_after_hash =
+          std::filesystem::file_size(runtime.absolute_path, error);
+      if (error || size_after_hash != expected.size ||
+          digest != expected.sha256) {
+        return ReflectionIntegrityFailure(
+            "SHA-256 differs for " + runtime.relative_path);
+      }
+    }
+    return RenderOperationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUT_OF_MEMORY,
+        "Ogre-Next reflection media integrity check ran out of memory");
+  } catch (const std::filesystem::filesystem_error &) {
+    return ReflectionIntegrityFailure("filesystem operation failed");
   }
 }
 

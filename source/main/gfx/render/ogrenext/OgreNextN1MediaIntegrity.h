@@ -23,4 +23,10 @@ namespace RoR::Render {
 [[nodiscard]] RenderOperationResult VerifyOgreNextN1ShaderMedia(
     const std::string &resolved_media_root);
 
+/// Verifies the exact pinned PCC depth-compressor, local-cubemap, and IBL
+/// shader closure used by the modern RT4 reflection path. The check rejects
+/// missing, extra, indirect, or byte-modified resources before device creation.
+[[nodiscard]] RenderOperationResult VerifyOgreNextReflectionProbeMedia(
+    const std::string &resolved_media_root);
+
 } // namespace RoR::Render

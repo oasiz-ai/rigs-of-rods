@@ -151,6 +151,67 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend_n1_media_manifest.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_n1_media_manifest.h"
     @ONLY)
+set(_ror_reflection_media_files
+    "2.0/scripts/materials/Common/Any/PccDepthCompressor_ps.any"
+    "2.0/scripts/materials/Common/GLSL/PccDepthCompressor_ps.glsl"
+    "2.0/scripts/materials/Common/HLSL/PccDepthCompressor_ps.hlsl"
+    "2.0/scripts/materials/Common/Metal/PccDepthCompressor_ps.metal"
+    "2.0/scripts/materials/Common/PccDepthCompressor.material"
+    "2.0/scripts/materials/LocalCubemaps/BlendProjectCubemap.material"
+    "2.0/scripts/materials/LocalCubemaps/CopyCubemap.material"
+    "2.0/scripts/materials/LocalCubemaps/GLSL/BlendProjectCubemap_ps.glsl"
+    "2.0/scripts/materials/LocalCubemaps/GLSL/BlendProjectCubemap_vs.glsl"
+    "2.0/scripts/materials/LocalCubemaps/GLSL/CopyCubemap_ps.glsl"
+    "2.0/scripts/materials/LocalCubemaps/HLSL/BlendProjectCubemap_ps.hlsl"
+    "2.0/scripts/materials/LocalCubemaps/HLSL/BlendProjectCubemap_vs.hlsl"
+    "2.0/scripts/materials/LocalCubemaps/HLSL/CopyCubemap_ps.hlsl"
+    "2.0/scripts/materials/LocalCubemaps/Metal/BlendProjectCubemap_ps.metal"
+    "2.0/scripts/materials/LocalCubemaps/Metal/BlendProjectCubemap_vs.metal"
+    "2.0/scripts/materials/LocalCubemaps/Metal/CopyCubemap_ps.metal"
+    "Compute/Algorithms/IBL/IBL.material.json"
+    "Compute/Algorithms/IBL/SpecularIblIntegrator_cs.glsl"
+    "Compute/Algorithms/IBL/SpecularIblIntegrator_cs.hlsl"
+    "Compute/Algorithms/IBL/SpecularIblIntegrator_cs.metal"
+    "Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any"
+    "Compute/Tools/Any/sRGB.any")
+list(SORT _ror_reflection_media_files)
+set(ROR_OGRE_NEXT_REFLECTION_MEDIA_MANIFEST_ENTRIES "")
+set(_ror_reflection_media_manifest_serialized "")
+foreach (_ror_reflection_media_relative IN LISTS _ror_reflection_media_files)
+    set(_ror_reflection_media_file
+        "${ROR_OGRE_NEXT_MEDIA_ROOT}/${_ror_reflection_media_relative}")
+    if (NOT EXISTS "${_ror_reflection_media_file}" OR
+            IS_DIRECTORY "${_ror_reflection_media_file}" OR
+            IS_SYMLINK "${_ror_reflection_media_file}")
+        message(FATAL_ERROR
+            "Pinned Ogre-Next reflection media is missing or indirect: "
+            "${_ror_reflection_media_relative}")
+    endif ()
+    if (_ror_reflection_media_relative MATCHES "[;\\\\\"]")
+        message(FATAL_ERROR
+            "Pinned Ogre-Next reflection media path cannot be represented exactly: "
+            "${_ror_reflection_media_relative}")
+    endif ()
+    file(SIZE "${_ror_reflection_media_file}" _ror_reflection_media_size)
+    file(SHA256 "${_ror_reflection_media_file}" _ror_reflection_media_sha256)
+    string(APPEND ROR_OGRE_NEXT_REFLECTION_MEDIA_MANIFEST_ENTRIES
+        "    {\"${_ror_reflection_media_relative}\", "
+        "static_cast<std::uint64_t>(${_ror_reflection_media_size}), "
+        "\"${_ror_reflection_media_sha256}\"},\n")
+    string(APPEND _ror_reflection_media_manifest_serialized
+        "${_ror_reflection_media_relative}|${_ror_reflection_media_size}|"
+        "${_ror_reflection_media_sha256}\n")
+endforeach ()
+list(LENGTH _ror_reflection_media_files
+    ROR_OGRE_NEXT_REFLECTION_MEDIA_MANIFEST_COUNT)
+list(GET _ror_reflection_media_files 0
+    ROR_OGRE_NEXT_REFLECTION_MEDIA_TAMPER_RELATIVE)
+string(SHA256 ROR_OGRE_NEXT_REFLECTION_MEDIA_MANIFEST_SHA256
+    "${_ror_reflection_media_manifest_serialized}")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend_reflection_media_manifest.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_reflection_media_manifest.h"
+    @ONLY)
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/frame_probe_config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_frame_probe_config.h"
@@ -708,7 +769,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     set(ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE
         "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/bin/$<TARGET_FILE_NAME:ror_ogre_next_frontend_n1_smoke>")
     set(ROR_OGRE_NEXT_N1_PACKAGE_STAMP
-        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v3")
+        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v4")
     set(_ror_n1_package_commands
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
@@ -739,6 +800,22 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
         "${ROR_OGRE_NEXT_PACKAGE_RAPIDJSON_LICENSE_SOURCE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}")
+    foreach (_ror_reflection_media_relative IN LISTS
+            _ror_reflection_media_files)
+        get_filename_component(_ror_reflection_media_directory
+            "${_ror_reflection_media_relative}" DIRECTORY)
+        list(APPEND _ror_n1_package_commands
+            COMMAND "${CMAKE_COMMAND}" -E make_directory
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/${_ror_reflection_media_directory}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${ROR_OGRE_NEXT_MEDIA_ROOT}/${_ror_reflection_media_relative}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/${_ror_reflection_media_relative}"
+            COMMAND "${CMAKE_COMMAND}" -E compare_files
+                    "${ROR_OGRE_NEXT_MEDIA_ROOT}/${_ror_reflection_media_relative}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/${_ror_reflection_media_relative}")
+        list(APPEND _ror_n1_package_dependencies
+            "${ROR_OGRE_NEXT_MEDIA_ROOT}/${_ror_reflection_media_relative}")
+    endforeach ()
     if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         list(APPEND _ror_n1_package_commands
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
@@ -1015,6 +1092,16 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyN1MediaTamper.cmake")
     set_tests_properties(ror_ogre_next_frontend_n1_media_tamper PROPERTIES
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+    add_test(NAME ror_ogre_next_frontend_reflection_media_tamper
+        COMMAND "${CMAKE_COMMAND}"
+            "-DN1_EXECUTABLE=${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"
+            "-DN1_MEDIA_ROOT=${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+            "-DN1_TAMPER_RELATIVE=${ROR_OGRE_NEXT_REFLECTION_MEDIA_TAMPER_RELATIVE}"
+            "-DN1_WORK_ROOT=${CMAKE_BINARY_DIR}/reflection-media-tamper"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyReflectionMediaTamper.cmake")
+    set_tests_properties(
+        ror_ogre_next_frontend_reflection_media_tamper
+        PROPERTIES WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif ()
 
 if (TARGET ror_ogre_next_metal_n2_smoke)

@@ -113,6 +113,54 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("relative shader media root did not fail closed", self.smoke)
         self.assertIn("missing shader media root did not fail closed", self.smoke)
 
+    def test_reflection_media_closure_is_exact_cross_platform_and_pre_device(self) -> None:
+        expected = (
+            "Common/Any/PccDepthCompressor_ps.any",
+            "Common/GLSL/PccDepthCompressor_ps.glsl",
+            "Common/HLSL/PccDepthCompressor_ps.hlsl",
+            "Common/Metal/PccDepthCompressor_ps.metal",
+            "Common/PccDepthCompressor.material",
+            "LocalCubemaps/BlendProjectCubemap.material",
+            "LocalCubemaps/CopyCubemap.material",
+            "LocalCubemaps/GLSL/BlendProjectCubemap_ps.glsl",
+            "LocalCubemaps/HLSL/BlendProjectCubemap_ps.hlsl",
+            "LocalCubemaps/Metal/BlendProjectCubemap_ps.metal",
+            "Compute/Algorithms/IBL/IBL.material.json",
+            "Compute/Algorithms/IBL/SpecularIblIntegrator_cs.glsl",
+            "Compute/Algorithms/IBL/SpecularIblIntegrator_cs.hlsl",
+            "Compute/Algorithms/IBL/SpecularIblIntegrator_cs.metal",
+            "Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any",
+            "Compute/Tools/Any/sRGB.any",
+        )
+        for relative in expected:
+            self.assertIn(relative, self.entry_cmake)
+        for token in (
+            "ROR_OGRE_NEXT_REFLECTION_MEDIA_MANIFEST_ENTRIES",
+            "ROR_OGRE_NEXT_REFLECTION_MEDIA_MANIFEST_SHA256",
+            "frontend_reflection_media_manifest.h.in",
+            "kOgreNextReflectionMediaManifestCount",
+            "reflection media contains a symbolic link",
+            "digest != expected.sha256",
+        ):
+            self.assertIn(token, self.entry_cmake + self.media_integrity)
+        self.assertIn(".stage-v4", self.entry_cmake)
+        self.assertIn(
+            "ror_ogre_next_frontend_reflection_media_tamper",
+            self.entry_cmake,
+        )
+        self.assertIn("VerifyReflectionMediaTamper.cmake", self.entry_cmake)
+        self.assertLess(
+            self.frontend.index("VerifyOgreNextReflectionProbeMedia"),
+            self.frontend.index("if (!TryClaimOgreNextN1Root())"),
+        )
+        self.assertIn(
+            "OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1",
+            self.frontend[
+                self.frontend.index("VerifyOgreNextN1ShaderMedia") :
+                self.frontend.index("if (!TryClaimOgreNextN1Root())")
+            ],
+        )
+
     def test_native_mesh_path_uses_v2_vao_not_manual_object(self) -> None:
         for token in (
             "createVertexBuffer(",

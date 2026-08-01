@@ -1388,6 +1388,15 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
   if (!media_integrity) {
     return media_integrity;
   }
+  if (impl_->raster_feature_tier ==
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+    const RenderOperationResult reflection_media_integrity =
+        VerifyOgreNextReflectionProbeMedia(
+            impl_->resolved_shader_media_root);
+    if (!reflection_media_integrity) {
+      return reflection_media_integrity;
+    }
+  }
   if (!TryClaimOgreNextN1Root()) {
     return RenderOperationResult::Failure(
         RenderOperationCode::BACKEND_FAILURE,
