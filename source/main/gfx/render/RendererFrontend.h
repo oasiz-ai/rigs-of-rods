@@ -18,16 +18,22 @@
 
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <string>
 #include <utility>
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kRendererFrontendContractVersion = 2U;
-/// Native image exchange evolves independently from the established geometry
-/// contract. A caller must reject any image request/export whose version is
-/// not exactly this value; native handles are process-local, not serializable.
-constexpr std::uint32_t kNativeImageInteropContractVersion = 1U;
+/// Version 3 adds native image methods/capabilities and extends explicit frame
+/// synchronization. The NativeRenderInterop vtable and all structures carrying
+/// this value are an exact whole-program ABI; version 2 consumers must fail
+/// closed rather than calling a version 3 object.
+constexpr std::uint32_t kRendererFrontendContractVersion = 3U;
+/// Native image exchange evolves independently from the geometry payload.
+/// Version 2 binds every borrowed image to the exact immutable SceneSnapshot
+/// owner and complete CameraViewRequest that produced it. A caller must reject
+/// any other version; native handles are process-local, not serializable.
+constexpr std::uint32_t kNativeImageInteropContractVersion = 2U;
 constexpr std::uint64_t kInfiniteRenderTimeoutNanoseconds =
     (std::numeric_limits<std::uint64_t>::max)();
 
@@ -281,7 +287,7 @@ enum class NativeGeometryBufferState : std::uint8_t {
   READ_ONLY_ACCELERATION_STRUCTURE_BUILD = 1,
 };
 
-/// Canonical image usage exported by version 1. The frontend first renders to
+/// Canonical image usage exported by version 2. The frontend first renders to
 /// the image, external work reads and writes it as shader storage, and either
 /// side may copy it to a readback buffer while the lease is live.
 enum class NativeImageUsage : std::uint8_t {
@@ -369,6 +375,13 @@ struct NativeImageExportRequest {
   std::uint64_t frame_id = 0U;
   std::uint64_t snapshot_id = 0U;
   std::uint64_t view_id = 0U;
+  /// Exact shared ownership and pointee identity of the immutable snapshot
+  /// used for rasterization. Keeping this reference live prevents allocator
+  /// address reuse from aliasing a still-published image lease.
+  std::shared_ptr<const SceneSnapshot> scene_snapshot;
+  /// Complete immutable view used for rasterization. The repeated view ID and
+  /// extent below must exactly match this structure.
+  CameraViewRequest view;
   FrameOutputMask output = FrameOutputMask::NONE;
   PixelFormat format = PixelFormat::INVALID;
   std::uint32_t width = 0U;
@@ -377,13 +390,16 @@ struct NativeImageExportRequest {
 
 /// Borrowed native image. The owning frontend keeps the exact allocation alive
 /// and immutable in identity until ReleaseImage(export_id) and the matching
-/// external frame have both ended. Version 1 exports one non-MSAA mip/slice.
+/// external frame have both ended. Version 2 exports one non-MSAA mip/slice
+/// and retains the exact snapshot/view identity for the lease duration.
 struct NativeImageExport {
   std::uint32_t version = kNativeImageInteropContractVersion;
   std::uint64_t export_id = 0U;
   std::uint64_t frame_id = 0U;
   std::uint64_t snapshot_id = 0U;
   std::uint64_t view_id = 0U;
+  std::shared_ptr<const SceneSnapshot> scene_snapshot;
+  CameraViewRequest view;
   FrameOutputMask output = FrameOutputMask::NONE;
   PixelFormat format = PixelFormat::INVALID;
   NativeImageUsage usage = NativeImageUsage::INVALID;

@@ -87,7 +87,7 @@ class MetalN3ContractTests(unittest.TestCase):
         for metrics in (raster_metrics, contribution_metrics, hybrid_metrics):
             metrics["format"] = "RGBA16_FLOAT"
         self.report = {
-            "schema": "ror.ogre_next_metal_rt_n3.v1",
+            "schema": "ror.ogre_next_metal_rt_n3.v2",
             "status": "pass",
             "scope": (
                 "same-device Metal primary-ray hit contribution composited into "
@@ -112,7 +112,7 @@ class MetalN3ContractTests(unittest.TestCase):
                 "apple_family_9": True,
             },
             "contract": {
-                "image_version": 1,
+                "image_version": 2,
                 "image_generation": 1,
                 "usage": "COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE",
                 "release_state": "GENERAL_READ_WRITE",
@@ -143,6 +143,10 @@ class MetalN3ContractTests(unittest.TestCase):
                 "hybrid_changes_only_on_contribution": True,
                 "all_channels_finite": True,
                 "second_camera_changes_contribution_hash": True,
+                "camera_mismatch_rejected": True,
+                "snapshot_transform_mismatch_rejected": True,
+                "off_axis_far_plane_contribution_pixels": 1,
+                "off_axis_far_plane_hit_passed": True,
                 "released_frame_allows_extent_change": True,
                 "submitted_device_loss_and_timeout_paths_tested": True,
                 "view_dependent_output_ready": True,
@@ -213,7 +217,7 @@ class MetalN3ContractTests(unittest.TestCase):
 
     def test_capability_skip_is_attested_without_image_artifacts(self) -> None:
         report = {
-            "schema": "ror.ogre_next_metal_rt_n3.v1",
+            "schema": "ror.ogre_next_metal_rt_n3.v2",
             "status": "skip",
             "scope": "same-device Metal primary-ray hybrid HDR contribution",
             "reason": "test device is below Apple family 9",
@@ -257,10 +261,14 @@ class MetalN3ContractTests(unittest.TestCase):
             "[compute_encoder dispatchThreads:image_size",
             "[command_buffer commit]",
             "ValidateHybridReadbacks",
+            "primary.max_distance = length(segment)",
         ):
             self.assertIn(token, self.backend)
         self.assertIn("Ogre::TextureFlags::RenderToTexture", self.frontend)
         self.assertIn("target_flags |= Ogre::TextureFlags::Uav", self.frontend)
+        self.assertNotIn(
+            "min(length(segment), parameters.maximum_distance)", self.backend
+        )
 
     def test_n3_smoke_proves_view_resize_and_submitted_faults(self) -> None:
         for token in (
@@ -270,6 +278,10 @@ class MetalN3ContractTests(unittest.TestCase):
             "gpu_composite_not_cpu_postprocess",
             "ProveInjectedObservation",
             "VerifyContributionMapping",
+            "camera_mismatch_rejected",
+            "snapshot_transform_mismatch_rejected",
+            "off_axis_far_plane_hit_passed",
+            "OffAxisFarPlaneTransform",
         ):
             self.assertIn(token, self.smoke)
 

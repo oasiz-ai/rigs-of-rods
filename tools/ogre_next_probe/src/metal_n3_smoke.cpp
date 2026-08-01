@@ -328,8 +328,9 @@ RenderAssetDelta MakeCatalog() {
   return delta;
 }
 
-std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
-                                                std::uint64_t revision) {
+std::shared_ptr<const SceneSnapshot> MakeScene(
+    std::uint64_t snapshot_id, std::uint64_t revision,
+    const Matrix4x4 &render_from_object = Matrix4x4{}) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kRegistryId;
@@ -344,6 +345,8 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
   instance.material = AssetRef(RenderAssetKind::MATERIAL, 2U);
   instance.topology_revision = 1U;
   instance.deformation_revision = revision;
+  instance.render_from_object = render_from_object;
+  instance.previous_render_from_object = render_from_object;
   instance.local_bounds.minimum = {-0.5F, -0.5F, 0.0F};
   instance.local_bounds.maximum = {0.5F, 0.5F, 0.0F};
   descriptor.mesh_instances.push_back(instance);
@@ -367,6 +370,15 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
                             created.validation.field + ": " +
                             created.validation.detail);
   return created.snapshot;
+}
+
+Matrix4x4 OffAxisFarPlaneTransform() {
+  Matrix4x4 transform;
+  transform.elements[0U] = 3.0F;
+  transform.elements[5U] = 3.0F;
+  transform.elements[12U] = 20.0F;
+  transform.elements[14U] = -16.0F;
+  return transform;
 }
 
 Matrix4x4 Projection(float aspect_scale) {
@@ -459,7 +471,7 @@ std::string SkipReport(const OgreNextMetalRayTracingEvidence &evidence,
                        const FileDigest &executable) {
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_metal_rt_n3.v1\",\n"
+         << "  \"schema\": \"ror.ogre_next_metal_rt_n3.v2\",\n"
          << "  \"status\": \"skip\",\n"
          << "  \"scope\": \"same-device Metal primary-ray hybrid HDR contribution; no GI, reflection, denoising, or material parity claim\",\n"
          << "  \"reason\": \"" << JsonEscape(initialization.detail) << "\",\n"
@@ -493,10 +505,11 @@ std::string PassReport(
     const NativeRayTracingCapabilityReport &capabilities,
     const ImageMetrics &raster, const ImageMetrics &contribution,
     const ImageMetrics &hybrid, const ImageMetrics &second_contribution,
-    const ImageMetrics &resized_hybrid, const FileDigest &executable) {
+    const ImageMetrics &resized_hybrid, std::uint64_t far_edge_pixels,
+    const FileDigest &executable) {
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_metal_rt_n3.v1\",\n"
+         << "  \"schema\": \"ror.ogre_next_metal_rt_n3.v2\",\n"
          << "  \"status\": \"pass\",\n"
          << "  \"scope\": \"same-device Metal primary-ray hit contribution composited into exact UI-free Ogre-Next HDR target; no GI, reflection, denoising, multi-bounce, or material parity claim\",\n"
          << "  \"provenance\": {\n"
@@ -540,6 +553,11 @@ std::string PassReport(
          << "    \"hybrid_changes_only_on_contribution\": true,\n"
          << "    \"all_channels_finite\": true,\n"
          << "    \"second_camera_changes_contribution_hash\": true,\n"
+         << "    \"camera_mismatch_rejected\": true,\n"
+         << "    \"snapshot_transform_mismatch_rejected\": true,\n"
+         << "    \"off_axis_far_plane_contribution_pixels\": "
+         << far_edge_pixels << ",\n"
+         << "    \"off_axis_far_plane_hit_passed\": true,\n"
          << "    \"released_frame_allows_extent_change\": true,\n"
          << "    \"submitted_device_loss_and_timeout_paths_tested\": true,\n"
          << "    \"view_dependent_output_ready\": "
@@ -632,6 +650,21 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
   const RenderFrameRequest first = MakeFrame(1U, MakeScene(1U, 2U));
   RenderFrameOutput frontend_raster;
   RequireSuccess(frontend.Render(first, frontend_raster), "first raster");
+  RenderFrameRequest camera_mismatch = first;
+  camera_mismatch.views.front().view_from_render.elements[12U] += 0.25F;
+  RenderFrameOutput rejected_output;
+  Require(backend.Render(MakeRayRequest(camera_mismatch), rejected_output).code ==
+              RenderOperationCode::RESOURCE_STALE &&
+              rejected_output.attachments.empty(),
+          "N3 accepted a camera that did not produce the published raster");
+  Matrix4x4 mismatched_transform;
+  mismatched_transform.elements[12U] = 0.25F;
+  RenderFrameRequest transform_mismatch =
+      MakeFrame(1U, MakeScene(1U, 2U, mismatched_transform));
+  Require(backend.Render(MakeRayRequest(transform_mismatch), rejected_output)
+                  .code == RenderOperationCode::RESOURCE_STALE &&
+              rejected_output.attachments.empty(),
+          "N3 accepted a transformed snapshot alias that did not produce the raster");
   RenderFrameOutput first_hybrid;
   RequireSuccess(backend.Render(MakeRayRequest(first), first_hybrid),
                  "first hybrid");
@@ -696,6 +729,18 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
   Require(resized_hybrid.width == 80U && resized_hybrid.height == 48U,
           "released N3 frame did not accept a new exact extent");
 
+  const RenderFrameRequest far_edge = MakeFrame(
+      4U, MakeScene(4U, 5U, OffAxisFarPlaneTransform()));
+  RenderFrameOutput far_edge_raster;
+  RequireSuccess(frontend.Render(far_edge, far_edge_raster),
+                 "off-axis far-plane raster");
+  RenderFrameOutput far_edge_output;
+  RequireSuccess(backend.Render(MakeRayRequest(far_edge), far_edge_output),
+                 "off-axis far-plane hybrid");
+  const OgreNextMetalRayTracingEvidence far_edge_evidence = backend.evidence();
+  Require(far_edge_evidence.contribution_pixel_count > 0U,
+          "off-axis geometry inside the far plane was truncated from primary rays");
+
   const NativeRayTracingCapabilityReport capabilities =
       backend.QueryCapabilities();
   Require(capabilities.dispatch_readback_probe_passed &&
@@ -722,7 +767,8 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
   WriteBinary(arguments.hybrid_path,
               first_evidence.hybrid_readback_bytes);
   return {PassReport(first_evidence, capabilities, raster, contribution,
-                     hybrid, second_contribution, resized_hybrid, executable),
+                     hybrid, second_contribution, resized_hybrid,
+                     far_edge_evidence.contribution_pixel_count, executable),
           EXIT_SUCCESS};
 }
 
@@ -739,7 +785,7 @@ int main(int argc, char **argv) {
     return result.second;
   } catch (const std::exception &error) {
     std::ostringstream report;
-    report << "{\n  \"schema\": \"ror.ogre_next_metal_rt_n3.v1\",\n"
+    report << "{\n  \"schema\": \"ror.ogre_next_metal_rt_n3.v2\",\n"
            << "  \"status\": \"fail\",\n"
            << "  \"error\": \"" << JsonEscape(error.what()) << "\"\n}\n";
     try {

@@ -31,7 +31,8 @@ ray-traced image.
 
 The fifth executable is the explicit macOS-only N3 image slice. The frontend
 retains the exact UI-free Ogre `RGBA16_FLOAT` render target, exports it through
-the version-1 renderer-neutral image lease, and hands it to the native backend
+the version-2 renderer-neutral image lease, bound to the exact immutable scene
+owner and complete raster camera, and hands it to the native backend
 on Ogre's own Metal device and queue. The backend derives camera rays from the
 submitted view, traces the exact N2 geometry, writes a separate hit-only
 contribution texture, and GPU-composites that contribution into the exported

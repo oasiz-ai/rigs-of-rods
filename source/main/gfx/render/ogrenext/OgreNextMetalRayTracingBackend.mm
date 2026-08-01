@@ -45,7 +45,7 @@ struct alignas(16) HybridParameters {
   std::uint32_t width = 0U;
   std::uint32_t height = 0U;
   float minimum_distance = 0.0F;
-  float maximum_distance = 0.0F;
+  float reserved = 0.0F;
 };
 static_assert(sizeof(HybridParameters) == 80U,
               "the Metal and host N3 parameter ABI must remain 80 bytes");
@@ -215,6 +215,8 @@ NativeImageExportRequest MakeImageRequest(
   image_request.frame_id = request.frame.frame_id;
   image_request.snapshot_id = request.frame.scene_snapshot->snapshot_id();
   image_request.view_id = view.view_id;
+  image_request.scene_snapshot = request.frame.scene_snapshot;
+  image_request.view = view;
   image_request.output = FrameOutputMask::COLOR;
   image_request.format = request.frame.color_format;
   image_request.width = view.width;
@@ -493,7 +495,7 @@ public:
            "    uint width;\n"
            "    uint height;\n"
            "    float minimum_distance;\n"
-           "    float maximum_distance;\n"
+           "    float reserved;\n"
            "};\n"
            "kernel void ror_ogre_next_metal_n3_hybrid(\n"
            "    instance_acceleration_structure scene [[buffer(0)]],\n"
@@ -515,7 +517,7 @@ public:
            "    primary.origin = near_point;\n"
            "    primary.direction = normalize(segment);\n"
            "    primary.min_distance = parameters.minimum_distance;\n"
-           "    primary.max_distance = min(length(segment), parameters.maximum_distance);\n"
+           "    primary.max_distance = length(segment);\n"
            "    intersector<triangle_data, instancing> tracer;\n"
            "    tracer.accept_any_intersection(false);\n"
            "    const auto hit = tracer.intersect(primary, scene);\n"
@@ -952,7 +954,7 @@ public:
     parameters.width = view.width;
     parameters.height = view.height;
     parameters.minimum_distance = 0.0001F;
-    parameters.maximum_distance = view.far_plane - view.near_plane;
+    parameters.reserved = 0.0F;
 
     MTLAccelerationStructureTriangleGeometryDescriptor *triangle =
         [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];

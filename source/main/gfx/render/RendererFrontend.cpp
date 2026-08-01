@@ -39,6 +39,13 @@ bool SameNativeObject(const NativeObjectToken &lhs,
          lhs.generation == rhs.generation;
 }
 
+bool SameSceneSnapshotOwner(
+    const std::shared_ptr<const SceneSnapshot> &lhs,
+    const std::shared_ptr<const SceneSnapshot> &rhs) noexcept {
+  return lhs && rhs && lhs.get() == rhs.get() &&
+         !lhs.owner_before(rhs) && !rhs.owner_before(lhs);
+}
+
 bool SameNativeContext(const NativeContextExport &lhs,
                        const NativeContextExport &rhs) noexcept {
   return lhs.version == rhs.version && lhs.native_api == rhs.native_api &&
@@ -1037,10 +1044,28 @@ ValidateNativeImageExportRequest(const NativeImageExportRequest &request) {
         ValidationCode::INVALID_IDENTIFIER, "image_request.identity",
         "frame, snapshot, and view identifiers must be nonzero");
   }
+  if (!request.scene_snapshot ||
+      request.scene_snapshot->snapshot_id() != request.snapshot_id) {
+    return ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE, "image_request.scene_snapshot",
+        "native image request must retain the exact matching immutable snapshot");
+  }
+  ValidationResult validation = ValidateCameraViewRequest(request.view);
+  if (!validation) {
+    validation.field = "image_request." + validation.field;
+    return validation;
+  }
+  if (request.view.view_id != request.view_id ||
+      request.view.width != request.width ||
+      request.view.height != request.height) {
+    return ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE, "image_request.view",
+        "native image identity and extent must match its complete camera view");
+  }
   if (request.output != FrameOutputMask::COLOR) {
     return ValidationResult::Failure(
         ValidationCode::WRONG_RESOURCE_KIND, "image_request.output",
-        "native image interop version 1 exports colour only");
+        "native image interop version 2 exports colour only");
   }
   if (request.format != PixelFormat::RGBA8_SRGB &&
       request.format != PixelFormat::RGBA16_FLOAT) {
@@ -1071,6 +1096,8 @@ ValidationResult ValidateNativeImageExport(
   request.frame_id = image.frame_id;
   request.snapshot_id = image.snapshot_id;
   request.view_id = image.view_id;
+  request.scene_snapshot = image.scene_snapshot;
+  request.view = image.view;
   request.output = image.output;
   request.format = image.format;
   request.width = image.width;
@@ -1101,7 +1128,7 @@ ValidationResult ValidateNativeImageExport(
       image.sample_count != 1U) {
     return ValidationResult::Failure(
         ValidationCode::VALUE_OUT_OF_RANGE, "image.subresource",
-        "native image interop version 1 requires mip zero, slice zero, and one sample");
+        "native image interop version 2 requires mip zero, slice zero, and one sample");
   }
   return ValidationResult::Success();
 }
@@ -1122,7 +1149,10 @@ ValidationResult ValidateNativeImageExport(
       request.snapshot_id != image.snapshot_id ||
       request.view_id != image.view_id || request.output != image.output ||
       request.format != image.format || request.width != image.width ||
-      request.height != image.height) {
+      request.height != image.height ||
+      !SameSceneSnapshotOwner(request.scene_snapshot,
+                              image.scene_snapshot) ||
+      request.view != image.view) {
     return ValidationResult::Failure(
         ValidationCode::MISSING_REFERENCE, "image.request_identity",
         "native image export does not match the requested frame output");

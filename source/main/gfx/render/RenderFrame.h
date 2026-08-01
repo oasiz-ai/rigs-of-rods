@@ -16,6 +16,7 @@
 #include "ResourceHandle.h"
 #include "SceneSnapshot.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -94,6 +95,28 @@ struct CameraViewRequest {
   std::uint32_t visibility_mask = 0xFFFFFFFFU;
 };
 
+/// Exact semantic equality for one validated raster view. Native image
+/// interop uses this to ensure an external contribution targets the same
+/// immutable camera state that produced the borrowed raster image.
+inline bool operator==(const CameraViewRequest &lhs,
+                       const CameraViewRequest &rhs) noexcept {
+  return lhs.view_id == rhs.view_id && lhs.width == rhs.width &&
+         lhs.height == rhs.height &&
+         lhs.view_from_render == rhs.view_from_render &&
+         lhs.clip_from_view == rhs.clip_from_view &&
+         lhs.previous_view_from_render == rhs.previous_view_from_render &&
+         lhs.previous_clip_from_view == rhs.previous_clip_from_view &&
+         lhs.temporal_jitter_pixels == rhs.temporal_jitter_pixels &&
+         lhs.near_plane == rhs.near_plane &&
+         lhs.far_plane == rhs.far_plane && lhs.exposure == rhs.exposure &&
+         lhs.visibility_mask == rhs.visibility_mask;
+}
+
+inline bool operator!=(const CameraViewRequest &lhs,
+                       const CameraViewRequest &rhs) noexcept {
+  return !(lhs == rhs);
+}
+
 struct RenderFrameRequest {
   std::uint32_t version = kRenderFrameContractVersion;
   /// Strictly increasing and never reused per initialized frontend lifetime.
@@ -165,6 +188,9 @@ struct RenderFrameOutput {
 [[nodiscard]] bool IsKnownPixelFormat(PixelFormat format) noexcept;
 [[nodiscard]] bool IsKnownRenderFrameStatus(RenderFrameStatus status) noexcept;
 [[nodiscard]] bool IsSingleKnownFrameOutput(FrameOutputMask output) noexcept;
+[[nodiscard]] ValidationResult
+ValidateCameraViewRequest(const CameraViewRequest &view,
+                          std::size_t index = 0U);
 [[nodiscard]] ValidationResult
 ValidateRenderFrameRequest(const RenderFrameRequest &request);
 [[nodiscard]] ValidationResult

@@ -159,7 +159,7 @@ def _verify_metal_n3(root: Path, manifest: list[dict[str, object]]) -> None:
     report = _read_json_object(report_path, "Metal N3 report")
     attestation = _read_json_object(attestation_path, "Metal N3 attestation")
     status = report.get("status")
-    if report.get("schema") != "ror.ogre_next_metal_rt_n3.v1" or status not in (
+    if report.get("schema") != "ror.ogre_next_metal_rt_n3.v2" or status not in (
         "pass",
         "skip",
     ):

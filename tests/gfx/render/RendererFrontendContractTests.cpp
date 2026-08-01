@@ -15,6 +15,11 @@
 
 namespace {
 
+static_assert(RoR::Render::kRendererFrontendContractVersion == 3U,
+              "native interop vtable changes require frontend contract v3");
+static_assert(RoR::Render::kNativeImageInteropContractVersion == 2U,
+              "exact raster identity requires native image contract v2");
+
 void Require(bool condition, const char *message) {
   if (!condition) {
     std::cerr << "renderer frontend contract test failed: " << message << '\n';
@@ -209,14 +214,18 @@ MakeGeometryExport(const RoR::Render::NativeGeometryExportRequest &request) {
 
 RoR::Render::NativeImageExportRequest MakeImageRequest() {
   using namespace RoR::Render;
+  const RenderFrameRequest frame = MakeFrameRequest();
+  const CameraViewRequest &view = frame.views.front();
   NativeImageExportRequest request;
-  request.frame_id = 11U;
-  request.snapshot_id = 7U;
-  request.view_id = 3U;
+  request.frame_id = frame.frame_id;
+  request.snapshot_id = frame.scene_snapshot->snapshot_id();
+  request.view_id = view.view_id;
+  request.scene_snapshot = frame.scene_snapshot;
+  request.view = view;
   request.output = FrameOutputMask::COLOR;
   request.format = PixelFormat::RGBA16_FLOAT;
-  request.width = 128U;
-  request.height = 72U;
+  request.width = view.width;
+  request.height = view.height;
   return request;
 }
 
@@ -228,6 +237,8 @@ MakeImageExport(const RoR::Render::NativeImageExportRequest &request) {
   image.frame_id = request.frame_id;
   image.snapshot_id = request.snapshot_id;
   image.view_id = request.view_id;
+  image.scene_snapshot = request.scene_snapshot;
+  image.view = request.view;
   image.output = request.output;
   image.format = request.format;
   image.usage =
@@ -1250,6 +1261,25 @@ void TestNativeInteropPayloadValidation() {
                                     NativeGraphicsApi::METAL, 1U)
                   .code == ValidationCode::MISSING_REFERENCE,
           "stale pre-resize native image was accepted");
+  NativeImageExportRequest mismatched_view_request = image_request;
+  mismatched_view_request.view.view_from_render.elements[12U] = 1.0F;
+  Require(ValidateNativeImageExport(mismatched_view_request, image,
+                                    NativeGraphicsApi::METAL, 1U)
+                  .code == ValidationCode::MISSING_REFERENCE,
+          "native image from a different camera was accepted");
+  NativeImageExportRequest mismatched_scene_request = image_request;
+  mismatched_scene_request.scene_snapshot = MakeFrameRequest().scene_snapshot;
+  Require(mismatched_scene_request.scene_snapshot.get() !=
+              image_request.scene_snapshot.get() &&
+              ValidateNativeImageExport(mismatched_scene_request, image,
+                                        NativeGraphicsApi::METAL, 1U)
+                      .code == ValidationCode::MISSING_REFERENCE,
+          "native image from an aliased snapshot ID was accepted");
+  NativeImageExportRequest inconsistent_view_request = image_request;
+  ++inconsistent_view_request.view.width;
+  Require(ValidateNativeImageExportRequest(inconsistent_view_request).code ==
+              ValidationCode::MISSING_REFERENCE,
+          "native image request with inconsistent complete view was accepted");
   NativeImageExportRequest unsupported_image_request = image_request;
   unsupported_image_request.version = 0U;
   Require(ValidateNativeImageExportRequest(unsupported_image_request).code ==

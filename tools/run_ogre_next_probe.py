@@ -1910,7 +1910,7 @@ def validate_n3_checkpoint(
     provenance = object_field("provenance")
     status = report.get("status")
     common_checks = {
-        "schema": report.get("schema") == "ror.ogre_next_metal_rt_n3.v1",
+        "schema": report.get("schema") == "ror.ogre_next_metal_rt_n3.v2",
         "status": status in ("pass", "skip"),
         "scope": report.get("scope")
         == (
@@ -2027,7 +2027,7 @@ def validate_n3_checkpoint(
         and device.get("same_ogre_device") is True
         and device.get("same_ogre_queue") is True
         and device.get("apple_family_9") is True,
-        "image_contract": contract.get("image_version") == 1
+        "image_contract": contract.get("image_version") == 2
         and isinstance(contract.get("image_generation"), int)
         and contract["image_generation"] > 0
         and contract.get("usage")
@@ -2048,6 +2048,10 @@ def validate_n3_checkpoint(
         "mapping": applied > 0
         and untouched > 0
         and proof.get("contribution_pixels") == applied,
+        "far_plane_edge": isinstance(
+            proof.get("off_axis_far_plane_contribution_pixels"), int
+        )
+        and proof["off_axis_far_plane_contribution_pixels"] > 0,
         "second_view": second.get("width") == 96
         and second.get("height") == 64
         and second.get("format") == "RGBA16_FLOAT"
@@ -2071,6 +2075,9 @@ def validate_n3_checkpoint(
                 "hybrid_changes_only_on_contribution",
                 "all_channels_finite",
                 "second_camera_changes_contribution_hash",
+                "camera_mismatch_rejected",
+                "snapshot_transform_mismatch_rejected",
+                "off_axis_far_plane_hit_passed",
                 "released_frame_allows_extent_change",
                 "submitted_device_loss_and_timeout_paths_tested",
                 "view_dependent_output_ready",

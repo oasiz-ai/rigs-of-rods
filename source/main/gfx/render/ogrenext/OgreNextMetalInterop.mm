@@ -720,7 +720,12 @@ private:
         binding.view_id == 0U || binding.output != FrameOutputMask::COLOR ||
         binding.format != PixelFormat::RGBA16_FLOAT ||
         binding.ogre_texture == 0U || binding.width == 0U ||
-        binding.height == 0U) {
+        binding.height == 0U || !binding.scene_snapshot ||
+        binding.scene_snapshot->snapshot_id() != binding.snapshot_id ||
+        binding.view.view_id != binding.view_id ||
+        binding.view.width != binding.width ||
+        binding.view.height != binding.height ||
+        !ValidateCameraViewRequest(binding.view)) {
       return RenderOperationResult::Failure(
           RenderOperationCode::INVALID_ARGUMENT,
           "Ogre frame image binding is incomplete or is not linear HDR colour");
@@ -758,6 +763,8 @@ private:
     image.frame_id = binding.frame_id;
     image.snapshot_id = binding.snapshot_id;
     image.view_id = binding.view_id;
+    image.scene_snapshot = binding.scene_snapshot;
+    image.view = binding.view;
     image.output = binding.output;
     image.format = binding.format;
     image.usage =

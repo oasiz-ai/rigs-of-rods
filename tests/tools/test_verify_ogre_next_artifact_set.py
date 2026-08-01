@@ -81,7 +81,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             "relevant_source_manifest_sha256": "4" * 64,
         }
         report = {
-            "schema": "ror.ogre_next_metal_rt_n3.v1",
+            "schema": "ror.ogre_next_metal_rt_n3.v2",
             "status": status,
             "provenance": {
                 **source,

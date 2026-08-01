@@ -1390,6 +1390,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
       binding.frame_id = request.frame_id;
       binding.snapshot_id = snapshot.snapshot_id();
       binding.view_id = view.view_id;
+      binding.scene_snapshot = request.scene_snapshot;
+      binding.view = view;
       binding.output = FrameOutputMask::COLOR;
       binding.format = request.color_format;
       binding.ogre_texture = reinterpret_cast<std::uintptr_t>(target);

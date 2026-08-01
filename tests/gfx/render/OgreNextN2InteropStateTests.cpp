@@ -95,8 +95,40 @@ NativeGeometryExportRequest Request(std::uint64_t frame_id,
   return request;
 }
 
+std::shared_ptr<const SceneSnapshot> Snapshot(std::uint64_t snapshot_id) {
+  SceneSnapshotDescriptor descriptor;
+  descriptor.snapshot_id = snapshot_id;
+  descriptor.asset_registry_id = 73U;
+  descriptor.asset_sequence = 1U;
+  const SceneSnapshotCreateResult created =
+      CreateSceneSnapshot(std::move(descriptor));
+  Require(created.ok(), "could not create native image snapshot fixture");
+  return created.snapshot;
+}
+
+CameraViewRequest View(std::uint32_t width = 96U) {
+  CameraViewRequest view;
+  view.view_id = 4U;
+  view.width = width;
+  view.height = 64U;
+  constexpr float near_plane = 0.1F;
+  constexpr float far_plane = 100.0F;
+  view.near_plane = near_plane;
+  view.far_plane = far_plane;
+  view.clip_from_view.elements.fill(0.0F);
+  view.clip_from_view.elements[0U] = 1.0F;
+  view.clip_from_view.elements[5U] = 1.0F;
+  view.clip_from_view.elements[10U] = far_plane / (near_plane - far_plane);
+  view.clip_from_view.elements[11U] = -1.0F;
+  view.clip_from_view.elements[14U] =
+      near_plane * far_plane / (near_plane - far_plane);
+  view.previous_clip_from_view = view.clip_from_view;
+  return view;
+}
+
 OgreNextN3PublishedImage PublishedImage(std::uint64_t frame_id,
                                        std::uint64_t snapshot_id,
+                                       const std::shared_ptr<const SceneSnapshot> &scene,
                                        std::uint64_t generation = 7U,
                                        std::uint32_t width = 96U) {
   OgreNextN3PublishedImage published;
@@ -104,6 +136,8 @@ OgreNextN3PublishedImage PublishedImage(std::uint64_t frame_id,
   image.frame_id = frame_id;
   image.snapshot_id = snapshot_id;
   image.view_id = 4U;
+  image.scene_snapshot = scene;
+  image.view = View(width);
   image.output = FrameOutputMask::COLOR;
   image.format = PixelFormat::RGBA16_FLOAT;
   image.usage =
@@ -117,11 +151,14 @@ OgreNextN3PublishedImage PublishedImage(std::uint64_t frame_id,
 
 NativeImageExportRequest ImageRequest(std::uint64_t frame_id,
                                       std::uint64_t snapshot_id,
+                                      const std::shared_ptr<const SceneSnapshot> &scene,
                                       std::uint32_t width = 96U) {
   NativeImageExportRequest request;
   request.frame_id = frame_id;
   request.snapshot_id = snapshot_id;
   request.view_id = 4U;
+  request.scene_snapshot = scene;
+  request.view = View(width);
   request.output = FrameOutputMask::COLOR;
   request.format = PixelFormat::RGBA16_FLOAT;
   request.width = width;
@@ -342,13 +379,14 @@ void TestImageLeaseResizeAndSynchronization() {
                            Token(NativeObjectKind::TIMELINE_SYNC, 102U))
               .ok(),
           "image state initialization failed");
+  const std::shared_ptr<const SceneSnapshot> first_scene = Snapshot(121U);
   Require(state.PublishFrame(111U, 121U, {Published(111U, 121U, 2U)},
-                             {PublishedImage(111U, 121U)})
+                             {PublishedImage(111U, 121U, first_scene)})
               .ok(),
           "image frame publication failed");
 
   NativeImageExport image;
-  Require(state.AcquireImage(ImageRequest(111U, 121U), image).ok() &&
+  Require(state.AcquireImage(ImageRequest(111U, 121U, first_scene), image).ok() &&
               state.ValidateImageLease(image).ok(),
           "exact published image could not be leased");
   NativeImageExport stale = image;
@@ -357,9 +395,20 @@ void TestImageLeaseResizeAndSynchronization() {
               RenderOperationCode::RESOURCE_STALE,
           "stale native image generation remained live");
   NativeImageExport resized;
-  Require(state.AcquireImage(ImageRequest(111U, 121U, 97U), resized).code ==
+  Require(state.AcquireImage(ImageRequest(111U, 121U, first_scene, 97U), resized).code ==
               RenderOperationCode::RESOURCE_STALE,
           "stale pre-resize image extent was accepted");
+  NativeImageExport mismatched;
+  NativeImageExportRequest wrong_view = ImageRequest(111U, 121U, first_scene);
+  wrong_view.view.view_from_render.elements[12U] = 1.0F;
+  Require(state.AcquireImage(wrong_view, mismatched).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "camera-mismatched raster image lease was accepted");
+  const std::shared_ptr<const SceneSnapshot> aliased_scene = Snapshot(121U);
+  Require(state.AcquireImage(ImageRequest(111U, 121U, aliased_scene),
+                             mismatched)
+              .code == RenderOperationCode::RESOURCE_STALE,
+          "snapshot-owner-mismatched raster image lease was accepted");
 
   NativeGeometryExport geometry;
   Require(state.AcquireGeometry(Request(111U, 121U, 2U), geometry).ok(),
@@ -375,13 +424,14 @@ void TestImageLeaseResizeAndSynchronization() {
   Require(state.EndExternalFrame(synchronization).ok(),
           "completed image frame could not end");
   state.ReleaseGeometry(geometry.export_id);
+  const std::shared_ptr<const SceneSnapshot> second_scene = Snapshot(122U);
   Require(state.PublishFrame(112U, 122U, {Published(112U, 122U, 3U)},
-                             {PublishedImage(112U, 122U, 8U, 128U)})
+                             {PublishedImage(112U, 122U, second_scene, 8U, 128U)})
               .code == RenderOperationCode::OUTSTANDING_LEASES,
           "resize replaced an image allocation while its lease was live");
   state.ReleaseImage(image.export_id);
   Require(state.PublishFrame(112U, 122U, {Published(112U, 122U, 3U)},
-                             {PublishedImage(112U, 122U, 8U, 128U)})
+                             {PublishedImage(112U, 122U, second_scene, 8U, 128U)})
               .ok(),
           "resize could not publish after the old image lease ended");
   Require(state.Reset().ok(), "image state reset failed");

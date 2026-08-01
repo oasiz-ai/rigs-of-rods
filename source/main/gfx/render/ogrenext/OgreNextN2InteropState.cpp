@@ -29,6 +29,13 @@ bool SameSlice(const NativeBufferSlice &lhs,
          lhs.stride_bytes == rhs.stride_bytes;
 }
 
+bool SameSceneSnapshotOwner(
+    const std::shared_ptr<const SceneSnapshot> &lhs,
+    const std::shared_ptr<const SceneSnapshot> &rhs) noexcept {
+  return lhs && rhs && lhs.get() == rhs.get() &&
+         !lhs.owner_before(rhs) && !rhs.owner_before(lhs);
+}
+
 bool SameGeometry(const NativeGeometryExport &lhs,
                   const NativeGeometryExport &rhs) noexcept {
   return lhs.version == rhs.version && lhs.export_id == rhs.export_id &&
@@ -49,7 +56,9 @@ bool SameImage(const NativeImageExport &lhs,
   return lhs.version == rhs.version && lhs.export_id == rhs.export_id &&
          lhs.frame_id == rhs.frame_id && lhs.snapshot_id == rhs.snapshot_id &&
          lhs.view_id == rhs.view_id && lhs.output == rhs.output &&
-         lhs.format == rhs.format && lhs.usage == rhs.usage &&
+         SameSceneSnapshotOwner(lhs.scene_snapshot, rhs.scene_snapshot) &&
+         lhs.view == rhs.view && lhs.format == rhs.format &&
+         lhs.usage == rhs.usage &&
          SameToken(lhs.image, rhs.image) && lhs.width == rhs.width &&
          lhs.height == rhs.height && lhs.mip_level == rhs.mip_level &&
          lhs.array_slice == rhs.array_slice &&
@@ -254,8 +263,12 @@ RenderOperationResult OgreNextN2InteropState::AcquireImage(
   }
   const NativeImageExport &published = found->second;
   if (published.output != request.output || published.format != request.format ||
-      published.width != request.width || published.height != request.height) {
-    return Stale("image request format or extent differs from the published image");
+      published.width != request.width || published.height != request.height ||
+      !SameSceneSnapshotOwner(published.scene_snapshot,
+                              request.scene_snapshot) ||
+      published.view != request.view) {
+    return Stale(
+        "image request raster identity, format, or extent differs from the published image");
   }
   if (next_export_id_ == 0U ||
       next_export_id_ == (std::numeric_limits<std::uint64_t>::max)()) {

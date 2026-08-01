@@ -50,6 +50,11 @@ struct OgreNextN3FrameImageBinding {
   std::uint64_t frame_id = 0U;
   std::uint64_t snapshot_id = 0U;
   std::uint64_t view_id = 0U;
+  /// Retains the exact immutable scene owner until the image publication is
+  /// discarded. The full camera value prevents a second request from pairing
+  /// a different view or transform state with this raster.
+  std::shared_ptr<const SceneSnapshot> scene_snapshot;
+  CameraViewRequest view;
   FrameOutputMask output = FrameOutputMask::NONE;
   PixelFormat format = PixelFormat::INVALID;
   std::uintptr_t ogre_texture = 0U;

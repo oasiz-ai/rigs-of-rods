@@ -75,6 +75,60 @@ bool IsSingleKnownFrameOutput(FrameOutputMask output) noexcept {
          (value & ~kKnownOutputBits) == 0U;
 }
 
+ValidationResult ValidateCameraViewRequest(const CameraViewRequest &view,
+                                           std::size_t index) {
+  if (view.view_id == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "views.view_id",
+        "view identifier must be nonzero", index);
+  }
+  if (view.width == 0U || view.height == 0U ||
+      view.width > kMaximumRenderDimension ||
+      view.height > kMaximumRenderDimension) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_DIMENSIONS, "views.extent",
+        "view dimensions must be in [1, 65535]", index);
+  }
+  if (!IsFinite(view.view_from_render) || !IsFinite(view.clip_from_view) ||
+      !IsFinite(view.previous_view_from_render) ||
+      !IsFinite(view.previous_clip_from_view) ||
+      !IsFinite(view.temporal_jitter_pixels) || !IsFinite(view.near_plane) ||
+      !IsFinite(view.far_plane) || !IsFinite(view.exposure)) {
+    return ValidationResult::Failure(
+        ValidationCode::NON_FINITE_VALUE, "views.camera",
+        "view matrices and camera values must be finite", index);
+  }
+  if (view.near_plane <= 0.0F || view.far_plane <= view.near_plane ||
+      view.exposure <= 0.0F || view.visibility_mask == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "views.camera",
+        "view clipping, exposure, and visibility must be positive", index);
+  }
+  if (std::fabs(view.temporal_jitter_pixels.x) > 0.5F ||
+      std::fabs(view.temporal_jitter_pixels.y) > 0.5F) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "views.temporal_jitter_pixels",
+        "temporal jitter must remain within half a pixel per axis", index);
+  }
+  if (!HasRigidRightHandedAffineTransform(view.view_from_render) ||
+      !HasRigidRightHandedAffineTransform(view.previous_view_from_render)) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "views.view_from_render",
+        "current and previous view matrices must be rigid right-handed affine",
+        index);
+  }
+  if (!IsCanonicalProjection(view.clip_from_view, view.near_plane,
+                             view.far_plane) ||
+      !IsCanonicalProjection(view.previous_clip_from_view, view.near_plane,
+                             view.far_plane)) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "views.clip_from_view",
+        "current and previous projections must match the canonical camera convention",
+        index);
+  }
+  return ValidationResult::Success();
+}
+
 ValidationResult ValidateRenderFrameRequest(const RenderFrameRequest &request) {
   if (request.version != kRenderFrameContractVersion) {
     return ValidationResult::Failure(ValidationCode::UNSUPPORTED_VERSION,
@@ -131,10 +185,10 @@ ValidationResult ValidateRenderFrameRequest(const RenderFrameRequest &request) {
   bool found_presentation_view = false;
   for (std::size_t index = 0U; index < request.views.size(); ++index) {
     const CameraViewRequest &view = request.views[index];
-    if (view.view_id == 0U) {
-      return ValidationResult::Failure(
-          ValidationCode::INVALID_IDENTIFIER, "views.view_id",
-          "view identifier must be nonzero", index);
+    ValidationResult view_validation =
+        ValidateCameraViewRequest(view, index);
+    if (!view_validation) {
+      return view_validation;
     }
     if (index != 0U && view.view_id == previous_view_id) {
       return ValidationResult::Failure(ValidationCode::DUPLICATE_IDENTIFIER,
@@ -149,51 +203,6 @@ ValidationResult ValidateRenderFrameRequest(const RenderFrameRequest &request) {
     previous_view_id = view.view_id;
     found_presentation_view =
         found_presentation_view || view.view_id == request.presentation_view_id;
-    if (view.width == 0U || view.height == 0U ||
-        view.width > kMaximumRenderDimension ||
-        view.height > kMaximumRenderDimension) {
-      return ValidationResult::Failure(
-          ValidationCode::INVALID_DIMENSIONS, "views.extent",
-          "view dimensions must be in [1, 65535]", index);
-    }
-    if (!IsFinite(view.view_from_render) ||
-        !IsFinite(view.clip_from_view) ||
-        !IsFinite(view.previous_view_from_render) ||
-        !IsFinite(view.previous_clip_from_view) ||
-        !IsFinite(view.temporal_jitter_pixels) || !IsFinite(view.near_plane) ||
-        !IsFinite(view.far_plane) || !IsFinite(view.exposure)) {
-      return ValidationResult::Failure(
-          ValidationCode::NON_FINITE_VALUE, "views.camera",
-          "view matrices and camera values must be finite", index);
-    }
-    if (view.near_plane <= 0.0F || view.far_plane <= view.near_plane ||
-        view.exposure <= 0.0F || view.visibility_mask == 0U) {
-      return ValidationResult::Failure(
-          ValidationCode::VALUE_OUT_OF_RANGE, "views.camera",
-          "view clipping, exposure, and visibility must be positive", index);
-    }
-    if (std::fabs(view.temporal_jitter_pixels.x) > 0.5F ||
-        std::fabs(view.temporal_jitter_pixels.y) > 0.5F) {
-      return ValidationResult::Failure(
-          ValidationCode::VALUE_OUT_OF_RANGE, "views.temporal_jitter_pixels",
-          "temporal jitter must remain within half a pixel per axis", index);
-    }
-    if (!HasRigidRightHandedAffineTransform(view.view_from_render) ||
-        !HasRigidRightHandedAffineTransform(view.previous_view_from_render)) {
-      return ValidationResult::Failure(
-          ValidationCode::VALUE_OUT_OF_RANGE, "views.view_from_render",
-          "current and previous view matrices must be rigid right-handed affine",
-          index);
-    }
-    if (!IsCanonicalProjection(view.clip_from_view, view.near_plane,
-                               view.far_plane) ||
-        !IsCanonicalProjection(view.previous_clip_from_view, view.near_plane,
-                               view.far_plane)) {
-      return ValidationResult::Failure(
-          ValidationCode::VALUE_OUT_OF_RANGE, "views.clip_from_view",
-          "current and previous projections must match the canonical camera convention",
-          index);
-    }
   }
   if (request.present && !found_presentation_view) {
     return ValidationResult::Failure(
