@@ -124,8 +124,13 @@ ephemeral absolute paths.
 
 ## Next gates
 
-This checkpoint is ready to become an optional CI matrix. The renderer remains
-non-shipping until these later checkpoints pass:
+The checked-in optional CI matrix runs the exact probe on macOS arm64 Metal,
+Windows x64 Direct3D 11, and Linux x86_64 software Vulkan/null-window. It keeps
+the three jobs independent, reruns the native lifecycle tests, and uploads the
+build contract, both reports, and exact PPM even when a job fails. Only the
+local macOS result is proven at this checkpoint; the Windows and Linux jobs
+must still execute successfully before their gates can close. The renderer
+remains non-shipping until these later checkpoints pass:
 
 1. build/run this exact probe on Windows x64/D3D11 and Linux x86_64/Vulkan;
 2. reproduce the completed macOS native-window Compositor2 + HLMS PBS frame on
