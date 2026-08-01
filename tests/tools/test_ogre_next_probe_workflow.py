@@ -198,7 +198,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn("--checkpoint n3", self.workflow)
         self.assertIn("--checkpoint legacy", self.workflow)
         self.assertIn("--reuse-build-dir", self.workflow)
-        self.assertIn("-R '^ror_ogre_next_frontend_n1_'", self.workflow)
+        self.assertIn(
+            "-R '^ror_ogre_next_frontend_(n1_|rt4_)'", self.workflow
+        )
         self.assertGreaterEqual(
             self.workflow.count("tools/validate_ogre_next_frame_probe.py"), 2
         )

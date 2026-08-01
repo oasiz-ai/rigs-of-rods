@@ -35,6 +35,8 @@ FRAME_REPORT_NAME = "ror-ogre-next-frame-probe-report.json"
 FRAME_IMAGE_NAME = "ror-ogre-next-frame-probe.ppm"
 N1_REPORT_NAME = "ror-ogre-next-frontend-n1-report.json"
 N1_IMAGE_NAME = "ror-ogre-next-frontend-n1.ppm"
+RT4_PBR_REPORT_NAME = "ror-ogre-next-frontend-rt4-pbr-v1-report.json"
+RT4_PBR_IMAGE_NAME = "ror-ogre-next-frontend-rt4-pbr-v1.ppm"
 N1_PACKAGE_NAME = "ror-ogre-next-n1-package"
 N2_REPORT_NAME = "ror-ogre-next-metal-n2-report.json"
 N2_PROBE_NAME = "ror-ogre-next-metal-n2-probe.bin"
@@ -1023,6 +1025,7 @@ def validate_n1_checkpoint(
     policy: dict[str, str],
     media_manifest: dict[str, Any],
     source_identity: dict[str, Any],
+    modern_pbr: bool = False,
 ) -> None:
     try:
         image = image_path.read_bytes()
@@ -1053,7 +1056,11 @@ def validate_n1_checkpoint(
     shader_media = lock["shader_media"]
     checks = {
         "schema": report.get("schema")
-        == "ror.ogre_next_frontend_n1_smoke.v1",
+        == (
+            "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1"
+            if modern_pbr
+            else "ror.ogre_next_frontend_n1_smoke.v1"
+        ),
         "status": report.get("status") == "pass",
         "commit": provenance.get("ogre_next_commit") == lock["commit"],
         "archive": provenance.get("ogre_next_archive_sha256")
@@ -1131,6 +1138,44 @@ def validate_n1_checkpoint(
             )
         ),
     }
+    if modern_pbr:
+        checks.update(
+            {
+                "rt4_tier": adapter.get("raster_feature_tier")
+                == "MODERN_PBR_RT4_V1",
+                "rt4_vertex_layout": adapter.get("vertex_layout")
+                == "position_normal_tangent_uv0",
+                "rt4_srgb": adapter.get("base_color_upload")
+                == "RGBA8_UNORM_SRGB"
+                and adapter.get("emissive_upload") == "RGBA8_UNORM_SRGB",
+                "rt4_orm": adapter.get("metallic_roughness_upload")
+                == "linear_G_to_R8_roughness_B_to_R8_metallic",
+                "rt4_sampler": adapter.get(
+                    "portable_sampler_mapping_verified"
+                )
+                is True,
+                "rt4_padded_rows": adapter.get(
+                    "padded_source_rows_verified"
+                )
+                is True,
+                "rt4_normal_closed": adapter.get(
+                    "normal_texture_admitted"
+                )
+                is False
+                and adapter.get("normal_texture_blocker")
+                == "pinned_PBS_reconstructs_positive_Z_from_RG",
+                "rt4_occlusion_closed": adapter.get(
+                    "occlusion_texture_admitted"
+                )
+                is False,
+                "rt4_referenced_resources": catalog.get(
+                    "referenced_texture_count"
+                )
+                == 3
+                and catalog.get("referenced_sampler_count") == 1
+                and catalog.get("unreferenced_assets_not_uploaded") is True,
+            }
+        )
     failed = [name for name, passed in checks.items() if not passed]
     if failed:
         raise ProbeError(
@@ -1242,8 +1287,17 @@ def run_n1_checkpoint(
     require_source_identity_unchanged(source_identity)
     report_path = build_dir / N1_REPORT_NAME
     image_path = build_dir / N1_IMAGE_NAME
+    rt4_report_path = build_dir / RT4_PBR_REPORT_NAME
+    rt4_image_path = build_dir / RT4_PBR_IMAGE_NAME
     missing = [
-        path.name for path in (report_path, image_path) if not path.is_file()
+        path.name
+        for path in (
+            report_path,
+            image_path,
+            rt4_report_path,
+            rt4_image_path,
+        )
+        if not path.is_file()
     ]
     if missing:
         raise ProbeError(
@@ -1252,12 +1306,26 @@ def run_n1_checkpoint(
         )
     try:
         report = json.loads(report_path.read_text(encoding="utf-8"))
+        rt4_report = json.loads(rt4_report_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ProbeError(f"could not read N1 report: {error}") from error
     media_manifest = validate_n1_package(build_dir, lock)
     validate_n1_checkpoint(
         report, image_path, lock, policy, media_manifest, source_identity
     )
+    validate_n1_checkpoint(
+        rt4_report,
+        rt4_image_path,
+        lock,
+        policy,
+        media_manifest,
+        source_identity,
+        modern_pbr=True,
+    )
+    if rt4_report["sdr"]["rgb8_fnv1a64"] == report["sdr"]["rgb8_fnv1a64"]:
+        raise ProbeError(
+            "RT4/V1 texture-backed evidence is indistinguishable from static N1"
+        )
 
 
 def validate_n2_checkpoint(

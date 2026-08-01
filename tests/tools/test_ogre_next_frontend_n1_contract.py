@@ -205,6 +205,39 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.frontend,
         )
 
+    def test_rt4_v1_is_explicit_texture_backed_and_fail_closed(self) -> None:
+        for token in (
+            "MODERN_PBR_RT4_V1",
+            "PFG_RGBA8_UNORM_SRGB",
+            "PFG_R8_UNORM",
+            "UploadedTextureChannel::GREEN",
+            "UploadedTextureChannel::BLUE",
+            "waitForStreamingCompletion",
+            "setTextureUvSource",
+            "VerifySamplerMapping",
+            "PendingTextureAllocation",
+            "impl_->textures.swap(candidate_textures)",
+        ):
+            self.assertIn(token, self.frontend)
+        self.assertIn("pinned PBS reconstructs positive Z", self.policy)
+        self.assertIn("only the", self.policy)
+        self.assertIn("texture/sampler pairs actually referenced", self.policy)
+        self.assertIn("--modern-pbr", self.smoke)
+        self.assertIn(
+            "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1", self.smoke
+        )
+        self.assertIn(
+            "ror_ogre_next_frontend_rt4_pbr_v1_runtime", self.entry_cmake
+        )
+
+        destroy_catalog = self.frontend[
+            self.frontend.index("bool DestroyCatalog()") :
+            self.frontend.index("bool DestroyFrameMeshes()")
+        ]
+        self.assertLess(
+            destroy_catalog.index("DestroyMaterial"),
+            destroy_catalog.index("DestroyTexture"),
+        )
     def test_projection_and_device_extent_paths_fail_closed(self) -> None:
         self.assertIn("TryConvertPortableProjectionToOgreClip", self.policy_header)
         self.assertIn("2.0F * portable.elements[row_two]", self.policy)
