@@ -183,3 +183,16 @@ The path-bound source closure lives in
 `tools/ogre_next_probe/ogre-next-parallax-probe-reference.lock.json`; its test
 can hash an extracted pinned Ogre-Next tree directly when the source-root
 environment gate is supplied.
+
+`ReflectionProbeRuntime` is the renderer-neutral admission and scheduling
+contract that feeds that oracle and the future native Ogre-Next capture path.
+Version 1 owns rigid oriented probe coordinates, correction/influence box
+containment, capture planes, resolution/mip shape, static or simulation-tick
+periodic updates, stable priority budgeting, revision lineage, and permanent
+identity tombstones. `BeginFrame` creates a candidate transaction without
+changing committed lineage; `Commit` accepts a generation only with all six
+faces, every required mip, and a nonzero native-receipt digest; `Abort` and
+failed captures leave the prior complete cubemap authoritative. Selection and
+capture seeds depend only on validated scene identities and simulation ticks,
+never wall time or backend iteration order. This is the portable control plane,
+not evidence that a Metal, Vulkan, or D3D11 cubemap has rendered yet.

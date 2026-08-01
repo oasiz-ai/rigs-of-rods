@@ -1199,8 +1199,14 @@ The first reflection-fallback reference now pins Ogre-Next's box-projected
 cubemap shader and probe-buffer sources. Its portable oracle fixes strict box
 membership, manual and automatic probe weights, ray-box correction, and the
 left-handed sampling-vector convention before Metal/HLSL/GLSL backend captures
-are compared. Probe capture scheduling, filtering, scene authoring, and image
-quality remain open acceptance work.
+are compared. The first renderer-neutral runtime layer now validates rigid
+oriented correction/influence volumes and full-shape capture planes, schedules
+static invalidations or periodic updates by simulation tick under a stable
+priority budget, and publishes only atomic six-face/all-mip generations with
+revision lineage, retry/abort semantics, deterministic seeds, and permanent ID
+tombstones. Native Ogre-Next cubemap rendering/filtering, scene-producer
+wiring, three-backend images, authoring, performance, and image quality remain
+open acceptance work.
 
 ## V2 — AirSim-referenced visual fidelity and scene import
 
