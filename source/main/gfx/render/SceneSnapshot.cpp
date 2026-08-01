@@ -13,11 +13,22 @@
 #include "RenderResourceDescriptors.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <utility>
 
 namespace RoR::Render {
+static_assert(std::numeric_limits<float>::is_iec559 &&
+                  std::numeric_limits<float>::radix == 2 &&
+                  std::numeric_limits<float>::digits == 24 &&
+                  std::numeric_limits<float>::max_exponent == 128,
+              "render contract requires IEEE-754 binary32");
+static_assert(std::numeric_limits<double>::is_iec559 &&
+                  std::numeric_limits<double>::radix == 2 &&
+                  std::numeric_limits<double>::digits == 53 &&
+                  std::numeric_limits<double>::max_exponent == 1024,
+              "render contract requires IEEE-754 binary64");
 namespace {
 
 constexpr float kHalfPi = 1.57079632679489661923F;
@@ -91,6 +102,27 @@ bool IsCanonicalPointDirection(const Float3 &direction) noexcept {
 
 bool IsCanonicalZero(const Float3 &value) noexcept {
   return value.x == 0.0F && value.y == 0.0F && value.z == 0.0F;
+}
+
+bool NormalizeDirection(const Float3 &input,
+                        std::array<double, 3U> &output) noexcept {
+  if (!IsFinite(input)) {
+    return false;
+  }
+  const double x = static_cast<double>(input.x);
+  const double y = static_cast<double>(input.y);
+  const double z = static_cast<double>(input.z);
+  const double length_squared = x * x + y * y + z * z;
+  if (!std::isfinite(length_squared) || length_squared <= 0.0) {
+    return false;
+  }
+  const double inverse_length = 1.0 / std::sqrt(length_squared);
+  if (!std::isfinite(inverse_length)) {
+    return false;
+  }
+  output = {{x * inverse_length, y * inverse_length, z * inverse_length}};
+  return std::isfinite(output[0U]) && std::isfinite(output[1U]) &&
+         std::isfinite(output[2U]);
 }
 
 bool ValidateAssetReference(const RenderAssetReference &reference,
@@ -194,6 +226,139 @@ bool ValidateFiniteVertices(const DynamicMeshUpdateDescriptor &update,
 
 } // namespace
 
+double ComputeLinearSrgbRec709D65Luminance(
+    const Float3 &color_linear) noexcept {
+  return static_cast<double>(color_linear.x) *
+             kLinearSrgbRec709D65RedLuminance +
+         static_cast<double>(color_linear.y) *
+             kLinearSrgbRec709D65GreenLuminance +
+         static_cast<double>(color_linear.z) *
+             kLinearSrgbRec709D65BlueLuminance;
+}
+
+bool IsCanonicalPhotometricColorLinear(const Float3 &color_linear) noexcept {
+  if (!IsFinite(color_linear) || !IsNonNegative(color_linear)) {
+    return false;
+  }
+  const double luminance =
+      ComputeLinearSrgbRec709D65Luminance(color_linear);
+  // Exact midpoints between binary32 1.0 and its adjacent values. Ties round
+  // to 1.0 because its significand is even.
+  constexpr double kRoundsToOneMinimum = 1.0 - 0x1p-25;
+  constexpr double kRoundsToOneMaximum = 1.0 + 0x1p-24;
+  return std::isfinite(luminance) && luminance >= kRoundsToOneMinimum &&
+         luminance <= kRoundsToOneMaximum;
+}
+
+bool NormalizePhotometricColorLinear(
+    const Float3 &color_linear, Float3 &normalized_color_linear) noexcept {
+  if (!IsFinite(color_linear) || !IsNonNegative(color_linear)) {
+    return false;
+  }
+  const double luminance =
+      ComputeLinearSrgbRec709D65Luminance(color_linear);
+  if (!std::isfinite(luminance) || luminance <= 0.0) {
+    return false;
+  }
+  const Float3 candidate{
+      static_cast<float>(static_cast<double>(color_linear.x) / luminance),
+      static_cast<float>(static_cast<double>(color_linear.y) / luminance),
+      static_cast<float>(static_cast<double>(color_linear.z) / luminance)};
+  if (!IsCanonicalPhotometricColorLinear(candidate)) {
+    return false;
+  }
+  normalized_color_linear = candidate;
+  return true;
+}
+
+bool IsViewDirectionInsideAnalyticSunDisk(
+    const Float3 &view_direction, const AnalyticSkyDescriptor &sky,
+    const LightDescriptor &sun, LightHistorySample sample) noexcept {
+  if (!sky.enabled || sky.sun_light_id == 0U ||
+      sky.sun_light_id != sun.light_id || sun.type != LightType::DIRECTIONAL ||
+      !IsFinite(sky.sun_angular_radius_radians) ||
+      sky.sun_angular_radius_radians <= 0.0F ||
+      sky.sun_angular_radius_radians > kHalfPi ||
+      (sample != LightHistorySample::CURRENT &&
+       sample != LightHistorySample::PREVIOUS)) {
+    return false;
+  }
+  std::array<double, 3U> normalized_view{};
+  std::array<double, 3U> normalized_emitted{};
+  const Float3 &emitted = sample == LightHistorySample::CURRENT
+                              ? sun.direction
+                              : sun.previous_direction;
+  if (!NormalizeDirection(view_direction, normalized_view) ||
+      !NormalizeDirection(emitted, normalized_emitted)) {
+    return false;
+  }
+  const float center_dot_view = static_cast<float>(
+      -(normalized_view[0U] * normalized_emitted[0U] +
+        normalized_view[1U] * normalized_emitted[1U] +
+        normalized_view[2U] * normalized_emitted[2U]));
+  const float boundary = static_cast<float>(
+      std::cos(static_cast<double>(sky.sun_angular_radius_radians)));
+  return center_dot_view >= boundary;
+}
+
+ShadowGeometryClass
+ClassifyShadowGeometry(const MeshResourceDescriptor &mesh) noexcept {
+  return mesh.dynamic ? ShadowGeometryClass::DYNAMIC
+                      : ShadowGeometryClass::STATIC;
+}
+
+std::uint32_t
+ShadowGeometryClassMask(ShadowGeometryClass geometry_class) noexcept {
+  switch (geometry_class) {
+  case ShadowGeometryClass::STATIC:
+    return LIGHT_SHADOW_STATIC_GEOMETRY;
+  case ShadowGeometryClass::DYNAMIC:
+    return LIGHT_SHADOW_DYNAMIC_GEOMETRY;
+  }
+  return 0U;
+}
+
+bool LightShadowMaskIncludesGeometry(
+    const LightDescriptor &light,
+    const MeshResourceDescriptor &mesh) noexcept {
+  return (light.shadow_flags &
+          ShadowGeometryClassMask(ClassifyShadowGeometry(mesh))) != 0U;
+}
+
+bool MeshInstanceCastsShadowForLight(
+    const LightDescriptor &light, const MeshInstanceDescriptor &instance,
+    const MeshResourceDescriptor &mesh) noexcept {
+  return (instance.flags & MESH_INSTANCE_CASTS_SHADOW) != 0U &&
+         LightShadowMaskIncludesGeometry(light, mesh);
+}
+
+bool ComputePortableEffectiveExposure(
+    float view_exposure, float scene_exposure_compensation_ev,
+    float &effective_exposure) noexcept {
+  if (!IsFinite(view_exposure) || view_exposure <= 0.0F ||
+      !IsFinite(scene_exposure_compensation_ev)) {
+    return false;
+  }
+  const double value =
+      static_cast<double>(view_exposure) *
+      std::exp2(static_cast<double>(scene_exposure_compensation_ev));
+  constexpr double kMinimumPortableExposure =
+      static_cast<double>((std::numeric_limits<float>::min)());
+  constexpr double kMaximumPortableExposure =
+      static_cast<double>((std::numeric_limits<float>::max)());
+  if (!std::isfinite(value) || value < kMinimumPortableExposure ||
+      value > kMaximumPortableExposure) {
+    return false;
+  }
+  const float candidate = static_cast<float>(value);
+  if (!IsFinite(candidate) || candidate <= 0.0F ||
+      std::fpclassify(candidate) != FP_NORMAL) {
+    return false;
+  }
+  effective_exposure = candidate;
+  return true;
+}
+
 bool IsKnownLightType(LightType type) noexcept {
   switch (type) {
   case LightType::DIRECTIONAL:
@@ -228,6 +393,7 @@ std::uint64_t ComputeSceneLightingEnvironmentHash(
   }
   hasher.AddU32(kSceneLightingHashVersion);
   hasher.AddU32(descriptor.version);
+  hasher.AddU64(descriptor.asset_registry_id);
   hasher.AddDouble(descriptor.absolute_world_origin_meters.x);
   hasher.AddDouble(descriptor.absolute_world_origin_meters.y);
   hasher.AddDouble(descriptor.absolute_world_origin_meters.z);
@@ -475,11 +641,14 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
           ValidationCode::NON_FINITE_VALUE, "lights.photometry",
           "all light numeric fields must be finite", index);
     }
-    if (!IsNonNegative(light.color_linear) || light.intensity < 0.0F ||
+    if (!IsCanonicalPhotometricColorLinear(light.color_linear) ||
+        light.intensity < 0.0F ||
         light.range < 0.0F) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "lights.photometry",
-          "light values must be nonnegative", index);
+          "light color must be canonical unit-luminance Rec.709/D65 and "
+          "scalar photometry must be nonnegative",
+          index);
     }
     if (!IsNormalized(light.direction) ||
         !IsNormalized(light.previous_direction)) {

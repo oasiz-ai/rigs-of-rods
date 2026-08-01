@@ -190,6 +190,17 @@ ValidationResult ValidateRenderFrameRequest(const RenderFrameRequest &request) {
     if (!view_validation) {
       return view_validation;
     }
+    float effective_exposure = 0.0F;
+    if (!ComputePortableEffectiveExposure(
+            view.exposure,
+            request.scene_snapshot->environment().exposure_compensation_ev,
+            effective_exposure)) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "views.effective_exposure",
+          "view and scene exposure must produce a finite positive normal "
+          "binary32 value",
+          index);
+    }
     if (index != 0U && view.view_id == previous_view_id) {
       return ValidationResult::Failure(ValidationCode::DUPLICATE_IDENTIFIER,
                                        "views.view_id",

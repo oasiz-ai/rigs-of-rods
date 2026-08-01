@@ -243,6 +243,9 @@ public:
   /// after every producer state transition commits. Rejected frames leave the
   /// publication unchanged. Any number of render/readback threads may load;
   /// one externally serialized graphics thread remains the sole producer.
+  /// Calls into this producer, including LoadPublishedSnapshot(), must quiesce
+  /// before destruction begins. Snapshot owners already acquired by readers
+  /// remain valid independently after producer destruction.
   /// This observer seam carries only the scene owner; frontend submission must
   /// still consume the returned production so its asset delta and camera stay
   /// ordered with that scene.

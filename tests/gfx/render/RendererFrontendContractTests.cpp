@@ -28,12 +28,15 @@ void Require(bool condition, const char *message) {
 }
 
 std::shared_ptr<const RoR::Render::SceneSnapshot>
-MakeSnapshot(bool with_dynamic_mesh = false, bool with_particles = false) {
+MakeSnapshot(bool with_dynamic_mesh = false, bool with_particles = false,
+             float exposure_compensation_ev = 0.0F) {
   using namespace RoR::Render;
   RoR::Render::SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = 7U;
   descriptor.asset_registry_id = 3U;
   descriptor.asset_sequence = 1U;
+  descriptor.environment.exposure_compensation_ev =
+      exposure_compensation_ev;
   if (with_dynamic_mesh) {
     const RenderAssetReference mesh = RenderAssetReference::Create(
         RenderAssetKind::MESH, RenderAssetId::FromWords(3U, 1U), 1U);
@@ -731,6 +734,18 @@ void TestFrameRequestAndOutputValidation() {
   Require(ValidateRenderFrameRequest(request).code ==
               ValidationCode::NON_FINITE_VALUE,
           "non-finite previous projection was accepted");
+  request = MakeFrameRequest();
+  request.scene_snapshot = MakeSnapshot(false, false, 24.0F);
+  request.views.front().exposure = (std::numeric_limits<float>::max)();
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "effective exposure overflow was accepted");
+  request.scene_snapshot = MakeSnapshot(false, false, -24.0F);
+  request.views.front().exposure = (std::numeric_limits<float>::min)();
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "effective exposure subnormal was accepted");
+
   request = MakeFrameRequest();
   request.color_format = PixelFormat::R32_FLOAT;
   Require(ValidateRenderFrameRequest(request).code ==

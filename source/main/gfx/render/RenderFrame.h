@@ -91,6 +91,9 @@ struct CameraViewRequest {
   Float2 temporal_jitter_pixels{};
   float near_plane = 0.1F;
   float far_plane = 10000.0F;
+  /// Dimensionless view exposure. Combined with scene EV as
+  /// `exposure * exp2(exposure_compensation_ev)`; the result must be a finite,
+  /// positive, normal IEEE-754 binary32 value on every backend.
   float exposure = 1.0F;
   std::uint32_t visibility_mask = 0xFFFFFFFFU;
 };
