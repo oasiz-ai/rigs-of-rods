@@ -3039,6 +3039,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
         Ogre::Vector3::UNIT_Y);
     const std::uint32_t authored_view_visibility =
         view.visibility_mask & native_authored_visibility_mask;
+    if (shadow_plan.enabled &&
+        shadow_plan.native_visibility_mask != authored_view_visibility) {
+      throw std::logic_error(
+          "PSSM plan visibility differs from the RT4 authored layer mask");
+    }
     impl_->scene_manager->setVisibilityMask(authored_view_visibility);
 
     lights.reserve(snapshot.lights().size());

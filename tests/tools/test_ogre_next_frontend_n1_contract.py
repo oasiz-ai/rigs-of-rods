@@ -350,7 +350,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         )
         self.assertLess(
             self.frontend.index("reflection_probe_runtime->PrepareFrame("),
-            self.frontend.index("createTexture(\n        target_name"),
+            self.frontend.index("createTexture(\n        target_text"),
         )
         self.assertLess(
             self.frontend.index("ValidateRenderFrameOutput(request, candidate)"),
@@ -649,7 +649,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("TryComputeReadbackLayout", self.frontend)
         self.assertLess(
             self.frontend.index("TryComputeReadbackLayout(validated_view.width"),
-            self.frontend.index("createTexture(\n        target_name"),
+            self.frontend.index("createTexture(\n        target_text"),
         )
         self.assertEqual(self.frontend.count("createRenderWindow("), 1)
 

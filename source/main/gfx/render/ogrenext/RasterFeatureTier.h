@@ -23,6 +23,20 @@ enum class OgreNextRasterFeatureTier : std::uint8_t {
   MODERN_PBR_RT4_V1 = 1,
 };
 
+/// Visibility layers are part of the raster-tier boundary rather than an
+/// individual feature policy. Ogre owns bits 30-31; RT4 additionally owns
+/// bits 28-29 for reflection capture and PCC proxy geometry.
+constexpr std::uint32_t kOgreNextN1OgreLayerVisibilityMask =
+    (1U << 30U) | (1U << 31U);
+constexpr std::uint32_t kOgreNextN1AuthoredVisibilityMask =
+    ~kOgreNextN1OgreLayerVisibilityMask;
+constexpr std::uint32_t kOgreNextRt4PccVisibilityMask =
+    (1U << 28U) | (1U << 29U);
+constexpr std::uint32_t kOgreNextRt4InternalVisibilityMask =
+    kOgreNextRt4PccVisibilityMask | kOgreNextN1OgreLayerVisibilityMask;
+constexpr std::uint32_t kOgreNextRt4AuthoredVisibilityMask =
+    ~kOgreNextRt4InternalVisibilityMask;
+
 [[nodiscard]] constexpr bool
 IsKnownOgreNextRasterFeatureTier(OgreNextRasterFeatureTier tier) noexcept {
   return tier == OgreNextRasterFeatureTier::STATIC_PBR_N1 ||

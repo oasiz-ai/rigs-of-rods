@@ -144,6 +144,17 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
             self.assertIn(token, self.policy)
         self.assertIn("shadow_flags != 0U", self.policy)
 
+    def test_shadow_visibility_excludes_reflection_and_ogre_layers(self) -> None:
+        self.assertIn(
+            "kOgreNextPssmNativeVisibilityMask =\n"
+            "    kOgreNextRt4AuthoredVisibilityMask",
+            self.policy_header,
+        )
+        self.assertIn(
+            "shadow_plan.native_visibility_mask != authored_view_visibility",
+            self.frontend,
+        )
+
     def test_reviewed_cascade_and_filter_values_are_literal_and_read_back(self) -> None:
         for declaration in (
             "kOgreNextPssmCascadeCount = 3U",

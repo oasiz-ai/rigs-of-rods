@@ -45,10 +45,11 @@ constexpr float kOgreNextPssmConstantBiasScale = 1.0F;
 constexpr float kOgreNextPssmNormalOffsetBias = 168.0F;
 constexpr float kOgreNextPssmAutoConstantBiasScale = 100.0F;
 constexpr float kOgreNextPssmAutoNormalOffsetBiasScale = 4.0F;
-// Ogre reserves the upper two bits for its internal visibility and
-// shadow-caster layers. Portable view masks must retain at least one of the
-// lower bits when the PSSM adapter normalizes them for native scene passes.
-constexpr std::uint32_t kOgreNextPssmNativeVisibilityMask = 0x3fffffffU;
+// Keep PSSM on the same authored layer boundary as RT4. Bits 28 and 29 belong
+// to the reflection/PCC capture pipeline, while Ogre reserves bits 30 and 31.
+// None of those four internal layers may leak into a shadow-caster pass.
+constexpr std::uint32_t kOgreNextPssmNativeVisibilityMask =
+    kOgreNextRt4AuthoredVisibilityMask;
 
 constexpr char kOgreNextPssmCapabilityUnsupportedDetail[] =
     "PSSM_3_CASCADE_V1 native capability gate rejected the required atlas "

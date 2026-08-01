@@ -167,6 +167,9 @@ void TestConstantsAndSplits() {
 }
 
 void TestAdmissionAndMasks() {
+  static_assert(kOgreNextPssmNativeVisibilityMask ==
+                    kOgreNextRt4AuthoredVisibilityMask,
+                "PSSM must exclude reflection and Ogre internal layers");
   constexpr std::uint64_t kRegistryId = 97U;
   RenderAssetRegistry registry = Registry(kRegistryId);
   const CameraViewRequest view = ShadowView();
@@ -293,6 +296,22 @@ void TestFailClosedEdges() {
               OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, plan)
               .code == ValidationCode::UNSUPPORTED_FEATURE,
           "far-plane drift was accepted");
+  view = ShadowView();
+  view.visibility_mask = 0x10000000U;
+  Require(TryBuildOgreNextPssmShadowFramePlan(
+              *shadowed, registry, view,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+              OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, plan)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "PCC capture-only visibility mask was accepted");
+  view = ShadowView();
+  view.visibility_mask = 0x20000000U;
+  Require(TryBuildOgreNextPssmShadowFramePlan(
+              *shadowed, registry, view,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+              OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, plan)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "PCC exclusion-only visibility mask was accepted");
   view = ShadowView();
   view.visibility_mask = 0x40000000U;
   Require(TryBuildOgreNextPssmShadowFramePlan(
