@@ -35,6 +35,7 @@ FAMILY_RELATIVE = Path(
 AUTHORING_INPUTS = (
     Path("tools/blender/cityworld_next/artifact_retention_contract.py"),
     Path("tools/blender/cityworld_next/canonicalize_static_glb.py"),
+    Path("tools/blender/cityworld_next/canonicalize_storefront_glb.py"),
     Path("tools/blender/cityworld_next/generate_bridge_kit.py"),
     Path("tools/blender/cityworld_next/generate_cityworld_storefront_family.py"),
     Path("tools/compile_cityworld_asset.py"),

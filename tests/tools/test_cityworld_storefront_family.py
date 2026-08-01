@@ -515,6 +515,7 @@ class CityWorldStorefrontFamilyTests(unittest.TestCase):
                 RETENTION_CONTRACT_PATH,
                 GENERATOR_PATH.parent / "generate_bridge_kit.py",
                 GENERATOR_PATH.parent / "canonicalize_static_glb.py",
+                GENERATOR_PATH.parent / "canonicalize_storefront_glb.py",
                 manifest_path,
                 *(
                     REPOSITORY_ROOT / manifest["artifacts"][role]["path"]
