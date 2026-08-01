@@ -143,10 +143,25 @@ public:
     AddU32(bits);
   }
 
+  void AddDouble(double value) noexcept {
+    if (value == 0.0) {
+      value = 0.0;
+    }
+    std::uint64_t bits = 0U;
+    std::memcpy(&bits, &value, sizeof(bits));
+    AddU64(bits);
+  }
+
   void AddFloat3(const Float3 &value) noexcept {
     AddFloat(value.x);
     AddFloat(value.y);
     AddFloat(value.z);
+  }
+
+  void AddDouble3(const Double3 &value) noexcept {
+    AddDouble(value.x);
+    AddDouble(value.y);
+    AddDouble(value.z);
   }
 
   void AddMatrix(const Matrix4x4 &value) noexcept {
@@ -191,16 +206,20 @@ ValidationResult ValidateReflectionProbeRuntimeDescriptor(
     return Failure(ValidationCode::REVISION_MISMATCH, "content_revision",
                    "reflection-probe content revision must be nonzero");
   }
-  if (!HasRigidRightHandedAffineTransform(descriptor.render_from_probe)) {
-    return Failure(ValidationCode::VALUE_OUT_OF_RANGE, "render_from_probe",
-                   "probe transform must be finite, rigid, and right-handed");
+  if (!IsFinite(descriptor.absolute_world_position_meters)) {
+    return Failure(ValidationCode::NON_FINITE_VALUE,
+                   "absolute_world_position_meters",
+                   "absolute probe position must be finite binary64 meters");
   }
-  const Float3 translation{descriptor.render_from_probe.elements[12U],
-                           descriptor.render_from_probe.elements[13U],
-                           descriptor.render_from_probe.elements[14U]};
-  if (!IsBounded(translation)) {
-    return Failure(ValidationCode::VALUE_OUT_OF_RANGE, "render_from_probe",
-                   "probe render-relative translation exceeds the reviewed range");
+  if (!HasRigidRightHandedAffineTransform(
+          descriptor.world_from_probe_orientation) ||
+      descriptor.world_from_probe_orientation.elements[12U] != 0.0F ||
+      descriptor.world_from_probe_orientation.elements[13U] != 0.0F ||
+      descriptor.world_from_probe_orientation.elements[14U] != 0.0F) {
+    return Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "world_from_probe_orientation",
+        "probe orientation must be finite, rigid, right-handed, and untranslated");
   }
   if (!IsBounded(descriptor.capture_position_local)) {
     return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
@@ -328,7 +347,8 @@ std::uint64_t ComputeReflectionProbeDescriptorFingerprint(
   hash.AddU32(descriptor.version);
   hash.AddU64(descriptor.probe_id);
   hash.AddU64(descriptor.content_revision);
-  hash.AddMatrix(descriptor.render_from_probe);
+  hash.AddDouble3(descriptor.absolute_world_position_meters);
+  hash.AddMatrix(descriptor.world_from_probe_orientation);
   hash.AddFloat3(descriptor.capture_position_local);
   hash.AddFloat3(descriptor.influence_center_local);
   hash.AddFloat3(descriptor.influence_half_size);
@@ -449,6 +469,7 @@ ReflectionProbeUpdateScheduler::~ReflectionProbeUpdateScheduler() = default;
 
 ReflectionProbePlanResult ReflectionProbeUpdateScheduler::BeginFrame(
     std::uint64_t render_frame_id, std::uint64_t simulation_tick,
+    const Double3 &absolute_world_origin_meters,
     const std::vector<ReflectionProbeRuntimeDescriptor> &descriptors) {
   ReflectionProbePlanResult result;
   if (!impl_->configuration_validation) {
@@ -464,6 +485,12 @@ ReflectionProbePlanResult ReflectionProbeUpdateScheduler::BeginFrame(
     result.validation = Failure(ValidationCode::INVALID_IDENTIFIER,
                                 "render_frame_id",
                                 "render frame identity must be nonzero");
+    return result;
+  }
+  if (!IsFinite(absolute_world_origin_meters)) {
+    result.validation = Failure(
+        ValidationCode::NON_FINITE_VALUE, "absolute_world_origin_meters",
+        "reflection-probe frame origin must be finite binary64 meters");
     return result;
   }
   if (impl_->has_committed_frame &&
@@ -606,9 +633,9 @@ ReflectionProbePlanResult ReflectionProbeUpdateScheduler::BeginFrame(
     return result;
   }
   auto pending = std::make_unique<Impl::Pending>();
-  pending->plan.plan_id = impl_->next_plan_id++;
   pending->plan.render_frame_id = render_frame_id;
   pending->plan.simulation_tick = simulation_tick;
+  pending->plan.absolute_world_origin_meters = absolute_world_origin_meters;
   const std::size_t request_count =
       (std::min)(due.size(), static_cast<std::size_t>(
                                   impl_->configuration.maximum_captures_per_frame));
@@ -629,8 +656,31 @@ ReflectionProbePlanResult ReflectionProbeUpdateScheduler::BeginFrame(
     request.expected_mip_count =
         RequiredMipCount(state.descriptor.resolution);
     request.descriptor = state.descriptor;
+    request.absolute_world_origin_meters = absolute_world_origin_meters;
+    request.render_from_probe = state.descriptor.world_from_probe_orientation;
+    const std::array<double, 3U> relative_position{{
+        state.descriptor.absolute_world_position_meters.x -
+            absolute_world_origin_meters.x,
+        state.descriptor.absolute_world_position_meters.y -
+            absolute_world_origin_meters.y,
+        state.descriptor.absolute_world_position_meters.z -
+            absolute_world_origin_meters.z,
+    }};
+    for (std::size_t axis = 0U; axis < relative_position.size(); ++axis) {
+      if (!std::isfinite(relative_position[axis]) ||
+          std::fabs(relative_position[axis]) > kMaximumProbeCoordinate) {
+        result.validation = Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE,
+            "absolute_world_origin_meters",
+            "probe position is outside the reviewed render-relative range");
+        return result;
+      }
+      request.render_from_probe.elements[12U + axis] =
+          static_cast<float>(relative_position[axis]);
+    }
     pending->plan.requests.push_back(request);
   }
+  pending->plan.plan_id = impl_->next_plan_id++;
   pending->candidate_states = std::move(candidate_states);
   result.plan = pending->plan;
   result.validation = ValidationResult::Success();

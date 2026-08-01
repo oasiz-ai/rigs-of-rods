@@ -1204,7 +1204,9 @@ oriented correction/influence volumes and full-shape capture planes, schedules
 static invalidations or periodic updates by simulation tick under a stable
 priority budget, and publishes only atomic six-face/all-mip generations with
 revision lineage, retry/abort semantics, deterministic seeds, and permanent ID
-tombstones. Native Ogre-Next cubemap rendering/filtering, scene-producer
+tombstones. Binary64 world positions are converted transactionally against each
+frame's render origin, so large-world rebasing is distinct from authored probe
+changes. Native Ogre-Next cubemap rendering/filtering, scene-producer
 wiring, three-backend images, authoring, performance, and image quality remain
 open acceptance work.
 

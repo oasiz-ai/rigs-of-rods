@@ -34,9 +34,13 @@ enum class ReflectionProbeUpdateReason : std::uint8_t {
   PERIOD_ELAPSED = 2,
 };
 
-/// One oriented parallax-corrected probe in renderer-relative coordinates.
+/// One oriented parallax-corrected probe in absolute simulation coordinates.
 ///
-/// `render_from_probe` is rigid: scale lives only in the explicit local boxes.
+/// `world_from_probe_orientation` is rigid with exact zero translation: scale
+/// lives only in the explicit local boxes and position is carried separately
+/// in binary64. BeginFrame derives the float render-relative transform from the
+/// frame origin, so large-world origin rebasing does not impersonate a probe
+/// content revision or force a needless recapture.
 /// The influence box must be fully contained by the correction shape so the
 /// backend never relies on Ogre-Next's warning-and-clamp fallback. Capture is
 /// always UI-free. A backend may raster, ray trace, or hybridize the six faces,
@@ -45,7 +49,8 @@ struct ReflectionProbeRuntimeDescriptor {
   std::uint32_t version = kReflectionProbeRuntimeVersion;
   std::uint64_t probe_id = 0U;
   std::uint64_t content_revision = 1U;
-  Matrix4x4 render_from_probe;
+  Double3 absolute_world_position_meters{};
+  Matrix4x4 world_from_probe_orientation;
   Float3 capture_position_local{};
   Float3 influence_center_local{};
   Float3 influence_half_size{1.0F, 1.0F, 1.0F};
@@ -77,6 +82,8 @@ struct ReflectionProbeUpdateRequest {
   std::uint64_t simulation_tick = 0U;
   std::uint64_t deterministic_seed = 0U;
   std::uint64_t descriptor_fingerprint = 0U;
+  Double3 absolute_world_origin_meters{};
+  Matrix4x4 render_from_probe;
   ReflectionProbeUpdateReason reason =
       ReflectionProbeUpdateReason::NEVER_CAPTURED;
   std::uint16_t resolution = 0U;
@@ -93,6 +100,7 @@ struct ReflectionProbeUpdatePlan {
   std::uint64_t plan_id = 0U;
   std::uint64_t render_frame_id = 0U;
   std::uint64_t simulation_tick = 0U;
+  Double3 absolute_world_origin_meters{};
   std::vector<ReflectionProbeUpdateRequest> requests;
 };
 
@@ -158,6 +166,7 @@ public:
 
   [[nodiscard]] ReflectionProbePlanResult BeginFrame(
       std::uint64_t render_frame_id, std::uint64_t simulation_tick,
+      const Double3 &absolute_world_origin_meters,
       const std::vector<ReflectionProbeRuntimeDescriptor> &descriptors);
   [[nodiscard]] ReflectionProbeCommitResult Commit(
       std::uint64_t plan_id,

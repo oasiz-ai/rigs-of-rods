@@ -189,7 +189,10 @@ contract that feeds that oracle and the future native Ogre-Next capture path.
 Version 1 owns rigid oriented probe coordinates, correction/influence box
 containment, capture planes, resolution/mip shape, static or simulation-tick
 periodic updates, stable priority budgeting, revision lineage, and permanent
-identity tombstones. `BeginFrame` creates a candidate transaction without
+identity tombstones. Probe position remains binary64 absolute-world state;
+each plan derives and bounds its exact float render-relative transform from the
+frame origin, so large-world rebasing neither changes authored lineage nor
+forces a static recapture. `BeginFrame` creates a candidate transaction without
 changing committed lineage; `Commit` accepts a generation only with all six
 faces, every required mip, and a nonzero native-receipt digest; `Abort` and
 failed captures leave the prior complete cubemap authoritative. Selection and

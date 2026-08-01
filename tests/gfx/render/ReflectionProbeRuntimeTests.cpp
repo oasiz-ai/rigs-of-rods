@@ -78,13 +78,18 @@ CompleteAll(const ReflectionProbeUpdatePlan &plan, bool success = true) {
 ReflectionProbeUpdatePlan Begin(
     ReflectionProbeUpdateScheduler &scheduler, std::uint64_t frame,
     std::uint64_t tick,
-    const std::vector<ReflectionProbeRuntimeDescriptor> &descriptors) {
+    const std::vector<ReflectionProbeRuntimeDescriptor> &descriptors,
+    const Double3 &absolute_world_origin_meters = {}) {
   ReflectionProbePlanResult result =
-      scheduler.BeginFrame(frame, tick, descriptors);
+      scheduler.BeginFrame(frame, tick, absolute_world_origin_meters,
+                           descriptors);
   Require(result.ok(), "valid reflection-probe frame was rejected");
   Require(result.plan.plan_id != 0U, "valid plan has a zero identity");
   Require(result.plan.render_frame_id == frame, "plan frame identity drifted");
   Require(result.plan.simulation_tick == tick, "plan simulation tick drifted");
+  Require(result.plan.absolute_world_origin_meters ==
+              absolute_world_origin_meters,
+          "plan absolute render origin drifted");
   return result.plan;
 }
 
@@ -130,13 +135,22 @@ void TestDescriptorAdmissionAndFingerprint() {
   Require(!ValidateReflectionProbeRuntimeDescriptor(descriptor),
           "zero probe revision was accepted");
   descriptor = Probe(7U);
-  descriptor.render_from_probe.elements[0U] = 2.0F;
+  descriptor.world_from_probe_orientation.elements[0U] = 2.0F;
   Require(!ValidateReflectionProbeRuntimeDescriptor(descriptor),
           "scaled probe transform was accepted");
   descriptor = Probe(7U);
-  descriptor.render_from_probe.elements[0U] = -1.0F;
+  descriptor.world_from_probe_orientation.elements[0U] = -1.0F;
   Require(!ValidateReflectionProbeRuntimeDescriptor(descriptor),
           "mirrored probe transform was accepted");
+  descriptor = Probe(7U);
+  descriptor.world_from_probe_orientation.elements[12U] = 1.0F;
+  Require(!ValidateReflectionProbeRuntimeDescriptor(descriptor),
+          "translated probe orientation was accepted");
+  descriptor = Probe(7U);
+  descriptor.absolute_world_position_meters.x =
+      (std::numeric_limits<double>::infinity)();
+  Require(!ValidateReflectionProbeRuntimeDescriptor(descriptor),
+          "non-finite absolute probe position was accepted");
   descriptor = Probe(7U);
   descriptor.influence_half_size.x = 6.0F;
   Require(!ValidateReflectionProbeRuntimeDescriptor(descriptor),
@@ -250,7 +264,7 @@ void TestRevisionLineageAndStaticInvalidation() {
 
   descriptors[0U].capture_position_local.x = 0.25F;
   ReflectionProbePlanResult unchanged_revision =
-      scheduler.BeginFrame(2U, 11U, descriptors);
+      scheduler.BeginFrame(2U, 11U, {}, descriptors);
   Require(!unchanged_revision,
           "changed descriptor with unchanged revision was accepted");
   Require(!scheduler.has_pending_plan(),
@@ -270,7 +284,7 @@ void TestRevisionLineageAndStaticInvalidation() {
           "content revision capture did not commit generation two");
 
   descriptors[0U].content_revision = 1U;
-  Require(!scheduler.BeginFrame(3U, 12U, descriptors),
+  Require(!scheduler.BeginFrame(3U, 12U, {}, descriptors),
           "backwards content revision was accepted");
 }
 
@@ -360,9 +374,9 @@ void TestRetirementFrameAndTickLineage() {
   ReflectionProbeUpdatePlan plan = Begin(scheduler, 1U, 100U, descriptors);
   CommitAll(scheduler, plan);
 
-  Require(!scheduler.BeginFrame(1U, 100U, descriptors),
+  Require(!scheduler.BeginFrame(1U, 100U, {}, descriptors),
           "committed render frame identity was reused");
-  Require(!scheduler.BeginFrame(2U, 99U, descriptors),
+  Require(!scheduler.BeginFrame(2U, 99U, {}, descriptors),
           "simulation tick moved backwards");
 
   plan = Begin(scheduler, 2U, 100U, {});
@@ -370,7 +384,7 @@ void TestRetirementFrameAndTickLineage() {
   CommitAll(scheduler, plan);
   Require(scheduler.completed_generation(9U) == 0U,
           "retired probe remained queryable as live");
-  Require(!scheduler.BeginFrame(3U, 101U, descriptors),
+  Require(!scheduler.BeginFrame(3U, 101U, {}, descriptors),
           "retired probe identity was reused");
 
   scheduler.Reset();
@@ -380,23 +394,73 @@ void TestRetirementFrameAndTickLineage() {
   CommitAll(scheduler, plan);
 }
 
+void TestLargeWorldOriginRebasing() {
+  ReflectionProbeUpdateScheduler scheduler;
+  ReflectionProbeRuntimeDescriptor descriptor = Probe(77U);
+  descriptor.absolute_world_position_meters = {
+      1000000012.5, -1999999996.0, 3000000002.0};
+  const Double3 first_origin{1000000000.0, -2000000000.0, 3000000000.0};
+  ReflectionProbeUpdatePlan plan =
+      Begin(scheduler, 1U, 100U, {descriptor}, first_origin);
+  Require(plan.requests.size() == 1U,
+          "large-world probe did not schedule its initial capture");
+  const Matrix4x4 &first_transform = plan.requests[0U].render_from_probe;
+  Require(first_transform.elements[12U] == 12.5F &&
+              first_transform.elements[13U] == 4.0F &&
+              first_transform.elements[14U] == 2.0F,
+          "large-world probe did not derive exact render-relative translation");
+  Require(plan.requests[0U].absolute_world_origin_meters == first_origin,
+          "capture request lost its exact binary64 render origin");
+  CommitAll(scheduler, plan);
+
+  const Double3 rebased_origin{1000000010.0, -1999999998.0, 3000000001.0};
+  plan = Begin(scheduler, 2U, 101U, {descriptor}, rebased_origin);
+  Require(plan.requests.empty(),
+          "render-origin rebase impersonated a static content revision");
+  CommitAll(scheduler, plan);
+
+  ++descriptor.content_revision;
+  descriptor.capture_position_local.x = 0.25F;
+  plan = Begin(scheduler, 3U, 102U, {descriptor}, rebased_origin);
+  Require(plan.requests.size() == 1U &&
+              plan.requests[0U].render_from_probe.elements[12U] == 2.5F &&
+              plan.requests[0U].render_from_probe.elements[13U] == 2.0F &&
+              plan.requests[0U].render_from_probe.elements[14U] == 1.0F,
+          "rebased revision capture used the wrong relative transform");
+  CommitAll(scheduler, plan);
+
+  ReflectionProbePlanResult nonfinite = scheduler.BeginFrame(
+      4U, 103U,
+      {(std::numeric_limits<double>::quiet_NaN)(), 0.0, 0.0},
+      {descriptor});
+  Require(!nonfinite && !scheduler.has_pending_plan(),
+          "non-finite frame origin was accepted");
+
+  ReflectionProbeRuntimeDescriptor distant = Probe(78U);
+  distant.absolute_world_position_meters = {2000000.0, 0.0, 0.0};
+  ReflectionProbePlanResult outside =
+      scheduler.BeginFrame(4U, 103U, {}, {descriptor, distant});
+  Require(!outside && !scheduler.has_pending_plan(),
+          "unrepresentable render-relative probe position was accepted");
+}
+
 void TestConfigurationAndCapacityFailures() {
   ReflectionProbeSchedulerConfiguration invalid;
   invalid.maximum_live_probes = 0U;
   ReflectionProbeUpdateScheduler bad_scheduler(invalid);
-  Require(!bad_scheduler.BeginFrame(1U, 0U, {}),
+  Require(!bad_scheduler.BeginFrame(1U, 0U, {}, {}),
           "zero-capacity scheduler accepted a frame");
 
   ReflectionProbeSchedulerConfiguration configuration;
   configuration.maximum_live_probes = 1U;
   configuration.maximum_captures_per_frame = 1U;
   ReflectionProbeUpdateScheduler scheduler(configuration);
-  Require(!scheduler.BeginFrame(1U, 0U, {Probe(1U), Probe(2U)}),
+  Require(!scheduler.BeginFrame(1U, 0U, {}, {Probe(1U), Probe(2U)}),
           "live-probe capacity overflow was accepted");
-  Require(!scheduler.BeginFrame(0U, 0U, {Probe(1U)}),
+  Require(!scheduler.BeginFrame(0U, 0U, {}, {Probe(1U)}),
           "zero render frame identity was accepted");
   ReflectionProbeUpdatePlan plan = Begin(scheduler, 1U, 0U, {Probe(1U)});
-  Require(!scheduler.BeginFrame(2U, 1U, {Probe(1U)}),
+  Require(!scheduler.BeginFrame(2U, 1U, {}, {Probe(1U)}),
           "second plan began while one was pending");
   Require(!scheduler.Commit(plan.plan_id + 1U, CompleteAll(plan)),
           "wrong plan identity was committed");
@@ -416,6 +480,8 @@ void RequireSamePlan(const ReflectionProbeUpdatePlan &lhs,
                      const ReflectionProbeUpdatePlan &rhs) {
   Require(lhs.render_frame_id == rhs.render_frame_id &&
               lhs.simulation_tick == rhs.simulation_tick &&
+              lhs.absolute_world_origin_meters ==
+                  rhs.absolute_world_origin_meters &&
               lhs.requests.size() == rhs.requests.size(),
           "replayed plan header diverged");
   for (std::size_t index = 0U; index < lhs.requests.size(); ++index) {
@@ -430,6 +496,9 @@ void RequireSamePlan(const ReflectionProbeUpdatePlan &lhs,
                 a.reason == b.reason && a.resolution == b.resolution &&
                 a.expected_mip_count == b.expected_mip_count &&
                 a.expected_face_count == b.expected_face_count &&
+                a.absolute_world_origin_meters ==
+                    b.absolute_world_origin_meters &&
+                a.render_from_probe == b.render_from_probe &&
                 ComputeReflectionProbeDescriptorFingerprint(a.descriptor) ==
                     ComputeReflectionProbeDescriptorFingerprint(b.descriptor),
             "replayed capture request diverged");
@@ -501,6 +570,7 @@ int main() {
   TestPeriodicTicksAndOverdueFairness();
   TestFailureAbortAndTransactionalCompletion();
   TestRetirementFrameAndTickLineage();
+  TestLargeWorldOriginRebasing();
   TestConfigurationAndCapacityFailures();
   TestFixedSeedReplayDeterminism();
   std::cout << "renderer-neutral reflection-probe runtime tests passed\n";
