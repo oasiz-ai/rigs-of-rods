@@ -23,9 +23,10 @@ void Require(bool condition, const char *message) {
   }
 }
 
-RoR::Render::ResourceHandle Handle(RoR::Render::ResourceKind kind,
-                                   std::uint32_t slot) {
-  return RoR::Render::ResourceHandle::Create(kind, 1U, slot, 1U);
+RoR::Render::RenderAssetReference Asset(RoR::Render::RenderAssetKind kind,
+                                        std::uint64_t value) {
+  return RoR::Render::RenderAssetReference::Create(
+      kind, RoR::Render::RenderAssetId::FromWords(0xA55E7U, value), 1U);
 }
 
 RoR::Render::MeshResourceDescriptor MakeTriangleMesh() {
@@ -77,10 +78,10 @@ void TestValidPbrAndUnlitMaterials() {
   descriptor.roughness_factor = 0.24F;
   descriptor.emissive_factor = {2.0F, 0.5F, 0.1F};
   descriptor.emissive_strength = 4.0F;
-  descriptor.base_color_texture.texture = Handle(ResourceKind::TEXTURE, 1U);
-  descriptor.base_color_texture.sampler = Handle(ResourceKind::SAMPLER, 2U);
-  descriptor.normal_texture.texture = Handle(ResourceKind::TEXTURE, 3U);
-  descriptor.normal_texture.sampler = Handle(ResourceKind::SAMPLER, 4U);
+  descriptor.base_color_texture.texture = Asset(RenderAssetKind::TEXTURE, 1U);
+  descriptor.base_color_texture.sampler = Asset(RenderAssetKind::SAMPLER, 2U);
+  descriptor.normal_texture.texture = Asset(RenderAssetKind::TEXTURE, 3U);
+  descriptor.normal_texture.sampler = Asset(RenderAssetKind::SAMPLER, 4U);
   descriptor.normal_texture.texture_coordinate_set = 1U;
   Require(ValidateMaterialDescriptor(descriptor).ok(),
           "valid PBR material was rejected");
@@ -152,29 +153,40 @@ void TestTextureBindingValidation() {
   using namespace RoR::Render;
 
   MaterialDescriptor descriptor;
-  descriptor.base_color_texture.texture = Handle(ResourceKind::MESH, 1U);
-  RequireCode(descriptor, ValidationCode::WRONG_RESOURCE_KIND,
-              "mesh handle was accepted as a texture");
+  descriptor.base_color_texture.texture = Asset(RenderAssetKind::MESH, 1U);
+  RequireCode(descriptor, ValidationCode::WRONG_ASSET_KIND,
+              "mesh asset was accepted as a texture");
 
   descriptor = {};
-  descriptor.base_color_texture.sampler = Handle(ResourceKind::SAMPLER, 2U);
-  RequireCode(descriptor, ValidationCode::INVALID_HANDLE,
+  descriptor.base_color_texture.sampler = Asset(RenderAssetKind::SAMPLER, 2U);
+  RequireCode(descriptor, ValidationCode::INVALID_ASSET_REFERENCE,
               "sampler without texture was accepted");
 
   descriptor = {};
-  descriptor.base_color_texture.texture = Handle(ResourceKind::TEXTURE, 1U);
-  RequireCode(descriptor, ValidationCode::INVALID_HANDLE,
+  descriptor.base_color_texture.texture = Asset(RenderAssetKind::TEXTURE, 1U);
+  RequireCode(descriptor, ValidationCode::INVALID_ASSET_REFERENCE,
               "texture without an explicit sampler was accepted");
 
   descriptor = {};
-  descriptor.base_color_texture.texture = Handle(ResourceKind::TEXTURE, 1U);
-  descriptor.base_color_texture.sampler = Handle(ResourceKind::MATERIAL, 2U);
-  RequireCode(descriptor, ValidationCode::WRONG_RESOURCE_KIND,
-              "material handle was accepted as a sampler");
+  descriptor.base_color_texture.texture.id =
+      RenderAssetId::FromWords(0xA55E7U, 1U);
+  RequireCode(descriptor, ValidationCode::INVALID_ASSET_REFERENCE,
+              "partially populated invalid texture reference was treated as absent");
 
   descriptor = {};
-  descriptor.normal_texture.texture = Handle(ResourceKind::TEXTURE, 1U);
-  descriptor.normal_texture.sampler = Handle(ResourceKind::SAMPLER, 2U);
+  descriptor.base_color_texture.sampler.kind = RenderAssetKind::SAMPLER;
+  RequireCode(descriptor, ValidationCode::INVALID_ASSET_REFERENCE,
+              "partially populated invalid sampler reference was treated as absent");
+
+  descriptor = {};
+  descriptor.base_color_texture.texture = Asset(RenderAssetKind::TEXTURE, 1U);
+  descriptor.base_color_texture.sampler = Asset(RenderAssetKind::MATERIAL, 2U);
+  RequireCode(descriptor, ValidationCode::WRONG_ASSET_KIND,
+              "material asset was accepted as a sampler");
+
+  descriptor = {};
+  descriptor.normal_texture.texture = Asset(RenderAssetKind::TEXTURE, 1U);
+  descriptor.normal_texture.sampler = Asset(RenderAssetKind::SAMPLER, 2U);
   descriptor.normal_texture.texture_coordinate_set = 2U;
   RequireCode(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
               "out-of-range UV set was accepted");
@@ -198,8 +210,8 @@ void TestMeshMaterialCompatibilityRequiresAuthoredAttributes() {
   Require(ValidateMaterialMeshCompatibility(material, mesh).ok(),
           "PBR mesh with authored normals was rejected");
 
-  material.base_color_texture.texture = Handle(ResourceKind::TEXTURE, 1U);
-  material.base_color_texture.sampler = Handle(ResourceKind::SAMPLER, 2U);
+  material.base_color_texture.texture = Asset(RenderAssetKind::TEXTURE, 1U);
+  material.base_color_texture.sampler = Asset(RenderAssetKind::SAMPLER, 2U);
   Require(ValidateMaterialMeshCompatibility(material, mesh).code ==
               ValidationCode::MISSING_REFERENCE,
           "textured material without its UV stream was accepted");
@@ -211,8 +223,8 @@ void TestMeshMaterialCompatibilityRequiresAuthoredAttributes() {
   Require(ValidateMaterialMeshCompatibility(material, mesh).ok(),
           "textured material with authored UV0 was rejected");
 
-  material.normal_texture.texture = Handle(ResourceKind::TEXTURE, 3U);
-  material.normal_texture.sampler = Handle(ResourceKind::SAMPLER, 4U);
+  material.normal_texture.texture = Asset(RenderAssetKind::TEXTURE, 3U);
+  material.normal_texture.sampler = Asset(RenderAssetKind::SAMPLER, 4U);
   Require(ValidateMaterialMeshCompatibility(material, mesh).code ==
               ValidationCode::MISSING_REFERENCE,
           "normal map without authored tangents was accepted");
@@ -220,8 +232,8 @@ void TestMeshMaterialCompatibilityRequiresAuthoredAttributes() {
   Require(ValidateMaterialMeshCompatibility(material, mesh).ok(),
           "normal-mapped mesh with authored tangent frame was rejected");
 
-  material.emissive_texture.texture = Handle(ResourceKind::TEXTURE, 5U);
-  material.emissive_texture.sampler = Handle(ResourceKind::SAMPLER, 6U);
+  material.emissive_texture.texture = Asset(RenderAssetKind::TEXTURE, 5U);
+  material.emissive_texture.sampler = Asset(RenderAssetKind::SAMPLER, 6U);
   material.emissive_texture.texture_coordinate_set = 1U;
   Require(ValidateMaterialMeshCompatibility(material, mesh).code ==
               ValidationCode::MISSING_REFERENCE,

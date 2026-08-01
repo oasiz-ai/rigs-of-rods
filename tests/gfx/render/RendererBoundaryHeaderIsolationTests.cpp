@@ -26,6 +26,7 @@ static_assert(__cplusplus >= 201703L,
 static_assert(std::is_trivially_copyable_v<RoR::Render::Float3>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::Double3>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::ResourceHandle>);
+static_assert(std::is_trivially_copyable_v<RoR::Render::RenderAssetId>);
 static_assert(std::is_standard_layout_v<RoR::Render::NativeObjectToken>);
 static_assert(
     std::is_same_v<decltype(RoR::Render::NativeObjectToken{}.value),
@@ -36,5 +37,7 @@ int main() {
   const RoR::Render::ResourceHandle handle =
       RoR::Render::ResourceHandle::Create(RoR::Render::ResourceKind::TEXTURE,
                                           1U, 1U, 1U);
-  return handle.valid() ? 0 : 1;
+  const RoR::Render::RenderAssetId asset =
+      RoR::Render::RenderAssetId::FromWords(1U, 2U);
+  return handle.valid() && asset.valid() ? 0 : 1;
 }

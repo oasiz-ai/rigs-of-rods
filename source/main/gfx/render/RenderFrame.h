@@ -22,7 +22,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kRenderFrameContractVersion = 1U;
+constexpr std::uint32_t kRenderFrameContractVersion = 2U;
 constexpr std::uint32_t kMaximumRenderDimension = 65535U;
 
 enum class FrameOutputMask : std::uint32_t {
@@ -32,6 +32,7 @@ enum class FrameOutputMask : std::uint32_t {
   MOTION_VECTORS = 1U << 2U,
   OBJECT_ID = 1U << 3U,
   SURFACE_NORMAL = 1U << 4U,
+  MATERIAL_ID = 1U << 5U,
 };
 
 constexpr FrameOutputMask operator|(FrameOutputMask lhs,
@@ -58,6 +59,7 @@ enum class PixelFormat : std::uint8_t {
   R32_FLOAT,
   RG16_FLOAT,
   RG32_UINT,
+  RGBA32_UINT,
   RGBA16_SNORM,
 };
 
@@ -75,11 +77,16 @@ struct CameraViewRequest {
   std::uint32_t width = 0U;
   std::uint32_t height = 0U;
   /// All camera values consume the referenced snapshot's render-relative
-  /// coordinates. The previous matrix is rebased to the current snapshot's
-  /// absolute_world_origin_meters before submission.
-  Matrix4x4 clip_from_render;
-  Matrix4x4 previous_clip_from_render;
-  Float3 camera_render_position{};
+  /// coordinates. View and projection remain separate so a backend never has
+  /// to guess a matrix decomposition for camera-space PBR state. Previous view
+  /// coordinates are rebased to the current snapshot's absolute origin.
+  Matrix4x4 view_from_render;
+  Matrix4x4 clip_from_view;
+  Matrix4x4 previous_view_from_render;
+  Matrix4x4 previous_clip_from_view;
+  /// Applied by the adapter after the unjittered projection. +X is right and
+  /// +Y is down in pixels; each component is limited to half a pixel. The
+  /// previous projection is also unjittered so motion can remove jitter.
   Float2 temporal_jitter_pixels{};
   float near_plane = 0.1F;
   float far_plane = 10000.0F;
@@ -94,6 +101,10 @@ struct RenderFrameRequest {
   std::shared_ptr<const SceneSnapshot> scene_snapshot;
   std::vector<CameraViewRequest> views;
   FrameOutputMask requested_outputs = FrameOutputMask::COLOR;
+  /// Exact color attachment encoding. RGBA16_FLOAT is linear scene-referred
+  /// HDR; RGBA8_SRGB is display-referred SDR. It applies to every requested
+  /// view and must name one of these formats even when COLOR is not requested.
+  PixelFormat color_format = PixelFormat::RGBA8_SRGB;
   /// When presenting, identifies exactly one requested view and the current
   /// active FrontendSurfaceUpdate revision. The selected view's dimensions
   /// must exactly match that surface's pixel extent; implicit scaling is
@@ -117,6 +128,8 @@ struct RenderFrameRequest {
 ///   bits in R and high 32 bits in G; background is zero.
 /// - SURFACE_NORMAL RGBA16_SNORM stores a unit world-space normal in XYZ and
 ///   validity in W (1 for geometry, 0 for background).
+/// - MATERIAL_ID RGBA32_UINT stores the exact stable 128-bit RenderAssetId as
+///   high-to-low uint32 words in RGBA; background is all zero.
 ///
 /// `gpu_resource` and `bytes` are independently optional: a presented frame
 /// may expose only a GPU resource, while a capture request may include tightly

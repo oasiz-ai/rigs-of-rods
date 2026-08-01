@@ -8,6 +8,10 @@
 
 #include "SceneSnapshot.h"
 
+#include "MaterialDescriptor.h"
+#include "RenderAssetRegistry.h"
+#include "RenderResourceDescriptors.h"
+
 #include <algorithm>
 #include <limits>
 #include <utility>
@@ -15,16 +19,18 @@
 namespace RoR::Render {
 namespace {
 
-ValidationResult ValidateHandle(ResourceHandle handle, ResourceKind kind,
-                                const char *field, std::size_t index) {
-  if (!handle.valid()) {
-    return ValidationResult::Failure(ValidationCode::INVALID_HANDLE, field,
-                                     "required resource handle is invalid",
-                                     index);
+ValidationResult ValidateAssetReference(const RenderAssetReference &reference,
+                                        RenderAssetKind kind,
+                                        const char *field,
+                                        std::size_t index) {
+  if (!reference.valid()) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ASSET_REFERENCE, field,
+        "required renderer-neutral asset reference is invalid", index);
   }
-  if (handle.kind() != kind) {
-    return ValidationResult::Failure(ValidationCode::WRONG_RESOURCE_KIND, field,
-                                     "resource kind does not match", index);
+  if (reference.kind != kind) {
+    return ValidationResult::Failure(ValidationCode::WRONG_ASSET_KIND, field,
+                                     "asset kind does not match", index);
   }
   return ValidationResult::Success();
 }
@@ -139,6 +145,13 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
                                      "snapshot_id",
                                      "snapshot identifier must be nonzero");
   }
+  if (descriptor.asset_registry_id == 0U || descriptor.asset_sequence == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER,
+        descriptor.asset_registry_id == 0U ? "asset_registry_id"
+                                           : "asset_sequence",
+        "asset registry identity and sequence must be nonzero");
+  }
   if (!IsFinite(descriptor.simulation_time_seconds) ||
       descriptor.simulation_time_seconds < 0.0) {
     return ValidationResult::Failure(
@@ -170,22 +183,33 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
         "environment.environment_intensity",
         "environment intensity must be finite and nonnegative");
   }
-  if (descriptor.environment.environment_texture.valid() &&
-      descriptor.environment.environment_texture.kind() !=
-          ResourceKind::TEXTURE) {
-    return ValidationResult::Failure(ValidationCode::WRONG_RESOURCE_KIND,
+  const bool environment_texture_absent = IsAbsentRenderAssetReference(
+      descriptor.environment.environment_texture);
+  const bool environment_sampler_absent = IsAbsentRenderAssetReference(
+      descriptor.environment.environment_sampler);
+  if ((!environment_texture_absent &&
+       !descriptor.environment.environment_texture.valid()) ||
+      (!environment_sampler_absent &&
+       !descriptor.environment.environment_sampler.valid())) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ASSET_REFERENCE, "environment",
+        "optional environment references must be canonical absent or fully valid");
+  }
+  if (!environment_texture_absent &&
+      descriptor.environment.environment_texture.kind !=
+          RenderAssetKind::TEXTURE) {
+    return ValidationResult::Failure(ValidationCode::WRONG_ASSET_KIND,
                                      "environment.environment_texture",
                                      "environment resource must be a texture");
   }
-  if (descriptor.environment.environment_sampler.valid() &&
-      descriptor.environment.environment_sampler.kind() !=
-          ResourceKind::SAMPLER) {
+  if (!environment_sampler_absent &&
+      descriptor.environment.environment_sampler.kind !=
+          RenderAssetKind::SAMPLER) {
     return ValidationResult::Failure(
-        ValidationCode::WRONG_RESOURCE_KIND, "environment.environment_sampler",
+        ValidationCode::WRONG_ASSET_KIND, "environment.environment_sampler",
         "environment sampler resource must be a sampler");
   }
-  if (descriptor.environment.environment_texture.valid() !=
-      descriptor.environment.environment_sampler.valid()) {
+  if (environment_texture_absent != environment_sampler_absent) {
     return ValidationResult::Failure(
         ValidationCode::MISSING_REFERENCE, "environment",
         "environment texture and explicit sampler must be supplied together");
@@ -203,13 +227,14 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
     }
     previous_identifier = instance.instance_id;
 
-    validation = ValidateHandle(instance.mesh, ResourceKind::MESH,
-                                "mesh_instances.mesh", index);
+    validation = ValidateAssetReference(instance.mesh, RenderAssetKind::MESH,
+                                        "mesh_instances.mesh", index);
     if (!validation) {
       return validation;
     }
-    validation = ValidateHandle(instance.material, ResourceKind::MATERIAL,
-                                "mesh_instances.material", index);
+    validation = ValidateAssetReference(instance.material,
+                                        RenderAssetKind::MATERIAL,
+                                        "mesh_instances.material", index);
     if (!validation) {
       return validation;
     }
@@ -321,8 +346,8 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
                                    : "dynamic_mesh_updates.revision",
           "instance and geometry revisions must be nonzero", index);
     }
-    validation = ValidateHandle(update.mesh, ResourceKind::MESH,
-                                "dynamic_mesh_updates.mesh", index);
+    validation = ValidateAssetReference(update.mesh, RenderAssetKind::MESH,
+                                        "dynamic_mesh_updates.mesh", index);
     if (!validation) {
       return validation;
     }
@@ -340,8 +365,9 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
     }
     if (instance->mesh != update.mesh) {
       return ValidationResult::Failure(
-          ValidationCode::INVALID_HANDLE, "dynamic_mesh_updates.mesh",
-          "dynamic mesh handle differs from the referenced instance", index);
+          ValidationCode::INVALID_ASSET_REFERENCE,
+          "dynamic_mesh_updates.mesh",
+          "dynamic mesh asset differs from the referenced instance", index);
     }
     if (instance->topology_revision != update.topology_revision ||
         instance->deformation_revision != update.deformation_revision) {
@@ -462,6 +488,100 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
   }
 
   return ValidationResult::Success();
+}
+
+ValidationResult ValidateSceneSnapshotAssets(
+    const SceneSnapshotDescriptor &descriptor,
+    const RenderAssetRegistry &registry) {
+  ValidationResult validation = ValidateSceneSnapshotDescriptor(descriptor);
+  if (!validation) {
+    return validation;
+  }
+  if (descriptor.asset_registry_id != registry.registry_id()) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "asset_registry_id",
+        "scene references a different renderer-neutral asset registry");
+  }
+  if (descriptor.asset_sequence != registry.sequence()) {
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "asset_sequence",
+        "scene requires a different asset registry sequence");
+  }
+
+  if (descriptor.environment.environment_texture.valid()) {
+    const TextureResourceDescriptor *texture = registry.ResolveTexture(
+        descriptor.environment.environment_texture);
+    const SamplerResourceDescriptor *sampler = registry.ResolveSampler(
+        descriptor.environment.environment_sampler);
+    if (texture == nullptr || sampler == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "environment",
+          "environment references a missing, stale, or tombstoned asset");
+    }
+    validation = ValidateEnvironmentTextureCompatibility(*texture, *sampler);
+    if (!validation) {
+      return validation;
+    }
+  }
+
+  for (std::size_t index = 0U; index < descriptor.mesh_instances.size();
+       ++index) {
+    const MeshInstanceDescriptor &instance = descriptor.mesh_instances[index];
+    const MeshResourceDescriptor *mesh = registry.ResolveMesh(instance.mesh);
+    const MaterialDescriptor *material =
+        registry.ResolveMaterial(instance.material);
+    if (mesh == nullptr || material == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "mesh_instances.asset",
+          "instance references a missing, stale, or tombstoned asset", index);
+    }
+    validation = ValidateMaterialMeshCompatibility(*material, *mesh);
+    if (!validation) {
+      validation.element_index = index;
+      return validation;
+    }
+
+    const auto update = std::find_if(
+        descriptor.dynamic_mesh_updates.begin(),
+        descriptor.dynamic_mesh_updates.end(),
+        [&instance](const DynamicMeshUpdateDescriptor &candidate) {
+          return candidate.instance_id == instance.instance_id;
+        });
+    const DynamicMeshUpdateDescriptor *update_ptr =
+        update == descriptor.dynamic_mesh_updates.end() ? nullptr : &*update;
+    validation =
+        ValidateMeshInstanceCompatibility(*mesh, instance, update_ptr);
+    if (!validation) {
+      validation.element_index = index;
+      return validation;
+    }
+  }
+
+  for (std::size_t index = 0U;
+       index < descriptor.dynamic_mesh_updates.size(); ++index) {
+    const DynamicMeshUpdateDescriptor &update =
+        descriptor.dynamic_mesh_updates[index];
+    const MeshResourceDescriptor *mesh = registry.ResolveMesh(update.mesh);
+    if (mesh == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "dynamic_mesh_updates.mesh",
+          "deformation references a missing, stale, or tombstoned mesh",
+          index);
+    }
+    validation = ValidateDynamicMeshUpdateCompatibility(*mesh, update);
+    if (!validation) {
+      validation.element_index = index;
+      return validation;
+    }
+  }
+
+  return ValidationResult::Success();
+}
+
+ValidationResult
+ValidateSceneSnapshotAssets(const SceneSnapshot &snapshot,
+                            const RenderAssetRegistry &registry) {
+  return ValidateSceneSnapshotAssets(snapshot.descriptor_, registry);
 }
 
 SceneSnapshotCreateResult

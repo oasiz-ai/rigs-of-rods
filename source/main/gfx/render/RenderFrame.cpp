@@ -20,14 +20,16 @@ constexpr std::uint32_t kKnownOutputBits =
     static_cast<std::uint32_t>(FrameOutputMask::DEPTH) |
     static_cast<std::uint32_t>(FrameOutputMask::MOTION_VECTORS) |
     static_cast<std::uint32_t>(FrameOutputMask::OBJECT_ID) |
-    static_cast<std::uint32_t>(FrameOutputMask::SURFACE_NORMAL);
+    static_cast<std::uint32_t>(FrameOutputMask::SURFACE_NORMAL) |
+    static_cast<std::uint32_t>(FrameOutputMask::MATERIAL_ID);
 
-constexpr std::array<FrameOutputMask, 5U> kOrderedFrameOutputs{{
+constexpr std::array<FrameOutputMask, 6U> kOrderedFrameOutputs{{
     FrameOutputMask::COLOR,
     FrameOutputMask::DEPTH,
     FrameOutputMask::MOTION_VECTORS,
     FrameOutputMask::OBJECT_ID,
     FrameOutputMask::SURFACE_NORMAL,
+    FrameOutputMask::MATERIAL_ID,
 }};
 
 std::uint32_t BytesPerPixel(PixelFormat format) noexcept {
@@ -40,6 +42,8 @@ std::uint32_t BytesPerPixel(PixelFormat format) noexcept {
   case PixelFormat::RG32_UINT:
   case PixelFormat::RGBA16_SNORM:
     return 8U;
+  case PixelFormat::RGBA32_UINT:
+    return 16U;
   case PixelFormat::INVALID:
     return 0U;
   }
@@ -94,6 +98,12 @@ ValidationResult ValidateRenderFrameRequest(const RenderFrameRequest &request) {
         ValidationCode::INVALID_OUTPUT_MASK, "requested_outputs",
         "output mask must contain only known, nonzero outputs");
   }
+  if (request.color_format != PixelFormat::RGBA8_SRGB &&
+      request.color_format != PixelFormat::RGBA16_FLOAT) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "color_format",
+        "color output format must be RGBA8_SRGB or RGBA16_FLOAT");
+  }
   if (request.present &&
       !HasFrameOutput(request.requested_outputs, FrameOutputMask::COLOR)) {
     return ValidationResult::Failure(
@@ -146,9 +156,10 @@ ValidationResult ValidateRenderFrameRequest(const RenderFrameRequest &request) {
           ValidationCode::INVALID_DIMENSIONS, "views.extent",
           "view dimensions must be in [1, 65535]", index);
     }
-    if (!IsFinite(view.clip_from_render) ||
-        !IsFinite(view.previous_clip_from_render) ||
-        !IsFinite(view.camera_render_position) ||
+    if (!IsFinite(view.view_from_render) ||
+        !IsFinite(view.clip_from_view) ||
+        !IsFinite(view.previous_view_from_render) ||
+        !IsFinite(view.previous_clip_from_view) ||
         !IsFinite(view.temporal_jitter_pixels) || !IsFinite(view.near_plane) ||
         !IsFinite(view.far_plane) || !IsFinite(view.exposure)) {
       return ValidationResult::Failure(
@@ -160,6 +171,28 @@ ValidationResult ValidateRenderFrameRequest(const RenderFrameRequest &request) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "views.camera",
           "view clipping, exposure, and visibility must be positive", index);
+    }
+    if (std::fabs(view.temporal_jitter_pixels.x) > 0.5F ||
+        std::fabs(view.temporal_jitter_pixels.y) > 0.5F) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "views.temporal_jitter_pixels",
+          "temporal jitter must remain within half a pixel per axis", index);
+    }
+    if (!HasRigidRightHandedAffineTransform(view.view_from_render) ||
+        !HasRigidRightHandedAffineTransform(view.previous_view_from_render)) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "views.view_from_render",
+          "current and previous view matrices must be rigid right-handed affine",
+          index);
+    }
+    if (!IsCanonicalProjection(view.clip_from_view, view.near_plane,
+                               view.far_plane) ||
+        !IsCanonicalProjection(view.previous_clip_from_view, view.near_plane,
+                               view.far_plane)) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "views.clip_from_view",
+          "current and previous projections must match the canonical camera convention",
+          index);
     }
   }
   if (request.present && !found_presentation_view) {
@@ -246,7 +279,9 @@ ValidationResult ValidateRenderFrameOutput(const RenderFrameOutput &output) {
         (attachment.output == FrameOutputMask::OBJECT_ID &&
          attachment.format == PixelFormat::RG32_UINT) ||
         (attachment.output == FrameOutputMask::SURFACE_NORMAL &&
-         attachment.format == PixelFormat::RGBA16_SNORM);
+         attachment.format == PixelFormat::RGBA16_SNORM) ||
+        (attachment.output == FrameOutputMask::MATERIAL_ID &&
+         attachment.format == PixelFormat::RGBA32_UINT);
     if (!compatible_format) {
       return ValidationResult::Failure(
           ValidationCode::INVALID_ENUM, "attachments.format",
@@ -376,6 +411,13 @@ ValidationResult ValidateRenderFrameOutput(const RenderFrameRequest &request,
         return ValidationResult::Failure(
             ValidationCode::INVALID_DIMENSIONS, "output.attachments.extent",
             "attachment extent must match its requested view",
+            attachment_index);
+      }
+      if (candidate == FrameOutputMask::COLOR &&
+          attachment.format != request.color_format) {
+        return ValidationResult::Failure(
+            ValidationCode::INVALID_ENUM, "output.attachments.format",
+            "color attachment format must match the exact request",
             attachment_index);
       }
       ++attachment_index;

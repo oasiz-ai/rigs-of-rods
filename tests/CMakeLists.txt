@@ -184,6 +184,8 @@ target_include_directories(
 
 set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetId.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetRegistry.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderFrame.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderResourceDescriptors.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontend.cpp"
@@ -204,6 +206,10 @@ add_executable(
 add_executable(
     ror_render_material_descriptor_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/MaterialDescriptorTests.cpp"
+)
+add_executable(
+    ror_render_asset_registry_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RenderAssetRegistryTests.cpp"
 )
 add_executable(
     ror_render_scene_snapshot_tests
@@ -229,6 +235,7 @@ target_include_directories(
 set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_render_resource_handle_tests
     ror_render_material_descriptor_tests
+    ror_render_asset_registry_tests
     ror_render_scene_snapshot_tests
     ror_render_resource_descriptor_tests
     ror_renderer_frontend_contract_tests
@@ -1098,6 +1105,11 @@ add_test(
 add_test(
     NAME render_material_descriptor
     COMMAND ror_render_material_descriptor_tests
+)
+
+add_test(
+    NAME render_asset_registry
+    COMMAND ror_render_asset_registry_tests
 )
 
 add_test(

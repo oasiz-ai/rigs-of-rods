@@ -41,6 +41,8 @@ set(SOURCE_FILES
         gfx/RendererBackendPolicy.{h,cpp}
         gfx/RenderDisplayMetrics.h
         gfx/render/MaterialDescriptor.{h,cpp}
+        gfx/render/RenderAssetId.{h,cpp}
+        gfx/render/RenderAssetRegistry.{h,cpp}
         gfx/render/README.md
         gfx/render/RenderContracts.h
         gfx/render/RenderFrame.{h,cpp}
@@ -357,6 +359,8 @@ expand_file_extensions(SOURCE_FILES ${SOURCE_FILES})
 # where the game otherwise enables fast math globally.
 set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/MaterialDescriptor.cpp
+        gfx/render/RenderAssetId.cpp
+        gfx/render/RenderAssetRegistry.cpp
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp
         gfx/render/RendererFrontend.cpp
@@ -370,6 +374,8 @@ set_source_files_properties(
         )
 set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/MaterialDescriptor.cpp
+        gfx/render/RenderAssetId.cpp
+        gfx/render/RenderAssetRegistry.cpp
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp
         gfx/render/RendererFrontend.cpp

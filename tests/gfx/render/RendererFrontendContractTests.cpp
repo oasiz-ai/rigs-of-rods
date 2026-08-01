@@ -22,13 +22,75 @@ void Require(bool condition, const char *message) {
   }
 }
 
-std::shared_ptr<const RoR::Render::SceneSnapshot> MakeSnapshot() {
+std::shared_ptr<const RoR::Render::SceneSnapshot>
+MakeSnapshot(bool with_dynamic_mesh = false, bool with_particles = false) {
+  using namespace RoR::Render;
   RoR::Render::SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = 7U;
+  descriptor.asset_registry_id = 3U;
+  descriptor.asset_sequence = 1U;
+  if (with_dynamic_mesh) {
+    const RenderAssetReference mesh = RenderAssetReference::Create(
+        RenderAssetKind::MESH, RenderAssetId::FromWords(3U, 1U), 1U);
+    MeshInstanceDescriptor instance;
+    instance.instance_id = 1U;
+    instance.mesh = mesh;
+    instance.material = RenderAssetReference::Create(
+        RenderAssetKind::MATERIAL, RenderAssetId::FromWords(3U, 2U), 1U);
+    instance.deformation_revision = 2U;
+    descriptor.mesh_instances.push_back(instance);
+    DynamicMeshUpdateDescriptor update;
+    update.update_sequence = 1U;
+    update.instance_id = instance.instance_id;
+    update.mesh = mesh;
+    update.deformation_revision = instance.deformation_revision;
+    update.positions.push_back(Float3{});
+    update.has_updated_bounds = true;
+    descriptor.dynamic_mesh_updates.push_back(update);
+  }
+  if (with_particles) {
+    ParticleEvent event;
+    event.event_id = 1U;
+    event.emitter_id = 1U;
+    event.random_seed = 1U;
+    descriptor.particle_events.push_back(event);
+  }
   const RoR::Render::SceneSnapshotCreateResult result =
       RoR::Render::CreateSceneSnapshot(std::move(descriptor));
   Require(result.ok(), "minimal valid snapshot could not be created");
   return result.snapshot;
+}
+
+RoR::Render::Matrix4x4 MakePerspectiveProjection(
+    float near_plane = 0.1F, float far_plane = 10000.0F,
+    float horizontal_offset = 0.0F, float vertical_offset = 0.0F) {
+  RoR::Render::Matrix4x4 projection;
+  projection.elements.fill(0.0F);
+  projection.elements[0U] = 1.0F;
+  projection.elements[5U] = 1.0F;
+  projection.elements[8U] = horizontal_offset;
+  projection.elements[9U] = vertical_offset;
+  const float depth_scale = far_plane / (near_plane - far_plane);
+  projection.elements[10U] = depth_scale;
+  projection.elements[11U] = -1.0F;
+  projection.elements[14U] = near_plane * depth_scale;
+  return projection;
+}
+
+RoR::Render::Matrix4x4 MakeOrthographicProjection(
+    float near_plane = 0.1F, float far_plane = 10000.0F,
+    float horizontal_offset = 0.0F, float vertical_offset = 0.0F) {
+  RoR::Render::Matrix4x4 projection;
+  projection.elements.fill(0.0F);
+  projection.elements[0U] = 1.0F;
+  projection.elements[5U] = 1.0F;
+  const float depth_scale = 1.0F / (near_plane - far_plane);
+  projection.elements[10U] = depth_scale;
+  projection.elements[12U] = horizontal_offset;
+  projection.elements[13U] = vertical_offset;
+  projection.elements[14U] = near_plane * depth_scale;
+  projection.elements[15U] = 1.0F;
+  return projection;
 }
 
 RoR::Render::RenderFrameRequest MakeFrameRequest() {
@@ -39,6 +101,8 @@ RoR::Render::RenderFrameRequest MakeFrameRequest() {
   view.view_id = 1U;
   view.width = 1280U;
   view.height = 720U;
+  view.clip_from_view = MakePerspectiveProjection();
+  view.previous_clip_from_view = MakePerspectiveProjection();
   request.views.push_back(view);
   request.requested_outputs =
       RoR::Render::FrameOutputMask::COLOR | RoR::Render::FrameOutputMask::DEPTH;
@@ -73,7 +137,7 @@ MakeCorrelatedOutput(const RoR::Render::RenderFrameRequest &request) {
   const RoR::Render::CameraViewRequest &view = request.views.front();
   output.attachments.push_back(MakeGpuAttachment(
       1U, RoR::Render::FrameOutputMask::COLOR,
-      RoR::Render::PixelFormat::RGBA8_SRGB, view.width, view.height, 1U));
+      request.color_format, view.width, view.height, 1U));
   output.attachments.push_back(MakeGpuAttachment(
       1U, RoR::Render::FrameOutputMask::DEPTH,
       RoR::Render::PixelFormat::R32_FLOAT, view.width, view.height, 2U));
@@ -111,7 +175,8 @@ RoR::Render::NativeGeometryExportRequest MakeGeometryRequest() {
   request.frame_id = 11U;
   request.snapshot_id = 7U;
   request.instance_id = 5U;
-  request.mesh = ResourceHandle::Create(ResourceKind::MESH, 1U, 2U, 1U);
+  request.mesh = RenderAssetReference::Create(
+      RenderAssetKind::MESH, RenderAssetId::FromWords(1U, 2U), 1U);
   request.topology_revision = 3U;
   request.deformation_revision = 4U;
   return request;
@@ -412,32 +477,7 @@ public:
   }
 
   RoR::Render::RenderOperationResult
-  CreateMesh(const RoR::Render::MeshResourceDescriptor &,
-             RoR::Render::ResourceHandle &) override {
-    return Unsupported();
-  }
-
-  RoR::Render::RenderOperationResult
-  CreateTexture(const RoR::Render::TextureResourceDescriptor &,
-                RoR::Render::ResourceHandle &) override {
-    return Unsupported();
-  }
-
-  RoR::Render::RenderOperationResult
-  CreateSampler(const RoR::Render::SamplerResourceDescriptor &,
-                RoR::Render::ResourceHandle &) override {
-    return Unsupported();
-  }
-
-  RoR::Render::RenderOperationResult
-  CreateMaterial(const RoR::Render::MaterialDescriptor &,
-                 RoR::Render::ResourceHandle &) override {
-    return Unsupported();
-  }
-
-  RoR::Render::RenderOperationResult
-  UpdateMaterial(RoR::Render::ResourceHandle,
-                 const RoR::Render::MaterialDescriptor &) override {
+  SynchronizeAssets(const RoR::Render::RenderAssetDelta &) override {
     return Unsupported();
   }
 
@@ -523,6 +563,107 @@ void TestFrameRequestAndOutputValidation() {
               ValidationCode::DUPLICATE_IDENTIFIER,
           "duplicate view identifier was accepted");
 
+  request = MakeFrameRequest();
+  request.views.front().view_from_render.elements[0U] = 0.0F;
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "singular view matrix was accepted");
+  request = MakeFrameRequest();
+  request.views.front().view_from_render.elements[0U] = 2.0F;
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "scaled camera view matrix was accepted");
+  request = MakeFrameRequest();
+  request.views.front().view_from_render.elements[4U] = 0.1F;
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "sheared camera view matrix was accepted");
+  request = MakeFrameRequest();
+  request.views.front().view_from_render.elements[0U] = -1.0F;
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "reflected camera view matrix was accepted");
+  request = MakeFrameRequest();
+  request.views.front().clip_from_view =
+      MakePerspectiveProjection(0.1F, 10000.0F, 0.2F, -0.1F);
+  request.views.front().previous_clip_from_view =
+      MakeOrthographicProjection(0.1F, 10000.0F, -0.2F, 0.1F);
+  request.views.front().temporal_jitter_pixels = {0.5F, -0.5F};
+  Require(ValidateRenderFrameRequest(request).ok(),
+          "canonical asymmetric projections and separate jitter were rejected");
+  request.views.front().temporal_jitter_pixels.x = 0.5001F;
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "temporal jitter outside half a pixel was accepted");
+  request = MakeFrameRequest();
+  request.views.front().clip_from_view.elements[11U] = 1.0F;
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "left-handed perspective projection was accepted");
+  request = MakeFrameRequest();
+  request.views.front().clip_from_view.elements[2U] = 0.01F;
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "oblique projection skew was accepted");
+  request = MakeFrameRequest();
+  request.views.front().clip_from_view.elements.fill(0.0F);
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "singular projection matrix was accepted");
+  request = MakeFrameRequest();
+  request.views.front().previous_clip_from_view =
+      MakePerspectiveProjection(0.2F, 10000.0F);
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "previous projection with different clip planes was accepted");
+  request = MakeFrameRequest();
+  request.views.front().near_plane = 0.1F;
+  request.views.front().far_plane = 1.0e30F;
+  request.views.front().clip_from_view =
+      MakeOrthographicProjection(0.1F, 1.0e30F);
+  request.views.front().previous_clip_from_view =
+      MakeOrthographicProjection(0.1F, 1.0e30F);
+  Require(ValidateRenderFrameRequest(request).ok(),
+          "valid extreme-range orthographic projection was rejected");
+  request.views.front().clip_from_view.elements[10U] = 0.0F;
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "singular extreme-range orthographic depth scale was accepted");
+  request = MakeFrameRequest();
+  request.views.front().near_plane = 1.0e-30F;
+  request.views.front().far_plane = 1.0F;
+  request.views.front().clip_from_view =
+      MakePerspectiveProjection(1.0e-30F, 1.0F);
+  request.views.front().previous_clip_from_view =
+      MakePerspectiveProjection(1.0e-30F, 1.0F);
+  Require(ValidateRenderFrameRequest(request).ok(),
+          "valid tiny-near perspective projection was rejected");
+  request.views.front().clip_from_view.elements[14U] = 0.0F;
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "singular tiny-near perspective depth offset was accepted");
+  request = MakeFrameRequest();
+  request.views.front().far_plane = 1.0e30F;
+  request.views.front().clip_from_view =
+      MakeOrthographicProjection(0.1F, 1.0e30F);
+  request.views.front().previous_clip_from_view =
+      MakeOrthographicProjection(0.1F, 1.0e30F);
+  request.views.front().clip_from_view.elements[10U] *= 2.0F;
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "materially wrong tiny orthographic depth scale was accepted");
+  request = MakeFrameRequest();
+  request.views.front().previous_clip_from_view.elements[0U] =
+      std::numeric_limits<float>::quiet_NaN();
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::NON_FINITE_VALUE,
+          "non-finite previous projection was accepted");
+  request = MakeFrameRequest();
+  request.color_format = PixelFormat::R32_FLOAT;
+  Require(ValidateRenderFrameRequest(request).code ==
+              ValidationCode::INVALID_ENUM,
+          "non-color frame format was accepted as a color request");
+
   RenderFrameOutput output;
   output.frame_id = 11U;
   output.snapshot_id = 7U;
@@ -559,6 +700,22 @@ void TestFrameRequestAndOutputValidation() {
               ValidationCode::SIZE_MISMATCH,
           "truncated uint64 object-ID attachment was accepted");
 
+  RenderFrameOutput material_id_output;
+  material_id_output.frame_id = 13U;
+  material_id_output.snapshot_id = 7U;
+  material_id_output.status = RenderFrameStatus::RENDERED;
+  FrameAttachment material_id_attachment;
+  material_id_attachment.view_id = 1U;
+  material_id_attachment.output = FrameOutputMask::MATERIAL_ID;
+  material_id_attachment.format = PixelFormat::RGBA32_UINT;
+  material_id_attachment.width = 1U;
+  material_id_attachment.height = 1U;
+  material_id_attachment.row_pitch_bytes = 16U;
+  material_id_attachment.bytes.resize(16U);
+  material_id_output.attachments.push_back(material_id_attachment);
+  Require(ValidateRenderFrameOutput(material_id_output).ok(),
+          "lossless 128-bit material-ID attachment was rejected");
+
   output.attachments.front().bytes.pop_back();
   Require(ValidateRenderFrameOutput(output).code ==
               ValidationCode::SIZE_MISMATCH,
@@ -581,6 +738,15 @@ void TestFrameRequestAndOutputValidation() {
   output = MakeCorrelatedOutput(request);
   Require(ValidateRenderFrameOutput(request, output).ok(),
           "complete request-correlated output was rejected");
+  request.color_format = PixelFormat::RGBA16_FLOAT;
+  output = MakeCorrelatedOutput(request);
+  Require(ValidateRenderFrameOutput(request, output).ok(),
+          "requested linear HDR output was rejected");
+  output.attachments.front().format = PixelFormat::RGBA8_SRGB;
+  Require(ValidateRenderFrameOutput(request, output).code ==
+              ValidationCode::INVALID_ENUM,
+          "SDR attachment was accepted for an HDR request");
+  request = MakeFrameRequest();
 
   output.attachments.back().gpu_resource =
       output.attachments.front().gpu_resource;
@@ -639,15 +805,136 @@ void TestCapabilitiesFailClosedUntilEveryProofExists() {
           "anonymous default capability report was accepted");
 
   report.frontend_kind = RendererFrontendKind::OGRE_NEXT;
-  report.native_api = NativeGraphicsApi::METAL;
+  report.raster_api = RasterGraphicsApi::METAL;
   report.frontend_name = "test-ogre-next";
   report.frontend_version = "0";
   report.maximum_texture_dimension_2d = 16384U;
   report.maximum_views = 4U;
   report.maximum_frames_in_flight = 3U;
+  report.supported_outputs = FrameOutputMask::COLOR;
   report.raster_ready = true;
   Require(ValidateFrontendCapabilityReport(report).ok(),
           "valid raster capability report was rejected");
+
+  FrontendCapabilityReport cross_api = report;
+  cross_api.native_api = NativeGraphicsApi::VULKAN;
+  cross_api.supports_native_interop = true;
+  Require(ValidateFrontendCapabilityReport(cross_api).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "Metal raster was allowed to claim Vulkan same-device interop");
+  cross_api.raster_api = RasterGraphicsApi::DIRECT3D11;
+  cross_api.native_api = NativeGraphicsApi::DIRECT3D12;
+  Require(ValidateFrontendCapabilityReport(cross_api).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "D3D11 raster was allowed to claim same-device DXR interop");
+  cross_api.raster_api = RasterGraphicsApi::DIRECT3D12;
+  Require(ValidateFrontendCapabilityReport(cross_api).ok(),
+          "matching D3D12 raster/native APIs were rejected");
+
+  RenderFrameRequest capability_request = MakeFrameRequest();
+  capability_request.requested_outputs = FrameOutputMask::COLOR;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        report)
+              .ok(),
+          "color-only request within frontend limits was rejected");
+  capability_request.requested_outputs =
+      FrameOutputMask::COLOR | FrameOutputMask::DEPTH;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        report)
+                  .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "unsupported depth attachment was accepted");
+  capability_request = MakeFrameRequest();
+  capability_request.requested_outputs = FrameOutputMask::COLOR;
+  capability_request.color_format = PixelFormat::RGBA16_FLOAT;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        report)
+                  .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "HDR request was accepted by an SDR-only frontend");
+  FrontendCapabilityReport hdr_report = report;
+  hdr_report.supports_hdr_output = true;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        hdr_report)
+              .ok(),
+          "HDR request was rejected after explicit capability proof");
+  capability_request = MakeFrameRequest();
+  capability_request.requested_outputs = FrameOutputMask::COLOR;
+  capability_request.views.front().width = 20000U;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        report)
+                  .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "view exceeding the frontend texture limit was accepted");
+  capability_request = MakeFrameRequest();
+  capability_request.requested_outputs = FrameOutputMask::COLOR;
+  CameraViewRequest second_view = capability_request.views.front();
+  second_view.view_id = 2U;
+  capability_request.views.push_back(second_view);
+  FrontendCapabilityReport one_view_report = report;
+  one_view_report.maximum_views = 1U;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        one_view_report)
+                  .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "request exceeding the frontend view limit was accepted");
+  capability_request = MakeFrameRequest();
+  capability_request.requested_outputs = FrameOutputMask::COLOR;
+  capability_request.allow_async_compute = true;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        report)
+                  .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "async compute request was accepted without capability support");
+  FrontendCapabilityReport async_report = report;
+  async_report.supports_compute = true;
+  async_report.supports_async_compute = true;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        async_report)
+              .ok(),
+          "async compute request was rejected after capability proof");
+  capability_request = MakeFrameRequest();
+  capability_request.requested_outputs = FrameOutputMask::COLOR;
+  capability_request.scene_snapshot = MakeSnapshot(true, false);
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        report)
+                  .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "deformable snapshot was accepted without frontend support");
+  FrontendCapabilityReport dynamic_report = report;
+  dynamic_report.supports_dynamic_mesh_updates = true;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        dynamic_report)
+              .ok(),
+          "deformable snapshot was rejected after capability proof");
+  capability_request.scene_snapshot = MakeSnapshot(false, true);
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        report)
+                  .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "particle snapshot was accepted without frontend support");
+  FrontendCapabilityReport particle_report = report;
+  particle_report.supports_particle_events = true;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        particle_report)
+              .ok(),
+          "particle snapshot was rejected after capability proof");
+  FrontendCapabilityReport unavailable_report = report;
+  unavailable_report.raster_ready = false;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        unavailable_report)
+                  .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "request was accepted by a non-ready raster frontend");
+
+  FrontendCapabilityReport windows_raster = report;
+  windows_raster.raster_api = RasterGraphicsApi::DIRECT3D11;
+  windows_raster.native_api = NativeGraphicsApi::NONE;
+  Require(ValidateFrontendCapabilityReport(windows_raster).ok(),
+          "D3D11 raster was incorrectly coupled to D3D12/DXR interop");
+  FrontendCapabilityReport invalid_outputs = report;
+  invalid_outputs.supported_outputs =
+      static_cast<FrameOutputMask>(1U << 31U);
+  Require(ValidateFrontendCapabilityReport(invalid_outputs).code ==
+              ValidationCode::INVALID_OUTPUT_MASK,
+          "unknown supported-output bit was accepted");
+  invalid_outputs = report;
+  invalid_outputs.supported_outputs = FrameOutputMask::NONE;
+  Require(ValidateFrontendCapabilityReport(invalid_outputs).code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "ready raster frontend without color output was accepted");
 
   report.supports_async_compute = true;
   Require(ValidateFrontendCapabilityReport(report).code ==
@@ -663,6 +950,7 @@ void TestCapabilitiesFailClosedUntilEveryProofExists() {
           "RT probe was accepted without API and hardware proof");
 
   report.supports_native_ray_tracing_api = true;
+  report.native_api = NativeGraphicsApi::METAL;
   report.native_ray_tracing_hardware_accelerated = true;
   Require(ValidateFrontendCapabilityReport(report).ok(),
           "API, hardware, and probe proof was rejected");

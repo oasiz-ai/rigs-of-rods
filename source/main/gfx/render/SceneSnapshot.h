@@ -11,9 +11,9 @@
 
 #pragma once
 
+#include "RenderAssetId.h"
 #include "RenderMath.h"
 #include "RenderValidation.h"
-#include "ResourceHandle.h"
 
 #include <cstdint>
 #include <memory>
@@ -22,7 +22,9 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kSceneSnapshotVersion = 1U;
+constexpr std::uint32_t kSceneSnapshotVersion = 2U;
+
+class RenderAssetRegistry;
 
 enum class LightType : std::uint8_t {
   DIRECTIONAL = 0,
@@ -57,17 +59,17 @@ struct SceneEnvironmentDescriptor {
   /// Optional equirectangular, linear-color float texture: U maps longitude
   /// [-pi, pi], V maps latitude [+pi/2, -pi/2], with +Z at U=0.5 and
   /// increasing U rotating toward +X when viewed from +Y.
-  ResourceHandle environment_texture;
+  RenderAssetReference environment_texture;
   /// Required with environment_texture; resolved resources must pass
   /// ValidateEnvironmentTextureCompatibility().
-  ResourceHandle environment_sampler;
+  RenderAssetReference environment_sampler;
   float environment_intensity = 1.0F;
 };
 
 struct MeshInstanceDescriptor {
   std::uint64_t instance_id = 0U;
-  ResourceHandle mesh;
-  ResourceHandle material;
+  RenderAssetReference mesh;
+  RenderAssetReference material;
   std::uint64_t topology_revision = 1U;
   /// Starts at one for base mesh contents and advances whenever this
   /// instance's deformable vertex contents change.
@@ -119,7 +121,7 @@ struct LightDescriptor {
 struct DynamicMeshUpdateDescriptor {
   std::uint64_t update_sequence = 0U;
   std::uint64_t instance_id = 0U;
-  ResourceHandle mesh;
+  RenderAssetReference mesh;
   std::uint64_t topology_revision = 1U;
   std::uint64_t deformation_revision = 1U;
   std::vector<Float3> positions;
@@ -163,6 +165,10 @@ struct SceneSnapshotDescriptor {
   /// Newly created snapshots use strictly increasing IDs. The same snapshot
   /// may back many frames, but this ID must never identify different contents.
   std::uint64_t snapshot_id = 0U;
+  /// Exact logical asset catalog required by every reference in this scene.
+  /// A frontend must have applied this registry sequence before rendering.
+  std::uint64_t asset_registry_id = 0U;
+  std::uint64_t asset_sequence = 0U;
   std::uint64_t simulation_tick = 0U;
   double simulation_time_seconds = 0.0;
   /// Absolute double-precision simulation coordinate represented by render
@@ -192,6 +198,12 @@ public:
   }
   [[nodiscard]] std::uint64_t snapshot_id() const noexcept {
     return descriptor_.snapshot_id;
+  }
+  [[nodiscard]] std::uint64_t asset_registry_id() const noexcept {
+    return descriptor_.asset_registry_id;
+  }
+  [[nodiscard]] std::uint64_t asset_sequence() const noexcept {
+    return descriptor_.asset_sequence;
   }
   [[nodiscard]] std::uint64_t simulation_tick() const noexcept {
     return descriptor_.simulation_tick;
@@ -229,6 +241,8 @@ private:
 
   friend SceneSnapshotCreateResult
   CreateSceneSnapshot(SceneSnapshotDescriptor descriptor);
+  friend ValidationResult ValidateSceneSnapshotAssets(
+      const SceneSnapshot &snapshot, const RenderAssetRegistry &registry);
 };
 
 struct SceneSnapshotCreateResult {
@@ -246,6 +260,14 @@ struct SceneSnapshotCreateResult {
 [[nodiscard]] bool IsKnownParticleEffect(ParticleEffect effect) noexcept;
 [[nodiscard]] ValidationResult
 ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor);
+/// Resolves every portable reference against the exact catalog revision and
+/// validates cross-resource compatibility before a backend mutates its scene.
+[[nodiscard]] ValidationResult ValidateSceneSnapshotAssets(
+    const SceneSnapshotDescriptor &descriptor,
+    const RenderAssetRegistry &registry);
+[[nodiscard]] ValidationResult
+ValidateSceneSnapshotAssets(const SceneSnapshot &snapshot,
+                            const RenderAssetRegistry &registry);
 [[nodiscard]] SceneSnapshotCreateResult
 CreateSceneSnapshot(SceneSnapshotDescriptor descriptor);
 

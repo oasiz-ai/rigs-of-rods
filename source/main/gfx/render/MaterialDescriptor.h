@@ -11,9 +11,9 @@
 
 #pragma once
 
+#include "RenderAssetId.h"
 #include "RenderMath.h"
 #include "RenderValidation.h"
-#include "ResourceHandle.h"
 
 #include <cstdint>
 #include <string>
@@ -47,10 +47,10 @@ enum class MaterialTextureSlot : std::uint8_t {
 };
 
 struct TextureBinding {
-  ResourceHandle texture;
+  RenderAssetReference texture;
   /// Required whenever texture is valid; there is no backend-defined implicit
   /// sampler state.
-  ResourceHandle sampler;
+  RenderAssetReference sampler;
   std::uint8_t texture_coordinate_set = 0U;
   Float2 scale{1.0F, 1.0F};
   Float2 offset{};

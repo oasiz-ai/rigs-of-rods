@@ -49,9 +49,10 @@ class RendererBoundaryContractTests(unittest.TestCase):
             "class IRendererFrontend",
             "class NativeRenderInterop",
             "class INativeRayTracingBackend",
-            "CreateMesh",
-            "CreateTexture",
-            "CreateSampler",
+            "SynchronizeAssets",
+            "RenderAssetDelta",
+            "RasterGraphicsApi",
+            "supported_outputs",
             "AcquireContext",
             "UpdateSurface",
             "ValidateFrontendSurfaceUpdate",
@@ -67,6 +68,19 @@ class RendererBoundaryContractTests(unittest.TestCase):
             "geometry_interop_proven = false",
         ):
             self.assertIn(contract, frontend)
+
+        asset_registry = (BOUNDARY_ROOT / "RenderAssetRegistry.h").read_text(
+            encoding="utf-8"
+        )
+        for contract in (
+            "class RenderAssetRegistry",
+            "RenderAssetId",
+            "RenderAssetReference",
+            "BuildFullSnapshot",
+            "full_snapshot",
+            "tombstone",
+        ):
+            self.assertIn(contract, asset_registry)
 
 
 if __name__ == "__main__":

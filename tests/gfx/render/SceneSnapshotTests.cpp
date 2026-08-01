@@ -23,9 +23,11 @@ void Require(bool condition, const char *message) {
   }
 }
 
-RoR::Render::ResourceHandle Handle(RoR::Render::ResourceKind kind,
-                                   std::uint32_t slot) {
-  return RoR::Render::ResourceHandle::Create(kind, 1U, slot, 1U);
+RoR::Render::RenderAssetReference Asset(RoR::Render::RenderAssetKind kind,
+                                        std::uint64_t value,
+                                        std::uint64_t revision = 1U) {
+  return RoR::Render::RenderAssetReference::Create(
+      kind, RoR::Render::RenderAssetId::FromWords(0x5CE0EU, value), revision);
 }
 
 RoR::Render::SceneSnapshotDescriptor MakeValidDescriptor() {
@@ -33,17 +35,19 @@ RoR::Render::SceneSnapshotDescriptor MakeValidDescriptor() {
 
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = 17U;
+  descriptor.asset_registry_id = 31U;
+  descriptor.asset_sequence = 7U;
   descriptor.simulation_tick = 2000U;
   descriptor.simulation_time_seconds = 1.0;
   descriptor.environment.environment_texture =
-      Handle(ResourceKind::TEXTURE, 0U);
+      Asset(RenderAssetKind::TEXTURE, 1U);
   descriptor.environment.environment_sampler =
-      Handle(ResourceKind::SAMPLER, 3U);
+      Asset(RenderAssetKind::SAMPLER, 4U);
 
   MeshInstanceDescriptor instance;
   instance.instance_id = 10U;
-  instance.mesh = Handle(ResourceKind::MESH, 1U);
-  instance.material = Handle(ResourceKind::MATERIAL, 2U);
+  instance.mesh = Asset(RenderAssetKind::MESH, 2U);
+  instance.material = Asset(RenderAssetKind::MATERIAL, 3U);
   instance.topology_revision = 4U;
   instance.deformation_revision = 9U;
   instance.local_bounds.minimum = {-1.0F, -0.5F, -2.0F};
@@ -136,6 +140,16 @@ void TestIdentityOrderAndResourceValidation() {
                  "zero snapshot identifier was accepted");
 
   descriptor = MakeValidDescriptor();
+  descriptor.asset_registry_id = 0U;
+  RequireInvalid(descriptor, ValidationCode::INVALID_IDENTIFIER,
+                 "zero asset registry identifier was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.asset_sequence = 0U;
+  RequireInvalid(descriptor, ValidationCode::INVALID_IDENTIFIER,
+                 "zero asset catalog sequence was accepted");
+
+  descriptor = MakeValidDescriptor();
   MeshInstanceDescriptor duplicate = descriptor.mesh_instances.front();
   descriptor.mesh_instances.push_back(duplicate);
   RequireInvalid(descriptor, ValidationCode::DUPLICATE_IDENTIFIER,
@@ -149,14 +163,15 @@ void TestIdentityOrderAndResourceValidation() {
                  "nondeterministic instance order was accepted");
 
   descriptor = MakeValidDescriptor();
-  descriptor.mesh_instances.front().mesh = Handle(ResourceKind::TEXTURE, 1U);
-  RequireInvalid(descriptor, ValidationCode::WRONG_RESOURCE_KIND,
-                 "texture handle was accepted as a mesh");
+  descriptor.mesh_instances.front().mesh =
+      Asset(RenderAssetKind::TEXTURE, 2U);
+  RequireInvalid(descriptor, ValidationCode::WRONG_ASSET_KIND,
+                 "texture asset was accepted as a mesh");
 
   descriptor = MakeValidDescriptor();
   descriptor.mesh_instances.front().material = {};
-  RequireInvalid(descriptor, ValidationCode::INVALID_HANDLE,
-                 "missing material handle was accepted");
+  RequireInvalid(descriptor, ValidationCode::INVALID_ASSET_REFERENCE,
+                 "missing material asset was accepted");
 
   descriptor = MakeValidDescriptor();
   descriptor.environment.environment_sampler = {};
@@ -168,6 +183,23 @@ void TestIdentityOrderAndResourceValidation() {
   descriptor.environment.environment_texture = {};
   RequireInvalid(descriptor, ValidationCode::MISSING_REFERENCE,
                  "environment sampler without a texture was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.environment_texture = {};
+  descriptor.environment.environment_sampler = {};
+  descriptor.environment.environment_texture.id =
+      RenderAssetId::FromWords(0x5CE0EU, 1U);
+  RequireInvalid(
+      descriptor, ValidationCode::INVALID_ASSET_REFERENCE,
+      "partially populated environment texture was treated as absent");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.environment_texture = {};
+  descriptor.environment.environment_sampler = {};
+  descriptor.environment.environment_sampler.revision = 1U;
+  RequireInvalid(
+      descriptor, ValidationCode::INVALID_ASSET_REFERENCE,
+      "partially populated environment sampler was treated as absent");
 
   descriptor = MakeValidDescriptor();
   descriptor.mesh_instances.front().flags = 1U << 31U;
@@ -207,9 +239,10 @@ void TestDynamicMeshValidation() {
                  "update referencing a missing instance was accepted");
 
   descriptor = MakeValidDescriptor();
-  descriptor.dynamic_mesh_updates.front().mesh = Handle(ResourceKind::MESH, 9U);
-  RequireInvalid(descriptor, ValidationCode::INVALID_HANDLE,
-                 "update mesh different from instance mesh was accepted");
+  descriptor.dynamic_mesh_updates.front().mesh =
+      Asset(RenderAssetKind::MESH, 9U);
+  RequireInvalid(descriptor, ValidationCode::INVALID_ASSET_REFERENCE,
+                 "update mesh asset different from instance was accepted");
 
   descriptor = MakeValidDescriptor();
   descriptor.dynamic_mesh_updates.front().deformation_revision = 10U;

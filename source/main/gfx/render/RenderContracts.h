@@ -12,6 +12,8 @@
 #pragma once
 
 #include "MaterialDescriptor.h"
+#include "RenderAssetId.h"
+#include "RenderAssetRegistry.h"
 #include "RenderFrame.h"
 #include "RenderMath.h"
 #include "RenderResourceDescriptors.h"

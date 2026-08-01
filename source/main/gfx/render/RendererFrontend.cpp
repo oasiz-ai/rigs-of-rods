@@ -19,6 +19,19 @@ bool IsConcreteNativeGraphicsApi(NativeGraphicsApi api) noexcept {
          api == NativeGraphicsApi::VULKAN;
 }
 
+bool IsSameDeviceApiPair(RasterGraphicsApi raster_api,
+                         NativeGraphicsApi native_api) noexcept {
+  if (native_api == NativeGraphicsApi::NONE) {
+    return true;
+  }
+  return (raster_api == RasterGraphicsApi::METAL &&
+          native_api == NativeGraphicsApi::METAL) ||
+         (raster_api == RasterGraphicsApi::DIRECT3D12 &&
+          native_api == NativeGraphicsApi::DIRECT3D12) ||
+         (raster_api == RasterGraphicsApi::VULKAN &&
+          native_api == NativeGraphicsApi::VULKAN);
+}
+
 bool SameNativeObject(const NativeObjectToken &lhs,
                       const NativeObjectToken &rhs) noexcept {
   return lhs.api == rhs.api && lhs.kind == rhs.kind &&
@@ -42,13 +55,17 @@ bool SameFrontendCapabilities(const FrontendCapabilityReport &lhs,
                               const FrontendCapabilityReport &rhs) noexcept {
   return lhs.version == rhs.version &&
          lhs.scene_snapshot_version == rhs.scene_snapshot_version &&
+         lhs.asset_registry_contract_version ==
+             rhs.asset_registry_contract_version &&
          lhs.frontend_kind == rhs.frontend_kind &&
+         lhs.raster_api == rhs.raster_api &&
          lhs.native_api == rhs.native_api &&
          lhs.frontend_name == rhs.frontend_name &&
          lhs.frontend_version == rhs.frontend_version &&
          lhs.maximum_texture_dimension_2d == rhs.maximum_texture_dimension_2d &&
          lhs.maximum_views == rhs.maximum_views &&
          lhs.maximum_frames_in_flight == rhs.maximum_frames_in_flight &&
+         lhs.supported_outputs == rhs.supported_outputs &&
          lhs.raster_ready == rhs.raster_ready &&
          lhs.supports_hdr_output == rhs.supports_hdr_output &&
          lhs.supports_compute == rhs.supports_compute &&
@@ -197,6 +214,19 @@ bool IsKnownRendererFrontendKind(RendererFrontendKind kind) noexcept {
   return false;
 }
 
+bool IsKnownRasterGraphicsApi(RasterGraphicsApi api) noexcept {
+  switch (api) {
+  case RasterGraphicsApi::NONE:
+  case RasterGraphicsApi::OPENGL:
+  case RasterGraphicsApi::METAL:
+  case RasterGraphicsApi::DIRECT3D11:
+  case RasterGraphicsApi::DIRECT3D12:
+  case RasterGraphicsApi::VULKAN:
+    return true;
+  }
+  return false;
+}
+
 bool IsKnownNativeGraphicsApi(NativeGraphicsApi api) noexcept {
   switch (api) {
   case NativeGraphicsApi::NONE:
@@ -265,12 +295,15 @@ bool IsKnownNativeGeometryBufferState(
 ValidationResult
 ValidateFrontendCapabilityReport(const FrontendCapabilityReport &report) {
   if (report.version != kRendererFrontendContractVersion ||
-      report.scene_snapshot_version != kSceneSnapshotVersion) {
+      report.scene_snapshot_version != kSceneSnapshotVersion ||
+      report.asset_registry_contract_version !=
+          kRenderAssetRegistryContractVersion) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_VERSION, "version",
-        "frontend and snapshot contract versions must match");
+        "frontend, snapshot, and asset contract versions must match");
   }
   if (!IsKnownRendererFrontendKind(report.frontend_kind) ||
+      !IsKnownRasterGraphicsApi(report.raster_api) ||
       !IsKnownNativeGraphicsApi(report.native_api)) {
     return ValidationResult::Failure(ValidationCode::INVALID_ENUM, "backend",
                                      "unknown frontend kind or native API");
@@ -284,12 +317,35 @@ ValidateFrontendCapabilityReport(const FrontendCapabilityReport &report) {
         ValidationCode::VALUE_OUT_OF_RANGE, "frontend_name",
         "frontend identity strings are empty, oversized, or contain NUL");
   }
+  constexpr std::uint32_t kAllOutputBits =
+      static_cast<std::uint32_t>(FrameOutputMask::COLOR) |
+      static_cast<std::uint32_t>(FrameOutputMask::DEPTH) |
+      static_cast<std::uint32_t>(FrameOutputMask::MOTION_VECTORS) |
+      static_cast<std::uint32_t>(FrameOutputMask::OBJECT_ID) |
+      static_cast<std::uint32_t>(FrameOutputMask::SURFACE_NORMAL) |
+      static_cast<std::uint32_t>(FrameOutputMask::MATERIAL_ID);
+  const std::uint32_t supported_outputs =
+      static_cast<std::uint32_t>(report.supported_outputs);
+  if ((supported_outputs & ~kAllOutputBits) != 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_OUTPUT_MASK, "supported_outputs",
+        "frontend reports unknown frame output bits");
+  }
   if (report.raster_ready &&
       (report.maximum_texture_dimension_2d == 0U ||
-       report.maximum_views == 0U || report.maximum_frames_in_flight == 0U)) {
+       report.maximum_views == 0U || report.maximum_frames_in_flight == 0U ||
+       report.raster_api == RasterGraphicsApi::NONE ||
+       !HasFrameOutput(report.supported_outputs, FrameOutputMask::COLOR))) {
     return ValidationResult::Failure(
         ValidationCode::VALUE_OUT_OF_RANGE, "limits",
-        "a ready raster frontend must report nonzero limits");
+        "a ready raster frontend requires an API, color output, and nonzero "
+        "limits");
+  }
+  if (!IsSameDeviceApiPair(report.raster_api, report.native_api)) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "native_api",
+        "native interop must use the same Metal, D3D12, or Vulkan device as "
+        "raster; no cross-API bridge contract exists");
   }
   if (report.supports_native_interop &&
       report.native_api == NativeGraphicsApi::NONE) {
@@ -332,6 +388,73 @@ ValidateFrontendCapabilityReport(const FrontendCapabilityReport &report) {
         "native_ray_tracing_geometry_interop_ready",
         "geometry interop requires probe, native interop, and deformable "
         "meshes");
+  }
+  return ValidationResult::Success();
+}
+
+ValidationResult ValidateRenderFrameRequestAgainstCapabilities(
+    const RenderFrameRequest &request,
+    const FrontendCapabilityReport &capabilities) {
+  ValidationResult validation = ValidateFrontendCapabilityReport(capabilities);
+  if (!validation) {
+    return validation;
+  }
+  validation = ValidateRenderFrameRequest(request);
+  if (!validation) {
+    return validation;
+  }
+  if (!capabilities.raster_ready) {
+    return ValidationResult::Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                                     "raster_ready",
+                                     "selected frontend is not raster ready");
+  }
+  if (request.views.size() > capabilities.maximum_views) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "views",
+        "frame requests more views than the frontend supports");
+  }
+  for (std::size_t index = 0U; index < request.views.size(); ++index) {
+    if (request.views[index].width >
+            capabilities.maximum_texture_dimension_2d ||
+        request.views[index].height >
+            capabilities.maximum_texture_dimension_2d) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE, "views.extent",
+          "view extent exceeds the frontend texture limit", index);
+    }
+  }
+  const std::uint32_t requested =
+      static_cast<std::uint32_t>(request.requested_outputs);
+  const std::uint32_t supported =
+      static_cast<std::uint32_t>(capabilities.supported_outputs);
+  if ((requested & ~supported) != 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "requested_outputs",
+        "frontend does not support every requested attachment");
+  }
+  if (request.color_format == PixelFormat::RGBA16_FLOAT &&
+      HasFrameOutput(request.requested_outputs, FrameOutputMask::COLOR) &&
+      !capabilities.supports_hdr_output) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "color_format",
+        "linear HDR color was requested from an SDR-only frontend");
+  }
+  if (request.allow_async_compute && !capabilities.supports_async_compute) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "allow_async_compute",
+        "asynchronous compute was requested from an unsupported frontend");
+  }
+  if (!request.scene_snapshot->dynamic_mesh_updates().empty() &&
+      !capabilities.supports_dynamic_mesh_updates) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "dynamic_mesh_updates",
+        "snapshot contains deformable mesh state unsupported by the frontend");
+  }
+  if (!request.scene_snapshot->particle_events().empty() &&
+      !capabilities.supports_particle_events) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "particle_events",
+        "snapshot contains particle events unsupported by the frontend");
   }
   return ValidationResult::Success();
 }
@@ -711,12 +834,12 @@ ValidationResult ValidateNativeGeometryExportRequest(
         "frame, snapshot, instance, and geometry revisions must be nonzero");
   }
   if (!request.mesh.valid()) {
-    return ValidationResult::Failure(ValidationCode::INVALID_HANDLE,
+    return ValidationResult::Failure(ValidationCode::INVALID_ASSET_REFERENCE,
                                      "geometry_request.mesh",
-                                     "geometry request mesh is invalid");
+                                     "geometry request mesh asset is invalid");
   }
-  if (request.mesh.kind() != ResourceKind::MESH) {
-    return ValidationResult::Failure(ValidationCode::WRONG_RESOURCE_KIND,
+  if (request.mesh.kind != RenderAssetKind::MESH) {
+    return ValidationResult::Failure(ValidationCode::WRONG_ASSET_KIND,
                                      "geometry_request.mesh",
                                      "geometry request must reference a mesh");
   }
@@ -745,12 +868,12 @@ ValidateNativeGeometryExport(const NativeGeometryExport &geometry,
         "export, scene, instance, and geometry revisions must be nonzero");
   }
   if (!geometry.mesh.valid()) {
-    return ValidationResult::Failure(ValidationCode::INVALID_HANDLE,
+    return ValidationResult::Failure(ValidationCode::INVALID_ASSET_REFERENCE,
                                      "geometry.mesh",
-                                     "geometry export mesh is invalid");
+                                     "geometry export mesh asset is invalid");
   }
-  if (geometry.mesh.kind() != ResourceKind::MESH) {
-    return ValidationResult::Failure(ValidationCode::WRONG_RESOURCE_KIND,
+  if (geometry.mesh.kind != RenderAssetKind::MESH) {
+    return ValidationResult::Failure(ValidationCode::WRONG_ASSET_KIND,
                                      "geometry.mesh",
                                      "geometry export must reference a mesh");
   }

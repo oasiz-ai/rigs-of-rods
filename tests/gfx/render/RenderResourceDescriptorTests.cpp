@@ -250,9 +250,10 @@ void TestDynamicMeshUpdateCompatibility() {
 
   MeshInstanceDescriptor instance;
   instance.instance_id = 7U;
-  instance.mesh = ResourceHandle::Create(ResourceKind::MESH, 1U, 1U, 1U);
-  instance.material =
-      ResourceHandle::Create(ResourceKind::MATERIAL, 1U, 2U, 1U);
+  instance.mesh = RenderAssetReference::Create(
+      RenderAssetKind::MESH, RenderAssetId::FromWords(7U, 1U), 1U);
+  instance.material = RenderAssetReference::Create(
+      RenderAssetKind::MATERIAL, RenderAssetId::FromWords(7U, 2U), 1U);
   instance.topology_revision = mesh.topology_revision;
   instance.deformation_revision = 1U;
   instance.local_bounds = mesh.local_bounds;

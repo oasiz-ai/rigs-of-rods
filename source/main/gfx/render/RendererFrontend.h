@@ -12,6 +12,7 @@
 #pragma once
 
 #include "MaterialDescriptor.h"
+#include "RenderAssetRegistry.h"
 #include "RenderFrame.h"
 #include "RenderResourceDescriptors.h"
 
@@ -22,7 +23,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kRendererFrontendContractVersion = 1U;
+constexpr std::uint32_t kRendererFrontendContractVersion = 2U;
 constexpr std::uint64_t kInfiniteRenderTimeoutNanoseconds =
     (std::numeric_limits<std::uint64_t>::max)();
 
@@ -30,6 +31,18 @@ enum class RendererFrontendKind : std::uint8_t {
   OGRE14 = 0,
   OGRE_NEXT = 1,
   CUSTOM = 2,
+};
+
+/// Raster API used to produce ordinary frontend frames. This is deliberately
+/// independent of NativeGraphicsApi: a D3D11 frontend can render normally yet
+/// must report native interop NONE when it cannot share a D3D12/DXR device.
+enum class RasterGraphicsApi : std::uint8_t {
+  NONE = 0,
+  OPENGL = 1,
+  METAL = 2,
+  DIRECT3D11 = 3,
+  DIRECT3D12 = 4,
+  VULKAN = 5,
 };
 
 enum class NativeGraphicsApi : std::uint8_t {
@@ -182,13 +195,19 @@ struct FrontendSurfaceUpdate {
 struct FrontendCapabilityReport {
   std::uint32_t version = kRendererFrontendContractVersion;
   std::uint32_t scene_snapshot_version = kSceneSnapshotVersion;
+  std::uint32_t asset_registry_contract_version =
+      kRenderAssetRegistryContractVersion;
   RendererFrontendKind frontend_kind = RendererFrontendKind::CUSTOM;
+  RasterGraphicsApi raster_api = RasterGraphicsApi::NONE;
+  /// Native API exported for same-device interop. A concrete value must match
+  /// the Metal, D3D12, or Vulkan raster API exactly; D3D11/OpenGL use NONE.
   NativeGraphicsApi native_api = NativeGraphicsApi::NONE;
   std::string frontend_name;
   std::string frontend_version;
   std::uint32_t maximum_texture_dimension_2d = 0U;
   std::uint32_t maximum_views = 0U;
   std::uint32_t maximum_frames_in_flight = 0U;
+  FrameOutputMask supported_outputs = FrameOutputMask::NONE;
   bool raster_ready = false;
   bool supports_hdr_output = false;
   bool supports_compute = false;
@@ -280,7 +299,7 @@ struct NativeGeometryExportRequest {
   std::uint64_t frame_id = 0U;
   std::uint64_t snapshot_id = 0U;
   std::uint64_t instance_id = 0U;
-  ResourceHandle mesh;
+  RenderAssetReference mesh;
   std::uint64_t topology_revision = 0U;
   std::uint64_t deformation_revision = 0U;
 };
@@ -295,7 +314,7 @@ struct NativeGeometryExport {
   std::uint64_t frame_id = 0U;
   std::uint64_t snapshot_id = 0U;
   std::uint64_t instance_id = 0U;
-  ResourceHandle mesh;
+  RenderAssetReference mesh;
   std::uint64_t topology_revision = 0U;
   std::uint64_t deformation_revision = 0U;
   MeshPrimitiveTopology topology = MeshPrimitiveTopology::TRIANGLE_LIST;
@@ -371,6 +390,7 @@ struct NativeGeometryInteropProofSet {
 
 [[nodiscard]] bool
 IsKnownRendererFrontendKind(RendererFrontendKind kind) noexcept;
+[[nodiscard]] bool IsKnownRasterGraphicsApi(RasterGraphicsApi api) noexcept;
 [[nodiscard]] bool IsKnownNativeGraphicsApi(NativeGraphicsApi api) noexcept;
 [[nodiscard]] bool
 IsKnownNativeWindowSystem(NativeWindowSystem system) noexcept;
@@ -382,6 +402,11 @@ IsKnownNativeVertexPositionFormat(NativeVertexPositionFormat format) noexcept;
 IsKnownNativeGeometryBufferState(NativeGeometryBufferState state) noexcept;
 [[nodiscard]] ValidationResult
 ValidateFrontendCapabilityReport(const FrontendCapabilityReport &report);
+/// Validates one exact frame against the selected live frontend. Unsupported
+/// output formats/features fail closed before backend work is submitted.
+[[nodiscard]] ValidationResult ValidateRenderFrameRequestAgainstCapabilities(
+    const RenderFrameRequest &request,
+    const FrontendCapabilityReport &capabilities);
 [[nodiscard]] ValidationResult ValidateNativeInteropCapabilityReport(
     const NativeInteropCapabilityReport &report);
 [[nodiscard]] ValidationResult ValidateNativeRayTracingCapabilityReport(
@@ -516,42 +541,19 @@ public:
   virtual RenderOperationResult
   UpdateSurface(const FrontendSurfaceUpdate &update, bool headless,
                 std::uint64_t timeout_nanoseconds) = 0;
-  /// Portable resource creation. Returned handles belong exclusively to this
-  /// frontend lifetime and must have the corresponding resource kind.
+  /// Transactionally maps renderer-neutral logical assets into this frontend's
+  /// private ResourceHandle domain. Incremental updates must continue the
+  /// applied sequence exactly. A full snapshot can initialize a new frontend
+  /// or rebuild native allocations after device recovery; replaying the same
+  /// sequence is permitted only when all logical contents are identical.
   virtual RenderOperationResult
-  CreateMesh(const MeshResourceDescriptor &descriptor,
-             ResourceHandle &mesh) = 0;
-  virtual RenderOperationResult
-  CreateTexture(const TextureResourceDescriptor &descriptor,
-                ResourceHandle &texture) = 0;
-  virtual RenderOperationResult
-  CreateSampler(const SamplerResourceDescriptor &descriptor,
-                ResourceHandle &sampler) = 0;
-  /// On success the material holds strong internal leases on every referenced
-  /// texture and sampler. Releasing their public handles later cannot break
-  /// this material; physical destruction waits until all material/frame/native
-  /// leases end.
-  virtual RenderOperationResult
-  CreateMaterial(const MaterialDescriptor &descriptor,
-                 ResourceHandle &material) = 0;
-  /// Both material operations reject stale/foreign texture or sampler handles
-  /// and require every resolved slot to pass
-  /// ValidateMaterialTextureCompatibility().
-  /// Update is transactional: it acquires all new dependency leases first and
-  /// leaves the prior descriptor/leases unchanged on failure. On success old
-  /// leases remain until already-submitted frames using them complete.
-  virtual RenderOperationResult
-  UpdateMaterial(ResourceHandle material,
-                 const MaterialDescriptor &descriptor) = 0;
-  /// Immediately invalidates the public handle for future direct use. Existing
-  /// material dependency, frame, and native-export leases keep physical storage
-  /// alive. Releasing a material eventually releases its dependency graph after
-  /// all referencing frames complete.
+  SynchronizeAssets(const RenderAssetDelta &delta) = 0;
+  /// Releases a frontend-owned output handle transferred in FrameAttachment.
+  /// Scene assets are retired only through SynchronizeAssets tombstones.
   virtual RenderOperationResult ReleaseResource(ResourceHandle resource) = 0;
-  /// A successful submission retains the resolved transitive resource graph
-  /// internally until IsFrameComplete(frame_id) is true. ReleaseResource()
-  /// invalidates a handle for future direct use immediately, but physical
-  /// destruction is deferred until all material, frame, and native leases end.
+  /// A successful submission retains the resolved transitive asset graph
+  /// internally until IsFrameComplete(frame_id) is true. Asset updates and
+  /// tombstones never overwrite storage leased by an older submitted frame.
   /// The exact topology/deformation revision bytes observed by a frame remain
   /// immutable through frame completion. Later updates must rename/copy/ring
   /// buffer storage or wait; they may never overwrite an in-flight revision.
@@ -560,11 +562,12 @@ public:
   /// particle event must exceed the prior consumed event ID. Only a successful
   /// first submission consumes/emits its events once; repeat submissions emit
   /// none, and failed submissions consume nothing. Shutdown resets this state.
-  /// Render rejects every stale/foreign handle, revision mismatch, and an
+  /// Render rejects every stale/missing asset revision and an
   /// environment texture that is not a live linear floating-point texture.
   /// Its paired sampler and texture must pass
   /// ValidateEnvironmentTextureCompatibility().
-  /// It resolves each live mesh/material pair and requires
+  /// The snapshot registry ID and sequence must equal the synchronized asset
+  /// catalog. It resolves each live mesh/material pair and requires
   /// ValidateMaterialMeshCompatibility() to succeed; adapters never invent
   /// normals, tangents, or UVs.
   /// Each instance/update must also pass ValidateMeshInstanceCompatibility()
@@ -574,6 +577,9 @@ public:
   /// initialized frontend lifetime. A presented request must name the current
   /// active surface revision and one view whose extent exactly equals that
   /// surface's pixel extent; implicit presentation scaling is forbidden.
+  /// Before consuming any frame/snapshot/event identity, Render calls
+  /// ValidateRenderFrameRequestAgainstCapabilities() against its current
+  /// QueryCapabilities() result and maps UNSUPPORTED_FEATURE to UNSUPPORTED.
   /// Implementations must return an output accepted by the request-correlated
   /// ValidateRenderFrameOutput(request, output) overload.
   virtual RenderOperationResult Render(const RenderFrameRequest &request,

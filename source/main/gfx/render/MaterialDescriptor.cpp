@@ -30,25 +30,30 @@ ValidationResult ValidateUnitValue(float value, const char *field) {
 
 ValidationResult ValidateTextureBinding(const TextureBinding &binding,
                                         const char *field) {
-  if (!binding.texture.valid()) {
-    if (binding.sampler.valid()) {
-      return ValidationResult::Failure(
-          ValidationCode::INVALID_HANDLE, field,
-          "a sampler cannot be supplied without a texture");
-    }
-  } else if (binding.texture.kind() != ResourceKind::TEXTURE) {
-    return ValidationResult::Failure(ValidationCode::WRONG_RESOURCE_KIND, field,
-                                     "texture handle must identify a texture");
-  } else if (!binding.sampler.valid()) {
+  const bool texture_absent =
+      IsAbsentRenderAssetReference(binding.texture);
+  const bool sampler_absent =
+      IsAbsentRenderAssetReference(binding.sampler);
+  if ((!texture_absent && !binding.texture.valid()) ||
+      (!sampler_absent && !binding.sampler.valid())) {
     return ValidationResult::Failure(
-        ValidationCode::INVALID_HANDLE, field,
-        "every texture binding requires an explicit sampler");
+        ValidationCode::INVALID_ASSET_REFERENCE, field,
+        "optional texture references must be canonical absent or fully valid");
+  }
+  if (!texture_absent && binding.texture.kind != RenderAssetKind::TEXTURE) {
+    return ValidationResult::Failure(ValidationCode::WRONG_ASSET_KIND, field,
+                                     "texture reference must identify a texture");
   }
 
-  if (binding.sampler.valid() &&
-      binding.sampler.kind() != ResourceKind::SAMPLER) {
-    return ValidationResult::Failure(ValidationCode::WRONG_RESOURCE_KIND, field,
-                                     "sampler handle must identify a sampler");
+  if (!sampler_absent &&
+      binding.sampler.kind != RenderAssetKind::SAMPLER) {
+    return ValidationResult::Failure(ValidationCode::WRONG_ASSET_KIND, field,
+                                     "sampler reference must identify a sampler");
+  }
+  if (texture_absent != sampler_absent) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ASSET_REFERENCE, field,
+        "texture and explicit sampler must be supplied together");
   }
   if (binding.texture_coordinate_set > 1U) {
     return ValidationResult::Failure(ValidationCode::VALUE_OUT_OF_RANGE, field,
