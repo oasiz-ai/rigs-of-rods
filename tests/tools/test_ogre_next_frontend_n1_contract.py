@@ -769,6 +769,15 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("ror.ogre_next_hdr_compositor.v4", self.smoke)
         self.assertIn("Ogre::v1::Overlay", self.smoke)
         self.assertIn("--compositor-evidence", self.smoke)
+        history_error = self.smoke.index('"    \\"history_absolute_error\\"')
+        self.assertGreater(
+            self.smoke.rfind(
+                "std::setprecision(std::numeric_limits<double>::max_digits10)",
+                0,
+                history_error,
+            ),
+            self.smoke.rfind("std::setprecision(9)", 0, history_error),
+        )
         self.assertIn("VerifyRt4DeterministicRepeat.cmake", self.entry_cmake)
         self.assertIn("same_object_reinitialize_verified", self.smoke)
         for token in (

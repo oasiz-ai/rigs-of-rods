@@ -1954,7 +1954,8 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << "  },\n";
     const SmokeResult::HdrCompositorEvidence &compositor =
         result.hdr_compositor;
-    report << "  \"hdr_compositor\": {\n"
+    report << std::setprecision(std::numeric_limits<double>::max_digits10)
+           << "  \"hdr_compositor\": {\n"
            << "    \"schema\": \"ror.ogre_next_hdr_compositor.v4\",\n"
            << "    \"workspace\": \"RoRHdrWorkspaceUiFreeV2\",\n"
            << "    \"persistent_workspace\": true,\n"
