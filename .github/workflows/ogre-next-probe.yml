@@ -193,7 +193,7 @@ jobs:
           --checkpoint n1
           --jobs ${{ matrix.jobs }}
 
-      - name: Require directional PSSM pass or explicit unsupported evidence
+      - name: Require directional PSSM native pass
         shell: bash
         run: |
           build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
@@ -211,7 +211,7 @@ jobs:
           build_contract = _read_build_contract(
               root, _current_source_identity()
           )
-          _verify_pssm(root, [], build_contract)
+          _verify_pssm(root, [], build_contract, require_pass=True)
           PY
 
       - name: Cryptographically attest the directional PSSM execution receipt

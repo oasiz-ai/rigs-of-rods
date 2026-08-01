@@ -218,8 +218,10 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "backend_substitution": False,
                 "split_stable_tangent_projection": True,
                 "native_definition_split_and_runtime_bias_readback": True,
+                "native_d32_probe_attempted": True,
                 "native_d32_atlas_allocation_use_readback_verified": True,
                 "native_d32_atlas_cleanup_verified": True,
+                "native_d32_atlas_cleanup_absence_checks": 1,
                 "runtime_normal_offset_bias": [168.0, 168.0, 168.0],
             },
             "isolation": {
@@ -263,6 +265,59 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "caster_bounds_min_z": 0,
                 "caster_bounds_max_z": 0,
                 "tight_caster_bounds_verified": True,
+                "native_bounds_readback_verified": True,
+                "native_aabb_observations": [
+                    {
+                        "instance_id": 1,
+                        "casts_shadow": True,
+                        "receives_shadow": True,
+                        "expected_local": {
+                            "minimum": [-2.5, -1.8, 0],
+                            "maximum": [2.5, 1.8, 0],
+                        },
+                        "ogre_mesh_local": {
+                            "minimum": [-2.5, -1.8, 0],
+                            "maximum": [2.5, 1.8, 0],
+                        },
+                        "ogre_item_local": {
+                            "minimum": [-2.5, -1.8, 0],
+                            "maximum": [2.5, 1.8, 0],
+                        },
+                        "expected_world": {
+                            "minimum": [-2.5, -1.8, 0],
+                            "maximum": [2.5, 1.8, 0],
+                        },
+                        "ogre_item_world": {
+                            "minimum": [-2.5, -1.8, 0],
+                            "maximum": [2.5, 1.8, 0],
+                        },
+                    },
+                    {
+                        "instance_id": 2,
+                        "casts_shadow": True,
+                        "receives_shadow": False,
+                        "expected_local": {
+                            "minimum": [-0.45, -0.45, 0],
+                            "maximum": [0.45, 0.45, 0],
+                        },
+                        "ogre_mesh_local": {
+                            "minimum": [-0.45, -0.45, 0],
+                            "maximum": [0.45, 0.45, 0],
+                        },
+                        "ogre_item_local": {
+                            "minimum": [-0.45, -0.45, 0],
+                            "maximum": [0.45, 0.45, 0],
+                        },
+                        "expected_world": {
+                            "minimum": [-0.45, -0.45, 1.5],
+                            "maximum": [0.45, 0.45, 1.5],
+                        },
+                        "ogre_item_world": {
+                            "minimum": [-0.45, -0.45, 1.5],
+                            "maximum": [0.45, 0.45, 1.5],
+                        },
+                    },
+                ],
                 "sdr_changed_pixels": 16,
                 "sdr_darkened_pixels": 16,
             },
@@ -274,8 +329,21 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "workspace_node_definition_destroys": 10,
                 "receiver_datablock_creates": 10,
                 "receiver_datablock_destroys": 10,
+                "d32_atlas_cleanup_absence_checks": 1,
+                "workspace_definition_cleanup_absence_checks": 10,
+                "workspace_node_cleanup_absence_checks": 10,
+                "shadow_node_cleanup_absence_checks": 10,
+                "receiver_datablock_cleanup_absence_checks": 10,
+                "target_texture_cleanup_absence_checks": 10,
+                "d32_post_create_same_instance_retry_verified": True,
+                "d32_cleanup_lookup_failure_closed_retry_verified": True,
                 "receiver_clone_same_frame_retry_verified": True,
                 "workspace_node_same_frame_retry_verified": True,
+                "receiver_cleanup_lookup_failure_closed_retry_verified": True,
+                "workspace_definition_cleanup_lookup_failure_closed_retry_verified": True,
+                "workspace_cleanup_lookup_failure_closed_retry_verified": True,
+                "shadow_cleanup_lookup_failure_closed_retry_verified": True,
+                "target_cleanup_lookup_failure_closed_retry_verified": True,
             },
             "evidence": {
                 "file": VERIFY.PSSM_EVIDENCE_ARTIFACT,
@@ -1335,6 +1403,63 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             ):
                 VERIFY.verify_artifact_set(root)
 
+    def test_pssm_gate_rejects_mutated_native_aabb_observations(self) -> None:
+        mutations = (
+            (
+                "mesh local",
+                lambda observations: observations[0]["ogre_mesh_local"][
+                    "minimum"
+                ].__setitem__(0, -2.25),
+            ),
+            (
+                "item local",
+                lambda observations: observations[1]["ogre_item_local"][
+                    "maximum"
+                ].__setitem__(1, 0.5),
+            ),
+            (
+                "item world",
+                lambda observations: observations[1]["ogre_item_world"][
+                    "minimum"
+                ].__setitem__(2, 1.25),
+            ),
+            (
+                "expected world",
+                lambda observations: observations[0]["expected_world"][
+                    "maximum"
+                ].__setitem__(2, 0.25),
+            ),
+            (
+                "caster role",
+                lambda observations: observations[1].__setitem__(
+                    "casts_shadow", False
+                ),
+            ),
+            (
+                "missing receiver",
+                lambda observations: observations.pop(0),
+            ),
+        )
+        for label, mutate in mutations:
+            with self.subTest(label=label), tempfile.TemporaryDirectory(
+                prefix="ror-ogre-pssm-aabb-"
+            ) as temp:
+                root = Path(temp)
+                self.write_baseline(root)
+                report_path = root / VERIFY.PSSM_REPORT_ARTIFACT
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+                mutate(
+                    report["projection_and_bounds_fixture"][
+                        "native_aabb_observations"
+                    ]
+                )
+                report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+                self.refresh_pssm_integrity(root)
+                with self.assertRaisesRegex(
+                    VERIFY.ArtifactSetError, "PSSM native AABB"
+                ):
+                    VERIFY.verify_artifact_set(root)
+
     def test_pssm_gate_requires_challenged_execution_receipt(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-pssm-receipt-") as temp:
             root = Path(temp)
@@ -1383,10 +1508,12 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     "observed_maximum_texture_dimension": 16384,
                     "atlas_dimensions_supported": True,
                     "texture_gather_supported": False,
-                    "d32_render_target_supported": True,
-                    "d32_atlas_allocation_verified": True,
-                    "d32_atlas_readback_verified": True,
+                    "d32_probe_attempted": False,
+                    "d32_render_target_supported": False,
+                    "d32_atlas_allocation_verified": False,
+                    "d32_atlas_readback_verified": False,
                     "d32_atlas_cleanup_verified": True,
+                    "d32_atlas_cleanup_absence_checks": 1,
                 },
                 "backend_substitution": False,
             }
@@ -1396,6 +1523,15 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             (root / VERIFY.PSSM_EVIDENCE_ARTIFACT).unlink()
             self.refresh_pssm_integrity(root)
             VERIFY.verify_artifact_set(root)
+            contract = json.loads(
+                (root / VERIFY.REQUIRED_ARTIFACTS[0]).read_text(encoding="utf-8")
+            )
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "requires an actual PSSM native pass"
+            ):
+                VERIFY._verify_pssm(
+                    root, [], contract, require_pass=True
+                )
             unsupported["capability_evidence"]["reason"] = "arbitrary skip"
             report_path.write_text(
                 json.dumps(unsupported) + "\n", encoding="utf-8"
