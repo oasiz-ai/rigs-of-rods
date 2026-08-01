@@ -57,6 +57,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
     def test_linux_uses_a_declared_software_vulkan_device(self) -> None:
         for required in (
             "glslang-dev",
+            "glslang-tools",
             "libshaderc-dev",
             "libvulkan-dev",
             "libx11-dev",
