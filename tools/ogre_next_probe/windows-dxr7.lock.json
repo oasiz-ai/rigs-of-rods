@@ -1,11 +1,11 @@
 {
-  "schema": "ror.ogre_next_windows_dxr7_toolchain.v1",
+  "schema": "ror.ogre_next_windows_dxr7_toolchain.v2",
   "platform_policy": "windows-x64-d3d11on12-dxr",
   "ogre_next_commit": "37149a802de747f6806996fa3067b0748ecc1084",
   "adaptation_patch": {
     "path": "patches/0004-d3d11-adopt-external-device.patch",
-    "sha256": "ae9198d78ed5b7ec43aaf6eb57666f591191fd97fa102f10792b726d835806d9",
-    "scope": "D3D11 plugin external-device adoption only"
+    "sha256": "c0b14bfc5f6bdf3fa377dfbc15c235b1823345fce84dece852ddc86f9b9444f3",
+    "scope": "D3D11 plugin external-device adoption with shared post-device initialization"
   },
   "shader": {
     "path": "shaders/windows_dxr7_probe.hlsl",
@@ -16,7 +16,16 @@
       "Miss",
       "ClosestHit"
     ],
-    "compiler_provider": "Windows SDK dxc.exe",
+    "compiler_provider": "Windows SDK versioned x64 closure",
+    "compiler_path_policy": "Windows Kits/10/bin/<version>/x64",
+    "compiler_closure": [
+      "dxc.exe",
+      "dxcompiler.dll",
+      "dxil.dll"
+    ],
+    "compiler_version_command": [
+      "--version"
+    ],
     "compiler_arguments": [
       "-HV",
       "2021",

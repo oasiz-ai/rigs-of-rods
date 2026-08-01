@@ -496,6 +496,25 @@ shared-scene integration, validation layers, resize, soak, and compositing.
   validation, a native UI-free Ogre frame readback, resize, device removal, and
   soak. Initialise-only or fabricated offline artifacts never satisfy RT7.
 
+The RT7 probe therefore rejects arbitrary `MZ`/`DXBC` byte blobs: its
+independent verifier parses the x64 PE32+ section table and the DXBC/DXIL
+container, LLVM bitcode header, and locked shader exports. The compiler is
+resolved only from the canonical Program Files (x86)
+`Windows Kits/10/bin/<version>/x64` directory;
+`dxc.exe`, `dxcompiler.dll`, and `dxil.dll` are all hashed and recorded with the
+SDK/version/path identity. Both pass and unsupported reports carry a fresh
+runner nonce and the actual child-process exit code. Offline verification is
+deliberately scoped to integrity and semantics: the workflow cryptographically
+attests the resulting execution receipt with GitHub's OIDC-backed artifact
+attestation, and `gh attestation verify` is the execution-provenance gate.
+
+The D3D11On12 smoke is a real renderer exercise, not an initialise-only check:
+it creates a hidden native window, registers pinned HLMS PBS media, renders a
+lit material through Compositor2 into a UI-free texture, reads it back, rejects
+blank output, destroys the frame resources, shuts Ogre down, and only then
+releases the application-owned D3D11On12/D3D12 chain. CTest runs the same
+report/image destination twice to prove Windows atomic replacement semantics.
+
 Exit: either `native_rt=dxr` is proven or the project records a renderer
 architecture no-go and chooses the D3D12-renderer/alternative-engine path.
 

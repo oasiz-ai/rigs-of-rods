@@ -400,24 +400,119 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         list(APPEND _ror_n1_targets ror_ogre_next_vulkan_rt6_smoke)
     endif ()
     if (ROR_OGRE_NEXT_WINDOWS_DXR7 AND WIN32)
-        set(ROR_OGRE_NEXT_DXC_EXECUTABLE "" CACHE FILEPATH
+        set(ROR_OGRE_NEXT_DXC_EXECUTABLE
+            "$ENV{ROR_OGRE_NEXT_DXR7_DXC}" CACHE FILEPATH
             "Exact Windows SDK dxc.exe used for the DXR7 proof")
-        if (ROR_OGRE_NEXT_DXC_EXECUTABLE STREQUAL "")
-            find_program(
-                ROR_OGRE_NEXT_DXC_EXECUTABLE
-                NAMES dxc.exe dxc
-                HINTS "$ENV{WindowsSdkVerBinPath}/x64"
-                REQUIRED)
-        endif ()
+        set(ROR_OGRE_NEXT_DXC_SDK_BIN_ROOT
+            "$ENV{ROR_OGRE_NEXT_DXR7_SDK_BIN_ROOT}" CACHE PATH
+            "Exact Windows Kits/10/bin directory containing the DXC closure")
         if (NOT EXISTS "${ROR_OGRE_NEXT_DXC_EXECUTABLE}" OR
                 IS_DIRECTORY "${ROR_OGRE_NEXT_DXC_EXECUTABLE}")
             message(FATAL_ERROR
                 "ROR_OGRE_NEXT_DXC_EXECUTABLE must name an exact dxc.exe")
         endif ()
-        file(SHA256 "${ROR_OGRE_NEXT_DXC_EXECUTABLE}"
+        if (ROR_OGRE_NEXT_DXC_SDK_BIN_ROOT STREQUAL "" OR
+                NOT IS_DIRECTORY "${ROR_OGRE_NEXT_DXC_SDK_BIN_ROOT}")
+            message(FATAL_ERROR
+                "ROR_OGRE_NEXT_DXC_SDK_BIN_ROOT must name Windows Kits/10/bin")
+        endif ()
+        file(REAL_PATH "${ROR_OGRE_NEXT_DXC_EXECUTABLE}"
+            _ror_dxc_real_path)
+        file(REAL_PATH "${ROR_OGRE_NEXT_DXC_SDK_BIN_ROOT}"
+            _ror_dxc_sdk_bin_root_real)
+        set(_ror_windows_sdk_bin_root
+            "$ENV{ProgramFiles(x86)}/Windows Kits/10/bin")
+        if ("$ENV{ProgramFiles(x86)}" STREQUAL "" OR
+                NOT IS_DIRECTORY "${_ror_windows_sdk_bin_root}")
+            message(FATAL_ERROR
+                "The canonical Program Files (x86) Windows SDK bin root is unavailable")
+        endif ()
+        file(REAL_PATH "${_ror_windows_sdk_bin_root}"
+            _ror_windows_sdk_bin_root_real)
+        string(TOLOWER "${_ror_dxc_sdk_bin_root_real}"
+            _ror_dxc_sdk_bin_root_normalized)
+        string(TOLOWER "${_ror_windows_sdk_bin_root_real}"
+            _ror_windows_sdk_bin_root_normalized)
+        if (NOT _ror_dxc_sdk_bin_root_normalized STREQUAL
+                _ror_windows_sdk_bin_root_normalized)
+            message(FATAL_ERROR
+                "DXC must come from Program Files (x86)/Windows Kits/10/bin")
+        endif ()
+        get_filename_component(_ror_dxc_filename
+            "${_ror_dxc_real_path}" NAME)
+        get_filename_component(ROR_WINDOWS_DXR7_DXC_X64_DIRECTORY
+            "${_ror_dxc_real_path}" DIRECTORY)
+        get_filename_component(_ror_dxc_arch_directory
+            "${ROR_WINDOWS_DXR7_DXC_X64_DIRECTORY}" NAME)
+        get_filename_component(_ror_dxc_sdk_version_directory
+            "${ROR_WINDOWS_DXR7_DXC_X64_DIRECTORY}" DIRECTORY)
+        get_filename_component(ROR_WINDOWS_DXR7_DXC_SDK_VERSION
+            "${_ror_dxc_sdk_version_directory}" NAME)
+        get_filename_component(_ror_dxc_observed_sdk_bin_root
+            "${_ror_dxc_sdk_version_directory}" DIRECTORY)
+        file(REAL_PATH "${_ror_dxc_observed_sdk_bin_root}"
+            _ror_dxc_observed_sdk_bin_root_real)
+        if (NOT _ror_dxc_filename STREQUAL "dxc.exe" OR
+                NOT _ror_dxc_arch_directory STREQUAL "x64" OR
+                NOT ROR_WINDOWS_DXR7_DXC_SDK_VERSION MATCHES
+                    "^10\\.0\\.[0-9]+\\.[0-9]+$" OR
+                NOT _ror_dxc_observed_sdk_bin_root_real STREQUAL
+                    _ror_dxc_sdk_bin_root_real)
+            message(FATAL_ERROR
+                "DXC must be Windows Kits/10/bin/<version>/x64/dxc.exe")
+        endif ()
+        set(_ror_dxcompiler
+            "${ROR_WINDOWS_DXR7_DXC_X64_DIRECTORY}/dxcompiler.dll")
+        set(_ror_dxil_dll
+            "${ROR_WINDOWS_DXR7_DXC_X64_DIRECTORY}/dxil.dll")
+        foreach (_ror_dxc_component IN ITEMS
+                "${_ror_dxc_real_path}" "${_ror_dxcompiler}" "${_ror_dxil_dll}")
+            if (NOT EXISTS "${_ror_dxc_component}" OR
+                    IS_DIRECTORY "${_ror_dxc_component}" OR
+                    IS_SYMLINK "${_ror_dxc_component}")
+                message(FATAL_ERROR
+                    "The reviewed Windows SDK DXC x64 closure is incomplete")
+            endif ()
+        endforeach ()
+        file(SHA256 "${_ror_dxc_real_path}"
             ROR_WINDOWS_DXR7_DXC_SHA256)
-        file(TO_CMAKE_PATH "${ROR_OGRE_NEXT_DXC_EXECUTABLE}"
+        file(SHA256 "${_ror_dxcompiler}"
+            ROR_WINDOWS_DXR7_DXCOMPILER_SHA256)
+        file(SHA256 "${_ror_dxil_dll}"
+            ROR_WINDOWS_DXR7_DXIL_DLL_SHA256)
+        execute_process(
+            COMMAND "${_ror_dxc_real_path}" --version
+            RESULT_VARIABLE _ror_dxc_version_result
+            OUTPUT_VARIABLE ROR_WINDOWS_DXR7_DXC_VERSION
+            ERROR_VARIABLE _ror_dxc_version_error
+            OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if (ROR_WINDOWS_DXR7_DXC_VERSION STREQUAL "")
+            set(ROR_WINDOWS_DXR7_DXC_VERSION
+                "${_ror_dxc_version_error}")
+        endif ()
+        string(LENGTH "${ROR_WINDOWS_DXR7_DXC_VERSION}"
+            _ror_dxc_version_length)
+        if (NOT _ror_dxc_version_result STREQUAL "0" OR
+                ROR_WINDOWS_DXR7_DXC_VERSION STREQUAL "" OR
+                _ror_dxc_version_length GREATER 512)
+            message(FATAL_ERROR
+                "The reviewed Windows SDK dxc.exe did not report a bounded version: "
+                "${_ror_dxc_version_error}")
+        endif ()
+        string(REGEX REPLACE "[\r\n\t ]+" " "
+            ROR_WINDOWS_DXR7_DXC_VERSION
+            "${ROR_WINDOWS_DXR7_DXC_VERSION}")
+        if (ROR_WINDOWS_DXR7_DXC_VERSION MATCHES "[\\\";]" OR
+                ROR_WINDOWS_DXR7_DXC_VERSION MATCHES "[^ -~]")
+            message(FATAL_ERROR
+                "The Windows SDK DXC version cannot be embedded safely")
+        endif ()
+        file(TO_CMAKE_PATH "${_ror_dxc_real_path}"
             ROR_WINDOWS_DXR7_DXC_PATH)
+        file(TO_CMAKE_PATH "${ROR_WINDOWS_DXR7_DXC_X64_DIRECTORY}"
+            ROR_WINDOWS_DXR7_DXC_X64_DIRECTORY)
+        set(ROR_WINDOWS_DXR7_BINARY_MARKER
+            "ror-ogre-next-dxr7-pe-v2:${ROR_SOURCE_COMMIT}:${ROR_SOURCE_MANIFEST_SHA256}")
         set(_ror_dxr7_hlsl
             "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_WINDOWS_DXR7_SHADER_PATH}")
         file(SHA256 "${_ror_dxr7_hlsl}"
@@ -431,7 +526,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         add_custom_command(
             OUTPUT "${_ror_dxr7_dxil}"
             COMMAND
-                "${ROR_OGRE_NEXT_DXC_EXECUTABLE}"
+                "${_ror_dxc_real_path}"
                 -T "${ROR_WINDOWS_DXR7_SHADER_TARGET}"
                 -HV 2021 -O3 -Qstrip_debug -Qstrip_reflect
                 -Fo "${_ror_dxr7_dxil}"
@@ -464,12 +559,15 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             SYSTEM PRIVATE
                 "${ogre_next_SOURCE_DIR}/OgreMain/include"
                 "${ogre_next_BINARY_DIR}/include"
+                "${ogre_next_SOURCE_DIR}/Components/Hlms/Common/include"
+                "${ogre_next_SOURCE_DIR}/Components/Hlms/Pbs/include"
                 "${ogre_next_SOURCE_DIR}/RenderSystems/Direct3D11/include")
         target_link_libraries(
             ror_ogre_next_windows_dxr7_smoke
             PRIVATE
                 RenderSystem_Direct3D11
                 OgreNextMain
+                OgreNextHlmsPbs
                 d3d11
                 d3d12
                 d3dcompiler
@@ -799,16 +897,34 @@ endif ()
 if (TARGET ror_ogre_next_windows_dxr7_smoke)
     set(ROR_OGRE_NEXT_DXR7_CTEST_REPORT
         "${CMAKE_BINARY_DIR}/ror-ogre-next-windows-dxr7-ctest-report.json")
+    set(ROR_OGRE_NEXT_DXR7_CTEST_IMAGE
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-windows-dxr7-ctest-frame.ppm")
+    set(ROR_OGRE_NEXT_DXR7_CTEST_NONCE
+        "0000000000000000000000000000000000000000000000000000000000000000")
     add_test(NAME ror_ogre_next_windows_dxr7_runtime
         COMMAND $<TARGET_FILE:ror_ogre_next_windows_dxr7_smoke>
                 --shader "${_ror_dxr7_dxil}"
-                --report "${ROR_OGRE_NEXT_DXR7_CTEST_REPORT}")
+                --report "${ROR_OGRE_NEXT_DXR7_CTEST_REPORT}"
+                --image "${ROR_OGRE_NEXT_DXR7_CTEST_IMAGE}"
+                --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+                --execution-nonce "${ROR_OGRE_NEXT_DXR7_CTEST_NONCE}")
+    add_test(NAME ror_ogre_next_windows_dxr7_runtime_repeat
+        COMMAND $<TARGET_FILE:ror_ogre_next_windows_dxr7_smoke>
+                --shader "${_ror_dxr7_dxil}"
+                --report "${ROR_OGRE_NEXT_DXR7_CTEST_REPORT}"
+                --image "${ROR_OGRE_NEXT_DXR7_CTEST_IMAGE}"
+                --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+                --execution-nonce "${ROR_OGRE_NEXT_DXR7_CTEST_NONCE}")
     set_tests_properties(
         ror_ogre_next_windows_dxr7_runtime
+        ror_ogre_next_windows_dxr7_runtime_repeat
         PROPERTIES
             TIMEOUT 180
             SKIP_RETURN_CODE 77
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+    set_tests_properties(
+        ror_ogre_next_windows_dxr7_runtime_repeat
+        PROPERTIES DEPENDS ror_ogre_next_windows_dxr7_runtime)
 endif ()
 
 if (TARGET ror_ogre_next_frontend_n1_smoke)

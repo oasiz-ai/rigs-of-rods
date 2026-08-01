@@ -1,7 +1,9 @@
 #include "OgreNextDxr7Contract.h"
 
 #include <cstdlib>
+#include <cstdint>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -22,6 +24,14 @@ RoR::Render::Dxr7PassContract CompletePass() {
   proof.ogre_external_device_option_used = true;
   proof.ogre_d3d11_device_exact = true;
   proof.ogre_external_device_active = true;
+  proof.ogre_native_window_created = true;
+  proof.ogre_pbs_material_created = true;
+  proof.ogre_compositor_workspace_created = true;
+  proof.ogre_frame_submitted = true;
+  proof.ogre_frame_readback_completed = true;
+  proof.ogre_frame_nonblank = true;
+  proof.ogre_frame_ui_free = true;
+  proof.ogre_frame_resources_destroyed = true;
   proof.blas_built = true;
   proof.tlas_built = true;
   proof.state_object_created = true;
@@ -63,6 +73,17 @@ int main() {
               Dxr7CandidateDecision::ACCEPT,
           "DXR tier 1.1 hardware was rejected");
 
+  Require(EvaluateDxr7FenceCompletion(1U, 1U) ==
+              Dxr7FenceCompletionDecision::COMPLETE,
+          "completed fence was not accepted");
+  Require(EvaluateDxr7FenceCompletion(0U, 1U) ==
+              Dxr7FenceCompletionDecision::WAIT,
+          "incomplete fence did not require a wait");
+  Require(EvaluateDxr7FenceCompletion(
+              std::numeric_limits<std::uint64_t>::max(), 1U) ==
+              Dxr7FenceCompletionDecision::DEVICE_REMOVED,
+          "device-removal fence sentinel was accepted as completion");
+
   Dxr7PassContract proof = CompletePass();
   Require(ValidateDxr7PassContract(proof), "complete RT7 proof rejected");
   proof.dispatch_rays_called = false;
@@ -72,6 +93,14 @@ int main() {
   proof.ogre_d3d11_device_exact = false;
   Require(!ValidateDxr7PassContract(proof),
           "pass accepted without exact Ogre device identity");
+  proof = CompletePass();
+  proof.ogre_frame_readback_completed = false;
+  Require(!ValidateDxr7PassContract(proof),
+          "pass accepted without an Ogre frame readback");
+  proof = CompletePass();
+  proof.ogre_frame_resources_destroyed = false;
+  Require(!ValidateDxr7PassContract(proof),
+          "pass accepted without Ogre frame-resource teardown");
   proof = CompletePass();
   proof.d3d12_queue_released_before_device = false;
   Require(!ValidateDxr7PassContract(proof),

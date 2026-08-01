@@ -19,6 +19,12 @@ enum class Dxr7CandidateDecision : std::uint8_t {
   DXR_TIER_BELOW_1_1,
 };
 
+enum class Dxr7FenceCompletionDecision : std::uint8_t {
+  COMPLETE = 0,
+  WAIT,
+  DEVICE_REMOVED,
+};
+
 struct Dxr7CandidateContract {
   bool hardware_adapter = false;
   bool d3d12_device_available = false;
@@ -36,6 +42,14 @@ struct Dxr7PassContract {
   bool ogre_external_device_option_used = false;
   bool ogre_d3d11_device_exact = false;
   bool ogre_external_device_active = false;
+  bool ogre_native_window_created = false;
+  bool ogre_pbs_material_created = false;
+  bool ogre_compositor_workspace_created = false;
+  bool ogre_frame_submitted = false;
+  bool ogre_frame_readback_completed = false;
+  bool ogre_frame_nonblank = false;
+  bool ogre_frame_ui_free = false;
+  bool ogre_frame_resources_destroyed = false;
   bool blas_built = false;
   bool tlas_built = false;
   bool state_object_created = false;
@@ -54,6 +68,9 @@ struct Dxr7PassContract {
 
 [[nodiscard]] Dxr7CandidateDecision EvaluateDxr7Candidate(
     const Dxr7CandidateContract& candidate) noexcept;
+
+[[nodiscard]] Dxr7FenceCompletionDecision EvaluateDxr7FenceCompletion(
+    std::uint64_t completed_value, std::uint64_t required_value) noexcept;
 
 [[nodiscard]] bool ValidateDxr7PassContract(
     const Dxr7PassContract& contract) noexcept;
