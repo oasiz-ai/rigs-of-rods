@@ -96,7 +96,10 @@ bool SameInteropCapabilities(
              rhs.provides_explicit_frame_synchronization &&
          lhs.preserves_resource_generations ==
              rhs.preserves_resource_generations &&
-         lhs.geometry_interop_proven == rhs.geometry_interop_proven;
+         lhs.geometry_interop_proven == rhs.geometry_interop_proven &&
+         lhs.exports_color_images == rhs.exports_color_images &&
+         lhs.supports_read_write_color_images ==
+             rhs.supports_read_write_color_images;
 }
 
 bool SameRayTracingCapabilities(
@@ -109,6 +112,9 @@ bool SameRayTracingCapabilities(
          lhs.dispatch_readback_probe_passed ==
              rhs.dispatch_readback_probe_passed &&
          lhs.geometry_interop_ready == rhs.geometry_interop_ready &&
+         lhs.view_dependent_output_ready ==
+             rhs.view_dependent_output_ready &&
+         lhs.hybrid_composite_ready == rhs.hybrid_composite_ready &&
          lhs.maximum_instances == rhs.maximum_instances;
 }
 
@@ -257,6 +263,7 @@ bool IsKnownNativeObjectKind(NativeObjectKind kind) noexcept {
   case NativeObjectKind::PHYSICAL_DEVICE:
   case NativeObjectKind::QUEUE:
   case NativeObjectKind::BUFFER:
+  case NativeObjectKind::IMAGE:
   case NativeObjectKind::TIMELINE_SYNC:
     return true;
   }
@@ -287,6 +294,26 @@ bool IsKnownNativeGeometryBufferState(
   case NativeGeometryBufferState::READ_ONLY_ACCELERATION_STRUCTURE_BUILD:
     return true;
   case NativeGeometryBufferState::INVALID:
+    return false;
+  }
+  return false;
+}
+
+bool IsKnownNativeImageUsage(NativeImageUsage usage) noexcept {
+  switch (usage) {
+  case NativeImageUsage::COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE:
+    return true;
+  case NativeImageUsage::INVALID:
+    return false;
+  }
+  return false;
+}
+
+bool IsKnownNativeImageState(NativeImageState state) noexcept {
+  switch (state) {
+  case NativeImageState::GENERAL_READ_WRITE:
+    return true;
+  case NativeImageState::INVALID:
     return false;
   }
   return false;
@@ -474,7 +501,9 @@ ValidationResult ValidateNativeInteropCapabilityReport(
       report.exports_native_context || report.exports_vertex_buffers ||
       report.exports_index_buffers || report.exports_deformed_meshes ||
       report.provides_explicit_frame_synchronization ||
-      report.preserves_resource_generations || report.geometry_interop_proven;
+      report.preserves_resource_generations || report.geometry_interop_proven ||
+      report.exports_color_images ||
+      report.supports_read_write_color_images;
   if (reports_any_interop && report.native_api == NativeGraphicsApi::NONE) {
     return ValidationResult::Failure(
         ValidationCode::MISSING_REFERENCE, "native_api",
@@ -489,6 +518,15 @@ ValidationResult ValidateNativeInteropCapabilityReport(
         ValidationCode::MISSING_REFERENCE, "geometry_interop_proven",
         "geometry interop proof requires context, "
         "geometry, synchronization, and generations");
+  }
+  if (report.supports_read_write_color_images &&
+      (!report.exports_native_context || !report.exports_color_images ||
+       !report.provides_explicit_frame_synchronization ||
+       !report.preserves_resource_generations)) {
+    return ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE,
+        "supports_read_write_color_images",
+        "read/write image interop requires context, colour export, synchronization, and generations");
   }
   return ValidationResult::Success();
 }
@@ -507,7 +545,8 @@ ValidationResult ValidateNativeRayTracingCapabilityReport(
   const bool reports_any_rt =
       report.backend_compiled || report.api_supported ||
       report.hardware_accelerated || report.dispatch_readback_probe_passed ||
-      report.geometry_interop_ready || report.maximum_instances != 0U;
+      report.geometry_interop_ready || report.view_dependent_output_ready ||
+      report.hybrid_composite_ready || report.maximum_instances != 0U;
   if (reports_any_rt && report.native_api == NativeGraphicsApi::NONE) {
     return ValidationResult::Failure(
         ValidationCode::MISSING_REFERENCE, "native_api",
@@ -540,6 +579,18 @@ ValidationResult ValidateNativeRayTracingCapabilityReport(
                                      "geometry_interop_ready",
                                      "geometry interop requires a passed probe "
                                      "and nonzero instance capacity");
+  }
+  if (report.view_dependent_output_ready &&
+      !report.geometry_interop_ready) {
+    return ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE, "view_dependent_output_ready",
+        "view-dependent output requires live geometry interop readiness");
+  }
+  if (report.hybrid_composite_ready &&
+      !report.view_dependent_output_ready) {
+    return ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE, "hybrid_composite_ready",
+        "hybrid compositing requires a view-dependent native output");
   }
   return ValidationResult::Success();
 }
@@ -973,6 +1024,112 @@ ValidateNativeGeometryExport(const NativeGeometryExportRequest &request,
   return ValidationResult::Success();
 }
 
+ValidationResult
+ValidateNativeImageExportRequest(const NativeImageExportRequest &request) {
+  if (request.version != kNativeImageInteropContractVersion) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_VERSION, "image_request.version",
+        "unsupported native image interop version");
+  }
+  if (request.frame_id == 0U || request.snapshot_id == 0U ||
+      request.view_id == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "image_request.identity",
+        "frame, snapshot, and view identifiers must be nonzero");
+  }
+  if (request.output != FrameOutputMask::COLOR) {
+    return ValidationResult::Failure(
+        ValidationCode::WRONG_RESOURCE_KIND, "image_request.output",
+        "native image interop version 1 exports colour only");
+  }
+  if (request.format != PixelFormat::RGBA8_SRGB &&
+      request.format != PixelFormat::RGBA16_FLOAT) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "image_request.format",
+        "native colour image format must be RGBA8_SRGB or RGBA16_FLOAT");
+  }
+  if (request.width == 0U || request.height == 0U ||
+      request.width > kMaximumRenderDimension ||
+      request.height > kMaximumRenderDimension) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_DIMENSIONS, "image_request.extent",
+        "native image dimensions must be in [1, 65535]");
+  }
+  return ValidationResult::Success();
+}
+
+ValidationResult ValidateNativeImageExport(
+    const NativeImageExport &image, NativeGraphicsApi expected_api,
+    std::uint64_t expected_context_id) {
+  if (!IsConcreteNativeGraphicsApi(expected_api) || expected_context_id == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "image.native_api",
+        "expected image API and context must be concrete");
+  }
+  NativeImageExportRequest request;
+  request.version = image.version;
+  request.frame_id = image.frame_id;
+  request.snapshot_id = image.snapshot_id;
+  request.view_id = image.view_id;
+  request.output = image.output;
+  request.format = image.format;
+  request.width = image.width;
+  request.height = image.height;
+  ValidationResult validation = ValidateNativeImageExportRequest(request);
+  if (!validation) {
+    return validation;
+  }
+  if (image.export_id == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "image.export_id",
+        "native image export identifier must be nonzero");
+  }
+  if (!IsKnownNativeImageUsage(image.usage) ||
+      image.usage !=
+          NativeImageUsage::COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "image.usage",
+        "native image must support colour attachment, shader read/write, and copy source usage");
+  }
+  validation = ValidateNativeToken(image.image, expected_api,
+                                   expected_context_id,
+                                   NativeObjectKind::IMAGE, "image.image", true);
+  if (!validation) {
+    return validation;
+  }
+  if (image.mip_level != 0U || image.array_slice != 0U ||
+      image.sample_count != 1U) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "image.subresource",
+        "native image interop version 1 requires mip zero, slice zero, and one sample");
+  }
+  return ValidationResult::Success();
+}
+
+ValidationResult ValidateNativeImageExport(
+    const NativeImageExportRequest &request, const NativeImageExport &image,
+    NativeGraphicsApi expected_api, std::uint64_t expected_context_id) {
+  ValidationResult validation = ValidateNativeImageExportRequest(request);
+  if (!validation) {
+    return validation;
+  }
+  validation =
+      ValidateNativeImageExport(image, expected_api, expected_context_id);
+  if (!validation) {
+    return validation;
+  }
+  if (request.version != image.version || request.frame_id != image.frame_id ||
+      request.snapshot_id != image.snapshot_id ||
+      request.view_id != image.view_id || request.output != image.output ||
+      request.format != image.format || request.width != image.width ||
+      request.height != image.height) {
+    return ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE, "image.request_identity",
+        "native image export does not match the requested frame output");
+  }
+  return ValidationResult::Success();
+}
+
 ValidationResult ValidateNativeFrameSynchronization(
     const NativeFrameSynchronization &synchronization,
     const NativeContextExport &context, bool require_external_completion) {
@@ -1015,6 +1172,24 @@ ValidationResult ValidateNativeFrameSynchronization(
         ValidationCode::VALUE_OUT_OF_RANGE,
         "synchronization.geometry_buffer_state",
         "geometry handoff and return must use the canonical read-only state");
+  }
+  const bool has_image_state =
+      synchronization.frontend_image_release_state !=
+          NativeImageState::INVALID ||
+      synchronization.external_image_return_state != NativeImageState::INVALID;
+  if (has_image_state &&
+      (!IsKnownNativeImageState(
+           synchronization.frontend_image_release_state) ||
+       !IsKnownNativeImageState(
+           synchronization.external_image_return_state) ||
+       synchronization.frontend_image_release_state !=
+           NativeImageState::GENERAL_READ_WRITE ||
+       synchronization.external_image_return_state !=
+           synchronization.frontend_image_release_state)) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "synchronization.image_state",
+        "image handoff and return must both use canonical general read/write state");
   }
   validation = ValidateNativeToken(
       synchronization.frontend_complete_timeline, context.native_api,

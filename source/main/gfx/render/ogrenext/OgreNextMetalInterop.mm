@@ -17,6 +17,8 @@
 
 #include "OgreMetalDevice.h"
 #include "OgreMetalRenderSystem.h"
+#include "OgreMetalTextureGpu.h"
+#include "OgreTextureGpu.h"
 #include "Vao/OgreBufferPacked.h"
 #include "Vao/OgreIndexBufferPacked.h"
 #include "Vao/OgreMetalBufferInterface.h"
@@ -123,12 +125,14 @@ public:
                        id<MTLSharedEvent> timeline,
                        NativeContextExport context,
                        bool ray_tracing_api_supported,
-                       bool apple_family_9_supported)
+                       bool apple_family_9_supported,
+                       bool image_exports_enabled)
       : metal_device_(metal_device), device_(metal_device->mDevice),
         queue_(metal_device->mMainCommandQueue), timeline_(timeline),
         context_(std::move(context)),
         ray_tracing_api_supported_(ray_tracing_api_supported),
         apple_family_9_supported_(apple_family_9_supported),
+        image_exports_enabled_(image_exports_enabled),
         owner_thread_(std::this_thread::get_id()) {
     const RenderOperationResult initialized = state_.Initialize(
         context_, Token(NativeObjectKind::TIMELINE_SYNC, timeline_,
@@ -153,6 +157,8 @@ public:
     report.provides_explicit_frame_synchronization = true;
     report.preserves_resource_generations = true;
     report.geometry_interop_proven = geometry_interop_passed_;
+    report.exports_color_images = image_exports_enabled_;
+    report.supports_read_write_color_images = image_exports_enabled_;
     return report;
   }
 
@@ -190,6 +196,20 @@ public:
       return ready;
     }
     return state_.AcquireGeometry(request, output);
+  }
+
+  RenderOperationResult AcquireImage(const NativeImageExportRequest &request,
+                                     NativeImageExport &output) override {
+    const RenderOperationResult ready = Ready();
+    if (!ready) {
+      return ready;
+    }
+    if (!image_exports_enabled_) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "this Ogre-Next Metal feature tier does not export colour images");
+    }
+    return state_.AcquireImage(request, output);
   }
 
   RenderOperationResult BeginExternalFrame(
@@ -299,6 +319,15 @@ public:
     return state_.ValidateGeometryLease(geometry);
   }
 
+  RenderOperationResult ValidateImageLease(
+      const NativeImageExport &image) const override {
+    const RenderOperationResult ready = Ready();
+    if (!ready) {
+      return ready;
+    }
+    return state_.ValidateImageLease(image);
+  }
+
   RenderOperationResult ValidateFrameLease(
       const NativeFrameSynchronization &synchronization) const override {
     const RenderOperationResult ready = Ready();
@@ -314,6 +343,12 @@ public:
     }
   }
 
+  void ReleaseImage(std::uint64_t export_id) noexcept override {
+    if (state_.initialized() && OnOwnerThread()) {
+      state_.ReleaseImage(export_id);
+    }
+  }
+
   RenderOperationResult CanPublishFrame() const override {
     const RenderOperationResult ready = Ready();
     if (!ready) {
@@ -324,7 +359,8 @@ public:
 
   RenderOperationResult PublishFrame(
       std::uint64_t frame_id, std::uint64_t snapshot_id,
-      const std::vector<OgreNextN2FrameGeometryBinding> &geometry) override {
+      const std::vector<OgreNextN2FrameGeometryBinding> &geometry,
+      const std::vector<OgreNextN3FrameImageBinding> &images) override {
     const RenderOperationResult ready = Ready();
     if (!ready) {
       return ready;
@@ -336,6 +372,7 @@ public:
     }
 
     std::vector<OgreNextN2PublishedGeometry> published;
+    std::vector<OgreNextN3PublishedImage> published_images;
     try {
       published.reserve(geometry.size());
       for (const OgreNextN2FrameGeometryBinding &binding : geometry) {
@@ -346,12 +383,28 @@ public:
         }
         published.push_back(std::move(converted));
       }
+      if (!images.empty() && !image_exports_enabled_) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "this Ogre-Next Metal feature tier cannot publish colour images");
+      }
+      published_images.reserve(images.size());
+      for (const OgreNextN3FrameImageBinding &binding : images) {
+        OgreNextN3PublishedImage converted;
+        RenderOperationResult conversion = ConvertImageBinding(binding,
+                                                                converted);
+        if (!conversion) {
+          return conversion;
+        }
+        published_images.push_back(std::move(converted));
+      }
     } catch (const std::bad_alloc &) {
       return RenderOperationResult::Failure(
           RenderOperationCode::OUT_OF_MEMORY,
           "Metal geometry publication allocation failed");
     }
-    return state_.PublishFrame(frame_id, snapshot_id, published);
+    return state_.PublishFrame(frame_id, snapshot_id, published,
+                               published_images);
   }
 
   RenderOperationResult DiscardPublishedFrame() override {
@@ -660,6 +713,63 @@ private:
     return RenderOperationResult::Success();
   }
 
+  RenderOperationResult ConvertImageBinding(
+      const OgreNextN3FrameImageBinding &binding,
+      OgreNextN3PublishedImage &output) const {
+    if (binding.frame_id == 0U || binding.snapshot_id == 0U ||
+        binding.view_id == 0U || binding.output != FrameOutputMask::COLOR ||
+        binding.format != PixelFormat::RGBA16_FLOAT ||
+        binding.ogre_texture == 0U || binding.width == 0U ||
+        binding.height == 0U) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::INVALID_ARGUMENT,
+          "Ogre frame image binding is incomplete or is not linear HDR colour");
+    }
+    auto *ogre_texture = reinterpret_cast<Ogre::TextureGpu *>(
+        binding.ogre_texture);
+    auto *metal_texture = dynamic_cast<Ogre::MetalTextureGpu *>(ogre_texture);
+    if (metal_texture == nullptr || !ogre_texture->isRenderToTexture() ||
+        !ogre_texture->isUav() ||
+        ogre_texture->getPixelFormat() != Ogre::PFG_RGBA16_FLOAT ||
+        ogre_texture->getWidth() != binding.width ||
+        ogre_texture->getHeight() != binding.height ||
+        ogre_texture->getNumMipmaps() != 1U ||
+        ogre_texture->getNumSlices() != 1U ||
+        ogre_texture->getSampleDescription().getColourSamples() != 1U) {
+      return BackendFailure(
+          "Ogre render target does not match the reviewed N3 HDR UAV contract");
+    }
+    id<MTLTexture> texture = metal_texture->getFinalTextureName();
+    const MTLTextureUsage required_usage =
+        MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead |
+        MTLTextureUsageShaderWrite;
+    if (texture == nil || texture.device != device_ ||
+        texture.pixelFormat != MTLPixelFormatRGBA16Float ||
+        texture.width != binding.width || texture.height != binding.height ||
+        texture.mipmapLevelCount != 1U || texture.arrayLength != 1U ||
+        texture.sampleCount != 1U ||
+        (texture.usage & required_usage) != required_usage ||
+        texture.storageMode == MTLStorageModeMemoryless) {
+      return BackendFailure(
+          "native MTLTexture does not match Ogre's exact N3 HDR target");
+    }
+
+    NativeImageExport &image = output.image;
+    image.frame_id = binding.frame_id;
+    image.snapshot_id = binding.snapshot_id;
+    image.view_id = binding.view_id;
+    image.output = binding.output;
+    image.format = binding.format;
+    image.usage =
+        NativeImageUsage::COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE;
+    image.image = Token(NativeObjectKind::IMAGE, texture,
+                        context_.context_id, binding.frame_id);
+    image.width = binding.width;
+    image.height = binding.height;
+    image.sample_count = 1U;
+    return RenderOperationResult::Success();
+  }
+
   Ogre::MetalDevice *metal_device_ = nullptr;
   id<MTLDevice> device_ = nil;
   id<MTLCommandQueue> queue_ = nil;
@@ -670,6 +780,7 @@ private:
   OgreNextN2InteropState state_;
   bool ray_tracing_api_supported_ = false;
   bool apple_family_9_supported_ = false;
+  bool image_exports_enabled_ = false;
   bool dispatch_readback_passed_ = false;
   bool geometry_interop_passed_ = false;
   bool last_return_completion_waited_ = false;
@@ -682,7 +793,7 @@ private:
 } // namespace
 
 RenderOperationResult CreateOgreNextMetalInterop(
-    std::uintptr_t ogre_render_system,
+    std::uintptr_t ogre_render_system, bool enable_image_exports,
     std::shared_ptr<OgreNextN1NativeInteropBridge> &output) {
   output.reset();
   if (ogre_render_system == 0U) {
@@ -741,7 +852,7 @@ RenderOperationResult CreateOgreNextMetalInterop(
   try {
     output = std::make_shared<OgreNextMetalInterop>(
         metal_device, timeline, context, ray_tracing_api_supported,
-        apple_family_9_supported);
+        apple_family_9_supported, enable_image_exports);
     return RenderOperationResult::Success();
   } catch (const std::bad_alloc &) {
     return RenderOperationResult::Failure(

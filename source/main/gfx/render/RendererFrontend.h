@@ -24,6 +24,10 @@
 namespace RoR::Render {
 
 constexpr std::uint32_t kRendererFrontendContractVersion = 2U;
+/// Native image exchange evolves independently from the established geometry
+/// contract. A caller must reject any image request/export whose version is
+/// not exactly this value; native handles are process-local, not serializable.
+constexpr std::uint32_t kNativeImageInteropContractVersion = 1U;
 constexpr std::uint64_t kInfiniteRenderTimeoutNanoseconds =
     (std::numeric_limits<std::uint64_t>::max)();
 
@@ -98,6 +102,9 @@ enum class NativeObjectKind : std::uint8_t {
   PHYSICAL_DEVICE,
   QUEUE,
   BUFFER,
+  /// MTLTexture, ID3D12Resource image, or VkImage. The token never owns the
+  /// image; its matching NativeImageExport lease controls the borrow.
+  IMAGE,
   /// Valued cross-queue primitive: MTLSharedEvent, ID3D12Fence, or a Vulkan
   /// timeline VkSemaphore. It never represents MTLFence or VkFence.
   TIMELINE_SYNC,
@@ -121,6 +128,7 @@ struct NativeObjectToken {
                                kind == NativeObjectKind::PHYSICAL_DEVICE ||
                                kind == NativeObjectKind::QUEUE ||
                                kind == NativeObjectKind::BUFFER ||
+                               kind == NativeObjectKind::IMAGE ||
                                kind == NativeObjectKind::TIMELINE_SYNC;
     return concrete_api && concrete_kind && context_id != 0U && value != 0U &&
            generation != 0U;
@@ -231,6 +239,10 @@ struct NativeInteropCapabilityReport {
   bool provides_explicit_frame_synchronization = false;
   bool preserves_resource_generations = false;
   bool geometry_interop_proven = false;
+  /// Exact frontend render targets can be borrowed as native images. Version
+  /// 1 exposes colour only and requires the canonical read/write/copy usage.
+  bool exports_color_images = false;
+  bool supports_read_write_color_images = false;
 };
 
 struct NativeRayTracingCapabilityReport {
@@ -241,6 +253,12 @@ struct NativeRayTracingCapabilityReport {
   bool hardware_accelerated = false;
   bool dispatch_readback_probe_passed = false;
   bool geometry_interop_ready = false;
+  /// Becomes true only after Render() has produced and read back a real
+  /// view-dependent native image contribution.
+  bool view_dependent_output_ready = false;
+  /// Becomes true only after that contribution was GPU-composited into the
+  /// exact frontend-owned HDR colour target.
+  bool hybrid_composite_ready = false;
   std::uint32_t maximum_instances = 0U;
 };
 
@@ -261,6 +279,22 @@ enum class NativeGeometryBufferState : std::uint8_t {
   INVALID = 0,
   /// Read-only vertex/index input suitable for acceleration-structure builds.
   READ_ONLY_ACCELERATION_STRUCTURE_BUILD = 1,
+};
+
+/// Canonical image usage exported by version 1. The frontend first renders to
+/// the image, external work reads and writes it as shader storage, and either
+/// side may copy it to a readback buffer while the lease is live.
+enum class NativeImageUsage : std::uint8_t {
+  INVALID = 0,
+  COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE = 1,
+};
+
+/// Cross-API state at the queue handoff. Metal has no explicit layout here;
+/// Vulkan/D3D12 adapters must map this to their general/UAV equivalent and
+/// restore the same state before signaling external completion.
+enum class NativeImageState : std::uint8_t {
+  INVALID = 0,
+  GENERAL_READ_WRITE = 1,
 };
 
 constexpr std::uint32_t kInvalidNativeQueueFamily =
@@ -327,6 +361,40 @@ struct NativeGeometryExport {
   std::uint32_t index_count = 0U;
 };
 
+/// Identifies one exact frontend output image. The dimensions and format are
+/// repeated deliberately so stale resize/reformat requests fail closed before
+/// a native token is decoded.
+struct NativeImageExportRequest {
+  std::uint32_t version = kNativeImageInteropContractVersion;
+  std::uint64_t frame_id = 0U;
+  std::uint64_t snapshot_id = 0U;
+  std::uint64_t view_id = 0U;
+  FrameOutputMask output = FrameOutputMask::NONE;
+  PixelFormat format = PixelFormat::INVALID;
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
+};
+
+/// Borrowed native image. The owning frontend keeps the exact allocation alive
+/// and immutable in identity until ReleaseImage(export_id) and the matching
+/// external frame have both ended. Version 1 exports one non-MSAA mip/slice.
+struct NativeImageExport {
+  std::uint32_t version = kNativeImageInteropContractVersion;
+  std::uint64_t export_id = 0U;
+  std::uint64_t frame_id = 0U;
+  std::uint64_t snapshot_id = 0U;
+  std::uint64_t view_id = 0U;
+  FrameOutputMask output = FrameOutputMask::NONE;
+  PixelFormat format = PixelFormat::INVALID;
+  NativeImageUsage usage = NativeImageUsage::INVALID;
+  NativeObjectToken image;
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
+  std::uint32_t mip_level = 0U;
+  std::uint32_t array_slice = 0U;
+  std::uint32_t sample_count = 0U;
+};
+
 struct NativeFrameSynchronization {
   std::uint32_t version = kRendererFrontendContractVersion;
   /// The frontend signals frontend_complete_timeline/value only after every
@@ -351,6 +419,10 @@ struct NativeFrameSynchronization {
       NativeGeometryBufferState::INVALID;
   NativeGeometryBufferState external_return_state =
       NativeGeometryBufferState::INVALID;
+  /// INVALID/INVALID means this external frame has geometry only. When an
+  /// image lease is present both values are GENERAL_READ_WRITE.
+  NativeImageState frontend_image_release_state = NativeImageState::INVALID;
+  NativeImageState external_image_return_state = NativeImageState::INVALID;
   NativeObjectToken frontend_complete_timeline;
   std::uint64_t frontend_complete_value = 0U;
   NativeObjectToken external_complete_timeline;
@@ -400,6 +472,8 @@ IsKnownNativeWindowSystem(NativeWindowSystem system) noexcept;
 IsKnownNativeVertexPositionFormat(NativeVertexPositionFormat format) noexcept;
 [[nodiscard]] bool
 IsKnownNativeGeometryBufferState(NativeGeometryBufferState state) noexcept;
+[[nodiscard]] bool IsKnownNativeImageUsage(NativeImageUsage usage) noexcept;
+[[nodiscard]] bool IsKnownNativeImageState(NativeImageState state) noexcept;
 [[nodiscard]] ValidationResult
 ValidateFrontendCapabilityReport(const FrontendCapabilityReport &report);
 /// Validates one exact frame against the selected live frontend. Unsupported
@@ -443,6 +517,17 @@ ValidateNativeGeometryExport(const NativeGeometryExportRequest &request,
                              const NativeGeometryExport &geometry,
                              NativeGraphicsApi expected_api,
                              std::uint64_t expected_context_id);
+[[nodiscard]] ValidationResult
+ValidateNativeImageExportRequest(const NativeImageExportRequest &request);
+[[nodiscard]] ValidationResult
+ValidateNativeImageExport(const NativeImageExport &image,
+                          NativeGraphicsApi expected_api,
+                          std::uint64_t expected_context_id);
+[[nodiscard]] ValidationResult
+ValidateNativeImageExport(const NativeImageExportRequest &request,
+                          const NativeImageExport &image,
+                          NativeGraphicsApi expected_api,
+                          std::uint64_t expected_context_id);
 [[nodiscard]] ValidationResult ValidateNativeFrameSynchronization(
     const NativeFrameSynchronization &synchronization,
     const NativeContextExport &context, bool require_external_completion);
@@ -471,6 +556,9 @@ public:
   AcquireGeometry(const NativeGeometryExportRequest &request,
                   NativeGeometryExport &output) = 0;
   virtual RenderOperationResult
+  AcquireImage(const NativeImageExportRequest &request,
+               NativeImageExport &output) = 0;
+  virtual RenderOperationResult
   BeginExternalFrame(std::uint64_t frame_id, std::uint64_t snapshot_id,
                      NativeFrameSynchronization &synchronization) = 0;
   /// Transactionally registers the external completion wait and the eventual
@@ -482,9 +570,12 @@ public:
   /// lease owned by this interop object.
   [[nodiscard]] virtual RenderOperationResult
   ValidateGeometryLease(const NativeGeometryExport &geometry) const = 0;
+  [[nodiscard]] virtual RenderOperationResult
+  ValidateImageLease(const NativeImageExport &image) const = 0;
   [[nodiscard]] virtual RenderOperationResult ValidateFrameLease(
       const NativeFrameSynchronization &synchronization) const = 0;
   virtual void ReleaseGeometry(std::uint64_t export_id) noexcept = 0;
+  virtual void ReleaseImage(std::uint64_t export_id) noexcept = 0;
 };
 
 class INativeRayTracingBackend {

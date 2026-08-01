@@ -22,6 +22,7 @@ namespace RoR::Render {
 enum class OgreNextNativeFeatureTier : std::uint8_t {
   RASTER_N1 = 0,
   METAL_RAY_TRACING_N2 = 1,
+  METAL_RAY_TRACING_N3 = 2,
 };
 
 /// Opaque references to the exact Ogre v2 buffers selected for a raster Item.
@@ -40,6 +41,20 @@ struct OgreNextN2FrameGeometryBinding {
   std::uint32_t vertex_count = 0U;
   std::uint32_t index_count = 0U;
   NativeIndexFormat index_format = NativeIndexFormat::UINT32;
+};
+
+/// Opaque reference to the exact Ogre render target retained by N3 after its
+/// UI-free raster pass. The platform adapter alone may resolve the Ogre object
+/// to its native image and must independently verify every declared property.
+struct OgreNextN3FrameImageBinding {
+  std::uint64_t frame_id = 0U;
+  std::uint64_t snapshot_id = 0U;
+  std::uint64_t view_id = 0U;
+  FrameOutputMask output = FrameOutputMask::NONE;
+  PixelFormat format = PixelFormat::INVALID;
+  std::uintptr_t ogre_texture = 0U;
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
 };
 
 /// Platform implementation of NativeRenderInterop plus the private
@@ -63,7 +78,8 @@ public:
   [[nodiscard]] virtual RenderOperationResult CanPublishFrame() const = 0;
   virtual RenderOperationResult PublishFrame(
       std::uint64_t frame_id, std::uint64_t snapshot_id,
-      const std::vector<OgreNextN2FrameGeometryBinding> &geometry) = 0;
+      const std::vector<OgreNextN2FrameGeometryBinding> &geometry,
+      const std::vector<OgreNextN3FrameImageBinding> &images = {}) = 0;
   virtual RenderOperationResult DiscardPublishedFrame() = 0;
 
   virtual RenderOperationResult ArmExternalCompletion(
@@ -89,7 +105,7 @@ public:
 /// Creates Metal interop only from an initialized live Ogre Metal renderer.
 /// The implementation exists solely in the Apple ObjC++ target.
 RenderOperationResult CreateOgreNextMetalInterop(
-    std::uintptr_t ogre_render_system,
+    std::uintptr_t ogre_render_system, bool enable_image_exports,
     std::shared_ptr<OgreNextN1NativeInteropBridge> &output);
 
 } // namespace RoR::Render

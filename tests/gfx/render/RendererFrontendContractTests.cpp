@@ -207,6 +207,39 @@ MakeGeometryExport(const RoR::Render::NativeGeometryExportRequest &request) {
   return geometry;
 }
 
+RoR::Render::NativeImageExportRequest MakeImageRequest() {
+  using namespace RoR::Render;
+  NativeImageExportRequest request;
+  request.frame_id = 11U;
+  request.snapshot_id = 7U;
+  request.view_id = 3U;
+  request.output = FrameOutputMask::COLOR;
+  request.format = PixelFormat::RGBA16_FLOAT;
+  request.width = 128U;
+  request.height = 72U;
+  return request;
+}
+
+RoR::Render::NativeImageExport
+MakeImageExport(const RoR::Render::NativeImageExportRequest &request) {
+  using namespace RoR::Render;
+  NativeImageExport image;
+  image.export_id = 4U;
+  image.frame_id = request.frame_id;
+  image.snapshot_id = request.snapshot_id;
+  image.view_id = request.view_id;
+  image.output = request.output;
+  image.format = request.format;
+  image.usage =
+      NativeImageUsage::COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE;
+  image.image =
+      NativeToken(NativeGraphicsApi::METAL, NativeObjectKind::IMAGE, 22U);
+  image.width = request.width;
+  image.height = request.height;
+  image.sample_count = 1U;
+  return image;
+}
+
 RoR::Render::NativeFrameSynchronization MakeFrameSynchronization(
     const RoR::Render::NativeGeometryExportRequest &request) {
   using namespace RoR::Render;
@@ -249,6 +282,13 @@ public:
   }
 
   RoR::Render::RenderOperationResult
+  AcquireImage(const RoR::Render::NativeImageExportRequest &,
+               RoR::Render::NativeImageExport &) override {
+    return RoR::Render::RenderOperationResult::Failure(
+        RoR::Render::RenderOperationCode::UNSUPPORTED, "no native interop");
+  }
+
+  RoR::Render::RenderOperationResult
   BeginExternalFrame(std::uint64_t, std::uint64_t,
                      RoR::Render::NativeFrameSynchronization &) override {
     return RoR::Render::RenderOperationResult::Failure(
@@ -268,6 +308,13 @@ public:
         "no native geometry lease");
   }
 
+  RoR::Render::RenderOperationResult ValidateImageLease(
+      const RoR::Render::NativeImageExport &) const override {
+    return RoR::Render::RenderOperationResult::Failure(
+        RoR::Render::RenderOperationCode::RESOURCE_STALE,
+        "no native image lease");
+  }
+
   RoR::Render::RenderOperationResult ValidateFrameLease(
       const RoR::Render::NativeFrameSynchronization &) const override {
     return RoR::Render::RenderOperationResult::Failure(
@@ -276,6 +323,7 @@ public:
   }
 
   void ReleaseGeometry(std::uint64_t) noexcept override {}
+  void ReleaseImage(std::uint64_t) noexcept override {}
 };
 
 class ProvenInterop final : public RoR::Render::NativeRenderInterop {
@@ -301,6 +349,13 @@ public:
   RoR::Render::RenderOperationResult
   AcquireGeometry(const RoR::Render::NativeGeometryExportRequest &,
                   RoR::Render::NativeGeometryExport &) override {
+    return Unsupported();
+  }
+
+
+  RoR::Render::RenderOperationResult
+  AcquireImage(const RoR::Render::NativeImageExportRequest &,
+               RoR::Render::NativeImageExport &) override {
     return Unsupported();
   }
 
@@ -330,6 +385,12 @@ public:
     return matches ? RoR::Render::RenderOperationResult::Success() : Stale();
   }
 
+
+  RoR::Render::RenderOperationResult ValidateImageLease(
+      const RoR::Render::NativeImageExport &) const override {
+    return Stale();
+  }
+
   RoR::Render::RenderOperationResult ValidateFrameLease(
       const RoR::Render::NativeFrameSynchronization &synchronization)
       const override {
@@ -344,6 +405,7 @@ public:
   }
 
   void ReleaseGeometry(std::uint64_t) noexcept override {}
+  void ReleaseImage(std::uint64_t) noexcept override {}
 
 private:
   static RoR::Render::RenderOperationResult Unsupported() {
@@ -981,6 +1043,13 @@ void TestCapabilitiesFailClosedUntilEveryProofExists() {
   interop.preserves_resource_generations = true;
   Require(ValidateNativeInteropCapabilityReport(interop).ok(),
           "complete native interop proof was rejected");
+  interop.supports_read_write_color_images = true;
+  Require(ValidateNativeInteropCapabilityReport(interop).code ==
+              ValidationCode::MISSING_REFERENCE,
+          "read/write native images were accepted without colour export");
+  interop.exports_color_images = true;
+  Require(ValidateNativeInteropCapabilityReport(interop).ok(),
+          "complete native image interop capability was rejected");
 
   NativeRayTracingCapabilityReport ray_tracing;
   Require(ValidateNativeRayTracingCapabilityReport(ray_tracing).ok(),
@@ -997,6 +1066,13 @@ void TestCapabilitiesFailClosedUntilEveryProofExists() {
   ray_tracing.maximum_instances = 1024U;
   Require(ValidateNativeRayTracingCapabilityReport(ray_tracing).ok(),
           "complete native RT proof chain was rejected");
+  ray_tracing.hybrid_composite_ready = true;
+  Require(ValidateNativeRayTracingCapabilityReport(ray_tracing).code ==
+              ValidationCode::MISSING_REFERENCE,
+          "hybrid readiness was accepted without view-dependent output");
+  ray_tracing.view_dependent_output_ready = true;
+  Require(ValidateNativeRayTracingCapabilityReport(ray_tracing).ok(),
+          "complete view-dependent hybrid readiness was rejected");
 
   NativeGeometryInteropProofSet proof;
   proof.frontend = report;
@@ -1055,6 +1131,8 @@ void TestCapabilitiesFailClosedUntilEveryProofExists() {
   partial_proof.interop.geometry_interop_proven = false;
   partial_proof.ray_tracing = ray_tracing;
   partial_proof.ray_tracing.geometry_interop_ready = false;
+  partial_proof.ray_tracing.view_dependent_output_ready = false;
+  partial_proof.ray_tracing.hybrid_composite_ready = false;
   ProvenInterop partial_interop(partial_proof.interop, context,
                                 proof.geometry_export,
                                 proof.frame_synchronization);
@@ -1147,6 +1225,37 @@ void TestNativeInteropPayloadValidation() {
                   .code == ValidationCode::MISSING_REFERENCE,
           "geometry from a different deformation revision was accepted");
 
+  const NativeImageExportRequest image_request = MakeImageRequest();
+  NativeImageExport image = MakeImageExport(image_request);
+  Require(ValidateNativeImageExport(image_request, image,
+                                    NativeGraphicsApi::METAL, 1U)
+              .ok(),
+          "valid native image export was rejected");
+  image.image.generation += 1U;
+  Require(ValidateNativeImageExport(image, NativeGraphicsApi::METAL, 1U).ok(),
+          "independently versioned live image generation was rejected");
+  image.image.kind = NativeObjectKind::BUFFER;
+  Require(ValidateNativeImageExport(image, NativeGraphicsApi::METAL, 1U)
+                  .code == ValidationCode::WRONG_RESOURCE_KIND,
+          "native buffer was accepted as an image");
+  image = MakeImageExport(image_request);
+  image.sample_count = 4U;
+  Require(ValidateNativeImageExport(image, NativeGraphicsApi::METAL, 1U)
+                  .code == ValidationCode::VALUE_OUT_OF_RANGE,
+          "multisampled native image export was accepted");
+  image = MakeImageExport(image_request);
+  NativeImageExportRequest resized_request = image_request;
+  ++resized_request.width;
+  Require(ValidateNativeImageExport(resized_request, image,
+                                    NativeGraphicsApi::METAL, 1U)
+                  .code == ValidationCode::MISSING_REFERENCE,
+          "stale pre-resize native image was accepted");
+  NativeImageExportRequest unsupported_image_request = image_request;
+  unsupported_image_request.version = 0U;
+  Require(ValidateNativeImageExportRequest(unsupported_image_request).code ==
+              ValidationCode::UNSUPPORTED_VERSION,
+          "unsupported native image contract version was accepted");
+
   NativeFrameSynchronization synchronization =
       MakeFrameSynchronization(geometry_request);
   const NativeContextExport synchronization_context = MakeNativeContext();
@@ -1171,6 +1280,20 @@ void TestNativeInteropPayloadValidation() {
                                              synchronization_context, true)
                   .code == ValidationCode::VALUE_OUT_OF_RANGE,
           "missing geometry return state was accepted");
+  synchronization = MakeFrameSynchronization(geometry_request);
+  synchronization.frontend_image_release_state =
+      NativeImageState::GENERAL_READ_WRITE;
+  synchronization.external_image_return_state =
+      NativeImageState::GENERAL_READ_WRITE;
+  Require(ValidateNativeFrameSynchronization(synchronization,
+                                             synchronization_context, true)
+              .ok(),
+          "canonical native image synchronization was rejected");
+  synchronization.external_image_return_state = NativeImageState::INVALID;
+  Require(ValidateNativeFrameSynchronization(synchronization,
+                                             synchronization_context, true)
+                  .code == ValidationCode::VALUE_OUT_OF_RANGE,
+          "one-sided native image synchronization was accepted");
   synchronization = MakeFrameSynchronization(geometry_request);
   synchronization.external_complete_timeline =
       synchronization.frontend_complete_timeline;

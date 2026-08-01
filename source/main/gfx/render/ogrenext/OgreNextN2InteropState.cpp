@@ -44,6 +44,18 @@ bool SameGeometry(const NativeGeometryExport &lhs,
          lhs.index_count == rhs.index_count;
 }
 
+bool SameImage(const NativeImageExport &lhs,
+               const NativeImageExport &rhs) noexcept {
+  return lhs.version == rhs.version && lhs.export_id == rhs.export_id &&
+         lhs.frame_id == rhs.frame_id && lhs.snapshot_id == rhs.snapshot_id &&
+         lhs.view_id == rhs.view_id && lhs.output == rhs.output &&
+         lhs.format == rhs.format && lhs.usage == rhs.usage &&
+         SameToken(lhs.image, rhs.image) && lhs.width == rhs.width &&
+         lhs.height == rhs.height && lhs.mip_level == rhs.mip_level &&
+         lhs.array_slice == rhs.array_slice &&
+         lhs.sample_count == rhs.sample_count;
+}
+
 bool SameSynchronization(const NativeFrameSynchronization &lhs,
                          const NativeFrameSynchronization &rhs) noexcept {
   return lhs.version == rhs.version && lhs.frame_id == rhs.frame_id &&
@@ -52,6 +64,10 @@ bool SameSynchronization(const NativeFrameSynchronization &lhs,
          lhs.interop_queue_family == rhs.interop_queue_family &&
          lhs.frontend_release_state == rhs.frontend_release_state &&
          lhs.external_return_state == rhs.external_return_state &&
+         lhs.frontend_image_release_state ==
+             rhs.frontend_image_release_state &&
+         lhs.external_image_return_state ==
+             rhs.external_image_return_state &&
          SameToken(lhs.frontend_complete_timeline,
                    rhs.frontend_complete_timeline) &&
          lhs.frontend_complete_value == rhs.frontend_complete_value &&
@@ -127,7 +143,8 @@ RenderOperationResult OgreNextN2InteropState::Initialize(
 
 RenderOperationResult OgreNextN2InteropState::PublishFrame(
     std::uint64_t frame_id, std::uint64_t snapshot_id,
-    const std::vector<OgreNextN2PublishedGeometry> &geometry) {
+    const std::vector<OgreNextN2PublishedGeometry> &geometry,
+    const std::vector<OgreNextN3PublishedImage> &images) {
   const RenderOperationResult initialized = RequireInitialized();
   if (!initialized) {
     return initialized;
@@ -135,7 +152,8 @@ RenderOperationResult OgreNextN2InteropState::PublishFrame(
   if (frame_id == 0U || snapshot_id == 0U || geometry.empty()) {
     return Invalid("published N2 frame requires nonzero identities and geometry");
   }
-  if (active_frame_live_ || !geometry_leases_.empty()) {
+  if (active_frame_live_ || !geometry_leases_.empty() ||
+      !image_leases_.empty()) {
     return Outstanding(
         "a prior native geometry revision remains leased by external work");
   }
@@ -161,7 +179,29 @@ RenderOperationResult OgreNextN2InteropState::PublishFrame(
     }
   }
 
+  std::map<std::uint64_t, NativeImageExport> image_candidate;
+  for (const OgreNextN3PublishedImage &entry : images) {
+    NativeImageExport validated = entry.image;
+    if (validated.export_id != 0U || validated.frame_id != frame_id ||
+        validated.snapshot_id != snapshot_id) {
+      return Invalid(
+          "published image must have a zero export ID and match its frame");
+    }
+    validated.export_id = 1U;
+    const ValidationResult validation = ValidateNativeImageExport(
+        validated, context_.native_api, context_.context_id);
+    if (!validation) {
+      return Invalid("invalid published image: " + validation.field + ": " +
+                     validation.detail);
+    }
+    validated.export_id = 0U;
+    if (!image_candidate.emplace(validated.view_id, validated).second) {
+      return Invalid("published frame repeats a native image view ID");
+    }
+  }
+
   published_geometry_.swap(candidate);
+  published_images_.swap(image_candidate);
   published_frame_id_ = frame_id;
   published_snapshot_id_ = snapshot_id;
   return RenderOperationResult::Success();
@@ -172,7 +212,8 @@ RenderOperationResult OgreNextN2InteropState::CanPublishFrame() const {
   if (!initialized) {
     return initialized;
   }
-  if (active_frame_live_ || !geometry_leases_.empty()) {
+  if (active_frame_live_ || !geometry_leases_.empty() ||
+      !image_leases_.empty()) {
     return Outstanding(
         "a prior native geometry revision remains leased by external work");
   }
@@ -185,8 +226,63 @@ RenderOperationResult OgreNextN2InteropState::DiscardPublishedFrame() {
     return can_publish;
   }
   published_geometry_.clear();
+  published_images_.clear();
   published_frame_id_ = 0U;
   published_snapshot_id_ = 0U;
+  return RenderOperationResult::Success();
+}
+
+RenderOperationResult OgreNextN2InteropState::AcquireImage(
+    const NativeImageExportRequest &request, NativeImageExport &output) {
+  const RenderOperationResult initialized = RequireInitialized();
+  if (!initialized) {
+    return initialized;
+  }
+  const ValidationResult request_validation =
+      ValidateNativeImageExportRequest(request);
+  if (!request_validation) {
+    return Invalid("invalid image request: " + request_validation.field +
+                   ": " + request_validation.detail);
+  }
+  if (request.frame_id != published_frame_id_ ||
+      request.snapshot_id != published_snapshot_id_) {
+    return Stale("image request does not identify the published frame");
+  }
+  const auto found = published_images_.find(request.view_id);
+  if (found == published_images_.end()) {
+    return Stale("image request view is not in the published frame");
+  }
+  const NativeImageExport &published = found->second;
+  if (published.output != request.output || published.format != request.format ||
+      published.width != request.width || published.height != request.height) {
+    return Stale("image request format or extent differs from the published image");
+  }
+  if (next_export_id_ == 0U ||
+      next_export_id_ == (std::numeric_limits<std::uint64_t>::max)()) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::BACKEND_FAILURE,
+        "native image export identifier space is exhausted");
+  }
+
+  NativeImageExport candidate = published;
+  candidate.export_id = next_export_id_;
+  const ValidationResult validation = ValidateNativeImageExport(
+      request, candidate, context_.native_api, context_.context_id);
+  if (!validation) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::BACKEND_FAILURE,
+        "published image no longer satisfies its request: " +
+            validation.field + ": " + validation.detail);
+  }
+  try {
+    image_leases_.emplace(candidate.export_id, candidate);
+  } catch (const std::bad_alloc &) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUT_OF_MEMORY,
+        "native image lease allocation failed");
+  }
+  ++next_export_id_;
+  output = candidate;
   return RenderOperationResult::Success();
 }
 
@@ -287,6 +383,16 @@ RenderOperationResult OgreNextN2InteropState::BeginExternalFrame(
   candidate.frontend_release_state =
       NativeGeometryBufferState::READ_ONLY_ACCELERATION_STRUCTURE_BUILD;
   candidate.external_return_state = candidate.frontend_release_state;
+  for (const auto &entry : image_leases_) {
+    if (entry.second.frame_id == frame_id &&
+        entry.second.snapshot_id == snapshot_id) {
+      candidate.frontend_image_release_state =
+          NativeImageState::GENERAL_READ_WRITE;
+      candidate.external_image_return_state =
+          candidate.frontend_image_release_state;
+      break;
+    }
+  }
   candidate.frontend_complete_timeline = frontend_timeline_;
   candidate.frontend_complete_value = next_timeline_value_;
   const ValidationResult validation =
@@ -418,6 +524,19 @@ RenderOperationResult OgreNextN2InteropState::ValidateGeometryLease(
   return RenderOperationResult::Success();
 }
 
+RenderOperationResult OgreNextN2InteropState::ValidateImageLease(
+    const NativeImageExport &image) const {
+  const RenderOperationResult initialized = RequireInitialized();
+  if (!initialized) {
+    return initialized;
+  }
+  const auto found = image_leases_.find(image.export_id);
+  if (found == image_leases_.end() || !SameImage(found->second, image)) {
+    return Stale("image payload is not an exact live N3 lease");
+  }
+  return RenderOperationResult::Success();
+}
+
 RenderOperationResult OgreNextN2InteropState::ValidateFrameLease(
     const NativeFrameSynchronization &synchronization) const {
   const RenderOperationResult initialized = RequireInitialized();
@@ -440,6 +559,10 @@ void OgreNextN2InteropState::ReleaseGeometry(
   geometry_leases_.erase(export_id);
 }
 
+void OgreNextN2InteropState::ReleaseImage(std::uint64_t export_id) noexcept {
+  image_leases_.erase(export_id);
+}
+
 RenderOperationResult OgreNextN2InteropState::RegisterRayTracingBackend() {
   const RenderOperationResult initialized = RequireInitialized();
   if (!initialized) {
@@ -460,7 +583,8 @@ RenderOperationResult OgreNextN2InteropState::UnregisterRayTracingBackend() {
   if (!ray_tracing_backend_registered_) {
     return Invalid("no native RT backend is registered");
   }
-  if (active_frame_live_ || !geometry_leases_.empty()) {
+  if (active_frame_live_ || !geometry_leases_.empty() ||
+      !image_leases_.empty()) {
     return Outstanding(
         "native RT backend still owns geometry or frame leases");
   }
@@ -483,6 +607,8 @@ OgreNextN2InteropState::AbandonRayTracingBackendAfterFault() {
   // logical leases can now be revoked without permitting buffer reuse.
   published_geometry_.clear();
   geometry_leases_.clear();
+  published_images_.clear();
+  image_leases_.clear();
   active_frame_ = {};
   published_frame_id_ = 0U;
   published_snapshot_id_ = 0U;
@@ -492,7 +618,8 @@ OgreNextN2InteropState::AbandonRayTracingBackendAfterFault() {
 }
 
 bool OgreNextN2InteropState::has_outstanding_leases() const noexcept {
-  return active_frame_live_ || !geometry_leases_.empty();
+  return active_frame_live_ || !geometry_leases_.empty() ||
+         !image_leases_.empty();
 }
 
 RenderOperationResult OgreNextN2InteropState::CanShutdown() const {
@@ -506,7 +633,7 @@ RenderOperationResult OgreNextN2InteropState::CanShutdown() const {
   }
   if (has_outstanding_leases()) {
     return Outstanding(
-        "native geometry or external frame leases remain outstanding");
+        "native geometry, image, or external frame leases remain outstanding");
   }
   return RenderOperationResult::Success();
 }
@@ -520,6 +647,8 @@ RenderOperationResult OgreNextN2InteropState::Reset() {
   frontend_timeline_ = {};
   published_geometry_.clear();
   geometry_leases_.clear();
+  published_images_.clear();
+  image_leases_.clear();
   active_frame_ = {};
   published_frame_id_ = 0U;
   published_snapshot_id_ = 0U;

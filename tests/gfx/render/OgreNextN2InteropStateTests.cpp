@@ -95,6 +95,40 @@ NativeGeometryExportRequest Request(std::uint64_t frame_id,
   return request;
 }
 
+OgreNextN3PublishedImage PublishedImage(std::uint64_t frame_id,
+                                       std::uint64_t snapshot_id,
+                                       std::uint64_t generation = 7U,
+                                       std::uint32_t width = 96U) {
+  OgreNextN3PublishedImage published;
+  NativeImageExport &image = published.image;
+  image.frame_id = frame_id;
+  image.snapshot_id = snapshot_id;
+  image.view_id = 4U;
+  image.output = FrameOutputMask::COLOR;
+  image.format = PixelFormat::RGBA16_FLOAT;
+  image.usage =
+      NativeImageUsage::COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE;
+  image.image = Token(NativeObjectKind::IMAGE, 202U, generation);
+  image.width = width;
+  image.height = 64U;
+  image.sample_count = 1U;
+  return published;
+}
+
+NativeImageExportRequest ImageRequest(std::uint64_t frame_id,
+                                      std::uint64_t snapshot_id,
+                                      std::uint32_t width = 96U) {
+  NativeImageExportRequest request;
+  request.frame_id = frame_id;
+  request.snapshot_id = snapshot_id;
+  request.view_id = 4U;
+  request.output = FrameOutputMask::COLOR;
+  request.format = PixelFormat::RGBA16_FLOAT;
+  request.width = width;
+  request.height = 64U;
+  return request;
+}
+
 void CompleteExternal(OgreNextN2InteropState &state,
                       NativeFrameSynchronization &synchronization) {
   Require(state.ArmExternalCompletion(synchronization).ok(),
@@ -302,6 +336,57 @@ void TestSubmittedDeviceLossCanDrainForTeardown() {
   Require(state.Reset().ok(), "fault-drained state could not reset");
 }
 
+void TestImageLeaseResizeAndSynchronization() {
+  OgreNextN2InteropState state;
+  Require(state.Initialize(Context(),
+                           Token(NativeObjectKind::TIMELINE_SYNC, 102U))
+              .ok(),
+          "image state initialization failed");
+  Require(state.PublishFrame(111U, 121U, {Published(111U, 121U, 2U)},
+                             {PublishedImage(111U, 121U)})
+              .ok(),
+          "image frame publication failed");
+
+  NativeImageExport image;
+  Require(state.AcquireImage(ImageRequest(111U, 121U), image).ok() &&
+              state.ValidateImageLease(image).ok(),
+          "exact published image could not be leased");
+  NativeImageExport stale = image;
+  ++stale.image.generation;
+  Require(state.ValidateImageLease(stale).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "stale native image generation remained live");
+  NativeImageExport resized;
+  Require(state.AcquireImage(ImageRequest(111U, 121U, 97U), resized).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "stale pre-resize image extent was accepted");
+
+  NativeGeometryExport geometry;
+  Require(state.AcquireGeometry(Request(111U, 121U, 2U), geometry).ok(),
+          "image frame geometry could not be leased");
+  NativeFrameSynchronization synchronization;
+  Require(state.BeginExternalFrame(111U, 121U, synchronization).ok() &&
+              synchronization.frontend_image_release_state ==
+                  NativeImageState::GENERAL_READ_WRITE &&
+              synchronization.external_image_return_state ==
+                  NativeImageState::GENERAL_READ_WRITE,
+          "image frame did not publish canonical read/write synchronization");
+  CompleteExternal(state, synchronization);
+  Require(state.EndExternalFrame(synchronization).ok(),
+          "completed image frame could not end");
+  state.ReleaseGeometry(geometry.export_id);
+  Require(state.PublishFrame(112U, 122U, {Published(112U, 122U, 3U)},
+                             {PublishedImage(112U, 122U, 8U, 128U)})
+              .code == RenderOperationCode::OUTSTANDING_LEASES,
+          "resize replaced an image allocation while its lease was live");
+  state.ReleaseImage(image.export_id);
+  Require(state.PublishFrame(112U, 122U, {Published(112U, 122U, 3U)},
+                             {PublishedImage(112U, 122U, 8U, 128U)})
+              .ok(),
+          "resize could not publish after the old image lease ended");
+  Require(state.Reset().ok(), "image state reset failed");
+}
+
 } // namespace
 
 int main() {
@@ -311,6 +396,7 @@ int main() {
     TestSubmittedLeaseIsRetryableButNotAbortable();
     TestPreSubmissionAbortAndShutdownOrder();
     TestSubmittedDeviceLossCanDrainForTeardown();
+    TestImageLeaseResizeAndSynchronization();
     std::cout << "Ogre-Next N2 interop state tests passed\n";
     return EXIT_SUCCESS;
   } catch (const std::exception &error) {

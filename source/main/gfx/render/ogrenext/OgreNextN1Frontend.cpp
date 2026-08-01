@@ -676,11 +676,10 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
         "Ogre-Next N1 is already initialized");
   }
 #if !defined(ROR_OGRE_NEXT_N1_METAL)
-  if (impl_->native_feature_tier ==
-      OgreNextNativeFeatureTier::METAL_RAY_TRACING_N2) {
+  if (impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1) {
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
-        "Ogre-Next Metal N2 interop is available only in the macOS Metal target");
+        "Ogre-Next Metal native interop is available only in the macOS Metal target");
   }
 #endif
   const ValidationResult validation =
@@ -766,10 +765,12 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     }
     impl_->maximum_texture_dimension = device_maximum_texture_dimension;
 #if defined(ROR_OGRE_NEXT_N1_METAL)
-    if (impl_->native_feature_tier ==
-        OgreNextNativeFeatureTier::METAL_RAY_TRACING_N2) {
+    if (impl_->native_feature_tier !=
+        OgreNextNativeFeatureTier::RASTER_N1) {
       const RenderOperationResult interop_result = CreateOgreNextMetalInterop(
           reinterpret_cast<std::uintptr_t>(impl_->renderer),
+          impl_->native_feature_tier ==
+              OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3,
           impl_->native_interop);
       if (!interop_result) {
         return fail_after_cleanup(interop_result);

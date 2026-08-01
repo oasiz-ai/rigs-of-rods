@@ -26,6 +26,12 @@ struct OgreNextN2PublishedGeometry {
   NativeGeometryExport geometry;
 };
 
+/// Native image identity resolved by the platform adapter before publication.
+/// As with geometry, the lifecycle state assigns export_id on acquisition.
+struct OgreNextN3PublishedImage {
+  NativeImageExport image;
+};
+
 /// Pure state machine shared by native adapters. It owns no API objects and
 /// performs no waits; platform code remains responsible for recording and
 /// completing real queue synchronization before advancing the corresponding
@@ -39,13 +45,16 @@ public:
   /// until every geometry lease and its external-frame lease have ended.
   RenderOperationResult PublishFrame(
       std::uint64_t frame_id, std::uint64_t snapshot_id,
-      const std::vector<OgreNextN2PublishedGeometry> &geometry);
+      const std::vector<OgreNextN2PublishedGeometry> &geometry,
+      const std::vector<OgreNextN3PublishedImage> &images = {});
   [[nodiscard]] RenderOperationResult CanPublishFrame() const;
   RenderOperationResult DiscardPublishedFrame();
 
   RenderOperationResult
   AcquireGeometry(const NativeGeometryExportRequest &request,
                   NativeGeometryExport &output);
+  RenderOperationResult AcquireImage(const NativeImageExportRequest &request,
+                                     NativeImageExport &output);
   RenderOperationResult
   BeginExternalFrame(std::uint64_t frame_id, std::uint64_t snapshot_id,
                      NativeFrameSynchronization &output);
@@ -62,9 +71,12 @@ public:
 
   [[nodiscard]] RenderOperationResult
   ValidateGeometryLease(const NativeGeometryExport &geometry) const;
+  [[nodiscard]] RenderOperationResult
+  ValidateImageLease(const NativeImageExport &image) const;
   [[nodiscard]] RenderOperationResult ValidateFrameLease(
       const NativeFrameSynchronization &synchronization) const;
   void ReleaseGeometry(std::uint64_t export_id) noexcept;
+  void ReleaseImage(std::uint64_t export_id) noexcept;
 
   RenderOperationResult RegisterRayTracingBackend();
   RenderOperationResult UnregisterRayTracingBackend();
@@ -98,6 +110,8 @@ private:
   NativeObjectToken frontend_timeline_;
   std::map<std::uint64_t, NativeGeometryExport> published_geometry_;
   std::map<std::uint64_t, NativeGeometryExport> geometry_leases_;
+  std::map<std::uint64_t, NativeImageExport> published_images_;
+  std::map<std::uint64_t, NativeImageExport> image_leases_;
   ActiveFrame active_frame_;
   std::uint64_t published_frame_id_ = 0U;
   std::uint64_t published_snapshot_id_ = 0U;
