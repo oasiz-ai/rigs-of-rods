@@ -297,6 +297,8 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke*
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-linux-static-closure.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/provenance/
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/licenses/

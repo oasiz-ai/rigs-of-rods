@@ -23,6 +23,22 @@ REQUIRED_ARTIFACTS = (
     "ror-ogre-next-frontend-rt4-pbr-v1-report.json",
     "ror-ogre-next-frontend-rt4-pbr-v1.ppm",
     "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin",
+    "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json",
+)
+RT4_REPORT_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1-report.json"
+RT4_PPM_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1.ppm"
+RT4_ISOLATION_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin"
+RT4_ATTESTATION_ARTIFACT = (
+    "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json"
+)
+RT4_PACKAGE_EXECUTABLE_STEM = "ror_ogre_next_frontend_n1_smoke"
+RT4_EXPECTED_VARIANTS = (
+    ("baseline", "none"),
+    ("base_color", "base_color_rgb"),
+    ("roughness_g", "packed_green_roughness"),
+    ("metallic_b", "packed_blue_metallic"),
+    ("emissive", "emissive_rgb"),
+    ("sampler_uv", "sampler_address_over_uv0"),
 )
 METAL_N2_REQUIRED_ARTIFACTS = (
     "ror-ogre-next-metal-n2-report.json",
@@ -109,6 +125,13 @@ def _read_build_contract(root: Path) -> dict[str, object]:
     )
     ror_source = contract.get("ror_source")
     ogre_source = contract.get("provenance")
+    shader_media = contract.get("shader_media")
+    platform = contract.get("platform")
+    notice = (
+        shader_media.get("third_party_notice")
+        if isinstance(shader_media, dict)
+        else None
+    )
     if (
         type(contract.get("schema_version")) is not int
         or contract.get("schema_version") != 2
@@ -121,11 +144,36 @@ def _read_build_contract(root: Path) -> dict[str, object]:
         or not isinstance(ror_source.get("commit"), str)
         or re.fullmatch(r"[0-9a-f]{40}", ror_source["commit"]) is None
         or not _is_sha256(ror_source.get("relevant_manifest_sha256"))
+        or not _is_positive_int(ror_source.get("relevant_manifest_file_count"))
         or not isinstance(ogre_source.get("repository"), str)
         or not ogre_source["repository"]
+        or not isinstance(ogre_source.get("branch"), str)
+        or not ogre_source["branch"]
         or not isinstance(ogre_source.get("commit"), str)
         or re.fullmatch(r"[0-9a-f]{40}", ogre_source["commit"]) is None
         or not _is_sha256(ogre_source.get("archive_sha256"))
+        or not isinstance(ogre_source.get("license_spdx"), str)
+        or not ogre_source["license_spdx"]
+        or not _is_sha256(ogre_source.get("license_sha256"))
+        or not isinstance(shader_media, dict)
+        or not isinstance(shader_media.get("root"), str)
+        or not shader_media["root"]
+        or not isinstance(shader_media.get("license_expression"), str)
+        or not shader_media["license_expression"]
+        or not isinstance(notice, dict)
+        or not isinstance(notice.get("source_path"), str)
+        or not notice["source_path"]
+        or not _is_sha256(notice.get("source_sha256"))
+        or not isinstance(notice.get("notice_path"), str)
+        or not notice["notice_path"]
+        or not _is_sha256(notice.get("notice_sha256"))
+        or not isinstance(platform, dict)
+        or platform.get("policy")
+        not in (
+            "macos-arm64-metal",
+            "windows-x64-d3d11",
+            "linux-x86_64-vulkan",
+        )
     ):
         raise ArtifactSetError("OGRE-Next build contract source identity is invalid")
     return contract
@@ -139,6 +187,328 @@ def _is_sha256(value: object) -> bool:
     return (
         isinstance(value, str)
         and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+    )
+
+
+def _fnv1a64(payload: bytes) -> str:
+    value = 14695981039346656037
+    for byte in payload:
+        value ^= byte
+        value = (value * 1099511628211) & ((1 << 64) - 1)
+    return f"{value:016x}"
+
+
+def _changed_pixels(
+    baseline: bytes, variant: bytes, bytes_per_pixel: int
+) -> int:
+    if (
+        bytes_per_pixel <= 0
+        or len(baseline) != len(variant)
+        or len(baseline) % bytes_per_pixel != 0
+    ):
+        raise ArtifactSetError("RT4 isolation attachment layout is invalid")
+    return sum(
+        baseline[offset : offset + bytes_per_pixel]
+        != variant[offset : offset + bytes_per_pixel]
+        for offset in range(0, len(baseline), bytes_per_pixel)
+    )
+
+
+def _verify_rt4_semantics(
+    report: dict[str, object], ppm_path: Path, isolation_path: Path
+) -> list[dict[str, object]]:
+    try:
+        ppm = ppm_path.read_bytes()
+        isolation_payload = isolation_path.read_bytes()
+    except OSError as error:
+        raise ArtifactSetError(f"could not read RT4 raster evidence: {error}") from error
+    width = 192
+    height = 128
+    header = b"P6\n192 128\n255\n"
+    if not ppm.startswith(header) or len(ppm) != len(header) + width * height * 3:
+        raise ArtifactSetError("RT4 PPM is not the exact 192x128 RGB8 contract")
+    ppm_pixels = ppm[len(header) :]
+    colours = [
+        ppm_pixels[offset : offset + 3]
+        for offset in range(0, len(ppm_pixels), 3)
+    ]
+    colour_counts: dict[bytes, int] = {}
+    for colour in colours:
+        colour_counts[colour] = colour_counts.get(colour, 0) + 1
+    ppm_non_background = len(colours) - max(colour_counts.values())
+
+    if (
+        report.get("schema")
+        != "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1"
+        or report.get("status") != "pass"
+    ):
+        raise ArtifactSetError("RT4 report schema or status is invalid")
+    hdr = report.get("hdr")
+    sdr = report.get("sdr")
+    isolation = report.get("texture_isolation")
+    if not isinstance(hdr, dict) or not isinstance(sdr, dict):
+        raise ArtifactSetError("RT4 HDR/SDR report metrics are missing")
+    if not isinstance(isolation, dict):
+        raise ArtifactSetError("RT4 isolation report is missing")
+    variants = isolation.get("variants")
+    controls = {
+        "schema": isolation.get("schema")
+        == "ror.ogre_next_rt4_texture_isolation.v1",
+        "file": isolation.get("evidence_file") == isolation_path.name,
+        "extent": isolation.get("width") == width
+        and isolation.get("height") == height,
+        "bytes": isolation.get("evidence_bytes") == len(isolation_payload),
+        "geometry": isolation.get("geometry_identical") is True,
+        "factors": isolation.get("material_factors_constants_identical") is True,
+        "camera": isolation.get("camera_identical") is True,
+        "lights": isolation.get("lights_identical") is True,
+        "ui_free": isolation.get("ui_included") is False,
+        "variant_count": isinstance(variants, list)
+        and len(variants) == len(RT4_EXPECTED_VARIANTS),
+    }
+    failed_controls = sorted(
+        name for name, passed in controls.items() if not passed
+    )
+    if failed_controls:
+        raise ArtifactSetError(
+            "RT4 isolation controls failed: " + ", ".join(failed_controls)
+        )
+    if not isinstance(variants, list):
+        raise ArtifactSetError("RT4 isolation variants are invalid")
+
+    offset = 0
+    baseline: dict[str, bytes] = {}
+    exact_hashes: dict[str, set[str]] = {"hdr": set(), "sdr": set()}
+    slice_attestations: list[dict[str, object]] = []
+    for index, (entry, expected) in enumerate(zip(variants, RT4_EXPECTED_VARIANTS)):
+        if not isinstance(entry, dict):
+            raise ArtifactSetError("RT4 isolation variant is not an object")
+        if (
+            entry.get("name") != expected[0]
+            or entry.get("changed_input") != expected[1]
+            or entry.get("asset_sequence") != index + 1
+        ):
+            raise ArtifactSetError("RT4 isolation variant identity mismatch")
+        for attachment, bytes_per_pixel in (("hdr", 8), ("sdr", 4)):
+            reported = entry.get(attachment)
+            expected_bytes = width * height * bytes_per_pixel
+            if not isinstance(reported, dict):
+                raise ArtifactSetError(
+                    f"RT4 {expected[0]} {attachment} metadata is missing"
+                )
+            if (
+                reported.get("offset") != offset
+                or reported.get("bytes") != expected_bytes
+                or offset + expected_bytes > len(isolation_payload)
+            ):
+                raise ArtifactSetError(
+                    f"RT4 {expected[0]} {attachment} slice layout mismatch"
+                )
+            payload = isolation_payload[offset : offset + expected_bytes]
+            if attachment == "hdr":
+                for channels in struct.iter_unpack("<4e", payload):
+                    if not all(math.isfinite(channel) for channel in channels):
+                        raise ArtifactSetError("RT4 HDR isolation contains non-finite data")
+            fnv = _fnv1a64(payload)
+            if reported.get("exact_fnv1a64") != fnv:
+                raise ArtifactSetError(
+                    f"RT4 {expected[0]} {attachment} exact hash mismatch"
+                )
+            exact_hashes[attachment].add(fnv)
+            if index == 0:
+                changed = 0
+                baseline[attachment] = payload
+            else:
+                changed = _changed_pixels(
+                    baseline[attachment], payload, bytes_per_pixel
+                )
+            if (
+                reported.get("changed_pixels_from_baseline") != changed
+                or (index != 0 and changed < 64)
+            ):
+                raise ArtifactSetError(
+                    f"RT4 {expected[0]} {attachment} semantic delta mismatch"
+                )
+            slice_attestations.append(
+                {
+                    "variant": expected[0],
+                    "attachment": attachment,
+                    "offset": offset,
+                    "bytes": expected_bytes,
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            )
+            offset += expected_bytes
+
+    if offset != len(isolation_payload):
+        raise ArtifactSetError("RT4 isolation evidence has trailing bytes")
+    if any(
+        len(hashes) != len(RT4_EXPECTED_VARIANTS)
+        for hashes in exact_hashes.values()
+    ):
+        raise ArtifactSetError("RT4 isolation variants are not all distinct")
+    baseline_sdr_rgb = bytes(
+        channel
+        for pixel_offset in range(0, len(baseline["sdr"]), 4)
+        for channel in baseline["sdr"][pixel_offset : pixel_offset + 3]
+    )
+    report_checks = {
+        "ppm_baseline": ppm_pixels == baseline_sdr_rgb,
+        "hdr_format": hdr.get("format") == "RGBA16_FLOAT",
+        "hdr_extent": hdr.get("width") == width and hdr.get("height") == height,
+        "hdr_exact": hdr.get("exact_attachment_fnv1a64")
+        == _fnv1a64(baseline["hdr"]),
+        "sdr_format": sdr.get("format") == "RGBA8_SRGB",
+        "sdr_extent": sdr.get("width") == width and sdr.get("height") == height,
+        "sdr_exact": sdr.get("exact_attachment_fnv1a64")
+        == _fnv1a64(baseline["sdr"]),
+        "sdr_ppm_hash": sdr.get("rgb8_fnv1a64") == _fnv1a64(ppm_pixels),
+        "sdr_distinct": sdr.get("distinct_rgb8_values") == len(colour_counts),
+        "sdr_geometry": sdr.get("non_background_pixels") == ppm_non_background
+        and ppm_non_background >= 512,
+    }
+    failed_report = sorted(
+        name for name, passed in report_checks.items() if not passed
+    )
+    if failed_report:
+        raise ArtifactSetError(
+            "RT4 PPM/isolation report mismatch: " + ", ".join(failed_report)
+        )
+    return slice_attestations
+
+
+def _verify_rt4(
+    root: Path,
+    manifest: list[dict[str, object]],
+    build_contract: dict[str, object],
+) -> None:
+    report_path = root / RT4_REPORT_ARTIFACT
+    ppm_path = root / RT4_PPM_ARTIFACT
+    isolation_path = root / RT4_ISOLATION_ARTIFACT
+    attestation_path = root / RT4_ATTESTATION_ARTIFACT
+    report = _read_json_object(report_path, "RT4 report")
+    attestation = _read_json_object(attestation_path, "RT4 attestation")
+    if (
+        attestation.get("schema")
+        != "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v1"
+        or attestation.get("status") != "pass"
+    ):
+        raise ArtifactSetError("RT4 attestation schema or status is invalid")
+
+    platform_contract = build_contract["platform"]
+    executable_suffix = (
+        ".exe" if platform_contract.get("policy") == "windows-x64-d3d11" else ""
+    )
+    executable_relative = (
+        "ror-ogre-next-n1-package/bin/"
+        f"{RT4_PACKAGE_EXECUTABLE_STEM}{executable_suffix}"
+    )
+    executable_path = root / executable_relative
+    if executable_path.is_symlink() or not executable_path.is_file():
+        raise ArtifactSetError(f"missing: {executable_relative}")
+    if executable_path.stat().st_size <= 0:
+        raise ArtifactSetError(f"empty: {executable_relative}")
+
+    files = attestation.get("files")
+    if not isinstance(files, dict) or set(files) != {
+        "build_contract",
+        "report",
+        "ppm",
+        "isolation",
+        "executable",
+    }:
+        raise ArtifactSetError("RT4 attested file set is invalid")
+    for key, path, relative in (
+        ("build_contract", root / REQUIRED_ARTIFACTS[0], REQUIRED_ARTIFACTS[0]),
+        ("report", report_path, RT4_REPORT_ARTIFACT),
+        ("ppm", ppm_path, RT4_PPM_ARTIFACT),
+        ("isolation", isolation_path, RT4_ISOLATION_ARTIFACT),
+        ("executable", executable_path, executable_relative),
+    ):
+        _verify_attested_file(files.get(key), path, relative, "RT4", key)
+
+    ror_source = build_contract["ror_source"]
+    ogre_source = build_contract["provenance"]
+    shader_contract = build_contract["shader_media"]
+    notice = shader_contract["third_party_notice"]
+    provenance = report.get("provenance")
+    if not isinstance(provenance, dict):
+        raise ArtifactSetError("RT4 report provenance is missing")
+    expected_source = {
+        "repository": ror_source.get("repository"),
+        "ref": ror_source.get("ref"),
+        "commit": ror_source.get("commit"),
+        "relevant_manifest_sha256": ror_source.get("relevant_manifest_sha256"),
+        "relevant_manifest_file_count": ror_source.get(
+            "relevant_manifest_file_count"
+        ),
+    }
+    expected_ogre = {
+        key: ogre_source.get(key)
+        for key in (
+            "repository",
+            "branch",
+            "commit",
+            "archive_sha256",
+            "license_spdx",
+            "license_sha256",
+        )
+    }
+    expected_shader = {
+        "root": shader_contract.get("root"),
+        "license_expression": shader_contract.get("license_expression"),
+        "source_path": notice.get("source_path"),
+        "source_sha256": notice.get("source_sha256"),
+        "notice_path": notice.get("notice_path"),
+        "notice_sha256": notice.get("notice_sha256"),
+        "manifest_sha256": provenance.get("shader_media_manifest_sha256"),
+        "manifest_file_count": provenance.get("shader_media_manifest_file_count"),
+    }
+    source_report_checks = {
+        "repository": provenance.get("ror_repository") == expected_source["repository"],
+        "ref": provenance.get("ror_ref") == expected_source["ref"],
+        "commit": provenance.get("ror_commit") == expected_source["commit"],
+        "manifest": provenance.get("ror_relevant_source_manifest_sha256")
+        == expected_source["relevant_manifest_sha256"],
+        "manifest_count": provenance.get("ror_relevant_source_manifest_file_count")
+        == expected_source["relevant_manifest_file_count"],
+        "ogre_commit": provenance.get("ogre_next_commit")
+        == expected_ogre["commit"],
+        "ogre_archive": provenance.get("ogre_next_archive_sha256")
+        == expected_ogre["archive_sha256"],
+        "shader_root": provenance.get("shader_media_root")
+        == expected_shader["root"],
+        "shader_license": provenance.get("shader_media_license_expression")
+        == expected_shader["license_expression"],
+        "shader_notice": provenance.get("shader_media_notice_sha256")
+        == expected_shader["notice_sha256"],
+        "media_manifest": _is_sha256(expected_shader["manifest_sha256"]),
+        "media_count": _is_positive_int(expected_shader["manifest_file_count"]),
+    }
+    if attestation.get("source") != expected_source:
+        raise ArtifactSetError("RT4 source attestation mismatch")
+    if attestation.get("ogre_next") != expected_ogre:
+        raise ArtifactSetError("RT4 Ogre attestation mismatch")
+    if attestation.get("shader_media") != expected_shader:
+        raise ArtifactSetError("RT4 shader-media attestation mismatch")
+    failed_provenance = sorted(
+        name for name, passed in source_report_checks.items() if not passed
+    )
+    if failed_provenance:
+        raise ArtifactSetError(
+            "RT4 build-contract provenance mismatch: "
+            + ", ".join(failed_provenance)
+        )
+
+    computed_slices = _verify_rt4_semantics(report, ppm_path, isolation_path)
+    if attestation.get("isolation_slices") != computed_slices:
+        raise ArtifactSetError("RT4 SHA-256 slice attestation mismatch")
+    manifest.append(
+        {
+            "path": executable_relative,
+            "bytes": executable_path.stat().st_size,
+            "sha256": sha256_file(executable_path),
+        }
     )
 
 
@@ -567,11 +937,8 @@ def verify_artifact_set(
         raise ArtifactSetError(
             "OGRE-Next artifact set is incomplete: " + ", ".join(failures)
         )
-    build_contract = (
-        _read_build_contract(root)
-        if verify_metal_n2_evidence or verify_metal_n3_evidence
-        else {}
-    )
+    build_contract = _read_build_contract(root)
+    _verify_rt4(root, manifest, build_contract)
     if verify_metal_n2_evidence:
         _verify_metal_n2(root, manifest, build_contract)
     if verify_metal_n3_evidence:

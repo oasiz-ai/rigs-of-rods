@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import struct
@@ -25,36 +26,267 @@ class OgreNextArtifactSetTests(unittest.TestCase):
     ror_commit = "3" * 40
     ror_manifest = "4" * 64
     ogre_repository = "https://github.com/OGRECave/ogre-next"
+    ogre_branch = "v3-0"
     ogre_commit = "7" * 40
     ogre_archive = "8" * 64
+    ogre_license = "9" * 64
+    shader_source = "a" * 64
+    shader_notice = "b" * 64
 
     def write_baseline(self, root: Path) -> None:
-        for name in VERIFY.REQUIRED_ARTIFACTS:
+        root.mkdir(parents=True, exist_ok=True)
+        contract = {
+            "schema_version": 2,
+            "ror_source": {
+                "repository": self.ror_repository,
+                "ref": self.ror_ref,
+                "commit": self.ror_commit,
+                "relevant_manifest_sha256": self.ror_manifest,
+                "relevant_manifest_file_count": 59,
+            },
+            "provenance": {
+                "repository": self.ogre_repository,
+                "branch": self.ogre_branch,
+                "commit": self.ogre_commit,
+                "archive_sha256": self.ogre_archive,
+                "license_spdx": "MIT",
+                "license_sha256": self.ogre_license,
+            },
+            "shader_media": {
+                "root": "Samples/Media/Hlms",
+                "license_expression": "MIT AND LicenseRef-Test",
+                "third_party_notice": {
+                    "source_path": "Hlms/Pbs/Any/Test.any",
+                    "source_sha256": self.shader_source,
+                    "notice_path": "licenses/LicenseRef-Test.txt",
+                    "notice_sha256": self.shader_notice,
+                },
+            },
+            "platform": {"policy": "macos-arm64-metal"},
+        }
+        contract_path = root / VERIFY.REQUIRED_ARTIFACTS[0]
+        contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+        rt4_names = {
+            VERIFY.RT4_REPORT_ARTIFACT,
+            VERIFY.RT4_PPM_ARTIFACT,
+            VERIFY.RT4_ISOLATION_ARTIFACT,
+            VERIFY.RT4_ATTESTATION_ARTIFACT,
+        }
+        for name in VERIFY.REQUIRED_ARTIFACTS[1:]:
+            if name in rt4_names:
+                continue
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            if name == VERIFY.REQUIRED_ARTIFACTS[0]:
-                path.write_text(
-                    json.dumps(
-                        {
-                            "schema_version": 2,
-                            "ror_source": {
-                                "repository": self.ror_repository,
-                                "ref": self.ror_ref,
-                                "commit": self.ror_commit,
-                                "relevant_manifest_sha256": self.ror_manifest,
-                            },
-                            "provenance": {
-                                "repository": self.ogre_repository,
-                                "commit": self.ogre_commit,
-                                "archive_sha256": self.ogre_archive,
-                            },
-                        }
-                    )
-                    + "\n",
-                    encoding="utf-8",
-                )
+            path.write_bytes(b"baseline")
+        self.write_rt4(root, contract)
+
+    def write_rt4(self, root: Path, contract: dict[str, object]) -> None:
+        width = 192
+        height = 128
+        pixel_count = width * height
+        background = bytes((2, 3, 5, 255))
+        foreground = bytes((100, 120, 140, 255))
+        baseline_sdr = foreground * 1024 + background * (pixel_count - 1024)
+        baseline_hdr_pixel = struct.pack("<4e", 0.25, 0.5, 0.75, 1.0)
+        baseline_hdr = baseline_hdr_pixel * pixel_count
+        evidence = bytearray()
+        variants: list[dict[str, object]] = []
+        slices: list[dict[str, object]] = []
+        offset = 0
+        for index, (name, changed_input) in enumerate(
+            VERIFY.RT4_EXPECTED_VARIANTS
+        ):
+            if index == 0:
+                hdr = baseline_hdr
+                sdr = baseline_sdr
             else:
-                path.write_bytes(b"baseline")
+                changed_hdr = struct.pack(
+                    "<4e", 0.25 + index * 0.125, 0.5, 0.75, 1.0
+                )
+                hdr = changed_hdr * 128 + baseline_hdr[128 * 8 :]
+                changed_sdr = bytes((100 + index, 120, 140, 255))
+                sdr = changed_sdr * 128 + baseline_sdr[128 * 4 :]
+            attachments: dict[str, object] = {}
+            for attachment, payload, bytes_per_pixel in (
+                ("hdr", hdr, 8),
+                ("sdr", sdr, 4),
+            ):
+                changed = (
+                    0
+                    if index == 0
+                    else VERIFY._changed_pixels(
+                        baseline_hdr if attachment == "hdr" else baseline_sdr,
+                        payload,
+                        bytes_per_pixel,
+                    )
+                )
+                attachments[attachment] = {
+                    "offset": offset,
+                    "bytes": len(payload),
+                    "exact_fnv1a64": VERIFY._fnv1a64(payload),
+                    "changed_pixels_from_baseline": changed,
+                }
+                slices.append(
+                    {
+                        "variant": name,
+                        "attachment": attachment,
+                        "offset": offset,
+                        "bytes": len(payload),
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    }
+                )
+                evidence.extend(payload)
+                offset += len(payload)
+            variants.append(
+                {
+                    "name": name,
+                    "changed_input": changed_input,
+                    "asset_sequence": index + 1,
+                    **attachments,
+                }
+            )
+
+        isolation_path = root / VERIFY.RT4_ISOLATION_ARTIFACT
+        isolation_path.write_bytes(evidence)
+        ppm_pixels = bytes(
+            channel
+            for pixel_offset in range(0, len(baseline_sdr), 4)
+            for channel in baseline_sdr[pixel_offset : pixel_offset + 3]
+        )
+        ppm_path = root / VERIFY.RT4_PPM_ARTIFACT
+        ppm_path.write_bytes(b"P6\n192 128\n255\n" + ppm_pixels)
+        colours = {
+            ppm_pixels[pixel_offset : pixel_offset + 3]
+            for pixel_offset in range(0, len(ppm_pixels), 3)
+        }
+        report = {
+            "schema": "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1",
+            "status": "pass",
+            "provenance": {
+                "ror_repository": self.ror_repository,
+                "ror_ref": self.ror_ref,
+                "ror_commit": self.ror_commit,
+                "ror_relevant_source_manifest_sha256": self.ror_manifest,
+                "ror_relevant_source_manifest_file_count": 59,
+                "ogre_next_commit": self.ogre_commit,
+                "ogre_next_archive_sha256": self.ogre_archive,
+                "shader_media_root": "Samples/Media/Hlms",
+                "shader_media_license_expression": "MIT AND LicenseRef-Test",
+                "shader_media_notice_sha256": self.shader_notice,
+                "shader_media_manifest_sha256": "c" * 64,
+                "shader_media_manifest_file_count": 107,
+            },
+            "hdr": {
+                "format": "RGBA16_FLOAT",
+                "width": width,
+                "height": height,
+                "exact_attachment_fnv1a64": VERIFY._fnv1a64(baseline_hdr),
+            },
+            "sdr": {
+                "format": "RGBA8_SRGB",
+                "width": width,
+                "height": height,
+                "exact_attachment_fnv1a64": VERIFY._fnv1a64(baseline_sdr),
+                "rgb8_fnv1a64": VERIFY._fnv1a64(ppm_pixels),
+                "distinct_rgb8_values": len(colours),
+                "non_background_pixels": 1024,
+            },
+            "texture_isolation": {
+                "schema": "ror.ogre_next_rt4_texture_isolation.v1",
+                "evidence_file": VERIFY.RT4_ISOLATION_ARTIFACT,
+                "width": width,
+                "height": height,
+                "geometry_identical": True,
+                "material_factors_constants_identical": True,
+                "camera_identical": True,
+                "lights_identical": True,
+                "ui_included": False,
+                "variants": variants,
+                "evidence_bytes": len(evidence),
+            },
+        }
+        report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+        report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+        executable_path = (
+            root
+            / "ror-ogre-next-n1-package"
+            / "bin"
+            / VERIFY.RT4_PACKAGE_EXECUTABLE_STEM
+        )
+        executable_path.parent.mkdir(parents=True, exist_ok=True)
+        executable_path.write_bytes(b"attested-rt4-executable")
+
+        def file_entry(path: Path) -> dict[str, object]:
+            return {
+                "path": path.relative_to(root).as_posix(),
+                "bytes": path.stat().st_size,
+                "sha256": VERIFY.sha256_file(path),
+            }
+
+        attestation = {
+            "schema": "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v1",
+            "status": "pass",
+            "source": {
+                "repository": self.ror_repository,
+                "ref": self.ror_ref,
+                "commit": self.ror_commit,
+                "relevant_manifest_sha256": self.ror_manifest,
+                "relevant_manifest_file_count": 59,
+            },
+            "ogre_next": {
+                "repository": self.ogre_repository,
+                "branch": self.ogre_branch,
+                "commit": self.ogre_commit,
+                "archive_sha256": self.ogre_archive,
+                "license_spdx": "MIT",
+                "license_sha256": self.ogre_license,
+            },
+            "shader_media": {
+                "root": "Samples/Media/Hlms",
+                "license_expression": "MIT AND LicenseRef-Test",
+                "source_path": "Hlms/Pbs/Any/Test.any",
+                "source_sha256": self.shader_source,
+                "notice_path": "licenses/LicenseRef-Test.txt",
+                "notice_sha256": self.shader_notice,
+                "manifest_sha256": "c" * 64,
+                "manifest_file_count": 107,
+            },
+            "files": {
+                "build_contract": file_entry(root / VERIFY.REQUIRED_ARTIFACTS[0]),
+                "report": file_entry(report_path),
+                "ppm": file_entry(ppm_path),
+                "isolation": file_entry(isolation_path),
+                "executable": file_entry(executable_path),
+            },
+            "isolation_slices": slices,
+        }
+        (root / VERIFY.RT4_ATTESTATION_ARTIFACT).write_text(
+            json.dumps(attestation) + "\n", encoding="utf-8"
+        )
+
+    def refresh_rt4_attestation(
+        self,
+        root: Path,
+        file_keys: tuple[str, ...] = (),
+        refresh_slices: bool = False,
+    ) -> None:
+        path = root / VERIFY.RT4_ATTESTATION_ARTIFACT
+        attestation = json.loads(path.read_text(encoding="utf-8"))
+        for key in file_keys:
+            entry = attestation["files"][key]
+            artifact = root / entry["path"]
+            attestation["files"][key] = {
+                "path": entry["path"],
+                "bytes": artifact.stat().st_size,
+                "sha256": VERIFY.sha256_file(artifact),
+            }
+        if refresh_slices:
+            payload = (root / VERIFY.RT4_ISOLATION_ARTIFACT).read_bytes()
+            for entry in attestation["isolation_slices"]:
+                start = entry["offset"]
+                end = start + entry["bytes"]
+                entry["sha256"] = hashlib.sha256(payload[start:end]).hexdigest()
+        path.write_text(json.dumps(attestation) + "\n", encoding="utf-8")
 
     def write_metal_n2(self, root: Path, status: str) -> None:
         executable_path = root / VERIFY.METAL_N2_REQUIRED_ARTIFACTS[2]
@@ -254,12 +486,15 @@ class OgreNextArtifactSetTests(unittest.TestCase):
     def test_requires_every_exact_nonempty_regular_file(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-artifacts-") as temp:
             root = Path(temp)
-            for index, name in enumerate(VERIFY.REQUIRED_ARTIFACTS, start=1):
-                (root / name).write_bytes(bytes((index,)))
+            self.write_baseline(root)
             manifest = VERIFY.verify_artifact_set(root)
             self.assertEqual(
-                [entry["path"] for entry in manifest],
+                [entry["path"] for entry in manifest][:-1],
                 list(VERIFY.REQUIRED_ARTIFACTS),
+            )
+            self.assertEqual(
+                manifest[-1]["path"],
+                "ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke",
             )
             missing = root / VERIFY.REQUIRED_ARTIFACTS[-1]
             missing.unlink()
@@ -269,10 +504,88 @@ class OgreNextArtifactSetTests(unittest.TestCase):
     def test_rejects_empty_artifact(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-artifacts-") as temp:
             root = Path(temp)
-            for name in VERIFY.REQUIRED_ARTIFACTS:
-                (root / name).write_bytes(b"x")
+            self.write_baseline(root)
             (root / VERIFY.REQUIRED_ARTIFACTS[0]).write_bytes(b"")
             with self.assertRaisesRegex(VERIFY.ArtifactSetError, "empty"):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rt4_gate_recomputes_report_semantics_after_reattestation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-report-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["texture_isolation"]["geometry_identical"] = False
+            report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+            self.refresh_rt4_attestation(root, ("report",))
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "RT4 isolation controls failed"
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rt4_gate_recomputes_ppm_semantics_after_reattestation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-ppm-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            ppm_path = root / VERIFY.RT4_PPM_ARTIFACT
+            ppm = bytearray(ppm_path.read_bytes())
+            ppm[-1] ^= 1
+            ppm_path.write_bytes(ppm)
+            self.refresh_rt4_attestation(root, ("ppm",))
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "RT4 PPM/isolation report mismatch"
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rt4_gate_recomputes_isolation_after_file_and_slice_reattestation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-isolation-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            isolation_path = root / VERIFY.RT4_ISOLATION_ARTIFACT
+            payload = bytearray(isolation_path.read_bytes())
+            payload[0] ^= 1
+            isolation_path.write_bytes(payload)
+            self.refresh_rt4_attestation(
+                root, ("isolation",), refresh_slices=True
+            )
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "exact hash mismatch"
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rt4_gate_requires_exact_sha256_slice_attestation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-slice-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            attestation_path = root / VERIFY.RT4_ATTESTATION_ARTIFACT
+            attestation = json.loads(
+                attestation_path.read_text(encoding="utf-8")
+            )
+            attestation["isolation_slices"][3]["sha256"] = "0" * 64
+            attestation_path.write_text(
+                json.dumps(attestation) + "\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "SHA-256 slice attestation mismatch"
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rt4_gate_binds_packaged_executable(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-executable-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            executable = (
+                root
+                / "ror-ogre-next-n1-package"
+                / "bin"
+                / VERIFY.RT4_PACKAGE_EXECUTABLE_STEM
+            )
+            executable.write_bytes(b"tampered")
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "executable attestation mismatch"
+            ):
                 VERIFY.verify_artifact_set(root)
 
     def test_metal_n2_gate_cross_checks_pass_attestation(self) -> None:
