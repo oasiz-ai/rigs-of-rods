@@ -1,0 +1,38 @@
+{
+  "schema": "ror.ogre_next_windows_dxr7_toolchain.v1",
+  "platform_policy": "windows-x64-d3d11on12-dxr",
+  "ogre_next_commit": "37149a802de747f6806996fa3067b0748ecc1084",
+  "adaptation_patch": {
+    "path": "patches/0004-d3d11-adopt-external-device.patch",
+    "sha256": "ae9198d78ed5b7ec43aaf6eb57666f591191fd97fa102f10792b726d835806d9",
+    "scope": "D3D11 plugin external-device adoption only"
+  },
+  "shader": {
+    "path": "shaders/windows_dxr7_probe.hlsl",
+    "sha256": "3246fcd8c91b0dffa149c25223455ca136a2e1813cd75af6d5dd49368d897df3",
+    "target": "lib_6_5",
+    "entry_exports": [
+      "RayGen",
+      "Miss",
+      "ClosestHit"
+    ],
+    "compiler_provider": "Windows SDK dxc.exe",
+    "compiler_arguments": [
+      "-HV",
+      "2021",
+      "-O3",
+      "-Qstrip_debug",
+      "-Qstrip_reflect"
+    ]
+  },
+  "runtime": {
+    "minimum_dxr_tier": "1.1",
+    "software_adapter_pass_allowed": false,
+    "required_dispatch_dimensions": [
+      1,
+      1,
+      1
+    ],
+    "closest_hit_readback": 3519983627
+  }
+}

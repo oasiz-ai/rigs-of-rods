@@ -1,0 +1,72 @@
+/*
+    This source file is part of Rigs of Rods
+
+    Rigs of Rods is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License version 3, as
+    published by the Free Software Foundation.
+*/
+
+#include "OgreNextDxr7Contract.h"
+
+namespace RoR::Render {
+
+Dxr7CandidateDecision EvaluateDxr7Candidate(
+    const Dxr7CandidateContract& candidate) noexcept {
+  if (!candidate.hardware_adapter) {
+    return Dxr7CandidateDecision::NO_HARDWARE_ADAPTER;
+  }
+  if (!candidate.d3d12_device_available) {
+    return Dxr7CandidateDecision::D3D12_UNAVAILABLE;
+  }
+  // D3D12_RAYTRACING_TIER_1_1 is numerically 11. Keeping the portable
+  // contract independent of Windows headers lets every platform mutation-test
+  // this admission gate.
+  if (candidate.raytracing_tier < 11U) {
+    return Dxr7CandidateDecision::DXR_TIER_BELOW_1_1;
+  }
+  if (!candidate.direct_queue_available || !candidate.fence_available) {
+    return Dxr7CandidateDecision::D3D12_UNAVAILABLE;
+  }
+  return Dxr7CandidateDecision::ACCEPT;
+}
+
+bool ValidateDxr7PassContract(const Dxr7PassContract& contract) noexcept {
+  return EvaluateDxr7Candidate(contract.candidate) ==
+             Dxr7CandidateDecision::ACCEPT &&
+         contract.d3d11on12_device_created &&
+         contract.d3d11on12_created_with_exact_direct_queue &&
+         contract.d3d11on12_underlying_d3d12_device_exact &&
+         contract.d3d11on12_adapter_luid_exact &&
+         contract.ogre_external_device_option_used &&
+         contract.ogre_d3d11_device_exact &&
+         contract.ogre_external_device_active && contract.blas_built &&
+         contract.tlas_built && contract.state_object_created &&
+         contract.shader_identifiers_resolved &&
+         contract.dispatch_rays_called &&
+         contract.closest_hit_readback_exact &&
+         contract.queue_fence_before_dispatch &&
+         contract.queue_fence_after_dispatch &&
+         contract.queue_fence_after_ogre &&
+         contract.ogre_shutdown_before_d3d11_release &&
+         contract.d3d11_context_flushed_before_release &&
+         contract.d3d11_released_before_d3d12_queue &&
+         contract.d3d12_queue_released_before_device &&
+         contract.shutdown_completed;
+}
+
+const char* Dxr7CandidateDecisionName(
+    Dxr7CandidateDecision decision) noexcept {
+  switch (decision) {
+    case Dxr7CandidateDecision::ACCEPT:
+      return "accept";
+    case Dxr7CandidateDecision::NO_HARDWARE_ADAPTER:
+      return "no_hardware_adapter";
+    case Dxr7CandidateDecision::D3D12_UNAVAILABLE:
+      return "d3d12_unavailable";
+    case Dxr7CandidateDecision::DXR_TIER_BELOW_1_1:
+      return "dxr_tier_below_1_1";
+  }
+  return "unknown";
+}
+
+}  // namespace RoR::Render

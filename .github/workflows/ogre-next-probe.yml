@@ -1,4 +1,4 @@
-name: OGRE-Next raster, Metal N2/N3, and Vulkan RT5/RT6 capability probes
+name: OGRE-Next raster, Metal N2/N3, Vulkan RT5/RT6, and Windows DXR RT7 probes
 
 on:
   push:
@@ -118,6 +118,26 @@ jobs:
           ninja --version
           python --version
 
+      - name: Locate and attest the Windows SDK DXC compiler
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $command = Get-Command dxc.exe -ErrorAction SilentlyContinue
+          $dxcPath = if ($command) { $command.Source } else { $null }
+          if (-not $dxcPath) {
+            $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+            $candidate = Get-ChildItem -Path $sdkRoot -Filter dxc.exe -Recurse |
+              Where-Object { $_.DirectoryName -match '[\\/]x64$' } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+            if ($candidate) { $dxcPath = $candidate.FullName }
+          }
+          if (-not $dxcPath -or -not (Test-Path -LiteralPath $dxcPath -PathType Leaf)) {
+            throw 'The reviewed Windows SDK dxc.exe is unavailable'
+          }
+          Get-FileHash -Algorithm SHA256 -LiteralPath $dxcPath
+          Split-Path -Parent $dxcPath | Out-File -FilePath $env:GITHUB_PATH -Append
+
       - name: Run fail-closed offline contracts
         shell: bash
         run: |
@@ -127,6 +147,7 @@ jobs:
           python tests/tools/test_ogre_next_metal_n2_contract.py
           python tests/tools/test_ogre_next_vulkan_rt5_contract.py
           python tests/tools/test_ogre_next_vulkan_rt6_contract.py
+          python tests/tools/test_ogre_next_windows_dxr7_contract.py
           python tests/tools/test_ogre_next_linux_static_closure.py
           python tests/tools/test_ogre_next_metal_n3_contract.py
           python tests/tools/test_ogre_next_probe_workflow.py
@@ -137,6 +158,7 @@ jobs:
           python -O tests/tools/test_ogre_next_metal_n2_contract.py
           python -O tests/tools/test_ogre_next_vulkan_rt5_contract.py
           python -O tests/tools/test_ogre_next_vulkan_rt6_contract.py
+          python -O tests/tools/test_ogre_next_windows_dxr7_contract.py
           python -O tests/tools/test_ogre_next_linux_static_closure.py
           python -O tests/tools/test_ogre_next_metal_n3_contract.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
@@ -144,6 +166,7 @@ jobs:
           python tools/run_ogre_next_probe.py --validate-contract-only
           python tools/ogre_next_probe/run_vulkan_rt5.py --validate-contract-only
           python tools/ogre_next_probe/run_vulkan_rt6.py --validate-contract-only
+          python tools/ogre_next_probe/run_windows_dxr7.py --validate-contract-only
 
       - name: Build, render, and validate the independent N1 frontend
         run: >-
@@ -234,6 +257,38 @@ jobs:
           PY
 
       - name: Build, render, read back, and validate the legacy probes
+        # Windows DXR runs immediately before the shared legacy probes so a
+        # device-removal failure cannot be hidden by a later raster success.
+        if: runner.os != 'Windows'
+        run: >-
+          python tools/run_ogre_next_probe.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --reuse-build-dir
+          --checkpoint legacy
+          --jobs ${{ matrix.jobs }}
+
+      - name: Build and attest app-owned D3D12/D3D11On12/DXR RT7
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $buildRoot = '${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}'
+          python tools/ogre_next_probe/run_windows_dxr7.py `
+            --build-dir $buildRoot `
+            --reuse-build-dir `
+            --jobs '${{ matrix.jobs }}'
+          $report = Get-Content `
+            (Join-Path $buildRoot 'ror-ogre-next-windows-dxr7-report.json') `
+            -Raw | ConvertFrom-Json
+          if ($report.status -ne 'unsupported') {
+            throw 'The non-GPU hosted Windows runner must not report a DXR7 pass'
+          }
+          if ($report.scope.hardware_dxr_pass -ne $false -or
+              $report.ray_tracing.dispatch_rays_called -ne $false) {
+            throw 'Hosted Windows unsupported evidence contains an RT pass claim'
+          }
+
+      - name: Build, render, read back, and validate the Windows legacy probes
+        if: runner.os == 'Windows'
         run: >-
           python tools/run_ogre_next_probe.py
           --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
@@ -323,6 +378,13 @@ jobs:
           --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --verify-existing
 
+      - name: Verify attested Windows DXR RT7 pass or explicit unsupported evidence
+        if: always() && runner.os == 'Windows'
+        run: >-
+          python tools/ogre_next_probe/run_windows_dxr7.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --verify-existing
+
       - name: Upload exact reports and UI-free frame
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -392,3 +454,16 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-vulkan-rt6-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-vulkan-rt6-attestation.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_vulkan_rt6_smoke
+
+      - name: Upload attested Windows D3D12/D3D11On12/DXR RT7 evidence
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-windows-dxr7-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/generated/ror_ogre_next_windows_dxr7_probe.dxil
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_windows_dxr7_smoke.exe

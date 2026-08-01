@@ -1,0 +1,240 @@
+diff --git a/RenderSystems/Direct3D11/include/OgreD3D11RenderSystem.h b/RenderSystems/Direct3D11/include/OgreD3D11RenderSystem.h
+index 0a06a6019..46440c9ba 100644
+--- a/RenderSystems/Direct3D11/include/OgreD3D11RenderSystem.h
++++ b/RenderSystems/Direct3D11/include/OgreD3D11RenderSystem.h
+@@ -64,6 +64,8 @@ namespace Ogre
+ 
+         /// Direct3D rendering device
+         D3D11Device mDevice;
++        ComPtr<ID3D11Device> mExternalDevice;
++        bool mExternalDeviceActive;
+ 
+         D3D11VendorExtension *mVendorExtension;
+ 
+@@ -90,6 +92,8 @@ namespace Ogre
+ 
+         void freeDevice();
+         void createDevice();
++        D3D11Driver *findExternalDeviceDriver( bool refreshList );
++        void adoptExternalDevice( bool refreshList );
+ 
+         v1::D3D11HardwareBufferManager *mHardwareBufferManager;
+         D3D11GpuProgramManager         *mGpuProgramManager;
+@@ -171,6 +175,7 @@ namespace Ogre
+     public:
+         // constructor
+         D3D11RenderSystem();
++        explicit D3D11RenderSystem( ID3D11Device *externalDevice );
+ 
+         // destructor
+         ~D3D11RenderSystem();
+diff --git a/RenderSystems/Direct3D11/src/OgreD3D11Plugin.cpp b/RenderSystems/Direct3D11/src/OgreD3D11Plugin.cpp
+index 4fda74301..b30e9c36c 100644
+--- a/RenderSystems/Direct3D11/src/OgreD3D11Plugin.cpp
++++ b/RenderSystems/Direct3D11/src/OgreD3D11Plugin.cpp
+@@ -28,7 +28,9 @@ THE SOFTWARE.
+ #include "OgreD3D11Plugin.h"
+ 
+ #include "OgreAbiUtils.h"
++#include "OgreException.h"
+ #include "OgreRoot.h"
++#include "OgreStringConverter.h"
+ 
+ namespace Ogre
+ {
+@@ -38,10 +40,26 @@ namespace Ogre
+     //---------------------------------------------------------------------
+     const String &D3D11Plugin::getName() const { return sPluginName; }
+     //---------------------------------------------------------------------
+-    void D3D11Plugin::install( const NameValuePairList * )
++    void D3D11Plugin::install( const NameValuePairList *options )
+     {
++        ID3D11Device *externalDevice = 0;
++        if( options )
++        {
++            NameValuePairList::const_iterator it = options->find( "external_device" );
++            if( it != options->end() )
++            {
++                const size_t address = StringConverter::parseSizeT( it->second, 0u );
++                if( address == 0u )
++                {
++                    OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS,
++                                 "external_device must be a nonzero in-process pointer",
++                                 "D3D11Plugin::install" );
++                }
++                externalDevice = reinterpret_cast<ID3D11Device *>( address );
++            }
++        }
+         // Create the DirectX 11 rendering api
+-        mRenderSystem = new D3D11RenderSystem();
++        mRenderSystem = new D3D11RenderSystem( externalDevice );
+         // Register the render system
+         Root::getSingleton().addRenderSystem( mRenderSystem );
+     }
+diff --git a/RenderSystems/Direct3D11/src/OgreD3D11RenderSystem.cpp b/RenderSystems/Direct3D11/src/OgreD3D11RenderSystem.cpp
+index 7c06fa69a..36b4ed67d 100644
+--- a/RenderSystems/Direct3D11/src/OgreD3D11RenderSystem.cpp
++++ b/RenderSystems/Direct3D11/src/OgreD3D11RenderSystem.cpp
+@@ -99,8 +99,12 @@ THE SOFTWARE.
+ namespace Ogre
+ {
+     //---------------------------------------------------------------------
+-    D3D11RenderSystem::D3D11RenderSystem() :
++    D3D11RenderSystem::D3D11RenderSystem() : D3D11RenderSystem( 0 ) {}
++    //---------------------------------------------------------------------
++    D3D11RenderSystem::D3D11RenderSystem( ID3D11Device *externalDevice ) :
+         mDevice(),
++        mExternalDevice( externalDevice ),
++        mExternalDeviceActive( false ),
+         mVendorExtension( 0 ),
+         mBoundIndirectBuffer( 0 ),
+         mSwIndirectBufferPtr( 0 ),
+@@ -335,7 +339,7 @@ namespace Ogre
+ #endif
+ 
+         optDevice.name = "Rendering Device";
+-        optDevice.currentValue = "(default)";
++        optDevice.currentValue = mExternalDevice ? mDriverName : "(default)";
+         optDevice.possibleValues.push_back( "(default)" );
+         D3D11DriverList *driverList = getDirect3DDrivers();
+         for( unsigned j = 0; j < driverList->count(); j++ )
+@@ -651,10 +655,13 @@ namespace Ogre
+         if( driver )
+         {
+             it = mOptions.find( "Video Mode" );
+-            ComPtr<ID3D11Device> device;
+-            createD3D11Device( mVendorExtension, Root::getSingleton().getAppName(), driver, mDriverType,
+-                               mMinRequestedFeatureLevel, mMaxRequestedFeatureLevel, NULL,
+-                               device.GetAddressOf() );
++            ComPtr<ID3D11Device> device = mExternalDevice;
++            if( !device )
++            {
++                createD3D11Device( mVendorExtension, Root::getSingleton().getAppName(), driver,
++                                   mDriverType, mMinRequestedFeatureLevel,
++                                   mMaxRequestedFeatureLevel, NULL, device.GetAddressOf() );
++            }
+             // 'videoMode' could be NULL if working over RDP/Simulator
+             D3D11VideoMode *videoMode = driver->getVideoModeList()->item( it->second.currentValue );
+             DXGI_FORMAT format = videoMode ? videoMode->getFormat() : DXGI_FORMAT_R8G8B8A8_UNORM;
+@@ -1655,6 +1662,70 @@ namespace Ogre
+         {
+             // Clean up depth stencil surfaces
+             mDevice.ReleaseAll();
++            mExternalDeviceActive = false;
++        }
++    }
++    //---------------------------------------------------------------------
++    D3D11Driver *D3D11RenderSystem::findExternalDeviceDriver( bool refreshList )
++    {
++        ComPtr<IDXGIDevice> dxgiDevice;
++        ComPtr<IDXGIAdapter> dxgiAdapter;
++        DXGI_ADAPTER_DESC externalDesc;
++        ZeroMemory( &externalDesc, sizeof( externalDesc ) );
++        HRESULT hr = mExternalDevice.As( &dxgiDevice );
++        if( SUCCEEDED( hr ) )
++            hr = dxgiDevice->GetAdapter( dxgiAdapter.GetAddressOf() );
++        if( SUCCEEDED( hr ) )
++            hr = dxgiAdapter->GetDesc( &externalDesc );
++        if( FAILED( hr ) )
++        {
++            OGRE_EXCEPT_EX( Exception::ERR_RENDERINGAPI_ERROR, hr,
++                            "External D3D11 device has no queryable DXGI adapter",
++                            "D3D11RenderSystem::findExternalDeviceDriver" );
++        }
++
++        D3D11DriverList *drivers = getDirect3DDrivers( refreshList );
++        for( size_t i = 0u; i < drivers->count(); ++i )
++        {
++            D3D11Driver *driver = drivers->item( i );
++            const LUID &candidateLuid = driver->getAdapterIdentifier().AdapterLuid;
++            if( candidateLuid.HighPart == externalDesc.AdapterLuid.HighPart &&
++                candidateLuid.LowPart == externalDesc.AdapterLuid.LowPart )
++            {
++                return driver;
++            }
++        }
++        OGRE_EXCEPT( Exception::ERR_RENDERINGAPI_ERROR,
++                     "External D3D11 device adapter is absent from the exact DXGI driver list",
++                     "D3D11RenderSystem::findExternalDeviceDriver" );
++    }
++    //---------------------------------------------------------------------
++    void D3D11RenderSystem::adoptExternalDevice( bool refreshList )
++    {
++        if( !mExternalDevice )
++        {
++            OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS, "External D3D11 device is null",
++                         "D3D11RenderSystem::adoptExternalDevice" );
++        }
++        const HRESULT removedReason = mExternalDevice->GetDeviceRemovedReason();
++        if( FAILED( removedReason ) )
++        {
++            OGRE_EXCEPT_EX( Exception::ERR_RENDERINGAPI_ERROR, removedReason,
++                            "External D3D11 device was removed; owner recreation is required",
++                            "D3D11RenderSystem::adoptExternalDevice" );
++        }
++        D3D11Driver *driver = findExternalDeviceDriver( refreshList );
++        mActiveD3DDriver = *driver;
++        mDriverName = driver->DriverDescription();
++        mFeatureLevel = mExternalDevice->GetFeatureLevel();
++        ComPtr<ID3D11Device> device = mExternalDevice;
++        mDevice.TransferOwnership( device );
++        mExternalDeviceActive = mDevice.get() == mExternalDevice.Get();
++        if( !mExternalDeviceActive )
++        {
++            OGRE_EXCEPT( Exception::ERR_RENDERINGAPI_ERROR,
++                         "External D3D11 device identity changed during adoption",
++                         "D3D11RenderSystem::adoptExternalDevice" );
+         }
+     }
+     //---------------------------------------------------------------------
+@@ -1662,6 +1733,14 @@ namespace Ogre
+     {
+         mDevice.ReleaseAll();
+ 
++        if( mExternalDevice )
++        {
++            adoptExternalDevice( true );
++            LogManager::getSingleton().stream()
++                << "D3D11: Adopted exact external device for \"" << mDriverName << "\"";
++            return;
++        }
++
+         D3D11Driver *d3dDriver = getDirect3DDrivers( true )->findByName( mDriverName );
+         mActiveD3DDriver = *d3dDriver;  // store copy of selected driver, so that it is not
+                                         // lost when drivers would be re-enumerated
+@@ -3798,11 +3877,18 @@ namespace Ogre
+ 
+         mVendorExtension = D3D11VendorExtension::initializeExtension( GPU_VENDOR_COUNT, 0 );
+ 
+-        ComPtr<ID3D11Device> device;
+-        createD3D11Device( mVendorExtension, Root::getSingleton().getAppName(), NULL,
+-                           D3D_DRIVER_TYPE_HARDWARE, mMinRequestedFeatureLevel,
+-                           mMaxRequestedFeatureLevel, 0, device.GetAddressOf() );
+-        mDevice.TransferOwnership( device );
++        if( mExternalDevice )
++        {
++            adoptExternalDevice( true );
++        }
++        else
++        {
++            ComPtr<ID3D11Device> device;
++            createD3D11Device( mVendorExtension, Root::getSingleton().getAppName(), NULL,
++                               D3D_DRIVER_TYPE_HARDWARE, mMinRequestedFeatureLevel,
++                               mMaxRequestedFeatureLevel, 0, device.GetAddressOf() );
++            mDevice.TransferOwnership( device );
++        }
+     }
+     //---------------------------------------------------------------------
+     void D3D11RenderSystem::getCustomAttribute( const String &name, void *pData )
+@@ -3813,6 +3899,11 @@ namespace Ogre
+             *device = mDevice.get();
+             return;
+         }
++        else if( name == "D3D11_EXTERNAL_DEVICE_ACTIVE" )
++        {
++            *reinterpret_cast<bool *>( pData ) = mExternalDeviceActive;
++            return;
++        }
+         else if( name == "MapNoOverwriteOnDynamicConstantBuffer" )
+         {
+             *reinterpret_cast<bool *>( pData ) = false;  // TODO
