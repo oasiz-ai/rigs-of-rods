@@ -136,17 +136,26 @@ EvaluatePbrDirectReference(const PbrDirectReferenceInput &input,
       (std::max)(perceptual_roughness * perceptual_roughness,
                  kMinimumMicrofacetAlpha);
 
-  if (candidate.n_dot_l == 0.0 || candidate.n_dot_v == 0.0) {
-    output = candidate;
-    return ValidationResult::Success();
+  const double metallic = input.metallic;
+  const std::array<double, 3U> base{{
+      static_cast<double>(input.base_color_linear.x),
+      static_cast<double>(input.base_color_linear.y),
+      static_cast<double>(input.base_color_linear.z),
+  }};
+  std::array<double, 3U> f0{};
+  std::array<double, 3U> diffuse{};
+  for (std::size_t channel = 0U; channel < base.size(); ++channel) {
+    f0[channel] = kDielectricF0 + (base[channel] - kDielectricF0) * metallic;
+    diffuse[channel] = base[channel] * (1.0 - metallic) * kOgreNextInversePi;
   }
+  candidate.specular_f0 = {f0[0U], f0[1U], f0[2U]};
 
   Vector3d half_way;
   if (!Normalize(view.x + light.x, view.y + light.y, view.z + light.z,
                  half_way)) {
     return ValidationResult::Failure(
         ValidationCode::VALUE_OUT_OF_RANGE, "view_direction",
-        "front-facing view and light produced an undefined half vector");
+        "view and light directions produced an undefined half vector");
   }
   candidate.n_dot_h = ClampUnit(Dot(normal, half_way));
   candidate.v_dot_h = ClampUnit(Dot(view, half_way));
@@ -171,20 +180,7 @@ EvaluatePbrDirectReference(const PbrDirectReferenceInput &input,
       alpha_squared / (distribution_denominator * distribution_denominator);
   const double distribution_visibility = distribution * visibility;
 
-  const double metallic = input.metallic;
-  const std::array<double, 3U> base{{
-      static_cast<double>(input.base_color_linear.x),
-      static_cast<double>(input.base_color_linear.y),
-      static_cast<double>(input.base_color_linear.z),
-  }};
-  std::array<double, 3U> f0{};
-  std::array<double, 3U> diffuse{};
   const double fresnel_weight = Pow5(1.0 - candidate.v_dot_h);
-  for (std::size_t channel = 0U; channel < base.size(); ++channel) {
-    f0[channel] = kDielectricF0 + (base[channel] - kDielectricF0) * metallic;
-    diffuse[channel] = base[channel] * (1.0 - metallic) * kOgreNextInversePi;
-  }
-  candidate.specular_f0 = {f0[0U], f0[1U], f0[2U]};
 
   const double energy_bias = perceptual_roughness * 0.5;
   const double energy_factor =

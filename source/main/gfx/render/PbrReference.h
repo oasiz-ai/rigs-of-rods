@@ -7,7 +7,7 @@
 */
 
 /// @file
-/// @brief Portable numerical oracle for the pinned Ogre-Next direct BRDF.
+/// @brief Analytic binary64 oracle for the pinned Ogre-Next direct BRDF.
 
 #pragma once
 
@@ -18,13 +18,23 @@
 
 namespace RoR::Render {
 
-/// Version 1 reproduces the full-precision, height-correlated
-/// `PbsBrdf::Default` metallic workflow in the pinned Ogre-Next source. It is
-/// deliberately narrower than the complete material contract: no clear coat,
-/// transmission, sheen, anisotropy, or diffuse-Fresnel variant is implied.
+/// Version 1 evaluates the analytic, height-correlated `PbsBrdf::Default`
+/// metallic-workflow equations selected from the pinned Ogre-Next source. It
+/// is deliberately narrower than the complete material contract: no clear
+/// coat, transmission, sheen, anisotropy, or diffuse-Fresnel variant is
+/// implied. It is not a bit-exact model of backend float arithmetic.
 constexpr std::uint32_t kPbrDirectReferenceVersion = 1U;
 constexpr const char kPbrDirectReferenceOgreNextCommit[] =
     "37149a802de747f6806996fa3067b0748ecc1084";
+constexpr const char kPbrDirectReferenceBrdfSourceSha256[] =
+    "e616a7d7e29e4fd6a13698acddae6f03eadb5a694afd05acfd0b92399814253d";
+constexpr const char kPbrDirectReferencePixelSourceSha256[] =
+    "12cebd71e877c1d265df8d68f6c3f2931127679a8e77bb01c92b1221a09f5a7f";
+constexpr const char kPbrDirectReferenceDatablockSourceSha256[] =
+    "e4847c5b267039350999ce18ed6b0158df35ef005dc62b07f7142b7f26381a50";
+/// Backend-resolved shader samples must stay within this relative tolerance;
+/// absolute tolerances for values near zero remain fixture-specific.
+constexpr double kPbrDirectReferenceBackendRelativeTolerance = 0.01;
 
 struct PbrDirectReferenceInput {
   std::uint32_t version = kPbrDirectReferenceVersion;
@@ -56,9 +66,13 @@ struct PbrDirectReferenceResult {
   double microfacet_alpha = 0.0;
 };
 
-/// Evaluates a deterministic CPU reference for the exact supported shader
-/// slice. Inputs behind the shading hemisphere produce an exact black response;
-/// malformed inputs fail transactionally and leave `output` unchanged.
+/// Evaluates a deterministic CPU reference for the supported shader equations.
+/// N dot V is saturated exactly as in the pinned source, so tangent and
+/// back-facing view directions remain in-domain. N dot L is also saturated and
+/// multiplies the final response, making a tangent or back-facing light black
+/// when its view/light half vector is defined. An exactly antiparallel view and
+/// light have no half vector and fail transactionally. Every failure leaves
+/// `output` unchanged.
 [[nodiscard]] ValidationResult
 EvaluatePbrDirectReference(const PbrDirectReferenceInput &input,
                            PbrDirectReferenceResult &output);
