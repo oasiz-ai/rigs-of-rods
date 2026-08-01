@@ -288,6 +288,30 @@ class OgreNextProbeContractTests(unittest.TestCase):
             with self.assertRaisesRegex(PROBE.ProbeError, "conflict"):
                 PROBE.prepare_build_dir(build_dir, clean=True, reuse=True)
 
+    def test_cmake_source_path_normalization_accepts_windows_separators(
+        self,
+    ) -> None:
+        self.assertEqual(
+            PROBE._normalize_cmake_source_path(
+                r"D:\a\rigs-of-rods\tools\ogre_next_probe",
+                windows=True,
+            ),
+            PROBE._normalize_cmake_source_path(
+                "D:/a/rigs-of-rods/tools/ogre_next_probe",
+                windows=True,
+            ),
+        )
+        self.assertNotEqual(
+            PROBE._normalize_cmake_source_path(
+                r"D:\a\rigs-of-rods\tools\ogre_next_probe-other",
+                windows=True,
+            ),
+            PROBE._normalize_cmake_source_path(
+                "D:/a/rigs-of-rods/tools/ogre_next_probe",
+                windows=True,
+            ),
+        )
+
     def test_report_requires_every_capability_and_no_rt_claim(self) -> None:
         report = self.make_report()
         PROBE.validate_report(report, self.lock, self.policy)

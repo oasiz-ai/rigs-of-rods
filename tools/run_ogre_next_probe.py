@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import ntpath
 import os
 from pathlib import Path
 import platform
@@ -25,7 +26,7 @@ LINUX_SHADER_TOOLCHAIN_LOCK_PATH = (
     PROBE_SOURCE / "linux-shader-toolchain.lock.json"
 )
 LINUX_SHADER_TOOLCHAIN_LOCK_SHA256 = (
-    "ce1b5be012dd1be27002311abb2a5a0ecca953f4c8de218af30718b91f754b81"
+    "02d2a965f817786e295212161686c8fc1ff33f0000946b5f90ebd4c161eac35e"
 )
 REPORT_NAME = "ror-ogre-next-probe-report.json"
 BUILD_CONTRACT_NAME = "ogre-next-build-contract.json"
@@ -516,7 +517,7 @@ def load_linux_shader_toolchain_lock(
     if (
         patch.get("path") != "patches/0002-vulkan-use-glslang-spv-options.patch"
         or patch.get("sha256")
-        != "d603e6c77943799e91bfe49fb3311157bcbbcccb6667c928c4899ca1a5dca8a6"
+        != "4242ad130cff4e70245d151d0b1a0a63959d3d9b25d11a5587a74f48b15b7897"
     ):
         raise ProbeError("OGRE/glslang compatibility patch contract changed")
     patch_path = path.parent / patch["path"]
@@ -655,8 +656,22 @@ def prepare_build_dir(path: Path, clean: bool, reuse: bool = False) -> Path:
             raise ProbeError(
                 "--reuse-build-dir requires an owned configured probe build"
             ) from error
-        expected_source = f"CMAKE_HOME_DIRECTORY:INTERNAL={PROBE_SOURCE.resolve()}"
-        if sentinel_content != BUILD_SENTINEL_CONTENT or expected_source not in cache_text:
+        cache_prefix = "CMAKE_HOME_DIRECTORY:INTERNAL="
+        cached_sources = [
+            line[len(cache_prefix) :]
+            for line in cache_text.splitlines()
+            if line.startswith(cache_prefix)
+        ]
+        cached_source = cached_sources[0] if len(cached_sources) == 1 else None
+        windows_paths = os.name == "nt"
+        exact_source = (
+            cached_source is not None
+            and _normalize_cmake_source_path(cached_source, windows_paths)
+            == _normalize_cmake_source_path(
+                str(PROBE_SOURCE.resolve()), windows_paths
+            )
+        )
+        if sentinel_content != BUILD_SENTINEL_CONTENT or not exact_source:
             raise ProbeError(
                 "--reuse-build-dir does not identify this exact probe source"
             )
@@ -692,6 +707,16 @@ def prepare_build_dir(path: Path, clean: bool, reuse: bool = False) -> Path:
     except OSError as error:
         raise ProbeError(f"could not prepare --build-dir: {error}") from error
     return resolved
+
+
+def _normalize_cmake_source_path(value: str, windows: bool) -> str:
+    """Normalize CMake cache paths without assuming its separator spelling."""
+
+    if not value or "\0" in value or "\n" in value or "\r" in value:
+        return ""
+    if windows:
+        return ntpath.normcase(ntpath.normpath(value))
+    return os.path.normcase(os.path.realpath(value))
 
 
 def validate_report(

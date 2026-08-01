@@ -83,7 +83,8 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
             self.lock["ogre_compatibility_patch"]["sha256"],
         )
         patch = PATCH_PATH.read_text(encoding="utf-8")
-        self.assertIn("glslang/SPIRV/GlslangToSpv.h", patch)
+        self.assertIn('+#include "SPIRV/GlslangToSpv.h"', patch)
+        self.assertNotIn('+#include "glslang/SPIRV/GlslangToSpv.h"', patch)
         self.assertIn("-    struct SpvOptions", patch)
         shaderc_patch = self.lock["shaderc_release"]["compatibility_patch"]
         self.assertEqual(
@@ -103,6 +104,7 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
             'URL_HASH "SHA256=${ROR_LINUX_SPIRV_TOOLS_ARCHIVE_SHA256}"',
             'URL_HASH "SHA256=${ROR_LINUX_SPIRV_HEADERS_ARCHIVE_SHA256}"',
             "ROR_LINUX_SHADERC_PATCH_PATH",
+            "${ror_glslang_source_SOURCE_DIR}/SPIRV/GlslangToSpv.h",
             "shaderc_combined no longer owns",
             "set(Vulkan_SHADERC_LIB_REL shaderc_combined",
             "ror_ogre_next_linux_static_closure_verify",

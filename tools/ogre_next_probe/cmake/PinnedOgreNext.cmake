@@ -65,7 +65,7 @@ string(JSON ROR_RAPIDJSON_LICENSE_SHA256 GET "${_ror_lock_json}" dependencies ra
 set(ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/linux-shader-toolchain.lock.json")
 set(ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_SHA256
-    "ce1b5be012dd1be27002311abb2a5a0ecca953f4c8de218af30718b91f754b81")
+    "02d2a965f817786e295212161686c8fc1ff33f0000946b5f90ebd4c161eac35e")
 file(SHA256 "${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
     _ror_linux_toolchain_lock_sha256)
 if (NOT _ror_linux_toolchain_lock_sha256 STREQUAL
@@ -639,6 +639,12 @@ if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
     # OGRE's legacy FindVulkan accepts cache values before it runs. A CMake
     # target name is intentional here: it supplies the build dependency and
     # one archive containing the full closure, without host archive discovery.
+    set(_ror_glslang_to_spv_header
+        "${ror_glslang_source_SOURCE_DIR}/SPIRV/GlslangToSpv.h")
+    if (NOT EXISTS "${_ror_glslang_to_spv_header}")
+        message(FATAL_ERROR
+            "Pinned glslang source layout lacks SPIRV/GlslangToSpv.h")
+    endif ()
     set(Vulkan_SHADERC_INCLUDE_DIR
         "${shaderc_SOURCE_DIR}/libshaderc/include;${ror_glslang_source_SOURCE_DIR}"
         CACHE STRING "Pinned shaderc and glslang include roots" FORCE)
@@ -775,6 +781,8 @@ if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         "${ogre_next_SOURCE_DIR}/RenderSystems/Vulkan/src/OgreVulkanProgram.cpp"
         _ror_patched_vulkan_program)
     if (NOT _ror_patched_vulkan_program MATCHES
+            "SPIRV/GlslangToSpv.h" OR
+            _ror_patched_vulkan_program MATCHES
             "glslang/SPIRV/GlslangToSpv.h" OR
             _ror_patched_vulkan_program MATCHES "struct SpvOptions")
         message(FATAL_ERROR

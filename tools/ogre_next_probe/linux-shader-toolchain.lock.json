@@ -66,7 +66,7 @@
   },
   "ogre_compatibility_patch": {
     "path": "patches/0002-vulkan-use-glslang-spv-options.patch",
-    "sha256": "d603e6c77943799e91bfe49fb3311157bcbbcccb6667c928c4899ca1a5dca8a6",
+    "sha256": "4242ad130cff4e70245d151d0b1a0a63959d3d9b25d11a5587a74f48b15b7897",
     "reason": "Compile OGRE's Vulkan program against the exact pinned glslang SpvOptions definition instead of a shorter local ABI redeclaration"
   },
   "ogre_embedded_components": {
