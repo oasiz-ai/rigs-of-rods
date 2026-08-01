@@ -1,4 +1,4 @@
-name: OGRE-Next raster and Metal N2 capability probe
+name: OGRE-Next raster, Metal N2, and Vulkan RT5 capability probes
 
 on:
   push:
@@ -125,6 +125,7 @@ jobs:
           python tests/tools/test_ogre_next_frame_probe.py
           python tests/tools/test_ogre_next_frontend_n1_contract.py
           python tests/tools/test_ogre_next_metal_n2_contract.py
+          python tests/tools/test_ogre_next_vulkan_rt5_contract.py
           python tests/tools/test_ogre_next_linux_static_closure.py
           python tests/tools/test_ogre_next_probe_workflow.py
           python tests/tools/test_verify_ogre_next_artifact_set.py
@@ -132,10 +133,12 @@ jobs:
           python -O tests/tools/test_ogre_next_frame_probe.py
           python -O tests/tools/test_ogre_next_frontend_n1_contract.py
           python -O tests/tools/test_ogre_next_metal_n2_contract.py
+          python -O tests/tools/test_ogre_next_vulkan_rt5_contract.py
           python -O tests/tools/test_ogre_next_linux_static_closure.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
           python -O tests/tools/test_verify_ogre_next_artifact_set.py
           python tools/run_ogre_next_probe.py --validate-contract-only
+          python tools/ogre_next_probe/run_vulkan_rt5.py --validate-contract-only
 
       - name: Build, render, and validate the independent N1 frontend
         run: >-
@@ -160,6 +163,29 @@ jobs:
           --reuse-build-dir
           --checkpoint n2
           --jobs ${{ matrix.jobs }}
+
+      - name: Attest RoR-owned Vulkan instance and device injection
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          python tools/ogre_next_probe/run_vulkan_rt5.py \
+            --build-dir "$build_root" \
+            --reuse-build-dir \
+            --jobs "${{ matrix.jobs }}"
+          python - "$build_root/ror-ogre-next-vulkan-rt5-report.json" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if report.get("status") != "unsupported":
+              raise SystemExit("hosted lavapipe runner must not report an RT5 hardware pass")
+          if report.get("vulkan", {}).get("known_software_adapter") is not True:
+              raise SystemExit("hosted Vulkan skip did not identify the software adapter")
+          if report.get("scope", {}).get("native_ray_tracing") != "not_evaluated":
+              raise SystemExit("RT5 foundation must not claim native ray tracing")
+          PY
 
       - name: Build, render, read back, and validate the legacy probes
         run: >-
@@ -229,6 +255,13 @@ jobs:
           --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --verify-metal-n2-evidence
 
+      - name: Verify attested Vulkan RT5 pass or explicit unsupported evidence
+        if: always() && runner.os == 'Linux'
+        run: >-
+          python tools/ogre_next_probe/run_vulkan_rt5.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --verify-existing
+
       - name: Upload exact reports and UI-free frame
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -259,3 +292,15 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2-probe.bin
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2-attestation.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_metal_n2_smoke
+
+      - name: Upload attested Vulkan RT5 external-device evidence
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-vulkan-rt5-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-vulkan-rt5-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-vulkan-rt5-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_vulkan_rt5_smoke
