@@ -273,6 +273,25 @@ executable, source manifest, build contract, normal-map source-owner lock, and
 Ogre/media provenance are atomically hash-bound and semantically revalidated
 before publication.
 
+RT4/V1 now also owns a native Ogre-Next parallax-corrected cubemap runtime. It
+captures at most one scheduler-selected probe per frame into isolated
+`RGBA16_FLOAT` faces, runs the pinned IBL filter chain, measures every active
+face/mip byte, and issues the concrete receipt required by the renderer-neutral
+scheduler. A candidate generation remains unbound from PBS sampling and absent
+from the public audit until every other fallible frame stage has prepared
+successfully. The first-frame abort proof checks both the unchanged audit and
+the native ownership ledger: the PCC create/destroy counts balance, no PCC
+remains live, and PBS is unbound.
+
+Creating Ogre's PCC raises HlmsPbs' automatic specular-IBL mip high-water mark.
+N1 therefore admits the adapter only with its freshly created, exclusively
+owned HlmsPbs in automatic mode; N1 exposes no reflection/environment texture
+slot and never selects manual IBL mip policy. After an uncommitted or shutdown
+PCC is fully unbound and destroyed, RoR calls Ogre's public
+`resetIblSpecMipmap(0)` to recompute that state from the remaining live
+datablocks. Any failed ownership cleanup fault-latches the frontend and requires
+complete Root/Hlms teardown.
+
 On Metal, RT4/V1 may run simultaneously with N3. That path uses an explicitly
 reviewed 48-byte position/normal/tangent/UV0 layout for both Ogre rasterization
 and exact native position-slice export; the original N2 proof remains frozen to
@@ -285,9 +304,11 @@ This is not the complete RT4 or V1 gate. Occlusion textures remain fail-closed:
 the pinned HLMS PBS surface has no ambient-occlusion-only texture slot, and the
 frontend does not repurpose detail-map weight or multiply direct lighting.
 Only canonical positive-Z unit-scale normal maps and one directional-light
-calibration are admitted. There are no local-light shadow, reflection-probe/SSR,
-diffuse-GI, exposure/tone-map, temporal, presentation, CityWorld, or
-performance claims yet. N3 proves geometric hit contribution only; it does not
+calibration are admitted. There are no local-light shadows, SSR, diffuse-GI,
+presentation, CityWorld, or performance claims yet. The opt-in HDR compositor
+proves deterministic native auto-exposure, bloom, tone mapping, and R16 temporal
+history for the isolated fixture; production display transfer/gamut and image
+acceptance remain open. N3 proves geometric hit contribution only; it does not
 claim ray-material parity.
 
 ## RT4/V1 directional PSSM checkpoint

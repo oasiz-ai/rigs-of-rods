@@ -35,6 +35,11 @@ struct OgreNextReflectionProbeRuntimeConfiguration final {
   std::uintptr_t ogre_hlms_pbs = 0U;
   std::string shader_media_root;
   std::uint16_t maximum_blend_resolution = 2048U;
+  /// The runtime may create and retire Ogre's PCC blend texture only when the
+  /// caller owns a fresh HlmsPbs in its default automatic IBL-mipmap mode.
+  /// This lets removal use resetIblSpecMipmap(0) to recompute the canonical
+  /// live-texture high-water mark without clobbering caller policy.
+  bool owns_automatic_ibl_mipmap_policy = false;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
   bool retain_capture_evidence = false;
 #endif
@@ -104,6 +109,18 @@ struct OgreNextReflectionProbeCaptureEvidence final {
   std::vector<std::uint8_t> filtered_rgba16f;
   bool valid = false;
 };
+
+/// Native ownership ledger exposed only to the standalone smoke. No Ogre type
+/// or address crosses the renderer-neutral boundary.
+struct OgreNextReflectionProbeNativeOwnershipEvidence final {
+  std::uint32_t version = 1U;
+  std::uint64_t pcc_create_count = 0U;
+  std::uint64_t pcc_destroy_count = 0U;
+  std::uint32_t live_pcc_count = 0U;
+  bool pbs_query_succeeded = false;
+  bool pbs_unbound = false;
+  bool pbs_bound_to_runtime = false;
+};
 #endif
 
 /// Concrete capture authority named by ReflectionProbeCaptureReceipt.
@@ -153,6 +170,8 @@ public:
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
   [[nodiscard]] OgreNextReflectionProbeCaptureEvidence
   QueryLastCaptureEvidence() const;
+  [[nodiscard]] OgreNextReflectionProbeNativeOwnershipEvidence
+  QueryNativeOwnershipEvidence() const noexcept;
 #endif
 
   /// Quiesces captures, unbinds PBS, and destroys probes while Root,

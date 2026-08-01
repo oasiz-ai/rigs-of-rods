@@ -2706,6 +2706,14 @@ OgreNextN1Frontend::QueryReflectionProbeCaptureEvidence() const {
              ? impl_->reflection_probe_runtime->QueryLastCaptureEvidence()
              : OgreNextReflectionProbeCaptureEvidence{};
 }
+
+OgreNextReflectionProbeNativeOwnershipEvidence
+OgreNextN1Frontend::QueryReflectionProbeNativeOwnershipEvidence() const
+    noexcept {
+  return impl_->reflection_probe_runtime
+             ? impl_->reflection_probe_runtime->QueryNativeOwnershipEvidence()
+             : OgreNextReflectionProbeNativeOwnershipEvidence{};
+}
 #endif
 
 OgreNextPssmShadowRuntimeAudit
@@ -2976,6 +2984,11 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
       reflection_configuration.shader_media_root =
           impl_->resolved_shader_media_root;
       reflection_configuration.maximum_blend_resolution = 2048U;
+      // This frontend creates and exclusively owns a fresh HlmsPbs. It keeps
+      // Ogre's automatic IBL-mipmap policy and admits no PBSM_REFLECTION or
+      // environment texture, which makes resetIblSpecMipmap(0) the canonical
+      // PCC-removal recomputation on every backend.
+      reflection_configuration.owns_automatic_ibl_mipmap_policy = true;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
       reflection_configuration.retain_capture_evidence =
           impl_->retain_reflection_capture_evidence;

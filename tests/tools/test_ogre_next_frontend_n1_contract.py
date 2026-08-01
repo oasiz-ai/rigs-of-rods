@@ -338,6 +338,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "AbortFrame",
             "pcc_created",
             "DestroyUncommittedPcc",
+            "owns_automatic_ibl_mipmap_policy",
+            "resetIblSpecMipmap(0U)",
+            "OgreNextReflectionProbeNativeOwnershipEvidence",
+            "QueryNativeOwnershipEvidence",
+            "is_nothrow_destructible<Ogre::ParallaxCorrectedCubemap>",
             "filtered_nonzero_rgb_component_count",
             "view.inverseAffine().getTrans()",
             "owner_thread",
@@ -347,6 +352,18 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             )
         self.assertNotIn("setPriority(", self.reflection_runtime)
         self.assertNotIn("audit.pcc_enabled = true", self.reflection_runtime)
+        self.assertEqual(self.reflection_runtime.count("resetIblSpecMipmap(0U)"), 1)
+        self.assertIn(
+            "reflection_configuration.owns_automatic_ibl_mipmap_policy = true",
+            self.frontend,
+        )
+        destroy_uncommitted = self.reflection_runtime.split(
+            "bool DestroyUncommittedPcc() noexcept", 1
+        )[1].split("bool AbortLocalPlan", 1)[0]
+        self.assertLess(
+            destroy_uncommitted.index("delete retired"),
+            destroy_uncommitted.index("ResetAutomaticIblMipmapPolicy()"),
+        )
         self.assertLess(
             self.reflection_runtime.index(
                 "scheduler.Commit(pending->plan_id, pending->receipts)"

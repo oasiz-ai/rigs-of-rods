@@ -28,6 +28,7 @@ enum class OgreNextNativeFeatureTier : std::uint8_t;
 struct OgreNextReflectionProbeAudit;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
 struct OgreNextReflectionProbeCaptureEvidence;
+struct OgreNextReflectionProbeNativeOwnershipEvidence;
 #endif
 
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -260,6 +261,8 @@ public:
   QueryNormalUploadAudit() const noexcept;
   [[nodiscard]] OgreNextReflectionProbeCaptureEvidence
   QueryReflectionProbeCaptureEvidence() const;
+  [[nodiscard]] OgreNextReflectionProbeNativeOwnershipEvidence
+  QueryReflectionProbeNativeOwnershipEvidence() const noexcept;
 #endif
   [[nodiscard]] OgreNextPssmShadowRuntimeAudit
   QueryDirectionalShadowAudit() const noexcept;

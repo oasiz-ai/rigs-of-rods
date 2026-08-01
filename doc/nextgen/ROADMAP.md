@@ -1257,16 +1257,22 @@ revision lineage, retry/abort semantics, deterministic seeds, and permanent ID
 tombstones. Binary64 world positions are converted transactionally against each
 frame's render origin, so large-world rebasing is distinct from authored probe
 changes. Joined-scene producer wiring, the portable scheduler, canonical
-readback measurement, and opaque plan/request receipt boundary are implemented;
-native Ogre-Next cubemap rendering/filtering, a shipping receipt issuer,
-three-backend images, authoring, performance, and image quality remain open
-acceptance work. The portable contract mirrors Ogre-Next PCC's owned filtered
+readback measurement, opaque plan/request receipts, and the native Ogre-Next
+PCC adapter are implemented. The adapter renders isolated `RGBA16_FLOAT`
+cubemap faces, filters every reviewed mip, issues the concrete receipt, and
+publishes the native generation only at the final fallible frame boundary.
+Aborting the first generation now proves balanced PCC create/destroy ownership,
+an unbound PBS pointer, and unchanged public lineage. The source-locked contract
+also pins the cleanup order and Ogre's public zero reset used to recompute the
+automatic-IBL mip state; the hidden mip value is not claimed as runtime
+readback. Three-backend image-quality acceptance, authoring, performance, and
+production scene coverage remain open.
+The portable contract mirrors Ogre-Next PCC's owned filtered
 IBL output (`max(full_chain_mips, 5) - 4`) at reviewed 32..2048 resolutions,
 including 32 => 2 mips and 256 => 5; it does not claim the source cubemap's
 full raw chain. Portable measurements bind the complete schedule request,
 exact per-mip dimensions, and active RGBA16F bytes for every face/mip while rejecting padding
-dependence and partial data, but remain non-authoritative until a concrete
-native adapter issues a plan-bound receipt. Commit rejects stale lineage,
+dependence and partial data. Commit rejects stale lineage,
 cross-plan replay, and reset-era transaction ABA without treating a caller's
 integer or digest as evidence of backend execution.
 

@@ -61,6 +61,10 @@
 namespace RoR::Render {
 namespace {
 
+static_assert(
+    std::is_nothrow_destructible<Ogre::ParallaxCorrectedCubemap>::value,
+    "PCC teardown is a no-throw transaction boundary");
+
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
 static_assert(
     std::is_nothrow_move_assignable<
@@ -588,6 +592,11 @@ public:
       return Failure(RenderOperationCode::INVALID_ARGUMENT,
                      "native objects and shader media root are required");
     }
+    if (!value.owns_automatic_ibl_mipmap_policy) {
+      return Failure(
+          RenderOperationCode::INVALID_ARGUMENT,
+          "RoR-owned automatic IBL-mipmap policy is required for PCC rollback");
+    }
     if (value.maximum_blend_resolution < 32U ||
         value.maximum_blend_resolution > 2048U ||
         (value.maximum_blend_resolution &
@@ -661,6 +670,25 @@ public:
     }
   }
 
+  [[nodiscard]] bool ResetAutomaticIblMipmapPolicy() noexcept {
+    if (pbs == nullptr || !configuration.owns_automatic_ibl_mipmap_policy) {
+      return false;
+    }
+    try {
+      if (pbs->getParallaxCorrectedCubemap() != nullptr) {
+        return false;
+      }
+      // PCC setEnabled() raises HlmsPbs' automatic IBL mip high-water mark.
+      // The N1 contract owns a fresh, automatic-policy PBS and admits no
+      // PBSM_REFLECTION/environment textures, so Ogre's public zero reset is
+      // the canonical recomputation after the PCC has been fully removed.
+      pbs->resetIblSpecMipmap(0U);
+      return pbs->getParallaxCorrectedCubemap() == nullptr;
+    } catch (...) {
+      return false;
+    }
+  }
+
   void EnsurePcc() {
     if (pcc != nullptr) {
       return;
@@ -692,14 +720,22 @@ public:
             "PCC blend runtime did not retain the configured native owner");
       }
     } catch (...) {
+      bool destroyed = false;
       try {
         delete created;
+        destroyed = true;
       } catch (...) {
+        faulted = true;
+      }
+      if (destroyed && !ResetAutomaticIblMipmapPolicy()) {
         faulted = true;
       }
       throw;
     }
     pcc = created;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+    ++native_pcc_create_count;
+#endif
   }
 
   void ApplyDescriptor(Ogre::CubemapProbe &probe,
@@ -850,9 +886,13 @@ public:
       if (pbs == nullptr || pbs->getParallaxCorrectedCubemap() != nullptr) {
         return false;
       }
-      delete pcc;
+      Ogre::ParallaxCorrectedCubemap *retired = pcc;
+      delete retired;
       pcc = nullptr;
-      return true;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      ++native_pcc_destroy_count;
+#endif
+      return ResetAutomaticIblMipmapPolicy();
     } catch (...) {
       return false;
     }
@@ -1378,6 +1418,29 @@ public:
     return clean;
   }
 
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  [[nodiscard]] OgreNextReflectionProbeNativeOwnershipEvidence
+  NativeOwnershipEvidence() const noexcept {
+    OgreNextReflectionProbeNativeOwnershipEvidence evidence;
+    evidence.pcc_create_count = native_pcc_create_count;
+    evidence.pcc_destroy_count = native_pcc_destroy_count;
+    evidence.live_pcc_count = pcc != nullptr ? 1U : 0U;
+    if (pbs == nullptr) {
+      return evidence;
+    }
+    try {
+      Ogre::ParallaxCorrectedCubemapBase *binding =
+          pbs->getParallaxCorrectedCubemap();
+      evidence.pbs_unbound = binding == nullptr;
+      evidence.pbs_bound_to_runtime = pcc != nullptr && binding == pcc;
+      evidence.pbs_query_succeeded = true;
+    } catch (...) {
+      return evidence;
+    }
+    return evidence;
+  }
+#endif
+
   [[nodiscard]] bool Shutdown() noexcept {
     if (audit.initialized && !OnOwnerThread()) {
       return false;
@@ -1401,12 +1464,21 @@ public:
     }
     audit.pbs_bound = false;
     if (pcc != nullptr) {
+      bool destroyed = false;
       try {
-        delete pcc;
+        Ogre::ParallaxCorrectedCubemap *retired = pcc;
+        delete retired;
+        pcc = nullptr;
+        destroyed = true;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+        ++native_pcc_destroy_count;
+#endif
       } catch (...) {
         clean = false;
       }
-      pcc = nullptr;
+      if (destroyed) {
+        clean = ResetAutomaticIblMipmapPolicy() && clean;
+      }
     }
     if (root != nullptr) {
       try {
@@ -1481,6 +1553,8 @@ public:
   OgreNextReflectionProbeAudit audit;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
   OgreNextReflectionProbeCaptureEvidence last_capture_evidence;
+  std::uint64_t native_pcc_create_count = 0U;
+  std::uint64_t native_pcc_destroy_count = 0U;
 #endif
   std::thread::id owner_thread;
   bool faulted = false;
@@ -1526,6 +1600,11 @@ OgreNextReflectionProbeRuntime::QueryAudit() const noexcept {
 OgreNextReflectionProbeCaptureEvidence
 OgreNextReflectionProbeRuntime::QueryLastCaptureEvidence() const {
   return impl_->last_capture_evidence;
+}
+
+OgreNextReflectionProbeNativeOwnershipEvidence
+OgreNextReflectionProbeRuntime::QueryNativeOwnershipEvidence() const noexcept {
+  return impl_->NativeOwnershipEvidence();
 }
 #endif
 

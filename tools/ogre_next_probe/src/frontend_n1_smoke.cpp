@@ -2557,6 +2557,9 @@ RunHdrCompositorProof(const std::string &media_root) {
       transaction.QueryHdrCompositorAudit();
   const OgreNextReflectionProbeAudit reflection_before_abort =
       transaction.QueryReflectionProbeAudit();
+  const OgreNextReflectionProbeNativeOwnershipEvidence
+      reflection_ownership_before_abort =
+          transaction.QueryReflectionProbeNativeOwnershipEvidence();
   RenderFrameOutput preserved_output;
   preserved_output.frame_id = 777U;
   preserved_output.snapshot_id = 778U;
@@ -2583,6 +2586,9 @@ RunHdrCompositorProof(const std::string &media_root) {
       transaction.QueryHdrCompositorAudit();
   const OgreNextReflectionProbeAudit reflection_after_abort =
       transaction.QueryReflectionProbeAudit();
+  const OgreNextReflectionProbeNativeOwnershipEvidence
+      reflection_ownership_after_abort =
+          transaction.QueryReflectionProbeNativeOwnershipEvidence();
   evidence.aborted_hdr_audit_unchanged =
       hdr_after_abort.version == hdr_before_abort.version &&
       hdr_after_abort.enabled == hdr_before_abort.enabled &&
@@ -2684,6 +2690,21 @@ RunHdrCompositorProof(const std::string &media_root) {
           reflection_before_abort.ui_free_capture &&
       reflection_after_abort.reserved_render_queue_excluded ==
           reflection_before_abort.reserved_render_queue_excluded;
+  const bool reflection_native_ownership_released =
+      reflection_ownership_before_abort.version == 1U &&
+      reflection_ownership_before_abort.pbs_query_succeeded &&
+      reflection_ownership_before_abort.pcc_create_count == 0U &&
+      reflection_ownership_before_abort.pcc_destroy_count == 0U &&
+      reflection_ownership_before_abort.live_pcc_count == 0U &&
+      reflection_ownership_before_abort.pbs_unbound &&
+      !reflection_ownership_before_abort.pbs_bound_to_runtime &&
+      reflection_ownership_after_abort.version == 1U &&
+      reflection_ownership_after_abort.pbs_query_succeeded &&
+      reflection_ownership_after_abort.pcc_create_count == 1U &&
+      reflection_ownership_after_abort.pcc_destroy_count == 1U &&
+      reflection_ownership_after_abort.live_pcc_count == 0U &&
+      reflection_ownership_after_abort.pbs_unbound &&
+      !reflection_ownership_after_abort.pbs_bound_to_runtime;
   evidence.aborted_submission_uncommitted =
       !transaction.IsFrameComplete(1U);
   evidence.aborted_output_unchanged =
@@ -2723,6 +2744,7 @@ RunHdrCompositorProof(const std::string &media_root) {
           std::string::npos &&
       evidence.aborted_hdr_audit_unchanged &&
       evidence.aborted_reflection_audit_unchanged &&
+      reflection_native_ownership_released &&
       evidence.aborted_submission_uncommitted &&
       evidence.aborted_output_unchanged &&
       evidence.post_render_failure_fault_latched;
@@ -2733,6 +2755,8 @@ RunHdrCompositorProof(const std::string &media_root) {
               ", reflection=" +
               (evidence.aborted_reflection_audit_unchanged ? "true"
                                                            : "false") +
+              ", reflection_ownership=" +
+              (reflection_native_ownership_released ? "true" : "false") +
               ", submission=" +
               (evidence.aborted_submission_uncommitted ? "true" : "false") +
               ", output=" +
