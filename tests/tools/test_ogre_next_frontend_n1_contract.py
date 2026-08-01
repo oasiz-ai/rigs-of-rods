@@ -156,6 +156,9 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         cls.reflection_runtime = (
             RENDER_ROOT / "ogrenext" / "OgreNextReflectionProbeRuntime.cpp"
         ).read_text(encoding="utf-8")
+        cls.pssm_policy = (
+            RENDER_ROOT / "ogrenext" / "OgreNextPssmShadowPolicy.cpp"
+        ).read_text(encoding="utf-8")
         cls.smoke = (
             PROBE_ROOT / "src" / "frontend_n1_smoke.cpp"
         ).read_text(encoding="utf-8")
@@ -182,7 +185,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("ReflectionProbeCaptureReceipt.cpp", contract_sources)
 
     def test_public_boundary_contains_no_ogre_types(self) -> None:
-        self.assertNotIn('#include "Ogre', self.header)
+        self.assertNotRegex(self.header, r'#include\s+[<"]Ogre(?!Next)')
         self.assertNotIn("Ogre::", self.header)
         self.assertIn("std::unique_ptr<Impl>", self.header)
         self.assertRegex(
@@ -433,13 +436,14 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "kOgreNextRt4LuxToNativePowerScale = 1.0F / 1024.0F",
         ):
             self.assertIn(token, self.policy_header)
+        combined_policy = self.policy + self.pssm_policy
         for token in (
             "RT4/V1 admits at most one calibrated directional light",
             "light.type != LightType::DIRECTIONAL",
-            "light.shadow_flags != 0U",
+            "shadow_flags != 0U",
             "light.intensity * kOgreNextRt4LuxToNativePowerScale",
         ):
-            self.assertIn(token, self.policy)
+            self.assertIn(token, combined_policy)
         for token in (
             "createLight()",
             "Ogre::Light::LT_DIRECTIONAL",

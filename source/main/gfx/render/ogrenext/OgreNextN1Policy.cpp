@@ -774,7 +774,8 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
 ValidationResult ValidateOgreNextN1Scene(
     const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
     bool allow_dynamic_meshes,
-    OgreNextRasterFeatureTier raster_feature_tier) {
+    OgreNextRasterFeatureTier raster_feature_tier,
+    OgreNextDirectionalShadowMode shadow_mode) {
   if (!IsKnownOgreNextRasterFeatureTier(raster_feature_tier)) {
     return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
                                      "raster_feature_tier",
@@ -846,12 +847,6 @@ ValidationResult ValidateOgreNextN1Scene(
             "RT4/V1 admits a directional light only; local-light attenuation is not calibrated yet",
             index);
       }
-      if (light.shadow_flags != 0U) {
-        return Unsupported(
-            "lights.shadow_flags",
-            "RT4/V1 directional shadows require a reviewed shadow-node contract",
-            index);
-      }
       const float native_power =
           light.intensity * kOgreNextRt4LuxToNativePowerScale;
       if (!IsFinite(native_power) ||
@@ -862,6 +857,11 @@ ValidationResult ValidateOgreNextN1Scene(
             index);
       }
     }
+  }
+  validation = ValidateOgreNextPssmShadowScene(
+      snapshot, raster_feature_tier, shadow_mode);
+  if (!validation) {
+    return validation;
   }
   if (!IsFiniteScaled(snapshot.environment().ambient_radiance,
                       snapshot.environment().environment_intensity)) {
@@ -930,7 +930,8 @@ ValidationResult ValidateOgreNextN1Frame(
     const RenderFrameRequest &request,
     const FrontendCapabilityReport &capabilities,
     const RenderAssetRegistry &registry,
-    OgreNextRasterFeatureTier raster_feature_tier) {
+    OgreNextRasterFeatureTier raster_feature_tier,
+    OgreNextDirectionalShadowMode shadow_mode) {
   ValidationResult validation =
       ValidateRenderFrameRequestAgainstCapabilities(request, capabilities);
   if (!validation) {
@@ -988,9 +989,17 @@ ValidationResult ValidateOgreNextN1Frame(
         ValidationCode::REVISION_MISMATCH, "scene_snapshot.asset_sequence",
         "scene requires a different synchronized asset catalog");
   }
-  return ValidateOgreNextN1Scene(
+  validation = ValidateOgreNextN1Scene(
       *request.scene_snapshot, registry,
-      capabilities.supports_dynamic_mesh_updates, raster_feature_tier);
+      capabilities.supports_dynamic_mesh_updates, raster_feature_tier,
+      shadow_mode);
+  if (!validation) {
+    return validation;
+  }
+  OgreNextPssmShadowFramePlan shadow_plan;
+  return TryBuildOgreNextPssmShadowFramePlan(
+      *request.scene_snapshot, registry, view, raster_feature_tier,
+      shadow_mode, shadow_plan);
 }
 
 RenderOperationResult

@@ -16,6 +16,8 @@
 
 #include "Compositor/OgreCompositorManager2.h"
 #include "Compositor/OgreCompositorNodeDef.h"
+#include "Compositor/OgreCompositorShadowNode.h"
+#include "Compositor/OgreCompositorShadowNodeDef.h"
 #include "Compositor/OgreCompositorWorkspace.h"
 #include "Compositor/OgreCompositorWorkspaceDef.h"
 #include "Compositor/OgreTextureDefinition.h"
@@ -28,6 +30,7 @@
 #include "OgreException.h"
 #include "OgreHlmsSamplerblock.h"
 #include "OgreHlmsManager.h"
+#include "OgreHlmsDatablock.h"
 #include "OgreHlmsPbs.h"
 #include "OgreHlmsPbsDatablock.h"
 #include "OgreImage2.h"
@@ -502,12 +505,226 @@ bool TryComputeReadbackLayout(std::uint32_t width, std::uint32_t height,
   return true;
 }
 
+void CreateAndVerifyPssmShadowNode(
+    Ogre::CompositorManager2 &compositors,
+    const Ogre::RenderSystemCapabilities &capabilities,
+    const std::string &shadow_node_name, std::uint32_t visibility_mask) {
+  Ogre::ShadowNodeHelper::ShadowParam parameter{};
+  parameter.supportedLightTypes = 0U;
+  parameter.addLightType(Ogre::Light::LT_DIRECTIONAL);
+  parameter.technique = Ogre::SHADOWMAP_PSSM;
+  parameter.numPssmSplits =
+      static_cast<Ogre::uint8>(kOgreNextPssmCascadeCount);
+  parameter.atlasId = 0U;
+  for (std::size_t index = 0U; index < kOgreNextPssmCascadeCount;
+       ++index) {
+    const OgreNextPssmCascadeLayout &layout =
+        kOgreNextPssmCascadeLayouts[index];
+    parameter.resolution[index] =
+        Ogre::ShadowNodeHelper::Resolution(layout.width, layout.height);
+    parameter.atlasStart[index] =
+        Ogre::ShadowNodeHelper::Resolution(layout.atlas_x, layout.atlas_y);
+  }
+  Ogre::ShadowNodeHelper::ShadowParamVec parameters;
+  parameters.push_back(parameter);
+  Ogre::ShadowNodeHelper::createShadowNodeWithSettings(
+      &compositors, &capabilities, shadow_node_name, parameters, false,
+      1024U, kOgreNextPssmLambda, kOgreNextPssmSplitPaddingMeters,
+      kOgreNextPssmSplitBlend, kOgreNextPssmSplitFade,
+      kOgreNextPssmStableCascadeCount, visibility_mask,
+      kOgreNextPssmXyPadding, 0U, 255U);
+  // Programmatic definitions remain in Ogre's unfinished maps until this
+  // explicit validation boundary. Never let addWorkspace() select or repair
+  // an unreviewed fallback node on our behalf.
+  compositors.validateAllNodes();
+
+  Ogre::CompositorShadowNodeDef *definition =
+      compositors.getShadowNodeDefinitionNonConst(
+          Ogre::IdString(shadow_node_name));
+  if (definition == nullptr ||
+      definition->getNumShadowTextureDefinitions() !=
+          kOgreNextPssmCascadeCount ||
+      definition->getNumTargetPasses() !=
+          kOgreNextPssmCascadeCount + 1U) {
+    throw std::runtime_error(
+        "Ogre-Next PSSM helper substituted the reviewed three-cascade node topology");
+  }
+  const auto &textures = definition->getLocalTextureDefinitions();
+  if (textures.size() != 1U ||
+      textures.front().width != kOgreNextPssmAtlasWidth ||
+      textures.front().height != kOgreNextPssmAtlasHeight ||
+      textures.front().format != Ogre::PFG_D32_FLOAT ||
+      textures.front().depthBufferFormat != Ogre::PFG_D32_FLOAT ||
+      textures.front().preferDepthTexture || textures.front().fsaa != "1" ||
+      textures.front().textureFlags !=
+          (Ogre::TextureFlags::RenderToTexture |
+           Ogre::TextureFlags::DiscardableContent)) {
+    throw std::runtime_error(
+        "Ogre-Next PSSM helper substituted the reviewed 2048x3072 D32_FLOAT atlas");
+  }
+
+  for (std::size_t index = 0U; index < kOgreNextPssmCascadeCount;
+       ++index) {
+    Ogre::ShadowTextureDefinition *shadow =
+        definition->getShadowTextureDefinitionNonConst(index);
+    shadow->constantBiasScale = kOgreNextPssmConstantBiasScale;
+    shadow->normalOffsetBias = kOgreNextPssmNormalOffsetBias;
+    shadow->autoConstantBiasScale = kOgreNextPssmAutoConstantBiasScale;
+    shadow->autoNormalOffsetBiasScale =
+        kOgreNextPssmAutoNormalOffsetBiasScale;
+    const OgreNextPssmCascadeLayout &layout =
+        kOgreNextPssmCascadeLayouts[index];
+    const Ogre::Vector2 expected_offset(
+        static_cast<float>(layout.atlas_x) /
+            static_cast<float>(kOgreNextPssmAtlasWidth),
+        static_cast<float>(layout.atlas_y) /
+            static_cast<float>(kOgreNextPssmAtlasHeight));
+    const Ogre::Vector2 expected_length(
+        static_cast<float>(layout.width) /
+            static_cast<float>(kOgreNextPssmAtlasWidth),
+        static_cast<float>(layout.height) /
+            static_cast<float>(kOgreNextPssmAtlasHeight));
+    if (shadow->light != 0U || shadow->split != index ||
+        shadow->shadowMapTechnique != Ogre::SHADOWMAP_PSSM ||
+        shadow->numSplits != kOgreNextPssmCascadeCount ||
+        shadow->numStableSplits != kOgreNextPssmStableCascadeCount ||
+        !NearlyEqual(shadow->uvOffset.x, expected_offset.x) ||
+        !NearlyEqual(shadow->uvOffset.y, expected_offset.y) ||
+        !NearlyEqual(shadow->uvLength.x, expected_length.x) ||
+        !NearlyEqual(shadow->uvLength.y, expected_length.y) ||
+        !NearlyEqual(shadow->pssmLambda, kOgreNextPssmLambda) ||
+        !NearlyEqual(shadow->splitPadding,
+                     kOgreNextPssmSplitPaddingMeters) ||
+        !NearlyEqual(shadow->splitBlend, kOgreNextPssmSplitBlend) ||
+        !NearlyEqual(shadow->splitFade, kOgreNextPssmSplitFade) ||
+        !NearlyEqual(shadow->xyPadding, kOgreNextPssmXyPadding) ||
+        !NearlyEqual(shadow->constantBiasScale,
+                     kOgreNextPssmConstantBiasScale) ||
+        !NearlyEqual(shadow->normalOffsetBias,
+                     kOgreNextPssmNormalOffsetBias) ||
+        !NearlyEqual(shadow->autoConstantBiasScale,
+                     kOgreNextPssmAutoConstantBiasScale) ||
+        !NearlyEqual(shadow->autoNormalOffsetBiasScale,
+                     kOgreNextPssmAutoNormalOffsetBiasScale)) {
+      throw std::runtime_error(
+          "Ogre-Next PSSM native definition differs from the reviewed cascade policy");
+    }
+  }
+
+  for (std::size_t target_index = 1U;
+       target_index < kOgreNextPssmCascadeCount + 1U; ++target_index) {
+    const Ogre::CompositorPassDefVec &passes =
+        definition->getTargetPass(target_index)->getCompositorPasses();
+    const auto *scene_pass =
+        passes.size() == 1U
+            ? dynamic_cast<const Ogre::CompositorPassSceneDef *>(passes.front())
+            : nullptr;
+    if (scene_pass == nullptr ||
+        scene_pass->mShadowMapIdx != target_index - 1U ||
+        scene_pass->mIncludeOverlays ||
+        scene_pass->mVisibilityMask != visibility_mask) {
+      std::ostringstream detail;
+      detail << "Ogre-Next PSSM caster pass " << target_index
+             << " lost stable cascade ordering or UI-free visibility"
+             << " (passes=" << passes.size() << ", scene="
+             << (scene_pass != nullptr) << ", map="
+             << (scene_pass != nullptr ? scene_pass->mShadowMapIdx : 999U)
+             << ", overlays="
+             << (scene_pass != nullptr && scene_pass->mIncludeOverlays)
+             << ", mask="
+             << (scene_pass != nullptr ? scene_pass->mVisibilityMask : 0U)
+             << ", expected_mask=" << visibility_mask << ')';
+      throw std::runtime_error(detail.str());
+    }
+  }
+}
+
+void BindAndVerifyPssmWorkspace(
+    Ogre::CompositorManager2 &compositors,
+    const std::string &main_node_name,
+    const std::string &shadow_node_name) {
+  Ogre::CompositorNodeDef *node =
+      compositors.getNodeDefinitionNonConst(
+          Ogre::IdString(main_node_name));
+  if (node == nullptr || node->getNumTargetPasses() != 1U) {
+    throw std::runtime_error(
+        "Ogre-Next main workspace topology changed before PSSM binding");
+  }
+  const Ogre::CompositorPassDefVec &passes =
+      node->getTargetPass(0U)->getCompositorPasses();
+  auto *scene_pass =
+      passes.size() == 1U
+          ? dynamic_cast<Ogre::CompositorPassSceneDef *>(passes.front())
+          : nullptr;
+  if (scene_pass == nullptr) {
+    throw std::runtime_error(
+        "Ogre-Next main workspace has no single UI-free scene pass");
+  }
+  scene_pass->mIncludeOverlays = false;
+  scene_pass->mShadowNode = Ogre::IdString(shadow_node_name);
+  scene_pass->mShadowNodeRecalculation = Ogre::SHADOW_NODE_FIRST_ONLY;
+  if (scene_pass->mIncludeOverlays ||
+      scene_pass->mShadowNode != Ogre::IdString(shadow_node_name) ||
+      scene_pass->mShadowNodeRecalculation !=
+          Ogre::SHADOW_NODE_FIRST_ONLY) {
+    throw std::runtime_error(
+        "Ogre-Next substituted the programmatic PSSM workspace binding");
+  }
+}
+
+OgreNextPssmSplitPolicy ReadAndVerifyNativePssmSplits(
+    Ogre::CompositorWorkspace &workspace,
+    const std::string &shadow_node_name) {
+  Ogre::CompositorShadowNode *shadow_node =
+      workspace.findShadowNode(Ogre::IdString(shadow_node_name));
+  const auto *native_splits =
+      shadow_node != nullptr ? shadow_node->getPssmSplits(0U) : nullptr;
+  const auto *native_blends =
+      shadow_node != nullptr ? shadow_node->getPssmBlends(0U) : nullptr;
+  const Ogre::Real *native_fade =
+      shadow_node != nullptr ? shadow_node->getPssmFade(0U) : nullptr;
+  OgreNextPssmSplitPolicy expected;
+  if (shadow_node == nullptr || native_splits == nullptr ||
+      native_blends == nullptr || native_fade == nullptr ||
+      shadow_node->getNumActiveShadowCastingLights() != 1U ||
+      native_splits->size() != kOgreNextPssmCascadeCount + 1U ||
+      native_blends->size() != kOgreNextPssmCascadeCount - 1U ||
+      !TryBuildOgreNextPssmSplitPolicy(expected)) {
+    throw std::runtime_error(
+        "Ogre-Next PSSM runtime did not expose the reviewed cascade split state");
+  }
+  OgreNextPssmSplitPolicy observed;
+  for (std::size_t index = 0U; index < native_splits->size(); ++index) {
+    observed.split_points[index] = (*native_splits)[index];
+    if (!NearlyEqual(observed.split_points[index],
+                     expected.split_points[index])) {
+      throw std::runtime_error(
+          "Ogre-Next PSSM runtime substituted a cascade split point");
+    }
+  }
+  for (std::size_t index = 0U; index < native_blends->size(); ++index) {
+    observed.blend_points[index] = (*native_blends)[index];
+    if (!NearlyEqual(observed.blend_points[index],
+                     expected.blend_points[index])) {
+      throw std::runtime_error(
+          "Ogre-Next PSSM runtime substituted a cascade blend point");
+    }
+  }
+  observed.fade_point = *native_fade;
+  if (!NearlyEqual(observed.fade_point, expected.fade_point)) {
+    throw std::runtime_error(
+        "Ogre-Next PSSM runtime substituted the terminal fade point");
+  }
+  return observed;
+}
+
 } // namespace
 
 class OgreNextN1Frontend::Impl final {
 public:
   explicit Impl(OgreNextN1Configuration configuration)
       : raster_feature_tier(configuration.raster_feature_tier),
+        directional_shadow_mode(configuration.directional_shadow_mode),
         configured_shader_media_root(
             std::move(configuration.shader_media_root))
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -617,6 +834,12 @@ public:
     return audit;
   }
 #endif
+
+  OgreNextPssmShadowRuntimeAudit DirectionalShadowAudit() const noexcept {
+    OgreNextPssmShadowRuntimeAudit audit = shadow_audit;
+    audit.configured_mode = directional_shadow_mode;
+    return audit;
+  }
 
   bool OnOwnerThread() const noexcept {
     return initialized && std::this_thread::get_id() == owner_thread;
@@ -1185,6 +1408,13 @@ public:
       // exact identity value and we write/read it explicitly here.
       native.datablock->setNormalMapWeight(1.0F);
       native.datablock->setTwoSidedLighting(descriptor.double_sided, false);
+      if (directional_shadow_mode ==
+          OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1) {
+        // Do not inherit an upstream default implicitly: this bias is part of
+        // the reviewed checkpoint and is read back again before submission.
+        native.datablock->mShadowConstantBias =
+            kOgreNextPssmMaterialConstantBias;
+      }
       const auto bind_texture =
           [&](const TextureBinding &binding, Ogre::PbsTextureTypes slot,
               Ogre::TextureGpu *NativeTexture::*native_member) {
@@ -1432,6 +1662,9 @@ public:
       OgreNextNativeVertexLayout::INVALID;
   OgreNextRasterFeatureTier raster_feature_tier =
       OgreNextRasterFeatureTier::STATIC_PBR_N1;
+  OgreNextDirectionalShadowMode directional_shadow_mode =
+      OgreNextDirectionalShadowMode::DISABLED;
+  OgreNextPssmShadowRuntimeAudit shadow_audit;
   std::thread::id owner_thread;
   std::string configured_shader_media_root;
   std::string resolved_shader_media_root;
@@ -1508,6 +1741,11 @@ OgreNextN1Frontend::QueryReflectionProbeCaptureEvidence() const {
 }
 #endif
 
+OgreNextPssmShadowRuntimeAudit
+OgreNextN1Frontend::QueryDirectionalShadowAudit() const noexcept {
+  return impl_->DirectionalShadowAudit();
+}
+
 RenderOperationResult OgreNextN1Frontend::Initialize(
     const FrontendInitializationRequest &request) {
   if (impl_->initialized) {
@@ -1519,6 +1757,12 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     return RenderOperationResult::Failure(
         RenderOperationCode::INVALID_ARGUMENT,
         "unknown Ogre-Next raster feature tier");
+  }
+  const ValidationResult shadow_configuration =
+      ValidateOgreNextPssmInitialization(impl_->raster_feature_tier,
+                                         impl_->directional_shadow_mode);
+  if (!shadow_configuration) {
+    return OgreNextN1OperationFromValidation(shadow_configuration);
   }
   if (!TryResolveNativeVertexLayout(
           impl_->raster_feature_tier, impl_->native_feature_tier,
@@ -1628,6 +1872,22 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     impl_->maximum_anisotropy =
         std::max(1.0F, static_cast<float>(
                            device_capabilities->getMaxSupportedAnisotropy()));
+    if (impl_->directional_shadow_mode ==
+        OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1) {
+      Ogre::TextureGpuManager *texture_manager =
+          impl_->renderer->getTextureGpuManager();
+      if (device_capabilities == nullptr || texture_manager == nullptr ||
+          impl_->maximum_texture_dimension < kOgreNextPssmAtlasWidth ||
+          impl_->maximum_texture_dimension < kOgreNextPssmAtlasHeight ||
+          !device_capabilities->hasCapability(Ogre::RSC_TEXTURE_GATHER) ||
+          !texture_manager->checkSupport(
+              Ogre::PFG_D32_FLOAT, Ogre::TextureTypes::Type2D,
+              Ogre::TextureFlags::RenderToTexture)) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "PSSM_3_CASCADE_V1 requires a 2048x3072 sampled D32_FLOAT render target and texture-gather PCF4 support"));
+      }
+    }
 #if defined(ROR_OGRE_NEXT_N1_METAL)
     if (impl_->native_feature_tier !=
         OgreNextNativeFeatureTier::RASTER_N1) {
@@ -1642,6 +1902,15 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     }
 #endif
     impl_->pbs = RegisterPbs(*impl_->root, impl_->resolved_shader_media_root);
+    if (impl_->directional_shadow_mode ==
+        OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1) {
+      impl_->pbs->setShadowSettings(Ogre::HlmsPbs::PCF_4x4);
+      if (impl_->pbs->getShadowFilter() != Ogre::HlmsPbs::PCF_4x4) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "Ogre-Next substituted the reviewed PCF4 shadow filter"));
+      }
+    }
     impl_->scene_manager = impl_->root->createSceneManager(
         Ogre::ST_GENERIC, 1U, "RoROgreNextN1Scene");
     impl_->camera =
@@ -2091,11 +2360,20 @@ RenderOperationResult OgreNextN1Frontend::Render(
   }
   const ValidationResult validation = ValidateOgreNextN1Frame(
       request, impl_->Capabilities(), *impl_->registry,
-      impl_->raster_feature_tier);
+      impl_->raster_feature_tier, impl_->directional_shadow_mode);
   if (!validation) {
     return OgreNextN1OperationFromValidation(validation);
   }
   const CameraViewRequest &validated_view = request.views.front();
+  OgreNextPssmShadowFramePlan shadow_plan;
+  const ValidationResult shadow_validation =
+      TryBuildOgreNextPssmShadowFramePlan(
+          *request.scene_snapshot, *impl_->registry, validated_view,
+          impl_->raster_feature_tier, impl_->directional_shadow_mode,
+          shadow_plan);
+  if (!shadow_validation) {
+    return OgreNextN1OperationFromValidation(shadow_validation);
+  }
   std::uint64_t readback_row_pitch = 0U;
   std::size_t readback_total_bytes = 0U;
   if (!TryComputeReadbackLayout(validated_view.width,
@@ -2154,9 +2432,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
   bool reflection_frame_prepared = false;
   bool submission_commit_prepared = false;
   bool interop_commit_prepared = false;
+  std::string shadow_node_text;
   std::vector<std::pair<Ogre::Item *, Ogre::SceneNode *>> items;
   std::vector<OgreNextReflectionProbeItemBinding> reflection_items;
   std::vector<std::pair<Ogre::Light *, Ogre::SceneNode *>> lights;
+  std::vector<Ogre::HlmsPbsDatablock *> receiver_datablocks;
   std::vector<Impl::NativeMesh> submitted_frame_meshes;
   std::vector<OgreNextN2FrameGeometryBinding> interop_geometry;
   std::vector<OgreNextN3FrameImageBinding> interop_images;
@@ -2196,6 +2476,18 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       node_definition_created = false;
     }
+    if (!shadow_node_text.empty()) {
+      try {
+        const Ogre::IdString shadow_node_name(shadow_node_text);
+        if (compositors->hasShadowNodeDefinition(shadow_node_name)) {
+          compositors->removeShadowNodeDefinition(shadow_node_name);
+          ++impl_->shadow_audit.shadow_node_destroys;
+        }
+      } catch (...) {
+        clean = false;
+      }
+      shadow_node_text.clear();
+    }
     if (target != nullptr) {
       try {
         impl_->renderer->getTextureGpuManager()->destroyTexture(target);
@@ -2228,6 +2520,16 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
     }
     items.clear();
+    for (auto iterator = receiver_datablocks.rbegin();
+         iterator != receiver_datablocks.rend(); ++iterator) {
+      try {
+        impl_->pbs->destroyDatablock((*iterator)->getName());
+        ++impl_->shadow_audit.receiver_datablock_destroys;
+      } catch (...) {
+        clean = false;
+      }
+    }
+    receiver_datablocks.clear();
     for (auto iterator = lights.rbegin(); iterator != lights.rend();
          ++iterator) {
       if (iterator->second != nullptr && iterator->first != nullptr) {
@@ -2316,6 +2618,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
                 OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1
             ? kOgreNextRt4AuthoredVisibilityMask
             : kOgreNextN1AuthoredVisibilityMask;
+    if (shadow_plan.enabled) {
+      impl_->shadow_audit.exact_native_readback = false;
+      impl_->scene_manager->setShadowFarDistance(kOgreNextPssmFarMeters);
+      impl_->scene_manager->setShadowDirectionalLightExtrusionDistance(
+          kOgreNextPssmFarMeters);
+    }
     impl_->scene_manager->setAmbientLight(
         Ogre::ColourValue(snapshot.environment().ambient_radiance.x,
                           snapshot.environment().ambient_radiance.y,
@@ -2350,7 +2658,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
       light->setDirection(Ogre::Vector3(descriptor.direction.x,
                                         descriptor.direction.y,
                                         descriptor.direction.z));
-      light->setCastShadows(false);
+      light->setCastShadows(shadow_plan.enabled);
+      if (shadow_plan.enabled) {
+        light->setShadowFarDistance(kOgreNextPssmFarMeters);
+      }
       const Ogre::ColourValue expected_color(descriptor.color_linear.x,
                                              descriptor.color_linear.y,
                                              descriptor.color_linear.z);
@@ -2364,9 +2675,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
           !NearlyEqual(light->getSpecularColour(), expected_color) ||
           !NearlyEqual(light->getPowerScale(), expected_power) ||
           !NearlyEqual(light->getDirection(), expected_direction) ||
-          light->getCastShadows()) {
+          light->getCastShadows() != shadow_plan.enabled ||
+          (shadow_plan.enabled &&
+           (!NearlyEqual(light->getShadowFarDistance(),
+                         kOgreNextPssmFarMeters) ||
+            descriptor.light_id != shadow_plan.shadow_light_id))) {
         throw std::logic_error(
-            "validated RT4/V1 directional light failed native readback");
+            "validated RT4/V1 directional/PSSM light failed native readback");
       }
     }
 
@@ -2435,11 +2750,50 @@ RenderOperationResult OgreNextN1Frontend::Render(
       Ogre::Item *item = impl_->scene_manager->createItem(
           render_mesh->mesh, Ogre::SCENE_DYNAMIC);
       items.emplace_back(item, nullptr);
-      item->setDatablock(material->second.datablock);
       const std::uint32_t authored_instance_visibility =
           instance.visibility_mask & native_authored_visibility_mask;
+      Ogre::HlmsPbsDatablock *instance_datablock =
+          material->second.datablock;
+      const bool receives_shadow =
+          (instance.flags & MESH_INSTANCE_RECEIVES_SHADOW) != 0U;
+      if (shadow_plan.enabled && !receives_shadow) {
+        const std::string receiver_name =
+            "RoRPssmReceiver_f" + std::to_string(request.frame_id) + "_i" +
+            std::to_string(instance.instance_id);
+        Ogre::HlmsDatablock *cloned =
+            material->second.datablock->clone(receiver_name);
+        instance_datablock =
+            dynamic_cast<Ogre::HlmsPbsDatablock *>(cloned);
+        if (instance_datablock == nullptr) {
+          if (cloned != nullptr) {
+            impl_->pbs->destroyDatablock(cloned->getName());
+          }
+          throw std::runtime_error(
+              "Ogre-Next PSSM receiver clone changed HLMS type");
+        }
+        receiver_datablocks.push_back(instance_datablock);
+        ++impl_->shadow_audit.receiver_datablock_creates;
+        instance_datablock->setReceiveShadows(false);
+      }
+      if (shadow_plan.enabled &&
+          (instance_datablock->getReceiveShadows() != receives_shadow ||
+           material->second.datablock->mShadowConstantBias !=
+               kOgreNextPssmMaterialConstantBias)) {
+        throw std::runtime_error(
+            "Ogre-Next PSSM receiver or material bias failed native readback");
+      }
+      item->setDatablock(instance_datablock);
       item->setVisibilityFlags(authored_instance_visibility);
-      item->setCastShadows(false);
+      const bool casts_shadow =
+          shadow_plan.enabled && MeshInstanceCastsShadowForLight(
+                                     snapshot.lights().front(), instance,
+                                     *base_mesh);
+      item->setCastShadows(casts_shadow);
+      if (item->getCastShadows() != casts_shadow ||
+          item->getVisibilityFlags() != authored_instance_visibility) {
+        throw std::runtime_error(
+            "Ogre-Next PSSM caster or visibility mask failed native readback");
+      }
       Ogre::SceneNode *node = impl_->scene_manager
                                   ->getRootSceneNode(Ogre::SCENE_DYNAMIC)
                                   ->createChildSceneNode(Ogre::SCENE_DYNAMIC);
@@ -2486,7 +2840,30 @@ RenderOperationResult OgreNextN1Frontend::Render(
     impl_->camera->setFarClipDistance(view.far_plane);
     impl_->camera->setAspectRatio(static_cast<float>(view.width) /
                                   static_cast<float>(view.height));
-    impl_->camera->setCustomViewMatrix(true, ToOgreMatrix(view.view_from_render));
+    const Ogre::Matrix4 native_view = ToOgreMatrix(view.view_from_render);
+    if (shadow_plan.enabled) {
+      // Ogre's focused/concentric shadow-camera setups consult the Camera's
+      // derived pose in addition to its view matrix. Keep those two sources
+      // exactly coherent; a custom view matrix alone leaves the derived pose
+      // at the origin and can silently produce an empty PSSM atlas.
+      Ogre::Vector3 camera_position;
+      Ogre::Vector3 camera_scale;
+      Ogre::Quaternion camera_orientation;
+      native_view.inverseAffine().decomposition(
+          camera_position, camera_scale, camera_orientation);
+      if (!NearlyEqual(camera_scale, Ogre::Vector3::UNIT_SCALE)) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "PSSM_3_CASCADE_V1 requires an exactly rigid native camera pose"));
+      }
+      impl_->camera->setPosition(camera_position);
+      impl_->camera->setOrientation(camera_orientation);
+      if (!NearlyEqual(impl_->camera->getDerivedPosition(), camera_position)) {
+        throw std::runtime_error(
+            "Ogre-Next PSSM camera derived position differs from the reviewed view matrix");
+      }
+    }
+    impl_->camera->setCustomViewMatrix(true, native_view);
     // Convert the renderer-boundary [0,1] depth explicitly. The pinned Ogre
     // alternateDepthRange path applies the inverse transform here, so N1
     // supplies canonical [-1,1] clip depth and lets the active RenderSystem
@@ -2565,15 +2942,43 @@ RenderOperationResult OgreNextN1Frontend::Render(
     Ogre::CompositorWorkspaceDef *workspace_definition =
         compositors->addWorkspaceDefinition(workspace_text);
     workspace_definition_created = true;
+    if (shadow_plan.enabled) {
+      shadow_node_text =
+          "RoRPssmShadowNode_" + std::to_string(request.frame_id);
+      const Ogre::RenderSystemCapabilities *capabilities =
+          impl_->renderer->getCapabilities();
+      if (capabilities == nullptr) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "Ogre-Next lost device capabilities before PSSM construction"));
+      }
+      CreateAndVerifyPssmShadowNode(*compositors, *capabilities,
+                                    shadow_node_text,
+                                    authored_view_visibility);
+      ++impl_->shadow_audit.shadow_node_creates;
+      BindAndVerifyPssmWorkspace(*compositors, node_text,
+                                 shadow_node_text);
+    }
     workspace_definition->connectExternal(0U, node->getName(), 0U);
     workspace = compositors->addWorkspace(impl_->scene_manager, target,
                                           impl_->camera, workspace_text, true);
+    if (shadow_plan.enabled &&
+        workspace->findShadowNode(Ogre::IdString(shadow_node_text)) ==
+            nullptr) {
+      throw std::runtime_error(
+          "Ogre-Next did not instantiate the reviewed PSSM shadow node");
+    }
     for (std::size_t warmup = 0U; warmup < 3U; ++warmup) {
       if (!impl_->root->renderOneFrame()) {
         return fail_after_cleanup(RenderOperationResult::Failure(
             RenderOperationCode::BACKEND_FAILURE,
             "Ogre-Next ended the N1 frame loop before readback"));
       }
+    }
+    OgreNextPssmSplitPolicy observed_shadow_splits;
+    if (shadow_plan.enabled) {
+      observed_shadow_splits =
+          ReadAndVerifyNativePssmSplits(*workspace, shadow_node_text);
     }
 
     Ogre::Image2 image;
@@ -2693,6 +3098,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     impl_->submission_state.CommitPrepared(request);
     submission_commit_prepared = false;
+    if (shadow_plan.enabled) {
+      impl_->shadow_audit.last_frame = shadow_plan;
+      impl_->shadow_audit.last_native_splits = observed_shadow_splits;
+      impl_->shadow_audit.exact_native_readback = true;
+      ++impl_->shadow_audit.shadow_frames_completed;
+    }
     output = std::move(candidate);
     return RenderOperationResult::Success();
   } catch (const std::bad_alloc &) {

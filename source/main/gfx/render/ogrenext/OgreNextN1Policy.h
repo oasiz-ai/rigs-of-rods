@@ -12,6 +12,7 @@
 #pragma once
 
 #include "../RendererFrontend.h"
+#include "OgreNextPssmShadowPolicy.h"
 #include "RasterFeatureTier.h"
 
 #include <map>
@@ -127,13 +128,17 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
     const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
     bool allow_dynamic_meshes = false,
     OgreNextRasterFeatureTier raster_feature_tier =
-        OgreNextRasterFeatureTier::STATIC_PBR_N1);
+        OgreNextRasterFeatureTier::STATIC_PBR_N1,
+    OgreNextDirectionalShadowMode shadow_mode =
+        OgreNextDirectionalShadowMode::DISABLED);
 [[nodiscard]] ValidationResult ValidateOgreNextN1Frame(
     const RenderFrameRequest &request,
     const FrontendCapabilityReport &capabilities,
     const RenderAssetRegistry &registry,
     OgreNextRasterFeatureTier raster_feature_tier =
-        OgreNextRasterFeatureTier::STATIC_PBR_N1);
+        OgreNextRasterFeatureTier::STATIC_PBR_N1,
+    OgreNextDirectionalShadowMode shadow_mode =
+        OgreNextDirectionalShadowMode::DISABLED);
 
 [[nodiscard]] RenderOperationResult
 OgreNextN1OperationFromValidation(const ValidationResult &validation);

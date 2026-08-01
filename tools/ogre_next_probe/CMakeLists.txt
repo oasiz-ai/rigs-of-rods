@@ -26,6 +26,7 @@ endif ()
 
 set(ROR_OGRE_NEXT_STANDALONE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PinnedOgreNext.cmake")
+find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
 get_filename_component(ROR_REPOSITORY_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 set(ROR_SOURCE_REPOSITORY "https://github.com/oasiz-ai/rigs-of-rods")
@@ -245,6 +246,19 @@ configure_file(
     "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
     @ONLY)
 
+add_custom_target(
+    ror_ogre_next_pssm_source_closure_verify
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/verify_pssm_shadow_source_closure.py"
+        --lock
+        "${CMAKE_CURRENT_SOURCE_DIR}/ogre-next-pssm-shadow-v1.lock.json"
+        --canonical-lock
+        "${CMAKE_CURRENT_SOURCE_DIR}/ogre-next.lock.json"
+        --source-root "${ogre_next_SOURCE_DIR}"
+    COMMENT "Verifying the exact pinned Ogre-Next directional-shadow source closure"
+    VERBATIM)
+
 add_executable(ror_ogre_next_probe src/main.cpp)
 target_compile_definitions(
     ror_ogre_next_probe PRIVATE ${_ror_probe_renderer_definition})
@@ -342,7 +356,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp"
-        "${_ror_render_root}/ogrenext/OgreNextReflectionProbeRuntime.cpp")
+        "${_ror_render_root}/ogrenext/OgreNextReflectionProbeRuntime.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextPssmShadowPolicy.cpp")
     if (APPLE)
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_METAL=1)
         target_sources(
@@ -407,10 +422,27 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre_next_frontend_n1_smoke
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+    add_executable(
+        ror_ogre_next_pssm_shadow_smoke
+        src/pssm_shadow_smoke.cpp)
+    target_include_directories(
+        ror_ogre_next_pssm_shadow_smoke
+        PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_link_libraries(
+        ror_ogre_next_pssm_shadow_smoke
+        PRIVATE ror_ogre_next_frontend_n1)
+    set_target_properties(
+        ror_ogre_next_pssm_shadow_smoke
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+    add_dependencies(
+        ror_ogre_next_frontend_n1
+        ror_ogre_next_pssm_source_closure_verify)
+
     set(_ror_n1_targets
         ror_ogre_next_n1_contract
         ror_ogre_next_frontend_n1
-        ror_ogre_next_frontend_n1_smoke)
+        ror_ogre_next_frontend_n1_smoke
+        ror_ogre_next_pssm_shadow_smoke)
     if (ROR_OGRE_NEXT_VULKAN_RT5 AND
             ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         add_executable(
@@ -1062,6 +1094,10 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
         "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-ctest-isolation.bin")
     set(ROR_OGRE_NEXT_RT4_PBR_CTEST_REFLECTION_EVIDENCE
         "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-ctest-reflection.bin")
+    set(ROR_OGRE_NEXT_PSSM_REPORT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-pssm-shadow-report.json")
+    set(ROR_OGRE_NEXT_PSSM_EVIDENCE
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-pssm-shadow-isolation.bin")
     add_custom_target(
         ror_ogre_next_frontend_n1_report
         COMMAND
@@ -1134,6 +1170,40 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
     set_tests_properties(
         ror_ogre_next_frontend_reflection_media_tamper
         PROPERTIES WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+
+    add_test(NAME ror_ogre_next_pssm_shadow_runtime
+        COMMAND $<TARGET_FILE:ror_ogre_next_pssm_shadow_smoke>
+                --media-root "${ROR_OGRE_NEXT_MEDIA_ROOT}"
+                --report "${ROR_OGRE_NEXT_PSSM_REPORT}"
+                --evidence "${ROR_OGRE_NEXT_PSSM_EVIDENCE}")
+    set_tests_properties(
+        ror_ogre_next_pssm_shadow_runtime
+        PROPERTIES
+            RESOURCE_LOCK ror_ogre_next_n1_native_device
+            SKIP_RETURN_CODE 77
+            TIMEOUT 180
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+    add_custom_target(
+        ror_ogre_next_pssm_shadow_report
+        COMMAND
+            "${CMAKE_COMMAND}" -E rm -f
+            "${ROR_OGRE_NEXT_PSSM_REPORT}"
+            "${ROR_OGRE_NEXT_PSSM_EVIDENCE}"
+        COMMAND
+            "${CMAKE_CTEST_COMMAND}"
+            --test-dir "${CMAKE_BINARY_DIR}"
+            --build-config Release
+            --output-on-failure
+            -R "^ror_ogre_next_pssm_shadow_runtime$"
+        DEPENDS ror_ogre_next_pssm_shadow_smoke
+        BYPRODUCTS
+            "${ROR_OGRE_NEXT_PSSM_REPORT}"
+            "${ROR_OGRE_NEXT_PSSM_EVIDENCE}"
+        COMMENT "Running the opt-in directional PSSM isolation proof"
+        VERBATIM)
+    add_dependencies(
+        ror_ogre_next_frontend_n1_report
+        ror_ogre_next_pssm_shadow_report)
 endif ()
 
 if (TARGET ror_ogre_next_metal_n2_smoke)
