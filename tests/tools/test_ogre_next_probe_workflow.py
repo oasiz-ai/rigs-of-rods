@@ -181,6 +181,35 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn("verify_ogre_next_artifact_set.py", self.workflow)
         self.assertIn("--verify-metal-n2-evidence", self.workflow)
         self.assertIn("--verify-metal-n3-evidence", self.workflow)
+        for anchor in (
+            "ROR_OGRE_NEXT_EXPECTED_ROR_REPOSITORY",
+            "ROR_OGRE_NEXT_EXPECTED_ROR_REF",
+            "ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT",
+            "github.sha",
+        ):
+            self.assertIn(anchor, self.workflow)
+
+    def test_n3_upload_is_a_self_contained_verifier_bundle(self) -> None:
+        start = self.workflow.index(
+            "- name: Upload attested Apple Metal N3 hybrid evidence"
+        )
+        end = self.workflow.index(
+            "- name: Upload attested Vulkan RT5 external-device evidence"
+        )
+        bundle = self.workflow[start:end]
+        for artifact in (
+            "ogre-next-build-contract.json",
+            "ror-ogre-next-frontend-rt4-pbr-v1-report.json",
+            "ror-ogre-next-frontend-rt4-pbr-v1.ppm",
+            "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin",
+            "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json",
+            "ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke",
+            "ror-ogre-next-metal-n3-report.json",
+            "ror-ogre-next-metal-n3-attestation.json",
+            "bin/ror_ogre_next_metal_n3_smoke",
+        ):
+            with self.subTest(artifact=artifact):
+                self.assertIn(artifact, bundle)
 
     def test_n1_is_independent_of_legacy_frame_runtime(self) -> None:
         n1 = self.workflow.index(

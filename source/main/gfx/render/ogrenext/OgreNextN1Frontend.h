@@ -22,6 +22,19 @@ namespace RoR::Render {
 
 enum class OgreNextNativeFeatureTier : std::uint8_t;
 
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+/// Isolated native-smoke fault seam; never compiled into the production RoR
+/// target. Each value injects one failure after the named Ogre allocation step.
+enum class OgreNextN1TextureUploadFailureStage : std::uint8_t {
+  NONE = 0,
+  AFTER_CREATE,
+  AFTER_SET_RESOLUTION,
+  AFTER_SET_MIPMAPS,
+  AFTER_SET_PIXEL_FORMAT,
+  AFTER_SCHEDULE_TRANSITION,
+};
+#endif
+
 /// Runtime-owned Ogre shader media. The root is an absolute UTF-8 path containing
 /// the pinned `Hlms` directory; packaging code resolves its own relative
 /// resource layout before constructing the frontend.
@@ -29,6 +42,10 @@ struct OgreNextN1Configuration final {
   std::string shader_media_root;
   OgreNextRasterFeatureTier raster_feature_tier =
       OgreNextRasterFeatureTier::STATIC_PBR_N1;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  OgreNextN1TextureUploadFailureStage texture_upload_failure_stage =
+      OgreNextN1TextureUploadFailureStage::NONE;
+#endif
 };
 
 /// Runtime audit of the native RT4/V1 texture variants owned by one frontend.

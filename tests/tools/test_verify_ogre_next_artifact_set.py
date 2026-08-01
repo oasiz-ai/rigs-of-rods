@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+import copy
 import json
 from pathlib import Path
 import struct
@@ -21,49 +22,96 @@ SPEC.loader.exec_module(VERIFY)
 
 
 class OgreNextArtifactSetTests(unittest.TestCase):
-    ror_repository = "https://github.com/oasiz-ai/rigs-of-rods"
-    ror_ref = "codex/test-native-rt"
-    ror_commit = "3" * 40
-    ror_manifest = "4" * 64
-    ogre_repository = "https://github.com/OGRECave/ogre-next"
-    ogre_branch = "v3-0"
-    ogre_commit = "7" * 40
-    ogre_archive = "8" * 64
-    ogre_license = "9" * 64
-    shader_source = "a" * 64
-    shader_notice = "b" * 64
+    def setUp(self) -> None:
+        source = VERIFY._current_source_identity()
+        lock = VERIFY._read_pinned_lock()
+        self.lock = lock
+        self.ror_repository = source["repository"]
+        self.ror_ref = source["ref"]
+        self.ror_commit = source["commit"]
+        self.ror_manifest = source["relevant_manifest_sha256"]
+        self.ror_manifest_count = source["relevant_manifest_file_count"]
+        self.ogre_repository = lock["repository"]
+        self.ogre_branch = lock["branch"]
+        self.ogre_commit = lock["commit"]
+        self.ogre_archive = lock["archive_sha256"]
+        self.ogre_license = lock["license"]["sha256"]
+        notice = lock["shader_media"]["third_party_notice"]
+        self.shader_source = notice["source_sha256"]
+        self.shader_notice = notice["notice_sha256"]
 
-    def write_baseline(self, root: Path) -> None:
-        root.mkdir(parents=True, exist_ok=True)
-        contract = {
+    def build_contract(self) -> dict[str, object]:
+        rapidjson = self.lock["dependencies"]["rapidjson"]
+        lock_abi = self.lock["abi_contract"]
+        expected_abi = {
+            key: copy.deepcopy(value)
+            for key, value in lock_abi.items()
+            if key != "simd"
+        }
+        expected_abi.update(
+            {
+                "simd_enabled": lock_abi["simd"]["enabled"],
+                "simd_alignment": lock_abi["simd"]["alignment"],
+                "simd_family": "neon",
+                "simd_neon": True,
+                "simd_sse2": False,
+            }
+        )
+        return {
             "schema_version": 2,
             "ror_source": {
                 "repository": self.ror_repository,
                 "ref": self.ror_ref,
                 "commit": self.ror_commit,
                 "relevant_manifest_sha256": self.ror_manifest,
-                "relevant_manifest_file_count": 59,
+                "relevant_manifest_file_count": self.ror_manifest_count,
             },
             "provenance": {
                 "repository": self.ogre_repository,
                 "branch": self.ogre_branch,
                 "commit": self.ogre_commit,
                 "archive_sha256": self.ogre_archive,
-                "license_spdx": "MIT",
+                "license_spdx": self.lock["license"]["spdx"],
                 "license_sha256": self.ogre_license,
             },
-            "shader_media": {
-                "root": "Samples/Media/Hlms",
-                "license_expression": "MIT AND LicenseRef-Test",
-                "third_party_notice": {
-                    "source_path": "Hlms/Pbs/Any/Test.any",
-                    "source_sha256": self.shader_source,
-                    "notice_path": "licenses/LicenseRef-Test.txt",
-                    "notice_sha256": self.shader_notice,
-                },
+            "dependencies": {
+                "rapidjson": {
+                    "tag": rapidjson["tag"],
+                    "archive_sha256": rapidjson["archive_sha256"],
+                    "source_archive_license_spdx": rapidjson["license_spdx"],
+                    "compiled_headers_license_spdx": rapidjson[
+                        "compiled_headers_spdx"
+                    ],
+                    "license_sha256": rapidjson["license_sha256"],
+                }
             },
-            "platform": {"policy": "macos-arm64-metal"},
+            "shader_media": copy.deepcopy(self.lock["shader_media"]),
+            "platform": {
+                "policy": "macos-arm64-metal",
+                "system": "Darwin",
+                "processor": "arm64",
+                "renderer_target": "RenderSystem_Metal",
+                "device_option_name": "Rendering Device",
+            },
+            "abi": expected_abi,
+            "components": {
+                "hlms_pbs": True,
+                "compositor2_core": True,
+                "json_materials": True,
+                "mesh_lod": True,
+                "dds_codec": True,
+                "native_ray_tracing": "not_evaluated",
+            },
+            "compiler": {
+                "id": "AppleClang",
+                "version": "21.0.0.21000101",
+                "build_type": "Release",
+            },
         }
+
+    def write_baseline(self, root: Path) -> None:
+        root.mkdir(parents=True, exist_ok=True)
+        contract = self.build_contract()
         contract_path = root / VERIFY.REQUIRED_ARTIFACTS[0]
         contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
         rt4_names = {
@@ -87,8 +135,12 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         background = bytes((2, 3, 5, 255))
         foreground = bytes((100, 120, 140, 255))
         baseline_sdr = foreground * 1024 + background * (pixel_count - 1024)
-        baseline_hdr_pixel = struct.pack("<4e", 0.25, 0.5, 0.75, 1.0)
-        baseline_hdr = baseline_hdr_pixel * pixel_count
+        foreground_hdr = struct.pack("<4e", 2.0, 1.0, 0.5, 1.0)
+        background_hdr = struct.pack("<4e", 0.01, 0.02, 0.03, 1.0)
+        baseline_hdr = (
+            foreground_hdr * 1024
+            + background_hdr * (pixel_count - 1024)
+        )
         evidence = bytearray()
         variants: list[dict[str, object]] = []
         slices: list[dict[str, object]] = []
@@ -101,7 +153,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 sdr = baseline_sdr
             else:
                 changed_hdr = struct.pack(
-                    "<4e", 0.25 + index * 0.125, 0.5, 0.75, 1.0
+                    "<4e", 2.0 + index * 0.25, 1.0, 0.5, 1.0
                 )
                 hdr = changed_hdr * 128 + baseline_hdr[128 * 8 :]
                 changed_sdr = bytes((100 + index, 120, 140, 255))
@@ -159,6 +211,10 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             ppm_pixels[pixel_offset : pixel_offset + 3]
             for pixel_offset in range(0, len(ppm_pixels), 3)
         }
+        hdr_metrics = VERIFY._attachment_metrics(baseline_hdr, True)
+        sdr_metrics = VERIFY._attachment_metrics(baseline_sdr, False)
+        shader_media = contract["shader_media"]
+        notice = shader_media["third_party_notice"]
         report = {
             "schema": "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1",
             "status": "pass",
@@ -167,29 +223,92 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "ror_ref": self.ror_ref,
                 "ror_commit": self.ror_commit,
                 "ror_relevant_source_manifest_sha256": self.ror_manifest,
-                "ror_relevant_source_manifest_file_count": 59,
+                "ror_relevant_source_manifest_file_count": self.ror_manifest_count,
                 "ogre_next_commit": self.ogre_commit,
                 "ogre_next_archive_sha256": self.ogre_archive,
-                "shader_media_root": "Samples/Media/Hlms",
-                "shader_media_license_expression": "MIT AND LicenseRef-Test",
+                "shader_media_root": shader_media["root"],
+                "shader_media_license_expression": shader_media[
+                    "license_expression"
+                ],
+                "shader_media_notice_path": notice["notice_path"],
                 "shader_media_notice_sha256": self.shader_notice,
                 "shader_media_manifest_sha256": "c" * 64,
                 "shader_media_manifest_file_count": 107,
             },
+            "platform_policy": "macos-arm64-metal",
+            "renderer": "Metal Rendering Subsystem",
+            "adapter": {
+                "frontend_version": "n1-ogre-3.0-" + self.ogre_commit,
+                "native_mesh_path": (
+                    "Ogre v2 Mesh plus immutable VertexArrayObject"
+                ),
+                "material_path": "HLMS PBS metallic-roughness",
+                "brdf": "PbsBrdf::Default height-correlated GGX",
+                "pbr_datablock_readback_verified": True,
+                "raster_feature_tier": "MODERN_PBR_RT4_V1",
+                "vertex_layout": "position_normal_tangent_uv0",
+                "base_color_upload": "RGBA8_UNORM_SRGB",
+                "metallic_roughness_upload": (
+                    "linear_G_to_R8_roughness_B_to_R8_metallic"
+                ),
+                "emissive_upload": "RGBA8_UNORM_SRGB",
+                "padded_source_rows_verified": True,
+                "portable_sampler_mapping_verified": True,
+                "normal_texture_admitted": False,
+                "normal_texture_blocker": (
+                    "pinned_PBS_reconstructs_positive_Z_from_RG"
+                ),
+                "occlusion_texture_admitted": False,
+                "runtime_media_root": "explicit_absolute",
+                "package_media_relative_path": (
+                    "share/rigsofrods/ogre-next/Samples/Media"
+                ),
+                "relocated_executable": True,
+                "compositor2": True,
+                "ui_included": False,
+                "cpu_readback_completed": True,
+                "analytic_lights_calibrated": True,
+                "directional_lux_to_native_power_scale": 1.0 / 1024.0,
+                "maximum_directional_lights": 1,
+                "constant_environment_only": False,
+                "native_interop": False,
+                "ray_tracing": False,
+            },
+            "catalog": {
+                "registry_id": 0x4E315F534D4F4B45,
+                "sequence": 6,
+                "baseline_sequence": 1,
+                "live_replacement_count": 5,
+                "referenced_texture_count": 3,
+                "referenced_sampler_count": 1,
+                "unreferenced_assets_not_uploaded": True,
+                "transactional_replay_after_restart": True,
+            },
+            "texture_allocations": copy.deepcopy(
+                VERIFY.RT4_EXPECTED_TEXTURE_ALLOCATIONS
+            ),
+            "texture_upload_rollback": copy.deepcopy(
+                VERIFY.RT4_EXPECTED_TEXTURE_UPLOAD_ROLLBACK
+            ),
             "hdr": {
                 "format": "RGBA16_FLOAT",
                 "width": width,
                 "height": height,
-                "exact_attachment_fnv1a64": VERIFY._fnv1a64(baseline_hdr),
+                **{
+                    key: value
+                    for key, value in hdr_metrics.items()
+                    if key != "rgb"
+                },
             },
             "sdr": {
                 "format": "RGBA8_SRGB",
                 "width": width,
                 "height": height,
-                "exact_attachment_fnv1a64": VERIFY._fnv1a64(baseline_sdr),
-                "rgb8_fnv1a64": VERIFY._fnv1a64(ppm_pixels),
-                "distinct_rgb8_values": len(colours),
-                "non_background_pixels": 1024,
+                **{
+                    key: value
+                    for key, value in sdr_metrics.items()
+                    if key != "rgb"
+                },
             },
             "texture_isolation": {
                 "schema": "ror.ogre_next_rt4_texture_isolation.v1",
@@ -205,7 +324,11 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "evidence_bytes": len(evidence),
             },
             "texture_retirement": VERIFY.RT4_EXPECTED_RETIREMENT,
+            "lifecycle": copy.deepcopy(VERIFY.RT4_EXPECTED_LIFECYCLE),
         }
+        report["executable_build_identity"] = (
+            VERIFY._expected_rt4_build_identity(contract, report)
+        )
         report_path = root / VERIFY.RT4_REPORT_ARTIFACT
         report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
         executable_path = (
@@ -215,7 +338,48 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             / VERIFY.RT4_PACKAGE_EXECUTABLE_STEM
         )
         executable_path.parent.mkdir(parents=True, exist_ok=True)
-        executable_path.write_bytes(b"attested-rt4-executable")
+        executable_size = 64 * 1024
+        command_bytes = 96
+        header = struct.pack(
+            "<IiiIIIII",
+            0xFEEDFACF,
+            0x0100000C,
+            0,
+            2,
+            2,
+            command_bytes,
+            0,
+            0,
+        )
+        segment = struct.pack(
+            "<II16sQQQQiiII",
+            0x19,
+            72,
+            b"__TEXT" + b"\0" * 10,
+            0,
+            executable_size,
+            0,
+            executable_size,
+            5,
+            5,
+            0,
+            0,
+        )
+        entry = struct.pack("<IIQQ", 0x80000028, 24, 128, 0)
+        binary_tokens = b"\0".join(
+            token.encode("utf-8")
+            for token in (
+                report["executable_build_identity"],
+                VERIFY.RT4_REPORT_SCHEMA,
+                "--modern-pbr",
+                "Metal Rendering Subsystem",
+                '\"raster_feature_tier\": \"MODERN_PBR_RT4_V1\"',
+            )
+        )
+        executable = header + segment + entry + binary_tokens
+        executable += b"\0" * (executable_size - len(executable))
+        executable_path.write_bytes(executable)
+        executable_path.chmod(0o755)
 
         def file_entry(path: Path) -> dict[str, object]:
             return {
@@ -225,29 +389,30 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             }
 
         attestation = {
-            "schema": "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v1",
+            "schema": VERIFY.RT4_ATTESTATION_SCHEMA,
             "status": "pass",
+            "integrity_model": VERIFY.RT4_INTEGRITY_MODEL,
             "source": {
                 "repository": self.ror_repository,
                 "ref": self.ror_ref,
                 "commit": self.ror_commit,
                 "relevant_manifest_sha256": self.ror_manifest,
-                "relevant_manifest_file_count": 59,
+                "relevant_manifest_file_count": self.ror_manifest_count,
             },
             "ogre_next": {
                 "repository": self.ogre_repository,
                 "branch": self.ogre_branch,
                 "commit": self.ogre_commit,
                 "archive_sha256": self.ogre_archive,
-                "license_spdx": "MIT",
+                "license_spdx": self.lock["license"]["spdx"],
                 "license_sha256": self.ogre_license,
             },
             "shader_media": {
-                "root": "Samples/Media/Hlms",
-                "license_expression": "MIT AND LicenseRef-Test",
-                "source_path": "Hlms/Pbs/Any/Test.any",
+                "root": shader_media["root"],
+                "license_expression": shader_media["license_expression"],
+                "source_path": notice["source_path"],
                 "source_sha256": self.shader_source,
-                "notice_path": "licenses/LicenseRef-Test.txt",
+                "notice_path": notice["notice_path"],
                 "notice_sha256": self.shader_notice,
                 "manifest_sha256": "c" * 64,
                 "manifest_file_count": 107,
@@ -616,9 +781,150 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             )
             executable.write_bytes(b"tampered")
             with self.assertRaisesRegex(
-                VERIFY.ArtifactSetError, "executable attestation mismatch"
+                VERIFY.ArtifactSetError, "structurally implausible"
             ):
                 VERIFY.verify_artifact_set(root)
+
+    def test_rt4_gate_rejects_refreshed_arbitrary_executable(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-forged-exe-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            executable = (
+                root
+                / "ror-ogre-next-n1-package"
+                / "bin"
+                / VERIFY.RT4_PACKAGE_EXECUTABLE_STEM
+            )
+            executable.write_bytes(b"arbitrary executable bytes!!")
+            executable.chmod(0o755)
+            self.refresh_rt4_attestation(root, ("executable",))
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "structurally implausible"
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rt4_gate_rejects_exact_refreshed_hash_forgery(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-forgery-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            for field in (
+                "adapter",
+                "catalog",
+                "texture_allocations",
+                "lifecycle",
+                "platform_policy",
+                "renderer",
+            ):
+                report.pop(field)
+            report["hdr"]["maximum_luminance"] = -999
+            report["hdr"]["non_background_pixels"] = 0
+            report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+            executable = (
+                root
+                / "ror-ogre-next-n1-package"
+                / "bin"
+                / VERIFY.RT4_PACKAGE_EXECUTABLE_STEM
+            )
+            executable.write_bytes(b"arbitrary executable bytes!!")
+            executable.chmod(0o755)
+            self.refresh_rt4_attestation(root, ("report", "executable"))
+            with self.assertRaises(VERIFY.ArtifactSetError):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rt4_gate_recomputes_hdr_energy_and_geometry(self) -> None:
+        for field, value in (
+            ("maximum_luminance", -999),
+            ("non_background_pixels", 0),
+        ):
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory(
+                    prefix="ror-ogre-rt4-hdr-forgery-"
+                ) as temp:
+                    root = Path(temp)
+                    self.write_baseline(root)
+                    report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    report["hdr"][field] = value
+                    report_path.write_text(
+                        json.dumps(report) + "\n", encoding="utf-8"
+                    )
+                    self.refresh_rt4_attestation(root, ("report",))
+                    with self.assertRaisesRegex(
+                        VERIFY.ArtifactSetError,
+                        "RT4 PPM/isolation report mismatch",
+                    ):
+                        VERIFY.verify_artifact_set(root)
+
+    def test_rt4_gate_requires_exact_report_sections(self) -> None:
+        for section in (
+            "adapter",
+            "catalog",
+            "texture_allocations",
+            "texture_upload_rollback",
+            "lifecycle",
+            "platform_policy",
+            "renderer",
+        ):
+            with self.subTest(section=section):
+                with tempfile.TemporaryDirectory(
+                    prefix="ror-ogre-rt4-section-"
+                ) as temp:
+                    root = Path(temp)
+                    self.write_baseline(root)
+                    report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    report.pop(section)
+                    report_path.write_text(
+                        json.dumps(report) + "\n", encoding="utf-8"
+                    )
+                    self.refresh_rt4_attestation(root, ("report",))
+                    with self.assertRaises(VERIFY.ArtifactSetError):
+                        VERIFY.verify_artifact_set(root)
+
+    def test_rt4_retirement_and_rollback_reject_numeric_type_aliases(self) -> None:
+        mutations = (
+            lambda report: report["texture_retirement"]["audits"]["initial"].__setitem__(
+                "creates", True
+            ),
+            lambda report: report["texture_retirement"]["transitions"][0].__setitem__(
+                "width", 2.0
+            ),
+            lambda report: report["texture_upload_rollback"]["stages"][0][
+                "audits"
+            ]["after_failure"].__setitem__("destroys", True),
+        )
+        for index, mutation in enumerate(mutations):
+            with self.subTest(mutation=index):
+                with tempfile.TemporaryDirectory(
+                    prefix="ror-ogre-rt4-type-alias-"
+                ) as temp:
+                    root = Path(temp)
+                    self.write_baseline(root)
+                    report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    mutation(report)
+                    report_path.write_text(
+                        json.dumps(report) + "\n", encoding="utf-8"
+                    )
+                    self.refresh_rt4_attestation(root, ("report",))
+                    with self.assertRaisesRegex(
+                        VERIFY.ArtifactSetError,
+                        "RT4 PPM/isolation report mismatch",
+                    ):
+                        VERIFY.verify_artifact_set(root)
+
+    def test_rt4_gate_rejects_explicit_source_anchor_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-anchor-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "expected RoR commit differs"
+            ):
+                VERIFY.verify_artifact_set(
+                    root, expected_ror_commit="f" * 40
+                )
 
     def test_metal_n2_gate_cross_checks_pass_attestation(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-n2-artifacts-") as temp:

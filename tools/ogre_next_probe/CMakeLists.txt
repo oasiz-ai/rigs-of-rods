@@ -29,19 +29,31 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PinnedOgreNext.cmake")
 get_filename_component(ROR_REPOSITORY_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 set(ROR_SOURCE_REPOSITORY "https://github.com/oasiz-ai/rigs-of-rods")
-execute_process(
-    COMMAND "${GIT_EXECUTABLE}" -C "${ROR_REPOSITORY_ROOT}" rev-parse HEAD
-    RESULT_VARIABLE _ror_git_commit_result
-    OUTPUT_VARIABLE ROR_SOURCE_COMMIT
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET)
-execute_process(
-    COMMAND "${GIT_EXECUTABLE}" -C "${ROR_REPOSITORY_ROOT}"
-            rev-parse --abbrev-ref HEAD
-    RESULT_VARIABLE _ror_git_ref_result
-    OUTPUT_VARIABLE ROR_SOURCE_REF
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET)
+if (DEFINED ENV{ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT} AND
+        NOT "$ENV{ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT}" STREQUAL "")
+    set(ROR_SOURCE_COMMIT "$ENV{ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT}")
+    set(_ror_git_commit_result 0)
+else ()
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${ROR_REPOSITORY_ROOT}" rev-parse HEAD
+        RESULT_VARIABLE _ror_git_commit_result
+        OUTPUT_VARIABLE ROR_SOURCE_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+endif ()
+if (DEFINED ENV{ROR_OGRE_NEXT_EXPECTED_ROR_REF} AND
+        NOT "$ENV{ROR_OGRE_NEXT_EXPECTED_ROR_REF}" STREQUAL "")
+    set(ROR_SOURCE_REF "$ENV{ROR_OGRE_NEXT_EXPECTED_ROR_REF}")
+    set(_ror_git_ref_result 0)
+else ()
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${ROR_REPOSITORY_ROOT}"
+                rev-parse --abbrev-ref HEAD
+        RESULT_VARIABLE _ror_git_ref_result
+        OUTPUT_VARIABLE ROR_SOURCE_REF
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+endif ()
 string(LENGTH "${ROR_SOURCE_COMMIT}" _ror_source_commit_length)
 if (NOT _ror_git_commit_result EQUAL 0 OR
         NOT _ror_source_commit_length EQUAL 40 OR
@@ -263,7 +275,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_VULKAN=1)
     endif ()
     target_compile_definitions(
-        ror_ogre_next_frontend_n1 PRIVATE ${_ror_n1_renderer_definition})
+        ror_ogre_next_frontend_n1
+        PUBLIC ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM=1
+        PRIVATE ${_ror_n1_renderer_definition})
     target_include_directories(
         ror_ogre_next_frontend_n1
         PUBLIC "${_ror_render_root}/ogrenext"

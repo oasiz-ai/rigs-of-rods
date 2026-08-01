@@ -147,8 +147,14 @@ def ror_source_identity() -> dict[str, Any]:
             raise ProbeError("could not resolve RoR Git provenance")
         return value
 
-    commit = git_output("rev-parse", "HEAD")
-    ref = git_output("rev-parse", "--abbrev-ref", "HEAD")
+    commit = (
+        os.environ.get("ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT")
+        or os.environ.get("GITHUB_SHA")
+        or git_output("rev-parse", "HEAD")
+    )
+    ref = os.environ.get("ROR_OGRE_NEXT_EXPECTED_ROR_REF") or git_output(
+        "rev-parse", "--abbrev-ref", "HEAD"
+    )
     if re.fullmatch(r"[0-9a-f]{40}", commit) is None or re.fullmatch(
         r"[A-Za-z0-9._/-]+", ref
     ) is None:
@@ -1486,6 +1492,31 @@ def _packaged_n1_executable(
     return expected
 
 
+def _fsync_parent_directory(path: Path) -> None:
+    """Persist a directory entry on POSIX.
+
+    Windows does not expose a portable directory-fsync primitive through
+    Python. There, os.replace/unlink provide atomic namespace transitions but
+    not the same power-loss durability guarantee as the POSIX fsync below.
+    """
+    if os.name == "nt":
+        return
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            path.parent,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        os.fsync(descriptor)
+    except OSError as error:
+        raise ProbeError(
+            f"could not persist directory for {path.name}: {error}"
+        ) from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
 def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
     temporary: Path | None = None
     try:
@@ -1504,6 +1535,7 @@ def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
             os.fsync(target.fileno())
         os.replace(temporary, path)
         temporary = None
+        _fsync_parent_directory(path)
     except OSError as error:
         raise ProbeError(f"could not atomically write {path.name}: {error}") from error
     finally:
@@ -1512,6 +1544,16 @@ def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
                 temporary.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def _durable_unlink(path: Path) -> None:
+    existed = path.exists() or path.is_symlink()
+    try:
+        path.unlink(missing_ok=True)
+        if existed:
+            _fsync_parent_directory(path)
+    except OSError as error:
+        raise ProbeError(f"could not invalidate stale {path.name}: {error}") from error
 
 
 def write_rt4_attestation(
@@ -1533,8 +1575,12 @@ def write_rt4_attestation(
     shader_media = lock["shader_media"]
     notice = shader_media["third_party_notice"]
     attestation = {
-        "schema": "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v1",
+        "schema": "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v2",
         "status": "pass",
+        "integrity_model": (
+            "self-contained-checksums-plus-independent-semantics; "
+            "not-a-cryptographic-signature"
+        ),
         "source": {
             "repository": source_identity["repository"],
             "ref": source_identity["ref"],
@@ -1672,10 +1718,7 @@ def run_n1_checkpoint(
     source_identity: dict[str, Any],
 ) -> None:
     attestation_path = build_dir / RT4_PBR_ATTESTATION_NAME
-    try:
-        attestation_path.unlink(missing_ok=True)
-    except OSError as error:
-        raise ProbeError(f"could not invalidate stale RT4 attestation: {error}") from error
+    _durable_unlink(attestation_path)
     run(
         [
             "cmake",
