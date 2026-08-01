@@ -239,7 +239,15 @@ struct OgreNextD3D12DxrBootstrap::Impl {
       return Failure(HresultFailure("ID3D12CommandQueue::Signal",
                                     signal_result));
     }
-    if (fence->GetCompletedValue() < value) {
+    auto completion = EvaluateDxr7FenceCompletion(
+        fence->GetCompletedValue(), value);
+    if (completion == Dxr7FenceCompletionDecision::DEVICE_REMOVED) {
+      return Failure(HresultFailure(
+          "ID3D12Fence::GetCompletedValue reported device removal; "
+          "ID3D12Device::GetDeviceRemovedReason",
+          d3d12_device->GetDeviceRemovedReason()));
+    }
+    if (completion == Dxr7FenceCompletionDecision::WAIT) {
       ResetEvent(fence_event);
       const HRESULT event_result =
           fence->SetEventOnCompletion(value, fence_event);
@@ -255,7 +263,15 @@ struct OgreNextD3D12DxrBootstrap::Impl {
                            : "D3D12 fence wait failed");
       }
     }
-    if (fence->GetCompletedValue() < value) {
+    completion = EvaluateDxr7FenceCompletion(
+        fence->GetCompletedValue(), value);
+    if (completion == Dxr7FenceCompletionDecision::DEVICE_REMOVED) {
+      return Failure(HresultFailure(
+          "ID3D12Fence::GetCompletedValue reported device removal; "
+          "ID3D12Device::GetDeviceRemovedReason",
+          d3d12_device->GetDeviceRemovedReason()));
+    }
+    if (completion != Dxr7FenceCompletionDecision::COMPLETE) {
       return Failure("D3D12 fence completion regressed");
     }
     return Ready();
@@ -854,6 +870,37 @@ Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::VerifyOgreAdoption(
   return Ready();
 }
 
+Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::RecordOgreFrameProof(
+    std::uint32_t width, std::uint32_t height,
+    std::uint32_t distinct_pixels,
+    std::uint32_t non_background_pixels,
+    std::uint64_t fnv1a64, bool ui_free,
+    bool resources_destroyed) noexcept {
+  if (!impl_->ogre_attached ||
+      !impl_->evidence.ogre_d3d11_device_exact ||
+      !impl_->evidence.ogre_external_device_active || width == 0U ||
+      height == 0U || distinct_pixels < 8U ||
+      non_background_pixels < 512U || fnv1a64 == 0U || !ui_free ||
+      !resources_destroyed) {
+    return Failure("DXR7 Ogre frame proof is incomplete or out of order");
+  }
+  impl_->evidence.ogre_native_window_created = true;
+  impl_->evidence.ogre_pbs_material_created = true;
+  impl_->evidence.ogre_compositor_workspace_created = true;
+  impl_->evidence.ogre_frame_submitted = true;
+  impl_->evidence.ogre_frame_readback_completed = true;
+  impl_->evidence.ogre_frame_nonblank = true;
+  impl_->evidence.ogre_frame_ui_free = ui_free;
+  impl_->evidence.ogre_frame_resources_destroyed = resources_destroyed;
+  impl_->evidence.ogre_frame_width = width;
+  impl_->evidence.ogre_frame_height = height;
+  impl_->evidence.ogre_frame_distinct_pixels = distinct_pixels;
+  impl_->evidence.ogre_frame_non_background_pixels =
+      non_background_pixels;
+  impl_->evidence.ogre_frame_fnv1a64 = fnv1a64;
+  return Ready();
+}
+
 Dxr7BootstrapResult
 OgreNextD3D12DxrBootstrap::MarkOgreDetached() noexcept {
   if (!impl_->ogre_attached) {
@@ -922,6 +969,19 @@ Dxr7PassContract OgreNextD3D12DxrBootstrap::pass_contract() const noexcept {
       impl_->evidence.ogre_d3d11_device_exact;
   contract.ogre_external_device_active =
       impl_->evidence.ogre_external_device_active;
+  contract.ogre_native_window_created =
+      impl_->evidence.ogre_native_window_created;
+  contract.ogre_pbs_material_created =
+      impl_->evidence.ogre_pbs_material_created;
+  contract.ogre_compositor_workspace_created =
+      impl_->evidence.ogre_compositor_workspace_created;
+  contract.ogre_frame_submitted = impl_->evidence.ogre_frame_submitted;
+  contract.ogre_frame_readback_completed =
+      impl_->evidence.ogre_frame_readback_completed;
+  contract.ogre_frame_nonblank = impl_->evidence.ogre_frame_nonblank;
+  contract.ogre_frame_ui_free = impl_->evidence.ogre_frame_ui_free;
+  contract.ogre_frame_resources_destroyed =
+      impl_->evidence.ogre_frame_resources_destroyed;
   contract.blas_built = impl_->evidence.blas_built;
   contract.tlas_built = impl_->evidence.tlas_built;
   contract.state_object_created = impl_->evidence.state_object_created;

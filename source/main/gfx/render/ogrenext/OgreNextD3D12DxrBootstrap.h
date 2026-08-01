@@ -58,6 +58,19 @@ struct Dxr7BootstrapEvidence {
   bool ogre_external_device_option_used = false;
   bool ogre_d3d11_device_exact = false;
   bool ogre_external_device_active = false;
+  bool ogre_native_window_created = false;
+  bool ogre_pbs_material_created = false;
+  bool ogre_compositor_workspace_created = false;
+  bool ogre_frame_submitted = false;
+  bool ogre_frame_readback_completed = false;
+  bool ogre_frame_nonblank = false;
+  bool ogre_frame_ui_free = false;
+  bool ogre_frame_resources_destroyed = false;
+  std::uint32_t ogre_frame_width = 0U;
+  std::uint32_t ogre_frame_height = 0U;
+  std::uint32_t ogre_frame_distinct_pixels = 0U;
+  std::uint32_t ogre_frame_non_background_pixels = 0U;
+  std::uint64_t ogre_frame_fnv1a64 = 0U;
   bool blas_built = false;
   bool tlas_built = false;
   bool state_object_created = false;
@@ -96,6 +109,12 @@ class OgreNextD3D12DxrBootstrap final {
   Dxr7BootstrapResult MarkOgreAttached() noexcept;
   Dxr7BootstrapResult VerifyOgreAdoption(
       Ogre::RenderSystem* render_system) noexcept;
+  Dxr7BootstrapResult RecordOgreFrameProof(
+      std::uint32_t width, std::uint32_t height,
+      std::uint32_t distinct_pixels,
+      std::uint32_t non_background_pixels,
+      std::uint64_t fnv1a64, bool ui_free,
+      bool resources_destroyed) noexcept;
   Dxr7BootstrapResult MarkOgreDetached() noexcept;
   Dxr7BootstrapResult ProveFenceAfterOgre();
 

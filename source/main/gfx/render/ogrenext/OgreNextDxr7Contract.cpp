@@ -8,6 +8,8 @@
 
 #include "OgreNextDxr7Contract.h"
 
+#include <limits>
+
 namespace RoR::Render {
 
 Dxr7CandidateDecision EvaluateDxr7Candidate(
@@ -30,6 +32,19 @@ Dxr7CandidateDecision EvaluateDxr7Candidate(
   return Dxr7CandidateDecision::ACCEPT;
 }
 
+Dxr7FenceCompletionDecision EvaluateDxr7FenceCompletion(
+    std::uint64_t completed_value, std::uint64_t required_value) noexcept {
+  // ID3D12Fence::GetCompletedValue returns UINT64_MAX after device removal.
+  // Treating that sentinel as a very large successful fence value would turn
+  // a lost device into forged synchronization evidence.
+  if (completed_value == std::numeric_limits<std::uint64_t>::max()) {
+    return Dxr7FenceCompletionDecision::DEVICE_REMOVED;
+  }
+  return completed_value >= required_value
+             ? Dxr7FenceCompletionDecision::COMPLETE
+             : Dxr7FenceCompletionDecision::WAIT;
+}
+
 bool ValidateDxr7PassContract(const Dxr7PassContract& contract) noexcept {
   return EvaluateDxr7Candidate(contract.candidate) ==
              Dxr7CandidateDecision::ACCEPT &&
@@ -39,7 +54,14 @@ bool ValidateDxr7PassContract(const Dxr7PassContract& contract) noexcept {
          contract.d3d11on12_adapter_luid_exact &&
          contract.ogre_external_device_option_used &&
          contract.ogre_d3d11_device_exact &&
-         contract.ogre_external_device_active && contract.blas_built &&
+         contract.ogre_external_device_active &&
+         contract.ogre_native_window_created &&
+         contract.ogre_pbs_material_created &&
+         contract.ogre_compositor_workspace_created &&
+         contract.ogre_frame_submitted &&
+         contract.ogre_frame_readback_completed &&
+         contract.ogre_frame_nonblank && contract.ogre_frame_ui_free &&
+         contract.ogre_frame_resources_destroyed && contract.blas_built &&
          contract.tlas_built && contract.state_object_created &&
          contract.shader_identifiers_resolved &&
          contract.dispatch_rays_called &&

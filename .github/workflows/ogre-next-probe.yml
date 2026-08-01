@@ -36,6 +36,8 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
 
 concurrency:
   group: ogre-next-probe-${{ github.ref }}
@@ -122,21 +124,32 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $command = Get-Command dxc.exe -ErrorAction SilentlyContinue
-          $dxcPath = if ($command) { $command.Source } else { $null }
-          if (-not $dxcPath) {
-            $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
-            $candidate = Get-ChildItem -Path $sdkRoot -Filter dxc.exe -Recurse |
-              Where-Object { $_.DirectoryName -match '[\\/]x64$' } |
-              Sort-Object FullName -Descending |
-              Select-Object -First 1
-            if ($candidate) { $dxcPath = $candidate.FullName }
+          $sdkRoot = (Resolve-Path -LiteralPath `
+            (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin')).Path
+          $candidate = Get-ChildItem -LiteralPath $sdkRoot -Directory |
+            Where-Object { $_.Name -match '^10\.0\.\d+\.\d+$' } |
+            Sort-Object { [version]$_.Name } -Descending |
+            ForEach-Object {
+              $x64 = Join-Path $_.FullName 'x64'
+              if ((Test-Path -LiteralPath (Join-Path $x64 'dxc.exe') -PathType Leaf) -and
+                  (Test-Path -LiteralPath (Join-Path $x64 'dxcompiler.dll') -PathType Leaf) -and
+                  (Test-Path -LiteralPath (Join-Path $x64 'dxil.dll') -PathType Leaf)) {
+                Get-Item -LiteralPath (Join-Path $x64 'dxc.exe')
+              }
+            } | Select-Object -First 1
+          if (-not $candidate) {
+            throw 'A complete versioned Windows SDK x64 DXC closure is unavailable'
           }
-          if (-not $dxcPath -or -not (Test-Path -LiteralPath $dxcPath -PathType Leaf)) {
-            throw 'The reviewed Windows SDK dxc.exe is unavailable'
+          $dxcPath = $candidate.FullName
+          $x64Directory = Split-Path -Parent $dxcPath
+          foreach ($name in @('dxc.exe', 'dxcompiler.dll', 'dxil.dll')) {
+            Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $x64Directory $name)
           }
-          Get-FileHash -Algorithm SHA256 -LiteralPath $dxcPath
-          Split-Path -Parent $dxcPath | Out-File -FilePath $env:GITHUB_PATH -Append
+          & $dxcPath --version
+          "ROR_OGRE_NEXT_DXR7_DXC=$dxcPath" | Out-File `
+            -FilePath $env:GITHUB_ENV -Append
+          "ROR_OGRE_NEXT_DXR7_SDK_BIN_ROOT=$sdkRoot" | Out-File `
+            -FilePath $env:GITHUB_ENV -Append
 
       - name: Run fail-closed offline contracts
         shell: bash
@@ -275,6 +288,7 @@ jobs:
           python tools/ogre_next_probe/run_windows_dxr7.py `
             --build-dir $buildRoot `
             --reuse-build-dir `
+            --require-ci-context `
             --jobs '${{ matrix.jobs }}'
           $report = Get-Content `
             (Join-Path $buildRoot 'ror-ogre-next-windows-dxr7-report.json') `
@@ -385,6 +399,26 @@ jobs:
           --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --verify-existing
 
+      - name: Cryptographically attest the Windows DXR RT7 execution receipt
+        if: >-
+          always() && runner.os == 'Windows' &&
+          github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: >-
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-execution-receipt.json
+
+      - name: Verify the GitHub-signed Windows DXR RT7 execution receipt
+        if: >-
+          always() && runner.os == 'Windows' &&
+          github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $receipt = '${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-execution-receipt.json'
+          gh attestation verify $receipt --repo $env:GITHUB_REPOSITORY
+
       - name: Upload exact reports and UI-free frame
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -465,5 +499,9 @@ jobs:
           path: |
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-execution-receipt.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-ogre-frame.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-build-contract.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/.ror-ogre-next-probe-build-v1
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/generated/ror_ogre_next_windows_dxr7_probe.dxil
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_windows_dxr7_smoke.exe

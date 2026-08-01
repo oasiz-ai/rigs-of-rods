@@ -187,22 +187,69 @@ index 7c06fa69a..36b4ed67d 100644
          }
      }
      //---------------------------------------------------------------------
-@@ -1662,6 +1733,14 @@ namespace Ogre
+@@ -1662,26 +1733,42 @@ namespace Ogre
      {
          mDevice.ReleaseAll();
  
+-        D3D11Driver *d3dDriver = getDirect3DDrivers( true )->findByName( mDriverName );
+-        mActiveD3DDriver = *d3dDriver;  // store copy of selected driver, so that it is not
+-                                        // lost when drivers would be re-enumerated
+-        LogManager::getSingleton().stream() << "D3D11: Requested \"" << mDriverName << "\", selected \""
+-                                            << d3dDriver->DriverDescription() << "\"";
+-
+-        if( D3D11Driver *nvPerfHudDriver = ( mDriverType == D3D_DRIVER_TYPE_HARDWARE && mUseNVPerfHUD )
+-                                               ? getDirect3DDrivers()->item( "NVIDIA PerfHUD" )
+-                                               : NULL )
 +        if( mExternalDevice )
-+        {
+         {
+-            d3dDriver = nvPerfHudDriver;
+-            LogManager::getSingleton().logMessage( "D3D11: Actually \"NVIDIA PerfHUD\" is used" );
 +            adoptExternalDevice( true );
 +            LogManager::getSingleton().stream()
 +                << "D3D11: Adopted exact external device for \"" << mDriverName << "\"";
-+            return;
-+        }
+         }
++        else
++        {
++            D3D11Driver *d3dDriver = getDirect3DDrivers( true )->findByName( mDriverName );
++            mActiveD3DDriver = *d3dDriver;  // store copy of selected driver, so that it is not
++                                            // lost when drivers would be re-enumerated
++            LogManager::getSingleton().stream()
++                << "D3D11: Requested \"" << mDriverName << "\", selected \""
++                << d3dDriver->DriverDescription() << "\"";
 +
-         D3D11Driver *d3dDriver = getDirect3DDrivers( true )->findByName( mDriverName );
-         mActiveD3DDriver = *d3dDriver;  // store copy of selected driver, so that it is not
-                                         // lost when drivers would be re-enumerated
-@@ -3798,11 +3877,18 @@ namespace Ogre
++            if( D3D11Driver *nvPerfHudDriver =
++                    ( mDriverType == D3D_DRIVER_TYPE_HARDWARE && mUseNVPerfHUD )
++                        ? getDirect3DDrivers()->item( "NVIDIA PerfHUD" )
++                        : NULL )
++            {
++                d3dDriver = nvPerfHudDriver;
++                LogManager::getSingleton().logMessage(
++                    "D3D11: Actually \"NVIDIA PerfHUD\" is used" );
++            }
+-
++
+-        ComPtr<ID3D11Device> device;
+-        createD3D11Device( mVendorExtension, Root::getSingleton().getAppName(), d3dDriver, mDriverType,
+-                           mMinRequestedFeatureLevel, mMaxRequestedFeatureLevel, &mFeatureLevel,
+-                           device.GetAddressOf() );
+-        mDevice.TransferOwnership( device );
++            ComPtr<ID3D11Device> device;
++            createD3D11Device( mVendorExtension, Root::getSingleton().getAppName(), d3dDriver,
++                               mDriverType, mMinRequestedFeatureLevel, mMaxRequestedFeatureLevel,
++                               &mFeatureLevel, device.GetAddressOf() );
++            mDevice.TransferOwnership( device );
++        }
+-
++
++        // External and renderer-owned devices deliberately converge here.
++        // The driver version, feature-level log, and depth-format policy are
++        // part of normal D3D11 initialization and may not be skipped; this
++        // includes GetDriverVersion and selectDepthBufferFormat below.
+         LogManager::getSingleton().stream() << "D3D11: Device Feature Level " << ( mFeatureLevel >> 12 )
+                                             << "." << ( ( mFeatureLevel >> 8 ) & 0xF );
+-
++
+@@ -3798,11 +3885,18 @@ namespace Ogre
  
          mVendorExtension = D3D11VendorExtension::initializeExtension( GPU_VENDOR_COUNT, 0 );
  
@@ -226,7 +273,7 @@ index 7c06fa69a..36b4ed67d 100644
      }
      //---------------------------------------------------------------------
      void D3D11RenderSystem::getCustomAttribute( const String &name, void *pData )
-@@ -3813,6 +3899,11 @@ namespace Ogre
+@@ -3813,6 +3907,11 @@ namespace Ogre
              *device = mDevice.get();
              return;
          }

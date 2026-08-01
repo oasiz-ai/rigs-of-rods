@@ -3,18 +3,20 @@
 
 from __future__ import annotations
 
+from collections import Counter
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
+import struct
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-RUNNER_PATH = (
-    REPOSITORY_ROOT / "tools/ogre_next_probe/run_windows_dxr7.py"
-)
+RUNNER_PATH = REPOSITORY_ROOT / "tools/ogre_next_probe/run_windows_dxr7.py"
 RUNNER_SPEC = importlib.util.spec_from_file_location(
     "run_windows_dxr7_for_tests", RUNNER_PATH
 )
@@ -39,12 +41,77 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             "relevant_manifest_sha256": "2" * 64,
             "relevant_manifest_file_count": 23,
         }
+        cls.nonce = "a" * 64
+        cls.dxc_closure = {
+            "provider": "Windows SDK",
+            "sdk_version": "10.0.26100.0",
+            "sdk_bin_root": "c:/program files (x86)/windows kits/10/bin",
+            "x64_directory": (
+                "c:/program files (x86)/windows kits/10/bin/"
+                "10.0.26100.0/x64"
+            ),
+            "dxc_path": (
+                "c:/program files (x86)/windows kits/10/bin/"
+                "10.0.26100.0/x64/dxc.exe"
+            ),
+            "dxc_version": "libdxcompiler fixture 1.0",
+            "components": {
+                "dxc.exe": {
+                    "path": "dxc.exe",
+                    "bytes": 100,
+                    "sha256": "3" * 64,
+                },
+                "dxcompiler.dll": {
+                    "path": "dxcompiler.dll",
+                    "bytes": 200,
+                    "sha256": "4" * 64,
+                },
+                "dxil.dll": {
+                    "path": "dxil.dll",
+                    "bytes": 300,
+                    "sha256": "5" * 64,
+                },
+            },
+        }
+        cls.frame_pixels = cls.make_frame_pixels()
+        colours = [
+            cls.frame_pixels[offset : offset + 3]
+            for offset in range(0, len(cls.frame_pixels), 3)
+        ]
+        counts = Counter(colours)
+        cls.frame_metrics = {
+            "width": 192,
+            "height": 128,
+            "distinct_rgb8_values": len(counts),
+            "non_background_pixels": len(colours) - max(counts.values()),
+            "rgb8_fnv1a64": f"{RUNNER._fnv1a64(cls.frame_pixels):016x}",
+        }
+
+    @staticmethod
+    def make_frame_pixels() -> bytes:
+        payload = bytearray()
+        for y in range(128):
+            for x in range(192):
+                if 32 <= x < 160 and 24 <= y < 104:
+                    payload.extend((x & 0xFF, (y * 2) & 0xFF, (x + y) & 0xFF))
+                else:
+                    payload.extend((2, 3, 5))
+        return bytes(payload)
+
+    def write_frame(self, path: Path) -> None:
+        path.write_bytes(b"P6\n192 128\n255\n" + self.frame_pixels)
 
     def make_pass_report(self) -> dict[str, object]:
         return {
             "schema": RUNNER.SCHEMA,
             "status": "pass",
             "reason": "",
+            "execution": {
+                "challenge_nonce": self.nonce,
+                "probe_binary_marker": RUNNER.expected_binary_marker(
+                    self.source_identity
+                ),
+            },
             "scope": {
                 "external_d3d11on12_foundation": True,
                 "hardware_dxr_pass": True,
@@ -52,6 +119,7 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
                 "acceleration_structure_built": True,
                 "ray_traced_probe_readback": True,
                 "ray_traced_image_produced": False,
+                "ogre_raster_image_produced": True,
                 "hybrid_ogre_image_composite": False,
                 "limitation": RUNNER.SCOPE_LIMITATION,
             },
@@ -68,9 +136,7 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
                 "ogre_next_repository": self.ogre_lock["repository"],
                 "ogre_next_branch": self.ogre_lock["branch"],
                 "ogre_next_commit": self.ogre_lock["commit"],
-                "ogre_next_archive_sha256": self.ogre_lock[
-                    "archive_sha256"
-                ],
+                "ogre_next_archive_sha256": self.ogre_lock["archive_sha256"],
                 "ogre_next_license_spdx": self.ogre_lock["license"]["spdx"],
                 "ogre_next_license_sha256": self.ogre_lock["license"][
                     "sha256"
@@ -83,7 +149,19 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
                     "adaptation_patch"
                 ]["sha256"],
                 "hlsl_source_sha256": self.dxr7_lock["shader"]["sha256"],
-                "dxc_executable_sha256": "3" * 64,
+                "dxc_executable_sha256": self.dxc_closure["components"][
+                    "dxc.exe"
+                ]["sha256"],
+                "dxcompiler_dll_sha256": self.dxc_closure["components"][
+                    "dxcompiler.dll"
+                ]["sha256"],
+                "dxil_dll_sha256": self.dxc_closure["components"]["dxil.dll"][
+                    "sha256"
+                ],
+                "dxc_sdk_version": self.dxc_closure["sdk_version"],
+                "dxc_version": self.dxc_closure["dxc_version"],
+                "dxc_path": self.dxc_closure["dxc_path"],
+                "dxc_x64_directory": self.dxc_closure["x64_directory"],
             },
             "build": {
                 "platform_policy": "windows-x64-d3d11on12-dxr",
@@ -130,6 +208,17 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
                 "readback_value": 0xD1CEB00B,
                 "closest_hit_readback_exact": True,
             },
+            "ogre_frame": {
+                "native_hidden_window_created": True,
+                "pbs_material_created": True,
+                "compositor_workspace_created": True,
+                "frame_submitted": True,
+                "gpu_readback_completed": True,
+                "nonblank": True,
+                "ui_included": False,
+                "resources_destroyed_before_ogre_shutdown": True,
+                **self.frame_metrics,
+            },
             "synchronization": {
                 "fence_before_dispatch": 1,
                 "fence_after_dispatch": 2,
@@ -149,10 +238,12 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
         report["status"] = "unsupported"
         report["reason"] = "no attested DXR7 adapter: no_hardware_adapter"
         scope = report["scope"]
+        scope["external_d3d11on12_foundation"] = False
         scope["hardware_dxr_pass"] = False
         scope["native_ray_tracing"] = "unsupported"
         scope["acceleration_structure_built"] = False
         scope["ray_traced_probe_readback"] = False
+        scope["ogre_raster_image_produced"] = False
         report["adapter"] = {
             "name": "",
             "luid": "",
@@ -168,9 +259,24 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             if key != "ogre_plugin_option":
                 report["ownership"][key] = False
         for key in report["ray_tracing"]:
-            report["ray_tracing"][key] = False if isinstance(
-                report["ray_tracing"][key], bool
-            ) else 0
+            report["ray_tracing"][key] = (
+                False if isinstance(report["ray_tracing"][key], bool) else 0
+            )
+        report["ogre_frame"] = {
+            "native_hidden_window_created": False,
+            "pbs_material_created": False,
+            "compositor_workspace_created": False,
+            "frame_submitted": False,
+            "gpu_readback_completed": False,
+            "nonblank": False,
+            "ui_included": False,
+            "resources_destroyed_before_ogre_shutdown": False,
+            "width": 0,
+            "height": 0,
+            "distinct_rgb8_values": 0,
+            "non_background_pixels": 0,
+            "rgb8_fnv1a64": "0000000000000000",
+        }
         report["synchronization"] = {
             "fence_before_dispatch": 0,
             "fence_after_dispatch": 0,
@@ -186,13 +292,20 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
         return report
 
     def validate(self, report: dict[str, object], exit_code: int = 0) -> None:
-        RUNNER.validate_report(
-            report,
-            exit_code,
-            self.ogre_lock,
-            self.dxr7_lock,
-            self.source_identity,
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            frame = Path(directory) / RUNNER.OGRE_FRAME_NAME
+            if report["status"] == "pass":
+                self.write_frame(frame)
+            RUNNER.validate_report(
+                report,
+                exit_code,
+                self.ogre_lock,
+                self.dxr7_lock,
+                self.source_identity,
+                self.dxc_closure,
+                self.nonce,
+                frame,
+            )
 
     def test_static_contract_and_locked_sources(self) -> None:
         RUNNER.validate_static_contract()
@@ -200,8 +313,22 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             RUNNER.sha256_file(RUNNER.PROBE_SOURCE / RUNNER.LOCK_NAME),
             RUNNER.LOCK_SHA256,
         )
+        self.assertEqual(
+            RUNNER.expected_binary_marker(self.source_identity),
+            "ror-ogre-next-dxr7-pe-v2:"
+            + "1" * 40
+            + ":"
+            + "2" * 64,
+        )
+        self.assertIn(
+            '"ror-ogre-next-dxr7-pe-v2:${ROR_SOURCE_COMMIT}:'
+            '${ROR_SOURCE_MANIFEST_SHA256}"',
+            (RUNNER.PROBE_SOURCE / "CMakeLists.txt").read_text(
+                encoding="utf-8"
+            ),
+        )
 
-    def test_complete_real_dispatch_report_passes(self) -> None:
+    def test_complete_dispatch_and_real_ogre_frame_report_passes(self) -> None:
         self.validate(self.make_pass_report())
 
     def test_every_material_pass_claim_is_fail_closed(self) -> None:
@@ -210,21 +337,13 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             ("adapter", "software_adapter", True),
             ("adapter", "raytracing_tier", 10),
             ("ownership", "app_owned_direct_queue", False),
-            (
-                "ownership",
-                "d3d11on12_created_with_exact_direct_queue",
-                False,
-            ),
-            (
-                "ownership",
-                "d3d11on12_underlying_d3d12_device_exact",
-                False,
-            ),
             ("ownership", "ogre_d3d11_device_exact", False),
             ("ray_tracing", "blas_built", False),
-            ("ray_tracing", "tlas_built", False),
             ("ray_tracing", "dispatch_rays_called", False),
             ("ray_tracing", "readback_value", 0x0BADCAFE),
+            ("ogre_frame", "native_hidden_window_created", False),
+            ("ogre_frame", "gpu_readback_completed", False),
+            ("ogre_frame", "non_background_pixels", 1),
             ("synchronization", "fence_after_ogre", 2),
             ("lifecycle", "d3d12_queue_released_before_device", False),
         )
@@ -235,26 +354,29 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
                 with self.assertRaises(RUNNER.Dxr7Error):
                     self.validate(report)
 
-    def test_report_rejects_extra_or_wrong_typed_evidence(self) -> None:
+    def test_report_rejects_wrong_exit_nonce_and_toolchain(self) -> None:
         report = self.make_pass_report()
-        report["ray_tracing"]["forged"] = True
+        with self.assertRaises(RUNNER.Dxr7Error):
+            self.validate(report, RUNNER.UNSUPPORTED_EXIT_CODE)
+        report = self.make_pass_report()
+        report["execution"]["challenge_nonce"] = "b" * 64
         with self.assertRaises(RUNNER.Dxr7Error):
             self.validate(report)
         report = self.make_pass_report()
-        report["ownership"]["app_owned_fence"] = 1
+        report["provenance"]["dxcompiler_dll_sha256"] = "0" * 64
         with self.assertRaises(RUNNER.Dxr7Error):
             self.validate(report)
 
-    def test_honest_no_hardware_skip_passes(self) -> None:
+    def test_honest_no_hardware_skip_passes_without_frame(self) -> None:
         self.validate(self.make_unsupported_report(), RUNNER.UNSUPPORTED_EXIT_CODE)
 
-    def test_unsupported_reason_cannot_hide_partial_rt_claims(self) -> None:
+    def test_unsupported_reason_cannot_hide_partial_claims(self) -> None:
         report = self.make_unsupported_report()
         report["ray_tracing"]["dispatch_rays_called"] = True
         with self.assertRaises(RUNNER.Dxr7Error):
             self.validate(report, RUNNER.UNSUPPORTED_EXIT_CODE)
         report = self.make_unsupported_report()
-        report["reason"] = "driver did not work"
+        report["scope"]["external_d3d11on12_foundation"] = True
         with self.assertRaises(RUNNER.Dxr7Error):
             self.validate(report, RUNNER.UNSUPPORTED_EXIT_CODE)
 
@@ -277,65 +399,243 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
         with self.assertRaises(RUNNER.Dxr7Error):
             self.validate(report, RUNNER.UNSUPPORTED_EXIT_CODE)
 
-    def test_attestation_binds_report_executable_dxil_and_source(self) -> None:
-        report = self.make_pass_report()
+    @staticmethod
+    def write_valid_pe(path: Path, marker: str) -> None:
+        contents = bytearray(2048)
+        contents[:2] = b"MZ"
+        struct.pack_into("<I", contents, 0x3C, 0x80)
+        contents[0x80:0x84] = b"PE\0\0"
+        coff = 0x84
+        struct.pack_into("<HHIIIHH", contents, coff, 0x8664, 1, 0, 0, 0, 0xF0, 0x0002)
+        optional = coff + 20
+        struct.pack_into("<H", contents, optional, 0x20B)
+        struct.pack_into("<I", contents, optional + 16, 0x1000)
+        struct.pack_into("<I", contents, optional + 56, 0x2000)
+        struct.pack_into("<I", contents, optional + 60, 0x200)
+        struct.pack_into("<H", contents, optional + 68, 3)
+        section = optional + 0xF0
+        contents[section : section + 8] = b".text\0\0\0"
+        struct.pack_into("<I", contents, section + 8, 0x400)
+        struct.pack_into("<I", contents, section + 16, 0x600)
+        struct.pack_into("<I", contents, section + 20, 0x200)
+        struct.pack_into("<I", contents, section + 36, 0x60000020)
+        contents[0x200:0x800] = b"\x90" * 0x600
+        marker_bytes = marker.encode("utf-8")
+        contents[0x300 : 0x300 + len(marker_bytes)] = marker_bytes
+        path.write_bytes(contents)
+
+    @staticmethod
+    def write_valid_dxil(path: Path) -> None:
+        bitcode = b"BC\xc0\xde" + b"fixture" + b"RayGen\0Miss\0ClosestHit\0"
+        program_size = 24 + len(bitcode)
+        program = bytearray((program_size + 3) & ~3)
+        struct.pack_into("<II4sIII", program, 0, 0x00060065,
+                         len(program) // 4, b"DXIL", 0x00000108, 16,
+                         len(bitcode))
+        program[24 : 24 + len(bitcode)] = bitcode
+        parts = [(b"DXIL", bytes(program)), (b"SFI0", b"\0" * 8)]
+        header_size = 32 + len(parts) * 4
+        offsets = []
+        body = bytearray()
+        for fourcc, payload in parts:
+            while (header_size + len(body)) % 4:
+                body.append(0)
+            offsets.append(header_size + len(body))
+            body.extend(fourcc)
+            body.extend(struct.pack("<I", len(payload)))
+            body.extend(payload)
+        container_size = header_size + len(body)
+        header = bytearray()
+        header.extend(b"DXBC")
+        header.extend(b"\x11" * 16)
+        header.extend(struct.pack("<III", 1, container_size, len(parts)))
+        header.extend(struct.pack(f"<{len(offsets)}I", *offsets))
+        path.write_bytes(bytes(header + body))
+
+    def test_pe_validator_rejects_dummy_pe_and_accepts_structured_x64(self) -> None:
+        marker = RUNNER.expected_binary_marker(self.source_identity)
         with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "probe.exe"
+            executable.write_bytes(b"MZ" + b"not a PE" * 200)
+            with self.assertRaises(RUNNER.Dxr7Error):
+                RUNNER.validate_pe_executable(executable, marker)
+            self.write_valid_pe(executable, marker)
+            semantics = RUNNER.validate_pe_executable(executable, marker)
+            self.assertEqual(semantics["machine"], "x86_64")
+            self.assertGreater(semantics["text_bytes"], 0)
+
+    def test_dxil_validator_rejects_dummy_dxil_and_requires_exports(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            dxil = Path(directory) / "probe.dxil"
+            dxil.write_bytes(b"DXBC" + b"not DXIL" * 20)
+            with self.assertRaises(RUNNER.Dxr7Error):
+                RUNNER.validate_dxil_container(dxil, ["RayGen", "Miss", "ClosestHit"])
+            self.write_valid_dxil(dxil)
+            semantics = RUNNER.validate_dxil_container(
+                dxil, ["RayGen", "Miss", "ClosestHit"]
+            )
+            self.assertIn("DXIL", semantics["part_fourccs"])
+            with self.assertRaises(RUNNER.Dxr7Error):
+                RUNNER.validate_dxil_container(dxil, ["ForgedExport"])
+
+    def test_dxc_closure_rejects_path_and_missing_dlls(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            program_files_x86 = Path(directory) / "Program Files (x86)"
+            root = program_files_x86 / "Windows Kits/10/bin"
+            x64 = root / "10.0.26100.0/x64"
+            x64.mkdir(parents=True)
+            for name in ("dxc.exe", "dxcompiler.dll", "dxil.dll"):
+                (x64 / name).write_bytes(name.encode("ascii"))
+            with mock.patch.object(
+                RUNNER.platform, "system", return_value="Windows"
+            ), mock.patch.dict(
+                os.environ,
+                {"ProgramFiles(x86)": str(program_files_x86)},
+            ):
+                closure = RUNNER.validate_dxc_closure(
+                    x64 / "dxc.exe", root, execute_version=False
+                )
+                self.assertEqual(closure["sdk_version"], "10.0.26100.0")
+                fake_root = Path(directory) / "unreviewed-sdk"
+                with self.assertRaises(RUNNER.Dxr7Error):
+                    RUNNER.validate_dxc_closure(
+                        x64 / "dxc.exe", fake_root, execute_version=False
+                    )
+                (x64 / "dxil.dll").unlink()
+                with self.assertRaises(RUNNER.Dxr7Error):
+                    RUNNER.validate_dxc_closure(
+                        x64 / "dxc.exe", root, execute_version=False
+                    )
+                arbitrary = root / "dxc.exe"
+                arbitrary.write_bytes(b"dxc")
+                with self.assertRaises(RUNNER.Dxr7Error):
+                    RUNNER.validate_dxc_closure(
+                        arbitrary, root, execute_version=False
+                    )
+
+    def test_attestation_binds_exit_build_receipt_and_honest_claim_scope(self) -> None:
+        report = self.make_pass_report()
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
+            os.environ, {"GITHUB_ACTIONS": "false"}
+        ):
             root = Path(directory)
             report_path = root / RUNNER.REPORT_NAME
             executable = root / "ror_ogre_next_windows_dxr7_smoke.exe"
-            dxil = root / "generated/ror_ogre_next_windows_dxr7_probe.dxil"
+            dxil = root / RUNNER.DXIL_RELATIVE
+            frame = root / RUNNER.OGRE_FRAME_NAME
+            receipt_path = root / RUNNER.EXECUTION_RECEIPT_NAME
             dxil.parent.mkdir()
             report_path.write_text(json.dumps(report), encoding="utf-8")
-            executable.write_bytes(b"exe")
-            dxil.write_bytes(b"dxil")
+            executable.write_bytes(b"structured fixture PE")
+            dxil.write_bytes(b"structured fixture DXIL")
+            self.write_frame(frame)
+            build_context = {
+                "sentinel": {"path": "sentinel", "bytes": 1, "sha256": "6" * 64},
+                "build_contract": {"path": "contract", "bytes": 2, "sha256": "7" * 64},
+                "cmake_cache": {"path": "cache", "bytes": 3, "sha256": "8" * 64},
+            }
+            receipt = RUNNER.make_execution_receipt(
+                report_path, executable, dxil, frame, report, 0,
+                self.source_identity, build_context, self.dxc_closure, False,
+            )
+            RUNNER.write_json_atomically(receipt_path, receipt)
+            pe_semantics = {"format": "PE32+"}
+            dxil_semantics = {"format": "DXBC/DXIL"}
             attestation = RUNNER.make_attestation(
-                report_path,
-                executable,
-                dxil,
-                report,
-                0,
-                self.source_identity,
+                report_path, executable, dxil, frame, receipt_path, report, 0,
+                self.source_identity, build_context, self.dxc_closure,
+                pe_semantics, dxil_semantics,
             )
             RUNNER.validate_attestation(
-                attestation,
-                report_path,
-                executable,
-                dxil,
-                report,
-                self.source_identity,
+                attestation, report_path, executable, dxil, frame,
+                receipt_path, report, self.source_identity, build_context,
+                self.dxc_closure, pe_semantics, dxil_semantics,
+            )
+            self.assertFalse(
+                attestation["execution"]["offline_artifact_proves_execution"]
             )
             mutated = copy.deepcopy(attestation)
-            mutated["claims"]["real_dispatch_rays"] = False
+            mutated["execution"]["observed_process_exit_code"] = 77
             with self.assertRaises(RUNNER.Dxr7Error):
                 RUNNER.validate_attestation(
-                    mutated,
-                    report_path,
-                    executable,
-                    dxil,
-                    report,
-                    self.source_identity,
+                    mutated, report_path, executable, dxil, frame,
+                    receipt_path, report, self.source_identity, build_context,
+                    self.dxc_closure, pe_semantics, dxil_semantics,
                 )
 
-    def test_parser_exposes_contract_and_dxc_controls(self) -> None:
+    def test_verify_existing_rejects_fully_fabricated_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / RUNNER.REPORT_NAME).write_text(
+                json.dumps(self.make_pass_report()), encoding="utf-8"
+            )
+            (root / RUNNER.ATTESTATION_NAME).write_text("{}", encoding="utf-8")
+            (root / RUNNER.EXECUTION_RECEIPT_NAME).write_text("{}", encoding="utf-8")
+            executable = root / "bin/ror_ogre_next_windows_dxr7_smoke.exe"
+            executable.parent.mkdir()
+            executable.write_bytes(b"MZ" + b"fabricated" * 100)
+            dxil = root / RUNNER.DXIL_RELATIVE
+            dxil.parent.mkdir(parents=True)
+            dxil.write_bytes(b"DXBC" + b"fabricated" * 100)
+            with mock.patch.object(
+                RUNNER.MAIN_RUNNER, "require_relevant_source_clean"
+            ), mock.patch.object(
+                RUNNER.MAIN_RUNNER,
+                "ror_source_identity",
+                return_value=self.source_identity,
+            ), self.assertRaises(RUNNER.Dxr7Error):
+                RUNNER.verify_existing(root)
+
+    def test_atomic_json_publication_replaces_existing_without_temp_leak(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "report.json"
+            RUNNER.write_json_atomically(path, {"generation": 1})
+            RUNNER.write_json_atomically(path, {"generation": 2})
+            self.assertEqual(json.loads(path.read_text()), {"generation": 2})
+            self.assertEqual(list(path.parent.glob(path.name + ".tmp-*")), [])
+
+    def test_parser_requires_explicit_sdk_closure_controls(self) -> None:
         parser = RUNNER.build_parser()
         parsed = parser.parse_args(
-            ["--validate-contract-only", "--dxc", "C:/SDK/dxc.exe"]
+            [
+                "--validate-contract-only",
+                "--dxc",
+                "C:/SDK/x64/dxc.exe",
+                "--windows-sdk-bin-root",
+                "C:/SDK",
+            ]
         )
         self.assertTrue(parsed.validate_contract_only)
-        self.assertEqual(parsed.dxc, Path("C:/SDK/dxc.exe"))
+        self.assertEqual(parsed.dxc, Path("C:/SDK/x64/dxc.exe"))
 
-    def test_windows_ci_builds_verifies_and_uploads_attested_evidence(self) -> None:
+    def test_dxc_closure_mutation_fails_closed(self) -> None:
+        mutated = copy.deepcopy(self.dxc_closure)
+        mutated["components"]["dxc.exe"]["sha256"] = "f" * 64
+        with mock.patch.object(
+            RUNNER, "configured_dxc_closure", return_value=mutated
+        ), self.assertRaises(RUNNER.Dxr7Error):
+            RUNNER.require_dxc_closure_unchanged(
+                Path("fixture-build"), self.dxc_closure
+            )
+
+    def test_windows_ci_builds_reruns_signs_and_uploads_evidence(self) -> None:
         for token in (
-            "Locate and attest the Windows SDK DXC compiler",
+            "A complete versioned Windows SDK x64 DXC closure is unavailable",
+            "dxcompiler.dll",
+            "dxil.dll",
             "test_ogre_next_windows_dxr7_contract.py",
             "run_windows_dxr7.py --validate-contract-only",
             "Build and attest app-owned D3D12/D3D11On12/DXR RT7",
+            "--require-ci-context",
             "--verify-existing",
+            "actions/attest-build-provenance@",
+            "gh attestation verify",
+            "ror-ogre-next-windows-dxr7-execution-receipt.json",
+            "ror-ogre-next-windows-dxr7-ogre-frame.ppm",
             "Upload attested Windows D3D12/D3D11On12/DXR RT7 evidence",
-            "ror-ogre-next-windows-dxr7-attestation.json",
-            "ror_ogre_next_windows_dxr7_probe.dxil",
         ):
             self.assertIn(token, self.workflow)
+        self.assertNotIn("Get-Command dxc.exe", self.workflow)
         self.assertLess(
             self.workflow.index("Locate and attest the Windows SDK DXC compiler"),
             self.workflow.index("Build, render, and validate the independent N1 frontend"),
