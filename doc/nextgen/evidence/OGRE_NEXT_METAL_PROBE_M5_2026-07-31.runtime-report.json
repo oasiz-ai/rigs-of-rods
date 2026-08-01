@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "provenance": {
+    "repository": "https://github.com/OGRECave/ogre-next",
+    "branch": "v3-0",
+    "commit": "37149a802de747f6806996fa3067b0748ecc1084",
+    "archive_sha256": "1c0be064474da512606d02543be2630b36cdf99f359a9f23edc97eeb410e25b2",
+    "license_spdx": "MIT",
+    "license_sha256": "df6294031f26c4401ce713be0b0b3c5da27c2f1b7278a0d9833d111273174183",
+    "rapidjson_tag": "v1.1.0",
+    "rapidjson_archive_sha256": "bf7ced29704a1e696fbccf2a2b4ea068e7774fa37f6d7dd4039d0787f8bed98e",
+    "rapidjson_source_archive_license_spdx": "MIT AND BSD-3-Clause AND JSON",
+    "rapidjson_compiled_headers_license_spdx": "MIT",
+    "rapidjson_license_sha256": "a140e5d46fe734a1c78f1a3c3ef207871dd75648be71fdda8e309b23ab8b1f32"
+  },
+  "build": {
+    "ogre_version": "3.0.0",
+    "platform_policy": "macos-arm64-metal",
+    "system": "Darwin",
+    "processor": "arm64",
+    "compiler": "AppleClang 21.0.0.21000101",
+    "cxx_standard": 17,
+    "pointer_bits": 64,
+    "static_link": true,
+    "abi_cookie": "46a34938ff9e3014046d5cf993e7fcb3",
+    "debug_mode": 0,
+    "double_precision": false,
+    "memory_allocator": 0,
+    "container_custom_allocator": false,
+    "string_custom_allocator": false,
+    "thread_support": 0,
+    "thread_provider": 0,
+    "id_string_bits": 32,
+    "id_string_size": 4,
+    "flexibility_level": 0,
+    "simd_alignment": 16,
+    "use_simd": 1,
+    "restrict_aliasing": 1,
+    "assert_mode": 0
+  },
+  "capabilities": {
+    "renderer": {
+      "target": "RenderSystem_Metal",
+      "name": "Metal Rendering Subsystem",
+      "registered": true,
+      "registered_renderer_count": 1,
+      "configuration_option_count": 3,
+      "device_option_name": "Rendering Device",
+      "reported_device_count": 1,
+      "first_reported_device": "Apple M5"
+    },
+    "hlms_pbs": {
+      "compiled_and_linked": true,
+      "shader_data_path": "Hlms/Pbs/Metal",
+      "shader_path_matches_policy": true,
+      "library_path_count": 4
+    },
+    "compositor2": {
+      "compiled_and_linked": true,
+      "runtime_initialization": "deferred_until_real_window",
+      "deferred_contract_observed": true
+    },
+    "native_ray_tracing": "not_evaluated"
+  }
+}

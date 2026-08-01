@@ -36,20 +36,52 @@ string(JSON ROR_RAPIDJSON_TAG GET "${_ror_lock_json}" dependencies rapidjson tag
 string(JSON ROR_RAPIDJSON_ARCHIVE_URL GET "${_ror_lock_json}" dependencies rapidjson archive_url)
 string(JSON ROR_RAPIDJSON_ARCHIVE_SHA256 GET "${_ror_lock_json}" dependencies rapidjson archive_sha256)
 string(JSON ROR_RAPIDJSON_LICENSE_SPDX GET "${_ror_lock_json}" dependencies rapidjson license_spdx)
+string(JSON ROR_RAPIDJSON_COMPILED_HEADERS_SPDX GET "${_ror_lock_json}" dependencies rapidjson compiled_headers_spdx)
 string(JSON ROR_RAPIDJSON_LICENSE_PATH GET "${_ror_lock_json}" dependencies rapidjson license_path)
 string(JSON ROR_RAPIDJSON_LICENSE_SHA256 GET "${_ror_lock_json}" dependencies rapidjson license_sha256)
 
-if (NOT ROR_OGRE_NEXT_COMMIT STREQUAL
+if (NOT ROR_OGRE_NEXT_REPOSITORY STREQUAL
+        "https://github.com/OGRECave/ogre-next" OR
+        NOT ROR_OGRE_NEXT_BRANCH STREQUAL "v3-0" OR
+        NOT ROR_OGRE_NEXT_COMMIT STREQUAL
         "37149a802de747f6806996fa3067b0748ecc1084")
     message(FATAL_ERROR "The OGRE-Next lock moved without an integration review")
+endif ()
+if (NOT ROR_OGRE_NEXT_ARCHIVE_URL STREQUAL
+        "https://github.com/OGRECave/ogre-next/archive/37149a802de747f6806996fa3067b0748ecc1084.tar.gz" OR
+        NOT ROR_OGRE_NEXT_LICENSE_PATH STREQUAL "COPYING")
+    message(FATAL_ERROR "The OGRE-Next archive or license path contract changed")
 endif ()
 if (NOT ROR_OGRE_NEXT_LICENSE_SPDX STREQUAL "MIT")
     message(FATAL_ERROR "The OGRE-Next license contract changed")
 endif ()
+if (NOT ROR_OGRE_NEXT_ARCHIVE_SHA256 STREQUAL
+        "1c0be064474da512606d02543be2630b36cdf99f359a9f23edc97eeb410e25b2" OR
+        NOT ROR_OGRE_NEXT_LICENSE_SHA256 STREQUAL
+        "df6294031f26c4401ce713be0b0b3c5da27c2f1b7278a0d9833d111273174183")
+    message(FATAL_ERROR "The reviewed OGRE-Next archive or license hash changed")
+endif ()
+if (NOT ROR_RAPIDJSON_REPOSITORY STREQUAL
+        "https://github.com/Tencent/rapidjson" OR
+        NOT ROR_RAPIDJSON_TAG STREQUAL "v1.1.0" OR
+        NOT ROR_RAPIDJSON_ARCHIVE_URL STREQUAL
+        "https://github.com/Tencent/rapidjson/archive/refs/tags/v1.1.0.tar.gz" OR
+        NOT ROR_RAPIDJSON_LICENSE_PATH STREQUAL "license.txt" OR
+        NOT ROR_RAPIDJSON_ARCHIVE_SHA256 STREQUAL
+        "bf7ced29704a1e696fbccf2a2b4ea068e7774fa37f6d7dd4039d0787f8bed98e" OR
+        NOT ROR_RAPIDJSON_LICENSE_SPDX STREQUAL
+        "MIT AND BSD-3-Clause AND JSON" OR
+        NOT ROR_RAPIDJSON_COMPILED_HEADERS_SPDX STREQUAL "MIT" OR
+        NOT ROR_RAPIDJSON_LICENSE_SHA256 STREQUAL
+        "a140e5d46fe734a1c78f1a3c3ef207871dd75648be71fdda8e309b23ab8b1f32")
+    message(FATAL_ERROR "The reviewed RapidJSON pin or license contract changed")
+endif ()
 file(SHA256
     "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_PATCH_PATH}"
     _ror_patch_sha256)
-if (NOT _ror_patch_sha256 STREQUAL ROR_OGRE_NEXT_PATCH_SHA256)
+if (NOT ROR_OGRE_NEXT_PATCH_SHA256 STREQUAL
+        "84916d0d1abf61a15d19d2c89a7d9b1a445f1a37a5067a9f8b558395fe10ead1" OR
+        NOT _ror_patch_sha256 STREQUAL ROR_OGRE_NEXT_PATCH_SHA256)
     message(FATAL_ERROR "The pinned OGRE-Next adaptation patch changed")
 endif ()
 
@@ -112,9 +144,11 @@ if (APPLE)
     set(ROR_OGRE_NEXT_PLATFORM_POLICY "macos-arm64-metal")
     set(ROR_OGRE_NEXT_RENDERER_TARGET "RenderSystem_Metal")
     set(ROR_OGRE_NEXT_RENDERER_NAME "Metal Rendering Subsystem")
+    set(ROR_OGRE_NEXT_DEVICE_OPTION_NAME "Rendering Device")
     set(ROR_OGRE_NEXT_SHADER_SYNTAX "Metal")
     set(ROR_OGRE_NEXT_SIMD_NEON ON)
     set(ROR_OGRE_NEXT_SIMD_SSE2 OFF)
+    set(ROR_OGRE_NEXT_SIMD_FAMILY "neon")
     set(_ror_probe_renderer_definition ROR_OGRE_NEXT_PROBE_METAL=1)
 elseif (WIN32)
     if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR
@@ -126,9 +160,11 @@ elseif (WIN32)
     set(ROR_OGRE_NEXT_PLATFORM_POLICY "windows-x64-d3d11")
     set(ROR_OGRE_NEXT_RENDERER_TARGET "RenderSystem_Direct3D11")
     set(ROR_OGRE_NEXT_RENDERER_NAME "Direct3D11 Rendering Subsystem")
+    set(ROR_OGRE_NEXT_DEVICE_OPTION_NAME "Rendering Device")
     set(ROR_OGRE_NEXT_SHADER_SYNTAX "HLSL")
     set(ROR_OGRE_NEXT_SIMD_NEON OFF)
     set(ROR_OGRE_NEXT_SIMD_SSE2 ON)
+    set(ROR_OGRE_NEXT_SIMD_FAMILY "sse2")
     set(_ror_probe_renderer_definition ROR_OGRE_NEXT_PROBE_D3D11=1)
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR
@@ -140,9 +176,11 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(ROR_OGRE_NEXT_PLATFORM_POLICY "linux-x86_64-vulkan")
     set(ROR_OGRE_NEXT_RENDERER_TARGET "RenderSystem_Vulkan")
     set(ROR_OGRE_NEXT_RENDERER_NAME "Vulkan Rendering Subsystem")
+    set(ROR_OGRE_NEXT_DEVICE_OPTION_NAME "Device")
     set(ROR_OGRE_NEXT_SHADER_SYNTAX "GLSL")
     set(ROR_OGRE_NEXT_SIMD_NEON OFF)
     set(ROR_OGRE_NEXT_SIMD_SSE2 ON)
+    set(ROR_OGRE_NEXT_SIMD_FAMILY "sse2")
     set(_ror_probe_renderer_definition ROR_OGRE_NEXT_PROBE_VULKAN=1)
 else ()
     message(FATAL_ERROR
@@ -239,6 +277,21 @@ set(OGRE_PROFILING_PROVIDER none CACHE STRING "" FORCE)
 # OGRE-Next v3-0 still declares a pre-CMake-4 policy baseline internally.
 # This compatibility floor is scoped to this standalone dependency build.
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+
+# FetchContent verifies the archive only while populating it. Reconfiguring an
+# existing build directory could otherwise reuse a locally modified extracted
+# source tree while still reporting the pinned archive identity. This guard is
+# written before population so failed and successful configurations both
+# require an explicit clean recovery.
+set(_ror_fresh_configure_guard
+    "${CMAKE_BINARY_DIR}/.ror-ogre-next-fresh-configured-v1")
+if (EXISTS "${_ror_fresh_configure_guard}")
+    message(FATAL_ERROR
+        "The verified OGRE-Next probe requires a fresh build directory. "
+        "Use tools/run_ogre_next_probe.py --clean-build-dir to recover.")
+endif ()
+file(WRITE "${_ror_fresh_configure_guard}"
+    "ror-ogre-next-fresh-configured-v1\n")
 
 FetchContent_Declare(
     rapidjson

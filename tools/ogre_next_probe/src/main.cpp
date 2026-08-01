@@ -90,9 +90,11 @@ namespace
         ProbeRendererPlugin rendererPlugin;
         Ogre::AbiCookie      abiCookie = Ogre::generateAbiCookie();
         std::string          rendererName;
+        std::string          firstReportedDevice;
         std::string          pbsDataPath;
         std::size_t          rendererCount = 0u;
         std::size_t          rendererOptionCount = 0u;
+        std::size_t          reportedDeviceCount = 0u;
         std::size_t          pbsLibraryPathCount = 0u;
         bool                 rendererRegistered = false;
         bool                 pbsShaderPathMatches = false;
@@ -111,7 +113,23 @@ namespace
 
             rendererRegistered = true;
             rendererName = renderer->getName();
-            rendererOptionCount = renderer->getConfigOptions().size();
+            const Ogre::ConfigOptionMap &configOptions = renderer->getConfigOptions();
+            rendererOptionCount = configOptions.size();
+            const Ogre::ConfigOptionMap::const_iterator deviceOption =
+                configOptions.find( ROR_OGRE_NEXT_DEVICE_OPTION_NAME );
+            if( deviceOption == configOptions.end() )
+                throw std::runtime_error( "renderer device option did not match policy" );
+            for( const Ogre::String &device : deviceOption->second.possibleValues )
+            {
+                if( device != "(default)" )
+                {
+                    if( firstReportedDevice.empty() )
+                        firstReportedDevice = device;
+                    ++reportedDeviceCount;
+                }
+            }
+            if( reportedDeviceCount == 0u )
+                throw std::runtime_error( "renderer did not report a hardware device" );
             root.setRenderSystem( renderer );
 
             Ogre::String       dataPath;
@@ -144,7 +162,13 @@ namespace
                << "    \"license_sha256\": \"" << ROR_OGRE_NEXT_LICENSE_SHA256 << "\",\n"
                << "    \"rapidjson_tag\": \"" << ROR_OGRE_NEXT_RAPIDJSON_TAG << "\",\n"
                << "    \"rapidjson_archive_sha256\": \""
-               << ROR_OGRE_NEXT_RAPIDJSON_SHA256 << "\"\n"
+               << ROR_OGRE_NEXT_RAPIDJSON_SHA256 << "\",\n"
+               << "    \"rapidjson_source_archive_license_spdx\": \""
+               << ROR_OGRE_NEXT_RAPIDJSON_LICENSE_SPDX << "\",\n"
+               << "    \"rapidjson_compiled_headers_license_spdx\": \""
+               << ROR_OGRE_NEXT_RAPIDJSON_COMPILED_HEADERS_SPDX << "\",\n"
+               << "    \"rapidjson_license_sha256\": \""
+               << ROR_OGRE_NEXT_RAPIDJSON_LICENSE_SHA256 << "\"\n"
                << "  },\n"
                << "  \"build\": {\n"
                << "    \"ogre_version\": \"" << OGRE_VERSION_MAJOR << '.' << OGRE_VERSION_MINOR
@@ -184,7 +208,12 @@ namespace
                << "      \"name\": \"" << jsonEscape( rendererName ) << "\",\n"
                << "      \"registered\": " << ( rendererRegistered ? "true" : "false" ) << ",\n"
                << "      \"registered_renderer_count\": " << rendererCount << ",\n"
-               << "      \"configuration_option_count\": " << rendererOptionCount << "\n"
+               << "      \"configuration_option_count\": " << rendererOptionCount << ",\n"
+               << "      \"device_option_name\": \"" << ROR_OGRE_NEXT_DEVICE_OPTION_NAME
+               << "\",\n"
+               << "      \"reported_device_count\": " << reportedDeviceCount << ",\n"
+               << "      \"first_reported_device\": \""
+               << jsonEscape( firstReportedDevice ) << "\"\n"
                << "    },\n"
                << "    \"hlms_pbs\": {\n"
                << "      \"compiled_and_linked\": true,\n"

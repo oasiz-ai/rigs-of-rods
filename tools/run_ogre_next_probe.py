@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 
@@ -20,6 +21,9 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PROBE_SOURCE = REPOSITORY_ROOT / "tools" / "ogre_next_probe"
 LOCK_PATH = PROBE_SOURCE / "ogre-next.lock.json"
 REPORT_NAME = "ror-ogre-next-probe-report.json"
+BUILD_CONTRACT_NAME = "ogre-next-build-contract.json"
+BUILD_SENTINEL_NAME = ".ror-ogre-next-probe-build-v1"
+BUILD_SENTINEL_CONTENT = "ror-ogre-next-probe-build-v1\n"
 
 
 class ProbeError(RuntimeError):
@@ -46,6 +50,21 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
         raise ProbeError(f"could not read OGRE-Next lock: {error}") from error
 
     expected_commit = "37149a802de747f6806996fa3067b0748ecc1084"
+    expected_archive_sha256 = (
+        "1c0be064474da512606d02543be2630b36cdf99f359a9f23edc97eeb410e25b2"
+    )
+    expected_ogre_license_sha256 = (
+        "df6294031f26c4401ce713be0b0b3c5da27c2f1b7278a0d9833d111273174183"
+    )
+    expected_rapidjson_archive_sha256 = (
+        "bf7ced29704a1e696fbccf2a2b4ea068e7774fa37f6d7dd4039d0787f8bed98e"
+    )
+    expected_rapidjson_license_sha256 = (
+        "a140e5d46fe734a1c78f1a3c3ef207871dd75648be71fdda8e309b23ab8b1f32"
+    )
+    expected_patch_sha256 = (
+        "84916d0d1abf61a15d19d2c89a7d9b1a445f1a37a5067a9f8b558395fe10ead1"
+    )
     if lock.get("schema_version") != 1:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
@@ -54,15 +73,37 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
         raise ProbeError("OGRE-Next branch contract changed")
     if lock.get("commit") != expected_commit:
         raise ProbeError("OGRE-Next lock moved without an integration review")
+    if lock.get("archive_url") != (
+        f"https://github.com/OGRECave/ogre-next/archive/{expected_commit}.tar.gz"
+    ):
+        raise ProbeError("OGRE-Next archive URL contract changed")
+    if lock.get("archive_sha256") != expected_archive_sha256:
+        raise ProbeError("OGRE-Next archive hash moved without review")
     if lock.get("license", {}).get("spdx") != "MIT":
         raise ProbeError("OGRE-Next license contract changed")
     _require_sha256(lock.get("archive_sha256"), "OGRE-Next archive hash")
     _require_sha256(
         lock.get("license", {}).get("sha256"), "OGRE-Next license hash"
     )
+    if lock["license"]["sha256"] != expected_ogre_license_sha256:
+        raise ProbeError("OGRE-Next license hash moved without review")
 
     rapidjson = lock.get("dependencies", {}).get("rapidjson", {})
-    if rapidjson.get("tag") != "v1.1.0" or rapidjson.get("license_spdx") != "MIT":
+    if (
+        rapidjson.get("repository") != "https://github.com/Tencent/rapidjson"
+        or rapidjson.get("tag") != "v1.1.0"
+        or rapidjson.get("archive_url")
+        != "https://github.com/Tencent/rapidjson/archive/refs/tags/v1.1.0.tar.gz"
+        or rapidjson.get("archive_sha256")
+        != expected_rapidjson_archive_sha256
+        or rapidjson.get("license_spdx")
+        != "MIT AND BSD-3-Clause AND JSON"
+        or rapidjson.get("compiled_headers_spdx") != "MIT"
+        or rapidjson.get("non_mit_paths")
+        != ["bin/jsonchecker", "include/rapidjson/msinttypes"]
+        or rapidjson.get("license_sha256")
+        != expected_rapidjson_license_sha256
+    ):
         raise ProbeError("RapidJSON dependency contract changed")
     _require_sha256(rapidjson.get("archive_sha256"), "RapidJSON archive hash")
     _require_sha256(rapidjson.get("license_sha256"), "RapidJSON license hash")
@@ -74,6 +115,8 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
         "patches/0001-macos-non-xcode-framework-path.patch"
     ):
         raise ProbeError("the reviewed OGRE-Next adaptation patch path changed")
+    if patches[0].get("sha256") != expected_patch_sha256:
+        raise ProbeError("the reviewed OGRE-Next adaptation patch hash changed")
     for patch in patches:
         _require_sha256(patch.get("sha256"), "adaptation patch hash")
         patch_path = path.parent / patch["path"]
@@ -131,6 +174,7 @@ def detect_policy(system: str, machine: str) -> dict[str, str]:
             "name": "macos-arm64-metal",
             "renderer_target": "RenderSystem_Metal",
             "renderer_name": "Metal Rendering Subsystem",
+            "device_option_name": "Rendering Device",
             "shader_data_path": "Hlms/Pbs/Metal",
         }
     if normalized_system == "windows" and normalized_machine in {
@@ -141,6 +185,7 @@ def detect_policy(system: str, machine: str) -> dict[str, str]:
             "name": "windows-x64-d3d11",
             "renderer_target": "RenderSystem_Direct3D11",
             "renderer_name": "Direct3D11 Rendering Subsystem",
+            "device_option_name": "Rendering Device",
             "shader_data_path": "Hlms/Pbs/HLSL",
         }
     if normalized_system == "linux" and normalized_machine in {
@@ -151,6 +196,7 @@ def detect_policy(system: str, machine: str) -> dict[str, str]:
             "name": "linux-x86_64-vulkan",
             "renderer_target": "RenderSystem_Vulkan",
             "renderer_name": "Vulkan Rendering Subsystem",
+            "device_option_name": "Device",
             "shader_data_path": "Hlms/Pbs/GLSL",
         }
     raise ProbeError(f"no reviewed OGRE-Next policy for {system}/{machine}")
@@ -169,6 +215,82 @@ def verify_archive(path: Path, expected_sha256: str, label: str) -> Path:
     return resolved
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def default_build_dir() -> Path:
+    platform_token = re.sub(
+        r"[^a-z0-9]+",
+        "-",
+        f"{platform.system()}-{platform.machine()}".lower(),
+    ).strip("-")
+    return Path(tempfile.gettempdir()) / f"ror-ogre-next-probe-{platform_token}"
+
+
+def prepare_build_dir(path: Path, clean: bool) -> Path:
+    requested = path.expanduser()
+    if requested.is_symlink():
+        raise ProbeError("--build-dir must not be a symbolic link")
+    resolved = requested.resolve()
+    repository_root = REPOSITORY_ROOT.resolve()
+    home = Path.home().resolve()
+    filesystem_root = Path(resolved.anchor).resolve()
+
+    if (
+        resolved == filesystem_root
+        or resolved == home
+        or _is_relative_to(repository_root, resolved)
+        or _is_relative_to(resolved, repository_root)
+    ):
+        raise ProbeError(
+            "--build-dir must be isolated from the filesystem root, home, "
+            "and source checkout"
+        )
+    try:
+        exists = resolved.exists()
+        if exists and not resolved.is_dir():
+            raise ProbeError(f"--build-dir is not a directory: {resolved}")
+        has_entries = exists and any(resolved.iterdir())
+    except OSError as error:
+        raise ProbeError(f"could not inspect --build-dir: {error}") from error
+
+    if has_entries:
+        sentinel = resolved / BUILD_SENTINEL_NAME
+        if not clean:
+            raise ProbeError(
+                "--build-dir is not empty; use a new directory or explicitly "
+                "pass --clean-build-dir"
+            )
+        try:
+            sentinel_content = sentinel.read_text(encoding="utf-8")
+        except OSError as error:
+            raise ProbeError(
+                "refusing to clean a directory not owned by the OGRE-Next probe"
+            ) from error
+        if sentinel_content != BUILD_SENTINEL_CONTENT:
+            raise ProbeError(
+                "refusing to clean a directory with an invalid probe sentinel"
+            )
+        try:
+            shutil.rmtree(resolved)
+        except OSError as error:
+            raise ProbeError(f"could not clean --build-dir: {error}") from error
+
+    try:
+        resolved.mkdir(parents=True, exist_ok=True)
+        (resolved / BUILD_SENTINEL_NAME).write_text(
+            BUILD_SENTINEL_CONTENT, encoding="utf-8"
+        )
+    except OSError as error:
+        raise ProbeError(f"could not prepare --build-dir: {error}") from error
+    return resolved
+
+
 def validate_report(
     report: dict[str, Any], lock: dict[str, Any], policy: dict[str, str]
 ) -> None:
@@ -184,6 +306,8 @@ def validate_report(
     checks = {
         "schema_version": report.get("schema_version") == 1,
         "status": report.get("status") == "pass",
+        "repository": provenance.get("repository") == lock["repository"],
+        "branch": provenance.get("branch") == lock["branch"],
         "commit": provenance.get("commit") == lock["commit"],
         "archive_sha256": provenance.get("archive_sha256")
         == lock["archive_sha256"],
@@ -194,6 +318,16 @@ def validate_report(
         "rapidjson": provenance.get("rapidjson_archive_sha256")
         == rapidjson["archive_sha256"],
         "rapidjson_tag": provenance.get("rapidjson_tag") == rapidjson["tag"],
+        "rapidjson_license": provenance.get(
+            "rapidjson_source_archive_license_spdx"
+        )
+        == rapidjson["license_spdx"],
+        "rapidjson_compiled_headers_license": provenance.get(
+            "rapidjson_compiled_headers_license_spdx"
+        )
+        == rapidjson["compiled_headers_spdx"],
+        "rapidjson_license_sha256": provenance.get("rapidjson_license_sha256")
+        == rapidjson["license_sha256"],
         "ogre_version": build.get("ogre_version") == "3.0.0",
         "platform_policy": build.get("platform_policy") == policy["name"],
         "cxx_standard": build.get("cxx_standard") == 17,
@@ -231,6 +365,16 @@ def validate_report(
             renderer.get("configuration_option_count"), int
         )
         and renderer["configuration_option_count"] > 0,
+        "renderer_device_option": renderer.get("device_option_name")
+        == policy["device_option_name"],
+        "renderer_device_count": isinstance(
+            renderer.get("reported_device_count"), int
+        )
+        and renderer["reported_device_count"] > 0,
+        "renderer_device_name": isinstance(
+            renderer.get("first_reported_device"), str
+        )
+        and bool(renderer["first_reported_device"]),
         "pbs_linked": pbs.get("compiled_and_linked") is True,
         "pbs_path": pbs.get("shader_data_path") == policy["shader_data_path"],
         "pbs_policy": pbs.get("shader_path_matches_policy") is True,
@@ -253,6 +397,90 @@ def validate_report(
         )
 
 
+def validate_build_contract(
+    contract: dict[str, Any], lock: dict[str, Any], policy: dict[str, str]
+) -> None:
+    provenance = contract.get("provenance", {})
+    rapidjson_contract = contract.get("dependencies", {}).get("rapidjson", {})
+    platform_contract = contract.get("platform", {})
+    contract_abi = contract.get("abi", {})
+    components = contract.get("components", {})
+    compiler = contract.get("compiler", {})
+    rapidjson = lock["dependencies"]["rapidjson"]
+    abi = lock["abi_contract"]
+    expected_simd_family = abi["simd"][policy["name"]]
+
+    expected_abi = {
+        key: value
+        for key, value in abi.items()
+        if key != "simd"
+    }
+    expected_abi.update(
+        {
+            "simd_enabled": abi["simd"]["enabled"],
+            "simd_alignment": abi["simd"]["alignment"],
+            "simd_family": expected_simd_family,
+            "simd_neon": expected_simd_family == "neon",
+            "simd_sse2": expected_simd_family == "sse2",
+        }
+    )
+    checks = {
+        "schema_version": contract.get("schema_version") == 1,
+        "repository": provenance.get("repository") == lock["repository"],
+        "branch": provenance.get("branch") == lock["branch"],
+        "commit": provenance.get("commit") == lock["commit"],
+        "archive_sha256": provenance.get("archive_sha256")
+        == lock["archive_sha256"],
+        "license_spdx": provenance.get("license_spdx")
+        == lock["license"]["spdx"],
+        "license_sha256": provenance.get("license_sha256")
+        == lock["license"]["sha256"],
+        "rapidjson_tag": rapidjson_contract.get("tag") == rapidjson["tag"],
+        "rapidjson_archive": rapidjson_contract.get("archive_sha256")
+        == rapidjson["archive_sha256"],
+        "rapidjson_source_license": rapidjson_contract.get(
+            "source_archive_license_spdx"
+        )
+        == rapidjson["license_spdx"],
+        "rapidjson_compiled_license": rapidjson_contract.get(
+            "compiled_headers_license_spdx"
+        )
+        == rapidjson["compiled_headers_spdx"],
+        "rapidjson_license_hash": rapidjson_contract.get("license_sha256")
+        == rapidjson["license_sha256"],
+        "platform_policy": platform_contract.get("policy") == policy["name"],
+        "renderer_target": platform_contract.get("renderer_target")
+        == policy["renderer_target"],
+        "device_option_name": platform_contract.get("device_option_name")
+        == policy["device_option_name"],
+        "system": isinstance(platform_contract.get("system"), str)
+        and bool(platform_contract["system"]),
+        "processor": isinstance(platform_contract.get("processor"), str)
+        and bool(platform_contract["processor"]),
+        "abi": contract_abi == expected_abi,
+        "components": components
+        == {
+            "hlms_pbs": True,
+            "compositor2_core": True,
+            "json_materials": True,
+            "mesh_lod": True,
+            "dds_codec": True,
+            "native_ray_tracing": "not_evaluated",
+        },
+        "compiler_id": isinstance(compiler.get("id"), str)
+        and bool(compiler["id"]),
+        "compiler_version": isinstance(compiler.get("version"), str)
+        and bool(compiler["version"]),
+        "build_type": isinstance(compiler.get("build_type"), str),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise ProbeError(
+            "OGRE-Next build contract failed closed: "
+            + ", ".join(sorted(failed))
+        )
+
+
 def run(command: list[str]) -> None:
     print("+", " ".join(command), flush=True)
     try:
@@ -266,8 +494,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--build-dir",
         type=Path,
-        default=REPOSITORY_ROOT / "build-ogre-next-probe",
-        help="standalone CMake build directory",
+        default=default_build_dir(),
+        help="fresh standalone CMake build directory outside the source checkout",
+    )
+    parser.add_argument(
+        "--clean-build-dir",
+        action="store_true",
+        help="clean a non-empty build directory only when its probe sentinel matches",
     )
     parser.add_argument(
         "--ogre-archive",
@@ -315,7 +548,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
 
-        build_dir = args.build_dir.expanduser().resolve()
+        build_dir = prepare_build_dir(args.build_dir, args.clean_build_dir)
         configure = [
             "cmake",
             "-S",
@@ -365,6 +598,15 @@ def main(argv: list[str] | None = None) -> int:
                 str(args.jobs),
             ]
         )
+
+        build_contract_path = build_dir / BUILD_CONTRACT_NAME
+        try:
+            build_contract = json.loads(
+                build_contract_path.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as error:
+            raise ProbeError(f"could not read build contract: {error}") from error
+        validate_build_contract(build_contract, lock, policy)
 
         report_path = build_dir / REPORT_NAME
         try:

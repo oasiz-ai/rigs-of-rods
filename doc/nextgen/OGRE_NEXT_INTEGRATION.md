@@ -20,15 +20,21 @@ and does not evaluate or claim native ray tracing.
   `37149a802de747f6806996fa3067b0748ecc1084` and its archive SHA-256;
 - the upstream MIT `COPYING` file and its SHA-256;
 - RapidJSON `v1.1.0`, required by OGRE core even when optional tools and scene
-  components are disabled, with archive and MIT license hashes;
+  components are disabled, with its source archive's
+  `MIT AND BSD-3-Clause AND JSON` expression, the active reviewed header
+  subset's `MIT` expression, and the complete upstream notice hash;
 - the one small reviewed upstream CMake adaptation and its SHA-256; and
 - ABI-relevant choices: C++17, static linking, allocator/threading/string
   layout, precision, `IdString` width, node inheritance, and SIMD family.
 
-FetchContent uses URL hashes and its normal shared download/source cache. A
-local archive can be supplied, but it is hashed before CMake sees it. Direct
+FetchContent uses URL hashes and a build-local `_deps` population area. A local
+archive can be supplied, but it is hashed before CMake sees it. Direct
 `FETCHCONTENT_SOURCE_DIR_*` overrides are rejected because they bypass archive
-verification. No OGRE-Next source archive is stored in this repository.
+verification. The wrapper and standalone CMake project both reject reuse of a
+configured build directory, because FetchContent does not re-hash an already
+extracted source tree. `--clean-build-dir` recovers only a directory carrying
+the exact probe ownership sentinel. No OGRE-Next source archive is stored in
+this repository.
 
 The adaptation fixes only two non-Xcode macOS assumptions in the pinned
 upstream CMake: SDK path resolution and Xcode-only framework staging tokens in
@@ -40,12 +46,15 @@ Ninja files. It is applied from a hash-locked patch before configuration.
 | --- | --- | --- | --- |
 | macOS | arm64 | Metal | Metal |
 | Windows | x86_64 | Direct3D 11 | HLSL |
-| Linux | x86_64 | Vulkan, headless probe surface | GLSL |
+| Linux | x86_64 | Vulkan, null-window backend compiled | GLSL |
 
 Any other host/architecture fails configuration. A missing renderer target,
 SDK, or Vulkan/D3D dependency also fails rather than substituting another
-renderer. Linux's headless surface is only for dependency admission; a later
-window/presentation checkpoint must prove the shipping surface.
+renderer. The Linux policy compiles the null-window backend; upstream renderer
+registration initializes a Vulkan instance and enumerates physical devices,
+but this probe does not create a presentation surface, logical rendering
+device, compositor workspace, or frame. A later window/presentation checkpoint
+must prove the shipping surface.
 
 ## Run
 
@@ -63,9 +72,14 @@ For an offline/cached run:
 ```bash
 python3 tools/run_ogre_next_probe.py \
   --build-dir /tmp/ror-ogre-next-probe \
+  --clean-build-dir \
   --ogre-archive /path/to/ogre-next-pinned.tar.gz \
   --rapidjson-archive /path/to/rapidjson-pinned.tar.gz
 ```
+
+The build directory must be fresh. Pass `--clean-build-dir` only to recover a
+previous directory created by this probe; the wrapper refuses to clean a path
+without its ownership sentinel or any path overlapping the source checkout.
 
 The generated files are:
 
@@ -86,7 +100,10 @@ reported three Metal configuration options, linked HLMS PBS with
 report retained `native_ray_tracing: not_evaluated`. The checked-in
 [machine-readable evidence record](evidence/OGRE_NEXT_METAL_PROBE_M5_2026-07-31.json)
 captures the source, dependency, build-contract, executable, and runtime-report
-hashes plus the exact host and toolchain.
+hashes plus the exact host and toolchain. The build contract and runtime report
+are retained beside that record. The locally built executable is not committed;
+its basename, hash, and explicit non-retention state are recorded without an
+ephemeral absolute path.
 
 ## Next gates
 

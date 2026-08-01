@@ -24,9 +24,14 @@
       "tag": "v1.1.0",
       "archive_url": "https://github.com/Tencent/rapidjson/archive/refs/tags/v1.1.0.tar.gz",
       "archive_sha256": "bf7ced29704a1e696fbccf2a2b4ea068e7774fa37f6d7dd4039d0787f8bed98e",
-      "license_spdx": "MIT",
+      "license_spdx": "MIT AND BSD-3-Clause AND JSON",
+      "compiled_headers_spdx": "MIT",
       "license_path": "license.txt",
-      "license_sha256": "a140e5d46fe734a1c78f1a3c3ef207871dd75648be71fdda8e309b23ab8b1f32"
+      "license_sha256": "a140e5d46fe734a1c78f1a3c3ef207871dd75648be71fdda8e309b23ab8b1f32",
+      "non_mit_paths": [
+        "bin/jsonchecker",
+        "include/rapidjson/msinttypes"
+      ]
     }
   },
   "abi_contract": {

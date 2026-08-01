@@ -12,7 +12,8 @@
     "rapidjson": {
       "tag": "@ROR_RAPIDJSON_TAG@",
       "archive_sha256": "@ROR_RAPIDJSON_ARCHIVE_SHA256@",
-      "license_spdx": "@ROR_RAPIDJSON_LICENSE_SPDX@",
+      "source_archive_license_spdx": "@ROR_RAPIDJSON_LICENSE_SPDX@",
+      "compiled_headers_license_spdx": "@ROR_RAPIDJSON_COMPILED_HEADERS_SPDX@",
       "license_sha256": "@ROR_RAPIDJSON_LICENSE_SHA256@"
     }
   },
@@ -20,7 +21,8 @@
     "policy": "@ROR_OGRE_NEXT_PLATFORM_POLICY@",
     "system": "@CMAKE_SYSTEM_NAME@",
     "processor": "@CMAKE_SYSTEM_PROCESSOR@",
-    "renderer_target": "@ROR_OGRE_NEXT_RENDERER_TARGET@"
+    "renderer_target": "@ROR_OGRE_NEXT_RENDERER_TARGET@",
+    "device_option_name": "@ROR_OGRE_NEXT_DEVICE_OPTION_NAME@"
   },
   "abi": {
     "cxx_standard": 17,
@@ -44,6 +46,9 @@
     "restrict_aliasing": true,
     "flexibility_level": 0,
     "planar_reflections": false,
+    "simd_enabled": true,
+    "simd_alignment": 16,
+    "simd_family": "@ROR_OGRE_NEXT_SIMD_FAMILY@",
     "simd_neon": @ROR_OGRE_NEXT_SIMD_NEON_JSON@,
     "simd_sse2": @ROR_OGRE_NEXT_SIMD_SSE2_JSON@
   },

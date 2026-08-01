@@ -43,6 +43,8 @@ class OgreNextProbeContractTests(unittest.TestCase):
             "schema_version": 1,
             "status": "pass",
             "provenance": {
+                "repository": self.lock["repository"],
+                "branch": self.lock["branch"],
                 "commit": self.lock["commit"],
                 "archive_sha256": self.lock["archive_sha256"],
                 "license_spdx": self.lock["license"]["spdx"],
@@ -53,6 +55,15 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 "rapidjson_archive_sha256": self.lock["dependencies"][
                     "rapidjson"
                 ]["archive_sha256"],
+                "rapidjson_source_archive_license_spdx": self.lock[
+                    "dependencies"
+                ]["rapidjson"]["license_spdx"],
+                "rapidjson_compiled_headers_license_spdx": self.lock[
+                    "dependencies"
+                ]["rapidjson"]["compiled_headers_spdx"],
+                "rapidjson_license_sha256": self.lock["dependencies"][
+                    "rapidjson"
+                ]["license_sha256"],
             },
             "build": {
                 "ogre_version": "3.0.0",
@@ -83,6 +94,9 @@ class OgreNextProbeContractTests(unittest.TestCase):
                     "registered": True,
                     "registered_renderer_count": 1,
                     "configuration_option_count": 3,
+                    "device_option_name": self.policy["device_option_name"],
+                    "reported_device_count": 1,
+                    "first_reported_device": "Reviewed GPU",
                 },
                 "hlms_pbs": {
                     "compiled_and_linked": True,
@@ -112,6 +126,18 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertEqual(
             self.lock["dependencies"]["rapidjson"]["tag"], "v1.1.0"
         )
+        self.assertEqual(
+            self.lock["dependencies"]["rapidjson"]["archive_sha256"],
+            "bf7ced29704a1e696fbccf2a2b4ea068e7774fa37f6d7dd4039d0787f8bed98e",
+        )
+        self.assertEqual(
+            self.lock["dependencies"]["rapidjson"]["license_spdx"],
+            "MIT AND BSD-3-Clause AND JSON",
+        )
+        self.assertEqual(
+            self.lock["dependencies"]["rapidjson"]["compiled_headers_spdx"],
+            "MIT",
+        )
 
     def test_every_adaptation_patch_matches_lock(self) -> None:
         for patch in self.lock["patches"]:
@@ -130,6 +156,10 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertEqual(
             PROBE.detect_policy("Linux", "x86_64")["name"],
             "linux-x86_64-vulkan",
+        )
+        self.assertEqual(
+            PROBE.detect_policy("Linux", "x86_64")["device_option_name"],
+            "Device",
         )
         for system, machine in (
             ("Darwin", "x86_64"),
@@ -152,6 +182,34 @@ class OgreNextProbeContractTests(unittest.TestCase):
             )
             with self.assertRaises(PROBE.ProbeError):
                 PROBE.verify_archive(archive, "0" * 64, "fixture")
+
+    def test_mutated_reused_build_is_rejected_and_explicitly_recovered(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-next-reuse-") as temp:
+            build_dir = Path(temp) / "build"
+            prepared = PROBE.prepare_build_dir(build_dir, clean=False)
+            mutated_source = prepared / "_deps" / "ogre_next-src" / "mutated.cpp"
+            mutated_source.parent.mkdir(parents=True)
+            mutated_source.write_text("unreviewed source\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(PROBE.ProbeError, "not empty"):
+                PROBE.prepare_build_dir(build_dir, clean=False)
+
+            recovered = PROBE.prepare_build_dir(build_dir, clean=True)
+            self.assertEqual(recovered, build_dir.resolve())
+            self.assertFalse(mutated_source.exists())
+            self.assertEqual(
+                sorted(path.name for path in recovered.iterdir()),
+                [PROBE.BUILD_SENTINEL_NAME],
+            )
+
+    def test_clean_rejects_directory_without_probe_sentinel(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-next-owned-") as temp:
+            build_dir = Path(temp) / "not-owned"
+            build_dir.mkdir()
+            (build_dir / "user-data").write_text("keep\n", encoding="utf-8")
+            with self.assertRaisesRegex(PROBE.ProbeError, "not owned"):
+                PROBE.prepare_build_dir(build_dir, clean=True)
+            self.assertTrue((build_dir / "user-data").is_file())
 
     def test_report_requires_every_capability_and_no_rt_claim(self) -> None:
         report = self.make_report()
@@ -194,6 +252,31 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 with self.assertRaises(PROBE.ProbeError):
                     PROBE.validate_report(invalid, self.lock, self.policy)
 
+    def test_build_contract_rejects_abi_and_license_drift(self) -> None:
+        evidence = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))
+        contract_path = REPOSITORY_ROOT / evidence["provenance"][
+            "build_contract_path"
+        ]
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        PROBE.validate_build_contract(contract, self.lock, self.policy)
+        for name, mutate in (
+            (
+                "simd",
+                lambda value: value["abi"].update(simd_family="sse2"),
+            ),
+            (
+                "license",
+                lambda value: value["dependencies"]["rapidjson"].update(
+                    source_archive_license_spdx="MIT"
+                ),
+            ),
+        ):
+            with self.subTest(name=name):
+                invalid = copy.deepcopy(contract)
+                mutate(invalid)
+                with self.assertRaises(PROBE.ProbeError):
+                    PROBE.validate_build_contract(invalid, self.lock, self.policy)
+
     def test_cmake_is_opt_in_and_forbids_unverified_source_overrides(self) -> None:
         cmake = CMAKE_PATH.read_text(encoding="utf-8")
         self.assertIn("ROR_OGRE_NEXT_PROBE", cmake)
@@ -201,6 +284,11 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertIn("URL_HASH \"SHA256=${ROR_RAPIDJSON_ARCHIVE_SHA256}\"", cmake)
         self.assertIn("FETCHCONTENT_SOURCE_DIR_OGRE_NEXT", cmake)
         self.assertIn("FETCHCONTENT_SOURCE_DIR_RAPIDJSON", cmake)
+        self.assertLess(
+            cmake.index("_ror_fresh_configure_guard"),
+            cmake.index("FetchContent_Declare(\n    rapidjson"),
+        )
+        self.assertNotIn(PROBE.BUILD_SENTINEL_NAME, cmake)
         self.assertIn("OgreNextHlmsPbs", cmake)
         build_contract = (
             PROBE_DIR / "ogre_next_build_contract.json.in"
@@ -230,21 +318,84 @@ class OgreNextProbeContractTests(unittest.TestCase):
     def test_checked_in_metal_evidence_matches_source_contract(self) -> None:
         evidence = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))
         provenance = evidence["provenance"]
+        rapidjson = self.lock["dependencies"]["rapidjson"]
+        self.assertEqual(evidence["schema"], "ror.ogre_next_probe_evidence.v1")
         self.assertEqual(evidence["result"], "pass")
+        self.assertEqual(
+            provenance["repository"],
+            "https://github.com/oasiz-ai/rigs-of-rods",
+        )
+        self.assertRegex(provenance["base_commit"], r"^[0-9a-f]{40}$")
+        self.assertRegex(
+            provenance["integration_target_commit"], r"^[0-9a-f]{40}$"
+        )
         self.assertEqual(provenance["ogre_next_commit"], self.lock["commit"])
         self.assertEqual(
             provenance["ogre_next_archive_sha256"],
             self.lock["archive_sha256"],
         )
+        self.assertEqual(
+            provenance["rapidjson_source_archive_license_spdx"],
+            rapidjson["license_spdx"],
+        )
+        self.assertEqual(
+            provenance["rapidjson_compiled_headers_license_spdx"],
+            rapidjson["compiled_headers_spdx"],
+        )
+        self.assertEqual(
+            provenance["rapidjson_license_sha256"],
+            rapidjson["license_sha256"],
+        )
         for path_key, hash_key in (
             ("source_path", "source_sha256"),
+            ("cmake_path", "cmake_sha256"),
+            ("wrapper_path", "wrapper_sha256"),
+            ("probe_config_template_path", "probe_config_template_sha256"),
+            (
+                "build_contract_template_path",
+                "build_contract_template_sha256",
+            ),
             ("lock_path", "lock_sha256"),
+            ("adaptation_patch_path", "adaptation_patch_sha256"),
+            ("build_contract_path", "build_contract_sha256"),
+            ("runtime_report_path", "runtime_report_sha256"),
         ):
             source_path = REPOSITORY_ROOT / provenance[path_key]
+            self.assertTrue(source_path.is_file(), source_path)
             self.assertEqual(
                 hashlib.sha256(source_path.read_bytes()).hexdigest(),
                 provenance[hash_key],
             )
+        build_contract = json.loads(
+            (REPOSITORY_ROOT / provenance["build_contract_path"]).read_text(
+                encoding="utf-8"
+            )
+        )
+        runtime_report = json.loads(
+            (REPOSITORY_ROOT / provenance["runtime_report_path"]).read_text(
+                encoding="utf-8"
+            )
+        )
+        PROBE.validate_build_contract(build_contract, self.lock, self.policy)
+        PROBE.validate_report(runtime_report, self.lock, self.policy)
+        self.assertEqual(
+            evidence["abi"]["cookie"], runtime_report["build"]["abi_cookie"]
+        )
+        self.assertEqual(
+            evidence["capabilities"]["renderer_target"],
+            runtime_report["capabilities"]["renderer"]["target"],
+        )
+        self.assertNotIn("build_artifact_path", provenance)
+        self.assertFalse(provenance["build_artifact_retained"])
+        self.assertRegex(
+            provenance["build_artifact_sha256"], r"^[0-9a-f]{64}$"
+        )
+        self.assertTrue(
+            all(
+                not argument.startswith("/")
+                for argument in provenance["build_invocation"]
+            )
+        )
         self.assertEqual(
             evidence["capabilities"]["native_ray_tracing"],
             "not_evaluated",
