@@ -771,6 +771,113 @@ void ConfigureAndVerifyPssmProjection(
   }
 }
 
+struct PssmD32AtlasProbeResult final {
+  bool supported = false;
+  bool allocation_verified = false;
+  bool readback_verified = false;
+  bool cleanup_verified = false;
+};
+
+PssmD32AtlasProbeResult ProbePssmD32Atlas(
+    Ogre::TextureGpuManager &texture_manager) {
+  constexpr char kProbeTextureName[] = "RoRPssmD32AtlasCapabilityProbe";
+  if (texture_manager.findTextureNoThrow(Ogre::IdString(kProbeTextureName)) !=
+      nullptr) {
+    throw std::runtime_error(
+        "Ogre-Next PSSM D32 capability-probe name was already registered");
+  }
+
+  PssmD32AtlasProbeResult result;
+  Ogre::TextureGpu *texture = nullptr;
+  std::exception_ptr operation_failure;
+  try {
+    texture = texture_manager.createTexture(
+        kProbeTextureName, Ogre::GpuPageOutStrategy::Discard,
+        Ogre::TextureFlags::RenderToTexture |
+            Ogre::TextureFlags::DiscardableContent,
+        Ogre::TextureTypes::Type2D);
+    texture->setResolution(kOgreNextPssmAtlasWidth,
+                           kOgreNextPssmAtlasHeight);
+    texture->setNumMipmaps(1U);
+    texture->setPixelFormat(Ogre::PFG_D32_FLOAT);
+    texture->scheduleTransitionTo(Ogre::GpuResidency::Resident);
+    texture_manager.waitForStreamingCompletion();
+    if (!texture->isDataReady() ||
+        texture->getResidencyStatus() != Ogre::GpuResidency::Resident ||
+        texture->getWidth() != kOgreNextPssmAtlasWidth ||
+        texture->getHeight() != kOgreNextPssmAtlasHeight ||
+        texture->getPixelFormat() != Ogre::PFG_D32_FLOAT) {
+      throw std::runtime_error(
+          "Ogre-Next did not allocate the exact resident PSSM D32 atlas");
+    }
+    result.allocation_verified = true;
+
+    // A metadata-only check is insufficient on Metal and D3D11 because their
+    // pinned TextureGpuManager::checkSupport implementations are deliberately
+    // broad. Force a real backend allocation and staging-ticket download of
+    // the complete exact atlas. Pixel values are intentionally ignored: this
+    // preflight verifies device use/readback, while the shadow smoke verifies
+    // rendered depth semantics through the receiver colour evidence.
+    {
+      Ogre::Image2 readback;
+      readback.convertFromTexture(texture, 0U, 0U);
+      const Ogre::TextureBox pixels = readback.getData(0U);
+      if (readback.getWidth() != kOgreNextPssmAtlasWidth ||
+          readback.getHeight() != kOgreNextPssmAtlasHeight ||
+          readback.getPixelFormat() != Ogre::PFG_D32_FLOAT ||
+          pixels.width != kOgreNextPssmAtlasWidth ||
+          pixels.height != kOgreNextPssmAtlasHeight || pixels.data == nullptr) {
+        throw std::runtime_error(
+            "Ogre-Next PSSM D32 atlas staging readback metadata changed");
+      }
+    }
+    result.readback_verified = true;
+  } catch (...) {
+    operation_failure = std::current_exception();
+  }
+
+  bool cleanup_complete = false;
+  if (texture == nullptr) {
+    try {
+      texture = texture_manager.findTextureNoThrow(
+          Ogre::IdString(kProbeTextureName));
+    } catch (...) {
+      texture = nullptr;
+    }
+  }
+  if (texture != nullptr) {
+    try {
+      texture_manager.destroyTexture(texture);
+      texture = nullptr;
+      texture_manager.waitForStreamingCompletion();
+      cleanup_complete =
+          texture_manager.findTextureNoThrow(Ogre::IdString(kProbeTextureName)) ==
+          nullptr;
+    } catch (...) {
+      cleanup_complete = false;
+    }
+  } else {
+    cleanup_complete = true;
+  }
+  result.cleanup_verified = cleanup_complete;
+  if (!cleanup_complete) {
+    throw std::runtime_error(
+        "Ogre-Next PSSM D32 capability probe could not retire its atlas");
+  }
+  if (operation_failure != nullptr) {
+    try {
+      std::rethrow_exception(operation_failure);
+    } catch (const std::bad_alloc &) {
+      throw;
+    } catch (...) {
+      return result;
+    }
+  }
+  result.supported = result.allocation_verified && result.readback_verified &&
+                     result.cleanup_verified;
+  return result;
+}
+
 } // namespace
 
 class OgreNextN1Frontend::Impl final {
@@ -1789,10 +1896,15 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
           impl_->maximum_texture_dimension >= kOgreNextPssmAtlasHeight;
       impl_->shadow_audit.texture_gather_supported =
           device_capabilities->hasCapability(Ogre::RSC_TEXTURE_GATHER);
-      impl_->shadow_audit.d32_render_target_supported =
-          texture_manager->checkSupport(
-              Ogre::PFG_D32_FLOAT, Ogre::TextureTypes::Type2D,
-              Ogre::TextureFlags::RenderToTexture);
+      const PssmD32AtlasProbeResult d32_probe =
+          ProbePssmD32Atlas(*texture_manager);
+      impl_->shadow_audit.d32_render_target_supported = d32_probe.supported;
+      impl_->shadow_audit.d32_atlas_allocation_verified =
+          d32_probe.allocation_verified;
+      impl_->shadow_audit.d32_atlas_readback_verified =
+          d32_probe.readback_verified;
+      impl_->shadow_audit.d32_atlas_cleanup_verified =
+          d32_probe.cleanup_verified;
       if (!impl_->shadow_audit.atlas_dimensions_supported ||
           !impl_->shadow_audit.texture_gather_supported ||
           !impl_->shadow_audit.d32_render_target_supported) {

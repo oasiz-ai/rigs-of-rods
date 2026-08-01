@@ -153,7 +153,8 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         sdr = pair(hdr=False, first_changed_x=34, changed_y=18)
         cascade_2 = pair(hdr=False, first_changed_x=68, changed_y=18)
         cascade_3 = pair(hdr=False, first_changed_x=68, changed_y=18)
-        slices = (*hdr, *sdr, *cascade_2, *cascade_3)
+        off_center_tight = pair(hdr=False, first_changed_x=20, changed_y=30)
+        slices = (*hdr, *sdr, *cascade_2, *cascade_3, *off_center_tight)
         payload = b"".join(slices)
         evidence_path = root / VERIFY.PSSM_EVIDENCE_ARTIFACT
         evidence_path.write_bytes(payload)
@@ -161,6 +162,10 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         report: dict[str, object] = {
             "schema": VERIFY.PSSM_REPORT_SCHEMA,
             "status": "pass",
+            "execution": {
+                "schema": VERIFY.PSSM_EXECUTION_SCHEMA,
+                "challenge_nonce": "d" * 64,
+            },
             "provenance": {
                 "ror_repository": self.ror_repository,
                 "ror_ref": self.ror_ref,
@@ -190,6 +195,8 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "backend_substitution": False,
                 "split_stable_tangent_projection": True,
                 "native_definition_split_and_runtime_bias_readback": True,
+                "native_d32_atlas_allocation_use_readback_verified": True,
+                "native_d32_atlas_cleanup_verified": True,
                 "runtime_normal_offset_bias": [168.0, 168.0, 168.0],
             },
             "isolation": {
@@ -223,14 +230,25 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     "sdr_darkened_receiver_pixels": 16,
                 },
             ],
+            "projection_and_bounds_fixture": {
+                "horizontal_lens_offset": 0.25,
+                "vertical_lens_offset": -0.125,
+                "expected_tangent_extents": [-0.75, 1.25, 0.875 / 1.5, -0.75],
+                "off_center_projection_verified": True,
+                "receiver_bounds_min_z": 0,
+                "receiver_bounds_max_z": 0,
+                "tight_caster_bounds_verified": True,
+                "sdr_changed_pixels": 16,
+                "sdr_darkened_pixels": 16,
+            },
             "lifecycle": {
-                "shadow_frames_completed": 8,
-                "shadow_node_creates": 8,
-                "shadow_node_destroys": 8,
-                "workspace_node_definition_creates": 8,
-                "workspace_node_definition_destroys": 8,
-                "receiver_datablock_creates": 8,
-                "receiver_datablock_destroys": 8,
+                "shadow_frames_completed": 10,
+                "shadow_node_creates": 10,
+                "shadow_node_destroys": 10,
+                "workspace_node_definition_creates": 10,
+                "workspace_node_definition_destroys": 10,
+                "receiver_datablock_creates": 10,
+                "receiver_datablock_destroys": 10,
                 "receiver_clone_same_frame_retry_verified": True,
                 "workspace_node_same_frame_retry_verified": True,
             },
@@ -252,6 +270,12 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 ),
                 "cascade_3_sdr_occluder_fnv1a64": VERIFY._fnv1a64(
                     slices[7]
+                ),
+                "off_center_tight_bounds_sdr_no_occluder_fnv1a64": VERIFY._fnv1a64(
+                    slices[8]
+                ),
+                "off_center_tight_bounds_sdr_occluder_fnv1a64": VERIFY._fnv1a64(
+                    slices[9]
                 ),
             },
         }
@@ -287,15 +311,204 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 identity,
                 VERIFY.PSSM_REPORT_SCHEMA,
                 "--media-root",
+                "--execution-challenge",
                 "PSSM_3_CASCADE_V1",
                 VERIFY.PSSM_UNSUPPORTED_DETAIL,
                 "Metal Rendering Subsystem",
             )
         )
-        executable = header + segment + entry + binary_tokens
+        executable = header + segment + entry + b"\xc0\x03\x5f\xd6" + binary_tokens
         executable += b"\0" * (executable_size - len(executable))
         executable_path.write_bytes(executable)
         executable_path.chmod(0o755)
+
+        def record(path: Path, relative: str) -> dict[str, object]:
+            return {
+                "path": relative,
+                "bytes": path.stat().st_size,
+                "sha256": VERIFY.sha256_file(path),
+            }
+
+        executable_relative = "bin/ror_ogre_next_pssm_shadow_smoke"
+        local_workflow = {
+            "provider": "local",
+            "repository": "",
+            "workflow_ref": "",
+            "run_id": "",
+            "run_attempt": "",
+            "sha": "",
+            "ref": "",
+            "job": "",
+            "external_dsse_required": False,
+        }
+        subjects = {
+            "build_contract": record(
+                root / VERIFY.REQUIRED_ARTIFACTS[0], VERIFY.REQUIRED_ARTIFACTS[0]
+            ),
+            "executable": record(executable_path, executable_relative),
+            "report": record(
+                root / VERIFY.PSSM_REPORT_ARTIFACT, VERIFY.PSSM_REPORT_ARTIFACT
+            ),
+            "evidence": record(evidence_path, VERIFY.PSSM_EVIDENCE_ARTIFACT),
+        }
+        receipt = {
+            "schema": VERIFY.PSSM_EXECUTION_RECEIPT_SCHEMA,
+            "status": "pass",
+            "observation": {
+                "mode": "fresh_child_process_challenge",
+                "challenge_nonce": "d" * 64,
+                "observed_process_exit_code": 0,
+                "offline_cryptographic_execution_proof": False,
+                "limitation": VERIFY.PSSM_OFFLINE_EXECUTION_LIMITATION,
+            },
+            "subjects": subjects,
+            "build_identity": identity,
+            "source": contract["ror_source"],
+            "workflow": local_workflow,
+            "complete": True,
+        }
+        receipt_path = root / VERIFY.PSSM_EXECUTION_RECEIPT_ARTIFACT
+        receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
+        receipt_record = record(receipt_path, VERIFY.PSSM_EXECUTION_RECEIPT_ARTIFACT)
+        attestation = {
+            "schema": VERIFY.PSSM_ATTESTATION_SCHEMA,
+            "status": "pass",
+            "integrity_model": (
+                "atomic-self-contained-sha256-plus-challenged-execution-receipt; "
+                "external-github-dsse-required-in-ci"
+            ),
+            "source": contract["ror_source"],
+            "workflow": local_workflow,
+            "build_identity": identity,
+            "files": {**subjects, "execution_receipt": receipt_record},
+            "complete": True,
+        }
+        attestation_path = root / VERIFY.PSSM_ATTESTATION_ARTIFACT
+        attestation_path.write_text(
+            json.dumps(attestation) + "\n", encoding="utf-8"
+        )
+        artifacts = sorted(
+            [
+                *subjects.values(),
+                receipt_record,
+                record(attestation_path, VERIFY.PSSM_ATTESTATION_ARTIFACT),
+            ],
+            key=lambda item: item["path"],
+        )
+        artifact_manifest = {
+            "schema": VERIFY.PSSM_ARTIFACT_MANIFEST_SCHEMA,
+            "status": "pass",
+            "source": contract["ror_source"],
+            "workflow": local_workflow,
+            "build_identity": identity,
+            "artifacts": artifacts,
+            "complete": True,
+        }
+        (root / VERIFY.PSSM_ARTIFACT_MANIFEST_ARTIFACT).write_text(
+            json.dumps(artifact_manifest) + "\n", encoding="utf-8"
+        )
+
+    def refresh_pssm_integrity(self, root: Path) -> None:
+        contract = json.loads(
+            (root / VERIFY.REQUIRED_ARTIFACTS[0]).read_text(encoding="utf-8")
+        )
+        report = json.loads(
+            (root / VERIFY.PSSM_REPORT_ARTIFACT).read_text(encoding="utf-8")
+        )
+        executable_path = root / "bin" / VERIFY.PSSM_EXECUTABLE_STEM
+
+        def record(path: Path, relative: str) -> dict[str, object]:
+            return {
+                "path": relative,
+                "bytes": path.stat().st_size,
+                "sha256": VERIFY.sha256_file(path),
+            }
+
+        workflow = {
+            "provider": "local",
+            "repository": "",
+            "workflow_ref": "",
+            "run_id": "",
+            "run_attempt": "",
+            "sha": "",
+            "ref": "",
+            "job": "",
+            "external_dsse_required": False,
+        }
+        status = report["status"]
+        evidence_path = root / VERIFY.PSSM_EVIDENCE_ARTIFACT
+        subjects = {
+            "build_contract": record(
+                root / VERIFY.REQUIRED_ARTIFACTS[0], VERIFY.REQUIRED_ARTIFACTS[0]
+            ),
+            "executable": record(
+                executable_path, "bin/" + executable_path.name
+            ),
+            "report": record(
+                root / VERIFY.PSSM_REPORT_ARTIFACT, VERIFY.PSSM_REPORT_ARTIFACT
+            ),
+            "evidence": (
+                record(evidence_path, VERIFY.PSSM_EVIDENCE_ARTIFACT)
+                if status == "pass"
+                else None
+            ),
+        }
+        identity = report["provenance"]["executable_build_identity"]
+        receipt = {
+            "schema": VERIFY.PSSM_EXECUTION_RECEIPT_SCHEMA,
+            "status": status,
+            "observation": {
+                "mode": "fresh_child_process_challenge",
+                "challenge_nonce": report["execution"]["challenge_nonce"],
+                "observed_process_exit_code": 0 if status == "pass" else 77,
+                "offline_cryptographic_execution_proof": False,
+                "limitation": VERIFY.PSSM_OFFLINE_EXECUTION_LIMITATION,
+            },
+            "subjects": subjects,
+            "build_identity": identity,
+            "source": contract["ror_source"],
+            "workflow": workflow,
+            "complete": True,
+        }
+        receipt_path = root / VERIFY.PSSM_EXECUTION_RECEIPT_ARTIFACT
+        receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
+        receipt_record = record(receipt_path, receipt_path.name)
+        attestation = {
+            "schema": VERIFY.PSSM_ATTESTATION_SCHEMA,
+            "status": status,
+            "integrity_model": (
+                "atomic-self-contained-sha256-plus-challenged-execution-receipt; "
+                "external-github-dsse-required-in-ci"
+            ),
+            "source": contract["ror_source"],
+            "workflow": workflow,
+            "build_identity": identity,
+            "files": {**subjects, "execution_receipt": receipt_record},
+            "complete": True,
+        }
+        attestation_path = root / VERIFY.PSSM_ATTESTATION_ARTIFACT
+        attestation_path.write_text(
+            json.dumps(attestation) + "\n", encoding="utf-8"
+        )
+        artifact_manifest = {
+            "schema": VERIFY.PSSM_ARTIFACT_MANIFEST_SCHEMA,
+            "status": status,
+            "source": contract["ror_source"],
+            "workflow": workflow,
+            "build_identity": identity,
+            "artifacts": sorted(
+                [
+                    *[item for item in subjects.values() if item is not None],
+                    receipt_record,
+                    record(attestation_path, attestation_path.name),
+                ],
+                key=lambda item: item["path"],
+            ),
+            "complete": True,
+        }
+        (root / VERIFY.PSSM_ARTIFACT_MANIFEST_ARTIFACT).write_text(
+            json.dumps(artifact_manifest) + "\n", encoding="utf-8"
+        )
 
     def write_rt4(self, root: Path, contract: dict[str, object]) -> None:
         width = 192
@@ -860,6 +1073,9 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     *VERIFY.REQUIRED_ARTIFACTS,
                     "bin/ror_ogre_next_pssm_shadow_smoke",
                     VERIFY.PSSM_EVIDENCE_ARTIFACT,
+                    VERIFY.PSSM_EXECUTION_RECEIPT_ARTIFACT,
+                    VERIFY.PSSM_ATTESTATION_ARTIFACT,
+                    VERIFY.PSSM_ARTIFACT_MANIFEST_ARTIFACT,
                     (
                         "ror-ogre-next-n1-package/bin/"
                         "ror_ogre_next_frontend_n1_smoke"
@@ -908,6 +1124,31 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             ):
                 VERIFY.verify_artifact_set(root)
 
+    def test_pssm_gate_requires_challenged_execution_receipt(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-pssm-receipt-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            (root / VERIFY.PSSM_EXECUTION_RECEIPT_ARTIFACT).unlink()
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "execution receipt.*missing"
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_pssm_gate_rejects_token_only_entrypoint(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-pssm-token-exe-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            executable = root / "bin" / VERIFY.PSSM_EXECUTABLE_STEM
+            payload = executable.read_bytes()
+            # Remove the synthetic arm64 RET at LC_MAIN.entryoff. The embedded
+            # identity and contract tokens remain, reproducing the old
+            # token-only executable that passed superficial verification.
+            executable.write_bytes(payload[:128] + payload[132:] + b"\0" * 4)
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "no plausible machine code"
+            ):
+                VERIFY.verify_artifact_set(root)
+
     def test_pssm_unsupported_requires_exact_capability_evidence(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-pssm-unsupported-") as temp:
             root = Path(temp)
@@ -917,6 +1158,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             unsupported = {
                 "schema": VERIFY.PSSM_REPORT_SCHEMA,
                 "status": "unsupported",
+                "execution": report["execution"],
                 "provenance": report["provenance"],
                 "platform_policy": report["platform_policy"],
                 "renderer": report["renderer"],
@@ -931,6 +1173,9 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     "atlas_dimensions_supported": True,
                     "texture_gather_supported": False,
                     "d32_render_target_supported": True,
+                    "d32_atlas_allocation_verified": True,
+                    "d32_atlas_readback_verified": True,
+                    "d32_atlas_cleanup_verified": True,
                 },
                 "backend_substitution": False,
             }
@@ -938,6 +1183,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 json.dumps(unsupported) + "\n", encoding="utf-8"
             )
             (root / VERIFY.PSSM_EVIDENCE_ARTIFACT).unlink()
+            self.refresh_pssm_integrity(root)
             VERIFY.verify_artifact_set(root)
             unsupported["capability_evidence"]["reason"] = "arbitrary skip"
             report_path.write_text(

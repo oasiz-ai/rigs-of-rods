@@ -45,6 +45,12 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         cls.cmake = (PROBE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        cls.runner = (PROBE_ROOT / "run_pssm_shadow.py").read_text(
+            encoding="utf-8"
+        )
+        cls.artifact_verifier = (
+            REPOSITORY_ROOT / "tools/verify_ogre_next_artifact_set.py"
+        ).read_text(encoding="utf-8")
         cls.workflow = (
             REPOSITORY_ROOT / ".github/workflows/ogre-next-probe.yml"
         ).read_text(encoding="utf-8")
@@ -57,7 +63,7 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
     def test_source_closure_is_exact_and_matches_canonical_pin(self) -> None:
         validated = VERIFIER.validate_lock(LOCK_PATH, CANONICAL_LOCK_PATH)
         self.assertEqual(validated["ogre_next_commit"], VERIFIER.OGRE_NEXT_COMMIT)
-        self.assertEqual(len(validated["sources"]), 35)
+        self.assertEqual(len(validated["sources"]), 86)
         self.assertEqual(
             validated["platform_policies"], VERIFIER.PLATFORM_POLICIES
         )
@@ -171,6 +177,58 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.frontend)
 
+    def test_d32_capability_is_a_transactional_native_allocation_and_readback(self) -> None:
+        for token in (
+            "ProbePssmD32Atlas",
+            "RoRPssmD32AtlasCapabilityProbe",
+            "Ogre::PFG_D32_FLOAT",
+            "Ogre::TextureFlags::RenderToTexture",
+            "Ogre::GpuResidency::Resident",
+            "readback.convertFromTexture",
+            "texture_manager.destroyTexture",
+            "findTextureNoThrow",
+            "d32_atlas_allocation_verified",
+            "d32_atlas_readback_verified",
+            "d32_atlas_cleanup_verified",
+        ):
+            self.assertIn(token, self.frontend)
+        self.assertNotIn("checkSupport(", self.frontend)
+
+    def test_off_center_projection_and_tight_bounds_have_native_pixels(self) -> None:
+        for token in (
+            "TightReceiverMesh",
+            "tight_receiver_bounds",
+            "0.25F",
+            "-0.125F",
+            "off_center_tight_bounds",
+            "off_center_projection_verified",
+            "tight_caster_bounds_verified",
+            '\\"projection_and_bounds_fixture\\"',
+        ):
+            self.assertIn(token, self.smoke)
+
+    def test_challenged_execution_is_atomically_bound_to_all_artifacts(self) -> None:
+        for token in (
+            "secrets.token_hex(32)",
+            "--execution-challenge",
+            "os.replace",
+            "os.fsync",
+            "ror.ogre_next_pssm_shadow_execution_receipt.v1",
+            "ror.ogre_next_pssm_shadow_attestation.v1",
+            "ror.ogre_next_pssm_shadow_artifact_manifest.v1",
+            "external_dsse_required",
+        ):
+            self.assertIn(token, self.runner)
+        for token in (
+            "_pssm_entrypoint_bytes",
+            "PSSM_EXECUTION_RECEIPT_SCHEMA",
+            "PSSM_ATTESTATION_SCHEMA",
+            "PSSM_ARTIFACT_MANIFEST_SCHEMA",
+            "challenge_nonce",
+            "PSSM_OFFLINE_EXECUTION_LIMITATION",
+        ):
+            self.assertIn(token, self.artifact_verifier)
+
     def test_mesh_light_masks_receivers_and_ui_free_output_are_explicit(self) -> None:
         for token in (
             "MeshInstanceCastsShadowForLight",
@@ -222,10 +280,16 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         for artifact in (
             "ror-ogre-next-pssm-shadow-report.json",
             "ror-ogre-next-pssm-shadow-isolation.bin",
+            "ror-ogre-next-pssm-shadow-execution-receipt.json",
+            "ror-ogre-next-pssm-shadow-attestation.json",
+            "ror-ogre-next-pssm-shadow-artifact-manifest.json",
+            "ror-ogre-next-pssm-shadow-execution-receipt.sigstore.jsonl",
             "bin/ror_ogre_next_pssm_shadow_smoke",
         ):
             self.assertIn(artifact, self.workflow)
         self.assertIn("_verify_pssm", self.workflow)
+        self.assertIn("attest_pssm_receipt", self.workflow)
+        self.assertIn("gh attestation verify", self.workflow)
 
 
 if __name__ == "__main__":

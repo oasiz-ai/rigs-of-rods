@@ -214,6 +214,34 @@ jobs:
           _verify_pssm(root, [], build_contract)
           PY
 
+      - name: Cryptographically attest the directional PSSM execution receipt
+        id: attest_pssm_receipt
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: >-
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-execution-receipt.json
+
+      - name: Stage and verify the GitHub-signed directional PSSM receipt
+        if: success() && github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          source_bundle="${{ steps.attest_pssm_receipt.outputs.bundle-path }}"
+          bundle="$build_root/ror-ogre-next-pssm-shadow-execution-receipt.sigstore.jsonl"
+          test -f "$source_bundle"
+          cp "$source_bundle" "$bundle"
+          gh attestation verify \
+            "$build_root/ror-ogre-next-pssm-shadow-execution-receipt.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --bundle "$bundle" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/ogre-next-probe.yml" \
+            --source-ref "$GITHUB_REF" \
+            --source-digest "$GITHUB_SHA" \
+            --deny-self-hosted-runners
+
       - name: Prove N1 lifecycle and media-integrity failures independently
         run: >-
           ctest
@@ -477,6 +505,10 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-attestation.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-isolation.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-execution-receipt.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-artifact-manifest.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-execution-receipt.sigstore.jsonl
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_pssm_shadow_smoke*
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke*
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-linux-static-closure.json

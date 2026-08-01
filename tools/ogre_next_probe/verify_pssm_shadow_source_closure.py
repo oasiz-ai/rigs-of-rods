@@ -69,6 +69,150 @@ SOURCE_ROLES_AND_PATHS = [
     ),
     ("movable_shadow_flag_api", "OgreMain/include/OgreMovableObject.inl"),
     ("movable_shadow_flag_masks", "OgreMain/src/OgreMovableObject.cpp"),
+    ("mesh_bounds_api", "OgreMain/include/OgreMesh2.h"),
+    ("mesh_bounds_runtime", "OgreMain/src/OgreMesh2.cpp"),
+    ("item_bounds_api", "OgreMain/include/OgreItem.h"),
+    ("item_bounds_runtime", "OgreMain/src/OgreItem.cpp"),
+    ("scene_caster_bounds_api", "OgreMain/include/OgreSceneManager.h"),
+    ("scene_caster_bounds_runtime", "OgreMain/src/OgreSceneManager.cpp"),
+    ("scalar_aabb_dispatch", "OgreMain/include/Math/Simple/OgreAabb.h"),
+    ("scalar_aabb_api", "OgreMain/include/Math/Simple/C/OgreAabb.h"),
+    ("scalar_aabb_runtime", "OgreMain/include/Math/Simple/C/OgreAabb.inl"),
+    ("packed_aabb_dispatch", "OgreMain/include/Math/Array/OgreArrayAabb.h"),
+    ("packed_aabb_scalar_api", "OgreMain/include/Math/Array/C/OgreArrayAabb.h"),
+    (
+        "packed_aabb_scalar_runtime",
+        "OgreMain/include/Math/Array/C/OgreArrayAabb.inl",
+    ),
+    (
+        "packed_aabb_neon_api",
+        "OgreMain/include/Math/Array/NEON/Single/OgreArrayAabb.h",
+    ),
+    (
+        "packed_aabb_neon_runtime",
+        "OgreMain/include/Math/Array/NEON/Single/OgreArrayAabb.inl",
+    ),
+    (
+        "packed_aabb_sse2_api",
+        "OgreMain/include/Math/Array/SSE2/Single/OgreArrayAabb.h",
+    ),
+    (
+        "packed_aabb_sse2_runtime",
+        "OgreMain/include/Math/Array/SSE2/Single/OgreArrayAabb.inl",
+    ),
+    ("object_data_aabb_layout", "OgreMain/include/Math/Array/OgreObjectData.h"),
+    (
+        "render_system_capabilities_api",
+        "OgreMain/include/OgreRenderSystemCapabilities.h",
+    ),
+    (
+        "render_system_capabilities_runtime",
+        "OgreMain/src/OgreRenderSystemCapabilities.cpp",
+    ),
+    ("texture_gpu_api", "OgreMain/include/OgreTextureGpu.h"),
+    ("texture_gpu_residency_runtime", "OgreMain/src/OgreTextureGpu.cpp"),
+    ("texture_gpu_manager_api", "OgreMain/include/OgreTextureGpuManager.h"),
+    (
+        "texture_gpu_manager_allocation_runtime",
+        "OgreMain/src/OgreTextureGpuManager.cpp",
+    ),
+    ("image_readback_api", "OgreMain/include/OgreImage2.h"),
+    ("image_readback_runtime", "OgreMain/src/OgreImage2.cpp"),
+    ("async_texture_ticket_api", "OgreMain/include/OgreAsyncTextureTicket.h"),
+    (
+        "async_texture_ticket_runtime",
+        "OgreMain/src/OgreAsyncTextureTicket.cpp",
+    ),
+    ("metal_d32_mapping", "RenderSystems/Metal/src/OgreMetalMappings.mm"),
+    (
+        "metal_texture_allocation_api",
+        "RenderSystems/Metal/include/OgreMetalTextureGpu.h",
+    ),
+    (
+        "metal_texture_allocation_runtime",
+        "RenderSystems/Metal/src/OgreMetalTextureGpu.mm",
+    ),
+    (
+        "metal_texture_manager_api",
+        "RenderSystems/Metal/include/OgreMetalTextureGpuManager.h",
+    ),
+    (
+        "metal_texture_manager_runtime",
+        "RenderSystems/Metal/src/OgreMetalTextureGpuManager.mm",
+    ),
+    (
+        "metal_readback_ticket_api",
+        "RenderSystems/Metal/include/OgreMetalAsyncTextureTicket.h",
+    ),
+    (
+        "metal_readback_ticket_runtime",
+        "RenderSystems/Metal/src/OgreMetalAsyncTextureTicket.mm",
+    ),
+    (
+        "metal_render_system_capabilities",
+        "RenderSystems/Metal/src/OgreMetalRenderSystem.mm",
+    ),
+    ("vulkan_d32_mapping", "RenderSystems/Vulkan/src/OgreVulkanMappings.cpp"),
+    (
+        "vulkan_texture_allocation_api",
+        "RenderSystems/Vulkan/include/OgreVulkanTextureGpu.h",
+    ),
+    (
+        "vulkan_texture_allocation_runtime",
+        "RenderSystems/Vulkan/src/OgreVulkanTextureGpu.cpp",
+    ),
+    (
+        "vulkan_texture_manager_api",
+        "RenderSystems/Vulkan/include/OgreVulkanTextureGpuManager.h",
+    ),
+    (
+        "vulkan_texture_manager_runtime",
+        "RenderSystems/Vulkan/src/OgreVulkanTextureGpuManager.cpp",
+    ),
+    (
+        "vulkan_readback_ticket_api",
+        "RenderSystems/Vulkan/include/OgreVulkanAsyncTextureTicket.h",
+    ),
+    (
+        "vulkan_readback_ticket_runtime",
+        "RenderSystems/Vulkan/src/OgreVulkanAsyncTextureTicket.cpp",
+    ),
+    (
+        "vulkan_render_system_capabilities",
+        "RenderSystems/Vulkan/src/OgreVulkanRenderSystem.cpp",
+    ),
+    (
+        "d3d11_d32_mapping",
+        "RenderSystems/Direct3D11/src/OgreD3D11Mappings.cpp",
+    ),
+    (
+        "d3d11_texture_allocation_api",
+        "RenderSystems/Direct3D11/include/OgreD3D11TextureGpu.h",
+    ),
+    (
+        "d3d11_texture_allocation_runtime",
+        "RenderSystems/Direct3D11/src/OgreD3D11TextureGpu.cpp",
+    ),
+    (
+        "d3d11_texture_manager_api",
+        "RenderSystems/Direct3D11/include/OgreD3D11TextureGpuManager.h",
+    ),
+    (
+        "d3d11_texture_manager_runtime",
+        "RenderSystems/Direct3D11/src/OgreD3D11TextureGpuManager.cpp",
+    ),
+    (
+        "d3d11_readback_ticket_api",
+        "RenderSystems/Direct3D11/include/OgreD3D11AsyncTextureTicket.h",
+    ),
+    (
+        "d3d11_readback_ticket_runtime",
+        "RenderSystems/Direct3D11/src/OgreD3D11AsyncTextureTicket.cpp",
+    ),
+    (
+        "d3d11_render_system_capabilities",
+        "RenderSystems/Direct3D11/src/OgreD3D11RenderSystem.cpp",
+    ),
     ("pbs_shadow_filter_api", "Components/Hlms/Pbs/include/OgreHlmsPbs.h"),
     (
         "pbs_shadow_binding_runtime",
@@ -304,6 +448,84 @@ def verify_source_root(lock: dict, source_root: Path) -> None:
             "CompositorManager2::removeNodeDefinition",
         ),
     )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreMesh2.cpp",
+        ("Mesh::_setBounds", "mAabb.getRadius()"),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreItem.cpp",
+        (
+            "mObjectData.mLocalAabb->setFromAabb",
+            "mObjectData.mWorldAabb->setFromAabb",
+        ),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreSceneManager.cpp",
+        ("VisibilityFlags::LAYER_SHADOW_CASTER", "SceneManager::getCurrentCastersBox"),
+    )
+    for relative in (
+        "OgreMain/include/Math/Array/C/OgreArrayAabb.h",
+        "OgreMain/include/Math/Array/NEON/Single/OgreArrayAabb.h",
+        "OgreMain/include/Math/Array/SSE2/Single/OgreArrayAabb.h",
+    ):
+        _require_tokens(canonical_root, relative, ("getAsAabb", "setFromAabb"))
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreTextureGpu.cpp",
+        ("TextureGpu::scheduleTransitionTo", "TextureGpu::waitForData"),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreTextureGpuManager.cpp",
+        (
+            "TextureGpuManager::createTexture",
+            "TextureGpuManager::findTextureNoThrow",
+            "TextureGpuManager::destroyTexture",
+            "TextureGpuManager::createAsyncTextureTicket",
+        ),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreImage2.cpp",
+        ("Image2::convertFromTexture", "createAsyncTextureTicket", "asyncTicket->download"),
+    )
+    _require_tokens(
+        canonical_root,
+        "RenderSystems/Metal/src/OgreMetalMappings.mm",
+        ("case PFG_D32_FLOAT:", "MTLPixelFormatDepth32Float"),
+    )
+    _require_tokens(
+        canonical_root,
+        "RenderSystems/Vulkan/src/OgreVulkanMappings.cpp",
+        ("case PFG_D32_FLOAT:", "VK_FORMAT_D32_SFLOAT"),
+    )
+    _require_tokens(
+        canonical_root,
+        "RenderSystems/Direct3D11/src/OgreD3D11Mappings.cpp",
+        ("case PFG_D32_FLOAT:", "DXGI_FORMAT_D32_FLOAT"),
+    )
+    for relative, ticket_type in (
+        (
+            "RenderSystems/Metal/src/OgreMetalTextureGpuManager.mm",
+            "MetalAsyncTextureTicket",
+        ),
+        (
+            "RenderSystems/Vulkan/src/OgreVulkanTextureGpuManager.cpp",
+            "VulkanAsyncTextureTicket",
+        ),
+        (
+            "RenderSystems/Direct3D11/src/OgreD3D11TextureGpuManager.cpp",
+            "D3D11AsyncTextureTicket",
+        ),
+    ):
+        _require_tokens(
+            canonical_root,
+            relative,
+            ("createAsyncTextureTicketImpl", ticket_type),
+        )
     _require_tokens(
         canonical_root,
         "OgreMain/src/OgreShadowCameraSetupPSSM.cpp",
