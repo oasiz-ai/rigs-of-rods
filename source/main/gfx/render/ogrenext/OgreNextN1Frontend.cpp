@@ -2311,6 +2311,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
     const auto cpu_start = std::chrono::steady_clock::now();
     const SceneSnapshot &snapshot = *request.scene_snapshot;
     const CameraViewRequest &view = request.views.front();
+    const std::uint32_t native_authored_visibility_mask =
+        impl_->raster_feature_tier ==
+                OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1
+            ? kOgreNextRt4AuthoredVisibilityMask
+            : kOgreNextN1AuthoredVisibilityMask;
     impl_->scene_manager->setAmbientLight(
         Ogre::ColourValue(snapshot.environment().ambient_radiance.x,
                           snapshot.environment().ambient_radiance.y,
@@ -2322,7 +2327,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
             snapshot.environment().environment_intensity,
         Ogre::Vector3::UNIT_Y);
     const std::uint32_t authored_view_visibility =
-        view.visibility_mask & kOgreNextRt4AuthoredVisibilityMask;
+        view.visibility_mask & native_authored_visibility_mask;
     impl_->scene_manager->setVisibilityMask(authored_view_visibility);
 
     lights.reserve(snapshot.lights().size());
@@ -2432,7 +2437,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
       items.emplace_back(item, nullptr);
       item->setDatablock(material->second.datablock);
       const std::uint32_t authored_instance_visibility =
-          instance.visibility_mask & kOgreNextRt4AuthoredVisibilityMask;
+          instance.visibility_mask & native_authored_visibility_mask;
       item->setVisibilityFlags(authored_instance_visibility);
       item->setCastShadows(false);
       Ogre::SceneNode *node = impl_->scene_manager

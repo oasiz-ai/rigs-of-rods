@@ -17,6 +17,12 @@ namespace {
 
 using namespace RoR::Render;
 
+static_assert(kOgreNextN1OgreLayerVisibilityMask == UINT32_C(0xC0000000),
+              "N1 must reserve Ogre layer bits");
+static_assert(kOgreNextN1AuthoredVisibilityMask == UINT32_C(0x3FFFFFFF),
+              "N1 authored visibility must match Ogre's assignable range");
+static_assert(kOgreNextRt4PccVisibilityMask == UINT32_C(0x30000000),
+              "RT4 must reserve both PCC bits");
 static_assert(kOgreNextRt4InternalVisibilityMask == UINT32_C(0xF0000000),
               "RT4 must reserve PCC and Ogre layer bits");
 static_assert(kOgreNextRt4AuthoredVisibilityMask == UINT32_C(0x0FFFFFFF),
@@ -168,7 +174,9 @@ MakeScene(std::uint64_t registry_id, Matrix4x4 transform = Matrix4x4{},
           Float3 ambient_radiance = {0.03F, 0.03F, 0.03F},
           float environment_intensity = 1.0F,
           Bounds3 local_bounds = MakeMesh().local_bounds,
-          float exposure_compensation_ev = 0.0F) {
+          float exposure_compensation_ev = 0.0F,
+          std::uint32_t instance_visibility_mask =
+              (std::numeric_limits<std::uint32_t>::max)()) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = registry_id;
@@ -183,6 +191,7 @@ MakeScene(std::uint64_t registry_id, Matrix4x4 transform = Matrix4x4{},
   instance.render_from_object = transform;
   instance.previous_render_from_object = transform;
   instance.local_bounds = local_bounds;
+  instance.visibility_mask = instance_visibility_mask;
   descriptor.mesh_instances.push_back(instance);
   SceneSnapshotCreateResult result = CreateSceneSnapshot(std::move(descriptor));
   Require(result.ok(), "test scene contract is invalid");
@@ -781,6 +790,24 @@ void TestFrameAndScenePolicy() {
   RenderFrameRequest request = MakeFrame(MakeScene(kRegistryId));
   Require(ValidateOgreNextN1Frame(request, capabilities, registry).ok(),
           "valid static PBR colour frame was rejected");
+  request.views.front().visibility_mask = (1U << 29U) | 1U;
+  Require(ValidateOgreNextN1Frame(request, capabilities, registry).ok(),
+          "static N1 rejected an Ogre-assignable view visibility bit");
+  request.views.front().visibility_mask = (1U << 30U) | 1U;
+  Require(ValidateOgreNextN1Frame(request, capabilities, registry).field ==
+              "views.visibility_mask",
+          "static N1 admitted a view mask that aliases Ogre layer state");
+  request = MakeFrame(MakeScene(
+      kRegistryId, Matrix4x4{}, 1U, {0.03F, 0.03F, 0.03F}, 1.0F,
+      MakeMesh().local_bounds, 0.0F, (1U << 28U) | 1U));
+  Require(ValidateOgreNextN1Frame(request, capabilities, registry).ok(),
+          "static N1 rejected an Ogre-assignable item visibility bit");
+  request = MakeFrame(MakeScene(
+      kRegistryId, Matrix4x4{}, 1U, {0.03F, 0.03F, 0.03F}, 1.0F,
+      MakeMesh().local_bounds, 0.0F, (1U << 31U) | 1U));
+  Require(ValidateOgreNextN1Frame(request, capabilities, registry).field ==
+              "mesh_instances.visibility_mask",
+          "static N1 admitted an item mask that aliases Ogre layer state");
 
   request = MakeFrame(MakeReflectionScene(kRegistryId));
   const ValidationResult legacy_reflection_validation =

@@ -42,6 +42,7 @@
 #include "OgreSceneManager.h"
 #include "OgreTextureBox.h"
 #include "OgreTextureGpu.h"
+#include "OgreVisibilityFlags.h"
 
 #include <algorithm>
 #include <array>
@@ -612,6 +613,14 @@ public:
             RenderOperationCode::INVALID_ARGUMENT,
             "Root, SceneManager, renderer, compositor, and HLMS PBS must "
             "belong to one live Ogre instance");
+      }
+      if (Ogre::VisibilityFlags::RESERVED_VISIBILITY_FLAGS !=
+          (kOgreNextRt4AuthoredVisibilityMask |
+           kOgreNextPccCaptureVisibilityBit |
+           kOgreNextPccProxyVisibilityBit)) {
+        return Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "Ogre visibility-layer layout differs from the reviewed PCC contract");
       }
       const Ogre::RenderSystemCapabilities *capabilities =
           root->getRenderSystem()->getCapabilities();

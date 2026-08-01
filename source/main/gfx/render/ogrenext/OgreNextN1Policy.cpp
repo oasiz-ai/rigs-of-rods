@@ -872,17 +872,24 @@ ValidationResult ValidateOgreNextN1Scene(
   for (std::size_t index = 0U; index < snapshot.mesh_instances().size();
        ++index) {
     const MeshInstanceDescriptor &instance = snapshot.mesh_instances()[index];
-    if (raster_feature_tier ==
-            OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
-        ((instance.visibility_mask & kOgreNextRt4AuthoredVisibilityMask) ==
-             0U ||
-         (instance.visibility_mask !=
-              (std::numeric_limits<std::uint32_t>::max)() &&
-          (instance.visibility_mask & kOgreNextRt4InternalVisibilityMask) !=
-              0U))) {
+    const bool modern_pbr =
+        raster_feature_tier ==
+        OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+    const std::uint32_t authored_visibility_mask =
+        modern_pbr ? kOgreNextRt4AuthoredVisibilityMask
+                   : kOgreNextN1AuthoredVisibilityMask;
+    const std::uint32_t internal_visibility_mask =
+        modern_pbr ? kOgreNextRt4InternalVisibilityMask
+                   : kOgreNextN1OgreLayerVisibilityMask;
+    if ((instance.visibility_mask & authored_visibility_mask) == 0U ||
+        (instance.visibility_mask !=
+             (std::numeric_limits<std::uint32_t>::max)() &&
+         (instance.visibility_mask & internal_visibility_mask) != 0U)) {
       return Unsupported(
           "mesh_instances.visibility_mask",
-          "RT4/V1 reserves visibility bits 28-29 for native PCC state and 30-31 for Ogre layers",
+          modern_pbr
+              ? "RT4/V1 reserves visibility bits 28-29 for native PCC state and 30-31 for Ogre layers"
+              : "N1 reserves visibility bits 30-31 for Ogre layers",
           index);
     }
     if (!allow_dynamic_meshes && instance.deformation_revision != 1U) {
@@ -938,15 +945,24 @@ ValidationResult ValidateOgreNextN1Frame(
                        "N1 renders exactly one colour view");
   }
   const CameraViewRequest &view = request.views.front();
-  if (raster_feature_tier ==
-          OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
-      ((view.visibility_mask & kOgreNextRt4AuthoredVisibilityMask) == 0U ||
-       (view.visibility_mask !=
-            (std::numeric_limits<std::uint32_t>::max)() &&
-        (view.visibility_mask & kOgreNextRt4InternalVisibilityMask) != 0U))) {
+  const bool modern_pbr =
+      raster_feature_tier ==
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  const std::uint32_t authored_visibility_mask =
+      modern_pbr ? kOgreNextRt4AuthoredVisibilityMask
+                 : kOgreNextN1AuthoredVisibilityMask;
+  const std::uint32_t internal_visibility_mask =
+      modern_pbr ? kOgreNextRt4InternalVisibilityMask
+                 : kOgreNextN1OgreLayerVisibilityMask;
+  if ((view.visibility_mask & authored_visibility_mask) == 0U ||
+      (view.visibility_mask !=
+           (std::numeric_limits<std::uint32_t>::max)() &&
+       (view.visibility_mask & internal_visibility_mask) != 0U)) {
     return Unsupported(
         "views.visibility_mask",
-        "RT4/V1 reserves visibility bits 28-29 for native PCC state and 30-31 for Ogre layers");
+        modern_pbr
+            ? "RT4/V1 reserves visibility bits 28-29 for native PCC state and 30-31 for Ogre layers"
+            : "N1 reserves visibility bits 30-31 for Ogre layers");
   }
   if (view.exposure != 1.0F) {
     return Unsupported(
