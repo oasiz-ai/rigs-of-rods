@@ -89,8 +89,8 @@ in flight. Its supported slice is intentionally small:
 
 | Area | N1 behavior |
 | --- | --- |
-| Geometry | Immutable static triangle lists with authored positions and normals, imported as Ogre v2 mesh/VAO allocations |
-| Materials | Texture-free opaque metallic-roughness; IOR fixed to 1.5; `PbsBrdf::Default` height-correlated GGX; live datablock getters verify base color, metalness, roughness, and emissive after mapping |
+| Geometry | Immutable static triangle lists with authored positions and normals, imported as Ogre v2 mesh/VAO allocations after derived native Aabb/sphere values are proven finite |
+| Materials | Texture-free opaque metallic-roughness; IOR fixed to 1.5; `PbsBrdf::Default` height-correlated GGX; glTF-style double-sided lighting; live datablock getters verify base color, metalness, roughness, emissive, and sidedness after mapping |
 | Lighting | Constant ambient/environment radiance only |
 | Output | One UI-free `RGBA16_FLOAT` HDR or `RGBA8_SRGB` CPU readback |
 | Camera | Current rigid view and canonical portable `[0,1]` projection; N1 explicitly converts depth to Ogre `[-1,1]` before the active RenderSystem performs one API-native conversion |

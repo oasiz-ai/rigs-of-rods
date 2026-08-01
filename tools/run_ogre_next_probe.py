@@ -709,6 +709,7 @@ def validate_n1_checkpoint(
             lifecycle.get(field) is True
             for field in (
                 "unsupported_depth_failed_before_submission",
+                "double_sided_mirrored_pbs_readback",
                 "latest_snapshot_only_identity_window",
                 "shutdown_reinitialize_render_shutdown",
             )

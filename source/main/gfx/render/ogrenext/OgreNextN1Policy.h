@@ -25,6 +25,20 @@ constexpr std::uint32_t kOgreNextN1ConservativeMaximumTextureDimension = 2048U;
 constexpr std::size_t kOgreNextN1MaximumDirectionalLights = 0U;
 constexpr std::size_t kOgreNextN1CompletedFrameHistoryLimit = 64U;
 
+/// Bounds after the portable descriptor has been reduced with overflow-safe
+/// float arithmetic into Ogre's center/half-size representation.
+struct OgreNextN1NativeMeshBounds final {
+  Float3 center;
+  Float3 half_size;
+  float radius = 0.0F;
+};
+
+/// Returns false when finite portable bounds would manufacture a non-finite
+/// Ogre Aabb or bounding-sphere value during native float arithmetic.
+[[nodiscard]] bool TryBuildOgreNextN1NativeMeshBounds(
+    const Bounds3 &portable,
+    OgreNextN1NativeMeshBounds &native) noexcept;
+
 /// Bounded lifetime identity state for N1's synchronous one-frame adapter.
 /// Only the latest snapshot may be replayed; this avoids an unbounded pointer
 /// identity cache while preserving the producer's monotonic-ID contract.

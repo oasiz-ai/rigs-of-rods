@@ -109,6 +109,7 @@ MaterialDescriptor MakeMaterial() {
   material.base_color_factor = {0.05F, 0.32F, 0.92F, 1.0F};
   material.metallic_factor = 0.2F;
   material.roughness_factor = 0.28F;
+  material.double_sided = true;
   material.emissive_factor = {0.78F, 0.12F, 0.035F};
   material.emissive_strength = 6.0F;
   return material;
@@ -132,7 +133,8 @@ RenderAssetDelta MakeCatalog() {
   return delta;
 }
 
-std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id) {
+std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
+                                               bool mirrored = false) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kRegistryId;
@@ -145,6 +147,10 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id) {
   instance.instance_id = 1U;
   instance.mesh = AssetRef(RenderAssetKind::MESH, 1U);
   instance.material = AssetRef(RenderAssetKind::MATERIAL, 2U);
+  if (mirrored) {
+    instance.render_from_object.elements[0U] = -1.0F;
+    instance.previous_render_from_object = instance.render_from_object;
+  }
   instance.local_bounds = MakeMesh().local_bounds;
   descriptor.mesh_instances.push_back(instance);
 
@@ -452,6 +458,7 @@ std::string MakeReport(const Metrics &hdr, const Metrics &sdr) {
          << "  },\n"
          << "  \"lifecycle\": {\n"
          << "    \"unsupported_depth_failed_before_submission\": true,\n"
+         << "    \"double_sided_mirrored_pbs_readback\": true,\n"
          << "    \"latest_snapshot_only_identity_window\": true,\n"
          << "    \"shutdown_reinitialize_render_shutdown\": true\n"
          << "  }\n"
@@ -474,7 +481,7 @@ void InitializeAndSync(OgreNextN1Frontend &frontend,
 std::pair<Metrics, Metrics> RunSmoke() {
   const RenderAssetDelta catalog = MakeCatalog();
   const auto scene_one = MakeScene(1U);
-  const auto scene_two = MakeScene(2U);
+  const auto scene_two = MakeScene(2U, true);
   OgreNextN1Frontend frontend;
 
   const FrontendCapabilityReport capabilities = frontend.QueryCapabilities();
@@ -535,6 +542,7 @@ std::pair<Metrics, Metrics> RunSmoke() {
                      MakeFrame(3U, scene_two, PixelFormat::RGBA8_SRGB),
                      newer_output),
                  "new snapshot Render");
+  static_cast<void>(InspectSdr(newer_output));
   RenderFrameOutput old_output;
   const RenderOperationResult old_result = frontend.Render(
       MakeFrame(4U, scene_one, PixelFormat::RGBA8_SRGB), old_output);

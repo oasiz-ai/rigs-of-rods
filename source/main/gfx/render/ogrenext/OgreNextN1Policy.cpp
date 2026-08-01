@@ -38,6 +38,11 @@ bool IsTextureFree(const MaterialDescriptor &material) noexcept {
   return true;
 }
 
+bool IsFiniteScaled(const Float3 &value, float scale) noexcept {
+  return IsFinite(value.x * scale) && IsFinite(value.y * scale) &&
+         IsFinite(value.z * scale);
+}
+
 bool IsTrsRepresentable(const Matrix4x4 &matrix) noexcept {
   if (!HasInvertibleAffineTransform(matrix)) {
     return false;
@@ -92,6 +97,13 @@ ValidationResult ValidateMeshPolicy(const MeshResourceDescriptor &mesh,
         "N1 preserves only position and normal streams; richer streams must wait for their reviewed adapter",
         index);
   }
+  OgreNextN1NativeMeshBounds native_bounds;
+  if (!TryBuildOgreNextN1NativeMeshBounds(mesh.local_bounds, native_bounds)) {
+    return Unsupported(
+        "assets.mesh.local_bounds",
+        "finite portable bounds overflow Ogre's native Aabb or sphere arithmetic",
+        index);
+  }
   return ValidationResult::Success();
 }
 
@@ -124,10 +136,51 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
         "N1 rejects near-zero roughness that can produce non-finite PBS shaders",
         index);
   }
+  if (!IsFiniteScaled(material.emissive_factor,
+                      material.emissive_strength)) {
+    return Unsupported(
+        "assets.material.emissive",
+        "finite emissive inputs overflow Ogre's native PBS color arithmetic",
+        index);
+  }
   return ValidationResult::Success();
 }
 
 } // namespace
+
+bool TryBuildOgreNextN1NativeMeshBounds(
+    const Bounds3 &portable,
+    OgreNextN1NativeMeshBounds &native) noexcept {
+  if (!IsValid(portable)) {
+    return false;
+  }
+  // Halving each operand before addition/subtraction avoids overflowing for
+  // ordered finite endpoints whose center or half-size is representable.
+  const Float3 center{
+      portable.minimum.x * 0.5F + portable.maximum.x * 0.5F,
+      portable.minimum.y * 0.5F + portable.maximum.y * 0.5F,
+      portable.minimum.z * 0.5F + portable.maximum.z * 0.5F,
+  };
+  const Float3 half_size{
+      portable.maximum.x * 0.5F - portable.minimum.x * 0.5F,
+      portable.maximum.y * 0.5F - portable.minimum.y * 0.5F,
+      portable.maximum.z * 0.5F - portable.minimum.z * 0.5F,
+  };
+  if (!IsFinite(center) || !IsNonNegative(half_size)) {
+    return false;
+  }
+  const float radius_squared = half_size.x * half_size.x +
+                               half_size.y * half_size.y +
+                               half_size.z * half_size.z;
+  const float radius = std::sqrt(radius_squared);
+  if (!IsFinite(radius_squared) || !IsFinite(radius)) {
+    return false;
+  }
+  native.center = center;
+  native.half_size = half_size;
+  native.radius = radius;
+  return true;
+}
 
 RenderOperationResult
 OgreNextN1SubmissionState::Validate(const RenderFrameRequest &request) const {
@@ -300,6 +353,12 @@ ValidationResult ValidateOgreNextN1Scene(
     return Unsupported(
         "lights",
         "N1 has no calibrated physical-light adapter; use constant environment radiance");
+  }
+  if (!IsFiniteScaled(snapshot.environment().ambient_radiance,
+                      snapshot.environment().environment_intensity)) {
+    return Unsupported(
+        "environment.ambient_radiance",
+        "finite ambient inputs overflow Ogre's native environment color arithmetic");
   }
   for (std::size_t index = 0U; index < snapshot.mesh_instances().size();
        ++index) {

@@ -130,6 +130,7 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
       descriptor.emissive_factor.z * descriptor.emissive_strength);
   if (datablock.getBrdf() != Ogre::PbsBrdf::Default ||
       datablock.getWorkflow() != Ogre::HlmsPbsDatablock::MetallicWorkflow ||
+      datablock.getTwoSidedLighting() != descriptor.double_sided ||
       !NearlyEqual(datablock.getDiffuse(), expected_base_color) ||
       !NearlyEqual(datablock.getMetalness(), descriptor.metallic_factor) ||
       !NearlyEqual(datablock.getRoughness(), descriptor.roughness_factor) ||
@@ -310,23 +311,19 @@ public:
       attached = true;
       submesh->mVao[Ogre::VpShadow].push_back(vao);
 
-      const Float3 &minimum = descriptor.local_bounds.minimum;
-      const Float3 &maximum = descriptor.local_bounds.maximum;
-      const Ogre::Vector3 center((minimum.x + maximum.x) * 0.5F,
-                                 (minimum.y + maximum.y) * 0.5F,
-                                 (minimum.z + maximum.z) * 0.5F);
-      const Ogre::Vector3 half_size((maximum.x - minimum.x) * 0.5F,
-                                    (maximum.y - minimum.y) * 0.5F,
-                                    (maximum.z - minimum.z) * 0.5F);
-      float radius = 0.0F;
-      for (const Float3 &position : descriptor.positions) {
-        radius = std::max(radius,
-                          std::sqrt(position.x * position.x +
-                                    position.y * position.y +
-                                    position.z * position.z));
+      OgreNextN1NativeMeshBounds bounds;
+      if (!TryBuildOgreNextN1NativeMeshBounds(descriptor.local_bounds,
+                                              bounds)) {
+        throw std::logic_error(
+            "validated N1 mesh bounds became non-finite before Ogre allocation");
       }
-      native.mesh->_setBounds(Ogre::Aabb(center, half_size), false);
-      native.mesh->_setBoundingSphereRadius(radius);
+      native.mesh->_setBounds(
+          Ogre::Aabb(Ogre::Vector3(bounds.center.x, bounds.center.y,
+                                  bounds.center.z),
+                     Ogre::Vector3(bounds.half_size.x, bounds.half_size.y,
+                                   bounds.half_size.z)),
+          false);
+      native.mesh->_setBoundingSphereRadius(bounds.radius);
       return native;
     } catch (...) {
       const std::exception_ptr creation_failure = std::current_exception();
@@ -400,6 +397,7 @@ public:
                         descriptor.emissive_factor.y,
                         descriptor.emissive_factor.z) *
           descriptor.emissive_strength);
+      native.datablock->setTwoSidedLighting(descriptor.double_sided, false);
       VerifyPbsMapping(*native.datablock, descriptor);
       return native;
     } catch (...) {

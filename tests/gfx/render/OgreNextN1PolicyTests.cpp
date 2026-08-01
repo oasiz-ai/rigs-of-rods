@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -87,11 +88,15 @@ Matrix4x4 Projection(float near_plane = 0.1F, float far_plane = 20.0F) {
 
 std::shared_ptr<const SceneSnapshot>
 MakeScene(std::uint64_t registry_id, Matrix4x4 transform = Matrix4x4{},
-          std::uint64_t snapshot_id = 1U) {
+          std::uint64_t snapshot_id = 1U,
+          Float3 ambient_radiance = {0.03F, 0.03F, 0.03F},
+          float environment_intensity = 1.0F) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = registry_id;
   descriptor.asset_sequence = 1U;
+  descriptor.environment.ambient_radiance = ambient_radiance;
+  descriptor.environment.environment_intensity = environment_intensity;
   MeshInstanceDescriptor instance;
   instance.instance_id = 1U;
   instance.mesh = Ref(RenderAssetKind::MESH, 1U);
@@ -254,6 +259,37 @@ void TestAssetPolicy() {
   Require(ValidateOgreNextN1AssetCatalog(registry).ok(),
           "valid N1 catalog was rejected");
 
+  OgreNextN1NativeMeshBounds native_bounds;
+  Require(TryBuildOgreNextN1NativeMeshBounds(MakeMesh().local_bounds,
+                                             native_bounds) &&
+              native_bounds.center == Float3{} &&
+              native_bounds.half_size == Float3{1.0F, 1.0F, 0.0F} &&
+              std::fabs(native_bounds.radius - std::sqrt(2.0F)) < 1.0e-6F,
+          "valid mesh bounds did not produce finite Ogre bounds");
+
+  MeshResourceDescriptor overflowing_bounds = MakeMesh();
+  constexpr float kLargeCoordinate = 1.0e20F;
+  overflowing_bounds.local_bounds.minimum =
+      {-kLargeCoordinate, -kLargeCoordinate, -kLargeCoordinate};
+  overflowing_bounds.local_bounds.maximum =
+      {kLargeCoordinate, kLargeCoordinate, kLargeCoordinate};
+  overflowing_bounds.positions = {
+      {-kLargeCoordinate, -kLargeCoordinate, -kLargeCoordinate},
+      {kLargeCoordinate, -kLargeCoordinate, -kLargeCoordinate},
+      {0.0F, kLargeCoordinate, kLargeCoordinate},
+  };
+  Require(ValidateMeshResourceDescriptor(overflowing_bounds).ok(),
+          "finite hostile mesh fixture is not portable-contract valid");
+  RenderAssetRegistry overflowing_bounds_registry(kRegistryId);
+  Require(overflowing_bounds_registry
+              .Apply(MakeCatalogDelta(kRegistryId, overflowing_bounds,
+                                      MakeMaterial()))
+              .ok(),
+          "finite hostile mesh fixture is not registry valid");
+  Require(ValidateOgreNextN1AssetCatalog(overflowing_bounds_registry).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "finite mesh values that overflow Ogre bounds escaped admission");
+
   MeshResourceDescriptor dynamic_mesh = MakeMesh();
   dynamic_mesh.dynamic = true;
   RenderAssetRegistry dynamic_registry(kRegistryId);
@@ -265,6 +301,22 @@ void TestAssetPolicy() {
   Require(ValidateOgreNextN1AssetCatalog(dynamic_registry).code ==
               ValidationCode::UNSUPPORTED_FEATURE,
           "dynamic geometry escaped N1 admission");
+
+  MaterialDescriptor overflowing_emissive = MakeMaterial();
+  overflowing_emissive.emissive_factor =
+      {(std::numeric_limits<float>::max)(), 0.0F, 0.0F};
+  overflowing_emissive.emissive_strength = 2.0F;
+  Require(ValidateMaterialDescriptor(overflowing_emissive).ok(),
+          "finite hostile emissive fixture is not portable-contract valid");
+  RenderAssetRegistry overflowing_emissive_registry(kRegistryId);
+  Require(overflowing_emissive_registry
+              .Apply(MakeCatalogDelta(kRegistryId, MakeMesh(),
+                                      overflowing_emissive))
+              .ok(),
+          "finite hostile emissive fixture is not registry valid");
+  Require(ValidateOgreNextN1AssetCatalog(overflowing_emissive_registry).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "finite emissive values that overflow Ogre PBS escaped admission");
 
   MaterialDescriptor textured = MakeMaterial();
   textured.base_color_texture.texture = Ref(RenderAssetKind::TEXTURE, 3U);
@@ -360,6 +412,13 @@ void TestFrameAndScenePolicy() {
   Require(ValidateOgreNextN1Frame(request, capabilities, registry).code ==
               ValidationCode::UNSUPPORTED_FEATURE,
           "affine shear was silently decomposed");
+
+  request = MakeFrame(MakeScene(
+      kRegistryId, Matrix4x4{}, 3U,
+      {(std::numeric_limits<float>::max)(), 0.0F, 0.0F}, 2.0F));
+  Require(ValidateOgreNextN1Frame(request, capabilities, registry).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "finite ambient values that overflow Ogre color escaped admission");
 }
 
 } // namespace

@@ -116,6 +116,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "setMetalness(",
             "setRoughness(",
             "setEmissive(",
+            "setTwoSidedLighting(descriptor.double_sided, false)",
             "VerifyPbsMapping(*native.datablock, descriptor)",
             "datablock.getBrdf() != Ogre::PbsBrdf::Default",
             "datablock.getWorkflow() != Ogre::HlmsPbsDatablock::MetallicWorkflow",
@@ -123,6 +124,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "datablock.getMetalness()",
             "datablock.getRoughness()",
             "datablock.getEmissive()",
+            "datablock.getTwoSidedLighting()",
         ):
             self.assertIn(token, self.frontend)
 
@@ -231,6 +233,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             },
             "lifecycle": {
                 "unsupported_depth_failed_before_submission": True,
+                "double_sided_mirrored_pbs_readback": True,
                 "latest_snapshot_only_identity_window": True,
                 "shutdown_reinitialize_render_shutdown": True,
             },
