@@ -114,7 +114,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror-ogre-next-frontend-n1-report.json",
             "ror-ogre-next-frontend-n1.ppm",
             "ror-ogre-next-metal-n2-report.json",
-            "ror-ogre-next-metal-n2.rgba",
+            "ror-ogre-next-metal-n2-probe.bin",
+            "ror-ogre-next-metal-n2-attestation.json",
+            "bin/ror_ogre_next_metal_n2_smoke",
         ):
             with self.subTest(artifact=artifact):
                 self.assertIn(artifact, self.workflow)
@@ -153,7 +155,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn(
             "if: always() && runner.os == 'macOS'", self.workflow
         )
-        self.assertIn("Upload exact Apple Metal N2 interop proof", self.workflow)
+        self.assertIn(
+            "Upload attested Apple Metal N2 capability evidence", self.workflow
+        )
 
     def test_verified_wrapper_owns_source_and_build_lifecycle(self) -> None:
         self.assertIn("tools/run_ogre_next_probe.py", self.workflow)

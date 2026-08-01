@@ -101,7 +101,9 @@ sized view. Suspended 0x0 surfaces skip presentation until reactivated.
 This boundary still does not change the shipping game's OGRE 1.14 renderer.
 An isolated opt-in Ogre-Next N1 adapter exercises static PBR/HDR raster, and an
 Apple-only N2 acceptance backend proves exact same-device Metal geometry
-export plus one-ray BLAS/TLAS dispatch/readback. They remain standalone gates:
-N2 does not yet import its result into an Ogre texture or implement RT
+export plus one-ray BLAS/TLAS dispatch and an exact eight-byte probe readback.
+It intentionally returns `UNSUPPORTED` from the image-rendering interface until
+it can produce a view-dependent attachment. These remain standalone gates: N2
+does not yet import a result into an Ogre texture or implement RT
 materials, lighting, denoising, compositing, or presentation, while Windows and
 Linux continue to report native RT false until their explicit backends exist.

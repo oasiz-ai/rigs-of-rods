@@ -1,6 +1,6 @@
 # OGRE-Next isolated integration checkpoint
 
-Status: **opt-in N1 raster frontend plus an Apple Metal N2 geometry/RT proof; no shipping renderer switch**
+Status: **opt-in N1 raster frontend plus an Apple Metal N2 geometry/RT capability probe; no shipping renderer switch**
 
 This checkpoint compiles four standalone executables against an exact
 OGRE-Next `v3-0` revision while leaving every default RoR and OGRE 14 build
@@ -24,8 +24,9 @@ that same frontend to raster a full deformed `SceneSnapshot` revision, borrows
 the exact live Ogre Metal device and command queue, exports the actual pooled
 v2 `MTLBuffer` position and index slices selected by the raster `Item`, and
 builds BLAS/TLAS directly from those slices. One Metal ray query must hit the
-exported triangle at one metre and survive an independently validated UI-free
-RGBA8 readback. It creates no second device or queue.
+exported triangle at one metre and survive an independently validated eight-byte
+GPU probe readback. It creates no second device or queue and produces no
+ray-traced image.
 
 The original capability and frame probes do not consume a RoR scene. The N1
 and N2 executables consume the renderer-neutral RoR scene and asset contracts,
@@ -222,8 +223,17 @@ The generated files are:
 - `ror-ogre-next-metal-n2-report.json`: versioned same-device provenance,
   geometry-slice, timeline, BLAS/TLAS, ray-hit, and lifecycle evidence on
   Apple family 9 or newer; and
-- `ror-ogre-next-metal-n2.rgba`: the exact 96x64 UI-free proof readback hashed
-  and byte-validated by the wrapper.
+- `ror-ogre-next-metal-n2-probe.bin`: the exact eight-byte GPU-written ray-hit
+  evidence, present only when the hardware gate passes;
+- `ror-ogre-next-metal-n2-attestation.json`: checked-out RoR commit/ref plus
+  SHA-256 identities for the report, executable, and optional probe; and
+- `bin/ror_ogre_next_metal_n2_smoke`: the exact executable independently hashed
+  by the wrapper and retained with the report.
+
+The baseline GitHub `macos-15` runner currently identifies an M1/family-7 GPU,
+so it compiles all N2 code and records an explicit capability skip (CTest exit
+77) instead of claiming a family-9 runtime pass. A genuine M3-or-newer runner
+must produce the probe artifact and pass the full validator.
 
 `--validate-contract-only` checks pins, patch hashes, and the current platform
 policy without accessing the network or compiling.
@@ -277,11 +287,13 @@ revision 2 and exported its live pooled 24-byte-stride vertex allocation and
 16-bit index allocation with 60-byte and 6-byte exact slices, respectively.
 The native backend used those exported buffers directly for a 512-byte BLAS
 and 512-byte TLAS, ordered the two queue stages with shared-event values 1 and
-2, and read back the expected `0x52545254` hit at distance 1.0. The 24,576-byte
-RGBA8 artifact hashes to FNV-1a-64 `e37f2d77bf9ff325`. The smoke also rejected
+2, and read back the expected `0x52545254` hit at distance 1.0 in the exact
+eight-byte GPU result. The earlier synthesized 96x64 RGBA payload was not a
+rendered RT frame and is no longer emitted. The smoke also rejected
 a stale buffer generation, blocked revision N+1 and frontend shutdown while N
-remained leased, shut down the RT backend first, rendered revision N+1, and
-then shut down the frontend. These measurements prove this M5 geometry path;
+remained leased, exercised explicit backend-first shutdown plus both destructor
+orders, rendered revision N+1 after backend destruction, and then shut down the
+frontend. These measurements prove this M5 geometry path;
 they do not prove ray-traced materials, lighting, denoising, Ogre texture
 import, compositing, presentation, image quality, or performance parity.
 

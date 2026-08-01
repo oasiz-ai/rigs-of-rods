@@ -492,11 +492,11 @@ endif ()
 
 if (TARGET ror_ogre_next_metal_n2_smoke)
     set(ROR_OGRE_NEXT_N2_READBACK
-        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n2.rgba")
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n2-probe.bin")
     set(ROR_OGRE_NEXT_N2_REPORT
         "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n2-report.json")
     set(ROR_OGRE_NEXT_N2_CTEST_READBACK
-        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n2-ctest.rgba")
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n2-ctest-probe.bin")
     set(ROR_OGRE_NEXT_N2_CTEST_REPORT
         "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n2-ctest-report.json")
     add_custom_target(
@@ -506,9 +506,11 @@ if (TARGET ror_ogre_next_metal_n2_smoke)
             "${ROR_OGRE_NEXT_N2_READBACK}"
             "${ROR_OGRE_NEXT_N2_REPORT}"
         COMMAND
-            $<TARGET_FILE:ror_ogre_next_metal_n2_smoke>
-            --output "${ROR_OGRE_NEXT_N2_READBACK}"
-            --report "${ROR_OGRE_NEXT_N2_REPORT}"
+            "${CMAKE_COMMAND}"
+            "-DN2_EXECUTABLE=$<TARGET_FILE:ror_ogre_next_metal_n2_smoke>"
+            "-DN2_OUTPUT=${ROR_OGRE_NEXT_N2_READBACK}"
+            "-DN2_REPORT=${ROR_OGRE_NEXT_N2_REPORT}"
+            -P "${CMAKE_CURRENT_LIST_DIR}/cmake/RunN2Smoke.cmake"
         DEPENDS ror_ogre_next_metal_n2_smoke
         BYPRODUCTS
             "${ROR_OGRE_NEXT_N2_READBACK}"
@@ -520,5 +522,6 @@ if (TARGET ror_ogre_next_metal_n2_smoke)
                 --output "${ROR_OGRE_NEXT_N2_CTEST_READBACK}"
                 --report "${ROR_OGRE_NEXT_N2_CTEST_REPORT}")
     set_tests_properties(
-        ror_ogre_next_metal_n2_runtime PROPERTIES TIMEOUT 120)
+        ror_ogre_next_metal_n2_runtime
+        PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
 endif ()

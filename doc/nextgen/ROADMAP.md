@@ -49,7 +49,8 @@ BeamNG-derived product name without written permission, in accordance with
   toward Linux and Windows. Treat it as research, not as a merge base.
 - Native ray tracing is now a renderer-selection priority. The opt-in Apple M5
   N2 checkpoint proves one same-device Metal geometry export, BLAS/TLAS build,
-  ray query/readback, and guarded lifecycle; it is not a shipping RT renderer
+  ray query/eight-byte probe readback, and guarded lifecycle; it is not a
+  shipping RT renderer, rendered-image output,
   or a visual-fidelity claim. Ogre-Next's audited tree provides a materially
   stronger PBS/HDR raster foundation and Metal/Vulkan integration seams, not a
   complete cross-platform native RT implementation or a D3D12 renderer. The
@@ -1051,7 +1052,7 @@ Gate R1:
   passed on the recorded Apple M5. N2 rastered a renderer-neutral deformed RoR
   scene, exported the exact pooled Ogre v2 position/index slices from that
   raster `Item`, built BLAS/TLAS from those buffers on Ogre's own device and
-  queue, dispatched one ray, and validated its UI-free readback. This closes
+  queue, dispatched one ray, and validated its eight-byte GPU probe. This closes
   API/hardware/dispatch and geometry-interoperability subgates only; it does
   not enable a shipping `native_rt=metal` path or claim RT shading/compositing.
 - Ogre-Next `v3.0.0` is evaluated as an exact pin on macOS arm64, Windows
@@ -1070,7 +1071,10 @@ Gate R1:
   and records clean renderer shutdown. The following Apple N2 checkpoint adds
   a shared-event ownership boundary, immutable deformation revisions, exact
   pooled-buffer bounds/generations, same-device BLAS/TLAS/query evidence, and
-  backend-before-frontend teardown. Windows D3D11 and Linux Vulkan
+  explicit shutdown plus both frontend/backend destructor orders. Operational
+  Metal faults revoke leases and backend registration while latching the
+  frontend unusable, so device loss cannot permanently block cleanup. Windows
+  D3D11 and Linux Vulkan
   reproduction remain open; Linux is deliberately an offscreen null-window
   raster gate rather than a presentation-window claim. RT material attributes,
   lights, target import/compositing, presentation, image quality, performance,

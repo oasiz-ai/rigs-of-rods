@@ -1,4 +1,4 @@
-name: OGRE-Next isolated raster and Metal N2 probe
+name: OGRE-Next raster and Metal N2 capability probe
 
 on:
   push:
@@ -40,7 +40,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS arm64 Metal
+          - name: macOS arm64 Metal raster plus N2 capability
             runner: macos-15
             platform: macos-arm64-metal
             jobs: 8
@@ -185,7 +185,7 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1.ppm
 
-      - name: Upload exact Apple Metal N2 interop proof
+      - name: Upload attested Apple Metal N2 capability evidence
         if: always() && runner.os == 'macOS'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -194,4 +194,6 @@ jobs:
           retention-days: 14
           path: |
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2-report.json
-            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2.rgba
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2-probe.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_metal_n2_smoke

@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 
@@ -58,6 +60,10 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                 self.assertNotIn("id<MTL", header)
                 self.assertNotIn("Ogre::", header)
         self.assertIn("std::unique_ptr<Impl>", self.backend_header)
+        self.assertIn(
+            "std::enable_shared_from_this<OgreNextN1NativeInteropBridge>",
+            self.native_header,
+        )
 
     def test_bridge_borrows_the_exact_live_ogre_device_and_queue(self) -> None:
         for token in (
@@ -135,6 +141,8 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
             "MarkExternalCompleted",
             "CanShutdown",
             "native RT backend must shut down before the Ogre frontend",
+            "AbandonRayTracingBackendAfterFault",
+            "RevokeFrontend",
         ):
             self.assertIn(token, self.state + self.bridge + self.backend)
         for token in (
@@ -142,8 +150,28 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
             "revision_n_plus_one_blocked_while_n_live",
             "frontend_shutdown_blocked_before_backend",
             "backend_shutdown_before_frontend",
+            "frontend_destructor_before_backend_safe",
+            "backend_destructor_before_frontend_safe",
             "post_release_revision_n_plus_one_rendered",
             "ValidateNativeGeometryInteropProofSet",
+        ):
+            self.assertIn(token, self.smoke)
+        self.assertIn(
+            "std::shared_ptr<OgreNextN1NativeInteropBridge> bridge_",
+            self.backend,
+        )
+        self.assertNotIn("OgreNextN1NativeInteropBridge *bridge_", self.backend)
+
+    def test_probe_does_not_claim_a_rendered_image_or_gpu_timing(self) -> None:
+        self.assertIn("RunGeometryInteropProbe", self.backend_header + self.backend)
+        self.assertIn("does not produce a view-dependent RenderFrameOutput", self.backend)
+        self.assertNotIn("FillProofOutput", self.backend)
+        self.assertNotIn("gpu_frame_milliseconds", self.backend)
+        self.assertNotIn("cpu_submit_milliseconds", self.backend)
+        for token in (
+            '"rendered_image_produced\\\": false',
+            '"view_dependent\\\": false',
+            '"gpu_timestamp_measured\\\": false',
         ):
             self.assertIn(token, self.smoke)
 
@@ -161,6 +189,8 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
             self.assertIn(source, self.cmake)
         self.assertIn("OgreNextMetalRayTracingBackend.mm", apple_block)
         self.assertIn("-fobjc-arc", apple_block)
+        self.assertIn("SKIP_RETURN_CODE 77", self.cmake)
+        self.assertIn("RunN2Smoke.cmake", self.cmake)
         self.assertIn(
             "available only in the macOS Metal target", self.frontend
         )
@@ -168,28 +198,28 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
     def test_report_validator_requires_exact_live_evidence(self) -> None:
         lock = RUNNER.load_lock()
         policy = RUNNER.detect_policy("Darwin", "arm64")
-        readback = bytes((0x52, 0x54, 64, 0xFF)) * (96 * 64)
-        hash_value = 14695981039346656037
-        for value in readback:
-            hash_value ^= value
-            hash_value = (hash_value * 1099511628211) & ((1 << 64) - 1)
+        probe = struct.pack("<If", 0x52545254, 1.0)
+        executable = b"reviewed-metal-n2-executable"
+        source_commit = "1" * 40
+        source_ref = "codex/test"
         report = {
-            "schema": "ror.ogre_next_metal_rt_n2.v1",
+            "schema": "ror.ogre_next_metal_rt_n2.v2",
             "status": "pass",
             "scope": (
-                "same-device one-ray geometry interop acceptance; no ray-traced "
-                "material, lighting, denoising, or compositing parity claim"
+                "same-device single-ray geometry interop capability probe; no "
+                "rendered image, view-dependent result, GPU timing, material, "
+                "lighting, denoising, or compositing claim"
             ),
             "provenance": {
                 "ror_repository": "https://github.com/RigsOfRods/rigs-of-rods",
-                "ror_ref": "codex/test",
-                "ror_commit": "1" * 40,
+                "ror_ref": source_ref,
+                "ror_commit": source_commit,
                 "ogre_next_repository": lock["repository"],
                 "ogre_next_commit": lock["commit"],
                 "ogre_next_archive_sha256": lock["archive_sha256"],
                 "build_artifact": "ror_ogre_next_metal_n2_smoke",
-                "build_artifact_bytes": 1024,
-                "build_artifact_fnv1a64": "1" * 16,
+                "build_artifact_bytes": len(executable),
+                "build_artifact_sha256": hashlib.sha256(executable).hexdigest(),
             },
             "device": {
                 "name": "Apple M5",
@@ -244,12 +274,16 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                 "tlas_bytes": 512,
                 "tlas_scratch_bytes": 512,
             },
-            "dispatch": {
+            "probe": {
+                "kind": "single_ray_geometry_interop",
                 "rays": 1,
                 "hit_magic": 0x52545254,
                 "hit_distance": 1.0,
-                "readback_bytes": len(readback),
-                "readback_fnv1a64": f"{hash_value:016x}",
+                "probe_readback_bytes": len(probe),
+                "probe_readback_sha256": hashlib.sha256(probe).hexdigest(),
+                "rendered_image_produced": False,
+                "view_dependent": False,
+                "gpu_timestamp_measured": False,
             },
             "lifecycle": {
                 field: True
@@ -258,32 +292,170 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                     "revision_n_plus_one_blocked_while_n_live",
                     "frontend_shutdown_blocked_before_backend",
                     "backend_shutdown_before_frontend",
+                    "frontend_destructor_before_backend_safe",
+                    "backend_destructor_before_frontend_safe",
                     "post_release_revision_n_plus_one_rendered",
                     "interop_report_geometry_proven",
                 )
             },
         }
         with tempfile.TemporaryDirectory(prefix="ror-metal-n2-validator-") as temp:
-            artifact = Path(temp) / RUNNER.N2_READBACK_NAME
-            artifact.write_bytes(readback)
-            RUNNER.validate_n2_checkpoint(report, artifact, lock, policy)
+            artifact = Path(temp) / RUNNER.N2_PROBE_NAME
+            artifact.write_bytes(probe)
+            executable_path = Path(temp) / "ror_ogre_next_metal_n2_smoke"
+            executable_path.write_bytes(executable)
+            RUNNER.validate_n2_checkpoint(
+                report,
+                artifact,
+                executable_path,
+                lock,
+                policy,
+                source_commit,
+                source_ref,
+            )
             invalid = copy.deepcopy(report)
             invalid["geometry"]["vertex_pool_offset_bytes"] = 5000
             with self.assertRaises(RUNNER.ProbeError):
-                RUNNER.validate_n2_checkpoint(invalid, artifact, lock, policy)
+                RUNNER.validate_n2_checkpoint(
+                    invalid,
+                    artifact,
+                    executable_path,
+                    lock,
+                    policy,
+                    source_commit,
+                    source_ref,
+                )
             invalid = copy.deepcopy(report)
             invalid["scope"] = "full ray-traced compositing parity"
             with self.assertRaises(RUNNER.ProbeError):
-                RUNNER.validate_n2_checkpoint(invalid, artifact, lock, policy)
+                RUNNER.validate_n2_checkpoint(
+                    invalid,
+                    artifact,
+                    executable_path,
+                    lock,
+                    policy,
+                    source_commit,
+                    source_ref,
+                )
             invalid = copy.deepcopy(report)
             invalid["geometry"]["vertex_pool_offset_bytes"] = "128"
             with self.assertRaises(RUNNER.ProbeError):
-                RUNNER.validate_n2_checkpoint(invalid, artifact, lock, policy)
+                RUNNER.validate_n2_checkpoint(
+                    invalid,
+                    artifact,
+                    executable_path,
+                    lock,
+                    policy,
+                    source_commit,
+                    source_ref,
+                )
+            invalid = copy.deepcopy(report)
+            invalid["provenance"]["ror_commit"] = "2" * 40
+            with self.assertRaises(RUNNER.ProbeError):
+                RUNNER.validate_n2_checkpoint(
+                    invalid,
+                    artifact,
+                    executable_path,
+                    lock,
+                    policy,
+                    source_commit,
+                    source_ref,
+                )
+            invalid = copy.deepcopy(report)
+            invalid["provenance"]["build_artifact_sha256"] = "0" * 64
+            with self.assertRaises(RUNNER.ProbeError):
+                RUNNER.validate_n2_checkpoint(
+                    invalid,
+                    artifact,
+                    executable_path,
+                    lock,
+                    policy,
+                    source_commit,
+                    source_ref,
+                )
 
     def test_checked_in_report_schema_is_json_serializable(self) -> None:
         # This guards accidental non-JSON values in validator test fixtures and
         # keeps optimized (-O) test execution equivalent.
         self.assertIsInstance(json.dumps({"schema": "n2"}), str)
+
+    def test_report_validator_accepts_explicit_capability_skip(self) -> None:
+        lock = RUNNER.load_lock()
+        policy = RUNNER.detect_policy("Darwin", "arm64")
+        source_commit = "3" * 40
+        source_ref = "codex/capability-skip"
+        executable = b"compiled-on-apple-family-seven"
+        report = {
+            "schema": "ror.ogre_next_metal_rt_n2.v2",
+            "status": "skip",
+            "scope": (
+                "same-device single-ray geometry interop capability probe; no "
+                "rendered image, view-dependent result, GPU timing, material, "
+                "lighting, denoising, or compositing claim"
+            ),
+            "provenance": {
+                "ror_repository": "https://github.com/RigsOfRods/rigs-of-rods",
+                "ror_ref": source_ref,
+                "ror_commit": source_commit,
+                "ogre_next_repository": lock["repository"],
+                "ogre_next_commit": lock["commit"],
+                "ogre_next_archive_sha256": lock["archive_sha256"],
+                "build_artifact": "ror_ogre_next_metal_n2_smoke",
+                "build_artifact_bytes": len(executable),
+                "build_artifact_sha256": hashlib.sha256(executable).hexdigest(),
+            },
+            "device": {
+                "name": "Apple M1",
+                "context_id": 7,
+                "same_ogre_device": True,
+                "same_ogre_queue": True,
+            },
+            "admission": {
+                "frontend_api_reported": False,
+                "interop_context_exported": True,
+                "backend_compiled": True,
+                "supports_raytracing": False,
+                "supports_family_apple9": False,
+                "hardware_floor_met": False,
+            },
+            "skip": {
+                "initialization_code": "UNSUPPORTED",
+                "reason": "the exact Ogre Metal device does not support ray tracing",
+                "required_metal_ray_tracing": True,
+                "required_apple_gpu_family": 9,
+            },
+            "probe": {
+                "executed": False,
+                "probe_readback_bytes": 0,
+                "rendered_image_produced": False,
+                "view_dependent": False,
+                "gpu_timestamp_measured": False,
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="ror-metal-n2-skip-") as temp:
+            executable_path = Path(temp) / "ror_ogre_next_metal_n2_smoke"
+            executable_path.write_bytes(executable)
+            RUNNER.validate_n2_checkpoint(
+                report,
+                None,
+                executable_path,
+                lock,
+                policy,
+                source_commit,
+                source_ref,
+            )
+            invalid = copy.deepcopy(report)
+            invalid["admission"]["hardware_floor_met"] = True
+            with self.assertRaises(RUNNER.ProbeError):
+                RUNNER.validate_n2_checkpoint(
+                    invalid,
+                    None,
+                    executable_path,
+                    lock,
+                    policy,
+                    source_commit,
+                    source_ref,
+                )
 
 
 if __name__ == "__main__":

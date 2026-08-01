@@ -11,6 +11,7 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -28,7 +29,8 @@ N1_REPORT_NAME = "ror-ogre-next-frontend-n1-report.json"
 N1_IMAGE_NAME = "ror-ogre-next-frontend-n1.ppm"
 N1_PACKAGE_NAME = "ror-ogre-next-n1-package"
 N2_REPORT_NAME = "ror-ogre-next-metal-n2-report.json"
-N2_READBACK_NAME = "ror-ogre-next-metal-n2.rgba"
+N2_PROBE_NAME = "ror-ogre-next-metal-n2-probe.bin"
+N2_ATTESTATION_NAME = "ror-ogre-next-metal-n2-attestation.json"
 FRAME_VALIDATOR = REPOSITORY_ROOT / "tools" / "validate_ogre_next_frame_probe.py"
 BUILD_SENTINEL_NAME = ".ror-ogre-next-probe-build-v1"
 BUILD_SENTINEL_CONTENT = "ror-ogre-next-probe-build-v1\n"
@@ -137,6 +139,33 @@ def require_source_identity_unchanged(
         raise ProbeError(
             "RoR relevant source or Git identity changed during the probe"
         )
+
+
+def repository_identity() -> tuple[str, str]:
+    try:
+        commit_result = subprocess.run(
+            ["git", "rev-parse", "--verify", "HEAD"],
+            cwd=REPOSITORY_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        commit = commit_result.stdout.strip()
+        ref_result = subprocess.run(
+            ["git", "symbolic-ref", "--short", "HEAD"],
+            cwd=REPOSITORY_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ProbeError(f"could not resolve RoR source provenance: {error}") from error
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise ProbeError("checked-out RoR commit is not a full lowercase Git SHA")
+    ref = ref_result.stdout.strip() if ref_result.returncode == 0 else "detached"
+    if not ref:
+        raise ProbeError("checked-out RoR ref is empty")
+    return commit, ref
 
 
 def _require_sha256(value: object, label: str) -> None:
@@ -993,30 +1022,22 @@ def run_n1_checkpoint(
 
 def validate_n2_checkpoint(
     report: dict[str, Any],
-    readback_path: Path,
+    probe_path: Path | None,
+    executable_path: Path,
     lock: dict[str, Any],
     policy: dict[str, str],
+    expected_source_commit: str,
+    expected_source_ref: str,
 ) -> None:
     if policy["name"] != "macos-arm64-metal":
         raise ProbeError("Metal N2 validation is Apple-only")
+    if re.fullmatch(r"[0-9a-f]{40}", expected_source_commit) is None:
+        raise ProbeError("expected RoR source commit is not a full Git SHA")
     try:
-        readback = readback_path.read_bytes()
+        executable_bytes = executable_path.stat().st_size
+        executable_sha256 = sha256_file(executable_path)
     except OSError as error:
-        raise ProbeError(f"could not read Metal N2 artifact: {error}") from error
-    if len(readback) != 96 * 64 * 4:
-        raise ProbeError("Metal N2 artifact is not the exact 96x64 RGBA8 contract")
-    if any(
-        readback[offset] != 0x52
-        or readback[offset + 1] != 0x54
-        or readback[offset + 2] != 64
-        or readback[offset + 3] != 0xFF
-        for offset in range(0, len(readback), 4)
-    ):
-        raise ProbeError("Metal N2 readback does not encode the proven unit hit")
-    readback_hash = 14695981039346656037
-    for value in readback:
-        readback_hash ^= value
-        readback_hash = (readback_hash * 1099511628211) & ((1 << 64) - 1)
+        raise ProbeError(f"could not attest Metal N2 executable: {error}") from error
 
     def object_field(name: str) -> dict[str, Any]:
         value = report.get(name, {})
@@ -1034,8 +1055,96 @@ def validate_n2_checkpoint(
     geometry = object_field("geometry")
     synchronization = object_field("synchronization")
     acceleration = object_field("acceleration_structures")
-    dispatch = object_field("dispatch")
+    probe = object_field("probe")
     lifecycle = object_field("lifecycle")
+    status = report.get("status")
+    common_checks = {
+        "schema": report.get("schema") == "ror.ogre_next_metal_rt_n2.v2",
+        "status": status in ("pass", "skip"),
+        "scope": report.get("scope")
+        == (
+            "same-device single-ray geometry interop capability probe; no "
+            "rendered image, view-dependent result, GPU timing, material, "
+            "lighting, denoising, or compositing claim"
+        ),
+        "ror_repository": provenance.get("ror_repository")
+        == "https://github.com/RigsOfRods/rigs-of-rods",
+        "ror_ref": provenance.get("ror_ref") == expected_source_ref,
+        "ror_commit": provenance.get("ror_commit") == expected_source_commit,
+        "ogre_repository": provenance.get("ogre_next_repository")
+        == lock["repository"],
+        "ogre_commit": provenance.get("ogre_next_commit") == lock["commit"],
+        "ogre_archive": provenance.get("ogre_next_archive_sha256")
+        == lock["archive_sha256"],
+        "build_artifact": provenance.get("build_artifact")
+        == executable_path.name,
+        "build_artifact_bytes": provenance.get("build_artifact_bytes")
+        == executable_bytes
+        and executable_bytes > 0,
+        "build_artifact_sha256": provenance.get("build_artifact_sha256")
+        == executable_sha256,
+        "backend_compiled": admission.get("backend_compiled") is True,
+        "no_render_claim": probe.get("rendered_image_produced") is False
+        and probe.get("view_dependent") is False
+        and probe.get("gpu_timestamp_measured") is False,
+        "legacy_dispatch_absent": "dispatch" not in report,
+    }
+    failed = [name for name, passed in common_checks.items() if not passed]
+    if failed:
+        raise ProbeError(
+            "OGRE-Next Metal N2 checkpoint failed closed: "
+            + ", ".join(sorted(failed))
+        )
+
+    if status == "skip":
+        skip = object_field("skip")
+        skip_checks = {
+            "probe_absent": probe_path is None or not probe_path.exists(),
+            "device": isinstance(device.get("name"), str)
+            and bool(device["name"])
+            and nonnegative_int(device, "context_id") not in (None, 0),
+            "same_device_queue": device.get("same_ogre_device") is True
+            and device.get("same_ogre_queue") is True,
+            "interop_context": admission.get("interop_context_exported") is True,
+            "hardware_unavailable": admission.get("hardware_floor_met") is False
+            and isinstance(admission.get("supports_raytracing"), bool)
+            and isinstance(admission.get("supports_family_apple9"), bool)
+            and (
+                admission.get("supports_raytracing") is False
+                or admission.get("supports_family_apple9") is False
+            ),
+            "skip_code": skip.get("initialization_code") == "UNSUPPORTED",
+            "skip_reason": isinstance(skip.get("reason"), str)
+            and bool(skip["reason"]),
+            "hardware_floor": skip.get("required_metal_ray_tracing") is True
+            and skip.get("required_apple_gpu_family") == 9,
+            "probe_not_executed": probe.get("executed") is False
+            and probe.get("probe_readback_bytes") == 0,
+            "pass_evidence_absent": not geometry
+            and not synchronization
+            and not acceleration
+            and not lifecycle,
+        }
+        failed = [name for name, passed in skip_checks.items() if not passed]
+        if failed:
+            raise ProbeError(
+                "OGRE-Next Metal N2 capability skip failed closed: "
+                + ", ".join(sorted(failed))
+            )
+        return
+
+    if probe_path is None:
+        raise ProbeError("passed Metal N2 checkpoint has no probe artifact")
+    try:
+        probe_bytes = probe_path.read_bytes()
+    except OSError as error:
+        raise ProbeError(f"could not read Metal N2 probe: {error}") from error
+    if len(probe_bytes) != 8:
+        raise ProbeError("Metal N2 artifact is not the exact eight-byte probe")
+    hit_magic, hit_distance = struct.unpack("<If", probe_bytes)
+    if hit_magic != 0x52545254 or abs(hit_distance - 1.0) > 0.0001:
+        raise ProbeError("Metal N2 probe does not encode the proven unit hit")
+
     vertex_offset = nonnegative_int(geometry, "vertex_pool_offset_bytes")
     vertex_size = nonnegative_int(geometry, "vertex_slice_bytes")
     index_offset = nonnegative_int(geometry, "index_pool_offset_bytes")
@@ -1060,38 +1169,6 @@ def validate_n2_checkpoint(
         synchronization, "external_complete_value"
     )
     checks = {
-        "schema": report.get("schema") == "ror.ogre_next_metal_rt_n2.v1",
-        "status": report.get("status") == "pass",
-        "scope": report.get("scope")
-        == (
-            "same-device one-ray geometry interop acceptance; no ray-traced "
-            "material, lighting, denoising, or compositing parity claim"
-        ),
-        "ror_repository": provenance.get("ror_repository")
-        == "https://github.com/RigsOfRods/rigs-of-rods",
-        "ror_ref": isinstance(provenance.get("ror_ref"), str)
-        and bool(provenance["ror_ref"]),
-        "ror_commit": isinstance(provenance.get("ror_commit"), str)
-        and re.fullmatch(r"[0-9a-f]{40}", provenance["ror_commit"])
-        is not None,
-        "ogre_repository": provenance.get("ogre_next_repository")
-        == lock["repository"],
-        "ogre_commit": provenance.get("ogre_next_commit") == lock["commit"],
-        "ogre_archive": provenance.get("ogre_next_archive_sha256")
-        == lock["archive_sha256"],
-        "build_artifact": provenance.get("build_artifact")
-        == "ror_ogre_next_metal_n2_smoke",
-        "build_artifact_bytes": isinstance(
-            provenance.get("build_artifact_bytes"), int
-        )
-        and provenance["build_artifact_bytes"] > 0,
-        "build_artifact_hash": isinstance(
-            provenance.get("build_artifact_fnv1a64"), str
-        )
-        and re.fullmatch(
-            r"[0-9a-f]{16}", provenance["build_artifact_fnv1a64"]
-        )
-        is not None,
         "device": isinstance(device.get("name"), str)
         and bool(device["name"])
         and context_id is not None
@@ -1156,12 +1233,14 @@ def validate_n2_checkpoint(
                 "tlas_scratch_bytes",
             )
         ),
-        "ray_hit": dispatch.get("rays") == 1
-        and dispatch.get("hit_magic") == 0x52545254
-        and isinstance(dispatch.get("hit_distance"), (int, float))
-        and abs(dispatch["hit_distance"] - 1.0) <= 0.0001,
-        "readback": dispatch.get("readback_bytes") == len(readback)
-        and dispatch.get("readback_fnv1a64") == f"{readback_hash:016x}",
+        "ray_hit": probe.get("kind") == "single_ray_geometry_interop"
+        and probe.get("rays") == 1
+        and probe.get("hit_magic") == hit_magic
+        and isinstance(probe.get("hit_distance"), (int, float))
+        and abs(probe["hit_distance"] - hit_distance) <= 0.0001,
+        "probe_readback": probe.get("probe_readback_bytes") == len(probe_bytes)
+        and probe.get("probe_readback_sha256")
+        == hashlib.sha256(probe_bytes).hexdigest(),
         "lifecycle": all(
             lifecycle.get(field) is True
             for field in (
@@ -1169,6 +1248,8 @@ def validate_n2_checkpoint(
                 "revision_n_plus_one_blocked_while_n_live",
                 "frontend_shutdown_blocked_before_backend",
                 "backend_shutdown_before_frontend",
+                "frontend_destructor_before_backend_safe",
+                "backend_destructor_before_frontend_safe",
                 "post_release_revision_n_plus_one_rendered",
                 "interop_report_geometry_proven",
             )
@@ -1191,6 +1272,7 @@ def run_n2_checkpoint(
 ) -> None:
     if policy["name"] != "macos-arm64-metal":
         return
+    source_commit, source_ref = repository_identity()
     run(
         [
             "cmake",
@@ -1205,10 +1287,17 @@ def run_n2_checkpoint(
         ]
     )
     report_path = build_dir / N2_REPORT_NAME
-    readback_path = build_dir / N2_READBACK_NAME
-    missing = [
-        path.name for path in (report_path, readback_path) if not path.is_file()
-    ]
+    probe_candidate = build_dir / N2_PROBE_NAME
+    probe_path = probe_candidate if probe_candidate.is_file() else None
+    executable_candidates = (
+        build_dir / "bin" / "ror_ogre_next_metal_n2_smoke",
+        build_dir / "bin" / config / "ror_ogre_next_metal_n2_smoke",
+    )
+    executable_path = next(
+        (candidate for candidate in executable_candidates if candidate.is_file()),
+        executable_candidates[0],
+    )
+    missing = [path.name for path in (report_path, executable_path) if not path.is_file()]
     if missing:
         raise ProbeError(
             "OGRE-Next Metal N2 checkpoint did not produce required artifacts: "
@@ -1218,7 +1307,57 @@ def run_n2_checkpoint(
         report = json.loads(report_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ProbeError(f"could not read Metal N2 report: {error}") from error
-    validate_n2_checkpoint(report, readback_path, lock, policy)
+    validate_n2_checkpoint(
+        report,
+        probe_path,
+        executable_path,
+        lock,
+        policy,
+        source_commit,
+        source_ref,
+    )
+
+    attestation = {
+        "schema": "ror.ogre_next_metal_rt_n2.attestation.v1",
+        "status": report.get("status"),
+        "source": {"ror_commit": source_commit, "ror_ref": source_ref},
+        "executable": {
+            "path": executable_path.name,
+            "bytes": executable_path.stat().st_size,
+            "sha256": sha256_file(executable_path),
+        },
+        "report": {
+            "path": report_path.name,
+            "bytes": report_path.stat().st_size,
+            "sha256": sha256_file(report_path),
+        },
+        "probe": (
+            {
+                "path": probe_path.name,
+                "bytes": probe_path.stat().st_size,
+                "sha256": sha256_file(probe_path),
+            }
+            if probe_path is not None
+            else None
+        ),
+    }
+    attestation_path = build_dir / N2_ATTESTATION_NAME
+    temporary_attestation = attestation_path.with_suffix(".json.tmp")
+    try:
+        temporary_attestation.write_text(
+            json.dumps(attestation, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        temporary_attestation.replace(attestation_path)
+        persisted_attestation = json.loads(
+            attestation_path.read_text(encoding="utf-8")
+        )
+    except OSError as error:
+        raise ProbeError(f"could not write Metal N2 attestation: {error}") from error
+    except json.JSONDecodeError as error:
+        raise ProbeError(f"could not verify Metal N2 attestation: {error}") from error
+    if persisted_attestation != attestation:
+        raise ProbeError("persisted Metal N2 attestation differs from verified data")
 
 
 def build_parser() -> argparse.ArgumentParser:
