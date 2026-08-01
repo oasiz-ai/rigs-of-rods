@@ -58,6 +58,8 @@ namespace {
 
 using RoR::Render::Dxr7BootstrapEvidence;
 using RoR::Render::Dxr7BootstrapResult;
+using RoR::Render::Dxr7OgreTeardownStep;
+using RoR::Render::Dxr7OgreTeardownTracker;
 using RoR::Render::OgreNextD3D12DxrBootstrap;
 
 constexpr int kUnsupportedExitCode = 77;
@@ -512,6 +514,23 @@ std::string MakeReport(const char* status, const std::string& reason,
          << "    \"ui_included\": false,\n"
          << "    \"resources_destroyed_before_ogre_shutdown\": "
          << Boolean(evidence.ogre_frame_resources_destroyed) << ",\n"
+         << "    \"workspace_removed\": "
+         << Boolean(evidence.ogre_teardown.workspace_removed) << ",\n"
+         << "    \"workspace_definition_removed\": "
+         << Boolean(evidence.ogre_teardown.workspace_definition_removed)
+         << ",\n"
+         << "    \"render_target_destroyed\": "
+         << Boolean(evidence.ogre_teardown.render_target_destroyed) << ",\n"
+         << "    \"scene_destroyed\": "
+         << Boolean(evidence.ogre_teardown.scene_destroyed) << ",\n"
+         << "    \"pbs_datablock_destroyed\": "
+         << Boolean(evidence.ogre_teardown.pbs_datablock_destroyed) << ",\n"
+         << "    \"pbs_hlms_unregistered\": "
+         << Boolean(evidence.ogre_teardown.pbs_hlms_unregistered) << ",\n"
+         << "    \"native_window_destroyed\": "
+         << Boolean(evidence.ogre_teardown.native_window_destroyed) << ",\n"
+         << "    \"root_shutdown_completed\": "
+         << Boolean(evidence.ogre_teardown.root_shutdown_completed) << ",\n"
          << "    \"width\": " << evidence.ogre_frame_width << ",\n"
          << "    \"height\": " << evidence.ogre_frame_height << ",\n"
          << "    \"distinct_rgb8_values\": "
@@ -552,12 +571,21 @@ void RequireReady(const Dxr7BootstrapResult& result) {
   }
 }
 
+void RequireTeardownStep(Dxr7OgreTeardownTracker& teardown,
+                         Dxr7OgreTeardownStep step) {
+  if (!teardown.Record(step)) {
+    throw std::runtime_error("DXR7 Ogre teardown order regressed");
+  }
+}
+
 void RunOgreFrameProof(OgreNextD3D12DxrBootstrap& bootstrap,
                        const std::filesystem::path& media_root,
                        const std::filesystem::path& image_path) {
   const Ogre::AbiCookie abi_cookie = Ogre::generateAbiCookie();
   Ogre::D3D11Plugin renderer_plugin;
   bool attachment_marked = false;
+  FrameMetrics metrics;
+  Dxr7OgreTeardownTracker teardown;
   try {
     {
       Ogre::Root root(&abi_cookie, "", "", "",
@@ -594,6 +622,7 @@ void RunOgreFrameProof(OgreNextD3D12DxrBootstrap& bootstrap,
 
       Ogre::HlmsPbs* pbs = RegisterPbs(root, media_root);
       Ogre::HlmsPbsDatablock* datablock = CreateMaterial(*pbs);
+      const Ogre::IdString datablock_name = datablock->getName();
       Ogre::SceneManager* scene_manager = root.createSceneManager(
           Ogre::ST_GENERIC, 1U, "RoRDxr7FrameScene");
       CreateTriangle(*scene_manager, *datablock);
@@ -645,24 +674,49 @@ void RunOgreFrameProof(OgreNextD3D12DxrBootstrap& bootstrap,
       }
       Ogre::Image2 image;
       image.convertFromTexture(target, 0U, 0U);
-      const FrameMetrics metrics = InspectFrame(image);
+      metrics = InspectFrame(image);
       WritePpmAtomically(image_path, metrics);
 
       compositor_manager->removeWorkspace(workspace);
+      RequireTeardownStep(teardown,
+                          Dxr7OgreTeardownStep::WORKSPACE_REMOVED);
+      compositor_manager->removeWorkspaceDefinition(
+          Ogre::IdString(workspace_name));
+      RequireTeardownStep(
+          teardown, Dxr7OgreTeardownStep::WORKSPACE_DEFINITION_REMOVED);
       texture_manager->destroyTexture(target);
+      RequireTeardownStep(teardown,
+                          Dxr7OgreTeardownStep::RENDER_TARGET_DESTROYED);
       root.destroySceneManager(scene_manager);
-      if (metrics.distinct_pixels >
-              static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max()) ||
-          metrics.non_background_pixels >
-              static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())) {
-        throw std::runtime_error("DXR7 Ogre frame metrics overflowed");
-      }
-      RequireReady(bootstrap.RecordOgreFrameProof(
-          kFrameWidth, kFrameHeight,
-          static_cast<std::uint32_t>(metrics.distinct_pixels),
-          static_cast<std::uint32_t>(metrics.non_background_pixels),
-          metrics.fnv1a64, true, true));
+      RequireTeardownStep(teardown,
+                          Dxr7OgreTeardownStep::SCENE_DESTROYED);
+      pbs->destroyDatablock(datablock_name);
+      RequireTeardownStep(teardown,
+                          Dxr7OgreTeardownStep::PBS_DATABLOCK_DESTROYED);
+      root.getHlmsManager()->unregisterHlms(Ogre::HLMS_PBS);
+      RequireTeardownStep(teardown,
+                          Dxr7OgreTeardownStep::PBS_HLMS_UNREGISTERED);
+      renderer->destroyRenderWindow(window);
+      RequireTeardownStep(teardown,
+                          Dxr7OgreTeardownStep::NATIVE_WINDOW_DESTROYED);
     }
+    RequireTeardownStep(teardown,
+                        Dxr7OgreTeardownStep::ROOT_SHUTDOWN_COMPLETED);
+    if (!teardown.complete() ||
+        metrics.distinct_pixels >
+            static_cast<std::size_t>(
+                std::numeric_limits<std::uint32_t>::max()) ||
+        metrics.non_background_pixels >
+            static_cast<std::size_t>(
+                std::numeric_limits<std::uint32_t>::max())) {
+      throw std::runtime_error(
+          "DXR7 Ogre frame metrics or teardown proof is incomplete");
+    }
+    RequireReady(bootstrap.RecordOgreFrameProof(
+        kFrameWidth, kFrameHeight,
+        static_cast<std::uint32_t>(metrics.distinct_pixels),
+        static_cast<std::uint32_t>(metrics.non_background_pixels),
+        metrics.fnv1a64, true, teardown.contract()));
     RequireReady(bootstrap.MarkOgreDetached());
     attachment_marked = false;
   } catch (...) {

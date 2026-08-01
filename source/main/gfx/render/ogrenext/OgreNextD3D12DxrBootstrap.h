@@ -66,6 +66,7 @@ struct Dxr7BootstrapEvidence {
   bool ogre_frame_nonblank = false;
   bool ogre_frame_ui_free = false;
   bool ogre_frame_resources_destroyed = false;
+  Dxr7OgreTeardownContract ogre_teardown;
   std::uint32_t ogre_frame_width = 0U;
   std::uint32_t ogre_frame_height = 0U;
   std::uint32_t ogre_frame_distinct_pixels = 0U;
@@ -114,7 +115,7 @@ class OgreNextD3D12DxrBootstrap final {
       std::uint32_t distinct_pixels,
       std::uint32_t non_background_pixels,
       std::uint64_t fnv1a64, bool ui_free,
-      bool resources_destroyed) noexcept;
+      const Dxr7OgreTeardownContract& teardown) noexcept;
   Dxr7BootstrapResult MarkOgreDetached() noexcept;
   Dxr7BootstrapResult ProveFenceAfterOgre();
 

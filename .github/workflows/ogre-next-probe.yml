@@ -392,32 +392,44 @@ jobs:
           --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --verify-existing
 
-      - name: Verify attested Windows DXR RT7 pass or explicit unsupported evidence
+      - name: Integrity-check Windows DXR RT7 pass or explicit unsupported evidence
         if: always() && runner.os == 'Windows'
         run: >-
           python tools/ogre_next_probe/run_windows_dxr7.py
           --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --verify-existing
+          --integrity-only
 
       - name: Cryptographically attest the Windows DXR RT7 execution receipt
+        id: attest_windows_dxr7_receipt
         if: >-
-          always() && runner.os == 'Windows' &&
+          success() && runner.os == 'Windows' &&
           github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
           subject-path: >-
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-execution-receipt.json
 
-      - name: Verify the GitHub-signed Windows DXR RT7 execution receipt
+      - name: Stage and verify the GitHub-signed Windows DXR RT7 receipt
         if: >-
-          always() && runner.os == 'Windows' &&
+          success() && runner.os == 'Windows' &&
           github.event_name != 'pull_request'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $receipt = '${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-execution-receipt.json'
-          gh attestation verify $receipt --repo $env:GITHUB_REPOSITORY
+          $buildRoot = '${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}'
+          $sourceBundle = '${{ steps.attest_windows_dxr7_receipt.outputs.bundle-path }}'
+          $bundle = Join-Path $buildRoot 'ror-ogre-next-windows-dxr7-execution-receipt.sigstore.jsonl'
+          if (-not (Test-Path -LiteralPath $sourceBundle -PathType Leaf)) {
+            throw 'GitHub attestation action did not produce a DSSE bundle'
+          }
+          Copy-Item -LiteralPath $sourceBundle -Destination $bundle -Force
+          python tools/ogre_next_probe/run_windows_dxr7.py `
+            --build-dir $buildRoot `
+            --verify-existing `
+            --trusted-attestation-bundle $bundle `
+            --expected-source-ref $env:GITHUB_REF
 
       - name: Upload exact reports and UI-free frame
         if: always()
@@ -500,8 +512,10 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-attestation.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-execution-receipt.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-execution-receipt.sigstore.jsonl
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-ogre-frame.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-build-contract.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/.ror-ogre-next-probe-build-v1
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/CMakeCache.txt
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/generated/ror_ogre_next_windows_dxr7_probe.dxil
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_windows_dxr7_smoke.exe

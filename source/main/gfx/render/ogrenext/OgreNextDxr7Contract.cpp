@@ -45,6 +45,61 @@ Dxr7FenceCompletionDecision EvaluateDxr7FenceCompletion(
              : Dxr7FenceCompletionDecision::WAIT;
 }
 
+bool Dxr7OgreTeardownTracker::Record(
+    Dxr7OgreTeardownStep step) noexcept {
+  const auto observed = static_cast<std::uint8_t>(step);
+  if (observed != next_step_) {
+    return false;
+  }
+  switch (step) {
+    case Dxr7OgreTeardownStep::WORKSPACE_REMOVED:
+      contract_.workspace_removed = true;
+      break;
+    case Dxr7OgreTeardownStep::WORKSPACE_DEFINITION_REMOVED:
+      contract_.workspace_definition_removed = true;
+      break;
+    case Dxr7OgreTeardownStep::RENDER_TARGET_DESTROYED:
+      contract_.render_target_destroyed = true;
+      break;
+    case Dxr7OgreTeardownStep::SCENE_DESTROYED:
+      contract_.scene_destroyed = true;
+      break;
+    case Dxr7OgreTeardownStep::PBS_DATABLOCK_DESTROYED:
+      contract_.pbs_datablock_destroyed = true;
+      break;
+    case Dxr7OgreTeardownStep::PBS_HLMS_UNREGISTERED:
+      contract_.pbs_hlms_unregistered = true;
+      break;
+    case Dxr7OgreTeardownStep::NATIVE_WINDOW_DESTROYED:
+      contract_.native_window_destroyed = true;
+      break;
+    case Dxr7OgreTeardownStep::ROOT_SHUTDOWN_COMPLETED:
+      contract_.root_shutdown_completed = true;
+      break;
+  }
+  ++next_step_;
+  return true;
+}
+
+bool Dxr7OgreTeardownTracker::complete() const noexcept {
+  return next_step_ ==
+             static_cast<std::uint8_t>(
+                 Dxr7OgreTeardownStep::ROOT_SHUTDOWN_COMPLETED) +
+                 1U &&
+         contract_.workspace_removed &&
+         contract_.workspace_definition_removed &&
+         contract_.render_target_destroyed && contract_.scene_destroyed &&
+         contract_.pbs_datablock_destroyed &&
+         contract_.pbs_hlms_unregistered &&
+         contract_.native_window_destroyed &&
+         contract_.root_shutdown_completed;
+}
+
+const Dxr7OgreTeardownContract& Dxr7OgreTeardownTracker::contract()
+    const noexcept {
+  return contract_;
+}
+
 bool ValidateDxr7PassContract(const Dxr7PassContract& contract) noexcept {
   return EvaluateDxr7Candidate(contract.candidate) ==
              Dxr7CandidateDecision::ACCEPT &&
@@ -61,7 +116,16 @@ bool ValidateDxr7PassContract(const Dxr7PassContract& contract) noexcept {
          contract.ogre_frame_submitted &&
          contract.ogre_frame_readback_completed &&
          contract.ogre_frame_nonblank && contract.ogre_frame_ui_free &&
-         contract.ogre_frame_resources_destroyed && contract.blas_built &&
+         contract.ogre_frame_resources_destroyed &&
+         contract.ogre_teardown.workspace_removed &&
+         contract.ogre_teardown.workspace_definition_removed &&
+         contract.ogre_teardown.render_target_destroyed &&
+         contract.ogre_teardown.scene_destroyed &&
+         contract.ogre_teardown.pbs_datablock_destroyed &&
+         contract.ogre_teardown.pbs_hlms_unregistered &&
+         contract.ogre_teardown.native_window_destroyed &&
+         contract.ogre_teardown.root_shutdown_completed &&
+         contract.blas_built &&
          contract.tlas_built && contract.state_object_created &&
          contract.shader_identifiers_resolved &&
          contract.dispatch_rays_called &&

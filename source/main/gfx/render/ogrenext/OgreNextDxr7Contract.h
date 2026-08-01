@@ -25,6 +25,39 @@ enum class Dxr7FenceCompletionDecision : std::uint8_t {
   DEVICE_REMOVED,
 };
 
+enum class Dxr7OgreTeardownStep : std::uint8_t {
+  WORKSPACE_REMOVED = 0,
+  WORKSPACE_DEFINITION_REMOVED,
+  RENDER_TARGET_DESTROYED,
+  SCENE_DESTROYED,
+  PBS_DATABLOCK_DESTROYED,
+  PBS_HLMS_UNREGISTERED,
+  NATIVE_WINDOW_DESTROYED,
+  ROOT_SHUTDOWN_COMPLETED,
+};
+
+struct Dxr7OgreTeardownContract {
+  bool workspace_removed = false;
+  bool workspace_definition_removed = false;
+  bool render_target_destroyed = false;
+  bool scene_destroyed = false;
+  bool pbs_datablock_destroyed = false;
+  bool pbs_hlms_unregistered = false;
+  bool native_window_destroyed = false;
+  bool root_shutdown_completed = false;
+};
+
+class Dxr7OgreTeardownTracker final {
+ public:
+  [[nodiscard]] bool Record(Dxr7OgreTeardownStep step) noexcept;
+  [[nodiscard]] bool complete() const noexcept;
+  [[nodiscard]] const Dxr7OgreTeardownContract& contract() const noexcept;
+
+ private:
+  std::uint8_t next_step_ = 0U;
+  Dxr7OgreTeardownContract contract_;
+};
+
 struct Dxr7CandidateContract {
   bool hardware_adapter = false;
   bool d3d12_device_available = false;
@@ -50,6 +83,7 @@ struct Dxr7PassContract {
   bool ogre_frame_nonblank = false;
   bool ogre_frame_ui_free = false;
   bool ogre_frame_resources_destroyed = false;
+  Dxr7OgreTeardownContract ogre_teardown;
   bool blas_built = false;
   bool tlas_built = false;
   bool state_object_created = false;

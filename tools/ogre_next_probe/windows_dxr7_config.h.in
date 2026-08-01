@@ -1,6 +1,6 @@
 #pragma once
 
-#define ROR_OGRE_NEXT_DXR7_SCHEMA "ror.ogre_next_windows_dxr_rt7.v2"
+#define ROR_OGRE_NEXT_DXR7_SCHEMA "ror.ogre_next_windows_dxr_rt7.v3"
 #define ROR_OGRE_NEXT_DXR7_ROR_REPOSITORY "@ROR_SOURCE_REPOSITORY@"
 #define ROR_OGRE_NEXT_DXR7_ROR_REF "@ROR_SOURCE_REF@"
 #define ROR_OGRE_NEXT_DXR7_ROR_COMMIT "@ROR_SOURCE_COMMIT@"

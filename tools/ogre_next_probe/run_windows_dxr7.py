@@ -8,7 +8,7 @@ import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import platform
 import re
 import secrets
@@ -34,16 +34,23 @@ MAIN_RUNNER_SPEC.loader.exec_module(MAIN_RUNNER)
 REPORT_NAME = "ror-ogre-next-windows-dxr7-report.json"
 ATTESTATION_NAME = "ror-ogre-next-windows-dxr7-attestation.json"
 EXECUTION_RECEIPT_NAME = "ror-ogre-next-windows-dxr7-execution-receipt.json"
+DSSE_BUNDLE_NAME = "ror-ogre-next-windows-dxr7-execution-receipt.sigstore.jsonl"
 OGRE_FRAME_NAME = "ror-ogre-next-windows-dxr7-ogre-frame.ppm"
 DXIL_RELATIVE = "generated/ror_ogre_next_windows_dxr7_probe.dxil"
-SCHEMA = "ror.ogre_next_windows_dxr_rt7.v2"
-ATTESTATION_SCHEMA = "ror.ogre_next_windows_dxr_rt7.attestation.v2"
+SCHEMA = "ror.ogre_next_windows_dxr_rt7.v3"
+ATTESTATION_SCHEMA = "ror.ogre_next_windows_dxr_rt7.attestation.v3"
 EXECUTION_RECEIPT_SCHEMA = (
-    "ror.ogre_next_windows_dxr_rt7.execution_receipt.v1"
+    "ror.ogre_next_windows_dxr_rt7.execution_receipt.v2"
 )
+VERIFICATION_SCHEMA = "ror.ogre_next_windows_dxr_rt7.verification.v1"
+TRUSTED_REPOSITORY = "oasiz-ai/rigs-of-rods"
+TRUSTED_SIGNER_WORKFLOW = (
+    "oasiz-ai/rigs-of-rods/.github/workflows/ogre-next-probe.yml"
+)
+TRUSTED_WORKFLOW_PATH = ".github/workflows/ogre-next-probe.yml"
 LOCK_NAME = "windows-dxr7.lock.json"
 LOCK_SHA256 = (
-    "7bfa9fdd9f57b31716856320e528f8918bf574db097dc911b397d01a81572240"
+    "c7092a523109a08111173acc6c30e9d838ca56e997764be38454db2f4b8d5359"
 )
 UNSUPPORTED_EXIT_CODE = 77
 REQUIRED_CONFIG = "Release"
@@ -98,6 +105,59 @@ def require_exact_keys(
     return value
 
 
+def exact_json_equal(actual: object, expected: object) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(
+            exact_json_equal(actual[key], expected[key]) for key in expected
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            exact_json_equal(lhs, rhs)
+            for lhs, rhs in zip(actual, expected, strict=True)
+        )
+    return actual == expected
+
+
+def fsync_parent_directory(path: Path) -> None:
+    if os.name == "nt":
+        # Python's os.replace maps to a replacing MoveFile operation on
+        # Windows. The C++ producer uses MOVEFILE_WRITE_THROUGH; Python has no
+        # portable directory-fsync primitive there, so the replacement below
+        # uses the same Win32 write-through API instead.
+        return
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    directory_fd = os.open(path.parent, flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def replace_atomically(temporary_path: Path, destination: Path) -> None:
+    if os.name != "nt":
+        os.replace(temporary_path, destination)
+        fsync_parent_directory(destination)
+        return
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    move_file_ex = kernel32.MoveFileExW
+    move_file_ex.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong]
+    move_file_ex.restype = ctypes.c_int
+    movefile_replace_existing = 0x1
+    movefile_write_through = 0x8
+    if not move_file_ex(
+        str(temporary_path),
+        str(destination),
+        movefile_replace_existing | movefile_write_through,
+    ):
+        raise OSError(ctypes.get_last_error(), "MoveFileExW failed")
+
+
 def read_json(path: Path, label: str) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -125,7 +185,7 @@ def write_json_atomically(path: Path, value: dict[str, Any]) -> None:
             temporary.write(payload)
             temporary.flush()
             os.fsync(temporary.fileno())
-        os.replace(temporary_path, path)
+        replace_atomically(temporary_path, path)
         temporary_path = None
     except OSError as error:
         if temporary_path is not None:
@@ -213,7 +273,7 @@ def load_dxr7_lock() -> dict[str, Any]:
         "patch_path": patch.get("path")
         == "patches/0004-d3d11-adopt-external-device.patch",
         "patch_hash": patch.get("sha256")
-        == "c0b14bfc5f6bdf3fa377dfbc15c235b1823345fce84dece852ddc86f9b9444f3",
+        == "a9adf369ab03b8b14b1d81aa7a3f3303663606ce60c61bd6f5418048cd137834",
         "patch_scope": patch.get("scope")
         == (
             "D3D11 plugin external-device adoption with shared post-device "
@@ -556,6 +616,81 @@ def configured_dxc_closure(build_dir: Path) -> dict[str, Any]:
     return validate_dxc_closure(dxc, sdk_root, execute_version=True)
 
 
+def recorded_dxc_closure(
+    build_dir: Path, value: object
+) -> dict[str, Any]:
+    closure = require_exact_keys(
+        value,
+        {
+            "provider",
+            "sdk_version",
+            "sdk_bin_root",
+            "x64_directory",
+            "dxc_path",
+            "dxc_version",
+            "components",
+        },
+        "recorded DXC closure",
+    )
+    components = require_exact_keys(
+        closure["components"],
+        {"dxc.exe", "dxcompiler.dll", "dxil.dll"},
+        "recorded DXC components",
+    )
+
+    def windows_path(value: object) -> str:
+        if not isinstance(value, str) or not value:
+            return ""
+        return (
+            str(PureWindowsPath(value))
+            .replace("\\", "/")
+            .rstrip("/")
+            .lower()
+        )
+
+    sdk_version = closure.get("sdk_version")
+    sdk_root = windows_path(closure.get("sdk_bin_root"))
+    x64_directory = windows_path(closure.get("x64_directory"))
+    dxc_path = windows_path(closure.get("dxc_path"))
+    cache_dxc = windows_path(
+        read_cmake_cache_value(build_dir, "ROR_OGRE_NEXT_DXC_EXECUTABLE")
+    )
+    cache_root = windows_path(
+        read_cmake_cache_value(build_dir, "ROR_OGRE_NEXT_DXC_SDK_BIN_ROOT")
+    )
+    checks = {
+        "provider": closure.get("provider") == "Windows SDK",
+        "sdk_version": isinstance(sdk_version, str)
+        and re.fullmatch(r"[0-9]+(?:\.[0-9]+){3}", sdk_version) is not None,
+        "sdk_root": bool(sdk_root),
+        "x64_directory": x64_directory
+        == f"{sdk_root}/{sdk_version}/x64",
+        "dxc_path": dxc_path == f"{x64_directory}/dxc.exe",
+        "cache_dxc": cache_dxc == dxc_path,
+        "cache_root": cache_root == sdk_root,
+        "dxc_version": isinstance(closure.get("dxc_version"), str)
+        and 0 < len(closure["dxc_version"]) <= 512,
+    }
+    for filename, component in components.items():
+        record = require_exact_keys(
+            component,
+            {"path", "bytes", "sha256"},
+            f"recorded {filename}",
+        )
+        checks[f"{filename}_record"] = (
+            record.get("path") == filename
+            and is_uint64(record.get("bytes"))
+            and record["bytes"] > 0
+            and is_sha256(record.get("sha256"))
+        )
+    failed = sorted(name for name, passed in checks.items() if not passed)
+    if failed:
+        raise Dxr7Error(
+            "recorded DXC closure failed closed: " + ", ".join(failed)
+        )
+    return closure
+
+
 def require_dxc_closure_unchanged(
     build_dir: Path, expected: dict[str, Any]
 ) -> None:
@@ -842,6 +977,14 @@ def validate_report(
             "nonblank",
             "ui_included",
             "resources_destroyed_before_ogre_shutdown",
+            "workspace_removed",
+            "workspace_definition_removed",
+            "render_target_destroyed",
+            "scene_destroyed",
+            "pbs_datablock_destroyed",
+            "pbs_hlms_unregistered",
+            "native_window_destroyed",
+            "root_shutdown_completed",
             "width",
             "height",
             "distinct_rgb8_values",
@@ -906,6 +1049,14 @@ def validate_report(
                 "nonblank",
                 "ui_included",
                 "resources_destroyed_before_ogre_shutdown",
+                "workspace_removed",
+                "workspace_definition_removed",
+                "render_target_destroyed",
+                "scene_destroyed",
+                "pbs_datablock_destroyed",
+                "pbs_hlms_unregistered",
+                "native_window_destroyed",
+                "root_shutdown_completed",
             )
         ]
         + list(lifecycle.values())
@@ -1081,12 +1232,14 @@ def validate_report(
                 == dxr7_lock["runtime"]["required_dispatch_dimensions"],
                 "readback": ray_tracing.get("readback_value")
                 == dxr7_lock["runtime"]["closest_hit_readback"],
-                "fence_sequence": synchronization
-                == {
-                    "fence_before_dispatch": 1,
-                    "fence_after_dispatch": 2,
-                    "fence_after_ogre": 3,
-                },
+                "fence_sequence": exact_json_equal(
+                    synchronization,
+                    {
+                        "fence_before_dispatch": 1,
+                        "fence_after_dispatch": 2,
+                        "fence_after_ogre": 3,
+                    },
+                ),
                 "lifecycle": all(value is True for value in lifecycle.values()),
                 "ogre_frame_flags": all(
                     ogre_frame.get(field) is True
@@ -1098,13 +1251,21 @@ def validate_report(
                         "gpu_readback_completed",
                         "nonblank",
                         "resources_destroyed_before_ogre_shutdown",
+                        "workspace_removed",
+                        "workspace_definition_removed",
+                        "render_target_destroyed",
+                        "scene_destroyed",
+                        "pbs_datablock_destroyed",
+                        "pbs_hlms_unregistered",
+                        "native_window_destroyed",
+                        "root_shutdown_completed",
                     )
                 )
                 and ogre_frame.get("ui_included") is False,
-                "ogre_frame_metrics": {
-                    key: ogre_frame.get(key) for key in frame_metrics
-                }
-                == frame_metrics,
+                "ogre_frame_metrics": exact_json_equal(
+                    {key: ogre_frame.get(key) for key in frame_metrics},
+                    frame_metrics,
+                ),
             }
         )
     else:
@@ -1152,30 +1313,42 @@ def validate_report(
                     )
                 ),
                 "no_fence_claim": all(value == 0 for value in synchronization.values()),
-                "only_shutdown_claim": lifecycle
-                == {
-                    "ogre_shutdown_before_d3d11_release": False,
-                    "d3d11_context_flushed_before_release": False,
-                    "d3d11_released_before_d3d12_queue": False,
-                    "d3d12_queue_released_before_device": False,
-                    "shutdown_completed": True,
-                },
-                "no_ogre_frame_claim": ogre_frame
-                == {
-                    "native_hidden_window_created": False,
-                    "pbs_material_created": False,
-                    "compositor_workspace_created": False,
-                    "frame_submitted": False,
-                    "gpu_readback_completed": False,
-                    "nonblank": False,
-                    "ui_included": False,
-                    "resources_destroyed_before_ogre_shutdown": False,
-                    "width": 0,
-                    "height": 0,
-                    "distinct_rgb8_values": 0,
-                    "non_background_pixels": 0,
-                    "rgb8_fnv1a64": "0000000000000000",
-                },
+                "only_shutdown_claim": exact_json_equal(
+                    lifecycle,
+                    {
+                        "ogre_shutdown_before_d3d11_release": False,
+                        "d3d11_context_flushed_before_release": False,
+                        "d3d11_released_before_d3d12_queue": False,
+                        "d3d12_queue_released_before_device": False,
+                        "shutdown_completed": True,
+                    },
+                ),
+                "no_ogre_frame_claim": exact_json_equal(
+                    ogre_frame,
+                    {
+                        "native_hidden_window_created": False,
+                        "pbs_material_created": False,
+                        "compositor_workspace_created": False,
+                        "frame_submitted": False,
+                        "gpu_readback_completed": False,
+                        "nonblank": False,
+                        "ui_included": False,
+                        "resources_destroyed_before_ogre_shutdown": False,
+                        "workspace_removed": False,
+                        "workspace_definition_removed": False,
+                        "render_target_destroyed": False,
+                        "scene_destroyed": False,
+                        "pbs_datablock_destroyed": False,
+                        "pbs_hlms_unregistered": False,
+                        "native_window_destroyed": False,
+                        "root_shutdown_completed": False,
+                        "width": 0,
+                        "height": 0,
+                        "distinct_rgb8_values": 0,
+                        "non_background_pixels": 0,
+                        "rgb8_fnv1a64": "0000000000000000",
+                    },
+                ),
             }
         )
     failed = sorted(name for name, passed in checks.items() if not passed)
@@ -1342,33 +1515,57 @@ def validate_execution_receipt(
         )
         is False
         and observation.get("limitation") == OFFLINE_EXECUTION_LIMITATION,
-        "report": subjects.get("report")
-        == artifact_record(report_path, REPORT_NAME),
-        "executable": subjects.get("executable")
-        == artifact_record(executable, executable.name),
-        "dxil": subjects.get("dxil")
-        == artifact_record(dxil, DXIL_RELATIVE),
-        "frame": subjects.get("ogre_frame")
-        == optional_frame_record(frame_path, passed),
-        "build_context": receipt.get("build_context") == build_context,
-        "toolchain": receipt.get("toolchain") == dxc_closure,
-        "source": receipt.get("ror_source") == source_identity,
+        "report": exact_json_equal(
+            subjects.get("report"), artifact_record(report_path, REPORT_NAME)
+        ),
+        "executable": exact_json_equal(
+            subjects.get("executable"),
+            artifact_record(executable, executable.name),
+        ),
+        "dxil": exact_json_equal(
+            subjects.get("dxil"), artifact_record(dxil, DXIL_RELATIVE)
+        ),
+        "frame": exact_json_equal(
+            subjects.get("ogre_frame"),
+            optional_frame_record(frame_path, passed),
+        ),
+        "build_context": exact_json_equal(
+            receipt.get("build_context"), build_context
+        ),
+        "toolchain": exact_json_equal(
+            receipt.get("toolchain"), dxc_closure
+        ),
+        "source": exact_json_equal(
+            receipt.get("ror_source"), source_identity
+        ),
         "ci_provider": ci.get("provider") in {"local", "github-actions"},
         "ci_dsse": ci.get("external_dsse_required") is True,
         "complete": receipt.get("complete") is True,
     }
     if ci.get("provider") == "github-actions":
         checks["ci_identity"] = (
-            ci.get("repository") == "oasiz-ai/rigs-of-rods"
+            ci.get("repository") == TRUSTED_REPOSITORY
             and isinstance(ci.get("workflow_ref"), str)
-            and bool(ci["workflow_ref"])
+            and ci["workflow_ref"]
+            == (
+                TRUSTED_REPOSITORY
+                + "/"
+                + TRUSTED_WORKFLOW_PATH
+                + "@"
+                + str(ci.get("ref", ""))
+            )
             and isinstance(ci.get("run_id"), str)
             and ci["run_id"].isdigit()
             and isinstance(ci.get("run_attempt"), str)
             and ci["run_attempt"].isdigit()
             and ci.get("sha") == source_identity["commit"]
             and isinstance(ci.get("ref"), str)
-            and bool(ci["ref"])
+            and re.fullmatch(
+                r"refs/(?:heads|tags)/[A-Za-z0-9._/-]+|"
+                r"refs/pull/[0-9]+/merge",
+                ci["ref"],
+            )
+            is not None
             and isinstance(ci.get("job"), str)
             and bool(ci["job"])
         )
@@ -1534,20 +1731,38 @@ def validate_attestation(
         and execution.get("cryptographic_ci_receipt")
         == "external_github_dsse_required"
         and execution.get("limitation") == OFFLINE_EXECUTION_LIMITATION,
-        "report": files.get("report") == artifact_record(report_path, REPORT_NAME),
-        "executable": files.get("executable")
-        == artifact_record(executable, executable.name),
-        "dxil": files.get("dxil") == artifact_record(dxil, DXIL_RELATIVE),
-        "frame": files.get("ogre_frame")
-        == optional_frame_record(frame_path, passed),
-        "receipt": files.get("execution_receipt")
-        == artifact_record(receipt_path, EXECUTION_RECEIPT_NAME),
-        "pe_semantics": semantics.get("pe") == pe_semantics,
-        "dxil_semantics": semantics.get("dxil") == dxil_semantics,
-        "build_context": attestation.get("build_context") == build_context,
-        "toolchain": attestation.get("toolchain") == dxc_closure,
-        "ror_source": attestation.get("ror_source") == source_identity,
-        "claims": claims == expected_claims,
+        "report": exact_json_equal(
+            files.get("report"), artifact_record(report_path, REPORT_NAME)
+        ),
+        "executable": exact_json_equal(
+            files.get("executable"),
+            artifact_record(executable, executable.name),
+        ),
+        "dxil": exact_json_equal(
+            files.get("dxil"), artifact_record(dxil, DXIL_RELATIVE)
+        ),
+        "frame": exact_json_equal(
+            files.get("ogre_frame"),
+            optional_frame_record(frame_path, passed),
+        ),
+        "receipt": exact_json_equal(
+            files.get("execution_receipt"),
+            artifact_record(receipt_path, EXECUTION_RECEIPT_NAME),
+        ),
+        "pe_semantics": exact_json_equal(semantics.get("pe"), pe_semantics),
+        "dxil_semantics": exact_json_equal(
+            semantics.get("dxil"), dxil_semantics
+        ),
+        "build_context": exact_json_equal(
+            attestation.get("build_context"), build_context
+        ),
+        "toolchain": exact_json_equal(
+            attestation.get("toolchain"), dxc_closure
+        ),
+        "ror_source": exact_json_equal(
+            attestation.get("ror_source"), source_identity
+        ),
+        "claims": exact_json_equal(claims, expected_claims),
         "complete": attestation.get("complete") is True,
     }
     failed = sorted(name for name, ok in checks.items() if not ok)
@@ -1609,6 +1824,11 @@ def validate_static_contract() -> None:
         "convertFromTexture",
         "WritePpmAtomically",
         "MoveFileExW",
+        "removeWorkspaceDefinition",
+        "destroyDatablock",
+        "unregisterHlms",
+        "destroyRenderWindow",
+        "ROOT_SHUTDOWN_COMPLETED",
     ):
         if token not in smoke:
             raise Dxr7Error(f"DXR7 smoke contract token is missing: {token}")
@@ -1841,7 +2061,131 @@ def run_proof(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
-def verify_existing(build_dir: Path) -> dict[str, Any]:
+def validate_trusted_dsse_bundle(
+    bundle_path: Path,
+    receipt_path: Path,
+    receipt: dict[str, Any],
+    source_identity: dict[str, Any],
+    expected_source_ref: str,
+) -> dict[str, Any]:
+    require_direct_file(bundle_path, "GitHub Sigstore DSSE bundle")
+    if not isinstance(expected_source_ref, str) or re.fullmatch(
+        r"refs/(?:heads|tags)/[A-Za-z0-9._/-]+|refs/pull/[0-9]+/merge",
+        expected_source_ref,
+    ) is None:
+        raise Dxr7Error(
+            "trusted verification requires an exact GitHub source ref"
+        )
+    ci = receipt.get("ci")
+    if not isinstance(ci, dict):
+        raise Dxr7Error("trusted verification requires GitHub CI identity")
+    expected_workflow_ref = (
+        TRUSTED_SIGNER_WORKFLOW + "@" + expected_source_ref
+    )
+    if not (
+        ci.get("provider") == "github-actions"
+        and ci.get("repository") == TRUSTED_REPOSITORY
+        and ci.get("workflow_ref") == expected_workflow_ref
+        and ci.get("ref") == expected_source_ref
+        and ci.get("sha") == source_identity["commit"]
+    ):
+        raise Dxr7Error(
+            "trusted verification CI repository/workflow/ref/commit binding changed"
+        )
+
+    try:
+        bundle_documents = [
+            json.loads(line)
+            for line in bundle_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except (OSError, json.JSONDecodeError) as error:
+        raise Dxr7Error(
+            f"could not parse GitHub Sigstore DSSE bundle: {error}"
+        ) from error
+    if not bundle_documents or not all(
+        isinstance(document, dict) for document in bundle_documents
+    ):
+        raise Dxr7Error("GitHub Sigstore DSSE bundle is empty or malformed")
+
+    gh = shutil.which("gh")
+    if gh is None:
+        raise Dxr7Error(
+            "gh is required to cryptographically verify the DSSE bundle"
+        )
+    command = [
+        gh,
+        "attestation",
+        "verify",
+        str(receipt_path),
+        "--repo",
+        TRUSTED_REPOSITORY,
+        "--bundle",
+        str(bundle_path),
+        "--signer-workflow",
+        TRUSTED_SIGNER_WORKFLOW,
+        "--source-ref",
+        expected_source_ref,
+        "--source-digest",
+        source_identity["commit"],
+        "--deny-self-hosted-runners",
+        "--format",
+        "json",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Dxr7Error(
+            f"could not execute GitHub attestation verification: {error}"
+        ) from error
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "no detail"
+        raise Dxr7Error(f"GitHub Sigstore DSSE verification failed: {detail}")
+    try:
+        verification = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise Dxr7Error(
+            "GitHub attestation verification returned invalid JSON"
+        ) from error
+    if not isinstance(verification, list) or not verification or not all(
+        isinstance(item, dict) for item in verification
+    ):
+        raise Dxr7Error(
+            "GitHub attestation verification returned no attestations"
+        )
+    return {
+        "present": True,
+        **artifact_record(bundle_path, DSSE_BUNDLE_NAME),
+        "verified_attestations": len(verification),
+    }
+
+
+def verify_existing(
+    build_dir: Path,
+    *,
+    integrity_only: bool = False,
+    trusted_attestation_bundle: Path | None = None,
+    expected_source_ref: str | None = None,
+) -> dict[str, Any]:
+    if integrity_only and trusted_attestation_bundle is not None:
+        raise Dxr7Error(
+            "integrity-only and trusted-attestation-bundle verification conflict"
+        )
+    if (trusted_attestation_bundle is None) != (expected_source_ref is None):
+        raise Dxr7Error(
+            "trusted verification requires both the DSSE bundle and exact source ref"
+        )
+    if not integrity_only and trusted_attestation_bundle is None:
+        raise Dxr7Error(
+            "verification requires either --integrity-only or a trusted "
+            "GitHub Sigstore DSSE bundle"
+        )
     MAIN_RUNNER.require_relevant_source_clean()
     source_identity = MAIN_RUNNER.ror_source_identity()
     ogre_lock = MAIN_RUNNER.load_lock()
@@ -1849,7 +2193,6 @@ def verify_existing(build_dir: Path) -> dict[str, Any]:
     build_context = validate_build_context(
         build_dir, ogre_lock, source_identity
     )
-    dxc_closure = configured_dxc_closure(build_dir)
     report_path = build_dir / REPORT_NAME
     attestation_path = build_dir / ATTESTATION_NAME
     receipt_path = build_dir / EXECUTION_RECEIPT_NAME
@@ -1865,6 +2208,9 @@ def verify_existing(build_dir: Path) -> dict[str, Any]:
     report = read_json(report_path, "DXR7 report")
     attestation = read_json(attestation_path, "DXR7 attestation")
     receipt = read_json(receipt_path, "DXR7 execution receipt")
+    dxc_closure = recorded_dxc_closure(
+        build_dir, receipt.get("toolchain")
+    )
     execution = attestation.get("execution")
     if not isinstance(execution, dict):
         raise Dxr7Error("DXR7 attestation has no execution observation")
@@ -1907,9 +2253,61 @@ def verify_existing(build_dir: Path) -> dict[str, Any]:
         pe_semantics,
         dxil_semantics,
     )
-    require_dxc_closure_unchanged(build_dir, dxc_closure)
+    passed = report.get("status") == "pass"
+    if trusted_attestation_bundle is not None:
+        dsse = validate_trusted_dsse_bundle(
+            trusted_attestation_bundle,
+            receipt_path,
+            receipt,
+            source_identity,
+            expected_source_ref or "",
+        )
+        verification_scope = "github_sigstore_dsse"
+        trusted_hardware_pass = passed
+        signer = {
+            "present": True,
+            "repository": TRUSTED_REPOSITORY,
+            "workflow": TRUSTED_SIGNER_WORKFLOW,
+            "source_ref": expected_source_ref,
+            "source_digest": source_identity["commit"],
+        }
+    else:
+        dsse = {
+            "present": False,
+            "path": DSSE_BUNDLE_NAME,
+            "bytes": 0,
+            "sha256": "",
+            "verified_attestations": 0,
+        }
+        verification_scope = "integrity_only"
+        trusted_hardware_pass = False
+        signer = {
+            "present": False,
+            "repository": "",
+            "workflow": "",
+            "source_ref": "",
+            "source_digest": "",
+        }
+    if not exact_json_equal(
+        recorded_dxc_closure(build_dir, receipt.get("toolchain")),
+        dxc_closure,
+    ):
+        raise Dxr7Error("recorded DXC closure changed during verification")
     MAIN_RUNNER.require_source_identity_unchanged(source_identity)
-    return report
+    return {
+        "schema": VERIFICATION_SCHEMA,
+        "artifact_status": report["status"],
+        "verification_scope": verification_scope,
+        "trusted_hardware_dxr_pass": trusted_hardware_pass,
+        "report": artifact_record(report_path, REPORT_NAME),
+        "execution_receipt": artifact_record(
+            receipt_path, EXECUTION_RECEIPT_NAME
+        ),
+        "dsse_bundle": dsse,
+        "source": source_identity,
+        "signer": signer,
+        "complete": True,
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1931,6 +2329,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--validate-contract-only", action="store_true")
     parser.add_argument("--verify-existing", action="store_true")
+    parser.add_argument("--integrity-only", action="store_true")
+    parser.add_argument("--trusted-attestation-bundle", type=Path)
+    parser.add_argument("--expected-source-ref")
     return parser
 
 
@@ -1942,6 +2343,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.validate_contract_only and args.verify_existing:
             raise Dxr7Error(
                 "--validate-contract-only and --verify-existing conflict"
+            )
+        verification_only_options = (
+            args.integrity_only
+            or args.trusted_attestation_bundle is not None
+            or args.expected_source_ref is not None
+        )
+        if verification_only_options and not args.verify_existing:
+            raise Dxr7Error(
+                "attestation verification options require --verify-existing"
             )
         ogre_lock = MAIN_RUNNER.load_lock()
         dxr7_lock = load_dxr7_lock()
@@ -1964,7 +2374,16 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.verify_existing:
-            report = verify_existing(args.build_dir.resolve())
+            report = verify_existing(
+                args.build_dir.resolve(),
+                integrity_only=args.integrity_only,
+                trusted_attestation_bundle=(
+                    args.trusted_attestation_bundle.resolve()
+                    if args.trusted_attestation_bundle is not None
+                    else None
+                ),
+                expected_source_ref=args.expected_source_ref,
+            )
         else:
             if args.reuse_build_dir and (
                 args.generator or args.dxc or args.windows_sdk_bin_root
