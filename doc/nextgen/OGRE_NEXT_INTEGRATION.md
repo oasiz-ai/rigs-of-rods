@@ -349,10 +349,11 @@ N2/N3 code and records explicit capability skips (CTest exit 77) instead of
 claiming a family-9 runtime pass. A genuine M3-or-newer runner must produce the
 N2 probe and all three N3 image artifacts and pass their independent validators.
 The paravirtual device also produces about one third of the physical M5
-luminance for the texture-free emissive N1 fixture. The fixture therefore uses
-scene-linear energy with enough headroom to prove an unclamped `RGBA16_FLOAT`
-attachment on either device. That is only an HDR-storage gate: the V1
-backend-oracle comparison, not this smoke, owns cross-device photometric parity.
+luminance for these emissive N1 and texture-backed RT4 fixtures. Both fixtures
+therefore use scene-linear energy with enough headroom to prove an unclamped
+`RGBA16_FLOAT` attachment on either device. That is only an HDR-storage gate:
+the V1 backend-oracle comparison, not this smoke, owns cross-device photometric
+parity.
 
 `--validate-contract-only` checks pins, patch hashes, and the current platform
 policy without accessing the network or compiling.

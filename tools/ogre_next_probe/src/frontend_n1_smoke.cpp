@@ -232,7 +232,11 @@ MaterialDescriptor MakeMaterial(bool modern_pbr = false,
     material.metallic_factor = 0.85F;
     material.roughness_factor = 0.65F;
     material.emissive_factor = {1.0F, 0.7F, 0.4F};
-    material.emissive_strength = 1.5F;
+    // Keep the independent texture-backed RT4 fixture above display white on
+    // both the hosted paravirtual Metal device and physical Apple silicon.
+    // Input isolation still changes exactly one texture role at a time; this
+    // scalar is identical across all variants.
+    material.emissive_strength = 6.0F;
     material.base_color_texture.texture =
         AssetRef(RenderAssetKind::TEXTURE, 3U,
                  variant->base_color_revision);
