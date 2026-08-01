@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "oracle": "ParallaxProbeReference",
+  "ogre_next_commit": "37149a802de747f6806996fa3067b0748ecc1084",
+  "sources": [
+    {
+      "role": "shader_equations",
+      "path": "Samples/Media/Hlms/Common/Any/Cubemap_piece_all.any",
+      "sha256": "ed281b8599716c769f1d99f14fb42568a586e018b1e9fac9ee03944cbd1d7fbb"
+    },
+    {
+      "role": "constant_buffer_layout",
+      "path": "Components/Hlms/Pbs/src/Cubemaps/OgreParallaxCorrectedCubemapBase.cpp",
+      "sha256": "e4832fb5afbc466fc1d07a8b08e11a72a84cd38eced229ce70e4cf625a898ea6"
+    },
+    {
+      "role": "probe_configuration",
+      "path": "Components/Hlms/Pbs/src/Cubemaps/OgreCubemapProbe.cpp",
+      "sha256": "9c7a7dd6560fd11654a7751978c44752a8845ffb83966c57e2320cc0e46cf8ee"
+    }
+  ]
+}

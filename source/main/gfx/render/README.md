@@ -178,3 +178,7 @@ membership, manual edge fade, fourth-power automatic NDF weighting, ray-box
 intersection, and Ogre's left-handed cubemap sampling vector. The API consumes
 already transformed probe-local values so Metal, HLSL, GLSL, and CPU adapters
 can compare one result without leaking backend matrix types into the boundary.
+The path-bound source closure lives in
+`tools/ogre_next_probe/ogre-next-parallax-probe-reference.lock.json`; its test
+can hash an extracted pinned Ogre-Next tree directly when the source-root
+environment gate is supplied.
