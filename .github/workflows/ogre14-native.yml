@@ -454,19 +454,146 @@ jobs:
             2>&1 | tee \
               "artifacts/cityworld-bridge-${{ matrix.platform }}.driver.log"
 
-      - name: Drive CityWorld bridge with relocated Windows D3D11 and V0A
+      - name: Stage Windows CityWorld crash symbols and enable LocalDumps
+        id: windows-cityworld-crash-evidence
         if: runner.os == 'Windows'
-        shell: bash
+        shell: pwsh
         run: |
-          python tools/run_cityworld_bridge_scene.py \
-            --executable "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}/RoR.exe" \
-            --repository "${GITHUB_WORKSPACE}" \
-            --runtime-content "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}/content" \
-            --artifact-dir "${GITHUB_WORKSPACE}/artifacts/cityworld-bridge-${{ matrix.platform }}" \
-            --postprocess-mode v0a \
-            --timeout 300 \
-            2>&1 | tee \
-              "artifacts/cityworld-bridge-${{ matrix.platform }}.driver.log"
+          $ErrorActionPreference = "Stop"
+          $evidenceRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts/cityworld-bridge-crash-evidence-${{ matrix.platform }}"
+          $symbolRoot = Join-Path $evidenceRoot "symbols"
+          New-Item -ItemType Directory -Force -Path $symbolRoot | Out-Null
+
+          $buildRoot = Join-Path $env:GITHUB_WORKSPACE "build-ogre14-${{ matrix.platform }}"
+          $pdbCandidates = @(
+            Get-ChildItem -LiteralPath $buildRoot -Filter "RoR.pdb" -File -Recurse
+          )
+          if ($pdbCandidates.Count -ne 1) {
+            throw "Expected exactly one RoR.pdb, found $($pdbCandidates.Count)"
+          }
+          $pdb = $pdbCandidates[0]
+          $copiedPdb = Join-Path $symbolRoot "RoR.pdb"
+          Copy-Item -LiteralPath $pdb.FullName -Destination $copiedPdb
+
+          $executable = Join-Path $env:GITHUB_WORKSPACE "artifacts/runtime-${{ matrix.platform }}/RoR.exe"
+          if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
+            throw "Relocated RoR.exe is missing: $executable"
+          }
+          $symbolRecord = [ordered]@{
+            format = "ror-windows-native-symbol-evidence-v1"
+            repository_commit = (git rev-parse HEAD).Trim()
+            executable = "runtime-${{ matrix.platform }}/RoR.exe"
+            executable_sha256 = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash.ToLowerInvariant()
+            pdb = "symbols/RoR.pdb"
+            pdb_sha256 = (Get-FileHash -LiteralPath $copiedPdb -Algorithm SHA256).Hash.ToLowerInvariant()
+            pdb_source = $pdb.FullName
+          }
+          $symbolJson = $symbolRecord | ConvertTo-Json
+          Set-Content -LiteralPath (Join-Path $evidenceRoot "symbols.json") -Value $symbolJson -Encoding utf8
+
+          $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR.exe"
+          New-Item -Path $werKey -Force | Out-Null
+          New-ItemProperty -Path $werKey -Name "DumpCount" -PropertyType DWord -Value 8 -Force | Out-Null
+          New-ItemProperty -Path $werKey -Name "DumpType" -PropertyType DWord -Value 2 -Force | Out-Null
+
+      - name: Drive CityWorld bridge with relocated Windows D3D11 async physics and V0A
+        if: runner.os == 'Windows'
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $evidenceRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts/cityworld-bridge-crash-evidence-${{ matrix.platform }}"
+          $dumpDir = Join-Path $evidenceRoot "dumps/async"
+          New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
+          $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR.exe"
+          Set-ItemProperty -Path $werKey -Name "DumpFolder" -Value $dumpDir
+
+          $driverStdout = Join-Path $evidenceRoot "async-driver.stdout.log"
+          $driverStderr = Join-Path $evidenceRoot "async-driver.stderr.log"
+          $arguments = @(
+            "tools/run_cityworld_bridge_scene.py",
+            "--executable",
+            "$env:GITHUB_WORKSPACE/artifacts/runtime-${{ matrix.platform }}/RoR.exe",
+            "--repository",
+            "$env:GITHUB_WORKSPACE",
+            "--runtime-content",
+            "$env:GITHUB_WORKSPACE/artifacts/runtime-${{ matrix.platform }}/content",
+            "--artifact-dir",
+            "$env:GITHUB_WORKSPACE/artifacts/cityworld-bridge-${{ matrix.platform }}",
+            "--postprocess-mode",
+            "v0a",
+            "--physics-mode",
+            "async",
+            "--timeout",
+            "300"
+          )
+          $process = Start-Process -FilePath "python" -ArgumentList $arguments -WorkingDirectory $env:GITHUB_WORKSPACE -RedirectStandardOutput $driverStdout -RedirectStandardError $driverStderr -NoNewWindow -PassThru -Wait
+          $stdoutText = Get-Content -LiteralPath $driverStdout -Raw
+          $stderrText = Get-Content -LiteralPath $driverStderr -Raw
+          $stdoutText | Write-Host
+          $stderrText | Write-Host
+          @(
+            "[driver stdout]",
+            $stdoutText,
+            "[driver stderr]",
+            $stderrText
+          ) | Set-Content -LiteralPath "artifacts/cityworld-bridge-${{ matrix.platform }}.driver.log" -Encoding utf8
+          exit $process.ExitCode
+
+      - name: Isolate CityWorld bridge with relocated Windows D3D11 sync physics and V0A
+        if: >-
+          ${{ !cancelled() && runner.os == 'Windows' &&
+          steps.windows-cityworld-crash-evidence.outcome == 'success' }}
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $evidenceRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts/cityworld-bridge-crash-evidence-${{ matrix.platform }}"
+          $dumpDir = Join-Path $evidenceRoot "dumps/sync"
+          New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
+          $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR.exe"
+          Set-ItemProperty -Path $werKey -Name "DumpFolder" -Value $dumpDir
+
+          $driverStdout = Join-Path $evidenceRoot "sync-driver.stdout.log"
+          $driverStderr = Join-Path $evidenceRoot "sync-driver.stderr.log"
+          $arguments = @(
+            "tools/run_cityworld_bridge_scene.py",
+            "--executable",
+            "$env:GITHUB_WORKSPACE/artifacts/runtime-${{ matrix.platform }}/RoR.exe",
+            "--repository",
+            "$env:GITHUB_WORKSPACE",
+            "--runtime-content",
+            "$env:GITHUB_WORKSPACE/artifacts/runtime-${{ matrix.platform }}/content",
+            "--artifact-dir",
+            "$env:GITHUB_WORKSPACE/artifacts/cityworld-bridge-sync-${{ matrix.platform }}",
+            "--postprocess-mode",
+            "v0a",
+            "--physics-mode",
+            "sync",
+            "--timeout",
+            "300"
+          )
+          $process = Start-Process -FilePath "python" -ArgumentList $arguments -WorkingDirectory $env:GITHUB_WORKSPACE -RedirectStandardOutput $driverStdout -RedirectStandardError $driverStderr -NoNewWindow -PassThru -Wait
+          $stdoutText = Get-Content -LiteralPath $driverStdout -Raw
+          $stderrText = Get-Content -LiteralPath $driverStderr -Raw
+          $stdoutText | Write-Host
+          $stderrText | Write-Host
+          @(
+            "[driver stdout]",
+            $stdoutText,
+            "[driver stderr]",
+            $stderrText
+          ) | Set-Content -LiteralPath "artifacts/cityworld-bridge-sync-${{ matrix.platform }}.driver.log" -Encoding utf8
+          exit $process.ExitCode
+
+      - name: Disable Windows CityWorld LocalDumps override
+        if: >-
+          ${{ !cancelled() && runner.os == 'Windows' &&
+          steps.windows-cityworld-crash-evidence.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR.exe"
+          Remove-Item -LiteralPath $werKey -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Upload runtime, audit, and diagnostics
         if: always()
@@ -483,6 +610,9 @@ jobs:
             artifacts/cityworld-bridge-streetlight-${{ matrix.platform }}.driver.log
             artifacts/cityworld-bridge-${{ matrix.platform }}
             artifacts/cityworld-bridge-${{ matrix.platform }}.driver.log
+            artifacts/cityworld-bridge-sync-${{ matrix.platform }}
+            artifacts/cityworld-bridge-sync-${{ matrix.platform }}.driver.log
+            artifacts/cityworld-bridge-crash-evidence-${{ matrix.platform }}
             artifacts/${{ matrix.platform }}-conan-graph.json
             artifacts/${{ matrix.platform }}-runtime-audit.json
             artifacts/${{ matrix.platform }}-runtime-audit.log

@@ -540,10 +540,15 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             2,
         )
         self.assertEqual(
-            text.count("python tools/run_cityworld_bridge_scene.py"),
-            2,
+            text.count("tools/run_cityworld_bridge_scene.py"),
+            3,
         )
-        self.assertEqual(text.count("--postprocess-mode v0a"), 2)
+        self.assertEqual(
+            text.count("python tools/run_cityworld_bridge_scene.py"),
+            1,
+        )
+        self.assertEqual(text.count("--postprocess-mode v0a"), 1)
+        self.assertEqual(text.count('"--postprocess-mode"'), 2)
         linux_scene_start = text.index(
             "Drive CityWorld bridge with relocated Linux GL3Plus"
         )
@@ -580,6 +585,89 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertIn("WINDOWS_ENGINE_REQUIRED_PATTERNS", smoke)
         self.assertIn("COMMON_ENGINE_REQUIRED_MARKERS", smoke)
         self.assertIn("require_fresh_log(", smoke)
+
+    def test_windows_cityworld_crash_evidence_is_fail_closed(self) -> None:
+        text = self.text
+        setup_start = text.index(
+            "Stage Windows CityWorld crash symbols and enable LocalDumps"
+        )
+        async_start = text.index(
+            "Drive CityWorld bridge with relocated Windows D3D11 async physics",
+            setup_start,
+        )
+        sync_start = text.index(
+            "Isolate CityWorld bridge with relocated Windows D3D11 sync physics",
+            async_start,
+        )
+        cleanup_start = text.index(
+            "Disable Windows CityWorld LocalDumps override",
+            sync_start,
+        )
+        upload_start = text.index(
+            "Upload runtime, audit, and diagnostics",
+            cleanup_start,
+        )
+        setup = text[setup_start:async_start]
+        async_gate = text[async_start:sync_start]
+        sync_gate = text[sync_start:cleanup_start]
+        cleanup = text[cleanup_start:upload_start]
+
+        for contract in (
+            "windows-cityworld-crash-evidence",
+            "Windows Error Reporting\\LocalDumps\\RoR.exe",
+            '"DumpCount"',
+            '"DumpType"',
+            "-Value 8",
+            "-Value 2",
+            'Filter "RoR.pdb"',
+            'pdb = "symbols/RoR.pdb"',
+            "executable_sha256",
+            "pdb_sha256",
+            '"symbols.json"',
+        ):
+            with self.subTest(setup_contract=contract):
+                self.assertIn(contract, setup)
+
+        for gate, mode, artifact, dump in (
+            (
+                async_gate,
+                "async",
+                "cityworld-bridge-${{ matrix.platform }}",
+                "dumps/async",
+            ),
+            (
+                sync_gate,
+                "sync",
+                "cityworld-bridge-sync-${{ matrix.platform }}",
+                "dumps/sync",
+            ),
+        ):
+            with self.subTest(mode=mode):
+                self.assertIn(dump, gate)
+                self.assertIn('"--physics-mode"', gate)
+                self.assertIn(f'"{mode}"', gate)
+                self.assertIn(artifact, gate)
+                self.assertIn("RedirectStandardOutput", gate)
+                self.assertIn("RedirectStandardError", gate)
+                self.assertIn("exit $process.ExitCode", gate)
+                self.assertNotIn("continue-on-error", gate)
+
+        self.assertIn("!cancelled()", sync_gate)
+        self.assertIn(
+            "steps.windows-cityworld-crash-evidence.outcome == 'success'",
+            sync_gate,
+        )
+        self.assertNotIn("success()", sync_gate)
+        self.assertIn("Remove-Item -LiteralPath $werKey", cleanup)
+        self.assertIn(
+            "artifacts/cityworld-bridge-crash-evidence-"
+            "${{ matrix.platform }}",
+            text[upload_start:],
+        )
+        self.assertIn(
+            "artifacts/cityworld-bridge-sync-${{ matrix.platform }}",
+            text[upload_start:],
+        )
 
     def test_plugin_contract_is_frozen_to_literal_release_sets(self) -> None:
         auditor = self.auditor_text
