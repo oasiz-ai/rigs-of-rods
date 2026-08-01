@@ -183,7 +183,7 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
             with self.subTest(relative_path=relative_path):
                 self.assertIn(relative_path, self.entry_cmake)
         self.assertGreaterEqual(self.entry_cmake.count("-E compare_files"), 10)
-        self.assertIn(".stage-v8", self.entry_cmake)
+        self.assertIn(".stage-v9", self.entry_cmake)
         self.assertIn(
             "ror_ogre_next_linux_static_closure_manifest",
             self.entry_cmake,
