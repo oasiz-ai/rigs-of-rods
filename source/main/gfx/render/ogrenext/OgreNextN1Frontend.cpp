@@ -561,6 +561,23 @@ public:
     return clean;
   }
 
+  [[nodiscard]] bool DestroyRetainedOutputTarget() noexcept {
+    if (retained_output_target == nullptr) {
+      return true;
+    }
+    if (renderer == nullptr || renderer->getTextureGpuManager() == nullptr) {
+      return false;
+    }
+    try {
+      renderer->getTextureGpuManager()->destroyTexture(
+          retained_output_target);
+      retained_output_target = nullptr;
+      return true;
+    } catch (...) {
+      return false;
+    }
+  }
+
   [[nodiscard]] bool RollbackCandidateAllocations(
       std::map<RenderAssetId, NativeMesh> &candidate_meshes,
       std::map<RenderAssetId, NativeMaterial> &candidate_materials) noexcept {
@@ -589,7 +606,8 @@ public:
       native_interop->RevokeFrontend();
       native_interop.reset();
     }
-    bool clean = DestroyFrameMeshes();
+    bool clean = DestroyRetainedOutputTarget();
+    clean = DestroyFrameMeshes() && clean;
     clean = DestroyCatalog() && clean;
     if (root && scene_manager != nullptr) {
       try {
@@ -632,6 +650,9 @@ public:
   std::map<RenderAssetId, NativeMesh> meshes;
   std::map<RenderAssetId, NativeMaterial> materials;
   std::vector<NativeMesh> frame_meshes;
+  /// N3 alone retains its last HDR target until the native image publication
+  /// is discarded, or until frontend shutdown first revokes every token.
+  Ogre::TextureGpu *retained_output_target = nullptr;
   std::shared_ptr<OgreNextN1NativeInteropBridge> native_interop;
   OgreNextN1SubmissionState submission_state;
   OgreNextNativeFeatureTier native_feature_tier =
@@ -1050,15 +1071,36 @@ RenderOperationResult OgreNextN1Frontend::Render(
     if (!can_publish) {
       return can_publish;
     }
+    if (impl_->retained_output_target != nullptr) {
+      const RenderOperationResult discarded =
+          impl_->native_interop->DiscardPublishedFrame();
+      if (!discarded) {
+        return discarded;
+      }
+      if (!impl_->DestroyRetainedOutputTarget()) {
+        impl_->faulted = true;
+        return NativeTeardownFailure(
+            "Ogre-Next N3 prior output image retirement");
+      }
+    }
+  }
+  if (impl_->native_feature_tier ==
+          OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3 &&
+      request.color_format != PixelFormat::RGBA16_FLOAT) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "Ogre-Next Metal N3 requires a linear RGBA16_FLOAT colour target");
   }
 
   Ogre::TextureGpu *target = nullptr;
+  Ogre::TextureGpu *retained_target = nullptr;
   Ogre::CompositorWorkspace *workspace = nullptr;
   Ogre::IdString workspace_name;
   bool workspace_definition_created = false;
   std::vector<std::pair<Ogre::Item *, Ogre::SceneNode *>> items;
   std::vector<Impl::NativeMesh> submitted_frame_meshes;
   std::vector<OgreNextN2FrameGeometryBinding> interop_geometry;
+  std::vector<OgreNextN3FrameImageBinding> interop_images;
   const auto destroy_submitted_frame_meshes = [&]() noexcept {
     bool clean = true;
     for (Impl::NativeMesh &native : submitted_frame_meshes) {
@@ -1124,8 +1166,22 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     return clean;
   };
+  const auto destroy_retained_target = [&]() noexcept {
+    if (retained_target == nullptr) {
+      return true;
+    }
+    try {
+      impl_->renderer->getTextureGpuManager()->destroyTexture(retained_target);
+      retained_target = nullptr;
+      return true;
+    } catch (...) {
+      return false;
+    }
+  };
   const auto fail_after_cleanup = [&](RenderOperationResult failure) {
-    if (!cleanup_scene(true)) {
+    bool clean = cleanup_scene(true);
+    clean = destroy_retained_target() && clean;
+    if (!clean) {
       impl_->faulted = true;
       return FrameCleanupFailure();
     }
@@ -1271,9 +1327,14 @@ RenderOperationResult OgreNextN1Frontend::Render(
 
     const std::string target_name =
         "RoRN1Target_" + std::to_string(request.frame_id);
+    std::uint32_t target_flags = Ogre::TextureFlags::RenderToTexture;
+    if (impl_->native_feature_tier ==
+        OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3) {
+      target_flags |= Ogre::TextureFlags::Uav;
+    }
     target = impl_->renderer->getTextureGpuManager()->createTexture(
         target_name, Ogre::GpuPageOutStrategy::Discard,
-        Ogre::TextureFlags::RenderToTexture, Ogre::TextureTypes::Type2D);
+        target_flags, Ogre::TextureTypes::Type2D);
     target->setResolution(view.width, view.height);
     target->setPixelFormat(request.color_format == PixelFormat::RGBA16_FLOAT
                                ? Ogre::PFG_RGBA16_FLOAT
@@ -1323,8 +1384,27 @@ RenderOperationResult OgreNextN1Frontend::Render(
                   static_cast<std::size_t>(attachment.row_pitch_bytes));
     }
 
+    if (impl_->native_feature_tier ==
+        OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3) {
+      OgreNextN3FrameImageBinding binding;
+      binding.frame_id = request.frame_id;
+      binding.snapshot_id = snapshot.snapshot_id();
+      binding.view_id = view.view_id;
+      binding.output = FrameOutputMask::COLOR;
+      binding.format = request.color_format;
+      binding.ogre_texture = reinterpret_cast<std::uintptr_t>(target);
+      binding.width = view.width;
+      binding.height = view.height;
+      interop_images.push_back(binding);
+      retained_target = target;
+      target = nullptr;
+    }
+
+    // Keep only the N3 target alive across ordinary scene cleanup. The
+    // dedicated failure helper still destroys it on every exit.
     if (!cleanup_scene(false)) {
       impl_->faulted = true;
+      static_cast<void>(destroy_retained_target());
       static_cast<void>(destroy_submitted_frame_meshes());
       return FrameCleanupFailure();
     }
@@ -1342,6 +1422,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
     const ValidationResult output_validation =
         ValidateRenderFrameOutput(request, candidate);
     if (!output_validation) {
+      if (!destroy_retained_target()) {
+        impl_->faulted = true;
+        static_cast<void>(destroy_submitted_frame_meshes());
+        return FrameCleanupFailure();
+      }
       if (!destroy_submitted_frame_meshes()) {
         impl_->faulted = true;
         return FrameCleanupFailure();
@@ -1352,15 +1437,21 @@ RenderOperationResult OgreNextN1Frontend::Render(
               ": " + output_validation.detail);
     }
     if (impl_->native_interop) {
-      const RenderOperationResult publication = impl_->native_interop->PublishFrame(
-          request.frame_id, snapshot.snapshot_id(), interop_geometry);
+      const RenderOperationResult publication =
+          impl_->native_interop->PublishFrame(
+              request.frame_id, snapshot.snapshot_id(), interop_geometry,
+              interop_images);
       if (!publication) {
-        if (!destroy_submitted_frame_meshes()) {
+        bool clean = destroy_retained_target();
+        clean = destroy_submitted_frame_meshes() && clean;
+        if (!clean) {
           impl_->faulted = true;
           return FrameCleanupFailure();
         }
         return publication;
       }
+      impl_->retained_output_target = retained_target;
+      retained_target = nullptr;
       std::vector<Impl::NativeMesh> retired_frame_meshes;
       retired_frame_meshes.swap(impl_->frame_meshes);
       impl_->frame_meshes = std::move(submitted_frame_meshes);
