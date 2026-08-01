@@ -162,22 +162,25 @@ enum class UploadedTextureChannel : std::uint8_t {
   RGBA,
   GREEN,
   BLUE,
+  NORMAL_RG,
 };
 
 struct NativeTextureUsage final {
   bool sampled_rgba = false;
   bool roughness_g = false;
   bool metallic_b = false;
+  bool normal_rg = false;
 
   [[nodiscard]] bool empty() const noexcept {
-    return !sampled_rgba && !roughness_g && !metallic_b;
+    return !sampled_rgba && !roughness_g && !metallic_b && !normal_rg;
   }
 
   friend bool operator==(const NativeTextureUsage &lhs,
                          const NativeTextureUsage &rhs) noexcept {
     return lhs.sampled_rgba == rhs.sampled_rgba &&
            lhs.roughness_g == rhs.roughness_g &&
-           lhs.metallic_b == rhs.metallic_b;
+           lhs.metallic_b == rhs.metallic_b &&
+           lhs.normal_rg == rhs.normal_rg;
   }
 
   friend bool operator!=(const NativeTextureUsage &lhs,
@@ -328,7 +331,8 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
       !NearlyEqual(datablock.getDiffuse(), expected_base_color) ||
       !NearlyEqual(datablock.getMetalness(), descriptor.metallic_factor) ||
       !NearlyEqual(datablock.getRoughness(), descriptor.roughness_factor) ||
-      !NearlyEqual(datablock.getEmissive(), expected_emissive)) {
+      !NearlyEqual(datablock.getEmissive(), expected_emissive) ||
+      datablock.getNormalMapWeight() != 1.0F) {
     throw std::runtime_error(
         "Ogre-Next N1 live PBS datablock differs from the reviewed height-correlated metallic mapping");
   }
@@ -527,9 +531,11 @@ public:
     Ogre::TextureGpu *sampled = nullptr;
     Ogre::TextureGpu *roughness = nullptr;
     Ogre::TextureGpu *metallic = nullptr;
+    Ogre::TextureGpu *normal = nullptr;
     std::string sampled_name;
     std::string roughness_name;
     std::string metallic_name;
+    std::string normal_name;
   };
 
   FrontendCapabilityReport Capabilities() const {
@@ -553,16 +559,19 @@ public:
       audit.roughness_r8_allocations +=
           texture.roughness != nullptr ? 1U : 0U;
       audit.metallic_r8_allocations += texture.metallic != nullptr ? 1U : 0U;
+      audit.normal_rg8_allocations += texture.normal != nullptr ? 1U : 0U;
       audit.exact_usage =
           audit.exact_usage && !texture.usage.empty() &&
           (texture.sampled != nullptr) == texture.usage.sampled_rgba &&
           (texture.roughness != nullptr) == texture.usage.roughness_g &&
-          (texture.metallic != nullptr) == texture.usage.metallic_b;
+          (texture.metallic != nullptr) == texture.usage.metallic_b &&
+          (texture.normal != nullptr) == texture.usage.normal_rg;
     }
     audit.live_native_allocations =
         static_cast<std::uint64_t>(audit.sampled_rgba_allocations) +
         static_cast<std::uint64_t>(audit.roughness_r8_allocations) +
-        static_cast<std::uint64_t>(audit.metallic_r8_allocations);
+        static_cast<std::uint64_t>(audit.metallic_r8_allocations) +
+        static_cast<std::uint64_t>(audit.normal_rg8_allocations);
     audit.native_allocation_creates = texture_allocation_creates;
     audit.native_allocation_destroys = texture_allocation_destroys;
     audit.retired_name_lookups = texture_retired_name_lookups;
@@ -597,6 +606,7 @@ public:
           const TextureBinding *bindings[] = {
               &material->base_color_texture,
               &material->metallic_roughness_texture,
+              &material->normal_texture,
               &material->emissive_texture,
           };
           for (const TextureBinding *binding : bindings) {
@@ -861,11 +871,12 @@ public:
       const TextureResourceDescriptor &descriptor, const std::string &name,
       UploadedTextureChannel channel) {
     const bool rgba = channel == UploadedTextureChannel::RGBA;
+    const bool normal_rg = channel == UploadedTextureChannel::NORMAL_RG;
     const Ogre::PixelFormatGpu pixel_format =
         rgba ? (descriptor.color_space == TextureColorSpace::SRGB
                     ? Ogre::PFG_RGBA8_UNORM_SRGB
                     : Ogre::PFG_RGBA8_UNORM)
-             : Ogre::PFG_R8_UNORM;
+             : normal_rg ? Ogre::PFG_RG8_UNORM : Ogre::PFG_R8_UNORM;
     auto *image = new Ogre::Image2();
     Ogre::TextureGpu *texture = nullptr;
     try {
@@ -893,6 +904,16 @@ public:
           if (rgba) {
             std::memcpy(destination_row, source_row,
                         static_cast<std::size_t>(source.width) * 4U);
+          } else if (normal_rg) {
+            for (std::uint32_t column = 0U; column < source.width; ++column) {
+              const std::size_t source_offset =
+                  static_cast<std::size_t>(column) * 4U;
+              const std::size_t destination_offset =
+                  static_cast<std::size_t>(column) * 2U;
+              destination_row[destination_offset] = source_row[source_offset];
+              destination_row[destination_offset + 1U] =
+                  source_row[source_offset + 1U];
+            }
           } else {
             const std::size_t source_channel =
                 channel == UploadedTextureChannel::GREEN ? 1U : 2U;
@@ -958,11 +979,16 @@ public:
     native.sampled_name = AssetName("RoRRT4Texture", asset);
     native.roughness_name = native.sampled_name + "_roughness_g";
     native.metallic_name = native.sampled_name + "_metallic_b";
+    native.normal_name = native.sampled_name + "_normal_rg";
+    const bool aliases_normal_role =
+        usage.normal_rg &&
+        (usage.sampled_rgba || usage.roughness_g || usage.metallic_b);
     if (usage.empty() ||
         (usage.sampled_rgba && (usage.roughness_g || usage.metallic_b)) ||
+        aliases_normal_role ||
         (usage.sampled_rgba &&
          descriptor.color_space != TextureColorSpace::SRGB) ||
-        ((usage.roughness_g || usage.metallic_b) &&
+        ((usage.roughness_g || usage.metallic_b || usage.normal_rg) &&
          descriptor.color_space != TextureColorSpace::LINEAR)) {
       throw std::logic_error(
           "RT4/V1 texture alias or usage is incompatible with its sampled color-space role");
@@ -980,6 +1006,11 @@ public:
       if (usage.metallic_b) {
         native.metallic = CreateUploadedTexture(
             descriptor, native.metallic_name, UploadedTextureChannel::BLUE);
+      }
+      if (usage.normal_rg) {
+        native.normal = CreateUploadedTexture(
+            descriptor, native.normal_name,
+            UploadedTextureChannel::NORMAL_RG);
       }
       return native;
     } catch (...) {
@@ -1027,6 +1058,12 @@ public:
       throw std::runtime_error(
           "Ogre-Next RT4/V1 allocated an unused metallic derivative");
     }
+    if (expected_usage.normal_rg) {
+      verify_one(native.normal, Ogre::PFG_RG8_UNORM);
+    } else if (native.normal != nullptr) {
+      throw std::runtime_error(
+          "Ogre-Next RT4/V1 allocated an unused normal RG derivative");
+    }
   }
 
   NativeMaterial CreateMaterial(const RenderAssetReference &asset,
@@ -1060,6 +1097,10 @@ public:
                         descriptor.emissive_factor.y,
                         descriptor.emissive_factor.z) *
           descriptor.emissive_strength);
+      // Pinned Ogre applies this value as a lerp from (0, 0, 1), not as the
+      // glTF x/y normal scale. The admission policy therefore requires the
+      // exact identity value and we write/read it explicitly here.
+      native.datablock->setNormalMapWeight(1.0F);
       native.datablock->setTwoSidedLighting(descriptor.double_sided, false);
       const auto bind_texture =
           [&](const TextureBinding &binding, Ogre::PbsTextureTypes slot,
@@ -1104,6 +1145,8 @@ public:
                      Ogre::PBSM_ROUGHNESS, &NativeTexture::roughness);
         bind_texture(descriptor.metallic_roughness_texture,
                      Ogre::PBSM_METALLIC, &NativeTexture::metallic);
+        bind_texture(descriptor.normal_texture, Ogre::PBSM_NORMAL,
+                     &NativeTexture::normal);
         bind_texture(descriptor.emissive_texture, Ogre::PBSM_EMISSIVE,
                      &NativeTexture::sampled);
       }
@@ -1139,6 +1182,7 @@ public:
                                  const std::string &name) {
       clean = RetireNativeTextureAllocation(texture, name) && clean;
     };
+    destroy_one(native.normal, native.normal_name);
     destroy_one(native.metallic, native.metallic_name);
     destroy_one(native.roughness, native.roughness_name);
     destroy_one(native.sampled, native.sampled_name);
@@ -1622,10 +1666,11 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
               NativeTextureUsage usage;
             };
             const BindingUsage bindings[] = {
-                {&material->base_color_texture, {true, false, false}},
+                {&material->base_color_texture, {true, false, false, false}},
                 {&material->metallic_roughness_texture,
-                 {false, true, true}},
-                {&material->emissive_texture, {true, false, false}},
+                 {false, true, true, false}},
+                {&material->normal_texture, {false, false, false, true}},
+                {&material->emissive_texture, {true, false, false, false}},
             };
             for (const BindingUsage &binding_usage : bindings) {
               const TextureBinding &binding = *binding_usage.binding;
@@ -1653,13 +1698,20 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
                 existing.usage.metallic_b =
                     existing.usage.metallic_b ||
                     binding_usage.usage.metallic_b;
-                if (existing.usage.sampled_rgba &&
-                    (existing.usage.roughness_g ||
-                     existing.usage.metallic_b)) {
+                existing.usage.normal_rg =
+                    existing.usage.normal_rg ||
+                    binding_usage.usage.normal_rg;
+                if ((existing.usage.sampled_rgba &&
+                     (existing.usage.roughness_g ||
+                      existing.usage.metallic_b)) ||
+                    (existing.usage.normal_rg &&
+                     (existing.usage.sampled_rgba ||
+                      existing.usage.roughness_g ||
+                      existing.usage.metallic_b))) {
                   return ValidationResult::Failure(
                       ValidationCode::UNSUPPORTED_FEATURE,
                       "assets.material.texture_binding",
-                      "RT4/V1 rejects aliases between sampled sRGB and packed linear texture roles");
+                      "RT4/V1 rejects aliases between sampled sRGB and packed linear texture roles, and aliases canonical normal textures with either role");
                 }
               }
             }

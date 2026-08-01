@@ -302,8 +302,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "MODERN_PBR_RT4_V1",
             "PFG_RGBA8_UNORM_SRGB",
             "PFG_R8_UNORM",
+            "PFG_RG8_UNORM",
             "UploadedTextureChannel::GREEN",
             "UploadedTextureChannel::BLUE",
+            "UploadedTextureChannel::NORMAL_RG",
             "waitForStreamingCompletion",
             "setTextureUvSource",
             "VerifySamplerMapping",
@@ -320,9 +322,20 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "live_native_allocations",
             "findTextureNoThrow",
             "texture_retired_name_rejections",
+            "normal_rg8_allocations",
+            "Ogre::PBSM_NORMAL",
+            "setNormalMapWeight(1.0F)",
+            "getNormalMapWeight() != 1.0F",
         ):
             self.assertIn(token, self.frontend)
-        self.assertIn("pinned PBS reconstructs positive Z", self.policy)
+        for token in (
+            "kOgreNextRt4NormalDecodedQuantizationTolerance",
+            "within exactly 1/255 decoded units",
+            "rejects negative-Z normal texels",
+            "normal_scale exactly one",
+            "pinned HLMS PBS has no ambient-occlusion texture slot",
+        ):
+            self.assertIn(token, self.policy)
         self.assertIn("only the", self.policy)
         self.assertIn("texture/sampler pairs actually referenced", self.policy)
         self.assertIn("--modern-pbr", self.smoke)
@@ -338,6 +351,8 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("packed_green_roughness", self.smoke)
         self.assertIn("packed_blue_metallic", self.smoke)
         self.assertIn("sampler_address_over_uv0", self.smoke)
+        self.assertIn("canonical_positive_z_normal_rg", self.smoke)
+        self.assertIn("normal_RG8_UNORM", self.smoke)
         self.assertIn("unused_packed_rgba_allocations", self.smoke)
         self.assertIn("MakeRetirementTexture", self.smoke)
         self.assertIn("RunTextureRetirementProof", self.smoke)
@@ -407,6 +422,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             ("roughness_g", "packed_green_roughness"),
             ("metallic_b", "packed_blue_metallic"),
             ("emissive", "emissive_rgb"),
+            ("normal_rg", "canonical_positive_z_normal_rg"),
             ("sampler_uv", "sampler_address_over_uv0"),
         )
         report: dict = {
@@ -574,6 +590,9 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "ror_relevant_source_manifest_file_count": 123,
                 "ogre_next_commit": lock["commit"],
                 "ogre_next_archive_sha256": lock["archive_sha256"],
+                "normal_map_source_lock_sha256": (
+                    RUNNER.NORMAL_MAP_SOURCE_LOCK_SHA256
+                ),
                 "shader_media_root": lock["shader_media"]["root"],
                 "shader_media_license_expression": lock["shader_media"][
                     "license_expression"

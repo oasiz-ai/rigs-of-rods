@@ -36,6 +36,13 @@ RT4_ATTESTATION_ARTIFACT = (
 RT4_PACKAGE_EXECUTABLE_STEM = "ror_ogre_next_frontend_n1_smoke"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PINNED_LOCK_PATH = REPOSITORY_ROOT / "tools/ogre_next_probe/ogre-next.lock.json"
+NORMAL_MAP_SOURCE_LOCK_PATH = (
+    REPOSITORY_ROOT
+    / "tools/ogre_next_probe/ogre-next-normal-map-source.lock.json"
+)
+NORMAL_MAP_SOURCE_LOCK_SHA256 = (
+    "376e5b45afbac7b95333a3c7d3d4c499173ebdec01b1b99ac3d343d121fbfef6"
+)
 ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
 RELEVANT_SOURCE_PATHS = (
     "source/main/gfx/render",
@@ -61,10 +68,12 @@ RT4_EXPECTED_VARIANTS = (
     ("roughness_g", "packed_green_roughness"),
     ("metallic_b", "packed_blue_metallic"),
     ("emissive", "emissive_rgb"),
+    ("normal_rg", "canonical_positive_z_normal_rg"),
     ("sampler_uv", "sampler_address_over_uv0"),
 )
 RT4_EXPECTED_RETIREMENT = {
     "schema": "ror.ogre_next_rt4_texture_retirement.v1",
+    "derived_allocation": "normal_RG8_UNORM",
     "isolated_from_visual_variants": True,
     "transitions": [
         {"revision": 1, "width": 2, "height": 2, "mip_levels": 1},
@@ -127,10 +136,11 @@ RT4_EXPECTED_RETIREMENT = {
 }
 RT4_EXPECTED_TEXTURE_ALLOCATIONS = {
     "version": 1,
-    "live_source_textures": 3,
+    "live_source_textures": 4,
     "sampled_rgba_allocations": 2,
     "roughness_r8_allocations": 1,
     "metallic_r8_allocations": 1,
+    "normal_rg8_allocations": 1,
     "unused_packed_rgba_allocations": 0,
     "exact_usage": True,
 }
@@ -141,6 +151,14 @@ RT4_EXPECTED_LIFECYCLE = {
     "lifetime_completed_frame_queries": True,
     "process_global_root_exclusion": True,
     "live_texture_replacement_retirement": True,
+    "replacement_audit": {
+        "creates": 17,
+        "destroys": 12,
+        "live": 5,
+        "retired_name_lookups": 12,
+        "retired_name_rejections": 12,
+        "exact_usage": True,
+    },
     "shutdown_reinitialize_render_shutdown": True,
 }
 RT4_ROLLBACK_STAGES = (
@@ -152,6 +170,7 @@ RT4_ROLLBACK_STAGES = (
 )
 RT4_EXPECTED_TEXTURE_UPLOAD_ROLLBACK = {
     "schema": "ror.ogre_next_rt4_texture_upload_rollback.v1",
+    "derived_allocation": "normal_RG8_UNORM",
     "injected_post_create_stage_count": len(RT4_ROLLBACK_STAGES),
     "stages": [
         {
@@ -836,6 +855,7 @@ def _verify_rt4_executable(
         "--modern-pbr",
         policy["renderer_name"],
         '\"raster_feature_tier\": \"MODERN_PBR_RT4_V1\"',
+        "linear_RGBA8_positive_Z_to_RG8_UNORM",
     )
     missing = [token for token in required_tokens if token.encode() not in payload]
     if missing:
@@ -1240,6 +1260,12 @@ def _verify_rt4(
     manifest: list[dict[str, object]],
     build_contract: dict[str, object],
 ) -> None:
+    if (
+        not NORMAL_MAP_SOURCE_LOCK_PATH.is_file()
+        or sha256_file(NORMAL_MAP_SOURCE_LOCK_PATH)
+        != NORMAL_MAP_SOURCE_LOCK_SHA256
+    ):
+        raise ArtifactSetError("reviewed normal-map source lock is missing or changed")
     report_path = root / RT4_REPORT_ARTIFACT
     ppm_path = root / RT4_PPM_ARTIFACT
     isolation_path = root / RT4_ISOLATION_ARTIFACT
@@ -1328,6 +1354,9 @@ def _verify_rt4(
             "license_sha256",
         )
     }
+    expected_ogre["normal_map_source_lock_sha256"] = (
+        NORMAL_MAP_SOURCE_LOCK_SHA256
+    )
     expected_shader = {
         "root": shader_contract.get("root"),
         "license_expression": shader_contract.get("license_expression"),
@@ -1350,6 +1379,7 @@ def _verify_rt4(
         ],
         "ogre_next_commit": expected_ogre["commit"],
         "ogre_next_archive_sha256": expected_ogre["archive_sha256"],
+        "normal_map_source_lock_sha256": NORMAL_MAP_SOURCE_LOCK_SHA256,
         "shader_media_root": expected_shader["root"],
         "shader_media_license_expression": expected_shader[
             "license_expression"
@@ -1388,11 +1418,17 @@ def _verify_rt4(
             "linear_G_to_R8_roughness_B_to_R8_metallic"
         ),
         "emissive_upload": "RGBA8_UNORM_SRGB",
+        "normal_upload": "linear_RGBA8_positive_Z_to_RG8_UNORM",
         "padded_source_rows_verified": True,
         "portable_sampler_mapping_verified": True,
-        "normal_texture_admitted": False,
-        "normal_texture_blocker": "pinned_PBS_reconstructs_positive_Z_from_RG",
+        "normal_texture_admitted": True,
+        "normal_slot": "PBSM_NORMAL",
+        "normal_uv_source": 0,
+        "normal_scale": 1,
+        "normal_map_weight": 1,
+        "normal_positive_z_tolerance_decoded": "1/255",
         "occlusion_texture_admitted": False,
+        "occlusion_blocker": "pinned_HLMS_PBS_has_no_ambient_only_AO_slot",
         "runtime_media_root": "explicit_absolute",
         "package_media_relative_path": (
             "share/rigsofrods/ogre-next/Samples/Media"
@@ -1410,10 +1446,10 @@ def _verify_rt4(
     }
     expected_catalog = {
         "registry_id": 0x4E315F534D4F4B45,
-        "sequence": 6,
+        "sequence": 7,
         "baseline_sequence": 1,
-        "live_replacement_count": 5,
-        "referenced_texture_count": 3,
+        "live_replacement_count": 6,
+        "referenced_texture_count": 4,
         "referenced_sampler_count": 1,
         "unreferenced_assets_not_uploaded": True,
         "transactional_replay_after_restart": True,

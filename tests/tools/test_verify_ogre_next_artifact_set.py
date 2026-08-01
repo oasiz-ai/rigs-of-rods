@@ -244,6 +244,9 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "ror_relevant_source_manifest_file_count": self.ror_manifest_count,
                 "ogre_next_commit": self.ogre_commit,
                 "ogre_next_archive_sha256": self.ogre_archive,
+                "normal_map_source_lock_sha256": (
+                    VERIFY.NORMAL_MAP_SOURCE_LOCK_SHA256
+                ),
                 "shader_media_root": shader_media["root"],
                 "shader_media_license_expression": shader_media[
                     "license_expression"
@@ -270,13 +273,19 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     "linear_G_to_R8_roughness_B_to_R8_metallic"
                 ),
                 "emissive_upload": "RGBA8_UNORM_SRGB",
+                "normal_upload": "linear_RGBA8_positive_Z_to_RG8_UNORM",
                 "padded_source_rows_verified": True,
                 "portable_sampler_mapping_verified": True,
-                "normal_texture_admitted": False,
-                "normal_texture_blocker": (
-                    "pinned_PBS_reconstructs_positive_Z_from_RG"
-                ),
+                "normal_texture_admitted": True,
+                "normal_slot": "PBSM_NORMAL",
+                "normal_uv_source": 0,
+                "normal_scale": 1,
+                "normal_map_weight": 1,
+                "normal_positive_z_tolerance_decoded": "1/255",
                 "occlusion_texture_admitted": False,
+                "occlusion_blocker": (
+                    "pinned_HLMS_PBS_has_no_ambient_only_AO_slot"
+                ),
                 "runtime_media_root": "explicit_absolute",
                 "package_media_relative_path": (
                     "share/rigsofrods/ogre-next/Samples/Media"
@@ -294,10 +303,10 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             },
             "catalog": {
                 "registry_id": 0x4E315F534D4F4B45,
-                "sequence": 6,
+                "sequence": 7,
                 "baseline_sequence": 1,
-                "live_replacement_count": 5,
-                "referenced_texture_count": 3,
+                "live_replacement_count": 6,
+                "referenced_texture_count": 4,
                 "referenced_sampler_count": 1,
                 "unreferenced_assets_not_uploaded": True,
                 "transactional_replay_after_restart": True,
@@ -392,6 +401,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "--modern-pbr",
                 "Metal Rendering Subsystem",
                 '\"raster_feature_tier\": \"MODERN_PBR_RT4_V1\"',
+                "linear_RGBA8_positive_Z_to_RG8_UNORM",
             )
         )
         executable = header + segment + entry + binary_tokens
@@ -424,6 +434,9 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "archive_sha256": self.ogre_archive,
                 "license_spdx": self.lock["license"]["spdx"],
                 "license_sha256": self.ogre_license,
+                "normal_map_source_lock_sha256": (
+                    VERIFY.NORMAL_MAP_SOURCE_LOCK_SHA256
+                ),
             },
             "shader_media": {
                 "root": shader_media["root"],

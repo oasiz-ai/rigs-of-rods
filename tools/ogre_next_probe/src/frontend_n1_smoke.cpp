@@ -71,6 +71,7 @@ struct SmokeResult final {
   Metrics sdr;
   std::vector<VariantEvidence> variants;
   OgreNextN1TextureAllocationAudit texture_allocations;
+  OgreNextN1TextureAllocationAudit replacement_final_audit;
   bool live_replacement_retirement = false;
   struct TextureRetirementEvidence final {
     OgreNextN1TextureAllocationAudit initial;
@@ -99,6 +100,7 @@ enum class TextureVariant : std::uint8_t {
   ROUGHNESS_G,
   METALLIC_B,
   EMISSIVE,
+  NORMAL_RG,
   SAMPLER_UV,
 };
 
@@ -111,22 +113,27 @@ struct VariantSpec final {
   std::uint64_t base_color_revision;
   std::uint64_t packed_revision;
   std::uint64_t emissive_revision;
+  std::uint64_t normal_revision;
   std::uint64_t sampler_revision;
+  std::uint64_t expected_native_creates;
+  std::uint64_t expected_native_destroys;
 };
 
-constexpr std::array<VariantSpec, 6U> kVariantSpecs{{
+constexpr std::array<VariantSpec, 7U> kVariantSpecs{{
     {TextureVariant::BASELINE, "baseline", "none", 1U, 1U, 1U, 1U, 1U,
-     1U},
+     1U, 1U, 5U, 0U},
     {TextureVariant::BASE_COLOR, "base_color", "base_color_rgb", 2U, 2U,
-     2U, 1U, 1U, 1U},
+     2U, 1U, 1U, 1U, 1U, 6U, 1U},
     {TextureVariant::ROUGHNESS_G, "roughness_g", "packed_green_roughness",
-     3U, 3U, 3U, 2U, 1U, 1U},
+     3U, 3U, 3U, 2U, 1U, 1U, 1U, 9U, 4U},
     {TextureVariant::METALLIC_B, "metallic_b", "packed_blue_metallic", 4U,
-     4U, 3U, 3U, 1U, 1U},
+     4U, 3U, 3U, 1U, 1U, 1U, 11U, 6U},
     {TextureVariant::EMISSIVE, "emissive", "emissive_rgb", 5U, 5U, 3U,
-     4U, 2U, 1U},
+     4U, 2U, 1U, 1U, 14U, 9U},
+    {TextureVariant::NORMAL_RG, "normal_rg", "canonical_positive_z_normal_rg",
+     6U, 6U, 3U, 4U, 3U, 2U, 1U, 16U, 11U},
     {TextureVariant::SAMPLER_UV, "sampler_uv", "sampler_address_over_uv0",
-     6U, 6U, 3U, 4U, 3U, 2U},
+     7U, 7U, 3U, 4U, 3U, 3U, 2U, 17U, 12U},
 }};
 
 [[noreturn]] void Fail(const std::string &message) {
@@ -248,6 +255,12 @@ MaterialDescriptor MakeMaterial(bool modern_pbr = false,
     material.metallic_roughness_texture.sampler =
         AssetRef(RenderAssetKind::SAMPLER, 6U,
                  variant->sampler_revision);
+    material.normal_texture.texture =
+        AssetRef(RenderAssetKind::TEXTURE, 9U, variant->normal_revision);
+    material.normal_texture.sampler =
+        AssetRef(RenderAssetKind::SAMPLER, 6U,
+                 variant->sampler_revision);
+    material.normal_scale = 1.0F;
     material.emissive_texture.texture =
         AssetRef(RenderAssetKind::TEXTURE, 5U,
                  variant->emissive_revision);
@@ -283,20 +296,22 @@ TextureResourceDescriptor MakeRetirementTexture(std::uint64_t revision) {
     std::vector<std::uint8_t> rgba =
         revision == 1U
             ? std::vector<std::uint8_t>{
-                  250U, 30U, 20U, 255U, 20U, 230U, 40U, 255U,
-                  25U, 45U, 245U, 255U, 245U, 205U, 25U, 255U}
+                  180U, 128U, 244U, 255U, 128U, 180U, 244U, 255U,
+                  64U, 128U, 238U, 255U, 128U, 64U, 238U, 255U}
             : std::vector<std::uint8_t>{
-                  25U, 210U, 245U, 255U, 230U, 25U, 210U, 255U,
-                  240U, 215U, 20U, 255U, 35U, 50U, 235U, 255U};
+                  200U, 128U, 232U, 255U, 128U, 200U, 232U, 255U,
+                  160U, 96U, 247U, 255U, 96U, 160U, 247U, 255U};
     TextureResourceDescriptor texture =
-        MakeTexture(TextureColorSpace::SRGB, std::move(rgba));
-    texture.debug_name = "RT4 retirement 2x2 one-mip padded-row texture";
+        MakeTexture(TextureColorSpace::LINEAR, std::move(rgba));
+    texture.debug_name =
+        "RT4 normal retirement 2x2 one-mip padded-row texture";
     return texture;
   }
   Require(revision == 2U, "RT4 retirement requested an unknown revision");
   TextureResourceDescriptor texture;
-  texture.debug_name = "RT4 retirement 4x2 two-mip padded-row texture";
-  texture.color_space = TextureColorSpace::SRGB;
+  texture.debug_name =
+      "RT4 normal retirement 4x2 two-mip padded-row texture";
+  texture.color_space = TextureColorSpace::LINEAR;
   texture.width = 4U;
   texture.height = 2U;
 
@@ -307,10 +322,10 @@ TextureResourceDescriptor MakeRetirementTexture(std::uint64_t revision) {
   level_zero.layer_pitch_bytes = 40U;
   level_zero.bytes.assign(40U, 0xA5U);
   const std::array<std::uint8_t, 32U> level_zero_rgba{{
-      255U, 20U, 20U, 255U, 20U, 255U, 20U, 255U,
-      20U, 20U, 255U, 255U, 255U, 220U, 20U, 255U,
-      20U, 255U, 255U, 255U, 255U, 20U, 255U, 255U,
-      240U, 120U, 20U, 255U, 100U, 40U, 240U, 255U,
+      180U, 180U, 231U, 255U, 200U, 160U, 227U, 255U,
+      160U, 200U, 227U, 255U, 220U, 128U, 215U, 255U,
+      128U, 220U, 215U, 255U, 64U, 128U, 238U, 255U,
+      128U, 64U, 238U, 255U, 160U, 96U, 247U, 255U,
   }};
   std::memcpy(level_zero.bytes.data(), level_zero_rgba.data(), 16U);
   std::memcpy(level_zero.bytes.data() + 20U,
@@ -323,7 +338,7 @@ TextureResourceDescriptor MakeRetirementTexture(std::uint64_t revision) {
   level_one.row_pitch_bytes = 12U;
   level_one.layer_pitch_bytes = 12U;
   level_one.bytes = {
-      200U, 80U, 30U, 255U, 30U, 120U, 220U, 255U,
+      96U, 160U, 247U, 255U, 200U, 96U, 228U, 255U,
       0x5AU, 0x5AU, 0x5AU, 0x5AU,
   };
   texture.mip_levels.push_back(std::move(level_one));
@@ -357,16 +372,17 @@ RenderAssetDelta MakeRetirementCatalog(std::uint64_t revision) {
   delta.mutations.push_back(std::move(sampler));
 
   MaterialDescriptor material = MakeMaterial();
-  material.debug_name = "RT4 isolated retirement base-color material";
+  material.debug_name = "RT4 isolated retirement normal-map material";
   material.base_color_factor = {0.8F, 0.85F, 0.9F, 1.0F};
   material.metallic_factor = 0.15F;
   material.roughness_factor = 0.42F;
   material.emissive_factor = {0.0F, 0.0F, 0.0F};
   material.emissive_strength = 0.0F;
-  material.base_color_texture.texture =
+  material.normal_texture.texture =
       AssetRef(RenderAssetKind::TEXTURE, 30U, revision);
-  material.base_color_texture.sampler =
+  material.normal_texture.sampler =
       AssetRef(RenderAssetKind::SAMPLER, 31U);
+  material.normal_scale = 1.0F;
   RenderAssetMutation material_mutation;
   material_mutation.asset =
       AssetRef(RenderAssetKind::MATERIAL, 32U, revision);
@@ -445,6 +461,20 @@ RenderAssetDelta MakeCatalog(bool modern_pbr = false,
         TextureColorSpace::SRGB, std::move(emissive_bytes));
     delta.mutations.push_back(std::move(emissive));
 
+    std::vector<std::uint8_t> normal_bytes{
+        128U, 128U, 255U, 255U, 128U, 128U, 255U, 255U,
+        128U, 128U, 255U, 255U, 128U, 128U, 255U, 255U};
+    if (variant->variant == TextureVariant::NORMAL_RG) {
+      normal_bytes = {
+          180U, 128U, 244U, 255U, 128U, 180U, 244U, 255U,
+          64U, 128U, 238U, 255U, 128U, 64U, 238U, 255U};
+    }
+    RenderAssetMutation normal;
+    normal.asset = AssetRef(RenderAssetKind::TEXTURE, 9U,
+                            variant->normal_revision);
+    normal.payload = MakeTexture(
+        TextureColorSpace::LINEAR, std::move(normal_bytes));
+
     SamplerResourceDescriptor sampler_descriptor;
     sampler_descriptor.debug_name = "RT4/V1 controlled UV0 sampler";
     sampler_descriptor.address_u =
@@ -488,6 +518,7 @@ RenderAssetDelta MakeCatalog(bool modern_pbr = false,
     unreferenced_sampler.asset = AssetRef(RenderAssetKind::SAMPLER, 8U);
     unreferenced_sampler.payload = unreferenced_sampler_descriptor;
     delta.mutations.push_back(std::move(unreferenced_sampler));
+    delta.mutations.push_back(std::move(normal));
   }
   return delta;
 }
@@ -578,8 +609,12 @@ void RequireControlledCatalog(const RenderAssetDelta &baseline,
           : spec.variant == TextureVariant::ROUGHNESS_G ||
                     spec.variant == TextureVariant::METALLIC_B
                 ? 4U
-                : spec.variant == TextureVariant::EMISSIVE ? 5U : 0U;
-  for (std::uint64_t low = 3U; low <= 5U; ++low) {
+                : spec.variant == TextureVariant::EMISSIVE
+                      ? 5U
+                      : spec.variant == TextureVariant::NORMAL_RG ? 9U : 0U;
+  constexpr std::array<std::uint64_t, 4U> kControlledTextureIds{{3U, 4U,
+                                                                 5U, 9U}};
+  for (const std::uint64_t low : kControlledTextureIds) {
     const TextureResourceDescriptor &expected =
         std::get<TextureResourceDescriptor>(MutationFor(baseline, low).payload);
     const TextureResourceDescriptor &actual =
@@ -619,12 +654,12 @@ void RequireControlledCatalog(const RenderAssetDelta &baseline,
           Require(row < expected_mip.height &&
                       row_offset < expected_mip.width * 4U &&
                       row_offset % 4U < 3U,
-                  "RT4/V1 base/emissive variant changed padding or alpha");
+                  "RT4/V1 RGB texture variant changed padding or alpha");
           ++changed_rgb;
         }
       }
       Require(changed_rgb > 0U,
-              "RT4/V1 base/emissive variant changed no RGB texels");
+              "RT4/V1 RGB texture variant changed no RGB texels");
     } else {
       RequireTextureOnlyChannelChange(expected, actual, allowed_channel,
                                       spec.name);
@@ -655,6 +690,8 @@ void RequireControlledCatalog(const RenderAssetDelta &baseline,
                   spec.packed_revision &&
               MutationFor(variant, 5U).asset.revision ==
                   spec.emissive_revision &&
+              MutationFor(variant, 9U).asset.revision ==
+                  spec.normal_revision &&
               MutationFor(variant, 6U).asset.revision ==
                   spec.sampler_revision,
           "RT4/V1 controlled replacement revision plan drifted");
@@ -1129,6 +1166,8 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << ROR_OGRE_NEXT_N1_OGRE_COMMIT << "\",\n"
          << "    \"ogre_next_archive_sha256\": \""
          << ROR_OGRE_NEXT_N1_OGRE_ARCHIVE_SHA256 << "\",\n"
+         << "    \"normal_map_source_lock_sha256\": \""
+         << ROR_OGRE_NEXT_N1_NORMAL_MAP_SOURCE_LOCK_SHA256 << "\",\n"
          << "    \"shader_media_root\": \""
          << ROR_OGRE_NEXT_N1_SHADER_MEDIA_ROOT << "\",\n"
          << "    \"shader_media_license_expression\": \""
@@ -1160,11 +1199,17 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
         << "    \"base_color_upload\": \"RGBA8_UNORM_SRGB\",\n"
         << "    \"metallic_roughness_upload\": \"linear_G_to_R8_roughness_B_to_R8_metallic\",\n"
         << "    \"emissive_upload\": \"RGBA8_UNORM_SRGB\",\n"
+        << "    \"normal_upload\": \"linear_RGBA8_positive_Z_to_RG8_UNORM\",\n"
         << "    \"padded_source_rows_verified\": true,\n"
         << "    \"portable_sampler_mapping_verified\": true,\n"
-        << "    \"normal_texture_admitted\": false,\n"
-        << "    \"normal_texture_blocker\": \"pinned_PBS_reconstructs_positive_Z_from_RG\",\n"
-        << "    \"occlusion_texture_admitted\": false,\n";
+        << "    \"normal_texture_admitted\": true,\n"
+        << "    \"normal_slot\": \"PBSM_NORMAL\",\n"
+        << "    \"normal_uv_source\": 0,\n"
+        << "    \"normal_scale\": 1,\n"
+        << "    \"normal_map_weight\": 1,\n"
+        << "    \"normal_positive_z_tolerance_decoded\": \"1/255\",\n"
+        << "    \"occlusion_texture_admitted\": false,\n"
+        << "    \"occlusion_blocker\": \"pinned_HLMS_PBS_has_no_ambient_only_AO_slot\",\n";
   }
   report
          << "    \"runtime_media_root\": \"explicit_absolute\",\n"
@@ -1193,8 +1238,8 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << (modern_pbr ? kVariantSpecs.back().sequence : 1U) << ",\n";
   if (modern_pbr) {
     report << "    \"baseline_sequence\": 1,\n"
-           << "    \"live_replacement_count\": 5,\n"
-           << "    \"referenced_texture_count\": 3,\n"
+           << "    \"live_replacement_count\": 6,\n"
+           << "    \"referenced_texture_count\": 4,\n"
            << "    \"referenced_sampler_count\": 1,\n"
            << "    \"unreferenced_assets_not_uploaded\": true,\n";
   }
@@ -1214,6 +1259,8 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << result.texture_allocations.roughness_r8_allocations << ",\n"
            << "    \"metallic_r8_allocations\": "
            << result.texture_allocations.metallic_r8_allocations << ",\n"
+           << "    \"normal_rg8_allocations\": "
+           << result.texture_allocations.normal_rg8_allocations << ",\n"
            << "    \"unused_packed_rgba_allocations\": 0,\n"
            << "    \"exact_usage\": "
            << (result.texture_allocations.exact_usage ? "true" : "false")
@@ -1221,6 +1268,7 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << "  },\n"
            << "  \"texture_upload_rollback\": {\n"
            << "    \"schema\": \"ror.ogre_next_rt4_texture_upload_rollback.v1\",\n"
+           << "    \"derived_allocation\": \"normal_RG8_UNORM\",\n"
            << "    \"injected_post_create_stage_count\": "
            << result.texture_upload_rollback.size() << ",\n"
            << "    \"stages\": [\n";
@@ -1262,6 +1310,7 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << "  },\n"
            << "  \"texture_retirement\": {\n"
            << "    \"schema\": \"ror.ogre_next_rt4_texture_retirement.v1\",\n"
+           << "    \"derived_allocation\": \"normal_RG8_UNORM\",\n"
            << "    \"isolated_from_visual_variants\": true,\n"
            << "    \"transitions\": [\n"
            << "      {\"revision\": 1, \"width\": 2, \"height\": 2, \"mip_levels\": 1},\n"
@@ -1389,7 +1438,20 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
   if (modern_pbr) {
     report << "    \"live_texture_replacement_retirement\": "
            << (result.live_replacement_retirement ? "true" : "false")
-           << ",\n";
+           << ",\n"
+           << "    \"replacement_audit\": {\"creates\": "
+           << result.replacement_final_audit.native_allocation_creates
+           << ", \"destroys\": "
+           << result.replacement_final_audit.native_allocation_destroys
+           << ", \"live\": "
+           << result.replacement_final_audit.live_native_allocations
+           << ", \"retired_name_lookups\": "
+           << result.replacement_final_audit.retired_name_lookups
+           << ", \"retired_name_rejections\": "
+           << result.replacement_final_audit.retired_name_rejections
+           << ", \"exact_usage\": "
+           << (result.replacement_final_audit.exact_usage ? "true" : "false")
+           << "},\n";
   }
   report
          << "    \"shutdown_reinitialize_render_shutdown\": true\n"
@@ -1422,16 +1484,17 @@ void RequireRetirementAudit(const OgreNextN1TextureAllocationAudit &audit,
                             const std::string &label,
                             bool require_exact_usage = true) {
   Require(audit.version == 1U && audit.live_source_textures == (live > 0U ? 1U : 0U) &&
-              audit.sampled_rgba_allocations == live &&
+              audit.sampled_rgba_allocations == 0U &&
               audit.roughness_r8_allocations == 0U &&
               audit.metallic_r8_allocations == 0U &&
+              audit.normal_rg8_allocations == live &&
               audit.native_allocation_creates == creates &&
               audit.native_allocation_destroys == destroys &&
               audit.live_native_allocations == live &&
               audit.retired_name_lookups == destroys &&
               audit.retired_name_rejections == destroys &&
               (!require_exact_usage || audit.exact_usage),
-          "RT4 retirement allocation/name audit drifted at " + label);
+          "RT4 normal retirement allocation/name audit drifted at " + label);
 }
 
 SmokeResult::TextureRetirementEvidence
@@ -1646,12 +1709,15 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
   if (modern_pbr) {
     result.texture_allocations = frontend.QueryTextureAllocationAudit();
     Require(result.texture_allocations.version == 1U &&
-                result.texture_allocations.live_source_textures == 3U &&
+                result.texture_allocations.live_source_textures == 4U &&
                 result.texture_allocations.sampled_rgba_allocations == 2U &&
                 result.texture_allocations.roughness_r8_allocations == 1U &&
                 result.texture_allocations.metallic_r8_allocations == 1U &&
+                result.texture_allocations.normal_rg8_allocations == 1U &&
+                result.texture_allocations.native_allocation_creates == 5U &&
+                result.texture_allocations.native_allocation_destroys == 0U &&
                 result.texture_allocations.exact_usage,
-            "RT4/V1 allocated an unused packed RGBA variant or lost a required derivative");
+            "RT4/V1 allocated an unused source variant or lost a required derivative");
   }
   OgreNextN1Frontend concurrent(
       OgreNextN1Configuration{media_root, raster_feature_tier});
@@ -1737,10 +1803,20 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
                      std::string("SynchronizeAssets(") + spec.name + ')');
       const OgreNextN1TextureAllocationAudit audit =
           frontend.QueryTextureAllocationAudit();
-      Require(audit.version == 1U && audit.live_source_textures == 3U &&
+      Require(audit.version == 1U && audit.live_source_textures == 4U &&
                   audit.sampled_rgba_allocations == 2U &&
                   audit.roughness_r8_allocations == 1U &&
-                  audit.metallic_r8_allocations == 1U && audit.exact_usage,
+                  audit.metallic_r8_allocations == 1U &&
+                  audit.normal_rg8_allocations == 1U &&
+                  audit.native_allocation_creates ==
+                      spec.expected_native_creates &&
+                  audit.native_allocation_destroys ==
+                      spec.expected_native_destroys &&
+                  audit.retired_name_lookups ==
+                      spec.expected_native_destroys &&
+                  audit.retired_name_rejections ==
+                      spec.expected_native_destroys &&
+                  audit.exact_usage,
               std::string("RT4/V1 replacement allocation drifted for ") +
                   spec.name);
 
@@ -1786,9 +1862,18 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
       final_catalog = std::move(variant_catalog);
       final_scene = variant_scene;
     }
+    result.replacement_final_audit =
+        frontend.QueryTextureAllocationAudit();
+    const OgreNextN1TextureAllocationAudit &final_audit =
+        result.replacement_final_audit;
     result.live_replacement_retirement =
         result.variants.size() == kVariantSpecs.size() &&
-        frontend.QueryTextureAllocationAudit().exact_usage;
+        final_audit.native_allocation_creates == 17U &&
+        final_audit.native_allocation_destroys == 12U &&
+        final_audit.live_native_allocations == 5U &&
+        final_audit.retired_name_lookups == 12U &&
+        final_audit.retired_name_rejections == 12U &&
+        final_audit.exact_usage;
   }
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "first Shutdown");

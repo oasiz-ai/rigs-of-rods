@@ -58,6 +58,101 @@ string(JSON ROR_RAPIDJSON_COMPILED_HEADERS_SPDX GET "${_ror_lock_json}" dependen
 string(JSON ROR_RAPIDJSON_LICENSE_PATH GET "${_ror_lock_json}" dependencies rapidjson license_path)
 string(JSON ROR_RAPIDJSON_LICENSE_SHA256 GET "${_ror_lock_json}" dependencies rapidjson license_sha256)
 
+# RT4's first normal-map slice is coupled to exact upstream shader,
+# datablock, and pixel-format owners. The whole-file digest makes duplicate
+# keys or schema edits fail before CMake's JSON accessor can normalize them;
+# the extracted-source loop below independently verifies every owner hash.
+set(ROR_OGRE_NEXT_NORMAL_MAP_SOURCE_LOCK_PATH
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/ogre-next-normal-map-source.lock.json")
+set(ROR_OGRE_NEXT_NORMAL_MAP_SOURCE_LOCK_SHA256
+    "376e5b45afbac7b95333a3c7d3d4c499173ebdec01b1b99ac3d343d121fbfef6")
+file(SHA256 "${ROR_OGRE_NEXT_NORMAL_MAP_SOURCE_LOCK_PATH}"
+    _ror_normal_map_source_lock_sha256)
+if (NOT _ror_normal_map_source_lock_sha256 STREQUAL
+        ROR_OGRE_NEXT_NORMAL_MAP_SOURCE_LOCK_SHA256)
+    message(FATAL_ERROR "The reviewed normal-map source lock changed")
+endif ()
+file(READ "${ROR_OGRE_NEXT_NORMAL_MAP_SOURCE_LOCK_PATH}"
+    _ror_normal_map_source_lock_json)
+string(JSON ROR_OGRE_NEXT_NORMAL_MAP_LOCK_SCHEMA TYPE
+    "${_ror_normal_map_source_lock_json}" schema)
+string(JSON ROR_OGRE_NEXT_NORMAL_MAP_LOCK_COMMIT_TYPE TYPE
+    "${_ror_normal_map_source_lock_json}" ogre_next_commit)
+string(JSON ROR_OGRE_NEXT_NORMAL_MAP_LOCK_CONTRACT_TYPE TYPE
+    "${_ror_normal_map_source_lock_json}" contract)
+string(JSON ROR_OGRE_NEXT_NORMAL_MAP_LOCK_SOURCES_TYPE TYPE
+    "${_ror_normal_map_source_lock_json}" sources)
+string(JSON ROR_OGRE_NEXT_NORMAL_MAP_LOCK_SCHEMA_VALUE GET
+    "${_ror_normal_map_source_lock_json}" schema)
+string(JSON ROR_OGRE_NEXT_NORMAL_MAP_LOCK_COMMIT GET
+    "${_ror_normal_map_source_lock_json}" ogre_next_commit)
+string(JSON ROR_OGRE_NEXT_NORMAL_MAP_LOCK_SOURCE_COUNT LENGTH
+    "${_ror_normal_map_source_lock_json}" sources)
+if (NOT ROR_OGRE_NEXT_NORMAL_MAP_LOCK_SCHEMA STREQUAL "STRING" OR
+        NOT ROR_OGRE_NEXT_NORMAL_MAP_LOCK_COMMIT_TYPE STREQUAL "STRING" OR
+        NOT ROR_OGRE_NEXT_NORMAL_MAP_LOCK_CONTRACT_TYPE STREQUAL "OBJECT" OR
+        NOT ROR_OGRE_NEXT_NORMAL_MAP_LOCK_SOURCES_TYPE STREQUAL "ARRAY" OR
+        NOT ROR_OGRE_NEXT_NORMAL_MAP_LOCK_SCHEMA_VALUE STREQUAL
+        "ror.ogre_next_rt4_normal_map_source_lock.v1" OR
+        NOT ROR_OGRE_NEXT_NORMAL_MAP_LOCK_COMMIT STREQUAL
+        "37149a802de747f6806996fa3067b0748ecc1084" OR
+        NOT ROR_OGRE_NEXT_NORMAL_MAP_LOCK_SOURCE_COUNT EQUAL 11)
+    message(FATAL_ERROR "The normal-map source lock schema changed")
+endif ()
+set(_ror_normal_map_source_paths "")
+set(_ror_normal_map_source_roles "")
+set(_ror_normal_map_source_hashes "")
+math(EXPR _ror_normal_map_source_last
+    "${ROR_OGRE_NEXT_NORMAL_MAP_LOCK_SOURCE_COUNT} - 1")
+foreach (_ror_normal_map_source_index RANGE 0
+        ${_ror_normal_map_source_last})
+    foreach (_ror_normal_map_field IN ITEMS role path sha256)
+        string(JSON _ror_normal_map_field_type TYPE
+            "${_ror_normal_map_source_lock_json}" sources
+            ${_ror_normal_map_source_index} ${_ror_normal_map_field})
+        if (NOT _ror_normal_map_field_type STREQUAL "STRING")
+            message(FATAL_ERROR
+                "Normal-map source lock owner field has the wrong type")
+        endif ()
+    endforeach ()
+    string(JSON _ror_normal_map_source_role GET
+        "${_ror_normal_map_source_lock_json}" sources
+        ${_ror_normal_map_source_index} role)
+    string(JSON _ror_normal_map_source_path GET
+        "${_ror_normal_map_source_lock_json}" sources
+        ${_ror_normal_map_source_index} path)
+    string(JSON _ror_normal_map_source_sha256 GET
+        "${_ror_normal_map_source_lock_json}" sources
+        ${_ror_normal_map_source_index} sha256)
+    if (_ror_normal_map_source_role STREQUAL "" OR
+            _ror_normal_map_source_path STREQUAL "" OR
+            IS_ABSOLUTE "${_ror_normal_map_source_path}" OR
+            _ror_normal_map_source_path MATCHES "(^|/)\\.\\.(/|$)" OR
+            _ror_normal_map_source_path MATCHES "[;\\\\]" OR
+            NOT _ror_normal_map_source_sha256 MATCHES "^[0-9a-f]+$")
+        message(FATAL_ERROR "Normal-map source lock owner is unsafe")
+    endif ()
+    string(LENGTH "${_ror_normal_map_source_sha256}"
+        _ror_normal_map_source_sha256_length)
+    if (NOT _ror_normal_map_source_sha256_length EQUAL 64)
+        message(FATAL_ERROR "Normal-map source owner hash has the wrong length")
+    endif ()
+    list(FIND _ror_normal_map_source_roles "${_ror_normal_map_source_role}"
+        _ror_duplicate_normal_map_role)
+    list(FIND _ror_normal_map_source_paths "${_ror_normal_map_source_path}"
+        _ror_duplicate_normal_map_path)
+    if (NOT _ror_duplicate_normal_map_role EQUAL -1 OR
+            NOT _ror_duplicate_normal_map_path EQUAL -1)
+        message(FATAL_ERROR "Normal-map source lock has a duplicate owner")
+    endif ()
+    list(APPEND _ror_normal_map_source_roles
+        "${_ror_normal_map_source_role}")
+    list(APPEND _ror_normal_map_source_paths
+        "${_ror_normal_map_source_path}")
+    list(APPEND _ror_normal_map_source_hashes
+        "${_ror_normal_map_source_sha256}")
+endforeach ()
+
 # Linux shader compilation is a separate source lock because its compiled
 # archives are platform-specific while the OGRE/RapidJSON pin is shared by all
 # three native policies. The whole-file digest makes every source, notice, and
@@ -800,6 +895,30 @@ FetchContent_Declare(
         ${_ror_ogre_next_patch_paths}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(ogre_next)
+
+foreach (_ror_normal_map_source_index RANGE 0
+        ${_ror_normal_map_source_last})
+    list(GET _ror_normal_map_source_paths ${_ror_normal_map_source_index}
+        _ror_normal_map_source_path)
+    set(_ror_normal_map_source_file
+        "${ogre_next_SOURCE_DIR}/${_ror_normal_map_source_path}")
+    if (NOT EXISTS "${_ror_normal_map_source_file}" OR
+            IS_SYMLINK "${_ror_normal_map_source_file}")
+        message(FATAL_ERROR
+            "Pinned normal-map source owner is missing or indirect: "
+            "${_ror_normal_map_source_path}")
+    endif ()
+    file(SHA256 "${_ror_normal_map_source_file}"
+        _ror_normal_map_source_actual_sha256)
+    list(GET _ror_normal_map_source_hashes ${_ror_normal_map_source_index}
+        _ror_normal_map_source_expected_sha256)
+    if (NOT _ror_normal_map_source_actual_sha256 STREQUAL
+            _ror_normal_map_source_expected_sha256)
+        message(FATAL_ERROR
+            "Pinned normal-map source owner changed: "
+            "${_ror_normal_map_source_path}")
+    endif ()
+endforeach ()
 
 file(SHA256
     "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_LICENSE_PATH}"

@@ -1,0 +1,75 @@
+{
+  "schema": "ror.ogre_next_rt4_normal_map_source_lock.v1",
+  "ogre_next_commit": "37149a802de747f6806996fa3067b0748ecc1084",
+  "contract": {
+    "authored_texture": "linear_RGBA8_UNORM",
+    "native_texture": "RG8_UNORM",
+    "pbs_slot": "PBSM_NORMAL",
+    "uv_source": 0,
+    "normal_scale": 1,
+    "normal_map_weight": 1,
+    "decoded_b_tolerance": {
+      "numerator": 1,
+      "denominator": 255
+    },
+    "positive_z_only": true,
+    "occlusion_admitted": false
+  },
+  "sources": [
+    {
+      "role": "normal_decode_shader",
+      "path": "Samples/Media/Hlms/Pbs/Any/Main/800.PixelShader_piece_ps.any",
+      "sha256": "12cebd71e877c1d265df8d68f6c3f2931127679a8e77bb01c92b1221a09f5a7f"
+    },
+    {
+      "role": "normal_weight_shader_uniform",
+      "path": "Samples/Media/Hlms/Pbs/Any/Main/500.Structs_piece_vs_piece_ps.any",
+      "sha256": "0337472eac1c285d1d5fb14808da9c6ce3e22514f74886789716c5c191c08943"
+    },
+    {
+      "role": "pbs_texture_slot",
+      "path": "Components/Hlms/Pbs/include/OgreHlmsPbsPrerequisites.h",
+      "sha256": "fcd3f06ad5faab7d393e1bf9738a7cf383d9b949472eb9e5f7e87e676f32726b"
+    },
+    {
+      "role": "datablock_api",
+      "path": "Components/Hlms/Pbs/include/OgreHlmsPbsDatablock.h",
+      "sha256": "50a89116819ab79b77c2ab864cd9222f85434c99d6c9169e61fad0e561fc4593"
+    },
+    {
+      "role": "datablock_implementation",
+      "path": "Components/Hlms/Pbs/src/OgreHlmsPbsDatablock.cpp",
+      "sha256": "e4847c5b267039350999ce18ed6b0158df35ef005dc62b07f7142b7f26381a50"
+    },
+    {
+      "role": "normal_format_selection",
+      "path": "Components/Hlms/Pbs/src/OgreHlmsPbs.cpp",
+      "sha256": "e035ddf3d8b9a62f00a6879fbdfa3743cdcbf061c4a1c698adb833a1854c17cd"
+    },
+    {
+      "role": "pixel_format_enum",
+      "path": "OgreMain/include/OgrePixelFormatGpu.h",
+      "sha256": "dd161fcf2ff0abf48ad9e9f544078c06e44f5b6850ec86d04d4c4c744592752b"
+    },
+    {
+      "role": "pixel_format_metadata",
+      "path": "OgreMain/src/OgrePixelFormatGpuUtils.cpp",
+      "sha256": "a5d810e58f69f1d29df6977569492c946f87cf988f42d789b75f4d3711dee1a6"
+    },
+    {
+      "role": "d3d11_rg8_mapping",
+      "path": "RenderSystems/Direct3D11/src/OgreD3D11Mappings.cpp",
+      "sha256": "22c0febeadb4a1f9d2868a56830a305b57994676e40cd329b7716a5e52fc4088"
+    },
+    {
+      "role": "metal_rg8_mapping",
+      "path": "RenderSystems/Metal/src/OgreMetalMappings.mm",
+      "sha256": "514630607640e0f594353f359099340be1d6ba7c6dd87a9d1d4fbc215d97466a"
+    },
+    {
+      "role": "vulkan_rg8_mapping",
+      "path": "RenderSystems/Vulkan/src/OgreVulkanMappings.cpp",
+      "sha256": "87595fe1d7cdce927cfb873095e17d21ae298140f969f7fd62a2fc2a310a5be8"
+    }
+  ]
+}

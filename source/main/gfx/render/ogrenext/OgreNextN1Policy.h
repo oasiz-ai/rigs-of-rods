@@ -29,6 +29,10 @@ constexpr std::size_t kOgreNextRt4MaximumDirectionalLights = 1U;
 /// direct-sun values inside RGBA16_FLOAT headroom. RT4/V1 adopts that exact,
 /// renderer-independent mapping for its one admitted directional light.
 constexpr float kOgreNextRt4LuxToNativePowerScale = 1.0F / 1024.0F;
+/// An 8-bit UNORM channel spans [-1, 1] in steps of 2/255 after canonical
+/// normal decoding. A nearest-quantized authored B channel may therefore
+/// differ from Ogre's reconstructed positive Z by at most half a step.
+constexpr double kOgreNextRt4NormalDecodedQuantizationTolerance = 1.0 / 255.0;
 
 /// Bounds after the portable descriptor has been reduced with overflow-safe
 /// float arithmetic into Ogre's center/half-size representation.

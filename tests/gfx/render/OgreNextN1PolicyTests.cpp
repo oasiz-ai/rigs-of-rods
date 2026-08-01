@@ -115,6 +115,8 @@ RenderAssetDelta MakeModernCatalogDelta(std::uint64_t registry_id) {
       Ref(RenderAssetKind::TEXTURE, 4U);
   material.metallic_roughness_texture.sampler =
       Ref(RenderAssetKind::SAMPLER, 7U);
+  material.normal_texture.texture = Ref(RenderAssetKind::TEXTURE, 5U);
+  material.normal_texture.sampler = Ref(RenderAssetKind::SAMPLER, 7U);
   material.emissive_texture.texture = Ref(RenderAssetKind::TEXTURE, 6U);
   material.emissive_texture.sampler = Ref(RenderAssetKind::SAMPLER, 7U);
 
@@ -123,7 +125,9 @@ RenderAssetDelta MakeModernCatalogDelta(std::uint64_t registry_id) {
   const TextureResourceDescriptor textures[] = {
       MakeRgba8Texture(TextureColorSpace::SRGB, 180U, 80U, 30U),
       MakeRgba8Texture(TextureColorSpace::LINEAR, 255U, 96U, 210U),
-      MakeRgba8Texture(TextureColorSpace::LINEAR, 128U, 128U, 255U),
+      // (180, 128) reconstructs +Z ~= 0.911282; B=244 decodes to
+      // 0.913725, within the exact half-UNORM-step admission tolerance.
+      MakeRgba8Texture(TextureColorSpace::LINEAR, 180U, 128U, 244U),
       MakeRgba8Texture(TextureColorSpace::SRGB, 20U, 10U, 5U),
   };
   for (std::size_t index = 0U; index < 4U; ++index) {
@@ -591,18 +595,59 @@ void TestModernPbrAssetPolicy() {
               .code == ValidationCode::UNSUPPORTED_FEATURE,
           "pinned-PBS ambient-occlusion mismatch escaped RT4/V1 admission");
 
-  RenderAssetDelta normal_delta =
+  RenderAssetDelta negative_normal_delta =
       MakeModernCatalogDelta(kRegistryId + 3U);
-  MaterialDescriptor &normal_material =
-      std::get<MaterialDescriptor>(normal_delta.mutations[1U].payload);
-  normal_material.normal_texture.texture = Ref(RenderAssetKind::TEXTURE, 5U);
-  normal_material.normal_texture.sampler = Ref(RenderAssetKind::SAMPLER, 7U);
-  RenderAssetRegistry normal_registry(kRegistryId + 3U);
-  Require(normal_registry.Apply(normal_delta).ok(),
-          "normal-texture fixture is not renderer-contract valid");
-  Require(ValidateOgreNextN1AssetCatalog(normal_registry, false, kModern)
+  std::get<TextureResourceDescriptor>(
+      negative_normal_delta.mutations[4U].payload)
+      .mip_levels.front()
+      .bytes[2U] = 0U;
+  RenderAssetRegistry negative_normal_registry(kRegistryId + 3U);
+  Require(negative_normal_registry.Apply(negative_normal_delta).ok(),
+          "negative-Z normal fixture is not renderer-contract valid");
+  Require(ValidateOgreNextN1AssetCatalog(negative_normal_registry, false,
+                                         kModern)
               .code == ValidationCode::UNSUPPORTED_FEATURE,
-          "pinned-PBS reconstructed normal Z escaped RT4/V1 admission");
+          "negative-Z normal escaped RT4/V1 positive-hemisphere admission");
+
+  RenderAssetDelta inconsistent_normal_delta =
+      MakeModernCatalogDelta(kRegistryId + 9U);
+  std::get<TextureResourceDescriptor>(
+      inconsistent_normal_delta.mutations[4U].payload)
+      .mip_levels.front()
+      .bytes[2U] = 200U;
+  RenderAssetRegistry inconsistent_normal_registry(kRegistryId + 9U);
+  Require(inconsistent_normal_registry.Apply(inconsistent_normal_delta).ok(),
+          "inconsistent normal fixture is not renderer-contract valid");
+  Require(ValidateOgreNextN1AssetCatalog(inconsistent_normal_registry, false,
+                                         kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "normal B inconsistent with pinned RG reconstruction escaped admission");
+
+  RenderAssetDelta scaled_normal_delta =
+      MakeModernCatalogDelta(kRegistryId + 10U);
+  std::get<MaterialDescriptor>(scaled_normal_delta.mutations[1U].payload)
+      .normal_scale = 0.5F;
+  RenderAssetRegistry scaled_normal_registry(kRegistryId + 10U);
+  Require(scaled_normal_registry.Apply(scaled_normal_delta).ok(),
+          "scaled-normal fixture is not renderer-contract valid");
+  Require(ValidateOgreNextN1AssetCatalog(scaled_normal_registry, false,
+                                         kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "nonidentity glTF normal scale escaped Ogre lerp-weight admission");
+
+  RenderAssetDelta nonopaque_normal_delta =
+      MakeModernCatalogDelta(kRegistryId + 11U);
+  std::get<TextureResourceDescriptor>(
+      nonopaque_normal_delta.mutations[4U].payload)
+      .mip_levels.front()
+      .bytes[3U] = 254U;
+  RenderAssetRegistry nonopaque_normal_registry(kRegistryId + 11U);
+  Require(nonopaque_normal_registry.Apply(nonopaque_normal_delta).ok(),
+          "nonopaque normal fixture is not renderer-contract valid");
+  Require(ValidateOgreNextN1AssetCatalog(nonopaque_normal_registry, false,
+                                         kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "discarded nonopaque normal alpha escaped canonical admission");
 
   RenderAssetDelta border_delta = MakeModernCatalogDelta(kRegistryId + 4U);
   std::get<SamplerResourceDescriptor>(border_delta.mutations.back().payload)
@@ -626,13 +671,16 @@ void TestModernPbrAssetPolicy() {
 
   RenderAssetDelta unreferenced_delta =
       MakeModernCatalogDelta(kRegistryId + 6U);
-  TextureResourceDescriptor &unreferenced_texture =
-      std::get<TextureResourceDescriptor>(
-          unreferenced_delta.mutations[4U].payload);
+  TextureResourceDescriptor unreferenced_texture =
+      MakeRgba8Texture(TextureColorSpace::LINEAR, 128U, 128U, 128U);
   unreferenced_texture.format = TextureResourceFormat::R8_UNORM;
   unreferenced_texture.mip_levels.front().row_pitch_bytes = 1U;
   unreferenced_texture.mip_levels.front().layer_pitch_bytes = 1U;
   unreferenced_texture.mip_levels.front().bytes = {128U};
+  RenderAssetMutation unreferenced_texture_mutation;
+  unreferenced_texture_mutation.asset =
+      Ref(RenderAssetKind::TEXTURE, 10U);
+  unreferenced_texture_mutation.payload = std::move(unreferenced_texture);
   SamplerResourceDescriptor unreferenced_sampler;
   unreferenced_sampler.address_u = SamplerAddressMode::CLAMP_TO_BORDER;
   RenderAssetMutation unreferenced_sampler_mutation;
@@ -640,6 +688,8 @@ void TestModernPbrAssetPolicy() {
   unreferenced_sampler_mutation.payload = unreferenced_sampler;
   unreferenced_delta.mutations.push_back(
       std::move(unreferenced_sampler_mutation));
+  unreferenced_delta.mutations.push_back(
+      std::move(unreferenced_texture_mutation));
   RenderAssetRegistry unreferenced_registry(kRegistryId + 6U);
   Require(unreferenced_registry.Apply(unreferenced_delta).ok(),
           "unreferenced shared-catalog fixture is not structurally valid");

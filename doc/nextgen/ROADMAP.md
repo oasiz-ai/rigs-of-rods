@@ -1156,12 +1156,18 @@ layer before bulk conversion.
 The opt-in Ogre-Next `MODERN_PBR_RT4_V1` checkpoint now implements a measured
 subset of that path: authored tangent/UV0 geometry, sRGB base-color/emissive
 uploads, packed linear roughness/metallic extraction, padded multi-mip rows,
-portable samplers, one calibrated directional light, transactional replacement
-and exact native texture retirement, HDR/SDR evidence, and simultaneous Metal
-N3 interop. It has passed locally on the recorded Apple M5. This is progress
-toward V1, not completion: normal/occlusion maps, the full lighting inventory,
-shadows, exposure/tone mapping, reflections/GI, native Windows/Linux runtime
-evidence, content conversion, and image/performance gates remain open.
+portable samplers, canonical positive-Z tangent-space normal maps at exactly
+unit scale, one calibrated directional light, transactional replacement and
+exact native texture retirement, HDR/SDR evidence, and simultaneous Metal N3
+interop. The normal contract validates every linear RGBA8 texel/mip against the
+pinned positive-Z reconstruction within exactly `1/255`, requires alpha 255,
+derives `RG8_UNORM`, and binds `PBSM_NORMAL` with UV0 and the authored sampler.
+It has passed locally on the recorded Apple M5. This is progress toward V1, not
+completion: ambient occlusion, the full lighting inventory, shadows,
+exposure/tone mapping, reflections/GI, native Windows/Linux runtime evidence,
+content conversion, and image/performance gates remain open. The occlusion gap
+is explicit: the pinned PBS interface has no ambient-only occlusion slot, and
+detail-weight or direct-light multiplication are not accepted substitutes.
 
 The renderer-neutral V1 numerical oracle evaluates the selected analytic
 equations from the pinned Ogre-Next `PbsBrdf::Default` full32 source profile in

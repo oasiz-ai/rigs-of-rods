@@ -80,6 +80,56 @@ bool HasOpaqueRgba8Alpha(const TextureResourceDescriptor &texture) noexcept {
   return true;
 }
 
+ValidationResult ValidateCanonicalPositiveZNormalTexture(
+    const TextureResourceDescriptor &texture, std::size_t index) {
+  if (texture.color_space != TextureColorSpace::LINEAR) {
+    return Unsupported(
+        "assets.material.normal_texture.color_space",
+        "RT4/V1 normal maps must be authored as linear RGBA8 before deriving the native RG8 texture",
+        index);
+  }
+  for (const TextureMipLevelDescriptor &mip : texture.mip_levels) {
+    for (std::uint32_t row = 0U; row < mip.height; ++row) {
+      const auto *source_row = mip.bytes.data() +
+                               static_cast<std::size_t>(row) *
+                                   mip.row_pitch_bytes;
+      for (std::uint32_t column = 0U; column < mip.width; ++column) {
+        const auto *texel =
+            source_row + static_cast<std::size_t>(column) * 4U;
+        if (texel[3U] != 255U) {
+          return Unsupported(
+              "assets.material.normal_texture.alpha",
+              "RT4/V1 canonical normal maps require alpha 255 in every authored texel and mip because the derived RG8 upload discards alpha",
+              index);
+        }
+        const double decoded_x =
+            2.0 * static_cast<double>(texel[0U]) / 255.0 - 1.0;
+        const double decoded_y =
+            2.0 * static_cast<double>(texel[1U]) / 255.0 - 1.0;
+        const double decoded_z =
+            2.0 * static_cast<double>(texel[2U]) / 255.0 - 1.0;
+        if (decoded_z < 0.0) {
+          return Unsupported(
+              "assets.material.normal_texture.positive_z",
+              "RT4/V1 rejects negative-Z normal texels because pinned PBS reconstructs only the positive hemisphere",
+              index);
+        }
+        const double reconstructed_z = std::sqrt(
+            std::max(0.0, 1.0 - decoded_x * decoded_x -
+                              decoded_y * decoded_y));
+        if (std::fabs(decoded_z - reconstructed_z) >
+            kOgreNextRt4NormalDecodedQuantizationTolerance) {
+          return Unsupported(
+              "assets.material.normal_texture.reconstructed_z",
+              "RT4/V1 requires every authored B channel to agree with pinned positive-Z RG reconstruction within exactly 1/255 decoded units",
+              index);
+        }
+      }
+    }
+  }
+  return ValidationResult::Success();
+}
+
 ValidationResult ValidateModernSamplerPolicy(
     const SamplerResourceDescriptor &sampler, std::size_t index) {
   if (UsesClampToBorder(sampler)) {
@@ -241,22 +291,23 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
   }
   if (raster_feature_tier ==
       OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
-    if (material.normal_texture.texture.valid()) {
+    if (material.normal_scale != 1.0F) {
       return Unsupported(
-          "assets.material.normal_texture",
-          "RT4/V1 keeps normal textures fail-closed because pinned PBS reconstructs positive Z from decoded RG instead of preserving the canonical 2*RGB-1 normal",
+          "assets.material.normal_scale",
+          "RT4/V1 requires normal_scale exactly one because pinned PBS applies a lerp weight instead of canonical glTF x/y scaling",
           index);
     }
     const TextureBinding *supported_bindings[] = {
         &material.base_color_texture,
         &material.metallic_roughness_texture,
+        &material.normal_texture,
         &material.emissive_texture,
     };
     for (const TextureBinding *binding : supported_bindings) {
       if (binding->texture.valid() && !IsIdentityTextureTransform(*binding)) {
         return Unsupported(
             "assets.material.texture_transform",
-            "RT4/V1 supports authored UV0 with an identity texture transform only; pinned PBS has no exact general base/emissive transform API",
+            "RT4/V1 supports authored UV0 with an identity texture transform only; pinned PBS has no exact cross-slot general texture-transform API",
             index);
       }
     }
@@ -533,6 +584,7 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
         const TextureBinding *supported_bindings[] = {
             &material->base_color_texture,
             &material->metallic_roughness_texture,
+            &material->normal_texture,
             &material->emissive_texture,
         };
         for (const TextureBinding *binding : supported_bindings) {
@@ -561,6 +613,14 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
                 "assets.material.base_color_texture.alpha",
                 "RT4/V1 opaque materials require alpha 255 in every authored base-color texel and mip",
                 record_index);
+          }
+          if (binding == &material->normal_texture) {
+            binding_validation =
+                ValidateCanonicalPositiveZNormalTexture(*texture,
+                                                        record_index);
+            if (!binding_validation) {
+              return binding_validation;
+            }
           }
           binding_validation =
               ValidateModernSamplerPolicy(*sampler, record_index);

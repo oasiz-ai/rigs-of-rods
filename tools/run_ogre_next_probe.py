@@ -9,7 +9,7 @@ import json
 import math
 import ntpath
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform
 import re
 import shutil
@@ -23,6 +23,12 @@ from typing import Any
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PROBE_SOURCE = REPOSITORY_ROOT / "tools" / "ogre_next_probe"
 LOCK_PATH = PROBE_SOURCE / "ogre-next.lock.json"
+NORMAL_MAP_SOURCE_LOCK_PATH = (
+    PROBE_SOURCE / "ogre-next-normal-map-source.lock.json"
+)
+NORMAL_MAP_SOURCE_LOCK_SHA256 = (
+    "376e5b45afbac7b95333a3c7d3d4c499173ebdec01b1b99ac3d343d121fbfef6"
+)
 LINUX_SHADER_TOOLCHAIN_LOCK_PATH = (
     PROBE_SOURCE / "linux-shader-toolchain.lock.json"
 )
@@ -248,6 +254,161 @@ def repository_identity(
 def _require_sha256(value: object, label: str) -> None:
     if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
         raise ProbeError(f"{label} is not a lowercase SHA-256")
+
+
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ProbeError(f"normal-map source lock has duplicate key: {key}")
+        result[key] = value
+    return result
+
+
+def load_normal_map_source_lock(
+    path: Path = NORMAL_MAP_SOURCE_LOCK_PATH,
+    source_root: Path | None = None,
+) -> dict[str, Any]:
+    try:
+        source = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ProbeError(
+            f"could not read normal-map source lock: {error}"
+        ) from error
+    if sha256_file(path) != NORMAL_MAP_SOURCE_LOCK_SHA256:
+        raise ProbeError("the reviewed normal-map source lock changed")
+    try:
+        lock = json.loads(source, object_pairs_hook=_strict_json_object)
+    except json.JSONDecodeError as error:
+        raise ProbeError(
+            f"could not parse normal-map source lock: {error}"
+        ) from error
+    if type(lock) is not dict:
+        raise ProbeError("normal-map source lock root must be an object")
+    if source != json.dumps(lock, indent=2) + "\n":
+        raise ProbeError("normal-map source lock is not canonical JSON")
+    if set(lock) != {"schema", "ogre_next_commit", "contract", "sources"}:
+        raise ProbeError("normal-map source lock root schema drifted")
+    if lock.get("schema") != "ror.ogre_next_rt4_normal_map_source_lock.v1":
+        raise ProbeError("normal-map source lock schema changed")
+    if lock.get("ogre_next_commit") != (
+        "37149a802de747f6806996fa3067b0748ecc1084"
+    ):
+        raise ProbeError("normal-map source lock moved to another Ogre commit")
+
+    contract = lock.get("contract")
+    if type(contract) is not dict or set(contract) != {
+        "authored_texture",
+        "native_texture",
+        "pbs_slot",
+        "uv_source",
+        "normal_scale",
+        "normal_map_weight",
+        "decoded_b_tolerance",
+        "positive_z_only",
+        "occlusion_admitted",
+    }:
+        raise ProbeError("normal-map source lock contract schema drifted")
+    tolerance = contract.get("decoded_b_tolerance")
+    if (
+        type(tolerance) is not dict
+        or set(tolerance) != {"numerator", "denominator"}
+        or type(tolerance.get("numerator")) is not int
+        or type(tolerance.get("denominator")) is not int
+        or tolerance != {"numerator": 1, "denominator": 255}
+    ):
+        raise ProbeError("normal-map quantization tolerance contract changed")
+    if (
+        type(contract.get("uv_source")) is not int
+        or type(contract.get("normal_scale")) is not int
+        or type(contract.get("normal_map_weight")) is not int
+        or type(contract.get("positive_z_only")) is not bool
+        or type(contract.get("occlusion_admitted")) is not bool
+        or contract
+        != {
+            "authored_texture": "linear_RGBA8_UNORM",
+            "native_texture": "RG8_UNORM",
+            "pbs_slot": "PBSM_NORMAL",
+            "uv_source": 0,
+            "normal_scale": 1,
+            "normal_map_weight": 1,
+            "decoded_b_tolerance": {"numerator": 1, "denominator": 255},
+            "positive_z_only": True,
+            "occlusion_admitted": False,
+        }
+    ):
+        raise ProbeError("normal-map source lock semantic contract changed")
+
+    expected_owners = (
+        ("normal_decode_shader", "Samples/Media/Hlms/Pbs/Any/Main/800.PixelShader_piece_ps.any"),
+        ("normal_weight_shader_uniform", "Samples/Media/Hlms/Pbs/Any/Main/500.Structs_piece_vs_piece_ps.any"),
+        ("pbs_texture_slot", "Components/Hlms/Pbs/include/OgreHlmsPbsPrerequisites.h"),
+        ("datablock_api", "Components/Hlms/Pbs/include/OgreHlmsPbsDatablock.h"),
+        ("datablock_implementation", "Components/Hlms/Pbs/src/OgreHlmsPbsDatablock.cpp"),
+        ("normal_format_selection", "Components/Hlms/Pbs/src/OgreHlmsPbs.cpp"),
+        ("pixel_format_enum", "OgreMain/include/OgrePixelFormatGpu.h"),
+        ("pixel_format_metadata", "OgreMain/src/OgrePixelFormatGpuUtils.cpp"),
+        ("d3d11_rg8_mapping", "RenderSystems/Direct3D11/src/OgreD3D11Mappings.cpp"),
+        ("metal_rg8_mapping", "RenderSystems/Metal/src/OgreMetalMappings.mm"),
+        ("vulkan_rg8_mapping", "RenderSystems/Vulkan/src/OgreVulkanMappings.cpp"),
+    )
+    sources = lock.get("sources")
+    if type(sources) is not list or len(sources) != len(expected_owners):
+        raise ProbeError("normal-map source owner list changed")
+    roles: set[str] = set()
+    paths: set[str] = set()
+    resolved_root: Path | None = None
+    if source_root is not None:
+        try:
+            resolved_root = source_root.resolve(strict=True)
+        except OSError as error:
+            raise ProbeError(
+                f"could not resolve pinned Ogre source root: {error}"
+            ) from error
+        if not resolved_root.is_dir():
+            raise ProbeError("pinned Ogre source root is not a directory")
+    for index, (entry, expected_owner) in enumerate(zip(sources, expected_owners)):
+        if type(entry) is not dict or set(entry) != {"role", "path", "sha256"}:
+            raise ProbeError(f"normal-map source owner {index} schema drifted")
+        role = entry.get("role")
+        relative = entry.get("path")
+        digest = entry.get("sha256")
+        if type(role) is not str or type(relative) is not str:
+            raise ProbeError(f"normal-map source owner {index} has invalid types")
+        posix_path = PurePosixPath(relative)
+        if (
+            not relative
+            or posix_path.is_absolute()
+            or posix_path.as_posix() != relative
+            or any(part in {"", ".", ".."} for part in posix_path.parts)
+            or "\\" in relative
+        ):
+            raise ProbeError(f"normal-map source owner {index} path is unsafe")
+        _require_sha256(digest, f"normal-map source owner {role} hash")
+        if role in roles or relative in paths:
+            raise ProbeError("normal-map source owner role or path is duplicated")
+        roles.add(role)
+        paths.add(relative)
+        if (role, relative) != expected_owner:
+            raise ProbeError(f"normal-map source owner {index} identity drifted")
+        if resolved_root is not None:
+            candidate = resolved_root / relative
+            try:
+                resolved = candidate.resolve(strict=True)
+                resolved.relative_to(resolved_root)
+            except (OSError, ValueError) as error:
+                raise ProbeError(
+                    f"normal-map source owner escaped or is missing: {relative}"
+                ) from error
+            if candidate.is_symlink() or not resolved.is_file():
+                raise ProbeError(
+                    f"normal-map source owner is not a direct file: {relative}"
+                )
+            if sha256_file(resolved) != digest:
+                raise ProbeError(
+                    f"normal-map source owner hash mismatch: {relative}"
+                )
+    return lock
 
 
 def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
@@ -1073,6 +1234,7 @@ def validate_rt4_isolation_evidence(
         ("roughness_g", "packed_green_roughness"),
         ("metallic_b", "packed_blue_metallic"),
         ("emissive", "emissive_rgb"),
+        ("normal_rg", "canonical_positive_z_normal_rg"),
         ("sampler_uv", "sampler_address_over_uv0"),
     )
     variants = isolation.get("variants")
@@ -1219,6 +1381,7 @@ def validate_n1_checkpoint(
     adapter = report.get("adapter", {})
     catalog = report.get("catalog", {})
     texture_allocations = report.get("texture_allocations", {})
+    texture_upload_rollback = report.get("texture_upload_rollback", {})
     texture_retirement = report.get("texture_retirement", {})
     hdr = report.get("hdr", {})
     sdr = report.get("sdr", {})
@@ -1235,6 +1398,10 @@ def validate_n1_checkpoint(
         "commit": provenance.get("ogre_next_commit") == lock["commit"],
         "archive": provenance.get("ogre_next_archive_sha256")
         == lock["archive_sha256"],
+        "normal_map_source_lock": provenance.get(
+            "normal_map_source_lock_sha256"
+        )
+        == NORMAL_MAP_SOURCE_LOCK_SHA256,
         "ror_repository": provenance.get("ror_repository")
         == source_identity["repository"],
         "ror_ref": provenance.get("ror_ref") == source_identity["ref"],
@@ -1292,7 +1459,7 @@ def validate_n1_checkpoint(
         ),
         "interop_closed": adapter.get("native_interop") is False
         and adapter.get("ray_tracing") is False,
-        "catalog": catalog.get("sequence") == (6 if modern_pbr else 1)
+        "catalog": catalog.get("sequence") == (7 if modern_pbr else 1)
         and catalog.get("transactional_replay_after_restart") is True,
         "hdr_format": hdr.get("format") == "RGBA16_FLOAT",
         "hdr_energy": isinstance(hdr.get("maximum_luminance"), (int, float))
@@ -1337,44 +1504,68 @@ def validate_n1_checkpoint(
                     "padded_source_rows_verified"
                 )
                 is True,
-                "rt4_normal_closed": adapter.get(
-                    "normal_texture_admitted"
-                )
-                is False
-                and adapter.get("normal_texture_blocker")
-                == "pinned_PBS_reconstructs_positive_Z_from_RG",
+                "rt4_normal": adapter.get("normal_texture_admitted") is True
+                and adapter.get("normal_upload")
+                == "linear_RGBA8_positive_Z_to_RG8_UNORM"
+                and adapter.get("normal_slot") == "PBSM_NORMAL"
+                and adapter.get("normal_uv_source") == 0
+                and adapter.get("normal_scale") == 1
+                and adapter.get("normal_map_weight") == 1
+                and adapter.get("normal_positive_z_tolerance_decoded")
+                == "1/255",
                 "rt4_occlusion_closed": adapter.get(
                     "occlusion_texture_admitted"
                 )
-                is False,
+                is False
+                and adapter.get("occlusion_blocker")
+                == "pinned_HLMS_PBS_has_no_ambient_only_AO_slot",
                 "rt4_referenced_resources": catalog.get(
                     "referenced_texture_count"
                 )
-                == 3
+                == 4
                 and catalog.get("referenced_sampler_count") == 1
                 and catalog.get("unreferenced_assets_not_uploaded") is True,
                 "rt4_replacement_sequence": catalog.get(
                     "baseline_sequence"
                 )
                 == 1
-                and catalog.get("live_replacement_count") == 5,
+                and catalog.get("live_replacement_count") == 6,
                 "rt4_exact_allocations": texture_allocations
                 == {
                     "version": 1,
-                    "live_source_textures": 3,
+                    "live_source_textures": 4,
                     "sampled_rgba_allocations": 2,
                     "roughness_r8_allocations": 1,
                     "metallic_r8_allocations": 1,
+                    "normal_rg8_allocations": 1,
                     "unused_packed_rgba_allocations": 0,
                     "exact_usage": True,
                 },
                 "rt4_live_replacement": lifecycle.get(
                     "live_texture_replacement_retirement"
                 )
+                is True
+                and lifecycle.get("replacement_audit")
+                == {
+                    "creates": 17,
+                    "destroys": 12,
+                    "live": 5,
+                    "retired_name_lookups": 12,
+                    "retired_name_rejections": 12,
+                    "exact_usage": True,
+                },
+                "rt4_normal_upload_rollback": texture_upload_rollback.get(
+                    "derived_allocation"
+                )
+                == "normal_RG8_UNORM"
+                and texture_upload_rollback.get(
+                    "clean_retry_replacement_shutdown"
+                )
                 is True,
                 "rt4_retirement": texture_retirement
                 == {
                     "schema": "ror.ogre_next_rt4_texture_retirement.v1",
+                    "derived_allocation": "normal_RG8_UNORM",
                     "isolated_from_visual_variants": True,
                     "transitions": [
                         {
@@ -1599,6 +1790,7 @@ def write_rt4_attestation(
             "archive_sha256": lock["archive_sha256"],
             "license_spdx": lock["license"]["spdx"],
             "license_sha256": lock["license"]["sha256"],
+            "normal_map_source_lock_sha256": NORMAL_MAP_SOURCE_LOCK_SHA256,
         },
         "shader_media": {
             "root": shader_media["root"],
@@ -2857,6 +3049,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.jobs <= 0:
             raise ProbeError("--jobs must be positive")
         lock = load_lock()
+        normal_map_source_lock = load_normal_map_source_lock()
         linux_shader_lock = load_linux_shader_toolchain_lock()
         policy = detect_policy(platform.system(), platform.machine())
         if args.validate_contract_only:
@@ -2866,6 +3059,12 @@ def main(argv: list[str] | None = None) -> int:
                         "schema_version": 2,
                         "status": "pass",
                         "commit": lock["commit"],
+                        "normal_map_source_lock_sha256": (
+                            NORMAL_MAP_SOURCE_LOCK_SHA256
+                        ),
+                        "normal_map_source_owner_count": len(
+                            normal_map_source_lock["sources"]
+                        ),
                         "linux_shader_source_lock_sha256": (
                             LINUX_SHADER_TOOLCHAIN_LOCK_SHA256
                         ),

@@ -51,15 +51,17 @@ struct OgreNextN1Configuration final {
 /// Runtime audit of the native RT4/V1 texture variants owned by one frontend.
 ///
 /// A source texture may require one sampled RGBA allocation (base colour or
-/// emissive), or the two R8 derivatives used by a packed metallic-roughness
-/// binding. `exact_usage` is false unless every live native allocation exactly
-/// matches the roles discovered from the currently published material graph.
+/// emissive), the two R8 derivatives used by a packed metallic-roughness
+/// binding, or one RG8 derivative for an admitted positive-Z normal map.
+/// `exact_usage` is false unless every live native allocation exactly matches
+/// the roles discovered from the currently published material graph.
 struct OgreNextN1TextureAllocationAudit final {
   std::uint32_t version = 1U;
   std::uint32_t live_source_textures = 0U;
   std::uint32_t sampled_rgba_allocations = 0U;
   std::uint32_t roughness_r8_allocations = 0U;
   std::uint32_t metallic_r8_allocations = 0U;
+  std::uint32_t normal_rg8_allocations = 0U;
   std::uint64_t native_allocation_creates = 0U;
   std::uint64_t native_allocation_destroys = 0U;
   std::uint64_t live_native_allocations = 0U;

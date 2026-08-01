@@ -452,12 +452,18 @@ provenance artifacts pass. Only then may the macOS build report
 
 - The first opt-in RT4/V1 slice now proves authored tangents/UV0, sRGB base
   color and emissive, split roughness/metallic channels from a packed linear
-  texture, padded multi-mip uploads, sampler mapping, deterministic texture
-  retirement, one calibrated directional light, HDR/SDR readback, and
-  simultaneous Metal N3 geometry/image interop on the recorded Apple M5.
+  texture, canonical positive-Z unit-scale normal maps derived from validated
+  linear RGBA8 into `RG8_UNORM`, padded multi-mip uploads, sampler mapping,
+  deterministic texture retirement, one calibrated directional light,
+  HDR/SDR readback, and simultaneous Metal N3 geometry/image interop on the
+  recorded Apple M5. A strict feature lock binds the exact pinned Ogre shader,
+  datablock, pixel-format, and Metal/D3D11/Vulkan mapping owners used by that
+  normal-map contract.
 - Complete the remaining Ogre-Next PBR/HDR material and lighting floor,
-  including normal/occlusion maps, shadows, exposure, and presentation, and
-  reproduce the implemented slice on Windows and Linux.
+  including a semantically correct ambient-occlusion path, shadows, exposure,
+  and presentation, and reproduce the implemented slice on Windows and Linux.
+  The pinned PBS surface has no ambient-only occlusion slot; detail-map weight
+  and direct-light multiplication remain explicitly rejected substitutes.
 - Add probes/SSR or accepted non-RT reflection path and a measured diffuse-GI
   path.
 - Bind the probe fallback to the pinned portable box-projection/influence
