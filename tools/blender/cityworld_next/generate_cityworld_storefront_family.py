@@ -1355,6 +1355,7 @@ def generate_variant(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
         use_selection=True,
         use_visible=False,
     )
+    STOREFRONT_CANONICALIZER.canonicalize_storefront_structure(candidate_glb)
     CANONICALIZER.canonicalize_glb_geometry(candidate_glb)
     canonicalize_textureless_texcoords(candidate_glb)
     STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(candidate_glb)

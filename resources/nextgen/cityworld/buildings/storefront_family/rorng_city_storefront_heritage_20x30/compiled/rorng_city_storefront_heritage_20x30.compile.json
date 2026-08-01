@@ -43,7 +43,7 @@
   "connectors": [],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "253b9a55073e0263a0c10257ca3b5d9bad7b7f14b463970ca96c432c1e311e38",
+    "asset_contract_sha256": "f899d856b31eb3497a992578dd06502a048e80f5d2b1a94a443591cc5cc4de30",
     "glb": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.glb",
       "sha256": "dc5271e2f9b265d19730baf02938df0ce8e185666989c76181484e7d406d25c4"

@@ -245,7 +245,125 @@ def read_accessor(
     ]
 
 
+def write_glb(
+    path: Path,
+    document: dict[str, Any],
+    binary: bytes,
+) -> None:
+    json_payload = padded(
+        json.dumps(
+            document,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8"),
+        b" ",
+    )
+    binary_payload = padded(binary, b"\x00")
+    length = 12 + 8 + len(json_payload) + 8 + len(binary_payload)
+    path.write_bytes(
+        b"".join(
+            (
+                struct.pack("<4sII", b"glTF", 2, length),
+                struct.pack("<II", len(json_payload), JSON_CHUNK),
+                json_payload,
+                struct.pack("<II", len(binary_payload), BIN_CHUNK),
+                binary_payload,
+            )
+        )
+    )
+
+
 class StaticGlbCanonicalizerTests(unittest.TestCase):
+    def test_storefront_structure_order_does_not_change_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            left = root / "left.glb"
+            right = root / "right.glb"
+            left.write_bytes(build_test_glb())
+            left_document, binary = read_glb(left)
+            primitive = left_document["meshes"][0]["primitives"][0]
+            left_document["materials"] = [
+                {"name": "fixture_facade"},
+                {"name": "fixture_collision_debug"},
+            ]
+            left_document["meshes"] = [
+                {
+                    "name": "fixture_lod0_mesh",
+                    "primitives": [
+                        {**primitive, "material": 0},
+                        {**primitive, "material": 1},
+                    ],
+                },
+                {
+                    "name": "fixture_collision_fixture_mesh",
+                    "primitives": [{**primitive, "material": 1}],
+                },
+            ]
+            left_document["nodes"] = [
+                {"mesh": 0, "name": "fixture_lod0"},
+                {"mesh": 1, "name": "fixture_collision_fixture"},
+            ]
+            left_document["scenes"] = [
+                {"name": "Scene", "nodes": [0, 1]}
+            ]
+            write_glb(left, left_document, binary)
+
+            right_document = json.loads(json.dumps(left_document))
+            right_document["materials"] = [
+                {"name": "fixture_collision_debug"},
+                {"name": "fixture_facade"},
+            ]
+            right_document["meshes"] = [
+                {
+                    "name": "fixture_collision_fixture_mesh",
+                    "primitives": [{**primitive, "material": 0}],
+                },
+                {
+                    "name": "fixture_lod0_mesh",
+                    "primitives": [
+                        {**primitive, "material": 0},
+                        {**primitive, "material": 1},
+                    ],
+                },
+            ]
+            right_document["nodes"] = [
+                {"mesh": 0, "name": "fixture_collision_fixture"},
+                {"mesh": 1, "name": "fixture_lod0"},
+            ]
+            right_document["scenes"] = [
+                {"name": "Scene", "nodes": [1, 0]}
+            ]
+            write_glb(right, right_document, binary)
+
+            self.assertNotEqual(left.read_bytes(), right.read_bytes())
+            for path in (left, right):
+                STOREFRONT_CANONICALIZER.canonicalize_storefront_structure(
+                    path
+                )
+                CANONICALIZER.canonicalize_glb_geometry(path)
+                STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(path)
+
+            self.assertEqual(left.read_bytes(), right.read_bytes())
+            canonical = left.read_bytes()
+            STOREFRONT_CANONICALIZER.canonicalize_storefront_structure(left)
+            CANONICALIZER.canonicalize_glb_geometry(left)
+            STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(left)
+            self.assertEqual(left.read_bytes(), canonical)
+
+            invalid_document, invalid_binary = read_glb(left)
+            invalid_document["materials"][0]["name"] = "fixture_unknown"
+            write_glb(right, invalid_document, invalid_binary)
+            invalid_payload = right.read_bytes()
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "unknown semantic suffix",
+            ):
+                STOREFRONT_CANONICALIZER.canonicalize_storefront_structure(
+                    right
+                )
+            self.assertEqual(right.read_bytes(), invalid_payload)
+
     def test_duplicate_vertex_identity_does_not_change_output(self) -> None:
         positions = [
             (0.0, 0.0, 0.0),

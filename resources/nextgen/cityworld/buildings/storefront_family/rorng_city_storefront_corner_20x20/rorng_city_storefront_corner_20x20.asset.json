@@ -2,7 +2,7 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.blend",
-      "sha256": "f70e23184d4d8ef4f27c3019d3b6621c3d32521374defeea1f5d8a8eb0b88e46"
+      "sha256": "47a04b6977cd6a1b96fddbf9337ac13110cd850e7f21fa6fc5dd79b162edb5bb"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.glb",
@@ -10,7 +10,7 @@
     },
     "preview": {
       "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20_preview.png",
-      "sha256": "728408ef0a7399cb2e21d7fd74d605659b634c121ec81bca25bb67dc0ef3e528"
+      "sha256": "ac63bda28d468ae02dd31c7d766f977a9f5560e834968e8fc0bb635a7f8bf6bc"
     }
   },
   "asset": {
@@ -41,7 +41,7 @@
         },
         {
           "path": "tools/blender/cityworld_next/canonicalize_storefront_glb.py",
-          "sha256": "d93b4ff0adc2a472a499481ec51696f67ad8c0cf2aec6323f4d6ccea987a8cbb"
+          "sha256": "c4a189908f79c4b9c8108a57a6978d3d0098c14b6d21c59eba321bde7d15dd8c"
         },
         {
           "path": "tools/blender/cityworld_next/artifact_retention_contract.py",
@@ -50,7 +50,7 @@
       ],
       "format": "ror-cityworld-storefront-family-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
-      "sha256": "0af08dbaf1d242aac294d84f6af713604d107b098f1d963f720f161ba9182426"
+      "sha256": "99e038c8ef7424b3b070e5eec1bac9c3923b2f67e2adb21e4cc583ac4d4323af"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -139,7 +139,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20.compile.json",
-      "sha256": "d3ed3ea16ae927ba176ba0b4bd2d4da7d7c8a09fd4f5c9e98945f9efc1c97ac6"
+      "sha256": "eb43103cc24e6200c7bd28e7e9555b216eaabf91f2331916fb5e460bc8ece6e9"
     }
   },
   "connectors": [],

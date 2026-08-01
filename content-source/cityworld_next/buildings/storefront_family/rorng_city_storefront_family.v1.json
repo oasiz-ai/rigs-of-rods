@@ -25,7 +25,7 @@
         },
         {
           "path": "tools/blender/cityworld_next/canonicalize_storefront_glb.py",
-          "sha256": "d93b4ff0adc2a472a499481ec51696f67ad8c0cf2aec6323f4d6ccea987a8cbb"
+          "sha256": "c4a189908f79c4b9c8108a57a6978d3d0098c14b6d21c59eba321bde7d15dd8c"
         },
         {
           "path": "tools/blender/cityworld_next/artifact_retention_contract.py",
@@ -34,7 +34,7 @@
       ],
       "format": "ror-cityworld-storefront-family-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
-      "sha256": "0af08dbaf1d242aac294d84f6af713604d107b098f1d963f720f161ba9182426"
+      "sha256": "99e038c8ef7424b3b070e5eec1bac9c3923b2f67e2adb21e4cc583ac4d4323af"
     },
     "procedural_provenance": {
       "external_geometry": false,

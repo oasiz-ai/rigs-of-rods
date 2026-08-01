@@ -2,7 +2,7 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.blend",
-      "sha256": "4b3bcd566026c5c66520ddd4b604fb4e1dd01111fdb08d0b8c8466f822675297"
+      "sha256": "ae570afcc579c773e420ea2a5510ff750ac344428bf224e299bf0a8afd88283b"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30.glb",
@@ -10,7 +10,7 @@
     },
     "preview": {
       "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_heritage_20x30/rorng_city_storefront_heritage_20x30_preview.png",
-      "sha256": "611722ec229d078b47e98ce47034b13215eb5e28f0408e7da68e4da4a55594cc"
+      "sha256": "bcd31306176a5afb5fa5da49ee6972df3a3bab73316d8deac9811d0edd57f2b8"
     }
   },
   "asset": {
@@ -41,7 +41,7 @@
         },
         {
           "path": "tools/blender/cityworld_next/canonicalize_storefront_glb.py",
-          "sha256": "d93b4ff0adc2a472a499481ec51696f67ad8c0cf2aec6323f4d6ccea987a8cbb"
+          "sha256": "c4a189908f79c4b9c8108a57a6978d3d0098c14b6d21c59eba321bde7d15dd8c"
         },
         {
           "path": "tools/blender/cityworld_next/artifact_retention_contract.py",
@@ -50,7 +50,7 @@
       ],
       "format": "ror-cityworld-storefront-family-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
-      "sha256": "0af08dbaf1d242aac294d84f6af713604d107b098f1d963f720f161ba9182426"
+      "sha256": "99e038c8ef7424b3b070e5eec1bac9c3923b2f67e2adb21e4cc583ac4d4323af"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -139,7 +139,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_heritage_20x30/compiled/rorng_city_storefront_heritage_20x30.compile.json",
-      "sha256": "250be42608bc0e7d4f977f3710f9dff225bd9f9f8d7e4f41c0150513fe02a131"
+      "sha256": "5287e111dddfc65bb172be15538a4dae9223cbe200ca5170b49d0387f64c6ffb"
     }
   },
   "connectors": [],
