@@ -5,21 +5,31 @@ on:
     branches: [master]
     paths:
       - .github/workflows/ogre-next-probe.yml
+      - CMakeLists.txt
+      - source/main/CMakeLists.txt
+      - tests/CMakeLists.txt
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
+      - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/render/**
+      - tests/gfx/RendererBackendPolicyTests.cpp
       - tests/gfx/render/**
       - tests/tools/test_ogre_next_*.py
   pull_request:
     paths:
       - .github/workflows/ogre-next-probe.yml
+      - CMakeLists.txt
+      - source/main/CMakeLists.txt
+      - tests/CMakeLists.txt
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
+      - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/render/**
+      - tests/gfx/RendererBackendPolicyTests.cpp
       - tests/gfx/render/**
       - tests/tools/test_ogre_next_*.py
   workflow_dispatch:
@@ -75,7 +85,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            libshaderc-dev \
             libvulkan-dev \
             libx11-dev \
             libxt-dev \
@@ -116,12 +125,14 @@ jobs:
           python tests/tools/test_ogre_next_frame_probe.py
           python tests/tools/test_ogre_next_frontend_n1_contract.py
           python tests/tools/test_ogre_next_metal_n2_contract.py
+          python tests/tools/test_ogre_next_linux_static_closure.py
           python tests/tools/test_ogre_next_probe_workflow.py
           python tests/tools/test_verify_ogre_next_artifact_set.py
           python -O tests/tools/test_ogre_next_probe_contract.py
           python -O tests/tools/test_ogre_next_frame_probe.py
           python -O tests/tools/test_ogre_next_frontend_n1_contract.py
           python -O tests/tools/test_ogre_next_metal_n2_contract.py
+          python -O tests/tools/test_ogre_next_linux_static_closure.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
           python -O tests/tools/test_verify_ogre_next_artifact_set.py
           python tools/run_ogre_next_probe.py --validate-contract-only
@@ -157,6 +168,38 @@ jobs:
           --reuse-build-dir
           --checkpoint legacy
           --jobs ${{ matrix.jobs }}
+
+      - name: Rehash Linux static closure and reject shader compiler DSOs
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          package_root="$build_root/ror-ogre-next-n1-package"
+          cmake --build "$build_root" \
+            --target ror_ogre_next_linux_static_closure_verify \
+            --config Release --parallel "${{ matrix.jobs }}"
+          cmp tools/ogre_next_probe/linux-shader-toolchain.lock.json \
+            "$package_root/provenance/ogre-next-linux-shader-toolchain.lock.json"
+          cmp "$build_root/ogre-next-linux-static-closure.json" \
+            "$package_root/provenance/ogre-next-linux-static-closure.json"
+          for notice in \
+            Apache-2.0.txt \
+            glslang-LICENSE.txt \
+            SPIRV-Tools-LICENSE.txt \
+            SPIRV-Headers-LICENSE.txt; do
+            test -s "$package_root/licenses/$notice"
+          done
+          for executable in \
+            "$build_root/bin/ror_ogre_next_frame_probe" \
+            "$package_root/bin/ror_ogre_next_frontend_n1_smoke"; do
+            ldd "$executable" | tee "${executable##*/}.ldd.txt"
+            if grep -Eiq \
+                'lib(shaderc|glslang|SPIRV(-Tools(-opt)?)?|MachineIndependent|GenericCodeGen|OSDependent)' \
+                "${executable##*/}.ldd.txt"; then
+              echo "unexpected dynamically linked shader compiler in $executable"
+              exit 1
+            fi
+          done
 
       - name: Re-run native lifecycle tests
         run: >-
@@ -200,6 +243,9 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-linux-static-closure.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/provenance/
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/licenses/
 
       - name: Upload attested Apple Metal N2 capability evidence
         if: always() && runner.os == 'macOS'

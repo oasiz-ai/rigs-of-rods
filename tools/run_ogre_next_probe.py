@@ -21,6 +21,12 @@ from typing import Any
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PROBE_SOURCE = REPOSITORY_ROOT / "tools" / "ogre_next_probe"
 LOCK_PATH = PROBE_SOURCE / "ogre-next.lock.json"
+LINUX_SHADER_TOOLCHAIN_LOCK_PATH = (
+    PROBE_SOURCE / "linux-shader-toolchain.lock.json"
+)
+LINUX_SHADER_TOOLCHAIN_LOCK_SHA256 = (
+    "ce1b5be012dd1be27002311abb2a5a0ecca953f4c8de218af30718b91f754b81"
+)
 REPORT_NAME = "ror-ogre-next-probe-report.json"
 BUILD_CONTRACT_NAME = "ogre-next-build-contract.json"
 FRAME_REPORT_NAME = "ror-ogre-next-frame-probe-report.json"
@@ -31,6 +37,7 @@ N1_PACKAGE_NAME = "ror-ogre-next-n1-package"
 N2_REPORT_NAME = "ror-ogre-next-metal-n2-report.json"
 N2_PROBE_NAME = "ror-ogre-next-metal-n2-probe.bin"
 N2_ATTESTATION_NAME = "ror-ogre-next-metal-n2-attestation.json"
+LINUX_STATIC_CLOSURE_MANIFEST_NAME = "ogre-next-linux-static-closure.json"
 FRAME_VALIDATOR = REPOSITORY_ROOT / "tools" / "validate_ogre_next_frame_probe.py"
 BUILD_SENTINEL_NAME = ".ror-ogre-next-probe-build-v1"
 BUILD_SENTINEL_CONTENT = "ror-ogre-next-probe-build-v1\n"
@@ -383,6 +390,158 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     }
     if lock.get("abi_contract") != expected_abi:
         raise ProbeError("OGRE-Next ABI contract changed without review")
+    return lock
+
+
+def load_linux_shader_toolchain_lock(
+    path: Path = LINUX_SHADER_TOOLCHAIN_LOCK_PATH,
+) -> dict[str, Any]:
+    try:
+        source = path.read_text(encoding="utf-8")
+        lock = json.loads(source)
+    except (OSError, json.JSONDecodeError) as error:
+        raise ProbeError(
+            f"could not read Linux shader toolchain lock: {error}"
+        ) from error
+    if source != json.dumps(lock, indent=2) + "\n":
+        raise ProbeError("Linux shader toolchain lock is not canonical JSON")
+    if sha256_file(path) != LINUX_SHADER_TOOLCHAIN_LOCK_SHA256:
+        raise ProbeError("Linux shader toolchain lock moved without review")
+    if (
+        lock.get("schema") != "ror.ogre_next_linux_shader_toolchain.v1"
+        or lock.get("platform_policy") != "linux-x86_64-vulkan"
+        or lock.get("provider") != "pinned-source"
+    ):
+        raise ProbeError("Linux shader source policy changed")
+
+    expected_sources = {
+        "shaderc": (
+            lock.get("shaderc_release", {}),
+            "https://github.com/google/shaderc",
+            "v2025.3",
+            "8c2e602ce440b7739c95ff3d69cecb1adf6becda",
+            "1a17c01614debaacd5c3674a540368119e93bd299991e0f1c3554875c92ef5e2",
+            "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+            "licenses/Apache-2.0.txt",
+        ),
+        "glslang": (
+            lock.get("dependencies", {}).get("glslang", {}),
+            "https://github.com/KhronosGroup/glslang",
+            "15.3.0+efd24d75",
+            "efd24d75bcbc55620e759f6bf42c45a32abac5f8",
+            "9427deccbdf4bde6a269938df38c6bd75247493786a310d8d733a2c82065ef47",
+            "adb783e734e906d1f46db5df29991dbde84bdb0ceab502ac2febb44fe3c2b5f4",
+            "licenses/glslang-LICENSE.txt",
+        ),
+        "spirv-tools": (
+            lock.get("dependencies", {}).get("spirv_tools", {}),
+            "https://github.com/KhronosGroup/SPIRV-Tools",
+            "v2025.3",
+            "33e02568181e3312f49a3cf33df470bf96ef293a",
+            "44d1005880c583fc00a0fb41c839214c68214b000ea8dcb54d352732fee600ff",
+            "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+            "licenses/SPIRV-Tools-LICENSE.txt",
+        ),
+        "spirv-headers": (
+            lock.get("dependencies", {}).get("spirv_headers", {}),
+            "https://github.com/KhronosGroup/SPIRV-Headers",
+            "1.5.5+2a611a97",
+            "2a611a970fdbc41ac2e3e328802aed9985352dca",
+            "c2225a49c3d7efa5c4f4ce4a6b42081e6ea3daca376f3353d9d7c2722d77a28a",
+            "ea43b1de38a6f90c488800d66dec1ed671e68cda530266bc96951fb5b6307613",
+            "licenses/SPIRV-Headers-LICENSE.txt",
+        ),
+    }
+    for component, expected in expected_sources.items():
+        record, repository, version, commit, archive_hash, license_hash, notice = (
+            expected
+        )
+        observed_version = record.get(
+            "tag" if component == "shaderc" else "version"
+        )
+        checks = (
+            record.get("repository") == repository,
+            observed_version == version,
+            record.get("commit") == commit,
+            record.get("archive_url")
+            == f"{repository}/archive/{commit}.tar.gz",
+            record.get("archive_sha256") == archive_hash,
+            record.get("license_sha256") == license_hash,
+            record.get("package_notice_path") == notice,
+            record.get("package_notice_sha256") == license_hash,
+        )
+        if not all(checks):
+            raise ProbeError(f"Linux shader source pin changed for {component}")
+        _require_sha256(record.get("archive_sha256"), f"{component} archive")
+        _require_sha256(record.get("license_sha256"), f"{component} license")
+
+    shaderc = lock["shaderc_release"]
+    if (
+        shaderc.get("dependency_manifest_path") != "DEPS"
+        or shaderc.get("dependency_manifest_sha256")
+        != "586935f05d12137e2aa587bd96a96b66e75320b1e311907e20567ab352b19a48"
+    ):
+        raise ProbeError("shaderc dependency manifest contract changed")
+    shaderc_patch = shaderc.get("compatibility_patch", {})
+    if (
+        shaderc_patch.get("path")
+        != "patches/0003-shaderc-disable-glslang-install.patch"
+        or shaderc_patch.get("sha256")
+        != "9742f2a9fcb5aef762298d823acb85352e536402ba7c4587173cc52130012b0b"
+    ):
+        raise ProbeError("shaderc CMake compatibility patch contract changed")
+    shaderc_patch_path = path.parent / shaderc_patch["path"]
+    if (
+        not shaderc_patch_path.is_file()
+        or sha256_file(shaderc_patch_path) != shaderc_patch["sha256"]
+    ):
+        raise ProbeError("shaderc CMake compatibility patch SHA-256 mismatch")
+
+    expected_targets = [
+        "shaderc_combined",
+        "shaderc",
+        "shaderc_util",
+        "glslang",
+        "SPIRV",
+        "SPIRV-Tools-opt",
+        "SPIRV-Tools-static",
+    ]
+    targets = lock.get("static_closure_targets")
+    if not isinstance(targets, list) or [
+        record.get("target") for record in targets
+    ] != expected_targets:
+        raise ProbeError("Linux shader static closure inventory changed")
+
+    patch = lock.get("ogre_compatibility_patch", {})
+    if (
+        patch.get("path") != "patches/0002-vulkan-use-glslang-spv-options.patch"
+        or patch.get("sha256")
+        != "d603e6c77943799e91bfe49fb3311157bcbbcccb6667c928c4899ca1a5dca8a6"
+    ):
+        raise ProbeError("OGRE/glslang compatibility patch contract changed")
+    patch_path = path.parent / patch["path"]
+    if not patch_path.is_file() or sha256_file(patch_path) != patch["sha256"]:
+        raise ProbeError("OGRE/glslang compatibility patch SHA-256 mismatch")
+
+    reflect = lock.get("ogre_embedded_components", {}).get("spirv_reflect", {})
+    if (
+        reflect.get("source_sha256")
+        != "41394a0cfed351240dc811758d398117ec2cd13ba95dc9f1a1e346546ac7b4d2"
+        or reflect.get("header_sha256")
+        != "2f3823ea53c6c86902841b5bef3c0b604d56a1e18b97ca46498b6e764573ab03"
+        or reflect.get("license_expression") != "Apache-2.0"
+        or reflect.get("package_notice_path") != "licenses/Apache-2.0.txt"
+    ):
+        raise ProbeError("embedded SPIRV-Reflect contract changed")
+    if lock.get("host_dynamic_boundary") != {
+        "component": "Vulkan-Loader",
+        "cmake_library": "Vulkan_LIBRARY",
+        "policy": (
+            "host-provided dynamic system API; never copied or statically "
+            "linked into the N1 package"
+        ),
+    }:
+        raise ProbeError("Linux Vulkan host dynamic boundary changed")
     return lock
 
 
@@ -1052,7 +1211,9 @@ def run_n1_checkpoint(
     require_source_identity_unchanged(source_identity)
     report_path = build_dir / N1_REPORT_NAME
     image_path = build_dir / N1_IMAGE_NAME
-    missing = [path.name for path in (report_path, image_path) if not path.is_file()]
+    missing = [
+        path.name for path in (report_path, image_path) if not path.is_file()
+    ]
     if missing:
         raise ProbeError(
             "OGRE-Next N1 checkpoint did not produce required artifacts: "
@@ -1434,6 +1595,203 @@ def run_n2_checkpoint(
         raise ProbeError("persisted Metal N2 attestation differs from verified data")
 
 
+def validate_linux_static_closure_manifest(
+    manifest: dict[str, Any], linux_lock: dict[str, Any]
+) -> None:
+    expected_source_records = []
+    for component, record in (
+        ("shaderc", linux_lock["shaderc_release"]),
+        ("glslang", linux_lock["dependencies"]["glslang"]),
+        ("spirv-tools", linux_lock["dependencies"]["spirv_tools"]),
+        ("spirv-headers", linux_lock["dependencies"]["spirv_headers"]),
+    ):
+        expected_source_records.append(
+            {
+                "component": component,
+                "repository": record["repository"],
+                "version": record[
+                    "tag" if component == "shaderc" else "version"
+                ],
+                "commit": record["commit"],
+                "archive_sha256": record["archive_sha256"],
+                "license_expression": record["license_expression"],
+                "license_sha256": record["license_sha256"],
+                "package_notice_path": record["package_notice_path"],
+                "package_notice_sha256": record["package_notice_sha256"],
+            }
+        )
+    artifacts = manifest.get("artifacts")
+    expected_artifacts = (
+        ("shaderc_combined", "libshaderc_combined.a"),
+        ("shaderc", "libshaderc.a"),
+        ("shaderc_util", "libshaderc_util.a"),
+        ("glslang", "libglslang.a"),
+        ("SPIRV", "libSPIRV.a"),
+        ("SPIRV-Tools-opt", "libSPIRV-Tools-opt.a"),
+        ("SPIRV-Tools-static", "libSPIRV-Tools.a"),
+    )
+    artifact_inventory_valid = isinstance(artifacts, list) and len(artifacts) == 7
+    if artifact_inventory_valid:
+        artifact_inventory_valid = all(
+            artifact.get("target") == target
+            and artifact.get("file") == filename
+            and isinstance(artifact.get("sha256"), str)
+            and re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"]) is not None
+            for artifact, (target, filename) in zip(artifacts, expected_artifacts)
+        )
+    source_lock = manifest.get("source_lock", {})
+    compiler = manifest.get("compiler", {})
+    host = manifest.get("host", {})
+    checks = {
+        "schema": manifest.get("schema")
+        == "ror.ogre_next_linux_static_closure.v1",
+        "status": manifest.get("status") == "pass",
+        "provider": manifest.get("provider") == "pinned-source",
+        "platform": manifest.get("platform_policy")
+        == "linux-x86_64-vulkan",
+        "source_lock": source_lock
+        == {
+            "schema": "ror.ogre_next_linux_shader_toolchain.v1",
+            "sha256": LINUX_SHADER_TOOLCHAIN_LOCK_SHA256,
+            "package_path": (
+                "provenance/ogre-next-linux-shader-toolchain.lock.json"
+            ),
+        },
+        "compiler": isinstance(compiler.get("id"), str)
+        and bool(compiler["id"])
+        and isinstance(compiler.get("version"), str)
+        and bool(compiler["version"])
+        and compiler.get("build_type") == REQUIRED_CONFIG,
+        "host": host.get("system") == "Linux"
+        and host.get("processor") in {"AMD64", "amd64", "x86_64"},
+        "sources": manifest.get("sources") == expected_source_records,
+        "artifacts": artifact_inventory_valid,
+        "dynamic_boundary": manifest.get("host_dynamic_boundary")
+        == "Vulkan-Loader",
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise ProbeError(
+            "Linux shader static closure manifest failed closed: "
+            + ", ".join(sorted(failed))
+        )
+
+
+def validate_n1_package_provenance(
+    build_dir: Path,
+    lock: dict[str, Any],
+    linux_lock: dict[str, Any],
+    policy: dict[str, str],
+) -> None:
+    package_root = build_dir / N1_PACKAGE_NAME
+    expected_common = {
+        "licenses/Rigs-of-Rods-GPL-3.0.txt": sha256_file(
+            REPOSITORY_ROOT / "COPYING"
+        ),
+        "licenses/Ogre-Next-MIT.txt": lock["license"]["sha256"],
+        "licenses/RapidJSON-license.txt": lock["dependencies"]["rapidjson"][
+            "license_sha256"
+        ],
+        lock["shader_media"]["third_party_notice"]["notice_path"]: lock[
+            "shader_media"
+        ]["third_party_notice"]["notice_sha256"],
+    }
+    expected = dict(expected_common)
+    if policy["name"] == "linux-x86_64-vulkan":
+        for record in (
+            linux_lock["shaderc_release"],
+            linux_lock["dependencies"]["glslang"],
+            linux_lock["dependencies"]["spirv_tools"],
+            linux_lock["dependencies"]["spirv_headers"],
+        ):
+            expected[record["package_notice_path"]] = record[
+                "package_notice_sha256"
+            ]
+    for relative_path, expected_hash in expected.items():
+        staged_path = package_root / relative_path
+        if not staged_path.is_file():
+            raise ProbeError(f"N1 package notice is missing: {relative_path}")
+        if sha256_file(staged_path) != expected_hash:
+            raise ProbeError(f"N1 package notice SHA-256 mismatch: {relative_path}")
+
+    if policy["name"] != "linux-x86_64-vulkan":
+        return
+    packaged_lock = (
+        package_root
+        / "provenance"
+        / "ogre-next-linux-shader-toolchain.lock.json"
+    )
+    if (
+        not packaged_lock.is_file()
+        or sha256_file(packaged_lock) != LINUX_SHADER_TOOLCHAIN_LOCK_SHA256
+        or packaged_lock.read_bytes()
+        != LINUX_SHADER_TOOLCHAIN_LOCK_PATH.read_bytes()
+    ):
+        raise ProbeError("N1 package Linux shader source lock is missing or changed")
+
+    source_manifest = build_dir / LINUX_STATIC_CLOSURE_MANIFEST_NAME
+    packaged_manifest = (
+        package_root / "provenance" / LINUX_STATIC_CLOSURE_MANIFEST_NAME
+    )
+    if not source_manifest.is_file() or not packaged_manifest.is_file():
+        raise ProbeError("N1 package Linux static closure manifest is missing")
+    if source_manifest.read_bytes() != packaged_manifest.read_bytes():
+        raise ProbeError("N1 package Linux static closure manifest changed in staging")
+    try:
+        manifest = json.loads(packaged_manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ProbeError(
+            f"could not read Linux static closure manifest: {error}"
+        ) from error
+    validate_linux_static_closure_manifest(manifest, linux_lock)
+
+
+def validate_linux_dynamic_boundary(
+    build_dir: Path,
+    *,
+    require_frame_probe: bool,
+    require_packaged_frontend: bool,
+) -> None:
+    package_bin = build_dir / N1_PACKAGE_NAME / "bin"
+    executables: list[Path] = []
+    if require_frame_probe:
+        executables.append(build_dir / "bin" / "ror_ogre_next_frame_probe")
+    if require_packaged_frontend:
+        if not package_bin.is_dir():
+            raise ProbeError("N1 package Linux executable directory is missing")
+        packaged_executables = sorted(
+            path for path in package_bin.iterdir() if path.is_file()
+        )
+        if len(packaged_executables) != 1:
+            raise ProbeError("N1 package must contain exactly one Linux executable")
+        executables.append(packaged_executables[0])
+    if not executables:
+        raise ProbeError("Linux linkage audit has no required executable")
+    forbidden = re.compile(
+        r"lib(?:shaderc|glslang|SPIRV(?:-Tools(?:-opt)?)?|"
+        r"MachineIndependent|GenericCodeGen|OSDependent)",
+        re.IGNORECASE,
+    )
+    for executable in executables:
+        if not executable.is_file():
+            raise ProbeError(f"Linux linkage input is missing: {executable}")
+        try:
+            result = subprocess.run(
+                ["ldd", str(executable)],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise ProbeError(f"could not audit Linux linkage: {executable}") from error
+        match = forbidden.search(result.stdout)
+        if match:
+            raise ProbeError(
+                f"Linux executable crossed static shader boundary: {match.group(0)}"
+            )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1495,6 +1853,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.jobs <= 0:
             raise ProbeError("--jobs must be positive")
         lock = load_lock()
+        linux_shader_lock = load_linux_shader_toolchain_lock()
         policy = detect_policy(platform.system(), platform.machine())
         if args.validate_contract_only:
             print(
@@ -1503,6 +1862,10 @@ def main(argv: list[str] | None = None) -> int:
                         "schema_version": 2,
                         "status": "pass",
                         "commit": lock["commit"],
+                        "linux_shader_source_lock_sha256": (
+                            LINUX_SHADER_TOOLCHAIN_LOCK_SHA256
+                        ),
+                        "linux_shader_provider": linux_shader_lock["provider"],
                         "platform_policy": policy["name"],
                         "configuration": REQUIRED_CONFIG,
                         "network_used": False,
@@ -1584,6 +1947,30 @@ def main(argv: list[str] | None = None) -> int:
                 policy,
                 source_identity,
             )
+            if policy["name"] == "linux-x86_64-vulkan":
+                run(
+                    [
+                        "cmake",
+                        "--build",
+                        str(build_dir),
+                        "--target",
+                        "ror_ogre_next_linux_static_closure_verify",
+                        "--config",
+                        args.config,
+                        "--parallel",
+                        str(args.jobs),
+                    ]
+                )
+                require_source_identity_unchanged(source_identity)
+            validate_n1_package_provenance(
+                build_dir, lock, linux_shader_lock, policy
+            )
+            if policy["name"] == "linux-x86_64-vulkan":
+                validate_linux_dynamic_boundary(
+                    build_dir,
+                    require_frame_probe=False,
+                    require_packaged_frontend=True,
+                )
 
         if args.checkpoint in ("all", "n2"):
             run_n2_checkpoint(
@@ -1630,6 +2017,38 @@ def main(argv: list[str] | None = None) -> int:
                 report_path,
             )
             require_source_identity_unchanged(source_identity)
+            if policy["name"] == "linux-x86_64-vulkan":
+                run(
+                    [
+                        "cmake",
+                        "--build",
+                        str(build_dir),
+                        "--target",
+                        "ror_ogre_next_linux_static_closure_verify",
+                        "--config",
+                        args.config,
+                        "--parallel",
+                        str(args.jobs),
+                    ]
+                )
+                require_source_identity_unchanged(source_identity)
+                closure_path = build_dir / LINUX_STATIC_CLOSURE_MANIFEST_NAME
+                try:
+                    closure = json.loads(closure_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as error:
+                    raise ProbeError(
+                        f"could not read Linux static closure manifest: {error}"
+                    ) from error
+                validate_linux_static_closure_manifest(
+                    closure, linux_shader_lock
+                )
+                validate_linux_dynamic_boundary(
+                    build_dir,
+                    require_frame_probe=True,
+                    require_packaged_frontend=(
+                        args.checkpoint == "all" or args.reuse_build_dir
+                    ),
+                )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0
     except ProbeError as error:

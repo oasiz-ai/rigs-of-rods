@@ -39,12 +39,26 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             with self.subTest(action=action):
                 self.assertRegex(action, r"^[^@]+@[0-9a-f]{40}$")
 
+    def test_all_renderer_policy_inputs_trigger_the_probe(self) -> None:
+        for path in (
+            "CMakeLists.txt",
+            "source/main/CMakeLists.txt",
+            "tests/CMakeLists.txt",
+            "source/main/gfx/RendererBackendPolicy.*",
+            "source/main/gfx/render/**",
+            "tests/gfx/RendererBackendPolicyTests.cpp",
+            "tests/gfx/render/**",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.workflow.count(f"- {path}"), 2)
+
     def test_every_probe_layer_is_required_in_normal_and_optimized_python(self) -> None:
         for test_path in (
             "tests/tools/test_ogre_next_probe_contract.py",
             "tests/tools/test_ogre_next_frame_probe.py",
             "tests/tools/test_ogre_next_frontend_n1_contract.py",
             "tests/tools/test_ogre_next_metal_n2_contract.py",
+            "tests/tools/test_ogre_next_linux_static_closure.py",
             SELF_PATH,
             "tests/tools/test_verify_ogre_next_artifact_set.py",
         ):
@@ -59,7 +73,6 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
 
     def test_linux_uses_a_declared_software_vulkan_device(self) -> None:
         for required in (
-            "libshaderc-dev",
             "libvulkan-dev",
             "libx11-dev",
             "libxt-dev",
@@ -73,21 +86,30 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, self.workflow)
 
-    def test_linux_selects_shadercs_packaged_shared_abi(self) -> None:
+        for prohibited in ("libshaderc-dev", "glslang-dev", "spirv-tools"):
+            with self.subTest(prohibited=prohibited):
+                self.assertNotIn(prohibited, self.workflow)
+
+    def test_linux_builds_and_audits_the_pinned_static_shader_closure(self) -> None:
         probe_root = REPOSITORY_ROOT / "tools" / "ogre_next_probe"
         cmake = (probe_root / "CMakeLists.txt").read_text(encoding="utf-8")
         cmake += (probe_root / "cmake" / "PinnedOgreNext.cmake").read_text(
             encoding="utf-8"
         )
-        self.assertIn("ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY", cmake)
-        self.assertIn("NAMES shaderc_shared shaderc", cmake)
-        self.assertIn('MATCHES "\\\\.a$"', cmake)
+        self.assertIn("linux-shader-toolchain.lock.json", cmake)
+        self.assertIn("FetchContent_MakeAvailable(shaderc)", cmake)
+        self.assertIn("set(Vulkan_SHADERC_LIB_REL shaderc_combined", cmake)
+        self.assertIn("ror_ogre_next_linux_static_closure_verify", cmake)
         self.assertIn("set(Vulkan_SHADERC_LIB_REL", cmake)
         self.assertIn("set(Vulkan_SHADERC_LIB_DBG", cmake)
         self.assertNotIn("find_package(glslang", cmake)
-        self.assertNotIn("glslang::", cmake)
+        self.assertNotIn("ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY", cmake)
         self.assertNotIn("glslang-dev", self.workflow)
-        self.assertNotIn("glslang-tools", self.workflow)
+        self.assertNotIn("libshaderc-dev", self.workflow)
+        self.assertIn("cmp tools/ogre_next_probe/linux-shader-toolchain.lock.json", self.workflow)
+        self.assertIn("MachineIndependent|GenericCodeGen|OSDependent", self.workflow)
+        self.assertIn("ror_ogre_next_frame_probe", self.workflow)
+        self.assertIn("ror_ogre_next_frontend_n1_smoke", self.workflow)
 
     def test_byte_hashed_probe_inputs_are_checkout_stable(self) -> None:
         attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(

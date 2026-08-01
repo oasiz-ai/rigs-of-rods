@@ -58,6 +58,89 @@ string(JSON ROR_RAPIDJSON_COMPILED_HEADERS_SPDX GET "${_ror_lock_json}" dependen
 string(JSON ROR_RAPIDJSON_LICENSE_PATH GET "${_ror_lock_json}" dependencies rapidjson license_path)
 string(JSON ROR_RAPIDJSON_LICENSE_SHA256 GET "${_ror_lock_json}" dependencies rapidjson license_sha256)
 
+# Linux shader compilation is a separate source lock because its compiled
+# archives are platform-specific while the OGRE/RapidJSON pin is shared by all
+# three native policies. The whole-file digest makes every source, notice, and
+# closure-target metadata change require an explicit integration review.
+set(ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/linux-shader-toolchain.lock.json")
+set(ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_SHA256
+    "ce1b5be012dd1be27002311abb2a5a0ecca953f4c8de218af30718b91f754b81")
+file(SHA256 "${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
+    _ror_linux_toolchain_lock_sha256)
+if (NOT _ror_linux_toolchain_lock_sha256 STREQUAL
+        ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_SHA256)
+    message(FATAL_ERROR "The reviewed Linux shader source lock changed")
+endif ()
+file(READ "${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
+    _ror_linux_toolchain_lock_json)
+string(JSON ROR_LINUX_SHADER_LOCK_SCHEMA GET
+    "${_ror_linux_toolchain_lock_json}" schema)
+string(JSON ROR_LINUX_SHADER_PLATFORM_POLICY GET
+    "${_ror_linux_toolchain_lock_json}" platform_policy)
+string(JSON ROR_LINUX_SHADER_PROVIDER GET
+    "${_ror_linux_toolchain_lock_json}" provider)
+
+foreach (_ror_component IN ITEMS SHADERC GLSLANG SPIRV_TOOLS SPIRV_HEADERS)
+    if (_ror_component STREQUAL "SHADERC")
+        set(_ror_component_path shaderc_release)
+    elseif (_ror_component STREQUAL "GLSLANG")
+        set(_ror_component_path dependencies glslang)
+    elseif (_ror_component STREQUAL "SPIRV_TOOLS")
+        set(_ror_component_path dependencies spirv_tools)
+    else ()
+        set(_ror_component_path dependencies spirv_headers)
+    endif ()
+    string(JSON ROR_LINUX_${_ror_component}_REPOSITORY GET
+        "${_ror_linux_toolchain_lock_json}" ${_ror_component_path} repository)
+    string(JSON ROR_LINUX_${_ror_component}_COMMIT GET
+        "${_ror_linux_toolchain_lock_json}" ${_ror_component_path} commit)
+    string(JSON ROR_LINUX_${_ror_component}_ARCHIVE_URL GET
+        "${_ror_linux_toolchain_lock_json}" ${_ror_component_path} archive_url)
+    string(JSON ROR_LINUX_${_ror_component}_ARCHIVE_SHA256 GET
+        "${_ror_linux_toolchain_lock_json}" ${_ror_component_path} archive_sha256)
+    string(JSON ROR_LINUX_${_ror_component}_LICENSE_PATH GET
+        "${_ror_linux_toolchain_lock_json}" ${_ror_component_path} license_path)
+    string(JSON ROR_LINUX_${_ror_component}_LICENSE_SHA256 GET
+        "${_ror_linux_toolchain_lock_json}" ${_ror_component_path} license_sha256)
+endforeach ()
+string(JSON ROR_LINUX_SHADERC_DEPS_PATH GET
+    "${_ror_linux_toolchain_lock_json}" shaderc_release dependency_manifest_path)
+string(JSON ROR_LINUX_SHADERC_DEPS_SHA256 GET
+    "${_ror_linux_toolchain_lock_json}" shaderc_release dependency_manifest_sha256)
+string(JSON ROR_LINUX_SHADERC_PATCH_PATH GET
+    "${_ror_linux_toolchain_lock_json}" shaderc_release compatibility_patch path)
+string(JSON ROR_LINUX_SHADERC_PATCH_SHA256 GET
+    "${_ror_linux_toolchain_lock_json}" shaderc_release compatibility_patch sha256)
+string(JSON ROR_LINUX_GLSLANG_NOTICE_PATH GET
+    "${_ror_linux_toolchain_lock_json}" dependencies glslang package_notice_path)
+string(JSON ROR_LINUX_GLSLANG_NOTICE_SHA256 GET
+    "${_ror_linux_toolchain_lock_json}" dependencies glslang package_notice_sha256)
+string(JSON ROR_LINUX_SPIRV_TOOLS_NOTICE_PATH GET
+    "${_ror_linux_toolchain_lock_json}" dependencies spirv_tools package_notice_path)
+string(JSON ROR_LINUX_SPIRV_TOOLS_NOTICE_SHA256 GET
+    "${_ror_linux_toolchain_lock_json}" dependencies spirv_tools package_notice_sha256)
+string(JSON ROR_LINUX_SPIRV_HEADERS_NOTICE_PATH GET
+    "${_ror_linux_toolchain_lock_json}" dependencies spirv_headers package_notice_path)
+string(JSON ROR_LINUX_SPIRV_HEADERS_NOTICE_SHA256 GET
+    "${_ror_linux_toolchain_lock_json}" dependencies spirv_headers package_notice_sha256)
+string(JSON ROR_LINUX_APACHE_NOTICE_PATH GET
+    "${_ror_linux_toolchain_lock_json}" shaderc_release package_notice_path)
+string(JSON ROR_LINUX_APACHE_NOTICE_SHA256 GET
+    "${_ror_linux_toolchain_lock_json}" shaderc_release package_notice_sha256)
+string(JSON ROR_LINUX_OGRE_GLSLANG_PATCH_PATH GET
+    "${_ror_linux_toolchain_lock_json}" ogre_compatibility_patch path)
+string(JSON ROR_LINUX_OGRE_GLSLANG_PATCH_SHA256 GET
+    "${_ror_linux_toolchain_lock_json}" ogre_compatibility_patch sha256)
+string(JSON ROR_LINUX_SPIRV_REFLECT_SOURCE_PATH GET
+    "${_ror_linux_toolchain_lock_json}" ogre_embedded_components spirv_reflect source_path)
+string(JSON ROR_LINUX_SPIRV_REFLECT_SOURCE_SHA256 GET
+    "${_ror_linux_toolchain_lock_json}" ogre_embedded_components spirv_reflect source_sha256)
+string(JSON ROR_LINUX_SPIRV_REFLECT_HEADER_PATH GET
+    "${_ror_linux_toolchain_lock_json}" ogre_embedded_components spirv_reflect header_path)
+string(JSON ROR_LINUX_SPIRV_REFLECT_HEADER_SHA256 GET
+    "${_ror_linux_toolchain_lock_json}" ogre_embedded_components spirv_reflect header_sha256)
+
 if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 2 OR
         NOT ROR_OGRE_NEXT_REPOSITORY STREQUAL
         "https://github.com/OGRECave/ogre-next" OR
@@ -65,6 +148,13 @@ if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 2 OR
         NOT ROR_OGRE_NEXT_COMMIT STREQUAL
         "37149a802de747f6806996fa3067b0748ecc1084")
     message(FATAL_ERROR "The OGRE-Next lock moved without an integration review")
+endif ()
+if (NOT ROR_LINUX_SHADER_LOCK_SCHEMA STREQUAL
+        "ror.ogre_next_linux_shader_toolchain.v1" OR
+        NOT ROR_LINUX_SHADER_PLATFORM_POLICY STREQUAL
+        "linux-x86_64-vulkan" OR
+        NOT ROR_LINUX_SHADER_PROVIDER STREQUAL "pinned-source")
+    message(FATAL_ERROR "The Linux shader source policy changed")
 endif ()
 if (NOT ROR_OGRE_NEXT_SHADER_MEDIA_ROOT STREQUAL "Samples/Media/Hlms" OR
         NOT ROR_OGRE_NEXT_SHADER_MEDIA_LICENSE_EXPRESSION STREQUAL
@@ -132,11 +222,33 @@ if (NOT ROR_OGRE_NEXT_PATCH_SHA256 STREQUAL
         NOT _ror_patch_sha256 STREQUAL ROR_OGRE_NEXT_PATCH_SHA256)
     message(FATAL_ERROR "The pinned OGRE-Next adaptation patch changed")
 endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_LINUX_OGRE_GLSLANG_PATCH_PATH}"
+    _ror_linux_ogre_glslang_patch_sha256)
+if (NOT _ror_linux_ogre_glslang_patch_sha256 STREQUAL
+        ROR_LINUX_OGRE_GLSLANG_PATCH_SHA256)
+    message(FATAL_ERROR "The pinned OGRE/glslang ABI patch changed")
+endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_LINUX_SHADERC_PATCH_PATH}"
+    _ror_linux_shaderc_patch_sha256)
+if (NOT _ror_linux_shaderc_patch_sha256 STREQUAL
+        ROR_LINUX_SHADERC_PATCH_SHA256)
+    message(FATAL_ERROR "The pinned shaderc CMake patch changed")
+endif ()
 
 set(ROR_OGRE_NEXT_ARCHIVE "" CACHE FILEPATH
     "Optional local copy of the pinned OGRE-Next archive")
 set(ROR_RAPIDJSON_ARCHIVE "" CACHE FILEPATH
     "Optional local copy of the pinned RapidJSON archive")
+set(ROR_OGRE_NEXT_SHADERC_ARCHIVE "" CACHE FILEPATH
+    "Optional local copy of the pinned shaderc source archive")
+set(ROR_OGRE_NEXT_GLSLANG_ARCHIVE "" CACHE FILEPATH
+    "Optional local copy of the pinned glslang source archive")
+set(ROR_OGRE_NEXT_SPIRV_TOOLS_ARCHIVE "" CACHE FILEPATH
+    "Optional local copy of the pinned SPIRV-Tools source archive")
+set(ROR_OGRE_NEXT_SPIRV_HEADERS_ARCHIVE "" CACHE FILEPATH
+    "Optional local copy of the pinned SPIRV-Headers source archive")
 if (DEFINED FETCHCONTENT_SOURCE_DIR_OGRE_NEXT AND
         NOT FETCHCONTENT_SOURCE_DIR_OGRE_NEXT STREQUAL "")
     message(FATAL_ERROR
@@ -147,6 +259,54 @@ if (DEFINED FETCHCONTENT_SOURCE_DIR_RAPIDJSON AND
     message(FATAL_ERROR
         "FETCHCONTENT_SOURCE_DIR_RAPIDJSON bypasses archive verification and is prohibited")
 endif ()
+foreach (_ror_content_name IN ITEMS
+        ROR_SHADERC_SOURCE ROR_GLSLANG_SOURCE ROR_SPIRV_TOOLS_SOURCE
+        ROR_SPIRV_HEADERS_SOURCE)
+    if (DEFINED FETCHCONTENT_SOURCE_DIR_${_ror_content_name} AND
+            NOT FETCHCONTENT_SOURCE_DIR_${_ror_content_name} STREQUAL "")
+        message(FATAL_ERROR
+            "FETCHCONTENT_SOURCE_DIR_${_ror_content_name} bypasses the "
+            "Linux shader source lock and is prohibited")
+    endif ()
+endforeach ()
+
+function(_ror_resolve_linux_source_archive
+        _ror_cache_variable _ror_expected_sha256 _ror_archive_url
+        _ror_description _ror_output)
+    if (NOT "${${_ror_cache_variable}}" STREQUAL "")
+        if (NOT EXISTS "${${_ror_cache_variable}}")
+            message(FATAL_ERROR
+                "Pinned ${_ror_description} archive does not exist: "
+                "${${_ror_cache_variable}}")
+        endif ()
+        file(SHA256 "${${_ror_cache_variable}}" _ror_actual_sha256)
+        if (NOT _ror_actual_sha256 STREQUAL _ror_expected_sha256)
+            message(FATAL_ERROR
+                "Pinned ${_ror_description} archive SHA-256 mismatch: "
+                "expected ${_ror_expected_sha256}, got ${_ror_actual_sha256}")
+        endif ()
+        set(${_ror_output} "${${_ror_cache_variable}}" PARENT_SCOPE)
+    else ()
+        set(${_ror_output} "${_ror_archive_url}" PARENT_SCOPE)
+    endif ()
+endfunction()
+
+_ror_resolve_linux_source_archive(
+    ROR_OGRE_NEXT_SHADERC_ARCHIVE "${ROR_LINUX_SHADERC_ARCHIVE_SHA256}"
+    "${ROR_LINUX_SHADERC_ARCHIVE_URL}" "shaderc" _ror_shaderc_url)
+_ror_resolve_linux_source_archive(
+    ROR_OGRE_NEXT_GLSLANG_ARCHIVE "${ROR_LINUX_GLSLANG_ARCHIVE_SHA256}"
+    "${ROR_LINUX_GLSLANG_ARCHIVE_URL}" "glslang" _ror_glslang_url)
+_ror_resolve_linux_source_archive(
+    ROR_OGRE_NEXT_SPIRV_TOOLS_ARCHIVE
+    "${ROR_LINUX_SPIRV_TOOLS_ARCHIVE_SHA256}"
+    "${ROR_LINUX_SPIRV_TOOLS_ARCHIVE_URL}" "SPIRV-Tools"
+    _ror_spirv_tools_url)
+_ror_resolve_linux_source_archive(
+    ROR_OGRE_NEXT_SPIRV_HEADERS_ARCHIVE
+    "${ROR_LINUX_SPIRV_HEADERS_ARCHIVE_SHA256}"
+    "${ROR_LINUX_SPIRV_HEADERS_ARCHIVE_URL}" "SPIRV-Headers"
+    _ror_spirv_headers_url)
 
 if (ROR_OGRE_NEXT_ARCHIVE)
     if (NOT EXISTS "${ROR_OGRE_NEXT_ARCHIVE}")
@@ -294,27 +454,39 @@ else ()
     set(OGRE_VULKAN_WINDOW_NULL ON CACHE BOOL "" FORCE)
     set(OGRE_VULKAN_WINDOW_XCB OFF CACHE BOOL "" FORCE)
 
-    # OGRE-Next's legacy FindVulkan module asks specifically for the static
-    # shaderc_combined archive. Distribution packages do not consistently
-    # publish that archive's private glslang/SPIRV-Tools closure, and guessing
-    # the archive order makes otherwise portable probes linker-dependent.
-    # Select shaderc's shared ABI before OGRE configures Vulkan instead; its
-    # runtime dependency closure is owned by the distribution package.
-    find_library(
-        ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY
-        NAMES shaderc_shared shaderc
-        REQUIRED)
-    if (ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY MATCHES "\\.a$")
-        message(FATAL_ERROR
-            "The Linux Vulkan probe requires shared shaderc, but found "
-            "${ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY}")
-    endif ()
-    set(Vulkan_SHADERC_LIB_REL
-        "${ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY}"
-        CACHE FILEPATH "Reviewed shared shaderc library" FORCE)
-    set(Vulkan_SHADERC_LIB_DBG
-        "${ROR_OGRE_NEXT_SHADERC_SHARED_LIBRARY}"
-        CACHE FILEPATH "Reviewed shared shaderc library" FORCE)
+    # Never mix host-package C++ archives into OGRE's direct glslang API.
+    # shaderc v2025.3 owns an exact DEPS family; it is populated below and its
+    # single combined archive carries the complete glslang/SPIR-V closure.
+    foreach (_ror_forbidden_target IN ITEMS
+            shaderc_combined shaderc shaderc_util glslang SPIRV
+            SPIRV-Tools-opt SPIRV-Tools SPIRV-Tools-static)
+        if (TARGET ${_ror_forbidden_target})
+            message(FATAL_ERROR
+                "A pre-existing ${_ror_forbidden_target} target would bypass "
+                "the pinned Linux shader source closure")
+        endif ()
+    endforeach ()
+    set(SHADERC_SKIP_INSTALL ON CACHE BOOL "" FORCE)
+    set(SHADERC_SKIP_TESTS ON CACHE BOOL "" FORCE)
+    set(SHADERC_SKIP_EXAMPLES ON CACHE BOOL "" FORCE)
+    set(SHADERC_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
+    set(SHADERC_SKIP_COPYRIGHT_CHECK ON CACHE BOOL "" FORCE)
+    set(SHADERC_ENABLE_WERROR_COMPILE OFF CACHE BOOL "" FORCE)
+    set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
+    set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
+    set(SPIRV_WERROR OFF CACHE BOOL "" FORCE)
+    set(SPIRV_TOOLS_BUILD_STATIC ON CACHE BOOL "" FORCE)
+    set(SPIRV_TOOLS_USE_MIMALLOC OFF CACHE BOOL "" FORCE)
+    set(SKIP_SPIRV_TOOLS_INSTALL ON CACHE BOOL "" FORCE)
+    set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+    set(ENABLE_SPVREMAPPER OFF CACHE BOOL "" FORCE)
+    set(ENABLE_PCH OFF CACHE BOOL "" FORCE)
+    set(ENABLE_HLSL ON CACHE BOOL "" FORCE)
+    set(ENABLE_SPIRV ON CACHE BOOL "" FORCE)
+    set(ENABLE_OPT ON CACHE BOOL "" FORCE)
+    set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
 endif ()
 
 set(OGRE_BUILD_COMPONENT_HLMS_PBS ON CACHE BOOL "" FORCE)
@@ -366,6 +538,172 @@ endif ()
 file(WRITE "${_ror_fresh_configure_guard}"
     "ror-ogre-next-fresh-configured-v1\n")
 
+if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
+    # Populate the exact dependency commits selected by shaderc's reviewed
+    # DEPS file. SOURCE_SUBDIR deliberately names a nonexistent directory so
+    # FetchContent verifies and extracts each archive without independently
+    # configuring it; shaderc then owns their add_subdirectory order.
+    FetchContent_Declare(
+        ror_spirv_headers_source
+        URL "${_ror_spirv_headers_url}"
+        URL_HASH "SHA256=${ROR_LINUX_SPIRV_HEADERS_ARCHIVE_SHA256}"
+        SOURCE_SUBDIR ror-pinned-source-only
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_Declare(
+        ror_spirv_tools_source
+        URL "${_ror_spirv_tools_url}"
+        URL_HASH "SHA256=${ROR_LINUX_SPIRV_TOOLS_ARCHIVE_SHA256}"
+        SOURCE_SUBDIR ror-pinned-source-only
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_Declare(
+        ror_glslang_source
+        URL "${_ror_glslang_url}"
+        URL_HASH "SHA256=${ROR_LINUX_GLSLANG_ARCHIVE_SHA256}"
+        SOURCE_SUBDIR ror-pinned-source-only
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(
+        ror_spirv_headers_source ror_spirv_tools_source ror_glslang_source)
+
+    set(SHADERC_SPIRV_HEADERS_DIR
+        "${ror_spirv_headers_source_SOURCE_DIR}" CACHE PATH "" FORCE)
+    set(SHADERC_SPIRV_TOOLS_DIR
+        "${ror_spirv_tools_source_SOURCE_DIR}" CACHE PATH "" FORCE)
+    set(SHADERC_GLSLANG_DIR
+        "${ror_glslang_source_SOURCE_DIR}" CACHE PATH "" FORCE)
+    FetchContent_Declare(
+        shaderc
+        URL "${_ror_shaderc_url}"
+        URL_HASH "SHA256=${ROR_LINUX_SHADERC_ARCHIVE_SHA256}"
+        PATCH_COMMAND
+            "${GIT_EXECUTABLE}" apply --unidiff-zero --whitespace=nowarn
+            "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_LINUX_SHADERC_PATCH_PATH}"
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(shaderc)
+
+    file(SHA256 "${shaderc_SOURCE_DIR}/${ROR_LINUX_SHADERC_DEPS_PATH}"
+        _ror_shaderc_deps_sha256)
+    if (NOT _ror_shaderc_deps_sha256 STREQUAL ROR_LINUX_SHADERC_DEPS_SHA256)
+        message(FATAL_ERROR "shaderc's reviewed DEPS manifest changed")
+    endif ()
+    foreach (_ror_component IN ITEMS SHADERC GLSLANG SPIRV_TOOLS SPIRV_HEADERS)
+        if (_ror_component STREQUAL "SHADERC")
+            set(_ror_source_dir "${shaderc_SOURCE_DIR}")
+        elseif (_ror_component STREQUAL "GLSLANG")
+            set(_ror_source_dir "${ror_glslang_source_SOURCE_DIR}")
+        elseif (_ror_component STREQUAL "SPIRV_TOOLS")
+            set(_ror_source_dir "${ror_spirv_tools_source_SOURCE_DIR}")
+        else ()
+            set(_ror_source_dir "${ror_spirv_headers_source_SOURCE_DIR}")
+        endif ()
+        file(SHA256
+            "${_ror_source_dir}/${ROR_LINUX_${_ror_component}_LICENSE_PATH}"
+            _ror_extracted_component_license_sha256)
+        if (NOT _ror_extracted_component_license_sha256 STREQUAL
+                ROR_LINUX_${_ror_component}_LICENSE_SHA256)
+            message(FATAL_ERROR
+                "The extracted ${_ror_component} license changed")
+        endif ()
+    endforeach ()
+
+    set(_ror_linux_static_targets
+        shaderc_combined shaderc shaderc_util glslang SPIRV
+        SPIRV-Tools-opt SPIRV-Tools-static)
+    foreach (_ror_static_target IN LISTS _ror_linux_static_targets)
+        if (NOT TARGET ${_ror_static_target})
+            message(FATAL_ERROR
+                "Pinned shader source target is unavailable: "
+                "${_ror_static_target}")
+        endif ()
+        get_target_property(_ror_static_target_type
+            ${_ror_static_target} TYPE)
+        if (NOT _ror_static_target_type STREQUAL "STATIC_LIBRARY")
+            message(FATAL_ERROR
+                "Pinned shader closure target is not static: "
+                "${_ror_static_target} (${_ror_static_target_type})")
+        endif ()
+    endforeach ()
+    get_target_property(_ror_shaderc_combined_sources
+        shaderc_combined SOURCES)
+    foreach (_ror_combined_member IN ITEMS
+            shaderc shaderc_util glslang SPIRV SPIRV-Tools-opt
+            SPIRV-Tools-static)
+        list(FIND _ror_shaderc_combined_sources
+            "$<TARGET_OBJECTS:${_ror_combined_member}>"
+            _ror_combined_member_index)
+        if (_ror_combined_member_index EQUAL -1)
+            message(FATAL_ERROR
+                "shaderc_combined no longer owns ${_ror_combined_member}")
+        endif ()
+    endforeach ()
+
+    # OGRE's legacy FindVulkan accepts cache values before it runs. A CMake
+    # target name is intentional here: it supplies the build dependency and
+    # one archive containing the full closure, without host archive discovery.
+    set(Vulkan_SHADERC_INCLUDE_DIR
+        "${shaderc_SOURCE_DIR}/libshaderc/include;${ror_glslang_source_SOURCE_DIR}"
+        CACHE STRING "Pinned shaderc and glslang include roots" FORCE)
+    set(Vulkan_SHADERC_LIB_REL shaderc_combined
+        CACHE STRING "Pinned source-built shaderc closure target" FORCE)
+    set(Vulkan_SHADERC_LIB_DBG shaderc_combined
+        CACHE STRING "Pinned source-built shaderc closure target" FORCE)
+
+    set(ROR_OGRE_NEXT_LINUX_APACHE_NOTICE_SOURCE
+        "${shaderc_SOURCE_DIR}/${ROR_LINUX_SHADERC_LICENSE_PATH}")
+    set(ROR_OGRE_NEXT_LINUX_GLSLANG_NOTICE_SOURCE
+        "${ror_glslang_source_SOURCE_DIR}/${ROR_LINUX_GLSLANG_LICENSE_PATH}")
+    set(ROR_OGRE_NEXT_LINUX_SPIRV_TOOLS_NOTICE_SOURCE
+        "${ror_spirv_tools_source_SOURCE_DIR}/${ROR_LINUX_SPIRV_TOOLS_LICENSE_PATH}")
+    set(ROR_OGRE_NEXT_LINUX_SPIRV_HEADERS_NOTICE_SOURCE
+        "${ror_spirv_headers_source_SOURCE_DIR}/${ROR_LINUX_SPIRV_HEADERS_LICENSE_PATH}")
+
+    set(ROR_OGRE_NEXT_LINUX_STATIC_CLOSURE_MANIFEST
+        "${CMAKE_BINARY_DIR}/ogre-next-linux-static-closure.json")
+    set(_ror_static_manifest_script
+        "${ROR_OGRE_NEXT_STANDALONE_ROOT}/cmake/WriteLinuxStaticClosureManifest.cmake")
+    set(_ror_static_manifest_arguments
+        "-DOUTPUT=${ROR_OGRE_NEXT_LINUX_STATIC_CLOSURE_MANIFEST}"
+        "-DLOCK_PATH=${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
+        "-DEXPECTED_LOCK_SHA256=${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_SHA256}"
+        "-DCOMPILER_ID=${CMAKE_CXX_COMPILER_ID}"
+        "-DCOMPILER_VERSION=${CMAKE_CXX_COMPILER_VERSION}"
+        "-DSYSTEM_NAME=${CMAKE_SYSTEM_NAME}"
+        "-DSYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}"
+        "-DBUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "-DARTIFACT_COUNT=7"
+        "-DARTIFACT_0_NAME=shaderc_combined"
+        "-DARTIFACT_0_PATH=$<TARGET_FILE:shaderc_combined>"
+        "-DARTIFACT_1_NAME=shaderc"
+        "-DARTIFACT_1_PATH=$<TARGET_FILE:shaderc>"
+        "-DARTIFACT_2_NAME=shaderc_util"
+        "-DARTIFACT_2_PATH=$<TARGET_FILE:shaderc_util>"
+        "-DARTIFACT_3_NAME=glslang"
+        "-DARTIFACT_3_PATH=$<TARGET_FILE:glslang>"
+        "-DARTIFACT_4_NAME=SPIRV"
+        "-DARTIFACT_4_PATH=$<TARGET_FILE:SPIRV>"
+        "-DARTIFACT_5_NAME=SPIRV-Tools-opt"
+        "-DARTIFACT_5_PATH=$<TARGET_FILE:SPIRV-Tools-opt>"
+        "-DARTIFACT_6_NAME=SPIRV-Tools-static"
+        "-DARTIFACT_6_PATH=$<TARGET_FILE:SPIRV-Tools-static>")
+    add_custom_command(
+        OUTPUT "${ROR_OGRE_NEXT_LINUX_STATIC_CLOSURE_MANIFEST}"
+        COMMAND "${CMAKE_COMMAND}" ${_ror_static_manifest_arguments}
+                -P "${_ror_static_manifest_script}"
+        DEPENDS
+            ${_ror_linux_static_targets}
+            "${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
+            "${_ror_static_manifest_script}"
+        COMMENT "Recording exact Linux shader static-archive provenance"
+        VERBATIM)
+    add_custom_target(ror_ogre_next_linux_static_closure_manifest
+        DEPENDS "${ROR_OGRE_NEXT_LINUX_STATIC_CLOSURE_MANIFEST}")
+    add_custom_target(ror_ogre_next_linux_static_closure_verify
+        COMMAND "${CMAKE_COMMAND}" ${_ror_static_manifest_arguments}
+                -DVERIFY_EXISTING=ON -P "${_ror_static_manifest_script}"
+        DEPENDS ror_ogre_next_linux_static_closure_manifest
+        COMMENT "Rehashing the exact Linux shader static-archive closure"
+        VERBATIM)
+endif ()
+
 FetchContent_Declare(
     rapidjson
     URL "${_ror_rapidjson_url}"
@@ -382,13 +720,20 @@ if (NOT _ror_extracted_rapidjson_license_sha256 STREQUAL ROR_RAPIDJSON_LICENSE_S
 endif ()
 set(Rapidjson_HOME "${rapidjson_SOURCE_DIR}" CACHE PATH "" FORCE)
 
+set(_ror_ogre_next_patch_paths
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_PATCH_PATH}")
+if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
+    list(APPEND _ror_ogre_next_patch_paths
+        "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_LINUX_OGRE_GLSLANG_PATCH_PATH}")
+endif ()
+
 FetchContent_Declare(
     ogre_next
     URL "${_ror_ogre_next_url}"
     URL_HASH "SHA256=${ROR_OGRE_NEXT_ARCHIVE_SHA256}"
     PATCH_COMMAND
         "${GIT_EXECUTABLE}" apply --unidiff-zero --whitespace=nowarn
-        "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_PATCH_PATH}"
+        ${_ror_ogre_next_patch_paths}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(ogre_next)
 
@@ -406,6 +751,35 @@ if (NOT _ror_extracted_shader_media_source_sha256 STREQUAL
         ROR_OGRE_NEXT_SHADER_MEDIA_SOURCE_SHA256)
     message(FATAL_ERROR
         "The extracted OGRE-Next shader-media notice source changed")
+endif ()
+
+set(ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_LICENSE_PATH}")
+set(ROR_OGRE_NEXT_PACKAGE_RAPIDJSON_LICENSE_SOURCE
+    "${rapidjson_SOURCE_DIR}/${ROR_RAPIDJSON_LICENSE_PATH}")
+if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
+    file(SHA256
+        "${ogre_next_SOURCE_DIR}/${ROR_LINUX_SPIRV_REFLECT_SOURCE_PATH}"
+        _ror_spirv_reflect_source_sha256)
+    file(SHA256
+        "${ogre_next_SOURCE_DIR}/${ROR_LINUX_SPIRV_REFLECT_HEADER_PATH}"
+        _ror_spirv_reflect_header_sha256)
+    if (NOT _ror_spirv_reflect_source_sha256 STREQUAL
+            ROR_LINUX_SPIRV_REFLECT_SOURCE_SHA256 OR
+            NOT _ror_spirv_reflect_header_sha256 STREQUAL
+            ROR_LINUX_SPIRV_REFLECT_HEADER_SHA256)
+        message(FATAL_ERROR
+            "OGRE's embedded SPIRV-Reflect source provenance changed")
+    endif ()
+    file(READ
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Vulkan/src/OgreVulkanProgram.cpp"
+        _ror_patched_vulkan_program)
+    if (NOT _ror_patched_vulkan_program MATCHES
+            "glslang/SPIRV/GlslangToSpv.h" OR
+            _ror_patched_vulkan_program MATCHES "struct SpvOptions")
+        message(FATAL_ERROR
+            "OGRE did not consume the pinned glslang SpvOptions definition")
+    endif ()
 endif ()
 
 foreach (_ror_required_target IN ITEMS

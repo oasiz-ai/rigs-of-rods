@@ -1,0 +1,12 @@
+diff --git a/third_party/CMakeLists.txt b/third_party/CMakeLists.txt
+index ab1f791..89f6a58 100644
+--- a/third_party/CMakeLists.txt
++++ b/third_party/CMakeLists.txt
+@@ -23 +23,3 @@ set(SHADERC_ABSL_DIR "${SHADERC_THIRD_PARTY_ROOT_DIR}/abseil_cpp" CACHE STRING
+-set( SKIP_GLSLANG_INSTALL ${SHADERC_SKIP_INSTALL} )
++# A generator expression is not a valid configure-time option value here.
++# Keep glslang installation disabled with shaderc's reviewed skip-install build.
++set( SKIP_GLSLANG_INSTALL ON )
+@@ -90 +92 @@ if (NOT TARGET glslang)
+-    set(GLSLANG_ENABLE_INSTALL $<NOT:${SKIP_GLSLANG_INSTALL}>)
++    set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)

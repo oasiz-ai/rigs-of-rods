@@ -383,7 +383,84 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     set(ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE
         "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/bin/$<TARGET_FILE_NAME:ror_ogre_next_frontend_n1_smoke>")
     set(ROR_OGRE_NEXT_N1_PACKAGE_STAMP
-        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v1")
+        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v3")
+    set(_ror_n1_package_commands
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/licenses/Rigs-of-Rods-GPL-3.0.txt"
+        COMMAND "${CMAKE_COMMAND}" -E compare_files
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/licenses/Rigs-of-Rods-GPL-3.0.txt"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/licenses/Ogre-Next-MIT.txt"
+        COMMAND "${CMAKE_COMMAND}" -E compare_files
+                "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/licenses/Ogre-Next-MIT.txt"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${ROR_OGRE_NEXT_PACKAGE_RAPIDJSON_LICENSE_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/licenses/RapidJSON-license.txt"
+        COMMAND "${CMAKE_COMMAND}" -E compare_files
+                "${ROR_OGRE_NEXT_PACKAGE_RAPIDJSON_LICENSE_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/licenses/RapidJSON-license.txt"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+        COMMAND "${CMAKE_COMMAND}" -E compare_files
+                "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}")
+    set(_ror_n1_package_dependencies
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
+        "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
+        "${ROR_OGRE_NEXT_PACKAGE_RAPIDJSON_LICENSE_SOURCE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}")
+    if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
+        list(APPEND _ror_n1_package_commands
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${ROR_OGRE_NEXT_LINUX_APACHE_NOTICE_SOURCE}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_LINUX_APACHE_NOTICE_PATH}"
+            COMMAND "${CMAKE_COMMAND}" -E compare_files
+                    "${ROR_OGRE_NEXT_LINUX_APACHE_NOTICE_SOURCE}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_LINUX_APACHE_NOTICE_PATH}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${ROR_OGRE_NEXT_LINUX_GLSLANG_NOTICE_SOURCE}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_LINUX_GLSLANG_NOTICE_PATH}"
+            COMMAND "${CMAKE_COMMAND}" -E compare_files
+                    "${ROR_OGRE_NEXT_LINUX_GLSLANG_NOTICE_SOURCE}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_LINUX_GLSLANG_NOTICE_PATH}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${ROR_OGRE_NEXT_LINUX_SPIRV_TOOLS_NOTICE_SOURCE}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_LINUX_SPIRV_TOOLS_NOTICE_PATH}"
+            COMMAND "${CMAKE_COMMAND}" -E compare_files
+                    "${ROR_OGRE_NEXT_LINUX_SPIRV_TOOLS_NOTICE_SOURCE}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_LINUX_SPIRV_TOOLS_NOTICE_PATH}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${ROR_OGRE_NEXT_LINUX_SPIRV_HEADERS_NOTICE_SOURCE}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_LINUX_SPIRV_HEADERS_NOTICE_PATH}"
+            COMMAND "${CMAKE_COMMAND}" -E compare_files
+                    "${ROR_OGRE_NEXT_LINUX_SPIRV_HEADERS_NOTICE_SOURCE}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_LINUX_SPIRV_HEADERS_NOTICE_PATH}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/provenance/ogre-next-linux-shader-toolchain.lock.json"
+            COMMAND "${CMAKE_COMMAND}" -E compare_files
+                    "${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/provenance/ogre-next-linux-shader-toolchain.lock.json"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${ROR_OGRE_NEXT_LINUX_STATIC_CLOSURE_MANIFEST}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/provenance/ogre-next-linux-static-closure.json"
+            COMMAND "${CMAKE_COMMAND}" -E compare_files
+                    "${ROR_OGRE_NEXT_LINUX_STATIC_CLOSURE_MANIFEST}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/provenance/ogre-next-linux-static-closure.json")
+        list(APPEND _ror_n1_package_dependencies
+            ror_ogre_next_linux_static_closure_manifest
+            "${ROR_OGRE_NEXT_LINUX_APACHE_NOTICE_SOURCE}"
+            "${ROR_OGRE_NEXT_LINUX_GLSLANG_NOTICE_SOURCE}"
+            "${ROR_OGRE_NEXT_LINUX_SPIRV_TOOLS_NOTICE_SOURCE}"
+            "${ROR_OGRE_NEXT_LINUX_SPIRV_HEADERS_NOTICE_SOURCE}"
+            "${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
+            "${ROR_OGRE_NEXT_LINUX_STATIC_CLOSURE_MANIFEST}")
+    endif ()
     add_custom_command(
         OUTPUT "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
         COMMAND "${CMAKE_COMMAND}" -E remove_directory
@@ -392,33 +469,20 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/bin"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/licenses"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/provenance"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                 $<TARGET_FILE:ror_ogre_next_frontend_n1_smoke>
                 "${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
                 "${ogre_next_SOURCE_DIR}/Samples/Media/Hlms"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
-                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_SHADER_NOTICE_RELATIVE}"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
-                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_ROR_LICENSE_RELATIVE}"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_LICENSE_PATH}"
-                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_OGRE_LICENSE_RELATIVE}"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                "${rapidjson_SOURCE_DIR}/${ROR_RAPIDJSON_LICENSE_PATH}"
-                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_RAPIDJSON_LICENSE_RELATIVE}"
+        ${_ror_n1_package_commands}
         COMMAND "${CMAKE_COMMAND}" -E touch
                 "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
         DEPENDS
             ror_ogre_next_frontend_n1_smoke
-            "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
-            "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_LICENSE_PATH}"
-            "${rapidjson_SOURCE_DIR}/${ROR_RAPIDJSON_LICENSE_PATH}"
-        COMMENT "Staging relocatable Ogre-Next N1 runtime and shader media"
+            ${_ror_n1_package_dependencies}
+        COMMENT "Staging relocatable Ogre-Next N1 runtime, notices, and provenance"
         VERBATIM)
     add_custom_target(ror_ogre_next_frontend_n1_package ALL
         DEPENDS "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}")

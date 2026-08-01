@@ -81,7 +81,36 @@ ownership sentinel. No OGRE-Next source archive is stored in this repository.
 
 The adaptation fixes only two non-Xcode macOS assumptions in the pinned
 upstream CMake: SDK path resolution and Xcode-only framework staging tokens in
-Ninja files. It is applied from a hash-locked patch before configuration.
+Ninja files. It is applied from a hash-locked patch before configuration. On
+Linux, a second hash-locked patch removes OGRE's short local redeclaration of
+`glslang::SpvOptions` and compiles against the exact pinned glslang header, so
+the C++ ABI is never guessed. A third hash-locked patch keeps glslang's install
+export disabled alongside shaderc's reviewed static skip-install build; this
+avoids an invalid partial export while leaving the compiled targets intact.
+
+Linux shader compilation has its own canonical
+[`linux-shader-toolchain.lock.json`](../../tools/ogre_next_probe/linux-shader-toolchain.lock.json).
+It builds [shaderc `v2025.3`](https://github.com/google/shaderc/tree/v2025.3)
+from commit `8c2e602ce440b7739c95ff3d69cecb1adf6becda` and the exact compatible
+family selected by that release's `DEPS`: glslang commit
+`efd24d75bcbc55620e759f6bf42c45a32abac5f8`, SPIRV-Tools commit
+`33e02568181e3312f49a3cf33df470bf96ef293a`, and SPIRV-Headers commit
+`2a611a970fdbc41ac2e3e328802aed9985352dca`. Every source archive, upstream
+license, dependency manifest, compatibility patch, and OGRE-embedded
+SPIRV-Reflect source/header is SHA-256 locked. Distro shaderc, glslang, and
+SPIR-V C++ archives are deliberately not accepted: their independently moving
+versions and transitive target layouts cannot provide the same cross-distro
+C++ ABI contract.
+
+The Linux link consumes the source-built `shaderc_combined` target. A generated
+`ogre-next-linux-static-closure.json` records the actual compiler, source
+commits, and SHA-256 of all seven build outputs (`shaderc_combined`, `shaderc`,
+`shaderc_util`, `glslang`, `SPIRV`, `SPIRV-Tools-opt`, and
+`SPIRV-Tools-static`). A separate verification target rehashes the files after
+linking and fails if the manifest no longer matches. The Vulkan loader remains
+the explicit host-provided dynamic system boundary; CI rejects a dynamic
+shaderc, glslang, SPIRV-Tools, or split glslang/SPIR-V component dependency in
+both the frame probe and staged N1 executable.
 
 The N1 frontend never compiles the FetchContent `_deps` path into its library.
 Its constructor requires a caller-owned absolute shader-media root,
@@ -99,7 +128,19 @@ ror-ogre-next-n1-package/
   licenses/Ogre-Next-MIT.txt
   licenses/RapidJSON-license.txt
   licenses/LicenseRef-Heitz-LTC-Paper-Notice.txt
+  # Linux additionally carries:
+  licenses/Apache-2.0.txt
+  licenses/glslang-LICENSE.txt
+  licenses/SPIRV-Tools-LICENSE.txt
+  licenses/SPIRV-Headers-LICENSE.txt
+  provenance/ogre-next-linux-shader-toolchain.lock.json
+  provenance/ogre-next-linux-static-closure.json
 ```
+
+Every staged notice is copied from its hash-validated source and byte-compared
+before the package stamp is written. The Linux source lock and built-archive
+manifest are likewise byte-compared into `provenance/`; incomplete or changed
+licensing/provenance data prevents package completion.
 
 The staged executable is run with the resolved absolute form of
 `share/rigsofrods/ogre-next/Samples/Media` from outside its `bin` directory.
@@ -128,7 +169,11 @@ executable initializes a Vulkan instance and enumerates physical devices
 without creating a logical rendering device. The frame executable then
 creates the Vulkan logical device, null-window offscreen target, Compositor2
 workspace, and RGB8 frame. It still does not prove a Linux presentation
-surface or shipping game window.
+surface or shipping game window. Linux needs only the Vulkan loader and driver
+from the host distribution; shader compiler sources and their static closure
+come exclusively from the reviewed lock, yielding the same source family on
+Ubuntu, Fedora, Arch, and other x86_64 distributions rather than selecting
+whatever package versions happen to be installed.
 
 ## N1 frontend contract
 
@@ -219,7 +264,10 @@ The generated files are:
 - `ror-ogre-next-frontend-n1-report.json`: N1 asset, material, HDR/SDR,
   identity, and recovery evidence; and
 - `ror-ogre-next-frontend-n1.ppm`: the exact N1 sRGB CPU readback independently
-  hashed by the wrapper; and
+  hashed by the wrapper;
+- `ogre-next-linux-static-closure.json`: on Linux, exact source and
+  built-library provenance with a per-archive SHA-256, also retained inside
+  the N1 package;
 - `ror-ogre-next-metal-n2-report.json`: versioned same-device provenance,
   geometry-slice, timeline, BLAS/TLAS, ray-hit, and lifecycle evidence on
   Apple family 9 or newer; and
