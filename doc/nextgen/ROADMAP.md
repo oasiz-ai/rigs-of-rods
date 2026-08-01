@@ -1093,6 +1093,19 @@ Gate R1:
   semantics, material attributes, lights, presentation, image quality,
   performance, DXR, and Vulkan KHR interop remain open; see the
   [isolated integration checkpoint](OGRE_NEXT_INTEGRATION.md).
+- The renderer-neutral scene boundary now has the prerequisite lighting slice:
+  snapshot version 3 carries sorted stable directional/point/spot identities,
+  current/previous transforms, lux/candela photometry, exact local attenuation
+  and cones, static/dynamic shadow masks, ambient/texture/analytic-sky radiance,
+  sun linkage, bounded EV compensation, and a canonical portable digest. The
+  version-two joined-scene producer owns light history, render-origin rebasing,
+  permanent type/tombstone lineage, and release/acquire atomic publication.
+  Dependency-free strict C++ tests include concurrent readers, and the existing
+  test graph compiles them with GCC/Clang/MSVC on Linux, macOS, and Windows.
+  This closes the data/transaction milestone only: Ogre-Next PBS calibration,
+  shadow rendering, atmospheric scattering, RT light/material export, GI,
+  denoising, shipping source adapters, image quality, and performance remain
+  open.
 - macOS first renders a measured RT contribution in a real UI-free RoR frame
   on Apple family 9 or newer. M1/M2 and unsupported OS versions retain the
   complete Ogre-Next raster fallback.

@@ -1,7 +1,8 @@
 # Joined graphics scene snapshot producer
 
-Status: the renderer-neutral producer core is implemented; the OGRE 1.x
-`GfxScene` source adapter is the next integration change.
+Status: the renderer-neutral version-two producer core, including immutable
+analytic lighting/environment publication, is implemented; the OGRE 1.x
+`GfxScene` source adapter remains the next integration change.
 
 ## Boundary
 
@@ -27,7 +28,7 @@ The adapter must not follow actor pointers from `GameContextSB`, query the
 solver, or read any mutable physics container. Renderer selection must not
 change simulation scheduling or hashes.
 
-## Version-one production slice
+## Version-two production slice
 
 The first slice supports a complete authoritative inventory of:
 
@@ -36,14 +37,20 @@ The first slice supports a complete authoritative inventory of:
   identities;
 - static `MeshObject`/terrain-object instances with rigid transforms,
   visibility, and shadow/reflection flags;
-- constant or texture-backed scene environment state; and
+- directional lights in lux plus point/spot lights in candela, finite range,
+  spot half-cones, static/dynamic shadow masks, and stable source identities;
+- current and previous local-light positions/directions, including exact render
+  origin rebasing and identity/type/tombstone lineage;
+- constant or texture-backed environment radiance, an additive analytic
+  zenith/horizon/ground/sun-disk sky tied to one directional light, and bounded
+  scene-level exposure compensation; and
 - one main camera with canonical current and previous view/projection state.
 
 The producer owns 128-bit `RenderAssetId` allocation, revision propagation,
-asset sequence, snapshot sequence, tombstones, previous transforms, camera
-history, and render-origin rebasing. Inputs are authoritative: omitting a live
-asset or object destroys it, and a destroyed source identity cannot be reused
-during that producer lifetime.
+asset sequence, snapshot sequence, tombstones, previous transforms, light and
+camera history, and render-origin rebasing. Inputs are authoritative: omitting
+a live asset, object, or light destroys it, and a destroyed source identity
+cannot be reused during that producer lifetime.
 
 Every call is transactional. Validation, ID/revision allocation, dependency
 resolution, asset-registry application, immutable snapshot creation, exact
@@ -52,6 +59,17 @@ committed. A rejected frame consumes no identity, revision, sequence, previous
 transform, or tombstone state. First production emits a full catalog; later
 catalog changes emit sorted incremental deltas; device recovery emits the full
 live catalog plus all permanent tombstones.
+
+After that transaction commits, `Produce()` release-publishes the exact
+`shared_ptr<const SceneSnapshot>` returned in its result. Render and readback
+threads acquire-load it with `LoadPublishedSnapshot()`; they can observe either
+the complete old snapshot or the complete new snapshot, never staged mutable
+state. A rejected capture, asset update, scene, light, environment, or camera
+validation leaves the publication unchanged. The producer remains single-writer
+and externally serialized; atomic publication does not make concurrent calls to
+`Produce()` valid. This observer seam publishes only the immutable scene owner;
+renderer frontends must still consume the successful production result so its
+asset delta and camera remain ordered with that scene.
 
 The asset registry and source-asset catalog are one immutable copy-on-write
 state. An unchanged authoritative catalog is shared by the next transaction;
@@ -77,12 +95,20 @@ emitting a delta or advancing the asset sequence. Only unresolved material
 descriptors are retained strongly in addition to canonical registry payloads,
 so meshes and textures do not acquire a second persistent byte owner.
 
-Canonical sorting retains each asset/object's original authoritative-vector
-index. Failures after sorting, including lifecycle, kind, dependency, object
-reference, and snapshot compatibility failures, report that original index
-rather than a sorted rank.
+Canonical sorting retains each asset/object/light's original
+authoritative-vector index. Failures after sorting, including lifecycle, kind,
+dependency, object reference, light photometry/history, and snapshot
+compatibility failures, report that original index rather than a sorted rank.
 
-Producer limits bound lifetime asset/object records and authoritative
+Every immutable snapshot records a version-one FNV-1a-64 digest of the exact
+lighting/environment payload. Its padding-free little-endian encoding includes
+the absolute render origin, optional environment references, ambient and
+analytic sky radiance, exposure, stable sorted lights, shadow masks, and current
+and previous light transforms. It canonicalizes signed zero and deliberately
+excludes frame IDs, time, geometry, particles, and cameras. This is a stable
+change-detection/test digest, not a collision-resistant security primitive.
+
+Producer limits bound lifetime asset/object/light records and authoritative
 descriptor payload bytes.
 
 ## Exact remaining `GfxScene` adapter tap
@@ -105,11 +131,16 @@ Required source-side changes are:
 3. The inventory assigns stable source asset IDs to authored resource
    lifetimes. Material texture/sampler dependencies are submitted as source
    IDs; the adapter never fabricates a `RenderAssetReference`.
-4. `GfxScene` captures the main graphics camera after its copied simbuffer has
+4. `GfxScene` captures graphics-owned sun, terrain/object lights, and sky state
+   into stable, never-reused light identities without asking a backend to scan
+   an OGRE scene graph. Authored legacy attenuation must be converted into the
+   documented candela/range curve by a calibrated adapter, not copied as
+   renderer-specific coefficients.
+5. `GfxScene` captures the main graphics camera after its copied simbuffer has
    been consumed, converts OGRE matrices into the canonical right-handed,
    column-major, depth-[0,1] contract, and submits the current drawable pixel
    extent. The producer owns previous matrices.
-5. `GfxScene::ClearScene()` destroys the producer after its final authoritative
+6. `GfxScene::ClearScene()` destroys the producer after its final authoritative
    empty inventory has been delivered, so a new terrain starts a fresh registry
    identity instead of resurrecting tombstones.
 
@@ -118,6 +149,9 @@ do not yet provide stable source IDs or cached portable resource descriptors.
 That coupling is why the first commit lands the production core and exact seam
 rather than a fake renderer demo or a producer that scans the OGRE scene graph.
 
-Deformable `GfxActor` meshes, analytic lights, particles, water/sky, and
-auxiliary cameras are later producer slices. They extend the same joined source
-and immutable contract; they do not bypass it.
+Deformable `GfxActor` meshes, particle emission, water state, volumetric weather,
+and auxiliary cameras are later producer slices. Shipping Ogre-Next raster and
+native RT adapters also still need measured mappings for the version-two light
+and sky contract. This milestone transports and validates authoritative data; it
+does not implement shadow maps, sky scattering, GI, reflections, denoising, or
+ray-traced lighting by itself.

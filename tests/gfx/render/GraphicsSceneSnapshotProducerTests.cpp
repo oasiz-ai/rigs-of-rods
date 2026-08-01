@@ -14,6 +14,7 @@
 #include <iostream>
 #include <limits>
 #include <new>
+#include <thread>
 #include <utility>
 
 #if defined(__has_feature)
@@ -124,6 +125,13 @@ void Require(bool condition, const char *message) {
               << '\n';
     std::exit(EXIT_FAILURE);
   }
+}
+
+template <typename T>
+bool SameSharedOwner(const std::shared_ptr<const T> &lhs,
+                     const std::shared_ptr<const T> &rhs) noexcept {
+  return lhs.get() == rhs.get() && !lhs.owner_before(rhs) &&
+         !rhs.owner_before(lhs);
 }
 
 RoR::Render::Matrix4x4 Translation(float x, float y = 0.0F,
@@ -287,6 +295,42 @@ RoR::Render::GraphicsSceneFrameInput MakeFrame() {
   first.render_from_object = Translation(1.0F);
   frame.static_meshes.push_back(first);
 
+  frame.environment.ambient_radiance = {0.025F, 0.03F, 0.04F};
+  frame.environment.environment_intensity = 1.1F;
+  frame.environment.exposure_compensation_ev = 0.5F;
+  frame.environment.analytic_sky.enabled = true;
+  frame.environment.analytic_sky.sun_light_id = 300U;
+  frame.environment.analytic_sky.zenith_radiance = {0.06F, 0.09F, 0.16F};
+  frame.environment.analytic_sky.horizon_radiance = {0.2F, 0.18F, 0.15F};
+  frame.environment.analytic_sky.ground_radiance = {0.01F, 0.009F, 0.008F};
+  frame.environment.analytic_sky.sun_disk_radiance = {10000.0F, 9300.0F,
+                                                       8200.0F};
+  frame.environment.analytic_sky.sun_angular_radius_radians = 0.00465F;
+
+  GraphicsSceneLightInput sun;
+  sun.source_light_id = 300U;
+  sun.intensity = 105000.0F;
+  sun.direction = {0.0F, -0.8F, -0.6F};
+  frame.lights.push_back(sun);
+  GraphicsSceneLightInput spot;
+  spot.source_light_id = 200U;
+  spot.type = LightType::SPOT;
+  spot.intensity = 1800.0F;
+  spot.position = {8.0F, 6.0F, -2.0F};
+  spot.direction = {0.0F, -1.0F, 0.0F};
+  spot.range = 45.0F;
+  spot.inner_cone_radians = 0.35F;
+  spot.outer_cone_radians = 0.55F;
+  frame.lights.push_back(spot);
+  GraphicsSceneLightInput point;
+  point.source_light_id = 100U;
+  point.type = LightType::POINT;
+  point.intensity = 900.0F;
+  point.position = {4.0F, 3.0F, 1.0F};
+  point.range = 30.0F;
+  point.shadow_flags = LIGHT_SHADOW_DYNAMIC_GEOMETRY;
+  frame.lights.push_back(point);
+
   frame.camera.view_id = 7U;
   frame.camera.width = 1280U;
   frame.camera.height = 720U;
@@ -370,6 +414,14 @@ void TestJoinedSourceInitialSnapshotAndCanonicalOrder() {
   Require(scene.mesh_instances()[0U].mesh.id.low() == 1U &&
               scene.mesh_instances()[0U].material.id.low() == 2U,
           "scene references do not use producer-owned stable asset IDs");
+  Require(scene.lights().size() == 3U &&
+              scene.lights()[0U].light_id == 100U &&
+              scene.lights()[1U].light_id == 200U &&
+              scene.lights()[2U].light_id == 300U,
+          "analytic lights were not canonicalized by stable source identity");
+  Require(scene.environment().analytic_sky.sun_light_id == 300U &&
+              scene.lighting_environment_hash() != 0U,
+          "analytic sky identity or deterministic lighting digest is absent");
   Require(produced.production.camera.previous_view_from_render ==
               produced.production.camera.view_from_render &&
               produced.production.camera.previous_clip_from_view ==
@@ -410,6 +462,9 @@ void TestTransformCameraHistoryAndOriginRebase() {
   frame.absolute_world_origin_meters = {100.0, 0.0, 0.0};
   frame.static_meshes[0U].render_from_object = Translation(-95.0F);
   frame.static_meshes[1U].render_from_object = Translation(-99.0F);
+  frame.lights[1U].position.x = -92.0F;
+  frame.lights[2U].position.x = -96.0F;
+  frame.lights[0U].direction = {0.0F, -0.6F, -0.8F};
   frame.camera.view_from_render = Translation(100.0F);
   const GraphicsSceneSnapshotProduceResult rebased = producer.Produce(frame);
   Require(rebased.ok(), "origin-rebased joined frame was rejected");
@@ -423,6 +478,16 @@ void TestTransformCameraHistoryAndOriginRebase() {
               instances[1U].previous_render_from_object.elements[12U] ==
                   -95.0F,
           "previous object transforms were not rebased to the current origin");
+  const auto &lights = rebased.production.scene_snapshot->lights();
+  Require(lights[0U].light_id == 100U &&
+              lights[0U].position.x == -96.0F &&
+              lights[0U].previous_position.x == -96.0F &&
+              lights[1U].light_id == 200U &&
+              lights[1U].position.x == -92.0F &&
+              lights[1U].previous_position.x == -92.0F &&
+              lights[2U].previous_direction.y == -0.8F &&
+              lights[2U].direction.y == -0.6F,
+          "light transforms/history were not canonical or origin-rebased");
   Require(rebased.production.camera.previous_view_from_render.elements[12U] ==
               100.0F,
           "previous camera was not rebased to the current origin");
@@ -437,6 +502,132 @@ void TestTransformCameraHistoryAndOriginRebase() {
               changed_projection.production.camera.previous_clip_from_view ==
                   frame.camera.clip_from_view,
           "clip-plane transition did not reset unrepresentable projection history");
+}
+
+void TestLightLifecycleAndAtomicPublication() {
+  using namespace RoR::Render;
+  GraphicsSceneSnapshotProducer producer = MakeProducer(151U);
+  Require(producer.LoadPublishedSnapshot() == nullptr,
+          "producer published a snapshot before successful production");
+
+  GraphicsSceneFrameInput frame = MakeFrame();
+  const GraphicsSceneSnapshotProduceResult first = producer.Produce(frame);
+  const std::shared_ptr<const SceneSnapshot> first_published =
+      producer.LoadPublishedSnapshot();
+  Require(first.ok() &&
+              SameSharedOwner(first.production.scene_snapshot,
+                              first_published),
+          "first successful production was not release-published exactly");
+
+  GraphicsSceneFrameInput invalid = frame;
+  invalid.simulation_tick = 42U;
+  invalid.simulation_time_seconds = 2.0;
+  invalid.lights[2U].range = 0.0F;
+  const GraphicsSceneSnapshotProduceResult rejected = producer.Produce(invalid);
+  Require(rejected.validation.code == ValidationCode::VALUE_OUT_OF_RANGE &&
+              rejected.validation.element_index == 2U &&
+              SameSharedOwner(first_published,
+                              producer.LoadPublishedSnapshot()),
+          "rejected light transaction replaced the atomic publication");
+
+  GraphicsSceneFrameInput changed_type = frame;
+  changed_type.simulation_tick = 42U;
+  changed_type.simulation_time_seconds = 2.0;
+  changed_type.lights[2U].type = LightType::SPOT;
+  changed_type.lights[2U].inner_cone_radians = 0.2F;
+  changed_type.lights[2U].outer_cone_radians = 0.4F;
+  Require(producer.Produce(changed_type).validation.code ==
+                  ValidationCode::REVISION_MISMATCH &&
+              SameSharedOwner(first_published,
+                              producer.LoadPublishedSnapshot()),
+          "stable light identity changed type or publication atomically");
+
+  frame.simulation_tick = 42U;
+  frame.simulation_time_seconds = 2.0;
+  frame.lights[2U].position.x = 6.0F;
+  const GraphicsSceneSnapshotProduceResult moved = producer.Produce(frame);
+  const std::shared_ptr<const SceneSnapshot> moved_published =
+      producer.LoadPublishedSnapshot();
+  Require(moved.ok() &&
+              SameSharedOwner(moved.production.scene_snapshot,
+                              moved_published) &&
+              !SameSharedOwner(first_published, moved_published) &&
+              moved_published->lights()[0U].position.x == 6.0F &&
+              moved_published->lights()[0U].previous_position.x == 4.0F &&
+              first_published->lights()[0U].position.x == 4.0F,
+          "successful light motion did not publish immutable temporal state");
+
+  frame.simulation_tick = 43U;
+  frame.simulation_time_seconds = 3.0;
+  frame.lights.erase(frame.lights.begin() + 2);
+  const GraphicsSceneSnapshotProduceResult removed = producer.Produce(frame);
+  Require(removed.ok() && removed.production.scene_snapshot->lights().size() ==
+                              2U,
+          "authoritative light removal was rejected");
+  const std::shared_ptr<const SceneSnapshot> removed_published =
+      producer.LoadPublishedSnapshot();
+
+  frame.simulation_tick = 44U;
+  frame.simulation_time_seconds = 4.0;
+  GraphicsSceneLightInput reused_point;
+  reused_point.source_light_id = 100U;
+  reused_point.type = LightType::POINT;
+  reused_point.position = {6.0F, 3.0F, 1.0F};
+  reused_point.range = 30.0F;
+  frame.lights.push_back(reused_point);
+  Require(producer.Produce(frame).validation.code ==
+                  ValidationCode::REVISION_MISMATCH &&
+              SameSharedOwner(removed_published,
+                              producer.LoadPublishedSnapshot()),
+          "destroyed light identity was reused or replaced publication");
+
+  GraphicsSceneSnapshotProducer concurrent = MakeProducer(152U);
+  GraphicsSceneFrameInput concurrent_frame = MakeFrame();
+  Require(concurrent.Produce(concurrent_frame).ok(),
+          "concurrent publication base frame was rejected");
+  std::atomic<bool> writer_done{false};
+  std::atomic<bool> writer_failed{false};
+  std::thread writer([&concurrent, concurrent_frame, &writer_done,
+                      &writer_failed]() mutable {
+    for (std::uint64_t iteration = 0U; iteration < 500U; ++iteration) {
+      concurrent_frame.simulation_tick = 42U + iteration;
+      concurrent_frame.simulation_time_seconds = 2.0 +
+                                                  static_cast<double>(iteration);
+      concurrent_frame.lights[2U].position.x =
+          4.0F + static_cast<float>(iteration) * 0.01F;
+      if (!concurrent.Produce(concurrent_frame)) {
+        writer_failed.store(true, std::memory_order_release);
+        break;
+      }
+    }
+    writer_done.store(true, std::memory_order_release);
+  });
+
+  std::uint64_t observed_snapshot_id = 0U;
+  std::size_t observations = 0U;
+  for (;;) {
+    const std::shared_ptr<const SceneSnapshot> published =
+        concurrent.LoadPublishedSnapshot();
+    if (published != nullptr) {
+      Require(published->snapshot_id() >= observed_snapshot_id &&
+                  published->lights().size() == 3U &&
+                  published->lighting_environment_hash() != 0U,
+              "atomic reader observed torn or regressing scene state");
+      observed_snapshot_id = published->snapshot_id();
+      ++observations;
+    }
+    if (writer_done.load(std::memory_order_acquire)) {
+      break;
+    }
+    std::this_thread::yield();
+  }
+  writer.join();
+  const std::shared_ptr<const SceneSnapshot> final_published =
+      concurrent.LoadPublishedSnapshot();
+  Require(!writer_failed.load(std::memory_order_acquire) && observations > 0U &&
+              final_published != nullptr &&
+              final_published->snapshot_id() == 501U,
+          "concurrent acquire-load/release-publication stress failed");
 }
 
 void TestAssetUpdatesDependencyRevisionAndDestroyRecovery() {
@@ -1116,6 +1307,31 @@ void TestExhaustionAndBoundsFailClosed() {
   Require(byte_producer.Produce(MakeFrame()).validation.code ==
               ValidationCode::SIZE_MISMATCH,
           "asset payload byte bound was not enforced");
+
+  GraphicsSceneSnapshotProducerConfiguration light_config;
+  light_config.registry_id = 408U;
+  light_config.maximum_light_records = 2U;
+  GraphicsSceneSnapshotProducer light_producer(light_config);
+  Require(light_producer.Produce(MakeFrame()).validation.code ==
+                  ValidationCode::VALUE_OUT_OF_RANGE &&
+              light_producer.LoadPublishedSnapshot() == nullptr,
+          "live light bound failure initialized or published producer state");
+  GraphicsSceneFrameInput two_lights = MakeFrame();
+  two_lights.lights.pop_back();
+  Require(light_producer.Produce(two_lights).ok(),
+          "last bounded light histories were not usable");
+  two_lights.simulation_tick = 42U;
+  two_lights.simulation_time_seconds = 2.0;
+  two_lights.lights.erase(two_lights.lights.begin() + 1);
+  GraphicsSceneLightInput replacement;
+  replacement.source_light_id = 400U;
+  replacement.type = LightType::POINT;
+  replacement.position = {1.0F, 2.0F, 3.0F};
+  replacement.range = 20.0F;
+  two_lights.lights.push_back(replacement);
+  Require(light_producer.Produce(two_lights).validation.code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "lifetime light-history bound ignored a tombstoned identity");
 }
 
 void TestDeterministicAcrossAdapterTraversalOrders() {
@@ -1124,6 +1340,7 @@ void TestDeterministicAcrossAdapterTraversalOrders() {
   GraphicsSceneFrameInput rhs_frame = lhs_frame;
   std::reverse(rhs_frame.assets.begin(), rhs_frame.assets.end());
   std::reverse(rhs_frame.static_meshes.begin(), rhs_frame.static_meshes.end());
+  std::reverse(rhs_frame.lights.begin(), rhs_frame.lights.end());
   GraphicsSceneSnapshotProducer lhs = MakeProducer(505U);
   GraphicsSceneSnapshotProducer rhs = MakeProducer(505U);
   const GraphicsSceneSnapshotProduceResult lhs_output = lhs.Produce(lhs_frame);
@@ -1158,6 +1375,22 @@ void TestDeterministicAcrossAdapterTraversalOrders() {
                     rhs_instances[index].material,
             "adapter traversal order changed scene ordering or references");
   }
+  const auto &lhs_lights = lhs_output.production.scene_snapshot->lights();
+  const auto &rhs_lights = rhs_output.production.scene_snapshot->lights();
+  Require(lhs_lights.size() == rhs_lights.size(),
+          "adapter traversal order changed light count");
+  for (std::size_t index = 0U; index < lhs_lights.size(); ++index) {
+    Require(lhs_lights[index].light_id == rhs_lights[index].light_id &&
+                lhs_lights[index].type == rhs_lights[index].type &&
+                lhs_lights[index].position == rhs_lights[index].position &&
+                lhs_lights[index].direction == rhs_lights[index].direction,
+            "adapter traversal order changed canonical light state");
+  }
+  Require(lhs_output.production.scene_snapshot
+                  ->lighting_environment_hash() ==
+              rhs_output.production.scene_snapshot
+                  ->lighting_environment_hash(),
+          "adapter traversal order changed lighting/environment digest");
 }
 
 } // namespace
@@ -1165,6 +1398,7 @@ void TestDeterministicAcrossAdapterTraversalOrders() {
 int main() {
   TestJoinedSourceInitialSnapshotAndCanonicalOrder();
   TestTransformCameraHistoryAndOriginRebase();
+  TestLightLifecycleAndAtomicPublication();
   TestAssetUpdatesDependencyRevisionAndDestroyRecovery();
   TestMeshSignedZeroBytesRequireTopologyRevision();
   TestMalformedFramesAreAtomicAndFailClosed();
