@@ -83,6 +83,14 @@ struct SmokeResult final {
     bool renders_through_transitions_and_restart = false;
     bool old_names_rejected = false;
   } retirement;
+  struct TextureUploadRollbackStageEvidence final {
+    std::string name;
+    OgreNextN1TextureAllocationAudit after_failure;
+    OgreNextN1TextureAllocationAudit after_retry;
+    OgreNextN1TextureAllocationAudit after_replacement;
+    OgreNextN1TextureAllocationAudit after_shutdown;
+  };
+  std::vector<TextureUploadRollbackStageEvidence> texture_upload_rollback;
 };
 
 enum class TextureVariant : std::uint8_t {
@@ -1083,6 +1091,10 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
                         : "ror.ogre_next_frontend_n1_smoke.v1")
          << "\",\n"
          << "  \"status\": \"pass\",\n"
+         << (modern_pbr
+                 ? std::string("  \"executable_build_identity\": \"") +
+                       ROR_OGRE_NEXT_N1_BUILD_IDENTITY + "\",\n"
+                 : std::string())
          << "  \"provenance\": {\n"
          << "    \"ror_repository\": \""
          << ROR_OGRE_NEXT_N1_ROR_REPOSITORY << "\",\n"
@@ -1187,6 +1199,47 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << "    \"exact_usage\": "
            << (result.texture_allocations.exact_usage ? "true" : "false")
            << "\n"
+           << "  },\n"
+           << "  \"texture_upload_rollback\": {\n"
+           << "    \"schema\": \"ror.ogre_next_rt4_texture_upload_rollback.v1\",\n"
+           << "    \"injected_post_create_stage_count\": "
+           << result.texture_upload_rollback.size() << ",\n"
+           << "    \"stages\": [\n";
+    const auto write_rollback_audit =
+        [&](const char *name,
+            const OgreNextN1TextureAllocationAudit &audit, bool last) {
+          report << "          \"" << name << "\": {"
+                 << "\"creates\": " << audit.native_allocation_creates
+                 << ", \"destroys\": " << audit.native_allocation_destroys
+                 << ", \"live\": " << audit.live_native_allocations
+                 << ", \"retired_name_lookups\": "
+                 << audit.retired_name_lookups
+                 << ", \"retired_name_rejections\": "
+                 << audit.retired_name_rejections
+                 << ", \"exact_usage\": "
+                 << (audit.exact_usage ? "true" : "false") << "}"
+                 << (last ? "\n" : ",\n");
+        };
+    for (std::size_t index = 0U;
+         index < result.texture_upload_rollback.size(); ++index) {
+      const SmokeResult::TextureUploadRollbackStageEvidence &stage =
+          result.texture_upload_rollback[index];
+      report << "      {\n"
+             << "        \"name\": \"" << stage.name << "\",\n"
+             << "        \"audits\": {\n";
+      write_rollback_audit("after_failure", stage.after_failure, false);
+      write_rollback_audit("after_retry", stage.after_retry, false);
+      write_rollback_audit("after_replacement", stage.after_replacement,
+                           false);
+      write_rollback_audit("after_shutdown", stage.after_shutdown, true);
+      report << "        }\n"
+             << "      }"
+             << (index + 1U == result.texture_upload_rollback.size()
+                     ? "\n"
+                     : ",\n");
+    }
+    report << "    ],\n"
+           << "    \"clean_retry_replacement_shutdown\": true\n"
            << "  },\n"
            << "  \"texture_retirement\": {\n"
            << "    \"schema\": \"ror.ogre_next_rt4_texture_retirement.v1\",\n"
@@ -1439,6 +1492,78 @@ RunTextureRetirementProof(const std::string &media_root) {
   return evidence;
 }
 
+std::vector<SmokeResult::TextureUploadRollbackStageEvidence>
+RunTextureUploadRollbackProof(const std::string &media_root) {
+  using FailureStage = OgreNextN1TextureUploadFailureStage;
+  const std::array<std::pair<FailureStage, const char *>, 5U> stages{{
+      {FailureStage::AFTER_CREATE, "after_create"},
+      {FailureStage::AFTER_SET_RESOLUTION, "after_set_resolution"},
+      {FailureStage::AFTER_SET_MIPMAPS, "after_set_mipmaps"},
+      {FailureStage::AFTER_SET_PIXEL_FORMAT, "after_set_pixel_format"},
+      {FailureStage::AFTER_SCHEDULE_TRANSITION,
+       "after_schedule_transition"},
+  }};
+  std::vector<SmokeResult::TextureUploadRollbackStageEvidence> evidence;
+  evidence.reserve(stages.size());
+  for (const auto &stage : stages) {
+    OgreNextN1Frontend frontend(OgreNextN1Configuration{
+        media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+        stage.first});
+    RequireSuccess(frontend.Initialize(Initialization()),
+                   std::string("RT4 rollback Initialize(") + stage.second + ')');
+    const RenderAssetDelta initial_catalog = MakeRetirementCatalog(1U);
+    const RenderOperationResult injected =
+        frontend.SynchronizeAssets(initial_catalog);
+    Require(injected.code == RenderOperationCode::BACKEND_FAILURE,
+            std::string("RT4 rollback injection did not fail at ") +
+                stage.second);
+
+    SmokeResult::TextureUploadRollbackStageEvidence record;
+    record.name = stage.second;
+    record.after_failure = frontend.QueryTextureAllocationAudit();
+    RequireRetirementAudit(record.after_failure, 1U, 1U, 0U,
+                           record.name + " rollback");
+
+    RequireSuccess(frontend.SynchronizeAssets(initial_catalog),
+                   std::string("RT4 rollback retry(") + stage.second + ')');
+    record.after_retry = frontend.QueryTextureAllocationAudit();
+    RequireRetirementAudit(record.after_retry, 2U, 1U, 1U,
+                           record.name + " retry");
+    RenderFrameOutput retry_output;
+    RequireSuccess(frontend.Render(
+                       MakeFrame(1U, MakeRetirementScene(1U),
+                                 PixelFormat::RGBA8_SRGB),
+                       retry_output),
+                   std::string("RT4 rollback retry Render(") + stage.second +
+                       ')');
+    static_cast<void>(InspectSdr(retry_output));
+
+    const RenderAssetDelta replacement_catalog = MakeRetirementCatalog(2U);
+    RequireSuccess(frontend.SynchronizeAssets(replacement_catalog),
+                   std::string("RT4 rollback replacement(") + stage.second +
+                       ')');
+    record.after_replacement = frontend.QueryTextureAllocationAudit();
+    RequireRetirementAudit(record.after_replacement, 3U, 2U, 1U,
+                           record.name + " replacement");
+    RenderFrameOutput replacement_output;
+    RequireSuccess(frontend.Render(
+                       MakeFrame(2U, MakeRetirementScene(2U),
+                                 PixelFormat::RGBA8_SRGB),
+                       replacement_output),
+                   std::string("RT4 rollback replacement Render(") +
+                       stage.second + ')');
+    static_cast<void>(InspectSdr(replacement_output));
+
+    RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                   std::string("RT4 rollback Shutdown(") + stage.second + ')');
+    record.after_shutdown = frontend.QueryTextureAllocationAudit();
+    RequireRetirementAudit(record.after_shutdown, 3U, 3U, 0U,
+                           record.name + " shutdown", false);
+    evidence.push_back(std::move(record));
+  }
+  return evidence;
+}
+
 SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
   const VariantSpec *baseline_spec = modern_pbr ? &kVariantSpecs.front()
                                                  : nullptr;
@@ -1494,6 +1619,8 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
 
   SmokeResult result;
   if (modern_pbr) {
+    result.texture_upload_rollback =
+        RunTextureUploadRollbackProof(media_root);
     result.retirement = RunTextureRetirementProof(media_root);
   }
   InitializeAndSync(frontend, catalog);

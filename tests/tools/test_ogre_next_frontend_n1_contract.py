@@ -426,6 +426,72 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("ror_ogre_next_frontend_n1_runtime", self.entry_cmake)
         self.assertIn("ror_ogre_next_frontend_n1_report", self.entry_cmake)
 
+    def test_texture_upload_rollback_is_centralized_and_fault_injected(self) -> None:
+        self.assertEqual(self.frontend.count("manager->destroyTexture(texture)"), 1)
+        self.assertIn("RetireNativeTextureAllocation", self.frontend)
+        self.assertIn("++texture_retired_name_lookups", self.frontend)
+        self.assertIn("++texture_retired_name_rejections", self.frontend)
+        self.assertIn("++texture_allocation_destroys", self.frontend)
+        self.assertIn("if (!clean) {\n      faulted = true;", self.frontend)
+        for stage in (
+            "AFTER_CREATE",
+            "AFTER_SET_RESOLUTION",
+            "AFTER_SET_MIPMAPS",
+            "AFTER_SET_PIXEL_FORMAT",
+            "AFTER_SCHEDULE_TRANSITION",
+        ):
+            self.assertIn(stage, self.header)
+            self.assertIn(stage, self.frontend)
+        for proof in (
+            "RunTextureUploadRollbackProof",
+            "after_failure",
+            "after_retry",
+            "after_replacement",
+            "after_shutdown",
+            "clean_retry_replacement_shutdown",
+        ):
+            self.assertIn(proof, self.smoke)
+
+    def test_rt4_attestation_flushes_file_and_parent_directory(self) -> None:
+        runner = RUNNER_PATH.read_text(encoding="utf-8")
+        self.assertIn("def _fsync_parent_directory", runner)
+        self.assertIn("os.replace(temporary, path)", runner)
+        self.assertIn("_fsync_parent_directory(path)", runner)
+        self.assertIn("def _durable_unlink", runner)
+        self.assertIn("_durable_unlink(attestation_path)", runner)
+        self.assertIn("not-a-cryptographic-signature", runner)
+
+        with tempfile.TemporaryDirectory(prefix="ror-rt4-durable-") as temp:
+            root = Path(temp)
+            target = root / "attestation.json"
+            fsync_targets = []
+            with mock.patch.object(
+                RUNNER.os,
+                "fsync",
+                side_effect=lambda descriptor: fsync_targets.append(
+                    RUNNER.os.fstat(descriptor).st_mode
+                ),
+            ):
+                RUNNER._atomic_write_json(target, {"status": "pass"})
+            self.assertEqual(
+                len(fsync_targets), 1 if RUNNER.os.name == "nt" else 2
+            )
+            self.assertTrue(target.is_file())
+
+            fsync_targets.clear()
+            with mock.patch.object(
+                RUNNER.os,
+                "fsync",
+                side_effect=lambda descriptor: fsync_targets.append(
+                    RUNNER.os.fstat(descriptor).st_mode
+                ),
+            ):
+                RUNNER._durable_unlink(target)
+            self.assertEqual(
+                len(fsync_targets), 0 if RUNNER.os.name == "nt" else 1
+            )
+            self.assertFalse(target.exists())
+
     def test_wrapper_validator_checks_exact_pixels_hdr_and_lifecycle(self) -> None:
         lock = RUNNER.load_lock()
         policy = RUNNER.detect_policy("Darwin", "arm64")

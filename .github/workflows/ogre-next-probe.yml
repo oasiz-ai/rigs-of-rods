@@ -64,6 +64,9 @@ jobs:
             jobs: 4
     env:
       PYTHONDONTWRITEBYTECODE: "1"
+      ROR_OGRE_NEXT_EXPECTED_ROR_REPOSITORY: https://github.com/oasiz-ai/rigs-of-rods
+      ROR_OGRE_NEXT_EXPECTED_ROR_REF: ${{ github.head_ref || github.ref_name }}
+      ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT: ${{ github.sha }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -367,6 +370,17 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-build-contract.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-probe-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke*
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-raster.bin
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-contribution.bin

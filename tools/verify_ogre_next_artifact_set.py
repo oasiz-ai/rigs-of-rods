@@ -7,8 +7,10 @@ import argparse
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
+import subprocess
 import struct
 import sys
 
@@ -32,6 +34,27 @@ RT4_ATTESTATION_ARTIFACT = (
     "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json"
 )
 RT4_PACKAGE_EXECUTABLE_STEM = "ror_ogre_next_frontend_n1_smoke"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+PINNED_LOCK_PATH = REPOSITORY_ROOT / "tools/ogre_next_probe/ogre-next.lock.json"
+ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
+RELEVANT_SOURCE_PATHS = (
+    "source/main/gfx/render",
+    "tools/ogre_next_probe",
+    "tools/run_ogre_next_probe.py",
+    "tools/validate_ogre_next_frame_probe.py",
+    "tools/verify_ogre_next_artifact_set.py",
+)
+RT4_ATTESTATION_SCHEMA = (
+    "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v2"
+)
+RT4_INTEGRITY_MODEL = (
+    "self-contained-checksums-plus-independent-semantics; "
+    "not-a-cryptographic-signature"
+)
+RT4_REPORT_SCHEMA = "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1"
+RT4_EXECUTABLE_IDENTITY_SCHEMA = (
+    "ror.ogre_next_frontend_n1.build_identity.v1"
+)
 RT4_EXPECTED_VARIANTS = (
     ("baseline", "none"),
     ("base_color", "base_color_rgb"),
@@ -100,6 +123,108 @@ RT4_EXPECTED_RETIREMENT = {
             "retired_name_lookups": 4,
             "retired_name_rejections": 4,
         },
+    },
+}
+RT4_EXPECTED_TEXTURE_ALLOCATIONS = {
+    "version": 1,
+    "live_source_textures": 3,
+    "sampled_rgba_allocations": 2,
+    "roughness_r8_allocations": 1,
+    "metallic_r8_allocations": 1,
+    "unused_packed_rgba_allocations": 0,
+    "exact_usage": True,
+}
+RT4_EXPECTED_LIFECYCLE = {
+    "unsupported_depth_failed_before_submission": True,
+    "double_sided_pbs_readback": True,
+    "lifetime_snapshot_identity_replay": True,
+    "lifetime_completed_frame_queries": True,
+    "process_global_root_exclusion": True,
+    "live_texture_replacement_retirement": True,
+    "shutdown_reinitialize_render_shutdown": True,
+}
+RT4_ROLLBACK_STAGES = (
+    "after_create",
+    "after_set_resolution",
+    "after_set_mipmaps",
+    "after_set_pixel_format",
+    "after_schedule_transition",
+)
+RT4_EXPECTED_TEXTURE_UPLOAD_ROLLBACK = {
+    "schema": "ror.ogre_next_rt4_texture_upload_rollback.v1",
+    "injected_post_create_stage_count": len(RT4_ROLLBACK_STAGES),
+    "stages": [
+        {
+            "name": name,
+            "audits": {
+                "after_failure": {
+                    "creates": 1,
+                    "destroys": 1,
+                    "live": 0,
+                    "retired_name_lookups": 1,
+                    "retired_name_rejections": 1,
+                    "exact_usage": True,
+                },
+                "after_retry": {
+                    "creates": 2,
+                    "destroys": 1,
+                    "live": 1,
+                    "retired_name_lookups": 1,
+                    "retired_name_rejections": 1,
+                    "exact_usage": True,
+                },
+                "after_replacement": {
+                    "creates": 3,
+                    "destroys": 2,
+                    "live": 1,
+                    "retired_name_lookups": 2,
+                    "retired_name_rejections": 2,
+                    "exact_usage": True,
+                },
+                "after_shutdown": {
+                    "creates": 3,
+                    "destroys": 3,
+                    "live": 0,
+                    "retired_name_lookups": 3,
+                    "retired_name_rejections": 3,
+                    "exact_usage": False,
+                },
+            },
+        }
+        for name in RT4_ROLLBACK_STAGES
+    ],
+    "clean_retry_replacement_shutdown": True,
+}
+PLATFORM_CONTRACTS = {
+    "macos-arm64-metal": {
+        "systems": {"Darwin"},
+        "processors": {"arm64", "aarch64"},
+        "renderer_target": "RenderSystem_Metal",
+        "renderer_name": "Metal Rendering Subsystem",
+        "device_option_name": "Rendering Device",
+        "compiler_ids": {"AppleClang"},
+        "binary_format": "mach-o-64",
+        "binary_architecture": "arm64",
+    },
+    "windows-x64-d3d11": {
+        "systems": {"Windows"},
+        "processors": {"AMD64", "amd64", "x86_64"},
+        "renderer_target": "RenderSystem_Direct3D11",
+        "renderer_name": "Direct3D11 Rendering Subsystem",
+        "device_option_name": "Rendering Device",
+        "compiler_ids": {"MSVC"},
+        "binary_format": "pe32+",
+        "binary_architecture": "x86_64",
+    },
+    "linux-x86_64-vulkan": {
+        "systems": {"Linux"},
+        "processors": {"AMD64", "amd64", "x86_64"},
+        "renderer_target": "RenderSystem_Vulkan",
+        "renderer_name": "Vulkan Rendering Subsystem",
+        "device_option_name": "Device",
+        "compiler_ids": {"GNU", "Clang"},
+        "binary_format": "elf64",
+        "binary_architecture": "x86_64",
     },
 }
 METAL_N2_REQUIRED_ARTIFACTS = (
@@ -183,18 +308,181 @@ def _verify_attested_file(
         "bytes": path.stat().st_size,
         "sha256": sha256_file(path),
     }
-    if entry != expected:
+    if not _json_exact(entry, expected):
         raise ArtifactSetError(f"{checkpoint} {label} attestation mismatch")
 
 
-def _read_build_contract(root: Path) -> dict[str, object]:
+def _json_exact(actual: object, expected: object) -> bool:
+    """Compare JSON values without Python's bool/int equality aliasing."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(
+            _json_exact(actual[key], value) for key, value in expected.items()
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _json_exact(left, right) for left, right in zip(actual, expected)
+        )
+    return actual == expected
+
+
+def _require_exact_keys(
+    value: object, expected: set[str], label: str
+) -> dict[str, object]:
+    if not isinstance(value, dict) or set(value) != expected:
+        raise ArtifactSetError(f"{label} fields are incomplete or unexpected")
+    return value
+
+
+def _relevant_source_manifest(
+    repository_root: Path = REPOSITORY_ROOT,
+) -> dict[str, int | str]:
+    selected: set[Path] = set()
+    for relative in RELEVANT_SOURCE_PATHS:
+        path = repository_root / relative
+        if path.is_symlink():
+            raise ArtifactSetError(
+                f"RoR relevant source is indirect: {relative}"
+            )
+        if path.is_dir():
+            selected.update(path.rglob("*"))
+        else:
+            selected.add(path)
+    entries: list[tuple[str, int, str]] = []
+    for path in sorted(selected, key=lambda item: item.as_posix()):
+        try:
+            relative = path.relative_to(repository_root)
+        except ValueError as error:
+            raise ArtifactSetError("RoR relevant source escaped repository") from error
+        if "__pycache__" in relative.parts or path.suffix in (".pyc", ".pyo"):
+            continue
+        if path.name == ".DS_Store":
+            continue
+        if path.is_symlink():
+            raise ArtifactSetError(
+                "RoR relevant source is indirect: " + relative.as_posix()
+            )
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise ArtifactSetError(
+                "RoR relevant source is missing or irregular: "
+                + relative.as_posix()
+            )
+        entries.append(
+            (relative.as_posix(), path.stat().st_size, sha256_file(path))
+        )
+    if not entries:
+        raise ArtifactSetError("RoR relevant source manifest is empty")
+    serialized = "".join(
+        f"{relative}|{size}|{digest}\n"
+        for relative, size, digest in entries
+    ).encode("utf-8")
+    return {
+        "sha256": hashlib.sha256(serialized).hexdigest(),
+        "file_count": len(entries),
+    }
+
+
+def _git_output(repository_root: Path, *arguments: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repository_root), *arguments],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except OSError as error:
+        raise ArtifactSetError(
+            f"could not execute Git for RoR provenance: {error}"
+        ) from error
+    value = result.stdout.strip()
+    if result.returncode != 0 or not value:
+        raise ArtifactSetError("could not resolve RoR Git provenance")
+    return value
+
+
+def _current_source_identity(
+    repository_root: Path = REPOSITORY_ROOT,
+    expected_repository: str | None = None,
+    expected_ref: str | None = None,
+    expected_commit: str | None = None,
+) -> dict[str, object]:
+    repository = (
+        expected_repository
+        or os.environ.get("ROR_OGRE_NEXT_EXPECTED_ROR_REPOSITORY")
+        or ROR_SOURCE_REPOSITORY
+    )
+    commit = (
+        expected_commit
+        or os.environ.get("ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT")
+        or os.environ.get("GITHUB_SHA")
+        or _git_output(repository_root, "rev-parse", "HEAD")
+    )
+    ref = (
+        expected_ref
+        or os.environ.get("ROR_OGRE_NEXT_EXPECTED_ROR_REF")
+        or _git_output(repository_root, "rev-parse", "--abbrev-ref", "HEAD")
+    )
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None or re.fullmatch(
+        r"[A-Za-z0-9._/-]+", ref
+    ) is None or repository != ROR_SOURCE_REPOSITORY:
+        raise ArtifactSetError("RoR Git provenance is not canonical")
+    git_commit = _git_output(repository_root, "rev-parse", "HEAD")
+    if commit != git_commit:
+        raise ArtifactSetError("expected RoR commit differs from checked-out source")
+    manifest = _relevant_source_manifest(repository_root)
+    return {
+        "repository": repository,
+        "ref": ref,
+        "commit": commit,
+        "relevant_manifest_sha256": manifest["sha256"],
+        "relevant_manifest_file_count": manifest["file_count"],
+    }
+
+
+def _read_pinned_lock() -> dict[str, object]:
+    lock = _read_json_object(PINNED_LOCK_PATH, "pinned OGRE-Next lock")
+    if (
+        type(lock.get("schema_version")) is not int
+        or lock.get("schema_version") != 2
+        or lock.get("name") != "OGRE-Next"
+    ):
+        raise ArtifactSetError("pinned OGRE-Next lock identity is invalid")
+    return lock
+
+
+def _read_build_contract(
+    root: Path, expected_source: dict[str, object]
+) -> dict[str, object]:
     contract = _read_json_object(
         root / REQUIRED_ARTIFACTS[0], "OGRE-Next build contract"
+    )
+    _require_exact_keys(
+        contract,
+        {
+            "schema_version",
+            "ror_source",
+            "provenance",
+            "dependencies",
+            "shader_media",
+            "platform",
+            "abi",
+            "components",
+            "compiler",
+        },
+        "OGRE-Next build contract",
     )
     ror_source = contract.get("ror_source")
     ogre_source = contract.get("provenance")
     shader_media = contract.get("shader_media")
     platform = contract.get("platform")
+    dependencies = contract.get("dependencies")
+    abi = contract.get("abi")
+    components = contract.get("components")
+    compiler = contract.get("compiler")
     notice = (
         shader_media.get("third_party_notice")
         if isinstance(shader_media, dict)
@@ -237,13 +525,86 @@ def _read_build_contract(root: Path) -> dict[str, object]:
         or not _is_sha256(notice.get("notice_sha256"))
         or not isinstance(platform, dict)
         or platform.get("policy")
-        not in (
-            "macos-arm64-metal",
-            "windows-x64-d3d11",
-            "linux-x86_64-vulkan",
-        )
+        not in PLATFORM_CONTRACTS
     ):
         raise ArtifactSetError("OGRE-Next build contract source identity is invalid")
+
+    lock = _read_pinned_lock()
+    policy = PLATFORM_CONTRACTS[platform["policy"]]
+    rapidjson = lock.get("dependencies", {}).get("rapidjson", {})
+    lock_abi = lock.get("abi_contract", {})
+    expected_abi = {
+        key: value for key, value in lock_abi.items() if key != "simd"
+    }
+    expected_simd = lock_abi.get("simd", {}).get(platform["policy"])
+    expected_abi.update(
+        {
+            "simd_enabled": lock_abi.get("simd", {}).get("enabled"),
+            "simd_alignment": lock_abi.get("simd", {}).get("alignment"),
+            "simd_family": expected_simd,
+            "simd_neon": expected_simd == "neon",
+            "simd_sse2": expected_simd == "sse2",
+        }
+    )
+    expected_dependencies = {
+        "rapidjson": {
+            "tag": rapidjson.get("tag"),
+            "archive_sha256": rapidjson.get("archive_sha256"),
+            "source_archive_license_spdx": rapidjson.get("license_spdx"),
+            "compiled_headers_license_spdx": rapidjson.get(
+                "compiled_headers_spdx"
+            ),
+            "license_sha256": rapidjson.get("license_sha256"),
+        }
+    }
+    expected_components = {
+        "hlms_pbs": True,
+        "compositor2_core": True,
+        "json_materials": True,
+        "mesh_lod": True,
+        "dds_codec": True,
+        "native_ray_tracing": "not_evaluated",
+    }
+    expected_platform = {
+        "policy": platform["policy"],
+        "system": platform.get("system"),
+        "processor": platform.get("processor"),
+        "renderer_target": policy["renderer_target"],
+        "device_option_name": policy["device_option_name"],
+    }
+    expected_ogre = {
+        "repository": lock.get("repository"),
+        "branch": lock.get("branch"),
+        "commit": lock.get("commit"),
+        "archive_sha256": lock.get("archive_sha256"),
+        "license_spdx": lock.get("license", {}).get("spdx"),
+        "license_sha256": lock.get("license", {}).get("sha256"),
+    }
+    compiler_valid = (
+        isinstance(compiler, dict)
+        and set(compiler) == {"id", "version", "build_type"}
+        and compiler.get("id") in policy["compiler_ids"]
+        and isinstance(compiler.get("version"), str)
+        and re.fullmatch(r"[A-Za-z0-9.+_-]+", compiler["version"]) is not None
+        and compiler.get("build_type") == "Release"
+    )
+    exact_checks = {
+        "source": _json_exact(ror_source, expected_source),
+        "ogre": _json_exact(ogre_source, expected_ogre),
+        "dependencies": _json_exact(dependencies, expected_dependencies),
+        "shader_media": _json_exact(shader_media, lock.get("shader_media")),
+        "platform": _json_exact(platform, expected_platform)
+        and platform.get("system") in policy["systems"]
+        and platform.get("processor") in policy["processors"],
+        "abi": _json_exact(abi, expected_abi),
+        "components": _json_exact(components, expected_components),
+        "compiler": compiler_valid,
+    }
+    failed = sorted(name for name, passed in exact_checks.items() if not passed)
+    if failed:
+        raise ArtifactSetError(
+            "OGRE-Next build contract identity mismatch: " + ", ".join(failed)
+        )
     return contract
 
 
@@ -266,6 +627,206 @@ def _fnv1a64(payload: bytes) -> str:
     return f"{value:016x}"
 
 
+def _expected_rt4_build_identity(
+    build_contract: dict[str, object], report: dict[str, object]
+) -> str:
+    platform = build_contract["platform"]
+    compiler = build_contract["compiler"]
+    source = build_contract["ror_source"]
+    ogre = build_contract["provenance"]
+    provenance = report.get("provenance")
+    if not all(
+        isinstance(value, dict)
+        for value in (platform, compiler, source, ogre, provenance)
+    ):
+        raise ArtifactSetError("RT4 executable build identity inputs are missing")
+    return (
+        f"{RT4_EXECUTABLE_IDENTITY_SCHEMA}"
+        f"|platform={platform['policy']}"
+        f"|compiler={compiler['id']}-{compiler['version']}-{compiler['build_type']}"
+        f"|ror_commit={source['commit']}"
+        f"|ror_manifest={source['relevant_manifest_sha256']}"
+        f"|ogre_commit={ogre['commit']}"
+        f"|ogre_archive={ogre['archive_sha256']}"
+        "|shader_manifest="
+        f"{provenance.get('shader_media_manifest_sha256')}"
+    )
+
+
+def _verify_mach_o_64(payload: bytes) -> dict[str, str]:
+    if len(payload) < 32:
+        raise ArtifactSetError("RT4 executable has a truncated Mach-O header")
+    magic, cpu, _, file_type, command_count, command_bytes, _, _ = (
+        struct.unpack_from("<IiiIIIII", payload, 0)
+    )
+    if (
+        magic != 0xFEEDFACF
+        or cpu != 0x0100000C
+        or file_type != 2
+        or command_count < 2
+        or command_bytes < 96
+        or 32 + command_bytes > len(payload)
+    ):
+        raise ArtifactSetError("RT4 executable is not an arm64 Mach-O executable")
+    offset = 32
+    has_executable_text = False
+    has_entrypoint = False
+    for _ in range(command_count):
+        if offset + 8 > 32 + command_bytes:
+            raise ArtifactSetError("RT4 Mach-O load commands are truncated")
+        command, command_size = struct.unpack_from("<II", payload, offset)
+        if command_size < 8 or offset + command_size > 32 + command_bytes:
+            raise ArtifactSetError("RT4 Mach-O load command layout is invalid")
+        if command == 0x19 and command_size >= 72:  # LC_SEGMENT_64
+            values = struct.unpack_from("<II16sQQQQiiII", payload, offset)
+            segment = values[2].split(b"\0", 1)[0]
+            file_offset, file_size = values[5], values[6]
+            initial_protection = values[8]
+            if (
+                segment == b"__TEXT"
+                and initial_protection & 0x4
+                and file_size > 0
+                and file_offset + file_size <= len(payload)
+            ):
+                has_executable_text = True
+        if command == 0x80000028 and command_size >= 24:  # LC_MAIN
+            entry_offset = struct.unpack_from("<Q", payload, offset + 8)[0]
+            if 0 < entry_offset < len(payload):
+                has_entrypoint = True
+        offset += command_size
+    if offset != 32 + command_bytes or not has_executable_text or not has_entrypoint:
+        raise ArtifactSetError("RT4 Mach-O executable structure is incomplete")
+    return {"format": "mach-o-64", "architecture": "arm64"}
+
+
+def _verify_pe32_plus(payload: bytes) -> dict[str, str]:
+    if len(payload) < 0x100 or payload[:2] != b"MZ":
+        raise ArtifactSetError("RT4 executable has an invalid PE DOS header")
+    pe_offset = struct.unpack_from("<I", payload, 0x3C)[0]
+    if pe_offset + 24 > len(payload) or payload[pe_offset : pe_offset + 4] != b"PE\0\0":
+        raise ArtifactSetError("RT4 executable has an invalid PE signature")
+    machine, section_count, _, _, _, optional_size, characteristics = (
+        struct.unpack_from("<HHIIIHH", payload, pe_offset + 4)
+    )
+    optional_offset = pe_offset + 24
+    if (
+        machine != 0x8664
+        or not 1 <= section_count <= 96
+        or optional_size < 112
+        or optional_offset + optional_size > len(payload)
+        or characteristics & 0x0002 == 0
+        or characteristics & 0x2000 != 0
+        or struct.unpack_from("<H", payload, optional_offset)[0] != 0x20B
+        or struct.unpack_from("<I", payload, optional_offset + 16)[0] == 0
+    ):
+        raise ArtifactSetError("RT4 executable is not an x64 PE32+ executable")
+    section_offset = optional_offset + optional_size
+    has_executable_code = False
+    for index in range(section_count):
+        offset = section_offset + index * 40
+        if offset + 40 > len(payload):
+            raise ArtifactSetError("RT4 PE section table is truncated")
+        raw_size, raw_offset = struct.unpack_from("<II", payload, offset + 16)
+        flags = struct.unpack_from("<I", payload, offset + 36)[0]
+        if (
+            flags & 0x20
+            and flags & 0x20000000
+            and raw_size > 0
+            and raw_offset + raw_size <= len(payload)
+        ):
+            has_executable_code = True
+    if not has_executable_code:
+        raise ArtifactSetError("RT4 PE executable has no executable code section")
+    return {"format": "pe32+", "architecture": "x86_64"}
+
+
+def _verify_elf64(payload: bytes) -> dict[str, str]:
+    if (
+        len(payload) < 64
+        or payload[:4] != b"\x7fELF"
+        or payload[4] != 2
+        or payload[5] != 1
+        or payload[6] != 1
+    ):
+        raise ArtifactSetError("RT4 executable has an invalid ELF64 header")
+    file_type, machine = struct.unpack_from("<HH", payload, 16)
+    entrypoint, program_offset = struct.unpack_from("<QQ", payload, 24)
+    program_entry_size, program_count = struct.unpack_from("<HH", payload, 54)
+    if (
+        file_type not in (2, 3)
+        or machine != 62
+        or entrypoint == 0
+        or program_entry_size < 56
+        or program_count == 0
+        or program_offset + program_entry_size * program_count > len(payload)
+    ):
+        raise ArtifactSetError("RT4 executable is not an x86_64 ELF executable")
+    has_executable_load = False
+    for index in range(program_count):
+        offset = program_offset + index * program_entry_size
+        segment_type, flags = struct.unpack_from("<II", payload, offset)
+        file_offset = struct.unpack_from("<Q", payload, offset + 8)[0]
+        file_size = struct.unpack_from("<Q", payload, offset + 32)[0]
+        if (
+            segment_type == 1
+            and flags & 0x1
+            and file_size > 0
+            and file_offset + file_size <= len(payload)
+        ):
+            has_executable_load = True
+    if not has_executable_load:
+        raise ArtifactSetError("RT4 ELF executable has no executable load segment")
+    return {"format": "elf64", "architecture": "x86_64"}
+
+
+def _verify_rt4_executable(
+    path: Path,
+    build_contract: dict[str, object],
+    report: dict[str, object],
+) -> None:
+    size = path.stat().st_size
+    if size < 64 * 1024 or size > 512 * 1024 * 1024:
+        raise ArtifactSetError("RT4 executable byte count is structurally implausible")
+    try:
+        payload = path.read_bytes()
+    except OSError as error:
+        raise ArtifactSetError(f"could not read RT4 executable: {error}") from error
+    policy_name = build_contract["platform"]["policy"]
+    policy = PLATFORM_CONTRACTS[policy_name]
+    verifier = {
+        "mach-o-64": _verify_mach_o_64,
+        "pe32+": _verify_pe32_plus,
+        "elf64": _verify_elf64,
+    }[policy["binary_format"]]
+    structure = verifier(payload)
+    expected_structure = {
+        "format": policy["binary_format"],
+        "architecture": policy["binary_architecture"],
+    }
+    if structure != expected_structure:
+        raise ArtifactSetError("RT4 executable platform structure mismatch")
+    if policy["binary_format"] in ("mach-o-64", "elf64") and (
+        path.stat().st_mode & 0o111 == 0
+    ):
+        raise ArtifactSetError("RT4 packaged executable has no execute permission")
+    identity = _expected_rt4_build_identity(build_contract, report)
+    if payload.count(identity.encode()) != 1:
+        raise ArtifactSetError(
+            "RT4 executable build identity is missing or ambiguous"
+        )
+    required_tokens = (
+        RT4_REPORT_SCHEMA,
+        "--modern-pbr",
+        policy["renderer_name"],
+        '\"raster_feature_tier\": \"MODERN_PBR_RT4_V1\"',
+    )
+    missing = [token for token in required_tokens if token.encode() not in payload]
+    if missing:
+        raise ArtifactSetError(
+            "RT4 executable build identity is missing or ambiguous"
+        )
+
+
 def _changed_pixels(
     baseline: bytes, variant: bytes, bytes_per_pixel: int
 ) -> int:
@@ -282,8 +843,77 @@ def _changed_pixels(
     )
 
 
+def _quantize_unit_float(value: float) -> int:
+    return int(math.floor(max(0.0, min(1.0, value)) * 255.0 + 0.5))
+
+
+def _attachment_metrics(payload: bytes, hdr: bool) -> dict[str, object]:
+    bytes_per_pixel = 8 if hdr else 4
+    if len(payload) == 0 or len(payload) % bytes_per_pixel != 0:
+        raise ArtifactSetError("RT4 attachment byte layout is invalid")
+    rgb = bytearray()
+    colour_counts: dict[bytes, int] = {}
+    minimum_luminance = math.inf
+    maximum_luminance = -math.inf
+    if hdr:
+        pixels = struct.iter_unpack("<4e", payload)
+    else:
+        pixels = (
+            tuple(payload[offset : offset + 4])
+            for offset in range(0, len(payload), 4)
+        )
+    for channels in pixels:
+        if hdr:
+            if not all(math.isfinite(channel) for channel in channels):
+                raise ArtifactSetError("RT4 HDR isolation contains non-finite data")
+            if any(channel < 0.0 for channel in channels[:3]):
+                raise ArtifactSetError("RT4 HDR isolation contains negative RGB energy")
+            if not 0.99 <= channels[3] <= 1.01:
+                raise ArtifactSetError("RT4 HDR isolation alpha is not opaque")
+            linear = channels[:3]
+            quantized = bytes(_quantize_unit_float(value) for value in linear)
+        else:
+            if channels[3] < 250:
+                raise ArtifactSetError("RT4 SDR isolation alpha is not opaque")
+            linear = tuple(value / 255.0 for value in channels[:3])
+            quantized = bytes(channels[:3])
+        rgb.extend(quantized)
+        colour_counts[quantized] = colour_counts.get(quantized, 0) + 1
+        luminance = (
+            0.2126 * linear[0]
+            + 0.7152 * linear[1]
+            + 0.0722 * linear[2]
+        )
+        minimum_luminance = min(minimum_luminance, luminance)
+        maximum_luminance = max(maximum_luminance, luminance)
+    pixel_count = len(payload) // bytes_per_pixel
+    return {
+        "exact_attachment_fnv1a64": _fnv1a64(payload),
+        "rgb8_fnv1a64": _fnv1a64(bytes(rgb)),
+        "distinct_rgb8_values": len(colour_counts),
+        "non_background_pixels": pixel_count - max(colour_counts.values()),
+        "minimum_luminance": minimum_luminance,
+        "maximum_luminance": maximum_luminance,
+        "rgb": bytes(rgb),
+    }
+
+
+def _reported_metric_matches(reported: object, computed: float) -> bool:
+    return (
+        isinstance(reported, (int, float))
+        and not isinstance(reported, bool)
+        and math.isfinite(float(reported))
+        and math.isclose(
+            float(reported), computed, rel_tol=2.0e-7, abs_tol=2.0e-7
+        )
+    )
+
+
 def _verify_rt4_semantics(
-    report: dict[str, object], ppm_path: Path, isolation_path: Path
+    report: dict[str, object],
+    ppm_path: Path,
+    isolation_path: Path,
+    build_contract: dict[str, object],
 ) -> list[dict[str, object]]:
     try:
         ppm = ppm_path.read_bytes()
@@ -305,12 +935,33 @@ def _verify_rt4_semantics(
         colour_counts[colour] = colour_counts.get(colour, 0) + 1
     ppm_non_background = len(colours) - max(colour_counts.values())
 
-    if (
-        report.get("schema")
-        != "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v1"
-        or report.get("status") != "pass"
-    ):
+    _require_exact_keys(
+        report,
+        {
+            "schema",
+            "status",
+            "executable_build_identity",
+            "provenance",
+            "platform_policy",
+            "renderer",
+            "adapter",
+            "catalog",
+            "texture_allocations",
+            "texture_upload_rollback",
+            "texture_retirement",
+            "texture_isolation",
+            "hdr",
+            "sdr",
+            "lifecycle",
+        },
+        "RT4 report",
+    )
+    if report.get("schema") != RT4_REPORT_SCHEMA or report.get("status") != "pass":
         raise ArtifactSetError("RT4 report schema or status is invalid")
+    if report.get("executable_build_identity") != _expected_rt4_build_identity(
+        build_contract, report
+    ):
+        raise ArtifactSetError("RT4 report executable build identity mismatch")
     hdr = report.get("hdr")
     sdr = report.get("sdr")
     isolation = report.get("texture_isolation")
@@ -318,14 +969,63 @@ def _verify_rt4_semantics(
         raise ArtifactSetError("RT4 HDR/SDR report metrics are missing")
     if not isinstance(isolation, dict):
         raise ArtifactSetError("RT4 isolation report is missing")
+    _require_exact_keys(
+        hdr,
+        {
+            "format",
+            "width",
+            "height",
+            "distinct_rgb8_values",
+            "non_background_pixels",
+            "minimum_luminance",
+            "maximum_luminance",
+            "exact_attachment_fnv1a64",
+            "rgb8_fnv1a64",
+        },
+        "RT4 HDR metrics",
+    )
+    _require_exact_keys(
+        sdr,
+        {
+            "format",
+            "width",
+            "height",
+            "distinct_rgb8_values",
+            "non_background_pixels",
+            "minimum_luminance",
+            "maximum_luminance",
+            "exact_attachment_fnv1a64",
+            "rgb8_fnv1a64",
+        },
+        "RT4 SDR metrics",
+    )
+    _require_exact_keys(
+        isolation,
+        {
+            "schema",
+            "evidence_file",
+            "width",
+            "height",
+            "geometry_identical",
+            "material_factors_constants_identical",
+            "camera_identical",
+            "lights_identical",
+            "ui_included",
+            "variants",
+            "evidence_bytes",
+        },
+        "RT4 isolation report",
+    )
     variants = isolation.get("variants")
     controls = {
         "schema": isolation.get("schema")
         == "ror.ogre_next_rt4_texture_isolation.v1",
         "file": isolation.get("evidence_file") == isolation_path.name,
-        "extent": isolation.get("width") == width
-        and isolation.get("height") == height,
-        "bytes": isolation.get("evidence_bytes") == len(isolation_payload),
+        "extent": _json_exact(isolation.get("width"), width)
+        and _json_exact(isolation.get("height"), height),
+        "bytes": _json_exact(
+            isolation.get("evidence_bytes"), len(isolation_payload)
+        ),
         "geometry": isolation.get("geometry_identical") is True,
         "factors": isolation.get("material_factors_constants_identical") is True,
         "camera": isolation.get("camera_identical") is True,
@@ -351,10 +1051,15 @@ def _verify_rt4_semantics(
     for index, (entry, expected) in enumerate(zip(variants, RT4_EXPECTED_VARIANTS)):
         if not isinstance(entry, dict):
             raise ArtifactSetError("RT4 isolation variant is not an object")
+        _require_exact_keys(
+            entry,
+            {"name", "changed_input", "asset_sequence", "hdr", "sdr"},
+            f"RT4 {expected[0]} isolation variant",
+        )
         if (
             entry.get("name") != expected[0]
             or entry.get("changed_input") != expected[1]
-            or entry.get("asset_sequence") != index + 1
+            or not _json_exact(entry.get("asset_sequence"), index + 1)
         ):
             raise ArtifactSetError("RT4 isolation variant identity mismatch")
         for attachment, bytes_per_pixel in (("hdr", 8), ("sdr", 4)):
@@ -364,19 +1069,26 @@ def _verify_rt4_semantics(
                 raise ArtifactSetError(
                     f"RT4 {expected[0]} {attachment} metadata is missing"
                 )
+            _require_exact_keys(
+                reported,
+                {
+                    "offset",
+                    "bytes",
+                    "exact_fnv1a64",
+                    "changed_pixels_from_baseline",
+                },
+                f"RT4 {expected[0]} {attachment} metadata",
+            )
             if (
-                reported.get("offset") != offset
-                or reported.get("bytes") != expected_bytes
+                not _json_exact(reported.get("offset"), offset)
+                or not _json_exact(reported.get("bytes"), expected_bytes)
                 or offset + expected_bytes > len(isolation_payload)
             ):
                 raise ArtifactSetError(
                     f"RT4 {expected[0]} {attachment} slice layout mismatch"
                 )
             payload = isolation_payload[offset : offset + expected_bytes]
-            if attachment == "hdr":
-                for channels in struct.iter_unpack("<4e", payload):
-                    if not all(math.isfinite(channel) for channel in channels):
-                        raise ArtifactSetError("RT4 HDR isolation contains non-finite data")
+            _attachment_metrics(payload, attachment == "hdr")
             fnv = _fnv1a64(payload)
             if reported.get("exact_fnv1a64") != fnv:
                 raise ArtifactSetError(
@@ -391,7 +1103,7 @@ def _verify_rt4_semantics(
                     baseline[attachment], payload, bytes_per_pixel
                 )
             if (
-                reported.get("changed_pixels_from_baseline") != changed
+                not _json_exact(reported.get("changed_pixels_from_baseline"), changed)
                 or (index != 0 and changed < 64)
             ):
                 raise ArtifactSetError(
@@ -420,22 +1132,81 @@ def _verify_rt4_semantics(
         for pixel_offset in range(0, len(baseline["sdr"]), 4)
         for channel in baseline["sdr"][pixel_offset : pixel_offset + 3]
     )
+    hdr_metrics = _attachment_metrics(baseline["hdr"], True)
+    sdr_metrics = _attachment_metrics(baseline["sdr"], False)
+    if hdr_metrics["rgb"] != bytes(
+        _quantize_unit_float(channel)
+        for channels in struct.iter_unpack("<4e", baseline["hdr"])
+        for channel in channels[:3]
+    ):
+        raise ArtifactSetError("RT4 HDR RGB derivation is inconsistent")
+    hdr_energy = hdr_metrics["maximum_luminance"]
+    hdr_minimum = hdr_metrics["minimum_luminance"]
+    sdr_maximum = sdr_metrics["maximum_luminance"]
+    sdr_minimum = sdr_metrics["minimum_luminance"]
     report_checks = {
         "ppm_baseline": ppm_pixels == baseline_sdr_rgb,
-        "retirement": report.get("texture_retirement")
-        == RT4_EXPECTED_RETIREMENT,
+        "retirement": _json_exact(
+            report.get("texture_retirement"), RT4_EXPECTED_RETIREMENT
+        ),
+        "texture_allocations": _json_exact(
+            report.get("texture_allocations"),
+            RT4_EXPECTED_TEXTURE_ALLOCATIONS,
+        ),
+        "texture_upload_rollback": _json_exact(
+            report.get("texture_upload_rollback"),
+            RT4_EXPECTED_TEXTURE_UPLOAD_ROLLBACK,
+        ),
+        "lifecycle": _json_exact(
+            report.get("lifecycle"), RT4_EXPECTED_LIFECYCLE
+        ),
         "hdr_format": hdr.get("format") == "RGBA16_FLOAT",
-        "hdr_extent": hdr.get("width") == width and hdr.get("height") == height,
-        "hdr_exact": hdr.get("exact_attachment_fnv1a64")
-        == _fnv1a64(baseline["hdr"]),
+        "hdr_extent": _json_exact(hdr.get("width"), width)
+        and _json_exact(hdr.get("height"), height),
+        "hdr_exact": all(
+            _json_exact(hdr.get(field), hdr_metrics[field])
+            for field in (
+                "exact_attachment_fnv1a64",
+                "rgb8_fnv1a64",
+                "distinct_rgb8_values",
+                "non_background_pixels",
+            )
+        ),
+        "hdr_minimum": _reported_metric_matches(
+            hdr.get("minimum_luminance"), hdr_minimum
+        )
+        and hdr_minimum >= 0.0,
+        "hdr_maximum": _reported_metric_matches(
+            hdr.get("maximum_luminance"), hdr_energy
+        )
+        and hdr_energy > 1.05,
+        "hdr_geometry": hdr_metrics["distinct_rgb8_values"] >= 2
+        and hdr_metrics["non_background_pixels"] >= 512,
         "sdr_format": sdr.get("format") == "RGBA8_SRGB",
-        "sdr_extent": sdr.get("width") == width and sdr.get("height") == height,
-        "sdr_exact": sdr.get("exact_attachment_fnv1a64")
-        == _fnv1a64(baseline["sdr"]),
-        "sdr_ppm_hash": sdr.get("rgb8_fnv1a64") == _fnv1a64(ppm_pixels),
-        "sdr_distinct": sdr.get("distinct_rgb8_values") == len(colour_counts),
-        "sdr_geometry": sdr.get("non_background_pixels") == ppm_non_background
-        and ppm_non_background >= 512,
+        "sdr_extent": _json_exact(sdr.get("width"), width)
+        and _json_exact(sdr.get("height"), height),
+        "sdr_exact": all(
+            _json_exact(sdr.get(field), sdr_metrics[field])
+            for field in (
+                "exact_attachment_fnv1a64",
+                "rgb8_fnv1a64",
+                "distinct_rgb8_values",
+                "non_background_pixels",
+            )
+        ),
+        "sdr_minimum": _reported_metric_matches(
+            sdr.get("minimum_luminance"), sdr_minimum
+        ),
+        "sdr_maximum": _reported_metric_matches(
+            sdr.get("maximum_luminance"), sdr_maximum
+        ),
+        "sdr_ppm_hash": sdr_metrics["rgb8_fnv1a64"] == _fnv1a64(ppm_pixels),
+        "sdr_distinct": sdr_metrics["distinct_rgb8_values"]
+        == len(colour_counts),
+        "sdr_geometry": sdr_metrics["non_background_pixels"]
+        == ppm_non_background
+        and ppm_non_background >= 512
+        and sdr_maximum - sdr_minimum > 0.05,
     }
     failed_report = sorted(
         name for name, passed in report_checks.items() if not passed
@@ -458,10 +1229,25 @@ def _verify_rt4(
     attestation_path = root / RT4_ATTESTATION_ARTIFACT
     report = _read_json_object(report_path, "RT4 report")
     attestation = _read_json_object(attestation_path, "RT4 attestation")
+    _require_exact_keys(
+        attestation,
+        {
+            "schema",
+            "status",
+            "integrity_model",
+            "source",
+            "ogre_next",
+            "shader_media",
+            "files",
+            "isolation_slices",
+        },
+        "RT4 attestation",
+    )
     if (
         attestation.get("schema")
-        != "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v1"
+        != RT4_ATTESTATION_SCHEMA
         or attestation.get("status") != "pass"
+        or attestation.get("integrity_model") != RT4_INTEGRITY_MODEL
     ):
         raise ArtifactSetError("RT4 attestation schema or status is invalid")
 
@@ -478,6 +1264,7 @@ def _verify_rt4(
         raise ArtifactSetError(f"missing: {executable_relative}")
     if executable_path.stat().st_size <= 0:
         raise ArtifactSetError(f"empty: {executable_relative}")
+    _verify_rt4_executable(executable_path, build_contract, report)
 
     files = attestation.get("files")
     if not isinstance(files, dict) or set(files) != {
@@ -534,44 +1321,104 @@ def _verify_rt4(
         "manifest_sha256": provenance.get("shader_media_manifest_sha256"),
         "manifest_file_count": provenance.get("shader_media_manifest_file_count"),
     }
-    source_report_checks = {
-        "repository": provenance.get("ror_repository") == expected_source["repository"],
-        "ref": provenance.get("ror_ref") == expected_source["ref"],
-        "commit": provenance.get("ror_commit") == expected_source["commit"],
-        "manifest": provenance.get("ror_relevant_source_manifest_sha256")
-        == expected_source["relevant_manifest_sha256"],
-        "manifest_count": provenance.get("ror_relevant_source_manifest_file_count")
-        == expected_source["relevant_manifest_file_count"],
-        "ogre_commit": provenance.get("ogre_next_commit")
-        == expected_ogre["commit"],
-        "ogre_archive": provenance.get("ogre_next_archive_sha256")
-        == expected_ogre["archive_sha256"],
-        "shader_root": provenance.get("shader_media_root")
-        == expected_shader["root"],
-        "shader_license": provenance.get("shader_media_license_expression")
-        == expected_shader["license_expression"],
-        "shader_notice": provenance.get("shader_media_notice_sha256")
-        == expected_shader["notice_sha256"],
-        "media_manifest": _is_sha256(expected_shader["manifest_sha256"]),
-        "media_count": _is_positive_int(expected_shader["manifest_file_count"]),
+    expected_provenance = {
+        "ror_repository": expected_source["repository"],
+        "ror_ref": expected_source["ref"],
+        "ror_commit": expected_source["commit"],
+        "ror_relevant_source_manifest_sha256": expected_source[
+            "relevant_manifest_sha256"
+        ],
+        "ror_relevant_source_manifest_file_count": expected_source[
+            "relevant_manifest_file_count"
+        ],
+        "ogre_next_commit": expected_ogre["commit"],
+        "ogre_next_archive_sha256": expected_ogre["archive_sha256"],
+        "shader_media_root": expected_shader["root"],
+        "shader_media_license_expression": expected_shader[
+            "license_expression"
+        ],
+        "shader_media_notice_path": expected_shader["notice_path"],
+        "shader_media_notice_sha256": expected_shader["notice_sha256"],
+        "shader_media_manifest_sha256": expected_shader["manifest_sha256"],
+        "shader_media_manifest_file_count": expected_shader[
+            "manifest_file_count"
+        ],
     }
-    if attestation.get("source") != expected_source:
+    if not _is_sha256(expected_shader["manifest_sha256"]) or not _is_positive_int(
+        expected_shader["manifest_file_count"]
+    ):
+        raise ArtifactSetError("RT4 shader-media manifest identity is invalid")
+    if not _json_exact(attestation.get("source"), expected_source):
         raise ArtifactSetError("RT4 source attestation mismatch")
-    if attestation.get("ogre_next") != expected_ogre:
+    if not _json_exact(attestation.get("ogre_next"), expected_ogre):
         raise ArtifactSetError("RT4 Ogre attestation mismatch")
-    if attestation.get("shader_media") != expected_shader:
+    if not _json_exact(attestation.get("shader_media"), expected_shader):
         raise ArtifactSetError("RT4 shader-media attestation mismatch")
-    failed_provenance = sorted(
-        name for name, passed in source_report_checks.items() if not passed
+    if not _json_exact(provenance, expected_provenance):
+        raise ArtifactSetError("RT4 build-contract provenance mismatch")
+
+    policy = PLATFORM_CONTRACTS[platform_contract["policy"]]
+    expected_adapter = {
+        "frontend_version": "n1-ogre-3.0-" + expected_ogre["commit"],
+        "native_mesh_path": "Ogre v2 Mesh plus immutable VertexArrayObject",
+        "material_path": "HLMS PBS metallic-roughness",
+        "brdf": "PbsBrdf::Default height-correlated GGX",
+        "pbr_datablock_readback_verified": True,
+        "raster_feature_tier": "MODERN_PBR_RT4_V1",
+        "vertex_layout": "position_normal_tangent_uv0",
+        "base_color_upload": "RGBA8_UNORM_SRGB",
+        "metallic_roughness_upload": (
+            "linear_G_to_R8_roughness_B_to_R8_metallic"
+        ),
+        "emissive_upload": "RGBA8_UNORM_SRGB",
+        "padded_source_rows_verified": True,
+        "portable_sampler_mapping_verified": True,
+        "normal_texture_admitted": False,
+        "normal_texture_blocker": "pinned_PBS_reconstructs_positive_Z_from_RG",
+        "occlusion_texture_admitted": False,
+        "runtime_media_root": "explicit_absolute",
+        "package_media_relative_path": (
+            "share/rigsofrods/ogre-next/Samples/Media"
+        ),
+        "relocated_executable": True,
+        "compositor2": True,
+        "ui_included": False,
+        "cpu_readback_completed": True,
+        "analytic_lights_calibrated": True,
+        "directional_lux_to_native_power_scale": 1.0 / 1024.0,
+        "maximum_directional_lights": 1,
+        "constant_environment_only": False,
+        "native_interop": False,
+        "ray_tracing": False,
+    }
+    expected_catalog = {
+        "registry_id": 0x4E315F534D4F4B45,
+        "sequence": 6,
+        "baseline_sequence": 1,
+        "live_replacement_count": 5,
+        "referenced_texture_count": 3,
+        "referenced_sampler_count": 1,
+        "unreferenced_assets_not_uploaded": True,
+        "transactional_replay_after_restart": True,
+    }
+    report_contract_checks = {
+        "platform": report.get("platform_policy") == platform_contract["policy"],
+        "renderer": report.get("renderer") == policy["renderer_name"],
+        "adapter": _json_exact(report.get("adapter"), expected_adapter),
+        "catalog": _json_exact(report.get("catalog"), expected_catalog),
+    }
+    failed_report_contract = sorted(
+        name for name, passed in report_contract_checks.items() if not passed
     )
-    if failed_provenance:
+    if failed_report_contract:
         raise ArtifactSetError(
-            "RT4 build-contract provenance mismatch: "
-            + ", ".join(failed_provenance)
+            "RT4 report contract mismatch: " + ", ".join(failed_report_contract)
         )
 
-    computed_slices = _verify_rt4_semantics(report, ppm_path, isolation_path)
-    if attestation.get("isolation_slices") != computed_slices:
+    computed_slices = _verify_rt4_semantics(
+        report, ppm_path, isolation_path, build_contract
+    )
+    if not _json_exact(attestation.get("isolation_slices"), computed_slices):
         raise ArtifactSetError("RT4 SHA-256 slice attestation mismatch")
     manifest.append(
         {
@@ -1030,6 +1877,10 @@ def verify_artifact_set(
     build_dir: Path,
     verify_metal_n2_evidence: bool = False,
     verify_metal_n3_evidence: bool = False,
+    *,
+    expected_ror_repository: str | None = None,
+    expected_ror_ref: str | None = None,
+    expected_ror_commit: str | None = None,
 ) -> list[dict[str, object]]:
     root = build_dir.expanduser().resolve()
     failures: list[str] = []
@@ -1058,7 +1909,12 @@ def verify_artifact_set(
         raise ArtifactSetError(
             "OGRE-Next artifact set is incomplete: " + ", ".join(failures)
         )
-    build_contract = _read_build_contract(root)
+    expected_source = _current_source_identity(
+        expected_repository=expected_ror_repository,
+        expected_ref=expected_ror_ref,
+        expected_commit=expected_ror_commit,
+    )
+    build_contract = _read_build_contract(root, expected_source)
     _verify_rt4(root, manifest, build_contract)
     if verify_metal_n2_evidence:
         _verify_metal_n2(root, manifest, build_contract)
@@ -1070,6 +1926,18 @@ def verify_artifact_set(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", type=Path, required=True)
+    parser.add_argument(
+        "--expected-ror-repository",
+        help="trusted RoR repository identity (defaults to the canonical repo)",
+    )
+    parser.add_argument(
+        "--expected-ror-ref",
+        help="trusted RoR ref identity (defaults to CI environment or Git)",
+    )
+    parser.add_argument(
+        "--expected-ror-commit",
+        help="trusted RoR commit (defaults to GITHUB_SHA or checked-out Git)",
+    )
     parser.add_argument(
         "--verify-metal-n2-evidence",
         action="store_true",
@@ -1092,6 +1960,9 @@ def main(argv: list[str] | None = None) -> int:
             args.build_dir,
             args.verify_metal_n2_evidence,
             args.verify_metal_n3_evidence,
+            expected_ror_repository=args.expected_ror_repository,
+            expected_ror_ref=args.expected_ror_ref,
+            expected_ror_commit=args.expected_ror_commit,
         )
     except (ArtifactSetError, OSError) as error:
         print(str(error), file=sys.stderr)

@@ -497,7 +497,12 @@ public:
   explicit Impl(OgreNextN1Configuration configuration)
       : raster_feature_tier(configuration.raster_feature_tier),
         configured_shader_media_root(
-            std::move(configuration.shader_media_root)) {}
+            std::move(configuration.shader_media_root))
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+        , texture_upload_failure_stage(
+              configuration.texture_upload_failure_stage)
+#endif
+  {}
 
   struct NativeMesh {
     RenderAssetReference asset;
@@ -798,6 +803,54 @@ public:
     }
   }
 
+  [[nodiscard]] bool RetireNativeTextureAllocation(
+      Ogre::TextureGpu *&texture, const std::string &name) noexcept {
+    if (texture == nullptr) {
+      return true;
+    }
+    bool destroy_returned = false;
+    bool absence_proven = false;
+    if (renderer != nullptr) {
+      Ogre::TextureGpuManager *manager = renderer->getTextureGpuManager();
+      try {
+        manager->destroyTexture(texture);
+        destroy_returned = true;
+      } catch (...) {
+        // A throwing destroy is ambiguous. The name lookup below still proves
+        // whether the allocation actually retired and keeps the ledger exact.
+      }
+      ++texture_retired_name_lookups;
+      try {
+        absence_proven =
+            manager->findTextureNoThrow(Ogre::IdString(name)) == nullptr;
+      } catch (...) {
+        absence_proven = false;
+      }
+      if (absence_proven) {
+        ++texture_retired_name_rejections;
+        ++texture_allocation_destroys;
+      }
+    }
+    texture = nullptr;
+    const bool clean = destroy_returned && absence_proven;
+    if (!clean) {
+      faulted = true;
+    }
+    return clean;
+  }
+
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  void MaybeInjectTextureUploadFailure(
+      OgreNextN1TextureUploadFailureStage stage) {
+    if (texture_upload_failure_pending &&
+        texture_upload_failure_stage == stage) {
+      texture_upload_failure_pending = false;
+      throw std::runtime_error(
+          "injected RT4/V1 post-create texture upload failure");
+    }
+  }
+#endif
+
   Ogre::TextureGpu *CreateUploadedTexture(
       const TextureResourceDescriptor &descriptor, const std::string &name,
       UploadedTextureChannel channel) {
@@ -856,22 +909,36 @@ public:
           name, Ogre::GpuPageOutStrategy::Discard, 0U,
           Ogre::TextureTypes::Type2D);
       ++texture_allocation_creates;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectTextureUploadFailure(
+          OgreNextN1TextureUploadFailureStage::AFTER_CREATE);
+#endif
       texture->setResolution(descriptor.width, descriptor.height);
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectTextureUploadFailure(
+          OgreNextN1TextureUploadFailureStage::AFTER_SET_RESOLUTION);
+#endif
       texture->setNumMipmaps(
           static_cast<Ogre::uint8>(descriptor.mip_levels.size()));
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectTextureUploadFailure(
+          OgreNextN1TextureUploadFailureStage::AFTER_SET_MIPMAPS);
+#endif
       texture->setPixelFormat(pixel_format);
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectTextureUploadFailure(
+          OgreNextN1TextureUploadFailureStage::AFTER_SET_PIXEL_FORMAT);
+#endif
       texture->scheduleTransitionTo(Ogre::GpuResidency::Resident, image, true);
       image = nullptr;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectTextureUploadFailure(
+          OgreNextN1TextureUploadFailureStage::AFTER_SCHEDULE_TRANSITION);
+#endif
       return texture;
     } catch (...) {
       delete image;
-      if (texture != nullptr) {
-        try {
-          renderer->getTextureGpuManager()->destroyTexture(texture);
-        } catch (...) {
-          faulted = true;
-        }
-      }
+      static_cast<void>(RetireNativeTextureAllocation(texture, name));
       throw;
     }
   }
@@ -1064,27 +1131,7 @@ public:
     bool clean = true;
     const auto destroy_one = [&](Ogre::TextureGpu *&texture,
                                  const std::string &name) {
-      if (texture == nullptr) {
-        return;
-      }
-      if (renderer != nullptr) {
-        try {
-          Ogre::TextureGpuManager *manager = renderer->getTextureGpuManager();
-          manager->destroyTexture(texture);
-          ++texture_allocation_destroys;
-          ++texture_retired_name_lookups;
-          if (manager->findTextureNoThrow(Ogre::IdString(name)) == nullptr) {
-            ++texture_retired_name_rejections;
-          } else {
-            clean = false;
-          }
-        } catch (...) {
-          clean = false;
-        }
-      } else {
-        clean = false;
-      }
-      texture = nullptr;
+      clean = RetireNativeTextureAllocation(texture, name) && clean;
     };
     destroy_one(native.metallic, native.metallic_name);
     destroy_one(native.roughness, native.roughness_name);
@@ -1259,6 +1306,12 @@ public:
   std::uint32_t maximum_texture_dimension =
       kOgreNextN1ConservativeMaximumTextureDimension;
   float maximum_anisotropy = 1.0F;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  OgreNextN1TextureUploadFailureStage texture_upload_failure_stage =
+      OgreNextN1TextureUploadFailureStage::NONE;
+  bool texture_upload_failure_pending =
+      texture_upload_failure_stage != OgreNextN1TextureUploadFailureStage::NONE;
+#endif
 };
 
 OgreNextN1Frontend::OgreNextN1Frontend(
