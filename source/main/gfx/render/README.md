@@ -108,10 +108,21 @@ does not yet import a result into an Ogre texture or implement RT
 materials, lighting, denoising, compositing, or presentation, while Windows and
 Linux continue to report native RT false until their explicit backends exist.
 
-`PbrReference` is the strict-CPU numerical oracle for the portable direct-light
-material slice. Version 1 records the exact pinned Ogre-Next commit and mirrors
-its full-precision `PbsBrdf::Default` metallic workflow: squared perceptual
-roughness, the 0.001 alpha floor, GGX distribution, height-correlated Smith
-visibility, Schlick Fresnel, and normalized Disney diffuse. It deliberately
-does not turn backend success into a fidelity claim; Metal, Vulkan, and D3D
-captures must compare their resolved shader samples to this same oracle.
+`PbrReference` is the strict-CPU analytic oracle for the portable direct-light
+material slice. Version 1 binds the canonical Ogre-Next dependency lock to a
+feature-specific source-hash manifest and evaluates the selected full32
+`PbsBrdf::Default` equations in binary64: squared perceptual roughness, the
+0.001 alpha floor, GGX distribution, height-correlated Smith visibility,
+Schlick Fresnel, and normalized Disney diffuse. Saturated `NdotV` keeps tangent
+and back-facing view directions in the supported equation domain; saturated
+`NdotL` multiplies the final response exactly as in the source. An undefined
+view/light half vector is rejected transactionally.
+
+This is an idealized equation reference, not bit-exact backend arithmetic. The
+pinned upload path uses the binary32 literal `0.318309886f`, and the metallic
+shader path reconstructs color using `3.14159f`; the CPU oracle instead carries
+the intended equations in binary64. Metal, Vulkan, and D3D captures therefore
+have a declared 1% relative comparison gate, with fixture-specific absolute
+tolerances near zero. `PbsBrdf::Default` also omits diffuse Fresnel, so the
+normalized Disney diffuse label is not a claim that the combined BRDF always
+integrates to at most one. Backend success alone remains no fidelity claim.

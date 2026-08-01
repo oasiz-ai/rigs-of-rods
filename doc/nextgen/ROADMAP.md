@@ -1139,16 +1139,25 @@ mode, and legacy fallback. Generate or import tangents rather than pretending
 legacy cab meshes already contain them. Convert one DAF material and one terrain
 layer before bulk conversion.
 
-The renderer-neutral V1 numerical oracle now evaluates the exact supported
-equations from the pinned Ogre-Next `PbsBrdf::Default` source revision in
-strict binary64 arithmetic. It locks the metallic workflow, squared perceptual
-roughness and alpha floor, GGX distribution, height-correlated Smith
-visibility, Schlick Fresnel, and normalized Disney diffuse. Golden dielectric,
-metal, rough, and oblique samples plus 20,000 fixed-seed reciprocity,
-nonnegativity, and rotation fixtures pass under strict AppleClang and GCC 14,
-Release, and ASan/UBSan builds. This is a CPU reference, not GPU shader parity;
-each Metal, Vulkan, and D3D capture still has to demonstrate the V1 1% gate
-against it.
+The renderer-neutral V1 numerical oracle evaluates the selected analytic
+equations from the pinned Ogre-Next `PbsBrdf::Default` full32 source profile in
+strict binary64 arithmetic. A feature-specific manifest binds its exact shader
+and datablock source hashes to the canonical Ogre-Next dependency-lock commit.
+The oracle locks the metallic workflow, squared perceptual roughness and alpha
+floor, GGX distribution, height-correlated Smith visibility, Schlick Fresnel,
+and normalized Disney diffuse. Golden samples, an independent source-equation
+evaluator at normal/grazing/tangent/back-hemisphere boundaries, comprehensive
+malformed inputs, and 20,000 fixed-seed reciprocity, nonnegativity, and rotation
+fixtures run under strict AppleClang, GCC 14, Release, and ASan/UBSan builds.
+
+This idealized CPU equation reference is not bit-exact GPU shader parity. The
+pinned float path uses `0.318309886f` for datablock diffuse upload and
+`3.14159f` for metallic color reconstruction, while the oracle retains the
+intended equations in binary64. Each Metal, Vulkan, and D3D capture must still
+demonstrate the declared V1 1% relative gate, plus fixture-specific absolute
+tolerances near zero. Because this Default profile omits diffuse Fresnel,
+"normalized Disney diffuse" does not claim that the combined BRDF always
+integrates to at most one.
 
 Gate V1:
 
