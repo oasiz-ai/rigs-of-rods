@@ -135,6 +135,9 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         cls.pinned_cmake = (
             PROBE_ROOT / "cmake" / "PinnedOgreNext.cmake"
         ).read_text(encoding="utf-8")
+        cls.tamper_cmake = (
+            PROBE_ROOT / "cmake" / "VerifyN1MediaTamper.cmake"
+        ).read_text(encoding="utf-8")
         cls.header = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1Frontend.h"
         ).read_text(encoding="utf-8")
@@ -231,6 +234,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("ror_ogre_next_frontend_n1_media_tamper", self.entry_cmake)
         self.assertIn("ror_ogre_next_frontend_hdr_media_tamper", self.entry_cmake)
         self.assertIn("VerifyN1MediaTamper.cmake", self.entry_cmake)
+        self.assertIn(
+            '--compositor-evidence "${N1_WORK_ROOT}/tamper-hdr.bin"',
+            self.tamper_cmake,
+        )
         self.assertIn("--media-root", self.entry_cmake)
         self.assertIn("relative shader media root did not fail closed", self.smoke)
         self.assertIn("missing shader media root did not fail closed", self.smoke)

@@ -43,7 +43,7 @@ if (N1_MODERN_PBR)
         --report "${N1_WORK_ROOT}/tamper.json"
         --evidence "${N1_WORK_ROOT}/tamper.bin"
         --reflection-evidence "${N1_WORK_ROOT}/tamper-reflection.bin"
-        --compositor-evidence "${N1_WORK_ROOT}/tamper-compositor.bin")
+        --compositor-evidence "${N1_WORK_ROOT}/tamper-hdr.bin")
 endif ()
 execute_process(
     COMMAND ${_ror_command}
