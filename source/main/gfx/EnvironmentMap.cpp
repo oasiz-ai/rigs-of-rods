@@ -196,7 +196,7 @@ RoR::GfxEnvmap::~GfxEnvmap()
     this->Shutdown();
 }
 
-void RoR::GfxEnvmap::Shutdown() noexcept
+bool RoR::GfxEnvmap::Shutdown() noexcept
 {
     bool had_renderer_resources = !m_rtt_texture.isNull();
     bool clean_release = true;
@@ -283,6 +283,8 @@ void RoR::GfxEnvmap::Shutdown() noexcept
             // Destructors must not turn a logging failure into a fast-fail.
         }
     }
+
+    return clean_release;
 }
 
 void RoR::GfxEnvmap::UpdateEnvMap(Ogre::Vector3 center, GfxActor* gfx_actor, bool full/*=false*/)

@@ -105,6 +105,15 @@ class MacOSBundleSmokeTests(unittest.TestCase):
                         engine_log.replace(missing_marker, ""),
                         script_log,
                     )
+        for missing_marker in SMOKE.SHUTDOWN_ENGINE_REQUIRED_MARKERS:
+            with self.subTest(missing_shutdown_marker=missing_marker):
+                with self.assertRaises(SMOKE.SmokeFailure):
+                    SMOKE.validate_runtime_smoke(
+                        0,
+                        "normal stdout",
+                        engine_log.replace(missing_marker, ""),
+                        script_log,
+                    )
 
     def test_renderer_smoke_requires_unique_ordered_shutdown(self) -> None:
         prefix = "\n".join(SMOKE.ENGINE_REQUIRED_MARKERS[:-2])

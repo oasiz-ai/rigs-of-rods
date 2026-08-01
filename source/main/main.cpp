@@ -160,6 +160,45 @@ void ReleaseWorkerRuntime() noexcept
     }
 }
 
+void ReleaseRendererRuntime() noexcept
+{
+    using namespace RoR;
+
+    const bool had_renderer_root =
+        App::GetAppContext()->GetOgreRoot() != nullptr;
+    bool clean_release = App::GetGfxScene()->GetEnvMap().Shutdown();
+
+    if (had_renderer_root && Ogre::LogManager::getSingletonPtr() != nullptr)
+    {
+        try
+        {
+            LOG(clean_release
+                ? "[RoR|Shutdown] Environment map shutdown returned"
+                : "[RoR|Shutdown] ERROR environment map shutdown returned");
+        }
+        catch (...)
+        {
+            clean_release = false;
+        }
+    }
+
+    clean_release =
+        App::GetAppContext()->ShutdownRendering() && clean_release;
+    if (had_renderer_root && Ogre::LogManager::getSingletonPtr() != nullptr)
+    {
+        try
+        {
+            LOG(clean_release
+                ? "[RoR|Shutdown] Renderer runtime released"
+                : "[RoR|Shutdown] ERROR releasing renderer runtime");
+        }
+        catch (...)
+        {
+            // The native smoke requires this marker and remains fail-closed.
+        }
+    }
+}
+
 class WindowBoundRuntimeGuard
 {
 public:
@@ -194,6 +233,20 @@ public:
     WorkerRuntimeGuard& operator=(const WorkerRuntimeGuard&) = delete;
 };
 
+class RendererRuntimeGuard
+{
+public:
+    RendererRuntimeGuard() = default;
+
+    ~RendererRuntimeGuard()
+    {
+        ReleaseRendererRuntime();
+    }
+
+    RendererRuntimeGuard(const RendererRuntimeGuard&) = delete;
+    RendererRuntimeGuard& operator=(const RendererRuntimeGuard&) = delete;
+};
+
 } // namespace
 
 #ifdef __cplusplus
@@ -209,6 +262,9 @@ int main(int argc, char *argv[])
 #endif
 
     Ogre::OverlaySystem* overlay_system = nullptr;
+    // Local guards unwind in reverse order: workers, window integrations,
+    // then the renderer while all process-static listeners remain alive.
+    RendererRuntimeGuard renderer_runtime_guard;
     WindowBoundRuntimeGuard window_bound_runtime_guard(overlay_system);
     WorkerRuntimeGuard worker_runtime_guard;
 

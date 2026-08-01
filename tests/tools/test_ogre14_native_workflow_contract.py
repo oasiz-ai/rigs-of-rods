@@ -31,6 +31,12 @@ ACTOR_MANAGER_SOURCE = (
 )
 APP_CONTEXT_HEADER = REPOSITORY_ROOT / "source" / "main" / "AppContext.h"
 APP_CONTEXT_SOURCE = REPOSITORY_ROOT / "source" / "main" / "AppContext.cpp"
+CONSOLE_HEADER = (
+    REPOSITORY_ROOT / "source" / "main" / "system" / "Console.h"
+)
+CONSOLE_SOURCE = (
+    REPOSITORY_ROOT / "source" / "main" / "system" / "Console.cpp"
+)
 ENVIRONMENT_MAP_HEADER = (
     REPOSITORY_ROOT / "source" / "main" / "gfx" / "EnvironmentMap.h"
 )
@@ -94,6 +100,8 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         cls.app_context_source_text = APP_CONTEXT_SOURCE.read_text(
             encoding="utf-8"
         )
+        cls.console_header_text = CONSOLE_HEADER.read_text(encoding="utf-8")
+        cls.console_source_text = CONSOLE_SOURCE.read_text(encoding="utf-8")
         cls.environment_map_header_text = ENVIRONMENT_MAP_HEADER.read_text(
             encoding="utf-8"
         )
@@ -635,6 +643,10 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         )
 
         main_start = text.index("int main(")
+        renderer_guard = text.index(
+            "RendererRuntimeGuard renderer_runtime_guard",
+            main_start,
+        )
         guard = text.index(
             "WindowBoundRuntimeGuard window_bound_runtime_guard",
             main_start,
@@ -644,8 +656,30 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             guard,
         )
         try_start = text.index("try", worker_guard)
+        self.assertLess(renderer_guard, guard)
         self.assertLess(guard, try_start)
         self.assertLess(worker_guard, try_start)
+
+        renderer_helper = text.index("void ReleaseRendererRuntime()")
+        envmap_release = text.index(
+            "GetEnvMap().Shutdown()",
+            renderer_helper,
+        )
+        envmap_returned = text.index(
+            "Environment map shutdown returned",
+            envmap_release,
+        )
+        root_release = text.index(
+            "ShutdownRendering()",
+            envmap_returned,
+        )
+        runtime_released = text.index(
+            "Renderer runtime released",
+            root_release,
+        )
+        self.assertLess(envmap_release, envmap_returned)
+        self.assertLess(envmap_returned, root_release)
+        self.assertLess(root_release, runtime_released)
 
         gfx_scene_static = self.application_source_text.index(
             "static GfxScene             g_gfx_scene;"
@@ -706,6 +740,10 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             self.app_context_header_text,
         )
         self.assertIn(
+            "bool                 ShutdownRendering() noexcept;",
+            self.app_context_header_text,
+        )
+        self.assertIn(
             "bool AppContext::DetachRenderWindowEvents() noexcept",
             self.app_context_source_text,
         )
@@ -719,25 +757,68 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             "m_window_event_listener_registered = false",
             self.app_context_header_text,
         )
-        destructor = self.app_context_source_text.index(
+        app_context_destructor = self.app_context_source_text.index(
             "AppContext::~AppContext()"
+        )
+        renderer_shutdown = self.app_context_source_text.index(
+            "bool AppContext::ShutdownRendering() noexcept",
+            app_context_destructor,
+        )
+        self.assertIn(
+            "this->ShutdownRendering();",
+            self.app_context_source_text[
+                app_context_destructor:renderer_shutdown
+            ],
+        )
+        self.assertIn(
+            "if (m_rendering_shutdown)",
+            self.app_context_source_text[renderer_shutdown:],
         )
         destroy_target = self.app_context_source_text.index(
             "destroyRenderTarget",
-            destructor,
+            renderer_shutdown,
         )
         detach_in_destructor = self.app_context_source_text.index(
             "this->DetachRenderWindowEvents()",
-            destructor,
+            renderer_shutdown,
         )
         self.assertLess(detach_in_destructor, destroy_target)
 
+        self.assertIn("~Console() noexcept override;", self.console_header_text)
+        console_destructor = self.console_source_text.index(
+            "Console::~Console()"
+        )
+        remove_log_listener = self.console_source_text.index(
+            "default_log->removeListener(this)",
+            console_destructor,
+        )
+        detached_log_marker = self.console_source_text.index(
+            "Console log listener detached",
+            remove_log_listener,
+        )
+        self.assertLess(remove_log_listener, detached_log_marker)
+
+        renderer_start = self.app_context_source_text.index(
+            "Renderer root teardown starting",
+            renderer_shutdown,
+        )
+        delete_root = self.app_context_source_text.index(
+            "delete m_ogre_root",
+            renderer_start,
+        )
+        renderer_complete = self.app_context_source_text.index(
+            "Renderer root teardown completed",
+            delete_root,
+        )
+        self.assertLess(renderer_start, delete_root)
+        self.assertLess(delete_root, renderer_complete)
+
         self.assertIn(
-            "void Shutdown() noexcept;",
+            "bool Shutdown() noexcept;",
             self.environment_map_header_text,
         )
         envmap_shutdown = self.environment_map_source_text.index(
-            "void RoR::GfxEnvmap::Shutdown() noexcept"
+            "bool RoR::GfxEnvmap::Shutdown() noexcept"
         )
         remove_viewports = self.environment_map_source_text.index(
             "removeAllViewports()",

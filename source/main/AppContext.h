@@ -87,6 +87,9 @@ public:
     void                 CaptureScreenshot();
     void                 ActivateFullscreen(bool val);
     bool                 DetachRenderWindowEvents() noexcept;
+    /// Release every renderer/window resource while process-wide listeners
+    /// and scene registries are still alive. Idempotent for static fallback.
+    bool                 ShutdownRendering() noexcept;
     void                 RegisterRTShaderSceneManager(Ogre::SceneManager* scene_manager);
     void                 BeginPostProcessScene();
     void                 EndPostProcessScene();
@@ -141,6 +144,7 @@ private:
     Ogre::Viewport*      m_viewport      = nullptr;
     bool                 m_render_window_registered = false;
     bool                 m_window_event_listener_registered = false;
+    bool                 m_rendering_shutdown = false;
     RenderDisplayMetrics m_display_metrics;
     PostProcessRuntime   m_postprocess_runtime;
 #if OGRE_VERSION_MAJOR >= 14

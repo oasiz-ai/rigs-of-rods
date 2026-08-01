@@ -72,24 +72,90 @@
 
 using namespace RoR;
 
+namespace
+{
+
+void LogRendererShutdownMarker(const char* marker) noexcept
+{
+    try
+    {
+        if (Ogre::LogManager::getSingletonPtr() != nullptr)
+        {
+            Ogre::LogManager::getSingleton().logMessage(marker);
+        }
+    }
+    catch (...)
+    {
+        // Shutdown diagnostics must never replace the original failure mode.
+    }
+}
+
+} // namespace
+
 AppContext::~AppContext()
 {
+    this->ShutdownRendering();
+}
+
+bool AppContext::ShutdownRendering() noexcept
+{
+    if (m_rendering_shutdown)
+    {
+        return true;
+    }
+
+    bool clean_shutdown = true;
     this->FinishPendingScreenshot();
     m_postprocess_runtime.Shutdown();
 
 #if OGRE_VERSION_MAJOR >= 14
-    this->ShutDownRTShaderSystem();
-
-    this->DetachRenderWindowEvents();
-    if (m_render_window != nullptr)
+    try
     {
-        m_viewport = nullptr;
-        m_ogre_root->destroyRenderTarget(m_render_window);
-        m_render_window = nullptr;
+        this->ShutDownRTShaderSystem();
+    }
+    catch (...)
+    {
+        clean_shutdown = false;
     }
 
-    delete m_ogre_root;
-    m_ogre_root = nullptr;
+    clean_shutdown = this->DetachRenderWindowEvents() && clean_shutdown;
+    if (m_render_window != nullptr)
+    {
+        try
+        {
+            m_viewport = nullptr;
+            m_ogre_root->destroyRenderTarget(m_render_window);
+            m_render_window = nullptr;
+        }
+        catch (...)
+        {
+            clean_shutdown = false;
+        }
+    }
+
+    if (m_ogre_root != nullptr)
+    {
+        LogRendererShutdownMarker(
+            "[RoR|Shutdown] Renderer root teardown starting");
+        try
+        {
+            delete m_ogre_root;
+            m_ogre_root = nullptr;
+            m_render_window = nullptr;
+            m_viewport = nullptr;
+            LogRendererShutdownMarker(
+                "[RoR|Shutdown] Renderer root teardown completed");
+        }
+        catch (...)
+        {
+            // A throwing C++ destructor has ended the Root object's lifetime;
+            // never retry deletion from the static fallback destructor.
+            m_ogre_root = nullptr;
+            m_render_window = nullptr;
+            m_viewport = nullptr;
+            clean_shutdown = false;
+        }
+    }
 #endif
 
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
@@ -106,6 +172,9 @@ AppContext::~AppContext()
         m_owns_sdl_video = false;
     }
 #endif
+
+    m_rendering_shutdown = true;
+    return clean_shutdown;
 }
 
 // --------------------------

@@ -43,7 +43,12 @@ EXPECTED_COMMON_ENGINE_MARKERS = (
     "*** Terminating OIS ***",
     "[RoR|Shutdown] Window-bound runtime integrations released",
     "[RoR|Shutdown] Environment map renderer resources released",
+    "[RoR|Shutdown] Environment map shutdown returned",
+    "[RoR|Shutdown] Renderer root teardown starting",
     "*-*-* OGRE Shutdown",
+    "[RoR|Shutdown] Renderer root teardown completed",
+    "[RoR|Shutdown] Renderer runtime released",
+    "[RoR|Shutdown] Console log listener detached",
 )
 EXPECTED_SHUTDOWN_ENGINE_MARKERS = (
     "[RoR|Shutdown] Leaving the main loop after the shutdown message",
@@ -51,7 +56,12 @@ EXPECTED_SHUTDOWN_ENGINE_MARKERS = (
     "*** Terminating OIS ***",
     "[RoR|Shutdown] Window-bound runtime integrations released",
     "[RoR|Shutdown] Environment map renderer resources released",
+    "[RoR|Shutdown] Environment map shutdown returned",
+    "[RoR|Shutdown] Renderer root teardown starting",
     "*-*-* OGRE Shutdown",
+    "[RoR|Shutdown] Renderer root teardown completed",
+    "[RoR|Shutdown] Renderer runtime released",
+    "[RoR|Shutdown] Console log listener detached",
 )
 EXPECTED_LINUX_ENGINE_MARKERS = (
     "Installing plugin: GL 3+ RenderSystem",
@@ -100,7 +110,12 @@ def engine_log(platform: str, user_directory: Path) -> str:
         "*** Terminating OIS ***\n"
         "[RoR|Shutdown] Window-bound runtime integrations released\n"
         "[RoR|Shutdown] Environment map renderer resources released\n"
+        "[RoR|Shutdown] Environment map shutdown returned\n"
+        "[RoR|Shutdown] Renderer root teardown starting\n"
         "*-*-* OGRE Shutdown\n"
+        "[RoR|Shutdown] Renderer root teardown completed\n"
+        "[RoR|Shutdown] Renderer runtime released\n"
+        "[RoR|Shutdown] Console log listener detached\n"
     )
     return common + renderer + shutdown
 

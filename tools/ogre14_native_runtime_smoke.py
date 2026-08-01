@@ -31,7 +31,12 @@ COMMON_ENGINE_REQUIRED_MARKERS = (
     "*** Terminating OIS ***",
     "[RoR|Shutdown] Window-bound runtime integrations released",
     "[RoR|Shutdown] Environment map renderer resources released",
+    "[RoR|Shutdown] Environment map shutdown returned",
+    "[RoR|Shutdown] Renderer root teardown starting",
     "*-*-* OGRE Shutdown",
+    "[RoR|Shutdown] Renderer root teardown completed",
+    "[RoR|Shutdown] Renderer runtime released",
+    "[RoR|Shutdown] Console log listener detached",
 )
 SHUTDOWN_ENGINE_REQUIRED_MARKERS = (
     "[RoR|Shutdown] Leaving the main loop after the shutdown message",
@@ -39,7 +44,12 @@ SHUTDOWN_ENGINE_REQUIRED_MARKERS = (
     "*** Terminating OIS ***",
     "[RoR|Shutdown] Window-bound runtime integrations released",
     "[RoR|Shutdown] Environment map renderer resources released",
+    "[RoR|Shutdown] Environment map shutdown returned",
+    "[RoR|Shutdown] Renderer root teardown starting",
     "*-*-* OGRE Shutdown",
+    "[RoR|Shutdown] Renderer root teardown completed",
+    "[RoR|Shutdown] Renderer runtime released",
+    "[RoR|Shutdown] Console log listener detached",
 )
 LINUX_ENGINE_REQUIRED_MARKERS = (
     "Installing plugin: GL 3+ RenderSystem",

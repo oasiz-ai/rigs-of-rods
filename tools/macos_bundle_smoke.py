@@ -34,7 +34,7 @@ ENGINE_REQUIRED_MARKERS = (
     "OpenGL 3+ Renderer Started",
     "SoundManager: OpenAL renderer is: OpenAL Soft",
     "[RoR|Shutdown] Physics and graphics worker pools released",
-    "*-*-* OGRE Shutdown",
+    "[RoR|Shutdown] Renderer runtime released",
 )
 SHUTDOWN_ENGINE_REQUIRED_MARKERS = (
     "[RoR|Shutdown] Leaving the main loop after the shutdown message",
@@ -42,7 +42,12 @@ SHUTDOWN_ENGINE_REQUIRED_MARKERS = (
     "*** Terminating OIS ***",
     "[RoR|Shutdown] Window-bound runtime integrations released",
     "[RoR|Shutdown] Environment map renderer resources released",
+    "[RoR|Shutdown] Environment map shutdown returned",
+    "[RoR|Shutdown] Renderer root teardown starting",
     "*-*-* OGRE Shutdown",
+    "[RoR|Shutdown] Renderer root teardown completed",
+    "[RoR|Shutdown] Renderer runtime released",
+    "[RoR|Shutdown] Console log listener detached",
 )
 SCRIPT_REQUIRED_MARKERS = (
     "[RoR|CI|BundleSmoke] START",

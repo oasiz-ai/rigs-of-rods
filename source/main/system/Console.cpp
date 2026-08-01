@@ -29,6 +29,37 @@
 using namespace RoR;
 using namespace Ogre;
 
+Console::~Console() noexcept
+{
+    // OGRE keeps raw LogListener pointers. The explicit renderer guard now
+    // destroys Root while this process-wide console is alive; detach here as
+    // well so the externally-owned LogManager cannot retain a dead listener
+    // after static destruction begins.
+    try
+    {
+        Ogre::LogManager* log_manager = Ogre::LogManager::getSingletonPtr();
+        if (log_manager == nullptr)
+        {
+            return;
+        }
+
+        Ogre::Log* default_log = log_manager->getDefaultLog();
+        if (default_log == nullptr)
+        {
+            return;
+        }
+
+        default_log->removeListener(this);
+        default_log->logMessage(
+            "[RoR|Shutdown] Console log listener detached");
+    }
+    catch (...)
+    {
+        // A process-lifetime destructor must not throw. The native renderer
+        // smoke requires the marker, so a failed detach remains fail-closed.
+    }
+}
+
 void Console::messageLogged(const Ogre::String& message, Ogre::LogMessageLevel lml, bool maskDebug, const Ogre::String& logName, bool& skipThisMessage)
 {
     if (App::diag_log_console_echo->getBool())
