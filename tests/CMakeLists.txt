@@ -204,6 +204,10 @@ add_executable(
     ror_graphics_scene_snapshot_producer_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/GraphicsSceneSnapshotProducerTests.cpp"
 )
+target_link_libraries(
+    ror_graphics_scene_snapshot_producer_tests
+    PRIVATE Threads::Threads
+)
 add_executable(
     ror_render_resource_handle_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ResourceHandleTests.cpp"

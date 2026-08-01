@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <map>
@@ -141,14 +142,29 @@ struct IndexedStaticMeshInput {
   std::size_t original_index = 0U;
 };
 
-ValidationResult RemapStaticMeshElementIndex(
+struct IndexedLightInput {
+  const GraphicsSceneLightInput *input = nullptr;
+  std::size_t original_index = 0U;
+};
+
+ValidationResult RemapSceneElementIndex(
     ValidationResult validation,
-    const std::vector<IndexedStaticMeshInput> &sorted_objects) {
-  if (!validation &&
-      validation.element_index != ValidationResult::kNoElement &&
+    const std::vector<IndexedStaticMeshInput> &sorted_objects,
+    const std::vector<IndexedLightInput> &sorted_lights) {
+  if (validation ||
+      validation.element_index == ValidationResult::kNoElement) {
+    return validation;
+  }
+  if (validation.field.compare(0U, sizeof("mesh_instances") - 1U,
+                               "mesh_instances") == 0 &&
       validation.element_index < sorted_objects.size()) {
     validation.element_index =
         sorted_objects[validation.element_index].original_index;
+  } else if (validation.field.compare(0U, sizeof("lights") - 1U, "lights") ==
+                 0 &&
+             validation.element_index < sorted_lights.size()) {
+    validation.element_index =
+        sorted_lights[validation.element_index].original_index;
   }
   return validation;
 }
@@ -221,7 +237,7 @@ ValidateSourceAssetPayload(const GraphicsSceneAssetInput &asset,
     if (mesh.dynamic) {
       return Failure(
           ValidationCode::UNSUPPORTED_FEATURE, "assets.mesh.dynamic",
-          "the version-one producer accepts static mesh allocations only",
+          "the version-two producer accepts static mesh allocations only",
           index);
     }
     validation = ValidateMeshResourceDescriptor(mesh);
@@ -302,6 +318,28 @@ bool RebasePreviousObjectTransform(const Matrix4x4 &previous,
   return HasInvertibleAffineTransform(rebased);
 }
 
+bool RebasePreviousPosition(const Float3 &previous,
+                            const Double3 &previous_origin,
+                            const Double3 &current_origin,
+                            Float3 &rebased) noexcept {
+  const std::array<double, 3U> positions{{
+      static_cast<double>(previous.x) + previous_origin.x - current_origin.x,
+      static_cast<double>(previous.y) + previous_origin.y - current_origin.y,
+      static_cast<double>(previous.z) + previous_origin.z - current_origin.z,
+  }};
+  for (std::size_t axis = 0U; axis < positions.size(); ++axis) {
+    if (!std::isfinite(positions[axis]) ||
+        std::fabs(positions[axis]) >
+            static_cast<double>((std::numeric_limits<float>::max)())) {
+      return false;
+    }
+  }
+  rebased = {static_cast<float>(positions[0U]),
+             static_cast<float>(positions[1U]),
+             static_cast<float>(positions[2U])};
+  return true;
+}
+
 bool RebasePreviousViewTransform(const Matrix4x4 &previous,
                                  const Double3 &previous_origin,
                                  const Double3 &current_origin,
@@ -366,6 +404,14 @@ public:
     bool live = false;
   };
 
+  struct LightState {
+    std::uint64_t source_light_id = 0U;
+    LightType type = LightType::DIRECTIONAL;
+    Float3 position{};
+    Float3 direction{0.0F, -1.0F, 0.0F};
+    bool live = false;
+  };
+
   struct ValidatedStaticAssetPair {
     RenderAssetReference mesh;
     RenderAssetReference material;
@@ -411,6 +457,7 @@ public:
                   "first asset ordinal must be nonzero");
     } else if (configuration.maximum_asset_records == 0U ||
                configuration.maximum_static_mesh_objects == 0U ||
+               configuration.maximum_light_records == 0U ||
                configuration.maximum_asset_payload_bytes == 0U) {
       configuration_validation = Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "configuration.limits",
@@ -542,6 +589,12 @@ public:
           "live static object count exceeds the configured bound");
       return result;
     }
+    if (frame.lights.size() > configuration.maximum_light_records) {
+      result.validation = Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "lights",
+          "live light count exceeds the configured bound");
+      return result;
+    }
     if (!IsAbsentRenderAssetReference(
             frame.environment.environment_texture) ||
         !IsAbsentRenderAssetReference(
@@ -659,6 +712,39 @@ public:
             "static_meshes.source_object_id",
             "source object identity is duplicated",
             sorted_objects[index].original_index);
+        return result;
+      }
+    }
+
+    std::vector<IndexedLightInput> sorted_lights;
+    sorted_lights.reserve(frame.lights.size());
+    for (std::size_t index = 0U; index < frame.lights.size(); ++index) {
+      const GraphicsSceneLightInput &light = frame.lights[index];
+      if (light.source_light_id == 0U) {
+        result.validation = Failure(
+            ValidationCode::INVALID_IDENTIFIER, "lights.source_light_id",
+            "source light identity must be nonzero", index);
+        return result;
+      }
+      sorted_lights.push_back(IndexedLightInput{&light, index});
+    }
+    std::sort(sorted_lights.begin(), sorted_lights.end(),
+              [](const IndexedLightInput &lhs,
+                 const IndexedLightInput &rhs) {
+                if (lhs.input->source_light_id !=
+                    rhs.input->source_light_id) {
+                  return lhs.input->source_light_id <
+                         rhs.input->source_light_id;
+                }
+                return lhs.original_index < rhs.original_index;
+              });
+    for (std::size_t index = 1U; index < sorted_lights.size(); ++index) {
+      if (sorted_lights[index - 1U].input->source_light_id ==
+          sorted_lights[index].input->source_light_id) {
+        result.validation = Failure(
+            ValidationCode::DUPLICATE_IDENTIFIER,
+            "lights.source_light_id", "source light identity is duplicated",
+            sorted_lights[index].original_index);
         return result;
       }
     }
@@ -1048,6 +1134,120 @@ public:
     descriptor.absolute_world_origin_meters =
         frame.absolute_world_origin_meters;
     descriptor.environment = std::move(environment);
+
+    descriptor.lights.reserve(sorted_lights.size());
+    std::size_t light_scan = 0U;
+    std::size_t new_light_count = 0U;
+    for (const IndexedLightInput &indexed_input : sorted_lights) {
+      const std::uint64_t source_light_id =
+          indexed_input.input->source_light_id;
+      while (light_scan < lights.size() &&
+             lights[light_scan].source_light_id < source_light_id) {
+        ++light_scan;
+      }
+      if (light_scan < lights.size() &&
+          lights[light_scan].source_light_id == source_light_id) {
+        ++light_scan;
+      } else {
+        ++new_light_count;
+      }
+    }
+    if (new_light_count >
+        (std::numeric_limits<std::size_t>::max)() - lights.size()) {
+      result.validation = Failure(
+          ValidationCode::SIZE_MISMATCH, "lights",
+          "staged light-history capacity would overflow");
+      return result;
+    }
+    if (lights.size() > configuration.maximum_light_records ||
+        new_light_count > configuration.maximum_light_records - lights.size()) {
+      result.validation = Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "lights",
+          "lifetime light record count exceeds the configured bound");
+      return result;
+    }
+
+    std::vector<LightState> candidate_lights;
+    candidate_lights.reserve(lights.size() + new_light_count);
+    std::size_t prior_light_index = 0U;
+    for (const IndexedLightInput &indexed_input : sorted_lights) {
+      const GraphicsSceneLightInput &input = *indexed_input.input;
+      const std::size_t input_index = indexed_input.original_index;
+      while (prior_light_index < lights.size() &&
+             lights[prior_light_index].source_light_id <
+                 input.source_light_id) {
+        LightState removed = lights[prior_light_index];
+        removed.live = false;
+        candidate_lights.push_back(std::move(removed));
+        ++prior_light_index;
+      }
+      const LightState *prior_light =
+          prior_light_index < lights.size() &&
+                  lights[prior_light_index].source_light_id ==
+                      input.source_light_id
+              ? &lights[prior_light_index]
+              : nullptr;
+      if (prior_light != nullptr && !prior_light->live) {
+        result.validation = Failure(
+            ValidationCode::REVISION_MISMATCH, "lights.source_light_id",
+            "a destroyed source light identity may never be reused",
+            input_index);
+        return result;
+      }
+      if (prior_light != nullptr && prior_light->type != input.type) {
+        result.validation = Failure(
+            ValidationCode::REVISION_MISMATCH, "lights.type",
+            "a source light identity may never change type", input_index);
+        return result;
+      }
+      if (prior_light != nullptr) {
+        ++prior_light_index;
+      }
+
+      LightDescriptor light;
+      light.light_id = input.source_light_id;
+      light.type = input.type;
+      light.color_linear = input.color_linear;
+      light.intensity = input.intensity;
+      light.position = input.position;
+      light.direction = input.direction;
+      light.range = input.range;
+      light.inner_cone_radians = input.inner_cone_radians;
+      light.outer_cone_radians = input.outer_cone_radians;
+      light.shadow_flags = input.shadow_flags;
+      if (prior_light != nullptr) {
+        if (input.type == LightType::DIRECTIONAL) {
+          light.previous_position = prior_light->position;
+        } else if (!RebasePreviousPosition(
+                       prior_light->position,
+                       last_absolute_world_origin_meters,
+                       frame.absolute_world_origin_meters,
+                       light.previous_position)) {
+          result.validation = Failure(
+              ValidationCode::VALUE_OUT_OF_RANGE,
+              "lights.previous_position",
+              "previous local-light position could not be rebased into this "
+              "origin",
+              input_index);
+          return result;
+        }
+        light.previous_direction = prior_light->direction;
+      } else {
+        light.previous_position = input.position;
+        light.previous_direction = input.direction;
+      }
+      descriptor.lights.push_back(light);
+      candidate_lights.push_back(LightState{input.source_light_id, input.type,
+                                            input.position, input.direction,
+                                            true});
+    }
+    while (prior_light_index < lights.size()) {
+      LightState removed = lights[prior_light_index];
+      removed.live = false;
+      candidate_lights.push_back(std::move(removed));
+      ++prior_light_index;
+    }
+
     descriptor.mesh_instances.reserve(sorted_objects.size());
     std::vector<ValidatedStaticAssetPair> candidate_static_asset_pairs;
     candidate_static_asset_pairs.reserve(sorted_objects.size());
@@ -1216,8 +1416,8 @@ public:
     const SceneSnapshotCreateResult created =
         CreateSceneSnapshot(std::move(descriptor));
     if (!created) {
-      result.validation =
-          RemapStaticMeshElementIndex(created.validation, sorted_objects);
+      result.validation = RemapSceneElementIndex(
+          created.validation, sorted_objects, sorted_lights);
       return result;
     }
     const bool requires_full_asset_compatibility_validation =
@@ -1231,8 +1431,8 @@ public:
           ValidateSceneSnapshotAssets(*created.snapshot,
                                       candidate_catalog.registry);
       if (!validation) {
-        result.validation = RemapStaticMeshElementIndex(std::move(validation),
-                                                        sorted_objects);
+        result.validation = RemapSceneElementIndex(
+            std::move(validation), sorted_objects, sorted_lights);
         return result;
       }
     }
@@ -1292,6 +1492,7 @@ public:
 
     asset_catalog = std::move(candidate_asset_catalog);
     objects = std::move(candidate_objects);
+    lights = std::move(candidate_lights);
     validated_static_asset_pairs = std::move(candidate_static_asset_pairs);
     validated_environment_assets = candidate_environment_assets;
     asset_compatibility_cache_initialized = true;
@@ -1314,6 +1515,8 @@ public:
     result.production.scene_snapshot = created.snapshot;
     result.production.camera = camera;
     result.validation = ValidationResult::Success();
+    std::atomic_store_explicit(&published_snapshot, created.snapshot,
+                               std::memory_order_release);
     return result;
   }
 
@@ -1321,6 +1524,7 @@ public:
   ValidationResult configuration_validation;
   std::shared_ptr<const AssetCatalog> asset_catalog;
   std::vector<ObjectState> objects;
+  std::vector<LightState> lights;
   std::vector<ValidatedStaticAssetPair> validated_static_asset_pairs;
   ValidatedEnvironmentAssets validated_environment_assets;
   CameraState camera_state;
@@ -1331,6 +1535,7 @@ public:
   bool initialized = false;
   bool snapshot_id_exhausted = false;
   bool asset_compatibility_cache_initialized = false;
+  std::shared_ptr<const SceneSnapshot> published_snapshot;
 };
 
 GraphicsSceneSnapshotProducer::GraphicsSceneSnapshotProducer(
@@ -1386,6 +1591,12 @@ std::uint64_t GraphicsSceneSnapshotProducer::registry_id() const noexcept {
 
 std::uint64_t GraphicsSceneSnapshotProducer::asset_sequence() const noexcept {
   return impl_->asset_catalog->registry.sequence();
+}
+
+std::shared_ptr<const SceneSnapshot>
+GraphicsSceneSnapshotProducer::LoadPublishedSnapshot() const noexcept {
+  return std::atomic_load_explicit(&impl_->published_snapshot,
+                                   std::memory_order_acquire);
 }
 
 } // namespace RoR::Render

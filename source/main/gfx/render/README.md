@@ -73,6 +73,28 @@ and particle-event IDs increase globally. A frontend emits each event only on
 the first successful submission of its snapshot; repeats and multi-view renders
 do not duplicate smoke, dust, sparks, or other effects.
 
+Scene snapshot version 3 defines immutable analytic lighting in explicit
+photometric units: directional intensity is lux, point/spot intensity is
+candela, local attenuation and spot half-cones are exact, and static/dynamic
+shadow participation is a bit mask. Stable sorted identities carry current and
+previous position/direction; point lights have a canonical orientation and
+directional lights have canonical zero local-only fields. Environment state
+adds ambient radiance, optional linear HDR texture radiance, a fully specified
+additive gradient sky/sun disk tied to a directional-light identity, and bounded
+EV compensation. A padding-free little-endian FNV-1a digest covers that exact
+state and folds signed zero for portable change detection. It is not a security
+hash.
+
+`GraphicsSceneSnapshotProducer` version 2 accepts those lights in arbitrary
+source traversal order, canonicalizes them, rebases local-light history, and
+enforces permanent identity/type tombstones. Once the entire asset, scene,
+lighting, environment, and camera transaction commits, it release-publishes the
+exact immutable owner returned to the caller. Concurrent consumers acquire-load
+either the previous complete scene or the next complete scene; a failed
+production publishes nothing. The atomic observer pointer does not replace the
+ordered production result: renderer submission still carries that scene's asset
+delta and camera together.
+
 The native interop and native ray-tracing interfaces are contracts, not an
 implementation or readiness claim. All related capabilities fail closed by
 default. Raster API reporting is independent of native interop: a Windows
@@ -107,3 +129,6 @@ it can produce a view-dependent attachment. These remain standalone gates: N2
 does not yet import a result into an Ogre texture or implement RT
 materials, lighting, denoising, compositing, or presentation, while Windows and
 Linux continue to report native RT false until their explicit backends exist.
+The richer lighting/environment snapshot is likewise transport and validation,
+not evidence that N1/N3 or a shipping frontend already maps its photometry,
+shadows, sky, exposure, reflections, or GI.

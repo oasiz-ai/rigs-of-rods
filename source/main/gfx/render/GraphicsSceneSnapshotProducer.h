@@ -24,7 +24,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 1U;
+constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 2U;
 constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 5U;
 
 /// Source identities belong to the joined graphics scene, not a renderer.
@@ -66,7 +66,7 @@ struct GraphicsSceneAssetInput {
 };
 
 /// One static MeshObject/terrain-object style instance. The referenced mesh
-/// supplies exact local bounds and topology revision. Version 1 deliberately
+/// supplies exact local bounds and topology revision. Version 2 deliberately
 /// excludes deformable streams; those remain a later GfxActor producer slice.
 struct GraphicsSceneStaticMeshInput {
   std::uint64_t source_object_id = 0U;
@@ -75,6 +75,23 @@ struct GraphicsSceneStaticMeshInput {
   Matrix4x4 render_from_object;
   std::uint32_t visibility_mask = 0xFFFFFFFFU;
   std::uint32_t flags = MESH_INSTANCE_DEFAULT_FLAGS;
+};
+
+/// One authoritative analytic light. The source identity is preserved as the
+/// portable light identity and may never change type or return after removal.
+/// Current values use the frame's render origin; the producer owns previous
+/// position/direction history and rebases local-light positions.
+struct GraphicsSceneLightInput {
+  std::uint64_t source_light_id = 0U;
+  LightType type = LightType::DIRECTIONAL;
+  Float3 color_linear{1.0F, 1.0F, 1.0F};
+  float intensity = 1.0F;
+  Float3 position{};
+  Float3 direction{0.0F, -1.0F, 0.0F};
+  float range = 0.0F;
+  float inner_cone_radians = 0.0F;
+  float outer_cone_radians = 0.0F;
+  std::uint32_t shadow_flags = LIGHT_SHADOW_DEFAULT_FLAGS;
 };
 
 /// The one renderer-neutral main camera in the first producer slice. Current
@@ -107,6 +124,9 @@ struct GraphicsSceneFrameInput {
   std::uint64_t environment_sampler_source_asset_id = 0U;
   std::vector<GraphicsSceneAssetInput> assets;
   std::vector<GraphicsSceneStaticMeshInput> static_meshes;
+  /// May arrive in any order. analytic_sky.sun_light_id names one of these
+  /// stable source identities directly.
+  std::vector<GraphicsSceneLightInput> lights;
   GraphicsSceneCameraInput camera;
 };
 
@@ -128,6 +148,7 @@ struct GraphicsSceneSnapshotProducerConfiguration {
   std::uint64_t first_asset_ordinal = 1U;
   std::size_t maximum_asset_records = 65536U;
   std::size_t maximum_static_mesh_objects = 65536U;
+  std::size_t maximum_light_records = 4096U;
   /// Sum of descriptor-owned string, vertex/index, and texel bytes in one
   /// authoritative frame. Container overhead is intentionally excluded.
   std::uint64_t maximum_asset_payload_bytes = 512U * 1024U * 1024U;
@@ -216,6 +237,17 @@ public:
 
   [[nodiscard]] std::uint64_t registry_id() const noexcept;
   [[nodiscard]] std::uint64_t asset_sequence() const noexcept;
+
+  /// Acquire-loads the last fully validated immutable production. A successful
+  /// Produce() release-publishes the exact owner returned in its result only
+  /// after every producer state transition commits. Rejected frames leave the
+  /// publication unchanged. Any number of render/readback threads may load;
+  /// one externally serialized graphics thread remains the sole producer.
+  /// This observer seam carries only the scene owner; frontend submission must
+  /// still consume the returned production so its asset delta and camera stay
+  /// ordered with that scene.
+  [[nodiscard]] std::shared_ptr<const SceneSnapshot>
+  LoadPublishedSnapshot() const noexcept;
 
 private:
   class Impl;
