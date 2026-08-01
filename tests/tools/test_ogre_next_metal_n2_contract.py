@@ -9,6 +9,7 @@ import importlib.util
 import json
 from pathlib import Path
 import struct
+import subprocess
 import tempfile
 import unittest
 
@@ -52,6 +53,9 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
             PROBE_ROOT / "src" / "metal_n2_smoke.cpp"
         ).read_text(encoding="utf-8")
         cls.cmake = (PROBE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        cls.provenance_check = (
+            PROBE_ROOT / "cmake" / "VerifyN2SourceProvenance.cmake"
+        ).read_text(encoding="utf-8")
 
     def test_headers_keep_objc_and_ogre_types_private(self) -> None:
         for header in (self.native_header, self.backend_header):
@@ -150,8 +154,12 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
             "revision_n_plus_one_blocked_while_n_live",
             "frontend_shutdown_blocked_before_backend",
             "backend_shutdown_before_frontend",
+            "frontend_revoke_clears_backend_readiness",
             "frontend_destructor_before_backend_safe",
             "backend_destructor_before_frontend_safe",
+            "native_submission_precedes_injected_observation",
+            "injected_device_lost_abandon_allows_frontend_shutdown",
+            "injected_timeout_abandon_allows_frontend_shutdown",
             "post_release_revision_n_plus_one_rendered",
             "ValidateNativeGeometryInteropProofSet",
         ):
@@ -161,6 +169,10 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
             self.backend,
         )
         self.assertNotIn("OgreNextN1NativeInteropBridge *bridge_", self.backend)
+        self.assertIn("bridge_->QueryCapabilities()", self.backend)
+        self.assertIn("InjectObservationForTesting", self.backend_header)
+        self.assertIn("ObserveSubmittedCommand()", self.backend)
+        self.assertIn("ProveInjectedObservationAbandon", self.smoke)
 
     def test_probe_does_not_claim_a_rendered_image_or_gpu_timing(self) -> None:
         self.assertIn("RunGeometryInteropProbe", self.backend_header + self.backend)
@@ -194,6 +206,88 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
         self.assertIn(
             "available only in the macOS Metal target", self.frontend
         )
+        self.assertIn("--media-root", self.smoke)
+        self.assertIn("N2_MEDIA_ROOT", self.cmake)
+        self.assertIn("OgreNextN1Configuration{media_root}", self.smoke)
+        self.assertIn(
+            "OgreNextN1Configuration{arguments.media_root}", self.smoke
+        )
+
+    def test_each_isolated_frontend_uses_contiguous_frame_ids(self) -> None:
+        for stale_start in (
+            "MakeFrame(10U",
+            "MakeFrame(20U",
+            "MakeFrame(30U",
+            "MakeFrame(40U",
+        ):
+            with self.subTest(stale_start=stale_start):
+                self.assertNotIn(stale_start, self.smoke)
+        self.assertIn("MakeFrame(1U, MakeScene(1U, 2U", self.smoke)
+        self.assertIn("MakeFrame(2U, MakeScene(2U, 3U", self.smoke)
+
+    def test_source_provenance_is_clean_and_rechecked_before_link(self) -> None:
+        combined = self.cmake + self.provenance_check
+        for token in (
+            "git status --porcelain=v1 --untracked-files=all",
+            "file(GLOB_RECURSE",
+            "file(SHA256",
+            "ROR_OGRE_NEXT_N2_RELEVANT_SOURCE_CLEAN=1",
+            "ROR_OGRE_NEXT_N2_SOURCE_MANIFEST_SHA256",
+            "PRE_LINK",
+            "N2_EXPECTED_SOURCE_MANIFEST_SHA256",
+        ):
+            self.assertIn(token, combined)
+
+    def test_relevant_source_manifest_rejects_dirty_content(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-metal-n2-source-") as temp:
+            repository = Path(temp)
+            relevant = repository / "source" / "main" / "gfx" / "render"
+            relevant.mkdir(parents=True)
+            tracked = relevant / "proof.cpp"
+            tracked.write_text("int proof = 1;\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+            subprocess.run(["git", "add", "."], cwd=repository, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=RoR N2 Test",
+                    "-c",
+                    "user.email=ror-n2@example.invalid",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "fixture",
+                ],
+                cwd=repository,
+                check=True,
+            )
+            paths = ("source/main/gfx/render",)
+            manifest = RUNNER.relevant_source_manifest(repository, paths)
+            self.assertRegex(manifest["sha256"], r"^[0-9a-f]{64}$")
+            self.assertEqual(manifest["file_count"], 1)
+            RUNNER.require_relevant_source_clean(repository, paths)
+
+            tracked.write_text("int proof = 2;\n", encoding="utf-8")
+            with self.assertRaises(RUNNER.ProbeError):
+                RUNNER.require_relevant_source_clean(repository, paths)
+            self.assertNotEqual(
+                RUNNER.relevant_source_manifest(repository, paths), manifest
+            )
+            tracked.write_text("int proof = 1;\n", encoding="utf-8")
+            RUNNER.require_relevant_source_clean(repository, paths)
+            self.assertEqual(
+                RUNNER.relevant_source_manifest(repository, paths), manifest
+            )
+
+            (relevant / "untracked.cpp").write_text(
+                "int untracked = 1;\n", encoding="utf-8"
+            )
+            with self.assertRaises(RUNNER.ProbeError):
+                RUNNER.require_relevant_source_clean(repository, paths)
+            expanded_manifest = RUNNER.relevant_source_manifest(repository, paths)
+            self.assertEqual(expanded_manifest["file_count"], 2)
+            self.assertNotEqual(expanded_manifest["sha256"], manifest["sha256"])
 
     def test_report_validator_requires_exact_live_evidence(self) -> None:
         lock = RUNNER.load_lock()
@@ -202,8 +296,9 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
         executable = b"reviewed-metal-n2-executable"
         source_commit = "1" * 40
         source_ref = "codex/test"
+        source_manifest_sha256 = "a" * 64
         report = {
-            "schema": "ror.ogre_next_metal_rt_n2.v2",
+            "schema": "ror.ogre_next_metal_rt_n2.v3",
             "status": "pass",
             "scope": (
                 "same-device single-ray geometry interop capability probe; no "
@@ -211,9 +306,11 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                 "lighting, denoising, or compositing claim"
             ),
             "provenance": {
-                "ror_repository": "https://github.com/RigsOfRods/rigs-of-rods",
+                "ror_repository": RUNNER.ROR_SOURCE_REPOSITORY,
                 "ror_ref": source_ref,
                 "ror_commit": source_commit,
+                "relevant_source_clean": True,
+                "relevant_source_manifest_sha256": source_manifest_sha256,
                 "ogre_next_repository": lock["repository"],
                 "ogre_next_commit": lock["commit"],
                 "ogre_next_archive_sha256": lock["archive_sha256"],
@@ -292,8 +389,12 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                     "revision_n_plus_one_blocked_while_n_live",
                     "frontend_shutdown_blocked_before_backend",
                     "backend_shutdown_before_frontend",
+                    "frontend_revoke_clears_backend_readiness",
                     "frontend_destructor_before_backend_safe",
                     "backend_destructor_before_frontend_safe",
+                    "native_submission_precedes_injected_observation",
+                    "injected_device_lost_abandon_allows_frontend_shutdown",
+                    "injected_timeout_abandon_allows_frontend_shutdown",
                     "post_release_revision_n_plus_one_rendered",
                     "interop_report_geometry_proven",
                 )
@@ -312,6 +413,7 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                 policy,
                 source_commit,
                 source_ref,
+                source_manifest_sha256,
             )
             invalid = copy.deepcopy(report)
             invalid["geometry"]["vertex_pool_offset_bytes"] = 5000
@@ -324,6 +426,7 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                     policy,
                     source_commit,
                     source_ref,
+                    source_manifest_sha256,
                 )
             invalid = copy.deepcopy(report)
             invalid["scope"] = "full ray-traced compositing parity"
@@ -336,6 +439,7 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                     policy,
                     source_commit,
                     source_ref,
+                    source_manifest_sha256,
                 )
             invalid = copy.deepcopy(report)
             invalid["geometry"]["vertex_pool_offset_bytes"] = "128"
@@ -348,6 +452,7 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                     policy,
                     source_commit,
                     source_ref,
+                    source_manifest_sha256,
                 )
             invalid = copy.deepcopy(report)
             invalid["provenance"]["ror_commit"] = "2" * 40
@@ -360,6 +465,7 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                     policy,
                     source_commit,
                     source_ref,
+                    source_manifest_sha256,
                 )
             invalid = copy.deepcopy(report)
             invalid["provenance"]["build_artifact_sha256"] = "0" * 64
@@ -372,6 +478,48 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                     policy,
                     source_commit,
                     source_ref,
+                    source_manifest_sha256,
+                )
+            invalid = copy.deepcopy(report)
+            invalid["provenance"]["relevant_source_manifest_sha256"] = "b" * 64
+            with self.assertRaises(RUNNER.ProbeError):
+                RUNNER.validate_n2_checkpoint(
+                    invalid,
+                    artifact,
+                    executable_path,
+                    lock,
+                    policy,
+                    source_commit,
+                    source_ref,
+                    source_manifest_sha256,
+                )
+            invalid = copy.deepcopy(report)
+            invalid["provenance"]["relevant_source_clean"] = False
+            with self.assertRaises(RUNNER.ProbeError):
+                RUNNER.validate_n2_checkpoint(
+                    invalid,
+                    artifact,
+                    executable_path,
+                    lock,
+                    policy,
+                    source_commit,
+                    source_ref,
+                    source_manifest_sha256,
+                )
+            invalid = copy.deepcopy(report)
+            invalid["lifecycle"][
+                "injected_timeout_abandon_allows_frontend_shutdown"
+            ] = False
+            with self.assertRaises(RUNNER.ProbeError):
+                RUNNER.validate_n2_checkpoint(
+                    invalid,
+                    artifact,
+                    executable_path,
+                    lock,
+                    policy,
+                    source_commit,
+                    source_ref,
+                    source_manifest_sha256,
                 )
 
     def test_checked_in_report_schema_is_json_serializable(self) -> None:
@@ -384,9 +532,10 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
         policy = RUNNER.detect_policy("Darwin", "arm64")
         source_commit = "3" * 40
         source_ref = "codex/capability-skip"
+        source_manifest_sha256 = "c" * 64
         executable = b"compiled-on-apple-family-seven"
         report = {
-            "schema": "ror.ogre_next_metal_rt_n2.v2",
+            "schema": "ror.ogre_next_metal_rt_n2.v3",
             "status": "skip",
             "scope": (
                 "same-device single-ray geometry interop capability probe; no "
@@ -394,9 +543,11 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                 "lighting, denoising, or compositing claim"
             ),
             "provenance": {
-                "ror_repository": "https://github.com/RigsOfRods/rigs-of-rods",
+                "ror_repository": RUNNER.ROR_SOURCE_REPOSITORY,
                 "ror_ref": source_ref,
                 "ror_commit": source_commit,
+                "relevant_source_clean": True,
+                "relevant_source_manifest_sha256": source_manifest_sha256,
                 "ogre_next_repository": lock["repository"],
                 "ogre_next_commit": lock["commit"],
                 "ogre_next_archive_sha256": lock["archive_sha256"],
@@ -443,6 +594,7 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                 policy,
                 source_commit,
                 source_ref,
+                source_manifest_sha256,
             )
             invalid = copy.deepcopy(report)
             invalid["admission"]["hardware_floor_met"] = True
@@ -455,6 +607,7 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
                     policy,
                     source_commit,
                     source_ref,
+                    source_manifest_sha256,
                 )
 
 

@@ -36,6 +36,13 @@ BUILD_SENTINEL_NAME = ".ror-ogre-next-probe-build-v1"
 BUILD_SENTINEL_CONTENT = "ror-ogre-next-probe-build-v1\n"
 REQUIRED_CONFIG = "Release"
 ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
+RELEVANT_SOURCE_PATHS = (
+    "source/main/gfx/render",
+    "tools/ogre_next_probe",
+    "tools/run_ogre_next_probe.py",
+    "tools/validate_ogre_next_frame_probe.py",
+    "tools/verify_ogre_next_artifact_set.py",
+)
 
 
 class ProbeError(RuntimeError):
@@ -50,24 +57,25 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def relevant_source_manifest() -> dict[str, Any]:
-    roots = (
-        REPOSITORY_ROOT / "source" / "main" / "gfx" / "render",
-        PROBE_SOURCE,
-    )
-    paths: set[Path] = set()
+def relevant_source_manifest(
+    repository_root: Path = REPOSITORY_ROOT,
+    paths: tuple[str, ...] = RELEVANT_SOURCE_PATHS,
+) -> dict[str, Any]:
+    roots = tuple(repository_root / relative for relative in paths)
+    selected_paths: set[Path] = set()
     for root in roots:
-        paths.update(root.rglob("*"))
-    paths.update(
-        {
-            REPOSITORY_ROOT / "tools" / "run_ogre_next_probe.py",
-            REPOSITORY_ROOT / "tools" / "validate_ogre_next_frame_probe.py",
-            REPOSITORY_ROOT / "tools" / "verify_ogre_next_artifact_set.py",
-        }
-    )
+        if root.is_symlink():
+            raise ProbeError(
+                "RoR relevant source contains a symbolic link: "
+                + root.relative_to(repository_root).as_posix()
+            )
+        if root.is_dir():
+            selected_paths.update(root.rglob("*"))
+        else:
+            selected_paths.add(root)
     entries: list[tuple[str, int, str]] = []
-    for path in sorted(paths, key=lambda item: item.as_posix()):
-        relative = path.relative_to(REPOSITORY_ROOT)
+    for path in sorted(selected_paths, key=lambda item: item.as_posix()):
+        relative = path.relative_to(repository_root)
         if "__pycache__" in relative.parts or path.suffix in (".pyc", ".pyo"):
             continue
         if path.name == ".DS_Store":
@@ -141,11 +149,50 @@ def require_source_identity_unchanged(
         )
 
 
-def repository_identity() -> tuple[str, str]:
+def require_relevant_source_clean(
+    repository_root: Path = REPOSITORY_ROOT,
+    paths: tuple[str, ...] = RELEVANT_SOURCE_PATHS,
+) -> None:
+    try:
+        status_result = subprocess.run(
+            [
+                "git",
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+                "--",
+                *paths,
+            ],
+            cwd=repository_root,
+            check=False,
+            capture_output=True,
+        )
+    except OSError as error:
+        raise ProbeError(
+            f"could not inspect Metal N2 relevant source state: {error}"
+        ) from error
+    if status_result.returncode != 0:
+        detail = status_result.stderr.decode("utf-8", errors="replace").strip()
+        raise ProbeError(
+            "could not inspect Metal N2 relevant source state"
+            + (f": {detail}" if detail else "")
+        )
+    dirty = status_result.stdout.decode("utf-8", errors="replace").strip()
+    if dirty:
+        raise ProbeError(
+            "Metal N2 provenance requires a clean relevant source set:\n"
+            + dirty
+        )
+
+
+def repository_identity(
+    repository_root: Path = REPOSITORY_ROOT,
+) -> tuple[str, str, str]:
+    require_relevant_source_clean(repository_root)
     try:
         commit_result = subprocess.run(
             ["git", "rev-parse", "--verify", "HEAD"],
-            cwd=REPOSITORY_ROOT,
+            cwd=repository_root,
             check=True,
             capture_output=True,
             text=True,
@@ -153,7 +200,7 @@ def repository_identity() -> tuple[str, str]:
         commit = commit_result.stdout.strip()
         ref_result = subprocess.run(
             ["git", "symbolic-ref", "--short", "HEAD"],
-            cwd=REPOSITORY_ROOT,
+            cwd=repository_root,
             check=False,
             capture_output=True,
             text=True,
@@ -165,7 +212,8 @@ def repository_identity() -> tuple[str, str]:
     ref = ref_result.stdout.strip() if ref_result.returncode == 0 else "detached"
     if not ref:
         raise ProbeError("checked-out RoR ref is empty")
-    return commit, ref
+    manifest = relevant_source_manifest(repository_root)
+    return commit, ref, manifest["sha256"]
 
 
 def _require_sha256(value: object, label: str) -> None:
@@ -1028,11 +1076,16 @@ def validate_n2_checkpoint(
     policy: dict[str, str],
     expected_source_commit: str,
     expected_source_ref: str,
+    expected_source_manifest_sha256: str,
 ) -> None:
     if policy["name"] != "macos-arm64-metal":
         raise ProbeError("Metal N2 validation is Apple-only")
     if re.fullmatch(r"[0-9a-f]{40}", expected_source_commit) is None:
         raise ProbeError("expected RoR source commit is not a full Git SHA")
+    _require_sha256(
+        expected_source_manifest_sha256,
+        "expected Metal N2 relevant-source manifest",
+    )
     try:
         executable_bytes = executable_path.stat().st_size
         executable_sha256 = sha256_file(executable_path)
@@ -1059,7 +1112,7 @@ def validate_n2_checkpoint(
     lifecycle = object_field("lifecycle")
     status = report.get("status")
     common_checks = {
-        "schema": report.get("schema") == "ror.ogre_next_metal_rt_n2.v2",
+        "schema": report.get("schema") == "ror.ogre_next_metal_rt_n2.v3",
         "status": status in ("pass", "skip"),
         "scope": report.get("scope")
         == (
@@ -1068,9 +1121,15 @@ def validate_n2_checkpoint(
             "lighting, denoising, or compositing claim"
         ),
         "ror_repository": provenance.get("ror_repository")
-        == "https://github.com/RigsOfRods/rigs-of-rods",
+        == ROR_SOURCE_REPOSITORY,
         "ror_ref": provenance.get("ror_ref") == expected_source_ref,
         "ror_commit": provenance.get("ror_commit") == expected_source_commit,
+        "relevant_source_clean": provenance.get("relevant_source_clean")
+        is True,
+        "relevant_source_manifest": provenance.get(
+            "relevant_source_manifest_sha256"
+        )
+        == expected_source_manifest_sha256,
         "ogre_repository": provenance.get("ogre_next_repository")
         == lock["repository"],
         "ogre_commit": provenance.get("ogre_next_commit") == lock["commit"],
@@ -1248,8 +1307,12 @@ def validate_n2_checkpoint(
                 "revision_n_plus_one_blocked_while_n_live",
                 "frontend_shutdown_blocked_before_backend",
                 "backend_shutdown_before_frontend",
+                "frontend_revoke_clears_backend_readiness",
                 "frontend_destructor_before_backend_safe",
                 "backend_destructor_before_frontend_safe",
+                "native_submission_precedes_injected_observation",
+                "injected_device_lost_abandon_allows_frontend_shutdown",
+                "injected_timeout_abandon_allows_frontend_shutdown",
                 "post_release_revision_n_plus_one_rendered",
                 "interop_report_geometry_proven",
             )
@@ -1272,7 +1335,7 @@ def run_n2_checkpoint(
 ) -> None:
     if policy["name"] != "macos-arm64-metal":
         return
-    source_commit, source_ref = repository_identity()
+    source_commit, source_ref, source_manifest_sha256 = repository_identity()
     run(
         [
             "cmake",
@@ -1307,6 +1370,11 @@ def run_n2_checkpoint(
         report = json.loads(report_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ProbeError(f"could not read Metal N2 report: {error}") from error
+    rebuilt_identity = repository_identity()
+    if rebuilt_identity != (source_commit, source_ref, source_manifest_sha256):
+        raise ProbeError(
+            "RoR source provenance changed while building the Metal N2 proof"
+        )
     validate_n2_checkpoint(
         report,
         probe_path,
@@ -1315,12 +1383,18 @@ def run_n2_checkpoint(
         policy,
         source_commit,
         source_ref,
+        source_manifest_sha256,
     )
 
     attestation = {
-        "schema": "ror.ogre_next_metal_rt_n2.attestation.v1",
+        "schema": "ror.ogre_next_metal_rt_n2.attestation.v2",
         "status": report.get("status"),
-        "source": {"ror_commit": source_commit, "ror_ref": source_ref},
+        "source": {
+            "ror_commit": source_commit,
+            "ror_ref": source_ref,
+            "relevant_source_clean": True,
+            "relevant_source_manifest_sha256": source_manifest_sha256,
+        },
         "executable": {
             "path": executable_path.name,
             "bytes": executable_path.stat().st_size,

@@ -32,8 +32,24 @@
 #define ROR_OGRE_NEXT_N2_SOURCE_COMMIT "unknown"
 #endif
 
+#ifndef ROR_OGRE_NEXT_N2_SOURCE_REPOSITORY
+#define ROR_OGRE_NEXT_N2_SOURCE_REPOSITORY "unknown"
+#endif
+
 #ifndef ROR_OGRE_NEXT_N2_SOURCE_REF
 #define ROR_OGRE_NEXT_N2_SOURCE_REF "unknown"
+#endif
+
+#ifndef ROR_OGRE_NEXT_N2_RELEVANT_SOURCE_CLEAN
+#define ROR_OGRE_NEXT_N2_RELEVANT_SOURCE_CLEAN 0
+#endif
+
+#ifndef ROR_OGRE_NEXT_N2_SOURCE_MANIFEST_SHA256
+#define ROR_OGRE_NEXT_N2_SOURCE_MANIFEST_SHA256 "unknown"
+#endif
+
+#if !defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
+#error "The Metal N2 smoke target requires its isolated native fault seam"
 #endif
 
 namespace {
@@ -46,6 +62,7 @@ constexpr std::uint64_t kRegistryId = UINT64_C(0x4E325F4D4554414C);
 constexpr int kCapabilitySkipExitCode = 77;
 
 struct Arguments {
+  std::string media_root;
   std::string artifact_path;
   std::string report_path;
   std::string executable_path;
@@ -83,13 +100,18 @@ Arguments ParseArguments(int argc, char **argv) {
   arguments.executable_path = argc > 0 && argv[0] != nullptr ? argv[0] : "";
   for (int index = 1; index < argc; ++index) {
     const std::string option = argv[index];
-    if (option == "--output" && index + 1 < argc) {
+    if (option == "--media-root" && index + 1 < argc) {
+      arguments.media_root = argv[++index];
+    } else if (option == "--output" && index + 1 < argc) {
       arguments.artifact_path = argv[++index];
     } else if (option == "--report" && index + 1 < argc) {
       arguments.report_path = argv[++index];
     } else {
-      Fail("usage: ror_ogre_next_metal_n2_smoke [--output PROBE.bin] [--report REPORT.json]");
+      Fail("usage: ror_ogre_next_metal_n2_smoke --media-root ABSOLUTE_PATH [--output PROBE.bin] [--report REPORT.json]");
     }
+  }
+  if (arguments.media_root.empty()) {
+    Fail("--media-root is required for the relocatable N2 frontend");
   }
   return arguments;
 }
@@ -372,15 +394,21 @@ std::string MakeReport(
     const FileDigest &executable) {
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_metal_rt_n2.v2\",\n"
+         << "  \"schema\": \"ror.ogre_next_metal_rt_n2.v3\",\n"
          << "  \"status\": \"pass\",\n"
          << "  \"scope\": \"same-device single-ray geometry interop capability probe; no rendered image, view-dependent result, GPU timing, material, lighting, denoising, or compositing claim\",\n"
          << "  \"provenance\": {\n"
-         << "    \"ror_repository\": \"https://github.com/RigsOfRods/rigs-of-rods\",\n"
+         << "    \"ror_repository\": \""
+         << JsonEscape(ROR_OGRE_NEXT_N2_SOURCE_REPOSITORY) << "\",\n"
          << "    \"ror_ref\": \"" << JsonEscape(ROR_OGRE_NEXT_N2_SOURCE_REF)
          << "\",\n"
          << "    \"ror_commit\": \""
          << JsonEscape(ROR_OGRE_NEXT_N2_SOURCE_COMMIT) << "\",\n"
+         << "    \"relevant_source_clean\": "
+         << (ROR_OGRE_NEXT_N2_RELEVANT_SOURCE_CLEAN ? "true" : "false")
+         << ",\n"
+         << "    \"relevant_source_manifest_sha256\": \""
+         << ROR_OGRE_NEXT_N2_SOURCE_MANIFEST_SHA256 << "\",\n"
          << "    \"ogre_next_repository\": \"https://github.com/OGRECave/ogre-next\",\n"
          << "    \"ogre_next_commit\": \""
          << ROR_OGRE_NEXT_N1_OGRE_COMMIT << "\",\n"
@@ -501,8 +529,12 @@ std::string MakeReport(
          << "    \"revision_n_plus_one_blocked_while_n_live\": true,\n"
          << "    \"frontend_shutdown_blocked_before_backend\": true,\n"
          << "    \"backend_shutdown_before_frontend\": true,\n"
+         << "    \"frontend_revoke_clears_backend_readiness\": true,\n"
          << "    \"frontend_destructor_before_backend_safe\": true,\n"
          << "    \"backend_destructor_before_frontend_safe\": true,\n"
+         << "    \"native_submission_precedes_injected_observation\": true,\n"
+         << "    \"injected_device_lost_abandon_allows_frontend_shutdown\": true,\n"
+         << "    \"injected_timeout_abandon_allows_frontend_shutdown\": true,\n"
          << "    \"post_release_revision_n_plus_one_rendered\": true,\n"
          << "    \"interop_report_geometry_proven\": "
          << (interop.geometry_interop_proven ? "true" : "false") << "\n"
@@ -519,15 +551,21 @@ std::string MakeSkipReport(
     const RenderOperationResult &initialization, const FileDigest &executable) {
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_metal_rt_n2.v2\",\n"
+         << "  \"schema\": \"ror.ogre_next_metal_rt_n2.v3\",\n"
          << "  \"status\": \"skip\",\n"
          << "  \"scope\": \"same-device single-ray geometry interop capability probe; no rendered image, view-dependent result, GPU timing, material, lighting, denoising, or compositing claim\",\n"
          << "  \"provenance\": {\n"
-         << "    \"ror_repository\": \"https://github.com/RigsOfRods/rigs-of-rods\",\n"
+         << "    \"ror_repository\": \""
+         << JsonEscape(ROR_OGRE_NEXT_N2_SOURCE_REPOSITORY) << "\",\n"
          << "    \"ror_ref\": \"" << JsonEscape(ROR_OGRE_NEXT_N2_SOURCE_REF)
          << "\",\n"
          << "    \"ror_commit\": \""
          << JsonEscape(ROR_OGRE_NEXT_N2_SOURCE_COMMIT) << "\",\n"
+         << "    \"relevant_source_clean\": "
+         << (ROR_OGRE_NEXT_N2_RELEVANT_SOURCE_CLEAN ? "true" : "false")
+         << ",\n"
+         << "    \"relevant_source_manifest_sha256\": \""
+         << ROR_OGRE_NEXT_N2_SOURCE_MANIFEST_SHA256 << "\",\n"
          << "    \"ogre_next_repository\": \"https://github.com/OGRECave/ogre-next\",\n"
          << "    \"ogre_next_commit\": \""
          << ROR_OGRE_NEXT_N1_OGRE_COMMIT << "\",\n"
@@ -578,8 +616,9 @@ std::string MakeSkipReport(
   return report.str();
 }
 
-void ProveFrontendDestructorBeforeBackend() {
+void ProveFrontendDestructorBeforeBackend(const std::string &media_root) {
   auto frontend = std::make_unique<OgreNextN1Frontend>(
+      OgreNextN1Configuration{media_root},
       OgreNextNativeFeatureTier::METAL_RAY_TRACING_N2);
   FrontendInitializationRequest initialization;
   initialization.initial_width = kWidth;
@@ -597,7 +636,7 @@ void ProveFrontendDestructorBeforeBackend() {
   auto ray_tracing = std::make_unique<OgreNextMetalRayTracingBackend>();
   RequireSuccess(ray_tracing->Initialize(*interop),
                  "frontend-first RT Initialize");
-  const RenderFrameRequest frame = MakeFrame(10U, MakeScene(10U, 2U, 0.0F));
+  const RenderFrameRequest frame = MakeFrame(1U, MakeScene(1U, 2U, 0.0F));
   RenderFrameOutput raster_output;
   RequireSuccess(frontend->Render(frame, raster_output),
                  "frontend-first raster");
@@ -606,12 +645,18 @@ void ProveFrontendDestructorBeforeBackend() {
                  "frontend-first probe");
 
   frontend.reset();
+  const NativeRayTracingCapabilityReport revoked_capabilities =
+      ray_tracing->QueryCapabilities();
+  Require(!revoked_capabilities.dispatch_readback_probe_passed &&
+              !revoked_capabilities.geometry_interop_ready,
+          "backend retained ready capability claims after frontend revocation");
   RequireSuccess(ray_tracing->Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "backend shutdown after frontend destructor");
 }
 
-void ProveBackendDestructorBeforeFrontend() {
+void ProveBackendDestructorBeforeFrontend(const std::string &media_root) {
   auto frontend = std::make_unique<OgreNextN1Frontend>(
+      OgreNextN1Configuration{media_root},
       OgreNextNativeFeatureTier::METAL_RAY_TRACING_N2);
   FrontendInitializationRequest initialization;
   initialization.initial_width = kWidth;
@@ -629,7 +674,7 @@ void ProveBackendDestructorBeforeFrontend() {
   auto ray_tracing = std::make_unique<OgreNextMetalRayTracingBackend>();
   RequireSuccess(ray_tracing->Initialize(*interop),
                  "backend-first RT Initialize");
-  const RenderFrameRequest frame = MakeFrame(20U, MakeScene(20U, 2U, 0.0F));
+  const RenderFrameRequest frame = MakeFrame(1U, MakeScene(1U, 2U, 0.0F));
   RenderFrameOutput raster_output;
   RequireSuccess(frontend->Render(frame, raster_output),
                  "backend-first raster");
@@ -639,7 +684,7 @@ void ProveBackendDestructorBeforeFrontend() {
 
   ray_tracing.reset();
   const RenderFrameRequest next_frame =
-      MakeFrame(21U, MakeScene(21U, 3U, 0.25F));
+      MakeFrame(2U, MakeScene(2U, 3U, 0.25F));
   RenderFrameOutput next_output;
   RequireSuccess(frontend->Render(next_frame, next_output),
                  "raster after backend destructor");
@@ -647,9 +692,58 @@ void ProveBackendDestructorBeforeFrontend() {
                  "frontend shutdown after backend destructor");
 }
 
+void ProveInjectedObservationAbandon(
+    OgreNextMetalN2TestObservation observation,
+    RenderOperationCode expected_code, const std::string &label,
+    const std::string &media_root) {
+  OgreNextN1Frontend frontend(
+      OgreNextN1Configuration{media_root},
+      OgreNextNativeFeatureTier::METAL_RAY_TRACING_N2);
+  FrontendInitializationRequest initialization;
+  initialization.initial_width = kWidth;
+  initialization.initial_height = kHeight;
+  initialization.maximum_frames_in_flight = 1U;
+  initialization.headless = true;
+  initialization.vertical_sync = false;
+  RequireSuccess(frontend.Initialize(initialization), label + " Initialize");
+  RequireSuccess(frontend.SynchronizeAssets(MakeCatalog()),
+                 label + " SynchronizeAssets");
+  NativeRenderInterop *interop = frontend.GetNativeInterop();
+  Require(interop != nullptr, label + " did not expose Metal interop");
+
+  OgreNextMetalRayTracingBackend ray_tracing;
+  RequireSuccess(ray_tracing.Initialize(*interop), label + " RT Initialize");
+  RequireSuccess(ray_tracing.InjectObservationForTesting(observation),
+                 label + " inject post-submission observation");
+  const RenderFrameRequest frame =
+      MakeFrame(1U, MakeScene(1U, 2U, 0.0F));
+  RenderFrameOutput raster_output;
+  RequireSuccess(frontend.Render(frame, raster_output), label + " raster");
+  const RenderOperationResult probe_result =
+      ray_tracing.RunGeometryInteropProbe(MakeRayTracingRequest(frame));
+  Require(probe_result.code == expected_code,
+          label + " probe did not expose the injected native outcome");
+  Require(frontend.Shutdown(0U).code ==
+              RenderOperationCode::OUTSTANDING_LEASES,
+          label + " did not retain submitted leases before abandonment");
+
+  const RenderOperationResult shutdown_result =
+      ray_tracing.Shutdown(kInfiniteRenderTimeoutNanoseconds);
+  Require(shutdown_result.code == expected_code,
+          label + " shutdown did not preserve the terminal native outcome");
+  const NativeRayTracingCapabilityReport abandoned =
+      ray_tracing.QueryCapabilities();
+  Require(!abandoned.dispatch_readback_probe_passed &&
+              !abandoned.geometry_interop_ready,
+          label + " retained ready capability claims after abandonment");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 label + " frontend Shutdown after abandonment");
+}
+
 SmokeResult RunSmoke(const Arguments &arguments) {
   const FileDigest executable = HashFile(arguments.executable_path);
   OgreNextN1Frontend frontend(
+      OgreNextN1Configuration{arguments.media_root},
       OgreNextNativeFeatureTier::METAL_RAY_TRACING_N2);
   FrontendInitializationRequest initialization;
   initialization.initial_width = kWidth;
@@ -746,8 +840,16 @@ SmokeResult RunSmoke(const Arguments &arguments) {
   Require(probe.size() == 8U,
           "Metal N2 did not retain the exact eight-byte GPU probe result");
   WriteBinary(arguments.artifact_path, probe);
-  ProveFrontendDestructorBeforeBackend();
-  ProveBackendDestructorBeforeFrontend();
+  ProveFrontendDestructorBeforeBackend(arguments.media_root);
+  ProveBackendDestructorBeforeFrontend(arguments.media_root);
+  ProveInjectedObservationAbandon(
+      OgreNextMetalN2TestObservation::DEVICE_LOST,
+      RenderOperationCode::DEVICE_LOST, "device-loss fault path",
+      arguments.media_root);
+  ProveInjectedObservationAbandon(
+      OgreNextMetalN2TestObservation::TIMEOUT,
+      RenderOperationCode::TIMEOUT, "timeout fault path",
+      arguments.media_root);
   return {MakeReport(evidence, proof.ray_tracing, proof.frontend, proof.interop,
                      Sha256(probe), probe.size(), executable),
           EXIT_SUCCESS};

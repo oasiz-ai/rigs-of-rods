@@ -1,10 +1,14 @@
-if (NOT DEFINED N2_EXECUTABLE OR NOT DEFINED N2_OUTPUT OR
-    NOT DEFINED N2_REPORT)
-    message(FATAL_ERROR "RunN2Smoke requires executable, output, and report paths")
+if (NOT DEFINED N2_EXECUTABLE OR NOT DEFINED N2_MEDIA_ROOT OR
+    NOT DEFINED N2_OUTPUT OR NOT DEFINED N2_REPORT)
+    message(FATAL_ERROR
+        "RunN2Smoke requires executable, media, output, and report paths")
 endif ()
 
 execute_process(
-    COMMAND "${N2_EXECUTABLE}" --output "${N2_OUTPUT}" --report "${N2_REPORT}"
+    COMMAND "${N2_EXECUTABLE}"
+            --media-root "${N2_MEDIA_ROOT}"
+            --output "${N2_OUTPUT}"
+            --report "${N2_REPORT}"
     RESULT_VARIABLE _ror_n2_result)
 
 if (NOT EXISTS "${N2_REPORT}")

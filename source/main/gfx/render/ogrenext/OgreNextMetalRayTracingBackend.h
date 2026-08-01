@@ -20,6 +20,17 @@
 
 namespace RoR::Render {
 
+#if defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
+/// Test-only post-submission observation outcomes. This API is compiled only
+/// into the isolated Apple Metal acceptance target, never the game/runtime
+/// renderer library.
+enum class OgreNextMetalN2TestObservation : std::uint8_t {
+  NONE = 0,
+  DEVICE_LOST = 1,
+  TIMEOUT = 2,
+};
+#endif
+
 /// Captured live evidence from the one-ray same-device acceptance dispatch.
 /// This proves API/hardware/dispatch and exact Ogre geometry interoperability;
 /// it deliberately does not claim ray-traced material or compositing parity.
@@ -80,6 +91,11 @@ public:
       const NativeGeometryExport &geometry,
       const NativeFrameSynchronization &synchronization) const override;
   RenderOperationResult Shutdown(std::uint64_t timeout_nanoseconds) override;
+
+#if defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
+  RenderOperationResult InjectObservationForTesting(
+      OgreNextMetalN2TestObservation observation);
+#endif
 
   [[nodiscard]] const OgreNextMetalRayTracingEvidence &evidence() const;
 

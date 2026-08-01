@@ -198,10 +198,15 @@ public:
     report.api_supported = evidence_.api_supported;
     report.hardware_accelerated = evidence_.api_supported &&
                                   evidence_.apple_family_9_supported;
+    const NativeInteropCapabilityReport interop =
+        bridge_ ? bridge_->QueryCapabilities()
+                : NativeInteropCapabilityReport{};
+    const bool bridge_live = interop.exports_native_context;
     report.dispatch_readback_probe_passed =
-        initialized_ && evidence_.dispatch_readback_passed;
+        initialized_ && bridge_live && evidence_.dispatch_readback_passed;
     report.geometry_interop_ready =
-        initialized_ && evidence_.geometry_interop_passed;
+        initialized_ && bridge_live && interop.geometry_interop_proven &&
+        evidence_.geometry_interop_passed;
     report.maximum_instances = report.hardware_accelerated ? 1U : 0U;
     return report;
   }
@@ -619,7 +624,8 @@ public:
     if (command_submitted_) {
       dispatch_result = ObserveSubmittedCommand();
       if (!dispatch_result &&
-          dispatch_result.code == RenderOperationCode::DEVICE_LOST) {
+          (dispatch_result.code == RenderOperationCode::DEVICE_LOST ||
+           dispatch_result.code == RenderOperationCode::TIMEOUT)) {
         return AbandonAfterFault(std::move(dispatch_result));
       }
       if (!external_completed_) {
@@ -656,6 +662,26 @@ public:
   const OgreNextMetalRayTracingEvidence &evidence() const noexcept {
     return evidence_;
   }
+
+#if defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
+  RenderOperationResult InjectObservationForTesting(
+      OgreNextMetalN2TestObservation observation) {
+    if (!initialized_) {
+      return Failure(RenderOperationCode::NOT_INITIALIZED,
+                     "Metal N2 test observation requires an initialized backend");
+    }
+    if (!OnOwnerThread()) {
+      return Invalid("Metal N2 test observation was set off its owner thread");
+    }
+    if (command_submitted_ || geometry_live_ || frame_live_) {
+      return Failure(
+          RenderOperationCode::OUTSTANDING_LEASES,
+          "Metal N2 test observation must be set before native submission");
+    }
+    test_observation_ = observation;
+    return RenderOperationResult::Success();
+  }
+#endif
 
   void BestEffortDestructorShutdown() noexcept {
     if (!initialized_ || !OnOwnerThread()) {
@@ -724,6 +750,18 @@ private:
       return BackendFailure(
           "submitted Metal N2 command has no complete probe readback");
     }
+#if defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
+    // The acceptance smoke still encodes, commits, waits for, and validates a
+    // real Metal completion before this narrow seam overrides its observation.
+    if (test_observation_ == OgreNextMetalN2TestObservation::DEVICE_LOST) {
+      return Failure(RenderOperationCode::DEVICE_LOST,
+                     "injected post-submission Metal N2 device loss");
+    }
+    if (test_observation_ == OgreNextMetalN2TestObservation::TIMEOUT) {
+      return Failure(RenderOperationCode::TIMEOUT,
+                     "injected post-submission Metal N2 observation timeout");
+    }
+#endif
     const ProbeResult observed =
         *static_cast<const ProbeResult *>(result_buffer_.contents);
     if (observed.magic != kHitMagic || !std::isfinite(observed.distance) ||
@@ -801,6 +839,9 @@ private:
     external_completed_ = false;
     frame_live_ = false;
     geometry_live_ = false;
+#if defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
+    test_observation_ = OgreNextMetalN2TestObservation::NONE;
+#endif
   }
 
   std::shared_ptr<OgreNextN1NativeInteropBridge> bridge_;
@@ -825,6 +866,10 @@ private:
   bool command_submitted_ = false;
   bool completion_observed_ = false;
   bool external_completed_ = false;
+#if defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
+  OgreNextMetalN2TestObservation test_observation_ =
+      OgreNextMetalN2TestObservation::NONE;
+#endif
 };
 
 OgreNextMetalRayTracingBackend::OgreNextMetalRayTracingBackend()
@@ -866,6 +911,14 @@ RenderOperationResult OgreNextMetalRayTracingBackend::Shutdown(
     std::uint64_t timeout_nanoseconds) {
   return impl_->Shutdown(timeout_nanoseconds);
 }
+
+#if defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
+RenderOperationResult
+OgreNextMetalRayTracingBackend::InjectObservationForTesting(
+    OgreNextMetalN2TestObservation observation) {
+  return impl_->InjectObservationForTesting(observation);
+}
+#endif
 
 const OgreNextMetalRayTracingEvidence &
 OgreNextMetalRayTracingBackend::evidence() const {

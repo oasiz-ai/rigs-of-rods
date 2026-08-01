@@ -141,6 +141,15 @@ jobs:
           --output-on-failure
           -R '^ror_ogre_next_frontend_n1_'
 
+      - name: Build and validate the independent Apple Metal N2 proof
+        if: runner.os == 'macOS'
+        run: >-
+          python tools/run_ogre_next_probe.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --reuse-build-dir
+          --checkpoint n2
+          --jobs ${{ matrix.jobs }}
+
       - name: Build, render, read back, and validate the legacy probes
         run: >-
           python tools/run_ogre_next_probe.py
@@ -169,6 +178,13 @@ jobs:
         run: >-
           python tools/verify_ogre_next_artifact_set.py
           --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+
+      - name: Verify attested Apple Metal N2 pass or skip evidence
+        if: always() && runner.os == 'macOS'
+        run: >-
+          python tools/verify_ogre_next_artifact_set.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --verify-metal-n2-evidence
 
       - name: Upload exact reports and UI-free frame
         if: always()

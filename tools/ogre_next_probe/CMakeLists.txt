@@ -246,6 +246,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         target_compile_options(
             ror_ogre_next_frontend_n1
             PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+        target_compile_definitions(
+            ror_ogre_next_frontend_n1
+            PRIVATE ROR_OGRE_NEXT_N2_TEST_SEAM=1)
     elseif (WIN32)
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_D3D11=1)
     else ()
@@ -294,9 +297,35 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre_next_frontend_n1
         ror_ogre_next_frontend_n1_smoke)
     if (APPLE)
+        set(_ror_n2_repository_root
+            "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+        set(_ror_n2_relevant_source_paths
+            source/main/gfx/render
+            tools/ogre_next_probe
+            tools/run_ogre_next_probe.py
+            tools/validate_ogre_next_frame_probe.py
+            tools/verify_ogre_next_artifact_set.py)
+        execute_process(
+            COMMAND git status --porcelain=v1 --untracked-files=all --
+                    ${_ror_n2_relevant_source_paths}
+            WORKING_DIRECTORY "${_ror_n2_repository_root}"
+            RESULT_VARIABLE _ror_n2_status_result
+            OUTPUT_VARIABLE _ror_n2_status
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_VARIABLE _ror_n2_status_error)
+        if (NOT _ror_n2_status_result EQUAL 0)
+            message(FATAL_ERROR
+                "Could not inspect Metal N2 relevant source state: "
+                "${_ror_n2_status_error}")
+        endif ()
+        if (NOT _ror_n2_status STREQUAL "")
+            message(FATAL_ERROR
+                "Metal N2 provenance requires a clean relevant source set:\n"
+                "${_ror_n2_status}")
+        endif ()
         execute_process(
             COMMAND git rev-parse --verify HEAD
-            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+            WORKING_DIRECTORY "${_ror_n2_repository_root}"
             RESULT_VARIABLE _ror_n2_commit_result
             OUTPUT_VARIABLE _ror_n2_source_commit
             OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -306,7 +335,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         endif ()
         execute_process(
             COMMAND git symbolic-ref --short HEAD
-            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+            WORKING_DIRECTORY "${_ror_n2_repository_root}"
             RESULT_VARIABLE _ror_n2_ref_result
             OUTPUT_VARIABLE _ror_n2_source_ref
             OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -323,14 +352,27 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         target_compile_definitions(
             ror_ogre_next_metal_n2_smoke
             PRIVATE
+                ROR_OGRE_NEXT_N2_TEST_SEAM=1
+                ROR_OGRE_NEXT_N2_SOURCE_REPOSITORY="${ROR_SOURCE_REPOSITORY}"
                 ROR_OGRE_NEXT_N2_SOURCE_COMMIT="${_ror_n2_source_commit}"
-                ROR_OGRE_NEXT_N2_SOURCE_REF="${_ror_n2_source_ref}")
+                ROR_OGRE_NEXT_N2_SOURCE_REF="${_ror_n2_source_ref}"
+                ROR_OGRE_NEXT_N2_RELEVANT_SOURCE_CLEAN=1
+                ROR_OGRE_NEXT_N2_SOURCE_MANIFEST_SHA256="${ROR_SOURCE_MANIFEST_SHA256}")
         target_link_libraries(
             ror_ogre_next_metal_n2_smoke
             PRIVATE ror_ogre_next_frontend_n1)
         set_target_properties(
             ror_ogre_next_metal_n2_smoke
             PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+        add_custom_command(
+            TARGET ror_ogre_next_metal_n2_smoke PRE_LINK
+            COMMAND
+                "${CMAKE_COMMAND}"
+                "-DN2_REPOSITORY_ROOT=${_ror_n2_repository_root}"
+                "-DN2_EXPECTED_SOURCE_MANIFEST_SHA256=${ROR_SOURCE_MANIFEST_SHA256}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyN2SourceProvenance.cmake"
+            COMMENT "Verifying clean Metal N2 source provenance"
+            VERBATIM)
         list(APPEND _ror_n1_targets ror_ogre_next_metal_n2_smoke)
     endif ()
 
@@ -508,10 +550,13 @@ if (TARGET ror_ogre_next_metal_n2_smoke)
         COMMAND
             "${CMAKE_COMMAND}"
             "-DN2_EXECUTABLE=$<TARGET_FILE:ror_ogre_next_metal_n2_smoke>"
+            "-DN2_MEDIA_ROOT=${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
             "-DN2_OUTPUT=${ROR_OGRE_NEXT_N2_READBACK}"
             "-DN2_REPORT=${ROR_OGRE_NEXT_N2_REPORT}"
             -P "${CMAKE_CURRENT_LIST_DIR}/cmake/RunN2Smoke.cmake"
-        DEPENDS ror_ogre_next_metal_n2_smoke
+        DEPENDS
+            ror_ogre_next_metal_n2_smoke
+            ror_ogre_next_frontend_n1_package
         BYPRODUCTS
             "${ROR_OGRE_NEXT_N2_READBACK}"
             "${ROR_OGRE_NEXT_N2_REPORT}"
@@ -519,9 +564,13 @@ if (TARGET ror_ogre_next_metal_n2_smoke)
         VERBATIM)
     add_test(NAME ror_ogre_next_metal_n2_runtime
         COMMAND $<TARGET_FILE:ror_ogre_next_metal_n2_smoke>
+                --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
                 --output "${ROR_OGRE_NEXT_N2_CTEST_READBACK}"
                 --report "${ROR_OGRE_NEXT_N2_CTEST_REPORT}")
     set_tests_properties(
         ror_ogre_next_metal_n2_runtime
-        PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
+        PROPERTIES
+            TIMEOUT 120
+            SKIP_RETURN_CODE 77
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif ()

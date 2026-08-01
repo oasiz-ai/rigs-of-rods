@@ -127,11 +127,16 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         complete = self.workflow.index(
             "- name: Require every exact upload artifact"
         )
+        n2_complete = self.workflow.index(
+            "- name: Verify attested Apple Metal N2 pass or skip evidence"
+        )
         upload = self.workflow.index("- name: Upload exact reports and UI-free frame")
         self.assertLess(lifecycle, revalidate)
         self.assertLess(revalidate, complete)
-        self.assertLess(complete, upload)
+        self.assertLess(complete, n2_complete)
+        self.assertLess(n2_complete, upload)
         self.assertIn("verify_ogre_next_artifact_set.py", self.workflow)
+        self.assertIn("--verify-metal-n2-evidence", self.workflow)
 
     def test_n1_is_independent_of_legacy_frame_runtime(self) -> None:
         n1 = self.workflow.index(
@@ -140,12 +145,17 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         legacy = self.workflow.index(
             "- name: Build, render, read back, and validate the legacy probes"
         )
+        n2 = self.workflow.index(
+            "- name: Build and validate the independent Apple Metal N2 proof"
+        )
         n1_native = self.workflow.index(
             "- name: Prove N1 lifecycle and media-integrity failures independently"
         )
         self.assertLess(n1, n1_native)
-        self.assertLess(n1_native, legacy)
+        self.assertLess(n1_native, n2)
+        self.assertLess(n2, legacy)
         self.assertIn("--checkpoint n1", self.workflow)
+        self.assertIn("--checkpoint n2", self.workflow)
         self.assertIn("--checkpoint legacy", self.workflow)
         self.assertIn("--reuse-build-dir", self.workflow)
         self.assertIn("-R '^ror_ogre_next_frontend_n1_'", self.workflow)
