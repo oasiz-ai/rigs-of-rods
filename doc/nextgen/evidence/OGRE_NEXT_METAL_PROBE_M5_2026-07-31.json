@@ -6,7 +6,7 @@
   "provenance": {
     "repository": "https://github.com/oasiz-ai/rigs-of-rods",
     "base_commit": "92e67584c5c0fd00a879ab800c87da3fff57a8ee",
-    "integration_target_commit": "c2d3e3ad3f0326ec0623181959f2a83675ed6b98",
+    "integration_target_commit": "b178433f9bf96ccd30be4b65f3ccf8f445f9864e",
     "branch": "codex/ogre-next-frame-v1",
     "source_path": "tools/ogre_next_probe/src/main.cpp",
     "source_sha256": "b7c8f4b6a8e924ee34b2615e0cd71918ba555abea86df65c96b2b41029a93225",
