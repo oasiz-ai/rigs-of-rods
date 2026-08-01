@@ -234,9 +234,13 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         expected = (
             "Common/Any/PccDepthCompressor_ps.any",
             "Common/GLSL/PccDepthCompressor_ps.glsl",
+            "Common/GLSL/QuadCameraDir_vs.glsl",
             "Common/HLSL/PccDepthCompressor_ps.hlsl",
+            "Common/HLSL/QuadCameraDir_vs.hlsl",
             "Common/Metal/PccDepthCompressor_ps.metal",
+            "Common/Metal/QuadCameraDir_vs.metal",
             "Common/PccDepthCompressor.material",
+            "Common/Quad.program",
             "LocalCubemaps/BlendProjectCubemap.material",
             "LocalCubemaps/CopyCubemap.material",
             "LocalCubemaps/GLSL/BlendProjectCubemap_ps.glsl",
@@ -260,7 +264,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "digest != expected.sha256",
         ):
             self.assertIn(token, self.entry_cmake + self.media_integrity)
-        self.assertIn(".stage-v4", self.entry_cmake)
+        self.assertIn(".stage-v5", self.entry_cmake)
         self.assertIn(
             "ror_ogre_next_frontend_reflection_media_tamper",
             self.entry_cmake,

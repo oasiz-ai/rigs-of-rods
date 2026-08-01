@@ -154,9 +154,13 @@ configure_file(
 set(_ror_reflection_media_files
     "2.0/scripts/materials/Common/Any/PccDepthCompressor_ps.any"
     "2.0/scripts/materials/Common/GLSL/PccDepthCompressor_ps.glsl"
+    "2.0/scripts/materials/Common/GLSL/QuadCameraDir_vs.glsl"
     "2.0/scripts/materials/Common/HLSL/PccDepthCompressor_ps.hlsl"
+    "2.0/scripts/materials/Common/HLSL/QuadCameraDir_vs.hlsl"
     "2.0/scripts/materials/Common/Metal/PccDepthCompressor_ps.metal"
+    "2.0/scripts/materials/Common/Metal/QuadCameraDir_vs.metal"
     "2.0/scripts/materials/Common/PccDepthCompressor.material"
+    "2.0/scripts/materials/Common/Quad.program"
     "2.0/scripts/materials/LocalCubemaps/BlendProjectCubemap.material"
     "2.0/scripts/materials/LocalCubemaps/CopyCubemap.material"
     "2.0/scripts/materials/LocalCubemaps/GLSL/BlendProjectCubemap_ps.glsl"
@@ -772,7 +776,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     set(ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE
         "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/bin/$<TARGET_FILE_NAME:ror_ogre_next_frontend_n1_smoke>")
     set(ROR_OGRE_NEXT_N1_PACKAGE_STAMP
-        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v4")
+        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v5")
     set(_ror_n1_package_commands
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
