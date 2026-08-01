@@ -1617,27 +1617,30 @@ def _verify_metal_n3_pass_semantics(
         and raster_contract.get("directional_light_lux") == 1024
         and raster_contract.get("ray_material_parity_claimed") is False,
         "texture_allocation_contract": isinstance(live_allocations, dict)
-        and live_allocations
-        == {
-            "source_textures": 1,
-            "sampled_rgba": 1,
-            "roughness_r8": 0,
-            "metallic_r8": 0,
-            "creates": 1,
-            "destroys": 0,
-            "live": 1,
-            "exact_usage": True,
-        }
-        and live_allocations.get("exact_usage") is True
+        and _json_exact(
+            live_allocations,
+            {
+                "source_textures": 1,
+                "sampled_rgba": 1,
+                "roughness_r8": 0,
+                "metallic_r8": 0,
+                "creates": 1,
+                "destroys": 0,
+                "live": 1,
+                "exact_usage": True,
+            },
+        )
         and isinstance(shutdown_allocations, dict)
-        and shutdown_allocations
-        == {
-            "creates": 1,
-            "destroys": 1,
-            "live": 0,
-            "retired_name_lookups": 1,
-            "retired_name_rejections": 1,
-        },
+        and _json_exact(
+            shutdown_allocations,
+            {
+                "creates": 1,
+                "destroys": 1,
+                "live": 0,
+                "retired_name_lookups": 1,
+                "retired_name_rejections": 1,
+            },
+        ),
         "distinct_nonempty_images": len(
             {metrics[key]["sha256"] for key, _ in METAL_N3_IMAGE_ARTIFACTS}
         )
