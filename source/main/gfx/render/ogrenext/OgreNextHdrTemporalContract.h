@@ -19,7 +19,14 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kOgreNextHdrTemporalContractVersion = 1U;
+constexpr std::uint32_t kOgreNextHdrTemporalContractVersion = 2U;
+constexpr const char kOgreNextHdrHistoryValidationMode[] =
+    "native_authoritative_conditioning_plus_one_r16_ulp_v2";
+
+enum class OgreNextHdrHistoryValidationMode : std::uint8_t {
+  NONE = 0,
+  NATIVE_AUTHORITATIVE_CONDITIONING_PLUS_ONE_R16_ULP,
+};
 
 /// Versioned settings for the first Ogre-Next auto-exposure and bloom path.
 ///
@@ -32,7 +39,8 @@ struct OgreNextHdrTemporalConfiguration final {
   float maximum_auto_exposure = 2.5F;
   float bloom_minimum_threshold = 3.0F;
   float bloom_full_colour_threshold = 5.0F;
-  /// Exact initial contents of Ogre's persistent R16_FLOAT `oldLumRt`.
+  /// Exact upstream initial contents of persistent R16_FLOAT `oldLumRt`.
+  /// Version 2 accepts only 0.01 because the pinned compositor owns that clear.
   float initial_inverse_luminance = 0.01F;
 };
 
@@ -57,13 +65,31 @@ struct OgreNextHdrTemporalFramePlan final {
   HdrR16Float previous_inverse_luminance_r16{};
 };
 
+/// Evidence from the most recently committed native exposure-history sample.
+/// The native R16 value is authoritative after this bounded comparison passes.
+struct OgreNextHdrHistoryComparison final {
+  std::uint32_t version = kOgreNextHdrTemporalContractVersion;
+  OgreNextHdrHistoryValidationMode mode =
+      OgreNextHdrHistoryValidationMode::NONE;
+  HdrR16Float native_inverse_luminance_r16{};
+  HdrR16Float reference_inverse_luminance_r16{};
+  double absolute_error = 0.0;
+  double allowed_error = 0.0;
+  double conditioning_bound = 0.0;
+  double binary32_rounding_bound = 0.0;
+  double storage_ulp = 0.0;
+  std::uint32_t r16_ulp_distance = 0U;
+  bool accepted = false;
+};
+
 /// Persistent history for one frontend lifetime.
 ///
 /// PrepareFrame is read-only and CommitFrame is transactional. The first
 /// frame uses delta zero so initialization is independent of launch time. Each
 /// later delta comes only from immutable simulation timestamps. CommitFrame
-/// requires the native one-pixel R16 readback to equal the pinned shader
-/// oracle bit-for-bit before advancing history.
+/// requires a canonical finite-positive native R16 readback within the
+/// conditioning-aware CPU reference bound plus one binary16 ULP. The accepted
+/// native bits, rather than CPU reference bits, advance history.
 class OgreNextHdrTemporalState final {
 public:
   [[nodiscard]] ValidationResult
@@ -88,10 +114,15 @@ public:
   [[nodiscard]] HdrR16Float previous_inverse_luminance() const noexcept {
     return previous_inverse_luminance_;
   }
+  [[nodiscard]] OgreNextHdrHistoryComparison
+  last_history_comparison() const noexcept {
+    return last_history_comparison_;
+  }
 
 private:
   OgreNextHdrTemporalConfiguration configuration_{};
   HdrR16Float previous_inverse_luminance_{};
+  OgreNextHdrHistoryComparison last_history_comparison_{};
   std::uint64_t committed_frame_id_ = 0U;
   double committed_simulation_time_seconds_ = 0.0;
   bool initialized_ = false;

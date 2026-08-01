@@ -31,8 +31,7 @@
   "@ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_SHA256@"
 #define ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_FILE_COUNT \
   @ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_COUNT@U
-#define ROR_OGRE_NEXT_N1_BASE_BUILD_IDENTITY \
-  "ror.ogre_next_frontend_n1.build_identity.v1" \
+#define ROR_OGRE_NEXT_N1_BUILD_IDENTITY_FIELDS \
   "|platform=@ROR_OGRE_NEXT_PLATFORM_POLICY@" \
   "|compiler=@CMAKE_CXX_COMPILER_ID@-@CMAKE_CXX_COMPILER_VERSION@-@CMAKE_BUILD_TYPE@" \
   "|ror_commit=@ROR_SOURCE_COMMIT@" \
@@ -40,6 +39,13 @@
   "|ogre_commit=@ROR_OGRE_NEXT_COMMIT@" \
   "|ogre_archive=@ROR_OGRE_NEXT_ARCHIVE_SHA256@" \
   "|shader_manifest=@ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_SHA256@"
+#define ROR_OGRE_NEXT_N1_BASE_BUILD_IDENTITY \
+  "ror.ogre_next_frontend_n1.build_identity.v1" \
+  ROR_OGRE_NEXT_N1_BUILD_IDENTITY_FIELDS
 #define ROR_OGRE_NEXT_N1_BUILD_IDENTITY \
-  ROR_OGRE_NEXT_N1_BASE_BUILD_IDENTITY \
-  "|hdr_media_manifest=@ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_SHA256@"
+  "ror.ogre_next_frontend_n1.build_identity.v2" \
+  ROR_OGRE_NEXT_N1_BUILD_IDENTITY_FIELDS \
+  "|hdr_media_manifest=@ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_SHA256@" \
+  "|hdr_temporal_contract=2" \
+  "|hdr_history_validation=native_authoritative_conditioning_plus_one_r16_ulp_v2" \
+  "|hdr_workspace=RoRHdrWorkspaceUiFreeV2"

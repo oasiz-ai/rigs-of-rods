@@ -69,6 +69,21 @@ enum class OgreNextN1PssmFailureStage : std::uint8_t {
   DURING_SHADOW_NODE_CLEANUP_LOOKUP,
   DURING_TARGET_TEXTURE_CLEANUP_LOOKUP,
 };
+
+/// HDR-only transactional fault seam for the standalone native smoke.
+enum class OgreNextN1HdrFailureStage : std::uint8_t {
+  NONE = 0,
+  AFTER_RESOURCE_GROUP_CREATE,
+  AFTER_RESOURCE_LOCATIONS,
+  AFTER_RESOURCE_GROUP_INITIALIZE,
+  AFTER_WORKSPACE_DEFINITION,
+  AFTER_OUTPUT_CREATE,
+  AFTER_OUTPUT_CONFIGURE,
+  AFTER_WORKSPACE_CREATE,
+  AFTER_PARAMETER_BINDING,
+  AFTER_WARMUP_FRAME_ONE,
+  AFTER_WARMUP_FRAME_TWO,
+};
 #endif
 
 /// Runtime-owned Ogre shader media. The root is an absolute UTF-8 path containing
@@ -82,16 +97,19 @@ struct OgreNextN1Configuration final {
   OgreNextN1TextureUploadFailureStage texture_upload_failure_stage =
       OgreNextN1TextureUploadFailureStage::NONE;
   bool retain_reflection_capture_evidence = false;
+  OgreNextN1PssmFailureStage pssm_failure_stage =
+      OgreNextN1PssmFailureStage::NONE;
+  OgreNextN1HdrFailureStage hdr_failure_stage =
+      OgreNextN1HdrFailureStage::NONE;
+  /// Builds a visibly destructive magenta compositor tail for the isolated
+  /// smoke proof. Production callers must leave this false.
+  bool hdr_visible_overlay_contamination = false;
 #endif
   // Kept after the optional fault-injection seam so the existing standalone
   // test aggregate remains source-compatible. Production callers should set
   // this field by name after constructing the configuration.
   OgreNextDirectionalShadowMode directional_shadow_mode =
       OgreNextDirectionalShadowMode::DISABLED;
-#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-  OgreNextN1PssmFailureStage pssm_failure_stage =
-      OgreNextN1PssmFailureStage::NONE;
-#endif
   /// Enables Ogre-Next's persistent RGBA16 scene, R16 auto-exposure,
   /// multi-pass bloom, filmic tone-map, and sRGB output compositor.  It is an
   /// explicit RT4 raster mode so raw linear-HDR capture remains unchanged.
@@ -99,20 +117,32 @@ struct OgreNextN1Configuration final {
   OgreNextHdrTemporalConfiguration hdr_temporal_configuration{};
 };
 
-/// Exact observable state of the opt-in persistent HDR compositor.  Counts
-/// advance only after a native R16 history sample has passed the deterministic
-/// temporal oracle and the corresponding public frame has been committed.
+/// Exact observable state of the opt-in persistent HDR compositor. Counts
+/// advance only after a finite-positive native R16 history sample has passed
+/// the versioned conditioning/storage bound and the corresponding public frame
+/// has been committed. Accepted native bits are authoritative.
 struct OgreNextHdrCompositorAudit final {
-  std::uint32_t version = 1U;
+  std::uint32_t version = 2U;
   bool enabled = false;
   bool native_workspace_live = false;
   bool deterministic_delta_bound = false;
-  bool exact_r16_history_verified = false;
+  bool native_r16_history_validated = false;
+  bool exact_current_to_old_copy_verified = false;
+  bool ui_free_workspace_verified = false;
+  OgreNextHdrHistoryValidationMode history_validation_mode =
+      OgreNextHdrHistoryValidationMode::NONE;
   std::uint32_t width = 0U;
   std::uint32_t height = 0U;
   std::uint64_t warmup_frames = 0U;
   std::uint64_t committed_frames = 0U;
   std::uint16_t previous_inverse_luminance_r16_bits = 0U;
+  std::uint16_t reference_inverse_luminance_r16_bits = 0U;
+  double history_absolute_error = 0.0;
+  double history_allowed_error = 0.0;
+  double history_conditioning_bound = 0.0;
+  double history_binary32_rounding_bound = 0.0;
+  double history_storage_ulp = 0.0;
+  std::uint32_t history_r16_ulp_distance = 0U;
 };
 
 struct OgreNextPssmNativeAabb final {

@@ -256,7 +256,11 @@ tolerances, and the unimplemented output stages are defined in
 `OgreNextHdrTemporalState` turns that numerical behavior into a fail-closed
 per-frontend history contract without importing Ogre headers. It maps portable
 view/scene exposure to the pinned shader parameter, derives binary32 deltas
-only from immutable simulation time, and commits a frame only when the native
-R16 feedback bit pattern matches the shader oracle. It is the temporal handoff
-for the pending native compositor, not evidence that bloom, output transfer, or
-presentation is already wired.
+only from immutable simulation time, and accepts only the pinned upstream
+`0.01` initial history. Version 2 compares finite-positive native R16 feedback
+against the shader oracle's conditioning and binary32 rounding bound plus one
+binary16 storage ULP, records the full comparison, and commits the accepted
+native bits as authoritative history. The native frontend separately proves an
+exact current-to-old copy, creates the RoR-owned UI-free workspace in code, and
+uses a visible-overlay negative control plus staged same-object reinitialization
+to keep the compositor and lifecycle claims fail-closed.

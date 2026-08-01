@@ -472,8 +472,13 @@ provenance artifacts pass. Only then may the macOS build report
   treat output transfer, gamut mapping, dithering, and framebuffer clamping as
   separately versioned presentation stages.
 - Feed persistent exposure history from the deterministic simulation-time
-  temporal contract; reject stale frame lineage or a native R16 feedback value
-  that differs from the pinned shader oracle before advancing history.
+  temporal contract. Keep accepted finite-positive native R16 bits authoritative
+  only after comparison with the pinned shader oracle using its conditioning
+  and binary32 rounding bound plus one storage ULP; also reject stale lineage,
+  unchanged history, or a non-exact current-to-old compositor copy.
+- Keep the HDR workspace RoR-owned, programmatic, source-manifested, and free of
+  `HdrRenderUi`; require the visible-overlay contamination negative control and
+  all staged same-object reinitialization checks in native evidence.
 - Add probes/SSR or accepted non-RT reflection path and a measured diffuse-GI
   path.
 - Bind the probe fallback to the pinned portable box-projection/influence

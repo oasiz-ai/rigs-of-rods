@@ -121,8 +121,13 @@ struct SmokeResult final {
     OgreNextHdrCompositorAudit initialized;
     OgreNextHdrCompositorAudit committed;
     std::size_t exposure_changed_pixels = 0U;
+    std::size_t visible_overlay_contamination_changed_pixels = 0U;
+    std::size_t visible_overlay_magenta_pixels = 0U;
     std::uint64_t first_attachment_fnv1a64 = 0U;
     std::uint64_t final_attachment_fnv1a64 = 0U;
+    std::uint64_t visible_overlay_contamination_fnv1a64 = 0U;
+    std::uint32_t initialization_failure_stages_verified = 0U;
+    bool same_object_reinitialize_verified = false;
   } hdr_compositor;
 };
 
@@ -1287,7 +1292,7 @@ Metrics InspectHdr(const RenderFrameOutput &output,
   return metrics;
 }
 
-Metrics InspectSdr(const RenderFrameOutput &output) {
+Metrics ReadSdrAttachment(const RenderFrameOutput &output) {
   const FrameAttachment &attachment =
       RequireAttachment(output, PixelFormat::RGBA8_SRGB);
   Require(attachment.row_pitch_bytes == static_cast<std::uint64_t>(kWidth) * 4U,
@@ -1312,6 +1317,11 @@ Metrics InspectSdr(const RenderFrameOutput &output) {
                static_cast<float>(rgba[2U]) / 255.0F);
   }
   FinishMetrics(metrics, runs);
+  return metrics;
+}
+
+Metrics InspectSdr(const RenderFrameOutput &output) {
+  Metrics metrics = ReadSdrAttachment(output);
   Require(metrics.distinct_rgb >= 2U && metrics.non_background_pixels >= 512U,
           "SDR readback does not prove scene geometry over the clear color");
   Require(metrics.maximum_luminance - metrics.minimum_luminance > 0.05F,
@@ -1406,6 +1416,18 @@ std::string HexHash(std::uint64_t hash) {
   return value.str();
 }
 
+const char *HdrHistoryValidationModeName(
+    OgreNextHdrHistoryValidationMode mode) {
+  switch (mode) {
+  case OgreNextHdrHistoryValidationMode::NONE:
+    return "none";
+  case OgreNextHdrHistoryValidationMode::
+      NATIVE_AUTHORITATIVE_CONDITIONING_PLUS_ONE_R16_ULP:
+    return kOgreNextHdrHistoryValidationMode;
+  }
+  Fail("unknown HDR history validation mode");
+}
+
 std::string MakeReport(const SmokeResult &result, bool modern_pbr,
                        const std::string &evidence_path,
                        const std::string &reflection_evidence_path) {
@@ -1435,6 +1457,7 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
         "filtered mip one"));
   }
   std::ostringstream report;
+  report << std::setprecision(std::numeric_limits<double>::max_digits10);
   report << "{\n"
          << "  \"schema\": \""
          << (modern_pbr ? "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v2"
@@ -1894,20 +1917,36 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
     const SmokeResult::HdrCompositorEvidence &compositor =
         result.hdr_compositor;
     report << "  \"hdr_compositor\": {\n"
-           << "    \"schema\": \"ror.ogre_next_hdr_compositor.v1\",\n"
-           << "    \"workspace\": \"HdrWorkspace\",\n"
+           << "    \"schema\": \"ror.ogre_next_hdr_compositor.v2\",\n"
+           << "    \"workspace\": \"RoRHdrWorkspaceUiFreeV2\",\n"
            << "    \"persistent_workspace\": true,\n"
            << "    \"scene_format\": \"RGBA16_FLOAT\",\n"
            << "    \"history_format\": \"R16_FLOAT\",\n"
            << "    \"output_format\": \"RGBA8_SRGB\",\n"
-           << "    \"ui_included\": false,\n"
+           << "    \"ui_included\": "
+           << (compositor.committed.ui_free_workspace_verified ? "false"
+                                                               : "true")
+           << ",\n"
+           << "    \"ui_free_workspace_verified\": "
+           << (compositor.committed.ui_free_workspace_verified ? "true"
+                                                               : "false")
+           << ",\n"
            << "    \"deterministic_simulation_delta\": "
            << (compositor.committed.deterministic_delta_bound ? "true"
                                                               : "false")
            << ",\n"
-           << "    \"exact_r16_history_verified\": "
-           << (compositor.committed.exact_r16_history_verified ? "true"
-                                                               : "false")
+           << "    \"history_validation_mode\": \""
+           << HdrHistoryValidationModeName(
+                  compositor.committed.history_validation_mode)
+           << "\",\n"
+           << "    \"native_r16_history_validated\": "
+           << (compositor.committed.native_r16_history_validated ? "true"
+                                                                : "false")
+           << ",\n"
+           << "    \"exact_current_to_old_copy_verified\": "
+           << (compositor.committed.exact_current_to_old_copy_verified
+                   ? "true"
+                   : "false")
            << ",\n"
            << "    \"warmup_frames\": "
            << compositor.committed.warmup_frames << ",\n"
@@ -1919,8 +1958,42 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << "    \"final_inverse_luminance_r16_bits\": "
            << compositor.committed.previous_inverse_luminance_r16_bits
            << ",\n"
+           << "    \"reference_inverse_luminance_r16_bits\": "
+           << compositor.committed.reference_inverse_luminance_r16_bits
+           << ",\n"
+           << "    \"history_absolute_error\": "
+           << compositor.committed.history_absolute_error << ",\n"
+           << "    \"history_allowed_error\": "
+           << compositor.committed.history_allowed_error << ",\n"
+           << "    \"history_conditioning_bound\": "
+           << compositor.committed.history_conditioning_bound << ",\n"
+           << "    \"history_binary32_rounding_bound\": "
+           << compositor.committed.history_binary32_rounding_bound << ",\n"
+           << "    \"history_storage_ulp\": "
+           << compositor.committed.history_storage_ulp << ",\n"
+           << "    \"history_r16_ulp_distance\": "
+           << compositor.committed.history_r16_ulp_distance << ",\n"
+           << "    \"history_changed_from_initial\": "
+           << (compositor.committed.previous_inverse_luminance_r16_bits !=
+                       compositor.initialized.previous_inverse_luminance_r16_bits
+                   ? "true"
+                   : "false")
+           << ",\n"
            << "    \"exposure_changed_pixels\": "
            << compositor.exposure_changed_pixels << ",\n"
+           << "    \"visible_overlay_contamination_changed_pixels\": "
+           << compositor.visible_overlay_contamination_changed_pixels
+           << ",\n"
+           << "    \"visible_overlay_magenta_pixels\": "
+           << compositor.visible_overlay_magenta_pixels << ",\n"
+           << "    \"visible_overlay_contamination_fnv1a64\": \""
+           << HexHash(compositor.visible_overlay_contamination_fnv1a64)
+           << "\",\n"
+           << "    \"initialization_failure_stages_verified\": "
+           << compositor.initialization_failure_stages_verified << ",\n"
+           << "    \"same_object_reinitialize_verified\": "
+           << (compositor.same_object_reinitialize_verified ? "true" : "false")
+           << ",\n"
            << "    \"first_attachment_fnv1a64\": \""
            << HexHash(compositor.first_attachment_fnv1a64) << "\",\n"
            << "    \"final_attachment_fnv1a64\": \""
@@ -2282,16 +2355,23 @@ RunHdrCompositorProof(const std::string &media_root) {
   HdrR16Float expected_initial;
   Require(QuantizeHdrR16Float(0.01F, expected_initial).ok(),
           "HDR compositor initial R16 fixture is invalid");
-  Require(evidence.initialized.version == 1U &&
+  Require(evidence.initialized.version == 2U &&
               evidence.initialized.enabled &&
               evidence.initialized.native_workspace_live &&
               evidence.initialized.deterministic_delta_bound &&
-              evidence.initialized.exact_r16_history_verified &&
+              evidence.initialized.native_r16_history_validated &&
+              !evidence.initialized.exact_current_to_old_copy_verified &&
+              evidence.initialized.ui_free_workspace_verified &&
+              evidence.initialized.history_validation_mode ==
+                  OgreNextHdrHistoryValidationMode::
+                      NATIVE_AUTHORITATIVE_CONDITIONING_PLUS_ONE_R16_ULP &&
               evidence.initialized.width == kWidth &&
               evidence.initialized.height == kHeight &&
               evidence.initialized.warmup_frames == 2U &&
               evidence.initialized.committed_frames == 0U &&
               evidence.initialized.previous_inverse_luminance_r16_bits ==
+                  expected_initial.bits &&
+              evidence.initialized.reference_inverse_luminance_r16_bits ==
                   expected_initial.bits,
           "HDR compositor initialization audit is incomplete");
 
@@ -2318,12 +2398,27 @@ RunHdrCompositorProof(const std::string &media_root) {
   evidence.final_attachment_fnv1a64 = second_metrics.attachment_fnv1a64;
   evidence.committed = frontend.QueryHdrCompositorAudit();
   Require(evidence.exposure_changed_pixels >= 512U &&
+              evidence.committed.version == 2U &&
               evidence.committed.native_workspace_live &&
               evidence.committed.deterministic_delta_bound &&
-              evidence.committed.exact_r16_history_verified &&
+              evidence.committed.native_r16_history_validated &&
+              evidence.committed.exact_current_to_old_copy_verified &&
+              evidence.committed.ui_free_workspace_verified &&
+              evidence.committed.history_validation_mode ==
+                  OgreNextHdrHistoryValidationMode::
+                      NATIVE_AUTHORITATIVE_CONDITIONING_PLUS_ONE_R16_ULP &&
               evidence.committed.warmup_frames == 2U &&
               evidence.committed.committed_frames == 2U &&
-              evidence.committed.previous_inverse_luminance_r16_bits != 0U,
+              evidence.committed.previous_inverse_luminance_r16_bits != 0U &&
+              evidence.committed.previous_inverse_luminance_r16_bits !=
+                  evidence.initialized.previous_inverse_luminance_r16_bits &&
+              evidence.committed.reference_inverse_luminance_r16_bits != 0U &&
+              std::isfinite(evidence.committed.history_absolute_error) &&
+              std::isfinite(evidence.committed.history_allowed_error) &&
+              evidence.committed.history_absolute_error >= 0.0 &&
+              evidence.committed.history_allowed_error >=
+                  evidence.committed.history_absolute_error &&
+              evidence.committed.history_storage_ulp > 0.0,
           "HDR compositor did not prove persistent deterministic adaptation");
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "HDR compositor Shutdown");
@@ -2334,6 +2429,120 @@ RunHdrCompositorProof(const std::string &media_root) {
               shutdown.warmup_frames == 0U &&
               shutdown.committed_frames == 0U,
           "HDR compositor shutdown did not retire its persistent graph");
+
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  const std::array<std::pair<OgreNextN1HdrFailureStage, const char *>, 10U>
+      failure_stages{{
+          {OgreNextN1HdrFailureStage::AFTER_RESOURCE_GROUP_CREATE,
+           "after_resource_group_create"},
+          {OgreNextN1HdrFailureStage::AFTER_RESOURCE_LOCATIONS,
+           "after_resource_locations"},
+          {OgreNextN1HdrFailureStage::AFTER_RESOURCE_GROUP_INITIALIZE,
+           "after_resource_group_initialize"},
+          {OgreNextN1HdrFailureStage::AFTER_WORKSPACE_DEFINITION,
+           "after_workspace_definition"},
+          {OgreNextN1HdrFailureStage::AFTER_OUTPUT_CREATE,
+           "after_output_create"},
+          {OgreNextN1HdrFailureStage::AFTER_OUTPUT_CONFIGURE,
+           "after_output_configure"},
+          {OgreNextN1HdrFailureStage::AFTER_WORKSPACE_CREATE,
+           "after_workspace_create"},
+          {OgreNextN1HdrFailureStage::AFTER_PARAMETER_BINDING,
+           "after_parameter_binding"},
+          {OgreNextN1HdrFailureStage::AFTER_WARMUP_FRAME_ONE,
+           "after_warmup_frame_one"},
+          {OgreNextN1HdrFailureStage::AFTER_WARMUP_FRAME_TWO,
+           "after_warmup_frame_two"},
+      }};
+  for (std::size_t index = 0U; index < failure_stages.size(); ++index) {
+    OgreNextN1Configuration failure_configuration;
+    failure_configuration.shader_media_root = media_root;
+    failure_configuration.raster_feature_tier =
+        OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+    failure_configuration.enable_hdr_compositor = true;
+    failure_configuration.hdr_failure_stage = failure_stages[index].first;
+    OgreNextN1Frontend rollback(std::move(failure_configuration));
+    const RenderOperationResult injected = rollback.Initialize(Initialization());
+    Require(!injected.ok(), std::string("HDR staged failure was not injected: ") +
+                                failure_stages[index].second);
+    const OgreNextHdrCompositorAudit after_failure =
+        rollback.QueryHdrCompositorAudit();
+    Require(after_failure.version == 2U && after_failure.enabled &&
+                !after_failure.native_workspace_live && after_failure.width == 0U &&
+                after_failure.height == 0U && after_failure.warmup_frames == 0U &&
+                after_failure.committed_frames == 0U,
+            std::string("HDR staged rollback leaked state: ") +
+                failure_stages[index].second);
+
+    InitializeAndSync(rollback, MakeCatalog(true, &kVariantSpecs.front()));
+    RenderFrameOutput recovered;
+    RequireSuccess(
+        rollback.Render(MakeFrame(1U, MakeScene(300U + index, false, true),
+                                  PixelFormat::RGBA8_SRGB),
+                        recovered),
+        std::string("HDR same-object recovery Render(") +
+            failure_stages[index].second + ')');
+    static_cast<void>(InspectSdr(recovered));
+    const OgreNextHdrCompositorAudit recovered_audit =
+        rollback.QueryHdrCompositorAudit();
+    Require(recovered_audit.native_workspace_live &&
+                recovered_audit.ui_free_workspace_verified &&
+                recovered_audit.native_r16_history_validated &&
+                recovered_audit.exact_current_to_old_copy_verified &&
+                recovered_audit.committed_frames == 1U,
+            std::string("HDR same-object recovery audit failed: ") +
+                failure_stages[index].second);
+    RequireSuccess(rollback.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                   std::string("HDR same-object recovery Shutdown(") +
+                       failure_stages[index].second + ')');
+    ++evidence.initialization_failure_stages_verified;
+  }
+  evidence.same_object_reinitialize_verified =
+      evidence.initialization_failure_stages_verified == failure_stages.size();
+
+  OgreNextN1Configuration contamination_configuration;
+  contamination_configuration.shader_media_root = media_root;
+  contamination_configuration.raster_feature_tier =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  contamination_configuration.enable_hdr_compositor = true;
+  contamination_configuration.hdr_visible_overlay_contamination = true;
+  OgreNextN1Frontend contaminated(std::move(contamination_configuration));
+  InitializeAndSync(contaminated, MakeCatalog(true, &kVariantSpecs.front()));
+  RenderFrameOutput contaminated_output;
+  RequireSuccess(
+      contaminated.Render(
+          MakeFrame(1U, MakeScene(100U, false, true),
+                    PixelFormat::RGBA8_SRGB),
+          contaminated_output),
+      "HDR visible-overlay contamination Render");
+  const Metrics contamination_metrics =
+      ReadSdrAttachment(contaminated_output);
+  evidence.visible_overlay_contamination_changed_pixels = CountChangedPixels(
+      first_metrics.attachment_bytes, contamination_metrics.attachment_bytes,
+      4U);
+  evidence.visible_overlay_contamination_fnv1a64 =
+      contamination_metrics.attachment_fnv1a64;
+  for (std::size_t offset = 0U;
+       offset + 3U < contamination_metrics.attachment_bytes.size();
+       offset += 4U) {
+    if (contamination_metrics.attachment_bytes[offset] >= 250U &&
+        contamination_metrics.attachment_bytes[offset + 1U] <= 5U &&
+        contamination_metrics.attachment_bytes[offset + 2U] >= 250U) {
+      ++evidence.visible_overlay_magenta_pixels;
+    }
+  }
+  Require(evidence.visible_overlay_contamination_changed_pixels >=
+                  static_cast<std::size_t>(kWidth) * kHeight * 3U / 4U &&
+              evidence.visible_overlay_magenta_pixels >=
+                  static_cast<std::size_t>(kWidth) * kHeight * 3U / 4U &&
+              evidence.visible_overlay_contamination_fnv1a64 !=
+                  evidence.first_attachment_fnv1a64 &&
+              !contaminated.QueryHdrCompositorAudit()
+                   .ui_free_workspace_verified,
+          "visible overlay contamination seam did not visibly alter output");
+  RequireSuccess(contaminated.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "HDR visible-overlay contamination Shutdown");
+#endif
   return evidence;
 }
 

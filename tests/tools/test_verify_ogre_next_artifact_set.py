@@ -76,7 +76,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             }
         )
         return {
-            "schema_version": 3,
+            "schema_version": 4,
             "ror_source": {
                 "repository": self.ror_repository,
                 "ref": self.ror_ref,
@@ -122,6 +122,11 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "json_materials": True,
                 "mesh_lod": True,
                 "dds_codec": True,
+                "hdr_temporal_contract_version": 2,
+                "hdr_history_validation_mode": (
+                    "native_authoritative_conditioning_plus_one_r16_ulp_v2"
+                ),
+                "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
                 "native_ray_tracing": "not_evaluated",
             },
             "compiler": {
@@ -981,20 +986,38 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 VERIFY.RT4_EXPECTED_TEXTURE_UPLOAD_ROLLBACK
             ),
             "hdr_compositor": {
-                "schema": "ror.ogre_next_hdr_compositor.v1",
-                "workspace": "HdrWorkspace",
+                "schema": "ror.ogre_next_hdr_compositor.v2",
+                "workspace": "RoRHdrWorkspaceUiFreeV2",
                 "persistent_workspace": True,
                 "scene_format": "RGBA16_FLOAT",
                 "history_format": "R16_FLOAT",
                 "output_format": "RGBA8_SRGB",
                 "ui_included": False,
+                "ui_free_workspace_verified": True,
                 "deterministic_simulation_delta": True,
-                "exact_r16_history_verified": True,
+                "history_validation_mode": (
+                    "native_authoritative_conditioning_plus_one_r16_ulp_v2"
+                ),
+                "native_r16_history_validated": True,
+                "exact_current_to_old_copy_verified": True,
                 "warmup_frames": 2,
                 "committed_frames": 2,
                 "initial_inverse_luminance_r16_bits": 8479,
                 "final_inverse_luminance_r16_bits": 9000,
+                "reference_inverse_luminance_r16_bits": 9001,
+                "history_absolute_error": 0.00000762939453125,
+                "history_allowed_error": 0.00200762939453125,
+                "history_conditioning_bound": 0.001,
+                "history_binary32_rounding_bound": 0.001,
+                "history_storage_ulp": 0.00000762939453125,
+                "history_r16_ulp_distance": 1,
+                "history_changed_from_initial": True,
                 "exposure_changed_pixels": 1024,
+                "visible_overlay_contamination_changed_pixels": 20000,
+                "visible_overlay_magenta_pixels": 20000,
+                "visible_overlay_contamination_fnv1a64": "1111111111111111",
+                "initialization_failure_stages_verified": 10,
+                "same_object_reinitialize_verified": True,
                 "first_attachment_fnv1a64": "0123456789abcdef",
                 "final_attachment_fnv1a64": "fedcba9876543210",
                 "clean_shutdown": True,
@@ -1996,6 +2019,29 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "final_attachment_fnv1a64",
                 report["hdr_compositor"]["first_attachment_fnv1a64"],
             ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "final_inverse_luminance_r16_bits",
+                report["hdr_compositor"][
+                    "initial_inverse_luminance_r16_bits"
+                ],
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "history_absolute_error",
+                report["hdr_compositor"]["history_allowed_error"] + 1.0,
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "history_storage_ulp",
+                report["hdr_compositor"]["history_storage_ulp"] * 2.0,
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "history_r16_ulp_distance", 2
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "visible_overlay_magenta_pixels", 0
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "initialization_failure_stages_verified", 9
+            ),
         )
         for index, mutation in enumerate(mutations):
             with self.subTest(mutation=index):
@@ -2172,7 +2218,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
 
     def test_metal_n3_gate_requires_exact_build_contract_json_types(self) -> None:
         mutations = (
-            ("schema", lambda contract: contract.__setitem__("schema_version", 2.0)),
+            ("schema", lambda contract: contract.__setitem__("schema_version", 4.0)),
             (
                 "ror_commit",
                 lambda contract: contract["ror_source"].__setitem__(

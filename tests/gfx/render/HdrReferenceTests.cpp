@@ -289,6 +289,33 @@ void TestBinary16RoundToNearestEven() {
   Require(Equal(output, sentinel), "negative R16 changed output");
 }
 
+void TestSignedFiniteBinary16Decode() {
+  using namespace RoR::Render;
+  HdrR16Float output{0x1234U, 7.0F};
+  Require(DecodeFiniteHdrR16Float(0xc08fU, output).ok() &&
+              output.bits == 0xc08fU && output.decoded == -2.279296875F,
+          "negative log-luminance R16 did not decode exactly");
+  Require(DecodeFiniteHdrR16Float(0x8001U, output).ok() &&
+              output.bits == 0x8001U && output.decoded == -0x1p-24F,
+          "negative R16 subnormal did not decode exactly");
+  Require(DecodeFiniteHdrR16Float(0x8000U, output).ok() &&
+              output.bits == 0x8000U && output.decoded == 0.0F &&
+              std::signbit(output.decoded),
+          "negative R16 zero lost its exact sign bit");
+  Require(DecodeFiniteHdrR16Float(0xfbffU, output).ok() &&
+              output.bits == 0xfbffU && output.decoded == -65504.0F,
+          "minimum finite R16 did not decode exactly");
+
+  const HdrR16Float sentinel{0x4321U, 9.0F};
+  for (const std::uint16_t non_finite : {0x7c00U, 0xfc00U, 0x7e00U,
+                                        0xfe00U}) {
+    output = sentinel;
+    Require(!DecodeFiniteHdrR16Float(non_finite, output).ok() &&
+                Equal(output, sentinel),
+            "non-finite R16 decode was not transactional");
+  }
+}
+
 void TestAnalyticExposureGolden() {
   using namespace RoR::Render;
   HdrAnalyticAutoExposureInput input;
@@ -977,6 +1004,7 @@ void TestToneFailuresAreOrderedAndTransactional() {
 int main() {
   TestIdentityAndDeclaredDomains();
   TestBinary16RoundToNearestEven();
+  TestSignedFiniteBinary16Decode();
   TestAnalyticExposureGolden();
   TestShaderExposureAndR16Feedback();
   TestConditionedExposureComparison();

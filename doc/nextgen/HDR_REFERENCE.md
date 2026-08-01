@@ -67,6 +67,12 @@ quantized temporal recurrence, including its steady-state stall at 48 FPS.
 The admitted nonnegative source contract canonicalizes negative zero to positive
 zero before storage and rejects inputs above `65504`; that upper rejection is a
 source-format admission rule, not the IEEE binary16 overflow midpoint.
+`DecodeFiniteHdrR16Float` is the separate decoder for native/intermediate
+storage. It accepts every finite signed binary16 value, preserves negative
+zero and exact bits, and rejects both infinities and NaNs. The native HDR probe
+uses that decoder for iterative log-luminance reductions, where negative values
+are valid, while exposure history and final inverse luminance remain strictly
+positive.
 
 `bloom_gamma2_encoded` is intentionally not called sRGB. The upstream bright
 pass writes `sqrt(linear / 16)` to an ordinary RGB10 UNORM target, its blur
@@ -124,9 +130,9 @@ roadmap work.
 
 ## Deterministic temporal handoff
 
-`OgreNextHdrTemporalState` is the renderer-neutral handoff from immutable RoR
-frames to the future native HDR compositor. It admits only the reviewed RT4/V1
-PBS tier and one tone-mapped `RGBA8_SRGB` colour view. The raw
+Version 2 of `OgreNextHdrTemporalState` is the renderer-neutral handoff from
+immutable RoR frames to the native HDR compositor. It admits only the reviewed
+RT4/V1 PBS tier and one tone-mapped `RGBA8_SRGB` colour view. The raw
 `RGBA16_FLOAT` capture remains a distinct pre-tone-map output and cannot be
 mislabelled as presentation.
 
@@ -138,15 +144,28 @@ transition width are fixed by the versioned configuration rather than shader
 defaults.
 
 Temporal adaptation never consumes wall time. Frame one uses a zero delta and
-the configured positive `R16_FLOAT` initial history. Later frames use the
-binary32 rounding of consecutive immutable simulation timestamps, require
-contiguous frame IDs and monotonic time, and reject a delta above 60 seconds.
-After a native frame, `CommitFrame` evaluates the pinned binary32 equation and
-advances history only when the UI-free one-pixel GPU readback has the exact
-expected binary16 bits. Invalid input, stale plans, and backend disagreement
-leave all history unchanged.
+exactly the pinned compositor's upstream `0.01` `R16_FLOAT` initial history;
+version 2 rejects any alternate configured value unless RoR first owns the
+corresponding native write. Later frames use the binary32 rounding of
+consecutive immutable simulation timestamps, require contiguous frame IDs and
+monotonic time, and reject a delta above 60 seconds.
 
-This closes the portable temporal-lineage contract only. Loading the pinned HDR
-media, persistent compositor resources, spatial bloom, framebuffer sRGB
-transfer, native Metal/D3D11/Vulkan readback, and image/performance acceptance
-remain runtime gates.
+After each native frame, `CommitFrame` compares the finite-positive native R16
+readback with the CPU reference using the documented conditioning and binary32
+rounding bound plus one binary16 storage ULP. The accepted native bits, not the
+CPU bits, become authoritative history. Evidence records both bit patterns,
+absolute error, every bound component, storage ULP, ULP distance, and validation
+mode. The next render also proves that the compositor copied current luminance
+to old luminance bit-for-bit. Invalid input, stale plans, out-of-bound native
+results, and unchanged history leave the temporal state unchanged.
+
+The Metal proof creates the RoR-owned `RoRHdrWorkspaceUiFreeV2` definition in
+code and verifies its node aliases never include `HdrRenderUi`. Its name and
+version are pinned into the build identity and its source is covered by the RoR
+source manifest. A test-only workspace deliberately appends a visible magenta
+overlay pass and must contaminate at least 75 percent of the output, proving the
+negative control is observable. Ten staged initialization failures must clean
+up and then reinitialize/render successfully on the same frontend object.
+Persistent compositor resources, spatial bloom, native readback, sRGB output,
+and deterministic repeat hashes are therefore native runtime gates; broader
+cross-platform image and performance acceptance remains separately versioned.

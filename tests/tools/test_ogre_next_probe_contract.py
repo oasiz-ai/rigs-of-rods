@@ -433,6 +433,20 @@ class OgreNextProbeContractTests(unittest.TestCase):
             self.lock["reflection_shader_media"]
         )
         PROBE.validate_build_contract(contract, self.lock, self.policy)
+        current_contract = copy.deepcopy(contract)
+        current_contract["schema_version"] = 4
+        current_contract["components"].update(
+            {
+                "hdr_temporal_contract_version": 2,
+                "hdr_history_validation_mode": (
+                    "native_authoritative_conditioning_plus_one_r16_ulp_v2"
+                ),
+                "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
+            }
+        )
+        PROBE.validate_build_contract(
+            current_contract, self.lock, self.policy
+        )
         for name, mutate in (
             (
                 "simd",
@@ -456,7 +470,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
             ),
         ):
             with self.subTest(name=name):
-                invalid = copy.deepcopy(contract)
+                invalid = copy.deepcopy(current_contract)
                 mutate(invalid)
                 with self.assertRaises(PROBE.ProbeError):
                     PROBE.validate_build_contract(invalid, self.lock, self.policy)

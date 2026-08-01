@@ -347,6 +347,33 @@ double ScalarCrossPrecisionTolerance(double analytic_value,
 
 } // namespace
 
+ValidationResult DecodeFiniteHdrR16Float(std::uint16_t bits,
+                                         HdrR16Float &output) {
+  constexpr std::uint16_t kBinary16Sign = 0x8000U;
+  constexpr std::uint16_t kBinary16Magnitude = 0x7fffU;
+  constexpr std::uint16_t kBinary16Exponent = 0x7c00U;
+  if ((bits & kBinary16Exponent) == kBinary16Exponent) {
+    return ValidationResult::Failure(
+        ValidationCode::NON_FINITE_VALUE, "bits",
+        "R16_FLOAT bit pattern must encode a finite value");
+  }
+
+  HdrR16Float candidate;
+  candidate.bits = bits;
+  candidate.decoded =
+      DecodePositiveFiniteBinary16(bits & kBinary16Magnitude);
+  if ((bits & kBinary16Sign) != 0U) {
+    candidate.decoded = -candidate.decoded;
+  }
+  if (!IsFinite(candidate.decoded)) {
+    return ValidationResult::Failure(
+        ValidationCode::NON_FINITE_VALUE, "bits",
+        "R16_FLOAT decoding produced a non-finite value");
+  }
+  output = candidate;
+  return ValidationResult::Success();
+}
+
 ValidationResult QuantizeHdrR16Float(float input, HdrR16Float &output) {
   if (!IsFinite(input)) {
     return ValidationResult::Failure(ValidationCode::NON_FINITE_VALUE, "value",

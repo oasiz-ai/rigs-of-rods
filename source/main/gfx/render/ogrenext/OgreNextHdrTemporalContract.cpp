@@ -13,6 +13,7 @@
 
 #include "../SceneSnapshot.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -54,12 +55,57 @@ ValidationResult ValidateConfiguration(
   }
   const ValidationResult initial = QuantizeHdrR16Float(
       configuration.initial_inverse_luminance, initial_history);
-  if (!initial || !(initial_history.decoded > 0.0F)) {
+  HdrR16Float upstream_initial;
+  const ValidationResult upstream =
+      QuantizeHdrR16Float(0.01F, upstream_initial);
+  if (!initial || !upstream || !(initial_history.decoded > 0.0F) ||
+      configuration.initial_inverse_luminance != 0.01F ||
+      initial_history.bits != upstream_initial.bits ||
+      initial_history.decoded != upstream_initial.decoded) {
     return Invalid(
         "configuration.initial_inverse_luminance",
-        "initial inverse luminance must round to a finite positive R16_FLOAT value");
+        "version 2 requires the pinned upstream 0.01 R16_FLOAT initial history");
   }
   return ValidationResult::Success();
+}
+
+bool TryPositiveR16StorageUlp(const HdrR16Float &reference,
+                              double &output) {
+  HdrR16Float canonical;
+  if (!DecodeFiniteHdrR16Float(reference.bits, canonical) ||
+      canonical.decoded != reference.decoded || !(canonical.decoded > 0.0F) ||
+      reference.bits > 0x7bffU) {
+    return false;
+  }
+
+  double candidate = 0.0;
+  if (reference.bits > 0x0001U) {
+    HdrR16Float lower;
+    if (!DecodeFiniteHdrR16Float(
+            static_cast<std::uint16_t>(reference.bits - 1U), lower)) {
+      return false;
+    }
+    candidate = (std::max)(candidate,
+                           static_cast<double>(reference.decoded) -
+                               static_cast<double>(lower.decoded));
+  } else {
+    candidate = kHdrR16MinimumPositive;
+  }
+  if (reference.bits < 0x7bffU) {
+    HdrR16Float upper;
+    if (!DecodeFiniteHdrR16Float(
+            static_cast<std::uint16_t>(reference.bits + 1U), upper)) {
+      return false;
+    }
+    candidate = (std::max)(candidate,
+                           static_cast<double>(upper.decoded) -
+                               static_cast<double>(reference.decoded));
+  }
+  if (!std::isfinite(candidate) || !(candidate > 0.0)) {
+    return false;
+  }
+  output = candidate;
+  return true;
 }
 
 ValidationResult ValidatePlanBasics(
@@ -146,6 +192,7 @@ ValidationResult OgreNextHdrTemporalState::Initialize(
   }
   configuration_ = configuration;
   previous_inverse_luminance_ = initial_history;
+  last_history_comparison_ = OgreNextHdrHistoryComparison{};
   committed_frame_id_ = 0U;
   committed_simulation_time_seconds_ = 0.0;
   initialized_ = true;
@@ -274,23 +321,66 @@ ValidationResult OgreNextHdrTemporalState::CommitFrame(
   input.previous_inverse_luminance =
       plan.previous_inverse_luminance_r16.decoded;
   input.delta_seconds = plan.delta_seconds;
-  HdrShaderAutoExposureResult expected;
+  HdrAutoExposureComparisonResult reference;
   const ValidationResult evaluated =
-      EvaluateHdrShaderAutoExposure(input, expected);
+      CompareHdrAutoExposureReferences(input, reference);
   if (!evaluated) {
     return evaluated;
   }
-  if (native_stored_inverse_luminance.bits !=
-          expected.stored_inverse_luminance_r16.bits ||
-      native_stored_inverse_luminance.decoded !=
-          expected.stored_inverse_luminance_r16.decoded) {
+
+  HdrR16Float canonical_native;
+  if (!DecodeFiniteHdrR16Float(native_stored_inverse_luminance.bits,
+                               canonical_native) ||
+      canonical_native.decoded != native_stored_inverse_luminance.decoded ||
+      !(canonical_native.decoded > 0.0F)) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "native_stored_inverse_luminance",
+        "native R16 exposure history must be canonical, finite, and positive");
+  }
+
+  OgreNextHdrHistoryComparison comparison;
+  comparison.mode = OgreNextHdrHistoryValidationMode::
+      NATIVE_AUTHORITATIVE_CONDITIONING_PLUS_ONE_R16_ULP;
+  comparison.native_inverse_luminance_r16 = canonical_native;
+  comparison.reference_inverse_luminance_r16 =
+      reference.shader.stored_inverse_luminance_r16;
+  comparison.conditioning_bound = reference.adapted_conditioning_bound;
+  comparison.binary32_rounding_bound =
+      reference.adapted_binary32_rounding_bound;
+  if (!TryPositiveR16StorageUlp(
+          comparison.reference_inverse_luminance_r16,
+          comparison.storage_ulp)) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "reference_inverse_luminance",
+        "CPU reference R16 exposure history has no finite storage ULP");
+  }
+  comparison.absolute_error = std::fabs(
+      static_cast<double>(comparison.native_inverse_luminance_r16.decoded) -
+      static_cast<double>(comparison.reference_inverse_luminance_r16.decoded));
+  comparison.allowed_error =
+      reference.adapted_inverse_luminance.allowed_difference +
+      comparison.storage_ulp;
+  const std::uint16_t low =
+      (std::min)(comparison.native_inverse_luminance_r16.bits,
+                 comparison.reference_inverse_luminance_r16.bits);
+  const std::uint16_t high =
+      (std::max)(comparison.native_inverse_luminance_r16.bits,
+                 comparison.reference_inverse_luminance_r16.bits);
+  comparison.r16_ulp_distance = static_cast<std::uint32_t>(high - low);
+  if (!std::isfinite(comparison.absolute_error) ||
+      !std::isfinite(comparison.allowed_error) ||
+      comparison.allowed_error < 0.0 ||
+      comparison.absolute_error > comparison.allowed_error) {
     return ValidationResult::Failure(
         ValidationCode::REVISION_MISMATCH,
         "native_stored_inverse_luminance",
-        "native R16 exposure history differs from the pinned shader oracle");
+        "native R16 exposure history exceeds the conditioning and storage bound");
   }
 
-  previous_inverse_luminance_ = expected.stored_inverse_luminance_r16;
+  comparison.accepted = true;
+  previous_inverse_luminance_ = canonical_native;
+  last_history_comparison_ = comparison;
   committed_frame_id_ = plan.frame_id;
   committed_simulation_time_seconds_ = plan.simulation_time_seconds;
   return ValidationResult::Success();
@@ -299,6 +389,7 @@ ValidationResult OgreNextHdrTemporalState::CommitFrame(
 void OgreNextHdrTemporalState::Reset() noexcept {
   configuration_ = OgreNextHdrTemporalConfiguration{};
   previous_inverse_luminance_ = HdrR16Float{};
+  last_history_comparison_ = OgreNextHdrHistoryComparison{};
   committed_frame_id_ = 0U;
   committed_simulation_time_seconds_ = 0.0;
   initialized_ = false;

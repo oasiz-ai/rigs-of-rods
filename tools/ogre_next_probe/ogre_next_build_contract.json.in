@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "ror_source": {
     "repository": "@ROR_SOURCE_REPOSITORY@",
     "ref": "@ROR_SOURCE_REF@",
@@ -106,6 +106,9 @@
     "json_materials": true,
     "mesh_lod": true,
     "dds_codec": true,
+    "hdr_temporal_contract_version": 2,
+    "hdr_history_validation_mode": "native_authoritative_conditioning_plus_one_r16_ulp_v2",
+    "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
     "native_ray_tracing": "not_evaluated"
   },
   "compiler": {

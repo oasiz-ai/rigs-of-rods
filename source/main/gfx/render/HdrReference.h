@@ -44,7 +44,10 @@ constexpr double kHdrR16MinimumPositive = 0x1p-24;
 /// compared with both tolerances: abs(a-b) <= absolute + relative*max(abs(a),
 /// abs(b)). This scalar rule applies to well-conditioned primitive results;
 /// adapted exposure uses the separately declared conditioning-aware bound.
-/// R16 storage itself is compared by exact binary16 bits instead.
+/// CPU R16 conversion and CPU golden fixtures are compared by exact binary16
+/// bits. A real GPU value is validated separately using the numerical equation
+/// bound plus one binary16 storage ULP before its native bits become temporal
+/// history.
 constexpr double kHdrAnalyticShaderAbsoluteTolerance = 2.0e-6;
 constexpr double kHdrAnalyticShaderRelativeTolerance = 2.0e-5;
 
@@ -59,6 +62,13 @@ struct HdrR16Float {
   std::uint16_t bits = 0U;
   float decoded = 0.0F;
 };
+
+/// Decode one finite IEEE-754 binary16 bit pattern without changing its sign
+/// or payload-free value. Unlike QuantizeHdrR16Float, this admits negative
+/// finite values because Ogre's intermediate log-luminance targets are signed.
+/// Binary16 infinities and NaNs fail transactionally.
+[[nodiscard]] ValidationResult DecodeFiniteHdrR16Float(
+    std::uint16_t bits, HdrR16Float &output);
 
 /// Deterministically round an admitted nonnegative binary32 source value in
 /// `[0, 65504]` to IEEE-754 binary16 using round-to-nearest, ties-to-even.

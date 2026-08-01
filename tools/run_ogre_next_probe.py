@@ -1168,8 +1168,31 @@ def validate_build_contract(
             "simd_sse2": expected_simd_family == "sse2",
         }
     )
+    schema_version = contract.get("schema_version")
+    expected_components = {
+        "hlms_pbs": True,
+        "compositor2_core": True,
+        "json_materials": True,
+        "mesh_lod": True,
+        "dds_codec": True,
+        "native_ray_tracing": "not_evaluated",
+    }
+    if schema_version == 4:
+        expected_components.update(
+            {
+                "hdr_temporal_contract_version": 2,
+                "hdr_history_validation_mode": (
+                    "native_authoritative_conditioning_plus_one_r16_ulp_v2"
+                ),
+                "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
+            }
+        )
     checks = {
-        "schema_version": contract.get("schema_version") == 3,
+        # Schema 2 remains readable for the immutable checked-in M5 evidence,
+        # and schema 3 remains the reflection/IBL lineage contract. Every newly
+        # generated reflection-plus-HDR contract is schema 4.
+        "schema_version": type(schema_version) is int
+        and schema_version in (2, 3, 4),
         "repository": provenance.get("repository") == lock["repository"],
         "branch": provenance.get("branch") == lock["branch"],
         "commit": provenance.get("commit") == lock["commit"],
@@ -1194,8 +1217,9 @@ def validate_build_contract(
         == rapidjson["license_sha256"],
         "shader_media": contract.get("shader_media") == shader_media,
         "reflection_shader_media": contract.get("reflection_shader_media")
-        == reflection_shader_media,
-        "patches": contract.get("patches") == lock["patches"],
+        == (reflection_shader_media if schema_version in (3, 4) else None),
+        "patches": contract.get("patches")
+        == (lock["patches"] if schema_version in (3, 4) else None),
         "platform_policy": platform_contract.get("policy") == policy["name"],
         "renderer_target": platform_contract.get("renderer_target")
         == policy["renderer_target"],
@@ -1206,15 +1230,7 @@ def validate_build_contract(
         "processor": isinstance(platform_contract.get("processor"), str)
         and bool(platform_contract["processor"]),
         "abi": contract_abi == expected_abi,
-        "components": components
-        == {
-            "hlms_pbs": True,
-            "compositor2_core": True,
-            "json_materials": True,
-            "mesh_lod": True,
-            "dds_codec": True,
-            "native_ray_tracing": "not_evaluated",
-        },
+        "components": components == expected_components,
         "compiler_id": isinstance(compiler.get("id"), str)
         and bool(compiler["id"]),
         "compiler_version": isinstance(compiler.get("version"), str)
@@ -1847,6 +1863,36 @@ def validate_rt4_reflection_evidence(
     return slices
 
 
+def _decode_positive_r16(bits: object) -> float | None:
+    if type(bits) is not int or not 0 < bits <= 0x7BFF:
+        return None
+    decoded = struct.unpack("<e", struct.pack("<H", bits))[0]
+    if not math.isfinite(decoded) or decoded <= 0.0:
+        return None
+    return decoded
+
+
+def _positive_r16_storage_ulp(bits: object) -> float | None:
+    decoded = _decode_positive_r16(bits)
+    if decoded is None:
+        return None
+    spacings = []
+    if bits > 1:
+        lower = _decode_positive_r16(bits - 1)
+        if lower is None:
+            return None
+        spacings.append(decoded - lower)
+    else:
+        spacings.append(2.0**-24)
+    if bits < 0x7BFF:
+        upper = _decode_positive_r16(bits + 1)
+        if upper is None:
+            return None
+        spacings.append(upper - decoded)
+    storage_ulp = max(spacings)
+    return storage_ulp if math.isfinite(storage_ulp) and storage_ulp > 0.0 else None
+
+
 def validate_n1_checkpoint(
     report: dict[str, Any],
     image_path: Path,
@@ -1887,6 +1933,24 @@ def validate_n1_checkpoint(
     hdr = report.get("hdr", {})
     sdr = report.get("sdr", {})
     lifecycle = report.get("lifecycle", {})
+    native_history = _decode_positive_r16(
+        hdr_compositor.get("final_inverse_luminance_r16_bits")
+    )
+    reference_history = _decode_positive_r16(
+        hdr_compositor.get("reference_inverse_luminance_r16_bits")
+    )
+    expected_storage_ulp = _positive_r16_storage_ulp(
+        hdr_compositor.get("reference_inverse_luminance_r16_bits")
+    )
+    reported_absolute_error = hdr_compositor.get("history_absolute_error")
+    reported_allowed_error = hdr_compositor.get("history_allowed_error")
+    reported_conditioning_bound = hdr_compositor.get(
+        "history_conditioning_bound"
+    )
+    reported_rounding_bound = hdr_compositor.get(
+        "history_binary32_rounding_bound"
+    )
+    reported_storage_ulp = hdr_compositor.get("history_storage_ulp")
     shader_media = lock["shader_media"]
     checks = {
         "schema": report.get("schema")
@@ -2167,28 +2231,49 @@ def validate_n1_checkpoint(
                     "history_format",
                     "output_format",
                     "ui_included",
+                    "ui_free_workspace_verified",
                     "deterministic_simulation_delta",
-                    "exact_r16_history_verified",
+                    "history_validation_mode",
+                    "native_r16_history_validated",
+                    "exact_current_to_old_copy_verified",
                     "warmup_frames",
                     "committed_frames",
                     "initial_inverse_luminance_r16_bits",
                     "final_inverse_luminance_r16_bits",
+                    "reference_inverse_luminance_r16_bits",
+                    "history_absolute_error",
+                    "history_allowed_error",
+                    "history_conditioning_bound",
+                    "history_binary32_rounding_bound",
+                    "history_storage_ulp",
+                    "history_r16_ulp_distance",
+                    "history_changed_from_initial",
                     "exposure_changed_pixels",
+                    "visible_overlay_contamination_changed_pixels",
+                    "visible_overlay_magenta_pixels",
+                    "visible_overlay_contamination_fnv1a64",
+                    "initialization_failure_stages_verified",
+                    "same_object_reinitialize_verified",
                     "first_attachment_fnv1a64",
                     "final_attachment_fnv1a64",
                     "clean_shutdown",
                 }
                 and hdr_compositor.get("schema")
-                == "ror.ogre_next_hdr_compositor.v1"
-                and hdr_compositor.get("workspace") == "HdrWorkspace"
+                == "ror.ogre_next_hdr_compositor.v2"
+                and hdr_compositor.get("workspace") == "RoRHdrWorkspaceUiFreeV2"
                 and hdr_compositor.get("persistent_workspace") is True
                 and hdr_compositor.get("scene_format") == "RGBA16_FLOAT"
                 and hdr_compositor.get("history_format") == "R16_FLOAT"
                 and hdr_compositor.get("output_format") == "RGBA8_SRGB"
                 and hdr_compositor.get("ui_included") is False
+                and hdr_compositor.get("ui_free_workspace_verified") is True
                 and hdr_compositor.get("deterministic_simulation_delta")
                 is True
-                and hdr_compositor.get("exact_r16_history_verified") is True
+                and hdr_compositor.get("history_validation_mode")
+                == "native_authoritative_conditioning_plus_one_r16_ulp_v2"
+                and hdr_compositor.get("native_r16_history_validated") is True
+                and hdr_compositor.get("exact_current_to_old_copy_verified")
+                is True
                 and type(hdr_compositor.get("warmup_frames")) is int
                 and hdr_compositor.get("warmup_frames") == 2
                 and type(hdr_compositor.get("committed_frames")) is int
@@ -2205,9 +2290,120 @@ def validate_n1_checkpoint(
                 is int
                 and 0
                 < hdr_compositor.get("final_inverse_luminance_r16_bits")
-                <= 0xFFFF
+                <= 0x7BFF
+                and hdr_compositor.get("final_inverse_luminance_r16_bits")
+                != hdr_compositor.get("initial_inverse_luminance_r16_bits")
+                and type(
+                    hdr_compositor.get("reference_inverse_luminance_r16_bits")
+                )
+                is int
+                and 0
+                < hdr_compositor.get("reference_inverse_luminance_r16_bits")
+                <= 0x7BFF
+                and isinstance(
+                    hdr_compositor.get("history_absolute_error"), (int, float)
+                )
+                and not isinstance(
+                    hdr_compositor.get("history_absolute_error"), bool
+                )
+                and math.isfinite(
+                    float(hdr_compositor.get("history_absolute_error"))
+                )
+                and 0.0 <= hdr_compositor.get("history_absolute_error")
+                and isinstance(
+                    hdr_compositor.get("history_allowed_error"), (int, float)
+                )
+                and not isinstance(
+                    hdr_compositor.get("history_allowed_error"), bool
+                )
+                and math.isfinite(
+                    float(hdr_compositor.get("history_allowed_error"))
+                )
+                and hdr_compositor.get("history_allowed_error")
+                >= hdr_compositor.get("history_absolute_error")
+                and all(
+                    isinstance(hdr_compositor.get(field), (int, float))
+                    and not isinstance(hdr_compositor.get(field), bool)
+                    and math.isfinite(float(hdr_compositor.get(field)))
+                    and hdr_compositor.get(field) >= 0.0
+                    for field in (
+                        "history_conditioning_bound",
+                        "history_binary32_rounding_bound",
+                    )
+                )
+                and isinstance(
+                    hdr_compositor.get("history_storage_ulp"), (int, float)
+                )
+                and not isinstance(hdr_compositor.get("history_storage_ulp"), bool)
+                and math.isfinite(float(hdr_compositor.get("history_storage_ulp")))
+                and hdr_compositor.get("history_storage_ulp") > 0.0
+                and type(hdr_compositor.get("history_r16_ulp_distance")) is int
+                and hdr_compositor.get("history_r16_ulp_distance") >= 0
+                and native_history is not None
+                and reference_history is not None
+                and expected_storage_ulp is not None
+                and math.isclose(
+                    float(reported_absolute_error),
+                    abs(native_history - reference_history),
+                    rel_tol=0.0,
+                    abs_tol=0.0,
+                )
+                and math.isclose(
+                    float(reported_storage_ulp),
+                    expected_storage_ulp,
+                    rel_tol=0.0,
+                    abs_tol=0.0,
+                )
+                and math.isclose(
+                    float(reported_allowed_error),
+                    float(reported_conditioning_bound)
+                    + float(reported_rounding_bound)
+                    + float(reported_storage_ulp),
+                    rel_tol=2.0e-15,
+                    abs_tol=1.0e-18,
+                )
+                and hdr_compositor.get("history_r16_ulp_distance")
+                == abs(
+                    hdr_compositor.get("final_inverse_luminance_r16_bits")
+                    - hdr_compositor.get(
+                        "reference_inverse_luminance_r16_bits"
+                    )
+                )
+                and hdr_compositor.get("history_changed_from_initial") is True
                 and type(hdr_compositor.get("exposure_changed_pixels")) is int
                 and hdr_compositor.get("exposure_changed_pixels") >= 512
+                and type(
+                    hdr_compositor.get(
+                        "visible_overlay_contamination_changed_pixels"
+                    )
+                )
+                is int
+                and hdr_compositor.get(
+                    "visible_overlay_contamination_changed_pixels"
+                )
+                >= 18432
+                and type(hdr_compositor.get("visible_overlay_magenta_pixels"))
+                is int
+                and hdr_compositor.get("visible_overlay_magenta_pixels") >= 18432
+                and isinstance(
+                    hdr_compositor.get("visible_overlay_contamination_fnv1a64"),
+                    str,
+                )
+                and re.fullmatch(
+                    r"[0-9a-f]{16}",
+                    hdr_compositor.get(
+                        "visible_overlay_contamination_fnv1a64"
+                    ),
+                )
+                is not None
+                and type(
+                    hdr_compositor.get("initialization_failure_stages_verified")
+                )
+                is int
+                and hdr_compositor.get("initialization_failure_stages_verified")
+                == 10
+                and hdr_compositor.get("same_object_reinitialize_verified")
+                is True
                 and isinstance(
                     hdr_compositor.get("first_attachment_fnv1a64"), str
                 )
@@ -2226,6 +2422,8 @@ def validate_n1_checkpoint(
                 is not None
                 and hdr_compositor.get("first_attachment_fnv1a64")
                 != hdr_compositor.get("final_attachment_fnv1a64")
+                and hdr_compositor.get("first_attachment_fnv1a64")
+                != hdr_compositor.get("visible_overlay_contamination_fnv1a64")
                 and hdr_compositor.get("clean_shutdown") is True,
             }
         )

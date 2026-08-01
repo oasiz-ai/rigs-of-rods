@@ -639,16 +639,38 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.header)
         for token in (
-            "HdrWorkspace",
+            "RoRHdrWorkspaceUiFreeV2",
+            "RoRHdrWorkspaceVisibleOverlayContaminationTestV2",
             "PFG_RGBA16_FLOAT",
             "PFG_R16_FLOAT",
             "PFG_RGBA8_UNORM_SRGB",
             "2.0/scripts/materials/Common/Metal",
             "2.0/scripts/materials/HDR/Metal",
-            "exact_r16_history_verified",
+            "native_r16_history_validated",
+            "exact_current_to_old_copy_verified",
+            "history_allowed_error",
             "hdr_temporal_state.CommitFrame",
         ):
             self.assertIn(token, self.frontend)
+        self.assertNotIn(
+            'definition->connect(Ogre::IdString("HdrRenderUi")',
+            self.frontend,
+        )
+        self.assertIn("definition->getNodeAliasMap()", self.frontend)
+        for stage in (
+            "AFTER_RESOURCE_GROUP_CREATE",
+            "AFTER_RESOURCE_LOCATIONS",
+            "AFTER_RESOURCE_GROUP_INITIALIZE",
+            "AFTER_WORKSPACE_DEFINITION",
+            "AFTER_OUTPUT_CREATE",
+            "AFTER_OUTPUT_CONFIGURE",
+            "AFTER_WORKSPACE_CREATE",
+            "AFTER_PARAMETER_BINDING",
+            "AFTER_WARMUP_FRAME_ONE",
+            "AFTER_WARMUP_FRAME_TWO",
+        ):
+            self.assertIn(stage, self.header)
+            self.assertIn(stage, self.frontend)
         for token in (
             "_ror_n1_hdr_media_roots",
             "ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_ENTRIES",
@@ -658,7 +680,9 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.entry_cmake)
         self.assertIn("RunHdrCompositorProof", self.smoke)
-        self.assertIn("ror.ogre_next_hdr_compositor.v1", self.smoke)
+        self.assertIn("ror.ogre_next_hdr_compositor.v2", self.smoke)
+        self.assertIn("visible-overlay contamination", self.smoke)
+        self.assertIn("same_object_reinitialize_verified", self.smoke)
 
     def test_projection_and_device_extent_paths_fail_closed(self) -> None:
         self.assertIn("TryConvertPortableProjectionToOgreClip", self.policy_header)

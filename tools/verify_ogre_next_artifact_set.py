@@ -112,8 +112,11 @@ RT4_REFLECTION_BACKENDS = {
     "windows-x64-d3d11": "OGRE_NEXT_D3D11",
     "linux-x86_64-vulkan": "OGRE_NEXT_VULKAN",
 }
-RT4_EXECUTABLE_IDENTITY_SCHEMA = (
+BASE_EXECUTABLE_IDENTITY_SCHEMA = (
     "ror.ogre_next_frontend_n1.build_identity.v1"
+)
+RT4_EXECUTABLE_IDENTITY_SCHEMA = (
+    "ror.ogre_next_frontend_n1.build_identity.v2"
 )
 RT4_EXPECTED_VARIANTS = (
     ("baseline", "none"),
@@ -590,7 +593,7 @@ def _read_build_contract(
     )
     if (
         type(contract.get("schema_version")) is not int
-        or contract.get("schema_version") != 3
+        or contract.get("schema_version") != 4
         or not isinstance(ror_source, dict)
         or not isinstance(ogre_source, dict)
         or not isinstance(ror_source.get("repository"), str)
@@ -665,6 +668,11 @@ def _read_build_contract(
         "json_materials": True,
         "mesh_lod": True,
         "dds_codec": True,
+        "hdr_temporal_contract_version": 2,
+        "hdr_history_validation_mode": (
+            "native_authoritative_conditioning_plus_one_r16_ulp_v2"
+        ),
+        "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
         "native_ray_tracing": "not_evaluated",
     }
     expected_platform = {
@@ -776,7 +784,8 @@ def _fnv1a64(payload: bytes) -> str:
     return f"{value:016x}"
 
 
-def _expected_base_build_identity(
+def _expected_build_identity(
+    schema: str,
     build_contract: dict[str, object], report: dict[str, object]
 ) -> str:
     platform = build_contract["platform"]
@@ -790,7 +799,7 @@ def _expected_base_build_identity(
     ):
         raise ArtifactSetError("executable build identity inputs are missing")
     return (
-        f"{RT4_EXECUTABLE_IDENTITY_SCHEMA}"
+        f"{schema}"
         f"|platform={platform['policy']}"
         f"|compiler={compiler['id']}-{compiler['version']}-{compiler['build_type']}"
         f"|ror_commit={source['commit']}"
@@ -802,6 +811,14 @@ def _expected_base_build_identity(
     )
 
 
+def _expected_base_build_identity(
+    build_contract: dict[str, object], report: dict[str, object]
+) -> str:
+    return _expected_build_identity(
+        BASE_EXECUTABLE_IDENTITY_SCHEMA, build_contract, report
+    )
+
+
 def _expected_rt4_build_identity(
     build_contract: dict[str, object], report: dict[str, object]
 ) -> str:
@@ -809,9 +826,15 @@ def _expected_rt4_build_identity(
     if not isinstance(provenance, dict):
         raise ArtifactSetError("RT4 executable build identity inputs are missing")
     return (
-        _expected_base_build_identity(build_contract, report)
+        _expected_build_identity(
+            RT4_EXECUTABLE_IDENTITY_SCHEMA, build_contract, report
+        )
         + "|hdr_media_manifest="
         + str(provenance.get("hdr_media_manifest_sha256"))
+        + "|hdr_temporal_contract=2"
+        + "|hdr_history_validation="
+        + "native_authoritative_conditioning_plus_one_r16_ulp_v2"
+        + "|hdr_workspace=RoRHdrWorkspaceUiFreeV2"
     )
 
 
@@ -1429,13 +1452,29 @@ def _verify_hdr_compositor(value: object) -> None:
             "history_format",
             "output_format",
             "ui_included",
+            "ui_free_workspace_verified",
             "deterministic_simulation_delta",
-            "exact_r16_history_verified",
+            "history_validation_mode",
+            "native_r16_history_validated",
+            "exact_current_to_old_copy_verified",
             "warmup_frames",
             "committed_frames",
             "initial_inverse_luminance_r16_bits",
             "final_inverse_luminance_r16_bits",
+            "reference_inverse_luminance_r16_bits",
+            "history_absolute_error",
+            "history_allowed_error",
+            "history_conditioning_bound",
+            "history_binary32_rounding_bound",
+            "history_storage_ulp",
+            "history_r16_ulp_distance",
+            "history_changed_from_initial",
             "exposure_changed_pixels",
+            "visible_overlay_contamination_changed_pixels",
+            "visible_overlay_magenta_pixels",
+            "visible_overlay_contamination_fnv1a64",
+            "initialization_failure_stages_verified",
+            "same_object_reinitialize_verified",
             "first_attachment_fnv1a64",
             "final_attachment_fnv1a64",
             "clean_shutdown",
@@ -1444,36 +1483,142 @@ def _verify_hdr_compositor(value: object) -> None:
     )
     initial_bits = compositor.get("initial_inverse_luminance_r16_bits")
     final_bits = compositor.get("final_inverse_luminance_r16_bits")
+    reference_bits = compositor.get("reference_inverse_luminance_r16_bits")
+    absolute_error = compositor.get("history_absolute_error")
+    allowed_error = compositor.get("history_allowed_error")
+    conditioning_bound = compositor.get("history_conditioning_bound")
+    rounding_bound = compositor.get("history_binary32_rounding_bound")
+    storage_ulp = compositor.get("history_storage_ulp")
     first_hash = compositor.get("first_attachment_fnv1a64")
     final_hash = compositor.get("final_attachment_fnv1a64")
+    contamination_hash = compositor.get(
+        "visible_overlay_contamination_fnv1a64"
+    )
+
+    def finite_nonnegative(metric: object) -> bool:
+        return (
+            isinstance(metric, (int, float))
+            and not isinstance(metric, bool)
+            and math.isfinite(float(metric))
+            and metric >= 0.0
+        )
+
+    def decode_positive_r16(bits: object) -> float | None:
+        if type(bits) is not int or not 0 < bits <= 0x7BFF:
+            return None
+        decoded = struct.unpack("<e", struct.pack("<H", bits))[0]
+        return decoded if math.isfinite(decoded) and decoded > 0.0 else None
+
+    def positive_r16_storage_ulp(bits: object) -> float | None:
+        decoded = decode_positive_r16(bits)
+        if decoded is None:
+            return None
+        spacings = []
+        if bits > 1:
+            lower = decode_positive_r16(bits - 1)
+            if lower is None:
+                return None
+            spacings.append(decoded - lower)
+        else:
+            spacings.append(2.0**-24)
+        if bits < 0x7BFF:
+            upper = decode_positive_r16(bits + 1)
+            if upper is None:
+                return None
+            spacings.append(upper - decoded)
+        result = max(spacings)
+        return result if math.isfinite(result) and result > 0.0 else None
+
+    native_history = decode_positive_r16(final_bits)
+    reference_history = decode_positive_r16(reference_bits)
+    expected_storage_ulp = positive_r16_storage_ulp(reference_bits)
     checks = {
         "schema": compositor.get("schema")
-        == "ror.ogre_next_hdr_compositor.v1",
-        "workspace": compositor.get("workspace") == "HdrWorkspace",
+        == "ror.ogre_next_hdr_compositor.v2",
+        "workspace": compositor.get("workspace") == "RoRHdrWorkspaceUiFreeV2",
         "persistence": compositor.get("persistent_workspace") is True,
         "formats": compositor.get("scene_format") == "RGBA16_FLOAT"
         and compositor.get("history_format") == "R16_FLOAT"
         and compositor.get("output_format") == "RGBA8_SRGB",
-        "ui_free": compositor.get("ui_included") is False,
+        "ui_free": compositor.get("ui_included") is False
+        and compositor.get("ui_free_workspace_verified") is True,
         "deterministic_delta": compositor.get(
             "deterministic_simulation_delta"
         )
         is True,
-        "native_history": compositor.get("exact_r16_history_verified") is True,
+        "native_history": compositor.get("history_validation_mode")
+        == "native_authoritative_conditioning_plus_one_r16_ulp_v2"
+        and compositor.get("native_r16_history_validated") is True,
+        "history_copy": compositor.get("exact_current_to_old_copy_verified")
+        is True,
         "frame_lineage": _json_exact(compositor.get("warmup_frames"), 2)
         and _json_exact(compositor.get("committed_frames"), 2),
         "initial_history": _json_exact(
             initial_bits, int.from_bytes(struct.pack("<e", 0.01), "little")
         ),
-        "final_history": type(final_bits) is int and 0 < final_bits <= 0xFFFF,
+        "final_history": type(final_bits) is int
+        and 0 < final_bits <= 0x7BFF
+        and final_bits != initial_bits
+        and compositor.get("history_changed_from_initial") is True,
+        "reference_history": type(reference_bits) is int
+        and 0 < reference_bits <= 0x7BFF,
+        "comparison": finite_nonnegative(absolute_error)
+        and finite_nonnegative(allowed_error)
+        and allowed_error >= absolute_error
+        and finite_nonnegative(conditioning_bound)
+        and finite_nonnegative(rounding_bound)
+        and finite_nonnegative(storage_ulp)
+        and storage_ulp > 0.0
+        and type(compositor.get("history_r16_ulp_distance")) is int
+        and compositor.get("history_r16_ulp_distance") >= 0
+        and native_history is not None
+        and reference_history is not None
+        and expected_storage_ulp is not None
+        and math.isclose(
+            float(absolute_error),
+            abs(native_history - reference_history),
+            rel_tol=0.0,
+            abs_tol=0.0,
+        )
+        and math.isclose(
+            float(storage_ulp),
+            expected_storage_ulp,
+            rel_tol=0.0,
+            abs_tol=0.0,
+        )
+        and math.isclose(
+            float(allowed_error),
+            float(conditioning_bound)
+            + float(rounding_bound)
+            + float(storage_ulp),
+            rel_tol=2.0e-15,
+            abs_tol=1.0e-18,
+        )
+        and compositor.get("history_r16_ulp_distance")
+        == abs(final_bits - reference_bits),
         "visual_response": type(compositor.get("exposure_changed_pixels"))
         is int
         and compositor.get("exposure_changed_pixels") >= 512,
+        "visible_overlay_control": type(
+            compositor.get("visible_overlay_contamination_changed_pixels")
+        )
+        is int
+        and compositor.get("visible_overlay_contamination_changed_pixels")
+        >= 18432
+        and type(compositor.get("visible_overlay_magenta_pixels")) is int
+        and compositor.get("visible_overlay_magenta_pixels") >= 18432
+        and isinstance(contamination_hash, str)
+        and re.fullmatch(r"[0-9a-f]{16}", contamination_hash) is not None,
+        "recovery": _json_exact(
+            compositor.get("initialization_failure_stages_verified"), 10
+        )
+        and compositor.get("same_object_reinitialize_verified") is True,
         "hashes": isinstance(first_hash, str)
         and re.fullmatch(r"[0-9a-f]{16}", first_hash) is not None
         and isinstance(final_hash, str)
         and re.fullmatch(r"[0-9a-f]{16}", final_hash) is not None
-        and first_hash != final_hash,
+        and first_hash != final_hash
+        and first_hash != contamination_hash,
         "shutdown": compositor.get("clean_shutdown") is True,
     }
     failed = sorted(name for name, passed in checks.items() if not passed)

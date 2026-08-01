@@ -116,6 +116,11 @@ void TestConfigurationIsTransactional() {
   Require(!state.Initialize(invalid).ok() && !state.initialized(),
           "non-finite initial history mutated temporal state");
 
+  invalid = OgreNextHdrTemporalConfiguration{};
+  invalid.initial_inverse_luminance = 0.02F;
+  Require(!state.Initialize(invalid).ok() && !state.initialized(),
+          "unpinned custom initial history was accepted by version 2");
+
   const OgreNextHdrTemporalConfiguration valid;
   Require(state.Initialize(valid).ok() && state.initialized(),
           "default temporal configuration was rejected");
@@ -159,21 +164,46 @@ void TestDeterministicSimulationTimeAndGpuLineage() {
                .ok() &&
               state.committed_frame_id() == 0U,
           "non-finite luminance advanced temporal state");
-  HdrR16Float wrong = first_expected;
-  ++wrong.bits;
+  HdrR16Float wrong;
+  Require(DecodeFiniteHdrR16Float(
+              static_cast<std::uint16_t>(first_expected.bits + 3U), wrong)
+              .ok(),
+          "far native R16 fixture did not decode");
   Require(!state.CommitFrame(first_plan, 2.0F, wrong).ok() &&
               state.committed_frame_id() == 0U,
-          "mismatched native R16 history advanced temporal state");
+          "out-of-bound native R16 history advanced temporal state");
   wrong = first_expected;
   wrong.decoded = std::nextafter(wrong.decoded,
                                  std::numeric_limits<float>::infinity());
   Require(!state.CommitFrame(first_plan, 2.0F, wrong).ok() &&
               state.committed_frame_id() == 0U,
           "inconsistent native R16 bits/decoded value advanced state");
-  Require(state.CommitFrame(first_plan, 2.0F, first_expected).ok() &&
+  HdrR16Float adjacent_native;
+  Require(DecodeFiniteHdrR16Float(
+              static_cast<std::uint16_t>(first_expected.bits + 1U),
+              adjacent_native)
+              .ok(),
+          "adjacent native R16 fixture did not decode");
+  Require(state.CommitFrame(first_plan, 2.0F, adjacent_native).ok() &&
               state.committed_frame_id() == 1U &&
-              state.previous_inverse_luminance().bits == first_expected.bits,
-          "exact first native R16 history did not commit");
+              state.previous_inverse_luminance().bits == adjacent_native.bits,
+          "bounded native-authoritative R16 history did not commit");
+  const OgreNextHdrHistoryComparison first_comparison =
+      state.last_history_comparison();
+  Require(first_comparison.version == 2U && first_comparison.accepted &&
+              first_comparison.mode ==
+                  OgreNextHdrHistoryValidationMode::
+                      NATIVE_AUTHORITATIVE_CONDITIONING_PLUS_ONE_R16_ULP &&
+              first_comparison.native_inverse_luminance_r16.bits ==
+                  adjacent_native.bits &&
+              first_comparison.reference_inverse_luminance_r16.bits ==
+                  first_expected.bits &&
+              first_comparison.r16_ulp_distance == 1U &&
+              first_comparison.absolute_error > 0.0 &&
+              first_comparison.absolute_error <=
+                  first_comparison.allowed_error &&
+              first_comparison.storage_ulp > 0.0,
+          "native/reference/error/bound comparison evidence is incomplete");
 
   constexpr double kSecondTime = 10.0 + 1.0 / 48.0;
   const RenderFrameRequest second = Frame(2U, Scene(2U, kSecondTime));
@@ -186,7 +216,7 @@ void TestDeterministicSimulationTimeAndGpuLineage() {
   Require(second_plan.delta_seconds ==
               static_cast<float>(kSecondTime - 10.0) &&
               second_plan.previous_inverse_luminance_r16.bits ==
-                  first_expected.bits,
+                  adjacent_native.bits,
           "second plan used wall time or lost exact R16 lineage");
   const HdrR16Float second_expected = ExpectedStored(second_plan, -0.75F);
   Require(state.CommitFrame(second_plan, -0.75F, second_expected).ok() &&
@@ -240,7 +270,8 @@ void TestFailClosedAdmission() {
 
   state.Reset();
   Require(!state.initialized() && state.committed_frame_id() == 0U &&
-              state.previous_inverse_luminance().bits == 0U,
+              state.previous_inverse_luminance().bits == 0U &&
+              !state.last_history_comparison().accepted,
           "Reset retained HDR temporal history");
 }
 
