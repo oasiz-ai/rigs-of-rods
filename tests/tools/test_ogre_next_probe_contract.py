@@ -265,8 +265,63 @@ class OgreNextProbeContractTests(unittest.TestCase):
             "_ror_extracted_ibl_shader_sha256",
             "_ror_extracted_iblbaker_license_sha256",
             "ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE",
+            '"${GIT_EXECUTABLE}" -c core.autocrlf=false apply',
         ):
             self.assertIn(token, cmake)
+
+    def test_ibl_patch_command_overrides_windows_autocrlf(self) -> None:
+        source_path = Path(
+            "Samples/Media/Compute/Algorithms/IBL/"
+            "SpecularIblIntegrator_piece_cs.any"
+        )
+        lines = [
+            f"// deterministic fixture line {index}\n"
+            for index in range(1, 301)
+        ]
+        lines[218] = (
+            "\t\t\t\tfloat4 lastResultVal = OGRE_imageLoad2DArray( "
+            "lastResult, loadCoords.xyz );\n"
+        )
+        lines[220] = (
+            "\t\t\t\tfloat4 lastResultVal = OGRE_imageLoad2D( "
+            "lastResult, loadCoords.xy );\n"
+        )
+        lines[271] = (
+            "\t\tOGRE_imageWrite2DArray4( lastResult, "
+            "gl_GlobalInvocationID.xyz, outputValue );\n"
+        )
+        lines[273] = (
+            "\t\tOGRE_imageWrite2D4( lastResult, "
+            "gl_GlobalInvocationID.xy, outputValue );\n"
+        )
+
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre-next-autocrlf-"
+        ) as temp:
+            fixture = Path(temp) / source_path
+            fixture.parent.mkdir(parents=True)
+            fixture.write_bytes("".join(lines).encode("utf-8"))
+            result = subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "core.autocrlf=true",
+                    "-c",
+                    "core.autocrlf=false",
+                    "apply",
+                    "--unidiff-zero",
+                    "--whitespace=nowarn",
+                    str(PROBE_DIR / self.lock["patches"][1]["path"]),
+                ],
+                cwd=temp,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout.decode())
+            patched = fixture.read_bytes()
+            self.assertNotIn(b"\r\n", patched)
+            self.assertEqual(patched.count(b"@property( syntax == metal )"), 4)
 
     def test_reviewed_platform_matrix(self) -> None:
         self.assertEqual(

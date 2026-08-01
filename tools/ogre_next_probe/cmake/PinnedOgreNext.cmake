@@ -1085,12 +1085,15 @@ elseif (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_LINUX_OGRE_GLSLANG_PATCH_PATH}")
 endif ()
 
+# Hosted Windows Git defaults to core.autocrlf=true. Override it for the
+# archive patch transaction so reviewed shader bytes stay LF-identical.
 FetchContent_Declare(
     ogre_next
     URL "${_ror_ogre_next_url}"
     URL_HASH "SHA256=${ROR_OGRE_NEXT_ARCHIVE_SHA256}"
     PATCH_COMMAND
-        "${GIT_EXECUTABLE}" apply --unidiff-zero --whitespace=nowarn
+        "${GIT_EXECUTABLE}" -c core.autocrlf=false apply --unidiff-zero
+        --whitespace=nowarn
         ${_ror_ogre_next_patch_paths}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(ogre_next)
@@ -1138,7 +1141,9 @@ file(SHA256
 if (NOT _ror_extracted_ibl_shader_sha256 STREQUAL
         ROR_OGRE_NEXT_IBL_PATCHED_SHA256)
     message(FATAL_ERROR
-        "The pinned OGRE-Next IBL shader patch did not produce reviewed bytes")
+        "The pinned OGRE-Next IBL shader patch did not produce reviewed bytes: "
+        "expected ${ROR_OGRE_NEXT_IBL_PATCHED_SHA256}, got "
+        "${_ror_extracted_ibl_shader_sha256}")
 endif ()
 
 foreach (_ror_normal_map_source_index RANGE 0
