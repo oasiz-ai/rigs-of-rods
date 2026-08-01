@@ -80,6 +80,17 @@ CameraViewRequest ShadowView() {
   view.height = 128U;
   view.near_plane = kOgreNextPssmNearMeters;
   view.far_plane = kOgreNextPssmFarMeters;
+  view.clip_from_view.elements.fill(0.0F);
+  view.clip_from_view.elements[0U] = 1.0F;
+  view.clip_from_view.elements[5U] = 1.5F;
+  view.clip_from_view.elements[10U] =
+      kOgreNextPssmFarMeters /
+      (kOgreNextPssmNearMeters - kOgreNextPssmFarMeters);
+  view.clip_from_view.elements[11U] = -1.0F;
+  view.clip_from_view.elements[14U] =
+      kOgreNextPssmNearMeters * kOgreNextPssmFarMeters /
+      (kOgreNextPssmNearMeters - kOgreNextPssmFarMeters);
+  view.previous_clip_from_view = view.clip_from_view;
   return view;
 }
 
@@ -173,8 +184,26 @@ void TestAdmissionAndMasks() {
   Require(plan.enabled && plan.shadow_light_id == 1U &&
               plan.static_caster_count == 1U &&
               plan.dynamic_caster_count == 0U &&
-              plan.receiver_count == 2U,
+              plan.receiver_count == 2U &&
+              plan.native_visibility_mask ==
+                  kOgreNextPssmNativeVisibilityMask &&
+              plan.projection_extents.left == -1.0F &&
+              plan.projection_extents.right == 1.0F &&
+              std::fabs(plan.projection_extents.top - (2.0F / 3.0F)) <
+                  1.0e-6F &&
+              std::fabs(plan.projection_extents.bottom + (2.0F / 3.0F)) <
+                  1.0e-6F,
           "static/dynamic shadow mask or receiver plan is wrong");
+
+  CameraViewRequest narrow_mask_view = view;
+  narrow_mask_view.visibility_mask = 1U;
+  Require(TryBuildOgreNextPssmShadowFramePlan(
+              *static_only, registry, narrow_mask_view,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+              OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, plan)
+                  .ok() &&
+              plan.native_visibility_mask == 1U,
+          "portable lower-bit visibility mask was not normalized exactly");
 
   const auto dynamic_only =
       Scene(kRegistryId, {Directional(LIGHT_SHADOW_DYNAMIC_GEOMETRY)},
@@ -247,6 +276,22 @@ void TestFailClosedEdges() {
               OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, plan)
               .code == ValidationCode::UNSUPPORTED_FEATURE,
           "far-plane drift was accepted");
+  view = ShadowView();
+  view.visibility_mask = 0x40000000U;
+  Require(TryBuildOgreNextPssmShadowFramePlan(
+              *shadowed, registry, view,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+              OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, plan)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "Ogre-reserved-only portable visibility mask was accepted");
+  view = ShadowView();
+  view.clip_from_view.elements[4U] = 0.25F;
+  Require(TryBuildOgreNextPssmShadowFramePlan(
+              *shadowed, registry, view,
+              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+              OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, plan)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "non-reproducible sheared PSSM projection was accepted");
 
   LightDescriptor local = Directional(LIGHT_SHADOW_DEFAULT_FLAGS);
   local.type = LightType::POINT;

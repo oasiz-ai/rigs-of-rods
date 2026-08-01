@@ -57,7 +57,7 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
     def test_source_closure_is_exact_and_matches_canonical_pin(self) -> None:
         validated = VERIFIER.validate_lock(LOCK_PATH, CANONICAL_LOCK_PATH)
         self.assertEqual(validated["ogre_next_commit"], VERIFIER.OGRE_NEXT_COMMIT)
-        self.assertEqual(len(validated["sources"]), 27)
+        self.assertEqual(len(validated["sources"]), 35)
         self.assertEqual(
             validated["platform_policies"], VERIFIER.PLATFORM_POLICIES
         )
@@ -95,6 +95,32 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
                         VERIFIER.validate_lock(
                             self.write_lock(value, root), CANONICAL_LOCK_PATH
                         )
+
+    def test_lock_rejects_duplicate_root_and_nested_json_keys(self) -> None:
+        canonical = LOCK_PATH.read_text(encoding="utf-8")
+        root_duplicate = canonical.replace(
+            '{\n  "schema_version": 1,',
+            '{\n  "schema_version": 1,\n  "schema_version": 1,',
+            1,
+        )
+        nested_duplicate = canonical.replace(
+            '"role": "shadow_node_api",',
+            '"role": "shadow_node_api",\n      "role": "shadow_node_api",',
+            1,
+        )
+        with tempfile.TemporaryDirectory(prefix="ror-pssm-duplicate-") as temporary:
+            root = Path(temporary)
+            for label, payload in (
+                ("root", root_duplicate),
+                ("nested", nested_duplicate),
+            ):
+                with self.subTest(label=label):
+                    path = root / f"{label}.json"
+                    path.write_text(payload, encoding="utf-8")
+                    with self.assertRaisesRegex(
+                        VERIFIER.VerificationError, "duplicate JSON object key"
+                    ):
+                        VERIFIER.validate_lock(path, CANONICAL_LOCK_PATH)
 
     def test_shadow_mode_is_opt_in_and_rt4_only(self) -> None:
         self.assertRegex(
@@ -138,7 +164,10 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
             "getPssmSplits(0U)",
             "getPssmBlends(0U)",
             "getPssmFade(0U)",
+            "getNormalOffsetBias(index)",
             "getNumActiveShadowCastingLights() != 1U",
+            "FET_TAN_HALF_ANGLES",
+            "getProjectionMatrix()",
         ):
             self.assertIn(token, self.frontend)
 
@@ -160,12 +189,16 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
 
     def test_native_isolation_proof_toggles_only_casting_and_fails_closed(self) -> None:
         for token in (
-            '\\"only_changed_input\\": \\"occluder_instance_casts_shadow\\"',
-            '\\"changed_pixels_outside_receiver\\": 0',
-            '\\"changed_visible_occluder_pixels\\": 0',
+            '\\"controlled_visual_change\\": \\"occluder_instance_casts_shadow\\"',
+            '\\"changed_pixels_outside_reviewed_receiver_region\\": 0',
+            '\\"changed_pixels_inside_reviewed_occluder_region\\": 0',
             '\\"shadow_disabled_default_equals_explicit\\": true',
             "disabled_default == disabled_explicit",
             '\\"backend_substitution\\": false',
+            '\\"split_stable_tangent_projection\\": true',
+            '\\"cascade_index\\": ',
+            "AFTER_RECEIVER_DATABLOCK_CLONE",
+            "AFTER_WORKSPACE_NODE_DEFINITION",
             "return kUnsupportedExitCode",
         ):
             self.assertIn(token, self.smoke)
@@ -192,6 +225,7 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
             "bin/ror_ogre_next_pssm_shadow_smoke",
         ):
             self.assertIn(artifact, self.workflow)
+        self.assertIn("_verify_pssm", self.workflow)
 
 
 if __name__ == "__main__":

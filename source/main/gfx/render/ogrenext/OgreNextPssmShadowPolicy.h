@@ -45,6 +45,13 @@ constexpr float kOgreNextPssmConstantBiasScale = 1.0F;
 constexpr float kOgreNextPssmNormalOffsetBias = 168.0F;
 constexpr float kOgreNextPssmAutoConstantBiasScale = 100.0F;
 constexpr float kOgreNextPssmAutoNormalOffsetBiasScale = 4.0F;
+// Ogre reserves the upper two bits for its internal visibility and
+// shadow-caster layers. Portable view masks must retain at least one of the
+// lower bits when the PSSM adapter normalizes them for native scene passes.
+constexpr std::uint32_t kOgreNextPssmNativeVisibilityMask = 0x3fffffffU;
+
+constexpr char kOgreNextPssmCapabilityUnsupportedDetail[] =
+    "PSSM_3_CASCADE_V1 native capability gate rejected the required atlas or PCF4 support";
 
 // One D32_FLOAT atlas. Cascade zero occupies the full-width upper region;
 // cascades one and two occupy the lower-left and lower-right regions.
@@ -72,6 +79,15 @@ struct OgreNextPssmSplitPolicy final {
   float fade_point = 0.0F;
 };
 
+/// Perspective side-plane tangents that remain valid when Ogre temporarily
+/// changes the viewer camera's near/far distances for each PSSM split.
+struct OgreNextPssmProjectionExtents final {
+  float left = 0.0F;
+  float right = 0.0F;
+  float top = 0.0F;
+  float bottom = 0.0F;
+};
+
 struct OgreNextPssmShadowFramePlan final {
   std::uint32_t version = kOgreNextPssmShadowContractVersion;
   bool enabled = false;
@@ -79,6 +95,8 @@ struct OgreNextPssmShadowFramePlan final {
   std::uint32_t static_caster_count = 0U;
   std::uint32_t dynamic_caster_count = 0U;
   std::uint32_t receiver_count = 0U;
+  std::uint32_t native_visibility_mask = 0U;
+  OgreNextPssmProjectionExtents projection_extents;
 };
 
 [[nodiscard]] bool IsKnownOgreNextDirectionalShadowMode(
@@ -88,6 +106,13 @@ struct OgreNextPssmShadowFramePlan final {
 /// The output is assigned only after every result is finite and ordered.
 [[nodiscard]] bool TryBuildOgreNextPssmSplitPolicy(
     OgreNextPssmSplitPolicy &output) noexcept;
+
+/// Admit only the canonical finite perspective matrix shape that Ogre can
+/// reproduce through FET_TAN_HALF_ANGLES. This avoids a fixed custom
+/// projection, whose near-plane extents do not follow PSSM split mutation.
+[[nodiscard]] bool TryBuildOgreNextPssmProjectionExtents(
+    const Matrix4x4 &portable_projection,
+    OgreNextPssmProjectionExtents &output) noexcept;
 
 [[nodiscard]] ValidationResult ValidateOgreNextPssmInitialization(
     OgreNextRasterFeatureTier raster_feature_tier,

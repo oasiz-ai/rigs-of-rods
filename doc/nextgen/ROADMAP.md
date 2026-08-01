@@ -1097,9 +1097,12 @@ Gate R1:
   `PSSM_3_CASCADE_V1` checkpoint. It programmatically creates one fixed
   three-cascade `D32_FLOAT` Compositor2 atlas, honors the renderer-neutral
   static/dynamic light masks and per-mesh cast/receive flags, reads back its
-  native topology/splits/filter/lifecycle, and proves that toggling only one
-  occluder cast flag darkens receiver-only pixels in both HDR and SDR. The 27
-  upstream Ogre/HLMS source files used by the feature have their own exact
+  native topology/splits/filter/runtime bias/lifecycle, preserves perspective
+  tangents while Ogre mutates the camera near/far planes, and proves isolated
+  receiver shadows in all three cascades (HDR and SDR for the near cascade).
+  Frame-local datablock and generated-workspace-node fault seams prove clean
+  same-frame retry. The 35 upstream Ogre/HLMS source files used by the feature
+  have their own exact
   source lock and build-time verifier. The smoke passed locally on Apple Metal;
   Linux Vulkan and Windows D3D11 run the same fail-closed test in CI and may
   report only a real pass or explicit unsupported capability evidence. This

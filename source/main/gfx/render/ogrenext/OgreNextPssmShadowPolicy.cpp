@@ -36,6 +36,14 @@ bool IsFiniteOrdered(const OgreNextPssmSplitPolicy &policy) noexcept {
   return IsFinite(policy.fade_point);
 }
 
+bool NearlyEqual(float lhs, float rhs) noexcept {
+  constexpr float kTolerance = 1.0e-6F;
+  return IsFinite(lhs) && IsFinite(rhs) &&
+         std::fabs(lhs - rhs) <=
+             kTolerance * std::max(1.0F, std::max(std::fabs(lhs),
+                                                  std::fabs(rhs)));
+}
+
 } // namespace
 
 bool IsKnownOgreNextDirectionalShadowMode(
@@ -91,6 +99,55 @@ bool TryBuildOgreNextPssmSplitPolicy(
   if (!(candidate.fade_point >
             candidate.split_points[kOgreNextPssmCascadeCount - 1U] &&
         candidate.fade_point < kOgreNextPssmFarMeters)) {
+    return false;
+  }
+  output = candidate;
+  return true;
+}
+
+bool TryBuildOgreNextPssmProjectionExtents(
+    const Matrix4x4 &portable_projection,
+    OgreNextPssmProjectionExtents &output) noexcept {
+  // Column-major storage of the canonical right-handed [0,1] perspective
+  // matrix. Off-centre C/D terms are admitted; shear, oblique, orthographic,
+  // reversed-Z, and mismatched near/far projections remain fail-closed.
+  constexpr std::array<std::size_t, 9U> kRequiredZeroIndices{
+      1U, 2U, 3U, 4U, 6U, 7U, 12U, 13U, 15U};
+  for (const std::size_t index : kRequiredZeroIndices) {
+    if (portable_projection.elements[index] != 0.0F) {
+      return false;
+    }
+  }
+  const float horizontal_scale = portable_projection.elements[0U];
+  const float vertical_scale = portable_projection.elements[5U];
+  const float horizontal_offset = portable_projection.elements[8U];
+  const float vertical_offset = portable_projection.elements[9U];
+  const float expected_depth_scale =
+      kOgreNextPssmFarMeters /
+      (kOgreNextPssmNearMeters - kOgreNextPssmFarMeters);
+  const float expected_depth_offset =
+      kOgreNextPssmNearMeters * kOgreNextPssmFarMeters /
+      (kOgreNextPssmNearMeters - kOgreNextPssmFarMeters);
+  if (!(IsFinite(horizontal_scale) && horizontal_scale > 0.0F &&
+        IsFinite(vertical_scale) && vertical_scale > 0.0F &&
+        IsFinite(horizontal_offset) && IsFinite(vertical_offset)) ||
+      portable_projection.elements[11U] != -1.0F ||
+      !NearlyEqual(portable_projection.elements[10U],
+                   expected_depth_scale) ||
+      !NearlyEqual(portable_projection.elements[14U],
+                   expected_depth_offset)) {
+    return false;
+  }
+
+  OgreNextPssmProjectionExtents candidate;
+  candidate.left = (horizontal_offset - 1.0F) / horizontal_scale;
+  candidate.right = (horizontal_offset + 1.0F) / horizontal_scale;
+  candidate.top = (vertical_offset + 1.0F) / vertical_scale;
+  candidate.bottom = (vertical_offset - 1.0F) / vertical_scale;
+  if (!(IsFinite(candidate.left) && IsFinite(candidate.right) &&
+        IsFinite(candidate.top) && IsFinite(candidate.bottom) &&
+        candidate.left < candidate.right &&
+        candidate.bottom < candidate.top)) {
     return false;
   }
   output = candidate;
@@ -185,9 +242,22 @@ ValidationResult TryBuildOgreNextPssmShadowFramePlan(
         "views.clip_distance",
         "PSSM_3_CASCADE_V1 requires exact 0.5 m near and 350 m far clip distances");
   }
+  if ((view.visibility_mask & kOgreNextPssmNativeVisibilityMask) == 0U) {
+    return Unsupported(
+        "views.visibility_mask",
+        "PSSM_3_CASCADE_V1 requires at least one Ogre-representable portable visibility bit");
+  }
+  if (!TryBuildOgreNextPssmProjectionExtents(
+          view.clip_from_view, candidate.projection_extents)) {
+    return Unsupported(
+        "views.clip_from_view",
+        "PSSM_3_CASCADE_V1 requires a canonical finite perspective projection matching its fixed near/far planes");
+  }
   const LightDescriptor &light = snapshot.lights().front();
   candidate.enabled = true;
   candidate.shadow_light_id = light.light_id;
+  candidate.native_visibility_mask =
+      view.visibility_mask & kOgreNextPssmNativeVisibilityMask;
   for (std::size_t index = 0U; index < snapshot.mesh_instances().size();
        ++index) {
     const MeshInstanceDescriptor &instance = snapshot.mesh_instances()[index];

@@ -149,7 +149,176 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"baseline")
+        self.write_pssm(root, contract)
         self.write_rt4(root, contract)
+
+    def write_pssm(self, root: Path, contract: dict[str, object]) -> None:
+        width = 192
+        height = 128
+
+        def pair(
+            *, hdr: bool, first_changed_x: int, changed_y: int
+        ) -> tuple[bytes, bytes]:
+            if hdr:
+                clear_pixel = struct.pack("<4e", 1.0, 1.0, 1.0, 1.0)
+                shadow_pixel = struct.pack("<4e", 0.5, 0.5, 0.5, 1.0)
+            else:
+                clear_pixel = bytes((200, 200, 200, 255))
+                shadow_pixel = bytes((100, 100, 100, 255))
+            clear = clear_pixel * (width * height)
+            shadow = bytearray(clear)
+            for x in range(first_changed_x, first_changed_x + 16):
+                offset = (changed_y * width + x) * len(clear_pixel)
+                shadow[offset : offset + len(clear_pixel)] = shadow_pixel
+            return clear, bytes(shadow)
+
+        hdr = pair(hdr=True, first_changed_x=34, changed_y=18)
+        sdr = pair(hdr=False, first_changed_x=34, changed_y=18)
+        cascade_2 = pair(hdr=False, first_changed_x=68, changed_y=18)
+        cascade_3 = pair(hdr=False, first_changed_x=68, changed_y=18)
+        slices = (*hdr, *sdr, *cascade_2, *cascade_3)
+        payload = b"".join(slices)
+        evidence_path = root / VERIFY.PSSM_EVIDENCE_ARTIFACT
+        evidence_path.write_bytes(payload)
+        shader_manifest = "c" * 64
+        report: dict[str, object] = {
+            "schema": VERIFY.PSSM_REPORT_SCHEMA,
+            "status": "pass",
+            "provenance": {
+                "ror_repository": self.ror_repository,
+                "ror_ref": self.ror_ref,
+                "ror_commit": self.ror_commit,
+                "ror_relevant_source_manifest_sha256": self.ror_manifest,
+                "ogre_next_commit": self.ogre_commit,
+                "ogre_next_archive_sha256": self.ogre_archive,
+                "shader_media_manifest_sha256": shader_manifest,
+            },
+            "platform_policy": "macos-arm64-metal",
+            "renderer": "Metal Rendering Subsystem",
+            "shadow_contract": {
+                "version": 1,
+                "mode": "PSSM_3_CASCADE_V1",
+                "cascade_count": 3,
+                "split_points_m": [0.5, 7.81633186, 45.2411156, 350],
+                "blend_points_m": [6.90179062, 40.5630188],
+                "fade_point_m": 254.610474,
+                "atlas": {
+                    "format": "D32_FLOAT",
+                    "width": 2048,
+                    "height": 3072,
+                },
+                "filter": "PCF_4x4",
+                "programmatic_compositor2": True,
+                "ui_included": False,
+                "backend_substitution": False,
+                "split_stable_tangent_projection": True,
+                "native_definition_split_and_runtime_bias_readback": True,
+                "runtime_normal_offset_bias": [168.0, 168.0, 168.0],
+            },
+            "isolation": {
+                "controlled_visual_change": "occluder_instance_casts_shadow",
+                "nonvisual_snapshot_identity_changed": True,
+                "changed_pixels_outside_reviewed_receiver_region": 0,
+                "changed_pixels_inside_reviewed_occluder_region": 0,
+                "hdr_changed_receiver_pixels": 16,
+                "hdr_darkened_receiver_pixels": 16,
+                "sdr_changed_receiver_pixels": 16,
+                "sdr_darkened_receiver_pixels": 16,
+                "normalized_visibility_mask_0x1_verified": True,
+                "shadow_disabled_default_equals_explicit": True,
+                "shadow_disabled_exact_fnv1a64": "0123456789abcdef",
+            },
+            "distant_cascade_proof": [
+                {
+                    "cascade_index": 1,
+                    "receiver_depth_m": 20,
+                    "occluder_depth_m": 12.5,
+                    "off_axis": True,
+                    "sdr_changed_receiver_pixels": 16,
+                    "sdr_darkened_receiver_pixels": 16,
+                },
+                {
+                    "cascade_index": 2,
+                    "receiver_depth_m": 100,
+                    "occluder_depth_m": 62.5,
+                    "off_axis": True,
+                    "sdr_changed_receiver_pixels": 16,
+                    "sdr_darkened_receiver_pixels": 16,
+                },
+            ],
+            "lifecycle": {
+                "shadow_frames_completed": 8,
+                "shadow_node_creates": 8,
+                "shadow_node_destroys": 8,
+                "workspace_node_definition_creates": 8,
+                "workspace_node_definition_destroys": 8,
+                "receiver_datablock_creates": 8,
+                "receiver_datablock_destroys": 8,
+                "receiver_clone_same_frame_retry_verified": True,
+                "workspace_node_same_frame_retry_verified": True,
+            },
+            "evidence": {
+                "file": VERIFY.PSSM_EVIDENCE_ARTIFACT,
+                "bytes": len(payload),
+                "hdr_no_occluder_fnv1a64": VERIFY._fnv1a64(slices[0]),
+                "hdr_occluder_fnv1a64": VERIFY._fnv1a64(slices[1]),
+                "sdr_no_occluder_fnv1a64": VERIFY._fnv1a64(slices[2]),
+                "sdr_occluder_fnv1a64": VERIFY._fnv1a64(slices[3]),
+                "cascade_2_sdr_no_occluder_fnv1a64": VERIFY._fnv1a64(
+                    slices[4]
+                ),
+                "cascade_2_sdr_occluder_fnv1a64": VERIFY._fnv1a64(
+                    slices[5]
+                ),
+                "cascade_3_sdr_no_occluder_fnv1a64": VERIFY._fnv1a64(
+                    slices[6]
+                ),
+                "cascade_3_sdr_occluder_fnv1a64": VERIFY._fnv1a64(
+                    slices[7]
+                ),
+            },
+        }
+        identity = VERIFY._expected_rt4_build_identity(contract, report)
+        report["provenance"]["executable_build_identity"] = identity
+        (root / VERIFY.PSSM_REPORT_ARTIFACT).write_text(
+            json.dumps(report) + "\n", encoding="utf-8"
+        )
+        executable_path = root / "bin" / VERIFY.PSSM_EXECUTABLE_STEM
+        executable_path.parent.mkdir(parents=True, exist_ok=True)
+        executable_size = 64 * 1024
+        header = struct.pack(
+            "<IiiIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 2, 96, 0, 0
+        )
+        segment = struct.pack(
+            "<II16sQQQQiiII",
+            0x19,
+            72,
+            b"__TEXT" + b"\0" * 10,
+            0,
+            executable_size,
+            0,
+            executable_size,
+            5,
+            5,
+            0,
+            0,
+        )
+        entry = struct.pack("<IIQQ", 0x80000028, 24, 128, 0)
+        binary_tokens = b"\0".join(
+            token.encode("utf-8")
+            for token in (
+                identity,
+                VERIFY.PSSM_REPORT_SCHEMA,
+                "--media-root",
+                "PSSM_3_CASCADE_V1",
+                VERIFY.PSSM_UNSUPPORTED_DETAIL,
+                "Metal Rendering Subsystem",
+            )
+        )
+        executable = header + segment + entry + binary_tokens
+        executable += b"\0" * (executable_size - len(executable))
+        executable_path.write_bytes(executable)
+        executable_path.chmod(0o755)
 
     def write_rt4(self, root: Path, contract: dict[str, object]) -> None:
         width = 192
@@ -895,12 +1064,16 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             self.write_baseline(root)
             manifest = VERIFY.verify_artifact_set(root)
             self.assertEqual(
-                [entry["path"] for entry in manifest][:-1],
-                list(VERIFY.REQUIRED_ARTIFACTS),
-            )
-            self.assertEqual(
-                manifest[-1]["path"],
-                "ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke",
+                [entry["path"] for entry in manifest],
+                [
+                    *VERIFY.REQUIRED_ARTIFACTS,
+                    "bin/ror_ogre_next_pssm_shadow_smoke",
+                    VERIFY.PSSM_EVIDENCE_ARTIFACT,
+                    (
+                        "ror-ogre-next-n1-package/bin/"
+                        "ror_ogre_next_frontend_n1_smoke"
+                    ),
+                ],
             )
             missing = root / VERIFY.REQUIRED_ARTIFACTS[-1]
             missing.unlink()
@@ -913,6 +1086,76 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             self.write_baseline(root)
             (root / VERIFY.REQUIRED_ARTIFACTS[0]).write_bytes(b"")
             with self.assertRaisesRegex(VERIFY.ArtifactSetError, "empty"):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rejects_duplicate_json_object_keys(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-duplicate-json-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            report_path = root / VERIFY.PSSM_REPORT_ARTIFACT
+            payload = report_path.read_text(encoding="utf-8").replace(
+                '"status": "pass",',
+                '"status": "pass", "status": "pass",',
+                1,
+            )
+            report_path.write_text(payload, encoding="utf-8")
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "duplicate JSON object key"
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_pssm_gate_binds_distant_evidence_bytes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-pssm-evidence-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            evidence_path = root / VERIFY.PSSM_EVIDENCE_ARTIFACT
+            payload = bytearray(evidence_path.read_bytes())
+            payload[-1] ^= 1
+            evidence_path.write_bytes(payload)
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "PSSM evidence slice mismatch"
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_pssm_unsupported_requires_exact_capability_evidence(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-pssm-unsupported-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            report_path = root / VERIFY.PSSM_REPORT_ARTIFACT
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            unsupported = {
+                "schema": VERIFY.PSSM_REPORT_SCHEMA,
+                "status": "unsupported",
+                "provenance": report["provenance"],
+                "platform_policy": report["platform_policy"],
+                "renderer": report["renderer"],
+                "capability_evidence": {
+                    "code": "PSSM_REQUIRED_NATIVE_CAPABILITY_MISSING",
+                    "reason": VERIFY.PSSM_UNSUPPORTED_DETAIL,
+                    "required_atlas_width": 2048,
+                    "required_atlas_height": 3072,
+                    "required_format": "D32_FLOAT",
+                    "required_filter": "PCF_4x4_TEXTURE_GATHER",
+                    "observed_maximum_texture_dimension": 16384,
+                    "atlas_dimensions_supported": True,
+                    "texture_gather_supported": False,
+                    "d32_render_target_supported": True,
+                },
+                "backend_substitution": False,
+            }
+            report_path.write_text(
+                json.dumps(unsupported) + "\n", encoding="utf-8"
+            )
+            (root / VERIFY.PSSM_EVIDENCE_ARTIFACT).unlink()
+            VERIFY.verify_artifact_set(root)
+            unsupported["capability_evidence"]["reason"] = "arbitrary skip"
+            report_path.write_text(
+                json.dumps(unsupported) + "\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError,
+                "unsupported capability evidence is not exact",
+            ):
                 VERIFY.verify_artifact_set(root)
 
     def test_rt4_gate_recomputes_report_semantics_after_reattestation(self) -> None:

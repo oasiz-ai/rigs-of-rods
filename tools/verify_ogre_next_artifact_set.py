@@ -27,6 +27,15 @@ REQUIRED_ARTIFACTS = (
     "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin",
     "ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin",
     "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json",
+    "ror-ogre-next-pssm-shadow-report.json",
+)
+PSSM_REPORT_ARTIFACT = "ror-ogre-next-pssm-shadow-report.json"
+PSSM_EVIDENCE_ARTIFACT = "ror-ogre-next-pssm-shadow-isolation.bin"
+PSSM_EXECUTABLE_STEM = "ror_ogre_next_pssm_shadow_smoke"
+PSSM_REPORT_SCHEMA = "ror.ogre_next_pssm_shadow_smoke.v2"
+PSSM_UNSUPPORTED_DETAIL = (
+    "PSSM_3_CASCADE_V1 native capability gate rejected the required atlas "
+    "or PCF4 support"
 )
 RT4_REPORT_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1-report.json"
 RT4_PPM_ARTIFACT = "ror-ogre-next-frontend-rt4-pbr-v1.ppm"
@@ -339,8 +348,21 @@ def sha256_file(path: Path) -> str:
 
 
 def _read_json_object(path: Path, label: str) -> dict[str, object]:
+    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ArtifactSetError(
+                    f"invalid {label}: duplicate JSON object key {key!r}"
+                )
+            result[key] = value
+        return result
+
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
     except (OSError, json.JSONDecodeError) as error:
         raise ArtifactSetError(f"invalid {label}: {error}") from error
     if not isinstance(value, dict):
@@ -1976,6 +1998,531 @@ def _verify_rt4(
     )
 
 
+def _number_matches(value: object, expected: float) -> bool:
+    return (
+        type(value) in (int, float)
+        and math.isfinite(float(value))
+        and math.isclose(float(value), expected, rel_tol=1.0e-7, abs_tol=1.0e-7)
+    )
+
+
+def _expected_pssm_provenance(
+    build_contract: dict[str, object], report: dict[str, object]
+) -> dict[str, object]:
+    source = build_contract["ror_source"]
+    ogre = build_contract["provenance"]
+    provenance = report.get("provenance")
+    if not all(isinstance(value, dict) for value in (source, ogre, provenance)):
+        raise ArtifactSetError("PSSM provenance inputs are missing")
+    return {
+        "ror_repository": source.get("repository"),
+        "ror_ref": source.get("ref"),
+        "ror_commit": source.get("commit"),
+        "ror_relevant_source_manifest_sha256": source.get(
+            "relevant_manifest_sha256"
+        ),
+        "ogre_next_commit": ogre.get("commit"),
+        "ogre_next_archive_sha256": ogre.get("archive_sha256"),
+        "shader_media_manifest_sha256": provenance.get(
+            "shader_media_manifest_sha256"
+        ),
+        "executable_build_identity": _expected_rt4_build_identity(
+            build_contract, report
+        ),
+    }
+
+
+def _verify_pssm_executable(
+    path: Path,
+    build_contract: dict[str, object],
+    report: dict[str, object],
+) -> None:
+    size = path.stat().st_size
+    if size < 64 * 1024 or size > 512 * 1024 * 1024:
+        raise ArtifactSetError("PSSM executable byte count is structurally implausible")
+    try:
+        payload = path.read_bytes()
+    except OSError as error:
+        raise ArtifactSetError(f"could not read PSSM executable: {error}") from error
+    policy_name = build_contract["platform"]["policy"]
+    policy = PLATFORM_CONTRACTS[policy_name]
+    verifier = {
+        "mach-o-64": _verify_mach_o_64,
+        "pe32+": _verify_pe32_plus,
+        "elf64": _verify_elf64,
+    }[policy["binary_format"]]
+    expected_structure = {
+        "format": policy["binary_format"],
+        "architecture": policy["binary_architecture"],
+    }
+    if verifier(payload) != expected_structure:
+        raise ArtifactSetError("PSSM executable platform structure mismatch")
+    if policy["binary_format"] in ("mach-o-64", "elf64") and (
+        path.stat().st_mode & 0o111 == 0
+    ):
+        raise ArtifactSetError("PSSM packaged executable has no execute permission")
+    identity = _expected_rt4_build_identity(build_contract, report)
+    if payload.count(identity.encode()) != 1:
+        raise ArtifactSetError("PSSM executable build identity is missing or ambiguous")
+    required_tokens = (
+        PSSM_REPORT_SCHEMA,
+        "--media-root",
+        "PSSM_3_CASCADE_V1",
+        PSSM_UNSUPPORTED_DETAIL,
+        policy["renderer_name"],
+    )
+    missing = [token for token in required_tokens if token.encode() not in payload]
+    if missing:
+        raise ArtifactSetError("PSSM executable contract strings are incomplete")
+
+
+def _pssm_pair_metrics(
+    baseline: bytes,
+    shadowed: bytes,
+    *,
+    hdr: bool,
+    receiver: tuple[int, int, int, int],
+    occluder: tuple[int, int, int, int],
+) -> tuple[int, int]:
+    width = 192
+    height = 128
+    bytes_per_pixel = 8 if hdr else 4
+    expected_bytes = width * height * bytes_per_pixel
+    if len(baseline) != expected_bytes or len(shadowed) != expected_bytes:
+        raise ArtifactSetError("PSSM evidence pair extent is invalid")
+    changed = 0
+    darkened = 0
+    for pixel_index in range(width * height):
+        offset = pixel_index * bytes_per_pixel
+        left = baseline[offset : offset + bytes_per_pixel]
+        right = shadowed[offset : offset + bytes_per_pixel]
+        if hdr:
+            left_channels = struct.unpack("<4e", left)
+            right_channels = struct.unpack("<4e", right)
+            if not all(
+                math.isfinite(channel)
+                for channel in left_channels + right_channels
+            ):
+                raise ArtifactSetError("PSSM HDR evidence contains non-finite data")
+            left_luminance = (
+                0.2126 * left_channels[0]
+                + 0.7152 * left_channels[1]
+                + 0.0722 * left_channels[2]
+            )
+            right_luminance = (
+                0.2126 * right_channels[0]
+                + 0.7152 * right_channels[1]
+                + 0.0722 * right_channels[2]
+            )
+        else:
+            left_luminance = 0.2126 * left[0] + 0.7152 * left[1] + 0.0722 * left[2]
+            right_luminance = (
+                0.2126 * right[0] + 0.7152 * right[1] + 0.0722 * right[2]
+            )
+        if left == right:
+            continue
+        changed += 1
+        x = pixel_index % width
+        y = pixel_index // width
+        in_receiver = receiver[0] <= x <= receiver[1] and receiver[2] <= y <= receiver[3]
+        in_occluder = occluder[0] <= x <= occluder[1] and occluder[2] <= y <= occluder[3]
+        if not in_receiver or in_occluder:
+            raise ArtifactSetError("PSSM visual change escaped its reviewed receiver region")
+        if right_luminance < left_luminance:
+            darkened += 1
+    if changed < 16 or darkened * 10 < changed * 9:
+        raise ArtifactSetError("PSSM evidence has no isolated receiver-local shadow")
+    return changed, darkened
+
+
+def _verify_pssm_pass(
+    root: Path,
+    report: dict[str, object],
+    manifest: list[dict[str, object]],
+) -> None:
+    _require_exact_keys(
+        report,
+        {
+            "schema",
+            "status",
+            "provenance",
+            "platform_policy",
+            "renderer",
+            "shadow_contract",
+            "isolation",
+            "distant_cascade_proof",
+            "lifecycle",
+            "evidence",
+        },
+        "PSSM pass report",
+    )
+    shadow_contract = _require_exact_keys(
+        report.get("shadow_contract"),
+        {
+            "version",
+            "mode",
+            "cascade_count",
+            "split_points_m",
+            "blend_points_m",
+            "fade_point_m",
+            "atlas",
+            "filter",
+            "programmatic_compositor2",
+            "ui_included",
+            "backend_substitution",
+            "split_stable_tangent_projection",
+            "native_definition_split_and_runtime_bias_readback",
+            "runtime_normal_offset_bias",
+        },
+        "PSSM shadow contract",
+    )
+    expected_splits = (0.5, 7.81633186, 45.2411156, 350.0)
+    expected_blends = (6.90179062, 40.5630188)
+    splits = shadow_contract.get("split_points_m")
+    blends = shadow_contract.get("blend_points_m")
+    biases = shadow_contract.get("runtime_normal_offset_bias")
+    contract_checks = {
+        "version": _json_exact(shadow_contract.get("version"), 1),
+        "mode": shadow_contract.get("mode") == "PSSM_3_CASCADE_V1",
+        "cascade_count": _json_exact(shadow_contract.get("cascade_count"), 3),
+        "splits": isinstance(splits, list)
+        and len(splits) == 4
+        and all(_number_matches(value, expected) for value, expected in zip(splits, expected_splits)),
+        "blends": isinstance(blends, list)
+        and len(blends) == 2
+        and all(_number_matches(value, expected) for value, expected in zip(blends, expected_blends)),
+        "fade": _number_matches(shadow_contract.get("fade_point_m"), 254.610474),
+        "atlas": _json_exact(
+            shadow_contract.get("atlas"),
+            {"format": "D32_FLOAT", "width": 2048, "height": 3072},
+        ),
+        "filter": shadow_contract.get("filter") == "PCF_4x4",
+        "compositor": shadow_contract.get("programmatic_compositor2") is True,
+        "ui_free": shadow_contract.get("ui_included") is False,
+        "native": shadow_contract.get("backend_substitution") is False
+        and shadow_contract.get("split_stable_tangent_projection") is True
+        and shadow_contract.get(
+            "native_definition_split_and_runtime_bias_readback"
+        )
+        is True,
+        "biases": isinstance(biases, list)
+        and len(biases) == 3
+        and all(
+            type(value) in (int, float)
+            and math.isfinite(float(value))
+            and float(value) >= 168.0
+            for value in biases
+        ),
+    }
+    failed_contract = sorted(
+        name for name, passed in contract_checks.items() if not passed
+    )
+    if failed_contract:
+        raise ArtifactSetError(
+            "PSSM shadow contract mismatch: " + ", ".join(failed_contract)
+        )
+
+    isolation = _require_exact_keys(
+        report.get("isolation"),
+        {
+            "controlled_visual_change",
+            "nonvisual_snapshot_identity_changed",
+            "changed_pixels_outside_reviewed_receiver_region",
+            "changed_pixels_inside_reviewed_occluder_region",
+            "hdr_changed_receiver_pixels",
+            "hdr_darkened_receiver_pixels",
+            "sdr_changed_receiver_pixels",
+            "sdr_darkened_receiver_pixels",
+            "normalized_visibility_mask_0x1_verified",
+            "shadow_disabled_default_equals_explicit",
+            "shadow_disabled_exact_fnv1a64",
+        },
+        "PSSM isolation",
+    )
+    isolation_controls = {
+        "controlled_change": isolation.get("controlled_visual_change")
+        == "occluder_instance_casts_shadow",
+        "snapshot_identity_disclosed": isolation.get(
+            "nonvisual_snapshot_identity_changed"
+        )
+        is True,
+        "receiver_only": _json_exact(
+            isolation.get("changed_pixels_outside_reviewed_receiver_region"), 0
+        )
+        and _json_exact(
+            isolation.get("changed_pixels_inside_reviewed_occluder_region"), 0
+        ),
+        "mask": isolation.get("normalized_visibility_mask_0x1_verified") is True,
+        "disabled": isolation.get("shadow_disabled_default_equals_explicit")
+        is True,
+        "disabled_hash": isinstance(
+            isolation.get("shadow_disabled_exact_fnv1a64"), str
+        )
+        and re.fullmatch(
+            r"[0-9a-f]{16}", isolation["shadow_disabled_exact_fnv1a64"]
+        )
+        is not None,
+    }
+    failed_isolation = sorted(
+        name for name, passed in isolation_controls.items() if not passed
+    )
+    if failed_isolation:
+        raise ArtifactSetError(
+            "PSSM isolation controls failed: " + ", ".join(failed_isolation)
+        )
+
+    lifecycle = _require_exact_keys(
+        report.get("lifecycle"),
+        {
+            "shadow_frames_completed",
+            "shadow_node_creates",
+            "shadow_node_destroys",
+            "workspace_node_definition_creates",
+            "workspace_node_definition_destroys",
+            "receiver_datablock_creates",
+            "receiver_datablock_destroys",
+            "receiver_clone_same_frame_retry_verified",
+            "workspace_node_same_frame_retry_verified",
+        },
+        "PSSM lifecycle",
+    )
+    if not _json_exact(
+        lifecycle,
+        {
+            "shadow_frames_completed": 8,
+            "shadow_node_creates": 8,
+            "shadow_node_destroys": 8,
+            "workspace_node_definition_creates": 8,
+            "workspace_node_definition_destroys": 8,
+            "receiver_datablock_creates": 8,
+            "receiver_datablock_destroys": 8,
+            "receiver_clone_same_frame_retry_verified": True,
+            "workspace_node_same_frame_retry_verified": True,
+        },
+    ):
+        raise ArtifactSetError("PSSM lifecycle and transactional retry proof is invalid")
+
+    evidence = _require_exact_keys(
+        report.get("evidence"),
+        {
+            "file",
+            "bytes",
+            "hdr_no_occluder_fnv1a64",
+            "hdr_occluder_fnv1a64",
+            "sdr_no_occluder_fnv1a64",
+            "sdr_occluder_fnv1a64",
+            "cascade_2_sdr_no_occluder_fnv1a64",
+            "cascade_2_sdr_occluder_fnv1a64",
+            "cascade_3_sdr_no_occluder_fnv1a64",
+            "cascade_3_sdr_occluder_fnv1a64",
+        },
+        "PSSM evidence metadata",
+    )
+    evidence_path = root / PSSM_EVIDENCE_ARTIFACT
+    if evidence_path.is_symlink() or not evidence_path.is_file():
+        raise ArtifactSetError(f"missing: {PSSM_EVIDENCE_ARTIFACT}")
+    try:
+        payload = evidence_path.read_bytes()
+    except OSError as error:
+        raise ArtifactSetError(f"could not read PSSM evidence: {error}") from error
+    if evidence.get("file") != PSSM_EVIDENCE_ARTIFACT or not _json_exact(
+        evidence.get("bytes"), len(payload)
+    ):
+        raise ArtifactSetError("PSSM evidence identity or byte count is invalid")
+    segment_specs = (
+        ("hdr_no_occluder_fnv1a64", 192 * 128 * 8),
+        ("hdr_occluder_fnv1a64", 192 * 128 * 8),
+        ("sdr_no_occluder_fnv1a64", 192 * 128 * 4),
+        ("sdr_occluder_fnv1a64", 192 * 128 * 4),
+        ("cascade_2_sdr_no_occluder_fnv1a64", 192 * 128 * 4),
+        ("cascade_2_sdr_occluder_fnv1a64", 192 * 128 * 4),
+        ("cascade_3_sdr_no_occluder_fnv1a64", 192 * 128 * 4),
+        ("cascade_3_sdr_occluder_fnv1a64", 192 * 128 * 4),
+    )
+    slices: list[bytes] = []
+    offset = 0
+    for field, size in segment_specs:
+        segment = payload[offset : offset + size]
+        if len(segment) != size or evidence.get(field) != _fnv1a64(segment):
+            raise ArtifactSetError(f"PSSM evidence slice mismatch: {field}")
+        slices.append(segment)
+        offset += size
+    if offset != len(payload):
+        raise ArtifactSetError("PSSM evidence has trailing bytes")
+    near_region = (34, 158, 18, 110)
+    near_occluder = (80, 111, 48, 79)
+    off_axis_region = (68, 191, 18, 110)
+    off_axis_occluder = (192, 192, 128, 128)
+    hdr_metrics = _pssm_pair_metrics(
+        slices[0], slices[1], hdr=True, receiver=near_region, occluder=near_occluder
+    )
+    sdr_metrics = _pssm_pair_metrics(
+        slices[2], slices[3], hdr=False, receiver=near_region, occluder=near_occluder
+    )
+    reported_near = (
+        isolation.get("hdr_changed_receiver_pixels"),
+        isolation.get("hdr_darkened_receiver_pixels"),
+        isolation.get("sdr_changed_receiver_pixels"),
+        isolation.get("sdr_darkened_receiver_pixels"),
+    )
+    if not all(
+        _json_exact(reported, computed)
+        for reported, computed in zip(reported_near, hdr_metrics + sdr_metrics)
+    ):
+        raise ArtifactSetError("PSSM near-cascade report differs from evidence")
+
+    distant = report.get("distant_cascade_proof")
+    if not isinstance(distant, list) or len(distant) != 2:
+        raise ArtifactSetError("PSSM distant-cascade proof is missing")
+    expected_distant = ((1, 20.0, 12.5), (2, 100.0, 62.5))
+    for index, (entry, expected) in enumerate(zip(distant, expected_distant)):
+        entry = _require_exact_keys(
+            entry,
+            {
+                "cascade_index",
+                "receiver_depth_m",
+                "occluder_depth_m",
+                "off_axis",
+                "sdr_changed_receiver_pixels",
+                "sdr_darkened_receiver_pixels",
+            },
+            f"PSSM distant cascade {index + 2}",
+        )
+        computed = _pssm_pair_metrics(
+            slices[4 + index * 2],
+            slices[5 + index * 2],
+            hdr=False,
+            receiver=off_axis_region,
+            occluder=off_axis_occluder,
+        )
+        if not (
+            _json_exact(entry.get("cascade_index"), expected[0])
+            and _number_matches(entry.get("receiver_depth_m"), expected[1])
+            and _number_matches(entry.get("occluder_depth_m"), expected[2])
+            and entry.get("off_axis") is True
+            and _json_exact(entry.get("sdr_changed_receiver_pixels"), computed[0])
+            and _json_exact(entry.get("sdr_darkened_receiver_pixels"), computed[1])
+        ):
+            raise ArtifactSetError("PSSM distant-cascade report differs from evidence")
+    manifest.append(
+        {
+            "path": PSSM_EVIDENCE_ARTIFACT,
+            "bytes": evidence_path.stat().st_size,
+            "sha256": sha256_file(evidence_path),
+        }
+    )
+
+
+def _verify_pssm(
+    root: Path,
+    manifest: list[dict[str, object]],
+    build_contract: dict[str, object],
+) -> None:
+    report_path = root / PSSM_REPORT_ARTIFACT
+    report = _read_json_object(report_path, "PSSM report")
+    if report.get("schema") != PSSM_REPORT_SCHEMA:
+        raise ArtifactSetError("PSSM report schema is invalid")
+    provenance = _require_exact_keys(
+        report.get("provenance"),
+        {
+            "ror_repository",
+            "ror_ref",
+            "ror_commit",
+            "ror_relevant_source_manifest_sha256",
+            "ogre_next_commit",
+            "ogre_next_archive_sha256",
+            "shader_media_manifest_sha256",
+            "executable_build_identity",
+        },
+        "PSSM provenance",
+    )
+    if not _is_sha256(provenance.get("shader_media_manifest_sha256")):
+        raise ArtifactSetError("PSSM shader-media manifest identity is invalid")
+    if not _json_exact(
+        provenance, _expected_pssm_provenance(build_contract, report)
+    ):
+        raise ArtifactSetError("PSSM report provenance mismatch")
+    platform_name = build_contract["platform"]["policy"]
+    policy = PLATFORM_CONTRACTS[platform_name]
+    if (
+        report.get("platform_policy") != platform_name
+        or report.get("renderer") != policy["renderer_name"]
+    ):
+        raise ArtifactSetError("PSSM platform or renderer identity mismatch")
+    executable_suffix = ".exe" if platform_name == "windows-x64-d3d11" else ""
+    executable_relative = f"bin/{PSSM_EXECUTABLE_STEM}{executable_suffix}"
+    executable_path = root / executable_relative
+    if executable_path.is_symlink() or not executable_path.is_file():
+        raise ArtifactSetError(f"missing: {executable_relative}")
+    _verify_pssm_executable(executable_path, build_contract, report)
+    manifest.append(
+        {
+            "path": executable_relative,
+            "bytes": executable_path.stat().st_size,
+            "sha256": sha256_file(executable_path),
+        }
+    )
+    status = report.get("status")
+    if status == "pass":
+        _verify_pssm_pass(root, report, manifest)
+        return
+    if status != "unsupported":
+        raise ArtifactSetError("PSSM report did not pass or fail closed")
+    _require_exact_keys(
+        report,
+        {
+            "schema",
+            "status",
+            "provenance",
+            "platform_policy",
+            "renderer",
+            "capability_evidence",
+            "backend_substitution",
+        },
+        "PSSM unsupported report",
+    )
+    capability = _require_exact_keys(
+        report.get("capability_evidence"),
+        {
+            "code",
+            "reason",
+            "required_atlas_width",
+            "required_atlas_height",
+            "required_format",
+            "required_filter",
+            "observed_maximum_texture_dimension",
+            "atlas_dimensions_supported",
+            "texture_gather_supported",
+            "d32_render_target_supported",
+        },
+        "PSSM unsupported capability evidence",
+    )
+    maximum = capability.get("observed_maximum_texture_dimension")
+    booleans = (
+        capability.get("atlas_dimensions_supported"),
+        capability.get("texture_gather_supported"),
+        capability.get("d32_render_target_supported"),
+    )
+    unsupported_valid = (
+        capability.get("code") == "PSSM_REQUIRED_NATIVE_CAPABILITY_MISSING"
+        and capability.get("reason") == PSSM_UNSUPPORTED_DETAIL
+        and _json_exact(capability.get("required_atlas_width"), 2048)
+        and _json_exact(capability.get("required_atlas_height"), 3072)
+        and capability.get("required_format") == "D32_FLOAT"
+        and capability.get("required_filter") == "PCF_4x4_TEXTURE_GATHER"
+        and type(maximum) is int
+        and maximum > 0
+        and all(type(value) is bool for value in booleans)
+        and booleans[0] is (maximum >= 3072)
+        and not all(booleans)
+        and report.get("backend_substitution") is False
+    )
+    if not unsupported_valid:
+        raise ArtifactSetError("PSSM unsupported capability evidence is not exact")
+    if (root / PSSM_EVIDENCE_ARTIFACT).exists():
+        raise ArtifactSetError("unsupported PSSM report retained stale pass evidence")
+
+
 def _metal_n3_image_metrics(payload: bytes) -> dict[str, int | float | str]:
     width = 96
     height = 64
@@ -2465,6 +3012,7 @@ def verify_artifact_set(
         expected_commit=expected_ror_commit,
     )
     build_contract = _read_build_contract(root, expected_source)
+    _verify_pssm(root, manifest, build_contract)
     _verify_rt4(root, manifest, build_contract)
     if verify_metal_n2_evidence:
         _verify_metal_n2(root, manifest, build_contract)

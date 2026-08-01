@@ -45,6 +45,26 @@
       "sha256": "3b1092cb91e474024bf54a4d652a6eea563e9cfc661f309526a3df0edd614db6"
     },
     {
+      "role": "frustum_projection_api",
+      "path": "OgreMain/include/OgreFrustum.h",
+      "sha256": "2190a33a9e2ac6d02ddf9c489c896ec5cf4a8d312fee21aa4a48f6911830592a"
+    },
+    {
+      "role": "frustum_projection_runtime",
+      "path": "OgreMain/src/OgreFrustum.cpp",
+      "sha256": "bf30730334c35699560f1a86f726da2efdfe82e8ed2bf8086e888a24c7aef91f"
+    },
+    {
+      "role": "compositor_node_definition_api",
+      "path": "OgreMain/include/Compositor/OgreCompositorManager2.h",
+      "sha256": "15ec1d5da64751c65493749c924d884abaf77079e3f5ff2e4bdb88e7855c1175"
+    },
+    {
+      "role": "compositor_node_definition_lifecycle",
+      "path": "OgreMain/src/Compositor/OgreCompositorManager2.cpp",
+      "sha256": "186133a9a12e1594858b78dbcbb395510f0d22751cad26c4458587e09cf609e3"
+    },
+    {
       "role": "pssm_split_api",
       "path": "OgreMain/include/OgreShadowCameraSetupPSSM.h",
       "sha256": "2dbeb4fda12164d1877e5fc69e39d4b9f7667487b0d341d0e1fbcbdc01f84324"
@@ -103,6 +123,26 @@
       "role": "pbs_receive_shadow_runtime",
       "path": "Components/Hlms/Pbs/src/OgreHlmsPbsDatablock.cpp",
       "sha256": "e4847c5b267039350999ce18ed6b0158df35ef005dc62b07f7142b7f26381a50"
+    },
+    {
+      "role": "hlms_datablock_clone_api",
+      "path": "OgreMain/include/OgreHlmsDatablock.h",
+      "sha256": "4574284b9c0375cf3e8df559fd942550d1abab801eb1ded4c19470c85017b9fb"
+    },
+    {
+      "role": "hlms_datablock_clone_runtime",
+      "path": "OgreMain/src/OgreHlmsDatablock.cpp",
+      "sha256": "28f929e807266ccc16ae0df9f7101ab3176adbe05a10e0113cee28df459b634c"
+    },
+    {
+      "role": "hlms_datablock_owner_api",
+      "path": "OgreMain/include/OgreHlms.h",
+      "sha256": "544f17e850c7e1da1344c2a5450d943eec384e4994028d66ac65298000b3c805"
+    },
+    {
+      "role": "hlms_datablock_owner_runtime",
+      "path": "OgreMain/src/OgreHlms.cpp",
+      "sha256": "e8b42404dcaa813b688da12f74e0b0420ca30a00dca06d8fdcf368df38e301e6"
     },
     {
       "role": "shared_shadow_math",
