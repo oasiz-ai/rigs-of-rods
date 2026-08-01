@@ -1,0 +1,70 @@
+{
+  "schema": "ror.ogre_next_probe_evidence.v1",
+  "result": "pass",
+  "observed_at_utc": "2026-08-01T00:10:54Z",
+  "scope": "standalone OGRE-Next renderer, HLMS PBS, and Compositor2 dependency admission probe",
+  "provenance": {
+    "repository": "https://github.com/RigsOfRods/rigs-of-rods",
+    "base_commit": "92e67584c5c0fd00a879ab800c87da3fff57a8ee",
+    "branch": "codex/ogre-next-probe-v1",
+    "source_path": "tools/ogre_next_probe/src/main.cpp",
+    "source_sha256": "d4640272e5e812954d17edb7a58be5798c31ea587608728b37603f817ef47dd1",
+    "lock_path": "tools/ogre_next_probe/ogre-next.lock.json",
+    "lock_sha256": "322f08d3bb64c5d7a71e8c05cf43b5d1fbeda22423b22b765e336bdebbcb584d",
+    "ogre_next_repository": "https://github.com/OGRECave/ogre-next",
+    "ogre_next_branch": "v3-0",
+    "ogre_next_commit": "37149a802de747f6806996fa3067b0748ecc1084",
+    "ogre_next_archive_sha256": "1c0be064474da512606d02543be2630b36cdf99f359a9f23edc97eeb410e25b2",
+    "adaptation_patch_sha256": "84916d0d1abf61a15d19d2c89a7d9b1a445f1a37a5067a9f8b558395fe10ead1",
+    "build_artifact_path": "/private/tmp/ror-ogre-next-probe.fsDSyC/build5/bin/ror_ogre_next_probe",
+    "build_artifact_sha256": "c2dc9878d569dce97b6f66a46725e1966cb336b82965226c9593c06120fe5cca",
+    "build_contract_sha256": "1c07d3ede28ecc1054ad0581757856f6c354cd2ff912b534e8349ede39cdea6d",
+    "runtime_report_sha256": "191498993b408b5fe871e83cb631d0f3079d6b33581592b947b951015ba182b5",
+    "build_command": "python3 tools/run_ogre_next_probe.py --build-dir /private/tmp/ror-ogre-next-probe.fsDSyC/build5 --ogre-archive /private/tmp/ogre-next-37149a802de747f6806996fa3067b0748ecc1084.tar.gz --rapidjson-archive /private/tmp/rapidjson-v1.1.0.tar.gz --jobs 8"
+  },
+  "host": {
+    "os": "macOS 26.4.1",
+    "os_build": "25E253",
+    "architecture": "arm64",
+    "xcode": "26.6 (17F113)",
+    "compiler": "Apple clang 21.0.0 (clang-2100.1.1.101)",
+    "sdk": "macOS 26.5",
+    "cmake": "4.4.0",
+    "ninja": "1.13.2",
+    "metal_device_name": "Apple M5"
+  },
+  "abi": {
+    "cookie": "46a34938ff9e3014046d5cf993e7fcb3",
+    "cxx_standard": 17,
+    "pointer_bits": 64,
+    "static_link": true,
+    "double_precision": false,
+    "thread_support": 0,
+    "id_string_bits": 32,
+    "simd_alignment": 16,
+    "use_simd": 1
+  },
+  "capabilities": {
+    "renderer_target": "RenderSystem_Metal",
+    "renderer_name": "Metal Rendering Subsystem",
+    "registered_renderer_count": 1,
+    "configuration_option_count": 3,
+    "hlms_pbs_shader_data_path": "Hlms/Pbs/Metal",
+    "hlms_pbs_library_path_count": 4,
+    "compositor2_compiled_and_linked": true,
+    "compositor2_runtime_initialization": "deferred_until_real_window",
+    "native_ray_tracing": "not_evaluated"
+  },
+  "tests": {
+    "offline_contract_tests": "9 passed under normal Python and 9 passed under python -O",
+    "ctest": "1 of 1 passed",
+    "runtime_exit_code": 0
+  },
+  "limitations": [
+    "This proves dependency admission and runtime renderer registration on the recorded Apple M5 only.",
+    "It does not create a native window, execute a Compositor2 workspace, or render a frame.",
+    "It does not consume Rigs of Rods scene, mesh, material, UI, or physics state.",
+    "Windows x64 Direct3D 11 and Linux x86_64 Vulkan builds remain unexecuted.",
+    "It does not evaluate or claim native ray tracing."
+  ]
+}

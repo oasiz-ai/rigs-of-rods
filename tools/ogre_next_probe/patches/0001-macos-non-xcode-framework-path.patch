@@ -1,0 +1,32 @@
+diff --git a/OgreMain/CMakeLists.txt b/OgreMain/CMakeLists.txt
+index d22bdfdaf..50b49949b 100644
+--- a/OgreMain/CMakeLists.txt
++++ b/OgreMain/CMakeLists.txt
+@@ -429 +429,5 @@ if (APPLE)
+-    set(OGRE_OSX_BUILD_CONFIGURATION "$(PLATFORM_NAME)/$(CONFIGURATION)")
++    if(CMAKE_GENERATOR STREQUAL "Xcode")
++      set(OGRE_OSX_BUILD_CONFIGURATION "$(PLATFORM_NAME)/$(CONFIGURATION)")
++    else()
++      set(OGRE_OSX_BUILD_CONFIGURATION "${CMAKE_CFG_INTDIR}")
++    endif()
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 87acf002d..9d62d550d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -390,5 +390,11 @@ elseif(EMSCRIPTEN)
+-  if(CMAKE_GENERATOR STREQUAL "Unix Makefiles")
+-    execute_process(COMMAND xcodebuild -version -sdk "${XCODE_ATTRIBUTE_SDKROOT}" Path | head -n 1 OUTPUT_VARIABLE CMAKE_OSX_SYSROOT)
+-    string(REGEX REPLACE "(\r?\n)+$" "" CMAKE_OSX_SYSROOT "${CMAKE_OSX_SYSROOT}")
+-  else()
++  if(CMAKE_GENERATOR STREQUAL "Xcode")
++    set(CMAKE_OSX_SYSROOT macosx)
++  else()
++    execute_process(
++      COMMAND xcrun --sdk macosx --show-sdk-path
++      RESULT_VARIABLE OGRE_MACOS_SDK_RESULT
++      OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
++      OUTPUT_STRIP_TRAILING_WHITESPACE)
++    if(NOT OGRE_MACOS_SDK_RESULT EQUAL 0 OR NOT IS_ABSOLUTE "${CMAKE_OSX_SYSROOT}")
++      message(FATAL_ERROR "Could not resolve the macOS SDK for a non-Xcode build")
++    endif()
+-    set(CMAKE_OSX_SYSROOT macosx)

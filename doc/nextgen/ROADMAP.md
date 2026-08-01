@@ -1051,6 +1051,14 @@ Gate R1:
   HDR target contribute to a real UI-free RoR frame.
 - Ogre-Next `v3.0.0` is evaluated as an exact pin on macOS arm64, Windows
   x86_64, and Linux x86_64; development `master` is not a shipping dependency.
+- The first isolated dependency checkpoint now pins `v3-0` commit
+  `37149a802de747f6806996fa3067b0748ecc1084`, verifies archive/license/patch
+  hashes, and leaves the RoR/OGRE 14 graph untouched. Its native macOS arm64
+  executable registered Metal, linked HLMS PBS with the Metal shader family,
+  and compiled Compositor2 while explicitly reporting native RT as not
+  evaluated. Windows D3D11, Linux Vulkan, a real window/frame, and RoR scene
+  interop remain open gates; see the
+  [isolated integration checkpoint](OGRE_NEXT_INTEGRATION.md).
 - macOS first renders a measured RT contribution in a real UI-free RoR frame
   on Apple family 9 or newer. M1/M2 and unsupported OS versions retain the
   complete Ogre-Next raster fallback.
