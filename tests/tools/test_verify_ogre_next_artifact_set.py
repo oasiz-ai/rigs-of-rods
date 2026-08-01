@@ -76,7 +76,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             }
         )
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "ror_source": {
                 "repository": self.ror_repository,
                 "ref": self.ror_ref,
@@ -92,6 +92,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "license_spdx": self.lock["license"]["spdx"],
                 "license_sha256": self.ogre_license,
             },
+            "patches": copy.deepcopy(self.lock["patches"]),
             "dependencies": {
                 "rapidjson": {
                     "tag": rapidjson["tag"],
@@ -104,6 +105,9 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 }
             },
             "shader_media": copy.deepcopy(self.lock["shader_media"]),
+            "reflection_shader_media": copy.deepcopy(
+                self.lock["reflection_shader_media"]
+            ),
             "platform": {
                 "policy": "macos-arm64-metal",
                 "system": "Darwin",

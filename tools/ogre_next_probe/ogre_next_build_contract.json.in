@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "ror_source": {
     "repository": "@ROR_SOURCE_REPOSITORY@",
     "ref": "@ROR_SOURCE_REF@",
@@ -15,6 +15,21 @@
     "license_spdx": "@ROR_OGRE_NEXT_LICENSE_SPDX@",
     "license_sha256": "@ROR_OGRE_NEXT_LICENSE_SHA256@"
   },
+  "patches": [
+    {
+      "path": "@ROR_OGRE_NEXT_PATCH_PATH@",
+      "sha256": "@ROR_OGRE_NEXT_PATCH_SHA256@",
+      "reason": "@ROR_OGRE_NEXT_PATCH_REASON@"
+    },
+    {
+      "path": "@ROR_OGRE_NEXT_IBL_PATCH_PATH@",
+      "sha256": "@ROR_OGRE_NEXT_IBL_PATCH_SHA256@",
+      "reason": "@ROR_OGRE_NEXT_IBL_PATCH_REASON@",
+      "source_path": "@ROR_OGRE_NEXT_IBL_PATCH_SOURCE_PATH@",
+      "source_sha256": "@ROR_OGRE_NEXT_IBL_PATCH_SOURCE_SHA256@",
+      "patched_sha256": "@ROR_OGRE_NEXT_IBL_PATCHED_SHA256@"
+    }
+  ],
   "dependencies": {
     "rapidjson": {
       "tag": "@ROR_RAPIDJSON_TAG@",
@@ -37,6 +52,17 @@
       "paper_reference": "@ROR_OGRE_NEXT_SHADER_MEDIA_PAPER_REFERENCE@",
       "source_and_binary_notice_required": true,
       "paper_reference_required": true
+    }
+  },
+  "reflection_shader_media": {
+    "root": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_ROOT@",
+    "license_expression": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_EXPRESSION@",
+    "third_party_notice": {
+      "license_ref": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_REF@",
+      "source_path": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_SOURCE_PATH@",
+      "source_sha256": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_SOURCE_SHA256@",
+      "package_path": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_PACKAGE_PATH@",
+      "source_and_binary_notice_required": true
     }
   },
   "platform": {

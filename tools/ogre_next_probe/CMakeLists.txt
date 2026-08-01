@@ -104,6 +104,8 @@ set(ROR_OGRE_NEXT_N1_PACKAGE_RAPIDJSON_LICENSE_RELATIVE
     "licenses/RapidJSON-license.txt")
 set(ROR_OGRE_NEXT_N1_PACKAGE_SHADER_NOTICE_RELATIVE
     "licenses/LicenseRef-Heitz-LTC-Paper-Notice.txt")
+set(ROR_OGRE_NEXT_N1_PACKAGE_IBLBAKER_NOTICE_RELATIVE
+    "licenses/IBLBaker.txt")
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/probe_config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_probe_config.h"
@@ -214,8 +216,8 @@ foreach (_ror_reflection_media_relative IN LISTS _ror_reflection_media_files)
 endforeach ()
 list(LENGTH _ror_reflection_media_files
     ROR_OGRE_NEXT_REFLECTION_MEDIA_MANIFEST_COUNT)
-list(GET _ror_reflection_media_files 0
-    ROR_OGRE_NEXT_REFLECTION_MEDIA_TAMPER_RELATIVE)
+set(ROR_OGRE_NEXT_REFLECTION_MEDIA_TAMPER_RELATIVE
+    "Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any")
 string(SHA256 ROR_OGRE_NEXT_REFLECTION_MEDIA_MANIFEST_SHA256
     "${_ror_reflection_media_manifest_serialized}")
 configure_file(
@@ -782,7 +784,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     set(ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE
         "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/bin/$<TARGET_FILE_NAME:ror_ogre_next_frontend_n1_smoke>")
     set(ROR_OGRE_NEXT_N1_PACKAGE_STAMP
-        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v7")
+        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v8")
     set(_ror_n1_package_commands
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
@@ -807,12 +809,19 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
         COMMAND "${CMAKE_COMMAND}" -E compare_files
                 "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
-                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}")
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_IBLBAKER_NOTICE_RELATIVE}"
+        COMMAND "${CMAKE_COMMAND}" -E compare_files
+                "${ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_IBLBAKER_NOTICE_RELATIVE}")
     set(_ror_n1_package_dependencies
         "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
         "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
         "${ROR_OGRE_NEXT_PACKAGE_RAPIDJSON_LICENSE_SOURCE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}")
+        "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+        "${ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE}")
     foreach (_ror_reflection_media_relative IN LISTS
             _ror_reflection_media_files)
         get_filename_component(_ror_reflection_media_directory

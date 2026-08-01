@@ -474,7 +474,10 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_patch_sha256 = (
         "84916d0d1abf61a15d19d2c89a7d9b1a445f1a37a5067a9f8b558395fe10ead1"
     )
-    if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 2:
+    expected_ibl_patch_sha256 = (
+        "2a4792a553a3911db197750ae6e4de2155f7b9604e9bc6d730cc19bba0b1075f"
+    )
+    if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 3:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
         raise ProbeError("OGRE-Next repository contract changed")
@@ -542,6 +545,28 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     if sha256_file(notice_path) != shader_notice["notice_sha256"]:
         raise ProbeError("shader-media notice SHA-256 mismatch")
 
+    expected_reflection_shader_media = {
+        "root": "Samples/Media/Compute/Algorithms/IBL",
+        "license_expression": "LicenseRef-IBLBaker",
+        "third_party_notice": {
+            "license_ref": "LicenseRef-IBLBaker",
+            "source_path": "Docs/licenses/IBLBaker.txt",
+            "source_sha256": (
+                "c66291524d9d111ed44349d4217dda31bdb33c6203a14b2d7682d805c9166a8e"
+            ),
+            "package_path": "licenses/IBLBaker.txt",
+            "source_and_binary_notice_required": True,
+        },
+    }
+    if lock.get("reflection_shader_media") != expected_reflection_shader_media:
+        raise ProbeError(
+            "OGRE-Next reflection-media license contract changed without review"
+        )
+    _require_sha256(
+        expected_reflection_shader_media["third_party_notice"]["source_sha256"],
+        "reflection-media notice hash",
+    )
+
     rapidjson = lock.get("dependencies", {}).get("rapidjson", {})
     if (
         rapidjson.get("repository") != "https://github.com/Tencent/rapidjson"
@@ -562,17 +587,42 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     _require_sha256(rapidjson.get("archive_sha256"), "RapidJSON archive hash")
     _require_sha256(rapidjson.get("license_sha256"), "RapidJSON license hash")
 
+    expected_patches = [
+        {
+            "path": "patches/0001-macos-non-xcode-framework-path.patch",
+            "sha256": expected_patch_sha256,
+            "reason": (
+                "Resolve the macOS SDK and framework staging path correctly "
+                "for non-Xcode generators"
+            ),
+        },
+        {
+            "path": "patches/0005-metal-typed-ibl-uav-conversions.patch",
+            "sha256": expected_ibl_patch_sha256,
+            "reason": (
+                "Use explicit Metal typed-UAV vector conversions for half and "
+                "float IBL targets without changing GLSL or HLSL"
+            ),
+            "source_path": (
+                "Samples/Media/Compute/Algorithms/IBL/"
+                "SpecularIblIntegrator_piece_cs.any"
+            ),
+            "source_sha256": (
+                "68884256ab318116833bf2efe19518833459cc461fb8dd4f8e2c253f8c352165"
+            ),
+            "patched_sha256": (
+                "3ebebc1132c720ee8b741226d41e8638f747a0d5700222d7cb4c8f4e0663fa41"
+            ),
+        },
+    ]
     patches = lock.get("patches")
-    if not isinstance(patches, list) or len(patches) != 1:
+    if patches != expected_patches:
         raise ProbeError("the reviewed OGRE-Next adaptation patch set changed")
-    if patches[0].get("path") != (
-        "patches/0001-macos-non-xcode-framework-path.patch"
-    ):
-        raise ProbeError("the reviewed OGRE-Next adaptation patch path changed")
-    if patches[0].get("sha256") != expected_patch_sha256:
-        raise ProbeError("the reviewed OGRE-Next adaptation patch hash changed")
     for patch in patches:
         _require_sha256(patch.get("sha256"), "adaptation patch hash")
+        if "source_sha256" in patch:
+            _require_sha256(patch["source_sha256"], "adaptation source hash")
+            _require_sha256(patch["patched_sha256"], "adapted source hash")
         patch_path = path.parent / patch["path"]
         if not patch_path.is_file():
             raise ProbeError(f"pinned patch is missing: {patch_path}")
@@ -1100,6 +1150,7 @@ def validate_build_contract(
     compiler = contract.get("compiler", {})
     rapidjson = lock["dependencies"]["rapidjson"]
     shader_media = lock["shader_media"]
+    reflection_shader_media = lock["reflection_shader_media"]
     abi = lock["abi_contract"]
     expected_simd_family = abi["simd"][policy["name"]]
 
@@ -1118,7 +1169,7 @@ def validate_build_contract(
         }
     )
     checks = {
-        "schema_version": contract.get("schema_version") == 2,
+        "schema_version": contract.get("schema_version") == 3,
         "repository": provenance.get("repository") == lock["repository"],
         "branch": provenance.get("branch") == lock["branch"],
         "commit": provenance.get("commit") == lock["commit"],
@@ -1142,6 +1193,9 @@ def validate_build_contract(
         "rapidjson_license_hash": rapidjson_contract.get("license_sha256")
         == rapidjson["license_sha256"],
         "shader_media": contract.get("shader_media") == shader_media,
+        "reflection_shader_media": contract.get("reflection_shader_media")
+        == reflection_shader_media,
+        "patches": contract.get("patches") == lock["patches"],
         "platform_policy": platform_contract.get("policy") == policy["name"],
         "renderer_target": platform_contract.get("renderer_target")
         == policy["renderer_target"],
@@ -2330,6 +2384,7 @@ def validate_n1_package(
 ) -> dict[str, Any]:
     package_root = build_dir / N1_PACKAGE_NAME
     shader_notice = lock["shader_media"]["third_party_notice"]
+    reflection_notice = lock["reflection_shader_media"]["third_party_notice"]
     expected_hashes = {
         Path("licenses/Rigs-of-Rods-GPL-3.0.txt"): sha256_file(
             REPOSITORY_ROOT / "COPYING"
@@ -2339,6 +2394,9 @@ def validate_n1_package(
             "rapidjson"
         ]["license_sha256"],
         Path(shader_notice["notice_path"]): shader_notice["notice_sha256"],
+        Path(reflection_notice["package_path"]): reflection_notice[
+            "source_sha256"
+        ],
     }
     failures: list[str] = []
     for relative_path, expected_hash in expected_hashes.items():
@@ -2985,6 +3043,11 @@ def validate_n1_package_provenance(
         lock["shader_media"]["third_party_notice"]["notice_path"]: lock[
             "shader_media"
         ]["third_party_notice"]["notice_sha256"],
+        lock["reflection_shader_media"]["third_party_notice"][
+            "package_path"
+        ]: lock["reflection_shader_media"]["third_party_notice"][
+            "source_sha256"
+        ],
     }
     expected = dict(expected_common)
     if policy["name"] == "linux-x86_64-vulkan":

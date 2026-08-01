@@ -47,8 +47,33 @@ string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_REQUIRED GET
     "${_ror_lock_json}" shader_media third_party_notice source_and_binary_notice_required)
 string(JSON ROR_OGRE_NEXT_SHADER_MEDIA_PAPER_REQUIRED GET
     "${_ror_lock_json}" shader_media third_party_notice paper_reference_required)
+string(JSON ROR_OGRE_NEXT_REFLECTION_MEDIA_ROOT GET
+    "${_ror_lock_json}" reflection_shader_media root)
+string(JSON ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_EXPRESSION GET
+    "${_ror_lock_json}" reflection_shader_media license_expression)
+string(JSON ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_REF GET
+    "${_ror_lock_json}" reflection_shader_media third_party_notice license_ref)
+string(JSON ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_SOURCE_PATH GET
+    "${_ror_lock_json}" reflection_shader_media third_party_notice source_path)
+string(JSON ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_SOURCE_SHA256 GET
+    "${_ror_lock_json}" reflection_shader_media third_party_notice source_sha256)
+string(JSON ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_PACKAGE_PATH GET
+    "${_ror_lock_json}" reflection_shader_media third_party_notice package_path)
+string(JSON ROR_OGRE_NEXT_REFLECTION_MEDIA_NOTICE_REQUIRED GET
+    "${_ror_lock_json}" reflection_shader_media third_party_notice source_and_binary_notice_required)
+string(JSON ROR_OGRE_NEXT_PATCH_COUNT LENGTH "${_ror_lock_json}" patches)
 string(JSON ROR_OGRE_NEXT_PATCH_PATH GET "${_ror_lock_json}" patches 0 path)
 string(JSON ROR_OGRE_NEXT_PATCH_SHA256 GET "${_ror_lock_json}" patches 0 sha256)
+string(JSON ROR_OGRE_NEXT_PATCH_REASON GET "${_ror_lock_json}" patches 0 reason)
+string(JSON ROR_OGRE_NEXT_IBL_PATCH_PATH GET "${_ror_lock_json}" patches 1 path)
+string(JSON ROR_OGRE_NEXT_IBL_PATCH_SHA256 GET "${_ror_lock_json}" patches 1 sha256)
+string(JSON ROR_OGRE_NEXT_IBL_PATCH_REASON GET "${_ror_lock_json}" patches 1 reason)
+string(JSON ROR_OGRE_NEXT_IBL_PATCH_SOURCE_PATH GET
+    "${_ror_lock_json}" patches 1 source_path)
+string(JSON ROR_OGRE_NEXT_IBL_PATCH_SOURCE_SHA256 GET
+    "${_ror_lock_json}" patches 1 source_sha256)
+string(JSON ROR_OGRE_NEXT_IBL_PATCHED_SHA256 GET
+    "${_ror_lock_json}" patches 1 patched_sha256)
 string(JSON ROR_RAPIDJSON_REPOSITORY GET "${_ror_lock_json}" dependencies rapidjson repository)
 string(JSON ROR_RAPIDJSON_TAG GET "${_ror_lock_json}" dependencies rapidjson tag)
 string(JSON ROR_RAPIDJSON_ARCHIVE_URL GET "${_ror_lock_json}" dependencies rapidjson archive_url)
@@ -268,7 +293,7 @@ string(JSON ROR_LINUX_SPIRV_REFLECT_HEADER_PATH GET
 string(JSON ROR_LINUX_SPIRV_REFLECT_HEADER_SHA256 GET
     "${_ror_linux_toolchain_lock_json}" ogre_embedded_components spirv_reflect header_sha256)
 
-if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 2 OR
+if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 3 OR
         NOT ROR_OGRE_NEXT_REPOSITORY STREQUAL
         "https://github.com/OGRECave/ogre-next" OR
         NOT ROR_OGRE_NEXT_BRANCH STREQUAL "v3-0" OR
@@ -314,6 +339,22 @@ if (NOT ROR_OGRE_NEXT_SHADER_MEDIA_ROOT STREQUAL "Samples/Media/Hlms" OR
     message(FATAL_ERROR
         "The reviewed OGRE-Next shader-media license contract changed")
 endif ()
+if (NOT ROR_OGRE_NEXT_REFLECTION_MEDIA_ROOT STREQUAL
+        "Samples/Media/Compute/Algorithms/IBL" OR
+        NOT ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_EXPRESSION STREQUAL
+        "LicenseRef-IBLBaker" OR
+        NOT ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_REF STREQUAL
+        "LicenseRef-IBLBaker" OR
+        NOT ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_SOURCE_PATH STREQUAL
+        "Docs/licenses/IBLBaker.txt" OR
+        NOT ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_SOURCE_SHA256 STREQUAL
+        "c66291524d9d111ed44349d4217dda31bdb33c6203a14b2d7682d805c9166a8e" OR
+        NOT ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_PACKAGE_PATH STREQUAL
+        "licenses/IBLBaker.txt" OR
+        NOT ROR_OGRE_NEXT_REFLECTION_MEDIA_NOTICE_REQUIRED)
+    message(FATAL_ERROR
+        "The reviewed OGRE-Next reflection-media license contract changed")
+endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
     _ror_shader_media_notice_sha256)
@@ -357,6 +398,23 @@ if (NOT ROR_OGRE_NEXT_PATCH_SHA256 STREQUAL
         "84916d0d1abf61a15d19d2c89a7d9b1a445f1a37a5067a9f8b558395fe10ead1" OR
         NOT _ror_patch_sha256 STREQUAL ROR_OGRE_NEXT_PATCH_SHA256)
     message(FATAL_ERROR "The pinned OGRE-Next adaptation patch changed")
+endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
+    _ror_ibl_patch_sha256)
+if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 2 OR
+        NOT ROR_OGRE_NEXT_IBL_PATCH_PATH STREQUAL
+        "patches/0005-metal-typed-ibl-uav-conversions.patch" OR
+        NOT ROR_OGRE_NEXT_IBL_PATCH_SHA256 STREQUAL
+        "2a4792a553a3911db197750ae6e4de2155f7b9604e9bc6d730cc19bba0b1075f" OR
+        NOT _ror_ibl_patch_sha256 STREQUAL ROR_OGRE_NEXT_IBL_PATCH_SHA256 OR
+        NOT ROR_OGRE_NEXT_IBL_PATCH_SOURCE_PATH STREQUAL
+        "Samples/Media/Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any" OR
+        NOT ROR_OGRE_NEXT_IBL_PATCH_SOURCE_SHA256 STREQUAL
+        "68884256ab318116833bf2efe19518833459cc461fb8dd4f8e2c253f8c352165" OR
+        NOT ROR_OGRE_NEXT_IBL_PATCHED_SHA256 STREQUAL
+        "3ebebc1132c720ee8b741226d41e8638f747a0d5700222d7cb4c8f4e0663fa41")
+    message(FATAL_ERROR "The pinned OGRE-Next IBL adaptation changed")
 endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_WINDOWS_DXR7_PATCH_PATH}"
@@ -877,7 +935,8 @@ endif ()
 set(Rapidjson_HOME "${rapidjson_SOURCE_DIR}" CACHE PATH "" FORCE)
 
 set(_ror_ogre_next_patch_paths
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_PATCH_PATH}")
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_PATCH_PATH}"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}")
 if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "windows-x64-d3d11")
     list(APPEND _ror_ogre_next_patch_paths
         "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_WINDOWS_DXR7_PATCH_PATH}")
@@ -895,6 +954,15 @@ FetchContent_Declare(
         ${_ror_ogre_next_patch_paths}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(ogre_next)
+
+file(SHA256
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_IBL_PATCH_SOURCE_PATH}"
+    _ror_extracted_ibl_shader_sha256)
+if (NOT _ror_extracted_ibl_shader_sha256 STREQUAL
+        ROR_OGRE_NEXT_IBL_PATCHED_SHA256)
+    message(FATAL_ERROR
+        "The pinned OGRE-Next IBL shader patch did not produce reviewed bytes")
+endif ()
 
 foreach (_ror_normal_map_source_index RANGE 0
         ${_ror_normal_map_source_last})
@@ -940,6 +1008,15 @@ set(ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE
     "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_LICENSE_PATH}")
 set(ROR_OGRE_NEXT_PACKAGE_RAPIDJSON_LICENSE_SOURCE
     "${rapidjson_SOURCE_DIR}/${ROR_RAPIDJSON_LICENSE_PATH}")
+set(ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_SOURCE_PATH}")
+file(SHA256 "${ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE}"
+    _ror_extracted_iblbaker_license_sha256)
+if (NOT _ror_extracted_iblbaker_license_sha256 STREQUAL
+        ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_SOURCE_SHA256)
+    message(FATAL_ERROR
+        "The extracted IBLBaker notice does not match the pinned contract")
+endif ()
 if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
     file(SHA256
         "${ogre_next_SOURCE_DIR}/${ROR_LINUX_SPIRV_REFLECT_SOURCE_PATH}"

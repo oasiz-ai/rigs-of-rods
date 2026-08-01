@@ -172,6 +172,7 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
             "licenses/Rigs-of-Rods-GPL-3.0.txt",
             "licenses/Ogre-Next-MIT.txt",
             "licenses/RapidJSON-license.txt",
+            "licenses/IBLBaker.txt",
             "${ROR_LINUX_APACHE_NOTICE_PATH}",
             "${ROR_LINUX_GLSLANG_NOTICE_PATH}",
             "${ROR_LINUX_SPIRV_TOOLS_NOTICE_PATH}",
@@ -182,7 +183,7 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
             with self.subTest(relative_path=relative_path):
                 self.assertIn(relative_path, self.entry_cmake)
         self.assertGreaterEqual(self.entry_cmake.count("-E compare_files"), 10)
-        self.assertIn(".stage-v3", self.entry_cmake)
+        self.assertIn(".stage-v8", self.entry_cmake)
         self.assertIn(
             "ror_ogre_next_linux_static_closure_manifest",
             self.entry_cmake,

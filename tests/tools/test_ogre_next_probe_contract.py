@@ -152,7 +152,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
         }
 
     def test_exact_upstream_and_dependency_pins(self) -> None:
-        self.assertEqual(self.lock["schema_version"], 2)
+        self.assertEqual(self.lock["schema_version"], 3)
         self.assertEqual(
             self.lock["commit"],
             "37149a802de747f6806996fa3067b0748ecc1084",
@@ -195,6 +195,58 @@ class OgreNextProbeContractTests(unittest.TestCase):
         for patch in self.lock["patches"]:
             data = (PROBE_DIR / patch["path"]).read_bytes()
             self.assertEqual(hashlib.sha256(data).hexdigest(), patch["sha256"])
+
+    def test_metal_ibl_patch_is_exact_and_backend_scoped(self) -> None:
+        patch = self.lock["patches"][1]
+        self.assertEqual(
+            patch["path"],
+            "patches/0005-metal-typed-ibl-uav-conversions.patch",
+        )
+        self.assertEqual(
+            patch["source_sha256"],
+            "68884256ab318116833bf2efe19518833459cc461fb8dd4f8e2c253f8c352165",
+        )
+        self.assertEqual(
+            patch["patched_sha256"],
+            "3ebebc1132c720ee8b741226d41e8638f747a0d5700222d7cb4c8f4e0663fa41",
+        )
+        source = (PROBE_DIR / patch["path"]).read_text(encoding="utf-8")
+        self.assertEqual(source.count("@property( syntax == metal )"), 4)
+        self.assertEqual(
+            source.count("float4( OGRE_imageLoad2D"),
+            2,
+        )
+        self.assertEqual(source.count("(@insertpiece(uav0_pf_type)4)"), 2)
+        self.assertIn(
+            "OGRE_imageWrite2DArray4( lastResult, "
+            "gl_GlobalInvocationID.xyz, outputValue );",
+            source,
+        )
+        self.assertIn(
+            "OGRE_imageWrite2D4( lastResult, "
+            "gl_GlobalInvocationID.xy, outputValue );",
+            source,
+        )
+
+    def test_ibl_notice_and_patched_shader_are_fail_closed_in_cmake(self) -> None:
+        cmake = PINNED_CMAKE_PATH.read_text(encoding="utf-8")
+        reflection_media = self.lock["reflection_shader_media"]
+        self.assertEqual(
+            reflection_media["license_expression"], "LicenseRef-IBLBaker"
+        )
+        self.assertTrue(
+            reflection_media["third_party_notice"][
+                "source_and_binary_notice_required"
+            ]
+        )
+        for token in (
+            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 2",
+            "ROR_OGRE_NEXT_IBL_PATCHED_SHA256",
+            "_ror_extracted_ibl_shader_sha256",
+            "_ror_extracted_iblbaker_license_sha256",
+            "ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE",
+        ):
+            self.assertIn(token, cmake)
 
     def test_reviewed_platform_matrix(self) -> None:
         self.assertEqual(
@@ -375,6 +427,11 @@ class OgreNextProbeContractTests(unittest.TestCase):
             "build_contract_path"
         ]
         contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        contract["schema_version"] = 3
+        contract["patches"] = copy.deepcopy(self.lock["patches"])
+        contract["reflection_shader_media"] = copy.deepcopy(
+            self.lock["reflection_shader_media"]
+        )
         PROBE.validate_build_contract(contract, self.lock, self.policy)
         for name, mutate in (
             (
@@ -537,7 +594,6 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 "frame_config_template_path",
                 "frame_config_template_sha256",
             ),
-            ("lock_path", "lock_sha256"),
             (
                 "shader_media_notice_repository_path",
                 "shader_media_notice_sha256",
@@ -565,6 +621,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
             "cmake_sha256",
             "wrapper_sha256",
             "build_contract_template_sha256",
+            "lock_sha256",
         ):
             self.assertRegex(provenance[historical_hash], r"^[0-9a-f]{64}$")
         build_contract = json.loads(
@@ -582,6 +639,11 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 REPOSITORY_ROOT
                 / provenance["frame_runtime_report_path"]
             ).read_text(encoding="utf-8")
+        )
+        build_contract["schema_version"] = 3
+        build_contract["patches"] = copy.deepcopy(self.lock["patches"])
+        build_contract["reflection_shader_media"] = copy.deepcopy(
+            self.lock["reflection_shader_media"]
         )
         PROBE.validate_build_contract(build_contract, self.lock, self.policy)
         PROBE.validate_report(runtime_report, self.lock, self.policy)

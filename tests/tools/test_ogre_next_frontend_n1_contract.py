@@ -221,6 +221,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "Ogre-Next-MIT.txt",
             "RapidJSON-license.txt",
             "LicenseRef-Heitz-LTC-Paper-Notice.txt",
+            "IBLBaker.txt",
         ):
             self.assertIn(license_name, self.entry_cmake)
         self.assertIn("validate_n1_package", RUNNER_PATH.read_text(encoding="utf-8"))
@@ -270,7 +271,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "digest != expected.sha256",
         ):
             self.assertIn(token, self.entry_cmake + self.media_integrity)
-        self.assertIn(".stage-v7", self.entry_cmake)
+        self.assertIn(".stage-v8", self.entry_cmake)
+        self.assertIn(
+            '"Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any"',
+            self.entry_cmake,
+        )
         self.assertIn(
             "ror_ogre_next_frontend_reflection_media_tamper",
             self.entry_cmake,
@@ -1044,6 +1049,9 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "LicenseRef-Heitz-LTC-Paper-Notice.txt": lock[
                     "shader_media"
                 ]["third_party_notice"]["notice_sha256"],
+                "IBLBaker.txt": lock["reflection_shader_media"][
+                    "third_party_notice"
+                ]["source_sha256"],
             }
             for name in paths:
                 (package / name).write_text(name, encoding="utf-8")

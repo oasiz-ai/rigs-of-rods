@@ -501,7 +501,7 @@ def _read_pinned_lock() -> dict[str, object]:
     lock = _read_json_object(PINNED_LOCK_PATH, "pinned OGRE-Next lock")
     if (
         type(lock.get("schema_version")) is not int
-        or lock.get("schema_version") != 2
+        or lock.get("schema_version") != 3
         or lock.get("name") != "OGRE-Next"
     ):
         raise ArtifactSetError("pinned OGRE-Next lock identity is invalid")
@@ -520,8 +520,10 @@ def _read_build_contract(
             "schema_version",
             "ror_source",
             "provenance",
+            "patches",
             "dependencies",
             "shader_media",
+            "reflection_shader_media",
             "platform",
             "abi",
             "components",
@@ -532,6 +534,8 @@ def _read_build_contract(
     ror_source = contract.get("ror_source")
     ogre_source = contract.get("provenance")
     shader_media = contract.get("shader_media")
+    reflection_shader_media = contract.get("reflection_shader_media")
+    patches = contract.get("patches")
     platform = contract.get("platform")
     dependencies = contract.get("dependencies")
     abi = contract.get("abi")
@@ -544,7 +548,7 @@ def _read_build_contract(
     )
     if (
         type(contract.get("schema_version")) is not int
-        or contract.get("schema_version") != 2
+        or contract.get("schema_version") != 3
         or not isinstance(ror_source, dict)
         or not isinstance(ogre_source, dict)
         or not isinstance(ror_source.get("repository"), str)
@@ -577,6 +581,8 @@ def _read_build_contract(
         or not isinstance(notice.get("notice_path"), str)
         or not notice["notice_path"]
         or not _is_sha256(notice.get("notice_sha256"))
+        or not isinstance(reflection_shader_media, dict)
+        or not isinstance(patches, list)
         or not isinstance(platform, dict)
         or platform.get("policy")
         not in PLATFORM_CONTRACTS
@@ -647,6 +653,10 @@ def _read_build_contract(
         "ogre": _json_exact(ogre_source, expected_ogre),
         "dependencies": _json_exact(dependencies, expected_dependencies),
         "shader_media": _json_exact(shader_media, lock.get("shader_media")),
+        "reflection_shader_media": _json_exact(
+            reflection_shader_media, lock.get("reflection_shader_media")
+        ),
+        "patches": _json_exact(patches, lock.get("patches")),
         "platform": _json_exact(platform, expected_platform)
         and platform.get("system") in policy["systems"]
         and platform.get("processor") in policy["processors"],

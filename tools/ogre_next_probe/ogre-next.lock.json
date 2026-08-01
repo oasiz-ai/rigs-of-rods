@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "name": "OGRE-Next",
   "repository": "https://github.com/OGRECave/ogre-next",
   "branch": "v3-0",
@@ -26,11 +26,30 @@
       "paper_reference_required": true
     }
   },
+  "reflection_shader_media": {
+    "root": "Samples/Media/Compute/Algorithms/IBL",
+    "license_expression": "LicenseRef-IBLBaker",
+    "third_party_notice": {
+      "license_ref": "LicenseRef-IBLBaker",
+      "source_path": "Docs/licenses/IBLBaker.txt",
+      "source_sha256": "c66291524d9d111ed44349d4217dda31bdb33c6203a14b2d7682d805c9166a8e",
+      "package_path": "licenses/IBLBaker.txt",
+      "source_and_binary_notice_required": true
+    }
+  },
   "patches": [
     {
       "path": "patches/0001-macos-non-xcode-framework-path.patch",
       "sha256": "84916d0d1abf61a15d19d2c89a7d9b1a445f1a37a5067a9f8b558395fe10ead1",
       "reason": "Resolve the macOS SDK and framework staging path correctly for non-Xcode generators"
+    },
+    {
+      "path": "patches/0005-metal-typed-ibl-uav-conversions.patch",
+      "sha256": "2a4792a553a3911db197750ae6e4de2155f7b9604e9bc6d730cc19bba0b1075f",
+      "reason": "Use explicit Metal typed-UAV vector conversions for half and float IBL targets without changing GLSL or HLSL",
+      "source_path": "Samples/Media/Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any",
+      "source_sha256": "68884256ab318116833bf2efe19518833459cc461fb8dd4f8e2c253f8c352165",
+      "patched_sha256": "3ebebc1132c720ee8b741226d41e8638f747a0d5700222d7cb4c8f4e0663fa41"
     }
   ],
   "dependencies": {
