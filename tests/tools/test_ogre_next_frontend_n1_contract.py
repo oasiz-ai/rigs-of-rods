@@ -160,6 +160,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 self.frontend.index("if (!TryClaimOgreNextN1Root())")
             ],
         )
+        self.assertIn(
+            "will not silently ignore authored probes",
+            self.policy,
+        )
 
     def test_native_mesh_path_uses_v2_vao_not_manual_object(self) -> None:
         for token in (

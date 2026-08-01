@@ -616,6 +616,11 @@ ValidationResult ValidateOgreNextN1Scene(
   if (!snapshot.particle_events().empty()) {
     return Unsupported("particle_events", "N1 does not support particles");
   }
+  if (!snapshot.reflection_probes().empty()) {
+    return Unsupported(
+        "reflection_probes",
+        "this Ogre-Next checkpoint has not published its native PCC capture adapter and will not silently ignore authored probes");
+  }
   if (raster_feature_tier ==
           OgreNextRasterFeatureTier::STATIC_PBR_N1 &&
       !snapshot.lights().empty()) {

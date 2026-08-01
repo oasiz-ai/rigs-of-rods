@@ -180,6 +180,26 @@ MakeScene(std::uint64_t registry_id, Matrix4x4 transform = Matrix4x4{},
   return result.snapshot;
 }
 
+std::shared_ptr<const SceneSnapshot>
+MakeReflectionScene(std::uint64_t registry_id) {
+  SceneSnapshotDescriptor descriptor;
+  descriptor.snapshot_id = 4U;
+  descriptor.asset_registry_id = registry_id;
+  descriptor.asset_sequence = 1U;
+  MeshInstanceDescriptor instance;
+  instance.instance_id = 1U;
+  instance.mesh = Ref(RenderAssetKind::MESH, 1U);
+  instance.material = Ref(RenderAssetKind::MATERIAL, 2U);
+  instance.local_bounds = MakeMesh().local_bounds;
+  descriptor.mesh_instances.push_back(instance);
+  ReflectionProbeRuntimeDescriptor probe;
+  probe.probe_id = 1U;
+  descriptor.reflection_probes.push_back(probe);
+  SceneSnapshotCreateResult result = CreateSceneSnapshot(std::move(descriptor));
+  Require(result.ok(), "reflection-probe policy fixture is invalid");
+  return result.snapshot;
+}
+
 RenderFrameRequest MakeFrame(std::shared_ptr<const SceneSnapshot> scene);
 
 float ProjectDepth(const Matrix4x4 &projection, float view_z) {
@@ -663,6 +683,14 @@ void TestFrameAndScenePolicy() {
   RenderFrameRequest request = MakeFrame(MakeScene(kRegistryId));
   Require(ValidateOgreNextN1Frame(request, capabilities, registry).ok(),
           "valid static PBR colour frame was rejected");
+
+  request = MakeFrame(MakeReflectionScene(kRegistryId));
+  const ValidationResult reflection_validation =
+      ValidateOgreNextN1Frame(request, capabilities, registry,
+                              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1);
+  Require(reflection_validation.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              reflection_validation.field == "reflection_probes",
+          "authored probes were silently ignored before native PCC publication");
 
   SceneSnapshotDescriptor lit_descriptor;
   lit_descriptor.snapshot_id = 2U;
