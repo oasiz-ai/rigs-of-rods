@@ -108,10 +108,11 @@ does not yet import a result into an Ogre texture or implement RT
 materials, lighting, denoising, compositing, or presentation, while Windows and
 Linux continue to report native RT false until their explicit backends exist.
 
-`HdrReference` is the strict-CPU numerical oracle for the pinned Ogre-Next HDR
-sample shared by the Metal, HLSL, and GLSL paths. Version 1 reproduces exposure
-parameter construction, logarithmic luminance clamping, explicit-delta temporal
-adaptation, the historical bloom x*x conversion, Hable filmic curve and white
-normalization, and Ogre's final contrast/lift. It stops at the shader output;
-display transfer functions, gamut mapping, dithering, and framebuffer clamping
-must remain explicit backend/output stages rather than hidden fidelity claims.
+`HdrReference` provides two strict-CPU behaviors for the pinned Ogre-Next HDR
+sample shared by the Metal, HLSL, and GLSL paths. Analytic v1 evaluates the
+selected equations in ideal binary64. Shader v1 evaluates binary32 and models
+the exact binary16 scene/luminance storage boundary, including multi-frame R16
+exposure feedback. The bloom input is explicitly Ogre's historical gamma-2
+encoding, not standard sRGB. Source hashes, admitted ranges, backend tolerances,
+and the unimplemented output stages are defined in
+[`HDR_REFERENCE.md`](../../../../doc/nextgen/HDR_REFERENCE.md).

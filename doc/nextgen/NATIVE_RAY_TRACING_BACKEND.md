@@ -452,8 +452,9 @@ provenance artifacts pass. Only then may the macOS build report
 
 - Complete the Ogre-Next PBR/HDR material and lighting floor.
 - Keep Metal, HLSL, and GLSL exposure/tone-map results bound to the portable
-  pinned-source HDR oracle; treat output transfer, gamut mapping, dithering,
-  and framebuffer clamping as separately versioned presentation stages.
+  pinned-source analytic/shader HDR references and their explicit tolerance;
+  treat output transfer, gamut mapping, dithering, and framebuffer clamping as
+  separately versioned presentation stages.
 - Add probes/SSR or accepted non-RT reflection path and a measured diffuse-GI
   path.
 - Pass CityWorld/starter-content missing-material, luminance, reflection,
