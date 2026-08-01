@@ -40,6 +40,16 @@ set(SOURCE_FILES
         gfx/PostProcessRuntimeContract.{h,cpp}
         gfx/RendererBackendPolicy.{h,cpp}
         gfx/RenderDisplayMetrics.h
+        gfx/render/MaterialDescriptor.{h,cpp}
+        gfx/render/README.md
+        gfx/render/RenderContracts.h
+        gfx/render/RenderFrame.{h,cpp}
+        gfx/render/RenderMath.h
+        gfx/render/RenderResourceDescriptors.{h,cpp}
+        gfx/render/RendererFrontend.{h,cpp}
+        gfx/render/RenderValidation.h
+        gfx/render/ResourceHandle.{h,cpp}
+        gfx/render/SceneSnapshot.{h,cpp}
         gfx/HydraxWater.{h,cpp}
         gfx/IGfxWater.h
         gfx/MovableText.{h,cpp}
@@ -341,6 +351,43 @@ include(SourceFileUtils)
 
 # Expand file extensions (i.e. path/to/file.{h,cpp} becomes path/to/file.h;path/to/file.cpp)
 expand_file_extensions(SOURCE_FILES ${SOURCE_FILES})
+
+# Renderer-neutral contracts must remain independent of the legacy renderer
+# PCH. Validation also relies on IEEE NaN/Inf classification in release builds,
+# where the game otherwise enables fast math globally.
+set(ROR_RENDER_CONTRACT_SOURCES
+        gfx/render/MaterialDescriptor.cpp
+        gfx/render/RenderFrame.cpp
+        gfx/render/RenderResourceDescriptors.cpp
+        gfx/render/RendererFrontend.cpp
+        gfx/render/ResourceHandle.cpp
+        gfx/render/SceneSnapshot.cpp
+        )
+set_source_files_properties(
+        ${ROR_RENDER_CONTRACT_SOURCES}
+        PROPERTIES
+        SKIP_PRECOMPILE_HEADERS ON
+        )
+set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
+        gfx/render/MaterialDescriptor.cpp
+        gfx/render/RenderFrame.cpp
+        gfx/render/RenderResourceDescriptors.cpp
+        gfx/render/RendererFrontend.cpp
+        gfx/render/SceneSnapshot.cpp
+        )
+if (MSVC)
+    set_source_files_properties(
+            ${ROR_RENDER_CONTRACT_STRICT_FP_SOURCES}
+            PROPERTIES
+            COMPILE_OPTIONS "/fp:strict"
+            )
+else ()
+    set_source_files_properties(
+            ${ROR_RENDER_CONTRACT_STRICT_FP_SOURCES}
+            PROPERTIES
+            COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off"
+            )
+endif ()
 
 # Authenticated input traces inspect and preserve exact IEEE-754 object
 # representations. Keep this small, non-solver boundary precise even when the

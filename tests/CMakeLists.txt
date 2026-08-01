@@ -182,6 +182,89 @@ target_include_directories(
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx"
 )
 
+set(ROR_RENDER_CONTRACT_SOURCES
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderFrame.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderResourceDescriptors.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontend.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ResourceHandle.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/SceneSnapshot.cpp"
+)
+
+add_library(ror_render_contract STATIC ${ROR_RENDER_CONTRACT_SOURCES})
+target_include_directories(
+    ror_render_contract
+    PUBLIC "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
+)
+
+add_executable(
+    ror_render_resource_handle_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ResourceHandleTests.cpp"
+)
+add_executable(
+    ror_render_material_descriptor_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/MaterialDescriptorTests.cpp"
+)
+add_executable(
+    ror_render_scene_snapshot_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/SceneSnapshotTests.cpp"
+)
+add_executable(
+    ror_render_resource_descriptor_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RenderResourceDescriptorTests.cpp"
+)
+add_executable(
+    ror_renderer_frontend_contract_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RendererFrontendContractTests.cpp"
+)
+add_executable(
+    ror_renderer_boundary_header_isolation_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RendererBoundaryHeaderIsolationTests.cpp"
+)
+target_include_directories(
+    ror_renderer_boundary_header_isolation_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
+)
+
+set(ROR_RENDER_CONTRACT_TEST_TARGETS
+    ror_render_resource_handle_tests
+    ror_render_material_descriptor_tests
+    ror_render_scene_snapshot_tests
+    ror_render_resource_descriptor_tests
+    ror_renderer_frontend_contract_tests
+)
+foreach (render_contract_test IN LISTS ROR_RENDER_CONTRACT_TEST_TARGETS)
+    target_link_libraries(${render_contract_test} PRIVATE ror_render_contract)
+endforeach ()
+
+set(ROR_RENDER_CONTRACT_BUILD_TARGETS
+    ror_render_contract
+    ${ROR_RENDER_CONTRACT_TEST_TARGETS}
+    ror_renderer_boundary_header_isolation_tests
+)
+foreach (render_contract_target IN LISTS ROR_RENDER_CONTRACT_BUILD_TARGETS)
+    set_target_properties(
+        ${render_contract_target}
+        PROPERTIES
+            CXX_STANDARD 17
+            CXX_STANDARD_REQUIRED YES
+            CXX_EXTENSIONS NO
+    )
+    if (MSVC)
+        target_compile_options(
+            ${render_contract_target}
+            PRIVATE /W4 /WX /permissive- /Zc:__cplusplus /fp:strict
+        )
+    else ()
+        target_compile_options(
+            ${render_contract_target}
+            PRIVATE
+                -Wall -Wextra -Werror -pedantic
+                -fno-fast-math -ffp-contract=off
+        )
+    endif ()
+endforeach ()
+
 add_executable(
     ror_local_light_budget_tests
     "${CMAKE_CURRENT_LIST_DIR}/terrain/LocalLightBudgetTests.cpp"
@@ -1005,6 +1088,36 @@ add_test(
 add_test(
     NAME renderer_backend_policy
     COMMAND ror_renderer_backend_policy_tests
+)
+
+add_test(
+    NAME render_resource_handle
+    COMMAND ror_render_resource_handle_tests
+)
+
+add_test(
+    NAME render_material_descriptor
+    COMMAND ror_render_material_descriptor_tests
+)
+
+add_test(
+    NAME render_scene_snapshot
+    COMMAND ror_render_scene_snapshot_tests
+)
+
+add_test(
+    NAME render_resource_descriptors
+    COMMAND ror_render_resource_descriptor_tests
+)
+
+add_test(
+    NAME renderer_frontend_contract
+    COMMAND ror_renderer_frontend_contract_tests
+)
+
+add_test(
+    NAME renderer_boundary_header_isolation
+    COMMAND ror_renderer_boundary_header_isolation_tests
 )
 
 add_test(
