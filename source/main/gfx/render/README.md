@@ -107,3 +107,11 @@ it can produce a view-dependent attachment. These remain standalone gates: N2
 does not yet import a result into an Ogre texture or implement RT
 materials, lighting, denoising, compositing, or presentation, while Windows and
 Linux continue to report native RT false until their explicit backends exist.
+
+`HdrReference` is the strict-CPU numerical oracle for the pinned Ogre-Next HDR
+sample shared by the Metal, HLSL, and GLSL paths. Version 1 reproduces exposure
+parameter construction, logarithmic luminance clamping, explicit-delta temporal
+adaptation, the historical bloom x*x conversion, Hable filmic curve and white
+normalization, and Ogre's final contrast/lift. It stops at the shader output;
+display transfer functions, gamut mapping, dithering, and framebuffer clamping
+must remain explicit backend/output stages rather than hidden fidelity claims.

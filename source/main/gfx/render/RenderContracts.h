@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "HdrReference.h"
 #include "MaterialDescriptor.h"
 #include "GraphicsSceneSnapshotProducer.h"
 #include "RenderAssetId.h"

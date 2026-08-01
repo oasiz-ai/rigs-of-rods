@@ -1139,6 +1139,13 @@ mode, and legacy fallback. Generate or import tangents rather than pretending
 legacy cab meshes already contain them. Convert one DAF material and one terrain
 layer before bulk conversion.
 
+The portable HDR numerical reference now pins the exact Ogre-Next source and
+Metal/HLSL/GLSL final-tone-map shader hashes. It covers exposure construction,
+log-luminance clamping, explicit-delta temporal adaptation, bloom conversion,
+and the Hable curve through the pre-framebuffer shader output. Backend captures,
+display transfer/gamut policy, and image/performance acceptance remain open and
+must compare against this oracle rather than renderer-specific defaults.
+
 Gate V1:
 
 - Automated BRDF fixtures match the selected reference implementation within 1%
