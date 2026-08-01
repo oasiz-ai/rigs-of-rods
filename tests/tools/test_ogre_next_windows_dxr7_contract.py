@@ -394,6 +394,9 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
 
     def test_static_contract_and_locked_sources(self) -> None:
         RUNNER.validate_static_contract()
+        cmake_source = (RUNNER.PROBE_SOURCE / "CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
         self.assertEqual(
             RUNNER.sha256_file(RUNNER.PROBE_SOURCE / RUNNER.LOCK_NAME),
             RUNNER.LOCK_SHA256,
@@ -408,10 +411,13 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
         self.assertIn(
             '"ror-ogre-next-dxr7-pe-v2:${ROR_SOURCE_COMMIT}:'
             '${ROR_SOURCE_MANIFEST_SHA256}"',
-            (RUNNER.PROBE_SOURCE / "CMakeLists.txt").read_text(
-                encoding="utf-8"
-            ),
+            cmake_source,
         )
+        # Parentheses are legal in the Windows environment-variable name but
+        # must be escaped inside CMake's $ENV{} grammar. An unescaped spelling
+        # passes every non-Windows static test and fails during configure.
+        self.assertIn(r"$ENV{ProgramFiles\(x86\)}", cmake_source)
+        self.assertNotIn("$ENV{ProgramFiles(x86)}", cmake_source)
 
     def test_complete_dispatch_and_real_ogre_frame_report_passes(self) -> None:
         self.validate(self.make_pass_report())

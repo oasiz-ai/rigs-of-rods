@@ -421,8 +421,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         file(REAL_PATH "${ROR_OGRE_NEXT_DXC_SDK_BIN_ROOT}"
             _ror_dxc_sdk_bin_root_real)
         set(_ror_windows_sdk_bin_root
-            "$ENV{ProgramFiles(x86)}/Windows Kits/10/bin")
-        if ("$ENV{ProgramFiles(x86)}" STREQUAL "" OR
+            "$ENV{ProgramFiles\(x86\)}/Windows Kits/10/bin")
+        if ("$ENV{ProgramFiles\(x86\)}" STREQUAL "" OR
                 NOT IS_DIRECTORY "${_ror_windows_sdk_bin_root}")
             message(FATAL_ERROR
                 "The canonical Program Files (x86) Windows SDK bin root is unavailable")
