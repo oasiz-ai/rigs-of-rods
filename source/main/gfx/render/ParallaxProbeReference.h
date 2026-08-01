@@ -25,6 +25,14 @@ constexpr const char kParallaxProbeReferenceShaderPath[] =
     "Samples/Media/Hlms/Common/Any/Cubemap_piece_all.any";
 constexpr const char kParallaxProbeReferenceShaderSha256[] =
     "ed281b8599716c769f1d99f14fb42568a586e018b1e9fac9ee03944cbd1d7fbb";
+constexpr const char kParallaxProbeReferenceManualWeightShaderPath[] =
+    "Samples/Media/Hlms/Pbs/Any/Main/800.PixelShader_piece_ps.any";
+constexpr const char kParallaxProbeReferenceManualWeightShaderSha256[] =
+    "12cebd71e877c1d265df8d68f6c3f2931127679a8e77bb01c92b1221a09f5a7f";
+constexpr const char kParallaxProbeReferenceAutomaticWeightShaderPath[] =
+    "Samples/Media/Hlms/Pbs/Any/ForwardPlus_DecalsCubemaps_piece_ps.any";
+constexpr const char kParallaxProbeReferenceAutomaticWeightShaderSha256[] =
+    "64d53a29393192598e0111d1a729eb031eb7234273fef5753e2ccc9a121b5ada";
 constexpr const char kParallaxProbeReferenceBufferSourcePath[] =
     "Components/Hlms/Pbs/src/Cubemaps/OgreParallaxCorrectedCubemapBase.cpp";
 constexpr const char kParallaxProbeReferenceBufferSourceSha256[] =
