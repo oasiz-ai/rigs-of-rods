@@ -391,6 +391,8 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertIn("URL_HASH \"SHA256=${ROR_RAPIDJSON_ARCHIVE_SHA256}\"", cmake)
         self.assertIn("FETCHCONTENT_SOURCE_DIR_OGRE_NEXT", cmake)
         self.assertIn("FETCHCONTENT_SOURCE_DIR_RAPIDJSON", cmake)
+        self.assertIn("SHADERC ROR_GLSLANG_SOURCE", cmake)
+        self.assertNotIn("ROR_SHADERC_SOURCE ROR_GLSLANG_SOURCE", cmake)
         self.assertLess(
             cmake.index("_ror_fresh_configure_guard"),
             cmake.index("FetchContent_Declare(\n    rapidjson"),

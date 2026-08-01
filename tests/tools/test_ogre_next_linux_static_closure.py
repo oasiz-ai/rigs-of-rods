@@ -96,7 +96,7 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
 
     def test_cmake_rejects_distro_cpp_abi_and_builds_one_static_closure(self) -> None:
         for token in (
-            "ROR_SHADERC_SOURCE ROR_GLSLANG_SOURCE ROR_SPIRV_TOOLS_SOURCE",
+            "SHADERC ROR_GLSLANG_SOURCE ROR_SPIRV_TOOLS_SOURCE",
             "FETCHCONTENT_SOURCE_DIR_${_ror_content_name}",
             'URL_HASH "SHA256=${ROR_LINUX_SHADERC_ARCHIVE_SHA256}"',
             'URL_HASH "SHA256=${ROR_LINUX_GLSLANG_ARCHIVE_SHA256}"',
@@ -110,6 +110,26 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.pinned_cmake)
+        guard_start = self.pinned_cmake.index(
+            "foreach (_ror_content_name IN ITEMS"
+        )
+        guard_end = self.pinned_cmake.index("endforeach ()", guard_start)
+        override_guard = self.pinned_cmake[guard_start:guard_end]
+        for content_name in (
+            "SHADERC",
+            "ROR_GLSLANG_SOURCE",
+            "ROR_SPIRV_TOOLS_SOURCE",
+            "ROR_SPIRV_HEADERS_SOURCE",
+        ):
+            with self.subTest(content_name=content_name):
+                self.assertIn(content_name, override_guard)
+        self.assertIn(
+            "FETCHCONTENT_SOURCE_DIR_${_ror_content_name}", override_guard
+        )
+        self.assertNotIn(
+            "ROR_SHADERC_SOURCE ROR_GLSLANG_SOURCE",
+            self.pinned_cmake,
+        )
         for prohibited in (
             "find_package(glslang",
             "find_library(ROR_OGRE_NEXT_SHADERC",
@@ -117,6 +137,33 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
         ):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, self.pinned_cmake)
+
+    def test_cmake_rejects_actual_shaderc_fetchcontent_override(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-shaderc-source-override-"
+        ) as temp:
+            build_dir = Path(temp) / "build"
+            result = subprocess.run(
+                [
+                    "cmake",
+                    "-S",
+                    str(PROBE_ROOT),
+                    "-B",
+                    str(build_dir),
+                    "-DROR_OGRE_NEXT_PROBE=ON",
+                    "-DCMAKE_BUILD_TYPE=Release",
+                    "-DFETCHCONTENT_SOURCE_DIR_SHADERC=untrusted-source",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            diagnostics = result.stdout + result.stderr
+            self.assertIn("FETCHCONTENT_SOURCE_DIR_SHADERC", diagnostics)
+            self.assertIn("bypasses the Linux shader source lock", diagnostics)
+            self.assertIn("is prohibited", diagnostics)
 
     def test_package_stages_and_byte_compares_every_notice_and_manifest(self) -> None:
         for relative_path in (
