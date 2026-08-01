@@ -118,6 +118,35 @@ class MetalN3ContractTests(unittest.TestCase):
                 "release_state": "GENERAL_READ_WRITE",
                 "return_state": "GENERAL_READ_WRITE",
             },
+            "raster_contract": {
+                "raster_feature_tier": "MODERN_PBR_RT4_V1",
+                "native_feature_tier": "METAL_RAY_TRACING_N3",
+                "vertex_layout": "POSITION_NORMAL_TANGENT_UV0_FLOAT32_48",
+                "vertex_stride_bytes": 48,
+                "authored_tangent_uv0": True,
+                "base_color_texture": "RGBA8_UNORM_SRGB",
+                "directional_light_lux": 1024,
+                "ray_material_parity_claimed": False,
+                "texture_allocations": {
+                    "live": {
+                        "source_textures": 1,
+                        "sampled_rgba": 1,
+                        "roughness_r8": 0,
+                        "metallic_r8": 0,
+                        "creates": 1,
+                        "destroys": 0,
+                        "live": 1,
+                        "exact_usage": True,
+                    },
+                    "after_shutdown": {
+                        "creates": 1,
+                        "destroys": 1,
+                        "live": 0,
+                        "retired_name_lookups": 1,
+                        "retired_name_rejections": 1,
+                    },
+                },
+            },
             "raster_only_hdr": raster_metrics,
             "rt_contribution": contribution_metrics,
             "hybrid_hdr": hybrid_metrics,
@@ -149,6 +178,12 @@ class MetalN3ContractTests(unittest.TestCase):
                 "off_axis_far_plane_hit_passed": True,
                 "released_frame_allows_extent_change": True,
                 "submitted_device_loss_and_timeout_paths_tested": True,
+                "simultaneous_rt4_n3": True,
+                "textured_rt4_geometry_rendered": True,
+                "calibrated_directional_light_applied": True,
+                "exact_48_byte_vertex_layout_exported": True,
+                "texture_allocation_audit_exact": True,
+                "texture_teardown_audit_exact": True,
                 "view_dependent_output_ready": True,
                 "hybrid_composite_ready": True,
             },
@@ -181,6 +216,8 @@ class MetalN3ContractTests(unittest.TestCase):
             ("proof", "off_axis_far_plane_contribution_pixels"),
             ("second_view_contribution", "nontrivial_pixels"),
             ("resized_hybrid", "nontrivial_pixels"),
+            ("raster_contract", "vertex_stride_bytes"),
+            ("raster_contract", "directional_light_lux"),
         )
         for parent, field in paths:
             with self.subTest(parent=parent, field=field):
@@ -303,8 +340,46 @@ class MetalN3ContractTests(unittest.TestCase):
             "snapshot_transform_mismatch_rejected",
             "off_axis_far_plane_hit_passed",
             "OffAxisFarPlaneTransform",
+            "MODERN_PBR_RT4_V1",
+            "POSITION_NORMAL_TANGENT_UV0_FLOAT32_48",
+            "textured_rt4_geometry_rendered",
+            "calibrated_directional_light_applied",
+            "texture_allocation_audit_exact",
+            "ray_material_parity_claimed",
         ):
             self.assertIn(token, self.smoke)
+
+    def test_native_interop_discriminates_both_reviewed_vertex_layouts(self) -> None:
+        native_interop = (
+            REPOSITORY_ROOT
+            / "source"
+            / "main"
+            / "gfx"
+            / "render"
+            / "ogrenext"
+            / "OgreNextN1NativeInterop.h"
+        ).read_text(encoding="utf-8")
+        metal_interop = (
+            REPOSITORY_ROOT
+            / "source"
+            / "main"
+            / "gfx"
+            / "render"
+            / "ogrenext"
+            / "OgreNextMetalInterop.mm"
+        ).read_text(encoding="utf-8")
+        for token in (
+            "POSITION_NORMAL_FLOAT32_24",
+            "POSITION_NORMAL_TANGENT_UV0_FLOAT32_48",
+            "vertex_layout",
+            "vertex_stride_bytes",
+        ):
+            self.assertIn(token, native_interop)
+            self.assertIn(token, metal_interop)
+        self.assertIn("elements.size() == 2U", metal_interop)
+        self.assertIn("elements.size() == 4U", metal_interop)
+        self.assertIn("Ogre::VES_TANGENT", metal_interop)
+        self.assertIn("Ogre::VES_TEXTURE_COORDINATES", metal_interop)
 
     def test_cmake_accepts_only_explicit_capability_skip(self) -> None:
         self.assertIn("RunN3Smoke.cmake", self.cmake)

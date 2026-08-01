@@ -66,6 +66,7 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <exception>
 #include <filesystem>
@@ -75,6 +76,7 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -104,6 +106,57 @@ struct Rt4PbrVertex {
   float tangent[4];
   float texture_coordinates_0[2];
 };
+
+static_assert(std::is_standard_layout<N1Vertex>::value,
+              "N1 native interop vertex must be standard-layout");
+static_assert(sizeof(N1Vertex) ==
+                  kOgreNextPositionNormalVertexStrideBytes,
+              "reviewed N1 position/normal vertex must remain 24 bytes");
+static_assert(offsetof(N1Vertex, position) == 0U &&
+                  offsetof(N1Vertex, normal) == 12U,
+              "reviewed N1 position/normal offsets changed");
+static_assert(std::is_standard_layout<Rt4PbrVertex>::value,
+              "RT4 native interop vertex must be standard-layout");
+static_assert(sizeof(Rt4PbrVertex) ==
+                  kOgreNextPositionNormalTangentUv0VertexStrideBytes,
+              "reviewed RT4 position/normal/tangent/UV0 vertex must remain 48 bytes");
+static_assert(offsetof(Rt4PbrVertex, position) == 0U &&
+                  offsetof(Rt4PbrVertex, normal) == 12U &&
+                  offsetof(Rt4PbrVertex, tangent) == 24U &&
+                  offsetof(Rt4PbrVertex, texture_coordinates_0) == 40U,
+              "reviewed RT4 vertex offsets changed");
+
+bool TryResolveNativeVertexLayout(
+    OgreNextRasterFeatureTier raster_feature_tier,
+    OgreNextNativeFeatureTier native_feature_tier,
+    OgreNextNativeVertexLayout &layout) noexcept {
+  layout = OgreNextNativeVertexLayout::INVALID;
+  switch (raster_feature_tier) {
+  case OgreNextRasterFeatureTier::STATIC_PBR_N1:
+    switch (native_feature_tier) {
+    case OgreNextNativeFeatureTier::RASTER_N1:
+    case OgreNextNativeFeatureTier::METAL_RAY_TRACING_N2:
+    case OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3:
+      layout = OgreNextNativeVertexLayout::POSITION_NORMAL_FLOAT32_24;
+      return true;
+    }
+    return false;
+  case OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1:
+    switch (native_feature_tier) {
+    case OgreNextNativeFeatureTier::RASTER_N1:
+    case OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3:
+      layout = OgreNextNativeVertexLayout::
+          POSITION_NORMAL_TANGENT_UV0_FLOAT32_48;
+      return true;
+    case OgreNextNativeFeatureTier::METAL_RAY_TRACING_N2:
+      // N2's original checkpoint is intentionally frozen to the 24-byte
+      // layout. The simultaneous modern raster/native proof is N3.
+      return false;
+    }
+    return false;
+  }
+  return false;
+}
 
 enum class UploadedTextureChannel : std::uint8_t {
   RGBA,
@@ -451,6 +504,9 @@ public:
     Ogre::MeshPtr mesh;
     Ogre::VertexBufferPacked *vertex_buffer = nullptr;
     Ogre::IndexBufferPacked *index_buffer = nullptr;
+    OgreNextNativeVertexLayout vertex_layout =
+        OgreNextNativeVertexLayout::INVALID;
+    std::uint32_t vertex_stride_bytes = 0U;
     std::string name;
   };
 
@@ -569,6 +625,7 @@ public:
                         const std::string &name_suffix = {}) {
     NativeMesh native;
     native.asset = asset;
+    native.vertex_layout = native_vertex_layout;
     native.name = AssetName("RoRN1Mesh", asset) + name_suffix;
     native.mesh = Ogre::MeshManager::getSingleton().createManual(
         native.name, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
@@ -582,8 +639,8 @@ public:
     void *indices = nullptr;
     try {
       Ogre::VertexElement2Vec elements;
-      if (raster_feature_tier ==
-          OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+      if (native.vertex_layout == OgreNextNativeVertexLayout::
+                                      POSITION_NORMAL_TANGENT_UV0_FLOAT32_48) {
         const std::size_t vertex_bytes =
             sizeof(Rt4PbrVertex) * descriptor.positions.size();
         auto *pbr_vertices = static_cast<Rt4PbrVertex *>(OGRE_MALLOC_SIMD(
@@ -610,7 +667,8 @@ public:
             Ogre::VertexElement2(Ogre::VET_FLOAT4, Ogre::VES_TANGENT));
         elements.push_back(Ogre::VertexElement2(
             Ogre::VET_FLOAT2, Ogre::VES_TEXTURE_COORDINATES));
-      } else {
+      } else if (native.vertex_layout ==
+                 OgreNextNativeVertexLayout::POSITION_NORMAL_FLOAT32_24) {
         const std::size_t vertex_bytes =
             sizeof(N1Vertex) * descriptor.positions.size();
         auto *n1_vertices = static_cast<N1Vertex *>(OGRE_MALLOC_SIMD(
@@ -627,11 +685,25 @@ public:
             Ogre::VertexElement2(Ogre::VET_FLOAT3, Ogre::VES_POSITION));
         elements.push_back(
             Ogre::VertexElement2(Ogre::VET_FLOAT3, Ogre::VES_NORMAL));
+      } else {
+        throw std::logic_error(
+            "Ogre-Next mesh creation has no reviewed native vertex layout");
       }
       vertex_buffer = vao_manager->createVertexBuffer(
           elements, descriptor.positions.size(), Ogre::BT_IMMUTABLE, vertices,
           true);
       vertices = nullptr;
+      native.vertex_stride_bytes = static_cast<std::uint32_t>(
+          vertex_buffer->getBytesPerElement());
+      const std::uint32_t expected_stride =
+          native.vertex_layout == OgreNextNativeVertexLayout::
+                                      POSITION_NORMAL_FLOAT32_24
+              ? kOgreNextPositionNormalVertexStrideBytes
+              : kOgreNextPositionNormalTangentUv0VertexStrideBytes;
+      if (native.vertex_stride_bytes != expected_stride) {
+        throw std::runtime_error(
+            "Ogre-Next vertex buffer stride differs from its reviewed layout");
+      }
 
       const bool use_u16 =
           descriptor.index_format == MeshIndexFormat::UINT16;
@@ -1170,6 +1242,8 @@ public:
   OgreNextN1SubmissionState submission_state;
   OgreNextNativeFeatureTier native_feature_tier =
       OgreNextNativeFeatureTier::RASTER_N1;
+  OgreNextNativeVertexLayout native_vertex_layout =
+      OgreNextNativeVertexLayout::INVALID;
   OgreNextRasterFeatureTier raster_feature_tier =
       OgreNextRasterFeatureTier::STATIC_PBR_N1;
   std::thread::id owner_thread;
@@ -1226,12 +1300,12 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
         RenderOperationCode::INVALID_ARGUMENT,
         "unknown Ogre-Next raster feature tier");
   }
-  if (impl_->raster_feature_tier ==
-          OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
-      impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1) {
+  if (!TryResolveNativeVertexLayout(
+          impl_->raster_feature_tier, impl_->native_feature_tier,
+          impl_->native_vertex_layout)) {
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
-        "RT4/V1 is an isolated raster milestone and cannot be combined with an Ogre-Next native interop tier");
+        "Ogre-Next raster/native feature tiers have no reviewed exact vertex-layout contract");
   }
 #if !defined(ROR_OGRE_NEXT_N1_METAL)
   if (impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1) {
@@ -2069,7 +2143,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
             render_mesh->vertex_buffer);
         binding.ogre_index_buffer = reinterpret_cast<std::uintptr_t>(
             render_mesh->index_buffer);
+        binding.vertex_layout = render_mesh->vertex_layout;
         binding.position_offset_bytes = 0U;
+        binding.vertex_stride_bytes = render_mesh->vertex_stride_bytes;
         binding.vertex_count = static_cast<std::uint32_t>(
             render_mesh->vertex_buffer->getNumElements());
         binding.index_count = static_cast<std::uint32_t>(
