@@ -21,8 +21,14 @@ VulkanRt6CandidateDecision EvaluateVulkanRt6Candidate(
        candidate.device_class != VulkanRt5DeviceClass::DISCRETE_GPU)) {
     return VulkanRt6CandidateDecision::SOFTWARE_OR_UNATTESTED_DEVICE;
   }
+  if (!candidate.device_identity_available) {
+    return VulkanRt6CandidateDecision::DEVICE_IDENTITY_UNAVAILABLE;
+  }
   if (!candidate.has_graphics_queue) {
     return VulkanRt6CandidateDecision::GRAPHICS_QUEUE_UNAVAILABLE;
+  }
+  if (!candidate.has_compute_on_graphics_queue) {
+    return VulkanRt6CandidateDecision::COMPUTE_QUEUE_UNAVAILABLE;
   }
   if (!candidate.timeline_semaphore_supported) {
     return VulkanRt6CandidateDecision::TIMELINE_SEMAPHORE_UNAVAILABLE;
@@ -52,12 +58,10 @@ VulkanRt6CandidateDecision EvaluateVulkanRt6Candidate(
         ACCELERATION_STRUCTURE_FEATURE_UNAVAILABLE;
   }
   if (!candidate.ray_tracing_pipeline_feature) {
-    return VulkanRt6CandidateDecision::
-        RAY_TRACING_PIPELINE_FEATURE_UNAVAILABLE;
+    return VulkanRt6CandidateDecision::RAY_TRACING_PIPELINE_FEATURE_UNAVAILABLE;
   }
   if (!candidate.rgba32_uint_storage_image) {
-    return VulkanRt6CandidateDecision::
-        OUTPUT_STORAGE_IMAGE_FORMAT_UNAVAILABLE;
+    return VulkanRt6CandidateDecision::OUTPUT_STORAGE_IMAGE_FORMAT_UNAVAILABLE;
   }
   if (!candidate.ray_tracing_properties_valid) {
     return VulkanRt6CandidateDecision::RAY_TRACING_PROPERTIES_INVALID;

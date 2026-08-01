@@ -152,6 +152,10 @@ configure_file(
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_vulkan_rt5_config.h"
     @ONLY)
 configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/vulkan_rt6_config.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_vulkan_rt6_config.h"
+    @ONLY)
+configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/ogre_next_build_contract.json.in"
     "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
     @ONLY)
@@ -215,6 +219,10 @@ option(
 option(
     ROR_OGRE_NEXT_VULKAN_RT5
     "Expose the opt-in Linux Vulkan external-instance/device RT5 proof target"
+    ON)
+option(
+    ROR_OGRE_NEXT_VULKAN_RT6
+    "Expose the opt-in Linux Vulkan KHR ray-dispatch RT6 proof target"
     ON)
 if (ROR_OGRE_NEXT_FRONTEND_N1)
     if (TARGET OgreMain)
@@ -338,6 +346,40 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             ror_ogre_next_vulkan_rt5_smoke
             PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
         list(APPEND _ror_n1_targets ror_ogre_next_vulkan_rt5_smoke)
+    endif ()
+    if (ROR_OGRE_NEXT_VULKAN_RT6 AND
+            ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
+        add_executable(
+            ror_ogre_next_vulkan_rt6_smoke
+            src/vulkan_rt6_smoke.cpp
+            "${_ror_render_root}/ogrenext/OgreNextVulkanRayTracingBootstrap.cpp"
+            "${_ror_render_root}/ogrenext/OgreNextVulkanRt6Contract.cpp")
+        target_compile_definitions(
+            ror_ogre_next_vulkan_rt6_smoke
+            PRIVATE ROR_OGRE_NEXT_N1_VULKAN=1)
+        target_include_directories(
+            ror_ogre_next_vulkan_rt6_smoke
+            PRIVATE
+                "${CMAKE_CURRENT_BINARY_DIR}/generated"
+                "${_ror_render_root}/ogrenext")
+        target_include_directories(
+            ror_ogre_next_vulkan_rt6_smoke
+            SYSTEM PRIVATE
+                "${ogre_next_SOURCE_DIR}/OgreMain/include"
+                "${ogre_next_BINARY_DIR}/include"
+                "${ogre_next_SOURCE_DIR}/RenderSystems/Vulkan/include"
+                "${shaderc_SOURCE_DIR}/libshaderc/include"
+                "${Vulkan_INCLUDE_DIR}")
+        target_link_libraries(
+            ror_ogre_next_vulkan_rt6_smoke
+            PRIVATE
+                RenderSystem_Vulkan
+                OgreNextMain
+                shaderc_combined)
+        set_target_properties(
+            ror_ogre_next_vulkan_rt6_smoke
+            PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+        list(APPEND _ror_n1_targets ror_ogre_next_vulkan_rt6_smoke)
     endif ()
     if (APPLE)
         set(_ror_n2_repository_root
@@ -637,6 +679,20 @@ if (TARGET ror_ogre_next_vulkan_rt5_smoke)
         ror_ogre_next_vulkan_rt5_runtime
         PROPERTIES
             TIMEOUT 120
+            SKIP_RETURN_CODE 77
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif ()
+
+if (TARGET ror_ogre_next_vulkan_rt6_smoke)
+    set(ROR_OGRE_NEXT_RT6_CTEST_REPORT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-vulkan-rt6-ctest-report.json")
+    add_test(NAME ror_ogre_next_vulkan_rt6_runtime
+        COMMAND $<TARGET_FILE:ror_ogre_next_vulkan_rt6_smoke>
+                --report "${ROR_OGRE_NEXT_RT6_CTEST_REPORT}")
+    set_tests_properties(
+        ror_ogre_next_vulkan_rt6_runtime
+        PROPERTIES
+            TIMEOUT 180
             SKIP_RETURN_CODE 77
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif ()

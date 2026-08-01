@@ -27,7 +27,9 @@ VulkanRt6CandidateContract HardwareCandidate() {
   candidate.api_major = 1U;
   candidate.api_minor = 2U;
   candidate.device_class = VulkanRt5DeviceClass::DISCRETE_GPU;
+  candidate.device_identity_available = true;
   candidate.has_graphics_queue = true;
+  candidate.has_compute_on_graphics_queue = true;
   candidate.timeline_semaphore_supported = true;
   candidate.deferred_host_operations_extension = true;
   candidate.buffer_device_address_extension = true;
@@ -50,7 +52,7 @@ void TestEveryRequiredExtensionAndFeatureFailsClosed() {
           "reviewed RT6 candidate was rejected");
 
   struct Mutation {
-    bool VulkanRt6CandidateContract::*field;
+    bool VulkanRt6CandidateContract::* field;
     VulkanRt6CandidateDecision decision;
   };
   const Mutation mutations[] = {
@@ -58,10 +60,10 @@ void TestEveryRequiredExtensionAndFeatureFailsClosed() {
        VulkanRt6CandidateDecision::
            DEFERRED_HOST_OPERATIONS_EXTENSION_UNAVAILABLE},
       {&VulkanRt6CandidateContract::buffer_device_address_extension,
-       VulkanRt6CandidateDecision::
-           BUFFER_DEVICE_ADDRESS_EXTENSION_UNAVAILABLE},
+       VulkanRt6CandidateDecision::BUFFER_DEVICE_ADDRESS_EXTENSION_UNAVAILABLE},
       {&VulkanRt6CandidateContract::acceleration_structure_extension,
-       VulkanRt6CandidateDecision::ACCELERATION_STRUCTURE_EXTENSION_UNAVAILABLE},
+       VulkanRt6CandidateDecision::
+           ACCELERATION_STRUCTURE_EXTENSION_UNAVAILABLE},
       {&VulkanRt6CandidateContract::ray_tracing_pipeline_extension,
        VulkanRt6CandidateDecision::RAY_TRACING_PIPELINE_EXTENSION_UNAVAILABLE},
       {&VulkanRt6CandidateContract::buffer_device_address_feature,
@@ -99,10 +101,20 @@ void TestSoftwareAndBaseVulkanRequirementsFailBeforeRayTracing() {
               VulkanRt6CandidateDecision::API_TOO_OLD,
           "Vulkan 1.1 reached the RT6 extension checks");
   candidate = HardwareCandidate();
+  candidate.device_identity_available = false;
+  Require(EvaluateVulkanRt6Candidate(candidate) ==
+              VulkanRt6CandidateDecision::DEVICE_IDENTITY_UNAVAILABLE,
+          "candidate without stable identity reached RT6");
+  candidate = HardwareCandidate();
   candidate.has_graphics_queue = false;
   Require(EvaluateVulkanRt6Candidate(candidate) ==
               VulkanRt6CandidateDecision::GRAPHICS_QUEUE_UNAVAILABLE,
           "candidate without graphics queue reached RT6");
+  candidate = HardwareCandidate();
+  candidate.has_compute_on_graphics_queue = false;
+  Require(EvaluateVulkanRt6Candidate(candidate) ==
+              VulkanRt6CandidateDecision::COMPUTE_QUEUE_UNAVAILABLE,
+          "graphics queue without compute capability reached RT6");
   candidate = HardwareCandidate();
   candidate.timeline_semaphore_supported = false;
   Require(EvaluateVulkanRt6Candidate(candidate) ==
@@ -115,8 +127,7 @@ void TestLifecycleRequiresDispatchBeforeOgreAndOgreBeforeTeardown() {
   Require(!lifecycle.MarkRayResourcesReady(),
           "ray resources existed before the device owner");
   Require(lifecycle.MarkOwnerReady(), "owner-ready transition failed");
-  Require(lifecycle.MarkRayResourcesReady(),
-          "ray-resource transition failed");
+  Require(lifecycle.MarkRayResourcesReady(), "ray-resource transition failed");
   Require(!lifecycle.MarkOgreAttached(),
           "Ogre attached before a real ray dispatch");
   Require(lifecycle.MarkRayDispatched(), "ray-dispatch transition failed");

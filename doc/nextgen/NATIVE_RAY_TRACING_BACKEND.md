@@ -459,14 +459,27 @@ provenance artifacts pass. Only then may the macOS build report
 Exit: `PREFER_HARDWARE` degradation is visually complete on every supported
 machine.
 
-### RT5 — Vulkan KHR RT proof
+### RT5 — Vulkan external-device foundation
 
-- Create the allowlisted external Vulkan device/feature chain.
-- Pass triangle probe, shared-scene pass, validation layers, resize, and soak.
+- Create and prove the application-owned Vulkan instance, device, graphics
+  queue, timeline, exact Ogre-Next adoption, and teardown order.
+- Make no native-ray-tracing or ray-image claim at this checkpoint.
 
-Exit: only a real Linux scene pass may report `native_rt=vulkan-khr`.
+Exit: hardware ownership passes or software/incomplete devices return explicit
+unsupported evidence.
 
-### RT6 — DXR interop decision
+### RT6 — Vulkan KHR primary-hit proof
+
+- Require the exact KHR extension and feature chain on Linux hardware.
+- Build fixed mirror geometry, BLAS/TLAS, descriptors, ray pipeline, and SBT on
+  the shared graphics-and-compute queue.
+- Dispatch one primary ray and require the deterministic nonzero host readback.
+
+Exit: only an actual hardware dispatch may report the scoped RT6
+`hardware_dispatch_pass`; production `native_rt=vulkan-khr` remains gated on
+shared-scene integration, validation layers, resize, soak, and compositing.
+
+### RT7 — DXR interop decision
 
 - Complete the D3D12/D3D11On12/Ogre-Next proof.
 - Pass DXR tier query, triangle probe, shared-scene pass, resource-state
@@ -475,7 +488,7 @@ Exit: only a real Linux scene pass may report `native_rt=vulkan-khr`.
 Exit: either `native_rt=dxr` is proven or the project records a renderer
 architecture no-go and chooses the D3D12-renderer/alternative-engine path.
 
-### RT7 — Dynamic vehicles and hybrid quality
+### RT8 — Dynamic vehicles and hybrid quality
 
 - Add rigid and deformable BLAS policies, motion history, denoising, reflection,
   shadow, and selected GI passes.
@@ -485,7 +498,7 @@ architecture no-go and chooses the D3D12-renderer/alternative-engine path.
 Exit: bounded AS time/memory, no stale geometry, no physics-hash changes, and
 the immutable visual benchmark passes.
 
-### RT8 — Default decision
+### RT9 — Default decision
 
 - Run the shared AirSim/UE5-reference suite and platform performance budgets.
 - Complete legacy content/script/UI compatibility and crash soaks.

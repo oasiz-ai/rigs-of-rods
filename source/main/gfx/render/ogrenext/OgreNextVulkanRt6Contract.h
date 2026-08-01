@@ -19,7 +19,9 @@ struct VulkanRt6CandidateContract {
   std::uint32_t api_minor = 0U;
   VulkanRt5DeviceClass device_class = VulkanRt5DeviceClass::OTHER;
   bool known_software_adapter = false;
+  bool device_identity_available = false;
   bool has_graphics_queue = false;
+  bool has_compute_on_graphics_queue = false;
   bool timeline_semaphore_supported = false;
   bool deferred_host_operations_extension = false;
   bool buffer_device_address_extension = false;
@@ -38,7 +40,9 @@ enum class VulkanRt6CandidateDecision : std::uint8_t {
   ACCEPT = 0,
   API_TOO_OLD,
   SOFTWARE_OR_UNATTESTED_DEVICE,
+  DEVICE_IDENTITY_UNAVAILABLE,
   GRAPHICS_QUEUE_UNAVAILABLE,
+  COMPUTE_QUEUE_UNAVAILABLE,
   TIMELINE_SEMAPHORE_UNAVAILABLE,
   DEFERRED_HOST_OPERATIONS_EXTENSION_UNAVAILABLE,
   BUFFER_DEVICE_ADDRESS_EXTENSION_UNAVAILABLE,
@@ -70,7 +74,7 @@ enum class VulkanRt6LifecycleStage : std::uint8_t {
 };
 
 class VulkanRt6LifecycleContract final {
- public:
+public:
   bool MarkOwnerReady() noexcept;
   bool MarkRayResourcesReady() noexcept;
   bool MarkRayDispatched() noexcept;
@@ -86,7 +90,7 @@ class VulkanRt6LifecycleContract final {
     return stage_ == VulkanRt6LifecycleStage::INSTANCE_DESTROYED;
   }
 
- private:
+private:
   bool Advance(VulkanRt6LifecycleStage expected,
                VulkanRt6LifecycleStage next) noexcept;
 
