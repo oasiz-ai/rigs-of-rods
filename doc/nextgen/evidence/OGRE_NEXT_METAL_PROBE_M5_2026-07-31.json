@@ -13,7 +13,7 @@
     "frame_source_path": "tools/ogre_next_probe/src/frame_main.cpp",
     "frame_source_sha256": "b4f44cd5f62daccc27995f61e7d7a395a04fdea9de8a2494125bd4af003b06ef",
     "cmake_path": "tools/ogre_next_probe/CMakeLists.txt",
-    "cmake_sha256": "3b1e22e9677b7e1ecb31bbe0292404e7978de4b3391b0b1d25918b19f3da1214",
+    "cmake_sha256": "6d03282d7aa007f2d61a87c5fcb39b84763b73f77ca072d5f9e27efccdc6f9b1",
     "wrapper_path": "tools/run_ogre_next_probe.py",
     "wrapper_sha256": "f14fcc580aefc7c0bc74da0ca4e4ba4c3da4c8487ba31e4be77dcd7e321ff623",
     "frame_validator_path": "tools/validate_ogre_next_frame_probe.py",

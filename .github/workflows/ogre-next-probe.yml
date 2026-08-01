@@ -69,6 +69,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
+            glslang-dev \
             libshaderc-dev \
             libvulkan-dev \
             libx11-dev \
