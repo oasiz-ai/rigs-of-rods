@@ -7,49 +7,71 @@
 */
 
 /// @file
-/// @brief Portable numerical oracle for the pinned Ogre-Next HDR pipeline.
+/// @brief Portable numerical references for the pinned Ogre-Next HDR pipeline.
 
 #pragma once
 
 #include "RenderMath.h"
 #include "RenderValidation.h"
 
+#include <array>
 #include <cstdint>
 
 namespace RoR::Render {
 
-/// Version 1 mirrors the auto-exposure and final filmic tone-map equations in
-/// the pinned Ogre-Next HDR sample. The oracle intentionally ends at the
-/// fragment shader output: framebuffer clamping, gamut mapping, an SDR OETF,
-/// HDR transfer functions, dithering, and display calibration are separate
-/// versioned stages.
-constexpr std::uint32_t kHdrReferenceVersion = 1U;
+/// The analytic behavior evaluates the pinned equations in IEEE-754 binary64.
+/// It is deliberately free of render-target quantization and is useful for
+/// authoring, calibration, and high-precision regression fixtures.
+constexpr std::uint32_t kHdrAnalyticReferenceVersion = 1U;
+
+/// The shader behavior evaluates the pinned equations in IEEE-754 binary32 and
+/// models the R16_FLOAT storage boundary used for luminance feedback.
+constexpr std::uint32_t kHdrShaderReferenceVersion = 1U;
+
 constexpr const char kHdrReferenceOgreNextCommit[] =
     "37149a802de747f6806996fa3067b0748ecc1084";
-constexpr const char kHdrReferenceMetalShaderSha256[] =
-    "c5646e0b52ddfff8da39b2cd81fc874d63ce1dfb72dcf325fe9e31cee366af40";
-constexpr const char kHdrReferenceHlslShaderSha256[] =
-    "6f8bdaee587565fdba06525ead91b1e6a2e8b86f8a1270d35850d6028c19a119";
-constexpr const char kHdrReferenceGlslShaderSha256[] =
-    "9ecc4946a5cc046c11eca50543af8a6d5bb4745475c6c5c166c25e76c6cbaedb";
-constexpr const char kHdrReferenceUtilitySha256[] =
-    "0c58ca0fe592b949662b8085b3aebb3949d4fa3c9f071f9a55f12836f3dadb13";
 
-struct HdrAutoExposureReferenceInput {
-  std::uint32_t version = kHdrReferenceVersion;
-  /// Ogre's user-facing exposure value passed to HdrUtils::setExposure().
+/// RoR's approved finite input envelope for the pinned sample. The exposure
+/// interval safely contains every upstream HDR sample preset while preventing
+/// the float exp/multiply overflow accepted by an unbounded binary64 model.
+constexpr double kHdrMinimumExposure = -16.0;
+constexpr double kHdrMaximumExposure = 16.0;
+constexpr double kHdrMaximumFrameDeltaSeconds = 60.0;
+constexpr double kHdrR16MaximumFinite = 65504.0;
+constexpr double kHdrR16MinimumPositive = 0x1p-24;
+
+/// A binary64 analytic result and a strict binary32 shader-equation result are
+/// compared with both tolerances: abs(a-b) <= absolute + relative*max(abs(a),
+/// abs(b)). R16 feedback itself is compared by exact binary16 bits instead.
+constexpr double kHdrAnalyticShaderAbsoluteTolerance = 2.0e-6;
+constexpr double kHdrAnalyticShaderRelativeTolerance = 2.0e-5;
+
+struct HdrR16Float {
+  std::uint16_t bits = 0U;
+  float decoded = 0.0F;
+};
+
+/// Deterministically round a finite nonnegative binary32 value to IEEE-754
+/// binary16 using round-to-nearest, ties-to-even. Values that would store an
+/// infinity fail. A failure leaves `output` unchanged.
+[[nodiscard]] ValidationResult QuantizeHdrR16Float(float input,
+                                                   HdrR16Float &output);
+
+struct HdrAnalyticAutoExposureInput {
+  std::uint32_t version = kHdrAnalyticReferenceVersion;
   double exposure = 0.0;
   double minimum_auto_exposure = -1.0;
   double maximum_auto_exposure = 2.5;
-  /// Average natural-log luminance produced by Ogre's downscale chain.
+  /// Average natural-log luminance presented to DownScale03 after its four
+  /// samples have been averaged.
   double average_log_luminance = 0.0;
-  /// Previous frame's adapted inverse-luminance multiplier.
+  /// Ideal previous value. Unlike shader mode, this value is not quantized at
+  /// the R16 feedback boundary.
   double previous_inverse_luminance = 1.0;
-  /// Explicit simulation/render delta. No wall clock is consulted.
   double delta_seconds = 1.0 / 48.0;
 };
 
-struct HdrAutoExposureReferenceResult {
+struct HdrAnalyticAutoExposureResult {
   double exposure_numerator = 0.0;
   double minimum_log_luminance = 0.0;
   double maximum_log_luminance = 0.0;
@@ -59,39 +81,101 @@ struct HdrAutoExposureReferenceResult {
   double adapted_inverse_luminance = 0.0;
 };
 
-/// Reproduces Ogre-Next's exposure parameter setup, luminance clamp, and
-/// 75%-per-second temporal adaptation in deterministic binary64 arithmetic.
-/// A failure leaves `output` unchanged.
+/// Evaluate the ideal analytic exposure equation in binary64. Inputs are
+/// restricted to the declared source envelope, but no R16 storage rounding is
+/// applied. A failure leaves `output` unchanged.
 [[nodiscard]] ValidationResult
-EvaluateHdrAutoExposureReference(const HdrAutoExposureReferenceInput &input,
-                                 HdrAutoExposureReferenceResult &output);
+EvaluateHdrAnalyticAutoExposure(const HdrAnalyticAutoExposureInput &input,
+                                HdrAnalyticAutoExposureResult &output);
 
-struct HdrFinalToneMapReferenceInput {
-  std::uint32_t version = kHdrReferenceVersion;
-  /// Linear scene color sampled from Ogre's HDR render target.
-  Float3 scene_linear_hdr{};
-  /// Bloom texture sample as consumed by the pinned shader. The shader uses
-  /// its historical x*x approximation when converting this sample to linear.
-  Float3 bloom_srgb{};
+struct HdrShaderAutoExposureInput {
+  std::uint32_t version = kHdrShaderReferenceVersion;
+  float exposure = 0.0F;
+  float minimum_auto_exposure = -1.0F;
+  float maximum_auto_exposure = 2.5F;
+  float average_log_luminance = 0.0F;
+  /// The value read from oldLumRt. It is deterministically quantized to R16
+  /// before the binary32 shader equation is evaluated.
+  float previous_inverse_luminance = 1.0F;
+  float delta_seconds = 1.0F / 48.0F;
+};
+
+struct HdrShaderAutoExposureResult {
+  float exposure_numerator = 0.0F;
+  float minimum_log_luminance = 0.0F;
+  float maximum_log_luminance = 0.0F;
+  float clamped_log_luminance = 0.0F;
+  float target_inverse_luminance = 0.0F;
+  float previous_frame_weight = 0.0F;
+  HdrR16Float previous_inverse_luminance_r16{};
+  float adapted_inverse_luminance_before_storage = 0.0F;
+  HdrR16Float stored_inverse_luminance_r16{};
+};
+
+/// Evaluate one DownScale03 frame in binary32 and apply the exact R16_FLOAT
+/// feedback storage conversion. Pass `stored_inverse_luminance_r16.decoded` as
+/// the next frame's previous value. Any float overflow, NaN, or R16 infinity
+/// fails transactionally.
+[[nodiscard]] ValidationResult
+EvaluateHdrShaderAutoExposure(const HdrShaderAutoExposureInput &input,
+                              HdrShaderAutoExposureResult &output);
+
+struct HdrAnalyticFinalToneMapInput {
+  std::uint32_t version = kHdrAnalyticReferenceVersion;
+  Double3 scene_linear_hdr{};
+  /// Final bloom sample in Ogre's historical gamma-2 encoding. This is not the
+  /// standard sRGB transfer function.
+  Double3 bloom_gamma2_encoded{};
   double inverse_luminance = 1.0;
   double alpha = 1.0;
 };
 
-struct HdrFinalToneMapReferenceResult {
+struct HdrAnalyticFinalToneMapResult {
   Double3 exposed_scene_linear{};
   Double3 bloom_linear_approximation{};
   Double3 combined_linear{};
   Double3 filmic_normalized{};
-  /// Exact pre-framebuffer RGB returned by the pinned shader, including its
-  /// contrast and lift operation. Values are deliberately not clamped.
-  Double3 shader_output{};
+  Double3 analytic_output{};
   double alpha = 1.0;
 };
 
-/// Reproduces the Metal, HLSL, and GLSL FinalToneMapping shader equation in
-/// deterministic binary64 arithmetic. A failure leaves `output` unchanged.
+/// Evaluate the ideal Hable/final-composite equation in binary64 without
+/// source-texture quantization or framebuffer conversion.
 [[nodiscard]] ValidationResult
-EvaluateHdrFinalToneMapReference(const HdrFinalToneMapReferenceInput &input,
-                                 HdrFinalToneMapReferenceResult &output);
+EvaluateHdrAnalyticFinalToneMap(const HdrAnalyticFinalToneMapInput &input,
+                                HdrAnalyticFinalToneMapResult &output);
+
+struct HdrShaderFinalToneMapInput {
+  std::uint32_t version = kHdrShaderReferenceVersion;
+  /// Values supplied for the RGBA16_FLOAT scene sample. They are rounded to
+  /// binary16 before shader evaluation.
+  Float3 scene_linear_hdr{};
+  /// Filtered R10G10B10A2_UNORM bloom sample after Ogre's explicit gamma-2
+  /// encoding/blur chain. Filtering means it need not lie on a 10-bit step.
+  Float3 bloom_gamma2_encoded{};
+  /// Value supplied for the R16_FLOAT luminance sample; rounded before use.
+  float inverse_luminance = 1.0F;
+  float alpha = 1.0F;
+};
+
+struct HdrShaderFinalToneMapResult {
+  Float3 scene_linear_hdr_r16{};
+  std::array<std::uint16_t, 3U> scene_linear_hdr_r16_bits{};
+  HdrR16Float inverse_luminance_r16{};
+  HdrR16Float alpha_r16{};
+  Float3 exposed_scene_linear{};
+  Float3 bloom_linear_approximation{};
+  Float3 combined_linear{};
+  Float3 filmic_normalized{};
+  /// Binary32 pre-framebuffer shader-equation result. GPU contraction and
+  /// transcendental implementations are compared using the declared tolerance,
+  /// never by claiming bit identity across APIs.
+  Float3 shader_output{};
+  float alpha = 1.0F;
+};
+
+[[nodiscard]] ValidationResult
+EvaluateHdrShaderFinalToneMap(const HdrShaderFinalToneMapInput &input,
+                              HdrShaderFinalToneMapResult &output);
 
 } // namespace RoR::Render

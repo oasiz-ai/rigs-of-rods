@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "name": "Ogre-Next HDR numerical reference source closure",
+  "canonical_ogre_next_lock": "ogre-next.lock.json",
+  "ogre_next_commit": "37149a802de747f6806996fa3067b0748ecc1084",
+  "analytic_behavior_version": 1,
+  "shader_behavior_version": 1,
+  "files": [
+    {
+      "role": "exposure_parameter_construction",
+      "path": "Samples/2.0/Common/src/Utils/HdrUtils.cpp",
+      "sha256": "0c58ca0fe592b949662b8085b3aebb3949d4fa3c9f071f9a55f12836f3dadb13"
+    },
+    {
+      "role": "render_target_formats_and_pass_order",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/HDR.compositor",
+      "sha256": "a224111f54304d2759c9c4e7abf23fc754ad7f5ee272374e757f1a586d0fc2ab"
+    },
+    {
+      "role": "downscale03_metal",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/Metal/DownScale03_SumLumEnd_ps.metal",
+      "sha256": "31a4009153b00f1214cbcd9c0d47554fc83211a267f84d5069cffb04020c30e3"
+    },
+    {
+      "role": "downscale03_hlsl",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/HLSL/DownScale03_SumLumEnd_ps.hlsl",
+      "sha256": "a413390441503afe0318ef575bd8082607fc74dcd11222325736f009f62999ca"
+    },
+    {
+      "role": "downscale03_glsl",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/GLSL/DownScale03_SumLumEnd_ps.glsl",
+      "sha256": "ac75a026ff1f941de984c8263af0ca811a376d44523bbd005ec96c75e726346a"
+    },
+    {
+      "role": "final_tone_mapping_metal",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/Metal/FinalToneMapping_ps.metal",
+      "sha256": "c5646e0b52ddfff8da39b2cd81fc874d63ce1dfb72dcf325fe9e31cee366af40"
+    },
+    {
+      "role": "final_tone_mapping_hlsl",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/HLSL/FinalToneMapping_ps.hlsl",
+      "sha256": "6f8bdaee587565fdba06525ead91b1e6a2e8b86f8a1270d35850d6028c19a119"
+    },
+    {
+      "role": "final_tone_mapping_glsl",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/GLSL/FinalToneMapping_ps.glsl",
+      "sha256": "9ecc4946a5cc046c11eca50543af8a6d5bb4745475c6c5c166c25e76c6cbaedb"
+    },
+    {
+      "role": "bright_pass_gamma2_encode_metal",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/Metal/BrightPass_Start_ps.metal",
+      "sha256": "9919bb79e3390d74567dc513121c20907eab427d712a8482c62ade487c5e801d"
+    },
+    {
+      "role": "bright_pass_gamma2_encode_hlsl",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/HLSL/BrightPass_Start_ps.hlsl",
+      "sha256": "b08e429ea511face4a4beaf03787835f22d0e16f0958da5bac451ea7cb762d8c"
+    },
+    {
+      "role": "bright_pass_gamma2_encode_glsl",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/GLSL/BrightPass_Start_ps.glsl",
+      "sha256": "98d2afe75a4aed41ca5d092f0edf47c99a241cb7ecc6875f6fc3ee341e2124e4"
+    },
+    {
+      "role": "horizontal_gamma2_blur_metal",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/Metal/BoxBlurH_ps.metal",
+      "sha256": "36ec0506375ebc781a85b8af1bdfa9c2aea8dd0e38f20adb71129e7c39ddb685"
+    },
+    {
+      "role": "horizontal_gamma2_blur_hlsl",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/HLSL/BoxBlurH_ps.hlsl",
+      "sha256": "7f98ec794b8aba6b0cd18dde6dffb317d40ca99f868cadb9a53418e314b187fa"
+    },
+    {
+      "role": "horizontal_gamma2_blur_glsl",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/GLSL/BoxBlurH_ps.glsl",
+      "sha256": "676de45e09252b375b13ce3602baf55ec7d4dc4e364018b5637362e6950b2f1f"
+    },
+    {
+      "role": "vertical_gamma2_blur_metal",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/Metal/BoxBlurV_ps.metal",
+      "sha256": "20a7b96ad871d3e29dd98c2699b399600a6a0275db0628b5182c6af241e3c6fc"
+    },
+    {
+      "role": "vertical_gamma2_blur_hlsl",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/HLSL/BoxBlurV_ps.hlsl",
+      "sha256": "841afafb9f5b56fe5412666a2f963fc52ed3ed08162abe118e7738b4f70bb016"
+    },
+    {
+      "role": "vertical_gamma2_blur_glsl",
+      "path": "Samples/Media/2.0/scripts/materials/HDR/GLSL/BoxBlurV_ps.glsl",
+      "sha256": "a37bf812c755106ace602044550918dfb769508c2b91e9a0208ff41937447d4e"
+    }
+  ]
+}
