@@ -1201,6 +1201,11 @@ utility/material/shader/compositor closure. Backend captures use the documented
 storage-normalized tone-map comparison, conditioning-aware exposure bound, and
 exact R16 policy in [the HDR reference contract](HDR_REFERENCE.md).
 Display transfer/gamut policy and image/performance acceptance remain open.
+The deterministic temporal handoff now derives Ogre exposure and adaptation
+delta from the immutable view/scene exposure and simulation timestamp, and
+advances its persistent R16 history only after an exact native-oracle readback.
+Native compositor media, spatial bloom, output transfer, and backend images are
+still required before this is a shipping HDR path.
 
 Gate V1:
 

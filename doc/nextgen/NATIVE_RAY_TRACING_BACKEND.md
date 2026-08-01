@@ -471,6 +471,9 @@ provenance artifacts pass. Only then may the macOS build report
   conditioning-aware comparison contract;
   treat output transfer, gamut mapping, dithering, and framebuffer clamping as
   separately versioned presentation stages.
+- Feed persistent exposure history from the deterministic simulation-time
+  temporal contract; reject stale frame lineage or a native R16 feedback value
+  that differs from the pinned shader oracle before advancing history.
 - Add probes/SSR or accepted non-RT reflection path and a measured diffuse-GI
   path.
 - Bind the probe fallback to the pinned portable box-projection/influence

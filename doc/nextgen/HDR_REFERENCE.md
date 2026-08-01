@@ -121,3 +121,32 @@ These are numerical-equation gates. Backend frame captures, perceptual image
 thresholds, display gamut/transfer, framebuffer clamping, dithering, bloom
 spatial reconstruction, and performance acceptance remain separately versioned
 roadmap work.
+
+## Deterministic temporal handoff
+
+`OgreNextHdrTemporalState` is the renderer-neutral handoff from immutable RoR
+frames to the future native HDR compositor. It admits only the reviewed RT4/V1
+PBS tier and one tone-mapped `RGBA8_SRGB` colour view. The raw
+`RGBA16_FLOAT` capture remains a distinct pre-tone-map output and cannot be
+mislabelled as presentation.
+
+The handoff combines the dimensionless view exposure with scene compensation,
+then takes its natural logarithm because Ogre's pinned shader consumes
+`1024 * exp(exposure - 2)`. The result must remain inside the same `[-16, 16]`
+source envelope as the numerical oracle. Bloom thresholds and the reciprocal
+transition width are fixed by the versioned configuration rather than shader
+defaults.
+
+Temporal adaptation never consumes wall time. Frame one uses a zero delta and
+the configured positive `R16_FLOAT` initial history. Later frames use the
+binary32 rounding of consecutive immutable simulation timestamps, require
+contiguous frame IDs and monotonic time, and reject a delta above 60 seconds.
+After a native frame, `CommitFrame` evaluates the pinned binary32 equation and
+advances history only when the UI-free one-pixel GPU readback has the exact
+expected binary16 bits. Invalid input, stale plans, and backend disagreement
+leave all history unchanged.
+
+This closes the portable temporal-lineage contract only. Loading the pinned HDR
+media, persistent compositor resources, spatial bloom, framebuffer sRGB
+transfer, native Metal/D3D11/Vulkan readback, and image/performance acceptance
+remain runtime gates.

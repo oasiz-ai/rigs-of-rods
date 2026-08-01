@@ -252,3 +252,11 @@ before tone-map comparison and use a conditioning-aware bound for exposure
 adaptation near zero frame time. Source hashes, admitted ranges, backend
 tolerances, and the unimplemented output stages are defined in
 [`HDR_REFERENCE.md`](../../../../doc/nextgen/HDR_REFERENCE.md).
+
+`OgreNextHdrTemporalState` turns that numerical behavior into a fail-closed
+per-frontend history contract without importing Ogre headers. It maps portable
+view/scene exposure to the pinned shader parameter, derives binary32 deltas
+only from immutable simulation time, and commits a frame only when the native
+R16 feedback bit pattern matches the shader oracle. It is the temporal handoff
+for the pending native compositor, not evidence that bloom, output transfer, or
+presentation is already wired.
