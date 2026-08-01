@@ -1,9 +1,10 @@
 # OGRE-Next isolated integration checkpoint
 
-Status: **opt-in N1 raster frontend plus Apple Metal N2 geometry and N3
-view-dependent hybrid-HDR proofs; no shipping renderer switch**
+Status: **opt-in N1/RT4 raster frontend with bounded directional PSSM, plus
+Apple Metal N2 geometry and N3 view-dependent hybrid-HDR proofs; no shipping
+renderer switch**
 
-This checkpoint compiles five standalone executables against an exact
+This checkpoint compiles six standalone executables against an exact
 OGRE-Next `v3-0` revision while leaving every default RoR and OGRE 14 build
 unchanged. The capability executable proves that the reviewed platform
 renderer registers with OGRE core, HLMS PBS links and selects the expected
@@ -42,11 +43,19 @@ view, one instance, one sample, and one primary-ray hit contribution; it does
 not implement reflections, shadows, GI, denoising, multi-bounce transport, or
 production material parity.
 
+The sixth executable is the portable RT4/V1 directional-shadow slice. It
+constructs a three-cascade PSSM shadow node and workspace entirely through
+Compositor2 APIs, renders both UI-free HDR and SDR pairs, and toggles only one
+occluder instance's cast flag. The proof accepts a pass only when changed
+pixels stay on the receiver and darken in both formats; an unsupported host
+writes an explicit report and exits with CTest skip code 77. It is not a
+local-light, ray-traced-shadow, CityWorld, or shipping-quality claim.
+
 The original capability and frame probes do not consume a RoR scene. The N1
 through N3 executables consume the renderer-neutral RoR scene and asset contracts,
 but never link into the OGRE 1.14 executable or touch simulation/solver state.
 N2 evaluates capability and exact geometry interop without producing an image;
-N3 adds the first measured view-dependent hybrid scene output. None of the five
+N3 adds the first measured view-dependent hybrid scene output. None of the six
 executables is a shipping presentation-window, performance, or visual-quality
 claim.
 
@@ -241,9 +250,40 @@ and queue.
 
 This is not the complete RT4 or V1 gate. Normal and occlusion textures remain
 fail-closed, only one directional-light calibration is admitted, and there are
-no shadow, reflection-probe/SSR, diffuse-GI, exposure/tone-map, temporal,
-presentation, CityWorld, or performance claims yet. N3 proves geometric hit
-contribution only; it does not claim ray-material parity.
+no local-light shadow, reflection-probe/SSR, diffuse-GI, exposure/tone-map,
+temporal, presentation, CityWorld, or performance claims yet. N3 proves
+geometric hit contribution only; it does not claim ray-material parity.
+
+## RT4/V1 directional PSSM checkpoint
+
+`PSSM_3_CASCADE_V1` is separately opt-in and valid only with
+`MODERN_PBR_RT4_V1`; the default configuration remains `DISABLED` and retains
+the previous zero-shadow admission and pixel path. Enabled admission requires
+exactly one directional light with a nonzero static/dynamic shadow mask. Point
+and spot lights, multiple lights, other raster tiers, and views whose near/far
+planes differ from exactly 0.5 m and 350 m fail closed. Mesh cast admission is
+the intersection of the light mask, instance cast flag, and mesh static or
+dynamic class. Receive admission remains the independent instance receive
+flag; non-receivers use frame-local PBS datablock clones with native getter
+verification and exact create/destroy auditing.
+
+The reviewed policy is three cascades, lambda 0.97, blend 0.125, one metre
+split padding, 0.313 terminal fade, 1.5 XY padding, one stable cascade, and
+PCF 4x4. A single sampled `D32_FLOAT` 2048x3072 atlas has an explicit
+2048x2048 first region and two ordered 1024x1024 lower regions. RoR writes and
+reads back every atlas, split, blend, fade, bias, filter, light-count, caster,
+receiver, and lifecycle property. It never substitutes a format, resolution,
+filter, backend, or unpinned compositor script.
+
+[`ogre-next-pssm-shadow-v1.lock.json`](../../tools/ogre_next_probe/ogre-next-pssm-shadow-v1.lock.json)
+pins the 27 upstream source and HLMS shader files on which this behavior
+depends. The standalone build runs
+`verify_pssm_shadow_source_closure.py` against the extracted canonical Ogre
+commit before compiling the frontend; missing files, path indirection, hash
+drift, reordered roles, or lost behavioral seams stop the build. Apple Metal,
+Linux Vulkan, and Windows D3D11 all compile and run the same adapter and smoke.
+Capability gaps such as a missing 2048x3072 `D32_FLOAT` render target or
+texture-gather PCF support are recorded as unsupported, never as a fallback.
 
 Selecting `METAL_RAY_TRACING_N2` is explicit and Apple-only. It admits full
 position/normal deformation snapshots solely to create immutable per-frame
@@ -322,6 +362,13 @@ The generated files are:
   identity, and recovery evidence; and
 - `ror-ogre-next-frontend-n1.ppm`: the exact N1 sRGB CPU readback independently
   hashed by the wrapper;
+- `ror-ogre-next-pssm-shadow-report.json`: exact topology, split, capability,
+  isolation, lifecycle, and source/build provenance, or explicit unsupported
+  evidence;
+- `ror-ogre-next-pssm-shadow-isolation.bin`: tightly packed HDR/SDR
+  cast-disabled and cast-enabled readbacks, present only for a native pass;
+- `bin/ror_ogre_next_pssm_shadow_smoke`: the strict-warning cross-platform
+  executable retained beside the report;
 - `ogre-next-linux-static-closure.json`: on Linux, exact source and
   built-library provenance with a per-archive SHA-256, also retained inside
   the N1 package;
@@ -424,11 +471,21 @@ measurements close the first view-dependent same-device HDR-composite slice;
 they do not close reflection/shadow quality, material, timing, GPU-capture,
 fallback-soak, presentation, Vulkan KHR, or DXR gates.
 
+The directional PSSM development smoke also passed natively on Apple Metal.
+Toggling only the contained occluder's cast flag changed and darkened 244
+receiver pixels in the HDR pair and the same 244 receiver pixels in the SDR
+pair, with zero changes outside the reviewed receiver mask or inside the
+visible occluder interior. Four shadow frames created and destroyed four
+programmatic shadow nodes and four non-receiver datablock clones; default and
+explicitly disabled SDR bytes were identical. This is local development
+evidence, not checked-in golden pixels or proof of Linux/Windows runtime parity.
+
 ## Next gates
 
 The checked-in optional CI matrix runs the exact probe on macOS arm64 Metal,
 Windows x64 Direct3D 11, and Linux x86_64 software Vulkan/null-window. It keeps
-the three jobs independent, runs N1, N2, and N3 before the legacy probes,
+the three jobs independent, runs N1 plus its directional PSSM proof, N2, and N3
+before the legacy probes,
 reruns the complete native test set, and revalidates the exact reports and
 images selected for upload. Explicit always-running artifact gates require the
 baseline set plus internally consistent N2/N3 pass-or-skip attestations, so a
@@ -440,9 +497,10 @@ non-shipping until these later checkpoints pass:
 1. build/run this exact probe on Windows x64/D3D11 and Linux x86_64/Vulkan;
 2. reproduce the completed macOS native-window Compositor2 + HLMS PBS frame on
    Windows and Linux, including shutdown and fallback tests;
-3. reproduce RT4/V1 texture, retirement, directional-light, HDR/SDR, and
-   artifact gates on native Windows and Linux, then add normal/occlusion maps,
-   the full renderer-neutral light inventory, UI ordering, and presentation;
+3. reproduce RT4/V1 texture, retirement, directional-light, directional-PSSM,
+   HDR/SDR, and artifact gates on native Windows and Linux, then add
+   normal/occlusion maps, the full renderer-neutral light inventory, UI
+   ordering, and presentation;
 4. add depth, motion, and stable object-ID outputs only with their own tests;
 5. extend the proven M5 same-device geometry/image path to RT
    reflection/shadow semantics, materials, calibrated lighting, GPU capture,

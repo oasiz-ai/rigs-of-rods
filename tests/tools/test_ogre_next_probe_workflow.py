@@ -57,6 +57,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/tools/test_ogre_next_probe_contract.py",
             "tests/tools/test_ogre_next_frame_probe.py",
             "tests/tools/test_ogre_next_frontend_n1_contract.py",
+            "tests/tools/test_ogre_next_pssm_shadow_contract.py",
             "tests/tools/test_ogre_next_metal_n2_contract.py",
             "tests/tools/test_ogre_next_vulkan_rt5_contract.py",
             "tests/tools/test_ogre_next_linux_static_closure.py",
@@ -145,6 +146,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror-ogre-next-frontend-rt4-pbr-v1.ppm",
             "ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin",
             "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json",
+            "ror-ogre-next-pssm-shadow-report.json",
+            "ror-ogre-next-pssm-shadow-isolation.bin",
+            "bin/ror_ogre_next_pssm_shadow_smoke",
             "ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke",
             "ror-ogre-next-metal-n2-report.json",
             "ror-ogre-next-metal-n2-probe.bin",
@@ -250,6 +254,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         )
         self.assertIn(
             "Upload attested Apple Metal N3 hybrid evidence", self.workflow
+        )
+        self.assertIn(
+            "Require directional PSSM pass or explicit unsupported evidence",
+            self.workflow,
         )
 
     def test_verified_wrapper_owns_source_and_build_lifecycle(self) -> None:

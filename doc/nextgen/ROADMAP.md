@@ -1093,6 +1093,18 @@ Gate R1:
   semantics, material attributes, lights, presentation, image quality,
   performance, DXR, and Vulkan KHR interop remain open; see the
   [isolated integration checkpoint](OGRE_NEXT_INTEGRATION.md).
+- The RT4/V1 raster frontend now also has an explicit, default-off directional
+  `PSSM_3_CASCADE_V1` checkpoint. It programmatically creates one fixed
+  three-cascade `D32_FLOAT` Compositor2 atlas, honors the renderer-neutral
+  static/dynamic light masks and per-mesh cast/receive flags, reads back its
+  native topology/splits/filter/lifecycle, and proves that toggling only one
+  occluder cast flag darkens receiver-only pixels in both HDR and SDR. The 27
+  upstream Ogre/HLMS source files used by the feature have their own exact
+  source lock and build-time verifier. The smoke passed locally on Apple Metal;
+  Linux Vulkan and Windows D3D11 run the same fail-closed test in CI and may
+  report only a real pass or explicit unsupported capability evidence. This
+  does not close local-light shadows, CityWorld quality, ray-traced shadows,
+  presentation, or cross-platform native runtime parity.
 - The renderer-neutral scene boundary now has the prerequisite lighting slice:
   snapshot version 3 carries sorted stable directional/point/spot identities,
   current/previous transforms, lux/candela photometry, exact local attenuation
@@ -1102,10 +1114,10 @@ Gate R1:
   permanent type/tombstone lineage, and release/acquire atomic publication.
   Dependency-free strict C++ tests include concurrent readers, and the existing
   test graph compiles them with GCC/Clang/MSVC on Linux, macOS, and Windows.
-  This closes the data/transaction milestone only: Ogre-Next PBS calibration,
-  shadow rendering, atmospheric scattering, RT light/material export, GI,
-  denoising, shipping source adapters, image quality, and performance remain
-  open.
+  This closes the data/transaction milestone only: broader Ogre-Next PBS
+  calibration, local-light and content-scale shadow rendering, atmospheric
+  scattering, RT light/material export, GI, denoising, shipping source
+  adapters, image quality, and performance remain open.
 - macOS first renders a measured RT contribution in a real UI-free RoR frame
   on Apple family 9 or newer. M1/M2 and unsupported OS versions retain the
   complete Ogre-Next raster fallback.
@@ -1156,11 +1168,13 @@ The opt-in Ogre-Next `MODERN_PBR_RT4_V1` checkpoint now implements a measured
 subset of that path: authored tangent/UV0 geometry, sRGB base-color/emissive
 uploads, packed linear roughness/metallic extraction, padded multi-mip rows,
 portable samplers, one calibrated directional light, transactional replacement
-and exact native texture retirement, HDR/SDR evidence, and simultaneous Metal
-N3 interop. It has passed locally on the recorded Apple M5. This is progress
-toward V1, not completion: normal/occlusion maps, the full lighting inventory,
-shadows, exposure/tone mapping, reflections/GI, native Windows/Linux runtime
-evidence, content conversion, and image/performance gates remain open.
+and exact native texture retirement, default-off three-cascade directional
+PSSM, HDR/SDR evidence, and simultaneous Metal N3 interop. It has passed
+locally on the recorded Apple M5. This is progress toward V1, not completion:
+normal/occlusion maps, the full lighting inventory, local-light and
+content-scale shadow gates, exposure/tone mapping, reflections/GI, native
+Windows/Linux runtime evidence, content conversion, and image/performance
+gates remain open.
 
 The renderer-neutral V1 numerical oracle evaluates the selected analytic
 equations from the pinned Ogre-Next `PbsBrdf::Default` full32 source profile in

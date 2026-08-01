@@ -250,6 +250,12 @@ add_executable(
     ror_ogre_next_n1_policy_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/OgreNextN1PolicyTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextN1Policy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextPssmShadowPolicy.cpp"
+)
+add_executable(
+    ror_ogre_next_pssm_shadow_policy_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/OgreNextPssmShadowPolicyTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextPssmShadowPolicy.cpp"
 )
 add_executable(
     ror_ogre_next_n2_interop_state_tests
@@ -273,6 +279,10 @@ add_executable(
 )
 target_include_directories(
     ror_ogre_next_n1_policy_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext"
+)
+target_include_directories(
+    ror_ogre_next_pssm_shadow_policy_tests
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext"
 )
 target_include_directories(
@@ -307,6 +317,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_render_resource_descriptor_tests
     ror_renderer_frontend_contract_tests
     ror_ogre_next_n1_policy_tests
+    ror_ogre_next_pssm_shadow_policy_tests
     ror_ogre_next_n2_interop_state_tests
     ror_ogre_next_vulkan_rt5_contract_tests
     ror_ogre_next_vulkan_rt6_contract_tests
@@ -1233,6 +1244,11 @@ add_test(
 add_test(
     NAME ogre_next_n1_policy
     COMMAND ror_ogre_next_n1_policy_tests
+)
+
+add_test(
+    NAME ogre_next_pssm_shadow_policy
+    COMMAND ror_ogre_next_pssm_shadow_policy_tests
 )
 
 add_test(

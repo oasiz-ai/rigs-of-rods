@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "name": "RoR Ogre-Next directional PSSM_3_CASCADE_V1 source closure",
+  "canonical_dependency_lock": "ogre-next.lock.json",
+  "ogre_next_commit": "37149a802de747f6806996fa3067b0748ecc1084",
+  "platform_policies": [
+    "macos-arm64-metal",
+    "linux-x86_64-vulkan",
+    "windows-x64-d3d11"
+  ],
+  "sources": [
+    {
+      "role": "shadow_node_api",
+      "path": "OgreMain/include/Compositor/OgreCompositorShadowNode.h",
+      "sha256": "ae7eff3667471b568d5a85a8983f51709a15a6afbb351b3252a06f7656ac1937"
+    },
+    {
+      "role": "shadow_node_runtime_and_helper",
+      "path": "OgreMain/src/Compositor/OgreCompositorShadowNode.cpp",
+      "sha256": "be58553166213b8629e28d74ba125139808c158f6953de8d786d24cafe688ecd"
+    },
+    {
+      "role": "shadow_node_definition_api",
+      "path": "OgreMain/include/Compositor/OgreCompositorShadowNodeDef.h",
+      "sha256": "30cbf039d98a2d6dfb7544419cb47cf43bed356defc6c7f0f642493981d30529"
+    },
+    {
+      "role": "shadow_node_definition_validation",
+      "path": "OgreMain/src/Compositor/OgreCompositorShadowNodeDef.cpp",
+      "sha256": "331dc13fddbbd9f9499e732d1427ff57f254ac3cbe249182f6f896b496018ef8"
+    },
+    {
+      "role": "scene_pass_shadow_binding_api",
+      "path": "OgreMain/include/Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h",
+      "sha256": "500e22980bc20ce402d294c1b3e145bacb42e213136a8bc4e752a03f43677952"
+    },
+    {
+      "role": "scene_pass_shadow_execution",
+      "path": "OgreMain/src/Compositor/Pass/PassScene/OgreCompositorPassScene.cpp",
+      "sha256": "5468451d807c10c5eb0ed3af0a95cad033413644b6737c51dcb5cc35bf9d00ea"
+    },
+    {
+      "role": "workspace_first_only_ordering",
+      "path": "OgreMain/src/Compositor/OgreCompositorWorkspace.cpp",
+      "sha256": "3b1092cb91e474024bf54a4d652a6eea563e9cfc661f309526a3df0edd614db6"
+    },
+    {
+      "role": "pssm_split_api",
+      "path": "OgreMain/include/OgreShadowCameraSetupPSSM.h",
+      "sha256": "2dbeb4fda12164d1877e5fc69e39d4b9f7667487b0d341d0e1fbcbdc01f84324"
+    },
+    {
+      "role": "pssm_split_runtime",
+      "path": "OgreMain/src/OgreShadowCameraSetupPSSM.cpp",
+      "sha256": "fda13bd1f5782c1ecf89bd5b475348ff3fa4f98c5f5c224fc45a866185c35697"
+    },
+    {
+      "role": "focused_shadow_api",
+      "path": "OgreMain/include/OgreShadowCameraSetupFocused.h",
+      "sha256": "6e5a42568c2cc4ba303bae528f74b1c2cb455354bb9cffa3b5eed2997969ab58"
+    },
+    {
+      "role": "focused_shadow_runtime",
+      "path": "OgreMain/src/OgreShadowCameraSetupFocused.cpp",
+      "sha256": "cc6c95a995fc144d3b15522d4f722e1a53f84a851b682de2acb0aa59cf3522f4"
+    },
+    {
+      "role": "stable_cascade_api",
+      "path": "OgreMain/include/OgreShadowCameraSetupConcentric.h",
+      "sha256": "fe2f9034f5f372c426aa8925c58bf18a084ae3746cfe7371f465ce700d56212b"
+    },
+    {
+      "role": "stable_cascade_runtime",
+      "path": "OgreMain/src/OgreShadowCameraSetupConcentric.cpp",
+      "sha256": "c087ba356810d329ef6c705340b4bff1262acc9e4e249360afe44187d0340395"
+    },
+    {
+      "role": "movable_shadow_flag_api",
+      "path": "OgreMain/include/OgreMovableObject.inl",
+      "sha256": "745fb268d2f2a2615168ac9c8dd5c0c2871bef5294f1b185b4188fcd3adadacd"
+    },
+    {
+      "role": "movable_shadow_flag_masks",
+      "path": "OgreMain/src/OgreMovableObject.cpp",
+      "sha256": "b1de6a98f71c82e4c7e659305082dfa5d97f71c2fc1f2b2c4e84ac1de118336c"
+    },
+    {
+      "role": "pbs_shadow_filter_api",
+      "path": "Components/Hlms/Pbs/include/OgreHlmsPbs.h",
+      "sha256": "80f96c3c2e789b66af42d4828cab8070cf183ac88f6c25d07f26907c05c25d9a"
+    },
+    {
+      "role": "pbs_shadow_binding_runtime",
+      "path": "Components/Hlms/Pbs/src/OgreHlmsPbs.cpp",
+      "sha256": "e035ddf3d8b9a62f00a6879fbdfa3743cdcbf061c4a1c698adb833a1854c17cd"
+    },
+    {
+      "role": "pbs_receive_shadow_api",
+      "path": "Components/Hlms/Pbs/include/OgreHlmsPbsDatablock.h",
+      "sha256": "50a89116819ab79b77c2ab864cd9222f85434c99d6c9169e61fad0e561fc4593"
+    },
+    {
+      "role": "pbs_receive_shadow_runtime",
+      "path": "Components/Hlms/Pbs/src/OgreHlmsPbsDatablock.cpp",
+      "sha256": "e4847c5b267039350999ce18ed6b0158df35ef005dc62b07f7142b7f26381a50"
+    },
+    {
+      "role": "shared_shadow_math",
+      "path": "Samples/Media/Hlms/Pbs/Any/ShadowMapping_piece_all.any",
+      "sha256": "1039e6c7b129e50e7461ceafe47afc311731ae0b77eaec30853b8af6f47f8980"
+    },
+    {
+      "role": "shared_shadow_vertex_projection",
+      "path": "Samples/Media/Hlms/Pbs/Any/ShadowMapping_piece_vs.any",
+      "sha256": "1bc6927726683361dbf14accb084c8c52369ac790593f8d68b750a12b7d7142d"
+    },
+    {
+      "role": "shared_shadow_pcf_sampling",
+      "path": "Samples/Media/Hlms/Pbs/Any/ShadowMapping_piece_ps.any",
+      "sha256": "5023f74174a0edeef31c5bd67fba9483ca242551ca9ced6f04701e6b8e008309"
+    },
+    {
+      "role": "shared_shadow_constant_layout",
+      "path": "Samples/Media/Hlms/Pbs/Any/Main/500.Structs_piece_vs_piece_ps.any",
+      "sha256": "0337472eac1c285d1d5fb14808da9c6ce3e22514f74886789716c5c191c08943"
+    },
+    {
+      "role": "shared_pbs_shadow_application",
+      "path": "Samples/Media/Hlms/Pbs/Any/Main/800.PixelShader_piece_ps.any",
+      "sha256": "12cebd71e877c1d265df8d68f6c3f2931127679a8e77bb01c92b1221a09f5a7f"
+    },
+    {
+      "role": "metal_shadow_entrypoint",
+      "path": "Samples/Media/Hlms/Pbs/Metal/PixelShader_ps.metal",
+      "sha256": "c099b22063556d9e20365d23f4225d05fe8ea574dc4e8a13729e3d33584992ae"
+    },
+    {
+      "role": "d3d11_shadow_entrypoint",
+      "path": "Samples/Media/Hlms/Pbs/HLSL/PixelShader_ps.hlsl",
+      "sha256": "49e1a431ef846e62405068aa48d23cfa1530d9e556236783d230c410ef07d151"
+    },
+    {
+      "role": "vulkan_shadow_entrypoint",
+      "path": "Samples/Media/Hlms/Pbs/GLSL/PixelShader_ps.glsl",
+      "sha256": "6743b5f3dc21af7d8dbb934bff0aa9b9bb603d62a98c6467af70613377142b86"
+    }
+  ]
+}

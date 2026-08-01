@@ -12,6 +12,7 @@
 #pragma once
 
 #include "../RendererFrontend.h"
+#include "OgreNextPssmShadowPolicy.h"
 #include "RasterFeatureTier.h"
 
 #include <cstdint>
@@ -46,6 +47,25 @@ struct OgreNextN1Configuration final {
   OgreNextN1TextureUploadFailureStage texture_upload_failure_stage =
       OgreNextN1TextureUploadFailureStage::NONE;
 #endif
+  // Kept after the optional fault-injection seam so the existing standalone
+  // test aggregate remains source-compatible. Production callers should set
+  // this field by name after constructing the configuration.
+  OgreNextDirectionalShadowMode directional_shadow_mode =
+      OgreNextDirectionalShadowMode::DISABLED;
+};
+
+struct OgreNextPssmShadowRuntimeAudit final {
+  std::uint32_t version = kOgreNextPssmShadowContractVersion;
+  OgreNextDirectionalShadowMode configured_mode =
+      OgreNextDirectionalShadowMode::DISABLED;
+  std::uint64_t shadow_frames_completed = 0U;
+  std::uint64_t shadow_node_creates = 0U;
+  std::uint64_t shadow_node_destroys = 0U;
+  std::uint64_t receiver_datablock_creates = 0U;
+  std::uint64_t receiver_datablock_destroys = 0U;
+  OgreNextPssmShadowFramePlan last_frame;
+  OgreNextPssmSplitPolicy last_native_splits;
+  bool exact_native_readback = false;
 };
 
 /// Runtime audit of the native RT4/V1 texture variants owned by one frontend.
@@ -88,6 +108,8 @@ public:
   [[nodiscard]] FrontendCapabilityReport QueryCapabilities() const override;
   [[nodiscard]] OgreNextN1TextureAllocationAudit
   QueryTextureAllocationAudit() const noexcept;
+  [[nodiscard]] OgreNextPssmShadowRuntimeAudit
+  QueryDirectionalShadowAudit() const noexcept;
   RenderOperationResult
   Initialize(const FrontendInitializationRequest &request) override;
   RenderOperationResult
