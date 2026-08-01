@@ -98,6 +98,10 @@ view and the current surface revision, and that view must exactly match the
 active surface pixel extent. Frontends may not implicitly stretch a differently
 sized view. Suspended 0x0 surfaces skip presentation until reactivated.
 
-This foundation does not yet adapt OGRE 1.14 or Ogre-Next and does not change
-the current game's rendering. Those adapters are separate implementation
-milestones behind this contract.
+This boundary still does not change the shipping game's OGRE 1.14 renderer.
+An isolated opt-in Ogre-Next N1 adapter exercises static PBR/HDR raster, and an
+Apple-only N2 acceptance backend proves exact same-device Metal geometry
+export plus one-ray BLAS/TLAS dispatch/readback. They remain standalone gates:
+N2 does not yet import its result into an Ogre texture or implement RT
+materials, lighting, denoising, compositing, or presentation, while Windows and
+Linux continue to report native RT false until their explicit backends exist.

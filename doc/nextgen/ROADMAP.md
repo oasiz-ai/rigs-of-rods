@@ -47,10 +47,12 @@ BeamNG-derived product name without written permission, in accordance with
 - A historical OGRE 14 migration branch exists, but it is roughly 740 commits
   behind the audited `master`, and its Conan/platform assumptions remain biased
   toward Linux and Windows. Treat it as research, not as a merge base.
-- Native ray tracing is now a renderer-selection priority, but the current
-  project does not claim it. Ogre-Next's audited tree provides a materially
+- Native ray tracing is now a renderer-selection priority. The opt-in Apple M5
+  N2 checkpoint proves one same-device Metal geometry export, BLAS/TLAS build,
+  ray query/readback, and guarded lifecycle; it is not a shipping RT renderer
+  or a visual-fidelity claim. Ogre-Next's audited tree provides a materially
   stronger PBS/HDR raster foundation and Metal/Vulkan integration seams, not a
-  complete native RT implementation or a D3D12 renderer. The
+  complete cross-platform native RT implementation or a D3D12 renderer. The
   [Ogre-Next/native RT decision RFC](NATIVE_RAY_TRACING_BACKEND.md) makes a real
   Metal RT scene pass and DXR/Ogre-Next interop hard continuation gates while
   keeping OGRE14 default and fail-closed.
@@ -1045,10 +1047,13 @@ Gate R1:
 - A dependency-free selector defaults to OGRE14/RT-disabled and refuses to
   report RT without a compiled backend, accepted hardware capability, real
   BLAS/TLAS dispatch/readback probe, and scene interop.
-- The standalone Metal admission probe has passed BLAS/TLAS construction,
-  one-ray dispatch, and exact readback on the recorded Apple M5. This is an API
-  subgate only: it does not enable `native_rt=metal` until an Ogre-Next mesh and
-  HDR target contribute to a real UI-free RoR frame.
+- The standalone Metal admission probe and the Ogre-Next N2 interop probe have
+  passed on the recorded Apple M5. N2 rastered a renderer-neutral deformed RoR
+  scene, exported the exact pooled Ogre v2 position/index slices from that
+  raster `Item`, built BLAS/TLAS from those buffers on Ogre's own device and
+  queue, dispatched one ray, and validated its UI-free readback. This closes
+  API/hardware/dispatch and geometry-interoperability subgates only; it does
+  not enable a shipping `native_rt=metal` path or claim RT shading/compositing.
 - Ogre-Next `v3.0.0` is evaluated as an exact pin on macOS arm64, Windows
   x86_64, and Linux x86_64; development `master` is not a shipping dependency.
 - The first isolated dependency checkpoint now pins `v3-0` commit
@@ -1062,10 +1067,14 @@ Gate R1:
   evaluated. The next isolated macOS checkpoint creates a hidden native Metal
   window, renders a manual PBR triangle through HLMS PBS and Compositor2,
   performs UI-free GPU readback, independently validates the raster pixels,
-  and records clean renderer shutdown. Windows D3D11 and Linux Vulkan
+  and records clean renderer shutdown. The following Apple N2 checkpoint adds
+  a shared-event ownership boundary, immutable deformation revisions, exact
+  pooled-buffer bounds/generations, same-device BLAS/TLAS/query evidence, and
+  backend-before-frontend teardown. Windows D3D11 and Linux Vulkan
   reproduction remain open; Linux is deliberately an offscreen null-window
-  raster gate rather than a presentation-window claim. RoR scene interop also
-  remains open; see the
+  raster gate rather than a presentation-window claim. RT material attributes,
+  lights, target import/compositing, presentation, image quality, performance,
+  DXR, and Vulkan KHR interop remain open; see the
   [isolated integration checkpoint](OGRE_NEXT_INTEGRATION.md).
 - macOS first renders a measured RT contribution in a real UI-free RoR frame
   on Apple family 9 or newer. M1/M2 and unsupported OS versions retain the

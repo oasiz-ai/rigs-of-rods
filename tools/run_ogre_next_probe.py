@@ -27,6 +27,8 @@ FRAME_IMAGE_NAME = "ror-ogre-next-frame-probe.ppm"
 N1_REPORT_NAME = "ror-ogre-next-frontend-n1-report.json"
 N1_IMAGE_NAME = "ror-ogre-next-frontend-n1.ppm"
 N1_PACKAGE_NAME = "ror-ogre-next-n1-package"
+N2_REPORT_NAME = "ror-ogre-next-metal-n2-report.json"
+N2_READBACK_NAME = "ror-ogre-next-metal-n2.rgba"
 FRAME_VALIDATOR = REPOSITORY_ROOT / "tools" / "validate_ogre_next_frame_probe.py"
 BUILD_SENTINEL_NAME = ".ror-ogre-next-probe-build-v1"
 BUILD_SENTINEL_CONTENT = "ror-ogre-next-probe-build-v1\n"
@@ -989,6 +991,236 @@ def run_n1_checkpoint(
     )
 
 
+def validate_n2_checkpoint(
+    report: dict[str, Any],
+    readback_path: Path,
+    lock: dict[str, Any],
+    policy: dict[str, str],
+) -> None:
+    if policy["name"] != "macos-arm64-metal":
+        raise ProbeError("Metal N2 validation is Apple-only")
+    try:
+        readback = readback_path.read_bytes()
+    except OSError as error:
+        raise ProbeError(f"could not read Metal N2 artifact: {error}") from error
+    if len(readback) != 96 * 64 * 4:
+        raise ProbeError("Metal N2 artifact is not the exact 96x64 RGBA8 contract")
+    if any(
+        readback[offset] != 0x52
+        or readback[offset + 1] != 0x54
+        or readback[offset + 2] != 64
+        or readback[offset + 3] != 0xFF
+        for offset in range(0, len(readback), 4)
+    ):
+        raise ProbeError("Metal N2 readback does not encode the proven unit hit")
+    readback_hash = 14695981039346656037
+    for value in readback:
+        readback_hash ^= value
+        readback_hash = (readback_hash * 1099511628211) & ((1 << 64) - 1)
+
+    def object_field(name: str) -> dict[str, Any]:
+        value = report.get(name, {})
+        return value if isinstance(value, dict) else {}
+
+    def nonnegative_int(mapping: dict[str, Any], name: str) -> int | None:
+        value = mapping.get(name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return None
+        return value
+
+    provenance = object_field("provenance")
+    device = object_field("device")
+    admission = object_field("admission")
+    geometry = object_field("geometry")
+    synchronization = object_field("synchronization")
+    acceleration = object_field("acceleration_structures")
+    dispatch = object_field("dispatch")
+    lifecycle = object_field("lifecycle")
+    vertex_offset = nonnegative_int(geometry, "vertex_pool_offset_bytes")
+    vertex_size = nonnegative_int(geometry, "vertex_slice_bytes")
+    index_offset = nonnegative_int(geometry, "index_pool_offset_bytes")
+    index_size = nonnegative_int(geometry, "index_slice_bytes")
+    vertex_length = nonnegative_int(geometry, "vertex_buffer_length_bytes")
+    index_length = nonnegative_int(geometry, "index_buffer_length_bytes")
+    vertex_end = (
+        vertex_offset + vertex_size
+        if vertex_offset is not None and vertex_size is not None
+        else None
+    )
+    index_end = (
+        index_offset + index_size
+        if index_offset is not None and index_size is not None
+        else None
+    )
+    context_id = nonnegative_int(device, "context_id")
+    frontend_complete = nonnegative_int(
+        synchronization, "frontend_complete_value"
+    )
+    external_complete = nonnegative_int(
+        synchronization, "external_complete_value"
+    )
+    checks = {
+        "schema": report.get("schema") == "ror.ogre_next_metal_rt_n2.v1",
+        "status": report.get("status") == "pass",
+        "scope": report.get("scope")
+        == (
+            "same-device one-ray geometry interop acceptance; no ray-traced "
+            "material, lighting, denoising, or compositing parity claim"
+        ),
+        "ror_repository": provenance.get("ror_repository")
+        == "https://github.com/RigsOfRods/rigs-of-rods",
+        "ror_ref": isinstance(provenance.get("ror_ref"), str)
+        and bool(provenance["ror_ref"]),
+        "ror_commit": isinstance(provenance.get("ror_commit"), str)
+        and re.fullmatch(r"[0-9a-f]{40}", provenance["ror_commit"])
+        is not None,
+        "ogre_repository": provenance.get("ogre_next_repository")
+        == lock["repository"],
+        "ogre_commit": provenance.get("ogre_next_commit") == lock["commit"],
+        "ogre_archive": provenance.get("ogre_next_archive_sha256")
+        == lock["archive_sha256"],
+        "build_artifact": provenance.get("build_artifact")
+        == "ror_ogre_next_metal_n2_smoke",
+        "build_artifact_bytes": isinstance(
+            provenance.get("build_artifact_bytes"), int
+        )
+        and provenance["build_artifact_bytes"] > 0,
+        "build_artifact_hash": isinstance(
+            provenance.get("build_artifact_fnv1a64"), str
+        )
+        and re.fullmatch(
+            r"[0-9a-f]{16}", provenance["build_artifact_fnv1a64"]
+        )
+        is not None,
+        "device": isinstance(device.get("name"), str)
+        and bool(device["name"])
+        and context_id is not None
+        and context_id > 0,
+        "same_device_queue": device.get("same_ogre_device") is True
+        and device.get("same_ogre_queue") is True,
+        "admission": all(
+            admission.get(field) is True
+            for field in (
+                "frontend_api_reported",
+                "backend_compiled",
+                "api_supported",
+                "supports_raytracing",
+                "supports_family_apple9",
+                "hardware_accelerated",
+                "dispatch_readback_probe_passed",
+                "geometry_interop_ready",
+            )
+        ),
+        "deformed_triangle": geometry.get("frame_id") == 1
+        and geometry.get("snapshot_id") == 1
+        and geometry.get("instance_id") == 1
+        and geometry.get("topology_revision") == 1
+        and geometry.get("deformation_revision") == 2
+        and geometry.get("vertex_count") == 3
+        and geometry.get("index_count") == 3,
+        "vertex_generation": geometry.get("vertex_buffer_generation")
+        == geometry.get("frame_id"),
+        "index_generation": geometry.get("index_buffer_generation")
+        == geometry.get("frame_id"),
+        "vertex_slice": vertex_size == 60
+        and geometry.get("vertex_stride_bytes") == 24
+        and vertex_end is not None
+        and vertex_length is not None
+        and vertex_end <= vertex_length,
+        "index_slice": index_size == 6
+        and geometry.get("index_stride_bytes") == 2
+        and index_end is not None
+        and index_length is not None
+        and index_end <= index_length,
+        "exact_slices": geometry.get("exact_exported_vertex_slice_used") is True
+        and geometry.get("exact_exported_index_slice_used") is True,
+        "timeline_values": frontend_complete is not None
+        and external_complete is not None
+        and frontend_complete > 0
+        and external_complete > frontend_complete,
+        "timeline_order": all(
+            synchronization.get(field) is True
+            for field in (
+                "same_shared_event",
+                "external_encoders_ended_before_signal",
+                "cpu_wait_after_commit_only",
+            )
+        ),
+        "blas_tlas": all(
+            isinstance(acceleration.get(field), int)
+            and acceleration[field] > 0
+            for field in (
+                "blas_bytes",
+                "blas_scratch_bytes",
+                "tlas_bytes",
+                "tlas_scratch_bytes",
+            )
+        ),
+        "ray_hit": dispatch.get("rays") == 1
+        and dispatch.get("hit_magic") == 0x52545254
+        and isinstance(dispatch.get("hit_distance"), (int, float))
+        and abs(dispatch["hit_distance"] - 1.0) <= 0.0001,
+        "readback": dispatch.get("readback_bytes") == len(readback)
+        and dispatch.get("readback_fnv1a64") == f"{readback_hash:016x}",
+        "lifecycle": all(
+            lifecycle.get(field) is True
+            for field in (
+                "stale_generation_rejected",
+                "revision_n_plus_one_blocked_while_n_live",
+                "frontend_shutdown_blocked_before_backend",
+                "backend_shutdown_before_frontend",
+                "post_release_revision_n_plus_one_rendered",
+                "interop_report_geometry_proven",
+            )
+        ),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise ProbeError(
+            "OGRE-Next Metal N2 checkpoint failed closed: "
+            + ", ".join(sorted(failed))
+        )
+
+
+def run_n2_checkpoint(
+    build_dir: Path,
+    config: str,
+    jobs: int,
+    lock: dict[str, Any],
+    policy: dict[str, str],
+) -> None:
+    if policy["name"] != "macos-arm64-metal":
+        return
+    run(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--target",
+            "ror_ogre_next_metal_n2_report",
+            "--config",
+            config,
+            "--parallel",
+            str(jobs),
+        ]
+    )
+    report_path = build_dir / N2_REPORT_NAME
+    readback_path = build_dir / N2_READBACK_NAME
+    missing = [
+        path.name for path in (report_path, readback_path) if not path.is_file()
+    ]
+    if missing:
+        raise ProbeError(
+            "OGRE-Next Metal N2 checkpoint did not produce required artifacts: "
+            + ", ".join(missing)
+        )
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ProbeError(f"could not read Metal N2 report: {error}") from error
+    validate_n2_checkpoint(report, readback_path, lock, policy)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1009,9 +1241,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--checkpoint",
-        choices=("all", "n1", "legacy"),
+        choices=("all", "n1", "n2", "legacy"),
         default="all",
-        help="run all gates, the independent N1 gate, or the legacy probes",
+        help=(
+            "run all gates, the independent N1 gate, the Apple Metal N2 "
+            "gate, or the legacy probes"
+        ),
     )
     parser.add_argument(
         "--ogre-archive",
@@ -1069,7 +1304,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.reuse_build_dir and args.checkpoint == "all":
             raise ProbeError(
-                "--reuse-build-dir requires --checkpoint n1 or legacy"
+                "--reuse-build-dir requires --checkpoint n1, n2, or legacy"
             )
         if args.reuse_build_dir and (
             args.ogre_archive or args.rapidjson_archive or args.generator
@@ -1136,6 +1371,16 @@ def main(argv: list[str] | None = None) -> int:
                 policy,
                 source_identity,
             )
+
+        if args.checkpoint in ("all", "n2"):
+            run_n2_checkpoint(
+                build_dir,
+                args.config,
+                args.jobs,
+                lock,
+                policy,
+            )
+            require_source_identity_unchanged(source_identity)
 
         report: dict[str, Any] = {
             "schema_version": 2,

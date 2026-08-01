@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.24)
 
 project(ror_ogre_next_probe LANGUAGES C CXX)
 
+if (APPLE)
+    enable_language(OBJCXX)
+endif ()
+
 option(
     ROR_OGRE_NEXT_PROBE
     "Explicitly opt in to the standalone pinned OGRE-Next dependency probe"
@@ -233,6 +237,15 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp")
     if (APPLE)
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_METAL=1)
+        target_sources(
+            ror_ogre_next_frontend_n1
+            PRIVATE
+                "${_ror_render_root}/ogrenext/OgreNextN2InteropState.cpp"
+                "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
+                "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
+        target_compile_options(
+            ror_ogre_next_frontend_n1
+            PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
     elseif (WIN32)
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_D3D11=1)
     else ()
@@ -275,6 +288,51 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     set_target_properties(
         ror_ogre_next_frontend_n1_smoke
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    set(_ror_n1_targets
+        ror_ogre_next_n1_contract
+        ror_ogre_next_frontend_n1
+        ror_ogre_next_frontend_n1_smoke)
+    if (APPLE)
+        execute_process(
+            COMMAND git rev-parse --verify HEAD
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+            RESULT_VARIABLE _ror_n2_commit_result
+            OUTPUT_VARIABLE _ror_n2_source_commit
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET)
+        if (NOT _ror_n2_commit_result EQUAL 0)
+            set(_ror_n2_source_commit "unknown")
+        endif ()
+        execute_process(
+            COMMAND git symbolic-ref --short HEAD
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+            RESULT_VARIABLE _ror_n2_ref_result
+            OUTPUT_VARIABLE _ror_n2_source_ref
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET)
+        if (NOT _ror_n2_ref_result EQUAL 0)
+            set(_ror_n2_source_ref "detached")
+        endif ()
+        add_executable(
+            ror_ogre_next_metal_n2_smoke
+            src/metal_n2_smoke.cpp)
+        target_include_directories(
+            ror_ogre_next_metal_n2_smoke
+            PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+        target_compile_definitions(
+            ror_ogre_next_metal_n2_smoke
+            PRIVATE
+                ROR_OGRE_NEXT_N2_SOURCE_COMMIT="${_ror_n2_source_commit}"
+                ROR_OGRE_NEXT_N2_SOURCE_REF="${_ror_n2_source_ref}")
+        target_link_libraries(
+            ror_ogre_next_metal_n2_smoke
+            PRIVATE ror_ogre_next_frontend_n1)
+        set_target_properties(
+            ror_ogre_next_metal_n2_smoke
+            PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+        list(APPEND _ror_n1_targets ror_ogre_next_metal_n2_smoke)
+    endif ()
 
     set(ROR_OGRE_NEXT_N1_PACKAGE_ROOT
         "${CMAKE_BINARY_DIR}/ror-ogre-next-n1-package")
@@ -323,9 +381,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     add_custom_target(ror_ogre_next_frontend_n1_package ALL
         DEPENDS "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}")
 
-    foreach (_ror_n1_target IN ITEMS
-            ror_ogre_next_n1_contract ror_ogre_next_frontend_n1
-            ror_ogre_next_frontend_n1_smoke)
+    foreach (_ror_n1_target IN LISTS _ror_n1_targets)
         set_target_properties(
             ${_ror_n1_target}
             PROPERTIES
@@ -432,4 +488,37 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyN1MediaTamper.cmake")
     set_tests_properties(ror_ogre_next_frontend_n1_media_tamper PROPERTIES
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif ()
+
+if (TARGET ror_ogre_next_metal_n2_smoke)
+    set(ROR_OGRE_NEXT_N2_READBACK
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n2.rgba")
+    set(ROR_OGRE_NEXT_N2_REPORT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n2-report.json")
+    set(ROR_OGRE_NEXT_N2_CTEST_READBACK
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n2-ctest.rgba")
+    set(ROR_OGRE_NEXT_N2_CTEST_REPORT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n2-ctest-report.json")
+    add_custom_target(
+        ror_ogre_next_metal_n2_report
+        COMMAND
+            "${CMAKE_COMMAND}" -E rm -f
+            "${ROR_OGRE_NEXT_N2_READBACK}"
+            "${ROR_OGRE_NEXT_N2_REPORT}"
+        COMMAND
+            $<TARGET_FILE:ror_ogre_next_metal_n2_smoke>
+            --output "${ROR_OGRE_NEXT_N2_READBACK}"
+            --report "${ROR_OGRE_NEXT_N2_REPORT}"
+        DEPENDS ror_ogre_next_metal_n2_smoke
+        BYPRODUCTS
+            "${ROR_OGRE_NEXT_N2_READBACK}"
+            "${ROR_OGRE_NEXT_N2_REPORT}"
+        COMMENT "Running Ogre-Next Metal N2 same-device geometry/RT proof"
+        VERBATIM)
+    add_test(NAME ror_ogre_next_metal_n2_runtime
+        COMMAND $<TARGET_FILE:ror_ogre_next_metal_n2_smoke>
+                --output "${ROR_OGRE_NEXT_N2_CTEST_READBACK}"
+                --report "${ROR_OGRE_NEXT_N2_CTEST_REPORT}")
+    set_tests_properties(
+        ror_ogre_next_metal_n2_runtime PROPERTIES TIMEOUT 120)
 endif ()

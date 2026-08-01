@@ -1,4 +1,4 @@
-name: OGRE-Next isolated raster probe
+name: OGRE-Next isolated raster and Metal N2 probe
 
 on:
   push:
@@ -115,11 +115,13 @@ jobs:
           python tests/tools/test_ogre_next_probe_contract.py
           python tests/tools/test_ogre_next_frame_probe.py
           python tests/tools/test_ogre_next_frontend_n1_contract.py
+          python tests/tools/test_ogre_next_metal_n2_contract.py
           python tests/tools/test_ogre_next_probe_workflow.py
           python tests/tools/test_verify_ogre_next_artifact_set.py
           python -O tests/tools/test_ogre_next_probe_contract.py
           python -O tests/tools/test_ogre_next_frame_probe.py
           python -O tests/tools/test_ogre_next_frontend_n1_contract.py
+          python -O tests/tools/test_ogre_next_metal_n2_contract.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
           python -O tests/tools/test_verify_ogre_next_artifact_set.py
           python tools/run_ogre_next_probe.py --validate-contract-only
@@ -182,3 +184,14 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1.ppm
+
+      - name: Upload exact Apple Metal N2 interop proof
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-metal-n2-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2.rgba

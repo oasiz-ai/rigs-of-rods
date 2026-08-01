@@ -1,8 +1,8 @@
 # OGRE-Next isolated integration checkpoint
 
-Status: **opt-in dependency probe and first renderer-neutral N1 frontend; no shipping renderer switch**
+Status: **opt-in N1 raster frontend plus an Apple Metal N2 geometry/RT proof; no shipping renderer switch**
 
-This checkpoint compiles three standalone executables against an exact
+This checkpoint compiles four standalone executables against an exact
 OGRE-Next `v3-0` revision while leaving every default RoR and OGRE 14 build
 unchanged. The capability executable proves that the reviewed platform
 renderer registers with OGRE core, HLMS PBS links and selects the expected
@@ -19,11 +19,21 @@ HLMS PBS datablock, renders a `SceneSnapshot`, and returns both
 `RGBA16_FLOAT` and `RGBA8_SRGB` CPU attachments through `IRendererFrontend`.
 It is deliberately an N1 admission slice, not a complete game renderer.
 
+The fourth executable is an explicit macOS-only N2 acceptance slice. It asks
+that same frontend to raster a full deformed `SceneSnapshot` revision, borrows
+the exact live Ogre Metal device and command queue, exports the actual pooled
+v2 `MTLBuffer` position and index slices selected by the raster `Item`, and
+builds BLAS/TLAS directly from those slices. One Metal ray query must hit the
+exported triangle at one metre and survive an independently validated UI-free
+RGBA8 readback. It creates no second device or queue.
+
 The original capability and frame probes do not consume a RoR scene. The N1
-executable does consume the renderer-neutral RoR scene and asset contracts,
-but never links into the OGRE 1.14 executable or touches simulation/solver
-state. None of the three executables evaluates or claims native ray tracing,
-and none is a shipping presentation-window or visual-quality claim.
+and N2 executables consume the renderer-neutral RoR scene and asset contracts,
+but never link into the OGRE 1.14 executable or touch simulation/solver state.
+Only the N2 executable evaluates native ray tracing. Its result is deliberately
+limited to API, hardware, one-ray dispatch/readback, exact geometry interop,
+and lifecycle acceptance; none of the four executables is a shipping
+presentation-window or visual-quality claim.
 
 ## Reproducible dependency contract
 
@@ -133,13 +143,29 @@ in flight. Its supported slice is intentionally small:
 | Camera | Current rigid view and canonical portable `[0,1]` projection; N1 explicitly converts depth to Ogre `[-1,1]` before the active RenderSystem performs one API-native conversion |
 | Lifecycle | Transactional catalog replacement, RAII rollback for newly allocated native assets, teardown failure propagation/fault latch, process-global Ogre Root exclusion, contiguous frame IDs represented by a completion high-water mark, and weak snapshot-owner identities pruned after caller release |
 
-N1 fails closed for textures/samplers, richer vertex streams, deformable or
-dynamic meshes, particles, every analytic light, shadows, depth/motion/object
-ID attachments, exposure/jitter, multiple views, presentation, native interop,
-and ray tracing. Mirrored TRS is also rejected because Ogre's signed parent
-scale can produce a negative world-bound radius. Analytic lights remain
-rejected because the portable units and Ogre power/attenuation path are not yet
-calibrated; N1 does not substitute an approximate local-light curve.
+The default N1 tier fails closed for textures/samplers, richer vertex streams,
+deformable or dynamic meshes, particles, every analytic light, shadows,
+depth/motion/object ID attachments, exposure/jitter, multiple views,
+presentation, native interop, and ray tracing. Analytic lights remain rejected
+because the portable units and Ogre power/attenuation path are not yet
+calibrated; N1 does not substitute an approximate local-light curve. Mirrored
+TRS is also rejected because Ogre's signed parent scale can produce a negative
+world-bound radius.
+
+Selecting `METAL_RAY_TRACING_N2` is explicit and Apple-only. It admits full
+position/normal deformation snapshots solely to create immutable per-frame
+Ogre v2 buffers used by both raster and native export. Windows/D3D11 and
+Linux/Vulkan keep native interop and native RT false/null, and the default N1
+configuration preserves the original fail-closed policy on every platform.
+
+The Metal bridge publishes byte-exact pooled slices using
+`_getFinalBufferStart() * getBytesPerElement()` plus the position element
+offset. Offset, span, stride, count, index format, frame generation, device,
+and `MTLBuffer.length` are validated before export. A single `MTLSharedEvent`
+orders Ogre release, external BLAS/TLAS/query work, and Ogre reacquisition on
+the exact Ogre queue. Every encoder ends before its signal; the only CPU wait
+is bounded and happens after submission. Stale generations, replacement while
+leased, timeout, and frontend-before-backend shutdown all fail closed.
 
 Before a device exists, the capability query reports a conservative 2048
 texture extent without treating it as an initialization ceiling. Initialization
@@ -192,7 +218,12 @@ The generated files are:
 - `ror-ogre-next-frontend-n1-report.json`: N1 asset, material, HDR/SDR,
   identity, and recovery evidence; and
 - `ror-ogre-next-frontend-n1.ppm`: the exact N1 sRGB CPU readback independently
-  hashed by the wrapper.
+  hashed by the wrapper; and
+- `ror-ogre-next-metal-n2-report.json`: versioned same-device provenance,
+  geometry-slice, timeline, BLAS/TLAS, ray-hit, and lifecycle evidence on
+  Apple family 9 or newer; and
+- `ror-ogre-next-metal-n2.rgba`: the exact 96x64 UI-free proof readback hashed
+  and byte-validated by the wrapper.
 
 `--validate-contract-only` checks pins, patch hashes, and the current platform
 policy without accessing the network or compiling.
@@ -241,6 +272,19 @@ Its report also records that live HLMS getters matched the reviewed metallic
 workflow and height-correlated GGX mapping. These values are local macOS
 evidence, not cross-platform golden pixels.
 
+The opt-in N2 smoke then passed on the same Apple M5. Ogre rastered deformation
+revision 2 and exported its live pooled 24-byte-stride vertex allocation and
+16-bit index allocation with 60-byte and 6-byte exact slices, respectively.
+The native backend used those exported buffers directly for a 512-byte BLAS
+and 512-byte TLAS, ordered the two queue stages with shared-event values 1 and
+2, and read back the expected `0x52545254` hit at distance 1.0. The 24,576-byte
+RGBA8 artifact hashes to FNV-1a-64 `e37f2d77bf9ff325`. The smoke also rejected
+a stale buffer generation, blocked revision N+1 and frontend shutdown while N
+remained leased, shut down the RT backend first, rendered revision N+1, and
+then shut down the frontend. These measurements prove this M5 geometry path;
+they do not prove ray-traced materials, lighting, denoising, Ogre texture
+import, compositing, presentation, image quality, or performance parity.
+
 ## Next gates
 
 The checked-in optional CI matrix runs the exact probe on macOS arm64 Metal,
@@ -260,6 +304,9 @@ non-shipping until these later checkpoints pass:
 3. expand the renderer-neutral adapter beyond N1 with calibrated lighting,
    textures, richer geometry streams, UI ordering, and presentation;
 4. add depth, motion, and stable object-ID outputs only with their own tests;
-5. prove same-device native RT scene interop separately; and
+5. extend the proven M5 same-device geometry path to RT materials, lighting,
+   frontend texture import/compositing, image and performance gates, then
+   reproduce equivalent explicit interop on Windows/DXR and Linux/Vulkan KHR;
+   and
 6. keep OGRE 14 as the default until image, performance, content, and fallback
    acceptance gates pass.
