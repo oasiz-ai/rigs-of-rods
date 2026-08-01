@@ -42,20 +42,38 @@ constexpr double kHdrR16MinimumPositive = 0x1p-24;
 
 /// A binary64 analytic result and a strict binary32 shader-equation result are
 /// compared with both tolerances: abs(a-b) <= absolute + relative*max(abs(a),
-/// abs(b)). R16 feedback itself is compared by exact binary16 bits instead.
+/// abs(b)). This scalar rule applies to well-conditioned primitive results;
+/// adapted exposure uses the separately declared conditioning-aware bound.
+/// R16 storage itself is compared by exact binary16 bits instead.
 constexpr double kHdrAnalyticShaderAbsoluteTolerance = 2.0e-6;
 constexpr double kHdrAnalyticShaderRelativeTolerance = 2.0e-5;
+
+/// Unit roundoff for an IEEE-754 binary32 operation in round-to-nearest mode
+/// and Higham's gamma bound for the five explicitly sequenced operations in
+/// the adapted-exposure expression.
+constexpr double kHdrBinary32UnitRoundoff = 0x1p-24;
+constexpr double kHdrBinary32Gamma5 =
+    (5.0 * kHdrBinary32UnitRoundoff) / (1.0 - 5.0 * kHdrBinary32UnitRoundoff);
 
 struct HdrR16Float {
   std::uint16_t bits = 0U;
   float decoded = 0.0F;
 };
 
-/// Deterministically round a finite nonnegative binary32 value to IEEE-754
-/// binary16 using round-to-nearest, ties-to-even. Values that would store an
-/// infinity fail. A failure leaves `output` unchanged.
+/// Deterministically round an admitted nonnegative binary32 source value in
+/// `[0, 65504]` to IEEE-754 binary16 using round-to-nearest, ties-to-even.
+/// Negative zero is intentionally canonicalized to positive zero. Values above
+/// the admitted source-format maximum fail even when binary16 rounding could
+/// return 65504. A failure leaves `output` unchanged.
 [[nodiscard]] ValidationResult QuantizeHdrR16Float(float input,
                                                    HdrR16Float &output);
+
+struct HdrCrossPrecisionComparison {
+  double analytic_value = 0.0;
+  double shader_value = 0.0;
+  double absolute_difference = 0.0;
+  double allowed_difference = 0.0;
+};
 
 struct HdrAnalyticAutoExposureInput {
   std::uint32_t version = kHdrAnalyticReferenceVersion;
@@ -120,6 +138,28 @@ struct HdrShaderAutoExposureResult {
 EvaluateHdrShaderAutoExposure(const HdrShaderAutoExposureInput &input,
                               HdrShaderAutoExposureResult &output);
 
+struct HdrAutoExposureComparisonResult {
+  /// Binary64 input reconstructed from the shader input after applying the
+  /// shader path's exact previous-frame R16 storage boundary.
+  HdrAnalyticAutoExposureInput analytic_input{};
+  HdrAnalyticAutoExposureResult analytic{};
+  HdrShaderAutoExposureResult shader{};
+  HdrCrossPrecisionComparison target_inverse_luminance{};
+  HdrCrossPrecisionComparison previous_frame_weight{};
+  HdrCrossPrecisionComparison adapted_inverse_luminance{};
+  double adapted_conditioning_bound = 0.0;
+  double adapted_binary32_rounding_bound = 0.0;
+};
+
+/// Evaluate both exposure behaviors from one shader-domain input. Primitive
+/// target/weight values use the scalar tolerance. The adapted result uses a
+/// sensitivity bound derived from their measured cross-precision differences
+/// plus a gamma-5 binary32 operation-rounding term. R16 feedback bits remain a
+/// separate exact gate. A failure leaves `output` unchanged.
+[[nodiscard]] ValidationResult
+CompareHdrAutoExposureReferences(const HdrShaderAutoExposureInput &input,
+                                 HdrAutoExposureComparisonResult &output);
+
 struct HdrAnalyticFinalToneMapInput {
   std::uint32_t version = kHdrAnalyticReferenceVersion;
   Double3 scene_linear_hdr{};
@@ -177,5 +217,23 @@ struct HdrShaderFinalToneMapResult {
 [[nodiscard]] ValidationResult
 EvaluateHdrShaderFinalToneMap(const HdrShaderFinalToneMapInput &input,
                               HdrShaderFinalToneMapResult &output);
+
+struct HdrFinalToneMapComparisonResult {
+  /// The analytic input uses the shader path's decoded RGBA16/R16 scene,
+  /// inverse-luminance, and alpha samples. This prevents texture quantization
+  /// error from being mislabeled as binary32 equation error.
+  HdrAnalyticFinalToneMapInput analytic_input{};
+  HdrAnalyticFinalToneMapResult analytic{};
+  HdrShaderFinalToneMapResult shader{};
+  std::array<HdrCrossPrecisionComparison, 3U> output_channels{};
+};
+
+/// Evaluate and compare the final tone-map equations after first equalizing the
+/// source texture boundaries. The exact source R16 bits remain exposed in
+/// `shader` for an independent storage gate. A failure leaves `output`
+/// unchanged.
+[[nodiscard]] ValidationResult
+CompareHdrFinalToneMapReferences(const HdrShaderFinalToneMapInput &input,
+                                 HdrFinalToneMapComparisonResult &output);
 
 } // namespace RoR::Render

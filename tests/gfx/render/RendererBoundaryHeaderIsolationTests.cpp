@@ -37,6 +37,12 @@ static_assert(
     std::is_trivially_copyable_v<RoR::Render::HdrShaderAutoExposureInput>);
 static_assert(
     std::is_trivially_copyable_v<RoR::Render::HdrShaderFinalToneMapResult>);
+static_assert(
+    std::is_trivially_copyable_v<RoR::Render::HdrCrossPrecisionComparison>);
+static_assert(
+    std::is_trivially_copyable_v<RoR::Render::HdrAutoExposureComparisonResult>);
+static_assert(
+    std::is_trivially_copyable_v<RoR::Render::HdrFinalToneMapComparisonResult>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::HdrR16Float>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::ResourceHandle>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::RenderAssetId>);

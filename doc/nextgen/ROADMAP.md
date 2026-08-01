@@ -1187,8 +1187,9 @@ shader-binary32 behaviors. The shader behavior deterministically models the
 RGBA16/R16 storage boundary and multi-frame exposure feedback; it names Ogre's
 historical bloom transfer gamma-2 rather than sRGB. An HDR-specific source lock
 is bound to the canonical Ogre-Next lock and hashes the complete selected
-utility/shader/compositor closure. Backend captures use the documented numeric
-tolerance and R16 policy in [the HDR reference contract](HDR_REFERENCE.md).
+utility/material/shader/compositor closure. Backend captures use the documented
+storage-normalized tone-map comparison, conditioning-aware exposure bound, and
+exact R16 policy in [the HDR reference contract](HDR_REFERENCE.md).
 Display transfer/gamut policy and image/performance acceptance remain open.
 
 Gate V1:

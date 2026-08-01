@@ -14,6 +14,73 @@ from typing import Any
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+_MANIFEST_FIELDS = {
+    "schema_version",
+    "name",
+    "canonical_ogre_next_lock",
+    "ogre_next_commit",
+    "analytic_behavior_version",
+    "shader_behavior_version",
+    "files",
+}
+_EXPECTED_NAME = "Ogre-Next HDR numerical reference source closure"
+_EXPECTED_ROLE_PATHS = {
+    "exposure_parameter_construction": "Samples/2.0/Common/src/Utils/HdrUtils.cpp",
+    "render_target_formats_and_pass_order": (
+        "Samples/Media/2.0/scripts/materials/HDR/HDR.compositor"
+    ),
+    "shader_bindings_parameters_and_sampling": (
+        "Samples/Media/2.0/scripts/materials/HDR/HDR.material"
+    ),
+    "downscale03_metal": (
+        "Samples/Media/2.0/scripts/materials/HDR/Metal/"
+        "DownScale03_SumLumEnd_ps.metal"
+    ),
+    "downscale03_hlsl": (
+        "Samples/Media/2.0/scripts/materials/HDR/HLSL/"
+        "DownScale03_SumLumEnd_ps.hlsl"
+    ),
+    "downscale03_glsl": (
+        "Samples/Media/2.0/scripts/materials/HDR/GLSL/"
+        "DownScale03_SumLumEnd_ps.glsl"
+    ),
+    "final_tone_mapping_metal": (
+        "Samples/Media/2.0/scripts/materials/HDR/Metal/FinalToneMapping_ps.metal"
+    ),
+    "final_tone_mapping_hlsl": (
+        "Samples/Media/2.0/scripts/materials/HDR/HLSL/FinalToneMapping_ps.hlsl"
+    ),
+    "final_tone_mapping_glsl": (
+        "Samples/Media/2.0/scripts/materials/HDR/GLSL/FinalToneMapping_ps.glsl"
+    ),
+    "bright_pass_gamma2_encode_metal": (
+        "Samples/Media/2.0/scripts/materials/HDR/Metal/BrightPass_Start_ps.metal"
+    ),
+    "bright_pass_gamma2_encode_hlsl": (
+        "Samples/Media/2.0/scripts/materials/HDR/HLSL/BrightPass_Start_ps.hlsl"
+    ),
+    "bright_pass_gamma2_encode_glsl": (
+        "Samples/Media/2.0/scripts/materials/HDR/GLSL/BrightPass_Start_ps.glsl"
+    ),
+    "horizontal_gamma2_blur_metal": (
+        "Samples/Media/2.0/scripts/materials/HDR/Metal/BoxBlurH_ps.metal"
+    ),
+    "horizontal_gamma2_blur_hlsl": (
+        "Samples/Media/2.0/scripts/materials/HDR/HLSL/BoxBlurH_ps.hlsl"
+    ),
+    "horizontal_gamma2_blur_glsl": (
+        "Samples/Media/2.0/scripts/materials/HDR/GLSL/BoxBlurH_ps.glsl"
+    ),
+    "vertical_gamma2_blur_metal": (
+        "Samples/Media/2.0/scripts/materials/HDR/Metal/BoxBlurV_ps.metal"
+    ),
+    "vertical_gamma2_blur_hlsl": (
+        "Samples/Media/2.0/scripts/materials/HDR/HLSL/BoxBlurV_ps.hlsl"
+    ),
+    "vertical_gamma2_blur_glsl": (
+        "Samples/Media/2.0/scripts/materials/HDR/GLSL/BoxBlurV_ps.glsl"
+    ),
+}
 
 
 class VerificationError(RuntimeError):
@@ -21,8 +88,21 @@ class VerificationError(RuntimeError):
 
 
 def _load_object(path: Path, label: str) -> dict[str, Any]:
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise VerificationError(
+                    f"{label} contains duplicate JSON object key: {key}"
+                )
+            result[key] = value
+        return result
+
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise VerificationError(f"cannot read {label} {path}: {exc}") from exc
     if not isinstance(value, dict):
@@ -66,9 +146,14 @@ def _sha256(path: Path) -> str:
 def verify(manifest_path: Path, ogre_source_root: Path | None = None) -> int:
     manifest_path = manifest_path.resolve(strict=True)
     manifest = _load_object(manifest_path, "HDR reference lock")
+    if set(manifest) != _MANIFEST_FIELDS:
+        raise VerificationError(
+            "HDR reference lock has unexpected or missing root fields"
+        )
     if _exact_int(manifest.get("schema_version"), "schema_version") != 1:
         raise VerificationError("unsupported HDR reference lock schema_version")
-    _exact_string(manifest.get("name"), "name")
+    if _exact_string(manifest.get("name"), "name") != _EXPECTED_NAME:
+        raise VerificationError("unsupported HDR reference lock name")
     if _exact_int(
         manifest.get("analytic_behavior_version"), "analytic_behavior_version"
     ) != 1:
@@ -81,8 +166,10 @@ def verify(manifest_path: Path, ogre_source_root: Path | None = None) -> int:
     canonical_name = _safe_relative_path(
         manifest.get("canonical_ogre_next_lock"), "canonical_ogre_next_lock"
     )
-    if len(canonical_name.parts) != 1:
-        raise VerificationError("canonical_ogre_next_lock must be a sibling file")
+    if canonical_name != PurePosixPath("ogre-next.lock.json"):
+        raise VerificationError(
+            "canonical_ogre_next_lock must name the canonical sibling lock"
+        )
     canonical_path = manifest_path.parent / canonical_name.as_posix()
     canonical = _load_object(canonical_path, "canonical Ogre-Next lock")
     canonical_commit = _exact_string(canonical.get("commit"), "canonical commit")
@@ -121,6 +208,12 @@ def verify(manifest_path: Path, ogre_source_root: Path | None = None) -> int:
         seen_roles.add(role)
         seen_paths.add(source_text)
         parsed_files.append((role, source_text, digest))
+
+    actual_role_paths = {role: path for role, path, _ in parsed_files}
+    if actual_role_paths != _EXPECTED_ROLE_PATHS:
+        raise VerificationError(
+            "files must contain the exact HDR source role/path mapping"
+        )
 
     if ogre_source_root is not None:
         source_root = ogre_source_root.resolve(strict=True)
