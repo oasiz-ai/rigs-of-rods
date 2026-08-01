@@ -1099,7 +1099,7 @@ Gate R1:
   current/previous transforms, lux/candela photometry, exact local attenuation
   and cones, static/dynamic shadow masks, ambient/texture/analytic-sky radiance,
   sun linkage, bounded EV compensation, and a canonical portable digest. The
-  version-two joined-scene producer owns light history, render-origin rebasing,
+  version-three joined-scene producer owns light/probe lineage, render-origin rebasing,
   permanent type/tombstone lineage, and release/acquire atomic publication.
   Dependency-free strict C++ tests include concurrent readers, and the existing
   test graph compiles them with GCC/Clang/MSVC on Linux, macOS, and Windows.

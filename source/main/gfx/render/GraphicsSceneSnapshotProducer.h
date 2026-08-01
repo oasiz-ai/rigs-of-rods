@@ -24,7 +24,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 2U;
+constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 3U;
 constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 5U;
 
 /// Source identities belong to the joined graphics scene, not a renderer.
@@ -66,7 +66,7 @@ struct GraphicsSceneAssetInput {
 };
 
 /// One static MeshObject/terrain-object style instance. The referenced mesh
-/// supplies exact local bounds and topology revision. Version 2 deliberately
+/// supplies exact local bounds and topology revision. Version 3 deliberately
 /// excludes deformable streams; those remain a later GfxActor producer slice.
 struct GraphicsSceneStaticMeshInput {
   std::uint64_t source_object_id = 0U;
@@ -127,6 +127,10 @@ struct GraphicsSceneFrameInput {
   /// May arrive in any order. analytic_sky.sun_light_id names one of these
   /// stable source identities directly.
   std::vector<GraphicsSceneLightInput> lights;
+  /// Absolute-world authored probes may arrive in any order. The producer
+  /// canonicalizes them, enforces content-revision lineage, and permanently
+  /// tombstones removed identities before publishing snapshot version 4.
+  std::vector<ReflectionProbeRuntimeDescriptor> reflection_probes;
   GraphicsSceneCameraInput camera;
 };
 
@@ -149,6 +153,7 @@ struct GraphicsSceneSnapshotProducerConfiguration {
   std::size_t maximum_asset_records = 65536U;
   std::size_t maximum_static_mesh_objects = 65536U;
   std::size_t maximum_light_records = 4096U;
+  std::size_t maximum_reflection_probe_records = 256U;
   /// Sum of descriptor-owned string, vertex/index, and texel bytes in one
   /// authoritative frame. Container overhead is intentionally excluded.
   std::uint64_t maximum_asset_payload_bytes = 512U * 1024U * 1024U;

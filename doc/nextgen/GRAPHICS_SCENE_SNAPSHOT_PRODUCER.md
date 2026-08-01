@@ -1,7 +1,7 @@
 # Joined graphics scene snapshot producer
 
-Status: the renderer-neutral version-two producer core, including immutable
-analytic lighting/environment publication, is implemented; the OGRE 1.x
+Status: the renderer-neutral version-three producer core, including immutable
+analytic lighting/environment and reflection-probe publication, is implemented; the OGRE 1.x
 `GfxScene` source adapter remains the next integration change.
 
 ## Boundary
@@ -28,7 +28,7 @@ The adapter must not follow actor pointers from `GameContextSB`, query the
 solver, or read any mutable physics container. Renderer selection must not
 change simulation scheduling or hashes.
 
-## Version-two production slice
+## Version-three production slice
 
 The first slice supports a complete authoritative inventory of:
 
@@ -42,15 +42,18 @@ The first slice supports a complete authoritative inventory of:
   multipliers, static/dynamic shadow masks, and stable source identities;
 - current and previous local-light positions/directions, including exact render
   origin rebasing and identity/type/tombstone lineage;
+- absolute-world oriented reflection probes with authored content revisions,
+  correction/influence volumes, static or simulation-tick periodic policy,
+  canonical ordering, and permanent identity tombstones;
 - constant or texture-backed environment radiance, an additive analytic
   zenith/horizon/ground/sun-disk sky tied to one directional light, and bounded
   scene-level exposure compensation; and
 - one main camera with canonical current and previous view/projection state.
 
 The producer owns 128-bit `RenderAssetId` allocation, revision propagation,
-asset sequence, snapshot sequence, tombstones, previous transforms, light and
+asset sequence, snapshot sequence, tombstones, previous transforms, light/probe and
 camera history, and render-origin rebasing. Inputs are authoritative: omitting
-a live asset, object, or light destroys it, and a destroyed source identity
+a live asset, object, light, or reflection probe destroys it, and a destroyed source identity
 cannot be reused during that producer lifetime.
 
 Every call is transactional. Validation, ID/revision allocation, dependency
@@ -101,7 +104,7 @@ emitting a delta or advancing the asset sequence. Only unresolved material
 descriptors are retained strongly in addition to canonical registry payloads,
 so meshes and textures do not acquire a second persistent byte owner.
 
-Canonical sorting retains each asset/object/light's original
+Canonical sorting retains each asset/object/light/probe's original
 authoritative-vector index. Failures after sorting, including lifecycle, kind,
 dependency, object reference, light photometry/history, and snapshot
 compatibility failures, report that original index rather than a sorted rank.
@@ -115,6 +118,13 @@ signed zero and deliberately excludes frame IDs, time, asset sequence,
 geometry, particles, and cameras. This is a stable change-detection/test digest,
 not a collision-resistant security primitive.
 
+Snapshot version 4 also records a separate version-one reflection-probe digest.
+It includes the exact ordered absolute-world descriptors and authored update
+policy, while excluding render origin, frame/time identity, and native capture
+generations. A render-origin rebase therefore leaves authored probe lineage
+unchanged; a geometry/policy change at the same content revision fails before
+publication.
+
 Light color uses canonical linear-sRGB Rec.709 D65 photometry. A non-black
 chromatic multiplier is normalized so its weighted luminance is represented as
 binary32 one; the scalar `intensity` therefore remains the authoritative lux or
@@ -126,13 +136,13 @@ sun helper normalizes both directions, centers the disk at the negated emitted
 ray direction, and includes `dot == cos(radius)`. Per-view exposure combined
 with scene EV must remain a finite positive normal binary32 value.
 
-Scene snapshot versions 1 and 2 and joined-frame producer version 1 are not
+Scene snapshot versions 1, 2, and 3 and joined-frame producer versions 1 and 2 are not
 implicitly migrated. They return `UNSUPPORTED_VERSION`. A legacy adapter must
 explicitly normalize light chromaticity, preserve scalar photometry separately,
-populate version-3 environment state, and emit producer version 2. Lighting
+populate version-4 environment/probe state, and emit producer version 3. Lighting
 hash version 1 must be discarded rather than compared with version 2.
 
-Producer limits bound lifetime asset/object/light records and authoritative
+Producer limits bound lifetime asset/object/light/probe records and authoritative
 descriptor payload bytes.
 
 ## Exact remaining `GfxScene` adapter tap
@@ -164,7 +174,10 @@ Required source-side changes are:
    been consumed, converts OGRE matrices into the canonical right-handed,
    column-major, depth-[0,1] contract, and submits the current drawable pixel
    extent. The producer owns previous matrices.
-6. `GfxScene::ClearScene()` destroys the producer after its final authoritative
+6. `GfxScene` supplies authored reflection probes from graphics-owned terrain
+   metadata as binary64 world positions and stable revisions. It must not infer
+   them by scanning backend cubemap objects.
+7. `GfxScene::ClearScene()` destroys the producer after its final authoritative
    empty inventory has been delivered, so a new terrain starts a fresh registry
    identity instead of resurrecting tombstones.
 
@@ -175,7 +188,7 @@ rather than a fake renderer demo or a producer that scans the OGRE scene graph.
 
 Deformable `GfxActor` meshes, particle emission, water state, volumetric weather,
 and auxiliary cameras are later producer slices. Shipping Ogre-Next raster and
-native RT adapters also still need measured mappings for the version-two light
+native RT adapters also still need measured mappings for the version-three light
 and sky contract. This milestone transports and validates authoritative data; it
 does not implement shadow maps, sky scattering, GI, reflections, denoising, or
 ray-traced lighting by itself.

@@ -147,10 +147,16 @@ struct IndexedLightInput {
   std::size_t original_index = 0U;
 };
 
+struct IndexedReflectionProbeInput {
+  const ReflectionProbeRuntimeDescriptor *input = nullptr;
+  std::size_t original_index = 0U;
+};
+
 ValidationResult RemapSceneElementIndex(
     ValidationResult validation,
     const std::vector<IndexedStaticMeshInput> &sorted_objects,
-    const std::vector<IndexedLightInput> &sorted_lights) {
+    const std::vector<IndexedLightInput> &sorted_lights,
+    const std::vector<IndexedReflectionProbeInput> &sorted_probes) {
   if (validation ||
       validation.element_index == ValidationResult::kNoElement) {
     return validation;
@@ -165,6 +171,12 @@ ValidationResult RemapSceneElementIndex(
              validation.element_index < sorted_lights.size()) {
     validation.element_index =
         sorted_lights[validation.element_index].original_index;
+  } else if (validation.field.compare(
+                 0U, sizeof("reflection_probes") - 1U,
+                 "reflection_probes") == 0 &&
+             validation.element_index < sorted_probes.size()) {
+    validation.element_index =
+        sorted_probes[validation.element_index].original_index;
   }
   return validation;
 }
@@ -237,7 +249,7 @@ ValidateSourceAssetPayload(const GraphicsSceneAssetInput &asset,
     if (mesh.dynamic) {
       return Failure(
           ValidationCode::UNSUPPORTED_FEATURE, "assets.mesh.dynamic",
-          "the version-two producer accepts static mesh allocations only",
+          "the version-three producer accepts static mesh allocations only",
           index);
     }
     validation = ValidateMeshResourceDescriptor(mesh);
@@ -419,6 +431,13 @@ public:
     bool live = false;
   };
 
+  struct ReflectionProbeState {
+    std::uint64_t probe_id = 0U;
+    std::uint64_t content_revision = 0U;
+    std::uint64_t descriptor_fingerprint = 0U;
+    bool live = false;
+  };
+
   struct ValidatedStaticAssetPair {
     RenderAssetReference mesh;
     RenderAssetReference material;
@@ -465,6 +484,7 @@ public:
     } else if (configuration.maximum_asset_records == 0U ||
                configuration.maximum_static_mesh_objects == 0U ||
                configuration.maximum_light_records == 0U ||
+               configuration.maximum_reflection_probe_records == 0U ||
                configuration.maximum_asset_payload_bytes == 0U) {
       configuration_validation = Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "configuration.limits",
@@ -600,6 +620,13 @@ public:
       result.validation = Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "lights",
           "live light count exceeds the configured bound");
+      return result;
+    }
+    if (frame.reflection_probes.size() >
+        configuration.maximum_reflection_probe_records) {
+      result.validation = Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "reflection_probes",
+          "live reflection-probe count exceeds the configured bound");
       return result;
     }
     if (!IsAbsentRenderAssetReference(
@@ -758,6 +785,43 @@ public:
             ValidationCode::DUPLICATE_IDENTIFIER,
             "lights.source_light_id", "source light identity is duplicated",
             sorted_lights[index].original_index);
+        return result;
+      }
+    }
+
+    std::vector<IndexedReflectionProbeInput> sorted_probes;
+    sorted_probes.reserve(frame.reflection_probes.size());
+    for (std::size_t index = 0U; index < frame.reflection_probes.size();
+         ++index) {
+      const ReflectionProbeRuntimeDescriptor &probe =
+          frame.reflection_probes[index];
+      ValidationResult probe_validation =
+          ValidateReflectionProbeRuntimeDescriptor(probe);
+      if (!probe_validation) {
+        probe_validation.field =
+            "reflection_probes." + probe_validation.field;
+        probe_validation.element_index = index;
+        result.validation = std::move(probe_validation);
+        return result;
+      }
+      sorted_probes.push_back(IndexedReflectionProbeInput{&probe, index});
+    }
+    std::sort(sorted_probes.begin(), sorted_probes.end(),
+              [](const IndexedReflectionProbeInput &lhs,
+                 const IndexedReflectionProbeInput &rhs) {
+                if (lhs.input->probe_id != rhs.input->probe_id) {
+                  return lhs.input->probe_id < rhs.input->probe_id;
+                }
+                return lhs.original_index < rhs.original_index;
+              });
+    for (std::size_t index = 1U; index < sorted_probes.size(); ++index) {
+      if (sorted_probes[index - 1U].input->probe_id ==
+          sorted_probes[index].input->probe_id) {
+        result.validation = Failure(
+            ValidationCode::DUPLICATE_IDENTIFIER,
+            "reflection_probes.probe_id",
+            "source reflection-probe identity is duplicated",
+            sorted_probes[index].original_index);
         return result;
       }
     }
@@ -1261,6 +1325,104 @@ public:
       ++prior_light_index;
     }
 
+    descriptor.reflection_probes.reserve(sorted_probes.size());
+    std::size_t probe_scan = 0U;
+    std::size_t new_probe_count = 0U;
+    for (const IndexedReflectionProbeInput &indexed_input : sorted_probes) {
+      const std::uint64_t probe_id = indexed_input.input->probe_id;
+      while (probe_scan < reflection_probes.size() &&
+             reflection_probes[probe_scan].probe_id < probe_id) {
+        ++probe_scan;
+      }
+      if (probe_scan < reflection_probes.size() &&
+          reflection_probes[probe_scan].probe_id == probe_id) {
+        ++probe_scan;
+      } else {
+        ++new_probe_count;
+      }
+    }
+    if (new_probe_count >
+        (std::numeric_limits<std::size_t>::max)() -
+            reflection_probes.size()) {
+      result.validation = Failure(
+          ValidationCode::SIZE_MISMATCH, "reflection_probes",
+          "staged reflection-probe lineage capacity would overflow");
+      return result;
+    }
+    if (reflection_probes.size() >
+            configuration.maximum_reflection_probe_records ||
+        new_probe_count >
+            configuration.maximum_reflection_probe_records -
+                reflection_probes.size()) {
+      result.validation = Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "reflection_probes",
+          "lifetime reflection-probe record count exceeds the configured bound");
+      return result;
+    }
+
+    std::vector<ReflectionProbeState> candidate_reflection_probes;
+    candidate_reflection_probes.reserve(reflection_probes.size() +
+                                        new_probe_count);
+    std::size_t prior_probe_index = 0U;
+    for (const IndexedReflectionProbeInput &indexed_input : sorted_probes) {
+      const ReflectionProbeRuntimeDescriptor &input = *indexed_input.input;
+      const std::size_t input_index = indexed_input.original_index;
+      while (prior_probe_index < reflection_probes.size() &&
+             reflection_probes[prior_probe_index].probe_id < input.probe_id) {
+        ReflectionProbeState removed =
+            reflection_probes[prior_probe_index];
+        removed.live = false;
+        candidate_reflection_probes.push_back(std::move(removed));
+        ++prior_probe_index;
+      }
+      const ReflectionProbeState *prior_probe =
+          prior_probe_index < reflection_probes.size() &&
+                  reflection_probes[prior_probe_index].probe_id ==
+                      input.probe_id
+              ? &reflection_probes[prior_probe_index]
+              : nullptr;
+      if (prior_probe != nullptr && !prior_probe->live) {
+        result.validation = Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "reflection_probes.probe_id",
+            "a destroyed reflection-probe identity may never be reused",
+            input_index);
+        return result;
+      }
+      const std::uint64_t fingerprint =
+          ComputeReflectionProbeDescriptorFingerprint(input);
+      if (prior_probe != nullptr &&
+          input.content_revision < prior_probe->content_revision) {
+        result.validation = Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "reflection_probes.content_revision",
+            "reflection-probe content revision moved backwards", input_index);
+        return result;
+      }
+      if (prior_probe != nullptr &&
+          input.content_revision == prior_probe->content_revision &&
+          fingerprint != prior_probe->descriptor_fingerprint) {
+        result.validation = Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "reflection_probes.content_revision",
+            "changed reflection-probe contents require a newer revision",
+            input_index);
+        return result;
+      }
+      if (prior_probe != nullptr) {
+        ++prior_probe_index;
+      }
+      descriptor.reflection_probes.push_back(input);
+      candidate_reflection_probes.push_back(ReflectionProbeState{
+          input.probe_id, input.content_revision, fingerprint, true});
+    }
+    while (prior_probe_index < reflection_probes.size()) {
+      ReflectionProbeState removed = reflection_probes[prior_probe_index];
+      removed.live = false;
+      candidate_reflection_probes.push_back(std::move(removed));
+      ++prior_probe_index;
+    }
+
     descriptor.mesh_instances.reserve(sorted_objects.size());
     std::vector<ValidatedStaticAssetPair> candidate_static_asset_pairs;
     candidate_static_asset_pairs.reserve(sorted_objects.size());
@@ -1430,7 +1592,7 @@ public:
         CreateSceneSnapshot(std::move(descriptor));
     if (!created) {
       result.validation = RemapSceneElementIndex(
-          created.validation, sorted_objects, sorted_lights);
+          created.validation, sorted_objects, sorted_lights, sorted_probes);
       return result;
     }
     const bool requires_full_asset_compatibility_validation =
@@ -1445,7 +1607,8 @@ public:
                                       candidate_catalog.registry);
       if (!validation) {
         result.validation = RemapSceneElementIndex(
-            std::move(validation), sorted_objects, sorted_lights);
+            std::move(validation), sorted_objects, sorted_lights,
+            sorted_probes);
         return result;
       }
     }
@@ -1506,6 +1669,7 @@ public:
     asset_catalog = std::move(candidate_asset_catalog);
     objects = std::move(candidate_objects);
     lights = std::move(candidate_lights);
+    reflection_probes = std::move(candidate_reflection_probes);
     validated_static_asset_pairs = std::move(candidate_static_asset_pairs);
     validated_environment_assets = candidate_environment_assets;
     asset_compatibility_cache_initialized = true;
@@ -1538,6 +1702,7 @@ public:
   std::shared_ptr<const AssetCatalog> asset_catalog;
   std::vector<ObjectState> objects;
   std::vector<LightState> lights;
+  std::vector<ReflectionProbeState> reflection_probes;
   std::vector<ValidatedStaticAssetPair> validated_static_asset_pairs;
   ValidatedEnvironmentAssets validated_environment_assets;
   CameraState camera_state;

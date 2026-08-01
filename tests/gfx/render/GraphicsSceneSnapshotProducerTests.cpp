@@ -272,6 +272,21 @@ RoR::Render::GraphicsSceneAssetInput SamplerAsset() {
   return input;
 }
 
+RoR::Render::ReflectionProbeRuntimeDescriptor
+ReflectionProbe(std::uint64_t probe_id, double world_x,
+                std::uint16_t priority = 1U) {
+  using namespace RoR::Render;
+  ReflectionProbeRuntimeDescriptor probe;
+  probe.probe_id = probe_id;
+  probe.absolute_world_position_meters = {world_x, 20.0, -30.0};
+  probe.priority = priority;
+  probe.resolution = 16U;
+  probe.influence_half_size = {4.0F, 3.0F, 2.0F};
+  probe.correction_shape_half_size = {5.0F, 4.0F, 3.0F};
+  probe.capture_far_meters = 16.0F;
+  return probe;
+}
+
 RoR::Render::GraphicsSceneFrameInput MakeFrame() {
   using namespace RoR::Render;
   GraphicsSceneFrameInput frame;
@@ -455,6 +470,12 @@ void TestLegacyProducerVersionsRequireExplicitMigration() {
 
   GraphicsSceneSnapshotProducer producer = MakeProducer(91U);
   GraphicsSceneFrameInput frame = MakeFrame();
+  frame.version = 2U;
+  Require(producer.Produce(frame).validation.code ==
+                  ValidationCode::UNSUPPORTED_VERSION &&
+              producer.LoadPublishedSnapshot() == nullptr &&
+              !producer.BuildRecoveryAssetSnapshot(),
+          "producer input version two was implicitly migrated or changed state");
   frame.version = 1U;
   Require(producer.Produce(frame).validation.code ==
                   ValidationCode::UNSUPPORTED_VERSION &&
@@ -466,6 +487,99 @@ void TestLegacyProducerVersionsRequireExplicitMigration() {
                   ValidationCode::UNSUPPORTED_VERSION &&
               producer.LoadPublishedSnapshot() == nullptr,
           "unversioned producer input was accepted");
+}
+
+void TestReflectionProbeLineageAndCanonicalOrder() {
+  using namespace RoR::Render;
+
+  GraphicsSceneSnapshotProducer producer = MakeProducer(92U);
+  GraphicsSceneFrameInput frame = MakeFrame();
+  frame.reflection_probes = {
+      ReflectionProbe(2000U, 1000000020.0, 3U),
+      ReflectionProbe(1000U, 1000000010.0, 7U),
+  };
+  const GraphicsSceneSnapshotProduceResult first = producer.Produce(frame);
+  Require(first.ok(), "valid joined reflection-probe frame was rejected");
+  const auto &first_probes =
+      first.production.scene_snapshot->reflection_probes();
+  Require(first_probes.size() == 2U &&
+              first_probes[0U].probe_id == 1000U &&
+              first_probes[1U].probe_id == 2000U &&
+              first.production.scene_snapshot->reflection_probe_hash() != 0U,
+          "joined reflection probes were not canonicalized and hashed");
+  const std::shared_ptr<const SceneSnapshot> first_published =
+      producer.LoadPublishedSnapshot();
+  const std::uint64_t first_hash = first_published->reflection_probe_hash();
+
+  frame.simulation_tick = 42U;
+  frame.simulation_time_seconds = 2.0;
+  frame.absolute_world_origin_meters = {1000000000.0, 0.0, 0.0};
+  const GraphicsSceneSnapshotProduceResult rebased = producer.Produce(frame);
+  Require(rebased.ok() &&
+              rebased.production.scene_snapshot->reflection_probe_hash() ==
+                  first_hash,
+          "render-origin rebase changed authored reflection-probe lineage");
+
+  GraphicsSceneFrameInput unchanged_revision = frame;
+  unchanged_revision.simulation_tick = 43U;
+  unchanged_revision.simulation_time_seconds = 3.0;
+  unchanged_revision.reflection_probes[0U].capture_position_local.x = 0.25F;
+  const GraphicsSceneSnapshotProduceResult rejected =
+      producer.Produce(unchanged_revision);
+  Require(rejected.validation.code == ValidationCode::REVISION_MISMATCH &&
+              rejected.validation.element_index == 0U &&
+              SameSharedOwner(rebased.production.scene_snapshot,
+                              producer.LoadPublishedSnapshot()),
+          "changed probe without a revision was accepted or published");
+
+  frame = std::move(unchanged_revision);
+  ++frame.reflection_probes[0U].content_revision;
+  const GraphicsSceneSnapshotProduceResult revised = producer.Produce(frame);
+  Require(revised.ok() &&
+              revised.production.scene_snapshot->reflection_probe_hash() !=
+                  first_hash,
+          "new reflection-probe revision did not publish changed contents");
+
+  frame.simulation_tick = 44U;
+  frame.simulation_time_seconds = 4.0;
+  frame.reflection_probes.erase(frame.reflection_probes.begin() + 1);
+  const GraphicsSceneSnapshotProduceResult removed = producer.Produce(frame);
+  Require(removed.ok() &&
+              removed.production.scene_snapshot->reflection_probes().size() ==
+                  1U,
+          "authoritative reflection-probe removal was rejected");
+  const std::shared_ptr<const SceneSnapshot> removed_published =
+      producer.LoadPublishedSnapshot();
+
+  frame.simulation_tick = 45U;
+  frame.simulation_time_seconds = 5.0;
+  frame.reflection_probes.push_back(
+      ReflectionProbe(1000U, 1000000010.0, 7U));
+  Require(producer.Produce(frame).validation.code ==
+                  ValidationCode::REVISION_MISMATCH &&
+              SameSharedOwner(removed_published,
+                              producer.LoadPublishedSnapshot()),
+          "destroyed reflection-probe identity was reused or published");
+
+  GraphicsSceneSnapshotProducer malformed_producer = MakeProducer(93U);
+  GraphicsSceneFrameInput malformed = MakeFrame();
+  malformed.reflection_probes = {
+      ReflectionProbe(20U, 20.0), ReflectionProbe(10U, 10.0)};
+  malformed.reflection_probes[0U].resolution = 96U;
+  const GraphicsSceneSnapshotProduceResult malformed_result =
+      malformed_producer.Produce(malformed);
+  Require(malformed_result.validation.code ==
+                  ValidationCode::INVALID_DIMENSIONS &&
+              malformed_result.validation.element_index == 0U,
+          "malformed probe failure lost its original traversal index");
+
+  malformed.reflection_probes[0U] = malformed.reflection_probes[1U];
+  const GraphicsSceneSnapshotProduceResult duplicate_result =
+      malformed_producer.Produce(malformed);
+  Require(duplicate_result.validation.code ==
+                  ValidationCode::DUPLICATE_IDENTIFIER &&
+              duplicate_result.validation.element_index == 1U,
+          "duplicate probe failure lost the later original traversal index");
 }
 
 void TestTransformCameraHistoryAndOriginRebase() {
@@ -1466,6 +1580,32 @@ void TestExhaustionAndBoundsFailClosed() {
   Require(light_producer.Produce(two_lights).validation.code ==
               ValidationCode::VALUE_OUT_OF_RANGE,
           "lifetime light-history bound ignored a tombstoned identity");
+
+  GraphicsSceneSnapshotProducerConfiguration probe_config;
+  probe_config.registry_id = 409U;
+  probe_config.maximum_reflection_probe_records = 1U;
+  GraphicsSceneSnapshotProducer probe_producer(probe_config);
+  GraphicsSceneFrameInput two_probes = MakeFrame();
+  two_probes.reflection_probes = {ReflectionProbe(1U, 1.0),
+                                  ReflectionProbe(2U, 2.0)};
+  Require(probe_producer.Produce(two_probes).validation.code ==
+                  ValidationCode::VALUE_OUT_OF_RANGE &&
+              probe_producer.LoadPublishedSnapshot() == nullptr,
+          "live reflection-probe bound initialized or published state");
+  two_probes.reflection_probes.pop_back();
+  Require(probe_producer.Produce(two_probes).ok(),
+          "last bounded reflection-probe lineage was not usable");
+  two_probes.simulation_tick = 42U;
+  two_probes.simulation_time_seconds = 2.0;
+  two_probes.reflection_probes.clear();
+  Require(probe_producer.Produce(two_probes).ok(),
+          "bounded reflection-probe retirement was rejected");
+  two_probes.simulation_tick = 43U;
+  two_probes.simulation_time_seconds = 3.0;
+  two_probes.reflection_probes.push_back(ReflectionProbe(2U, 2.0));
+  Require(probe_producer.Produce(two_probes).validation.code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "lifetime reflection-probe bound ignored a tombstoned identity");
 }
 
 void TestDeterministicAcrossAdapterTraversalOrders() {
@@ -1475,6 +1615,11 @@ void TestDeterministicAcrossAdapterTraversalOrders() {
   std::reverse(rhs_frame.assets.begin(), rhs_frame.assets.end());
   std::reverse(rhs_frame.static_meshes.begin(), rhs_frame.static_meshes.end());
   std::reverse(rhs_frame.lights.begin(), rhs_frame.lights.end());
+  lhs_frame.reflection_probes = {ReflectionProbe(10U, 10.0),
+                                 ReflectionProbe(20U, 20.0)};
+  rhs_frame.reflection_probes = lhs_frame.reflection_probes;
+  std::reverse(rhs_frame.reflection_probes.begin(),
+               rhs_frame.reflection_probes.end());
   GraphicsSceneSnapshotProducer lhs = MakeProducer(505U);
   GraphicsSceneSnapshotProducer rhs = MakeProducer(505U);
   const GraphicsSceneSnapshotProduceResult lhs_output = lhs.Produce(lhs_frame);
@@ -1525,6 +1670,13 @@ void TestDeterministicAcrossAdapterTraversalOrders() {
               rhs_output.production.scene_snapshot
                   ->lighting_environment_hash(),
           "adapter traversal order changed lighting/environment digest");
+  Require(lhs_output.production.scene_snapshot->reflection_probe_hash() ==
+              rhs_output.production.scene_snapshot->reflection_probe_hash() &&
+              lhs_output.production.scene_snapshot->reflection_probes().size() ==
+                  2U &&
+              lhs_output.production.scene_snapshot->reflection_probes()[0U]
+                      .probe_id == 10U,
+          "adapter traversal order changed reflection-probe state or digest");
 }
 
 } // namespace
@@ -1532,6 +1684,7 @@ void TestDeterministicAcrossAdapterTraversalOrders() {
 int main() {
   TestJoinedSourceInitialSnapshotAndCanonicalOrder();
   TestLegacyProducerVersionsRequireExplicitMigration();
+  TestReflectionProbeLineageAndCanonicalOrder();
   TestTransformCameraHistoryAndOriginRebase();
   TestLargeOriginRebaseRollbackAndRetry();
   TestLightLifecycleAndAtomicPublication();

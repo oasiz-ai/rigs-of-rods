@@ -101,9 +101,10 @@ identity, simulation time, capture generations, and the float render origin.
 That separation lets origin rebasing preserve static probe lineage while the
 native plan still binds the exact derived render-relative transform.
 
-`GraphicsSceneSnapshotProducer` version 2 accepts those lights in arbitrary
+`GraphicsSceneSnapshotProducer` version 3 accepts those lights and absolute-world
+reflection probes in arbitrary
 source traversal order, canonicalizes them, rebases local-light history, and
-enforces permanent identity/type tombstones. Once the entire asset, scene,
+enforces permanent identity/type/revision tombstones. Once the entire asset, scene,
 lighting, environment, and camera transaction commits, it release-publishes the
 exact immutable owner returned to the caller. Concurrent consumers acquire-load
 either the previous complete scene or the next complete scene; a failed
@@ -114,11 +115,11 @@ quiesce before producer destruction starts; immutable snapshot owners already
 acquired by readers remain valid independently.
 
 There is no implicit lighting/schema migration. Scene snapshot versions 1, 2, and 3
-and joined-producer input version 1 are rejected with `UNSUPPORTED_VERSION`.
+and joined-producer input versions 1 and 2 are rejected with `UNSUPPORTED_VERSION`.
 An adapter migrating legacy light colors must normalize its non-black
 linear-sRGB color with `NormalizePhotometricColorLinear`, retain the scalar
 lux/candela value separately, populate all version-4 sky/exposure fields and an
-explicit (possibly empty) reflection-probe set, and submit producer version 2.
+explicit (possibly empty) reflection-probe set, and submit producer version 3.
 Old lighting hash values are not comparable with the current version-2 digest
 because the scene schema, registry identity, and calibrated photometry are part
 of the contract.
