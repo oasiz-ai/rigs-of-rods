@@ -43,6 +43,17 @@ RoR::Render::SceneSnapshotDescriptor MakeValidDescriptor() {
       Asset(RenderAssetKind::TEXTURE, 1U);
   descriptor.environment.environment_sampler =
       Asset(RenderAssetKind::SAMPLER, 4U);
+  descriptor.environment.environment_intensity = 1.25F;
+  descriptor.environment.exposure_compensation_ev = -0.5F;
+  descriptor.environment.analytic_sky.enabled = true;
+  descriptor.environment.analytic_sky.sun_light_id = 30U;
+  descriptor.environment.analytic_sky.zenith_radiance = {0.08F, 0.12F, 0.2F};
+  descriptor.environment.analytic_sky.horizon_radiance = {0.3F, 0.25F, 0.2F};
+  descriptor.environment.analytic_sky.ground_radiance = {0.02F, 0.018F,
+                                                          0.015F};
+  descriptor.environment.analytic_sky.sun_disk_radiance = {9000.0F, 8500.0F,
+                                                            7200.0F};
+  descriptor.environment.analytic_sky.sun_angular_radius_radians = 0.00465F;
 
   MeshInstanceDescriptor instance;
   instance.instance_id = 10U;
@@ -58,7 +69,18 @@ RoR::Render::SceneSnapshotDescriptor MakeValidDescriptor() {
   light.light_id = 20U;
   light.type = LightType::SPOT;
   light.position = {0.0F, 4.0F, 0.0F};
+  light.previous_position = light.position;
+  light.range = 30.0F;
+  light.inner_cone_radians = 0.5F;
+  light.outer_cone_radians = 0.75F;
   descriptor.lights.push_back(light);
+
+  LightDescriptor sun;
+  sun.light_id = 30U;
+  sun.intensity = 110000.0F;
+  sun.direction = {0.0F, -0.8F, -0.6F};
+  sun.previous_direction = sun.direction;
+  descriptor.lights.push_back(sun);
 
   DynamicMeshUpdateDescriptor update;
   update.update_sequence = 30U;
@@ -129,6 +151,10 @@ void TestValidSnapshotIsDeepCopiedAndImmutable() {
       "snapshot retained mutable dynamic vertices");
   Require(created.snapshot->particle_events().size() == 1U,
           "snapshot retained mutable particle storage");
+  Require(created.snapshot->lighting_environment_hash() ==
+              ComputeSceneLightingEnvironmentHash(
+                  MakeValidDescriptor()),
+          "snapshot did not retain the exact immutable lighting hash");
 }
 
 void TestIdentityOrderAndResourceValidation() {
@@ -347,6 +373,42 @@ void TestWorldLightAndParticleValidation() {
                  "non-unit light direction was accepted");
 
   descriptor = MakeValidDescriptor();
+  descriptor.lights.front().previous_direction = {0.0F, -2.0F, 0.0F};
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "non-unit previous light direction was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.lights.back().range = 10.0F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "directional light with noncanonical local range was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.lights.front().shadow_flags = 1U << 31U;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "unknown light shadow flag was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.exposure_compensation_ev = 25.0F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "unbounded scene exposure compensation was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.sun_light_id = 999U;
+  RequireInvalid(descriptor, ValidationCode::MISSING_REFERENCE,
+                 "analytic sky with a missing sun light was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.sun_light_id =
+      descriptor.lights.front().light_id;
+  RequireInvalid(descriptor, ValidationCode::WRONG_RESOURCE_KIND,
+                 "analytic sky with a spot-light sun was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.enabled = false;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "disabled analytic sky retained noncanonical live fields");
+
+  descriptor = MakeValidDescriptor();
   descriptor.particle_events.front().effect = static_cast<ParticleEffect>(255U);
   RequireInvalid(descriptor, ValidationCode::INVALID_ENUM,
                  "unknown particle effect was accepted");
@@ -362,6 +424,48 @@ void TestWorldLightAndParticleValidation() {
                  "particle alpha above one was accepted");
 }
 
+void TestCanonicalLightingEnvironmentHash() {
+  using namespace RoR::Render;
+
+  SceneSnapshotDescriptor descriptor = MakeValidDescriptor();
+  const std::uint64_t baseline =
+      ComputeSceneLightingEnvironmentHash(descriptor);
+  Require(baseline == 11458088048575903736ULL,
+          "canonical lighting hash fixture drifted");
+
+  SceneSnapshotDescriptor unrelated = descriptor;
+  unrelated.snapshot_id += 1U;
+  unrelated.simulation_tick += 1U;
+  unrelated.simulation_time_seconds += 1.0;
+  unrelated.mesh_instances.front().visibility_mask = 0x7FFFFFFFU;
+  unrelated.particle_events.front().random_seed += 1U;
+  Require(ComputeSceneLightingEnvironmentHash(unrelated) == baseline,
+          "lighting digest included unrelated frame or geometry state");
+
+  SceneSnapshotDescriptor signed_zero = descriptor;
+  signed_zero.lights.front().position.x = -0.0F;
+  signed_zero.lights.front().previous_position.z = -0.0F;
+  signed_zero.absolute_world_origin_meters.y = -0.0;
+  Require(ValidateSceneSnapshotDescriptor(signed_zero).ok() &&
+              ComputeSceneLightingEnvironmentHash(signed_zero) == baseline,
+          "lighting digest did not canonicalize signed zero");
+
+  SceneSnapshotDescriptor changed_history = descriptor;
+  changed_history.lights.front().previous_position.x = 0.25F;
+  Require(ComputeSceneLightingEnvironmentHash(changed_history) != baseline,
+          "lighting digest omitted temporal transform history");
+
+  SceneSnapshotDescriptor changed_sky = descriptor;
+  changed_sky.environment.analytic_sky.zenith_radiance.x += 0.01F;
+  Require(ComputeSceneLightingEnvironmentHash(changed_sky) != baseline,
+          "lighting digest omitted analytic environment state");
+
+  SceneSnapshotDescriptor reordered = descriptor;
+  std::swap(reordered.lights[0U], reordered.lights[1U]);
+  RequireInvalid(reordered, ValidationCode::NON_DETERMINISTIC_ORDER,
+                 "noncanonical light traversal order was accepted");
+}
+
 } // namespace
 
 int main() {
@@ -369,6 +473,7 @@ int main() {
   TestIdentityOrderAndResourceValidation();
   TestDynamicMeshValidation();
   TestWorldLightAndParticleValidation();
+  TestCanonicalLightingEnvironmentHash();
   std::cout << "scene snapshot tests passed\n";
   return EXIT_SUCCESS;
 }

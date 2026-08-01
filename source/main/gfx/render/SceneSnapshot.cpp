@@ -13,11 +13,85 @@
 #include "RenderResourceDescriptors.h"
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <utility>
 
 namespace RoR::Render {
 namespace {
+
+constexpr float kHalfPi = 1.57079632679489661923F;
+
+class CanonicalLightingHasher final {
+public:
+  void AddByte(std::uint8_t value) noexcept {
+    hash_ ^= static_cast<std::uint64_t>(value);
+    hash_ *= kPrime;
+  }
+
+  void AddU32(std::uint32_t value) noexcept {
+    for (std::size_t byte = 0U; byte < sizeof(value); ++byte) {
+      AddByte(static_cast<std::uint8_t>((value >> (byte * 8U)) & 0xFFU));
+    }
+  }
+
+  void AddU64(std::uint64_t value) noexcept {
+    for (std::size_t byte = 0U; byte < sizeof(value); ++byte) {
+      AddByte(static_cast<std::uint8_t>((value >> (byte * 8U)) & 0xFFU));
+    }
+  }
+
+  void AddFloat(float value) noexcept {
+    static_assert(sizeof(float) == sizeof(std::uint32_t),
+                  "lighting hash requires IEEE-754 binary32 storage");
+    if (value == 0.0F) {
+      value = 0.0F;
+    }
+    std::uint32_t bits = 0U;
+    std::memcpy(&bits, &value, sizeof(bits));
+    AddU32(bits);
+  }
+
+  void AddDouble(double value) noexcept {
+    static_assert(sizeof(double) == sizeof(std::uint64_t),
+                  "lighting hash requires IEEE-754 binary64 storage");
+    if (value == 0.0) {
+      value = 0.0;
+    }
+    std::uint64_t bits = 0U;
+    std::memcpy(&bits, &value, sizeof(bits));
+    AddU64(bits);
+  }
+
+  void AddFloat3(const Float3 &value) noexcept {
+    AddFloat(value.x);
+    AddFloat(value.y);
+    AddFloat(value.z);
+  }
+
+  void AddAssetReference(const RenderAssetReference &reference) noexcept {
+    AddByte(static_cast<std::uint8_t>(reference.kind));
+    AddU64(reference.id.high());
+    AddU64(reference.id.low());
+    AddU64(reference.revision);
+  }
+
+  [[nodiscard]] std::uint64_t value() const noexcept { return hash_; }
+
+private:
+  static constexpr std::uint64_t kOffsetBasis = 14695981039346656037ULL;
+  static constexpr std::uint64_t kPrime = 1099511628211ULL;
+  std::uint64_t hash_ = kOffsetBasis;
+};
+
+bool IsCanonicalPointDirection(const Float3 &direction) noexcept {
+  return direction.x == 0.0F && direction.y == -1.0F &&
+         direction.z == 0.0F;
+}
+
+bool IsCanonicalZero(const Float3 &value) noexcept {
+  return value.x == 0.0F && value.y == 0.0F && value.z == 0.0F;
+}
 
 bool ValidateAssetReference(const RenderAssetReference &reference,
                             RenderAssetKind kind, const char *field,
@@ -144,6 +218,52 @@ bool IsKnownParticleEffect(ParticleEffect effect) noexcept {
   return false;
 }
 
+std::uint64_t ComputeSceneLightingEnvironmentHash(
+    const SceneSnapshotDescriptor &descriptor) noexcept {
+  CanonicalLightingHasher hasher;
+  constexpr std::uint8_t kDomain[] = {'R', 'o', 'R', '-', 'l', 'i', 'g', 'h',
+                                      't', 'i', 'n', 'g', '-', 'e', 'n', 'v'};
+  for (const std::uint8_t byte : kDomain) {
+    hasher.AddByte(byte);
+  }
+  hasher.AddU32(kSceneLightingHashVersion);
+  hasher.AddU32(descriptor.version);
+  hasher.AddDouble(descriptor.absolute_world_origin_meters.x);
+  hasher.AddDouble(descriptor.absolute_world_origin_meters.y);
+  hasher.AddDouble(descriptor.absolute_world_origin_meters.z);
+
+  const SceneEnvironmentDescriptor &environment = descriptor.environment;
+  hasher.AddFloat3(environment.ambient_radiance);
+  hasher.AddAssetReference(environment.environment_texture);
+  hasher.AddAssetReference(environment.environment_sampler);
+  hasher.AddFloat(environment.environment_intensity);
+  hasher.AddByte(environment.analytic_sky.enabled ? 1U : 0U);
+  hasher.AddU64(environment.analytic_sky.sun_light_id);
+  hasher.AddFloat3(environment.analytic_sky.zenith_radiance);
+  hasher.AddFloat3(environment.analytic_sky.horizon_radiance);
+  hasher.AddFloat3(environment.analytic_sky.ground_radiance);
+  hasher.AddFloat3(environment.analytic_sky.sun_disk_radiance);
+  hasher.AddFloat(environment.analytic_sky.sun_angular_radius_radians);
+  hasher.AddFloat(environment.exposure_compensation_ev);
+
+  hasher.AddU64(static_cast<std::uint64_t>(descriptor.lights.size()));
+  for (const LightDescriptor &light : descriptor.lights) {
+    hasher.AddU64(light.light_id);
+    hasher.AddByte(static_cast<std::uint8_t>(light.type));
+    hasher.AddFloat3(light.color_linear);
+    hasher.AddFloat(light.intensity);
+    hasher.AddFloat3(light.position);
+    hasher.AddFloat3(light.previous_position);
+    hasher.AddFloat3(light.direction);
+    hasher.AddFloat3(light.previous_direction);
+    hasher.AddFloat(light.range);
+    hasher.AddFloat(light.inner_cone_radians);
+    hasher.AddFloat(light.outer_cone_radians);
+    hasher.AddU32(light.shadow_flags);
+  }
+  return hasher.value();
+}
+
 ValidationResult
 ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
   if (descriptor.version != kSceneSnapshotVersion) {
@@ -193,6 +313,50 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
             : ValidationCode::NON_FINITE_VALUE,
         "environment.environment_intensity",
         "environment intensity must be finite and nonnegative");
+  }
+  if (!IsFinite(descriptor.environment.exposure_compensation_ev) ||
+      descriptor.environment.exposure_compensation_ev < -24.0F ||
+      descriptor.environment.exposure_compensation_ev > 24.0F) {
+    return ValidationResult::Failure(
+        IsFinite(descriptor.environment.exposure_compensation_ev)
+            ? ValidationCode::VALUE_OUT_OF_RANGE
+            : ValidationCode::NON_FINITE_VALUE,
+        "environment.exposure_compensation_ev",
+        "exposure compensation must be finite and within [-24, 24] EV");
+  }
+  const AnalyticSkyDescriptor &sky = descriptor.environment.analytic_sky;
+  if (!IsFinite(sky.zenith_radiance) ||
+      !IsFinite(sky.horizon_radiance) ||
+      !IsFinite(sky.ground_radiance) ||
+      !IsFinite(sky.sun_disk_radiance) ||
+      !IsFinite(sky.sun_angular_radius_radians)) {
+    return ValidationResult::Failure(
+        ValidationCode::NON_FINITE_VALUE, "environment.analytic_sky",
+        "all analytic sky numeric fields must be finite");
+  }
+  if (!sky.enabled) {
+    if (sky.sun_light_id != 0U || !IsCanonicalZero(sky.zenith_radiance) ||
+        !IsCanonicalZero(sky.horizon_radiance) ||
+        !IsCanonicalZero(sky.ground_radiance) ||
+        !IsCanonicalZero(sky.sun_disk_radiance) ||
+        sky.sun_angular_radius_radians != 0.0F) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "environment.analytic_sky",
+          "disabled analytic sky state must use its canonical zero payload");
+    }
+  } else if (sky.sun_light_id == 0U ||
+             !IsNonNegative(sky.zenith_radiance) ||
+             !IsNonNegative(sky.horizon_radiance) ||
+             !IsNonNegative(sky.ground_radiance) ||
+             !IsNonNegative(sky.sun_disk_radiance) ||
+             sky.sun_angular_radius_radians <= 0.0F ||
+             sky.sun_angular_radius_radians > kHalfPi) {
+    return ValidationResult::Failure(
+        sky.sun_light_id == 0U ? ValidationCode::INVALID_IDENTIFIER
+                               : ValidationCode::VALUE_OUT_OF_RANGE,
+        "environment.analytic_sky",
+        "enabled sky requires a sun identity, nonnegative radiance, and a "
+        "sun half-angle in (0, pi/2]");
   }
   const bool environment_texture_absent = IsAbsentRenderAssetReference(
       descriptor.environment.environment_texture);
@@ -289,7 +453,6 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
   }
 
   previous_identifier = 0U;
-  constexpr float kHalfPi = 1.57079632679489661923F;
   for (std::size_t index = 0U; index < descriptor.lights.size(); ++index) {
     const LightDescriptor &light = descriptor.lights[index];
     if (!ValidateIncreasingIdentifier(light.light_id, previous_identifier,
@@ -304,7 +467,8 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
                                        index);
     }
     if (!IsFinite(light.color_linear) || !IsFinite(light.intensity) ||
-        !IsFinite(light.position) || !IsFinite(light.direction) ||
+        !IsFinite(light.position) || !IsFinite(light.previous_position) ||
+        !IsFinite(light.direction) || !IsFinite(light.previous_direction) ||
         !IsFinite(light.range) || !IsFinite(light.inner_cone_radians) ||
         !IsFinite(light.outer_cone_radians)) {
       return ValidationResult::Failure(
@@ -317,22 +481,72 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
           ValidationCode::VALUE_OUT_OF_RANGE, "lights.photometry",
           "light values must be nonnegative", index);
     }
-    if (!IsNormalized(light.direction)) {
+    if (!IsNormalized(light.direction) ||
+        !IsNormalized(light.previous_direction)) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "lights.direction",
-          "light direction must have unit length", index);
+          "current and previous light directions must have unit length", index);
     }
-    if (light.type != LightType::DIRECTIONAL && light.range <= 0.0F) {
+    constexpr std::uint32_t kKnownShadowFlags =
+        LIGHT_SHADOW_STATIC_GEOMETRY | LIGHT_SHADOW_DYNAMIC_GEOMETRY;
+    if ((light.shadow_flags & ~kKnownShadowFlags) != 0U) {
       return ValidationResult::Failure(
-          ValidationCode::VALUE_OUT_OF_RANGE, "lights.range",
-          "local light range must be positive", index);
+          ValidationCode::VALUE_OUT_OF_RANGE, "lights.shadow_flags",
+          "light contains unknown shadow flag bits", index);
     }
-    if (light.inner_cone_radians < 0.0F ||
-        light.outer_cone_radians < light.inner_cone_radians ||
-        light.outer_cone_radians > kHalfPi) {
+    if (light.type == LightType::DIRECTIONAL) {
+      if (!IsCanonicalZero(light.position) ||
+          !IsCanonicalZero(light.previous_position) || light.range != 0.0F ||
+          light.inner_cone_radians != 0.0F ||
+          light.outer_cone_radians != 0.0F) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, "lights.directional",
+            "directional lights require canonical zero local-light fields",
+            index);
+      }
+    } else if (light.type == LightType::POINT) {
+      if (light.range <= 0.0F) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, "lights.range",
+            "local light range must be positive", index);
+      }
+      if (!IsCanonicalPointDirection(light.direction) ||
+          !IsCanonicalPointDirection(light.previous_direction) ||
+          light.inner_cone_radians != 0.0F ||
+          light.outer_cone_radians != 0.0F) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, "lights.point",
+            "point lights require canonical orientation and zero cone fields",
+            index);
+      }
+    } else if (light.range <= 0.0F || light.inner_cone_radians < 0.0F ||
+               light.outer_cone_radians < light.inner_cone_radians ||
+               light.outer_cone_radians > kHalfPi) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "lights.cone",
-          "spot cones must satisfy 0 <= inner <= outer <= pi/2", index);
+          "spot range must be positive and cones must satisfy 0 <= inner <= "
+          "outer <= pi/2",
+          index);
+    }
+  }
+
+  if (sky.enabled) {
+    const auto sun = std::lower_bound(
+        descriptor.lights.begin(), descriptor.lights.end(), sky.sun_light_id,
+        [](const LightDescriptor &candidate, std::uint64_t light_id) {
+          return candidate.light_id < light_id;
+        });
+    if (sun == descriptor.lights.end() || sun->light_id != sky.sun_light_id) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "environment.analytic_sky.sun_light_id",
+          "analytic sky references a missing directional light");
+    }
+    if (sun->type != LightType::DIRECTIONAL) {
+      return ValidationResult::Failure(
+          ValidationCode::WRONG_RESOURCE_KIND,
+          "environment.analytic_sky.sun_light_id",
+          "analytic sky sun identity must name a directional light");
     }
   }
 
