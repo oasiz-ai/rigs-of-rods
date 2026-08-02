@@ -206,6 +206,28 @@ hard-shadow pass, not a soft-shadow, local-light, GI,
 denoising, Vulkan KHR, DXR, production-material, image-quality, or performance
 claim.
 
+The production migration uses a supervisor-owned two-process topology rather
+than loading both renderer ABIs into one address space. Its first
+process-independent contract is `RendererBridgeEndpoint` version 1. The
+supervisor will create two unidirectional inherited byte streams and a fresh
+128-bit session identifier, then launch the OGRE 14 simulation/game host and
+the Ogre-Next presentation frontend with mirrored roles and stream directions.
+Each child receives an exact six-record native argv prefix containing the
+contract version, role, compile-time platform, lowercase session identifier,
+and fixed-width native read/write handle tokens. Foreign platforms, unknown
+roles, malformed or noncanonical tokens, all-zero sessions, reserved/equal
+handles, reordered records, and duplicate reserved suffixes fail before a
+child adopts any OS resource. The prefix composes after the existing renderer
+intent: the public launcher first wraps game arguments with the bridge endpoint
+and then wraps that result with Ogre-Next selection intent.
+
+This argv contract does not yet create pipes or processes and is not an
+authentication boundary. The next supervisor checkpoint must create an exact
+two-child process group/job, expose only the reviewed handles, validate a
+session handshake over the byte streams, apply bounded back-pressure and EOF
+semantics, terminate the peer when either child exits, and preserve exact
+legacy-only launch behavior. No package-readiness fact changes at this stage.
+
 Configure and build the renderer suite explicitly (the launcher is already the
 default when `ROR_OGRE14=ON`):
 
