@@ -469,12 +469,12 @@ launcher is now the packaged topology for OGRE 14 builds: the public
 `RoR` executable defaults to Ogre-Next-preferred/PSSM intent and the logical
 game target is emitted as the sibling `RoR-Ogre14` compatibility child. The
 launcher consumes only immutable generated package facts, so the current
-profile falls back to that real child while `RoR-OgreNext` is absent and not
-production-ready. It owns only exact launcher options in the initial argument
-prefix and forwards the untouched legacy suffix. The separately versioned
+profile falls back to that real child while the packaged `RoR-OgreNext` is
+present but not production-ready/admitted. It owns only exact launcher options
+in the initial argument prefix and forwards the untouched legacy suffix. The separately versioned
 Ogre-Next child-argv contract now emits an exact four-record prefix containing
 the contract version, frontend preference, directional-shadow preference, and
-package-declared native backend. The future child must decode that prefix, bind
+package-declared native backend. The production child decodes that prefix, binds
 it to its compile-time host/backend, own the decoded game suffix, and
 independently resolve the startup plan before `Ogre::Root`; unknown versions,
 reordered fields, legacy frontend values, foreign backends, reserved duplicate
@@ -482,16 +482,21 @@ records, malformed values, and null arguments fail closed without consulting
 environment variables or mutable state. This local argv protocol preserves
 intent and is deliberately not described as process authentication.
 Linux/Windows install and CPack staging plus the signed macOS application
-bundle now retain both exact roles and audit the OGRE 14 child closure
+bundle retain the launcher and OGRE 14 host and audit the compatibility closure
 independently from the dependency-free public launcher. Flat macOS install and
 CPack rules stay disabled because only the application stager owns complete
 Mach-O dependency rewriting and nested-code signing. The isolated build now
 adds a probe-only `RoR-OgreNext` with a real native entrypoint and seam-free
-RT4/PSSM 64x64 headless initialize/shutdown path. It is not installed, staged,
-bundled, or production-admitted and has no presentation or game bridge. The
-complete production Ogre-Next child remains open; neither this bootstrap nor
-the N1 evidence can set package admission facts. Probe execution now also
-produces a versioned
+RT4/PSSM 64x64 headless initialize/shutdown path. That probe is not installed,
+staged, bundled, or production-admitted and has no presentation or game bridge.
+A separate isolated product build now stages the real live presentation child,
+its exact media/notices/provenance closure, and a sealed completion marker;
+Linux/Windows package it and macOS additionally closes and signs all nested
+code. The product child owns the visible window/input and consumes the live
+two-process scene stream, but its immutable readiness and PSSM admission facts
+remain false until full content, UI, image/performance, and cross-platform
+acceptance pass. Neither the probe nor N1 evidence can set those facts. Probe
+execution now also produces a versioned
 pass/skip/failure receipt outside the child process, so initialization,
 shutdown, and nonzero child outcomes are recorded even if the child cannot
 write evidence itself. Independent validation binds the exact RoR/OGRE commits,

@@ -4,13 +4,15 @@ Status: **Ogre-Next-preferred public default with bounded pre-readiness OGRE 14
 fallback; N1/RT4 raster frontend with full frame-owned deformation updates,
 directional PSSM, Apple Metal N2 geometry, N3 view-dependent hybrid HDR, soaked
 N4 native directional hard shadows, bounded Vulkan/DXR semantic probes, and a
-production child that remains fail-closed until package admission completes**
+verified/staged production child that remains fail-closed until runtime and
+content admission complete**
 
 This checkpoint compiles a core standalone probe family plus platform-specific
 Metal, Vulkan, and DXR executables against an exact OGRE-Next `v3-0` revision
-while leaving legacy RoR builds unchanged. OGRE 14 builds now default to the
-renderer-suite process topology described below, but still select the admitted
-OGRE 14 compatibility child at runtime. The capability
+while preserving an explicit compatibility build. Fresh supported-platform
+CMake and Conan builds now enable the renderer-suite process topology described
+below by default, but immutable package facts still select the admitted OGRE 14
+compatibility child at runtime. The capability
 executable proves that the reviewed platform renderer registers with OGRE core,
 HLMS PBS links and selects the expected
 shader family, and Compositor2 remains deferred before a window exists. It
@@ -110,11 +112,12 @@ game suffix, binds the request and declared backend to the compiled host, and
 rejects unknown, malformed, or duplicate reserved state before renderer
 initialization. That codec now lives in the dependency-free
 `RendererChildIntent` module rather than the OS process launcher. A dedicated
-target includes and links only the intent side of this boundary, so the future
+target includes and links only the intent side of this boundary, so the isolated
 native child does not inherit `execv`, `CreateProcessW`, or compatibility-child
 process ownership. The argv contract conveys intent rather than authenticating
 a local caller. Linux/Windows install and CPack staging plus the signed macOS
-application bundle now retain both exact executable roles. Flat macOS install
+application bundle now retain the public launcher and compatibility host; a
+verified product stage adds the exact `RoR-OgreNext` sibling. Flat macOS install
 and CPack rules remain disabled so they cannot bypass Mach-O dependency
 rewriting and nested-code signing; entering this topology also removes only
 stale generated install/CPack control files from a reused macOS build tree.
@@ -145,6 +148,19 @@ omitted. CI independently validates the receipt, uses the pinned
 platform-selected child executable, verifies that DSSE bundle, and uploads the
 receipt, binary, logs, and bundle. This evidence retention does not install,
 stage, bundle, default-select, or production-admit the child.
+
+The separately enabled-by-default `ROR_OGRE_NEXT_PRODUCTION_PACKAGE` path is
+not that probe binary. It performs an isolated `ExternalProject` build of the
+real `ror_renderer_ogre_next_child_runtime`, seals the executable, exact shader
+media, presentation media, notices, and provenance in a sorted SHA-256 manifest,
+and atomically publishes a production-stage completion marker only after a
+strict closure verifier succeeds. Linux and Windows install/CPack copy that
+verified root without recomputing its identity. The macOS stager re-verifies the
+same closure, copies it into `RoR.app`, rewrites the complete Mach-O dependency
+closure, signs `RoR-OgreNext`, `RoR-Ogre14`, and then the outer application, and
+requires strict deep signature verification. A local Apple Silicon build proved
+all three executables are arm64 and that the staged Ogre-Next payload is closed;
+this packaging result proves presence and identity, not production admission.
 On POSIX, timeout cleanup starts the child in a new session, kills its process
 group, and reaps the direct child. Windows kills and reaps the direct child. A
 separate build gate lexically scans the reviewed, pinned RoR/OGRE source closure
@@ -192,7 +208,8 @@ the monotonic surface generation without pretending a resize occurred. SDL
 event watches observe these acknowledgements without consuming close, focus,
 minimize, input, or other-window events.
 
-This remains a source/ABI/lifecycle checkpoint, not presentation admission.
+The standalone native-window probe remains a source/ABI/lifecycle checkpoint,
+not presentation admission.
 The live smoke may report CTest skip 77 when a hosted runner has no native
 window server. It does not create an Ogre presentation `RenderWindow`, attach
 a Compositor2 workspace, swap or read back a presented frame, bridge game/UI/
@@ -204,9 +221,12 @@ creation remains blocked on a reviewed drain strategy or upstream patch.
 The compatibility child's runtime closure
 and crash symbols remain the OGRE 14 closure; the dependency-free public
 launcher is audited separately. The fake child is confined to the test output
-directory and is never installed or staged. A complete production
-`RoR-OgreNext` game child remains open, so current no-flag packages still run
-OGRE 14 after the explicit policy fallback. This bootstrap is a real
+directory and is never installed or staged. The real production
+`RoR-OgreNext` presentation child and its verified package closure now exist,
+but current no-flag packages still run OGRE 14 after the explicit policy
+fallback because immutable readiness/PSSM admission remains false until live
+content, image, performance, and cross-platform gates pass. This bootstrap is
+a real
 cross-platform frontend initialization boundary and N4 is a real Metal
 hard-shadow pass, not a soft-shadow, local-light, GI,
 denoising, Vulkan KHR, DXR, production-material, image-quality, or performance
@@ -282,9 +302,10 @@ Ogre-Next preference, explicit Ogre-Next requirement, Unicode/space-containing
 game argv, exact game exit propagation, presentation-first teardown, exact
 pre-ready fallback, post-ready refusal, native-required rejection, a
 presentation signal, a signal-handling game peer that exits naturally, and
-explicit-require refusal of that fallback. The
-production package generator remains unchanged and still records Ogre-Next as
-absent/unadmitted, so current packages continue to choose OGRE 14. The
+explicit-require refusal of that fallback. The production package generator
+now stages and verifies the exact Ogre-Next child and its media while
+deliberately leaving production-ready and PSSM admission false; current
+packages therefore continue to choose OGRE 14. The
 endpoint-adopted compatibility child now owns the real
 [`RendererOgre14ProductSession`](OGRE14_PRODUCT_SESSION.md): it drains reverse
 input/control/ACK traffic before gameplay, opens no legacy physical input
@@ -293,30 +314,32 @@ publishes the joined scene only after `GfxScene::UpdateScene()` has consumed
 copied simulation buffers and joined flex/wheel work. The lossless bounded
 production owner and presentation-side decoded-camera extent guard prevent
 backpressure or an idle resize from presenting stale state, and it performs ordered
-half-close/EOF/join shutdown. Direct standalone launches are unchanged. This
-closes the OGRE 14 game-host consumer gate only; it does not change generated
-presence/readiness/admission facts or admit/package the production Ogre-Next
-presentation child.
+half-close/EOF/join shutdown. Direct standalone launches are unchanged.
+Together with the packaged presentation runtime, this closes the two-process
+lifecycle and transport-wiring gate. It does not change generated
+presence/readiness/admission facts: real vehicle/terrain/material coverage,
+UI composition, image/performance acceptance, and native Linux/Windows runs
+remain mandatory before admission.
 
-Configure and build the renderer suite explicitly (the launcher is already the
-default when `ROR_OGRE14=ON`):
+Configure and build the renderer suite with the normal supported-platform
+defaults:
 
 ```sh
 cmake -S . -B build-renderer-launcher \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
-  -DROR_CREATE_CONTENT_FOLDER=OFF \
-  -DROR_OGRE14=ON \
-  -DROR_RENDERER_PUBLIC_LAUNCHER=ON
+  -DROR_CREATE_CONTENT_FOLDER=OFF
 cmake --build build-renderer-launcher \
-  --target ror_renderer_launcher --config Release
+  --target ror_renderer_launcher ror_ogre_next_product_stage --config Release
 ```
 
 The active runtime output directory is `build-renderer-launcher/bin` for this
-tree. It contains exact siblings `RoR` and `RoR-Ogre14` on Linux/macOS, or
-`RoR.exe` and `RoR-Ogre14.exe` on Windows. The same roles are retained by
-Linux/Windows install/package targets and by `RoR.app/Contents/MacOS` on
-macOS. Initialize the starter-content submodule and omit
+tree. The complete product layout contains `RoR`, `RoR-Ogre14`, and
+`RoR-OgreNext` on Linux/macOS, or their `.exe` equivalents on Windows. The same
+roles are retained by Linux/Windows install/package targets and by
+`RoR.app/Contents/MacOS` on macOS. Set `ROR_OGRE14=OFF` only for an explicit
+legacy-development configuration; doing so also disables the public suite and
+product child. Initialize the starter-content submodule and omit
 `-DROR_CREATE_CONTENT_FOLDER=OFF` when that content is required in the build
 tree.
 

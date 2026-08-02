@@ -1101,21 +1101,32 @@ Gate R1:
   `RendererChildIntent`, with a standalone cross-platform target that links no
   OS process-spawning implementation; `RendererChildLauncher` retains only
   exact-sibling execution and exit propagation. Linux/Windows install and
-  CPack staging plus the signed macOS application bundle retain both exact
-  roles and preserve OGRE 14 crash symbols. Flat macOS install/CPack remains
+  CPack staging plus the signed macOS application bundle retain the launcher
+  and compatibility host and preserve OGRE 14 crash symbols. Flat macOS
+  install/CPack remains
   disabled so it cannot bypass Mach-O rewriting and nested-code signing. The
-  isolated probe now emits a real-output-name, probe-only `RoR-OgreNext` child
+  isolated probe emits a real-output-name, probe-only `RoR-OgreNext` child
   from a seam-free frontend library. Its native entrypoint consumes synthetic
   child argv, resolves the authoritative child plan, initializes RT4/PSSM at a
-  headless 64x64 extent with one frame in flight, and shuts down. The binary is
-  not installed, staged, bundled, or production-admitted. The endpoint-adopted
+  headless 64x64 extent with one frame in flight, and shuts down. That probe
+  binary is not installed, staged, bundled, or production-admitted. A separate
+  enabled-by-default isolated product build emits the real production runtime,
+  exact shader/presentation media, notices, provenance, sorted SHA-256 manifest,
+  and atomic completion marker. Linux/Windows install/CPack preserve that
+  verified root; the macOS bundle independently verifies it, closes Mach-O
+  dependencies, and signs both children before the outer app. Presence is
+  therefore proven without conflating it with readiness or PSSM admission. The
+  endpoint-adopted
   OGRE 14 game-host lifecycle now drains renderer input/control/ACK traffic,
   opens no physical input devices, keeps its resource host hidden and
   non-presenting, publishes one post-`UpdateScene` retained joined-scene
   production across bounded backpressure, retires scenes overtaken by idle
-  resize announcements, and performs ordered half-close/EOF/join shutdown; the production
-  presentation child, UI composition, force feedback, and package evidence
-  remain open, so immutable package facts still select the explicit
+  resize announcements, and performs ordered half-close/EOF/join shutdown. The
+  production presentation child consumes that bridge, owns the sole visible
+  SDL/Ogre-Next window and physical input, and presents through a GPU-only
+  output path. UI composition, force feedback, full scene/material/deformation
+  coverage, image/performance acceptance, and native Linux/Windows execution
+  remain open, so immutable readiness/admission facts still select the explicit
   compatibility fallback.
   Its probe execution is independently retained in a versioned, fail-closed
   receipt that records pass, exact capability skip, or failure and binds both
@@ -1133,9 +1144,10 @@ Gate R1:
   fork/spawn/exec/process call fails the build and requires real cross-platform
   descendant containment. This probe constraint is neither a proof over
   arbitrary injected linked code nor a general process-tree sandbox.
-  Validation configures `-DROR_OGRE14=ON`, builds
-  `ror_renderer_launcher`, and verifies exact `bin/RoR[.exe]` plus
-  `bin/RoR-Ogre14[.exe]` siblings in build and package layouts.
+  Supported builds now default CMake and Conan to this Ogre-Next-first suite.
+  Validation builds `ror_renderer_launcher` plus the isolated product stage and
+  verifies exact `RoR[.exe]`, `RoR-Ogre14[.exe]`, and `RoR-OgreNext[.exe]`
+  siblings in complete package layouts.
 - The Ogre-Next frontend now admits complete dynamic-mesh replacements. It
   copies positions, normals, tangents, velocities, bounds, topology lineage,
   and deformation lineage into frame-owned Ogre v2 resources, submits them
@@ -1223,8 +1235,9 @@ Gate R1:
   initializes its frontend and then emits explicit unsupported evidence when
   backend admission fails. A pure pre-initialization plan now chooses native,
   Ogre-Next PSSM, OGRE14 PSSM, or rejection without loading either renderer
-  ABI. The package-level executable handoff and production launcher are
-  implemented; the Ogre-Next child binary remains open. The Metal
+  ABI. The package-level executable handoff, production launcher, verified
+  Ogre-Next child, and two-process live session are implemented; production
+  admission remains open. The Metal
   N4 implementation now passes on a
   physical Apple M5 with 5,712 visible receiver pixels, 432 pixels blocked by
   the distinct occluder, zero primary misses, exact R16 visibility, exact R32
@@ -1239,8 +1252,8 @@ Gate R1:
   semantics and exact visibility/lineage/hybrid readbacks (typed DXR UAVs;
   packed Vulkan SSBO encodings). They explicitly do
   not claim an exact Ogre RGBA16 source, an Ogre image composite, or full native
-  V1 readiness. Linux/Windows hardware execution, soft/area-light shadows,
-  the production Ogre-Next child, and image/performance gates remain open.
+  V1 readiness. Linux/Windows hardware execution, soft/area-light shadows, full
+  production content coverage, and image/performance gates remain open.
 - The renderer-neutral scene boundary now has the prerequisite lighting slice:
   snapshot version 4 retains the sorted stable directional/point/spot identities
   introduced by version 3 and adds an ordered absolute-world reflection-probe set,
