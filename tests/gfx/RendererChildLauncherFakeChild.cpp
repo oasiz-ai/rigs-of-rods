@@ -114,8 +114,22 @@ int wmain(int argc, wchar_t *argv[]) {
   if (input != "renderer-child-stdin") {
     Fail(85U, "standard-input");
   }
-  std::cout << "renderer-child-stdout-ok\n" << std::flush;
-  std::cerr << "renderer-child-stderr-ok\n" << std::flush;
+  const char output[] = "renderer-child-stdout-ok\n";
+  DWORD output_count = 0U;
+  if (::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), output,
+                  static_cast<DWORD>(sizeof(output) - 1U), &output_count,
+                  nullptr) == FALSE ||
+      output_count != static_cast<DWORD>(sizeof(output) - 1U)) {
+    Fail(88U, "standard-output");
+  }
+  const char error[] = "renderer-child-stderr-ok\n";
+  DWORD error_count = 0U;
+  if (::WriteFile(::GetStdHandle(STD_ERROR_HANDLE), error,
+                  static_cast<DWORD>(sizeof(error) - 1U), &error_count,
+                  nullptr) == FALSE ||
+      error_count != static_cast<DWORD>(sizeof(error) - 1U)) {
+    Fail(89U, "standard-error");
+  }
   ::ExitProcess(0xc0de0042U);
 }
 
