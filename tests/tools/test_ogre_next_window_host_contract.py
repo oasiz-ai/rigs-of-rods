@@ -345,6 +345,19 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
             "RendererOgreNextSdlWindowRuntime",
         ):
             self.assertNotIn(prohibited, package)
+        report = self.probe_cmake[
+            self.probe_cmake.index(
+                "add_custom_target(\n        ror_ogre_next_frontend_n1_report"
+            ) :
+            self.probe_cmake.index(
+                "add_test(NAME ror_ogre_next_frontend_n1_runtime"
+            )
+        ]
+        for required in (
+            "ror_renderer_ogre_next_window_host_tests",
+            "ror_renderer_ogre_next_window_host_smoke",
+        ):
+            self.assertEqual(report.count(required), 1)
         product_files = (
             REPOSITORY_ROOT / "CMakeLists.txt",
             REPOSITORY_ROOT / "source/main/CMakeLists.txt",
