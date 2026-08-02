@@ -19,6 +19,9 @@
 #if !defined(_WIN32_WINNT)
 #define _WIN32_WINNT 0x0601
 #endif
+#if !defined(NOMINMAX)
+#define NOMINMAX
+#endif
 #include <windows.h>
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
