@@ -1637,6 +1637,176 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             with self.assertRaisesRegex(VERIFY.ArtifactSetError, expected):
                 VERIFY.verify_artifact_set(root, verify_metal_n3_evidence=True)
 
+    def write_metal_n4(self, root: Path, status: str) -> None:
+        executable_path = root / VERIFY.METAL_N4_REQUIRED_ARTIFACTS[1]
+        executable_path.parent.mkdir(parents=True, exist_ok=True)
+        executable_path.write_bytes(b"attested-metal-n4-directional-shadow")
+        provenance = {
+            "ror_repository": self.ror_repository,
+            "ror_ref": self.ror_ref,
+            "ror_commit": self.ror_commit,
+            "relevant_source_clean": True,
+            "relevant_source_manifest_sha256": self.ror_manifest,
+            "ogre_next_commit": self.ogre_commit,
+            "build_artifact": executable_path.name,
+            "build_artifact_bytes": executable_path.stat().st_size,
+            "build_artifact_sha256": VERIFY.sha256_file(executable_path),
+        }
+        report: dict[str, object] = {
+            "schema": "ror.ogre_next_metal_rt_n4_directional_shadow.v1",
+            "status": status,
+            "scope": (
+                VERIFY.METAL_N4_PASS_SCOPE
+                if status == "pass"
+                else VERIFY.METAL_N4_SKIP_SCOPE
+            ),
+            "provenance": provenance,
+        }
+        if status == "skip":
+            report.update(
+                {
+                    "reason": "test device does not expose Apple GPU family 9",
+                    "device_name": "Test Paravirtual Metal Device",
+                    "required_apple_gpu_family": 9,
+                    "required_metal_ray_tracing": True,
+                    "required_visibility_format": "R16_FLOAT",
+                }
+            )
+        else:
+            width = 96
+            height = 64
+            pixel_count = width * height
+            raster_pixel = struct.pack("<4e", 0.5, 0.25, 0.125, 1.0)
+            raster = raster_pixel * pixel_count
+            occluded_start = 100
+            occluded_end = 200
+            visibility = (
+                struct.pack("<H", 0x3C00) * occluded_start
+                + struct.pack("<H", 0x0000)
+                * (occluded_end - occluded_start)
+                + struct.pack("<H", 0x3C00) * (pixel_count - occluded_end)
+            )
+            lineage = (
+                struct.pack("<I", 1) * occluded_start
+                + struct.pack("<I", 3) * (occluded_end - occluded_start)
+                + struct.pack("<I", 1) * (pixel_count - occluded_end)
+            )
+            shadow_pixel = struct.pack("<4H", 0, 0, 0, 0x3C00)
+            hybrid = (
+                raster_pixel * occluded_start
+                + shadow_pixel * (occluded_end - occluded_start)
+                + raster_pixel * (pixel_count - occluded_end)
+            )
+            payloads = {
+                "raster": raster,
+                "visibility": visibility,
+                "ray_lineage": lineage,
+                "hybrid": hybrid,
+            }
+            artifacts: dict[str, dict[str, object]] = {}
+            for key, name, pixel_format, _ in VERIFY.METAL_N4_IMAGE_ARTIFACTS:
+                path = root / name
+                path.write_bytes(payloads[key])
+                artifacts[key] = {
+                    "format": pixel_format,
+                    "bytes": path.stat().st_size,
+                    "sha256": VERIFY.sha256_file(path),
+                }
+            artifacts["visibility"].update(
+                {
+                    "visible_r16_bits": "0x3c00",
+                    "occluded_r16_bits": "0x0000",
+                }
+            )
+
+            def sample(pixel: int, label: str, blocker: int) -> dict[str, object]:
+                offset = pixel * 8
+                visibility_bits = struct.unpack_from(
+                    "<H", visibility, pixel * 2
+                )[0]
+                return {
+                    "x": pixel % width,
+                    "y": pixel // width,
+                    "visibility": label,
+                    "visibility_r16_bits": f"0x{visibility_bits:04x}",
+                    "secondary_blocker_instance_id": blocker,
+                    "raster_rgba16_bits": VERIFY._metal_n4_rgba16_strings(
+                        raster, offset
+                    ),
+                    "hybrid_rgba16_bits": VERIFY._metal_n4_rgba16_strings(
+                        hybrid, offset
+                    ),
+                    "portable_contract_validated": True,
+                }
+
+            report.update(
+                {
+                    "device": {
+                        "name": "Test Apple Family 9 Device",
+                        "same_ogre_device": True,
+                        "same_ogre_queue": True,
+                        "apple_family_9": True,
+                    },
+                    "raster_contract": {
+                        "raster_feature_tier": "MODERN_PBR_RT4_V1",
+                        "native_feature_tier": (
+                            "METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW"
+                        ),
+                        "directional_shadow_mode": "DISABLED",
+                        "pssm_enabled": False,
+                        "vertex_layout": (
+                            "POSITION_NORMAL_TANGENT_UV0_FLOAT32_48"
+                        ),
+                        "vertex_stride_bytes": 48,
+                    },
+                    "native_contract": {
+                        "version": 1,
+                        "backend": "METAL",
+                        "tier": "NATIVE_DIRECTIONAL_HARD_SHADOW_V1",
+                        "blas_count": 2,
+                        "tlas_instance_count": 2,
+                        "primary_camera_rays_per_sample": 1,
+                        "secondary_directional_visibility_rays_per_sample": 1,
+                        "receiver_instance_id": 1,
+                        "occluder_instance_id": 2,
+                    },
+                    "artifacts": artifacts,
+                    "coverage": {
+                        "width": width,
+                        "height": height,
+                        "pixels": pixel_count,
+                        "receiver_visible_pixels": pixel_count - 100,
+                        "occluded_pixels": 100,
+                        "primary_miss_pixels": 0,
+                    },
+                    "samples": [
+                        sample(0, "VISIBLE", 0),
+                        sample(occluded_start, "OCCLUDED", 2),
+                    ],
+                    "proof": {
+                        field: True
+                        for field in VERIFY.METAL_N4_REQUIRED_PROOF_BOOLEANS
+                    },
+                }
+            )
+        report_path = root / VERIFY.METAL_N4_REQUIRED_ARTIFACTS[0]
+        report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+
+    def mutate_metal_n4_report(self, root: Path, mutation) -> None:
+        report_path = root / VERIFY.METAL_N4_REQUIRED_ARTIFACTS[0]
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        mutation(report)
+        report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+
+    def assert_metal_n4_report_rejected(self, mutation, expected: str) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-n4-invalid-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            self.write_metal_n4(root, "pass")
+            self.mutate_metal_n4_report(root, mutation)
+            with self.assertRaisesRegex(VERIFY.ArtifactSetError, expected):
+                VERIFY.verify_artifact_set(root, verify_metal_n4_evidence=True)
+
     def test_requires_every_exact_nonempty_regular_file(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-artifacts-") as temp:
             root = Path(temp)
@@ -2760,6 +2930,112 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             self.mutate_metal_n3_report(root, lambda report: report.pop("reason"))
             with self.assertRaisesRegex(VERIFY.ArtifactSetError, "no reason"):
                 VERIFY.verify_artifact_set(root, verify_metal_n3_evidence=True)
+
+    def test_metal_n4_gate_recomputes_every_pass_artifact(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-n4-artifacts-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            self.write_metal_n4(root, "pass")
+            manifest = VERIFY.verify_artifact_set(
+                root, verify_metal_n4_evidence=True
+            )
+            manifest_paths = {entry["path"] for entry in manifest}
+            for _, name, _, _ in VERIFY.METAL_N4_IMAGE_ARTIFACTS:
+                self.assertIn(name, manifest_paths)
+            visibility_path = root / VERIFY.METAL_N4_IMAGE_ARTIFACTS[1][1]
+            payload = bytearray(visibility_path.read_bytes())
+            payload[0:2] = struct.pack("<H", 0x3800)
+            visibility_path.write_bytes(payload)
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "artifact metrics mismatch"
+            ):
+                VERIFY.verify_artifact_set(
+                    root, verify_metal_n4_evidence=True
+                )
+
+    def test_metal_n4_gate_rejects_forged_mapping_after_hash_refresh(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-n4-mapping-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            self.write_metal_n4(root, "pass")
+            hybrid_path = root / VERIFY.METAL_N4_IMAGE_ARTIFACTS[3][1]
+            payload = bytearray(hybrid_path.read_bytes())
+            occluded_offset = 100 * 8
+            payload[occluded_offset : occluded_offset + 2] = struct.pack(
+                "<H", 0x3400
+            )
+            hybrid_path.write_bytes(payload)
+
+            def refresh_hash(report):
+                report["artifacts"]["hybrid"]["sha256"] = (
+                    VERIFY.sha256_file(hybrid_path)
+                )
+                report["samples"][1]["hybrid_rgba16_bits"] = (
+                    VERIFY._metal_n4_rgba16_strings(payload, occluded_offset)
+                )
+
+            self.mutate_metal_n4_report(root, refresh_hash)
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "occluded pixel mapping"
+            ):
+                VERIFY.verify_artifact_set(
+                    root, verify_metal_n4_evidence=True
+                )
+
+    def test_metal_n4_gate_cross_checks_coverage_and_samples(self) -> None:
+        self.assert_metal_n4_report_rejected(
+            lambda report: report["coverage"].__setitem__(
+                "occluded_pixels", 99
+            ),
+            "coverage differs",
+        )
+        self.assert_metal_n4_report_rejected(
+            lambda report: report["samples"][1].__setitem__(
+                "secondary_blocker_instance_id", 0
+            ),
+            "sample differs",
+        )
+
+    def test_metal_n4_gate_requires_every_explicit_proof(self) -> None:
+        for field in VERIFY.METAL_N4_REQUIRED_PROOF_BOOLEANS:
+            with self.subTest(field=field):
+                self.assert_metal_n4_report_rejected(
+                    lambda report, name=field: report["proof"].__setitem__(
+                        name, False
+                    ),
+                    "proof is incomplete",
+                )
+
+    def test_metal_n4_gate_accepts_skip_but_rejects_stale_pass_data(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-n4-skip-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            self.write_metal_n4(root, "skip")
+            VERIFY.verify_artifact_set(root, verify_metal_n4_evidence=True)
+            stale = root / VERIFY.METAL_N4_IMAGE_ARTIFACTS[0][1]
+            stale.write_bytes(b"stale")
+            with self.assertRaisesRegex(VERIFY.ArtifactSetError, "stale raster"):
+                VERIFY.verify_artifact_set(
+                    root, verify_metal_n4_evidence=True
+                )
+
+    def test_metal_n4_gate_rejects_inexact_capability_skip(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-n4-skip-bad-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            self.write_metal_n4(root, "skip")
+            self.mutate_metal_n4_report(
+                root,
+                lambda report: report.__setitem__(
+                    "required_apple_gpu_family", True
+                ),
+            )
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "capability skip is not exact"
+            ):
+                VERIFY.verify_artifact_set(
+                    root, verify_metal_n4_evidence=True
+                )
 
 
 if __name__ == "__main__":

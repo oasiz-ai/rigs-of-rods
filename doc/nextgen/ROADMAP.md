@@ -1084,14 +1084,19 @@ Gate R1:
   explicit shutdown plus both frontend/backend destructor orders. The N3
   checkpoint then adds the versioned color-image handoff, exact retained Ogre
   HDR target, GPU-only contribution/composite path, three independently hashed
-  image artifacts, view change, resize, and post-submission fault seams. Operational
+  image artifacts, view change, resize, and post-submission fault seams. The N4
+  checkpoint adds a distinct receiver and occluder, two native BLAS, a
+  two-instance TLAS, full-view primary/secondary ray lineage, canonical R16
+  hard-shadow visibility, and an exact RGBA16 GPU composite on Ogre's Metal
+  device and queue. Operational
   Metal faults revoke leases and backend registration while latching the
   frontend unusable, so device loss cannot permanently block cleanup. Windows
   D3D11 and Linux Vulkan
   reproduction remain open; Linux is deliberately an offscreen null-window
-  raster gate rather than a presentation-window claim. RT reflection/shadow
-  semantics, material attributes, lights, presentation, image quality,
-  performance, DXR, and Vulkan KHR interop remain open; see the
+  raster gate rather than a presentation-window claim. Soft/area-light
+  shadows, reflection semantics, material attributes,
+  presentation, image quality, performance, DXR, and Vulkan KHR interop remain
+  open; see the
   [isolated integration checkpoint](OGRE_NEXT_INTEGRATION.md).
 - The RT4/V1 raster frontend now also has an explicit, default-off directional
   `PSSM_3_CASCADE_V1` checkpoint. It programmatically creates one fixed
@@ -1123,8 +1128,14 @@ Gate R1:
   exact R16 visibility, and byte-exact RGBA16 composition. N4 and PSSM are
   mutually exclusive within one initialized frontend; incomplete native
   capability selects the already validated PSSM fallback before initialization,
-  never midway through a frame. The Metal N4 full-frame dispatch, native
-  evidence/attestation, Vulkan/DXR implementations, resize/fault soak, and
+  never midway through a frame. The Metal N4 implementation now passes on a
+  physical Apple M5 with 5,712 visible receiver pixels, 432 pixels blocked by
+  the distinct occluder, zero primary misses, exact R16 visibility, exact R32
+  lineage, and byte-validated RGBA16 composition. CI compiles and executes the
+  target on macOS, accepts only an explicit capability skip on unsupported
+  hosted hardware, independently revalidates every retained byte, and runs the
+  portable source contract on Linux and Windows. Vulkan/DXR implementations,
+  soft/area-light shadows, resize/fault soak, temporal stability, and
   image/performance gates remain open.
 - The renderer-neutral scene boundary now has the prerequisite lighting slice:
   snapshot version 4 retains the sorted stable directional/point/spot identities
@@ -1192,7 +1203,8 @@ uploads, packed linear roughness/metallic extraction, padded multi-mip rows,
 portable samplers, canonical positive-Z tangent-space normal maps at exactly
 unit scale, fail-closed non-uniform object scale, one calibrated directional light, transactional replacement and
 exact native texture retirement, default-off three-cascade directional PSSM,
-HDR/SDR evidence, and simultaneous Metal N3 interop. The normal contract
+HDR/SDR evidence, simultaneous Metal N3 interop, and the Metal N4 native
+directional hard-shadow slice. The normal contract
 validates every linear RGBA8 texel/mip against the
 pinned positive-Z reconstruction within exactly `1/255`, requires alpha 255,
 derives `RG8_UNORM`, and binds `PBSM_NORMAL` with UV0 and the authored sampler.

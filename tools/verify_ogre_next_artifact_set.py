@@ -387,6 +387,43 @@ METAL_N3_REQUIRED_PROOF_BOOLEANS = (
     "view_dependent_output_ready",
     "hybrid_composite_ready",
 )
+METAL_N4_REQUIRED_ARTIFACTS = (
+    "ror-ogre-next-metal-n4-directional-shadow-report.json",
+    "bin/ror_ogre_next_metal_n4_directional_shadow_smoke",
+)
+METAL_N4_IMAGE_ARTIFACTS = (
+    ("raster", "ror-ogre-next-metal-n4-raster.bin", "RGBA16_FLOAT", 8),
+    ("visibility", "ror-ogre-next-metal-n4-visibility-r16.bin", "R16_FLOAT", 2),
+    (
+        "ray_lineage",
+        "ror-ogre-next-metal-n4-ray-lineage-r32.bin",
+        "R32_UINT",
+        4,
+    ),
+    ("hybrid", "ror-ogre-next-metal-n4-hybrid.bin", "RGBA16_FLOAT", 8),
+)
+METAL_N4_PASS_SCOPE = (
+    "same-device Metal two-BLAS hard directional visibility applied to the "
+    "exact UI-free Ogre-Next HDR target; no GI, reflection, denoising, "
+    "multi-bounce, soft-shadow, or material-parity claim"
+)
+METAL_N4_SKIP_SCOPE = (
+    "same-device Metal two-BLAS directional hard shadow; no GI, reflection, "
+    "denoising, multi-bounce, soft-shadow, or material-parity claim"
+)
+METAL_N4_REQUIRED_PROOF_BOOLEANS = (
+    "full_view_receiver",
+    "partial_distinct_occluder",
+    "every_visibility_texel_canonical_r16",
+    "visible_preserves_exact_rgba16",
+    "occluded_zeros_rgb_preserves_alpha",
+    "visible_and_occluded_sample_contracts_validated",
+    "exact_exported_dual_geometry_used",
+    "exact_exported_color_image_used",
+    "gpu_composite_not_cpu_postprocess",
+    "view_dependent_output_ready",
+    "hybrid_composite_ready",
+)
 
 
 class ArtifactSetError(RuntimeError):
@@ -4245,10 +4282,382 @@ def _verify_metal_n3(
         _verify_metal_n3_pass_semantics(report, payloads)
 
 
+def _verify_metal_n4_provenance(
+    report: dict[str, object],
+    executable_path: Path,
+    build_contract: dict[str, object],
+) -> None:
+    provenance = _require_exact_keys(
+        report.get("provenance"),
+        {
+            "ror_repository",
+            "ror_ref",
+            "ror_commit",
+            "relevant_source_clean",
+            "relevant_source_manifest_sha256",
+            "ogre_next_commit",
+            "build_artifact",
+            "build_artifact_bytes",
+            "build_artifact_sha256",
+        },
+        "Metal N4 provenance",
+    )
+    source = build_contract["ror_source"]
+    ogre = build_contract["provenance"]
+    expected = {
+        "ror_repository": source.get("repository"),
+        "ror_ref": source.get("ref"),
+        "ror_commit": source.get("commit"),
+        "relevant_source_clean": True,
+        "relevant_source_manifest_sha256": source.get(
+            "relevant_manifest_sha256"
+        ),
+        "ogre_next_commit": ogre.get("commit"),
+        "build_artifact": executable_path.name,
+        "build_artifact_bytes": executable_path.stat().st_size,
+        "build_artifact_sha256": sha256_file(executable_path),
+    }
+    if not _json_exact(provenance, expected):
+        raise ArtifactSetError("Metal N4 build-contract provenance mismatch")
+    platform = build_contract.get("platform")
+    if not isinstance(platform, dict) or platform.get("policy") != (
+        "macos-arm64-metal"
+    ):
+        raise ArtifactSetError("Metal N4 evidence requires the macOS Metal policy")
+
+
+def _metal_n4_rgba16_strings(payload: bytes, offset: int) -> list[str]:
+    return [
+        f"0x{struct.unpack_from('<H', payload, offset + channel * 2)[0]:04x}"
+        for channel in range(4)
+    ]
+
+
+def _verify_metal_n4_pass_semantics(
+    report: dict[str, object], payloads: dict[str, bytes]
+) -> None:
+    _require_exact_keys(
+        report,
+        {
+            "schema",
+            "status",
+            "scope",
+            "provenance",
+            "device",
+            "raster_contract",
+            "native_contract",
+            "artifacts",
+            "coverage",
+            "samples",
+            "proof",
+        },
+        "Metal N4 pass report",
+    )
+    if report.get("scope") != METAL_N4_PASS_SCOPE:
+        raise ArtifactSetError("Metal N4 pass scope is invalid")
+    device = _require_exact_keys(
+        report.get("device"),
+        {"name", "same_ogre_device", "same_ogre_queue", "apple_family_9"},
+        "Metal N4 device",
+    )
+    if not (
+        isinstance(device.get("name"), str)
+        and bool(device["name"])
+        and device.get("same_ogre_device") is True
+        and device.get("same_ogre_queue") is True
+        and device.get("apple_family_9") is True
+    ):
+        raise ArtifactSetError("Metal N4 same-device capability proof is invalid")
+    raster_contract = _require_exact_keys(
+        report.get("raster_contract"),
+        {
+            "raster_feature_tier",
+            "native_feature_tier",
+            "directional_shadow_mode",
+            "pssm_enabled",
+            "vertex_layout",
+            "vertex_stride_bytes",
+        },
+        "Metal N4 raster contract",
+    )
+    if not _json_exact(
+        raster_contract,
+        {
+            "raster_feature_tier": "MODERN_PBR_RT4_V1",
+            "native_feature_tier": (
+                "METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW"
+            ),
+            "directional_shadow_mode": "DISABLED",
+            "pssm_enabled": False,
+            "vertex_layout": "POSITION_NORMAL_TANGENT_UV0_FLOAT32_48",
+            "vertex_stride_bytes": 48,
+        },
+    ):
+        raise ArtifactSetError("Metal N4 raster contract is invalid")
+    native_contract = _require_exact_keys(
+        report.get("native_contract"),
+        {
+            "version",
+            "backend",
+            "tier",
+            "blas_count",
+            "tlas_instance_count",
+            "primary_camera_rays_per_sample",
+            "secondary_directional_visibility_rays_per_sample",
+            "receiver_instance_id",
+            "occluder_instance_id",
+        },
+        "Metal N4 native contract",
+    )
+    if not _json_exact(
+        native_contract,
+        {
+            "version": 1,
+            "backend": "METAL",
+            "tier": "NATIVE_DIRECTIONAL_HARD_SHADOW_V1",
+            "blas_count": 2,
+            "tlas_instance_count": 2,
+            "primary_camera_rays_per_sample": 1,
+            "secondary_directional_visibility_rays_per_sample": 1,
+            "receiver_instance_id": 1,
+            "occluder_instance_id": 2,
+        },
+    ):
+        raise ArtifactSetError("Metal N4 ray-lineage contract is invalid")
+
+    width = 96
+    height = 64
+    pixel_count = width * height
+    artifacts = _require_exact_keys(
+        report.get("artifacts"),
+        {key for key, _, _, _ in METAL_N4_IMAGE_ARTIFACTS},
+        "Metal N4 artifact metrics",
+    )
+    for key, _, pixel_format, bytes_per_pixel in METAL_N4_IMAGE_ARTIFACTS:
+        expected_keys = {"format", "bytes", "sha256"}
+        if key == "visibility":
+            expected_keys.update(("visible_r16_bits", "occluded_r16_bits"))
+        metrics = _require_exact_keys(
+            artifacts.get(key), expected_keys, f"Metal N4 {key} metrics"
+        )
+        payload = payloads[key]
+        expected_metrics: dict[str, object] = {
+            "format": pixel_format,
+            "bytes": pixel_count * bytes_per_pixel,
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        if key == "visibility":
+            expected_metrics.update(
+                {
+                    "visible_r16_bits": "0x3c00",
+                    "occluded_r16_bits": "0x0000",
+                }
+            )
+        if len(payload) != pixel_count * bytes_per_pixel or not _json_exact(
+            metrics, expected_metrics
+        ):
+            raise ArtifactSetError(f"Metal N4 {key} artifact metrics mismatch")
+
+    raster = payloads["raster"]
+    visibility = payloads["visibility"]
+    lineage = payloads["ray_lineage"]
+    hybrid = payloads["hybrid"]
+    visible_count = 0
+    occluded_count = 0
+    for pixel in range(pixel_count):
+        rgba_offset = pixel * 8
+        visibility_bits = struct.unpack_from("<H", visibility, pixel * 2)[0]
+        ray_lineage = struct.unpack_from("<I", lineage, pixel * 4)[0]
+        raster_values = struct.unpack_from("<4e", raster, rgba_offset)
+        hybrid_values = struct.unpack_from("<4e", hybrid, rgba_offset)
+        if not all(
+            math.isfinite(value) for value in raster_values + hybrid_values
+        ):
+            raise ArtifactSetError("Metal N4 image contains non-finite data")
+        if visibility_bits == 0x3C00:
+            visible_count += 1
+            if ray_lineage != 1 or hybrid[rgba_offset : rgba_offset + 8] != (
+                raster[rgba_offset : rgba_offset + 8]
+            ):
+                raise ArtifactSetError(
+                    "Metal N4 visible pixel mapping or lineage is invalid"
+                )
+        elif visibility_bits == 0x0000:
+            occluded_count += 1
+            if not (
+                ray_lineage == 3
+                and hybrid[rgba_offset : rgba_offset + 6] == b"\x00" * 6
+                and hybrid[rgba_offset + 6 : rgba_offset + 8]
+                == raster[rgba_offset + 6 : rgba_offset + 8]
+            ):
+                raise ArtifactSetError(
+                    "Metal N4 occluded pixel mapping or lineage is invalid"
+                )
+        else:
+            raise ArtifactSetError(
+                "Metal N4 visibility contains a noncanonical R16 value"
+            )
+
+    coverage = _require_exact_keys(
+        report.get("coverage"),
+        {
+            "width",
+            "height",
+            "pixels",
+            "receiver_visible_pixels",
+            "occluded_pixels",
+            "primary_miss_pixels",
+        },
+        "Metal N4 coverage",
+    )
+    if not _json_exact(
+        coverage,
+        {
+            "width": width,
+            "height": height,
+            "pixels": pixel_count,
+            "receiver_visible_pixels": visible_count,
+            "occluded_pixels": occluded_count,
+            "primary_miss_pixels": 0,
+        },
+    ) or visible_count <= 0 or occluded_count <= 0:
+        raise ArtifactSetError("Metal N4 coverage differs from the evidence")
+
+    samples = report.get("samples")
+    if not isinstance(samples, list) or len(samples) != 2:
+        raise ArtifactSetError("Metal N4 visible/occluded samples are incomplete")
+    expected_samples = (("VISIBLE", 0x3C00, 1, 0), ("OCCLUDED", 0, 3, 2))
+    for index, (sample, expected) in enumerate(zip(samples, expected_samples)):
+        sample = _require_exact_keys(
+            sample,
+            {
+                "x",
+                "y",
+                "visibility",
+                "visibility_r16_bits",
+                "secondary_blocker_instance_id",
+                "raster_rgba16_bits",
+                "hybrid_rgba16_bits",
+                "portable_contract_validated",
+            },
+            f"Metal N4 sample {index}",
+        )
+        x = sample.get("x")
+        y = sample.get("y")
+        if not (
+            type(x) is int
+            and type(y) is int
+            and 0 <= x < width
+            and 0 <= y < height
+        ):
+            raise ArtifactSetError("Metal N4 sample coordinate is invalid")
+        pixel = y * width + x
+        rgba_offset = pixel * 8
+        observed_visibility = struct.unpack_from("<H", visibility, pixel * 2)[0]
+        observed_lineage = struct.unpack_from("<I", lineage, pixel * 4)[0]
+        if not (
+            sample.get("visibility") == expected[0]
+            and sample.get("visibility_r16_bits") == f"0x{expected[1]:04x}"
+            and observed_visibility == expected[1]
+            and observed_lineage == expected[2]
+            and sample.get("secondary_blocker_instance_id") == expected[3]
+            and sample.get("raster_rgba16_bits")
+            == _metal_n4_rgba16_strings(raster, rgba_offset)
+            and sample.get("hybrid_rgba16_bits")
+            == _metal_n4_rgba16_strings(hybrid, rgba_offset)
+            and sample.get("portable_contract_validated") is True
+        ):
+            raise ArtifactSetError(
+                "Metal N4 reported sample differs from exact readback bytes"
+            )
+
+    proof = _require_exact_keys(
+        report.get("proof"),
+        set(METAL_N4_REQUIRED_PROOF_BOOLEANS),
+        "Metal N4 proof",
+    )
+    if not all(proof.get(field) is True for field in METAL_N4_REQUIRED_PROOF_BOOLEANS):
+        raise ArtifactSetError("Metal N4 proof is incomplete")
+
+
+def _verify_metal_n4(
+    root: Path,
+    manifest: list[dict[str, object]],
+    build_contract: dict[str, object],
+) -> None:
+    report_path = root / METAL_N4_REQUIRED_ARTIFACTS[0]
+    executable_path = root / METAL_N4_REQUIRED_ARTIFACTS[1]
+    report = _read_json_object(report_path, "Metal N4 report")
+    status = report.get("status")
+    if report.get("schema") != (
+        "ror.ogre_next_metal_rt_n4_directional_shadow.v1"
+    ) or status not in ("pass", "skip"):
+        raise ArtifactSetError("Metal N4 report schema or status is invalid")
+    _verify_metal_n4_provenance(report, executable_path, build_contract)
+
+    payloads: dict[str, bytes] = {}
+    for key, name, _, _ in METAL_N4_IMAGE_ARTIFACTS:
+        path = root / name
+        if status == "skip":
+            if path.exists() or path.is_symlink():
+                raise ArtifactSetError(
+                    f"skipped Metal N4 evidence retained stale {key} data"
+                )
+            continue
+        if path.is_symlink() or not path.is_file():
+            raise ArtifactSetError(f"missing: {name}")
+        if path.stat().st_size <= 0:
+            raise ArtifactSetError(f"empty: {name}")
+        try:
+            payloads[key] = path.read_bytes()
+        except OSError as error:
+            raise ArtifactSetError(
+                f"could not read Metal N4 {key}: {error}"
+            ) from error
+        manifest.append(
+            {
+                "path": name,
+                "bytes": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+        )
+    if status == "pass":
+        _verify_metal_n4_pass_semantics(report, payloads)
+        return
+
+    _require_exact_keys(
+        report,
+        {
+            "schema",
+            "status",
+            "scope",
+            "reason",
+            "provenance",
+            "device_name",
+            "required_apple_gpu_family",
+            "required_metal_ray_tracing",
+            "required_visibility_format",
+        },
+        "Metal N4 skip report",
+    )
+    if not (
+        report.get("scope") == METAL_N4_SKIP_SCOPE
+        and isinstance(report.get("reason"), str)
+        and bool(report["reason"])
+        and isinstance(report.get("device_name"), str)
+        and type(report.get("required_apple_gpu_family")) is int
+        and report.get("required_apple_gpu_family") == 9
+        and report.get("required_metal_ray_tracing") is True
+        and report.get("required_visibility_format") == "R16_FLOAT"
+    ):
+        raise ArtifactSetError("Metal N4 capability skip is not exact")
+
+
 def verify_artifact_set(
     build_dir: Path,
     verify_metal_n2_evidence: bool = False,
     verify_metal_n3_evidence: bool = False,
+    verify_metal_n4_evidence: bool = False,
     *,
     expected_ror_repository: str | None = None,
     expected_ror_ref: str | None = None,
@@ -4261,6 +4670,8 @@ def verify_artifact_set(
         METAL_N2_REQUIRED_ARTIFACTS if verify_metal_n2_evidence else ()
     ) + (
         METAL_N3_REQUIRED_ARTIFACTS if verify_metal_n3_evidence else ()
+    ) + (
+        METAL_N4_REQUIRED_ARTIFACTS if verify_metal_n4_evidence else ()
     )
     for name in required:
         path = root / name
@@ -4294,6 +4705,8 @@ def verify_artifact_set(
         _verify_metal_n2(root, manifest, build_contract)
     if verify_metal_n3_evidence:
         _verify_metal_n3(root, manifest, build_contract)
+    if verify_metal_n4_evidence:
+        _verify_metal_n4(root, manifest, build_contract)
     return manifest
 
 
@@ -4328,12 +4741,21 @@ def main(argv: list[str] | None = None) -> int:
             "evidence"
         ),
     )
+    parser.add_argument(
+        "--verify-metal-n4-evidence",
+        action="store_true",
+        help=(
+            "cross-check Apple Metal N4 directional-shadow pass or "
+            "capability-skip evidence"
+        ),
+    )
     args = parser.parse_args(argv)
     try:
         manifest = verify_artifact_set(
             args.build_dir,
             args.verify_metal_n2_evidence,
             args.verify_metal_n3_evidence,
+            args.verify_metal_n4_evidence,
             expected_ror_repository=args.expected_ror_repository,
             expected_ror_ref=args.expected_ror_ref,
             expected_ror_commit=args.expected_ror_commit,

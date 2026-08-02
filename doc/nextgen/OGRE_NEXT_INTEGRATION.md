@@ -1,11 +1,10 @@
 # OGRE-Next isolated integration checkpoint
 
 Status: **opt-in N1/RT4 raster frontend with bounded directional PSSM, Apple
-Metal N2 geometry and N3 view-dependent hybrid-HDR proofs, plus the portable
-N4 directional-hard-shadow contract; no N4 native pass or shipping renderer
-switch**
+Metal N2 geometry, N3 view-dependent hybrid-HDR, and N4 native directional
+hard-shadow proofs; no shipping renderer switch**
 
-This checkpoint compiles six standalone executables against an exact
+This checkpoint compiles seven standalone executables against an exact
 OGRE-Next `v3-0` revision while leaving every default RoR and OGRE 14 build
 unchanged. The capability executable proves that the reviewed platform
 renderer registers with OGRE core, HLMS PBS links and selects the expected
@@ -52,25 +51,27 @@ pixels stay on the receiver and darken in both formats; an unsupported host
 writes an explicit report and exits with CTest skip code 77. It is not a
 local-light, ray-traced-shadow, CityWorld, or shipping-quality claim.
 
-The next native feature tier's portable prerequisites are defined, but no N4
-backend may report a pass yet. `NATIVE_DIRECTIONAL_HARD_SHADOW_V1` is one
-renderer-neutral contract shared by
-Metal, Vulkan KHR, and DXR adapters. It requires the exact RT4 raster tier, a
-distinct receiver and occluder, two built BLAS, a two-instance TLAS, one
-primary camera-ray sample, one secondary ray toward the directional light,
-UI-free raster input, and completed visibility/hybrid readbacks. Its oracle
-accepts only canonical R16 visibility (`0x3c00` visible, `0x0000` occluded):
-visible samples preserve every RGBA16 bit, while occluded samples zero RGB and
-preserve alpha exactly. Capability admission is fail-closed and retains the
-separately validated PSSM path before frame submission. This foundation does
-not claim that any N4 native backend, full-frame shadow pass, or cross-platform
-ray-traced image has passed yet.
+The seventh executable is the explicit macOS-only N4 directional-shadow slice.
+`NATIVE_DIRECTIONAL_HARD_SHADOW_V1` remains one renderer-neutral contract
+shared by Metal, Vulkan KHR, and DXR adapters. The Metal implementation exports
+the exact RT4 receiver, distinct occluder, and UI-free `RGBA16_FLOAT` target;
+builds two BLAS and a two-instance TLAS; traces one primary camera ray followed
+by one ray toward the directional light; writes R16 visibility and R32 lineage;
+and GPU-composites the result on Ogre's device and queue. Its oracle accepts
+only canonical R16 visibility (`0x3c00` visible, `0x0000` occluded): visible
+pixels preserve every RGBA16 bit, while occluded pixels zero RGB and preserve
+alpha exactly. Capability admission is fail-closed, and unsupported Metal
+devices select the separately validated PSSM path before initialization. This
+is a real Metal hard-shadow pass, not a soft-shadow, local-light, GI,
+denoising, Vulkan KHR, DXR, production-material, image-quality, or performance
+claim.
 
 The original capability and frame probes do not consume a RoR scene. The N1
-through N3 executables consume the renderer-neutral RoR scene and asset contracts,
+through N4 executables consume the renderer-neutral RoR scene and asset contracts,
 but never link into the OGRE 1.14 executable or touch simulation/solver state.
 N2 evaluates capability and exact geometry interop without producing an image;
-N3 adds the first measured view-dependent hybrid scene output. None of the six
+N3 adds the first measured view-dependent hybrid scene output, and N4 adds
+directional visibility over distinct receiver and occluder geometry. None of the seven
 executables is a shipping presentation-window, performance, or visual-quality
 claim.
 
@@ -458,6 +459,18 @@ python3 tools/run_ogre_next_probe.py \
   --freetype-archive /path/to/freetype-2.14.3.tar.xz
 ```
 
+On macOS, the full local N4 evidence gate is an explicit follow-up to the
+complete probe so unsupported hosts can still retain a capability report:
+
+```bash
+cmake --build /tmp/ror-ogre-next-probe \
+  --target ror_ogre_next_metal_n4_directional_shadow_report \
+  --config Release --parallel 2
+python3 tools/verify_ogre_next_artifact_set.py \
+  --build-dir /tmp/ror-ogre-next-probe \
+  --verify-metal-n4-evidence
+```
+
 The build directory must be fresh. Pass `--clean-build-dir` only to recover a
 previous directory created by this probe; the wrapper refuses to clean a path
 without its ownership sentinel or any path overlapping the source checkout.
@@ -511,13 +524,26 @@ The generated files are:
 - `ror-ogre-next-metal-n3-attestation.json`: source and SHA-256 identities for
   the N3 report, executable, and optional image artifacts; and
 - `bin/ror_ogre_next_metal_n3_smoke`: the exact N3 executable retained with
-  those artifacts.
+  those artifacts;
+- `ror-ogre-next-metal-n4-directional-shadow-report.json`: versioned device,
+  dual-geometry, ray-lineage, visibility, coverage, sample, and executable
+  provenance for N4;
+- `ror-ogre-next-metal-n4-raster.bin`,
+  `ror-ogre-next-metal-n4-visibility-r16.bin`,
+  `ror-ogre-next-metal-n4-ray-lineage-r32.bin`, and
+  `ror-ogre-next-metal-n4-hybrid.bin`: exact 96x64 GPU readbacks, present only
+  when N4 passes; and
+- `bin/ror_ogre_next_metal_n4_directional_shadow_smoke`: the exact executable
+  whose size and SHA-256 are bound into the N4 report. The independent artifact
+  verifier recomputes all four payload hashes and validates every texel rather
+  than trusting the report.
 
 The baseline GitHub `macos-15` arm64 runner currently identifies an
 `Apple Paravirtual device` exposing only `OSX_GPUFamily1_v1`, so it compiles all
-N2/N3 code and records explicit capability skips (CTest exit 77) instead of
+N2/N3/N4 code and records explicit capability skips (CTest exit 77) instead of
 claiming a family-9 runtime pass. A genuine M3-or-newer runner must produce the
-N2 probe and all three N3 image artifacts and pass their independent validators.
+N2 probe, all three N3 images, and all four N4 readbacks and pass their
+independent validators.
 The paravirtual device also produces about one third of the physical M5
 luminance for these emissive N1 and texture-backed RT4 fixtures. Both fixtures
 therefore use scene-linear energy with enough headroom to prove an unclamped
@@ -609,15 +635,32 @@ programmatic shadow nodes and four non-receiver datablock clones; default and
 explicitly disabled SDR bytes were identical. This is local development
 evidence, not checked-in golden pixels or proof of Linux/Windows runtime parity.
 
+The opt-in N4 smoke then passed on the physical Apple M5. The exact 96x64
+receiver produced 5,712 visible pixels, 432 pixels blocked by the distinct
+occluder, and zero primary misses. Every visibility texel was canonical R16;
+every visible pixel preserved the raster RGBA16 bytes; every blocked pixel
+zeroed RGB while retaining alpha; and every pixel carried the expected R32
+primary/secondary lineage. The backend used two exact Ogre geometry leases,
+two BLAS, two TLAS instances with disjoint receiver/occluder masks, the exact
+Ogre color-image lease, and one command buffer on Ogre's Metal queue. Allocation
+failures are checked before any acceleration-structure object enters a Metal
+descriptor collection, so memory pressure follows the pre-submission cleanup
+path instead of raising an Objective-C exception. These measurements close the
+first native full-view hard-directional-shadow slice on Metal only. They do not
+close soft shadows, local lights, materials beyond the retained raster color,
+temporal stability, resize/fault soak, CityWorld content quality, performance,
+Vulkan KHR, or DXR.
+
 ## Next gates
 
 The checked-in optional CI matrix runs the exact probe on macOS arm64 Metal,
 Windows x64 Direct3D 11, and Linux x86_64 software Vulkan/null-window. It keeps
-the three jobs independent, runs N1 plus its directional PSSM proof, N2, and N3
-before the legacy probes,
+the three jobs independent, runs N1 plus its directional PSSM proof, N2, N3,
+and N4 before the legacy probes,
 reruns the complete native test set, and revalidates the exact reports and
 images selected for upload. Explicit always-running artifact gates require the
-baseline set plus internally consistent N2/N3 pass-or-skip attestations, so a
+baseline set plus internally consistent N2/N3 attestations and independently
+verified N4 pass-or-skip evidence, so a
 partial result cannot be published as a complete checkpoint. Only the local macOS
 result is proven at this checkpoint; the Windows and Linux jobs must still
 execute successfully before their gates can close. The renderer remains
@@ -632,10 +675,10 @@ non-shipping until these later checkpoints pass:
    semantically correct occlusion path, the full renderer-neutral light
    inventory, UI ordering, and presentation;
 4. add depth, motion, and stable object-ID outputs only with their own tests;
-5. extend the proven M5 same-device geometry/image path to RT
-   reflection/shadow semantics, materials, calibrated lighting, GPU capture,
-   image and performance gates, then
-   reproduce equivalent explicit interop on Windows/DXR and Linux/Vulkan KHR;
+5. extend the proven M5 hard-shadow path to soft/area-light shadows,
+   reflections, materials, calibrated lighting, temporal stability, GPU
+   capture, image and performance gates, then reproduce equivalent explicit
+   interop on Windows/DXR and Linux/Vulkan KHR;
    and
 6. keep OGRE 14 as the default until image, performance, content, and fallback
    acceptance gates pass.

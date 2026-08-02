@@ -168,6 +168,7 @@ jobs:
           python tests/tools/test_ogre_next_windows_dxr7_contract.py
           python tests/tools/test_ogre_next_linux_static_closure.py
           python tests/tools/test_ogre_next_metal_n3_contract.py
+          python tests/tools/test_ogre_next_metal_n4_contract.py
           python tests/tools/test_ogre_next_probe_workflow.py
           python tests/tools/test_verify_ogre_next_artifact_set.py
           python -O tests/tools/test_ogre_next_probe_contract.py
@@ -181,6 +182,7 @@ jobs:
           python -O tests/tools/test_ogre_next_windows_dxr7_contract.py
           python -O tests/tools/test_ogre_next_linux_static_closure.py
           python -O tests/tools/test_ogre_next_metal_n3_contract.py
+          python -O tests/tools/test_ogre_next_metal_n4_contract.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
           python -O tests/tools/test_verify_ogre_next_artifact_set.py
           python tools/run_ogre_next_probe.py --validate-contract-only
@@ -269,6 +271,15 @@ jobs:
           --reuse-build-dir
           --checkpoint n3
           --jobs ${{ matrix.jobs }}
+
+      - name: Build and validate the Apple Metal N4 directional-shadow proof
+        if: runner.os == 'macOS'
+        run: >-
+          cmake
+          --build "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --target ror_ogre_next_metal_n4_directional_shadow_report
+          --config Release
+          --parallel ${{ matrix.jobs }}
 
       - name: Attest RoR-owned Vulkan instance and device injection
         if: runner.os == 'Linux'
@@ -434,6 +445,13 @@ jobs:
           --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --verify-metal-n3-evidence
 
+      - name: Verify Apple Metal N4 directional-shadow pass or skip evidence
+        if: always() && runner.os == 'macOS'
+        run: >-
+          python tools/verify_ogre_next_artifact_set.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --verify-metal-n4-evidence
+
       - name: Verify attested Vulkan RT5 pass or explicit unsupported evidence
         if: always() && runner.os == 'Linux'
         run: >-
@@ -563,6 +581,22 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-hybrid.bin
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-attestation.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_metal_n3_smoke
+
+      - name: Upload verified Apple Metal N4 directional-shadow evidence
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-metal-n4-directional-shadow-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-build-contract.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n4-directional-shadow-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n4-raster.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n4-visibility-r16.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n4-ray-lineage-r32.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n4-hybrid.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_metal_n4_directional_shadow_smoke
 
       - name: Upload attested Vulkan RT5 external-device evidence
         if: always() && runner.os == 'Linux'
