@@ -18,14 +18,43 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kRenderBridgeControlTransportPayloadVersion = 1U;
+constexpr std::uint32_t kRenderBridgeAcknowledgementPayloadVersion = 1U;
+constexpr std::uint32_t kRenderBridgeControlPayloadVersion = 2U;
 constexpr std::uint64_t kRenderBridgeControlTransportMaximumPayloadBytes =
     128ULL;
+constexpr std::uint32_t kRenderBridgeMaximumSurfaceExtent = 65535U;
 
 enum class RenderBridgeControlKind : std::uint8_t {
   PEER_READY = 1U,
   REQUEST_GRACEFUL_SHUTDOWN = 2U,
   HEARTBEAT = 3U,
+  SURFACE_CHANGED = 4U,
+};
+
+/// Exact committed native-window state. Content scale is deliberately derived
+/// from drawable/logical integer ratios so a redundant float cannot disagree
+/// with the extents. Suspended states preserve logical size and use drawable
+/// 0x0; PEER_READY is always active.
+struct RenderBridgeSurfaceState final {
+  std::uint64_t surface_revision = 0U;
+  std::uint32_t logical_width = 0U;
+  std::uint32_t logical_height = 0U;
+  std::uint32_t drawable_width = 0U;
+  std::uint32_t drawable_height = 0U;
+  bool suspended = false;
+
+  [[nodiscard]] double content_scale_x() const noexcept {
+    return logical_width != 0U && drawable_width != 0U
+               ? static_cast<double>(drawable_width) /
+                     static_cast<double>(logical_width)
+               : 0.0;
+  }
+  [[nodiscard]] double content_scale_y() const noexcept {
+    return logical_height != 0U && drawable_height != 0U
+               ? static_cast<double>(drawable_height) /
+                     static_cast<double>(logical_height)
+               : 0.0;
+  }
 };
 
 /// Cumulative presentation acknowledgement. `through_forward_sequence`
@@ -33,7 +62,7 @@ enum class RenderBridgeControlKind : std::uint8_t {
 /// The presented fields are either all zero (no scene presented yet), or name
 /// one exact scene envelope and its immutable snapshot identity.
 struct RenderBridgeAcknowledgement final {
-  std::uint32_t version = kRenderBridgeControlTransportPayloadVersion;
+  std::uint32_t version = kRenderBridgeAcknowledgementPayloadVersion;
   std::uint64_t registry_id = 0U;
   std::uint64_t through_forward_sequence = 0U;
   std::uint64_t presented_scene_sequence = 0U;
@@ -43,10 +72,11 @@ struct RenderBridgeAcknowledgement final {
 /// Ordered presentation-process lifecycle command. Command IDs start at one
 /// and are checked for exact monotonic lineage by the owning bridge session.
 struct RenderBridgeControl final {
-  std::uint32_t version = kRenderBridgeControlTransportPayloadVersion;
+  std::uint32_t version = kRenderBridgeControlPayloadVersion;
   RenderBridgeControlKind kind = RenderBridgeControlKind::PEER_READY;
   std::uint64_t registry_id = 0U;
   std::uint64_t command_id = 0U;
+  RenderBridgeSurfaceState surface;
 };
 
 struct RenderBridgeControlTransportDecodeResult final {
@@ -99,6 +129,8 @@ private:
 
 [[nodiscard]] bool
 IsKnownRenderBridgeControlKind(RenderBridgeControlKind kind) noexcept;
+[[nodiscard]] bool IsValidRenderBridgeSurfaceState(
+    const RenderBridgeSurfaceState &surface, bool allow_suspended) noexcept;
 
 [[nodiscard]] RenderTransportEnvelopeEncodeResult
 EncodeRenderBridgeAcknowledgementFrame(

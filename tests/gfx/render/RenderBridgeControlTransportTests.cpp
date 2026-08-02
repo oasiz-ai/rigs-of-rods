@@ -40,8 +40,19 @@ InputTransportBatch EmptyInputBatch() {
   return batch;
 }
 
+RenderBridgeSurfaceState ActiveSurface(std::uint64_t revision = 1U) {
+  RenderBridgeSurfaceState surface;
+  surface.surface_revision = revision;
+  surface.logical_width = 1280U;
+  surface.logical_height = 720U;
+  surface.drawable_width = 2560U;
+  surface.drawable_height = 1440U;
+  return surface;
+}
+
 void TestStatusAndWireContract() {
-  Require(kRenderBridgeControlTransportPayloadVersion == 1U &&
+  Require(kRenderBridgeAcknowledgementPayloadVersion == 1U &&
+              kRenderBridgeControlPayloadVersion == 2U &&
               kRenderBridgeControlTransportMaximumPayloadBytes == 128U &&
               kRenderTransportStreamControlMaximumPayloadBytes ==
                   kRenderBridgeControlTransportMaximumPayloadBytes,
@@ -49,7 +60,7 @@ void TestStatusAndWireContract() {
   for (unsigned int value = 0U; value <= 255U; ++value) {
     const auto kind = static_cast<RenderBridgeControlKind>(value);
     Require(IsKnownRenderBridgeControlKind(kind) ==
-                (value >= 1U && value <= 3U),
+                (value >= 1U && value <= 4U),
             "control kind classifier changed");
   }
   Require(IsKnownRenderTransportMessageKind(
@@ -78,7 +89,7 @@ void TestStatusAndWireContract() {
   const auto control_frame = EncodeRenderBridgeControlFrame(3U, control);
   Require(control_frame.ok() &&
               control_frame.bytes.size() ==
-                  kRenderTransportEnvelopeHeaderBytes + 32U,
+                  kRenderTransportEnvelopeHeaderBytes + 48U,
           "control did not use its exact bounded payload");
 
   RenderTransportStreamDecoder stream(
@@ -127,12 +138,16 @@ void TestInterleavedReverseSequenceAndRegistryIdentity() {
   control.kind = RenderBridgeControlKind::PEER_READY;
   control.registry_id = registry_id;
   control.command_id = 1U;
+  control.surface = ActiveSurface(7U);
   const auto encoded_control = EncodeRenderBridgeControlFrame(3U, control);
   const auto decoded_control = control_decoder.Accept(encoded_control.bytes);
   Require(decoded_control.ok() &&
               decoded_control.control.kind ==
                   RenderBridgeControlKind::PEER_READY &&
               decoded_control.control.command_id == 1U &&
+              decoded_control.control.surface.surface_revision == 7U &&
+              decoded_control.control.surface.content_scale_x() == 2.0 &&
+              decoded_control.control.surface.content_scale_y() == 2.0 &&
               shared_sequence.next_expected_sequence() == 4U,
           "control did not interleave after acknowledgement");
 
@@ -169,10 +184,11 @@ void TestMalformedAndLineageFailures() {
           "unknown control kind encoded");
 
   control.kind = RenderBridgeControlKind::HEARTBEAT;
+  control.surface = {};
   std::vector<std::uint8_t> frame =
       EncodeRenderBridgeControlFrame(1U, control).bytes;
   Require(!frame.empty(), "malformed fixture did not encode");
-  frame[kRenderTransportEnvelopeHeaderBytes + 5U] = 1U;
+  frame[kRenderTransportEnvelopeHeaderBytes + 6U] = 1U;
   const std::vector<std::uint8_t> payload(
       frame.begin() +
           static_cast<std::ptrdiff_t>(kRenderTransportEnvelopeHeaderBytes),
@@ -186,7 +202,7 @@ void TestMalformedAndLineageFailures() {
   Require(decoder.Accept(frame).status ==
               RenderTransportStatus::MALFORMED_PAYLOAD &&
               sequence.next_expected_sequence() == 1U,
-          "nonzero reserved control byte advanced lineage");
+          "nonzero reserved control field advanced lineage");
 
   const auto valid = EncodeRenderBridgeControlFrame(1U, control);
   Require(decoder.Accept(valid.bytes).ok() &&
@@ -195,11 +211,65 @@ void TestMalformedAndLineageFailures() {
           "replayed reverse control sequence was accepted");
 }
 
+void TestSurfaceStateSemantics() {
+  RenderBridgeControl control;
+  control.registry_id = 91U;
+  control.command_id = 1U;
+  control.kind = RenderBridgeControlKind::PEER_READY;
+  control.surface = ActiveSurface(3U);
+  Require(IsValidRenderBridgeSurfaceState(control.surface, false) &&
+              EncodeRenderBridgeControlFrame(1U, control).ok(),
+          "active Retina PEER_READY did not encode");
+
+  control.kind = RenderBridgeControlKind::SURFACE_CHANGED;
+  control.command_id = 2U;
+  control.surface.surface_revision = 4U;
+  control.surface.logical_width = 1000U;
+  control.surface.logical_height = 700U;
+  control.surface.drawable_width = 0U;
+  control.surface.drawable_height = 0U;
+  control.surface.suspended = true;
+  const auto suspended = EncodeRenderBridgeControlFrame(2U, control);
+  Require(IsValidRenderBridgeSurfaceState(control.surface, true) &&
+              !IsValidRenderBridgeSurfaceState(control.surface, false) &&
+              suspended.ok(),
+          "suspended surface state did not use logical extent plus 0x0");
+  RenderTransportSequenceState sequence(2U);
+  RenderBridgeControlTransportDecoder decoder(91U, sequence);
+  const auto decoded = decoder.Accept(suspended.bytes);
+  Require(decoded.ok() && decoded.control.surface.suspended &&
+              decoded.control.surface.logical_width == 1000U &&
+              decoded.control.surface.drawable_width == 0U &&
+              decoded.control.surface.content_scale_x() == 0.0,
+          "suspended surface state did not round trip exactly");
+
+  control.kind = RenderBridgeControlKind::PEER_READY;
+  Require(EncodeRenderBridgeControlFrame(3U, control).status ==
+              RenderTransportStatus::INVALID_ARGUMENT,
+          "suspended PEER_READY encoded");
+  control.kind = RenderBridgeControlKind::SURFACE_CHANGED;
+  control.surface.drawable_width = 1U;
+  Require(EncodeRenderBridgeControlFrame(3U, control).status ==
+              RenderTransportStatus::INVALID_ARGUMENT,
+          "half-zero suspended drawable encoded");
+  control.surface = ActiveSurface(5U);
+  control.surface.logical_width = kRenderBridgeMaximumSurfaceExtent + 1U;
+  Require(EncodeRenderBridgeControlFrame(3U, control).status ==
+              RenderTransportStatus::INVALID_ARGUMENT,
+          "oversized surface extent encoded");
+  control.kind = RenderBridgeControlKind::HEARTBEAT;
+  control.surface = ActiveSurface(6U);
+  Require(EncodeRenderBridgeControlFrame(3U, control).status ==
+              RenderTransportStatus::INVALID_ARGUMENT,
+          "non-surface control carried surface fields");
+}
+
 } // namespace
 
 int main() {
   TestStatusAndWireContract();
   TestInterleavedReverseSequenceAndRegistryIdentity();
   TestMalformedAndLineageFailures();
+  TestSurfaceStateSemantics();
   return EXIT_SUCCESS;
 }
