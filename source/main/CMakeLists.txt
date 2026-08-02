@@ -1098,10 +1098,17 @@ if (APPLE AND ROR_OGRE14)
         list(APPEND _ror_macos_bundle_dependencies
             ${ROR_OGRE_NEXT_PRODUCT_TARGET})
     endif ()
+    # A CMake list interpolated directly into COMMAND expands into multiple
+    # argv records even when the surrounding -D argument is quoted. Preserve
+    # the semicolon as data so StageMacOSBundle receives the complete sibling
+    # inventory in one cache-definition argument.
+    string(REPLACE ";" "\\;"
+        _ror_macos_sibling_executables_argument
+        "${_ror_macos_sibling_executables}")
     set(_ror_macos_bundle_arguments
         "-DROR_BUNDLE=${_ror_macos_bundle_path}"
         "-DROR_EXECUTABLE=$<TARGET_FILE:${_ror_macos_primary_target}>"
-        "-DROR_SIBLING_EXECUTABLES=${_ror_macos_sibling_executables}"
+        "-DROR_SIBLING_EXECUTABLES=${_ror_macos_sibling_executables_argument}"
         "-DROR_RESOURCES=${RUNTIME_OUTPUT_DIRECTORY}/resources"
         "-DROR_LANGUAGES=${RUNTIME_OUTPUT_DIRECTORY}/languages"
         "-DROR_OGRE_PACKAGE_DIR=$<IF:$<CONFIG:Debug>,${_ror_ogre14_package_DEBUG},${_ror_ogre14_package_RELEASE}>"
@@ -1141,6 +1148,7 @@ if (APPLE AND ROR_OGRE14)
     unset(_ror_macos_bundle_path)
     unset(_ror_macos_primary_target)
     unset(_ror_macos_sibling_executables)
+    unset(_ror_macos_sibling_executables_argument)
     unset(_ror_macos_bundle_dependencies)
     unset(_ror_macos_bundle_arguments)
 endif ()

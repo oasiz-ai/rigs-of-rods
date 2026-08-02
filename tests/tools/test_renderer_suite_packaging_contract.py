@@ -129,7 +129,9 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
             "TARGETS ${_ror_application_install_targets}",
             "set(_ror_macos_primary_target ror_renderer_launcher)",
             'set(_ror_macos_sibling_executables "$<TARGET_FILE:${BINNAME}>")',
-            '"-DROR_SIBLING_EXECUTABLES=${_ror_macos_sibling_executables}"',
+            'string(REPLACE ";" "\\\\;"',
+            '"-DROR_SIBLING_EXECUTABLES='
+            '${_ror_macos_sibling_executables_argument}"',
             'set(_ror_linux_installed_game_executable "RoR-Ogre14")',
         ):
             with self.subTest(contract=contract):

@@ -28,6 +28,12 @@ function(ror_add_ogre_next_production_package)
 
     set(_ror_product_cmake_args
         "-DCMAKE_BUILD_TYPE=Release"
+        # The pinned probe intentionally rejects an in-place CMake
+        # reconfiguration because that would weaken its fresh-build source
+        # closure. Ninja/Make must therefore never synthesize a regeneration
+        # edge for this immutable ExternalProject after the one authoritative
+        # configure step.
+        "-DCMAKE_SUPPRESS_REGENERATION=ON"
         "-DROR_OGRE_NEXT_PROBE=ON"
         "-DROR_OGRE_NEXT_PRODUCT_STAGE=ON"
         "-DROR_OGRE_NEXT_PRODUCT_STAGE_ROOT=${_ror_product_stage}"

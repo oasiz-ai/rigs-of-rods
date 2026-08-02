@@ -246,6 +246,7 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         for token in (
             "ExternalProject_Add(",
             "ror_ogre_next_product_external",
+            '"-DCMAKE_SUPPRESS_REGENERATION=ON"',
             '"-DROR_OGRE_NEXT_PRODUCT_STAGE=ON"',
             "--target ror_ogre_next_product_stage",
             "BUILD_BYPRODUCTS",
