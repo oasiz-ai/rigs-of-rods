@@ -2,11 +2,11 @@
 
 Status: the renderer-neutral version-four producer core and the joined OGRE 14
 adapter for timing, origin, constant ambient, managed lights, authored static
-`MeshObject` sections, the exact empty authored reflection-probe inventory,
-and main camera are implemented. Actual OGRE Terrain pages, procedural roads,
-paged/animated geometry, deformable actors, and portable legacy texture assets
-remain explicit publication blockers; their presence never produces a false
-complete snapshot.
+`MeshObject` sections, exact fully prepared OGRE `TerrainGroup` CPU pages, the
+empty authored reflection-probe inventory, and main camera are implemented.
+Procedural roads, paged/animated geometry, deformable actors, and portable
+legacy/terrain texture assets remain explicit publication blockers; their
+presence never produces a false complete snapshot.
 
 ## Boundary
 
@@ -164,10 +164,10 @@ Implemented source-side behavior is:
    so capture cannot retain the former dangling pointer. ID exhaustion fails
    object loading rather than wrapping.
 2. `GfxScene` preflights the entire visible geometry domain before publishing.
-   Any OGRE Terrain page, procedural road, actor/deformable mesh, paged batch,
-   or animated terrain object returns a stable `static_meshes.unsupported.*`
-   diagnostic. The `ASSETS` and `STATIC_MESHES` availability bits are committed
-   together only after the complete supported inventory succeeds.
+   Any procedural road, actor/deformable mesh, paged batch, or animated terrain
+   object returns a stable `static_meshes.unsupported.*` diagnostic. The
+   `ASSETS` and `STATIC_MESHES` availability bits are committed together only
+   after the complete supported inventory succeeds.
 3. Each managed entity is split at its authored `SubEntity` boundary. The
    adapter honors `vertexStart`/`vertexCount` and `indexStart`/`indexCount`,
    supports 16- and 32-bit indices, copies position plus optional normal,
@@ -196,7 +196,34 @@ Implemented source-side behavior is:
    creates no guessed portable contribution. Additional passes, texture units,
    shader programs, unsupported blending, alpha combinations, or native values
    fail closed instead of losing authored visuals.
-6. `GfxScene` enumerates the authoritative managed `Ogre::MOT_LIGHT` registry
+6. `GfxScene` enumerates every defined `TerrainGroup` slot and requires each
+   page to be loaded, CPU-prepared through LOD0, free of pending group prepare
+   requests and derived-data work, and still attached to the exact packed
+   signed slot. It copies the complete row-major height grid plus a one-cell
+   `getPointFromSelfOrNeighbour` halo. The canonical mesh is one full LOD0
+   triangle list per page: OGRE's alternating strip is converted without
+   degenerate triangles, its four page-perimeter skirts are retained, and the
+   eight-face OGRE normal derivation, increasing-U tangent with handedness,
+   upper-left UVs, alignment, page translation, bounds, and material winding
+   are reproduced exactly. A single full-page topology has no internal
+   quadtree draw boundary, so camera-selected internal skirts and morph deltas
+   are neither sampled nor guessed. `highest_lod_loaded` and target LOD remain
+   range-audited GPU/draw metadata but cannot alter the CPU key or topology.
+   Slot/source identities are collision-audited and permanently tombstoned;
+   adjacent loaded pages must share identical world-space edges. A
+   collision-free byte key over every geometry scalar, height, halo point, and
+   winding reuses immutable payload owners and increments revisions only when
+   those exact bytes change. Cache, page identities, ordinary static sections,
+   and output inventories commit only after the combined candidate succeeds.
+   The adapter does not call mutable normal, delta, or LOD preparation APIs.
+7. Terrain layer declarations, per-layer texture names/world scales, blend
+   maps, global-colour maps, lightmaps, composite maps, and the generated
+   material are inventoried before meshing. Version one publishes only the
+   exact factor-only case; any authored terrain texture state returns a precise
+   `terrain.pages.material.*` diagnostic until texture transport exists. OGRE
+   14 Terrain exposes no hole topology, and the pure input contract rejects a
+   claimed hole rather than filling it.
+8. `GfxScene` enumerates the authoritative managed `Ogre::MOT_LIGHT` registry
    at the joined boundary (not backend render queues or scene-node traversal),
    verifies each registry key equals the exact unique Light name, and hashes
    those exact bytes into collision-audited stable identities. It captures
@@ -208,22 +235,22 @@ Implemented source-side behavior is:
    schema v4 cannot preserve OGRE c/l/q attenuation, spot falloff exponent,
    separate specular color, or light masks, and RT4/V1 still rejects local
    lights downstream.
-7. `GfxScene` captures the main graphics camera after its copied simbuffer has
+9. `GfxScene` captures the main graphics camera after its copied simbuffer has
    been consumed, converts OGRE matrices into the canonical right-handed,
    column-major, depth-[0,1] contract, and submits the current drawable pixel
    extent. The producer owns previous matrices.
-8. OGRE 14 has no authored world reflection-probe registry, so the adapter
+10. OGRE 14 has no authored world reflection-probe registry, so the adapter
    publishes the exact empty inventory rather than inferring probes from the
    vehicle-local environment-map implementation.
 
-Remaining source-side work is an exact CPU adapter for `Ogre::TerrainGroup`,
-portable texture/sampler extraction for legacy material units, and explicit
-adapters for procedural roads, paged vegetation, and animated/deformable
-geometry. `GfxScene::ClearScene()` must also deliver the final authoritative
-empty inventory before the producer is destroyed so a new terrain receives a
-fresh registry lifetime. Until those domains are covered, maps containing any
-of them stay fail-closed even though their immutable `MeshObject` subset is
-fully convertible.
+Remaining source-side work is portable texture/sampler extraction for legacy
+material units and terrain layers plus explicit adapters for procedural roads,
+paged vegetation, and animated/deformable geometry. `GfxScene::ClearScene()`
+must also deliver the final authoritative empty inventory before the producer
+is destroyed so a new terrain receives a fresh registry lifetime. Until those
+domains are covered, maps containing any of them stay fail-closed even though
+their immutable `MeshObject` and exact terrain geometry subsets are fully
+convertible.
 
 Deformable `GfxActor` meshes, particle emission, water state, volumetric weather,
 and auxiliary cameras are later producer slices. Shipping Ogre-Next local-light

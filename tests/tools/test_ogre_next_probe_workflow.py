@@ -1007,6 +1007,20 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertNotIn("light->isVisible()", gfx_source)
         self.assertIn("BuildOgre14GraphicsSceneLights(", gfx_source)
         self.assertIn("CaptureOgre14StaticMeshObjects(", gfx_source)
+        self.assertIn("CaptureOgre14TerrainPages(", gfx_source)
+        for terrain_tap in (
+            "group->getTerrainSlots()",
+            "terrain->getHeightData()",
+            "terrain->getPointFromSelfOrNeighbour",
+            "terrain->getHighestLodPrepared()",
+            "terrain->getHighestLodLoaded()",
+            "terrain->getTargetLodLevel()",
+            "ValidateOgre14GraphicsSceneTerrainMaterialCapture(",
+            "ResolveOgre14GraphicsSceneTerrainPageCacheEntry(",
+            "BuildOgre14GraphicsSceneTerrainSection(",
+        ):
+            with self.subTest(terrain_tap=terrain_tap):
+                self.assertIn(terrain_tap, gfx_source)
         self.assertIn("BuildOgre14GraphicsSceneStaticInventory(", gfx_source)
         self.assertIn("object_manager->GetStaticGraphicsObjects()", gfx_source)
         self.assertIn("entity->getVisible() &&", gfx_source)
@@ -1031,6 +1045,20 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         )
         self.assertIn("m_ogre14_static_identity_registry", gfx_header)
         self.assertIn("m_ogre14_static_mesh_cache", gfx_header)
+        self.assertIn("m_ogre14_terrain_page_cache", gfx_header)
+        for terrain_contract in (
+            "kOgre14TerrainCpuCaptureVersion",
+            "ValidateOgre14GraphicsSceneTerrainPageSet",
+            "BuildOgre14GraphicsSceneTerrainGeometryStateKey",
+            "BuildOgre14GraphicsSceneTerrainMeshPayload",
+            "ResolveOgre14GraphicsSceneTerrainPageCacheEntry",
+            "RegisterDerivedTerrainPageIdentity",
+            "terrain_page_names_by_id_",
+            "known_terrain_page_keys_",
+            "live_terrain_page_keys_",
+        ):
+            with self.subTest(terrain_contract=terrain_contract):
+                self.assertIn(terrain_contract, adapter)
         self.assertIn(
             "kOgre14LegacyDiffusePowerToCanonicalIntensity", adapter
         )

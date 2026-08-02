@@ -44,6 +44,7 @@
 
 #include <Ogre.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -307,7 +308,7 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
         return NativeStaticFailure(
             RoR::Render::ValidationCode::MISSING_REFERENCE,
             "assets.material.native_resource",
-            "terrain SubEntity has no authored OGRE material technique");
+            "OGRE drawable has no authored material technique");
     }
     Ogre::Technique* const technique = material->getTechnique(0U);
     if (technique == nullptr || technique->getNumPasses() == 0U)
@@ -315,7 +316,7 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
         return NativeStaticFailure(
             RoR::Render::ValidationCode::MISSING_REFERENCE,
             "assets.material.native_pass",
-            "terrain SubEntity material has no authored first pass");
+            "OGRE drawable material has no authored first pass");
     }
     Ogre::Pass* const pass = technique->getPass(0U);
     if (pass == nullptr)
@@ -323,7 +324,7 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
         return NativeStaticFailure(
             RoR::Render::ValidationCode::MISSING_REFERENCE,
             "assets.material.native_pass",
-            "terrain SubEntity material first pass is null");
+            "OGRE drawable material first pass is null");
     }
 
     bool write_red = false;
@@ -785,10 +786,452 @@ RoR::Render::ValidationResult ExtractOgre14CpuMeshSection(
         input, payload);
 }
 
+std::string BuildNativeTerrainPageCacheKey(
+    const RoR::Render::Ogre14GraphicsSceneTerrainPageIdentity& identity)
+{
+    std::string key("ror.ogre14.native.terrain.page.cache.v1");
+    const auto append_u32 = [&key](std::uint32_t value)
+    {
+        for (std::uint32_t shift = 0U; shift < 32U; shift += 8U)
+            key.push_back(static_cast<char>((value >> shift) & 0xFFU));
+    };
+    const auto append_u64 = [&key](std::uint64_t value)
+    {
+        for (std::uint32_t shift = 0U; shift < 64U; shift += 8U)
+            key.push_back(static_cast<char>((value >> shift) & 0xFFU));
+    };
+    const auto append_string = [&key, &append_u64](const std::string& value)
+    {
+        append_u64(static_cast<std::uint64_t>(value.size()));
+        key.append(value);
+    };
+    key.push_back('\0');
+    append_string(identity.exact_resource_group);
+    append_string(identity.exact_filename_prefix);
+    append_string(identity.exact_filename_extension);
+    append_string(identity.exact_slot_filename);
+    append_u32(static_cast<std::uint32_t>(identity.slot_x));
+    append_u32(static_cast<std::uint32_t>(identity.slot_y));
+    return key;
+}
+
+RoR::Render::ValidationResult ConvertOgre14TerrainAlignment(
+    Ogre::Terrain::Alignment alignment,
+    RoR::Render::Ogre14GraphicsSceneTerrainAlignment& output)
+{
+    switch (alignment)
+    {
+    case Ogre::Terrain::ALIGN_X_Z:
+        output = RoR::Render::Ogre14GraphicsSceneTerrainAlignment::X_Z;
+        return RoR::Render::ValidationResult::Success();
+    case Ogre::Terrain::ALIGN_X_Y:
+        output = RoR::Render::Ogre14GraphicsSceneTerrainAlignment::X_Y;
+        return RoR::Render::ValidationResult::Success();
+    case Ogre::Terrain::ALIGN_Y_Z:
+        output = RoR::Render::Ogre14GraphicsSceneTerrainAlignment::Y_Z;
+        return RoR::Render::ValidationResult::Success();
+    }
+    return NativeStaticFailure(
+        RoR::Render::ValidationCode::INVALID_ENUM,
+        "terrain.pages.alignment",
+        "OGRE TerrainGroup has an unknown alignment");
+}
+
+RoR::Render::ValidationResult CaptureOgre14TerrainPages(
+    RoR::TerrainGeometryManager* geometry_manager,
+    const std::map<
+        std::string,
+        RoR::Render::Ogre14GraphicsSceneTerrainPageCacheEntry,
+        std::less<>>& terrain_cache,
+    std::map<std::string,
+             RoR::Render::Ogre14GraphicsSceneTerrainPageCacheEntry,
+             std::less<>>& captured_cache,
+    std::vector<RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput>&
+        captured_sections)
+{
+    std::map<std::string,
+             RoR::Render::Ogre14GraphicsSceneTerrainPageCacheEntry,
+             std::less<>> candidate_cache;
+    std::vector<RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput>
+        candidate_sections;
+    if (geometry_manager == nullptr ||
+        geometry_manager->getTerrainGroup() == nullptr)
+    {
+        captured_cache = std::move(candidate_cache);
+        captured_sections = std::move(candidate_sections);
+        return RoR::Render::ValidationResult::Success();
+    }
+
+    Ogre::TerrainGroup* const group = geometry_manager->getTerrainGroup();
+    if (group->getNumTerrainPrepareRequests() != 0U ||
+        group->isDerivedDataUpdateInProgress())
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::REVISION_MISMATCH,
+            "terrain.pages.native_update",
+            "TerrainGroup has background preparation or derived-data work");
+    }
+
+    RoR::Render::Ogre14GraphicsSceneTerrainAlignment group_alignment;
+    RoR::Render::ValidationResult validation = ConvertOgre14TerrainAlignment(
+        group->getAlignment(), group_alignment);
+    if (!validation)
+        return validation;
+
+    const Ogre::TerrainGroup::TerrainSlotMap& slots =
+        group->getTerrainSlots();
+    std::vector<RoR::Render::Ogre14GraphicsSceneTerrainPageCaptureInput>
+        page_inputs;
+    page_inputs.reserve(slots.size());
+    std::vector<std::pair<std::uint32_t, const Ogre::Terrain*>> native_pages;
+    native_pages.reserve(slots.size());
+    Ogre::TerrainGlobalOptions* const terrain_options =
+        Ogre::TerrainGlobalOptions::getSingletonPtr();
+    if (!slots.empty() && terrain_options == nullptr)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "terrain.pages.global_options",
+            "loaded OGRE terrain has no TerrainGlobalOptions singleton");
+    }
+
+    for (const auto& slot_entry : slots)
+    {
+        const Ogre::TerrainGroup::TerrainSlot* const slot =
+            slot_entry.second;
+        if (slot == nullptr)
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::MISSING_REFERENCE,
+                "terrain.pages.native_slot",
+                "TerrainGroup slot inventory contains a null slot");
+        }
+        if (slot->x < -32768L || slot->x > 32767L ||
+            slot->y < -32768L || slot->y > 32767L ||
+            group->packIndex(slot->x, slot->y) != slot_entry.first)
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::REVISION_MISMATCH,
+                "terrain.pages.native_slot_key",
+                "TerrainGroup packed key and signed slot coordinates disagree");
+        }
+        Ogre::Terrain* const terrain = slot->instance;
+        if (terrain == nullptr || !terrain->isLoaded() ||
+            terrain->getHeightData() == nullptr)
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::MISSING_REFERENCE,
+                "terrain.pages.native_page",
+                "every defined TerrainGroup slot must be fully loaded with CPU heights");
+        }
+        if (terrain->isDerivedDataUpdateInProgress())
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::REVISION_MISMATCH,
+                "terrain.pages.derived_data",
+                "terrain derived data is changing during capture");
+        }
+
+        const std::uint32_t size = terrain->getSize();
+        constexpr std::uint32_t kMaximumPortableTerrainPageSize = 2049U;
+        if (size < 3U || size > kMaximumPortableTerrainPageSize)
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::INVALID_DIMENSIONS,
+                "terrain.pages.size",
+                "native terrain page is outside the bounded portable size");
+        }
+        if (terrain->getAlignment() != group->getAlignment() ||
+            size != group->getTerrainSize() ||
+            terrain->getWorldSize() != group->getTerrainWorldSize())
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::REVISION_MISMATCH,
+                "terrain.pages.group_layout",
+                "loaded terrain page disagrees with its TerrainGroup layout");
+        }
+
+        const Ogre::Vector3& page_position = terrain->getPosition();
+        Ogre::Vector3 expected_page_position;
+        group->convertTerrainSlotToWorldPosition(
+            slot->x, slot->y, &expected_page_position);
+        const float transform_tolerance = (std::max)(
+            1.0e-5F,
+            static_cast<float>(terrain->getWorldSize()) * 2.0e-6F);
+        const auto vectors_match = [transform_tolerance](
+            const Ogre::Vector3& first, const Ogre::Vector3& second)
+        {
+            return std::fabs(static_cast<float>(first.x - second.x)) <=
+                       transform_tolerance &&
+                std::fabs(static_cast<float>(first.y - second.y)) <=
+                       transform_tolerance &&
+                std::fabs(static_cast<float>(first.z - second.z)) <=
+                       transform_tolerance;
+        };
+        Ogre::SceneNode* const terrain_node = terrain->_getRootSceneNode();
+        if (!vectors_match(page_position, expected_page_position) ||
+            terrain_node == nullptr ||
+            !vectors_match(terrain_node->_getDerivedPosition(),
+                           page_position))
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::REVISION_MISMATCH,
+                "terrain.pages.render_transform",
+                "terrain page and TerrainGroup render transforms disagree");
+        }
+        const Ogre::Vector3& derived_scale =
+            terrain_node->_getDerivedScale();
+        const Ogre::Quaternion& derived_orientation =
+            terrain_node->_getDerivedOrientation();
+        constexpr float kLinearTransformTolerance = 1.0e-5F;
+        if (std::fabs(static_cast<float>(derived_scale.x) - 1.0F) >
+                kLinearTransformTolerance ||
+            std::fabs(static_cast<float>(derived_scale.y) - 1.0F) >
+                kLinearTransformTolerance ||
+            std::fabs(static_cast<float>(derived_scale.z) - 1.0F) >
+                kLinearTransformTolerance ||
+            std::fabs(static_cast<float>(derived_orientation.x)) >
+                kLinearTransformTolerance ||
+            std::fabs(static_cast<float>(derived_orientation.y)) >
+                kLinearTransformTolerance ||
+            std::fabs(static_cast<float>(derived_orientation.z)) >
+                kLinearTransformTolerance ||
+            std::fabs(std::fabs(static_cast<float>(derived_orientation.w)) -
+                      1.0F) > kLinearTransformTolerance)
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                "terrain.pages.render_transform",
+                "terrain page node has unsupported rotation or scale");
+        }
+
+        RoR::Render::Ogre14GraphicsSceneTerrainPageCaptureInput input;
+        input.identity.exact_resource_group = group->getResourceGroup();
+        input.identity.exact_filename_prefix = group->getFilenamePrefix();
+        input.identity.exact_filename_extension =
+            group->getFilenameExtension();
+        input.identity.exact_slot_filename = slot->def.filename.empty()
+            ? group->generateFilename(slot->x, slot->y)
+            : slot->def.filename;
+        input.identity.slot_x = static_cast<std::int32_t>(slot->x);
+        input.identity.slot_y = static_cast<std::int32_t>(slot->y);
+        input.alignment = group_alignment;
+        input.size = size;
+        input.minimum_batch_size = terrain->getMinBatchSize();
+        input.maximum_batch_size = terrain->getMaxBatchSize();
+        input.lod_level_count = terrain->getNumLodLevels();
+        input.lod_levels_per_leaf = terrain->getNumLodLevelsPerLeaf();
+        input.highest_lod_prepared = terrain->getHighestLodPrepared();
+        input.highest_lod_loaded = terrain->getHighestLodLoaded();
+        input.target_lod_level = terrain->getTargetLodLevel();
+        input.world_size = static_cast<float>(terrain->getWorldSize());
+        input.skirt_size = static_cast<float>(terrain->getSkirtSize());
+        input.page_world_position = {
+            static_cast<float>(page_position.x),
+            static_cast<float>(page_position.y),
+            static_cast<float>(page_position.z)};
+        input.derived_data_update_in_progress =
+            terrain->isDerivedDataUpdateInProgress();
+        // OGRE 14 Terrain exposes no hole/cut topology in this component.
+        input.has_holes = false;
+
+        const Ogre::TerrainLayerDeclaration& layer_declaration =
+            terrain->getLayerDeclaration();
+        if (layer_declaration.size() >
+                (std::numeric_limits<std::uint8_t>::max)() ||
+            terrain->getBlendTextures().size() >
+                (std::numeric_limits<std::uint32_t>::max)())
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::SIZE_MISMATCH,
+                "terrain.pages.material.audit",
+                "terrain sampler or blend texture inventory exceeds portable bounds");
+        }
+        input.material_audit.layer_count = terrain->getLayerCount();
+        input.material_audit.sampler_count =
+            static_cast<std::uint32_t>(layer_declaration.size());
+        input.material_audit.layer_world_sizes.reserve(
+            input.material_audit.layer_count);
+        input.material_audit.layer_texture_names.reserve(
+            static_cast<std::size_t>(input.material_audit.layer_count) *
+            input.material_audit.sampler_count);
+        for (std::uint32_t layer = 0U;
+             layer < input.material_audit.layer_count; ++layer)
+        {
+            input.material_audit.layer_world_sizes.push_back(
+                static_cast<float>(terrain->getLayerWorldSize(
+                    static_cast<std::uint8_t>(layer))));
+            for (std::uint32_t sampler = 0U;
+                 sampler < input.material_audit.sampler_count; ++sampler)
+            {
+                input.material_audit.layer_texture_names.push_back(
+                    terrain->getLayerTextureName(
+                        static_cast<std::uint8_t>(layer),
+                        static_cast<std::uint8_t>(sampler)));
+            }
+        }
+        const std::vector<Ogre::TexturePtr>& blend_textures =
+            terrain->getBlendTextures();
+        input.material_audit.blend_texture_count =
+            static_cast<std::uint32_t>(blend_textures.size());
+        input.material_audit.blend_texture_names.reserve(
+            blend_textures.size());
+        for (const Ogre::TexturePtr& texture : blend_textures)
+        {
+            input.material_audit.blend_texture_names.push_back(
+                texture ? texture->getName() : std::string{});
+        }
+        const Ogre::TexturePtr& global_colour_map =
+            terrain->getGlobalColourMap();
+        input.material_audit.global_colour_map_enabled =
+            terrain->getGlobalColourMapEnabled();
+        if (global_colour_map)
+            input.material_audit.exact_global_colour_map_name =
+                global_colour_map->getName();
+        const Ogre::TexturePtr& lightmap = terrain->getLightmap();
+        input.material_audit.has_lightmap = static_cast<bool>(lightmap);
+        if (lightmap)
+            input.material_audit.exact_lightmap_name = lightmap->getName();
+        const Ogre::TexturePtr& composite_map = terrain->getCompositeMap();
+        input.material_audit.has_composite_map =
+            static_cast<bool>(composite_map);
+        if (composite_map)
+            input.material_audit.exact_composite_map_name =
+                composite_map->getName();
+
+        // This is the render-thread material accessor used by OGRE itself. It
+        // may finish lazy material generation, but it does not prepare LODs or
+        // mutate height/normal/delta data.
+        const Ogre::MaterialPtr material = terrain->getMaterial();
+        bool reverse_winding = false;
+        validation = CaptureOgre14MaterialFallbackInput(
+            material, input.material, reverse_winding);
+        if (!validation)
+            return validation;
+        if (reverse_winding !=
+            (input.material.cull == RoR::Render::
+                 Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE))
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::REVISION_MISMATCH,
+                "terrain.pages.material.winding",
+                "terrain material culling and native winding conversion disagree");
+        }
+        input.visibility_mask = terrain->getVisibilityFlags();
+        input.visible = true;
+        input.casts_shadows = terrain_options->getCastsDynamicShadows();
+        input.receives_shadows = material->getReceiveShadows();
+        input.visible_in_reflections = true;
+
+        validation = RoR::Render::
+            ValidateOgre14GraphicsSceneTerrainMaterialCapture(
+                input.material_audit, input.material);
+        if (!validation)
+            return validation;
+
+        const std::size_t sample_count =
+            static_cast<std::size_t>(size) * size;
+        const float* const heights = terrain->getHeightData();
+        input.height_samples.assign(heights, heights + sample_count);
+        const std::size_t halo_side = static_cast<std::size_t>(size) + 2U;
+        input.normal_neighbourhood_positions.reserve(halo_side * halo_side);
+        for (std::int32_t y = -1; y <= static_cast<std::int32_t>(size); ++y)
+        {
+            for (std::int32_t x = -1;
+                 x <= static_cast<std::int32_t>(size); ++x)
+            {
+                Ogre::Vector3 point;
+                terrain->getPointFromSelfOrNeighbour(x, y, &point);
+                input.normal_neighbourhood_positions.push_back({
+                    static_cast<float>(point.x),
+                    static_cast<float>(point.y),
+                    static_cast<float>(point.z)});
+            }
+        }
+        page_inputs.push_back(std::move(input));
+        native_pages.emplace_back(slot_entry.first, terrain);
+    }
+
+    std::sort(page_inputs.begin(), page_inputs.end(),
+        [](const auto& first, const auto& second)
+        {
+            if (first.identity.slot_y != second.identity.slot_y)
+                return first.identity.slot_y < second.identity.slot_y;
+            return first.identity.slot_x < second.identity.slot_x;
+        });
+    validation =
+        RoR::Render::ValidateOgre14GraphicsSceneTerrainPageSet(page_inputs);
+    if (!validation)
+        return validation;
+
+    candidate_sections.reserve(page_inputs.size());
+    for (const auto& input : page_inputs)
+    {
+        const std::string cache_key =
+            BuildNativeTerrainPageCacheKey(input.identity);
+        const auto cached = terrain_cache.find(cache_key);
+        RoR::Render::Ogre14GraphicsSceneTerrainPageCacheEntry cache_entry;
+        validation = RoR::Render::
+            ResolveOgre14GraphicsSceneTerrainPageCacheEntry(
+                input,
+                cached != terrain_cache.end() ? &cached->second : nullptr,
+                cache_entry);
+        if (!validation)
+            return validation;
+
+        RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput section;
+        validation = RoR::Render::BuildOgre14GraphicsSceneTerrainSection(
+            input, cache_entry.mesh_payload, section);
+        if (!validation)
+            return validation;
+        const auto inserted = candidate_cache.emplace(
+            cache_key, std::move(cache_entry));
+        if (!inserted.second)
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                "terrain.pages.cache_key",
+                "distinct terrain pages produced one exact native cache key");
+        }
+        candidate_sections.push_back(std::move(section));
+    }
+
+    if (group->getNumTerrainPrepareRequests() != 0U ||
+        group->isDerivedDataUpdateInProgress() ||
+        group->getTerrainSlots().size() != native_pages.size())
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::REVISION_MISMATCH,
+            "terrain.pages.native_update",
+            "TerrainGroup changed while its CPU snapshot was copied");
+    }
+    for (const auto& native_page : native_pages)
+    {
+        const auto current = group->getTerrainSlots().find(native_page.first);
+        if (current == group->getTerrainSlots().end() ||
+            current->second == nullptr ||
+            current->second->instance != native_page.second ||
+            !native_page.second->isLoaded() ||
+            native_page.second->isDerivedDataUpdateInProgress())
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::REVISION_MISMATCH,
+                "terrain.pages.native_update",
+                "terrain page changed while its CPU snapshot was copied");
+        }
+    }
+
+    captured_cache = std::move(candidate_cache);
+    captured_sections = std::move(candidate_sections);
+    return RoR::Render::ValidationResult::Success();
+}
+
 RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
     RoR::TerrainObjectManager* object_manager,
-    RoR::TerrainGeometryManager* geometry_manager,
     bool has_deformable_geometry,
+    const std::vector<
+        RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput>&
+        terrain_sections,
     RoR::Render::Ogre14GraphicsSceneStaticIdentityRegistry& identity_registry,
     std::map<std::string,
              RoR::Render::Ogre14GraphicsSceneStaticMeshCacheEntry,
@@ -797,13 +1240,6 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
     std::vector<RoR::Render::GraphicsSceneStaticMeshInput>& static_meshes)
 {
     RoR::Render::Ogre14GraphicsSceneUnsupportedGeometry unsupported;
-    if (geometry_manager != nullptr &&
-        geometry_manager->getTerrainGroup() != nullptr)
-    {
-        Ogre::TerrainGroup::TerrainIterator terrains =
-            geometry_manager->getTerrainGroup()->getTerrainIterator();
-        unsupported.terrain = terrains.hasMoreElements();
-    }
     unsupported.deformable = has_deformable_geometry;
     if (object_manager != nullptr)
     {
@@ -820,7 +1256,7 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
              RoR::Render::Ogre14GraphicsSceneStaticMeshCacheEntry,
              std::less<>> candidate_cache = mesh_cache;
     std::vector<RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput>
-        sections;
+        sections = terrain_sections;
     if (object_manager != nullptr)
     {
         for (const RoR::TerrainObjectManager::StaticGraphicsObject& record :
@@ -1019,6 +1455,7 @@ void GfxScene::ClearScene()
     // Stable/tombstoned source identities intentionally remain in the
     // registry until the owning producer lifetime is explicitly replaced.
     m_ogre14_static_mesh_cache.clear();
+    m_ogre14_terrain_page_cache.clear();
 
     // Delete dustpools
     for (auto itor : m_dustpools)
@@ -1384,11 +1821,25 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 terrain != nullptr ? terrain->getObjectManager() : nullptr;
             TerrainGeometryManager* const geometry_manager =
                 terrain != nullptr ? terrain->getGeometryManager() : nullptr;
+            std::map<std::string,
+                     Render::Ogre14GraphicsSceneTerrainPageCacheEntry,
+                     std::less<>> candidate_terrain_cache;
+            std::vector<
+                Render::Ogre14GraphicsSceneStaticSectionCaptureInput>
+                terrain_sections;
             Render::ValidationResult static_validation =
-                CaptureOgre14StaticMeshObjects(
-                    object_manager, geometry_manager,
+                CaptureOgre14TerrainPages(
+                    geometry_manager, m_ogre14_terrain_page_cache,
+                    candidate_terrain_cache, terrain_sections);
+            if (!static_validation)
+            {
+                return static_validation;
+            }
+            static_validation = CaptureOgre14StaticMeshObjects(
+                    object_manager,
                     !m_all_gfx_actors.empty() ||
                         !m_all_gfx_characters.empty(),
+                    terrain_sections,
                     m_ogre14_static_identity_registry,
                     m_ogre14_static_mesh_cache,
                     candidate.frame.assets,
@@ -1397,6 +1848,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             {
                 return static_validation;
             }
+            m_ogre14_terrain_page_cache =
+                std::move(candidate_terrain_cache);
             // These bits commit together only after coverage, native CPU
             // extraction, material fallback, identity/lifecycle auditing, and
             // complete inventory conversion have all succeeded.

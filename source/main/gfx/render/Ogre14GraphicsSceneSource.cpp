@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <exception>
 #include <limits>
 #include <set>
@@ -80,6 +81,11 @@ constexpr char kOgre14StaticMaterialIdentityDomain[] =
     "ror.ogre14.static.material.asset.v1";
 constexpr char kOgre14StaticObjectIdentityDomain[] =
     "ror.ogre14.static.object.section.v1";
+constexpr char kOgre14TerrainPageIdentityDomain[] =
+    "ror.ogre14.terrain.page.v1";
+constexpr char kOgre14TerrainGeometryStateDomain[] =
+    "ror.ogre14.terrain.geometry.state.v1";
+constexpr std::uint32_t kOgre14MaximumPortableTerrainPageSize = 2049U;
 
 void HashByte(std::uint64_t &hash, std::uint8_t byte) noexcept {
   hash ^= byte;
@@ -96,6 +102,20 @@ void AppendU64(std::string &bytes, std::uint64_t value) {
   for (std::uint32_t shift = 0U; shift < 64U; shift += 8U) {
     bytes.push_back(static_cast<char>((value >> shift) & 0xFFU));
   }
+}
+
+void AppendI32(std::string &bytes, std::int32_t value) {
+  AppendU32(bytes, static_cast<std::uint32_t>(value));
+}
+
+void AppendFloat(std::string &bytes, float value) {
+  static_assert(sizeof(float) == sizeof(std::uint32_t),
+                "terrain capture requires binary32 float storage");
+  static_assert(std::numeric_limits<float>::is_iec559,
+                "terrain capture requires IEEE-754 float semantics");
+  std::uint32_t bits = 0U;
+  std::memcpy(&bits, &value, sizeof(bits));
+  AppendU32(bytes, bits);
 }
 
 void AppendString(std::string &bytes, std::string_view value) {
@@ -146,6 +166,405 @@ std::string BuildStaticObjectKey(std::uint64_t stable_object_id,
   AppendU64(key, stable_object_id);
   AppendU32(key, section_index);
   return key;
+}
+
+std::string BuildTerrainPageKey(
+    const Ogre14GraphicsSceneTerrainPageIdentity &identity) {
+  std::string key;
+  key.reserve(sizeof(kOgre14TerrainPageIdentityDomain) +
+              identity.exact_resource_group.size() +
+              identity.exact_filename_prefix.size() +
+              identity.exact_filename_extension.size() +
+              identity.exact_slot_filename.size() + 48U);
+  key.append(kOgre14TerrainPageIdentityDomain,
+             sizeof(kOgre14TerrainPageIdentityDomain) - 1U);
+  key.push_back('\0');
+  AppendString(key, identity.exact_resource_group);
+  AppendString(key, identity.exact_filename_prefix);
+  AppendString(key, identity.exact_filename_extension);
+  AppendString(key, identity.exact_slot_filename);
+  AppendI32(key, identity.slot_x);
+  AppendI32(key, identity.slot_y);
+  return key;
+}
+
+void AppendReadablePart(std::string &output, std::string_view value) {
+  output += std::to_string(value.size());
+  output.push_back(':');
+  output.append(value.data(), value.size());
+}
+
+std::string BuildTerrainPageMeshName(
+    const Ogre14GraphicsSceneTerrainPageIdentity &identity) {
+  std::string name = "terrain-page/";
+  AppendReadablePart(name, identity.exact_resource_group);
+  name.push_back('/');
+  AppendReadablePart(name, identity.exact_filename_prefix);
+  name.push_back('/');
+  AppendReadablePart(name, identity.exact_filename_extension);
+  name.push_back('/');
+  AppendReadablePart(name, identity.exact_slot_filename);
+  name += "/slot(" + std::to_string(identity.slot_x) + "," +
+          std::to_string(identity.slot_y) + ")/lod0";
+  return name;
+}
+
+std::string BuildTerrainPageDebugName(
+    const Ogre14GraphicsSceneTerrainPageIdentity &identity) {
+  return "terrain[" + std::to_string(identity.slot_x) + "," +
+         std::to_string(identity.slot_y) + "]/lod0";
+}
+
+bool IsKnownTerrainAlignment(
+    Ogre14GraphicsSceneTerrainAlignment alignment) noexcept {
+  switch (alignment) {
+  case Ogre14GraphicsSceneTerrainAlignment::X_Z:
+  case Ogre14GraphicsSceneTerrainAlignment::X_Y:
+  case Ogre14GraphicsSceneTerrainAlignment::Y_Z:
+    return true;
+  }
+  return false;
+}
+
+bool IsKnownMaterialCull(
+    Ogre14GraphicsSceneMaterialCull cull) noexcept;
+
+bool IsPowerOfTwo(std::uint32_t value) noexcept {
+  return value != 0U && (value & (value - 1U)) == 0U;
+}
+
+Float3 Add(const Float3 &lhs, const Float3 &rhs) noexcept {
+  return {lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z};
+}
+
+Float3 Subtract(const Float3 &lhs, const Float3 &rhs) noexcept {
+  return {lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z};
+}
+
+Float3 Scale(const Float3 &value, float scale) noexcept {
+  return {value.x * scale, value.y * scale, value.z * scale};
+}
+
+float DotProduct(const Float3 &lhs, const Float3 &rhs) noexcept {
+  return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z;
+}
+
+Float3 CrossProduct(const Float3 &lhs, const Float3 &rhs) noexcept {
+  return {lhs.y * rhs.z - lhs.z * rhs.y,
+          lhs.z * rhs.x - lhs.x * rhs.z,
+          lhs.x * rhs.y - lhs.y * rhs.x};
+}
+
+bool Normalize(Float3 &value) noexcept {
+  const float length_squared = DotProduct(value, value);
+  if (!std::isfinite(length_squared) || length_squared <= 0.0F) {
+    return false;
+  }
+  const float inverse_length = 1.0F / std::sqrt(length_squared);
+  value = Scale(value, inverse_length);
+  return IsFinite(value);
+}
+
+bool NormalizeFaceOrKeepZero(Float3 &value) noexcept {
+  const float length_squared = DotProduct(value, value);
+  if (!std::isfinite(length_squared) || length_squared < 0.0F) {
+    return false;
+  }
+  if (length_squared == 0.0F) {
+    value = {};
+    return true;
+  }
+  const float inverse_length = 1.0F / std::sqrt(length_squared);
+  value = Scale(value, inverse_length);
+  return IsFinite(value);
+}
+
+Float3 TerrainPointFromHeight(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
+    std::uint32_t x, std::uint32_t y, float height) noexcept {
+  const float scale = input.world_size / static_cast<float>(input.size - 1U);
+  const float base = input.world_size * -0.5F;
+  switch (input.alignment) {
+  case Ogre14GraphicsSceneTerrainAlignment::X_Z:
+    return {static_cast<float>(x) * scale + base, height,
+            static_cast<float>(y) * -scale - base};
+  case Ogre14GraphicsSceneTerrainAlignment::X_Y:
+    return {static_cast<float>(x) * scale + base,
+            static_cast<float>(y) * scale + base, height};
+  case Ogre14GraphicsSceneTerrainAlignment::Y_Z:
+    return {height, static_cast<float>(y) * scale + base,
+            static_cast<float>(x) * -scale - base};
+  }
+  return {};
+}
+
+Float3 TerrainSkirtOffset(
+    Ogre14GraphicsSceneTerrainAlignment alignment,
+    float skirt_size) noexcept {
+  switch (alignment) {
+  case Ogre14GraphicsSceneTerrainAlignment::X_Z:
+    return {0.0F, -skirt_size, 0.0F};
+  case Ogre14GraphicsSceneTerrainAlignment::X_Y:
+    return {0.0F, 0.0F, -skirt_size};
+  case Ogre14GraphicsSceneTerrainAlignment::Y_Z:
+    return {-skirt_size, 0.0F, 0.0F};
+  }
+  return {};
+}
+
+ValidationResult AtTerrainPage(ValidationResult result, std::size_t index) {
+  if (!result) {
+    result.element_index = index;
+    result.field = "terrain.pages." + result.field;
+  }
+  return result;
+}
+
+ValidationResult ValidateTerrainPageIdentity(
+    const Ogre14GraphicsSceneTerrainPageIdentity &identity) {
+  const std::array<std::string_view, 4U> strings{{
+      identity.exact_resource_group, identity.exact_filename_prefix,
+      identity.exact_filename_extension, identity.exact_slot_filename}};
+  for (const std::string_view value : strings) {
+    if (value.find('\0') != std::string_view::npos) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_IDENTIFIER, "identity",
+          "terrain page source strings must be NUL-free");
+    }
+  }
+  if (identity.exact_filename_prefix.empty()) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "identity.filename_prefix",
+        "terrain group filename prefix must identify its page source");
+  }
+  constexpr std::int32_t kMinimumOgreSlot = -32768;
+  constexpr std::int32_t kMaximumOgreSlot = 32767;
+  if (identity.slot_x < kMinimumOgreSlot ||
+      identity.slot_x > kMaximumOgreSlot ||
+      identity.slot_y < kMinimumOgreSlot ||
+      identity.slot_y > kMaximumOgreSlot) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "identity.slot",
+        "terrain slot coordinates exceed OGRE's signed 16-bit grid");
+  }
+  return ValidationResult::Success();
+}
+
+ValidationResult ValidateTerrainGeometryInput(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input) {
+  if (input.version != kOgre14TerrainCpuCaptureVersion) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_VERSION, "version",
+        "unsupported OGRE 14 terrain CPU capture version");
+  }
+  ValidationResult validation = ValidateTerrainPageIdentity(input.identity);
+  if (!validation) {
+    return validation;
+  }
+  if (!IsKnownTerrainAlignment(input.alignment)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "alignment",
+        "terrain page has an unknown OGRE alignment");
+  }
+  if (!IsKnownMaterialCull(input.material.cull)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "material.cull",
+        "terrain material has an unknown cull mode");
+  }
+  if (input.size < 3U || input.size > kOgre14MaximumPortableTerrainPageSize ||
+      !IsPowerOfTwo(input.size - 1U)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_DIMENSIONS, "size",
+        "terrain page size must be 2^n+1 and no larger than 2049");
+  }
+  if (input.minimum_batch_size < 3U ||
+      input.maximum_batch_size < input.minimum_batch_size ||
+      input.maximum_batch_size > input.size ||
+      !IsPowerOfTwo(input.minimum_batch_size - 1U) ||
+      !IsPowerOfTwo(input.maximum_batch_size - 1U) ||
+      (input.maximum_batch_size - 1U) %
+              (input.minimum_batch_size - 1U) !=
+          0U ||
+      (input.size - 1U) % (input.maximum_batch_size - 1U) != 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_DIMENSIONS, "lod.batch_layout",
+        "terrain min/max batches must be compatible 2^n+1 divisors");
+  }
+  std::uint32_t expected_leaf_lods = 1U;
+  for (std::uint32_t ratio =
+           (input.maximum_batch_size - 1U) /
+           (input.minimum_batch_size - 1U);
+       ratio > 1U; ratio >>= 1U) {
+    ++expected_leaf_lods;
+  }
+  std::uint32_t expected_tree_depth = 0U;
+  for (std::uint32_t ratio =
+           (input.size - 1U) / (input.maximum_batch_size - 1U);
+       ratio > 1U; ratio >>= 1U) {
+    ++expected_tree_depth;
+  }
+  if (input.lod_levels_per_leaf != expected_leaf_lods ||
+      input.lod_level_count != expected_leaf_lods + expected_tree_depth) {
+    return ValidationResult::Failure(
+        ValidationCode::REVISION_MISMATCH, "lod.layout",
+        "terrain LOD counts do not match its authored grid and batches");
+  }
+  if (input.highest_lod_prepared != 0) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "lod.full_resolution",
+        "terrain capture requires complete CPU LOD0 height data");
+  }
+  if (input.highest_lod_loaded < 0 ||
+      input.highest_lod_loaded >
+          static_cast<std::int32_t>(input.lod_level_count) ||
+      input.target_lod_level < 0 ||
+      input.target_lod_level >=
+          static_cast<std::int32_t>(input.lod_level_count)) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "lod.native_draw_state",
+        "terrain loaded and target LOD metadata is outside OGRE bounds");
+  }
+  if (input.derived_data_update_in_progress) {
+    return ValidationResult::Failure(
+        ValidationCode::REVISION_MISMATCH, "derived_data",
+        "terrain derived data is changing during the capture boundary");
+  }
+  if (input.has_holes) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "holes",
+        "terrain holes require explicit cut topology");
+  }
+  if (!std::isfinite(input.world_size) || input.world_size <= 0.0F ||
+      !std::isfinite(input.skirt_size) || input.skirt_size < 0.0F ||
+      !IsFinite(input.page_world_position)) {
+    return ValidationResult::Failure(
+        ValidationCode::NON_FINITE_VALUE, "geometry",
+        "terrain world size, skirt, and page transform must be finite");
+  }
+  const std::size_t side = input.size;
+  const std::size_t halo_side = side + 2U;
+  if (side > (std::numeric_limits<std::size_t>::max)() / side ||
+      halo_side > (std::numeric_limits<std::size_t>::max)() / halo_side ||
+      input.height_samples.size() != side * side ||
+      input.normal_neighbourhood_positions.size() !=
+          halo_side * halo_side) {
+    return ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "height_grid",
+        "terrain height and one-cell neighbourhood extents must be exact");
+  }
+  const float tolerance =
+      (std::max)(1.0e-5F, input.world_size * 2.0e-6F);
+  for (std::uint32_t y = 0U; y < input.size; ++y) {
+    for (std::uint32_t x = 0U; x < input.size; ++x) {
+      const std::size_t sample_index =
+          static_cast<std::size_t>(y) * side + x;
+      const std::size_t halo_index =
+          static_cast<std::size_t>(y + 1U) * halo_side + x + 1U;
+      const float height = input.height_samples[sample_index];
+      const Float3 &captured =
+          input.normal_neighbourhood_positions[halo_index];
+      if (!std::isfinite(height) || !IsFinite(captured)) {
+        return ValidationResult::Failure(
+            ValidationCode::NON_FINITE_VALUE, "height_grid",
+            "terrain CPU height and point samples must be finite",
+            sample_index);
+      }
+      const Float3 expected = TerrainPointFromHeight(input, x, y, height);
+      if (std::fabs(captured.x - expected.x) > tolerance ||
+          std::fabs(captured.y - expected.y) > tolerance ||
+          std::fabs(captured.z - expected.z) > tolerance) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH, "height_grid.point_mapping",
+            "terrain height samples and aligned point mapping disagree",
+            sample_index);
+      }
+    }
+  }
+  for (std::size_t index = 0U;
+       index < input.normal_neighbourhood_positions.size(); ++index) {
+    if (!IsFinite(input.normal_neighbourhood_positions[index])) {
+      return ValidationResult::Failure(
+          ValidationCode::NON_FINITE_VALUE,
+          "normal_neighbourhood_positions",
+          "terrain neighbour point samples must be finite", index);
+    }
+  }
+  return ValidationResult::Success();
+}
+
+ValidationResult ValidateTerrainMaterialAudit(
+    const Ogre14GraphicsSceneTerrainMaterialAuditInput &audit) {
+  if (audit.layer_count != audit.layer_world_sizes.size() ||
+      (audit.layer_count != 0U &&
+       audit.sampler_count >
+           (std::numeric_limits<std::size_t>::max)() /
+               audit.layer_count) ||
+      audit.layer_texture_names.size() !=
+          static_cast<std::size_t>(audit.layer_count) *
+              audit.sampler_count ||
+      audit.blend_texture_names.size() != audit.blend_texture_count) {
+    return ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "material.audit",
+        "terrain layer and blend texture inventories are incomplete");
+  }
+  for (const float world_size : audit.layer_world_sizes) {
+    if (!std::isfinite(world_size) || world_size <= 0.0F) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          "material.layer_world_sizes",
+          "terrain layer world sizes must be finite and positive");
+    }
+  }
+  const auto valid_names = [](const std::vector<std::string> &names) {
+    return std::all_of(names.begin(), names.end(), [](const std::string &name) {
+      return name.find('\0') == std::string::npos;
+    });
+  };
+  if (!valid_names(audit.layer_texture_names) ||
+      !valid_names(audit.blend_texture_names) ||
+      audit.exact_global_colour_map_name.find('\0') != std::string::npos ||
+      audit.exact_lightmap_name.find('\0') != std::string::npos ||
+      audit.exact_composite_map_name.find('\0') != std::string::npos) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "material.texture_names",
+        "terrain texture identities must be NUL-free");
+  }
+  if (audit.global_colour_map_enabled !=
+          !audit.exact_global_colour_map_name.empty() ||
+      audit.has_lightmap != !audit.exact_lightmap_name.empty() ||
+      audit.has_composite_map !=
+          !audit.exact_composite_map_name.empty()) {
+    return ValidationResult::Failure(
+        ValidationCode::REVISION_MISMATCH, "material.texture_presence",
+        "terrain texture presence flags and exact names disagree");
+  }
+  if (audit.layer_count != 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.layers",
+        "terrain layers require exact texture and blend transport");
+  }
+  if (audit.blend_texture_count != 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.blend_maps",
+        "terrain blend maps require exact texture transport");
+  }
+  if (audit.global_colour_map_enabled) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "material.global_colour_map",
+        "terrain global colour maps require exact texture transport");
+  }
+  if (audit.has_lightmap) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.lightmap",
+        "terrain lightmaps require exact texture transport");
+  }
+  if (audit.has_composite_map) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.composite_map",
+        "terrain composite maps require exact texture transport");
+  }
+  return ValidationResult::Success();
 }
 
 ValidationResult HashStableKey(std::string_view key, const char *field,
@@ -368,6 +787,15 @@ ValidationResult Ogre14GraphicsSceneStaticIdentityRegistry::
                           "static_meshes.source_object_id");
 }
 
+ValidationResult Ogre14GraphicsSceneStaticIdentityRegistry::
+    RegisterDerivedTerrainPageIdentity(std::string_view exact_key,
+                                       std::uint64_t stable_id) {
+  return RegisterIdentity(exact_key, stable_id, terrain_page_names_by_id_,
+                          terrain_page_ids_by_name_,
+                          "terrain.pages.exact_key",
+                          "terrain.pages.source_page_id");
+}
+
 ValidationResult ValidateOgre14GraphicsSceneStaticCoverage(
     const Ogre14GraphicsSceneUnsupportedGeometry &unsupported) {
   if (unsupported.terrain) {
@@ -448,6 +876,570 @@ ValidationResult DeriveOgre14GraphicsSceneStaticSectionId(
   }
   return HashStableKey(BuildStaticObjectKey(stable_object_id, section_index),
                        "static_meshes.source_object_id", stable_id);
+}
+
+ValidationResult DeriveOgre14GraphicsSceneTerrainPageId(
+    const Ogre14GraphicsSceneTerrainPageIdentity &identity,
+    std::uint64_t &stable_id) {
+  const ValidationResult validation = ValidateTerrainPageIdentity(identity);
+  if (!validation) {
+    return validation;
+  }
+  return HashStableKey(BuildTerrainPageKey(identity),
+                       "terrain.pages.source_page_id", stable_id);
+}
+
+ValidationResult ValidateOgre14GraphicsSceneTerrainMaterialCapture(
+    const Ogre14GraphicsSceneTerrainMaterialAuditInput &audit,
+    const Ogre14GraphicsSceneMaterialCaptureInput &material) {
+  ValidationResult validation = ValidateTerrainMaterialAudit(audit);
+  if (!validation) {
+    return validation;
+  }
+  MaterialDescriptor portable_material;
+  return BuildOgre14GraphicsSceneMaterialFallback(material,
+                                                   portable_material);
+}
+
+ValidationResult ValidateOgre14GraphicsSceneTerrainPageSet(
+    const std::vector<Ogre14GraphicsSceneTerrainPageCaptureInput> &pages) {
+  std::map<std::pair<std::int32_t, std::int32_t>, std::size_t> slots;
+  std::set<std::string, std::less<>> exact_page_keys;
+  for (std::size_t index = 0U; index < pages.size(); ++index) {
+    ValidationResult validation = ValidateTerrainGeometryInput(pages[index]);
+    if (!validation) {
+      return AtTerrainPage(std::move(validation), index);
+    }
+    validation = ValidateOgre14GraphicsSceneTerrainMaterialCapture(
+        pages[index].material_audit, pages[index].material);
+    if (!validation) {
+      return AtTerrainPage(std::move(validation), index);
+    }
+    const std::string exact_key = BuildTerrainPageKey(pages[index].identity);
+    if (!exact_page_keys.insert(exact_key).second ||
+        !slots.emplace(std::make_pair(pages[index].identity.slot_x,
+                                      pages[index].identity.slot_y),
+                       index)
+             .second) {
+      return ValidationResult::Failure(
+          ValidationCode::DUPLICATE_IDENTIFIER,
+          "terrain.pages.identity",
+          "terrain page inventory contains a duplicate exact slot", index);
+    }
+    if (index != 0U) {
+      const auto &first = pages.front();
+      const auto &page = pages[index];
+      if (page.identity.exact_resource_group !=
+              first.identity.exact_resource_group ||
+          page.identity.exact_filename_prefix !=
+              first.identity.exact_filename_prefix ||
+          page.identity.exact_filename_extension !=
+              first.identity.exact_filename_extension ||
+          page.alignment != first.alignment || page.size != first.size ||
+          page.minimum_batch_size != first.minimum_batch_size ||
+          page.maximum_batch_size != first.maximum_batch_size ||
+          page.world_size != first.world_size) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "terrain.pages.group_layout",
+            "one TerrainGroup must have one exact source and grid layout",
+            index);
+      }
+    }
+  }
+
+  const auto world_point = [](const Ogre14GraphicsSceneTerrainPageCaptureInput
+                                  &page,
+                              std::uint32_t x, std::uint32_t y) {
+    const std::size_t halo_side = page.size + 2U;
+    return Add(page.page_world_position,
+               page.normal_neighbourhood_positions[
+                   static_cast<std::size_t>(y + 1U) * halo_side + x + 1U]);
+  };
+  const auto edge_matches = [&](const Ogre14GraphicsSceneTerrainPageCaptureInput
+                                    &first,
+                                const Ogre14GraphicsSceneTerrainPageCaptureInput
+                                    &second,
+                                bool east_west) {
+    const float tolerance =
+        (std::max)(1.0e-5F, first.world_size * 2.0e-6F);
+    for (std::uint32_t offset = 0U; offset < first.size; ++offset) {
+      const Float3 lhs = east_west
+                             ? world_point(first, first.size - 1U, offset)
+                             : world_point(first, offset, first.size - 1U);
+      const Float3 rhs = east_west ? world_point(second, 0U, offset)
+                                   : world_point(second, offset, 0U);
+      if (std::fabs(lhs.x - rhs.x) > tolerance ||
+          std::fabs(lhs.y - rhs.y) > tolerance ||
+          std::fabs(lhs.z - rhs.z) > tolerance) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  for (const auto &slot : slots) {
+    const auto &page = pages[slot.second];
+    if (slot.first.first < 32767) {
+      const auto east = slots.find(
+          {slot.first.first + 1, slot.first.second});
+      if (east != slots.end() &&
+          !edge_matches(page, pages[east->second], true)) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "terrain.pages.shared_edge",
+            "adjacent east/west terrain page edges do not match",
+            slot.second);
+      }
+    }
+    if (slot.first.second < 32767) {
+      const auto north = slots.find(
+          {slot.first.first, slot.first.second + 1});
+      if (north != slots.end() &&
+          !edge_matches(page, pages[north->second], false)) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "terrain.pages.shared_edge",
+            "adjacent north/south terrain page edges do not match",
+            slot.second);
+      }
+    }
+  }
+  return ValidationResult::Success();
+}
+
+ValidationResult BuildOgre14GraphicsSceneTerrainGeometryStateKey(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
+    std::string &key) {
+  ValidationResult validation = ValidateTerrainGeometryInput(input);
+  if (!validation) {
+    return validation;
+  }
+  std::string candidate;
+  candidate.reserve(sizeof(kOgre14TerrainGeometryStateDomain) +
+                    input.height_samples.size() * sizeof(float) +
+                    input.normal_neighbourhood_positions.size() *
+                        sizeof(Float3) +
+                    80U);
+  candidate.append(kOgre14TerrainGeometryStateDomain,
+                   sizeof(kOgre14TerrainGeometryStateDomain) - 1U);
+  candidate.push_back('\0');
+  candidate.push_back(static_cast<char>(input.alignment));
+  AppendU32(candidate, input.size);
+  AppendU32(candidate, input.minimum_batch_size);
+  AppendU32(candidate, input.maximum_batch_size);
+  AppendU32(candidate, input.lod_level_count);
+  AppendU32(candidate, input.lod_levels_per_leaf);
+  AppendFloat(candidate, input.world_size);
+  AppendFloat(candidate, input.skirt_size);
+  candidate.push_back(
+      input.material.cull ==
+              Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE
+          ? '\1'
+          : '\0');
+  AppendU64(candidate,
+            static_cast<std::uint64_t>(input.height_samples.size()));
+  for (const float height : input.height_samples) {
+    AppendFloat(candidate, height);
+  }
+  AppendU64(candidate, static_cast<std::uint64_t>(
+                           input.normal_neighbourhood_positions.size()));
+  for (const Float3 &position : input.normal_neighbourhood_positions) {
+    AppendFloat(candidate, position.x);
+    AppendFloat(candidate, position.y);
+    AppendFloat(candidate, position.z);
+  }
+  key = std::move(candidate);
+  return ValidationResult::Success();
+}
+
+ValidationResult BuildOgre14GraphicsSceneTerrainMeshPayload(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
+    std::uint64_t topology_revision,
+    std::shared_ptr<const RenderAssetPayload> &payload) {
+  ValidationResult validation = ValidateTerrainGeometryInput(input);
+  if (!validation) {
+    return validation;
+  }
+  if (topology_revision == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "mesh.topology_revision",
+        "terrain mesh topology revision must be nonzero");
+  }
+  if (!IsKnownMaterialCull(input.material.cull)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "material.cull",
+        "terrain material has an unknown cull mode");
+  }
+
+  const std::size_t side = input.size;
+  const std::size_t halo_side = side + 2U;
+  const std::size_t main_vertex_count = side * side;
+  const std::size_t total_vertex_count = main_vertex_count + 4U * side;
+  if (total_vertex_count >
+      (std::numeric_limits<std::uint32_t>::max)()) {
+    return ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "mesh.positions",
+        "terrain page vertex count exceeds uint32");
+  }
+
+  Ogre14GraphicsSceneCpuMeshSectionInput mesh;
+  mesh.debug_name = BuildTerrainPageDebugName(input.identity);
+  mesh.index_format = total_vertex_count <= 65536U
+                          ? MeshIndexFormat::UINT16
+                          : MeshIndexFormat::UINT32;
+  mesh.topology_revision = topology_revision;
+  mesh.reverse_winding =
+      input.material.cull ==
+      Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE;
+  mesh.positions.reserve(total_vertex_count);
+  mesh.normals.reserve(total_vertex_count);
+  mesh.tangents.reserve(total_vertex_count);
+  mesh.texture_coordinates_0.reserve(total_vertex_count);
+
+  const auto point = [&](std::int32_t x, std::int32_t y) -> const Float3 & {
+    return input.normal_neighbourhood_positions[
+        static_cast<std::size_t>(y + 1) * halo_side +
+        static_cast<std::size_t>(x + 1)];
+  };
+  for (std::uint32_t y = 0U; y < input.size; ++y) {
+    for (std::uint32_t x = 0U; x < input.size; ++x) {
+      const Float3 &centre = point(static_cast<std::int32_t>(x),
+                                   static_cast<std::int32_t>(y));
+      const std::array<Float3, 8U> adjacent{{
+          point(static_cast<std::int32_t>(x) + 1,
+                static_cast<std::int32_t>(y)),
+          point(static_cast<std::int32_t>(x) + 1,
+                static_cast<std::int32_t>(y) + 1),
+          point(static_cast<std::int32_t>(x),
+                static_cast<std::int32_t>(y) + 1),
+          point(static_cast<std::int32_t>(x) - 1,
+                static_cast<std::int32_t>(y) + 1),
+          point(static_cast<std::int32_t>(x) - 1,
+                static_cast<std::int32_t>(y)),
+          point(static_cast<std::int32_t>(x) - 1,
+                static_cast<std::int32_t>(y) - 1),
+          point(static_cast<std::int32_t>(x),
+                static_cast<std::int32_t>(y) - 1),
+          point(static_cast<std::int32_t>(x) + 1,
+                static_cast<std::int32_t>(y) - 1),
+      }};
+      Float3 normal{};
+      for (std::size_t neighbour = 0U; neighbour < adjacent.size();
+           ++neighbour) {
+        Float3 face = CrossProduct(
+            Subtract(adjacent[neighbour], centre),
+            Subtract(adjacent[(neighbour + 1U) % adjacent.size()], centre));
+        // Ogre::Math::calculateBasicFaceNormal leaves a zero vector intact.
+        // This is required at an outer page boundary, where a missing
+        // neighbour makes getPointFromSelfOrNeighbour clamp some samples.
+        if (!NormalizeFaceOrKeepZero(face)) {
+          return ValidationResult::Failure(
+              ValidationCode::NON_FINITE_VALUE, "mesh.normals",
+              "terrain normal neighbourhood produced a nonfinite face",
+              static_cast<std::size_t>(y) * side + x);
+        }
+        normal = Add(normal, face);
+      }
+      if (!Normalize(normal)) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, "mesh.normals",
+            "terrain normal sum is degenerate",
+            static_cast<std::size_t>(y) * side + x);
+      }
+
+      Float3 tangent = Subtract(
+          point(static_cast<std::int32_t>(x) + 1,
+                static_cast<std::int32_t>(y)),
+          point(static_cast<std::int32_t>(x) - 1,
+                static_cast<std::int32_t>(y)));
+      tangent = Subtract(tangent,
+                         Scale(normal, DotProduct(normal, tangent)));
+      if (!Normalize(tangent)) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, "mesh.tangents",
+            "terrain increasing-U tangent is degenerate",
+            static_cast<std::size_t>(y) * side + x);
+      }
+      const Float3 increasing_v = Subtract(
+          point(static_cast<std::int32_t>(x),
+                static_cast<std::int32_t>(y) - 1),
+          point(static_cast<std::int32_t>(x),
+                static_cast<std::int32_t>(y) + 1));
+      const float handedness_measure =
+          DotProduct(CrossProduct(normal, tangent), increasing_v);
+      if (!std::isfinite(handedness_measure) ||
+          std::fabs(handedness_measure) <= 1.0e-12F) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, "mesh.tangents",
+            "terrain UV handedness is degenerate",
+            static_cast<std::size_t>(y) * side + x);
+      }
+
+      mesh.positions.push_back(centre);
+      mesh.normals.push_back(normal);
+      mesh.tangents.push_back(
+          {tangent.x, tangent.y, tangent.z,
+           handedness_measure > 0.0F ? 1.0F : -1.0F});
+      mesh.texture_coordinates_0.push_back(
+          {static_cast<float>(x) / static_cast<float>(input.size - 1U),
+           1.0F - static_cast<float>(y) /
+                      static_cast<float>(input.size - 1U)});
+    }
+  }
+
+  const Float3 skirt_offset =
+      TerrainSkirtOffset(input.alignment, input.skirt_size);
+  const auto append_skirt_vertex = [&](std::uint32_t main_index) {
+    mesh.positions.push_back(Add(mesh.positions[main_index], skirt_offset));
+    mesh.normals.push_back(mesh.normals[main_index]);
+    mesh.tangents.push_back(mesh.tangents[main_index]);
+    mesh.texture_coordinates_0.push_back(
+        mesh.texture_coordinates_0[main_index]);
+  };
+  for (std::uint32_t x = 0U; x < input.size; ++x) {
+    append_skirt_vertex(x);
+  }
+  for (std::uint32_t x = 0U; x < input.size; ++x) {
+    append_skirt_vertex((input.size - 1U) * input.size + x);
+  }
+  for (std::uint32_t y = 0U; y < input.size; ++y) {
+    append_skirt_vertex(y * input.size);
+  }
+  for (std::uint32_t y = 0U; y < input.size; ++y) {
+    append_skirt_vertex(y * input.size + input.size - 1U);
+  }
+
+  std::vector<std::uint32_t> strip;
+  const std::size_t strip_index_count =
+      (side * 2U + 1U) * (side - 1U) + (side - 1U) * 8U + 2U;
+  strip.reserve(strip_index_count);
+  std::int64_t current_vertex = static_cast<std::int64_t>(side - 1U);
+  bool right_to_left = true;
+  for (std::uint32_t row = 0U; row < input.size - 1U; ++row) {
+    for (std::uint32_t column = 0U; column < input.size; ++column) {
+      strip.push_back(static_cast<std::uint32_t>(current_vertex));
+      strip.push_back(static_cast<std::uint32_t>(current_vertex + side));
+      if (column + 1U < input.size) {
+        current_vertex += right_to_left ? -1 : 1;
+      }
+    }
+    right_to_left = !right_to_left;
+    current_vertex += static_cast<std::int64_t>(side);
+    strip.push_back(static_cast<std::uint32_t>(current_vertex));
+  }
+  const auto skirt_index = [&](std::uint32_t main_index, bool column) {
+    const std::uint32_t row = main_index / input.size;
+    const std::uint32_t col = main_index % input.size;
+    const std::uint32_t base = input.size * input.size;
+    if (column) {
+      return base + 2U * input.size +
+             input.size * (col / (input.size - 1U)) + row;
+    }
+    return base + input.size * (row / (input.size - 1U)) + col;
+  };
+  for (std::uint32_t side_index = 0U; side_index < 4U; ++side_index) {
+    std::int64_t edge_increment = 0;
+    std::int64_t skirt_increment = 0;
+    switch (side_index) {
+    case 0U:
+      edge_increment = -1;
+      skirt_increment = -1;
+      break;
+    case 1U:
+      edge_increment = -static_cast<std::int64_t>(side);
+      skirt_increment = -1;
+      break;
+    case 2U:
+      edge_increment = 1;
+      skirt_increment = 1;
+      break;
+    case 3U:
+      edge_increment = static_cast<std::int64_t>(side);
+      skirt_increment = 1;
+      break;
+    }
+    std::int64_t current_skirt = skirt_index(
+        static_cast<std::uint32_t>(current_vertex),
+        (side_index % 2U) != 0U);
+    for (std::uint32_t edge = 0U; edge < input.size - 1U; ++edge) {
+      strip.push_back(static_cast<std::uint32_t>(current_vertex));
+      strip.push_back(static_cast<std::uint32_t>(current_skirt));
+      current_vertex += edge_increment;
+      current_skirt += skirt_increment;
+    }
+    if (side_index == 3U) {
+      strip.push_back(static_cast<std::uint32_t>(current_vertex));
+      strip.push_back(static_cast<std::uint32_t>(current_skirt));
+      current_vertex += edge_increment;
+    }
+  }
+  if (strip.size() != strip_index_count) {
+    return ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "mesh.indices",
+        "canonical terrain strip construction changed index count");
+  }
+  mesh.indices.reserve((strip.size() - 2U) * 3U);
+  for (std::size_t index = 2U; index < strip.size(); ++index) {
+    std::uint32_t first = strip[index - 2U];
+    std::uint32_t second = strip[index - 1U];
+    const std::uint32_t third = strip[index];
+    if ((index & 1U) != 0U) {
+      std::swap(first, second);
+    }
+    if (first == second || first == third || second == third) {
+      continue;
+    }
+    mesh.indices.push_back(first);
+    mesh.indices.push_back(second);
+    mesh.indices.push_back(third);
+  }
+  return BuildOgre14GraphicsSceneStaticMeshPayload(mesh, payload);
+}
+
+ValidationResult ResolveOgre14GraphicsSceneTerrainPageCacheEntry(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
+    const Ogre14GraphicsSceneTerrainPageCacheEntry *previous,
+    Ogre14GraphicsSceneTerrainPageCacheEntry &entry) {
+  std::string geometry_state_key;
+  ValidationResult validation =
+      BuildOgre14GraphicsSceneTerrainGeometryStateKey(input,
+                                                       geometry_state_key);
+  if (!validation) {
+    return validation;
+  }
+
+  std::uint64_t topology_revision = 1U;
+  if (previous != nullptr) {
+    if (previous->exact_geometry_state_key.empty() ||
+        previous->topology_revision == 0U ||
+        previous->mesh_payload == nullptr ||
+        previous->mesh_payload->valueless_by_exception() ||
+        RenderAssetPayloadKind(*previous->mesh_payload) !=
+            RenderAssetKind::MESH) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH, "terrain.pages.cache",
+          "prior terrain cache entry is incomplete");
+    }
+    const MeshResourceDescriptor &prior_mesh =
+        std::get<MeshResourceDescriptor>(*previous->mesh_payload);
+    validation = ValidateMeshResourceDescriptor(prior_mesh);
+    if (!validation) {
+      validation.field = "terrain.pages.cache." + validation.field;
+      return validation;
+    }
+    if (prior_mesh.topology_revision != previous->topology_revision) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "terrain.pages.cache.topology_revision",
+          "prior terrain cache owner and revision disagree");
+    }
+    if (previous->exact_geometry_state_key == geometry_state_key) {
+      entry = *previous;
+      return ValidationResult::Success();
+    }
+    if (previous->topology_revision ==
+        (std::numeric_limits<std::uint64_t>::max)()) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "terrain.pages.topology_revision",
+          "terrain page topology revision would overflow");
+    }
+    topology_revision = previous->topology_revision + 1U;
+  }
+
+  std::shared_ptr<const RenderAssetPayload> payload;
+  validation = BuildOgre14GraphicsSceneTerrainMeshPayload(
+      input, topology_revision, payload);
+  if (!validation) {
+    return validation;
+  }
+  Ogre14GraphicsSceneTerrainPageCacheEntry candidate;
+  candidate.exact_geometry_state_key = std::move(geometry_state_key);
+  candidate.topology_revision = topology_revision;
+  candidate.mesh_payload = std::move(payload);
+  entry = std::move(candidate);
+  return ValidationResult::Success();
+}
+
+ValidationResult BuildOgre14GraphicsSceneTerrainSection(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
+    const std::shared_ptr<const RenderAssetPayload> &mesh_payload,
+    Ogre14GraphicsSceneStaticSectionCaptureInput &section) {
+  ValidationResult validation = ValidateTerrainGeometryInput(input);
+  if (!validation) {
+    return validation;
+  }
+  validation = ValidateOgre14GraphicsSceneTerrainMaterialCapture(
+      input.material_audit, input.material);
+  if (!validation) {
+    return validation;
+  }
+  MaterialDescriptor portable_material;
+  validation = BuildOgre14GraphicsSceneMaterialFallback(input.material,
+                                                         portable_material);
+  if (!validation) {
+    return validation;
+  }
+  if (mesh_payload == nullptr || mesh_payload->valueless_by_exception() ||
+      RenderAssetPayloadKind(*mesh_payload) != RenderAssetKind::MESH) {
+    return ValidationResult::Failure(
+        ValidationCode::WRONG_ASSET_KIND, "mesh_payload",
+        "terrain section requires an immutable mesh payload");
+  }
+  const MeshResourceDescriptor &mesh =
+      std::get<MeshResourceDescriptor>(*mesh_payload);
+  validation = ValidateMeshResourceDescriptor(mesh);
+  if (!validation) {
+    return validation;
+  }
+  validation = ValidateMaterialMeshCompatibility(portable_material, mesh);
+  if (!validation) {
+    return validation;
+  }
+  if (mesh.positions.size() >
+          (std::numeric_limits<std::uint32_t>::max)() ||
+      mesh.indices.size() >
+          (std::numeric_limits<std::uint32_t>::max)()) {
+    return ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "mesh_payload",
+        "terrain mesh draw ranges exceed uint32");
+  }
+
+  Ogre14GraphicsSceneStaticSectionCaptureInput candidate;
+  validation = DeriveOgre14GraphicsSceneTerrainPageId(
+      input.identity, candidate.stable_object_id);
+  if (!validation) {
+    return validation;
+  }
+  candidate.section_index = 0U;
+  candidate.exact_entity_name = BuildTerrainPageDebugName(input.identity);
+  candidate.mesh_identity.exact_resource_group =
+      input.identity.exact_resource_group;
+  candidate.mesh_identity.exact_mesh_name =
+      BuildTerrainPageMeshName(input.identity);
+  candidate.mesh_identity.vertex_start = 0U;
+  candidate.mesh_identity.vertex_count =
+      static_cast<std::uint32_t>(mesh.positions.size());
+  candidate.mesh_identity.index_start = 0U;
+  candidate.mesh_identity.index_count =
+      static_cast<std::uint32_t>(mesh.indices.size());
+  candidate.mesh_identity.reverse_winding =
+      input.material.cull ==
+      Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE;
+  candidate.mesh_payload = mesh_payload;
+  candidate.material = input.material;
+  candidate.render_from_object.elements[12U] = input.page_world_position.x;
+  candidate.render_from_object.elements[13U] = input.page_world_position.y;
+  candidate.render_from_object.elements[14U] = input.page_world_position.z;
+  candidate.visibility_mask = input.visibility_mask;
+  candidate.visible = input.visible;
+  candidate.casts_shadows = input.casts_shadows;
+  candidate.receives_shadows = input.receives_shadows;
+  candidate.visible_in_reflections = input.visible_in_reflections;
+  candidate.exact_terrain_page_key = BuildTerrainPageKey(input.identity);
+  section = std::move(candidate);
+  return ValidationResult::Success();
 }
 
 ValidationResult BuildOgre14GraphicsSceneStaticMeshPayload(
@@ -635,6 +1627,8 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
   std::map<std::string, std::uint64_t, std::less<>> entity_object_ids;
   std::set<std::string, std::less<>> current_asset_keys;
   std::set<std::string, std::less<>> current_object_keys;
+  std::set<std::string, std::less<>> current_terrain_page_keys;
+  std::map<std::string, std::uint64_t, std::less<>> terrain_page_ids;
 
   for (std::size_t input_index = 0U; input_index < inputs.size();
        ++input_index) {
@@ -758,6 +1752,35 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
     if (!validation) {
       return AtStaticSection(std::move(validation), input_index);
     }
+    if (!input.exact_terrain_page_key.empty()) {
+      const auto page_identity = terrain_page_ids.emplace(
+          input.exact_terrain_page_key, input.stable_object_id);
+      if (!page_identity.second &&
+          page_identity.first->second != input.stable_object_id) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "terrain.pages.source_page_id",
+            "one exact terrain page key changed stable identity",
+            input_index);
+      }
+      if (identity_registry.known_terrain_page_keys_.find(
+              input.exact_terrain_page_key) !=
+              identity_registry.known_terrain_page_keys_.end() &&
+          identity_registry.live_terrain_page_keys_.find(
+              input.exact_terrain_page_key) ==
+              identity_registry.live_terrain_page_keys_.end()) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "terrain.pages.source_page_id",
+            "a removed terrain page identity may never return", input_index);
+      }
+      validation = candidate_registry.RegisterDerivedTerrainPageIdentity(
+          input.exact_terrain_page_key, input.stable_object_id);
+      if (!validation) {
+        return AtStaticSection(std::move(validation), input_index);
+      }
+      current_terrain_page_keys.insert(input.exact_terrain_page_key);
+    }
 
     validation = candidate_registry.RegisterDerivedAssetIdentity(mesh_key,
                                                                   mesh_id);
@@ -879,8 +1902,12 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
                                                current_asset_keys.end());
   candidate_registry.known_object_keys_.insert(current_object_keys.begin(),
                                                 current_object_keys.end());
+  candidate_registry.known_terrain_page_keys_.insert(
+      current_terrain_page_keys.begin(), current_terrain_page_keys.end());
   candidate_registry.live_asset_keys_ = std::move(current_asset_keys);
   candidate_registry.live_object_keys_ = std::move(current_object_keys);
+  candidate_registry.live_terrain_page_keys_ =
+      std::move(current_terrain_page_keys);
 
   identity_registry = std::move(candidate_registry);
   assets = std::move(candidate_assets);

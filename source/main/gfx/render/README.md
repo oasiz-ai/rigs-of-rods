@@ -211,19 +211,48 @@ identities are permanent tombstones, and an immutable payload cache makes
 stable frames reuse the same owners. Entity and section visibility plus
 shadow/reflection flags are preserved.
 
+The same authoritative transaction now includes every defined OGRE 14
+`TerrainGroup` slot. Every page must be loaded, retain complete CPU LOD0 height
+data (`highest_lod_prepared == 0`), have no pending group preparation or
+derived-data work, and agree with its packed signed slot, group layout, and
+translation-only render node. Capture copies all row-major heights and a
+one-cell `getPointFromSelfOrNeighbour` halo. It emits one camera-independent
+full-LOD0 mesh per page, converts OGRE's alternating strip to canonical
+triangles, retains all four page-perimeter skirts, and reproduces alignment,
+eight-face normals, tangent handedness, upper-left UVs, winding, and tight
+bounds. Because the canonical page is one draw topology, there are no internal
+quadtree LOD boundaries needing camera-selected skirts or morph deltas.
+`highest_lod_loaded` and target LOD are range-audited native GPU/draw metadata
+but do not enter the exact geometry key or affect the payload. Adjacent loaded
+pages must agree along shared world edges.
+
+Terrain page identities include the exact resource group, filename convention,
+resolved slot filename, and signed coordinates. Their derived IDs are
+collision-audited and omissions are permanent tombstones. An exact byte cache
+key contains every topology scalar, height, halo point, and winding byte;
+unchanged pages reuse immutable owners while changed pages advance their
+revision. The candidate terrain cache and combined terrain/`MeshObject`
+inventory commit only after all pages and sections succeed. Capture never
+mutates LOD, normal, delta, or derived-data state.
+
 Compatibility-material fallback version 1 is intentionally factor-only. It
 preserves first-pass diffuse/emissive factors, lighting, shininess-derived
 roughness, supported culling, straight alpha, and alpha rejection while
 requiring exactly one pass, zero texture units, and no vertex/fragment program.
 Additional passes or authored texture/shader content fail closed rather than
-being silently dropped. OGRE Terrain pages, procedural roads, actor or other
+being silently dropped. Terrain layer/sampler names and world scales, blend
+textures, global-colour maps, lightmaps, composite maps, and generated material
+state are audited before meshing; any authored texture state remains an exact
+publication blocker until portable texture transport is implemented. OGRE 14
+Terrain has no hole API, and the renderer-neutral builder rejects a claimed
+hole rather than silently filling it. Procedural roads, actor or other
 deformable geometry, paged vegetation, animated terrain objects, unsupported
 vertex declarations, and unsupported material states likewise return exact
 diagnostics. Mirrored instance transforms also fail closed until reflection can
 be baked into the canonical mesh basis and winding. Consequently `ASSETS` and
 `STATIC_MESHES` are advertised together only after a complete supported
-inventory, and terrain/texture/procedural adapters remain required before
-ordinary maps can publish end to end.
+inventory; terrain textures and the procedural/deformable domains remain
+required before ordinary maps can publish end to end.
 
 The asset payload pins the registry, mesh, texture, material, and sampler
 descriptor versions. It carries registry/base/target sequence lineage, the
