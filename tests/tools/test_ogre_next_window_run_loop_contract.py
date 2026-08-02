@@ -19,6 +19,21 @@ class OgreNextWindowRunLoopContractTests(unittest.TestCase):
         cls.frontend = (
             ROOT / "source/main/gfx/render/ogrenext/OgreNextN1Frontend.cpp"
         ).read_text(encoding="utf-8")
+        cls.runtime_h = (
+            ROOT / "source/main/system/RendererOgreNextSdlWindowRuntime.h"
+        ).read_text(encoding="utf-8")
+        cls.runtime = (
+            ROOT / "source/main/system/RendererOgreNextSdlWindowRuntime.cpp"
+        ).read_text(encoding="utf-8")
+        cls.smoke = (
+            ROOT / "tools/ogre_next_probe/src/window_run_loop_smoke.cpp"
+        ).read_text(encoding="utf-8")
+        cls.cmake = (ROOT / "tools/ogre_next_probe/CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+        cls.workflow = (
+            ROOT / ".github/workflows/ogre-next-probe.yml"
+        ).read_text(encoding="utf-8")
 
     def test_production_mode_is_separate_and_not_the_default(self) -> None:
         self.assertIn("enum class OgreNextN1PresentationMode", self.header)
@@ -131,6 +146,96 @@ class OgreNextWindowRunLoopContractTests(unittest.TestCase):
             "request.frame_id >\n"
             "                impl_->presentation_audit.last_presented_frame_id",
             self.frontend,
+        )
+
+    def test_sdl_event_batch_covers_window_and_retina_transitions(self) -> None:
+        for token in (
+            "kRendererOgreNextSdlWindowEventContractVersion = 1U",
+            "RendererOgreNextSdlWindowEventBatch",
+            "close_events",
+            "focus_gained_events",
+            "focus_lost_events",
+            "resize_events",
+            "minimize_events",
+            "restore_events",
+            "display_change_events",
+            "drawable_size_changed",
+            "PollWindowEvents",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.runtime_h)
+        for token in (
+            "SDL_PumpEvents()",
+            "SDL_PeepEvents(",
+            "SDL_WINDOWEVENT_CLOSE",
+            "SDL_WINDOWEVENT_FOCUS_GAINED",
+            "SDL_WINDOWEVENT_FOCUS_LOST",
+            "SDL_WINDOWEVENT_RESIZED",
+            "SDL_WINDOWEVENT_SIZE_CHANGED",
+            "SDL_WINDOWEVENT_MINIMIZED",
+            "SDL_WINDOWEVENT_RESTORED",
+            "SDL_WINDOWEVENT_DISPLAY_CHANGED",
+            "SDL_GetWindowSizeInPixels",
+            "m_has_drawable_baseline",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.runtime)
+
+    def test_native_smoke_requires_1000_frames_events_and_balanced_cleanup(self) -> None:
+        for token in (
+            "kRequiredPresentedFrames = 1000U",
+            "OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP",
+            "for (std::uint64_t frame_id = 1U;",
+            "host.Resize(112U, 80U)",
+            "host.Suspend()",
+            "host.Resume()",
+            "host.RefreshMetrics()",
+            "SDL_WINDOWEVENT_FOCUS_LOST",
+            "SDL_WINDOWEVENT_FOCUS_GAINED",
+            "SDL_WINDOWEVENT_MINIMIZED",
+            "SDL_WINDOWEVENT_RESTORED",
+            "SDL_WINDOWEVENT_DISPLAY_CHANGED",
+            "SDL_WINDOWEVENT_CLOSE",
+            "live_audit.show_callback_calls == 1U",
+            "live_audit.source_target_creates <",
+            "final_audit.source_target_creates ==",
+            "final_audit.compositor_workspace_creates ==",
+            "ror.ogre_next_n1_production_run_loop.v1",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.smoke)
+        self.assertNotIn("memcpy", self.smoke)
+
+    def test_strict_cross_platform_build_and_mac_runtime_gate_are_registered(self) -> None:
+        for token in (
+            "ror_ogre_next_window_run_loop_smoke",
+            "src/window_run_loop_smoke.cpp",
+            "ogre-next-window-run-loop.ppm",
+            "ogre-next-window-run-loop.json",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.cmake)
+        target = self.cmake[
+            self.cmake.index("set(_ror_n1_targets") :
+            self.cmake.index("if (ROR_OGRE_NEXT_VULKAN_RT5")
+        ]
+        self.assertIn("ror_ogre_next_window_run_loop_smoke", target)
+        runtime_gate = self.cmake[
+            self.cmake.index(
+                "if (APPLE AND TARGET ror_ogre_next_window_run_loop_smoke)"
+            ) :
+            self.cmake.index(
+                "if (TARGET ror_renderer_ogre_next_child_runtime)"
+            )
+        ]
+        self.assertIn("TIMEOUT 180", runtime_gate)
+        self.assertNotIn("SKIP_RETURN_CODE", runtime_gate)
+        self.assertIn(
+            "Require 1,000-frame production Ogre-Next run loop", self.workflow
+        )
+        self.assertIn("if: runner.os == 'macOS'", self.workflow)
+        self.assertIn(
+            "-R '^ror_ogre_next_window_run_loop_smoke$'", self.workflow
         )
 
 

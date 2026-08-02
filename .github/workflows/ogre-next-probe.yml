@@ -391,6 +391,15 @@ jobs:
           --output-on-failure
           -R '^ror_ogre_next_window_present_smoke$'
 
+      - name: Require 1,000-frame production Ogre-Next run loop
+        if: runner.os == 'macOS'
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre_next_window_run_loop_smoke$'
+
       - name: Require one-frame Vulkan X11 presentation under Xvfb
         if: runner.os == 'Linux'
         shell: bash
@@ -721,6 +730,8 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-window-present.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-window-present.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-window-run-loop.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-window-run-loop.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-report.json
