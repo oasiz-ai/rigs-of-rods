@@ -89,6 +89,12 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/system/RendererBridgeEndpoint.cpp"
+    "source/main/system/RendererBridgeEndpoint.h"
+    "source/main/system/RendererBridgeLaunchPlan.cpp"
+    "source/main/system/RendererBridgeLaunchPlan.h"
+    "source/main/system/RendererBridgeProcessSupervisor.cpp"
+    "source/main/system/RendererBridgeProcessSupervisor.h"
     "source/main/system/RendererChildIntent.cpp"
     "source/main/system/RendererChildIntent.h"
     "source/main/system/RendererChildLauncher.cpp"
@@ -108,6 +114,10 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererPublicLauncher.cpp"
     "source/main/system/RendererPublicLauncher.h"
     "tests/gfx/RendererBackendPolicyTests.cpp"
+    "tests/gfx/RendererBridgeEndpointTests.cpp"
+    "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
+    "tests/gfx/RendererBridgeProcessFakeChild.cpp"
+    "tests/gfx/RendererBridgeProcessSupervisorTests.cpp"
     "tests/gfx/RendererChildIntentTests.cpp"
     "tests/gfx/RendererChildLauncherFakeChild.cpp"
     "tests/gfx/RendererChildLauncherTests.cpp"
@@ -995,6 +1005,101 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             "${ROR_REPOSITORY_ROOT}/source/main/gfx"
             "${ROR_REPOSITORY_ROOT}/source/main/system")
 
+    set(_ror_renderer_bridge_process_test_output
+        "${CMAKE_BINARY_DIR}/renderer-bridge-process-tests")
+    set(_ror_renderer_bridge_process_fake_common_sources
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererBridgeProcessFakeChild.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${_ror_render_root}/RenderTransportEnvelope.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp")
+    add_executable(
+        ror_renderer_bridge_process_fake_game
+        ${_ror_renderer_bridge_process_fake_common_sources})
+    target_compile_definitions(
+        ror_renderer_bridge_process_fake_game
+        PRIVATE ROR_RENDERER_BRIDGE_FAKE_GAME=1)
+    add_executable(
+        ror_renderer_bridge_process_fake_presentation
+        ${_ror_renderer_bridge_process_fake_common_sources})
+    target_compile_definitions(
+        ror_renderer_bridge_process_fake_presentation
+        PRIVATE ROR_RENDERER_BRIDGE_FAKE_PRESENTATION=1)
+    foreach (_ror_bridge_fake_target IN ITEMS
+        ror_renderer_bridge_process_fake_game
+        ror_renderer_bridge_process_fake_presentation)
+        target_include_directories(
+            ${_ror_bridge_fake_target}
+            PRIVATE
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+                "${_ror_render_root}"
+                "${ROR_REPOSITORY_ROOT}/source/main/system")
+    endforeach ()
+    set_target_properties(
+        ror_renderer_bridge_process_fake_game
+        PROPERTIES
+            OUTPUT_NAME "RoR-Ogre14"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_bridge_process_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_bridge_process_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_bridge_process_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_bridge_process_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_bridge_process_test_output}/MinSizeRel")
+    set_target_properties(
+        ror_renderer_bridge_process_fake_presentation
+        PROPERTIES
+            OUTPUT_NAME "RoR-OgreNext"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_bridge_process_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_bridge_process_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_bridge_process_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_bridge_process_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_bridge_process_test_output}/MinSizeRel")
+
+    add_executable(
+        ror_renderer_bridge_process_supervisor_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererBridgeProcessSupervisorTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeLaunchPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeProcessSupervisor.cpp")
+    target_include_directories(
+        ror_renderer_bridge_process_supervisor_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    set_target_properties(
+        ror_renderer_bridge_process_supervisor_tests
+        PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_bridge_process_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_bridge_process_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_bridge_process_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_bridge_process_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_bridge_process_test_output}/MinSizeRel")
+    add_dependencies(
+        ror_renderer_bridge_process_supervisor_tests
+        ror_renderer_bridge_process_fake_game
+        ror_renderer_bridge_process_fake_presentation)
+
     add_executable(
         ror_renderer_child_launcher_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererChildLauncherTests.cpp"
@@ -1022,6 +1127,15 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             PRIVATE -municode)
         target_link_options(
             ror_renderer_child_launcher_tests
+            PRIVATE -municode)
+        target_link_options(
+            ror_renderer_bridge_process_fake_game
+            PRIVATE -municode)
+        target_link_options(
+            ror_renderer_bridge_process_fake_presentation
+            PRIVATE -municode)
+        target_link_options(
+            ror_renderer_bridge_process_supervisor_tests
             PRIVATE -municode)
     endif ()
 
@@ -1122,6 +1236,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_handoff_tests
         ror_renderer_child_intent_tests
         ror_renderer_sibling_path_tests
+        ror_renderer_bridge_process_fake_game
+        ror_renderer_bridge_process_fake_presentation
+        ror_renderer_bridge_process_supervisor_tests
         ror_renderer_ogre_next_child_tests
         ror_renderer_ogre_next_window_host_tests
         ror_renderer_ogre_next_sdl_window_runtime
@@ -1399,6 +1516,12 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp
             source/main/gfx/RendererStartupPlan.h
+            source/main/system/RendererBridgeEndpoint.cpp
+            source/main/system/RendererBridgeEndpoint.h
+            source/main/system/RendererBridgeLaunchPlan.cpp
+            source/main/system/RendererBridgeLaunchPlan.h
+            source/main/system/RendererBridgeProcessSupervisor.cpp
+            source/main/system/RendererBridgeProcessSupervisor.h
             source/main/system/RendererChildIntent.cpp
             source/main/system/RendererChildIntent.h
             source/main/system/RendererChildLauncher.cpp
@@ -1414,6 +1537,10 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererPublicLauncher.h
             source/main/gfx/render
             tests/gfx/RendererBackendPolicyTests.cpp
+            tests/gfx/RendererBridgeEndpointTests.cpp
+            tests/gfx/RendererBridgeLaunchPlanTests.cpp
+            tests/gfx/RendererBridgeProcessFakeChild.cpp
+            tests/gfx/RendererBridgeProcessSupervisorTests.cpp
             tests/gfx/RendererChildIntentTests.cpp
             tests/gfx/RendererChildLauncherFakeChild.cpp
             tests/gfx/RendererChildLauncherTests.cpp
@@ -1599,6 +1726,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_handoff_tests
         ror_renderer_child_intent_tests
         ror_renderer_sibling_path_tests
+        ror_renderer_bridge_process_supervisor_tests
         ror_renderer_ogre_next_child_tests
         ror_renderer_child_launcher_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
@@ -1803,6 +1931,13 @@ endif ()
 if (TARGET ror_renderer_sibling_path_tests)
     add_test(NAME ror_renderer_sibling_path
         COMMAND $<TARGET_FILE:ror_renderer_sibling_path_tests>)
+endif ()
+if (TARGET ror_renderer_bridge_process_supervisor_tests)
+    add_test(NAME ror_renderer_bridge_process_supervisor
+        COMMAND $<TARGET_FILE:ror_renderer_bridge_process_supervisor_tests>)
+    set_tests_properties(
+        ror_renderer_bridge_process_supervisor
+        PROPERTIES TIMEOUT 30)
 endif ()
 if (TARGET ror_renderer_ogre_next_child_tests)
     add_test(NAME ror_renderer_ogre_next_child

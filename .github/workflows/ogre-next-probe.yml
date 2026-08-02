@@ -18,6 +18,9 @@ on:
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/system/RendererBridge*
+      - source/main/system/RendererBridgeEndpoint.*
+      - source/main/system/RendererBridgeLaunchPlan.*
+      - source/main/system/RendererBridgeProcessSupervisor.*
       - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererSiblingPath.*
@@ -29,6 +32,10 @@ on:
       - source/main/system/RendererPublicLauncher.*
       - source/main/gfx/render/**
       - tests/gfx/RendererBackendPolicyTests.cpp
+      - tests/gfx/RendererBridgeEndpointTests.cpp
+      - tests/gfx/RendererBridgeLaunchPlanTests.cpp
+      - tests/gfx/RendererBridgeProcessFakeChild.cpp
+      - tests/gfx/RendererBridgeProcessSupervisorTests.cpp
       - tests/gfx/RendererChildIntentTests.cpp
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
@@ -58,6 +65,9 @@ on:
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/system/RendererBridge*
+      - source/main/system/RendererBridgeEndpoint.*
+      - source/main/system/RendererBridgeLaunchPlan.*
+      - source/main/system/RendererBridgeProcessSupervisor.*
       - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererSiblingPath.*
@@ -69,6 +79,10 @@ on:
       - source/main/system/RendererPublicLauncher.*
       - source/main/gfx/render/**
       - tests/gfx/RendererBackendPolicyTests.cpp
+      - tests/gfx/RendererBridgeEndpointTests.cpp
+      - tests/gfx/RendererBridgeLaunchPlanTests.cpp
+      - tests/gfx/RendererBridgeProcessFakeChild.cpp
+      - tests/gfx/RendererBridgeProcessSupervisorTests.cpp
       - tests/gfx/RendererChildIntentTests.cpp
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
