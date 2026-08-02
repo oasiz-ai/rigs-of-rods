@@ -12,6 +12,8 @@
 #include <array>
 #include <cmath>
 #include <exception>
+#include <limits>
+#include <set>
 #include <utility>
 
 namespace RoR::Render {
@@ -56,6 +58,26 @@ bool IsKnownProjection(Ogre14CameraProjectionKind projection) noexcept {
     return true;
   }
   return false;
+}
+
+bool IsKnownLightKind(Ogre14GraphicsSceneLightKind kind) noexcept {
+  switch (kind) {
+  case Ogre14GraphicsSceneLightKind::POINT:
+  case Ogre14GraphicsSceneLightKind::DIRECTIONAL:
+  case Ogre14GraphicsSceneLightKind::SPOT:
+  case Ogre14GraphicsSceneLightKind::RECTANGLE:
+    return true;
+  }
+  return false;
+}
+
+constexpr std::uint64_t kFnv1a64OffsetBasis = 14695981039346656037ULL;
+constexpr std::uint64_t kFnv1a64Prime = 1099511628211ULL;
+constexpr char kOgre14LightIdentityDomain[] = "ror.ogre14.light.name.v1";
+
+void HashByte(std::uint64_t &hash, std::uint8_t byte) noexcept {
+  hash ^= byte;
+  hash *= kFnv1a64Prime;
 }
 
 } // namespace
@@ -175,6 +197,266 @@ ValidationResult BuildOgre14GraphicsSceneEnvironment(
   candidate.analytic_sky = {};
   candidate.exposure_compensation_ev = 0.0F;
   environment = candidate;
+  return ValidationResult::Success();
+}
+
+ValidationResult Ogre14GraphicsSceneLightIdentityRegistry::
+    RegisterDerivedIdentity(std::string_view exact_name,
+                            std::uint64_t stable_id) {
+  if (exact_name.empty()) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "lights.exact_name",
+        "OGRE 14 light name must not be empty");
+  }
+  if (stable_id == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "lights.source_light_id",
+        "derived OGRE 14 light identity must be nonzero");
+  }
+
+  const auto id_match = names_by_id_.find(stable_id);
+  if (id_match != names_by_id_.end() && id_match->second != exact_name) {
+    return ValidationResult::Failure(
+        ValidationCode::DUPLICATE_IDENTIFIER, "lights.source_light_id",
+        "distinct exact OGRE 14 light names collided on one stable identity");
+  }
+  const auto name_match = ids_by_name_.find(exact_name);
+  if (name_match != ids_by_name_.end() && name_match->second != stable_id) {
+    return ValidationResult::Failure(
+        ValidationCode::REVISION_MISMATCH, "lights.exact_name",
+        "an exact OGRE 14 light name changed stable identity");
+  }
+  if (id_match != names_by_id_.end()) {
+    return ValidationResult::Success();
+  }
+
+  auto inserted_name = names_by_id_.emplace(stable_id, exact_name);
+  try {
+    const auto inserted_id = ids_by_name_.emplace(exact_name, stable_id);
+    if (!inserted_id.second) {
+      names_by_id_.erase(inserted_name.first);
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH, "lights.exact_name",
+          "an exact OGRE 14 light name changed stable identity");
+    }
+  } catch (...) {
+    names_by_id_.erase(inserted_name.first);
+    throw;
+  }
+  return ValidationResult::Success();
+}
+
+ValidationResult DeriveOgre14GraphicsSceneLightId(
+    std::string_view exact_name, std::uint64_t &stable_id) {
+  if (exact_name.empty()) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "lights.exact_name",
+        "OGRE 14 light name must not be empty");
+  }
+
+  std::uint64_t candidate = kFnv1a64OffsetBasis;
+  for (std::size_t index = 0U;
+       index + 1U < sizeof(kOgre14LightIdentityDomain); ++index) {
+    HashByte(candidate,
+             static_cast<std::uint8_t>(kOgre14LightIdentityDomain[index]));
+  }
+  HashByte(candidate, 0U);
+  for (const char byte : exact_name) {
+    HashByte(candidate,
+             static_cast<std::uint8_t>(static_cast<unsigned char>(byte)));
+  }
+  if (candidate == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "lights.source_light_id",
+        "exact OGRE 14 light name hashed to the reserved zero identity");
+  }
+  stable_id = candidate;
+  return ValidationResult::Success();
+}
+
+ValidationResult BuildOgre14GraphicsSceneLight(
+    const Ogre14GraphicsSceneLightCaptureInput &input,
+    GraphicsSceneLightInput &light) {
+  if (input.exact_name.empty()) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "lights.exact_name",
+        "OGRE 14 light name must not be empty");
+  }
+  if (!IsKnownLightKind(input.kind)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "lights.type",
+        "unknown OGRE 14 light type");
+  }
+  if (input.kind == Ogre14GraphicsSceneLightKind::RECTANGLE) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "lights.type",
+        "OGRE 14 rectangle lights have no portable scene-schema type");
+  }
+  if (!IsFinite(input.diffuse_linear) ||
+      !IsFinite(input.specular_linear) || !IsFinite(input.power_scale) ||
+      !IsFinite(input.derived_position) ||
+      !IsFinite(input.derived_direction) ||
+      !IsFinite(input.attenuation_range) ||
+      !IsFinite(input.attenuation_constant) ||
+      !IsFinite(input.attenuation_linear) ||
+      !IsFinite(input.attenuation_quadratic) ||
+      !IsFinite(input.inner_cone_radians) ||
+      !IsFinite(input.outer_cone_radians) ||
+      !IsFinite(input.spot_falloff)) {
+    return ValidationResult::Failure(
+        ValidationCode::NON_FINITE_VALUE, "lights.native_state",
+        "all captured OGRE 14 light values must be finite");
+  }
+  if (!IsNonNegative(input.diffuse_linear) ||
+      !IsNonNegative(input.specular_linear) || input.power_scale < 0.0F ||
+      input.attenuation_range < 0.0F ||
+      input.attenuation_constant < 0.0F ||
+      input.attenuation_linear < 0.0F ||
+      input.attenuation_quadratic < 0.0F || input.spot_falloff < 0.0F) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "lights.native_state",
+        "OGRE 14 light photometry and attenuation must be nonnegative");
+  }
+
+  GraphicsSceneLightInput candidate;
+  ValidationResult identity = DeriveOgre14GraphicsSceneLightId(
+      input.exact_name, candidate.source_light_id);
+  if (!identity) {
+    return identity;
+  }
+  if (!NormalizePhotometricColorLinear(input.diffuse_linear,
+                                       candidate.color_linear)) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "lights.diffuse_linear",
+        "OGRE 14 diffuse RGB must have positive finite Rec.709 luminance");
+  }
+
+  const double native_luminance =
+      ComputeLinearSrgbRec709D65Luminance(input.diffuse_linear);
+  const double calibrated_intensity =
+      native_luminance * static_cast<double>(input.power_scale) *
+      static_cast<double>(
+          kOgre14LegacyDiffusePowerToCanonicalIntensity);
+  if (!std::isfinite(calibrated_intensity) ||
+      calibrated_intensity >
+          static_cast<double>((std::numeric_limits<float>::max)())) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "lights.intensity",
+        "calibrated OGRE 14 light intensity is not representable");
+  }
+  const float active_intensity = static_cast<float>(calibrated_intensity);
+  if (calibrated_intensity > 0.0 && active_intensity == 0.0F) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "lights.intensity",
+        "calibrated OGRE 14 light intensity underflows binary32");
+  }
+  candidate.intensity = input.visible ? active_intensity : 0.0F;
+  candidate.shadow_flags = input.visible && input.casts_shadows
+                               ? LIGHT_SHADOW_DEFAULT_FLAGS
+                               : 0U;
+
+  switch (input.kind) {
+  case Ogre14GraphicsSceneLightKind::DIRECTIONAL:
+    if (!IsNormalized(input.derived_direction)) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "lights.direction",
+          "OGRE 14 directional-light direction must be unit length");
+    }
+    candidate.type = LightType::DIRECTIONAL;
+    candidate.position = {};
+    candidate.direction = input.derived_direction;
+    candidate.range = 0.0F;
+    candidate.inner_cone_radians = 0.0F;
+    candidate.outer_cone_radians = 0.0F;
+    break;
+  case Ogre14GraphicsSceneLightKind::POINT:
+    if (!(input.attenuation_range > 0.0F) ||
+        !(input.attenuation_constant > 0.0F ||
+          input.attenuation_linear > 0.0F ||
+          input.attenuation_quadratic > 0.0F)) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "lights.range",
+          "OGRE 14 local-light range and attenuation denominator must be "
+          "positive");
+    }
+    candidate.type = LightType::POINT;
+    candidate.position = input.derived_position;
+    candidate.direction = {0.0F, -1.0F, 0.0F};
+    candidate.range = input.attenuation_range;
+    candidate.inner_cone_radians = 0.0F;
+    candidate.outer_cone_radians = 0.0F;
+    break;
+  case Ogre14GraphicsSceneLightKind::SPOT: {
+    constexpr float kPi = 3.14159265358979323846F;
+    if (!(input.attenuation_range > 0.0F) ||
+        !(input.attenuation_constant > 0.0F ||
+          input.attenuation_linear > 0.0F ||
+          input.attenuation_quadratic > 0.0F) ||
+        !IsNormalized(input.derived_direction) ||
+        input.inner_cone_radians < 0.0F ||
+        input.outer_cone_radians < input.inner_cone_radians ||
+        input.outer_cone_radians > kPi) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "lights.cone",
+          "OGRE 14 spot range/direction/full cones are invalid");
+    }
+    candidate.type = LightType::SPOT;
+    candidate.position = input.derived_position;
+    candidate.direction = input.derived_direction;
+    candidate.range = input.attenuation_range;
+    candidate.inner_cone_radians = input.inner_cone_radians * 0.5F;
+    candidate.outer_cone_radians = input.outer_cone_radians * 0.5F;
+    break;
+  }
+  case Ogre14GraphicsSceneLightKind::RECTANGLE:
+    break;
+  }
+
+  light = candidate;
+  return ValidationResult::Success();
+}
+
+ValidationResult BuildOgre14GraphicsSceneLights(
+    const std::vector<Ogre14GraphicsSceneLightCaptureInput> &inputs,
+    Ogre14GraphicsSceneLightIdentityRegistry &identity_registry,
+    std::vector<GraphicsSceneLightInput> &lights) {
+  Ogre14GraphicsSceneLightIdentityRegistry candidate_registry =
+      identity_registry;
+  std::vector<GraphicsSceneLightInput> candidate_lights;
+  candidate_lights.reserve(inputs.size());
+  std::set<std::string, std::less<>> current_names;
+
+  for (std::size_t index = 0U; index < inputs.size(); ++index) {
+    const Ogre14GraphicsSceneLightCaptureInput &input = inputs[index];
+    if (!current_names.emplace(input.exact_name).second) {
+      return ValidationResult::Failure(
+          ValidationCode::DUPLICATE_IDENTIFIER, "lights.exact_name",
+          "complete OGRE 14 light inventory contains a duplicate exact name",
+          index);
+    }
+    GraphicsSceneLightInput converted;
+    ValidationResult validation =
+        BuildOgre14GraphicsSceneLight(input, converted);
+    if (!validation) {
+      validation.element_index = index;
+      return validation;
+    }
+    validation = candidate_registry.RegisterDerivedIdentity(
+        input.exact_name, converted.source_light_id);
+    if (!validation) {
+      validation.element_index = index;
+      return validation;
+    }
+    candidate_lights.push_back(converted);
+  }
+
+  std::sort(candidate_lights.begin(), candidate_lights.end(),
+            [](const GraphicsSceneLightInput &lhs,
+               const GraphicsSceneLightInput &rhs) {
+              return lhs.source_light_id < rhs.source_light_id;
+            });
+  identity_registry = std::move(candidate_registry);
+  lights = std::move(candidate_lights);
   return ValidationResult::Success();
 }
 

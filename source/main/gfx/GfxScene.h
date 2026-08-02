@@ -122,6 +122,10 @@ private:
     bool                               m_ogre14_joined_buffer_ready = false;
     bool                               m_ogre14_joined_buffer_atomic = false;
     bool                               m_ogre14_scene_capture_enabled = false;
+    // Intentionally survives ClearScene(): exact OGRE light names retain one
+    // collision-audited identity for this adapter lifetime.
+    Render::Ogre14GraphicsSceneLightIdentityRegistry
+                                       m_ogre14_light_identity_registry;
 
     // Free beams GFX:
     std::vector<FreeBeamGfx>          m_gfx_freebeams;

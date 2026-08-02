@@ -100,6 +100,7 @@ REQUIRED_CONFIG = "Release"
 ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
 RELEVANT_SOURCE_PATHS = (
     "cmake/RendererLauncherPackageConfig.cmake",
+    "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md",
     "source/main/gfx/RendererBackendPolicy.cpp",
     "source/main/gfx/RendererBackendPolicy.h",
     "source/main/gfx/GfxScene.cpp",
@@ -173,6 +174,7 @@ RELEVANT_SOURCE_PATHS = (
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp",
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp",
     "tests/tools/test_ogre_next_child_runtime_contract.py",
+    "tests/tools/test_ogre_next_probe_workflow.py",
     "tests/tools/test_ogre_next_window_host_contract.py",
     "tests/tools/test_ogre_next_window_presentation_contract.py",
     "tests/tools/test_ogre_next_window_run_loop_contract.py",

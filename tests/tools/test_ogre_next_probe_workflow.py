@@ -973,18 +973,31 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                              "GfxScene::CaptureOgre14GraphicsScene") :
             gfx_source.index("void GfxScene::RemoveGfxActor")
         ]
-        for unavailable in (
-            "ENVIRONMENT",
-            "ASSETS",
-            "STATIC_MESHES",
-            "LIGHTS",
-            "REFLECTION_PROBES",
-        ):
+        capture_compact = "".join(capture_body.split())
+        for unavailable in ("ASSETS", "STATIC_MESHES"):
             with self.subTest(unavailable=unavailable):
                 self.assertNotIn(
                     f"Ogre14GraphicsSceneCaptureField::{unavailable}",
-                    capture_body,
+                    capture_compact,
                 )
+        for available in ("ENVIRONMENT", "LIGHTS", "REFLECTION_PROBES"):
+            with self.subTest(available=available):
+                self.assertIn(
+                    f"Ogre14GraphicsSceneCaptureField::{available}",
+                    capture_compact,
+                )
+        self.assertIn(
+            "getMovableObjects(Ogre::MOT_LIGHT)", gfx_source
+        )
+        self.assertIn("input.visible = light->getVisible();", gfx_source)
+        self.assertNotIn("light->isVisible()", gfx_source)
+        self.assertIn("BuildOgre14GraphicsSceneLights(", gfx_source)
+        self.assertIn(
+            "m_ogre14_light_identity_registry", gfx_header
+        )
+        self.assertIn(
+            "kOgre14LegacyDiffusePowerToCanonicalIntensity", adapter
+        )
         self.assertIn(
             "missing required OGRE 14 joined fields: " + '" + missing',
             adapter,

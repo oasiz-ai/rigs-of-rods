@@ -123,6 +123,128 @@ bool CaptureOgre14MainCamera(
     return RoR::Render::BuildOgre14GraphicsSceneCamera(input, output).ok();
 }
 
+RoR::Render::ValidationResult CaptureOgre14ManagedLights(
+    Ogre::SceneManager& scene_manager,
+    RoR::Render::Ogre14GraphicsSceneLightIdentityRegistry& identity_registry,
+    std::vector<RoR::Render::GraphicsSceneLightInput>& output)
+{
+    std::vector<RoR::Render::Ogre14GraphicsSceneLightCaptureInput> inputs;
+    // SceneManager documents this registry view as unsafe during concurrent
+    // creation/destruction. Capture runs only on the joined main-thread
+    // boundary after BufferSimulationData(), where scene mutation is quiescent.
+    const Ogre::SceneManager::MovableObjectMap& managed_lights =
+        scene_manager.getMovableObjects(Ogre::MOT_LIGHT);
+    inputs.reserve(managed_lights.size());
+
+    for (const auto& managed_entry : managed_lights)
+    {
+        Ogre::MovableObject* const object = managed_entry.second;
+        Ogre::Light* const light = dynamic_cast<Ogre::Light*>(object);
+        if (light == nullptr)
+        {
+            return RoR::Render::ValidationResult::Failure(
+                RoR::Render::ValidationCode::WRONG_RESOURCE_KIND,
+                "lights.native_object",
+                "OGRE MOT_LIGHT inventory contains a non-Light object");
+        }
+        if (managed_entry.first != light->getName())
+        {
+            return RoR::Render::ValidationResult::Failure(
+                RoR::Render::ValidationCode::REVISION_MISMATCH,
+                "lights.exact_name",
+                "OGRE managed-light key does not equal the exact Light name");
+        }
+
+        RoR::Render::Ogre14GraphicsSceneLightCaptureInput input;
+        input.exact_name = light->getName();
+        switch (light->getType())
+        {
+        case Ogre::Light::LT_POINT:
+            input.kind =
+                RoR::Render::Ogre14GraphicsSceneLightKind::POINT;
+            break;
+        case Ogre::Light::LT_DIRECTIONAL:
+            input.kind =
+                RoR::Render::Ogre14GraphicsSceneLightKind::DIRECTIONAL;
+            break;
+        case Ogre::Light::LT_SPOTLIGHT:
+            input.kind = RoR::Render::Ogre14GraphicsSceneLightKind::SPOT;
+            break;
+        case Ogre::Light::LT_RECTLIGHT:
+            input.kind =
+                RoR::Render::Ogre14GraphicsSceneLightKind::RECTANGLE;
+            break;
+        default:
+            return RoR::Render::ValidationResult::Failure(
+                RoR::Render::ValidationCode::INVALID_ENUM, "lights.type",
+                "OGRE managed-light inventory contains an unknown type");
+        }
+
+#ifndef OGRE_NODELESS_POSITIONING
+        if (!light->isAttached())
+        {
+            return RoR::Render::ValidationResult::Failure(
+                RoR::Render::ValidationCode::MISSING_REFERENCE,
+                "lights.parent_scene_node",
+                "this OGRE build requires managed lights to be attached");
+        }
+#endif
+
+        const Ogre::ColourValue diffuse = light->getDiffuseColour();
+        const Ogre::ColourValue specular = light->getSpecularColour();
+        input.diffuse_linear = {
+            static_cast<float>(diffuse.r),
+            static_cast<float>(diffuse.g),
+            static_cast<float>(diffuse.b)};
+        input.specular_linear = {
+            static_cast<float>(specular.r),
+            static_cast<float>(specular.g),
+            static_cast<float>(specular.b)};
+        input.power_scale = static_cast<float>(light->getPowerScale());
+        // getVisible() is the stable authored enable bit. isVisible() also
+        // depends on per-camera masks and mutable render-frame state.
+        input.visible = light->getVisible();
+        input.visibility_flags = light->getVisibilityFlags();
+        input.light_mask = light->getLightMask();
+        input.attenuation_range = light->getAttenuationRange();
+        input.attenuation_constant = light->getAttenuationConstant();
+        input.attenuation_linear = light->getAttenuationLinear();
+        input.attenuation_quadratic = light->getAttenuationQuadric();
+        input.inner_cone_radians =
+            static_cast<float>(light->getSpotlightInnerAngle().valueRadians());
+        input.outer_cone_radians =
+            static_cast<float>(light->getSpotlightOuterAngle().valueRadians());
+        input.spot_falloff =
+            static_cast<float>(light->getSpotlightFalloff());
+        input.casts_shadows = light->getCastShadows();
+
+        if (input.kind ==
+                RoR::Render::Ogre14GraphicsSceneLightKind::POINT ||
+            input.kind == RoR::Render::Ogre14GraphicsSceneLightKind::SPOT)
+        {
+            const Ogre::Vector3 position = light->getDerivedPosition(false);
+            input.derived_position = {
+                static_cast<float>(position.x),
+                static_cast<float>(position.y),
+                static_cast<float>(position.z)};
+        }
+        if (input.kind ==
+                RoR::Render::Ogre14GraphicsSceneLightKind::DIRECTIONAL ||
+            input.kind == RoR::Render::Ogre14GraphicsSceneLightKind::SPOT)
+        {
+            const Ogre::Vector3 direction = light->getDerivedDirection();
+            input.derived_direction = {
+                static_cast<float>(direction.x),
+                static_cast<float>(direction.y),
+                static_cast<float>(direction.z)};
+        }
+        inputs.push_back(std::move(input));
+    }
+
+    return RoR::Render::BuildOgre14GraphicsSceneLights(
+        inputs, identity_registry, output);
+}
+
 } // namespace
 
 void GfxScene::CreateDustPools()
@@ -497,6 +619,18 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                         Render::Ogre14GraphicsSceneCaptureField::
                             ENVIRONMENT);
             }
+
+            Render::ValidationResult light_validation =
+                CaptureOgre14ManagedLights(
+                    *m_scene_manager, m_ogre14_light_identity_registry,
+                    candidate.frame.lights);
+            if (!light_validation)
+            {
+                return light_validation;
+            }
+            candidate.available_fields |=
+                Render::Ogre14GraphicsSceneCaptureFieldBit(
+                    Render::Ogre14GraphicsSceneCaptureField::LIGHTS);
         }
 
         // OGRE 14 has no authored reflection-probe registry. Its dynamic
@@ -520,8 +654,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     // Deliberately unavailable in this first production slice:
     // - assets/static_meshes: no complete stable CPU inventory yet separates
     //   terrain MeshObjects from deformable actor geometry;
-    // - lights: stable photometric lux/candela values are not authored;
-    // Their bits remain clear so no empty or unit-valued substitutes publish.
+    // Their bits remain clear so no empty substitutes publish.
     capture = std::move(candidate);
     return Render::ValidationResult::Success();
 }
