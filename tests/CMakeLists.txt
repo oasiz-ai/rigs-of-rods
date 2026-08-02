@@ -437,6 +437,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontend.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ResourceHandle.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/SceneSnapshot.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/SceneSnapshotTransport.cpp"
 )
 
 add_library(ror_render_contract STATIC ${ROR_RENDER_CONTRACT_SOURCES})
@@ -492,6 +493,10 @@ add_executable(
 add_executable(
     ror_render_scene_snapshot_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/SceneSnapshotTests.cpp"
+)
+add_executable(
+    ror_render_scene_snapshot_transport_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/SceneSnapshotTransportTests.cpp"
 )
 add_executable(
     ror_render_resource_descriptor_tests
@@ -587,6 +592,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_render_strict_fp_environment_tests
     ror_render_asset_registry_tests
     ror_render_scene_snapshot_tests
+    ror_render_scene_snapshot_transport_tests
     ror_render_resource_descriptor_tests
     ror_renderer_frontend_contract_tests
     ror_ogre_next_n1_policy_tests
@@ -1594,6 +1600,11 @@ add_test(
 add_test(
     NAME render_scene_snapshot
     COMMAND ror_render_scene_snapshot_tests
+)
+
+add_test(
+    NAME render_scene_snapshot_transport
+    COMMAND ror_render_scene_snapshot_transport_tests
 )
 
 add_test(

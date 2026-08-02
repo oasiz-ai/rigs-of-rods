@@ -27,3 +27,4 @@
 #include "RendererFrontend.h"
 #include "ResourceHandle.h"
 #include "SceneSnapshot.h"
+#include "SceneSnapshotTransport.h"

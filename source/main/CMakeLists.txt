@@ -60,6 +60,7 @@ set(SOURCE_FILES
         gfx/render/RenderValidation.h
         gfx/render/ResourceHandle.{h,cpp}
         gfx/render/SceneSnapshot.{h,cpp}
+        gfx/render/SceneSnapshotTransport.{h,cpp}
         gfx/HydraxWater.{h,cpp}
         gfx/IGfxWater.h
         gfx/MovableText.{h,cpp}
@@ -383,6 +384,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/RendererFrontend.cpp
         gfx/render/ResourceHandle.cpp
         gfx/render/SceneSnapshot.cpp
+        gfx/render/SceneSnapshotTransport.cpp
         )
 set_source_files_properties(
         ${ROR_RENDER_CONTRACT_SOURCES}
@@ -403,6 +405,7 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/RenderResourceDescriptors.cpp
         gfx/render/RendererFrontend.cpp
         gfx/render/SceneSnapshot.cpp
+        gfx/render/SceneSnapshotTransport.cpp
         )
 if (MSVC)
     set_source_files_properties(
