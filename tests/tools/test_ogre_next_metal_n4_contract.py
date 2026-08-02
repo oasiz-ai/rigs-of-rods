@@ -212,6 +212,32 @@ class MetalN4ContractTests(unittest.TestCase):
         self.assertIn("MTLPixelFormatR16Float", self.backend)
         self.assertIn("ValidateNativeDirectionalShadowPassContract", self.backend)
 
+    def test_acceleration_allocations_fail_before_descriptor_consumption(self) -> None:
+        receiver_allocation = self.backend.index(
+            "id<MTLAccelerationStructure> receiver_blas"
+        )
+        receiver_guard = self.backend.index(
+            "if (receiver_blas == nil)", receiver_allocation
+        )
+        occluder_allocation = self.backend.index(
+            "id<MTLAccelerationStructure> occluder_blas", receiver_guard
+        )
+        occluder_guard = self.backend.index(
+            "if (occluder_blas == nil)", occluder_allocation
+        )
+        instance_allocation = self.backend.index(
+            "id<MTLBuffer> instance_buffer", occluder_guard
+        )
+        instance_guard = self.backend.index(
+            "if (instance_buffer == nil)", instance_allocation
+        )
+        tlas_children = self.backend.index(
+            "@[ receiver_blas, occluder_blas ]", instance_guard
+        )
+        self.assertLess(receiver_guard, occluder_allocation)
+        self.assertLess(occluder_guard, instance_allocation)
+        self.assertLess(instance_guard, tlas_children)
+
     def test_success_and_skip_paths_release_runtime_ownership(self) -> None:
         for token in (
             "frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds)",

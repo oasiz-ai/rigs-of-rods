@@ -1745,6 +1745,11 @@ private:
 
     MTLAccelerationStructureTriangleGeometryDescriptor *receiver_triangle =
         [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
+    if (receiver_triangle == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 could not allocate its receiver geometry descriptor");
+    }
     receiver_triangle.vertexBuffer = receiver_vertices;
     receiver_triangle.vertexBufferOffset =
         static_cast<NSUInteger>(geometry_.positions.offset_bytes);
@@ -1760,16 +1765,36 @@ private:
     receiver_triangle.opaque = YES;
     MTLPrimitiveAccelerationStructureDescriptor *receiver_blas_descriptor =
         [MTLPrimitiveAccelerationStructureDescriptor descriptor];
+    if (receiver_blas_descriptor == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 could not allocate its receiver BLAS descriptor");
+    }
     receiver_blas_descriptor.geometryDescriptors = @[ receiver_triangle ];
     const MTLAccelerationStructureSizes receiver_blas_sizes =
         [device_ accelerationStructureSizesWithDescriptor:
                      receiver_blas_descriptor];
+    if (receiver_blas_sizes.accelerationStructureSize == 0U ||
+        receiver_blas_sizes.buildScratchBufferSize == 0U) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 receiver BLAS reported unusable allocation sizes");
+    }
     id<MTLAccelerationStructure> receiver_blas = [device_
         newAccelerationStructureWithSize:
             receiver_blas_sizes.accelerationStructureSize];
+    if (receiver_blas == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure("Metal N4 could not allocate its receiver BLAS");
+    }
 
     MTLAccelerationStructureTriangleGeometryDescriptor *occluder_triangle =
         [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
+    if (occluder_triangle == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 could not allocate its occluder geometry descriptor");
+    }
     occluder_triangle.vertexBuffer = occluder_vertices;
     occluder_triangle.vertexBufferOffset =
         static_cast<NSUInteger>(secondary_geometry_.positions.offset_bytes);
@@ -1786,13 +1811,28 @@ private:
     occluder_triangle.opaque = YES;
     MTLPrimitiveAccelerationStructureDescriptor *occluder_blas_descriptor =
         [MTLPrimitiveAccelerationStructureDescriptor descriptor];
+    if (occluder_blas_descriptor == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 could not allocate its occluder BLAS descriptor");
+    }
     occluder_blas_descriptor.geometryDescriptors = @[ occluder_triangle ];
     const MTLAccelerationStructureSizes occluder_blas_sizes =
         [device_ accelerationStructureSizesWithDescriptor:
                      occluder_blas_descriptor];
+    if (occluder_blas_sizes.accelerationStructureSize == 0U ||
+        occluder_blas_sizes.buildScratchBufferSize == 0U) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 occluder BLAS reported unusable allocation sizes");
+    }
     id<MTLAccelerationStructure> occluder_blas = [device_
         newAccelerationStructureWithSize:
             occluder_blas_sizes.accelerationStructureSize];
+    if (occluder_blas == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure("Metal N4 could not allocate its occluder BLAS");
+    }
 
     std::array<MTLAccelerationStructureInstanceDescriptor, 2U>
         native_instances{};
@@ -1814,8 +1854,17 @@ private:
         newBufferWithBytes:native_instances.data()
                     length:sizeof(native_instances)
                    options:MTLResourceStorageModeShared];
+    if (instance_buffer == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 could not allocate its TLAS instance buffer");
+    }
     MTLInstanceAccelerationStructureDescriptor *tlas_descriptor =
         [MTLInstanceAccelerationStructureDescriptor descriptor];
+    if (tlas_descriptor == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure("Metal N4 could not allocate its TLAS descriptor");
+    }
     tlas_descriptor.instanceDescriptorBuffer = instance_buffer;
     tlas_descriptor.instanceDescriptorBufferOffset = 0U;
     tlas_descriptor.instanceDescriptorStride =
@@ -1825,8 +1874,18 @@ private:
         @[ receiver_blas, occluder_blas ];
     const MTLAccelerationStructureSizes tlas_sizes =
         [device_ accelerationStructureSizesWithDescriptor:tlas_descriptor];
+    if (tlas_sizes.accelerationStructureSize == 0U ||
+        tlas_sizes.buildScratchBufferSize == 0U) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 TLAS reported unusable allocation sizes");
+    }
     id<MTLAccelerationStructure> tlas = [device_
         newAccelerationStructureWithSize:tlas_sizes.accelerationStructureSize];
+    if (tlas == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure("Metal N4 could not allocate its TLAS");
+    }
 
     const NSUInteger scratch_size = std::max(
         {receiver_blas_sizes.buildScratchBufferSize,
@@ -1890,14 +1949,7 @@ private:
                     options:MTLResourceStorageModeShared];
     id<MTLCommandBuffer> command_buffer = [queue_ commandBuffer];
 
-    if (receiver_blas_sizes.accelerationStructureSize == 0U ||
-        receiver_blas_sizes.buildScratchBufferSize == 0U ||
-        occluder_blas_sizes.accelerationStructureSize == 0U ||
-        occluder_blas_sizes.buildScratchBufferSize == 0U ||
-        tlas_sizes.accelerationStructureSize == 0U ||
-        tlas_sizes.buildScratchBufferSize == 0U || receiver_blas == nil ||
-        occluder_blas == nil || instance_buffer == nil || tlas == nil ||
-        scratch == nil || visibility_texture == nil ||
+    if (scratch == nil || visibility_texture == nil ||
         lineage_texture == nil || raster_readback == nil ||
         visibility_readback == nil || lineage_readback == nil ||
         hybrid_readback == nil || command_buffer == nil) {
