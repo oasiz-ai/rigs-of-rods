@@ -409,6 +409,28 @@ target_link_libraries(
 )
 
 add_executable(
+    ror_renderer_ogre14_game_bridge_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgre14GameBridgeTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameBridge.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre14_game_bridge_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+target_link_libraries(
+    ror_renderer_ogre14_game_bridge_tests
+    PRIVATE Threads::Threads
+)
+
+add_executable(
     ror_renderer_child_launcher_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererChildLauncherTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
@@ -1580,6 +1602,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_renderer_bridge_process_fake_game
     ror_renderer_bridge_process_fake_presentation
     ror_renderer_bridge_process_supervisor_tests
+    ror_renderer_ogre14_game_bridge_tests
     ror_renderer_ogre_next_child_tests
     ror_renderer_ogre_next_window_host_tests
     ror_renderer_child_launcher_fake_child
@@ -1788,6 +1811,11 @@ add_test(
 set_tests_properties(
     renderer_bridge_process_supervisor
     PROPERTIES TIMEOUT 30
+)
+
+add_test(
+    NAME renderer_ogre14_game_bridge
+    COMMAND ror_renderer_ogre14_game_bridge_tests
 )
 
 add_test(
