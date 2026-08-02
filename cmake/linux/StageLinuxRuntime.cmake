@@ -117,15 +117,13 @@ ror_linux_ogre14_validate_plugins_config(
     "${ROR_LINUX_INSTALL_PLUGIN_FOLDER}"
     "${_ror_expected_plugins}")
 
-set(_ror_plugin_sources)
 set(_ror_plugin_reals)
 foreach (_ror_plugin_name IN LISTS _ror_active_plugins)
     ror_linux_ogre14_resolve_plugin(
-        _ror_plugin_source
+        _ror_plugin_chain
         _ror_plugin_real
         "${ROR_LINUX_PLUGIN_DIR}"
         "${_ror_plugin_name}")
-    list(APPEND _ror_plugin_sources ${_ror_plugin_source})
     list(APPEND _ror_plugin_reals "${_ror_plugin_real}")
 endforeach ()
 list(REMOVE_DUPLICATES _ror_plugin_reals)
@@ -237,11 +235,11 @@ file(MAKE_DIRECTORY
     "${_ror_install_library_directory}"
     "${_ror_install_plugin_directory}")
 
-foreach (_ror_plugin_source IN LISTS _ror_plugin_sources)
-    file(COPY
-        "${_ror_plugin_source}"
-        DESTINATION "${_ror_install_plugin_directory}"
-        FOLLOW_SYMLINK_CHAIN)
+foreach (_ror_plugin_name IN LISTS _ror_active_plugins)
+    ror_linux_ogre14_stage_plugin_chain(
+        "${ROR_LINUX_PLUGIN_DIR}"
+        "${_ror_install_plugin_directory}"
+        "${_ror_plugin_name}")
 endforeach ()
 foreach (_ror_dependency IN LISTS _ror_dependency_copy_roots)
     file(COPY

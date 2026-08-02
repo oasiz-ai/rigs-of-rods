@@ -40,6 +40,17 @@ function(
             "Linux OGRE 14 symlink source is unavailable: ${source_path}")
     endif ()
 
+    file(RELATIVE_PATH
+        _ror_source_relative_path
+        "${root_directory}"
+        "${source_path}")
+    if (IS_ABSOLUTE "${_ror_source_relative_path}"
+            OR _ror_source_relative_path MATCHES "^\\.\\.(/|$)")
+        message(FATAL_ERROR
+            "Linux OGRE 14 shared-object source escapes its root: "
+            "${source_path}")
+    endif ()
+
     set(_ror_link_path "${source_path}")
     set(_ror_seen_links)
     while (IS_SYMLINK "${_ror_link_path}")
@@ -64,11 +75,12 @@ function(
             _ror_link_path
             "${_ror_link_directory}/${_ror_link_target}"
             ABSOLUTE)
-        ror_linux_ogre14_path_is_within(
-            _ror_link_is_contained
+        file(RELATIVE_PATH
+            _ror_link_relative_path
             "${root_directory}"
             "${_ror_link_path}")
-        if (NOT _ror_link_is_contained)
+        if (IS_ABSOLUTE "${_ror_link_relative_path}"
+                OR _ror_link_relative_path MATCHES "^\\.\\.(/|$)")
             message(FATAL_ERROR
                 "Linux OGRE 14 shared-object symlink escapes its root: "
                 "${source_path}")
@@ -78,6 +90,15 @@ function(
             OR IS_DIRECTORY "${_ror_link_path}")
         message(FATAL_ERROR
             "Linux OGRE 14 shared-object symlink chain is broken: "
+            "${source_path}")
+    endif ()
+    ror_linux_ogre14_path_is_within(
+        _ror_terminal_link_is_contained
+        "${root_directory}"
+        "${_ror_link_path}")
+    if (NOT _ror_terminal_link_is_contained)
+        message(FATAL_ERROR
+            "Linux OGRE 14 shared-object symlink escapes its root: "
             "${source_path}")
     endif ()
 endfunction()
@@ -164,7 +185,8 @@ function(
         plugin_directory
         plugin_name)
     if (NOT IS_ABSOLUTE "${plugin_directory}"
-            OR NOT IS_DIRECTORY "${plugin_directory}")
+            OR NOT IS_DIRECTORY "${plugin_directory}"
+            OR IS_SYMLINK "${plugin_directory}")
         message(FATAL_ERROR
             "Linux OGRE 14 plugin source is not an absolute directory: "
             "${plugin_directory}")
@@ -175,73 +197,264 @@ function(
             "${plugin_name}")
     endif ()
 
+    set(_ror_plugin_unversioned
+        "${plugin_directory}/${plugin_name}.so")
+    set(_ror_plugin_abi
+        "${plugin_directory}/${plugin_name}.so.14.5")
+    set(_ror_plugin_versioned
+        "${plugin_directory}/${plugin_name}.so.14.5.2")
+
+    # Inspect only this exact allowlisted family.  The pinned upstream OGRE
+    # plugin target uses VERSION=14.5 and therefore installs a two-member
+    # source chain.  A package that already carries the canonical 14.5.2
+    # target is accepted too; every other suffix is rejected.
     file(GLOB
         _ror_plugin_candidates
-        LIST_DIRECTORIES FALSE
-        "${plugin_directory}/${plugin_name}.so"
-        "${plugin_directory}/${plugin_name}.so.*")
-    if (NOT _ror_plugin_candidates)
-        message(FATAL_ERROR
-            "Linux OGRE 14 plugin '${plugin_name}' has no shared object "
-            "in ${plugin_directory}")
-    endif ()
+        LIST_DIRECTORIES TRUE
+        "${plugin_directory}/${plugin_name}.so*")
     list(SORT _ror_plugin_candidates)
-
-    set(_ror_plugin_reals)
-    set(_ror_has_unversioned_name OFF)
-    set(_ror_has_abi_name OFF)
+    set(_ror_allowed_plugin_candidates
+        "${_ror_plugin_unversioned}"
+        "${_ror_plugin_abi}"
+        "${_ror_plugin_versioned}")
     foreach (_ror_plugin_candidate IN LISTS _ror_plugin_candidates)
-        get_filename_component(
-            _ror_plugin_basename
+        list(FIND
+            _ror_allowed_plugin_candidates
             "${_ror_plugin_candidate}"
-            NAME)
-        if (NOT _ror_plugin_basename MATCHES
-                "^${plugin_name}\\.so(\\.14\\.5(\\.[0-9]+)*)?$")
+            _ror_allowed_plugin_index)
+        if (_ror_allowed_plugin_index EQUAL -1)
+            get_filename_component(
+                _ror_plugin_basename
+                "${_ror_plugin_candidate}"
+                NAME)
             message(FATAL_ERROR
-                "Linux OGRE 14 plugin has an unexpected ABI name: "
+                "Linux OGRE 14 plugin has an unexpected ABI entry: "
                 "${_ror_plugin_basename}")
         endif ()
-        if (_ror_plugin_basename STREQUAL
-                "${plugin_name}.so")
-            set(_ror_has_unversioned_name ON)
-        elseif (_ror_plugin_basename STREQUAL
-                "${plugin_name}.so.14.5")
-            set(_ror_has_abi_name ON)
+    endforeach ()
+
+    foreach (_ror_required_plugin_path IN ITEMS
+            "${_ror_plugin_unversioned}"
+            "${_ror_plugin_abi}")
+        if (NOT EXISTS "${_ror_required_plugin_path}"
+                AND NOT IS_SYMLINK "${_ror_required_plugin_path}")
+            message(FATAL_ERROR
+                "Linux OGRE 14 plugin '${plugin_name}' is missing its "
+                ".so or .so.14.5 loader name")
         endif ()
         ror_linux_ogre14_validate_symlink_chain(
             "${plugin_directory}"
-            "${_ror_plugin_candidate}")
-        get_filename_component(
-            _ror_real_plugin
-            "${_ror_plugin_candidate}"
-            REALPATH)
-        ror_linux_ogre14_path_is_within(
-            _ror_plugin_is_contained
-            "${plugin_directory}"
-            "${_ror_real_plugin}")
-        if (NOT _ror_plugin_is_contained)
-            message(FATAL_ERROR
-                "Linux OGRE 14 plugin escapes its package directory: "
-                "${_ror_plugin_candidate}")
-        endif ()
-        list(APPEND _ror_plugin_reals "${_ror_real_plugin}")
+            "${_ror_required_plugin_path}")
     endforeach ()
-    list(REMOVE_DUPLICATES _ror_plugin_reals)
-    list(LENGTH _ror_plugin_reals _ror_plugin_real_count)
-    if (NOT _ror_plugin_real_count EQUAL 1)
-        message(FATAL_ERROR
-            "Linux OGRE 14 plugin '${plugin_name}' resolves to multiple "
-            "shared objects in ${plugin_directory}")
-    endif ()
-    if (NOT _ror_has_unversioned_name OR NOT _ror_has_abi_name)
-        message(FATAL_ERROR
-            "Linux OGRE 14 plugin '${plugin_name}' is missing its "
-            ".so or .so.14.5 loader name")
-    endif ()
-    list(GET _ror_plugin_reals 0 _ror_real_plugin)
 
-    set(${output_plugins} "${_ror_plugin_candidates}" PARENT_SCOPE)
+    if (NOT IS_SYMLINK "${_ror_plugin_unversioned}")
+        message(FATAL_ERROR
+            "Linux OGRE 14 plugin '${plugin_name}' has no canonical .so "
+            "loader symlink")
+    endif ()
+    file(READ_SYMLINK
+        "${_ror_plugin_unversioned}"
+        _ror_plugin_unversioned_target)
+    get_filename_component(
+        _ror_plugin_abi_name
+        "${_ror_plugin_abi}"
+        NAME)
+    if (NOT _ror_plugin_unversioned_target STREQUAL
+            _ror_plugin_abi_name)
+        message(FATAL_ERROR
+            "Linux OGRE 14 plugin '${plugin_name}' has a non-canonical "
+            ".so loader target: ${_ror_plugin_unversioned_target}")
+    endif ()
+
+    if (EXISTS "${_ror_plugin_versioned}"
+            OR IS_SYMLINK "${_ror_plugin_versioned}")
+        ror_linux_ogre14_validate_symlink_chain(
+            "${plugin_directory}"
+            "${_ror_plugin_versioned}")
+        if (IS_SYMLINK "${_ror_plugin_versioned}"
+                OR IS_DIRECTORY "${_ror_plugin_versioned}")
+            message(FATAL_ERROR
+                "Linux OGRE 14 plugin '${plugin_name}' has no regular "
+                "14.5.2 binary")
+        endif ()
+        if (NOT IS_SYMLINK "${_ror_plugin_abi}")
+            message(FATAL_ERROR
+                "Linux OGRE 14 plugin '${plugin_name}' has no canonical "
+                ".so.14.5 loader symlink")
+        endif ()
+        file(READ_SYMLINK
+            "${_ror_plugin_abi}"
+            _ror_plugin_abi_target)
+        get_filename_component(
+            _ror_plugin_versioned_name
+            "${_ror_plugin_versioned}"
+            NAME)
+        if (NOT _ror_plugin_abi_target STREQUAL
+                _ror_plugin_versioned_name)
+            message(FATAL_ERROR
+                "Linux OGRE 14 plugin '${plugin_name}' has a "
+                "non-canonical .so.14.5 loader target: "
+                "${_ror_plugin_abi_target}")
+        endif ()
+        set(_ror_expected_plugin_candidates
+            "${_ror_plugin_unversioned}"
+            "${_ror_plugin_abi}"
+            "${_ror_plugin_versioned}")
+        set(_ror_expected_real_plugin "${_ror_plugin_versioned}")
+    else ()
+        if (IS_SYMLINK "${_ror_plugin_abi}"
+                OR IS_DIRECTORY "${_ror_plugin_abi}")
+            message(FATAL_ERROR
+                "Linux OGRE 14 plugin '${plugin_name}' has a broken "
+                "upstream .so.14.5 binary")
+        endif ()
+        set(_ror_expected_plugin_candidates
+            "${_ror_plugin_unversioned}"
+            "${_ror_plugin_abi}")
+        set(_ror_expected_real_plugin "${_ror_plugin_abi}")
+    endif ()
+
+    if (NOT "${_ror_plugin_candidates}" STREQUAL
+            "${_ror_expected_plugin_candidates}")
+        message(FATAL_ERROR
+            "Linux OGRE 14 plugin '${plugin_name}' source chain changed")
+    endif ()
+
+    get_filename_component(
+        _ror_real_plugin
+        "${_ror_plugin_unversioned}"
+        REALPATH)
+    get_filename_component(
+        _ror_expected_real_plugin
+        "${_ror_expected_real_plugin}"
+        REALPATH)
+    if (NOT _ror_real_plugin STREQUAL _ror_expected_real_plugin)
+        message(FATAL_ERROR
+            "Linux OGRE 14 plugin '${plugin_name}' resolves to an "
+            "unexpected binary: ${_ror_real_plugin}")
+    endif ()
+    ror_linux_ogre14_path_is_within(
+        _ror_plugin_is_contained
+        "${plugin_directory}"
+        "${_ror_real_plugin}")
+    if (NOT _ror_plugin_is_contained)
+        message(FATAL_ERROR
+            "Linux OGRE 14 plugin escapes its package directory: "
+            "${_ror_plugin_unversioned}")
+    endif ()
+
+    set(${output_plugins}
+        "${_ror_expected_plugin_candidates}" PARENT_SCOPE)
     set(${output_real_plugin} "${_ror_real_plugin}" PARENT_SCOPE)
+endfunction()
+
+function(
+        ror_linux_ogre14_stage_plugin_chain
+        plugin_directory
+        destination_directory
+        plugin_name)
+    if (NOT IS_ABSOLUTE "${destination_directory}"
+            OR NOT IS_DIRECTORY "${destination_directory}"
+            OR IS_SYMLINK "${destination_directory}")
+        message(FATAL_ERROR
+            "Linux OGRE 14 plugin destination is unavailable or unsafe: "
+            "${destination_directory}")
+    endif ()
+
+    ror_linux_ogre14_resolve_plugin(
+        _ror_source_plugin_chain
+        _ror_source_plugin_real
+        "${plugin_directory}"
+        "${plugin_name}")
+
+    file(GLOB
+        _ror_existing_destination_entries
+        LIST_DIRECTORIES TRUE
+        "${destination_directory}/${plugin_name}.so*")
+    if (_ror_existing_destination_entries)
+        message(FATAL_ERROR
+            "Linux OGRE 14 plugin destination already contains the "
+            "'${plugin_name}' family")
+    endif ()
+
+    set(_ror_destination_unversioned_name "${plugin_name}.so")
+    set(_ror_destination_abi_name "${plugin_name}.so.14.5")
+    set(_ror_destination_versioned_name "${plugin_name}.so.14.5.2")
+    set(_ror_destination_unversioned
+        "${destination_directory}/${_ror_destination_unversioned_name}")
+    set(_ror_destination_abi
+        "${destination_directory}/${_ror_destination_abi_name}")
+    set(_ror_destination_versioned
+        "${destination_directory}/${_ror_destination_versioned_name}")
+
+    get_filename_component(
+        _ror_source_plugin_real_name
+        "${_ror_source_plugin_real}"
+        NAME)
+    file(COPY
+        "${_ror_source_plugin_real}"
+        DESTINATION "${destination_directory}")
+    set(_ror_copied_plugin_real
+        "${destination_directory}/${_ror_source_plugin_real_name}")
+    if (NOT _ror_copied_plugin_real STREQUAL
+            _ror_destination_versioned)
+        file(RENAME
+            "${_ror_copied_plugin_real}"
+            "${_ror_destination_versioned}")
+    endif ()
+    if (NOT EXISTS "${_ror_destination_versioned}"
+            OR IS_DIRECTORY "${_ror_destination_versioned}"
+            OR IS_SYMLINK "${_ror_destination_versioned}")
+        message(FATAL_ERROR
+            "Linux OGRE 14 plugin staging did not produce a regular "
+            "14.5.2 binary: ${plugin_name}")
+    endif ()
+    file(SHA256 "${_ror_source_plugin_real}" _ror_source_plugin_sha256)
+    file(SHA256 "${_ror_destination_versioned}"
+        _ror_destination_plugin_sha256)
+    if (NOT _ror_destination_plugin_sha256 STREQUAL
+            _ror_source_plugin_sha256)
+        message(FATAL_ERROR
+            "Linux OGRE 14 staged plugin binary differs from its "
+            "validated source: ${plugin_name}")
+    endif ()
+
+    file(CREATE_LINK
+        "${_ror_destination_versioned_name}"
+        "${_ror_destination_abi}"
+        SYMBOLIC
+        RESULT _ror_plugin_abi_link_result)
+    if (NOT _ror_plugin_abi_link_result STREQUAL "0")
+        message(FATAL_ERROR
+            "Could not create Linux OGRE 14 ABI plugin link: "
+            "${_ror_plugin_abi_link_result}")
+    endif ()
+    file(CREATE_LINK
+        "${_ror_destination_abi_name}"
+        "${_ror_destination_unversioned}"
+        SYMBOLIC
+        RESULT _ror_plugin_unversioned_link_result)
+    if (NOT _ror_plugin_unversioned_link_result STREQUAL "0")
+        message(FATAL_ERROR
+            "Could not create Linux OGRE 14 unversioned plugin link: "
+            "${_ror_plugin_unversioned_link_result}")
+    endif ()
+
+    ror_linux_ogre14_resolve_plugin(
+        _ror_staged_plugin_chain
+        _ror_staged_plugin_real
+        "${destination_directory}"
+        "${plugin_name}")
+    get_filename_component(
+        _ror_destination_versioned_real
+        "${_ror_destination_versioned}"
+        REALPATH)
+    if (NOT _ror_staged_plugin_real STREQUAL
+            _ror_destination_versioned_real)
+        message(FATAL_ERROR
+            "Linux OGRE 14 staged plugin chain resolves incorrectly: "
+            "${plugin_name}")
+    endif ()
 endfunction()
 
 function(
@@ -373,12 +586,23 @@ function(
         plugin_directory
         expected_plugins)
     if (NOT IS_ABSOLUTE "${plugin_directory}"
-            OR NOT IS_DIRECTORY "${plugin_directory}")
+            OR NOT IS_DIRECTORY "${plugin_directory}"
+            OR IS_SYMLINK "${plugin_directory}")
         message(FATAL_ERROR
             "Installed Linux OGRE 14 plugin directory is unavailable: "
             "${plugin_directory}")
     endif ()
     file(GLOB _ror_installed_plugins "${plugin_directory}/*")
+    set(_ror_expected_installed_plugin_names)
+    foreach (_ror_expected_plugin IN LISTS expected_plugins)
+        list(APPEND _ror_expected_installed_plugin_names
+            "${_ror_expected_plugin}.so"
+            "${_ror_expected_plugin}.so.14.5"
+            "${_ror_expected_plugin}.so.14.5.2")
+    endforeach ()
+    list(SORT _ror_expected_installed_plugin_names)
+
+    set(_ror_installed_plugin_names)
     foreach (_ror_installed_plugin IN LISTS _ror_installed_plugins)
         if (IS_DIRECTORY "${_ror_installed_plugin}"
                 AND NOT IS_SYMLINK "${_ror_installed_plugin}")
@@ -390,28 +614,61 @@ function(
             _ror_installed_plugin_name
             "${_ror_installed_plugin}"
             NAME)
-        set(_ror_installed_plugin_is_expected OFF)
-        foreach (_ror_expected_plugin IN LISTS expected_plugins)
-            if (_ror_installed_plugin_name MATCHES
-                    "^${_ror_expected_plugin}\\.so(\\.14\\.5(\\.[0-9]+)*)?$")
-                set(_ror_installed_plugin_is_expected ON)
-                break()
-            endif ()
-        endforeach ()
-        if (NOT _ror_installed_plugin_is_expected)
+        list(FIND
+            _ror_expected_installed_plugin_names
+            "${_ror_installed_plugin_name}"
+            _ror_installed_plugin_name_index)
+        if (_ror_installed_plugin_name_index EQUAL -1)
             message(FATAL_ERROR
                 "Installed Linux OGRE 14 plugin set contains an "
                 "unexpected entry: ${_ror_installed_plugin_name}")
         endif ()
+        list(APPEND
+            _ror_installed_plugin_names
+            "${_ror_installed_plugin_name}")
     endforeach ()
+    list(SORT _ror_installed_plugin_names)
+    if (NOT "${_ror_installed_plugin_names}" STREQUAL
+            "${_ror_expected_installed_plugin_names}")
+        message(FATAL_ERROR
+            "Installed Linux OGRE 14 plugin set is incomplete: expected "
+            "'${_ror_expected_installed_plugin_names}', found "
+            "'${_ror_installed_plugin_names}'")
+    endif ()
+
     foreach (_ror_expected_plugin IN LISTS expected_plugins)
-        if (NOT EXISTS "${plugin_directory}/${_ror_expected_plugin}.so"
-                OR NOT EXISTS
-                    "${plugin_directory}/${_ror_expected_plugin}.so.14.5")
+        set(_ror_installed_unversioned
+            "${plugin_directory}/${_ror_expected_plugin}.so")
+        set(_ror_installed_abi
+            "${plugin_directory}/${_ror_expected_plugin}.so.14.5")
+        set(_ror_installed_versioned
+            "${plugin_directory}/${_ror_expected_plugin}.so.14.5.2")
+        if (NOT IS_SYMLINK "${_ror_installed_unversioned}"
+                OR NOT IS_SYMLINK "${_ror_installed_abi}"
+                OR NOT EXISTS "${_ror_installed_versioned}"
+                OR IS_DIRECTORY "${_ror_installed_versioned}"
+                OR IS_SYMLINK "${_ror_installed_versioned}")
             message(FATAL_ERROR
-                "Installed Linux OGRE 14 plugin is missing its loader "
-                "links: ${_ror_expected_plugin}")
+                "Installed Linux OGRE 14 plugin has no canonical "
+                "14.5.2 chain: ${_ror_expected_plugin}")
         endif ()
+        file(READ_SYMLINK
+            "${_ror_installed_unversioned}"
+            _ror_installed_unversioned_target)
+        file(READ_SYMLINK
+            "${_ror_installed_abi}"
+            _ror_installed_abi_target)
+        if (NOT _ror_installed_unversioned_target STREQUAL
+                "${_ror_expected_plugin}.so.14.5"
+                OR NOT _ror_installed_abi_target STREQUAL
+                    "${_ror_expected_plugin}.so.14.5.2")
+            message(FATAL_ERROR
+                "Installed Linux OGRE 14 plugin has non-canonical "
+                "relative loader links: ${_ror_expected_plugin}")
+        endif ()
+        ror_linux_ogre14_validate_symlink_chain(
+            "${plugin_directory}"
+            "${_ror_installed_unversioned}")
     endforeach ()
 endfunction()
 
