@@ -264,8 +264,9 @@ Introduce a narrow `IRendererFrontend` with:
 - resize/device-loss handling; and
 - an optional native-resource bridge for the matching RT backend.
 
-OGRE14 remains the default frontend. Ogre-Next is opt-in until it passes content,
-script, UI, and visual gates. Legacy AngelScript OGRE bindings remain available
+Ogre-Next is the preferred default frontend. Until its production child passes
+the content, script, UI, and visual gates, packages that do not contain that
+child fall back to OGRE14. Legacy AngelScript OGRE bindings remain available
 only with the compatibility frontend during migration; new renderer-neutral
 bindings are introduced before removing them.
 
@@ -391,7 +392,7 @@ lighting data cannot be hidden by the word “fallback.”
 
 `RendererBackendPolicy` is a dependency-free C++11 decision seam. It:
 
-- defaults the requested frontend to OGRE14 and RT to disabled;
+- defaults the requested frontend to Ogre-Next and RT to disabled;
 - maps macOS to Metal, Windows to DXR, and Linux to Vulkan KHR;
 - rejects unknown enum values and uncompiled frontends;
 - refuses to select RT unless the native backend is compiled, the API and
@@ -408,12 +409,28 @@ does not claim or enable native RT in RoR.
 `RendererStartupPlan` is the next pre-initialization seam. It combines frontend
 intent, shadow intent, packaged-backend identity, and a current-process native
 preflight into exactly one of OGRE14/PSSM, Ogre-Next/PSSM, Ogre-Next/native
-directional shadows, or rejection. Defaults remain OGRE14/PSSM; unknown states,
-cross-platform backend identities, zero device identities, and fallback across
-either a required Ogre-Next frontend or required native-shadow request are
-rejected. The plan intentionally does not load both OGRE ABIs. A launcher and
-separate-executable handoff must consume it before this becomes a shipping
+directional shadows, or rejection. Defaults are Ogre-Next-preferred/PSSM with
+an explicit OGRE14/PSSM package fallback; unknown states, cross-platform
+backend identities, zero device identities, and fallback across either a
+required Ogre-Next frontend or required native-shadow request are rejected.
+The plan intentionally does not load both OGRE ABIs. A launcher and
+separate-executable boundary must consume it before this becomes a shipping
 renderer selector.
+
+`RendererStartupHandoff` is the package-level first stage of that boundary. It
+selects exactly one sibling child basename (`RoR-Ogre14`, `RoR-OgreNext`, or
+the corresponding Windows `.exe`) without touching OGRE or a graphics API.
+Every selected Ogre-Next child must resolve `RendererStartupPlan` again before
+creating `Ogre::Root`; native preflight evidence is never serialized from the
+launcher. The handoff prefers the Ogre-Next child by default, falls back to the
+legacy child when the preferred child is absent or not production-ready,
+requires every admitted Ogre-Next child to carry the PSSM fallback, binds the
+request to a trusted package platform, and rejects inconsistent package facts.
+Presence and production readiness are separate: the latter is a caller-supplied
+package admission fact until signing/package code derives it from the exact
+artifact. N1 and every other probe executable are categorically ineligible to
+set that fact. This closes the dependency-free decision contract only: the
+public launcher executable, child binaries, signing, and packaging remain open.
 
 ## Milestones and commit/PR sequence
 
@@ -421,7 +438,7 @@ renderer selector.
 
 - Land this RFC and the pure selector.
 - Run strict and game-fast-math tests on AppleClang, GCC, and MSVC.
-- Keep OGRE14 and RT-disabled defaults unchanged.
+- Keep native RT disabled by default and retain fail-closed OGRE14 fallback.
 
 Exit: policy truth table is green on all three platforms.
 
@@ -435,12 +452,13 @@ Exit: policy truth table is green on all three platforms.
 - Load one project-owned static glTF-derived scene with HLMS PBS/HDR.
 
 Exit: dependency builds and a UI-free raster frame pass on macOS arm64,
-Linux x86_64, and Windows x86_64. Shipping RoR remains OGRE14.
+Linux x86_64, and Windows x86_64. Shipping packages retain an explicit OGRE14
+fallback until the Ogre-Next child is complete.
 
 ### RT2 — Renderer-neutral scene snapshot
 
 - Add the snapshot/registry and OGRE14 adapter.
-- Prove default-off OGRE14 frames and physics traces are unchanged.
+- Prove OGRE14 fallback frames and physics traces are unchanged.
 - Add Ogre-Next adapters for camera, static mesh, rigid actor, material, and
   light data.
 
@@ -636,8 +654,8 @@ their platform hardware gates.
 **Go:** RT1, RT2, and the remaining Ogre-Next/RoR-scene work in the
 macOS-first RT3 spike.
 
-**Do not go yet:** changing the default renderer, deleting OGRE14, importing
-Ogre-Next development `master`, or claiming native RT.
+**Do not go yet:** deleting the OGRE14 fallback, importing Ogre-Next
+development `master`, or claiming native RT.
 
 **Hard continuation gates:**
 

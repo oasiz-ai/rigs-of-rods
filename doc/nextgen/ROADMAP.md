@@ -65,7 +65,8 @@ BeamNG-derived product name without written permission, in accordance with
   complete cross-platform native RT implementation or a D3D12 renderer. The
   [Ogre-Next/native RT decision RFC](NATIVE_RAY_TRACING_BACKEND.md) makes a real
   Metal RT scene pass and DXR/Ogre-Next interop hard continuation gates while
-  keeping OGRE14 default and fail-closed.
+  preferring Ogre-Next by default and retaining a fail-closed OGRE14 package
+  fallback until the production child is admitted.
 - CI and publishing currently target the `master` branch. Renaming it to `main`
   is a separate repository operation, not an engine change.
 
@@ -1049,18 +1050,28 @@ Merely changing version strings is still an explicitly rejected milestone.
 Do not treat an Ogre-Next library upgrade as proof of native ray tracing.
 Ogre-Next is the candidate high-quality raster/PBR frontend; RoR must supply and
 prove native Metal RT, DXR, and Vulkan KHR backends through explicit same-device
-resource interop. OGRE14 remains the default until the full migration gate
-passes.
+resource interop. Ogre-Next is the preferred default; OGRE14 remains the
+package fallback until the full migration gate passes.
 
 Gate R1:
 
-- The dependency-free `RendererBackendPolicy` and `RendererStartupPlan`
-  contracts default to OGRE14/PSSM, require exact packaged-backend and
+- The dependency-free `RendererBackendPolicy`, `RendererStartupHandoff`, and
+  `RendererStartupPlan`
+  contracts default to Ogre-Next-preferred/PSSM with an explicit OGRE14
+  package fallback, require exact packaged-backend and
   current-process preflight provenance, reject unknown states, and prohibit
   fallback across either an Ogre-Next-required or native-shadow-required
-  request. They decide before renderer initialization and never mix OGRE 1.14
-  and Ogre-Next ABIs. The cross-platform launcher/process handoff that consumes
-  the plan remains open.
+  request. The handoff selects only an exact sibling `RoR-Ogre14` or
+  `RoR-OgreNext` child from a versioned, trusted-platform package record. A
+  present Ogre-Next child is selectable only when its separate production-ready
+  admission fact and PSSM fallback are both true; N1 and other probes are never
+  eligible. This fact remains caller-supplied until package/signing code derives
+  it from the exact artifact. The selected Ogre-Next child must perform the
+  authoritative current-process preflight and resolve the startup plan before
+  `Ogre::Root`. Cartesian three-platform package-fact tests and child-plan
+  consistency tests prove the hard-gate precedence and prevent renderer-ABI
+  crossing. The contracts are complete, but the public launcher executable,
+  child renames, signing, and package assembly remain open.
 - The standalone Metal admission probe and the Ogre-Next N2/N3 interop probes
   have passed on the recorded Apple M5. N2 rastered a renderer-neutral deformed RoR
   scene, exported the exact pooled Ogre v2 position/index slices from that
@@ -1140,7 +1151,8 @@ Gate R1:
   initializes its frontend and then emits explicit unsupported evidence when
   backend admission fails. A pure pre-initialization plan now chooses native,
   Ogre-Next PSSM, OGRE14 PSSM, or rejection without loading either renderer
-  ABI; the production launcher and executable handoff remain open. The Metal
+  ABI. The package-level executable handoff contract is implemented; the
+  production launcher and child binaries remain open. The Metal
   N4 implementation now passes on a
   physical Apple M5 with 5,712 visible receiver pixels, 432 pixels blocked by
   the distinct occluder, zero primary misses, exact R16 visibility, exact R32

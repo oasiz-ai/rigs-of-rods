@@ -87,7 +87,7 @@ enum class RendererStartupSelectionStatus : std::uint8_t {
 struct RendererStartupRequest {
   std::uint32_t version = kRendererStartupPlanContractVersion;
   RendererFrontendPreference frontend =
-      RendererFrontendPreference::LEGACY_ONLY;
+      RendererFrontendPreference::OGRE_NEXT_PREFER;
   DirectionalShadowPreference directional_shadows =
       DirectionalShadowPreference::PSSM;
   HostRenderPlatform host_platform = HostRenderPlatform::UNKNOWN;

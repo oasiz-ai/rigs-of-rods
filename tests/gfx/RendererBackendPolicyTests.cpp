@@ -30,11 +30,16 @@ RoR::RendererRuntimeCapabilities MakeOgre14Ready() {
   return capabilities;
 }
 
-RoR::RendererRuntimeCapabilities
-MakeOgreNextReady(RoR::NativeRayTracingBackend backend) {
+RoR::RendererRuntimeCapabilities MakeOgreNextRasterReady() {
   RoR::RendererRuntimeCapabilities capabilities;
   capabilities.ogre_next_compiled = true;
   capabilities.ogre_next_raster_ready = true;
+  return capabilities;
+}
+
+RoR::RendererRuntimeCapabilities
+MakeOgreNextReady(RoR::NativeRayTracingBackend backend) {
+  RoR::RendererRuntimeCapabilities capabilities = MakeOgreNextRasterReady();
   capabilities.native_rt_backend = backend;
   capabilities.native_rt_backend_compiled = true;
   capabilities.native_rt_api_supported = true;
@@ -131,20 +136,25 @@ void TestPlatformBackendMapping() {
           "unknown platform enum acquired an RT backend");
 }
 
-void TestOgre14RemainsDefaultRasterSelection() {
+void TestOgreNextIsDefaultRasterSelection() {
+  const RoR::RendererSelectionResult result_only_default;
+  Require(result_only_default.requested_frontend ==
+                  RoR::RendererFrontend::NONE &&
+              !result_only_default.accepted,
+          "result-only default claimed a frontend request");
   const RoR::RendererSelectionRequest request;
-  const RoR::RendererSelectionResult result =
-      RoR::ResolveRendererBackendPolicy(request, MakeOgre14Ready());
+  const RoR::RendererSelectionResult result = RoR::ResolveRendererBackendPolicy(
+      request, MakeOgreNextRasterReady());
 
-  Require(result.requested_frontend == RoR::RendererFrontend::OGRE14,
-          "default request changed away from OGRE14");
+  Require(result.requested_frontend == RoR::RendererFrontend::OGRE_NEXT,
+          "default request changed away from Ogre-Next");
   Require(result.requested_ray_tracing_mode == RoR::RayTracingMode::DISABLED,
           "default request enabled RT");
-  RequireResult(result, true, RoR::RendererFrontend::OGRE14,
+  RequireResult(result, true, RoR::RendererFrontend::OGRE_NEXT,
                 RoR::NativeRayTracingBackend::NONE,
                 RoR::NativeRayTracingReadiness::NOT_REQUESTED,
                 RoR::RendererSelectionStatus::SELECTED_RASTER, false,
-                "default OGRE14 raster selection changed");
+                "default Ogre-Next raster selection changed");
 }
 
 void TestDisabledRtIgnoresRtCapabilityNoise() {
@@ -422,7 +432,7 @@ void TestStableDiagnosticStrings() {
 int main() {
   TestEnumClassifiersRejectUnknownValues();
   TestPlatformBackendMapping();
-  TestOgre14RemainsDefaultRasterSelection();
+  TestOgreNextIsDefaultRasterSelection();
   TestDisabledRtIgnoresRtCapabilityNoise();
   TestNativeRtRequiresEveryProof();
   TestPreferFallsBackOnlyToReadyRaster();

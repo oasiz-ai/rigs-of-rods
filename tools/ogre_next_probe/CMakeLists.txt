@@ -79,8 +79,12 @@ file(GLOB_RECURSE _ror_relevant_source_files
 list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererBackendPolicy.cpp"
     "source/main/gfx/RendererBackendPolicy.h"
+    "source/main/gfx/RendererStartupHandoff.cpp"
+    "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "tests/gfx/RendererBackendPolicyTests.cpp"
+    "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tools/run_ogre_next_probe.py"
     "tools/validate_ogre_next_frame_probe.py"
@@ -518,6 +522,17 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre_next_pssm_source_closure_verify)
 
     add_executable(
+        ror_renderer_backend_policy_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererBackendPolicyTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp")
+    target_include_directories(
+        ror_renderer_backend_policy_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx")
+    set_target_properties(
+        ror_renderer_backend_policy_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
         ror_renderer_startup_plan_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererStartupPlanTests.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
@@ -529,12 +544,27 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_plan_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+    add_executable(
+        ror_renderer_startup_handoff_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererStartupHandoffTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp")
+    target_include_directories(
+        ror_renderer_startup_handoff_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx")
+    set_target_properties(
+        ror_renderer_startup_handoff_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
     set(_ror_n1_targets
         ror_ogre_next_n1_contract
         ror_ogre_next_frontend_n1
         ror_ogre_next_frontend_n1_smoke
         ror_ogre_next_pssm_shadow_smoke
-        ror_renderer_startup_plan_tests)
+        ror_renderer_backend_policy_tests
+        ror_renderer_startup_plan_tests
+        ror_renderer_startup_handoff_tests)
     if (ROR_OGRE_NEXT_VULKAN_RT5 AND
             ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         add_executable(
@@ -796,9 +826,13 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         set(_ror_n2_relevant_source_paths
             source/main/gfx/RendererBackendPolicy.cpp
             source/main/gfx/RendererBackendPolicy.h
+            source/main/gfx/RendererStartupHandoff.cpp
+            source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp
             source/main/gfx/RendererStartupPlan.h
             source/main/gfx/render
+            tests/gfx/RendererBackendPolicyTests.cpp
+            tests/gfx/RendererStartupHandoffTests.cpp
             tests/gfx/RendererStartupPlanTests.cpp
             tools/ogre_next_probe
             tools/run_ogre_next_probe.py
@@ -970,7 +1004,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 "${ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE}"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_IBLBAKER_NOTICE_RELATIVE}")
     set(_ror_n1_package_dependencies
+        ror_renderer_backend_policy_tests
         ror_renderer_startup_plan_tests
+        ror_renderer_startup_handoff_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
         "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
         "${ROR_OGRE_NEXT_PACKAGE_RAPIDJSON_LICENSE_SOURCE}"
@@ -1094,6 +1130,14 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                         -ffp-contract=off)
         endif ()
     endforeach ()
+    set_target_properties(
+        ror_renderer_backend_policy_tests
+        ror_renderer_startup_plan_tests
+        ror_renderer_startup_handoff_tests
+        PROPERTIES
+            CXX_STANDARD 11
+            CXX_STANDARD_REQUIRED YES
+            CXX_EXTENSIONS NO)
 endif ()
 
 set(ROR_OGRE_NEXT_REPORT
@@ -1134,9 +1178,17 @@ add_custom_target(
     VERBATIM)
 
 enable_testing()
+if (TARGET ror_renderer_backend_policy_tests)
+    add_test(NAME ror_renderer_backend_policy
+        COMMAND $<TARGET_FILE:ror_renderer_backend_policy_tests>)
+endif ()
 if (TARGET ror_renderer_startup_plan_tests)
     add_test(NAME ror_renderer_startup_plan
         COMMAND $<TARGET_FILE:ror_renderer_startup_plan_tests>)
+endif ()
+if (TARGET ror_renderer_startup_handoff_tests)
+    add_test(NAME ror_renderer_startup_handoff
+        COMMAND $<TARGET_FILE:ror_renderer_startup_handoff_tests>)
 endif ()
 add_test(NAME ror_ogre_next_probe_runtime
     COMMAND $<TARGET_FILE:ror_ogre_next_probe>)

@@ -154,26 +154,44 @@ void TestEnumClassifiersRejectUnknownValues() {
   }
 }
 
-void TestDefaultRemainsOgre14Pssm() {
-  const RoR::RendererStartupRequest request;
-  RoR::RendererStartupBuildAvailability availability;
-  availability.ogre14_frontend_available = true;
+void TestDefaultPrefersOgreNextPssmWithLegacyFallback() {
+  const RoR::RendererStartupPlanResult result_only_default;
+  Require(result_only_default.requested_frontend ==
+                  RoR::RendererFrontendPreference::LEGACY_ONLY &&
+              result_only_default.effective_path ==
+                  RoR::RendererStartupPath::NONE &&
+              !result_only_default.accepted,
+          "result-only default claimed an accepted Ogre-Next request");
+  RoR::RendererStartupRequest request;
+  request.host_platform = RoR::HostRenderPlatform::MACOS;
+  RoR::RendererStartupBuildAvailability availability = MakeAllPathsAvailable();
   const RoR::RendererNativeShadowPreflight preflight;
 
-  const RoR::RendererStartupPlanResult result =
+  const RoR::RendererStartupPlanResult preferred =
       RoR::ResolveRendererStartupPlan(request, availability, preflight);
-  Require(result.requested_frontend ==
-              RoR::RendererFrontendPreference::LEGACY_ONLY,
-          "default frontend changed away from legacy-only");
-  Require(result.requested_directional_shadows ==
+  Require(preferred.requested_frontend ==
+              RoR::RendererFrontendPreference::OGRE_NEXT_PREFER,
+          "default frontend changed away from Ogre-Next preference");
+  Require(preferred.requested_directional_shadows ==
               RoR::DirectionalShadowPreference::PSSM,
           "default shadow path changed away from PSSM");
+  RequireResult(preferred, true,
+                RoR::RendererStartupPath::OGRE_NEXT_PSSM_3_CASCADE_V1,
+                RoR::NativeRayTracingBackend::NONE,
+                RoR::RendererNativePreflightReadiness::NOT_REQUESTED,
+                RoR::RendererStartupSelectionStatus::SELECTED_REQUESTED_PATH,
+                false, false, "default Ogre-Next/PSSM selection changed");
+
+  availability.ogre_next_frontend_available = false;
+  availability.ogre_next_pssm_available = false;
+  availability.native_directional_shadow_backend =
+      RoR::NativeRayTracingBackend::NONE;
   RequireResult(
-      result, true, RoR::RendererStartupPath::OGRE14_PSSM,
-      RoR::NativeRayTracingBackend::NONE,
+      RoR::ResolveRendererStartupPlan(request, availability, preflight), true,
+      RoR::RendererStartupPath::OGRE14_PSSM, RoR::NativeRayTracingBackend::NONE,
       RoR::RendererNativePreflightReadiness::NOT_REQUESTED,
-      RoR::RendererStartupSelectionStatus::SELECTED_REQUESTED_PATH, false,
-      false, "default OGRE14/PSSM selection changed");
+      RoR::RendererStartupSelectionStatus::FALLBACK_TO_OGRE14_PSSM, false, true,
+      "default preference did not preserve the legacy fallback");
 }
 
 void TestPssmFrontendPreferences() {
@@ -839,7 +857,7 @@ void TestStableDiagnosticStrings() {
 
 int main() {
   TestEnumClassifiersRejectUnknownValues();
-  TestDefaultRemainsOgre14Pssm();
+  TestDefaultPrefersOgreNextPssmWithLegacyFallback();
   TestPssmFrontendPreferences();
   TestNativeEligibleOnEveryPlatform();
   TestEveryNativePreflightFactIsRequired();

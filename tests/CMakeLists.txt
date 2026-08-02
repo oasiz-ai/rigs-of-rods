@@ -193,6 +193,18 @@ target_include_directories(
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx"
 )
 
+add_executable(
+    ror_renderer_startup_handoff_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererStartupHandoffTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+)
+target_include_directories(
+    ror_renderer_startup_handoff_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+)
+
 set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/GraphicsSceneSnapshotProducer.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/HdrReference.cpp"
@@ -1081,6 +1093,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_post_process_runtime_contract_tests
     ror_renderer_backend_policy_tests
     ror_renderer_startup_plan_tests
+    ror_renderer_startup_handoff_tests
     ror_local_light_budget_tests
     ror_command_line_info_tests
     ror_beam_axial_response_tests
@@ -1235,6 +1248,11 @@ add_test(
 add_test(
     NAME renderer_startup_plan
     COMMAND ror_renderer_startup_plan_tests
+)
+
+add_test(
+    NAME renderer_startup_handoff
+    COMMAND ror_renderer_startup_handoff_tests
 )
 
 add_test(

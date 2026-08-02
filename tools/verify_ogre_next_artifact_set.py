@@ -109,9 +109,13 @@ ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
 RELEVANT_SOURCE_PATHS = (
     "source/main/gfx/RendererBackendPolicy.cpp",
     "source/main/gfx/RendererBackendPolicy.h",
+    "source/main/gfx/RendererStartupHandoff.cpp",
+    "source/main/gfx/RendererStartupHandoff.h",
     "source/main/gfx/RendererStartupPlan.cpp",
     "source/main/gfx/RendererStartupPlan.h",
     "source/main/gfx/render",
+    "tests/gfx/RendererBackendPolicyTests.cpp",
+    "tests/gfx/RendererStartupHandoffTests.cpp",
     "tests/gfx/RendererStartupPlanTests.cpp",
     "tools/ogre_next_probe",
     "tools/run_ogre_next_probe.py",

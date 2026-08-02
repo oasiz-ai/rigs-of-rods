@@ -41,13 +41,16 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
 
     def test_all_renderer_policy_inputs_trigger_the_probe(self) -> None:
         for path in (
+            ".gitattributes",
             "CMakeLists.txt",
             "source/main/CMakeLists.txt",
             "tests/CMakeLists.txt",
             "source/main/gfx/RendererBackendPolicy.*",
+            "source/main/gfx/RendererStartupHandoff.*",
             "source/main/gfx/RendererStartupPlan.*",
             "source/main/gfx/render/**",
             "tests/gfx/RendererBackendPolicyTests.cpp",
+            "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tests/gfx/render/**",
         ):
@@ -151,6 +154,25 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             cmake.index("add_executable(\n        ror_renderer_startup_plan_tests") :
             cmake.index("target_include_directories(\n        ror_renderer_startup_plan_tests")
         ]
+        handoff_target_block = cmake[
+            cmake.index(
+                "add_executable(\n        ror_renderer_startup_handoff_tests"
+            ) :
+            cmake.index(
+                "target_include_directories(\n        ror_renderer_startup_handoff_tests"
+            )
+        ]
+        policy_language_marker = (
+            "set_target_properties(\n"
+            "        ror_renderer_backend_policy_tests\n"
+            "        ror_renderer_startup_plan_tests"
+        )
+        policy_language_start = cmake.index(policy_language_marker)
+        policy_language_block = cmake[
+            policy_language_start : cmake.index(
+                "endif ()", policy_language_start
+            )
+        ]
         cmake_manifest = cmake[
             cmake.index("list(APPEND _ror_relevant_source_files") :
             cmake.index("list(FILTER _ror_relevant_source_files")
@@ -176,18 +198,29 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             prelink.index("list(FILTER _ror_n2_relevant_source_files")
         ]
         for token in (
+            "ror_renderer_backend_policy_tests",
+            "tests/gfx/RendererBackendPolicyTests.cpp",
+            "add_test(NAME ror_renderer_backend_policy",
             "ror_renderer_startup_plan_tests",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "source/main/gfx/RendererStartupPlan.cpp",
             "source/main/gfx/RendererBackendPolicy.cpp",
             "add_test(NAME ror_renderer_startup_plan",
+            "ror_renderer_startup_handoff_tests",
+            "tests/gfx/RendererStartupHandoffTests.cpp",
+            "source/main/gfx/RendererStartupHandoff.cpp",
+            "add_test(NAME ror_renderer_startup_handoff",
         ):
             self.assertIn(token, cmake)
         for path in (
             "source/main/gfx/RendererBackendPolicy.cpp",
             "source/main/gfx/RendererBackendPolicy.h",
+            "source/main/gfx/RendererStartupHandoff.cpp",
+            "source/main/gfx/RendererStartupHandoff.h",
             "source/main/gfx/RendererStartupPlan.cpp",
             "source/main/gfx/RendererStartupPlan.h",
+            "tests/gfx/RendererBackendPolicyTests.cpp",
+            "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
         ):
             with self.subTest(provenance_path=path):
@@ -205,15 +238,41 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(target_source=source):
                 self.assertEqual(target_block.count(source), 1)
+        for source in (
+            "tests/gfx/RendererStartupHandoffTests.cpp",
+            "source/main/gfx/RendererStartupHandoff.cpp",
+            "source/main/gfx/RendererStartupPlan.cpp",
+            "source/main/gfx/RendererBackendPolicy.cpp",
+        ):
+            with self.subTest(handoff_target_source=source):
+                self.assertEqual(handoff_target_block.count(source), 1)
+        for target in (
+            "ror_renderer_backend_policy_tests",
+            "ror_renderer_startup_plan_tests",
+            "ror_renderer_startup_handoff_tests",
+        ):
+            with self.subTest(cxx11_policy_target=target):
+                self.assertEqual(policy_language_block.count(target), 1)
+        self.assertIn("CXX_STANDARD 11", policy_language_block)
+        self.assertIn("CXX_STANDARD_REQUIRED YES", policy_language_block)
+        self.assertIn("CXX_EXTENSIONS NO", policy_language_block)
 
     def test_byte_hashed_probe_inputs_are_checkout_stable(self) -> None:
         attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(
             encoding="utf-8"
         )
         for path in (
+            "source/main/gfx/RendererBackendPolicy.*",
+            "source/main/gfx/RendererStartupHandoff.*",
+            "source/main/gfx/RendererStartupPlan.*",
+            "source/main/gfx/render/**",
+            "tests/gfx/RendererBackendPolicyTests.cpp",
+            "tests/gfx/RendererStartupHandoffTests.cpp",
+            "tests/gfx/RendererStartupPlanTests.cpp",
             "tools/ogre_next_probe/**",
             "tools/run_ogre_next_probe.py",
             "tools/validate_ogre_next_frame_probe.py",
+            "tools/verify_ogre_next_artifact_set.py",
             "doc/nextgen/evidence/OGRE_NEXT_METAL_*",
         ):
             with self.subTest(path=path):

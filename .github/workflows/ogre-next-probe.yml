@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
     paths:
+      - .gitattributes
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
       - source/main/CMakeLists.txt
@@ -13,14 +14,17 @@ on:
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
       - source/main/gfx/RendererBackendPolicy.*
+      - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/gfx/render/**
       - tests/gfx/RendererBackendPolicyTests.cpp
+      - tests/gfx/RendererStartupHandoffTests.cpp
       - tests/gfx/RendererStartupPlanTests.cpp
       - tests/gfx/render/**
       - tests/tools/test_ogre_next_*.py
   pull_request:
     paths:
+      - .gitattributes
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
       - source/main/CMakeLists.txt
@@ -30,9 +34,11 @@ on:
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
       - source/main/gfx/RendererBackendPolicy.*
+      - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/gfx/render/**
       - tests/gfx/RendererBackendPolicyTests.cpp
+      - tests/gfx/RendererStartupHandoffTests.cpp
       - tests/gfx/RendererStartupPlanTests.cpp
       - tests/gfx/render/**
       - tests/tools/test_ogre_next_*.py

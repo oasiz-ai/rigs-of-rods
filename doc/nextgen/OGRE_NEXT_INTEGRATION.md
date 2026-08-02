@@ -66,8 +66,19 @@ alpha exactly. Capability admission is fail-closed: the standalone N4 smoke
 initializes its frontend, then records an explicit unsupported result if the
 Metal backend rejects the device. The separately validated PSSM path exists,
 and the pure `RendererStartupPlan` now resolves native N4, Ogre-Next PSSM,
-OGRE14 PSSM, or rejection before either ABI is loaded. The production launcher
-and separate-executable handoff are not wired yet. This is a real Metal
+OGRE14 PSSM, or rejection before either ABI is loaded. The planned production
+launcher now has a separate, versioned `RendererStartupHandoff` contract which
+selects only the packaged `RoR-Ogre14` or `RoR-OgreNext` child. It uses package
+facts only, prefers Ogre-Next by default with an explicit legacy fallback,
+requires a trusted package-platform match and a distinct production-readiness
+admission fact, never accepts cross-platform backend identity, and never
+crosses `OGRE_NEXT_REQUIRE` or `REQUIRE_NATIVE`. The readiness fact is supplied
+by the caller until package/signing code derives it; N1 and other probes cannot
+set it. Native
+preflight remains mandatory inside the selected Ogre-Next child because device
+identity is process-local. The contract is tested on all three platform
+policies; the launcher executable and package renames are not wired yet. This
+is a real Metal
 hard-shadow pass, not a soft-shadow, local-light, GI,
 denoising, Vulkan KHR, DXR, production-material, image-quality, or performance
 claim.

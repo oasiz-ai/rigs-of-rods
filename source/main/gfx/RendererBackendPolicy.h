@@ -17,8 +17,9 @@ namespace RoR {
 
 /// Scene-renderer frontend selected by the application.
 ///
-/// OGRE14 remains the default until an Ogre-Next runtime has passed the
-/// compatibility and visual acceptance gates. NONE is result-only.
+/// Ogre-Next is the preferred default frontend; package-level handoff retains
+/// OGRE14 as the safe fallback until a production Ogre-Next child is present
+/// and admitted. NONE is result-only.
 enum class RendererFrontend : std::uint8_t {
   NONE = 0,
   OGRE14 = 1,
@@ -79,7 +80,7 @@ enum class RendererSelectionStatus : std::uint8_t {
 };
 
 struct RendererSelectionRequest {
-  RendererFrontend requested_frontend = RendererFrontend::OGRE14;
+  RendererFrontend requested_frontend = RendererFrontend::OGRE_NEXT;
   RayTracingMode ray_tracing_mode = RayTracingMode::DISABLED;
   HostRenderPlatform host_platform = HostRenderPlatform::UNKNOWN;
 };
