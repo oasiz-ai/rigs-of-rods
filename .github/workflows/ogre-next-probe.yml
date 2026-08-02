@@ -19,6 +19,7 @@ on:
       - source/main/gfx/RendererStartupPlan.*
       - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
+      - source/main/system/RendererOgreNextChild.*
       - source/main/system/RendererLauncherMain.cpp
       - source/main/system/RendererLauncherPackageConfig.h.in
       - source/main/system/RendererPublicLauncher.*
@@ -27,6 +28,7 @@ on:
       - tests/gfx/RendererChildIntentTests.cpp
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
+      - tests/gfx/RendererOgreNextChildTests.cpp
       - tests/gfx/RendererPublicLauncherLegacyChild.cpp
       - tests/gfx/RendererPublicLauncherTests.cpp
       - tests/gfx/RendererStartupHandoffTests.cpp
@@ -50,6 +52,7 @@ on:
       - source/main/gfx/RendererStartupPlan.*
       - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
+      - source/main/system/RendererOgreNextChild.*
       - source/main/system/RendererLauncherMain.cpp
       - source/main/system/RendererLauncherPackageConfig.h.in
       - source/main/system/RendererPublicLauncher.*
@@ -58,6 +61,7 @@ on:
       - tests/gfx/RendererChildIntentTests.cpp
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
+      - tests/gfx/RendererOgreNextChildTests.cpp
       - tests/gfx/RendererPublicLauncherLegacyChild.cpp
       - tests/gfx/RendererPublicLauncherTests.cpp
       - tests/gfx/RendererStartupHandoffTests.cpp

@@ -19,6 +19,8 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererChildIntent.h
     source/main/system/RendererChildLauncher.cpp
     source/main/system/RendererChildLauncher.h
+    source/main/system/RendererOgreNextChild.cpp
+    source/main/system/RendererOgreNextChild.h
     source/main/system/RendererLauncherMain.cpp
     source/main/system/RendererLauncherPackageConfig.h.in
     source/main/system/RendererPublicLauncher.cpp
@@ -28,6 +30,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererChildIntentTests.cpp
     tests/gfx/RendererChildLauncherFakeChild.cpp
     tests/gfx/RendererChildLauncherTests.cpp
+    tests/gfx/RendererOgreNextChildTests.cpp
     tests/gfx/RendererPublicLauncherLegacyChild.cpp
     tests/gfx/RendererPublicLauncherTests.cpp
     tests/gfx/RendererStartupHandoffTests.cpp
@@ -72,6 +75,8 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererChildIntent.h"
     "source/main/system/RendererChildLauncher.cpp"
     "source/main/system/RendererChildLauncher.h"
+    "source/main/system/RendererOgreNextChild.cpp"
+    "source/main/system/RendererOgreNextChild.h"
     "source/main/system/RendererLauncherMain.cpp"
     "source/main/system/RendererLauncherPackageConfig.h.in"
     "source/main/system/RendererPublicLauncher.cpp"
@@ -80,6 +85,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererChildIntentTests.cpp"
     "tests/gfx/RendererChildLauncherFakeChild.cpp"
     "tests/gfx/RendererChildLauncherTests.cpp"
+    "tests/gfx/RendererOgreNextChildTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
     "tests/gfx/RendererPublicLauncherTests.cpp"
     "tests/gfx/RendererStartupHandoffTests.cpp"

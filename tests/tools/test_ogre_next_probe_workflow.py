@@ -51,6 +51,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererStartupPlan.*",
             "source/main/system/RendererChildIntent.*",
             "source/main/system/RendererChildLauncher.*",
+            "source/main/system/RendererOgreNextChild.*",
             "source/main/system/RendererLauncherMain.cpp",
             "source/main/system/RendererLauncherPackageConfig.h.in",
             "source/main/system/RendererPublicLauncher.*",
@@ -59,6 +60,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildIntentTests.cpp",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
+            "tests/gfx/RendererOgreNextChildTests.cpp",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
             "tests/gfx/RendererPublicLauncherTests.cpp",
             "tests/gfx/RendererStartupHandoffTests.cpp",
@@ -191,6 +193,15 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 "        ror_renderer_child_launcher_tests"
             )
         ]
+        ogre_next_child_target_block = cmake[
+            cmake.index(
+                "add_executable(\n        ror_renderer_ogre_next_child_tests"
+            ) :
+            cmake.index(
+                "target_include_directories(\n"
+                "        ror_renderer_ogre_next_child_tests"
+            )
+        ]
         public_child_target_block = cmake[
             cmake.index(
                 "add_executable(\n"
@@ -263,6 +274,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildIntentTests.cpp",
             "source/main/system/RendererChildIntent.cpp",
             "add_test(NAME ror_renderer_child_intent",
+            "ror_renderer_ogre_next_child_tests",
+            "tests/gfx/RendererOgreNextChildTests.cpp",
+            "source/main/system/RendererOgreNextChild.cpp",
+            "add_test(NAME ror_renderer_ogre_next_child",
             "_ror_n1_package_dependencies\n"
             "        ror_renderer_backend_policy_tests",
             "ror_renderer_child_launcher_fake_child",
@@ -293,6 +308,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererChildIntent.h",
             "source/main/system/RendererChildLauncher.cpp",
             "source/main/system/RendererChildLauncher.h",
+            "source/main/system/RendererOgreNextChild.cpp",
+            "source/main/system/RendererOgreNextChild.h",
             "source/main/system/RendererLauncherMain.cpp",
             "source/main/system/RendererLauncherPackageConfig.h.in",
             "source/main/system/RendererPublicLauncher.cpp",
@@ -301,6 +318,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildIntentTests.cpp",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
+            "tests/gfx/RendererOgreNextChildTests.cpp",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
             "tests/gfx/RendererPublicLauncherTests.cpp",
             "tests/gfx/RendererStartupHandoffTests.cpp",
@@ -339,12 +357,35 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             with self.subTest(intent_target_source=source):
                 self.assertEqual(intent_target_block.count(source), 1)
         self.assertNotIn("RendererChildLauncher.cpp", intent_target_block)
+        for source in (
+            "tests/gfx/RendererOgreNextChildTests.cpp",
+            "source/main/system/RendererOgreNextChild.cpp",
+            "source/main/system/RendererChildIntent.cpp",
+            "source/main/gfx/RendererStartupHandoff.cpp",
+            "source/main/gfx/RendererStartupPlan.cpp",
+            "source/main/gfx/RendererBackendPolicy.cpp",
+        ):
+            with self.subTest(ogre_next_child_target_source=source):
+                self.assertEqual(ogre_next_child_target_block.count(source), 1)
+        for prohibited in (
+            "RendererChildLauncher.cpp",
+            "source/main/main.cpp",
+            "AppContext",
+            "SDL",
+            "OIS",
+            "MyGUI",
+        ):
+            with self.subTest(ogre_next_child_target_exclusion=prohibited):
+                self.assertNotIn(prohibited, ogre_next_child_target_block)
         package_dependencies = cmake[
             cmake.index("set(_ror_n1_package_dependencies") :
             cmake.index(")", cmake.index("set(_ror_n1_package_dependencies"))
         ]
         self.assertEqual(
             package_dependencies.count("ror_renderer_child_intent_tests"), 1
+        )
+        self.assertEqual(
+            package_dependencies.count("ror_renderer_ogre_next_child_tests"), 1
         )
         for source in (
             "tests/gfx/RendererChildLauncherTests.cpp",
@@ -378,6 +419,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror_renderer_startup_plan_tests",
             "ror_renderer_startup_handoff_tests",
             "ror_renderer_child_intent_tests",
+            "ror_renderer_ogre_next_child_tests",
             "ror_renderer_child_launcher_fake_child",
             "ror_renderer_child_launcher_tests",
             "ror_renderer_public_launcher_legacy_child",
@@ -499,6 +541,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererStartupPlan.*",
             "source/main/system/RendererChildIntent.*",
             "source/main/system/RendererChildLauncher.*",
+            "source/main/system/RendererOgreNextChild.*",
             "source/main/system/RendererLauncherMain.cpp",
             "source/main/system/RendererLauncherPackageConfig.h.in",
             "source/main/system/RendererPublicLauncher.*",
@@ -507,6 +550,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildIntentTests.cpp",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
+            "tests/gfx/RendererOgreNextChildTests.cpp",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
             "tests/gfx/RendererPublicLauncherTests.cpp",
             "tests/gfx/RendererStartupHandoffTests.cpp",
@@ -519,6 +563,40 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertIn(f"{path} text eol=lf", attributes)
+
+    def test_ogre_next_child_core_runs_in_the_normal_native_suite(self) -> None:
+        native_cmake = (REPOSITORY_ROOT / "tests" / "CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+        target = native_cmake[
+            native_cmake.index(
+                "add_executable(\n    ror_renderer_ogre_next_child_tests"
+            ) :
+            native_cmake.index(
+                "target_include_directories(\n"
+                "    ror_renderer_ogre_next_child_tests"
+            )
+        ]
+        for source in (
+            "gfx/RendererOgreNextChildTests.cpp",
+            "source/main/system/RendererOgreNextChild.cpp",
+            "source/main/system/RendererChildIntent.cpp",
+            "source/main/gfx/RendererStartupHandoff.cpp",
+            "source/main/gfx/RendererStartupPlan.cpp",
+            "source/main/gfx/RendererBackendPolicy.cpp",
+        ):
+            with self.subTest(native_child_source=source):
+                self.assertEqual(target.count(source), 1)
+        target_list = native_cmake[
+            native_cmake.index("set(ROR_PHYSICS_TEST_TARGETS") :
+            native_cmake.index(
+                ")", native_cmake.index("set(ROR_PHYSICS_TEST_TARGETS")
+            )
+        ]
+        self.assertEqual(
+            target_list.count("ror_renderer_ogre_next_child_tests"), 1
+        )
+        self.assertIn("NAME renderer_ogre_next_child", native_cmake)
 
     def test_reports_and_exact_frame_are_always_retained(self) -> None:
         self.assertIn("if: always()", self.workflow)

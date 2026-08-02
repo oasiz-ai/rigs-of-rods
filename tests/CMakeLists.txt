@@ -241,6 +241,7 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
 )
+
 target_include_directories(
     ror_renderer_child_launcher_tests
     PRIVATE
@@ -256,6 +257,23 @@ set_target_properties(
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY
         "${CMAKE_CURRENT_BINARY_DIR}/renderer-child-launcher-tests"
 )
+
+add_executable(
+    ror_renderer_ogre_next_child_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgreNextChildTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextChild.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre_next_child_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+
 if (MINGW)
     target_link_options(
         ror_renderer_child_launcher_fake_child
@@ -1289,6 +1307,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_renderer_startup_plan_tests
     ror_renderer_startup_handoff_tests
     ror_renderer_child_intent_tests
+    ror_renderer_ogre_next_child_tests
     ror_renderer_child_launcher_fake_child
     ror_renderer_child_launcher_tests
     ror_renderer_public_launcher_tests
@@ -1458,6 +1477,11 @@ add_test(
 add_test(
     NAME renderer_child_intent
     COMMAND ror_renderer_child_intent_tests
+)
+
+add_test(
+    NAME renderer_ogre_next_child
+    COMMAND ror_renderer_ogre_next_child_tests
 )
 
 add_test(
