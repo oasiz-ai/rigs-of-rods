@@ -609,6 +609,14 @@ class OgreNextProbeContractTests(unittest.TestCase):
             current_contract, self.lock, self.policy
         )
         current_contract["schema_version"] = 5
+        current_contract["components"].update(
+            {
+                "headless_child_bootstrap": True,
+                "headless_child_output_name": "RoR-OgreNext",
+                "headless_child_packaged": False,
+                "headless_child_production_admitted": False,
+            }
+        )
         freetype = self.lock["dependencies"]["freetype"]
         current_contract["dependencies"]["freetype"] = {
             "repository": freetype["repository"],
@@ -754,6 +762,11 @@ class OgreNextProbeContractTests(unittest.TestCase):
             build_contract,
         )
         self.assertIn("native_ray_tracing\": \"not_evaluated", build_contract)
+        self.assertIn('"headless_child_bootstrap": true', build_contract)
+        self.assertIn('"headless_child_packaged": false', build_contract)
+        self.assertIn(
+            '"headless_child_production_admitted": false', build_contract
+        )
         self.assertNotIn(
             "ogre_next_probe",
             (REPOSITORY_ROOT / "CMakeLists.txt").read_text(encoding="utf-8"),

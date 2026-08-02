@@ -197,6 +197,7 @@ jobs:
           python tests/tools/test_ogre_next_frame_probe.py
           python tests/tools/test_ogre_next_frontend_n1_contract.py
           python tests/tools/test_ogre_next_pssm_shadow_contract.py
+          python tests/tools/test_ogre_next_child_runtime_contract.py
           python tests/tools/test_ogre_next_native_directional_shadow_contract.py
           python tests/tools/test_ogre_next_metal_n2_contract.py
           python tests/tools/test_ogre_next_vulkan_rt5_contract.py
@@ -211,6 +212,7 @@ jobs:
           python -O tests/tools/test_ogre_next_frame_probe.py
           python -O tests/tools/test_ogre_next_frontend_n1_contract.py
           python -O tests/tools/test_ogre_next_pssm_shadow_contract.py
+          python -O tests/tools/test_ogre_next_child_runtime_contract.py
           python -O tests/tools/test_ogre_next_native_directional_shadow_contract.py
           python -O tests/tools/test_ogre_next_metal_n2_contract.py
           python -O tests/tools/test_ogre_next_vulkan_rt5_contract.py
@@ -289,6 +291,14 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^ror_ogre_next_frontend_(n1_|rt4_)'
+
+      - name: Run the non-admitted real Ogre-Next child bootstrap
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_renderer_ogre_next_child_runtime$'
 
       - name: Build and validate the independent Apple Metal N2 proof
         if: runner.os == 'macOS'

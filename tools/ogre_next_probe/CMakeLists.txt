@@ -90,6 +90,7 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererChildLauncher.h"
     "source/main/system/RendererOgreNextChild.cpp"
     "source/main/system/RendererOgreNextChild.h"
+    "source/main/system/RendererOgreNextChildMain.cpp"
     "source/main/system/RendererLauncherMain.cpp"
     "source/main/system/RendererLauncherPackageConfig.h.in"
     "source/main/system/RendererPublicLauncher.cpp"
@@ -103,6 +104,7 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/RendererPublicLauncherTests.cpp"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
+    "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tools/run_ogre_next_probe.py"
     "tools/validate_ogre_next_frame_probe.py"
     "tools/verify_ogre_next_artifact_set.py")
@@ -325,6 +327,20 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend_n1_config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_n1_config.h"
     @ONLY)
+file(REAL_PATH "${ROR_OGRE_NEXT_MEDIA_ROOT}"
+    _ror_ogre_next_child_media_real)
+file(TO_CMAKE_PATH "${_ror_ogre_next_child_media_real}"
+    ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT)
+if (NOT IS_ABSOLUTE "${ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT}" OR
+        NOT IS_DIRECTORY "${ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT}" OR
+        ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT MATCHES "[;\"]")
+    message(FATAL_ERROR
+        "The probe-only Ogre-Next child requires one representable absolute pinned media root")
+endif ()
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/renderer_ogre_next_child_config.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/renderer_ogre_next_child_config.generated.h"
+    @ONLY)
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/vulkan_rt5_config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_vulkan_rt5_config.h"
@@ -445,8 +461,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre_next_n1_contract
         PUBLIC "${_ror_render_root}")
 
-    add_library(
-        ror_ogre_next_frontend_n1 STATIC
+    set(_ror_ogre_next_frontend_n1_sources
         "${_ror_render_root}/ogrenext/NativeDirectionalShadowContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
@@ -454,14 +469,18 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp"
         "${_ror_render_root}/ogrenext/OgreNextReflectionProbeRuntime.cpp"
         "${_ror_render_root}/ogrenext/OgreNextPssmShadowPolicy.cpp")
+    add_library(
+        ror_ogre_next_frontend_n1 STATIC
+        ${_ror_ogre_next_frontend_n1_sources})
     if (APPLE)
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_METAL=1)
+        set(_ror_ogre_next_frontend_n1_platform_sources
+            "${_ror_render_root}/ogrenext/OgreNextN2InteropState.cpp"
+            "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
+            "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
         target_sources(
             ror_ogre_next_frontend_n1
-            PRIVATE
-                "${_ror_render_root}/ogrenext/OgreNextN2InteropState.cpp"
-                "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
-                "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
+            PRIVATE ${_ror_ogre_next_frontend_n1_platform_sources})
         target_compile_options(
             ror_ogre_next_frontend_n1
             PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
@@ -470,9 +489,15 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             PRIVATE ROR_OGRE_NEXT_N2_TEST_SEAM=1)
     elseif (WIN32)
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_D3D11=1)
+        set(_ror_ogre_next_frontend_n1_platform_sources "")
     else ()
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_VULKAN=1)
+        set(_ror_ogre_next_frontend_n1_platform_sources "")
     endif ()
+
+    # Keep the established fault-injection aggregate and staged N1 smoke
+    # unchanged. The real child links a second build of the exact sources with
+    # neither test seam defined anywhere in its compile closure.
     target_compile_definitions(
         ror_ogre_next_frontend_n1
         PUBLIC ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM=1
@@ -508,6 +533,58 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PROPERTIES
             CXX_VISIBILITY_PRESET hidden
             VISIBILITY_INLINES_HIDDEN YES)
+    add_dependencies(
+        ror_ogre_next_frontend_n1
+        ror_ogre_next_pssm_source_closure_verify)
+
+    add_library(
+        ror_ogre_next_frontend_n1_runtime STATIC
+        ${_ror_ogre_next_frontend_n1_sources})
+    if (APPLE)
+        target_sources(
+            ror_ogre_next_frontend_n1_runtime
+            PRIVATE ${_ror_ogre_next_frontend_n1_platform_sources})
+        target_compile_options(
+            ror_ogre_next_frontend_n1_runtime
+            PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    endif ()
+    target_compile_definitions(
+        ror_ogre_next_frontend_n1_runtime
+        PRIVATE ${_ror_n1_renderer_definition})
+    target_include_directories(
+        ror_ogre_next_frontend_n1_runtime
+        PUBLIC "${_ror_render_root}/ogrenext"
+        PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_include_directories(
+        ror_ogre_next_frontend_n1_runtime
+        SYSTEM PRIVATE
+            "${ogre_next_SOURCE_DIR}/OgreMain/include"
+            "${ogre_next_BINARY_DIR}/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Common/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Pbs/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Unlit/include"
+            "${ogre_next_SOURCE_DIR}/Components/Overlay/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Direct3D11/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Vulkan/include")
+    target_link_libraries(
+        ror_ogre_next_frontend_n1_runtime
+        PUBLIC ror_ogre_next_n1_contract
+        PRIVATE
+            OgreNextHlmsPbs
+            OgreNextHlmsUnlit
+            OgreNextOverlay
+            ${ROR_OGRE_NEXT_RENDERER_TARGET}
+            OgreNextMain)
+    set_target_properties(
+        ror_ogre_next_frontend_n1_runtime
+        PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES)
+    add_dependencies(
+        ror_ogre_next_frontend_n1_runtime
+        ror_ogre_next_pssm_source_closure_verify)
 
     add_executable(
         ror_ogre_next_frontend_n1_smoke
@@ -534,10 +611,6 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     set_target_properties(
         ror_ogre_next_pssm_shadow_smoke
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-    add_dependencies(
-        ror_ogre_next_frontend_n1
-        ror_ogre_next_pssm_source_closure_verify)
-
     add_executable(
         ror_renderer_backend_policy_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererBackendPolicyTests.cpp"
@@ -616,6 +689,58 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     set_target_properties(
         ror_renderer_ogre_next_child_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    # Real native entrypoint and frontend bootstrap, still confined to this
+    # probe project. It is intentionally absent from all package/install and
+    # product source/main CMake paths until presentation and the game bridge
+    # pass their separate admission gates.
+    set(_ror_renderer_ogre_next_child_runtime_output
+        "${CMAKE_BINARY_DIR}/renderer-ogre-next-child-runtime")
+    add_executable(
+        ror_renderer_ogre_next_child_runtime
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextChildMain.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextChild.cpp")
+    target_include_directories(
+        ror_renderer_ogre_next_child_runtime
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system"
+            "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_link_libraries(
+        ror_renderer_ogre_next_child_runtime
+        PRIVATE ror_ogre_next_frontend_n1_runtime)
+    set_target_properties(
+        ror_renderer_ogre_next_child_runtime
+        PROPERTIES
+            OUTPUT_NAME "RoR-OgreNext"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_ogre_next_child_runtime_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_ogre_next_child_runtime_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_ogre_next_child_runtime_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_ogre_next_child_runtime_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_ogre_next_child_runtime_output}/MinSizeRel")
+    if (WIN32)
+        set_target_properties(
+            ror_renderer_ogre_next_child_runtime
+            PROPERTIES WIN32_EXECUTABLE YES)
+        target_compile_definitions(
+            ror_renderer_ogre_next_child_runtime
+            PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+        target_link_libraries(
+            ror_renderer_ogre_next_child_runtime PRIVATE Shell32)
+    endif ()
+    if (MINGW)
+        target_link_options(
+            ror_renderer_ogre_next_child_runtime PRIVATE -municode)
+    endif ()
 
     add_executable(
         ror_renderer_child_launcher_tests
@@ -734,6 +859,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     set(_ror_n1_targets
         ror_ogre_next_n1_contract
         ror_ogre_next_frontend_n1
+        ror_ogre_next_frontend_n1_runtime
         ror_ogre_next_frontend_n1_smoke
         ror_ogre_next_pssm_shadow_smoke
         ror_renderer_backend_policy_tests
@@ -741,6 +867,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_handoff_tests
         ror_renderer_child_intent_tests
         ror_renderer_ogre_next_child_tests
+        ror_renderer_ogre_next_child_runtime
         ror_renderer_child_launcher_fake_child
         ror_renderer_child_launcher_tests
         ror_renderer_public_launcher_legacy_child
@@ -1017,6 +1144,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererChildLauncher.h
             source/main/system/RendererOgreNextChild.cpp
             source/main/system/RendererOgreNextChild.h
+            source/main/system/RendererOgreNextChildMain.cpp
             source/main/system/RendererLauncherMain.cpp
             source/main/system/RendererLauncherPackageConfig.h.in
             source/main/system/RendererPublicLauncher.cpp
@@ -1031,6 +1159,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/RendererPublicLauncherTests.cpp
             tests/gfx/RendererStartupHandoffTests.cpp
             tests/gfx/RendererStartupPlanTests.cpp
+            tests/tools/test_ogre_next_child_runtime_contract.py
             tools/ogre_next_probe
             tools/run_ogre_next_probe.py
             tools/validate_ogre_next_frame_probe.py
@@ -1409,6 +1538,22 @@ if (TARGET ror_renderer_ogre_next_child_tests)
     add_test(NAME ror_renderer_ogre_next_child
         COMMAND $<TARGET_FILE:ror_renderer_ogre_next_child_tests>)
 endif ()
+if (TARGET ror_renderer_ogre_next_child_runtime)
+    add_test(
+        NAME ror_renderer_ogre_next_child_runtime
+        COMMAND $<TARGET_FILE:ror_renderer_ogre_next_child_runtime>
+            --ror-renderer-child-intent-version=1
+            --ror-renderer-child-frontend=ogre-next-require
+            --ror-renderer-child-directional-shadows=pssm
+            --ror-renderer-child-native-backend=none)
+    set_tests_properties(
+        ror_renderer_ogre_next_child_runtime
+        PROPERTIES
+            RESOURCE_LOCK ror_ogre_next_n1_native_device
+            SKIP_RETURN_CODE 77
+            TIMEOUT 120
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif ()
 if (TARGET ror_renderer_child_launcher_tests)
     add_test(NAME ror_renderer_child_launcher
         COMMAND $<TARGET_FILE:ror_renderer_child_launcher_tests>)
@@ -1590,7 +1735,9 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "-DREPEAT_REFLECTION=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE}"
             "-DREPEAT_COMPOSITOR=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyRt4DeterministicRepeat.cmake"
-        DEPENDS ror_ogre_next_frontend_n1_package
+        DEPENDS
+            ror_ogre_next_frontend_n1_package
+            ror_renderer_ogre_next_child_runtime
         BYPRODUCTS
             "${ROR_OGRE_NEXT_N1_IMAGE}"
             "${ROR_OGRE_NEXT_N1_REPORT}"

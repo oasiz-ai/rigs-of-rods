@@ -1094,8 +1094,13 @@ Gate R1:
   CPack staging plus the signed macOS application bundle retain both exact
   roles and preserve OGRE 14 crash symbols. Flat macOS install/CPack remains
   disabled so it cannot bypass Mach-O rewriting and nested-code signing. The
-  production Ogre-Next child remains open, so immutable package facts still
-  select the explicit compatibility fallback.
+  isolated probe now emits a real-output-name, probe-only `RoR-OgreNext` child
+  from a seam-free frontend library. Its native entrypoint consumes synthetic
+  child argv, resolves the authoritative child plan, initializes RT4/PSSM at a
+  headless 64x64 extent with one frame in flight, and shuts down. The binary is
+  not installed, staged, bundled, or production-admitted; presentation, the
+  game bridge, UI/input, scene lifetime, and package evidence remain open, so
+  immutable package facts still select the explicit compatibility fallback.
   Validation configures `-DROR_OGRE14=ON`, builds
   `ror_renderer_launcher`, and verifies exact `bin/RoR[.exe]` plus
   `bin/RoR-Ogre14[.exe]` siblings in build and package layouts.

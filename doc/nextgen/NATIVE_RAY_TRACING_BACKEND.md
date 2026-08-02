@@ -485,9 +485,12 @@ Linux/Windows install and CPack staging plus the signed macOS application
 bundle now retain both exact roles and audit the OGRE 14 child closure
 independently from the dependency-free public launcher. Flat macOS install and
 CPack rules stay disabled because only the application stager owns complete
-Mach-O dependency rewriting and nested-code signing. The production Ogre-Next
-child remains open; the N1 probe is not a production child and cannot set
-package admission facts. The exact build and package topology is documented in
+Mach-O dependency rewriting and nested-code signing. The isolated build now
+adds a probe-only `RoR-OgreNext` with a real native entrypoint and seam-free
+RT4/PSSM 64x64 headless initialize/shutdown path. It is not installed, staged,
+bundled, or production-admitted and has no presentation or game bridge. The
+complete production Ogre-Next child remains open; neither this bootstrap nor
+the N1 evidence can set package admission facts. The exact build and package topology is documented in
 `OGRE_NEXT_INTEGRATION.md`; `-DROR_OGRE14=ON` defaults the public launcher on,
 builds target `ror_renderer_launcher`, and emits sibling `bin/RoR[.exe]` and
 `bin/RoR-Ogre14[.exe]` executables.
