@@ -80,6 +80,11 @@ public:
   RendererBridgeChannel &operator=(RendererBridgeChannel &&) = delete;
 
   RendererBridgeChannelResult Adopt() noexcept;
+  /// Consume at most one immediately available chunk without changing the
+  /// native pipe's blocking mode. READY with zero bytes means the inbound pipe
+  /// is still open but has no bytes available at this instant.
+  RendererBridgeChannelResult
+  TryReadSome(std::uint8_t *bytes, std::size_t capacity) noexcept;
   RendererBridgeChannelResult
   ReadSome(std::uint8_t *bytes, std::size_t capacity) noexcept;
   RendererBridgeChannelResult
