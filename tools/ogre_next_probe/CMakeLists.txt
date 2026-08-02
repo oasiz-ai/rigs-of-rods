@@ -106,6 +106,8 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererOgre14GameBridge.h"
     "source/main/system/RendererSiblingPath.cpp"
     "source/main/system/RendererSiblingPath.h"
+    "source/main/system/RendererPackagedMediaPath.cpp"
+    "source/main/system/RendererPackagedMediaPath.h"
     "source/main/system/RendererOgreNextChild.cpp"
     "source/main/system/RendererOgreNextChild.h"
     "source/main/system/RendererOgreNextChildMain.cpp"
@@ -1046,7 +1048,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     add_executable(
         ror_renderer_sibling_path_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererSiblingPathTests.cpp"
-        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp")
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp")
     target_include_directories(
         ror_renderer_sibling_path_tests
         PRIVATE
@@ -1739,6 +1742,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererOgre14GameBridge.h
             source/main/system/RendererSiblingPath.cpp
             source/main/system/RendererSiblingPath.h
+            source/main/system/RendererPackagedMediaPath.cpp
+            source/main/system/RendererPackagedMediaPath.h
             source/main/system/RendererOgreNextChild.cpp
             source/main/system/RendererOgreNextChild.h
             source/main/system/RendererOgreNextChildMain.cpp

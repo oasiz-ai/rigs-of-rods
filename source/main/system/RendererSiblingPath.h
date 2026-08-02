@@ -27,6 +27,19 @@ enum class RendererSiblingPathStatus : std::uint8_t {
   FAILED_INTERNAL,
 };
 
+/// Canonical path of the running executable after resolving the platform's
+/// executable handle/symlink. This is the only trusted anchor for sibling
+/// binaries and immutable packaged media; cwd, PATH, argv[0], and environment
+/// variables are deliberately excluded.
+struct RendererCurrentExecutablePathResult final {
+  std::uint32_t version = kRendererSiblingPathContractVersion;
+  RendererSiblingPathStatus status =
+      RendererSiblingPathStatus::FAILED_CURRENT_EXECUTABLE_PATH;
+  RendererChildLauncherString path;
+  std::uint32_t native_error_code = 0U;
+  bool accepted = false;
+};
+
 struct RendererSiblingPathResult final {
   std::uint32_t version = kRendererSiblingPathContractVersion;
   RendererSiblingPathStatus status =
@@ -35,6 +48,9 @@ struct RendererSiblingPathResult final {
   std::uint32_t native_error_code = 0U;
   bool accepted = false;
 };
+
+RendererCurrentExecutablePathResult
+ResolveRendererCurrentExecutablePath() noexcept;
 
 /// Resolve one ASCII basename relative to the final opened executable rather
 /// than cwd, PATH, environment, or an alias directory. This function does not

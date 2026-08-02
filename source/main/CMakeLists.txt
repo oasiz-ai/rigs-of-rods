@@ -280,6 +280,7 @@ set(SOURCE_FILES
         system/RendererChildLauncher.{h,cpp}
         system/RendererOgre14GameBridge.{h,cpp}
         system/RendererSiblingPath.{h,cpp}
+        system/RendererPackagedMediaPath.{h,cpp}
         terrain/OgreTerrainPSSMMaterialGenerator.{h,cpp}
         terrain/LocalLightBudget.h
         terrain/ProceduralManager.{h,cpp}
@@ -557,6 +558,8 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
         system/RendererChildLauncher.h
         system/RendererSiblingPath.cpp
         system/RendererSiblingPath.h
+        system/RendererPackagedMediaPath.cpp
+        system/RendererPackagedMediaPath.h
         gfx/RendererBackendPolicy.cpp
         gfx/RendererBackendPolicy.h
         gfx/RendererStartupPlan.cpp
