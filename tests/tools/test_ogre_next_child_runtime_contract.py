@@ -22,6 +22,10 @@ ENTRYPOINT_PATH = (
     / "system"
     / "RendererOgreNextChildMain.cpp"
 )
+ORCHESTRATION_PATH = ENTRYPOINT_PATH.with_name("RendererOgreNextChild.cpp")
+ORCHESTRATION_HEADER_PATH = ENTRYPOINT_PATH.with_name(
+    "RendererOgreNextChild.h"
+)
 SELF_PATH = "tests/tools/test_ogre_next_child_runtime_contract.py"
 RUNNER_PATH = PROBE_ROOT / "run_child_runtime_receipt.py"
 VALIDATOR_PATH = PROBE_ROOT / "validate_child_runtime_receipt.py"
@@ -45,6 +49,10 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.entrypoint = ENTRYPOINT_PATH.read_text(encoding="utf-8")
+        cls.orchestration = ORCHESTRATION_PATH.read_text(encoding="utf-8")
+        cls.orchestration_header = ORCHESTRATION_HEADER_PATH.read_text(
+            encoding="utf-8"
+        )
         cls.cmake = (PROBE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         cls.config = (
             PROBE_ROOT / "renderer_ogre_next_child_config.h.in"
@@ -167,6 +175,81 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.entrypoint)
+
+    def test_bridge_orchestration_decodes_before_callbacks_without_adoption(
+        self,
+    ) -> None:
+        parse_position = self.orchestration.index(
+            "ParseRendererBridgeEndpoint("
+        )
+        preflight_position = self.orchestration.index(
+            "runtime.collect_native_preflight()"
+        )
+        frontend_position = self.orchestration.index(
+            "runtime.bootstrap_frontend(result.frontend_request)"
+        )
+        self.assertLess(parse_position, preflight_position)
+        self.assertLess(preflight_position, frontend_position)
+        for token in (
+            "RendererBridgeRole::PRESENTATION_FRONTEND",
+            "IsValidRendererBridgeEndpoint(bridge.endpoint)",
+            "ClassifyRendererBridgeEndpointFailure(bridge.status)",
+            "bridge.forwarded_arguments",
+            "ACCEPTED_PRODUCTION_BRIDGE_ORCHESTRATION",
+            "REJECTED_BRIDGE_ENDPOINT",
+            "REJECTED_BRIDGE_ROLE",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.orchestration)
+        for forbidden in (
+            "RendererBridgeChannel",
+            ".Adopt(",
+            "CloseHandle(",
+            "ReadFile(",
+            "WriteFile(",
+            "fcntl(",
+            "::close(",
+            "::read(",
+            "::write(",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.orchestration)
+        self.assertIn(
+            '#include "RendererBridgeEndpoint.h"',
+            self.orchestration_header,
+        )
+        self.assertNotIn("RendererBridgeChannel", self.orchestration_header)
+        for path in (
+            "source/main/system/RendererBridgeEndpoint.cpp",
+            "source/main/system/RendererBridgeEndpoint.h",
+        ):
+            self.assertIn(path, PROCESS_CLOSURE.ROR_PATHS)
+
+    def test_bridge_endpoint_is_linked_into_both_child_contract_targets(
+        self,
+    ) -> None:
+        test_target = self.cmake[
+            self.cmake.index(
+                "add_executable(\n        ror_renderer_ogre_next_child_tests"
+            ) : self.cmake.index(
+                "add_executable(\n        ror_renderer_ogre_next_window_host_tests"
+            )
+        ]
+        runtime_target = self.cmake[
+            self.cmake.index(
+                "add_executable(\n        ror_renderer_ogre_next_child_runtime"
+            ) : self.cmake.index(
+                "target_include_directories(\n"
+                "        ror_renderer_ogre_next_child_runtime"
+            )
+        ]
+        for target in (test_target, runtime_target):
+            self.assertEqual(
+                target.count(
+                    "source/main/system/RendererBridgeEndpoint.cpp"
+                ),
+                1,
+            )
 
     def test_bootstrap_is_exactly_rt4_pssm_headless_64(self) -> None:
         for token in (
@@ -593,6 +676,8 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
     def test_every_relevant_source_manifest_covers_the_entrypoint(self) -> None:
         paths = (
             "source/main/system/RendererOgreNextChildMain.cpp",
+            "source/main/system/RendererBridgeEndpoint.cpp",
+            "source/main/system/RendererBridgeEndpoint.h",
             SELF_PATH,
         )
         manifests = (

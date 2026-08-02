@@ -442,6 +442,7 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextChild.cpp"
 )
 target_include_directories(

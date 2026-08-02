@@ -97,6 +97,8 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererBridgeProcessSupervisor.h"
     "source/main/system/RendererChildIntent.cpp"
     "source/main/system/RendererChildIntent.h"
+    "source/main/system/RendererBridgeEndpoint.cpp"
+    "source/main/system/RendererBridgeEndpoint.h"
     "source/main/system/RendererChildLauncher.cpp"
     "source/main/system/RendererChildLauncher.h"
     "source/main/system/RendererSiblingPath.cpp"
@@ -833,6 +835,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextChild.cpp")
     target_include_directories(
         ror_renderer_ogre_next_child_tests
@@ -953,6 +956,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextChild.cpp")
     target_include_directories(
         ror_renderer_ogre_next_child_runtime
@@ -1524,6 +1528,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererBridgeProcessSupervisor.h
             source/main/system/RendererChildIntent.cpp
             source/main/system/RendererChildIntent.h
+            source/main/system/RendererBridgeEndpoint.cpp
+            source/main/system/RendererBridgeEndpoint.h
             source/main/system/RendererChildLauncher.cpp
             source/main/system/RendererChildLauncher.h
             source/main/system/RendererSiblingPath.cpp

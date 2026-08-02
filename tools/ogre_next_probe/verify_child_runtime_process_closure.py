@@ -30,6 +30,8 @@ ROR_PATHS = (
     "source/main/gfx/RendererStartupPlan.cpp",
     "source/main/gfx/RendererStartupHandoff.cpp",
     "source/main/system/RendererChildIntent.cpp",
+    "source/main/system/RendererBridgeEndpoint.cpp",
+    "source/main/system/RendererBridgeEndpoint.h",
     "source/main/system/RendererOgreNextChild.cpp",
     "source/main/system/RendererOgreNextChildMain.cpp",
 )
