@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate one probe-only RoR-OgreNext child execution receipt."""
+"""Validate one non-admitted RoR-OgreNext child execution receipt."""
 
 from __future__ import annotations
 
@@ -41,12 +41,7 @@ PLATFORM_BACKENDS = {
         "RoR-OgreNext",
     ),
 }
-RECEIPT_SCOPE = {
-    "probe_only": True,
-    "packaged": False,
-    "production_admitted": False,
-    "process_model": "single-process-reviewed-source-closure-v1",
-}
+RECEIPT_PROCESS_MODEL = "single-process-reviewed-source-closure-v1"
 NONCE_POLICY = "os-csprng-256-bit-v1"
 TIMESTAMP_POLICY = "omitted-no-wall-clock-v1"
 
@@ -114,6 +109,22 @@ def _exact(actual: object, expected: object) -> bool:
             _exact(left, right) for left, right in zip(actual, expected)
         )
     return actual == expected
+
+
+def expected_receipt_scope(build_contract: dict[str, Any]) -> dict[str, Any]:
+    components = build_contract.get("components")
+    if not isinstance(components, dict):
+        raise ReceiptValidationError("build contract child receipt policy is invalid")
+    packaged = components.get("headless_child_packaged")
+    admitted = components.get("headless_child_production_admitted")
+    if type(packaged) is not bool or admitted is not False:
+        raise ReceiptValidationError("build contract child receipt policy is invalid")
+    return {
+        "probe_only": not packaged,
+        "packaged": packaged,
+        "production_admitted": False,
+        "process_model": RECEIPT_PROCESS_MODEL,
+    }
 
 
 def _regular_file(root: Path, relative: str, label: str) -> Path:
@@ -284,6 +295,7 @@ def validate_receipt(
     if build_contract.get("schema_version") != 6:
         raise ReceiptValidationError("child receipt requires build contract schema 6")
     components = build_contract.get("components")
+    expected_scope = expected_receipt_scope(build_contract)
     if not isinstance(components, dict) or not (
         components.get("headless_child_bootstrap") is True
         and components.get("headless_child_output_name") == "RoR-OgreNext"
@@ -293,9 +305,7 @@ def validate_receipt(
         and components.get("headless_child_binary_retained") is True
         and components.get("headless_child_logs_retained") is True
         and components.get("headless_child_process_model")
-        == "single-process-reviewed-source-closure-v1"
-        and components.get("headless_child_packaged") is False
-        and components.get("headless_child_production_admitted") is False
+        == RECEIPT_PROCESS_MODEL
     ):
         raise ReceiptValidationError("build contract child receipt policy is invalid")
 
@@ -323,7 +333,7 @@ def validate_receipt(
         or schema_version != 1
     ):
         raise ReceiptValidationError("child receipt schema is invalid")
-    if not _exact(receipt.get("scope"), RECEIPT_SCOPE):
+    if not _exact(receipt.get("scope"), expected_scope):
         raise ReceiptValidationError("child receipt scope is invalid")
     expected_provenance = _expected_provenance(root, build_contract)
     if not _exact(receipt.get("provenance"), expected_provenance):
