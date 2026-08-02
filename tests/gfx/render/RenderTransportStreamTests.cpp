@@ -8,6 +8,7 @@
 
 #include "RenderTransportStream.h"
 
+#include "InputEventTransport.h"
 #include "RenderAssetDeltaTransport.h"
 #include "SceneSnapshotTransport.h"
 
@@ -63,6 +64,8 @@ void WriteU64(std::vector<std::uint8_t> &bytes, std::size_t offset,
 void TestStatusAndConfigurationContract() {
   Require(kRenderTransportStreamSceneMaximumPayloadBytes ==
                   kSceneSnapshotTransportMaximumPayloadBytes &&
+              kRenderTransportStreamInputMaximumPayloadBytes ==
+                  kInputEventTransportMaximumPayloadBytes &&
               kRenderTransportStreamAssetMaximumPayloadBytes ==
                   kRenderAssetDeltaTransportMaximumPayloadBytes,
           "stream and typed payload caps diverged");
@@ -243,6 +246,21 @@ void TestHeaderAndEnvelopeFailuresAreTerminal() {
               kind_limit.bytes_consumed ==
                   kRenderTransportEnvelopeHeaderBytes,
           "scene kind exceeded its lower typed payload cap");
+
+  std::vector<std::uint8_t> oversized_input = MakeFrame(
+      RenderTransportMessageKind::INPUT_EVENT_BATCH_V1, 1U, 0U);
+  WriteU64(oversized_input, 24U,
+           kRenderTransportStreamInputMaximumPayloadBytes + 1U);
+  RenderTransportStreamDecoder input_limit_decoder(
+      kRenderTransportStreamAbsoluteMaximumPayloadBytes);
+  const auto input_limit = input_limit_decoder.Accept(
+      oversized_input.data(), oversized_input.size());
+  Require(input_limit.status == RenderTransportStreamStatus::FAILED_HEADER &&
+              input_limit.transport_status ==
+                  RenderTransportStatus::PAYLOAD_LIMIT_EXCEEDED &&
+              input_limit.bytes_consumed ==
+                  kRenderTransportEnvelopeHeaderBytes,
+          "input kind exceeded its lower typed payload cap");
 
   std::vector<std::uint8_t> corrupted = MakeFrame(
       RenderTransportMessageKind::RENDER_ASSET_DELTA_V1, 5U, 8U);

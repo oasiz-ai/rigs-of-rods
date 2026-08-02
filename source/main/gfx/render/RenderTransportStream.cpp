@@ -104,10 +104,23 @@ bool RenderTransportStreamDecoder::InspectCompleteHeader() noexcept {
          RenderTransportStatus::INVALID_SEQUENCE);
     return false;
   }
-  const std::uint64_t message_payload_limit =
-      kind == RenderTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2
-          ? kRenderTransportStreamSceneMaximumPayloadBytes
-          : kRenderTransportStreamAssetMaximumPayloadBytes;
+  std::uint64_t message_payload_limit = 0U;
+  switch (kind) {
+  case RenderTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2:
+    message_payload_limit = kRenderTransportStreamSceneMaximumPayloadBytes;
+    break;
+  case RenderTransportMessageKind::RENDER_ASSET_DELTA_V1:
+    message_payload_limit = kRenderTransportStreamAssetMaximumPayloadBytes;
+    break;
+  case RenderTransportMessageKind::INPUT_EVENT_BATCH_V1:
+    message_payload_limit = kRenderTransportStreamInputMaximumPayloadBytes;
+    break;
+  }
+  if (message_payload_limit == 0U) {
+    Fail(RenderTransportStreamStatus::FAILED_INTERNAL,
+         RenderTransportStatus::UNKNOWN_MESSAGE_KIND);
+    return false;
+  }
   if (payload_bytes > maximum_payload_bytes_ ||
       payload_bytes > message_payload_limit) {
     Fail(RenderTransportStreamStatus::FAILED_HEADER,

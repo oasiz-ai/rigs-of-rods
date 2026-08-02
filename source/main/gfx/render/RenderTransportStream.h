@@ -22,6 +22,8 @@ namespace RoR::Render {
 constexpr std::uint32_t kRenderTransportStreamContractVersion = 1U;
 constexpr std::uint64_t kRenderTransportStreamSceneMaximumPayloadBytes =
     64ULL * 1024ULL * 1024ULL;
+constexpr std::uint64_t kRenderTransportStreamInputMaximumPayloadBytes =
+    4ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t kRenderTransportStreamAssetMaximumPayloadBytes =
     640ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t kRenderTransportStreamAbsoluteMaximumPayloadBytes =

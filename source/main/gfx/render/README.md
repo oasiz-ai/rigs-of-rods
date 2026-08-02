@@ -151,9 +151,9 @@ The fixed 64-byte header is independent of host structure packing:
 `RenderTransportStreamDecoder` version 1 reconstructs these atomic envelopes
 from pipes or other arbitrary byte streams without assuming read boundaries.
 It validates the complete fixed header before reserving the declared payload,
-enforces the lower of an immutable caller cap and the typed 64 MiB scene or
-640 MiB asset cap, consumes no bytes from a coalesced following frame, and
-exposes at most one validated frame at a time.
+enforces the lower of an immutable caller cap and the typed 4 MiB input,
+64 MiB scene, or 640 MiB asset cap, consumes no bytes from a coalesced
+following frame, and exposes at most one validated frame at a time.
 Callers must take that frame before continuing. Invalid framing, corruption,
 allocation failure, or EOF inside a frame permanently poisons the decoder;
 there is deliberately no magic-byte resynchronization that could conceal lost
