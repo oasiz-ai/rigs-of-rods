@@ -31,8 +31,8 @@ static_assert(
     std::is_trivially_copyable_v<RoR::Render::ParallaxProbeReferenceResult>);
 static_assert(std::is_trivially_copyable_v<
               RoR::Render::ReflectionProbeRuntimeDescriptor>);
-static_assert(std::is_trivially_copyable_v<
-              RoR::Render::ReflectionProbeUpdateRequest>);
+static_assert(
+    std::is_trivially_copyable_v<RoR::Render::ReflectionProbeUpdateRequest>);
 static_assert(
     std::is_trivially_copyable_v<RoR::Render::HdrAnalyticAutoExposureInput>);
 static_assert(
@@ -60,8 +60,12 @@ static_assert(!std::is_move_assignable_v<
               RoR::Render::DecodedRenderAssetDeltaTransportMessage>);
 static_assert(!std::is_copy_constructible_v<
               RoR::Render::DecodedInputEventTransportMessage>);
+static_assert(
+    !std::is_move_assignable_v<RoR::Render::DecodedInputEventTransportMessage>);
+static_assert(!std::is_copy_constructible_v<
+              RoR::Render::RendererFrontendTransportDispatcher>);
 static_assert(!std::is_move_assignable_v<
-              RoR::Render::DecodedInputEventTransportMessage>);
+              RoR::Render::RendererFrontendTransportDispatcher>);
 static_assert(std::is_standard_layout_v<RoR::Render::NativeObjectToken>);
 static_assert(
     std::is_abstract_v<RoR::Render::IJoinedGraphicsSceneSource>,

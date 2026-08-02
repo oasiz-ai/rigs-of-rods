@@ -317,6 +317,14 @@ jobs:
           --output-on-failure
           -R '^ror_ogre_next_frontend_(n1_|rt4_)'
 
+      - name: Prove game-to-frontend transport dispatch on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_renderer_frontend_transport_dispatcher$'
+
       - name: Run the non-admitted real Ogre-Next child bootstrap
         run: >-
           ctest

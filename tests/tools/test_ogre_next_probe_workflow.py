@@ -596,6 +596,59 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIn(f"{path} text eol=lf", attributes)
 
+    def test_frontend_transport_dispatcher_is_cross_platform_and_attested(self) -> None:
+        probe_cmake = (
+            REPOSITORY_ROOT / "tools" / "ogre_next_probe" / "CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        native_cmake = (REPOSITORY_ROOT / "tests" / "CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+        prelink = (
+            REPOSITORY_ROOT
+            / "tools"
+            / "ogre_next_probe"
+            / "cmake"
+            / "VerifyN2SourceProvenance.cmake"
+        ).read_text(encoding="utf-8")
+        runner = (REPOSITORY_ROOT / "tools" / "run_ogre_next_probe.py").read_text(
+            encoding="utf-8"
+        )
+        verifier = (
+            REPOSITORY_ROOT / "tools" / "verify_ogre_next_artifact_set.py"
+        ).read_text(encoding="utf-8")
+        attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(
+            encoding="utf-8"
+        )
+        test_path = "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
+        for manifest in (probe_cmake, prelink, runner, verifier):
+            with self.subTest(manifest_size=len(manifest)):
+                self.assertIn(test_path, manifest)
+        self.assertIn(f"{test_path} text eol=lf", attributes)
+        for source in (
+            "RenderAssetDeltaTransport.cpp",
+            "RenderBridgeSessionIdentity.cpp",
+            "RenderTransportEnvelope.cpp",
+            "RenderTransportStream.cpp",
+            "RendererFrontendTransportDispatcher.cpp",
+            "SceneSnapshotTransport.cpp",
+        ):
+            with self.subTest(probe_contract_source=source):
+                self.assertIn(source, probe_cmake)
+                self.assertIn(source, native_cmake)
+        for token in (
+            "add_executable(\n        ror_renderer_frontend_transport_dispatcher_tests",
+            "PRIVATE ror_ogre_next_n1_contract",
+            "add_test(NAME ror_renderer_frontend_transport_dispatcher",
+        ):
+            self.assertIn(token, probe_cmake)
+        self.assertIn(
+            "-R '^ror_renderer_frontend_transport_dispatcher$'", self.workflow
+        )
+        self.assertIn(
+            "ror_renderer_frontend_transport_dispatcher_tests",
+            native_cmake,
+        )
+
     def test_ogre_next_child_core_runs_in_the_normal_native_suite(self) -> None:
         native_cmake = (REPOSITORY_ROOT / "tests" / "CMakeLists.txt").read_text(
             encoding="utf-8"
