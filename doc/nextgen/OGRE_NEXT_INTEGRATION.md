@@ -209,9 +209,10 @@ claim.
 The production migration uses a supervisor-owned two-process topology rather
 than loading both renderer ABIs into one address space. Its first
 process-independent contract is `RendererBridgeEndpoint` version 1. The
-supervisor will create two unidirectional inherited byte streams and a fresh
-128-bit session identifier, then launch the OGRE 14 simulation/game host and
-the Ogre-Next presentation frontend with mirrored roles and stream directions.
+unwired `RendererBridgeProcessSupervisor` version-1 core now accepts a caller-
+owned nonzero 128-bit session identifier, creates two unidirectional inherited
+byte streams, and launches the OGRE 14 simulation/game host and Ogre-Next
+presentation frontend with mirrored roles and stream directions.
 Each child receives an exact six-record native argv prefix containing the
 contract version, role, compile-time platform, lowercase session identifier,
 and fixed-width native read/write handle tokens. Foreign platforms, unknown
@@ -221,12 +222,38 @@ child adopts any OS resource. The prefix composes after the existing renderer
 intent: the public launcher first wraps game arguments with the bridge endpoint
 and then wraps that result with Ogre-Next selection intent.
 
-This argv contract does not yet create pipes or processes and is not an
-authentication boundary. The next supervisor checkpoint must create an exact
-two-child process group/job, expose only the reviewed handles, validate a
-session handshake over the byte streams, apply bounded back-pressure and EOF
-semantics, terminate the peer when either child exits, and preserve exact
-legacy-only launch behavior. No package-readiness fact changes at this stage.
+Before touching an OS resource, the supervisor executes and self-validates the
+complete launch plan with reserved preview handles. It then resolves only the
+two canonical executable siblings; cwd, `PATH`, environment, and caller path
+overrides cannot select a child. POSIX creates close-on-exec bridge pipes plus
+private close-on-exec startup controls, places both forked children in one
+separate process group behind an atomic startup gate, closes every unrelated
+non-standard descriptor in each child, and clears close-on-exec only on that
+child's exact inbound/outbound endpoints. Per-child exec-error pipes distinguish
+a successful `execv` from a partial startup. Windows creates both children
+suspended with exact two-handle `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` allow-lists,
+assigns both to one mandatory `KILL_ON_JOB_CLOSE` Job Object, and resumes them
+only after both assignments succeed. Either implementation terminates and
+reaps the peer when one direct child exits, never leaves a direct zombie, and
+retains the game's exact POSIX wait status (exit or signal) or full Windows
+`DWORD` exit code for a later public-launcher propagation call.
+
+The native fake-child gate runs from a decoy cwd and `PATH`, validates its exact
+role/session and inherited endpoints, sends one valid asset envelope followed
+by one valid scene envelope on the shared game-to-presentation stream, and
+returns an acknowledgement on the reverse stream. It also covers a natural
+game exit, a POSIX terminating signal and exact propagation, presentation-first
+peer teardown, and a missing presentation executable during partial startup.
+These children and the supervisor test harness are test-only and never enter
+install or package rules.
+
+The session identifier in argv binds both endpoints to one launch transaction;
+it remains a local consistency value rather than an authentication boundary.
+The process supervisor is deliberately not called by `RendererPublicLauncher`,
+does not make either child consume production scene/input traffic, and does not
+change any generated presence/readiness/admission fact. Production stream
+back-pressure, endpoint handshake/EOF policy, game/frontend consumers, and
+package admission remain separate gates.
 
 Configure and build the renderer suite explicitly (the launcher is already the
 default when `ROR_OGRE14=ON`):

@@ -273,6 +273,7 @@ set(SOURCE_FILES
         system/RendererBridgeChannel.{h,cpp}
         system/RendererBridgeEndpoint.{h,cpp}
         system/RendererBridgeLaunchPlan.{h,cpp}
+        system/RendererBridgeProcessSupervisor.{h,cpp}
         system/RendererChildIntent.{h,cpp}
         system/RendererChildLauncher.{h,cpp}
         system/RendererSiblingPath.{h,cpp}
@@ -541,6 +542,8 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
         system/RendererBridgeEndpoint.h
         system/RendererBridgeLaunchPlan.cpp
         system/RendererBridgeLaunchPlan.h
+        system/RendererBridgeProcessSupervisor.cpp
+        system/RendererBridgeProcessSupervisor.h
         system/RendererChildIntent.cpp
         system/RendererChildIntent.h
         system/RendererChildLauncher.cpp
