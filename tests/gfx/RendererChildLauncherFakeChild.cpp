@@ -11,9 +11,9 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #if defined(_WIN32)
-#include <direct.h>
 #include <windows.h>
 
 namespace {
@@ -21,6 +21,36 @@ namespace {
 [[noreturn]] void Fail(unsigned int code, const char *message) {
   std::cerr << "renderer-child-fake-error:" << message << '\n';
   ::ExitProcess(code);
+}
+
+bool ReadEnvironmentVariable(const wchar_t *name, std::wstring &value) {
+  const DWORD required = ::GetEnvironmentVariableW(name, nullptr, 0U);
+  if (required == 0U) {
+    return false;
+  }
+  std::vector<wchar_t> buffer(static_cast<std::size_t>(required));
+  const DWORD length = ::GetEnvironmentVariableW(
+      name, buffer.data(), static_cast<DWORD>(buffer.size()));
+  if (length == 0U || length >= buffer.size()) {
+    return false;
+  }
+  value.assign(buffer.data(), static_cast<std::size_t>(length));
+  return true;
+}
+
+bool ReadCurrentWorkingDirectory(std::wstring &value) {
+  const DWORD required = ::GetCurrentDirectoryW(0U, nullptr);
+  if (required == 0U) {
+    return false;
+  }
+  std::vector<wchar_t> buffer(static_cast<std::size_t>(required));
+  const DWORD length = ::GetCurrentDirectoryW(
+      static_cast<DWORD>(buffer.size()), buffer.data());
+  if (length == 0U || length >= buffer.size()) {
+    return false;
+  }
+  value.assign(buffer.data(), static_cast<std::size_t>(length));
+  return true;
 }
 
 } // namespace
@@ -63,19 +93,18 @@ int wmain(int argc, wchar_t *argv[]) {
     }
   }
 
-  const wchar_t *token = ::_wgetenv(L"ROR_RENDERER_CHILD_TEST_TOKEN");
-  if (token == nullptr || std::wstring(token) != L"renderer-child-env-ok") {
+  std::wstring token;
+  if (!ReadEnvironmentVariable(L"ROR_RENDERER_CHILD_TEST_TOKEN", token) ||
+      token != L"renderer-child-env-ok") {
     Fail(83U, "environment");
   }
-  const wchar_t *expected_cwd =
-      ::_wgetenv(L"ROR_RENDERER_CHILD_EXPECTED_CWD");
-  wchar_t *cwd = ::_wgetcwd(nullptr, 0);
-  if (expected_cwd == nullptr || cwd == nullptr ||
-      std::wstring(cwd) != expected_cwd) {
-    std::free(cwd);
+  std::wstring expected_cwd;
+  std::wstring cwd;
+  if (!ReadEnvironmentVariable(L"ROR_RENDERER_CHILD_EXPECTED_CWD",
+                               expected_cwd) ||
+      !ReadCurrentWorkingDirectory(cwd) || cwd != expected_cwd) {
     Fail(84U, "working-directory");
   }
-  std::free(cwd);
 
   std::string input;
   std::getline(std::cin, input);
