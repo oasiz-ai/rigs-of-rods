@@ -228,12 +228,16 @@ def generate_runtime_search_install_fixture() -> subprocess.CompletedProcess:
 
         alpha_root = temporary_root / "alpha package"
         beta_root = temporary_root / "beta package"
+        discord_rpc_root = temporary_root / "discord rpc package"
         ogre_root = temporary_root / "ogre package ]=] literal"
+        openal_soft_root = temporary_root / "openal soft package"
         header_root = temporary_root / "header only"
         (alpha_root / "lib").mkdir(parents=True)
         (beta_root / "bin").mkdir(parents=True)
+        (discord_rpc_root / "lib").mkdir(parents=True)
         (ogre_root / "lib").mkdir(parents=True)
         (ogre_root / "bin").mkdir()
+        (openal_soft_root / "bin").mkdir(parents=True)
         header_root.mkdir()
 
         configured_output = build_root / "configured-search-dirs.txt"
@@ -247,10 +251,14 @@ def generate_runtime_search_install_fixture() -> subprocess.CompletedProcess:
             f"{cmake_bracket(alpha_root.as_posix())})\n"
             "set(beta_PACKAGE_FOLDER_RELEASE "
             f"{cmake_bracket(beta_root.as_posix())})\n"
+            "set(discord-rpc_PACKAGE_FOLDER_RELEASE "
+            f"{cmake_bracket(discord_rpc_root.as_posix())})\n"
             "set(header_PACKAGE_FOLDER_RELEASE "
             f"{cmake_bracket(header_root.as_posix())})\n"
             "set(ogre3d_PACKAGE_FOLDER_RELEASE "
             f"{cmake_bracket(ogre_root.as_posix())})\n"
+            "set(openal-soft_PACKAGE_FOLDER_RELEASE "
+            f"{cmake_bracket(openal_soft_root.as_posix())})\n"
             # A configuration not selected by the fixture must be ignored.
             "set(injected_PACKAGE_FOLDER_DEBUG relative/not-selected)\n"
             "ror_ogre14_cmakedeps_runtime_search_dirs(\n"
@@ -313,8 +321,10 @@ def generate_runtime_search_install_fixture() -> subprocess.CompletedProcess:
             for path in (
                 alpha_root / "lib",
                 beta_root / "bin",
+                discord_rpc_root / "lib",
                 ogre_root / "lib",
                 ogre_root / "bin",
+                openal_soft_root / "bin",
             )
         )
         return installed
