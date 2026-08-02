@@ -2,15 +2,15 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.blend",
-      "sha256": "7ddbf7f3f5a3e1d7fa7f3d2c715b8363f916edca030bbefcf6b6f484fe8e3eca"
+      "sha256": "172773a4cbc8fc98b12aaeddc6c062666b70ec68c10d2cf53ce2362ad88a18d4"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.glb",
-      "sha256": "ceb150984f6d42b8eb01c0d92d922b5a1bc5e2ad14f726025df0cdf85e60908c"
+      "sha256": "500de79a06ce368fca161b1b7bf399c872c37cd39d2d0ed32dfe3b18b4adaea4"
     },
     "preview": {
       "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10_preview.png",
-      "sha256": "74df7c446659268fa86a189db5a92d1d76e2011437021ac180a0fb568df2bd11"
+      "sha256": "d6d1dd76996bef87b7b27e5a87894e66740bc84553e548fa472f602a27898a81"
     }
   },
   "asset": {
@@ -41,7 +41,7 @@
         },
         {
           "path": "tools/blender/cityworld_next/canonicalize_storefront_glb.py",
-          "sha256": "c4a189908f79c4b9c8108a57a6978d3d0098c14b6d21c59eba321bde7d15dd8c"
+          "sha256": "68d4d22eb2628cc16461e6d2bfccd2accd4c96af11884566b1b21a3ead02cf80"
         },
         {
           "path": "tools/blender/cityworld_next/artifact_retention_contract.py",
@@ -121,25 +121,25 @@
       {
         "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "bfeebed8c5e86e26c2b3bb5a41001c99b1f0a61fe72b23d83322d06a578bcb4b",
-        "size": 3033753
+        "sha256": "7270c29cc39394c4a136864ca9337b540e24d8f16902390faa7b1c641c6ee29b",
+        "size": 2340009
       },
       {
         "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "933bca7511f1143676bc5f4059e1df96412f31a6e3b9a08fd8a19ce9456c16fe",
-        "size": 94177
+        "sha256": "af0f02e9bab69d014abc553f21d1b32b2eedd5528ac327871703c1e78fc003b7",
+        "size": 85729
       },
       {
         "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "5ca15b01c36d7ef3b269269ac3e72ed6501fa62cd27dd53c9b56ed31f96115ca",
+        "sha256": "349307d55020ed6cbabd8b72a18025137b26c8930cd780f053bbe8099be931e6",
         "size": 13624
       }
     ],
     "report": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10.compile.json",
-      "sha256": "47604fefda8b23a8d3a52ea85684f207cba23d6d4b8686856511b1f139a6391c"
+      "sha256": "e916680bf6ea0a96c7d2ab10053ffa3d0135d673a54cf0218a95b666c9f9a8fb"
     }
   },
   "connectors": [],
