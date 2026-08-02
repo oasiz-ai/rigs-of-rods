@@ -14,6 +14,11 @@
 #include "OgreNextN1Frontend.h"
 #include "renderer_ogre_next_child_config.generated.h"
 
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM) || \
+    defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
+#error "RoR-OgreNext child must not compile with an Ogre-Next test seam"
+#endif
+
 #include <cstdio>
 #include <utility>
 
