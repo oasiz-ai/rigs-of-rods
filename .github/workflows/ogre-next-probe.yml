@@ -27,6 +27,10 @@ on:
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererOgre14GameBridge.*
       - source/main/system/RendererOgre14GameHostSession.*
+      - source/main/system/RendererOgre14InputAdapter.*
+      - source/main/system/RendererOgre14InputEngineTarget.*
+      - source/main/system/RendererOgre14ProductSession.*
+      - source/main/system/RendererOgre14RuntimeOwnership.*
       - source/main/system/RendererSiblingPath.*
       - source/main/system/RendererPackagedMediaPath.*
       - source/main/system/RendererPackageRuntimeProbe.*
@@ -50,6 +54,8 @@ on:
       - tests/gfx/RendererBridge*Tests.cpp
       - tests/gfx/RendererOgre14GameBridgeTests.cpp
       - tests/gfx/RendererOgre14GameHostSessionTests.cpp
+      - tests/gfx/RendererOgre14InputAdapterTests.cpp
+      - tests/gfx/RendererOgre14RuntimeOwnershipTests.cpp
       - tests/gfx/RendererSiblingPathTests.cpp
       - tests/gfx/RendererPackageRuntimeProbeTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
@@ -87,6 +93,10 @@ on:
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererOgre14GameBridge.*
       - source/main/system/RendererOgre14GameHostSession.*
+      - source/main/system/RendererOgre14InputAdapter.*
+      - source/main/system/RendererOgre14InputEngineTarget.*
+      - source/main/system/RendererOgre14ProductSession.*
+      - source/main/system/RendererOgre14RuntimeOwnership.*
       - source/main/system/RendererSiblingPath.*
       - source/main/system/RendererPackagedMediaPath.*
       - source/main/system/RendererPackageRuntimeProbe.*
@@ -110,6 +120,8 @@ on:
       - tests/gfx/RendererBridge*Tests.cpp
       - tests/gfx/RendererOgre14GameBridgeTests.cpp
       - tests/gfx/RendererOgre14GameHostSessionTests.cpp
+      - tests/gfx/RendererOgre14InputAdapterTests.cpp
+      - tests/gfx/RendererOgre14RuntimeOwnershipTests.cpp
       - tests/gfx/RendererSiblingPathTests.cpp
       - tests/gfx/RendererPackageRuntimeProbeTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp

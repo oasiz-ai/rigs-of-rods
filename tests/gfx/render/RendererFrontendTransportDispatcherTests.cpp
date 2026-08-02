@@ -155,8 +155,11 @@ RendererFrontendPresentationPolicy PresentedPolicy() {
   policy.requested_outputs = FrameOutputMask::COLOR | FrameOutputMask::DEPTH;
   policy.color_format = PixelFormat::RGBA16_FLOAT;
   policy.presentation_surface_revision = 9U;
+  policy.presentation_drawable_width = 640U;
+  policy.presentation_drawable_height = 480U;
   policy.present = true;
   policy.allow_async_compute = true;
+  policy.retire_scene_on_presentation_extent_mismatch = true;
   return policy;
 }
 
@@ -407,6 +410,16 @@ void TestPresentationPolicyValidation() {
   Require(ValidateRendererFrontendPresentationPolicy(invalid).code ==
               ValidationCode::INVALID_IDENTIFIER,
           "retired scene policy retained native presentation identity");
+  invalid = PresentedPolicy();
+  invalid.presentation_drawable_width = 0U;
+  Require(ValidateRendererFrontendPresentationPolicy(invalid).code ==
+              ValidationCode::INVALID_DIMENSIONS,
+          "extent guard accepted an empty drawable extent");
+  invalid = PresentedPolicy();
+  invalid.retire_scene_on_presentation_extent_mismatch = false;
+  Require(ValidateRendererFrontendPresentationPolicy(invalid).code ==
+              ValidationCode::INVALID_DIMENSIONS,
+          "unguarded policy retained a presentation drawable extent");
 }
 
 void TestRetiredSceneAdvancesLineageWithoutFrontendWork() {
@@ -443,6 +456,32 @@ void TestRetiredSceneAdvancesLineageWithoutFrontendWork() {
               frontend.rendered_requests.size() == 1U &&
               dispatcher.next_expected_sequence() == 4U,
           "post-retirement scene did not render on the same live dispatcher");
+}
+
+void TestStalePresentationExtentRetiresAfterDecode() {
+  FakeFrontend frontend;
+  RendererFrontendTransportDispatcher dispatcher(frontend, Session(18U));
+  const auto asset = AssetFrame(
+      1U, AssetDelta(dispatcher.registry_id(), 1U, true));
+  Require(dispatcher.Dispatch(asset, OffscreenPolicy()).ok(),
+          "extent-retirement fixture asset did not synchronize");
+
+  RendererFrontendPresentationPolicy resized = PresentedPolicy();
+  resized.presentation_surface_revision = 10U;
+  resized.presentation_drawable_width = 1280U;
+  resized.presentation_drawable_height = 720U;
+  const auto stale = SceneFrame(
+      2U, Scene(21U, dispatcher.registry_id(), 1U), Camera());
+  const RendererFrontendTransportDispatchResult retired =
+      dispatcher.Dispatch(stale, resized);
+  RequireStatus(retired.status,
+                RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED,
+                "pre-resize camera became presentable at the new extent");
+  Require(retired.scene_snapshot_id == 21U && !retired.terminal &&
+              frontend.rendered_requests.empty() &&
+              frontend.waited_frame_ids.empty() &&
+              dispatcher.next_expected_sequence() == 3U,
+          "extent retirement invoked frontend work or lost lineage");
 }
 
 void TestInterleavedAssetsScenesAndPresentation() {
@@ -809,6 +848,7 @@ int main() {
   TestIdentityDerivationAndStatusDomain();
   TestPresentationPolicyValidation();
   TestRetiredSceneAdvancesLineageWithoutFrontendWork();
+  TestStalePresentationExtentRetiresAfterDecode();
   TestInterleavedAssetsScenesAndPresentation();
   TestArbitrarySessionsAndRequiredRegistry();
   TestReplayOutOfOrderAndTerminalState();

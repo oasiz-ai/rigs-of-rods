@@ -282,6 +282,10 @@ set(SOURCE_FILES
         system/RendererChildLauncher.{h,cpp}
         system/RendererOgre14GameBridge.{h,cpp}
         system/RendererOgre14GameHostSession.{h,cpp}
+        system/RendererOgre14InputAdapter.{h,cpp}
+        system/RendererOgre14InputEngineTarget.{h,cpp}
+        system/RendererOgre14ProductSession.{h,cpp}
+        system/RendererOgre14RuntimeOwnership.{h,cpp}
         system/RendererPackageRuntimeProbe.{h,cpp}
         system/RendererOgreNextLiveSession.{h,cpp}
         system/RendererSiblingPath.{h,cpp}

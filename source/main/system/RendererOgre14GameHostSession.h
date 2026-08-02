@@ -146,6 +146,15 @@ public:
   [[nodiscard]] RendererOgre14GameHostSessionResult
   PostPhysics(const Render::SceneSnapshot &snapshot,
               const Render::CameraViewRequest &camera);
+  /// Publishes one already-produced immutable frame against the active surface
+  /// revision observed before capture. If a resize overtook bounded enqueue,
+  /// the older revision is still sequenced so the child can retire it without
+  /// dropping producer lineage. Revision zero and future revisions fail closed.
+  [[nodiscard]] RendererOgre14GameHostSessionResult
+  PostPhysicsCapturedAtSurface(
+      const Render::SceneSnapshot &snapshot,
+      const Render::CameraViewRequest &camera,
+      std::uint64_t captured_surface_revision);
 
   [[nodiscard]] RendererOgre14GameHostPollResult PollReverse();
   [[nodiscard]] RendererOgre14GameHostPollResult PollInput();
@@ -167,11 +176,17 @@ public:
   [[nodiscard]] Render::RenderBridgeSurfaceState
   current_surface_state() const noexcept;
   [[nodiscard]] bool peer_ready() const noexcept;
+  [[nodiscard]] bool shutdown_complete() const noexcept;
   [[nodiscard]] bool terminal() const noexcept;
   [[nodiscard]] RendererOgre14GameHostSessionStatus terminal_cause() const
       noexcept;
 
 private:
+  [[nodiscard]] RendererOgre14GameHostSessionResult PostPhysicsImpl(
+      const Render::SceneSnapshot &snapshot,
+      const Render::CameraViewRequest &camera,
+      std::uint64_t captured_surface_revision,
+      bool captured_revision_provided);
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

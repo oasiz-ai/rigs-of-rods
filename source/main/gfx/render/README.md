@@ -168,8 +168,10 @@ events, and camera history/jitter/exposure. Scene collections retain their
 validated strictly increasing identity order, so no map or backend traversal
 can reorder them.
 
-The live OGRE 14 adapter samples only at the completed
-`GfxScene::BufferSimulationData()` boundary. Its constant ambient conversion is
+The live OGRE 14 adapter samples only after
+`GfxScene::BufferSimulationData()` has copied simulation state and
+`GfxScene::UpdateScene()` has consumed those copies and joined flex/wheel work.
+It never reads live solver state. Its constant ambient conversion is
 an explicit numeric compatibility calibration: one renderer-linear OGRE 14
 ambient unit equals one scene-radiance unit, with identity intensity and
 exposure and no invented compatible linear-float equirectangular environment
@@ -325,8 +327,10 @@ catalog, and uses the scene envelope sequence as the strictly increasing
 frontend frame ID.
 
 Presentation is an explicit caller policy. A presented scene selects the sole
-transported camera and exact active surface revision; an offscreen scene names
-no surface. The dispatcher adds no UI and never copies CPU attachment bytes to
+transported camera, exact active surface revision, and current drawable extent.
+After decoding, the dispatcher retires a camera whose captured extent differs,
+including when an idle poll announced the resize before the scene arrived. An
+offscreen scene names no surface. The dispatcher adds no UI and never copies CPU attachment bytes to
 a window. It invokes the frontend's native presentation path, waits infinitely
 for every successful submission before attempting retirement, and calls
 `ReleaseResource` exactly once for each unique transferred GPU attachment on
@@ -383,10 +387,14 @@ unsafe even when the public renderer boundary itself is neutral. Keeping the
 legacy simulation/game process and modern render process in separate address
 spaces lets each link exactly one OGRE generation. Scene/camera, asset, input,
 ACK, control, bounded host back-pressure, and half-close transactions now have
-versioned contracts. This is not a claim that the shipping live bridge is
-enabled: native polling/action injection, UI, surface integration, production
-child lifecycle admission, and force-feedback remain explicit later
-milestones.
+versioned contracts. The endpoint-adopted `RoR-Ogre14` role also has a real
+product owner which drains reverse traffic before gameplay, binds reconciled
+input to a transport-only `InputEngine`, retains one post-`UpdateScene`
+production across backpressure, and shuts down in dependency order. Its
+validated ownership plan keeps the legacy resource host hidden and disables
+legacy physical-device ownership and per-loop presentation. This does not admit or package the production
+Ogre-Next child, change standalone OGRE 14 behavior, add UI to the UI-free
+scene stream, or provide force feedback across the bridge.
 
 The native interop and native ray-tracing interfaces are contracts, not an
 implementation or readiness claim. All related capabilities fail closed by

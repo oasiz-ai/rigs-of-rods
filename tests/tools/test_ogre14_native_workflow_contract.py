@@ -427,7 +427,9 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             "AppState::PRINT_VERSION_EXIT",
             help_exit,
         )
-        rendering = main_source.index("SetUpRendering()", version_exit)
+        rendering = main_source.index(
+            "SetUpRendering(", version_exit
+        )
         self.assertLess(parse, help_exit)
         self.assertLess(help_exit, version_exit)
         self.assertLess(version_exit, rendering)

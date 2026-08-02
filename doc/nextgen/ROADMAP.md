@@ -1108,9 +1108,15 @@ Gate R1:
   from a seam-free frontend library. Its native entrypoint consumes synthetic
   child argv, resolves the authoritative child plan, initializes RT4/PSSM at a
   headless 64x64 extent with one frame in flight, and shuts down. The binary is
-  not installed, staged, bundled, or production-admitted; presentation, the
-  game bridge, UI/input, scene lifetime, and package evidence remain open, so
-  immutable package facts still select the explicit compatibility fallback.
+  not installed, staged, bundled, or production-admitted. The endpoint-adopted
+  OGRE 14 game-host lifecycle now drains renderer input/control/ACK traffic,
+  opens no physical input devices, keeps its resource host hidden and
+  non-presenting, publishes one post-`UpdateScene` retained joined-scene
+  production across bounded backpressure, retires scenes overtaken by idle
+  resize announcements, and performs ordered half-close/EOF/join shutdown; the production
+  presentation child, UI composition, force feedback, and package evidence
+  remain open, so immutable package facts still select the explicit
+  compatibility fallback.
   Its probe execution is independently retained in a versioned, fail-closed
   receipt that records pass, exact capability skip, or failure and binds both
   pinned commits, platform backend, intent argv, child binary hash/size, and

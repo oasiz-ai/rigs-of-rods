@@ -7,6 +7,7 @@
 */
 
 #include "RendererOgre14GameHostSession.h"
+#include "RendererOgre14ProductSession.h"
 
 #include "RenderBridgeSessionIdentity.h"
 #include "RenderTransportStream.h"
@@ -423,6 +424,59 @@ InputTransportBatch InputBatch() {
           "input batch fixture is invalid");
   return batch;
 }
+
+class ProductInputTarget final : public IRendererOgre14InputTarget {
+public:
+  bool ActivateTransport() noexcept override {
+    ++activations;
+    return activation_succeeds;
+  }
+  void KeyChanged(RendererOgre14LegacyKey, bool) noexcept override {}
+  void MouseMoved(std::int32_t, std::int32_t, std::int32_t,
+                  std::int32_t) noexcept override {}
+  void MouseButtonChanged(RendererOgre14LegacyMouseButton,
+                          bool) noexcept override {}
+  void MouseWheel(float, float) noexcept override {}
+  void TextInput(std::string_view) noexcept override {}
+  void FocusChanged(bool value) noexcept override { focused = value; }
+  void WindowCloseRequested() noexcept override { ++close_requests; }
+  bool Reconcile(
+      const RendererOgre14LegacyInputState &state) noexcept override {
+    applied_through = state.through_event_id;
+    ++reconciliations;
+    return true;
+  }
+
+  int activations = 0;
+  int reconciliations = 0;
+  int close_requests = 0;
+  bool focused = false;
+  bool activation_succeeds = true;
+  std::uint64_t applied_through = 0U;
+};
+
+class ProductSceneSource final : public IJoinedGraphicsSceneSource {
+public:
+  ProductSceneSource() {
+    frame.simulation_tick = 41U;
+    frame.simulation_time_seconds = 1.0;
+    frame.camera.view_id = 1U;
+    frame.camera.width = 1600U;
+    frame.camera.height = 1200U;
+    frame.camera.clip_from_view = Perspective(
+        frame.camera.near_plane, frame.camera.far_plane);
+  }
+
+  ValidationResult CaptureJoinedGraphicsFrame(
+      GraphicsSceneFrameInput &output) override {
+    ++captures;
+    output = frame;
+    return ValidationResult::Success();
+  }
+
+  GraphicsSceneFrameInput frame;
+  std::uint32_t captures = 0U;
+};
 
 bool ReadFrame(NativeHandle handle, RenderTransportStreamDecoder &stream,
                RenderTransportStreamFrameResult &frame) {
@@ -1149,6 +1203,186 @@ void TestQueuedSceneRetiresAcrossSurfaceBarrier() {
   (void)session.Close();
 }
 
+void TestProductLifecycleRetainsPendingFrameAcrossBackpressureAndResize() {
+  BridgeFixture fixture;
+  ProductInputTarget input_target;
+  RendererOgre14ProductSession product(fixture.bridge, input_target);
+  RendererOgre14ProductSessionConfig config;
+  config.host.maximum_forward_messages = 1U;
+  config.host.maximum_unacknowledged_forward_messages = 1U;
+  config.host.maximum_reverse_messages = 8U;
+  config.shutdown_drain_timeout_milliseconds = 1000U;
+  Require(product.Start(config).ok(), "product lifecycle did not start");
+  const std::uint64_t registry_id = product.host().registry_id();
+
+  RenderBridgeControl ready;
+  ready.kind = RenderBridgeControlKind::PEER_READY;
+  ready.registry_id = registry_id;
+  ready.command_id = 1U;
+  ready.surface = ActiveSurface(10U, 800U, 600U, 1600U, 1200U);
+  RenderTransportEnvelopeEncodeResult encoded_control =
+      EncodeRenderBridgeControlFrame(1U, ready);
+  Require(encoded_control.ok() &&
+              WriteNative(fixture.game_inbound.write_handle,
+                          encoded_control.bytes.data(),
+                          encoded_control.bytes.size()) &&
+              WaitUntil([&product]() {
+                return product.host().queued_reverse_messages() == 1U ||
+                       product.host().terminal();
+              }) &&
+              product.PumpReverse().ok() && product.host().peer_ready(),
+          "product PEER_READY was not drained on the game thread");
+
+  const InputEventTransportEncodeResult input =
+      EncodeInputEventTransportFrame(2U, InputBatch());
+  Require(input.ok() &&
+              WriteNative(fixture.game_inbound.write_handle,
+                          input.bytes.data(), input.bytes.size()) &&
+              WaitUntil([&product]() {
+                return product.host().queued_reverse_messages() == 1U ||
+                       product.host().terminal();
+              }),
+          "product input fixture did not reach reverse delivery");
+  const RendererOgre14ProductSessionResult input_drain =
+      product.PumpReverse();
+  Require(input_drain.ok() && input_drain.input_batches == 1U &&
+              input_target.activations == 1 &&
+              input_target.reconciliations == 1 && input_target.focused &&
+              input_target.applied_through == 1U,
+          "product did not apply decoded renderer input exactly once");
+
+  ProductSceneSource source;
+  const RendererOgre14ProductSessionResult first =
+      product.PostUpdatedScene(source);
+  Require(first.status ==
+                  RendererOgre14ProductSessionStatus::PENDING_BACKPRESSURE &&
+              first.pending_frame && source.captures == 1U &&
+              product.has_pending_frame(),
+          "asset-first bounded lineage did not retain the produced scene");
+  for (int retry = 0; retry < 3; ++retry) {
+    const RendererOgre14ProductSessionResult pending =
+        product.PostUpdatedScene(source);
+    Require(pending.status == RendererOgre14ProductSessionStatus::
+                                  PENDING_BACKPRESSURE &&
+                source.captures == 1U,
+            "backpressure advanced or recaptured producer lineage");
+  }
+
+  RenderBridgeControl resized;
+  resized.kind = RenderBridgeControlKind::SURFACE_CHANGED;
+  resized.registry_id = registry_id;
+  resized.command_id = 2U;
+  resized.surface = ActiveSurface(11U, 1000U, 700U, 2000U, 1400U);
+  encoded_control = EncodeRenderBridgeControlFrame(3U, resized);
+  Require(encoded_control.ok() &&
+              WriteNative(fixture.game_inbound.write_handle,
+                          encoded_control.bytes.data(),
+                          encoded_control.bytes.size()) &&
+              WaitUntil([&product]() {
+                return product.host().current_surface_state().surface_revision ==
+                           11U ||
+                       product.host().terminal();
+              }) &&
+              product.PumpReverse().ok(),
+          "resize did not overtake the pending captured frame");
+
+  RenderTransportStreamDecoder stream(
+      kRenderTransportStreamAbsoluteMaximumPayloadBytes);
+  RenderTransportStreamFrameResult asset_frame;
+  Require(ReadFrame(fixture.game_outbound.read_handle, stream, asset_frame) &&
+              asset_frame.sequence == 1U &&
+              asset_frame.kind ==
+                  RenderTransportMessageKind::RENDER_ASSET_DELTA_V1,
+          "product initial asset frame did not preserve forward sequence");
+  RenderBridgeAcknowledgement asset_ack;
+  asset_ack.registry_id = registry_id;
+  asset_ack.through_forward_sequence = 1U;
+  const RenderTransportEnvelopeEncodeResult encoded_asset_ack =
+      EncodeRenderBridgeAcknowledgementFrame(4U, asset_ack);
+  Require(encoded_asset_ack.ok() &&
+              WriteNative(fixture.game_inbound.write_handle,
+                          encoded_asset_ack.bytes.data(),
+                          encoded_asset_ack.bytes.size()) &&
+              WaitUntil([&product]() {
+                return product.host().last_acknowledged_forward_sequence() ==
+                           1U ||
+                       product.host().terminal();
+              }) &&
+              product.PumpReverse().ok(),
+          "product asset ACK did not release bounded lineage");
+
+  const RendererOgre14ProductSessionResult posted =
+      product.PostUpdatedScene(source);
+  Require(posted.status == RendererOgre14ProductSessionStatus::FRAME_QUEUED &&
+              posted.accepted && !posted.pending_frame &&
+              source.captures == 1U && !product.has_pending_frame(),
+          "pre-resize immutable scene was not sequenced for child retirement");
+  RenderTransportStreamFrameResult scene_frame;
+  Require(ReadFrame(fixture.game_outbound.read_handle, stream, scene_frame) &&
+              scene_frame.sequence == 2U &&
+              scene_frame.kind == RenderTransportMessageKind::
+                                      SCENE_SNAPSHOT_V4_CAMERA_V2,
+          "retained scene did not follow its asset without a lineage gap");
+
+  RenderBridgeAcknowledgement scene_ack;
+  scene_ack.registry_id = registry_id;
+  scene_ack.through_forward_sequence = 2U;
+  const RenderTransportEnvelopeEncodeResult encoded_scene_ack =
+      EncodeRenderBridgeAcknowledgementFrame(5U, scene_ack);
+  Require(encoded_scene_ack.ok() &&
+              WriteNative(fixture.game_inbound.write_handle,
+                          encoded_scene_ack.bytes.data(),
+                          encoded_scene_ack.bytes.size()) &&
+              WaitUntil([&product]() {
+                return product.host().last_acknowledged_forward_sequence() ==
+                           2U ||
+                       product.host().terminal();
+              }) &&
+              product.PumpReverse().ok(),
+          "retired product scene was not cumulatively acknowledged");
+
+  NativeHandle reverse_writer = fixture.game_inbound.write_handle;
+  NativeHandle forward_reader = fixture.game_outbound.read_handle;
+  std::atomic<bool> peer_saw_eof{false};
+  std::thread peer([reverse_writer, forward_reader, &peer_saw_eof]() mutable {
+    std::uint8_t byte = 0U;
+    for (;;) {
+      std::size_t transferred = 0U;
+      if (!ReadNative(forward_reader, &byte, 1U, transferred))
+        break;
+      if (transferred == 0U) {
+        peer_saw_eof = true;
+        break;
+      }
+    }
+    CloseNative(reverse_writer);
+  });
+  const RendererOgre14ProductSessionResult shutdown = product.Shutdown();
+  peer.join();
+  fixture.game_inbound.write_handle = kInvalidNativeHandle;
+  Require(shutdown.status == RendererOgre14ProductSessionStatus::CLOSED &&
+              shutdown.ok() && peer_saw_eof &&
+              product.host().shutdown_complete(),
+          "product shutdown did not drain, half-close, and join in order");
+}
+
+void TestProductStartFailsClosedBeforeInputAuthority() {
+  BridgeFixture fixture;
+  ProductInputTarget input_target;
+  input_target.activation_succeeds = false;
+  RendererOgre14ProductSession product(fixture.bridge, input_target);
+  RendererOgre14ProductSessionConfig config;
+  config.host.maximum_forward_messages = 1U;
+  config.host.maximum_unacknowledged_forward_messages = 1U;
+  const RendererOgre14ProductSessionResult result = product.Start(config);
+  Require(result.status == RendererOgre14ProductSessionStatus::FAILED_INPUT &&
+              result.input_status ==
+                  RendererOgre14InputApplyStatus::FAILED_TARGET &&
+              result.terminal && !result.accepted &&
+              input_target.activations == 1 && !product.active(),
+          "product startup crossed failed input authority");
+}
+
 void TestAbruptPeerTeardownIsTerminal() {
   BridgeFixture fixture;
   RendererOgre14GameHostSession session(fixture.bridge);
@@ -1183,6 +1417,8 @@ int main() {
   TestAcknowledgedSceneCanBePresentedByALaterAck();
   TestSurfaceReadinessSuspendResumeAndStaleRevision();
   TestQueuedSceneRetiresAcrossSurfaceBarrier();
+  TestProductStartFailsClosedBeforeInputAuthority();
+  TestProductLifecycleRetainsPendingFrameAcrossBackpressureAndResize();
   TestAbruptPeerTeardownIsTerminal();
   return EXIT_SUCCESS;
 }

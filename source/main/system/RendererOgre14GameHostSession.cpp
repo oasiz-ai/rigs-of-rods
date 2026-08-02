@@ -862,6 +862,23 @@ RendererOgre14GameHostSessionResult RendererOgre14GameHostSession::Submit(
 RendererOgre14GameHostSessionResult RendererOgre14GameHostSession::PostPhysics(
     const Render::SceneSnapshot &snapshot,
     const Render::CameraViewRequest &camera) {
+  return PostPhysicsImpl(snapshot, camera, 0U, false);
+}
+
+RendererOgre14GameHostSessionResult
+RendererOgre14GameHostSession::PostPhysicsCapturedAtSurface(
+    const Render::SceneSnapshot &snapshot,
+    const Render::CameraViewRequest &camera,
+    std::uint64_t captured_surface_revision) {
+  return PostPhysicsImpl(snapshot, camera, captured_surface_revision, true);
+}
+
+RendererOgre14GameHostSessionResult
+RendererOgre14GameHostSession::PostPhysicsImpl(
+    const Render::SceneSnapshot &snapshot,
+    const Render::CameraViewRequest &camera,
+    std::uint64_t captured_surface_revision,
+    bool captured_revision_provided) {
   std::lock_guard<std::mutex> lock(impl_->mutex);
   if (impl_->terminal) {
     return impl_->TerminalResultLocked();
@@ -871,9 +888,20 @@ RendererOgre14GameHostSessionResult RendererOgre14GameHostSession::PostPhysics(
     return impl_->ResultLocked(
         RendererOgre14GameHostSessionStatus::REJECTED_NOT_READY, false);
   }
-  if (!impl_->peer_ready || impl_->surface_state.suspended ||
-      camera.width != impl_->surface_state.drawable_width ||
-      camera.height != impl_->surface_state.drawable_height) {
+  const bool captured_current_surface =
+      !captured_revision_provided ||
+      captured_surface_revision == impl_->surface_state.surface_revision;
+  const bool invalid_captured_revision =
+      captured_revision_provided &&
+      (captured_surface_revision == 0U ||
+       captured_surface_revision > impl_->surface_state.surface_revision);
+  const bool invalid_current_surface =
+      captured_current_surface &&
+      (impl_->surface_state.suspended ||
+       camera.width != impl_->surface_state.drawable_width ||
+       camera.height != impl_->surface_state.drawable_height);
+  if (!impl_->peer_ready || invalid_captured_revision ||
+      invalid_current_surface) {
     RendererOgre14GameHostSessionResult result = impl_->ResultLocked(
         RendererOgre14GameHostSessionStatus::REJECTED_SURFACE_STATE, false);
     result.validation_code = impl_->peer_ready
@@ -1091,6 +1119,11 @@ RendererOgre14GameHostSession::current_surface_state() const noexcept {
 bool RendererOgre14GameHostSession::peer_ready() const noexcept {
   std::lock_guard<std::mutex> lock(impl_->mutex);
   return impl_->peer_ready;
+}
+
+bool RendererOgre14GameHostSession::shutdown_complete() const noexcept {
+  std::lock_guard<std::mutex> lock(impl_->mutex);
+  return impl_->worker_exited;
 }
 
 bool RendererOgre14GameHostSession::terminal() const noexcept {

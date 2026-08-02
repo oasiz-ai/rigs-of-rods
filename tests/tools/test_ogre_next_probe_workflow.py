@@ -56,6 +56,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererChildLauncher.*",
             "source/main/system/RendererOgre14GameBridge.*",
             "source/main/system/RendererOgre14GameHostSession.*",
+            "source/main/system/RendererOgre14InputAdapter.*",
+            "source/main/system/RendererOgre14InputEngineTarget.*",
+            "source/main/system/RendererOgre14ProductSession.*",
+            "source/main/system/RendererOgre14RuntimeOwnership.*",
             "source/main/system/RendererSiblingPath.*",
             "source/main/system/RendererPackagedMediaPath.*",
             "source/main/system/RendererPackageRuntimeProbe.*",
@@ -74,6 +78,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererBridge*Tests.cpp",
             "tests/gfx/RendererOgre14GameBridgeTests.cpp",
             "tests/gfx/RendererOgre14GameHostSessionTests.cpp",
+            "tests/gfx/RendererOgre14InputAdapterTests.cpp",
+            "tests/gfx/RendererOgre14RuntimeOwnershipTests.cpp",
             "tests/gfx/RendererSiblingPathTests.cpp",
             "tests/gfx/RendererPackageRuntimeProbeTests.cpp",
             "tests/gfx/RendererBridgeEndpointTests.cpp",
@@ -943,14 +949,56 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         native_cmake = (REPOSITORY_ROOT / "tests/CMakeLists.txt").read_text(
             encoding="utf-8"
         )
+        app_context = (
+            REPOSITORY_ROOT / "source/main/AppContext.cpp"
+        ).read_text(encoding="utf-8")
+        input_engine = (
+            REPOSITORY_ROOT / "source/main/utils/InputEngine.cpp"
+        ).read_text(encoding="utf-8")
 
         buffer_call = "App::GetGfxScene()->BufferSimulationData();"
-        producer_call = "ProduceJoinedFrame("
+        scene_update_call = "App::GetGfxScene()->UpdateScene(dt_sim);"
+        producer_call = "PostUpdatedScene("
         self.assertEqual(main.count(buffer_call), 1)
+        self.assertEqual(main.count(scene_update_call), 1)
         self.assertEqual(main.count(producer_call), 1)
-        self.assertLess(main.index(buffer_call), main.index(producer_call))
+        self.assertLess(main.index(buffer_call), main.index(scene_update_call))
+        self.assertLess(main.index(scene_update_call), main.index(producer_call))
+        self.assertLess(main.index(producer_call), main.index("renderOneFrame()"))
         self.assertIn("if (renderer_game_bridge.active())", main)
         self.assertIn("EnableOgre14GraphicsSceneCapture();", main)
+
+        main_compact = "".join(main.split())
+        self.assertIn(
+            "SetUpRendering(renderer_runtime_ownership)",
+            main_compact,
+        )
+        self.assertEqual(
+            main_compact.count(
+                "SetUpInput(renderer_runtime_ownership)"
+            ),
+            2,
+        )
+        presentation_guard = main.index("legacy_frame_presentation_enabled")
+        self.assertEqual(main.count("renderOneFrame()"), 1)
+        self.assertLess(presentation_guard, main.index("renderOneFrame()"))
+        self.assertIn(
+            "system/RendererOgre14RuntimeOwnership.{h,cpp}",
+            (REPOSITORY_ROOT / "source/main/CMakeLists.txt").read_text(
+                encoding="utf-8"
+            ),
+        )
+        self.assertIn(
+            "ror_renderer_ogre14_runtime_ownership_tests", native_cmake
+        )
+        self.assertIn('miscParams["hidden"] = "true";', app_context)
+        self.assertIn(
+            "App::CreateInputEngine(enable_physical_input);", app_context
+        )
+        self.assertIn("if (m_physical_input_enabled)", input_engine)
+        self.assertIn(
+            "EnableRendererTransportInput()", input_engine
+        )
 
         self.assertIn(
             "bool                               "

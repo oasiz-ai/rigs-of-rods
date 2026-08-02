@@ -13,15 +13,15 @@
 
 #include "RendererBridgeChannel.h"
 
-#include "InputEventTransport.h"
-#include "RenderBridgeControlTransport.h"
-#include "RendererFrontendTransportDispatcher.h"
+#include "render/InputEventTransport.h"
+#include "render/RenderBridgeControlTransport.h"
+#include "render/RendererFrontendTransportDispatcher.h"
 
 #include <cstdint>
 
 namespace RoR {
 
-constexpr std::uint32_t kRendererOgreNextLiveSessionContractVersion = 2U;
+constexpr std::uint32_t kRendererOgreNextLiveSessionContractVersion = 3U;
 
 /// One owner-thread observation made immediately before a complete transport
 /// frame is dispatched. The callback owns native event translation and any
@@ -116,7 +116,9 @@ struct RendererOgreNextLiveSessionResult final {
 /// SURFACE_CHANGED, input, cumulative acknowledgement, and graceful-shutdown
 /// control envelopes. PEER_READY carries the exact initial logical/drawable
 /// state. Every later surface revision is announced before the affected frame
-/// response, and a scene is never dispatched while that state is suspended. An
+/// response. The decoded camera is rechecked against the latest drawable
+/// extent, so a scene captured before an idle resize can retire but cannot be
+/// presented. A scene is never rendered while that state is suspended. An
 /// acknowledgement is emitted only after its forward frame dispatch succeeds;
 /// a presented scene binds that exact sequence to its decoded snapshot ID.
 /// Orderly EOF, window close, and a closed reverse peer all close owned handles

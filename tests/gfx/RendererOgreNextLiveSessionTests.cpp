@@ -455,7 +455,7 @@ RendererOgreNextLiveSessionRuntime Runtime(FakeFrontend &frontend,
 }
 
 void TestStatusDomainAndRejections() {
-  Require(kRendererOgreNextLiveSessionContractVersion == 2U,
+  Require(kRendererOgreNextLiveSessionContractVersion == 3U,
           "live session contract version changed");
   for (unsigned value = 0U; value <= 14U; ++value) {
     const auto status =
@@ -838,6 +838,83 @@ void TestIdlePumpPublishesSurfaceWithoutForwardEnvelope() {
   CloseNative(reverse.read_handle);
 }
 
+void TestIdleResizeRetiresLaterPreResizeScene() {
+  NativePipe forward = MakePipe();
+  NativePipe reverse = MakePipe();
+  const RendererBridgeEndpoint endpoint =
+      MakeEndpoint(forward.read_handle, reverse.write_handle, 56U);
+  const std::uint64_t registry_id =
+      DeriveRenderAssetRegistryIdFromBridgeSession(endpoint.session_id);
+  const std::vector<std::uint8_t> asset = AssetFrame(registry_id);
+  const std::vector<std::uint8_t> pre_resize_scene = SceneFrame(registry_id);
+  FakeFrontend frontend;
+  PollContext poll;
+  RenderBridgeSurfaceState resized = ActiveSurface(10U);
+  resized.drawable_width = 192U;
+  resized.drawable_height = 128U;
+  Require(IsValidRenderBridgeSurfaceState(resized, false),
+          "idle-resize stale-scene fixture invalid");
+  poll.surfaces.push_back(resized);
+  RendererOgreNextLiveSessionRuntime runtime = Runtime(frontend, poll);
+  runtime.idle_poll_interval_milliseconds = 1U;
+  RendererOgreNextLiveSessionResult session;
+  std::thread worker([&]() {
+    session = RunRendererOgreNextLiveSession(endpoint, runtime);
+  });
+
+  const std::vector<std::uint8_t> ready_frame =
+      ReadNativeFrame(reverse.read_handle);
+  const std::vector<std::uint8_t> surface_frame =
+      ReadNativeFrame(reverse.read_handle);
+  WriteNative(forward.write_handle, asset.data(), asset.size());
+  const std::vector<std::uint8_t> asset_input_frame =
+      ReadNativeFrame(reverse.read_handle);
+  const std::vector<std::uint8_t> asset_ack_frame =
+      ReadNativeFrame(reverse.read_handle);
+  WriteNative(forward.write_handle, pre_resize_scene.data(),
+              pre_resize_scene.size());
+  const std::vector<std::uint8_t> scene_input_frame =
+      ReadNativeFrame(reverse.read_handle);
+  const std::vector<std::uint8_t> scene_ack_frame =
+      ReadNativeFrame(reverse.read_handle);
+  CloseNative(forward.write_handle);
+  worker.join();
+
+  RenderTransportSequenceState reverse_sequence(1U);
+  InputEventTransportDecoder input_decoder(reverse_sequence);
+  RenderBridgeControlTransportDecoder control_decoder(registry_id,
+                                                       reverse_sequence);
+  const auto ready = control_decoder.Accept(ready_frame);
+  const auto surface = control_decoder.Accept(surface_frame);
+  const auto asset_input = input_decoder.Accept(asset_input_frame);
+  const auto asset_ack = control_decoder.Accept(asset_ack_frame);
+  const auto scene_input = input_decoder.Accept(scene_input_frame);
+  const auto scene_ack = control_decoder.Accept(scene_ack_frame);
+  Require(ready.ok() && surface.ok() &&
+              surface.control.kind ==
+                  RenderBridgeControlKind::SURFACE_CHANGED &&
+              surface.control.surface.surface_revision == 10U &&
+              asset_input.ok() && asset_ack.ok() && scene_input.ok() &&
+              scene_ack.ok() &&
+              scene_ack.acknowledgement.through_forward_sequence == 2U &&
+              scene_ack.acknowledgement.presented_scene_sequence == 0U &&
+              scene_ack.acknowledgement.presented_snapshot_id == 0U &&
+              reverse_sequence.next_expected_sequence() == 7U,
+          "idle-resize retirement response lineage changed");
+  Require(session.completed && session.asset_frames == 1U &&
+              session.scene_frames == 1U &&
+              session.retired_scene_frames == 1U &&
+              session.presented_scene_frames == 0U &&
+              session.last_announced_surface_revision == 10U &&
+              session.dispatch_status ==
+                  RendererFrontendTransportDispatchStatus::
+                      SCENE_FRAME_RETIRED &&
+              frontend.asset_calls == 1U && frontend.render_calls == 0U &&
+              frontend.wait_calls == 0U && frontend.release_calls == 0U,
+          "pre-resize scene reached the frontend after idle resize poll");
+  CloseNative(reverse.read_handle);
+}
+
 void RunChangedSurfaceRetirementCase(
     const RenderBridgeSurfaceState &changed_surface, std::uint8_t seed) {
   NativePipe forward = MakePipe();
@@ -1077,6 +1154,7 @@ int main() {
   TestEmptyPeerEofDoesNotFabricateAcknowledgement();
   TestSurfaceChangePrecedesAffectedFrameResponse();
   TestIdlePumpPublishesSurfaceWithoutForwardEnvelope();
+  TestIdleResizeRetiresLaterPreResizeScene();
   TestChangedOrSuspendedSurfaceRetiresSceneWithoutDispatch();
   TestPreReadyPeerCloseAndSameRevisionMutationFailClosed();
   TestTruncatedEofAndInvalidResponseFailClosed();

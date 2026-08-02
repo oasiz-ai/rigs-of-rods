@@ -22,8 +22,8 @@
 namespace RoR::Render {
 
 constexpr std::uint32_t kRendererFrontendTransportDispatcherContractVersion =
-    2U;
-constexpr std::uint32_t kRendererFrontendPresentationPolicyVersion = 2U;
+    3U;
+constexpr std::uint32_t kRendererFrontendPresentationPolicyVersion = 3U;
 
 /// Explicit policy supplied by the native window/presentation owner for each
 /// complete transport frame. A presented scene selects its sole decoded
@@ -36,12 +36,21 @@ struct RendererFrontendPresentationPolicy final {
   FrameOutputMask requested_outputs = FrameOutputMask::COLOR;
   PixelFormat color_format = PixelFormat::RGBA8_SRGB;
   std::uint64_t presentation_surface_revision = 0U;
+  /// Exact drawable extent of the presentation surface named above. When the
+  /// guard below is enabled, a decoded camera captured against any other
+  /// extent is consumed as retired and can never reach the frontend.
+  std::uint32_t presentation_drawable_width = 0U;
+  std::uint32_t presentation_drawable_height = 0U;
   bool present = false;
   bool allow_async_compute = false;
   /// Decode and validate this scene against the exact forward/asset lineage,
   /// then consume it without querying capabilities or invoking the frontend.
   /// Used only for a scene already in flight when the native surface changed.
   bool retire_scene_without_render = false;
+  /// Re-check the decoded camera against the current drawable extent. This is
+  /// required for presentable live scenes because a surface change may have
+  /// been announced by an idle poll after the game captured the scene.
+  bool retire_scene_on_presentation_extent_mismatch = false;
 };
 
 enum class RendererFrontendTransportDispatchStatus : std::uint8_t {
