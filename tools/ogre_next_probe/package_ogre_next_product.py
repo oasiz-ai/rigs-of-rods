@@ -379,7 +379,11 @@ def stage_package(
     )
     output_resolved = output.resolve(strict=False)
     for source in source_roots:
-        if output_resolved == source or output_resolved in source.parents:
+        if (
+            output_resolved == source
+            or output_resolved in source.parents
+            or source in output_resolved.parents
+        ):
             raise PackageError("product output overlaps an authenticated input")
 
     temporary = output_parent / f".{output.name}.tmp-{os.getpid()}"
