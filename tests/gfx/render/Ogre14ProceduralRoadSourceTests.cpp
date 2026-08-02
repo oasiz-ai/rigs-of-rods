@@ -267,6 +267,88 @@ void TestInventoryLifecycleOrderingAndCompatibility() {
           "removed road resurrection mutated inventory or output");
 }
 
+void TestCombinedAuthoritativeStaticTransaction() {
+  using namespace RoR::Render;
+  const Ogre14ProceduralRoadCapture road = MakeRoad(7U);
+
+  Ogre14ProceduralRoadInventory durable_road_inventory;
+  Ogre14ProceduralRoadInventory candidate_road_inventory =
+      durable_road_inventory;
+  std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> road_sections;
+  ValidationResult result = BuildOgre14ProceduralRoadInventory(
+      {road}, candidate_road_inventory, road_sections);
+  Require(result.ok() && road_sections.size() == 1U &&
+              durable_road_inventory.known_identity_count() == 0U,
+          "road preparation mutated the durable inventory before commit");
+
+  Ogre14GraphicsSceneStaticSectionCaptureInput terrain_section;
+  terrain_section.stable_object_id = road_sections.front().stable_object_id;
+  terrain_section.section_index = 0U;
+  terrain_section.exact_entity_name = "terrain/page/0";
+  terrain_section.mesh_identity.exact_resource_group = "General";
+  terrain_section.mesh_identity.exact_mesh_name = "terrain/page/0/lod0";
+  terrain_section.mesh_identity.vertex_count =
+      static_cast<std::uint32_t>(road.positions.size());
+  terrain_section.mesh_identity.index_count =
+      static_cast<std::uint32_t>(road.indices.size());
+  terrain_section.mesh_payload = road_sections.front().mesh_payload;
+  terrain_section.material = road.material;
+
+  std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> combined{
+      terrain_section, road_sections.front()};
+  Ogre14GraphicsSceneStaticIdentityRegistry durable_static_registry;
+  Ogre14GraphicsSceneStaticIdentityRegistry candidate_static_registry =
+      durable_static_registry;
+  std::vector<GraphicsSceneAssetInput> assets{{}};
+  assets.front().source_asset_id = 99U;
+  std::vector<GraphicsSceneStaticMeshInput> static_meshes{{}};
+  static_meshes.front().source_object_id = 99U;
+  result = BuildOgre14GraphicsSceneStaticInventory(
+      combined, candidate_static_registry, assets, static_meshes);
+  Require(!result && result.code == ValidationCode::DUPLICATE_IDENTIFIER &&
+              assets.size() == 1U &&
+              assets.front().source_asset_id == 99U &&
+              static_meshes.size() == 1U &&
+              static_meshes.front().source_object_id == 99U &&
+              candidate_static_registry.asset_identity_count() == 0U &&
+              candidate_static_registry.object_identity_count() == 0U &&
+              durable_road_inventory.known_identity_count() == 0U,
+          "combined static collision committed road or generic output state");
+
+  terrain_section.stable_object_id =
+      road_sections.front().stable_object_id ^ (1ULL << 63U);
+  if (terrain_section.stable_object_id == 0U) {
+    terrain_section.stable_object_id = 1U;
+  }
+  combined = {road_sections.front(), terrain_section};
+  candidate_static_registry = durable_static_registry;
+  result = BuildOgre14GraphicsSceneStaticInventory(
+      combined, candidate_static_registry, assets, static_meshes);
+  Require(result.ok() && static_meshes.size() == 2U &&
+              std::is_sorted(static_meshes.begin(), static_meshes.end(),
+                             [](const auto &lhs, const auto &rhs) {
+                               return lhs.source_object_id <
+                                      rhs.source_object_id;
+                             }),
+          "road and terrain sections did not form one ordered inventory");
+
+  durable_road_inventory = std::move(candidate_road_inventory);
+  durable_static_registry = std::move(candidate_static_registry);
+  Require(durable_road_inventory.known_identity_count() == 1U &&
+              durable_road_inventory.live_identity_count() == 1U,
+          "successful combined static transaction did not commit road state");
+
+  const auto prior_road_owner = road_sections.front().mesh_payload;
+  candidate_road_inventory = durable_road_inventory;
+  std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> repeated_roads;
+  result = BuildOgre14ProceduralRoadInventory(
+      {road}, candidate_road_inventory, repeated_roads);
+  Require(result.ok() && repeated_roads.size() == 1U &&
+              SameSharedOwner(prior_road_owner,
+                              repeated_roads.front().mesh_payload),
+          "committed combined inventory did not reuse the road mesh owner");
+}
+
 void TestInventoryFailureGatesAndBounds() {
   using namespace RoR::Render;
   Ogre14ProceduralRoadCapture road = MakeRoad();
@@ -364,6 +446,7 @@ int main() {
   TestGeometryKeyAndPayloadAudit();
   TestCacheRevisionAndOwnerReuse();
   TestInventoryLifecycleOrderingAndCompatibility();
+  TestCombinedAuthoritativeStaticTransaction();
   TestInventoryFailureGatesAndBounds();
   return EXIT_SUCCESS;
 }

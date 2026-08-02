@@ -1151,6 +1151,42 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             1,
         )
 
+    def test_procedural_road_combined_static_contract_is_registered(
+        self,
+    ) -> None:
+        road_tests = (
+            REPOSITORY_ROOT
+            / "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
+        ).read_text(encoding="utf-8")
+        road_source = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/render/Ogre14ProceduralRoadSource.cpp"
+        ).read_text(encoding="utf-8")
+        method = road_tests[
+            road_tests.index("void TestCombinedAuthoritativeStaticTransaction") :
+            road_tests.index("void TestInventoryFailureGatesAndBounds")
+        ]
+        self.assertLess(
+            method.index("BuildOgre14ProceduralRoadInventory("),
+            method.index("BuildOgre14GraphicsSceneStaticInventory("),
+        )
+        for contract in (
+            "durable_road_inventory.known_identity_count() == 0U",
+            "ValidationCode::DUPLICATE_IDENTIFIER",
+            "candidate_static_registry.object_identity_count() == 0U",
+            "std::is_sorted",
+            "SameSharedOwner",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, method)
+        self.assertIn(
+            "TestCombinedAuthoritativeStaticTransaction();", road_tests
+        )
+        self.assertIn(
+            "BuildOgre14GraphicsSceneMaterialFallback(", road_source
+        )
+        self.assertNotIn("Ogre14LegacyAssetTranslator", road_source)
+
     def test_game_host_stream_is_strict_cross_platform_and_attested(self) -> None:
         probe_cmake = (
             REPOSITORY_ROOT / "tools" / "ogre_next_probe" / "CMakeLists.txt"
