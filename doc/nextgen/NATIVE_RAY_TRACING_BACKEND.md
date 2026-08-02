@@ -465,10 +465,24 @@ native `CreateSymbolicLinkW` error instead of disappearing silently. Offline
 source contracts require
 final-handle resolution, the explicit inheritance allow-list, suspended
 creation, Job assignment before resume, and exact exit propagation. The public
-launcher target, production child targets, signing, and package assembly remain
-open; the N1 probe is not a production child. Launcher-only option parsing also
-remains in that public wrapper: this core deliberately forwards the final
-caller-supplied argument vector without hidden filtering.
+launcher is now available through the opt-in build-tree topology: the public
+`RoR` executable defaults to Ogre-Next-preferred/PSSM intent and the logical
+game target is emitted as the sibling `RoR-Ogre14` compatibility child. The
+launcher consumes only immutable generated package facts, so the current
+profile falls back to that real child while `RoR-OgreNext` is absent and not
+production-ready. It owns only exact launcher options in the initial argument
+prefix and forwards the untouched legacy suffix. The normalized frontend and
+shadow intent remains a separate versioned contract; an Ogre-Next selection
+fails closed until a separately versioned child-argv encoder can transmit that
+intent without environment variables or mutable state. Shipping stagers,
+signing, package assembly, and the production Ogre-Next child remain open; the
+N1 probe is not a production child. While this build-tree option is enabled,
+CMake suppresses install, package, and platform bundle targets so the renamed
+compatibility child cannot be mistaken for the public executable.
+The exact build-tree invocation is documented in
+`OGRE_NEXT_INTEGRATION.md`; it requires both `-DROR_OGRE14=ON` and
+`-DROR_RENDERER_PUBLIC_LAUNCHER=ON`, builds target `ror_renderer_launcher`, and
+emits sibling `bin/RoR[.exe]` and `bin/RoR-Ogre14[.exe]` executables.
 
 ## Milestones and commit/PR sequence
 

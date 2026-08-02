@@ -1079,8 +1079,14 @@ Gate R1:
   resolution, including Windows `.exe` versus POSIX naming mismatches.
   Cross-platform-gated fake-child tests exercise empty/quoted/Unicode arguments
   and prove that cwd, `PATH`, and environment decoys cannot redirect launch.
-  The fake child is test-only and never packaged. The public launcher target,
-  production child renames, signing, and package assembly remain open.
+  The fake child is test-only and never packaged. The opt-in build-tree public
+  launcher and exact `RoR-Ogre14` sibling rename are now wired with generated
+  immutable facts and an Ogre-Next-preferred/PSSM default. Shipping staging,
+  signing, package assembly, the production Ogre-Next child, and its versioned
+  normalized-intent argv encoder remain open.
+  Build-tree validation explicitly configures `-DROR_OGRE14=ON` and
+  `-DROR_RENDERER_PUBLIC_LAUNCHER=ON`, builds `ror_renderer_launcher`, and
+  verifies exact `bin/RoR[.exe]` plus `bin/RoR-Ogre14[.exe]` siblings.
 - The standalone Metal admission probe and the Ogre-Next N2/N3 interop probes
   have passed on the recorded Apple M5. N2 rastered a renderer-neutral deformed RoR
   scene, exported the exact pooled Ogre v2 position/index slices from that

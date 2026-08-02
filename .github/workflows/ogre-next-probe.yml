@@ -13,14 +13,20 @@ on:
       - tools/run_ogre_next_probe.py
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
+      - cmake/RendererLauncherPackageConfig.cmake
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/system/RendererChildLauncher.*
+      - source/main/system/RendererLauncherMain.cpp
+      - source/main/system/RendererLauncherPackageConfig.h.in
+      - source/main/system/RendererPublicLauncher.*
       - source/main/gfx/render/**
       - tests/gfx/RendererBackendPolicyTests.cpp
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
+      - tests/gfx/RendererPublicLauncherLegacyChild.cpp
+      - tests/gfx/RendererPublicLauncherTests.cpp
       - tests/gfx/RendererStartupHandoffTests.cpp
       - tests/gfx/RendererStartupPlanTests.cpp
       - tests/gfx/render/**
@@ -36,14 +42,20 @@ on:
       - tools/run_ogre_next_probe.py
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
+      - cmake/RendererLauncherPackageConfig.cmake
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/system/RendererChildLauncher.*
+      - source/main/system/RendererLauncherMain.cpp
+      - source/main/system/RendererLauncherPackageConfig.h.in
+      - source/main/system/RendererPublicLauncher.*
       - source/main/gfx/render/**
       - tests/gfx/RendererBackendPolicyTests.cpp
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
+      - tests/gfx/RendererPublicLauncherLegacyChild.cpp
+      - tests/gfx/RendererPublicLauncherTests.cpp
       - tests/gfx/RendererStartupHandoffTests.cpp
       - tests/gfx/RendererStartupPlanTests.cpp
       - tests/gfx/render/**

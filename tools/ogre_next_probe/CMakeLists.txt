@@ -77,6 +77,7 @@ file(GLOB_RECURSE _ror_relevant_source_files
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/*"
     "${ROR_REPOSITORY_ROOT}/tools/ogre_next_probe/*")
 list(APPEND _ror_relevant_source_files
+    "cmake/RendererLauncherPackageConfig.cmake"
     "source/main/gfx/RendererBackendPolicy.cpp"
     "source/main/gfx/RendererBackendPolicy.h"
     "source/main/gfx/RendererStartupHandoff.cpp"
@@ -85,9 +86,15 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererStartupPlan.h"
     "source/main/system/RendererChildLauncher.cpp"
     "source/main/system/RendererChildLauncher.h"
+    "source/main/system/RendererLauncherMain.cpp"
+    "source/main/system/RendererLauncherPackageConfig.h.in"
+    "source/main/system/RendererPublicLauncher.cpp"
+    "source/main/system/RendererPublicLauncher.h"
     "tests/gfx/RendererBackendPolicyTests.cpp"
     "tests/gfx/RendererChildLauncherFakeChild.cpp"
     "tests/gfx/RendererChildLauncherTests.cpp"
+    "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
+    "tests/gfx/RendererPublicLauncherTests.cpp"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tools/run_ogre_next_probe.py"
@@ -599,6 +606,90 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             PRIVATE -municode)
     endif ()
 
+    include(
+        "${ROR_REPOSITORY_ROOT}/cmake/RendererLauncherPackageConfig.cmake")
+    set(_ror_renderer_public_launcher_generated_include_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/renderer-public-launcher-generated")
+    ror_configure_renderer_launcher_package_facts(
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherPackageConfig.h.in"
+        "${_ror_renderer_public_launcher_generated_include_dir}"
+        _ror_renderer_public_launcher_generated_header)
+
+    # Real public entrypoint plus an exact legacy sibling, isolated from the
+    # N1 package tree. This exercises POSIX main or Windows Unicode wWinMain
+    # and verifies that the default launcher consumes no game arguments.
+    set(_ror_renderer_public_entrypoint_test_output
+        "${CMAKE_BINARY_DIR}/renderer-public-entrypoint-tests")
+    add_executable(
+        ror_renderer_public_launcher_legacy_child
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererPublicLauncherLegacyChild.cpp")
+    set_target_properties(
+        ror_renderer_public_launcher_legacy_child
+        PROPERTIES
+            OUTPUT_NAME "RoR-Ogre14"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_public_entrypoint_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_public_entrypoint_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_public_entrypoint_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_public_entrypoint_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_public_entrypoint_test_output}/MinSizeRel")
+
+    add_executable(
+        ror_renderer_public_launcher_entrypoint
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherMain.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPublicLauncher.cpp"
+        "${_ror_renderer_public_launcher_generated_header}")
+    target_include_directories(
+        ror_renderer_public_launcher_entrypoint
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system"
+            "${_ror_renderer_public_launcher_generated_include_dir}")
+    set_target_properties(
+        ror_renderer_public_launcher_entrypoint
+        PROPERTIES
+            OUTPUT_NAME "RoR"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_public_entrypoint_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_public_entrypoint_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_public_entrypoint_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_public_entrypoint_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_public_entrypoint_test_output}/MinSizeRel")
+    add_dependencies(
+        ror_renderer_public_launcher_entrypoint
+        ror_renderer_public_launcher_legacy_child)
+    if (WIN32)
+        set_target_properties(
+            ror_renderer_public_launcher_entrypoint
+            PROPERTIES WIN32_EXECUTABLE YES)
+        target_compile_definitions(
+            ror_renderer_public_launcher_entrypoint
+            PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+        target_link_libraries(
+            ror_renderer_public_launcher_entrypoint
+            PRIVATE Shell32)
+    endif ()
+    if (MINGW)
+        target_link_options(
+            ror_renderer_public_launcher_legacy_child
+            PRIVATE -municode)
+        target_link_options(
+            ror_renderer_public_launcher_entrypoint
+            PRIVATE -municode)
+    endif ()
+
     set(_ror_n1_targets
         ror_ogre_next_n1_contract
         ror_ogre_next_frontend_n1
@@ -608,7 +699,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_plan_tests
         ror_renderer_startup_handoff_tests
         ror_renderer_child_launcher_fake_child
-        ror_renderer_child_launcher_tests)
+        ror_renderer_child_launcher_tests
+        ror_renderer_public_launcher_legacy_child
+        ror_renderer_public_launcher_entrypoint)
     if (ROR_OGRE_NEXT_VULKAN_RT5 AND
             ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         add_executable(
@@ -868,6 +961,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         set(_ror_n2_repository_root
             "${CMAKE_CURRENT_SOURCE_DIR}/../..")
         set(_ror_n2_relevant_source_paths
+            cmake/RendererLauncherPackageConfig.cmake
             source/main/gfx/RendererBackendPolicy.cpp
             source/main/gfx/RendererBackendPolicy.h
             source/main/gfx/RendererStartupHandoff.cpp
@@ -876,10 +970,16 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/RendererStartupPlan.h
             source/main/system/RendererChildLauncher.cpp
             source/main/system/RendererChildLauncher.h
+            source/main/system/RendererLauncherMain.cpp
+            source/main/system/RendererLauncherPackageConfig.h.in
+            source/main/system/RendererPublicLauncher.cpp
+            source/main/system/RendererPublicLauncher.h
             source/main/gfx/render
             tests/gfx/RendererBackendPolicyTests.cpp
             tests/gfx/RendererChildLauncherFakeChild.cpp
             tests/gfx/RendererChildLauncherTests.cpp
+            tests/gfx/RendererPublicLauncherLegacyChild.cpp
+            tests/gfx/RendererPublicLauncherTests.cpp
             tests/gfx/RendererStartupHandoffTests.cpp
             tests/gfx/RendererStartupPlanTests.cpp
             tools/ogre_next_probe
@@ -1185,6 +1285,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_handoff_tests
         ror_renderer_child_launcher_fake_child
         ror_renderer_child_launcher_tests
+        ror_renderer_public_launcher_legacy_child
+        ror_renderer_public_launcher_entrypoint
         PROPERTIES
             CXX_STANDARD 11
             CXX_STANDARD_REQUIRED YES
@@ -1202,6 +1304,11 @@ add_custom_target(
     BYPRODUCTS "${ROR_OGRE_NEXT_REPORT}"
     COMMENT "Running fail-closed OGRE-Next capability probe"
     VERBATIM)
+if (TARGET ror_renderer_public_launcher_entrypoint)
+    add_dependencies(
+        ror_ogre_next_probe_report
+        ror_renderer_public_launcher_entrypoint)
+endif ()
 
 set(ROR_OGRE_NEXT_FRAME_IMAGE
     "${CMAKE_BINARY_DIR}/ror-ogre-next-frame-probe.ppm")
@@ -1244,6 +1351,13 @@ endif ()
 if (TARGET ror_renderer_child_launcher_tests)
     add_test(NAME ror_renderer_child_launcher
         COMMAND $<TARGET_FILE:ror_renderer_child_launcher_tests>)
+endif ()
+if (TARGET ror_renderer_public_launcher_entrypoint)
+    add_test(NAME ror_renderer_public_launcher_entrypoint
+        COMMAND $<TARGET_FILE:ror_renderer_public_launcher_entrypoint>)
+    set_tests_properties(
+        ror_renderer_public_launcher_entrypoint
+        PROPERTIES TIMEOUT 10)
 endif ()
 add_test(NAME ror_ogre_next_probe_runtime
     COMMAND $<TARGET_FILE:ror_ogre_next_probe>)

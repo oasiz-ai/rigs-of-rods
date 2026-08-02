@@ -483,6 +483,100 @@ endif ()
 set(BINNAME "RoR")
 add_executable(${BINNAME} ${SOURCE_FILES})
 
+if (ROR_RENDERER_PUBLIC_LAUNCHER)
+    # Preserve the logical game target so its dependency/resource/test wiring
+    # remains intact, while giving the two process roles exact, non-colliding
+    # sibling names in the build tree. Shipping stagers/installers are a later
+    # phase and deliberately remain disabled-by-default consumers of this
+    # opt-in topology.
+    set_target_properties(
+        ${BINNAME}
+        PROPERTIES
+            OUTPUT_NAME "RoR-Ogre14"
+            DEBUG_POSTFIX "")
+
+    include(RendererLauncherPackageConfig)
+    set(_ror_renderer_launcher_generated_include_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/renderer-launcher-generated")
+    ror_configure_renderer_launcher_package_facts(
+        "${CMAKE_CURRENT_LIST_DIR}/system/RendererLauncherPackageConfig.h.in"
+        "${_ror_renderer_launcher_generated_include_dir}"
+        _ror_renderer_launcher_generated_header)
+
+    set(_ror_renderer_launcher_source_tree_sources
+        system/RendererLauncherMain.cpp
+        system/RendererPublicLauncher.cpp
+        system/RendererPublicLauncher.h
+        system/RendererChildLauncher.cpp
+        system/RendererChildLauncher.h
+        gfx/RendererBackendPolicy.cpp
+        gfx/RendererBackendPolicy.h
+        gfx/RendererStartupPlan.cpp
+        gfx/RendererStartupPlan.h
+        gfx/RendererStartupHandoff.cpp
+        gfx/RendererStartupHandoff.h)
+    set(_ror_renderer_launcher_sources
+        ${_ror_renderer_launcher_source_tree_sources}
+        "${_ror_renderer_launcher_generated_header}")
+
+    add_executable(
+        ror_renderer_launcher
+        ${_ror_renderer_launcher_sources})
+    add_dependencies(ror_renderer_launcher ${BINNAME})
+    target_include_directories(
+        ror_renderer_launcher
+        PRIVATE
+            "${CMAKE_CURRENT_LIST_DIR}/gfx"
+            "${CMAKE_CURRENT_LIST_DIR}/system"
+            "${_ror_renderer_launcher_generated_include_dir}")
+    set_target_properties(
+        ror_renderer_launcher
+        PROPERTIES
+            OUTPUT_NAME "RoR"
+            DEBUG_POSTFIX ""
+            CXX_STANDARD 11
+            CXX_STANDARD_REQUIRED YES
+            CXX_EXTENSIONS NO)
+    if (MSVC)
+        target_compile_options(
+            ror_renderer_launcher
+            PRIVATE /W4 /WX /fp:strict /permissive-)
+    else ()
+        target_compile_options(
+            ror_renderer_launcher
+            PRIVATE
+                -Wall
+                -Wextra
+                -Werror
+                -pedantic
+                -fno-fast-math
+                -ffp-contract=off)
+    endif ()
+    if (WIN32)
+        set_target_properties(
+            ror_renderer_launcher
+            PROPERTIES WIN32_EXECUTABLE YES)
+        target_compile_definitions(
+            ror_renderer_launcher
+            PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+        target_link_libraries(ror_renderer_launcher PRIVATE Shell32)
+        if (MINGW)
+            target_link_options(ror_renderer_launcher PRIVATE -municode)
+        endif ()
+    endif ()
+    set_property(TARGET ror_renderer_launcher PROPERTY FOLDER "Application")
+    source_group(
+        TREE "${CMAKE_CURRENT_LIST_DIR}"
+        FILES ${_ror_renderer_launcher_source_tree_sources})
+    source_group(
+        "Generated"
+        FILES "${_ror_renderer_launcher_generated_header}")
+
+    message(STATUS
+        "Renderer public launcher topology is build-tree-only in phase 2; "
+        "install, package, and platform bundle targets are suppressed")
+endif ()
+
 if (ROR_OGRE14 AND UNIX AND NOT APPLE)
     # Keep both direct dependencies and explicitly loaded OGRE plugins
     # discoverable when the installed tree moves. Dependency libraries and
@@ -513,10 +607,14 @@ endif ()
 
 if (MSVC)
     # set startup project for Visual Studio Builds
+    set(_ror_visual_studio_startup_target ${BINNAME})
+    if (ROR_RENDERER_PUBLIC_LAUNCHER)
+        set(_ror_visual_studio_startup_target ror_renderer_launcher)
+    endif ()
     set_property(
             DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
             PROPERTY
-            VS_STARTUP_PROJECT ${BINNAME}
+            VS_STARTUP_PROJECT ${_ror_visual_studio_startup_target}
     )
     # set Visual Studio working directory to the Configuration directory
     set_target_properties(
@@ -524,6 +622,13 @@ if (MSVC)
             PROPERTIES
             VS_DEBUGGER_WORKING_DIRECTORY "${RUNTIME_OUTPUT_DIRECTORY}"
     )
+    if (ROR_RENDERER_PUBLIC_LAUNCHER)
+        set_target_properties(
+                ror_renderer_launcher
+                PROPERTIES
+                VS_DEBUGGER_WORKING_DIRECTORY "${RUNTIME_OUTPUT_DIRECTORY}"
+        )
+    endif ()
 endif ()
 
 ####################################################################################################
@@ -871,7 +976,7 @@ fast_copy("${CMAKE_SOURCE_DIR}/resources/managed_materials" "${RUNTIME_OUTPUT_DI
 fast_copy("${CMAKE_SOURCE_DIR}/resources/fonts" "${RUNTIME_OUTPUT_DIRECTORY}/languages")
 fast_copy("${CMAKE_SOURCE_DIR}/languages" "${RUNTIME_OUTPUT_DIRECTORY}/languages")
 
-if (APPLE AND ROR_OGRE14)
+if (APPLE AND ROR_OGRE14 AND NOT ROR_RENDERER_PUBLIC_LAUNCHER)
     # Build a signed, relocatable application only when explicitly requested.
     # StageMacOSBundle derives the complete dylib closure from the executable
     # and active OGRE plugins; ROR_RUNTIME_DYLIBS remains available for future
@@ -934,6 +1039,7 @@ endif ()
 
 #  Install targets
 # -----------------------
+if (NOT ROR_RENDERER_PUBLIC_LAUNCHER)
 install(TARGETS ${BINNAME} DESTINATION . COMPONENT "Base_Game")
 
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/resources/fonts/ DESTINATION languages COMPONENT "Base_Game")
@@ -1078,6 +1184,7 @@ else ()
                 file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX}/lib FOLLOW_SYMLINK_CHAIN)")
     endif ()
 endif ()
+endif ()
 
 if (ROR_OGRE14)
     unset(_ror_ogre14_media_root)
@@ -1111,6 +1218,7 @@ endif ()
 
 #  CPack
 # -----------------------
+if (NOT ROR_RENDERER_PUBLIC_LAUNCHER)
 set(CPACK_PACKAGE_NAME "Rigs of Rods")
 set(CPACK_PACKAGE_FILE_NAME "rigs-of-rods-${CMAKE_PROJECT_VERSION}-${ROR_BUILD_INSTALLER}")
 set(CPACK_PACKAGE_DESCRIPTION "Rigs of Rods soft-body physics simulator")
@@ -1165,3 +1273,4 @@ else ()
 endif ()
 
 include(CPack)
+endif ()

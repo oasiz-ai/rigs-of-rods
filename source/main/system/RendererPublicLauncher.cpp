@@ -1,0 +1,365 @@
+/*
+    This source file is part of Rigs of Rods
+
+    Rigs of Rods is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License version 3, as
+    published by the Free Software Foundation.
+*/
+
+#include "RendererPublicLauncher.h"
+
+#include "RendererLauncherPackageConfig.generated.h"
+
+#include <cstdio>
+#include <cstring>
+#include <limits>
+
+namespace RoR {
+namespace {
+
+template <typename Character>
+bool EqualsAscii(const Character *value, const char *expected) {
+  if (value == nullptr || expected == nullptr) {
+    return false;
+  }
+  while (*expected != '\0') {
+    const unsigned char expected_value =
+        static_cast<unsigned char>(*expected);
+    if (*value != static_cast<Character>(expected_value)) {
+      return false;
+    }
+    ++value;
+    ++expected;
+  }
+  return *value == static_cast<Character>('\0');
+}
+
+template <typename Character>
+bool StartsWithAscii(const Character *value, const char *prefix) {
+  if (value == nullptr || prefix == nullptr) {
+    return false;
+  }
+  while (*prefix != '\0') {
+    const unsigned char expected_value =
+        static_cast<unsigned char>(*prefix);
+    if (*value != static_cast<Character>(expected_value)) {
+      return false;
+    }
+    ++value;
+    ++prefix;
+  }
+  return true;
+}
+
+template <typename Character>
+const Character *ValueAfterAsciiPrefix(const Character *value,
+                                       const char *prefix) {
+  if (!StartsWithAscii(value, prefix)) {
+    return nullptr;
+  }
+  while (*prefix != '\0') {
+    ++value;
+    ++prefix;
+  }
+  return value;
+}
+
+bool HasValidIntent(const RendererPublicLauncherIntent &intent) noexcept {
+  return intent.version == kRendererPublicLauncherContractVersion &&
+         IsKnownRendererFrontendPreference(intent.frontend) &&
+         IsKnownDirectionalShadowPreference(intent.directional_shadows);
+}
+
+void WriteArgumentFailure(RendererPublicLauncherArgumentStatus status) {
+  (void)std::fprintf(stderr, "RoR renderer launcher: %s\n", ToString(status));
+  (void)std::fflush(stderr);
+}
+
+void WriteDecisionFailure(const RendererPublicLauncherDecision &decision) {
+  (void)std::fprintf(stderr, "RoR renderer launcher: %s (handoff=%s)\n",
+                     ToString(decision.status),
+                     ToString(decision.handoff.status));
+  (void)std::fflush(stderr);
+}
+
+void WriteChildLaunchFailure(const RendererChildLaunchFailure &failure) {
+  (void)std::fprintf(stderr,
+                     "RoR renderer launcher: %s (native-error=%u)\n",
+                     ToString(failure.status),
+                     static_cast<unsigned int>(failure.native_error_code));
+  (void)std::fflush(stderr);
+}
+
+} // namespace
+
+RendererStartupPackageAvailability
+RendererPublicLauncherPackageAvailability() noexcept {
+  RendererStartupPackageAvailability availability;
+  availability.version = RendererLauncherPackageConfig::kContractVersion;
+  availability.package_platform =
+      RendererLauncherPackageConfig::kPackagePlatform;
+  availability.ogre14_child_present =
+      RendererLauncherPackageConfig::kOgre14ChildPresent;
+  availability.ogre_next_child_present =
+      RendererLauncherPackageConfig::kOgreNextChildPresent;
+  availability.ogre_next_child_production_ready =
+      RendererLauncherPackageConfig::kOgreNextChildProductionReady;
+  availability.ogre_next_pssm_admitted =
+      RendererLauncherPackageConfig::kOgreNextPssmAdmitted;
+  availability.native_directional_shadow_backend =
+      RendererLauncherPackageConfig::kNativeDirectionalShadowBackend;
+  return availability;
+}
+
+RendererPublicLauncherArguments ParseRendererPublicLauncherArguments(
+    int argc, const RendererChildLauncherChar *const argv[]) noexcept {
+  RendererPublicLauncherArguments result;
+  try {
+    if (argc < 1 || argv == nullptr) {
+      return result;
+    }
+    for (int index = 0; index < argc; ++index) {
+      if (argv[index] == nullptr) {
+        return result;
+      }
+    }
+
+    bool frontend_seen = false;
+    bool shadows_seen = false;
+    int first_forwarded_index = 1;
+    for (; first_forwarded_index < argc; ++first_forwarded_index) {
+      const RendererChildLauncherChar *argument =
+          argv[first_forwarded_index];
+      if (EqualsAscii(argument, "--")) {
+        break;
+      }
+
+      static const char frontend_option[] = "--renderer-frontend";
+      static const char frontend_prefix[] = "--renderer-frontend=";
+      if (EqualsAscii(argument, frontend_option)) {
+        result.status =
+            RendererPublicLauncherArgumentStatus::REJECTED_MALFORMED_OPTION;
+        return result;
+      }
+      if (StartsWithAscii(argument, frontend_prefix)) {
+        if (frontend_seen) {
+          result.status =
+              RendererPublicLauncherArgumentStatus::REJECTED_DUPLICATE_OPTION;
+          return result;
+        }
+        const RendererChildLauncherChar *value =
+            ValueAfterAsciiPrefix(argument, frontend_prefix);
+        if (EqualsAscii(value, "legacy-only")) {
+          result.intent.frontend = RendererFrontendPreference::LEGACY_ONLY;
+        } else if (EqualsAscii(value, "ogre-next-prefer")) {
+          result.intent.frontend =
+              RendererFrontendPreference::OGRE_NEXT_PREFER;
+        } else if (EqualsAscii(value, "ogre-next-require")) {
+          result.intent.frontend =
+              RendererFrontendPreference::OGRE_NEXT_REQUIRE;
+        } else {
+          result.status = RendererPublicLauncherArgumentStatus::
+              REJECTED_INVALID_OPTION_VALUE;
+          return result;
+        }
+        frontend_seen = true;
+        result.intent.frontend_was_explicit = true;
+        continue;
+      }
+
+      static const char shadow_option[] =
+          "--renderer-directional-shadows";
+      static const char shadow_prefix[] =
+          "--renderer-directional-shadows=";
+      if (EqualsAscii(argument, shadow_option)) {
+        result.status =
+            RendererPublicLauncherArgumentStatus::REJECTED_MALFORMED_OPTION;
+        return result;
+      }
+      if (StartsWithAscii(argument, shadow_prefix)) {
+        if (shadows_seen) {
+          result.status =
+              RendererPublicLauncherArgumentStatus::REJECTED_DUPLICATE_OPTION;
+          return result;
+        }
+        const RendererChildLauncherChar *value =
+            ValueAfterAsciiPrefix(argument, shadow_prefix);
+        if (EqualsAscii(value, "pssm")) {
+          result.intent.directional_shadows =
+              DirectionalShadowPreference::PSSM;
+        } else if (EqualsAscii(value, "prefer-native")) {
+          result.intent.directional_shadows =
+              DirectionalShadowPreference::PREFER_NATIVE;
+        } else if (EqualsAscii(value, "require-native")) {
+          result.intent.directional_shadows =
+              DirectionalShadowPreference::REQUIRE_NATIVE;
+        } else {
+          result.status = RendererPublicLauncherArgumentStatus::
+              REJECTED_INVALID_OPTION_VALUE;
+          return result;
+        }
+        shadows_seen = true;
+        result.intent.directional_shadows_were_explicit = true;
+        continue;
+      }
+
+      // The public launcher owns only an initial prefix. Preserve this first
+      // legacy argument and the complete remaining suffix without inspecting
+      // renderer-shaped values which may belong to a preceding game option.
+      break;
+    }
+
+    result.forwarded_arguments.reserve(
+        static_cast<std::size_t>(argc - first_forwarded_index + 1));
+    result.forwarded_arguments.push_back(argv[0]);
+    for (int index = first_forwarded_index; index < argc; ++index) {
+      result.forwarded_arguments.push_back(argv[index]);
+    }
+    result.status = RendererPublicLauncherArgumentStatus::READY;
+    result.accepted = true;
+    return result;
+  } catch (...) {
+    result.forwarded_arguments.clear();
+    result.accepted = false;
+    result.status = RendererPublicLauncherArgumentStatus::FAILED_INTERNAL;
+    return result;
+  }
+}
+
+RendererPublicLauncherDecision ResolveRendererPublicLauncherDecision(
+    const RendererPublicLauncherIntent &intent,
+    const RendererStartupPackageAvailability &availability) noexcept {
+  RendererPublicLauncherDecision decision;
+  decision.intent = intent;
+  if (!HasValidIntent(intent)) {
+    return decision;
+  }
+
+  RendererStartupHandoffRequest request;
+  request.startup.frontend = intent.frontend;
+  request.startup.directional_shadows = intent.directional_shadows;
+  request.startup.host_platform = availability.package_platform;
+  decision.handoff = ResolveRendererStartupHandoff(request, availability);
+  if (!decision.handoff.accepted) {
+    decision.status = RendererPublicLauncherDecisionStatus::REJECTED_HANDOFF;
+    return decision;
+  }
+
+  if (decision.handoff.child == RendererFrontendChild::OGRE_NEXT) {
+    // The normalized intent is retained above, but there is deliberately no
+    // argv encoder yet. Reject before process creation rather than selecting a
+    // child which would silently fall back to its compile-time defaults.
+    if (kRendererOgreNextChildIntentArgvContractVersion == 0U) {
+      decision.status = RendererPublicLauncherDecisionStatus::
+          REJECTED_OGRE_NEXT_CHILD_INTENT_ENCODING_UNAVAILABLE;
+      return decision;
+    }
+  }
+  if (decision.handoff.child != RendererFrontendChild::OGRE14) {
+    decision.status =
+        RendererPublicLauncherDecisionStatus::REJECTED_INVALID_INTENT;
+    return decision;
+  }
+
+  decision.status = RendererPublicLauncherDecisionStatus::READY_OGRE14;
+  decision.accepted = true;
+  return decision;
+}
+
+int RunRendererPublicLauncher(
+    int argc, const RendererChildLauncherChar *const argv[]) noexcept {
+  const RendererPublicLauncherArguments arguments =
+      ParseRendererPublicLauncherArguments(argc, argv);
+  if (!arguments.accepted) {
+    WriteArgumentFailure(arguments.status);
+    return arguments.status ==
+                   RendererPublicLauncherArgumentStatus::FAILED_INTERNAL
+               ? kRendererPublicLauncherInternalExitCode
+               : kRendererPublicLauncherUsageExitCode;
+  }
+
+  const RendererPublicLauncherDecision decision =
+      ResolveRendererPublicLauncherDecision(
+          arguments.intent, RendererPublicLauncherPackageAvailability());
+  if (!decision.accepted) {
+    WriteDecisionFailure(decision);
+    return kRendererPublicLauncherSelectionExitCode;
+  }
+  if (arguments.forwarded_arguments.empty() ||
+      arguments.forwarded_arguments.size() >
+          static_cast<std::size_t>((std::numeric_limits<int>::max)())) {
+    WriteArgumentFailure(
+        RendererPublicLauncherArgumentStatus::FAILED_INTERNAL);
+    return kRendererPublicLauncherInternalExitCode;
+  }
+
+  const RendererChildLaunchFailure failure =
+      LaunchRendererChildAndPropagateExit(
+          decision.handoff,
+          static_cast<int>(arguments.forwarded_arguments.size()),
+          arguments.forwarded_arguments.data());
+  WriteChildLaunchFailure(failure);
+  return kRendererPublicLauncherChildLaunchExitCode;
+}
+
+bool IsKnownRendererPublicLauncherArgumentStatus(
+    RendererPublicLauncherArgumentStatus status) noexcept {
+  switch (status) {
+  case RendererPublicLauncherArgumentStatus::READY:
+  case RendererPublicLauncherArgumentStatus::REJECTED_INVALID_ARGUMENT_VECTOR:
+  case RendererPublicLauncherArgumentStatus::REJECTED_MALFORMED_OPTION:
+  case RendererPublicLauncherArgumentStatus::REJECTED_INVALID_OPTION_VALUE:
+  case RendererPublicLauncherArgumentStatus::REJECTED_DUPLICATE_OPTION:
+  case RendererPublicLauncherArgumentStatus::FAILED_INTERNAL:
+    return true;
+  }
+  return false;
+}
+
+bool IsKnownRendererPublicLauncherDecisionStatus(
+    RendererPublicLauncherDecisionStatus status) noexcept {
+  switch (status) {
+  case RendererPublicLauncherDecisionStatus::READY_OGRE14:
+  case RendererPublicLauncherDecisionStatus::REJECTED_INVALID_INTENT:
+  case RendererPublicLauncherDecisionStatus::REJECTED_HANDOFF:
+  case RendererPublicLauncherDecisionStatus::
+      REJECTED_OGRE_NEXT_CHILD_INTENT_ENCODING_UNAVAILABLE:
+    return true;
+  }
+  return false;
+}
+
+const char *ToString(RendererPublicLauncherArgumentStatus status) noexcept {
+  switch (status) {
+  case RendererPublicLauncherArgumentStatus::READY:
+    return "ready";
+  case RendererPublicLauncherArgumentStatus::REJECTED_INVALID_ARGUMENT_VECTOR:
+    return "rejected-invalid-argument-vector";
+  case RendererPublicLauncherArgumentStatus::REJECTED_MALFORMED_OPTION:
+    return "rejected-malformed-option";
+  case RendererPublicLauncherArgumentStatus::REJECTED_INVALID_OPTION_VALUE:
+    return "rejected-invalid-option-value";
+  case RendererPublicLauncherArgumentStatus::REJECTED_DUPLICATE_OPTION:
+    return "rejected-duplicate-option";
+  case RendererPublicLauncherArgumentStatus::FAILED_INTERNAL:
+    return "failed-internal";
+  }
+  return "invalid";
+}
+
+const char *ToString(RendererPublicLauncherDecisionStatus status) noexcept {
+  switch (status) {
+  case RendererPublicLauncherDecisionStatus::READY_OGRE14:
+    return "ready-ogre14";
+  case RendererPublicLauncherDecisionStatus::REJECTED_INVALID_INTENT:
+    return "rejected-invalid-intent";
+  case RendererPublicLauncherDecisionStatus::REJECTED_HANDOFF:
+    return "rejected-handoff";
+  case RendererPublicLauncherDecisionStatus::
+      REJECTED_OGRE_NEXT_CHILD_INTENT_ENCODING_UNAVAILABLE:
+    return "rejected-ogre-next-child-intent-encoding-unavailable";
+  }
+  return "invalid";
+}
+
+} // namespace RoR

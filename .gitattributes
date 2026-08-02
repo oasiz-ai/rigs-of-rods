@@ -62,14 +62,20 @@ content-source/cityworld_next/provenance/*.json text eol=lf
 
 # OGRE-Next dependency, patch, and shader-license contracts are verified by
 # exact byte hashes. Keep the isolated probe identical on every checkout.
+cmake/RendererLauncherPackageConfig.cmake text eol=lf
 source/main/gfx/RendererBackendPolicy.* text eol=lf
 source/main/gfx/RendererStartupHandoff.* text eol=lf
 source/main/gfx/RendererStartupPlan.* text eol=lf
 source/main/system/RendererChildLauncher.* text eol=lf
+source/main/system/RendererLauncherMain.cpp text eol=lf
+source/main/system/RendererLauncherPackageConfig.h.in text eol=lf
+source/main/system/RendererPublicLauncher.* text eol=lf
 source/main/gfx/render/** text eol=lf
 tests/gfx/RendererBackendPolicyTests.cpp text eol=lf
 tests/gfx/RendererChildLauncherFakeChild.cpp text eol=lf
 tests/gfx/RendererChildLauncherTests.cpp text eol=lf
+tests/gfx/RendererPublicLauncherLegacyChild.cpp text eol=lf
+tests/gfx/RendererPublicLauncherTests.cpp text eol=lf
 tests/gfx/RendererStartupHandoffTests.cpp text eol=lf
 tests/gfx/RendererStartupPlanTests.cpp text eol=lf
 tools/ogre_next_probe/** text eol=lf

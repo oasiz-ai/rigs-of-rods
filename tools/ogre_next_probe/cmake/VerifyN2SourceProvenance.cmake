@@ -8,6 +8,7 @@ if (NOT DEFINED N2_REPOSITORY_ROOT OR
 endif ()
 
 set(_ror_n2_relevant_source_paths
+    cmake/RendererLauncherPackageConfig.cmake
     source/main/gfx/RendererBackendPolicy.cpp
     source/main/gfx/RendererBackendPolicy.h
     source/main/gfx/RendererStartupHandoff.cpp
@@ -16,10 +17,16 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/RendererStartupPlan.h
     source/main/system/RendererChildLauncher.cpp
     source/main/system/RendererChildLauncher.h
+    source/main/system/RendererLauncherMain.cpp
+    source/main/system/RendererLauncherPackageConfig.h.in
+    source/main/system/RendererPublicLauncher.cpp
+    source/main/system/RendererPublicLauncher.h
     source/main/gfx/render
     tests/gfx/RendererBackendPolicyTests.cpp
     tests/gfx/RendererChildLauncherFakeChild.cpp
     tests/gfx/RendererChildLauncherTests.cpp
+    tests/gfx/RendererPublicLauncherLegacyChild.cpp
+    tests/gfx/RendererPublicLauncherTests.cpp
     tests/gfx/RendererStartupHandoffTests.cpp
     tests/gfx/RendererStartupPlanTests.cpp
     tools/ogre_next_probe
@@ -51,6 +58,7 @@ file(GLOB_RECURSE _ror_n2_relevant_source_files
     "${N2_REPOSITORY_ROOT}/source/main/gfx/render/*"
     "${N2_REPOSITORY_ROOT}/tools/ogre_next_probe/*")
 list(APPEND _ror_n2_relevant_source_files
+    "cmake/RendererLauncherPackageConfig.cmake"
     "source/main/gfx/RendererBackendPolicy.cpp"
     "source/main/gfx/RendererBackendPolicy.h"
     "source/main/gfx/RendererStartupHandoff.cpp"
@@ -59,9 +67,15 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/RendererStartupPlan.h"
     "source/main/system/RendererChildLauncher.cpp"
     "source/main/system/RendererChildLauncher.h"
+    "source/main/system/RendererLauncherMain.cpp"
+    "source/main/system/RendererLauncherPackageConfig.h.in"
+    "source/main/system/RendererPublicLauncher.cpp"
+    "source/main/system/RendererPublicLauncher.h"
     "tests/gfx/RendererBackendPolicyTests.cpp"
     "tests/gfx/RendererChildLauncherFakeChild.cpp"
     "tests/gfx/RendererChildLauncherTests.cpp"
+    "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
+    "tests/gfx/RendererPublicLauncherTests.cpp"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tools/run_ogre_next_probe.py"

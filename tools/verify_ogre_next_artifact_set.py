@@ -107,6 +107,7 @@ NORMAL_MAP_SOURCE_LOCK_SHA256 = (
 )
 ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
 RELEVANT_SOURCE_PATHS = (
+    "cmake/RendererLauncherPackageConfig.cmake",
     "source/main/gfx/RendererBackendPolicy.cpp",
     "source/main/gfx/RendererBackendPolicy.h",
     "source/main/gfx/RendererStartupHandoff.cpp",
@@ -115,10 +116,16 @@ RELEVANT_SOURCE_PATHS = (
     "source/main/gfx/RendererStartupPlan.h",
     "source/main/system/RendererChildLauncher.cpp",
     "source/main/system/RendererChildLauncher.h",
+    "source/main/system/RendererLauncherMain.cpp",
+    "source/main/system/RendererLauncherPackageConfig.h.in",
+    "source/main/system/RendererPublicLauncher.cpp",
+    "source/main/system/RendererPublicLauncher.h",
     "source/main/gfx/render",
     "tests/gfx/RendererBackendPolicyTests.cpp",
     "tests/gfx/RendererChildLauncherFakeChild.cpp",
     "tests/gfx/RendererChildLauncherTests.cpp",
+    "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
+    "tests/gfx/RendererPublicLauncherTests.cpp",
     "tests/gfx/RendererStartupHandoffTests.cpp",
     "tests/gfx/RendererStartupPlanTests.cpp",
     "tools/ogre_next_probe",

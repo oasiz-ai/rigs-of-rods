@@ -45,14 +45,20 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "CMakeLists.txt",
             "source/main/CMakeLists.txt",
             "tests/CMakeLists.txt",
+            "cmake/RendererLauncherPackageConfig.cmake",
             "source/main/gfx/RendererBackendPolicy.*",
             "source/main/gfx/RendererStartupHandoff.*",
             "source/main/gfx/RendererStartupPlan.*",
             "source/main/system/RendererChildLauncher.*",
+            "source/main/system/RendererLauncherMain.cpp",
+            "source/main/system/RendererLauncherPackageConfig.h.in",
+            "source/main/system/RendererPublicLauncher.*",
             "source/main/gfx/render/**",
             "tests/gfx/RendererBackendPolicyTests.cpp",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
+            "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
+            "tests/gfx/RendererPublicLauncherTests.cpp",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tests/gfx/render/**",
@@ -174,6 +180,26 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 "        ror_renderer_child_launcher_tests"
             )
         ]
+        public_child_target_block = cmake[
+            cmake.index(
+                "add_executable(\n"
+                "        ror_renderer_public_launcher_legacy_child"
+            ) :
+            cmake.index(
+                "set_target_properties(\n"
+                "        ror_renderer_public_launcher_legacy_child"
+            )
+        ]
+        public_entrypoint_target_block = cmake[
+            cmake.index(
+                "add_executable(\n"
+                "        ror_renderer_public_launcher_entrypoint"
+            ) :
+            cmake.index(
+                "target_include_directories(\n"
+                "        ror_renderer_public_launcher_entrypoint"
+            )
+        ]
         policy_language_marker = (
             "set_target_properties(\n"
             "        ror_renderer_backend_policy_tests\n"
@@ -228,9 +254,18 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildLauncherTests.cpp",
             "source/main/system/RendererChildLauncher.cpp",
             "add_test(NAME ror_renderer_child_launcher",
+            "ror_renderer_public_launcher_legacy_child",
+            "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
+            "ror_renderer_public_launcher_entrypoint",
+            "source/main/system/RendererLauncherMain.cpp",
+            "source/main/system/RendererPublicLauncher.cpp",
+            "cmake/RendererLauncherPackageConfig.cmake",
+            "source/main/system/RendererLauncherPackageConfig.h.in",
+            "add_test(NAME ror_renderer_public_launcher_entrypoint",
         ):
             self.assertIn(token, cmake)
         for path in (
+            "cmake/RendererLauncherPackageConfig.cmake",
             "source/main/gfx/RendererBackendPolicy.cpp",
             "source/main/gfx/RendererBackendPolicy.h",
             "source/main/gfx/RendererStartupHandoff.cpp",
@@ -239,9 +274,15 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererStartupPlan.h",
             "source/main/system/RendererChildLauncher.cpp",
             "source/main/system/RendererChildLauncher.h",
+            "source/main/system/RendererLauncherMain.cpp",
+            "source/main/system/RendererLauncherPackageConfig.h.in",
+            "source/main/system/RendererPublicLauncher.cpp",
+            "source/main/system/RendererPublicLauncher.h",
             "tests/gfx/RendererBackendPolicyTests.cpp",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
+            "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
+            "tests/gfx/RendererPublicLauncherTests.cpp",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
         ):
@@ -277,18 +318,78 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(launcher_target_source=source):
                 self.assertEqual(launcher_target_block.count(source), 1)
+        self.assertEqual(
+            public_child_target_block.count(
+                "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
+            ),
+            1,
+        )
+        for source in (
+            "source/main/system/RendererLauncherMain.cpp",
+            "source/main/system/RendererPublicLauncher.cpp",
+            "source/main/system/RendererChildLauncher.cpp",
+            "source/main/gfx/RendererStartupHandoff.cpp",
+            "source/main/gfx/RendererStartupPlan.cpp",
+            "source/main/gfx/RendererBackendPolicy.cpp",
+        ):
+            with self.subTest(public_entrypoint_target_source=source):
+                self.assertEqual(public_entrypoint_target_block.count(source), 1)
         for target in (
             "ror_renderer_backend_policy_tests",
             "ror_renderer_startup_plan_tests",
             "ror_renderer_startup_handoff_tests",
             "ror_renderer_child_launcher_fake_child",
             "ror_renderer_child_launcher_tests",
+            "ror_renderer_public_launcher_legacy_child",
+            "ror_renderer_public_launcher_entrypoint",
         ):
             with self.subTest(cxx11_policy_target=target):
                 self.assertEqual(policy_language_block.count(target), 1)
         self.assertIn("CXX_STANDARD 11", policy_language_block)
         self.assertIn("CXX_STANDARD_REQUIRED YES", policy_language_block)
         self.assertIn("CXX_EXTENSIONS NO", policy_language_block)
+
+    def test_public_launcher_entrypoint_stays_outside_the_n1_package(self) -> None:
+        cmake = (
+            REPOSITORY_ROOT / "tools" / "ogre_next_probe" / "CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        entrypoint_start = cmake.index(
+            "add_executable(\n        ror_renderer_public_launcher_entrypoint"
+        )
+        entrypoint_end = cmake.index("\n    set(_ror_n1_targets", entrypoint_start)
+        entrypoint = cmake[entrypoint_start:entrypoint_end]
+        package_start = cmake.index(
+            "add_custom_command(\n        OUTPUT "
+            '"${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"'
+        )
+        package_end = cmake.index(
+            "add_custom_target(ror_ogre_next_frontend_n1_package",
+            package_start,
+        )
+        package = cmake[package_start:package_end]
+
+        for token in (
+            'OUTPUT_NAME "RoR"',
+            'OUTPUT_NAME "RoR-Ogre14"',
+            "renderer-public-entrypoint-tests",
+            "WIN32_EXECUTABLE YES",
+            "WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE",
+            "PRIVATE Shell32",
+            "PRIVATE -municode",
+        ):
+            with self.subTest(entrypoint_contract=token):
+                self.assertIn(token, cmake)
+        for prohibited in (
+            "ror_renderer_public_launcher_entrypoint",
+            "ror_renderer_public_launcher_legacy_child",
+            "renderer-public-entrypoint-tests",
+            "RoR-Ogre14",
+        ):
+            with self.subTest(n1_package_exclusion=prohibited):
+                self.assertNotIn(prohibited, package)
+        self.assertIn(
+            "ror_renderer_public_launcher_legacy_child", entrypoint
+        )
 
     def test_renderer_child_launcher_fails_closed_at_process_boundary(self) -> None:
         source = (
@@ -352,14 +453,20 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             encoding="utf-8"
         )
         for path in (
+            "cmake/RendererLauncherPackageConfig.cmake",
             "source/main/gfx/RendererBackendPolicy.*",
             "source/main/gfx/RendererStartupHandoff.*",
             "source/main/gfx/RendererStartupPlan.*",
             "source/main/system/RendererChildLauncher.*",
+            "source/main/system/RendererLauncherMain.cpp",
+            "source/main/system/RendererLauncherPackageConfig.h.in",
+            "source/main/system/RendererPublicLauncher.*",
             "source/main/gfx/render/**",
             "tests/gfx/RendererBackendPolicyTests.cpp",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
+            "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
+            "tests/gfx/RendererPublicLauncherTests.cpp",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tools/ogre_next_probe/**",

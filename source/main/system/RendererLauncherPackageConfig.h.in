@@ -1,0 +1,46 @@
+/*
+    This source file is part of Rigs of Rods
+
+    Rigs of Rods is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License version 3, as
+    published by the Free Software Foundation.
+*/
+
+/// @file
+/// @brief Generated, immutable public-launcher package facts.
+
+#pragma once
+
+#include "RendererStartupHandoff.h"
+
+namespace RoR {
+namespace RendererLauncherPackageConfig {
+
+constexpr std::uint32_t kContractVersion =
+    kRendererStartupHandoffContractVersion;
+constexpr HostRenderPlatform kPackagePlatform =
+    HostRenderPlatform::@ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM@;
+constexpr bool kOgre14ChildPresent =
+    @ROR_RENDERER_LAUNCHER_OGRE14_CHILD_PRESENT@;
+constexpr bool kOgreNextChildPresent =
+    @ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT@;
+constexpr bool kOgreNextChildProductionReady =
+    @ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY@;
+constexpr bool kOgreNextPssmAdmitted =
+    @ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED@;
+constexpr NativeRayTracingBackend kNativeDirectionalShadowBackend =
+    NativeRayTracingBackend::@ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND@;
+
+// Phase 2 has no normalized launcher-to-OgreNext argv encoder. Keep this
+// generated package profile categorically incapable of selecting that child.
+static_assert(kOgre14ChildPresent,
+              "the phase-2 launcher requires the OGRE 14 game child");
+static_assert(!kOgreNextChildPresent &&
+                  !kOgreNextChildProductionReady &&
+                  !kOgreNextPssmAdmitted &&
+                  kNativeDirectionalShadowBackend ==
+                      NativeRayTracingBackend::NONE,
+              "Ogre-Next package admission requires the versioned child-intent encoder");
+
+} // namespace RendererLauncherPackageConfig
+} // namespace RoR
