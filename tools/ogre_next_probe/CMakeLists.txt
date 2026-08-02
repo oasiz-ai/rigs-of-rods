@@ -895,6 +895,25 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre_next_window_present_smoke
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+    set(ROR_OGRE_NEXT_WINDOW_RUN_LOOP_IMAGE
+        "${CMAKE_BINARY_DIR}/ogre-next-window-run-loop.ppm")
+    set(ROR_OGRE_NEXT_WINDOW_RUN_LOOP_REPORT
+        "${CMAKE_BINARY_DIR}/ogre-next-window-run-loop.json")
+    add_executable(
+        ror_ogre_next_window_run_loop_smoke
+        src/window_run_loop_smoke.cpp)
+    target_include_directories(
+        ror_ogre_next_window_run_loop_smoke
+        PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_link_libraries(
+        ror_ogre_next_window_run_loop_smoke
+        PRIVATE
+            ror_ogre_next_frontend_n1
+            ror_renderer_ogre_next_sdl_window_runtime)
+    set_target_properties(
+        ror_ogre_next_window_run_loop_smoke
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
     # Real native entrypoint and frontend bootstrap, still confined to this
     # probe project. It is intentionally absent from all package/install and
     # product source/main CMake paths until presentation and the game bridge
@@ -1076,6 +1095,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_ogre_next_sdl_window_runtime
         ror_renderer_ogre_next_window_host_smoke
         ror_ogre_next_window_present_smoke
+        ror_ogre_next_window_run_loop_smoke
         ror_renderer_ogre_next_child_runtime
         ror_renderer_child_launcher_fake_child
         ror_renderer_child_launcher_tests
@@ -1773,6 +1793,18 @@ if (TARGET ror_ogre_next_window_present_smoke)
             RESOURCE_LOCK ror_ogre_next_n1_native_device
             TIMEOUT 60)
 endif ()
+if (APPLE AND TARGET ror_ogre_next_window_run_loop_smoke)
+    add_test(NAME ror_ogre_next_window_run_loop_smoke
+        COMMAND $<TARGET_FILE:ror_ogre_next_window_run_loop_smoke>
+            --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+            --output "${ROR_OGRE_NEXT_WINDOW_RUN_LOOP_IMAGE}"
+            --report "${ROR_OGRE_NEXT_WINDOW_RUN_LOOP_REPORT}")
+    set_tests_properties(
+        ror_ogre_next_window_run_loop_smoke
+        PROPERTIES
+            RESOURCE_LOCK ror_ogre_next_n1_native_device
+            TIMEOUT 180)
+endif ()
 if (TARGET ror_renderer_ogre_next_child_runtime)
     add_test(
         NAME ror_renderer_ogre_next_child_runtime
@@ -1976,6 +2008,7 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             ror_renderer_ogre_next_window_host_tests
             ror_renderer_ogre_next_window_host_smoke
             ror_ogre_next_window_present_smoke
+            ror_ogre_next_window_run_loop_smoke
         BYPRODUCTS
             "${ROR_OGRE_NEXT_N1_IMAGE}"
             "${ROR_OGRE_NEXT_N1_REPORT}"

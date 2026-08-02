@@ -200,6 +200,115 @@ RendererOgreNextSdlWindowRuntime::Runtime() noexcept {
   return runtime;
 }
 
+bool RendererOgreNextSdlWindowRuntime::PollWindowEvents(
+    void *sdl_window, RendererOgreNextSdlWindowEventBatch &batch) {
+  m_last_error.clear();
+  if (!RequireOwnerThread("SDL production window event poll")) {
+    return false;
+  }
+  if (!m_video_initialized || sdl_window == nullptr ||
+      batch.version != kRendererOgreNextSdlWindowEventContractVersion ||
+      (m_polled_window != nullptr && m_polled_window != sdl_window)) {
+    m_last_error = "invalid SDL production window event poll";
+    return false;
+  }
+  batch = RendererOgreNextSdlWindowEventBatch{};
+  SDL_Window *window = static_cast<SDL_Window *>(sdl_window);
+  const Uint32 window_id = SDL_GetWindowID(window);
+  if (window_id == 0U) {
+    RecordSdlError("SDL_GetWindowID");
+    return false;
+  }
+
+  SDL_PumpEvents();
+  SDL_Event event;
+  int peep_status = 0;
+  while ((peep_status = SDL_PeepEvents(
+              &event, 1, SDL_GETEVENT, SDL_QUIT, SDL_QUIT)) > 0) {
+    ++batch.polled_events;
+    ++batch.close_events;
+    batch.close_requested = true;
+  }
+  if (peep_status < 0) {
+    RecordSdlError("SDL_PeepEvents(SDL_QUIT)");
+    return false;
+  }
+  while ((peep_status = SDL_PeepEvents(
+              &event, 1, SDL_GETEVENT, SDL_WINDOWEVENT,
+              SDL_WINDOWEVENT)) > 0) {
+    ++batch.polled_events;
+    if (event.window.windowID != window_id) {
+      continue;
+    }
+    ++batch.matched_window_events;
+    switch (event.window.event) {
+    case SDL_WINDOWEVENT_CLOSE:
+      ++batch.close_events;
+      batch.close_requested = true;
+      break;
+    case SDL_WINDOWEVENT_FOCUS_GAINED:
+      ++batch.focus_gained_events;
+      break;
+    case SDL_WINDOWEVENT_FOCUS_LOST:
+      ++batch.focus_lost_events;
+      break;
+    case SDL_WINDOWEVENT_RESIZED:
+    case SDL_WINDOWEVENT_SIZE_CHANGED:
+      ++batch.resize_events;
+      break;
+    case SDL_WINDOWEVENT_MINIMIZED:
+      ++batch.minimize_events;
+      break;
+    case SDL_WINDOWEVENT_RESTORED:
+    case SDL_WINDOWEVENT_MAXIMIZED:
+      ++batch.restore_events;
+      break;
+    case SDL_WINDOWEVENT_DISPLAY_CHANGED:
+      ++batch.display_change_events;
+      break;
+    default:
+      break;
+    }
+  }
+  if (peep_status < 0) {
+    RecordSdlError("SDL_PeepEvents(SDL_WINDOWEVENT)");
+    return false;
+  }
+
+  int logical_width = 0;
+  int logical_height = 0;
+  int drawable_width = 0;
+  int drawable_height = 0;
+  SDL_GetWindowSize(window, &logical_width, &logical_height);
+  SDL_GetWindowSizeInPixels(window, &drawable_width, &drawable_height);
+  const Uint32 flags = SDL_GetWindowFlags(window);
+  batch.focused = (flags & SDL_WINDOW_INPUT_FOCUS) != 0U;
+  batch.minimized = (flags & SDL_WINDOW_MINIMIZED) != 0U;
+  batch.hidden = (flags & SDL_WINDOW_HIDDEN) != 0U;
+  if (logical_width <= 0 || logical_height <= 0 || drawable_width < 0 ||
+      drawable_height < 0 ||
+      ((drawable_width == 0 || drawable_height == 0) &&
+       !batch.minimized && !batch.hidden)) {
+    m_last_error = "SDL production event poll observed invalid window metrics";
+    return false;
+  }
+  batch.logical_width = static_cast<std::uint32_t>(logical_width);
+  batch.logical_height = static_cast<std::uint32_t>(logical_height);
+  batch.drawable_width = static_cast<std::uint32_t>(drawable_width);
+  batch.drawable_height = static_cast<std::uint32_t>(drawable_height);
+  if (drawable_width > 0 && drawable_height > 0) {
+    batch.drawable_size_changed =
+        m_has_drawable_baseline &&
+        (batch.drawable_width != m_last_drawable_width ||
+         batch.drawable_height != m_last_drawable_height);
+    m_last_drawable_width = batch.drawable_width;
+    m_last_drawable_height = batch.drawable_height;
+    m_has_drawable_baseline = true;
+  }
+  m_polled_window = sdl_window;
+  return true;
+}
+
 bool RendererOgreNextSdlWindowRuntime::ClaimOrValidateOwnerThread(
     void *context) {
   if (context == nullptr) {
@@ -533,6 +642,12 @@ bool RendererOgreNextSdlWindowRuntime::DestroyWindow(void *context,
     return false;
   }
   SDL_DestroyWindow(static_cast<SDL_Window *>(sdl_window));
+  if (self.m_polled_window == sdl_window) {
+    self.m_polled_window = nullptr;
+    self.m_last_drawable_width = 0U;
+    self.m_last_drawable_height = 0U;
+    self.m_has_drawable_baseline = false;
+  }
   return true;
 }
 
@@ -548,6 +663,10 @@ bool RendererOgreNextSdlWindowRuntime::ShutdownVideo(void *context) {
   }
   SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
   self.m_video_initialized = false;
+  self.m_polled_window = nullptr;
+  self.m_last_drawable_width = 0U;
+  self.m_last_drawable_height = 0U;
+  self.m_has_drawable_baseline = false;
   self.RestoreVideoDriverHint();
   self.m_owner_thread_claimed = false;
   self.m_owner_thread = std::thread::id{};
