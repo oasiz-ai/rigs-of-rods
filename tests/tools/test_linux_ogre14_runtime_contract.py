@@ -513,7 +513,15 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
             "ROR_LINUX_INSTALLED_EXECUTABLE_NAME",
             stager,
         )
-        self.assertIn("${CONAN_RUNTIME_LIB_DIRS}", source)
+        self.assertIn(
+            "ror_ogre14_cmakedeps_runtime_search_dirs(",
+            source,
+        )
+        self.assertIn(
+            "ror_ogre14_install_set_list_code(",
+            source,
+        )
+        self.assertNotIn("CONAN_RUNTIME_LIB_DIRS", source)
         self.assertIn(
             '[=[set(ROR_LINUX_INSTALL_ROOT '
             '"$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")\n]=]',

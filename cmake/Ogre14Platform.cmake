@@ -168,6 +168,132 @@ function(ror_ogre14_package_roots
         "${_ror_media_root}" PARENT_SCOPE)
 endfunction()
 
+# Collect the runtime-library search roots exported by Conan 2 CMakeDeps.
+#
+# CMakeDeps deliberately exposes one immutable package root per package and
+# configuration.  It does not provide the aggregate CONAN_RUNTIME_LIB_DIRS
+# variable emitted by older Conan generators.  Enumerating the loaded
+# *_PACKAGE_FOLDER_<CONFIG> variables keeps the dependency closure tied to the
+# exact locked graph that find_package() resolved, while still including
+# transitive shared-library packages.
+function(ror_ogre14_cmakedeps_runtime_search_dirs
+        output_variable build_type)
+    if ("${output_variable}" STREQUAL "")
+        message(FATAL_ERROR
+            "A CMakeDeps runtime search-directory output is required")
+    endif ()
+
+    string(TOUPPER "${build_type}" _ror_config)
+    if (NOT _ror_config MATCHES "^[A-Z][A-Z0-9_]*$")
+        message(FATAL_ERROR
+            "An exact CMakeDeps build configuration is required")
+    endif ()
+
+    get_cmake_property(_ror_all_variables VARIABLES)
+    list(SORT _ror_all_variables)
+    set(_ror_package_root_count 0)
+    set(_ror_runtime_search_dirs)
+    foreach (_ror_variable IN LISTS _ror_all_variables)
+        if (NOT _ror_variable MATCHES
+                "^[A-Za-z0-9_]+_PACKAGE_FOLDER_${_ror_config}$")
+            continue()
+        endif ()
+
+        set(_ror_package_root_values "${${_ror_variable}}")
+        list(LENGTH _ror_package_root_values _ror_package_root_value_count)
+        if (NOT _ror_package_root_value_count EQUAL 1)
+            message(FATAL_ERROR
+                "CMakeDeps package root ${_ror_variable} must contain "
+                "exactly one path")
+        endif ()
+        set(_ror_package_root "${${_ror_variable}}")
+        if (NOT IS_ABSOLUTE "${_ror_package_root}"
+                OR NOT IS_DIRECTORY "${_ror_package_root}"
+                OR IS_SYMLINK "${_ror_package_root}")
+            message(FATAL_ERROR
+                "CMakeDeps package root ${_ror_variable} is not an "
+                "absolute, non-symlink directory: ${_ror_package_root}")
+        endif ()
+        math(EXPR _ror_package_root_count
+            "${_ror_package_root_count} + 1")
+
+        foreach (_ror_runtime_subdirectory IN ITEMS lib bin)
+            set(_ror_runtime_directory
+                "${_ror_package_root}/${_ror_runtime_subdirectory}")
+            if (EXISTS "${_ror_runtime_directory}"
+                    AND NOT IS_DIRECTORY "${_ror_runtime_directory}")
+                message(FATAL_ERROR
+                    "CMakeDeps runtime path is not a directory: "
+                    "${_ror_runtime_directory}")
+            endif ()
+            if (IS_DIRECTORY "${_ror_runtime_directory}")
+                if (IS_SYMLINK "${_ror_runtime_directory}")
+                    message(FATAL_ERROR
+                        "CMakeDeps runtime directory must not be a symlink: "
+                        "${_ror_runtime_directory}")
+                endif ()
+                list(APPEND _ror_runtime_search_dirs
+                    "${_ror_runtime_directory}")
+            endif ()
+        endforeach ()
+    endforeach ()
+
+    if (_ror_package_root_count EQUAL 0)
+        message(FATAL_ERROR
+            "Conan CMakeDeps exposed no package roots for ${_ror_config}")
+    endif ()
+    if (NOT _ror_runtime_search_dirs)
+        message(FATAL_ERROR
+            "The ${_ror_config} CMakeDeps graph has no lib or bin runtime "
+            "directories")
+    endif ()
+    list(REMOVE_DUPLICATES _ror_runtime_search_dirs)
+    set(${output_variable}
+        "${_ror_runtime_search_dirs}" PARENT_SCOPE)
+endfunction()
+
+# Serialize a CMake list into install(CODE) without allowing quotes, dollar
+# expansions, semicolons, or bracket terminators in paths to alter the
+# generated install program.  The bracket delimiter grows until it cannot
+# occur in the value being serialized.
+function(ror_ogre14_install_set_list_code
+        output_variable installed_variable)
+    if (NOT installed_variable MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
+        message(FATAL_ERROR
+            "Unsafe install-time CMake variable name: ${installed_variable}")
+    endif ()
+    if (NOT ARGN)
+        message(FATAL_ERROR
+            "Install-time list ${installed_variable} must not be empty")
+    endif ()
+
+    set(_ror_install_code "set(${installed_variable}\n")
+    foreach (_ror_install_value IN LISTS ARGN)
+        if ("${_ror_install_value}" STREQUAL "")
+            message(FATAL_ERROR
+                "Install-time list ${installed_variable} contains an "
+                "empty value")
+        endif ()
+        set(_ror_bracket_equals "=")
+        while (TRUE)
+            set(_ror_bracket_close "]${_ror_bracket_equals}]")
+            string(FIND
+                "${_ror_install_value}"
+                "${_ror_bracket_close}"
+                _ror_bracket_close_position)
+            if (_ror_bracket_close_position EQUAL -1)
+                break()
+            endif ()
+            string(APPEND _ror_bracket_equals "=")
+        endwhile ()
+        string(APPEND _ror_install_code
+            "    [${_ror_bracket_equals}[${_ror_install_value}]"
+            "${_ror_bracket_equals}]\n")
+    endforeach ()
+    string(APPEND _ror_install_code ")\n")
+    set(${output_variable} "${_ror_install_code}" PARENT_SCOPE)
+endfunction()
+
 function(ror_ogre14_media_root
         output_variable package_root system_name)
     if (NOT IS_ABSOLUTE "${package_root}"
