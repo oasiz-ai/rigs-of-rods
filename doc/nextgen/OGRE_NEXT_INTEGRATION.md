@@ -209,10 +209,10 @@ claim.
 The production migration uses a supervisor-owned two-process topology rather
 than loading both renderer ABIs into one address space. Its first
 process-independent contract is `RendererBridgeEndpoint` version 1. The
-unwired `RendererBridgeProcessSupervisor` version-1 core now accepts a caller-
-owned nonzero 128-bit session identifier, creates two unidirectional inherited
-byte streams, and launches the OGRE 14 simulation/game host and Ogre-Next
-presentation frontend with mirrored roles and stream directions.
+`RendererBridgeProcessSupervisor` version-1 core accepts a caller-owned nonzero
+128-bit session identifier, creates two unidirectional inherited byte streams,
+and launches the OGRE 14 simulation/game host and Ogre-Next presentation
+frontend with mirrored roles and stream directions.
 Each child receives an exact six-record native argv prefix containing the
 contract version, role, compile-time platform, lowercase session identifier,
 and fixed-width native read/write handle tokens. Foreign platforms, unknown
@@ -249,9 +249,24 @@ install or package rules.
 
 The session identifier in argv binds both endpoints to one launch transaction;
 it remains a local consistency value rather than an authentication boundary.
-The process supervisor is deliberately not called by `RendererPublicLauncher`,
-does not make either child consume production scene/input traffic, and does not
-change any generated presence/readiness/admission fact. Production stream
+`RendererPublicLauncher` now calls the supervisor only after the immutable
+handoff selects a production-admitted Ogre-Next child. It supplies a nonzero
+per-transaction session, preserves the original game argv behind both bridge
+contracts, and propagates the game host's exact exit code or POSIX terminating
+signal. A presentation-first or partial-startup failure is terminal and never
+causes an unreviewed runtime fallback to the legacy child. The existing policy
+still selects the exact single-process `RoR-Ogre14` sibling when
+`OGRE_NEXT_PREFER` is allowed to fall back, while `OGRE_NEXT_REQUIRE` remains a
+hard gate.
+
+A test-only admitted-facts fixture runs the real public entrypoint against the
+two exact fake siblings on all three platform policies. It covers no-flag
+Ogre-Next preference, explicit Ogre-Next requirement, Unicode/space-containing
+game argv, exact game exit propagation, and presentation-first teardown. The
+production package generator remains unchanged and still records Ogre-Next as
+absent/unadmitted, so current packages continue to choose OGRE 14. This wiring
+does not itself make either child consume production scene/input traffic or
+change generated presence/readiness/admission facts. Production stream
 back-pressure, endpoint handshake/EOF policy, game/frontend consumers, and
 package admission remain separate gates.
 

@@ -96,6 +96,7 @@ tests/gfx/RendererOgreNextChildTests.cpp text eol=lf
 tests/gfx/RendererOgreNextWindowHostTests.cpp text eol=lf
 tests/gfx/RendererPublicLauncherLegacyChild.cpp text eol=lf
 tests/gfx/RendererPublicLauncherTests.cpp text eol=lf
+tests/cmake/VerifyRendererPublicBridgeExit.cmake text eol=lf
 tests/gfx/RendererStartupHandoffTests.cpp text eol=lf
 tests/gfx/RendererStartupPlanTests.cpp text eol=lf
 tools/ogre_next_probe/** text eol=lf

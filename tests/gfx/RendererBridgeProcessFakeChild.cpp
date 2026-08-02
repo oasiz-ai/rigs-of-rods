@@ -58,12 +58,21 @@ Pointers(const std::vector<NativeString> &arguments) {
 }
 
 bool ExpectedSession(const RoR::RendererBridgeSessionId &session) noexcept {
+#if defined(ROR_RENDERER_BRIDGE_FAKE_ACCEPT_ANY_SESSION)
+  for (const std::uint8_t byte : session) {
+    if (byte != 0U) {
+      return true;
+    }
+  }
+  return false;
+#else
   for (std::size_t index = 0U; index < session.size(); ++index) {
     if (session[index] != static_cast<std::uint8_t>(0xa0U + index)) {
       return false;
     }
   }
   return true;
+#endif
 }
 
 bool Equals(const NativeString &value,
@@ -76,6 +85,27 @@ bool StartsWith(const NativeString &value,
   const NativeString expected(prefix);
   return value.size() >= expected.size() &&
          value.compare(0U, expected.size(), expected) == 0;
+}
+
+bool HasExpectedPublicLauncherArguments(
+    const std::vector<NativeString> &arguments) {
+#if defined(ROR_RENDERER_BRIDGE_FAKE_REQUIRE_PUBLIC_ARGUMENTS)
+  if (arguments.size() != 6U || arguments[0U].empty() ||
+      !Equals(arguments[1U],
+              ROR_NATIVE_TEXT("--bridge-test-public-argv")) ||
+      !Equals(arguments[2U], ROR_NATIVE_TEXT("-map")) ||
+      !Equals(arguments[3U], ROR_NATIVE_TEXT("City World")) ||
+      !Equals(arguments[4U], ROR_NATIVE_TEXT("space and unicode \u03a9"))) {
+    return false;
+  }
+  return StartsWith(arguments[5U],
+                    ROR_NATIVE_TEXT("--bridge-test-game-exit=")) ||
+         Equals(arguments[5U],
+                ROR_NATIVE_TEXT("--bridge-test-presentation-first"));
+#else
+  (void)arguments;
+  return true;
+#endif
 }
 
 int ParseDecimalSuffix(
@@ -289,6 +319,7 @@ bool WriteEnvelope(NativeIoHandle outbound,
 RunGame(const RoR::RendererBridgeEndpointArgvParseResult &parsed) {
   if (parsed.endpoint.role != RoR::RendererBridgeRole::GAME_HOST ||
       !ExpectedSession(parsed.endpoint.session_id) ||
+      !HasExpectedPublicLauncherArguments(parsed.forwarded_arguments) ||
       !HasExactInheritedResources(parsed.endpoint, true)) {
     return kContractFailureExit;
   }
@@ -349,6 +380,7 @@ RunGame(const RoR::RendererBridgeEndpointArgvParseResult &parsed) {
   if (parsed.endpoint.role !=
           RoR::RendererBridgeRole::PRESENTATION_FRONTEND ||
       !ExpectedSession(parsed.endpoint.session_id) ||
+      !HasExpectedPublicLauncherArguments(parsed.forwarded_arguments) ||
       !HasExactInheritedResources(parsed.endpoint, false)) {
     return kContractFailureExit;
   }

@@ -72,6 +72,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererOgreNextChildTests.cpp",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
             "tests/gfx/RendererPublicLauncherTests.cpp",
+            "tests/cmake/VerifyRendererPublicBridgeExit.cmake",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tests/gfx/render/**",
@@ -337,6 +338,16 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "cmake/RendererLauncherPackageConfig.cmake",
             "source/main/system/RendererLauncherPackageConfig.h.in",
             "add_test(NAME ror_renderer_public_launcher_entrypoint",
+            "ror_renderer_public_bridge_fake_game",
+            "ror_renderer_public_bridge_fake_presentation",
+            "ror_renderer_public_bridge_entrypoint",
+            "ROR_RENDERER_BRIDGE_FAKE_ACCEPT_ANY_SESSION=1",
+            "ROR_RENDERER_BRIDGE_FAKE_REQUIRE_PUBLIC_ARGUMENTS=1",
+            "tests/cmake/VerifyRendererPublicBridgeExit.cmake",
+            'NAME "ror_renderer_public_bridge_${_ror_public_bridge_case}"',
+            "default-prefer",
+            "explicit-require",
+            "presentation-first",
         ):
             self.assertIn(token, cmake)
         for path in (
@@ -378,6 +389,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererOgreNextChildTests.cpp",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
             "tests/gfx/RendererPublicLauncherTests.cpp",
+            "tests/cmake/VerifyRendererPublicBridgeExit.cmake",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tests/tools/test_ogre_next_child_runtime_contract.py",
@@ -499,6 +511,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererLauncherMain.cpp",
             "source/main/system/RendererPublicLauncher.cpp",
             "source/main/system/RendererChildIntent.cpp",
+            "source/main/system/RendererBridgeEndpoint.cpp",
+            "source/main/system/RendererBridgeLaunchPlan.cpp",
+            "source/main/system/RendererBridgeProcessSupervisor.cpp",
             "source/main/system/RendererChildLauncher.cpp",
             "source/main/system/RendererSiblingPath.cpp",
             "source/main/gfx/RendererStartupHandoff.cpp",
@@ -518,6 +533,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror_renderer_child_launcher_tests",
             "ror_renderer_public_launcher_legacy_child",
             "ror_renderer_public_launcher_entrypoint",
+            "ror_renderer_public_bridge_entrypoint",
         ):
             with self.subTest(cxx11_policy_target=target):
                 self.assertEqual(policy_language_block.count(target), 1)
@@ -532,6 +548,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror_renderer_bridge_process_fake_game",
             "ror_renderer_bridge_process_fake_presentation",
             "ror_renderer_bridge_process_supervisor_tests",
+            "ror_renderer_public_bridge_fake_game",
+            "ror_renderer_public_bridge_fake_presentation",
         ):
             with self.subTest(cxx17_bridge_target=target):
                 self.assertEqual(n1_target_list.count(target), 1)
@@ -570,7 +588,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         for prohibited in (
             "ror_renderer_public_launcher_entrypoint",
             "ror_renderer_public_launcher_legacy_child",
+            "ror_renderer_public_bridge_entrypoint",
+            "ror_renderer_public_bridge_fake_game",
+            "ror_renderer_public_bridge_fake_presentation",
             "renderer-public-entrypoint-tests",
+            "renderer-public-bridge-tests",
             "RoR-Ogre14",
         ):
             with self.subTest(n1_package_exclusion=prohibited):
@@ -731,6 +753,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererOgreNextChildTests.cpp",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
             "tests/gfx/RendererPublicLauncherTests.cpp",
+            "tests/cmake/VerifyRendererPublicBridgeExit.cmake",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tools/ogre_next_probe/**",

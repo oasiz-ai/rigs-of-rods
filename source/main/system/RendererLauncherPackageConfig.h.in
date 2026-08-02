@@ -31,17 +31,29 @@ constexpr bool kOgreNextPssmAdmitted =
 constexpr NativeRayTracingBackend kNativeDirectionalShadowBackend =
     NativeRayTracingBackend::@ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND@;
 
-// The argv encoder exists, but this bounded package still has no admitted
-// production Ogre-Next game child. Keep its immutable facts categorically
-// incapable of selecting a probe or incomplete presentation executable.
+// The production package generator still records Ogre-Next as absent until its
+// independent admission gate succeeds. These invariants also permit a bounded
+// process-contract fixture to compile admitted facts without making any runtime
+// or user-controlled package-fact channel available.
 static_assert(kOgre14ChildPresent,
               "the phase-2 launcher requires the OGRE 14 game child");
-static_assert(!kOgreNextChildPresent &&
-                  !kOgreNextChildProductionReady &&
-                  !kOgreNextPssmAdmitted &&
-                  kNativeDirectionalShadowBackend ==
-                      NativeRayTracingBackend::NONE,
-              "Ogre-Next package admission requires a production-ready game child");
+static_assert(kOgreNextChildPresent ||
+                  (!kOgreNextChildProductionReady &&
+                   !kOgreNextPssmAdmitted &&
+                   kNativeDirectionalShadowBackend ==
+                       NativeRayTracingBackend::NONE),
+              "an absent Ogre-Next child cannot advertise admitted features");
+static_assert(!kOgreNextChildProductionReady || kOgreNextChildPresent,
+              "Ogre-Next readiness requires a packaged child");
+static_assert(!kOgreNextPssmAdmitted ||
+                  (kOgreNextChildPresent &&
+                   kOgreNextChildProductionReady),
+              "Ogre-Next PSSM admission requires a production-ready child");
+static_assert(kNativeDirectionalShadowBackend ==
+                      NativeRayTracingBackend::NONE ||
+                  (kOgreNextChildPresent &&
+                   kOgreNextChildProductionReady),
+              "a native shadow backend requires a production-ready child");
 
 } // namespace RendererLauncherPackageConfig
 } // namespace RoR

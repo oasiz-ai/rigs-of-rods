@@ -53,6 +53,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererOgreNextWindowHostTests.cpp
     tests/gfx/RendererPublicLauncherLegacyChild.cpp
     tests/gfx/RendererPublicLauncherTests.cpp
+    tests/cmake/VerifyRendererPublicBridgeExit.cmake
     tests/gfx/RendererStartupHandoffTests.cpp
     tests/gfx/RendererStartupPlanTests.cpp
     tests/tools/test_ogre_next_child_runtime_contract.py
@@ -132,6 +133,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererOgreNextWindowHostTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
     "tests/gfx/RendererPublicLauncherTests.cpp"
+    "tests/cmake/VerifyRendererPublicBridgeExit.cmake"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"

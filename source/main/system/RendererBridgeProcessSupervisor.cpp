@@ -144,8 +144,8 @@ public:
     return *this;
   }
 
-  [[nodiscard]] HANDLE get() const noexcept { return handle_; }
-  [[nodiscard]] bool valid() const noexcept {
+  HANDLE get() const noexcept { return handle_; }
+  bool valid() const noexcept {
     return handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE;
   }
   HANDLE release() noexcept {
@@ -672,8 +672,8 @@ public:
     return *this;
   }
 
-  [[nodiscard]] int get() const noexcept { return descriptor_; }
-  [[nodiscard]] bool valid() const noexcept { return descriptor_ >= 0; }
+  int get() const noexcept { return descriptor_; }
+  bool valid() const noexcept { return descriptor_ >= 0; }
   int release() noexcept {
     const int value = descriptor_;
     descriptor_ = -1;
@@ -805,9 +805,9 @@ struct PosixChildFailureRecord final {
 [[noreturn]] void WriteChildFailureAndExit(
     int error_descriptor, PosixChildFailureStage stage,
     int error_code) noexcept {
-  const PosixChildFailureRecord record{
-      static_cast<std::uint32_t>(stage),
-      static_cast<std::uint32_t>(error_code)};
+  PosixChildFailureRecord record;
+  record.stage = static_cast<std::uint32_t>(stage);
+  record.error_code = static_cast<std::uint32_t>(error_code);
   const auto *bytes = reinterpret_cast<const unsigned char *>(&record);
   std::size_t offset = 0U;
   while (offset < sizeof(record)) {
