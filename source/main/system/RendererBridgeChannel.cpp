@@ -36,7 +36,8 @@ HANDLE NativeHandle(std::uint64_t value) noexcept {
   return reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(value));
 }
 
-bool ValidatePipeHandle(HANDLE handle, std::uint32_t &error_code) noexcept {
+bool ValidatePipeHandle(HANDLE handle, bool validate_read_mode,
+                        std::uint32_t &error_code) noexcept {
   DWORD flags = 0U;
   if (handle == nullptr || handle == INVALID_HANDLE_VALUE ||
       ::GetHandleInformation(handle, &flags) == FALSE) {
@@ -50,6 +51,9 @@ bool ValidatePipeHandle(HANDLE handle, std::uint32_t &error_code) noexcept {
     error_code = static_cast<std::uint32_t>(
         native_error == ERROR_SUCCESS ? ERROR_INVALID_HANDLE : native_error);
     return false;
+  }
+  if (!validate_read_mode) {
+    return true;
   }
   DWORD pipe_flags = 0U;
   if (::GetNamedPipeInfo(handle, &pipe_flags, nullptr, nullptr, nullptr) ==
@@ -297,11 +301,13 @@ RendererBridgeChannelResult RendererBridgeChannel::Adopt() noexcept {
   adopted_ = true;
   std::uint32_t native_error = 0U;
 #if defined(_WIN32)
-  if (!ValidatePipeHandle(NativeHandle(inbound_native_handle_), native_error)) {
+  if (!ValidatePipeHandle(NativeHandle(inbound_native_handle_), true,
+                          native_error)) {
     return FailAndClose(
         RendererBridgeChannelStatus::FAILED_INBOUND_HANDLE, native_error);
   }
-  if (!ValidatePipeHandle(NativeHandle(outbound_native_handle_), native_error)) {
+  if (!ValidatePipeHandle(NativeHandle(outbound_native_handle_), false,
+                          native_error)) {
     return FailAndClose(
         RendererBridgeChannelStatus::FAILED_OUTBOUND_HANDLE, native_error);
   }
