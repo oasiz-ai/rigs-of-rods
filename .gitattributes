@@ -72,6 +72,7 @@ source/main/system/RendererChildIntent.* text eol=lf
 source/main/system/RendererChildLauncher.* text eol=lf
 source/main/system/RendererOgre14GameBridge.* text eol=lf
 source/main/system/RendererSiblingPath.* text eol=lf
+source/main/system/RendererPackagedMediaPath.* text eol=lf
 source/main/system/RendererBridgeEndpoint.* text eol=lf
 source/main/system/RendererBridgeLaunchPlan.* text eol=lf
 source/main/system/RendererBridgeProcessSupervisor.* text eol=lf
