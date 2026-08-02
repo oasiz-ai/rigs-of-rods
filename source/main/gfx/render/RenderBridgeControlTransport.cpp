@@ -22,7 +22,7 @@ using TransportDetail::WireReader;
 using TransportDetail::WireWriter;
 
 constexpr std::uint64_t kAcknowledgementPayloadBytes = 40U;
-constexpr std::uint64_t kControlPayloadBytes = 32U;
+constexpr std::uint64_t kControlPayloadBytes = 48U;
 
 RenderTransportEnvelopeEncodeResult Failure(
     RenderTransportStatus status) noexcept {
@@ -52,16 +52,35 @@ bool IsKnownRenderBridgeControlKind(RenderBridgeControlKind kind) noexcept {
   case RenderBridgeControlKind::PEER_READY:
   case RenderBridgeControlKind::REQUEST_GRACEFUL_SHUTDOWN:
   case RenderBridgeControlKind::HEARTBEAT:
+  case RenderBridgeControlKind::SURFACE_CHANGED:
     return true;
   }
   return false;
 }
 
+bool IsValidRenderBridgeSurfaceState(
+    const RenderBridgeSurfaceState &surface,
+    bool allow_suspended) noexcept {
+  const bool logical_valid =
+      surface.logical_width != 0U && surface.logical_height != 0U &&
+      surface.logical_width <= kRenderBridgeMaximumSurfaceExtent &&
+      surface.logical_height <= kRenderBridgeMaximumSurfaceExtent;
+  if (!logical_valid || !IsValidIdentifier(surface.surface_revision)) {
+    return false;
+  }
+  if (surface.suspended) {
+    return allow_suspended && surface.drawable_width == 0U &&
+           surface.drawable_height == 0U;
+  }
+  return surface.drawable_width != 0U && surface.drawable_height != 0U &&
+         surface.drawable_width <= kRenderBridgeMaximumSurfaceExtent &&
+         surface.drawable_height <= kRenderBridgeMaximumSurfaceExtent;
+}
+
 RenderTransportEnvelopeEncodeResult EncodeRenderBridgeAcknowledgementFrame(
     std::uint64_t sequence,
     const RenderBridgeAcknowledgement &acknowledgement) {
-  if (acknowledgement.version !=
-          kRenderBridgeControlTransportPayloadVersion ||
+  if (acknowledgement.version != kRenderBridgeAcknowledgementPayloadVersion ||
       !IsValidIdentifier(acknowledgement.registry_id) ||
       !IsValidIdentifier(acknowledgement.through_forward_sequence)) {
     return Failure(RenderTransportStatus::INVALID_ARGUMENT);
@@ -106,10 +125,26 @@ RenderTransportEnvelopeEncodeResult EncodeRenderBridgeAcknowledgementFrame(
 
 RenderTransportEnvelopeEncodeResult EncodeRenderBridgeControlFrame(
     std::uint64_t sequence, const RenderBridgeControl &control) {
-  if (control.version != kRenderBridgeControlTransportPayloadVersion ||
+  const bool carries_surface =
+      control.kind == RenderBridgeControlKind::PEER_READY ||
+      control.kind == RenderBridgeControlKind::SURFACE_CHANGED;
+  const bool surface_valid =
+      carries_surface
+          ? IsValidRenderBridgeSurfaceState(
+                control.surface,
+                control.kind == RenderBridgeControlKind::SURFACE_CHANGED)
+          : control.surface.surface_revision == 0U &&
+                control.surface.logical_width == 0U &&
+                control.surface.logical_height == 0U &&
+                control.surface.drawable_width == 0U &&
+                control.surface.drawable_height == 0U &&
+                !control.surface.suspended;
+  if (control.version != kRenderBridgeControlPayloadVersion ||
       !IsKnownRenderBridgeControlKind(control.kind) ||
       !IsValidIdentifier(control.registry_id) ||
-      !IsValidIdentifier(control.command_id)) {
+      !IsValidIdentifier(control.command_id) || !surface_valid ||
+      (control.kind == RenderBridgeControlKind::PEER_READY &&
+       control.surface.suspended)) {
     return Failure(RenderTransportStatus::INVALID_ARGUMENT);
   }
   try {
@@ -119,9 +154,15 @@ RenderTransportEnvelopeEncodeResult EncodeRenderBridgeControlFrame(
                       kRenderBridgeControlTransportMaximumPayloadBytes);
     if (!writer.AddU32(control.version) ||
         !writer.AddByte(static_cast<std::uint8_t>(control.kind)) ||
-        !writer.AddByte(0U) || !writer.AddU16(0U) ||
+        !writer.AddByte(control.surface.suspended ? 1U : 0U) ||
+        !writer.AddU16(0U) ||
         !writer.AddU64(control.registry_id) ||
-        !writer.AddU64(control.command_id) || !writer.AddU64(0U) ||
+        !writer.AddU64(control.command_id) ||
+        !writer.AddU64(control.surface.surface_revision) ||
+        !writer.AddU32(control.surface.logical_width) ||
+        !writer.AddU32(control.surface.logical_height) ||
+        !writer.AddU32(control.surface.drawable_width) ||
+        !writer.AddU32(control.surface.drawable_height) ||
         writer.size() != kControlPayloadBytes) {
       return Failure(RenderTransportStatus::INVALID_ARGUMENT);
     }
@@ -195,7 +236,7 @@ RenderBridgeControlTransportDecoder::Accept(
     const bool has_presented_scene =
         result.acknowledgement.presented_scene_sequence != 0U ||
         result.acknowledgement.presented_snapshot_id != 0U;
-    if (version != kRenderBridgeControlTransportPayloadVersion ||
+    if (version != kRenderBridgeAcknowledgementPayloadVersion ||
         !IsValidIdentifier(
             result.acknowledgement.through_forward_sequence) ||
         (has_presented_scene &&
@@ -206,22 +247,26 @@ RenderBridgeControlTransportDecoder::Accept(
               result.acknowledgement.through_forward_sequence))) {
       return DecodeFailure(
           envelope.kind, envelope.sequence,
-          version != kRenderBridgeControlTransportPayloadVersion
+          version != kRenderBridgeAcknowledgementPayloadVersion
               ? RenderTransportStatus::UNSUPPORTED_TRANSPORT_VERSION
               : RenderTransportStatus::RECONCILIATION_MISMATCH);
     }
   } else {
     std::uint8_t encoded_kind = 0U;
-    std::uint8_t reserved_byte = 0U;
+    std::uint8_t encoded_suspended = 0U;
     std::uint16_t reserved_u16 = 0U;
-    std::uint64_t reserved_u64 = 0U;
     if (!reader.ReadU32(version) || !reader.ReadByte(encoded_kind) ||
-        !reader.ReadByte(reserved_byte) ||
+        !reader.ReadByte(encoded_suspended) ||
         !reader.ReadU16(reserved_u16) ||
         !reader.ReadU64(payload_registry_id) ||
         !reader.ReadU64(result.control.command_id) ||
-        !reader.ReadU64(reserved_u64) || !reader.consumed() ||
-        reserved_byte != 0U || reserved_u16 != 0U || reserved_u64 != 0U) {
+        !reader.ReadU64(result.control.surface.surface_revision) ||
+        !reader.ReadU32(result.control.surface.logical_width) ||
+        !reader.ReadU32(result.control.surface.logical_height) ||
+        !reader.ReadU32(result.control.surface.drawable_width) ||
+        !reader.ReadU32(result.control.surface.drawable_height) ||
+        !reader.consumed() || encoded_suspended > 1U ||
+        reserved_u16 != 0U) {
       return DecodeFailure(envelope.kind, envelope.sequence,
                            reader.status() == RenderTransportStatus::OK
                                ? RenderTransportStatus::MALFORMED_PAYLOAD
@@ -231,12 +276,30 @@ RenderBridgeControlTransportDecoder::Accept(
     result.control.kind =
         static_cast<RenderBridgeControlKind>(encoded_kind);
     result.control.registry_id = payload_registry_id;
-    if (version != kRenderBridgeControlTransportPayloadVersion ||
+    result.control.surface.suspended = encoded_suspended != 0U;
+    const bool carries_surface =
+        result.control.kind == RenderBridgeControlKind::PEER_READY ||
+        result.control.kind == RenderBridgeControlKind::SURFACE_CHANGED;
+    const bool surface_valid =
+        carries_surface
+            ? IsValidRenderBridgeSurfaceState(
+                  result.control.surface,
+                  result.control.kind ==
+                      RenderBridgeControlKind::SURFACE_CHANGED)
+            : result.control.surface.surface_revision == 0U &&
+                  result.control.surface.logical_width == 0U &&
+                  result.control.surface.logical_height == 0U &&
+                  result.control.surface.drawable_width == 0U &&
+                  result.control.surface.drawable_height == 0U &&
+                  !result.control.surface.suspended;
+    if (version != kRenderBridgeControlPayloadVersion ||
         !IsKnownRenderBridgeControlKind(result.control.kind) ||
-        !IsValidIdentifier(result.control.command_id)) {
+        !IsValidIdentifier(result.control.command_id) || !surface_valid ||
+        (result.control.kind == RenderBridgeControlKind::PEER_READY &&
+         result.control.surface.suspended)) {
       return DecodeFailure(
           envelope.kind, envelope.sequence,
-          version != kRenderBridgeControlTransportPayloadVersion
+          version != kRenderBridgeControlPayloadVersion
               ? RenderTransportStatus::UNSUPPORTED_TRANSPORT_VERSION
               : RenderTransportStatus::MALFORMED_PAYLOAD);
     }
