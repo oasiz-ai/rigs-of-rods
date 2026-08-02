@@ -367,6 +367,26 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
             "resume did not re-query native metrics after the show ack", tests
         )
 
+    def test_sdl_adapter_is_msvc_strict_and_winuser_macro_safe(self) -> None:
+        for token in (
+            "std::numeric_limits<Uint8>::max()",
+            "const SDL_WindowEventID expected_id",
+            "static_cast<Uint8>(expected_id)",
+            "runtime.create_sdl_window = &CreateNativeWindow",
+            "RendererOgreNextSdlWindowRuntime::CreateNativeWindow",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.adapter)
+        self.assertNotIn(
+            "RendererOgreNextSdlWindowRuntime::CreateWindow", self.adapter
+        )
+        runtime_header = (REPOSITORY_ROOT / SOURCE_PATHS[3]).read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("static bool CreateNativeWindow(", runtime_header)
+        self.assertNotIn("static bool CreateWindow(", runtime_header)
+        self.assertIn("PRIVATE /W4 /WX /permissive-", self.probe_cmake)
+
     def test_logical_and_drawable_surface_revisions_are_distinct(self) -> None:
         for token in (
             "struct RendererOgreNextWindowMetrics",

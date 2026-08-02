@@ -100,6 +100,13 @@ enum class WindowWatchKind {
   VISIBILITY,
 };
 
+static_assert(
+    static_cast<unsigned int>(SDL_WINDOWEVENT_SHOWN) <=
+            std::numeric_limits<Uint8>::max() &&
+        static_cast<unsigned int>(SDL_WINDOWEVENT_HIDDEN) <=
+            std::numeric_limits<Uint8>::max(),
+    "SDL window event IDs must fit SDL_WindowEvent::event");
+
 struct WindowEventWatch {
   WindowWatchKind kind = WindowWatchKind::CONFIGURE;
   Uint32 window_id = 0U;
@@ -126,8 +133,9 @@ int SDLCALL ObserveWindowEvent(void *userdata, SDL_Event *event) {
       watch.acknowledged.store(true, std::memory_order_release);
     }
   } else {
-    const Uint8 expected = watch.visible ? SDL_WINDOWEVENT_SHOWN
-                                         : SDL_WINDOWEVENT_HIDDEN;
+    const SDL_WindowEventID expected_id =
+        watch.visible ? SDL_WINDOWEVENT_SHOWN : SDL_WINDOWEVENT_HIDDEN;
+    const Uint8 expected = static_cast<Uint8>(expected_id);
     if (event->window.event == expected) {
       watch.acknowledged.store(true, std::memory_order_release);
     }
@@ -181,7 +189,7 @@ RendererOgreNextSdlWindowRuntime::Runtime() noexcept {
   runtime.destroy_ogre_metal_view = &DestroyMetalView;
 #endif
   runtime.initialize_sdl_video = &InitializeVideo;
-  runtime.create_sdl_window = &CreateWindow;
+  runtime.create_sdl_window = &CreateNativeWindow;
   runtime.query_sdl_native_window = &QueryNativeWindow;
   runtime.set_sdl_window_visible_and_wait_for_ack =
       &SetWindowVisibleAndWaitForAck;
@@ -276,7 +284,7 @@ bool RendererOgreNextSdlWindowRuntime::InitializeVideo(
   return true;
 }
 
-bool RendererOgreNextSdlWindowRuntime::CreateWindow(
+bool RendererOgreNextSdlWindowRuntime::CreateNativeWindow(
     void *context, const RendererOgreNextSdlWindowCreateRequest &request,
     void **sdl_window) {
   RendererOgreNextSdlWindowRuntime &self =
