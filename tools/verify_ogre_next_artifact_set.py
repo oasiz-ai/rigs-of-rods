@@ -130,6 +130,8 @@ RELEVANT_SOURCE_PATHS = (
     "source/main/gfx/RendererStartupPlan.h",
     "source/main/system/RendererChildIntent.cpp",
     "source/main/system/RendererChildIntent.h",
+    "source/main/system/RendererBridgeEndpoint.cpp",
+    "source/main/system/RendererBridgeEndpoint.h",
     "source/main/system/RendererChildLauncher.cpp",
     "source/main/system/RendererChildLauncher.h",
     "source/main/system/RendererSiblingPath.cpp",
