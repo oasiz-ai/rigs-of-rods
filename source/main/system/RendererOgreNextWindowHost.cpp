@@ -116,6 +116,8 @@ bool IsValidRuntime(const RendererOgreNextWindowHostRuntime &runtime,
       runtime.sdl_major != kRendererOgreNextWindowHostSdlMajor ||
       runtime.sdl_minor != kRendererOgreNextWindowHostSdlMinor ||
       runtime.sdl_patch != kRendererOgreNextWindowHostSdlPatch ||
+      runtime.context == nullptr ||
+      runtime.claim_or_validate_owner_thread == nullptr ||
       runtime.initialize_sdl_video == nullptr ||
       runtime.create_sdl_window == nullptr ||
       runtime.query_sdl_native_window == nullptr ||
@@ -335,15 +337,28 @@ RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Initialize(
     return RendererOgreNextWindowHostStatus::REJECTED_INVALID_RUNTIME;
   }
 
-  m_request = request;
-  m_runtime = runtime;
   try {
     if (request.platform ==
             RendererOgreNextWindowPlatform::MACOS_COCOA_METAL &&
-        !m_runtime.is_main_thread(m_runtime.context)) {
+        !runtime.is_main_thread(runtime.context)) {
       return RendererOgreNextWindowHostStatus::REJECTED_MAIN_THREAD_REQUIRED;
     }
+  } catch (...) {
+    return RendererOgreNextWindowHostStatus::REJECTED_MAIN_THREAD_REQUIRED;
+  }
+  try {
+    if (!runtime.claim_or_validate_owner_thread(runtime.context)) {
+      return RendererOgreNextWindowHostStatus::REJECTED_OWNER_THREAD_REQUIRED;
+    }
+  } catch (...) {
+    return RendererOgreNextWindowHostStatus::REJECTED_OWNER_THREAD_REQUIRED;
+  }
 
+  m_request = request;
+  m_runtime = runtime;
+  m_owner_thread_claimed = true;
+
+  try {
     if (!m_runtime.initialize_sdl_video(
             m_runtime.context, RequiredDriverName(request.platform))) {
       return Cleanup(RendererOgreNextWindowHostStatus::
@@ -410,12 +425,16 @@ RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Initialize(
 }
 
 RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Resume() noexcept {
-  if (m_lifecycle == RendererOgreNextWindowLifecycle::ACTIVE) {
-    return RendererOgreNextWindowHostStatus::COMPLETED;
-  }
-  if (m_lifecycle != RendererOgreNextWindowLifecycle::READY_HIDDEN &&
+  if (m_lifecycle != RendererOgreNextWindowLifecycle::ACTIVE &&
+      m_lifecycle != RendererOgreNextWindowLifecycle::READY_HIDDEN &&
       m_lifecycle != RendererOgreNextWindowLifecycle::SUSPENDED) {
     return RendererOgreNextWindowHostStatus::REJECTED_INVALID_REQUEST;
+  }
+  if (!IsOwnerThread()) {
+    return RendererOgreNextWindowHostStatus::REJECTED_OWNER_THREAD_REQUIRED;
+  }
+  if (m_lifecycle == RendererOgreNextWindowLifecycle::ACTIVE) {
+    return RendererOgreNextWindowHostStatus::COMPLETED;
   }
   try {
     RendererOgreNextSdlNativeWindow candidate;
@@ -455,13 +474,18 @@ RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Resume() noexcept {
 }
 
 RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Suspend() noexcept {
+  if (m_lifecycle != RendererOgreNextWindowLifecycle::READY_HIDDEN &&
+      m_lifecycle != RendererOgreNextWindowLifecycle::SUSPENDED &&
+      m_lifecycle != RendererOgreNextWindowLifecycle::ACTIVE) {
+    return RendererOgreNextWindowHostStatus::REJECTED_INVALID_REQUEST;
+  }
+  if (!IsOwnerThread()) {
+    return RendererOgreNextWindowHostStatus::REJECTED_OWNER_THREAD_REQUIRED;
+  }
   if (m_lifecycle == RendererOgreNextWindowLifecycle::READY_HIDDEN ||
       m_lifecycle == RendererOgreNextWindowLifecycle::SUSPENDED) {
     m_lifecycle = RendererOgreNextWindowLifecycle::SUSPENDED;
     return RendererOgreNextWindowHostStatus::COMPLETED;
-  }
-  if (m_lifecycle != RendererOgreNextWindowLifecycle::ACTIVE) {
-    return RendererOgreNextWindowHostStatus::REJECTED_INVALID_REQUEST;
   }
   try {
     if (!m_runtime.set_sdl_window_visible_and_wait_for_ack(
@@ -486,9 +510,12 @@ RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Resize(
       !HasValidExtent(logical_width, logical_height)) {
     return RendererOgreNextWindowHostStatus::REJECTED_INVALID_REQUEST;
   }
+  if (!IsOwnerThread()) {
+    return RendererOgreNextWindowHostStatus::REJECTED_OWNER_THREAD_REQUIRED;
+  }
   if (m_metrics.logical_width == logical_width &&
       m_metrics.logical_height == logical_height) {
-    return RefreshMetrics();
+    return RefreshMetricsOnOwnerThread();
   }
   try {
     RendererOgreNextSdlNativeWindow candidate;
@@ -526,6 +553,14 @@ RendererOgreNextWindowHost::RefreshMetrics() noexcept {
       m_lifecycle != RendererOgreNextWindowLifecycle::SUSPENDED) {
     return RendererOgreNextWindowHostStatus::REJECTED_INVALID_REQUEST;
   }
+  if (!IsOwnerThread()) {
+    return RendererOgreNextWindowHostStatus::REJECTED_OWNER_THREAD_REQUIRED;
+  }
+  return RefreshMetricsOnOwnerThread();
+}
+
+RendererOgreNextWindowHostStatus
+RendererOgreNextWindowHost::RefreshMetricsOnOwnerThread() noexcept {
   try {
     RendererOgreNextSdlNativeWindow candidate;
     if (!m_runtime.query_sdl_native_window(
@@ -576,50 +611,85 @@ RendererOgreNextWindowHost::Metrics() const noexcept {
 
 RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Cleanup(
     RendererOgreNextWindowHostStatus success_status) noexcept {
-  bool completed = true;
+  if (HasLiveOwnership() && !IsOwnerThread()) {
+    return RendererOgreNextWindowHostStatus::REJECTED_OWNER_THREAD_REQUIRED;
+  }
   m_binding.valid = false;
 
   if (m_metal_view_owned) {
+    bool destroyed = false;
     try {
-      if (!m_runtime.destroy_ogre_metal_view(
-              m_runtime.context, m_native.native_render_view)) {
-        completed = false;
-      }
+      destroyed = m_runtime.destroy_ogre_metal_view(
+          m_runtime.context, m_native.native_render_view);
     } catch (...) {
-      completed = false;
+      destroyed = false;
+    }
+    if (!destroyed) {
+      m_lifecycle = RendererOgreNextWindowLifecycle::FAILED;
+      return RendererOgreNextWindowHostStatus::FAILED_SHUTDOWN;
     }
     m_metal_view_owned = false;
     m_native.native_render_view = nullptr;
   }
   if (m_window_owned) {
+    bool destroyed = false;
     try {
-      if (!m_runtime.destroy_sdl_window(
-              m_runtime.context, m_native.sdl_window)) {
-        completed = false;
-      }
+      destroyed = m_runtime.destroy_sdl_window(
+          m_runtime.context, m_native.sdl_window);
     } catch (...) {
-      completed = false;
+      destroyed = false;
+    }
+    if (!destroyed) {
+      m_lifecycle = RendererOgreNextWindowLifecycle::FAILED;
+      return RendererOgreNextWindowHostStatus::FAILED_SHUTDOWN;
     }
     m_window_owned = false;
-    m_native.sdl_window = nullptr;
+    m_native = RendererOgreNextSdlNativeWindow{};
   }
   if (m_video_owned) {
+    bool shutdown = false;
     try {
-      if (!m_runtime.shutdown_sdl_video(m_runtime.context)) {
-        completed = false;
-      }
+      shutdown = m_runtime.shutdown_sdl_video(m_runtime.context);
     } catch (...) {
-      completed = false;
+      shutdown = false;
+    }
+    if (!shutdown) {
+      m_lifecycle = RendererOgreNextWindowLifecycle::FAILED;
+      return RendererOgreNextWindowHostStatus::FAILED_SHUTDOWN;
     }
     m_video_owned = false;
   }
 
+  m_request = RendererOgreNextWindowRequest{};
+  m_runtime = RendererOgreNextWindowHostRuntime{};
   m_native = RendererOgreNextSdlNativeWindow{};
   m_metrics = RendererOgreNextWindowMetrics{};
   m_binding = RendererOgreNextWindowBinding{};
+  m_owner_thread_claimed = false;
   m_lifecycle = RendererOgreNextWindowLifecycle::SHUTDOWN;
-  return completed ? success_status
-                   : RendererOgreNextWindowHostStatus::FAILED_SHUTDOWN;
+  return success_status;
+}
+
+bool RendererOgreNextWindowHost::IsOwnerThread() noexcept {
+  if (!m_owner_thread_claimed ||
+      m_runtime.claim_or_validate_owner_thread == nullptr) {
+    return false;
+  }
+  try {
+    if (m_request.platform ==
+            RendererOgreNextWindowPlatform::MACOS_COCOA_METAL &&
+        (m_runtime.is_main_thread == nullptr ||
+         !m_runtime.is_main_thread(m_runtime.context))) {
+      return false;
+    }
+    return m_runtime.claim_or_validate_owner_thread(m_runtime.context);
+  } catch (...) {
+    return false;
+  }
+}
+
+bool RendererOgreNextWindowHost::HasLiveOwnership() const noexcept {
+  return m_video_owned || m_window_owned || m_metal_view_owned;
 }
 
 void RendererOgreNextWindowHost::FailClosedAfterLiveWindowFailure() noexcept {
@@ -697,6 +767,7 @@ bool IsKnownRendererOgreNextWindowHostStatus(
   case RendererOgreNextWindowHostStatus::REJECTED_PLATFORM_MISMATCH:
   case RendererOgreNextWindowHostStatus::REJECTED_WAYLAND_UNSUPPORTED:
   case RendererOgreNextWindowHostStatus::REJECTED_MAIN_THREAD_REQUIRED:
+  case RendererOgreNextWindowHostStatus::REJECTED_OWNER_THREAD_REQUIRED:
   case RendererOgreNextWindowHostStatus::FAILED_SDL_VIDEO_INITIALIZATION:
   case RendererOgreNextWindowHostStatus::FAILED_SDL_WINDOW_CREATION:
   case RendererOgreNextWindowHostStatus::FAILED_NATIVE_WINDOW_QUERY:
@@ -724,6 +795,8 @@ const char *ToString(RendererOgreNextWindowHostStatus status) noexcept {
     return "rejected-wayland-unsupported";
   case RendererOgreNextWindowHostStatus::REJECTED_MAIN_THREAD_REQUIRED:
     return "rejected-main-thread-required";
+  case RendererOgreNextWindowHostStatus::REJECTED_OWNER_THREAD_REQUIRED:
+    return "rejected-owner-thread-required";
   case RendererOgreNextWindowHostStatus::FAILED_SDL_VIDEO_INITIALIZATION:
     return "failed-sdl-video-initialization";
   case RendererOgreNextWindowHostStatus::FAILED_SDL_WINDOW_CREATION:

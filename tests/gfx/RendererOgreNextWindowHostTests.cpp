@@ -15,6 +15,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -43,6 +44,9 @@ struct FakeSdlRuntime {
   bool fail_destroy_metal_view = false;
   bool fail_destroy_window = false;
   bool fail_shutdown_video = false;
+  bool throw_destroy_metal_view = false;
+  bool throw_destroy_window = false;
+  bool throw_shutdown_video = false;
   bool throw_query = false;
   bool change_identity_on_query = false;
   bool visible = false;
@@ -50,6 +54,8 @@ struct FakeSdlRuntime {
   RoR::RendererOgreNextSdlWindowCreateRequest create_request{};
   std::uint32_t resize_timeout_ms = 0U;
   std::uint32_t visibility_timeout_ms = 0U;
+  std::thread::id owner_thread{};
+  bool owner_thread_claimed = false;
   std::vector<std::string> calls;
 };
 
@@ -65,6 +71,18 @@ bool IsMainThread(void *context) {
   FakeSdlRuntime &fake = *static_cast<FakeSdlRuntime *>(context);
   fake.calls.push_back("main-thread");
   return fake.main_thread;
+}
+
+bool ClaimOrValidateOwnerThread(void *context) {
+  FakeSdlRuntime &fake = *static_cast<FakeSdlRuntime *>(context);
+  fake.calls.push_back("owner-thread");
+  const std::thread::id current = std::this_thread::get_id();
+  if (!fake.owner_thread_claimed) {
+    fake.owner_thread = current;
+    fake.owner_thread_claimed = true;
+    return true;
+  }
+  return fake.owner_thread == current;
 }
 
 bool InitializeVideo(void *context, const char *required_driver) {
@@ -172,6 +190,9 @@ bool DestroyMetalView(void *context, void *metal_view) {
   fake.calls.push_back("metal-view-destroy");
   Require(metal_view == fake.metal_view,
           "cleanup destroyed a foreign Metal view");
+  if (fake.throw_destroy_metal_view) {
+    throw 1;
+  }
   return !fake.fail_destroy_metal_view;
 }
 
@@ -179,12 +200,18 @@ bool DestroyWindow(void *context, void *window) {
   FakeSdlRuntime &fake = *static_cast<FakeSdlRuntime *>(context);
   fake.calls.push_back("window-destroy");
   Require(window == fake.window, "cleanup destroyed a foreign SDL window");
+  if (fake.throw_destroy_window) {
+    throw 1;
+  }
   return !fake.fail_destroy_window;
 }
 
 bool ShutdownVideo(void *context) {
   FakeSdlRuntime &fake = *static_cast<FakeSdlRuntime *>(context);
   fake.calls.push_back("video-shutdown");
+  if (fake.throw_shutdown_video) {
+    throw 1;
+  }
   return !fake.fail_shutdown_video;
 }
 
@@ -197,6 +224,7 @@ RoR::RendererOgreNextWindowHostRuntime Runtime(
   runtime.sdl_minor = RoR::kRendererOgreNextWindowHostSdlMinor;
   runtime.sdl_patch = RoR::kRendererOgreNextWindowHostSdlPatch;
   runtime.context = &fake;
+  runtime.claim_or_validate_owner_thread = &ClaimOrValidateOwnerThread;
   runtime.is_main_thread = &IsMainThread;
   runtime.initialize_sdl_video = &InitializeVideo;
   runtime.create_sdl_window = &CreateWindow;
@@ -255,6 +283,26 @@ std::uintptr_t ParseAddress(const std::string &value) {
   return static_cast<std::uintptr_t>(parsed);
 }
 
+std::size_t CountCall(const FakeSdlRuntime &fake, const char *call) {
+  std::size_t count = 0U;
+  for (const std::string &candidate : fake.calls) {
+    if (candidate == call) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+template <typename Operation>
+RoR::RendererOgreNextWindowHostStatus RunOnForeignThread(
+    Operation operation) {
+  RoR::RendererOgreNextWindowHostStatus status =
+      RoR::RendererOgreNextWindowHostStatus::FAILED_INTERNAL;
+  std::thread worker([&status, &operation]() { status = operation(); });
+  worker.join();
+  return status;
+}
+
 void RequireMetrics(const RoR::RendererOgreNextWindowHost &host,
                     std::uint64_t generation, std::uint32_t logical_width,
                     std::uint32_t logical_height,
@@ -277,7 +325,8 @@ void RequireMetrics(const RoR::RendererOgreNextWindowHost &host,
 }
 
 void TestEnumAndVersionContracts() {
-  Require(RoR::kRendererOgreNextWindowHostSdlMajor == 2U &&
+  Require(RoR::kRendererOgreNextWindowHostContractVersion == 2U &&
+              RoR::kRendererOgreNextWindowHostSdlMajor == 2U &&
               RoR::kRendererOgreNextWindowHostSdlMinor == 32U &&
               RoR::kRendererOgreNextWindowHostSdlPatch == 10U,
           "SDL source version pin changed");
@@ -301,7 +350,7 @@ void TestEnumAndVersionContracts() {
             "lifecycle classifier accepted an unknown value");
     Require(RoR::IsKnownRendererOgreNextWindowHostStatus(
                 static_cast<RoR::RendererOgreNextWindowHostStatus>(value)) ==
-                (value <= 13U),
+                (value <= 14U),
             "status classifier accepted an unknown value");
   }
   Require(std::strcmp(
@@ -393,7 +442,9 @@ void TestCocoaMetalViewTranslationAndLifecycle() {
   fake.drawable_height = 1750U;
   Require(host.Resize(1024U, 700U) ==
               RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
-              fake.calls.size() == calls_before_scale_refresh + 1U &&
+              fake.calls.size() == calls_before_scale_refresh + 3U &&
+              fake.calls[fake.calls.size() - 3U] == "main-thread" &&
+              fake.calls[fake.calls.size() - 2U] == "owner-thread" &&
               fake.calls.back() == "window-query",
           "same-logical HiDPI migration issued a resize instead of refresh");
   RequireMetrics(host, 4U, 1024U, 700U, 2560U, 1750U);
@@ -560,6 +611,31 @@ void TestWaylandAndInvalidContractsFailBeforeSdl() {
               invalid.calls.empty(),
           "an unpinned SDL runtime reached native initialization");
 
+  FakeSdlRuntime legacy_runtime_fake;
+  RoR::RendererOgreNextWindowHostRuntime legacy_runtime =
+      Runtime(legacy_runtime_fake, legacy_runtime_fake.platform);
+  legacy_runtime.version = 1U;
+  RoR::RendererOgreNextWindowHost legacy_runtime_host;
+  Require(legacy_runtime_host.Initialize(
+              Request(legacy_runtime_fake.platform), legacy_runtime) ==
+                  RoR::RendererOgreNextWindowHostStatus::
+                      REJECTED_INVALID_RUNTIME &&
+              legacy_runtime_fake.calls.empty(),
+          "a v1 runtime escaped the owner-thread ABI v2 rejection");
+
+  FakeSdlRuntime legacy_request_fake;
+  RoR::RendererOgreNextWindowRequest legacy_request =
+      Request(legacy_request_fake.platform);
+  legacy_request.version = 1U;
+  RoR::RendererOgreNextWindowHost legacy_request_host;
+  Require(legacy_request_host.Initialize(
+              legacy_request,
+              Runtime(legacy_request_fake, legacy_request_fake.platform)) ==
+                  RoR::RendererOgreNextWindowHostStatus::
+                      REJECTED_INVALID_REQUEST &&
+              legacy_request_fake.calls.empty(),
+          "a v1 request escaped the owner-thread ABI v2 rejection");
+
   FakeSdlRuntime mismatch;
   RoR::RendererOgreNextWindowHost platform_mismatch;
   Require(platform_mismatch.Initialize(
@@ -586,7 +662,218 @@ void TestWaylandAndInvalidContractsFailBeforeSdl() {
           "uncontrolled Metal vsync was accepted");
 }
 
-void TestLiveFailureInvalidatesBindingAndCleanupContinues() {
+void TestOwnerThreadAffinityIsFailClosed() {
+  FakeSdlRuntime fake;
+  RoR::RendererOgreNextWindowHost host;
+  Require(host.Initialize(Request(fake.platform),
+                          Runtime(fake, fake.platform)) ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
+              host.Resume() ==
+                  RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "owner-thread fixture did not initialize and resume");
+  const RoR::RendererOgreNextWindowBinding *binding = host.Binding();
+  const RoR::RendererOgreNextWindowMetrics metrics = *host.Metrics();
+  const std::size_t calls_before = fake.calls.size();
+
+  Require(RunOnForeignThread([&host]() { return host.Resume(); }) ==
+                  RoR::RendererOgreNextWindowHostStatus::
+                      REJECTED_OWNER_THREAD_REQUIRED &&
+              RunOnForeignThread([&host]() { return host.Suspend(); }) ==
+                  RoR::RendererOgreNextWindowHostStatus::
+                      REJECTED_OWNER_THREAD_REQUIRED &&
+              RunOnForeignThread(
+                  [&host]() { return host.Resize(900U, 700U); }) ==
+                  RoR::RendererOgreNextWindowHostStatus::
+                      REJECTED_OWNER_THREAD_REQUIRED &&
+              RunOnForeignThread([&host]() { return host.RefreshMetrics(); }) ==
+                  RoR::RendererOgreNextWindowHostStatus::
+                      REJECTED_OWNER_THREAD_REQUIRED &&
+              RunOnForeignThread([&host]() { return host.Shutdown(); }) ==
+                  RoR::RendererOgreNextWindowHostStatus::
+                      REJECTED_OWNER_THREAD_REQUIRED,
+          "a foreign thread reached a live lifecycle operation");
+  Require(fake.calls.size() == calls_before + 5U &&
+              fake.calls[calls_before] == "owner-thread" &&
+              fake.calls[calls_before + 1U] == "owner-thread" &&
+              fake.calls[calls_before + 2U] == "owner-thread" &&
+              fake.calls[calls_before + 3U] == "owner-thread" &&
+              fake.calls[calls_before + 4U] == "owner-thread" &&
+              host.Lifecycle() ==
+                  RoR::RendererOgreNextWindowLifecycle::ACTIVE &&
+              host.Binding() == binding && host.Metrics() != nullptr &&
+              host.Metrics()->generation == metrics.generation &&
+              host.Metrics()->logical_width == metrics.logical_width &&
+              host.Metrics()->logical_height == metrics.logical_height &&
+              fake.visible,
+          "foreign lifecycle calls invoked native callbacks or mutated state");
+  Require(host.Shutdown() ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "owner thread could not clean up after foreign-thread rejection");
+
+  FakeSdlRuntime hidden_fake;
+  RoR::RendererOgreNextWindowHost hidden_host;
+  Require(hidden_host.Initialize(Request(hidden_fake.platform),
+                                 Runtime(hidden_fake,
+                                         hidden_fake.platform)) ==
+                  RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
+              RunOnForeignThread([&hidden_host]() {
+                return hidden_host.Suspend();
+              }) == RoR::RendererOgreNextWindowHostStatus::
+                        REJECTED_OWNER_THREAD_REQUIRED &&
+              hidden_host.Lifecycle() ==
+                  RoR::RendererOgreNextWindowLifecycle::READY_HIDDEN &&
+              !hidden_fake.visible &&
+              hidden_host.Shutdown() ==
+                  RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "foreign hidden-window suspend mutated lifecycle state");
+}
+
+void TestCocoaMainThreadIsRevalidatedAfterInitialize() {
+  FakeSdlRuntime fake;
+  fake.platform = RoR::RendererOgreNextWindowPlatform::MACOS_COCOA_METAL;
+  fake.driver = RoR::RendererOgreNextSdlVideoDriver::COCOA;
+  RoR::RendererOgreNextWindowHost host;
+  Require(host.Initialize(Request(fake.platform), Runtime(fake, fake.platform)) ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "Cocoa main-thread-loss fixture did not initialize");
+  const std::size_t calls_before = fake.calls.size();
+  fake.main_thread = false;
+  Require(host.Resume() ==
+                  RoR::RendererOgreNextWindowHostStatus::
+                      REJECTED_OWNER_THREAD_REQUIRED &&
+              fake.calls.size() == calls_before + 1U &&
+              fake.calls.back() == "main-thread" &&
+              host.Lifecycle() ==
+                  RoR::RendererOgreNextWindowLifecycle::READY_HIDDEN &&
+              host.Binding() != nullptr && !fake.visible,
+          "Cocoa main-thread loss reached a native callback or mutated state");
+  const std::size_t calls_before_shutdown = fake.calls.size();
+  Require(host.Shutdown() ==
+                  RoR::RendererOgreNextWindowHostStatus::
+                      REJECTED_OWNER_THREAD_REQUIRED &&
+              fake.calls.size() == calls_before_shutdown + 1U &&
+              fake.calls.back() == "main-thread" &&
+              host.Lifecycle() ==
+                  RoR::RendererOgreNextWindowLifecycle::READY_HIDDEN &&
+              host.Binding() != nullptr,
+          "Cocoa off-main shutdown mutated or released live ownership");
+  fake.main_thread = true;
+  Require(host.Shutdown() ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "Cocoa owner/main thread could not retry shutdown");
+}
+
+void TestDestructorNeverPerformsForeignThreadNativeCleanup() {
+  FakeSdlRuntime foreign_fake;
+  auto *foreign_host = new RoR::RendererOgreNextWindowHost();
+  Require(foreign_host->Initialize(Request(foreign_fake.platform),
+                                   Runtime(foreign_fake,
+                                           foreign_fake.platform)) ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "foreign-destructor fixture did not initialize");
+  const std::size_t calls_before_foreign_delete = foreign_fake.calls.size();
+  std::thread foreign_destructor(
+      [&foreign_host]() { delete foreign_host; });
+  foreign_destructor.join();
+  foreign_host = nullptr;
+  Require(foreign_fake.calls.size() == calls_before_foreign_delete + 1U &&
+              foreign_fake.calls.back() == "owner-thread" &&
+              CountCall(foreign_fake, "window-destroy") == 0U &&
+              CountCall(foreign_fake, "video-shutdown") == 0U,
+          "foreign-thread destructor invoked a native cleanup callback");
+
+  FakeSdlRuntime owner_fake;
+  auto *owner_host = new RoR::RendererOgreNextWindowHost();
+  Require(owner_host->Initialize(Request(owner_fake.platform),
+                                 Runtime(owner_fake, owner_fake.platform)) ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "owner-destructor fixture did not initialize");
+  delete owner_host;
+  Require(CountCall(owner_fake, "window-destroy") == 1U &&
+              CountCall(owner_fake, "video-shutdown") == 1U,
+          "owner-thread destructor did not finish best-effort cleanup");
+}
+
+enum class CleanupFailureStage {
+  METAL_VIEW,
+  WINDOW,
+  VIDEO,
+};
+
+void ExerciseRetryableCleanup(CleanupFailureStage stage, bool throws) {
+  FakeSdlRuntime fake;
+  fake.platform = RoR::RendererOgreNextWindowPlatform::MACOS_COCOA_METAL;
+  fake.driver = RoR::RendererOgreNextSdlVideoDriver::COCOA;
+  RoR::RendererOgreNextWindowHost host;
+  Require(host.Initialize(Request(fake.platform), Runtime(fake, fake.platform)) ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "retryable-cleanup fixture did not initialize");
+
+  if (stage == CleanupFailureStage::METAL_VIEW) {
+    fake.fail_destroy_metal_view = !throws;
+    fake.throw_destroy_metal_view = throws;
+  } else if (stage == CleanupFailureStage::WINDOW) {
+    fake.fail_destroy_window = !throws;
+    fake.throw_destroy_window = throws;
+  } else {
+    fake.fail_shutdown_video = !throws;
+    fake.throw_shutdown_video = throws;
+  }
+
+  Require(host.Shutdown() ==
+                  RoR::RendererOgreNextWindowHostStatus::FAILED_SHUTDOWN &&
+              host.Lifecycle() ==
+                  RoR::RendererOgreNextWindowLifecycle::FAILED &&
+              host.Binding() == nullptr,
+          "teardown failure did not retain a retryable FAILED host");
+  const std::size_t metal_after_failure =
+      CountCall(fake, "metal-view-destroy");
+  const std::size_t window_after_failure = CountCall(fake, "window-destroy");
+  const std::size_t video_after_failure = CountCall(fake, "video-shutdown");
+  Require(metal_after_failure == 1U &&
+              window_after_failure ==
+                  (stage == CleanupFailureStage::METAL_VIEW ? 0U : 1U) &&
+              video_after_failure ==
+                  (stage == CleanupFailureStage::VIDEO ? 1U : 0U),
+          "teardown did not stop at the first unsafe dependency");
+
+  fake.fail_destroy_metal_view = false;
+  fake.fail_destroy_window = false;
+  fake.fail_shutdown_video = false;
+  fake.throw_destroy_metal_view = false;
+  fake.throw_destroy_window = false;
+  fake.throw_shutdown_video = false;
+  Require(host.Shutdown() ==
+                  RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
+              host.Lifecycle() ==
+                  RoR::RendererOgreNextWindowLifecycle::SHUTDOWN &&
+              CountCall(fake, "metal-view-destroy") ==
+                  (stage == CleanupFailureStage::METAL_VIEW ? 2U : 1U) &&
+              CountCall(fake, "window-destroy") ==
+                  (stage == CleanupFailureStage::WINDOW ? 2U : 1U) &&
+              CountCall(fake, "video-shutdown") ==
+                  (stage == CleanupFailureStage::VIDEO ? 2U : 1U),
+          "owner-thread teardown retry leaked or double-destroyed a dependency");
+  const std::size_t calls_after_success = fake.calls.size();
+  Require(host.Shutdown() ==
+                  RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
+              fake.calls.size() == calls_after_success,
+          "completed teardown was not idempotent");
+}
+
+void TestTeardownFailureIsDependencyOrderedAndRetryable() {
+  const CleanupFailureStage stages[] = {
+      CleanupFailureStage::METAL_VIEW,
+      CleanupFailureStage::WINDOW,
+      CleanupFailureStage::VIDEO,
+  };
+  for (CleanupFailureStage stage : stages) {
+    ExerciseRetryableCleanup(stage, false);
+    ExerciseRetryableCleanup(stage, true);
+  }
+}
+
+void TestLiveFailureInvalidatesBindingAndCleanupRetries() {
   FakeSdlRuntime fake;
   RoR::RendererOgreNextWindowHost host;
   Require(host.Initialize(Request(fake.platform),
@@ -609,10 +896,22 @@ void TestLiveFailureInvalidatesBindingAndCleanupContinues() {
   Require(host.Shutdown() ==
               RoR::RendererOgreNextWindowHostStatus::FAILED_SHUTDOWN &&
               host.Lifecycle() ==
-                  RoR::RendererOgreNextWindowLifecycle::SHUTDOWN &&
-              fake.calls[fake.calls.size() - 2U] == "window-destroy" &&
-              fake.calls.back() == "video-shutdown",
-          "shutdown failure skipped later cleanup owners");
+                  RoR::RendererOgreNextWindowLifecycle::FAILED &&
+              CountCall(fake, "window-destroy") == 1U &&
+              CountCall(fake, "video-shutdown") == 0U,
+          "failed window teardown released its SDL video dependency");
+  fake.fail_destroy_window = false;
+  Require(host.Shutdown() ==
+                  RoR::RendererOgreNextWindowHostStatus::FAILED_SHUTDOWN &&
+              CountCall(fake, "window-destroy") == 2U &&
+              CountCall(fake, "video-shutdown") == 1U,
+          "window teardown retry did not advance to retained SDL video");
+  fake.fail_shutdown_video = false;
+  Require(host.Shutdown() ==
+                  RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
+              CountCall(fake, "window-destroy") == 2U &&
+              CountCall(fake, "video-shutdown") == 2U,
+          "retained SDL video ownership could not be retried");
 }
 
 void TestPartialInitializationCleansUp() {
@@ -624,8 +923,8 @@ void TestPartialInitializationCleansUp() {
               RoR::RendererOgreNextWindowHostStatus::
                   FAILED_NATIVE_WINDOW_QUERY &&
               fake.calls == std::vector<std::string>(
-                                {"video-initialize", "window-create",
-                                 "window-query", "window-destroy",
+                                {"owner-thread", "video-initialize", "window-create",
+                                 "window-query", "owner-thread", "window-destroy",
                                  "video-shutdown"}) &&
               host.Binding() == nullptr,
           "partial initialization leaked or misordered SDL ownership");
@@ -639,7 +938,11 @@ int main() {
   TestWin32Translation();
   TestLinuxX11XcbTranslationAndStablePair();
   TestWaylandAndInvalidContractsFailBeforeSdl();
-  TestLiveFailureInvalidatesBindingAndCleanupContinues();
+  TestOwnerThreadAffinityIsFailClosed();
+  TestCocoaMainThreadIsRevalidatedAfterInitialize();
+  TestDestructorNeverPerformsForeignThreadNativeCleanup();
+  TestTeardownFailureIsDependencyOrderedAndRetryable();
+  TestLiveFailureInvalidatesBindingAndCleanupRetries();
   TestPartialInitializationCleansUp();
   std::cout << "renderer Ogre-Next window host tests passed\n";
   return EXIT_SUCCESS;

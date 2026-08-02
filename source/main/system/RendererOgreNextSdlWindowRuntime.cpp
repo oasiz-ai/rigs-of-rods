@@ -160,11 +160,10 @@ bool HasSettledVisibility(SDL_Window *window, bool visible) noexcept {
 } // namespace
 
 RendererOgreNextSdlWindowRuntime::~RendererOgreNextSdlWindowRuntime() {
-  if (m_video_initialized) {
-    SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
-    m_video_initialized = false;
-    RestoreVideoDriverHint();
-  }
+  // The host owns the dependency order and explicit owner-thread Shutdown is
+  // mandatory. If that contract was violated, preserve all native ownership:
+  // a runtime destructor cannot know whether a Metal view or SDL_Window is
+  // still live and must never tear SDL down underneath one.
 }
 
 RendererOgreNextWindowHostRuntime
@@ -175,6 +174,7 @@ RendererOgreNextSdlWindowRuntime::Runtime() noexcept {
   runtime.sdl_minor = SDL_MINOR_VERSION;
   runtime.sdl_patch = SDL_PATCHLEVEL;
   runtime.context = this;
+  runtime.claim_or_validate_owner_thread = &ClaimOrValidateOwnerThread;
 #if defined(__APPLE__)
   runtime.is_main_thread = &IsMainThread;
   runtime.create_ogre_metal_view = &CreateMetalView;
@@ -192,6 +192,32 @@ RendererOgreNextSdlWindowRuntime::Runtime() noexcept {
   return runtime;
 }
 
+bool RendererOgreNextSdlWindowRuntime::ClaimOrValidateOwnerThread(
+    void *context) {
+  if (context == nullptr) {
+    return false;
+  }
+  RendererOgreNextSdlWindowRuntime &self =
+      *static_cast<RendererOgreNextSdlWindowRuntime *>(context);
+#if defined(__APPLE__)
+  if (!RendererOgreNextCocoaIsMainThread()) {
+    self.m_last_error = "Cocoa native-window ownership requires the main thread";
+    return false;
+  }
+#endif
+  const std::thread::id current = std::this_thread::get_id();
+  if (!self.m_owner_thread_claimed) {
+    self.m_owner_thread = current;
+    self.m_owner_thread_claimed = true;
+    return true;
+  }
+  if (self.m_owner_thread != current) {
+    self.m_last_error = "SDL native-window callback used a foreign thread";
+    return false;
+  }
+  return true;
+}
+
 bool RendererOgreNextSdlWindowRuntime::IsMainThread(void *) {
 #if defined(__APPLE__)
   return RendererOgreNextCocoaIsMainThread();
@@ -205,6 +231,9 @@ bool RendererOgreNextSdlWindowRuntime::InitializeVideo(
   RendererOgreNextSdlWindowRuntime &self =
       *static_cast<RendererOgreNextSdlWindowRuntime *>(context);
   self.m_last_error.clear();
+  if (!self.RequireOwnerThread("SDL video initialization")) {
+    return false;
+  }
   if (required_driver == nullptr || required_driver[0] == '\0' ||
       self.m_video_initialized ||
       SDL_WasInit(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0U) {
@@ -252,6 +281,9 @@ bool RendererOgreNextSdlWindowRuntime::CreateWindow(
     void **sdl_window) {
   RendererOgreNextSdlWindowRuntime &self =
       *static_cast<RendererOgreNextSdlWindowRuntime *>(context);
+  if (!self.RequireOwnerThread("SDL window creation")) {
+    return false;
+  }
   if (sdl_window == nullptr ||
       request.version != kRendererOgreNextWindowHostContractVersion ||
       request.logical_width == 0U || request.logical_height == 0U ||
@@ -285,6 +317,9 @@ bool RendererOgreNextSdlWindowRuntime::QueryNativeWindow(
     RendererOgreNextSdlNativeWindow *window) {
   RendererOgreNextSdlWindowRuntime &self =
       *static_cast<RendererOgreNextSdlWindowRuntime *>(context);
+  if (!self.RequireOwnerThread("SDL native-window query")) {
+    return false;
+  }
   if (sdl_window == nullptr || window == nullptr) {
     self.m_last_error = "invalid SDL native-window query";
     return false;
@@ -347,6 +382,9 @@ bool RendererOgreNextSdlWindowRuntime::CreateMetalView(
     void *context, void *, std::uintptr_t cocoa_window, void **metal_view) {
   RendererOgreNextSdlWindowRuntime &self =
       *static_cast<RendererOgreNextSdlWindowRuntime *>(context);
+  if (!self.RequireOwnerThread("OgreMetalView creation")) {
+    return false;
+  }
 #if defined(__APPLE__)
   if (RendererOgreNextCocoaCreateMetalView(cocoa_window, metal_view)) {
     return true;
@@ -365,6 +403,9 @@ bool RendererOgreNextSdlWindowRuntime::SetWindowVisibleAndWaitForAck(
     std::uint32_t timeout_ms) {
   RendererOgreNextSdlWindowRuntime &self =
       *static_cast<RendererOgreNextSdlWindowRuntime *>(context);
+  if (!self.RequireOwnerThread("SDL window visibility")) {
+    return false;
+  }
   if (sdl_window == nullptr || timeout_ms == 0U || timeout_ms > 10000U) {
     self.m_last_error = "invalid bounded SDL visibility request";
     return false;
@@ -407,6 +448,9 @@ bool RendererOgreNextSdlWindowRuntime::ResizeWindowAndWaitForConfigure(
     RendererOgreNextSdlNativeWindow *window) {
   RendererOgreNextSdlWindowRuntime &self =
       *static_cast<RendererOgreNextSdlWindowRuntime *>(context);
+  if (!self.RequireOwnerThread("SDL window resize")) {
+    return false;
+  }
   if (sdl_window == nullptr || window == nullptr || logical_width == 0U ||
       logical_height == 0U || timeout_ms == 0U || timeout_ms > 10000U ||
       logical_width >
@@ -454,6 +498,9 @@ bool RendererOgreNextSdlWindowRuntime::DestroyMetalView(
     void *context, void *metal_view) {
   RendererOgreNextSdlWindowRuntime &self =
       *static_cast<RendererOgreNextSdlWindowRuntime *>(context);
+  if (!self.RequireOwnerThread("OgreMetalView destruction")) {
+    return false;
+  }
 #if defined(__APPLE__)
   if (RendererOgreNextCocoaDestroyMetalView(metal_view)) {
     return true;
@@ -466,9 +513,15 @@ bool RendererOgreNextSdlWindowRuntime::DestroyMetalView(
   return false;
 }
 
-bool RendererOgreNextSdlWindowRuntime::DestroyWindow(void *,
+bool RendererOgreNextSdlWindowRuntime::DestroyWindow(void *context,
                                                      void *sdl_window) {
+  RendererOgreNextSdlWindowRuntime &self =
+      *static_cast<RendererOgreNextSdlWindowRuntime *>(context);
+  if (!self.RequireOwnerThread("SDL window destruction")) {
+    return false;
+  }
   if (sdl_window == nullptr) {
+    self.m_last_error = "SDL window destruction received no owned window";
     return false;
   }
   SDL_DestroyWindow(static_cast<SDL_Window *>(sdl_window));
@@ -478,6 +531,9 @@ bool RendererOgreNextSdlWindowRuntime::DestroyWindow(void *,
 bool RendererOgreNextSdlWindowRuntime::ShutdownVideo(void *context) {
   RendererOgreNextSdlWindowRuntime &self =
       *static_cast<RendererOgreNextSdlWindowRuntime *>(context);
+  if (!self.RequireOwnerThread("SDL video shutdown")) {
+    return false;
+  }
   if (!self.m_video_initialized) {
     self.m_last_error = "SDL video shutdown has no owned initialization";
     return false;
@@ -485,6 +541,8 @@ bool RendererOgreNextSdlWindowRuntime::ShutdownVideo(void *context) {
   SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
   self.m_video_initialized = false;
   self.RestoreVideoDriverHint();
+  self.m_owner_thread_claimed = false;
+  self.m_owner_thread = std::thread::id{};
   return true;
 }
 
@@ -507,6 +565,29 @@ void RendererOgreNextSdlWindowRuntime::RestoreVideoDriverHint() noexcept {
   }
   m_had_previous_video_driver_hint = false;
   m_previous_video_driver_hint.clear();
+}
+
+bool RendererOgreNextSdlWindowRuntime::RequireOwnerThread(
+    const char *operation) {
+  if (IsCurrentOwnerThread()) {
+    return true;
+  }
+  m_last_error = operation == nullptr ? "SDL native-window owner thread required"
+                                      : operation;
+  m_last_error += " requires the initializing owner thread";
+  return false;
+}
+
+bool RendererOgreNextSdlWindowRuntime::IsCurrentOwnerThread() const noexcept {
+  if (!m_owner_thread_claimed ||
+      m_owner_thread != std::this_thread::get_id()) {
+    return false;
+  }
+#if defined(__APPLE__)
+  return RendererOgreNextCocoaIsMainThread();
+#else
+  return true;
+#endif
 }
 
 } // namespace RoR

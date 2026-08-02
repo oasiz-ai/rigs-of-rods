@@ -15,13 +15,17 @@
 
 #include <cstdint>
 #include <string>
+#include <thread>
 
 namespace RoR {
 
 /// Owns only SDL's process-global video initialization bookkeeping. The
 /// RendererOgreNextWindowHost owns every SDL_Window and platform child view.
 /// This adapter is probe-only until a live Ogre presentation/swap/readback
-/// acceptance gate and package review admit it.
+/// acceptance gate and package review admit it. The first host validation
+/// claims the current thread; every SDL/AppKit callback must remain on that
+/// thread, and Cocoa also requires the AppKit main thread. The host must finish
+/// explicit owner-thread Shutdown before this adapter is destroyed.
 class RendererOgreNextSdlWindowRuntime final {
 public:
   RendererOgreNextSdlWindowRuntime() = default;
@@ -40,6 +44,7 @@ public:
   const std::string &LastError() const noexcept { return m_last_error; }
 
 private:
+  static bool ClaimOrValidateOwnerThread(void *context);
   static bool IsMainThread(void *context);
   static bool InitializeVideo(void *context, const char *required_driver);
   static bool CreateWindow(
@@ -64,11 +69,15 @@ private:
 
   void RecordSdlError(const char *operation);
   void RestoreVideoDriverHint() noexcept;
+  bool RequireOwnerThread(const char *operation);
+  bool IsCurrentOwnerThread() const noexcept;
 
   std::string m_last_error;
   std::string m_previous_video_driver_hint;
+  std::thread::id m_owner_thread{};
   bool m_had_previous_video_driver_hint = false;
   bool m_video_initialized = false;
+  bool m_owner_thread_claimed = false;
 };
 
 } // namespace RoR

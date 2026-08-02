@@ -288,6 +288,10 @@ target_include_directories(
     ror_renderer_ogre_next_window_host_tests
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system"
 )
+target_link_libraries(
+    ror_renderer_ogre_next_window_host_tests
+    PRIVATE Threads::Threads
+)
 
 if (MINGW)
     target_link_options(
