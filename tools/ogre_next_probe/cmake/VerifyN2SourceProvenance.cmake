@@ -8,7 +8,12 @@ if (NOT DEFINED N2_REPOSITORY_ROOT OR
 endif ()
 
 set(_ror_n2_relevant_source_paths
+    source/main/gfx/RendererBackendPolicy.cpp
+    source/main/gfx/RendererBackendPolicy.h
+    source/main/gfx/RendererStartupPlan.cpp
+    source/main/gfx/RendererStartupPlan.h
     source/main/gfx/render
+    tests/gfx/RendererStartupPlanTests.cpp
     tools/ogre_next_probe
     tools/run_ogre_next_probe.py
     tools/validate_ogre_next_frame_probe.py
@@ -38,6 +43,11 @@ file(GLOB_RECURSE _ror_n2_relevant_source_files
     "${N2_REPOSITORY_ROOT}/source/main/gfx/render/*"
     "${N2_REPOSITORY_ROOT}/tools/ogre_next_probe/*")
 list(APPEND _ror_n2_relevant_source_files
+    "source/main/gfx/RendererBackendPolicy.cpp"
+    "source/main/gfx/RendererBackendPolicy.h"
+    "source/main/gfx/RendererStartupPlan.cpp"
+    "source/main/gfx/RendererStartupPlan.h"
+    "tests/gfx/RendererStartupPlanTests.cpp"
     "tools/run_ogre_next_probe.py"
     "tools/validate_ogre_next_frame_probe.py"
     "tools/verify_ogre_next_artifact_set.py")

@@ -140,6 +140,13 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         verifier = (
             REPOSITORY_ROOT / "tools" / "verify_ogre_next_artifact_set.py"
         ).read_text(encoding="utf-8")
+        prelink = (
+            REPOSITORY_ROOT
+            / "tools"
+            / "ogre_next_probe"
+            / "cmake"
+            / "VerifyN2SourceProvenance.cmake"
+        ).read_text(encoding="utf-8")
         target_block = cmake[
             cmake.index("add_executable(\n        ror_renderer_startup_plan_tests") :
             cmake.index("target_include_directories(\n        ror_renderer_startup_plan_tests")
@@ -159,6 +166,14 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         verifier_manifest = verifier[
             verifier.index("RELEVANT_SOURCE_PATHS = (") :
             verifier.index("\n)\nRT4_ATTESTATION_SCHEMA")
+        ]
+        prelink_clean_paths = prelink[
+            prelink.index("set(_ror_n2_relevant_source_paths") :
+            prelink.index("execute_process(")
+        ]
+        prelink_manifest = prelink[
+            prelink.index("list(APPEND _ror_n2_relevant_source_files") :
+            prelink.index("list(FILTER _ror_n2_relevant_source_files")
         ]
         for token in (
             "ror_renderer_startup_plan_tests",
@@ -180,6 +195,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 self.assertEqual(clean_paths.count(path), 1)
                 self.assertEqual(runner_manifest.count(f'"{path}"'), 1)
                 self.assertEqual(verifier_manifest.count(f'"{path}"'), 1)
+                self.assertEqual(prelink_clean_paths.count(path), 1)
+                self.assertEqual(prelink_manifest.count(f'"{path}"'), 1)
         self.assertEqual(runner_manifest, verifier_manifest)
         for source in (
             "tests/gfx/RendererStartupPlanTests.cpp",
