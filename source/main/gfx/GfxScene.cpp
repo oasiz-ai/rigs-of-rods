@@ -27,8 +27,13 @@
 #include "ApproxMath.h"
 #include "Console.h"
 #include "DustPool.h"
+#include "FlexBody.h"
+#include "FlexMesh.h"
+#include "FlexMeshWheel.h"
+#include "FlexObj.h"
 #include "HydraxWater.h"
 #include "GameContext.h"
+#include "GfxActor.h"
 #include "GUIManager.h"
 #include "GUIUtils.h"
 #include "GUI_DirectionArrow.h"
@@ -48,7 +53,9 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <set>
+#include <utility>
 
 using namespace Ogre;
 using namespace RoR;
@@ -1226,6 +1233,546 @@ RoR::Render::ValidationResult CaptureOgre14TerrainPages(
     return RoR::Render::ValidationResult::Success();
 }
 
+
+std::string BuildNativeDynamicMeshCacheKey(
+    const RoR::Render::Ogre14GraphicsSceneDynamicSectionIdentity& identity)
+{
+    return std::to_string(identity.actor_instance_id) + "/" +
+        std::to_string(static_cast<unsigned int>(identity.component_kind)) +
+        "/" + std::to_string(identity.component_id) + "/" +
+        std::to_string(identity.section_index);
+}
+
+RoR::Render::ValidationResult ValidateOgre14DynamicVertexDeclaration(
+    const Ogre::VertexData& vertex_data)
+{
+    if (vertex_data.vertexDeclaration == nullptr ||
+        vertex_data.vertexBufferBinding == nullptr)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "dynamic_meshes.native_vertex_declaration",
+            "deformable draw has no vertex declaration or binding");
+    }
+    std::uint32_t positions = 0U;
+    std::uint32_t normals = 0U;
+    bool uv0 = false;
+    for (const Ogre::VertexElement& element :
+         vertex_data.vertexDeclaration->getElements())
+    {
+        switch (element.getSemantic())
+        {
+        case Ogre::VES_POSITION:
+            ++positions;
+            if (element.getType() != Ogre::VET_FLOAT3)
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "dynamic_meshes.native_position_format",
+                    "joined deformable staging requires FLOAT3 positions");
+            break;
+        case Ogre::VES_NORMAL:
+            ++normals;
+            if (element.getType() != Ogre::VET_FLOAT3)
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "dynamic_meshes.native_normal_format",
+                    "joined deformable staging requires FLOAT3 normals");
+            break;
+        case Ogre::VES_TEXTURE_COORDINATES:
+            if (element.getIndex() != 0U || uv0 ||
+                element.getType() != Ogre::VET_FLOAT2)
+            {
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "dynamic_meshes.native_texture_coordinates",
+                    "deformable capture supports one FLOAT2 UV0 stream");
+            }
+            uv0 = true;
+            break;
+        case Ogre::VES_COLOUR:
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                "dynamic_meshes.dynamic_vertex_colors",
+                "frame-varying deformable colors require an explicit update "
+                "stream");
+        case Ogre::VES_TANGENT:
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                "dynamic_meshes.dynamic_tangents",
+                "deformable tangents require joined CPU tangent staging");
+        case Ogre::VES_BLEND_WEIGHTS:
+        case Ogre::VES_BLEND_INDICES:
+        case Ogre::VES_BINORMAL:
+        case Ogre::VES_COLOUR2:
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                "dynamic_meshes.native_vertex_semantic",
+                "deformable capture cannot preserve this vertex semantic");
+        default:
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::INVALID_ENUM,
+                "dynamic_meshes.native_vertex_semantic",
+                "deformable draw contains an unknown vertex semantic");
+        }
+    }
+    if (positions != 1U || normals != 1U)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "dynamic_meshes.native_vertex_declaration",
+            "deformable capture requires exactly one position and normal "
+            "stream");
+    }
+    return RoR::Render::ValidationResult::Success();
+}
+
+RoR::Render::ValidationResult CopyOgre14DynamicIndices(
+    const Ogre::RenderOperation& operation,
+    std::vector<std::uint32_t>& output,
+    RoR::Render::MeshIndexFormat& format)
+{
+    if (operation.operationType != Ogre::RenderOperation::OT_TRIANGLE_LIST ||
+        !operation.useIndexes || operation.indexData == nullptr ||
+        operation.indexData->indexBuffer.isNull() ||
+        operation.indexData->indexCount == 0U ||
+        operation.indexData->indexCount % 3U != 0U)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "dynamic_meshes.native_topology",
+            "deformable capture requires a nonempty indexed triangle list");
+    }
+    const Ogre::HardwareIndexBufferSharedPtr buffer =
+        operation.indexData->indexBuffer;
+    const std::size_t start = operation.indexData->indexStart;
+    const std::size_t count = operation.indexData->indexCount;
+    if (start > buffer->getNumIndexes() ||
+        count > buffer->getNumIndexes() - start)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "dynamic_meshes.native_index_range",
+            "deformable index range exceeds its immutable buffer");
+    }
+    Ogre::HardwareBufferLockGuard lock(
+        buffer, Ogre::HardwareBuffer::HBL_READ_ONLY);
+    if (lock.pData == nullptr)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "dynamic_meshes.native_indices",
+            "deformable index buffer exposed no immutable CPU data");
+    }
+    std::vector<std::uint32_t> candidate(count);
+    if (buffer->getType() == Ogre::HardwareIndexBuffer::IT_16BIT)
+    {
+        format = RoR::Render::MeshIndexFormat::UINT16;
+        const auto* const source =
+            static_cast<const std::uint16_t*>(lock.pData);
+        for (std::size_t index = 0U; index < count; ++index)
+            candidate[index] = source[start + index];
+    }
+    else if (buffer->getType() == Ogre::HardwareIndexBuffer::IT_32BIT)
+    {
+        format = RoR::Render::MeshIndexFormat::UINT32;
+        const auto* const source =
+            static_cast<const std::uint32_t*>(lock.pData);
+        for (std::size_t index = 0U; index < count; ++index)
+            candidate[index] = source[start + index];
+    }
+    else
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::INVALID_ENUM,
+            "dynamic_meshes.native_index_format",
+            "deformable index buffer has an unknown format");
+    }
+    output = std::move(candidate);
+    return RoR::Render::ValidationResult::Success();
+}
+
+using JoinedVertexRange = std::pair<std::size_t, std::size_t>;
+
+RoR::Render::ValidationResult BuildOgre14JoinedVertexRanges(
+    const Ogre::Mesh& mesh,
+    std::size_t staging_vertex_count,
+    std::map<const Ogre::VertexData*, JoinedVertexRange>& ranges)
+{
+    std::map<const Ogre::VertexData*, JoinedVertexRange> candidate;
+    std::size_t offset = 0U;
+    const auto append = [&candidate, &offset](
+        const Ogre::VertexData* data) -> bool
+    {
+        if (data == nullptr || data->vertexStart != 0U ||
+            data->vertexCount == 0U ||
+            data->vertexCount >
+                (std::numeric_limits<std::size_t>::max)() - offset)
+        {
+            return false;
+        }
+        if (!candidate.emplace(
+                data, JoinedVertexRange{offset, data->vertexCount}).second)
+        {
+            return false;
+        }
+        offset += data->vertexCount;
+        return true;
+    };
+
+    if (mesh.sharedVertexData != nullptr && !append(mesh.sharedVertexData))
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "dynamic_meshes.joined_vertex_ranges",
+            "shared deformable vertex range is invalid");
+    }
+    for (std::size_t index = 0U; index < mesh.getNumSubMeshes(); ++index)
+    {
+        const Ogre::SubMesh* const submesh = mesh.getSubMesh(index);
+        if (submesh == nullptr)
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::MISSING_REFERENCE,
+                "dynamic_meshes.native_submesh",
+                "deformable Mesh contains a null SubMesh");
+        }
+        if (!submesh->useSharedVertices && !append(submesh->vertexData))
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::SIZE_MISMATCH,
+                "dynamic_meshes.joined_vertex_ranges",
+                "private deformable vertex range is invalid or aliased");
+        }
+    }
+    if (offset != staging_vertex_count)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "dynamic_meshes.joined_vertex_count",
+            "copied CPU staging count does not match OGRE vertex ownership");
+    }
+    ranges = std::move(candidate);
+    return RoR::Render::ValidationResult::Success();
+}
+
+RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
+    Ogre::Entity* entity,
+    RoR::Render::Ogre14GraphicsSceneDynamicSectionIdentity identity,
+    const std::vector<Ogre::Vector3>& joined_positions,
+    const std::vector<Ogre::Vector3>& joined_normals,
+    const std::vector<Ogre::Vector2>& joined_texcoords0,
+    bool has_dynamic_vertex_colors,
+    std::map<std::string,
+             RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
+             std::less<>>& mesh_cache,
+    std::vector<RoR::Render::Ogre14GraphicsSceneDynamicSectionCaptureInput>&
+        sections)
+{
+    if (entity == nullptr || !entity->isAttached() ||
+        entity->getName().empty())
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "dynamic_meshes.native_entity",
+            "deformable component has no attached named Entity");
+    }
+    const Ogre::MeshPtr mesh = entity->getMesh();
+    if (mesh.isNull() ||
+        entity->getNumSubEntities() != mesh->getNumSubMeshes() ||
+        entity->getNumSubEntities() >
+            (std::numeric_limits<std::uint32_t>::max)())
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "dynamic_meshes.native_submeshes",
+            "deformable Entity and Mesh section inventories differ");
+    }
+    if (entity->hasSkeleton() || entity->hasVertexAnimation() ||
+        mesh->hasSkeleton() || mesh->hasVertexAnimation())
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "dynamic_meshes.native_animation",
+            "soft-body capture cannot also preserve skeletal/vertex animation");
+    }
+    if (entity->getRenderingDistance() != 0.0F ||
+        joined_positions.empty() ||
+        joined_positions.size() != joined_normals.size() ||
+        (!joined_texcoords0.empty() &&
+         joined_texcoords0.size() != joined_positions.size()))
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "dynamic_meshes.joined_staging",
+            "deformable staging or rendering-distance state is incomplete");
+    }
+    if (has_dynamic_vertex_colors)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "dynamic_meshes.dynamic_vertex_colors",
+            "FlexBody texture blending needs a frame-varying color stream");
+    }
+
+    std::map<const Ogre::VertexData*, JoinedVertexRange> vertex_ranges;
+    RoR::Render::ValidationResult validation =
+        BuildOgre14JoinedVertexRanges(
+            *mesh, joined_positions.size(), vertex_ranges);
+    if (!validation)
+        return validation;
+
+    const RoR::Render::Matrix4x4 render_from_object =
+        ToRendererBoundaryMatrix(static_cast<const Ogre::Matrix4&>(
+            entity->_getParentNodeFullTransform()));
+    for (std::size_t section_index = 0U;
+         section_index < entity->getNumSubEntities(); ++section_index)
+    {
+        Ogre::SubEntity* const sub_entity =
+            entity->getSubEntity(section_index);
+        if (sub_entity == nullptr ||
+            sub_entity->getSubMesh() != mesh->getSubMesh(section_index))
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::REVISION_MISMATCH,
+                "dynamic_meshes.native_submesh",
+                "deformable SubEntity no longer maps to its Mesh section");
+        }
+        Ogre::RenderOperation operation;
+        sub_entity->getSubMesh()->_getRenderOperation(operation, 0U);
+        if (operation.vertexData == nullptr ||
+            operation.indexData == nullptr ||
+            operation.vertexData->vertexStart >
+                (std::numeric_limits<std::uint32_t>::max)() ||
+            operation.vertexData->vertexCount >
+                (std::numeric_limits<std::uint32_t>::max)() ||
+            operation.indexData->indexStart >
+                (std::numeric_limits<std::uint32_t>::max)() ||
+            operation.indexData->indexCount >
+                (std::numeric_limits<std::uint32_t>::max)())
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::SIZE_MISMATCH,
+                "dynamic_meshes.native_draw_range",
+                "deformable draw range is absent or exceeds uint32");
+        }
+        validation =
+            ValidateOgre14DynamicVertexDeclaration(*operation.vertexData);
+        if (!validation)
+            return validation;
+        const auto range = vertex_ranges.find(operation.vertexData);
+        if (range == vertex_ranges.end() ||
+            range->second.second != operation.vertexData->vertexCount)
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::REVISION_MISMATCH,
+                "dynamic_meshes.joined_vertex_range",
+                "deformable draw is not backed by its copied staging range");
+        }
+
+        RoR::Render::Ogre14GraphicsSceneDynamicSectionCaptureInput section;
+        identity.section_index = static_cast<std::uint32_t>(section_index);
+        section.identity = identity;
+        section.exact_entity_name = entity->getName();
+        section.render_from_object = render_from_object;
+        section.visibility_mask = entity->getVisibilityFlags();
+        section.visible = entity->getVisible() && sub_entity->isVisible();
+        section.casts_shadows = entity->getCastShadows();
+        section.visible_in_reflections = true;
+        section.has_dynamic_vertex_colors = has_dynamic_vertex_colors;
+
+        bool reverse_winding = false;
+        validation = CaptureOgre14MaterialFallbackInput(
+            sub_entity->getMaterial(), section.material, reverse_winding);
+        if (!validation)
+            return validation;
+        section.receives_shadows =
+            sub_entity->getMaterial()->getReceiveShadows();
+
+        const std::size_t offset = range->second.first;
+        const std::size_t count = range->second.second;
+        RoR::Render::Ogre14GraphicsSceneCpuMeshSectionInput base;
+        base.debug_name = mesh->getGroup() + "/" + mesh->getName() + "#" +
+            std::to_string(section_index);
+        base.reverse_winding = reverse_winding;
+        base.positions.reserve(count);
+        base.normals.reserve(count);
+        if (!joined_texcoords0.empty())
+            base.texture_coordinates_0.reserve(count);
+        for (std::size_t index = 0U; index < count; ++index)
+        {
+            const Ogre::Vector3& position = joined_positions[offset + index];
+            const Ogre::Vector3& normal = joined_normals[offset + index];
+            base.positions.push_back({
+                static_cast<float>(position.x),
+                static_cast<float>(position.y),
+                static_cast<float>(position.z)});
+            base.normals.push_back({
+                static_cast<float>(normal.x),
+                static_cast<float>(normal.y),
+                static_cast<float>(normal.z)});
+            if (!joined_texcoords0.empty())
+            {
+                const Ogre::Vector2& uv = joined_texcoords0[offset + index];
+                base.texture_coordinates_0.push_back({
+                    static_cast<float>(uv.x), static_cast<float>(uv.y)});
+            }
+        }
+        const std::string cache_key =
+            BuildNativeDynamicMeshCacheKey(identity);
+        auto cached = mesh_cache.find(cache_key);
+        const std::size_t native_state_count = mesh->getStateCount();
+        const std::uint64_t native_mesh_handle =
+            static_cast<std::uint64_t>(mesh->getHandle());
+        const bool cache_matches =
+            cached != mesh_cache.end() &&
+            cached->second.native_mesh_handle == native_mesh_handle &&
+            cached->second.native_state_count == native_state_count &&
+            cached->second.vertex_start == operation.vertexData->vertexStart &&
+            cached->second.vertex_count == operation.vertexData->vertexCount &&
+            cached->second.index_start == operation.indexData->indexStart &&
+            cached->second.index_count == operation.indexData->indexCount &&
+            cached->second.reverse_winding == reverse_winding &&
+            cached->second.payload != nullptr;
+        if (cache_matches)
+        {
+            section.mesh_payload = cached->second.payload;
+        }
+        else
+        {
+            // Immutable topology is copied only for a new/reloaded native
+            // allocation. Stable frames never read back a dynamic buffer.
+            validation = CopyOgre14DynamicIndices(
+                operation, base.indices, base.index_format);
+            if (!validation)
+                return validation;
+            base.topology_revision = 1U;
+            if (cached != mesh_cache.end() && cached->second.payload != nullptr &&
+                std::holds_alternative<RoR::Render::MeshResourceDescriptor>(
+                    *cached->second.payload))
+            {
+                const std::uint64_t prior =
+                    std::get<RoR::Render::MeshResourceDescriptor>(
+                        *cached->second.payload).topology_revision;
+                if (prior == (std::numeric_limits<std::uint64_t>::max)())
+                {
+                    return NativeStaticFailure(
+                        RoR::Render::ValidationCode::REVISION_MISMATCH,
+                        "dynamic_meshes.topology_revision",
+                        "deformable topology revision would overflow");
+                }
+                base.topology_revision = prior + 1U;
+            }
+            validation =
+                RoR::Render::BuildOgre14GraphicsSceneDynamicMeshPayload(
+                    base, section.mesh_payload);
+            if (!validation)
+                return validation;
+            RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry entry;
+            entry.native_mesh_handle = native_mesh_handle;
+            entry.native_state_count = native_state_count;
+            entry.vertex_start = static_cast<std::uint32_t>(
+                operation.vertexData->vertexStart);
+            entry.vertex_count = static_cast<std::uint32_t>(
+                operation.vertexData->vertexCount);
+            entry.index_start = static_cast<std::uint32_t>(
+                operation.indexData->indexStart);
+            entry.index_count = static_cast<std::uint32_t>(
+                operation.indexData->indexCount);
+            entry.reverse_winding = reverse_winding;
+            entry.payload = section.mesh_payload;
+            mesh_cache[cache_key] = std::move(entry);
+        }
+
+        auto state = std::make_shared<
+            RoR::Render::Ogre14GraphicsSceneJoinedDynamicState>();
+        state->topology_revision =
+            std::get<RoR::Render::MeshResourceDescriptor>(
+                *section.mesh_payload).topology_revision;
+        state->positions = std::move(base.positions);
+        state->normals = std::move(base.normals);
+        state->updated_local_bounds.minimum = state->positions.front();
+        state->updated_local_bounds.maximum = state->positions.front();
+        for (const RoR::Render::Float3& position : state->positions)
+        {
+            state->updated_local_bounds.minimum.x = (std::min)(
+                state->updated_local_bounds.minimum.x, position.x);
+            state->updated_local_bounds.minimum.y = (std::min)(
+                state->updated_local_bounds.minimum.y, position.y);
+            state->updated_local_bounds.minimum.z = (std::min)(
+                state->updated_local_bounds.minimum.z, position.z);
+            state->updated_local_bounds.maximum.x = (std::max)(
+                state->updated_local_bounds.maximum.x, position.x);
+            state->updated_local_bounds.maximum.y = (std::max)(
+                state->updated_local_bounds.maximum.y, position.y);
+            state->updated_local_bounds.maximum.z = (std::max)(
+                state->updated_local_bounds.maximum.z, position.z);
+        }
+        section.state = std::move(state);
+        sections.push_back(std::move(section));
+    }
+    return RoR::Render::ValidationResult::Success();
+}
+
+RoR::Render::ValidationResult MergeOgre14SceneAssets(
+    const std::vector<RoR::Render::GraphicsSceneAssetInput>& static_assets,
+    const std::vector<RoR::Render::GraphicsSceneAssetInput>& dynamic_assets,
+    std::vector<RoR::Render::GraphicsSceneAssetInput>& output)
+{
+    std::vector<RoR::Render::GraphicsSceneAssetInput> candidate;
+    candidate.reserve(static_assets.size() + dynamic_assets.size());
+    std::map<std::uint64_t, std::size_t> indices;
+    const auto append = [&candidate, &indices](
+        const RoR::Render::GraphicsSceneAssetInput& asset)
+        -> RoR::Render::ValidationResult
+    {
+        if (asset.source_asset_id == 0U || asset.payload == nullptr)
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::MISSING_REFERENCE,
+                "assets.native_merge",
+                "native scene asset has no stable identity or payload owner");
+        }
+        const auto prior = indices.find(asset.source_asset_id);
+        if (prior != indices.end())
+        {
+            const auto& prior_asset = candidate[prior->second];
+            if (!RoR::Render::EquivalentRenderAssetPayload(
+                    *prior_asset.payload, *asset.payload))
+            {
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::REVISION_MISMATCH,
+                    "assets.native_merge",
+                    "static and deformable inventories disagree on one "
+                    "stable asset payload");
+            }
+            return RoR::Render::ValidationResult::Success();
+        }
+        indices.emplace(asset.source_asset_id, candidate.size());
+        candidate.push_back(asset);
+        return RoR::Render::ValidationResult::Success();
+    };
+    for (const auto& asset : static_assets)
+    {
+        const RoR::Render::ValidationResult validation = append(asset);
+        if (!validation)
+            return validation;
+    }
+    for (const auto& asset : dynamic_assets)
+    {
+        const RoR::Render::ValidationResult validation = append(asset);
+        if (!validation)
+            return validation;
+    }
+    std::sort(candidate.begin(), candidate.end(),
+        [](const RoR::Render::GraphicsSceneAssetInput& lhs,
+           const RoR::Render::GraphicsSceneAssetInput& rhs)
+        {
+            return lhs.source_asset_id < rhs.source_asset_id;
+        });
+    output = std::move(candidate);
+    return RoR::Render::ValidationResult::Success();
+}
+
 RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
     RoR::TerrainObjectManager* object_manager,
     bool has_deformable_geometry,
@@ -1451,11 +1998,13 @@ void GfxScene::ClearScene()
 {
     m_ogre14_joined_buffer_ready = false;
     m_ogre14_joined_buffer_atomic = false;
+    m_ogre14_post_update_scene_epoch = 0U;
     // Native mesh pointers cannot outlive SceneManager resource teardown.
     // Stable/tombstoned source identities intentionally remain in the
     // registry until the owning producer lifetime is explicitly replaced.
     m_ogre14_static_mesh_cache.clear();
     m_ogre14_terrain_page_cache.clear();
+    m_ogre14_dynamic_mesh_cache.clear();
 
     // Delete dustpools
     for (auto itor : m_dustpools)
@@ -1661,6 +2210,14 @@ void GfxScene::UpdateScene(float dt)
         gfx_actor->FinishWheelUpdates();
         gfx_actor->FinishFlexbodyTasks();
     }
+    // Publish the epoch only after every asynchronous FlexBody/Flexable task
+    // has joined and flexitFinal()/updateFlexbodyVertexBuffers() has completed.
+    // Capture rejects any BufferSimulationData()/UpdateScene mismatch.
+    if (m_ogre14_scene_capture_enabled &&
+        m_ogre14_joined_buffer_ready && m_ogre14_joined_buffer_atomic)
+    {
+        m_ogre14_post_update_scene_epoch = m_ogre14_joined_buffer_epoch;
+    }
 }
 
 void GfxScene::SetParticlesVisible(bool visible)
@@ -1698,6 +2255,7 @@ void GfxScene::BufferSimulationData()
     {
         m_ogre14_joined_buffer_ready = false;
         m_ogre14_joined_buffer_atomic = false;
+        m_ogre14_post_update_scene_epoch = 0U;
         actor_manager = App::GetGameContext()->GetActorManager();
         if (actor_manager == nullptr)
         {
@@ -1767,17 +2325,198 @@ void GfxScene::BufferSimulationData()
     }
 }
 
+Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
+    Render::Ogre14GraphicsSceneDynamicIdentityRegistry& identity_registry,
+    std::map<std::string,
+             Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
+             std::less<>>& mesh_cache,
+    std::vector<Render::GraphicsSceneAssetInput>& assets,
+    std::vector<Render::GraphicsSceneDynamicMeshInput>& dynamic_meshes)
+{
+    std::vector<Render::Ogre14GraphicsSceneDynamicSectionCaptureInput>
+        sections;
+    for (GfxActor* const actor : m_all_gfx_actors)
+    {
+        if (actor == nullptr || actor->GetActorId() < 0)
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::INVALID_IDENTIFIER,
+                "dynamic_meshes.actor_instance_id",
+                "actor deformable inventory has no stable actor ID");
+        }
+        Render::Ogre14GraphicsSceneDynamicSectionIdentity identity;
+        identity.actor_instance_id = actor->GetActorId();
+        std::vector<Ogre::Vector3> positions;
+        std::vector<Ogre::Vector3> normals;
+        std::vector<Ogre::Vector2> texcoords0;
+
+        if ((actor->m_cab_mesh == nullptr) !=
+            (actor->m_cab_entity == nullptr))
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::MISSING_REFERENCE,
+                "dynamic_meshes.cab",
+                "cab Entity and joined staging owner must coexist");
+        }
+        if (actor->m_cab_mesh != nullptr)
+        {
+            if (!actor->m_cab_mesh->copyJoinedCpuStaging(
+                    positions, normals, texcoords0))
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::EMPTY_PAYLOAD,
+                    "dynamic_meshes.cab.joined_staging",
+                    "cab did not expose completed CPU staging");
+            }
+            identity.component_kind = Render::
+                Ogre14GraphicsSceneDynamicComponentKind::CAB;
+            identity.component_id = 0U;
+            Render::ValidationResult validation =
+                CaptureOgre14DynamicEntitySections(
+                    actor->m_cab_entity, identity,
+                    positions, normals, texcoords0, false,
+                    mesh_cache, sections);
+            if (!validation)
+                return validation;
+        }
+
+        for (FlexBody* const flexbody : actor->m_flexbodies)
+        {
+            if (flexbody == nullptr)
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::MISSING_REFERENCE,
+                    "dynamic_meshes.flexbody",
+                    "actor contains a null FlexBody owner");
+            }
+            if (flexbody->getPlaceholderType() !=
+                FlexBody::PlaceholderType::NOT_A_PLACEHOLDER)
+            {
+                continue;
+            }
+            const std::int64_t flexbody_id = flexbody->getID();
+            if (flexbody_id < 0 ||
+                static_cast<std::uint64_t>(flexbody_id) >
+                    (std::numeric_limits<std::uint32_t>::max)())
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::INVALID_IDENTIFIER,
+                    "dynamic_meshes.flexbody_id",
+                    "FlexBody has no stable uint32 creation ID");
+            }
+            if (!flexbody->copyJoinedCpuStaging(
+                    positions, normals, texcoords0))
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::EMPTY_PAYLOAD,
+                    "dynamic_meshes.flexbody.joined_staging",
+                    "FlexBody did not expose completed CPU staging");
+            }
+            identity.component_kind = Render::
+                Ogre14GraphicsSceneDynamicComponentKind::FLEXBODY;
+            identity.component_id = static_cast<std::uint32_t>(flexbody_id);
+            Render::ValidationResult validation =
+                CaptureOgre14DynamicEntitySections(
+                    flexbody->getEntity(), identity,
+                    positions, normals, texcoords0,
+                    flexbody->hasDynamicTextureBlend(), mesh_cache, sections);
+            if (!validation)
+                return validation;
+        }
+
+        for (const WheelGfx& wheel : actor->m_wheels)
+        {
+            if (wheel.wx_flex_mesh == nullptr)
+                continue;
+            const std::int64_t wheel_id = wheel.wx_wheel_id;
+            if (wheel_id < 0 ||
+                static_cast<std::uint64_t>(wheel_id) >
+                    (std::numeric_limits<std::uint32_t>::max)())
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::INVALID_IDENTIFIER,
+                    "dynamic_meshes.wheel_id",
+                    "deformable wheel has no stable uint32 wheel ID");
+            }
+            Ogre::Entity* entity = nullptr;
+            if (FlexMesh* const flexmesh =
+                    dynamic_cast<FlexMesh*>(wheel.wx_flex_mesh))
+            {
+                if (!flexmesh->copyJoinedCpuStaging(
+                        positions, normals, texcoords0) ||
+                    wheel.wx_scenenode == nullptr ||
+                    wheel.wx_scenenode->numAttachedObjects() != 1U)
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::EMPTY_PAYLOAD,
+                        "dynamic_meshes.flexmesh_wheel.joined_staging",
+                        "FlexMesh wheel staging or Entity is incomplete");
+                }
+                entity = dynamic_cast<Ogre::Entity*>(
+                    wheel.wx_scenenode->getAttachedObject(0U));
+                identity.component_kind = Render::
+                    Ogre14GraphicsSceneDynamicComponentKind::FLEXMESH_WHEEL;
+            }
+            else if (FlexMeshWheel* const meshwheel =
+                         dynamic_cast<FlexMeshWheel*>(wheel.wx_flex_mesh))
+            {
+                if (!meshwheel->copyJoinedCpuStaging(
+                        positions, normals, texcoords0))
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::EMPTY_PAYLOAD,
+                        "dynamic_meshes.meshwheel_tire.joined_staging",
+                        "MeshWheel tire did not expose completed CPU staging");
+                }
+                entity = meshwheel->GetTireEntity();
+                identity.component_kind = Render::
+                    Ogre14GraphicsSceneDynamicComponentKind::MESHWHEEL_TIRE;
+            }
+            else
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "dynamic_meshes.flexable_kind",
+                    "actor wheel uses an unknown Flexable subtype");
+            }
+            identity.component_id = static_cast<std::uint32_t>(wheel_id);
+            Render::ValidationResult validation =
+                CaptureOgre14DynamicEntitySections(
+                    entity, identity, positions, normals, texcoords0,
+                    false, mesh_cache, sections);
+            if (!validation)
+                return validation;
+        }
+    }
+
+    return Render::BuildOgre14GraphicsSceneDynamicInventory(
+        sections, identity_registry, assets, dynamic_meshes);
+}
+
 Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     Render::Ogre14GraphicsSceneCapture& capture)
 {
     Render::Ogre14GraphicsSceneCapture candidate;
     candidate.joined_buffer_epoch = m_ogre14_joined_buffer_epoch;
+    candidate.post_update_scene_epoch = m_ogre14_post_update_scene_epoch;
+    if (m_ogre14_joined_buffer_ready && m_ogre14_joined_buffer_atomic &&
+        m_ogre14_post_update_scene_epoch != m_ogre14_joined_buffer_epoch)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::SEQUENCE_MISMATCH,
+            "post_update_scene_epoch",
+            "capture attempted before the matching UpdateScene flex joins");
+    }
     if (m_ogre14_joined_buffer_ready && m_ogre14_joined_buffer_atomic)
     {
         candidate.available_fields |=
             Render::Ogre14GraphicsSceneCaptureFieldBit(
                 Render::Ogre14GraphicsSceneCaptureField::
                     JOINED_BUFFER_ATOMICITY);
+        candidate.available_fields |=
+            Render::Ogre14GraphicsSceneCaptureFieldBit(
+                Render::Ogre14GraphicsSceneCaptureField::
+                    POST_UPDATE_SCENE_ATOMICITY);
         candidate.frame.simulation_tick = m_ogre14_simulation_tick;
         candidate.available_fields |=
             Render::Ogre14GraphicsSceneCaptureFieldBit(
@@ -1835,21 +2574,54 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             {
                 return static_validation;
             }
-            static_validation = CaptureOgre14StaticMeshObjects(
-                    object_manager,
-                    !m_all_gfx_actors.empty() ||
-                        !m_all_gfx_characters.empty(),
+            Render::Ogre14GraphicsSceneStaticIdentityRegistry
+                candidate_static_registry =
+                    m_ogre14_static_identity_registry;
+            auto candidate_static_cache = m_ogre14_static_mesh_cache;
+            std::vector<Render::GraphicsSceneAssetInput> static_assets;
+            static_validation =
+                CaptureOgre14StaticMeshObjects(
+                    object_manager, !m_all_gfx_characters.empty(),
                     terrain_sections,
-                    m_ogre14_static_identity_registry,
-                    m_ogre14_static_mesh_cache,
-                    candidate.frame.assets,
+                    candidate_static_registry,
+                    candidate_static_cache,
+                    static_assets,
                     candidate.frame.static_meshes);
             if (!static_validation)
             {
                 return static_validation;
             }
+
+            Render::Ogre14GraphicsSceneDynamicIdentityRegistry
+                candidate_dynamic_registry =
+                    m_ogre14_dynamic_identity_registry;
+            auto candidate_dynamic_cache = m_ogre14_dynamic_mesh_cache;
+            std::vector<Render::GraphicsSceneAssetInput> dynamic_assets;
+            Render::ValidationResult dynamic_validation =
+                CaptureOgre14DynamicActorInventory(
+                    candidate_dynamic_registry, candidate_dynamic_cache,
+                    dynamic_assets, candidate.frame.dynamic_meshes);
+            if (!dynamic_validation)
+                return dynamic_validation;
+            dynamic_validation = MergeOgre14SceneAssets(
+                static_assets, dynamic_assets, candidate.frame.assets);
+            if (!dynamic_validation)
+                return dynamic_validation;
+
+            // Commit all static/dynamic topology, identity and lifecycle state
+            // only after the full joined actor inventory and cross-inventory
+            // asset merge succeeds. No Flex*/Actor/native pointer escapes in
+            // the published frame; it owns portable values and shared payloads.
             m_ogre14_terrain_page_cache =
                 std::move(candidate_terrain_cache);
+            m_ogre14_static_identity_registry =
+                std::move(candidate_static_registry);
+            m_ogre14_static_mesh_cache =
+                std::move(candidate_static_cache);
+            m_ogre14_dynamic_identity_registry =
+                std::move(candidate_dynamic_registry);
+            m_ogre14_dynamic_mesh_cache =
+                std::move(candidate_dynamic_cache);
             // These bits commit together only after coverage, native CPU
             // extraction, material fallback, identity/lifecycle auditing, and
             // complete inventory conversion have all succeeded.
@@ -1859,6 +2631,9 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             candidate.available_fields |=
                 Render::Ogre14GraphicsSceneCaptureFieldBit(
                     Render::Ogre14GraphicsSceneCaptureField::STATIC_MESHES);
+            candidate.available_fields |=
+                Render::Ogre14GraphicsSceneCaptureFieldBit(
+                    Render::Ogre14GraphicsSceneCaptureField::DYNAMIC_MESHES);
 
             Render::ValidationResult light_validation =
                 CaptureOgre14ManagedLights(

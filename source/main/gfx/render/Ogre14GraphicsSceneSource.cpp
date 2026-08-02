@@ -25,7 +25,7 @@ struct RequiredField final {
   const char *name;
 };
 
-constexpr std::array<RequiredField, 10U> kRequiredFields{{
+constexpr std::array<RequiredField, 12U> kRequiredFields{{
     {Ogre14GraphicsSceneCaptureField::JOINED_BUFFER_ATOMICITY,
      "joined_buffer_atomicity"},
     {Ogre14GraphicsSceneCaptureField::SIMULATION_TICK,
@@ -41,6 +41,9 @@ constexpr std::array<RequiredField, 10U> kRequiredFields{{
     {Ogre14GraphicsSceneCaptureField::REFLECTION_PROBES,
      "reflection_probes"},
     {Ogre14GraphicsSceneCaptureField::CAMERA, "camera"},
+    {Ogre14GraphicsSceneCaptureField::POST_UPDATE_SCENE_ATOMICITY,
+     "post_update_scene_atomicity"},
+    {Ogre14GraphicsSceneCaptureField::DYNAMIC_MESHES, "dynamic_meshes"},
 }};
 
 ValidationResult Failure(ValidationCode code, const char *field,
@@ -86,6 +89,11 @@ constexpr char kOgre14TerrainPageIdentityDomain[] =
 constexpr char kOgre14TerrainGeometryStateDomain[] =
     "ror.ogre14.terrain.geometry.state.v1";
 constexpr std::uint32_t kOgre14MaximumPortableTerrainPageSize = 2049U;
+
+constexpr char kOgre14DynamicMeshIdentityDomain[] =
+    "ror.ogre14.dynamic.mesh.asset.v1";
+constexpr char kOgre14DynamicObjectIdentityDomain[] =
+    "ror.ogre14.dynamic.object.section.v1";
 
 void HashByte(std::uint64_t &hash, std::uint8_t byte) noexcept {
   hash ^= byte;
@@ -567,6 +575,44 @@ ValidationResult ValidateTerrainMaterialAudit(
   return ValidationResult::Success();
 }
 
+
+bool IsKnownDynamicComponentKind(
+    Ogre14GraphicsSceneDynamicComponentKind kind) noexcept {
+  switch (kind) {
+  case Ogre14GraphicsSceneDynamicComponentKind::CAB:
+  case Ogre14GraphicsSceneDynamicComponentKind::FLEXBODY:
+  case Ogre14GraphicsSceneDynamicComponentKind::FLEXMESH_WHEEL:
+  case Ogre14GraphicsSceneDynamicComponentKind::MESHWHEEL_TIRE:
+    return true;
+  }
+  return false;
+}
+
+std::string BuildDynamicSectionKey(
+    const Ogre14GraphicsSceneDynamicSectionIdentity &identity,
+    std::string_view domain) {
+  std::string key;
+  key.reserve(domain.size() + 32U);
+  key.append(domain.data(), domain.size());
+  key.push_back('\0');
+  AppendU64(key, static_cast<std::uint64_t>(identity.actor_instance_id));
+  key.push_back(static_cast<char>(identity.component_kind));
+  AppendU32(key, identity.component_id);
+  AppendU32(key, identity.section_index);
+  return key;
+}
+
+bool EquivalentJoinedDynamicContents(
+    const GraphicsSceneDynamicMeshState &lhs,
+    const Ogre14GraphicsSceneJoinedDynamicState &rhs) noexcept {
+  return lhs.topology_revision == rhs.topology_revision &&
+         lhs.positions == rhs.positions && lhs.normals == rhs.normals &&
+         lhs.tangents == rhs.tangents && lhs.velocities == rhs.velocities &&
+         lhs.updated_local_bounds.minimum == rhs.updated_local_bounds.minimum &&
+         lhs.updated_local_bounds.maximum == rhs.updated_local_bounds.maximum;
+}
+
+
 ValidationResult HashStableKey(std::string_view key, const char *field,
                                std::uint64_t &stable_id) {
   if (key.empty()) {
@@ -674,6 +720,15 @@ ValidationResult AtStaticSection(ValidationResult result,
   return result;
 }
 
+ValidationResult AtDynamicSection(ValidationResult result,
+                                  std::size_t index) {
+  if (!result) {
+    result.element_index = index;
+    result.field = "dynamic_meshes." + result.field;
+  }
+  return result;
+}
+
 bool HasMirroredLinearTransform(const Matrix4x4 &transform) noexcept {
   return LinearDeterminant(transform) < 0.0F;
 }
@@ -737,6 +792,12 @@ ValidationResult ValidateOgre14GraphicsSceneCapture(
     return ValidationResult::Failure(
         ValidationCode::INVALID_IDENTIFIER, "joined_buffer_epoch",
         "joined buffer epoch must be nonzero");
+  }
+  if (capture.post_update_scene_epoch == 0U ||
+      capture.post_update_scene_epoch != capture.joined_buffer_epoch) {
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "post_update_scene_epoch",
+        "post-UpdateScene epoch must exactly match the joined buffer epoch");
   }
   return ValidationResult::Success();
 }
@@ -1509,6 +1570,439 @@ ValidationResult BuildOgre14GraphicsSceneStaticMeshPayload(
   auto candidate = std::make_shared<const RenderAssetPayload>(
       std::move(descriptor));
   payload = std::move(candidate);
+  return ValidationResult::Success();
+}
+
+ValidationResult DeriveOgre14GraphicsSceneDynamicMeshAssetId(
+    const Ogre14GraphicsSceneDynamicSectionIdentity &identity,
+    std::uint64_t &stable_id) {
+  if (identity.actor_instance_id < 0 ||
+      !IsKnownDynamicComponentKind(identity.component_kind)) {
+    return ValidationResult::Failure(
+        identity.actor_instance_id < 0 ? ValidationCode::INVALID_IDENTIFIER
+                                       : ValidationCode::INVALID_ENUM,
+        "assets.dynamic_mesh.exact_identity",
+        "dynamic mesh identity requires a nonnegative actor and known "
+        "component kind");
+  }
+  return HashStableKey(
+      BuildDynamicSectionKey(identity, kOgre14DynamicMeshIdentityDomain),
+      "assets.dynamic_mesh.source_asset_id", stable_id);
+}
+
+ValidationResult DeriveOgre14GraphicsSceneDynamicSectionId(
+    const Ogre14GraphicsSceneDynamicSectionIdentity &identity,
+    std::uint64_t &stable_id) {
+  if (identity.actor_instance_id < 0 ||
+      !IsKnownDynamicComponentKind(identity.component_kind)) {
+    return ValidationResult::Failure(
+        identity.actor_instance_id < 0 ? ValidationCode::INVALID_IDENTIFIER
+                                       : ValidationCode::INVALID_ENUM,
+        "dynamic_meshes.exact_identity",
+        "dynamic section identity requires a nonnegative actor and known "
+        "component kind");
+  }
+  return HashStableKey(
+      BuildDynamicSectionKey(identity, kOgre14DynamicObjectIdentityDomain),
+      "dynamic_meshes.source_object_id", stable_id);
+}
+
+ValidationResult BuildOgre14GraphicsSceneDynamicMeshPayload(
+    const Ogre14GraphicsSceneCpuMeshSectionInput &input,
+    std::shared_ptr<const RenderAssetPayload> &payload) {
+  std::shared_ptr<const RenderAssetPayload> static_payload;
+  ValidationResult validation =
+      BuildOgre14GraphicsSceneStaticMeshPayload(input, static_payload);
+  if (!validation) {
+    return validation;
+  }
+  MeshResourceDescriptor mesh =
+      std::get<MeshResourceDescriptor>(*static_payload);
+  mesh.dynamic = true;
+  validation = ValidateMeshResourceDescriptor(mesh);
+  if (!validation) {
+    return validation;
+  }
+  payload =
+      std::make_shared<const RenderAssetPayload>(std::move(mesh));
+  return ValidationResult::Success();
+}
+
+ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
+    const std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> &inputs,
+    Ogre14GraphicsSceneDynamicIdentityRegistry &identity_registry,
+    std::vector<GraphicsSceneAssetInput> &assets,
+    std::vector<GraphicsSceneDynamicMeshInput> &dynamic_meshes) {
+  Ogre14GraphicsSceneDynamicIdentityRegistry candidate_registry =
+      identity_registry;
+  std::vector<GraphicsSceneAssetInput> candidate_assets;
+  std::vector<GraphicsSceneDynamicMeshInput> candidate_meshes;
+  candidate_assets.reserve(inputs.size() * 2U +
+                           identity_registry.live_asset_keys_.size());
+  candidate_meshes.reserve(inputs.size());
+  std::map<std::uint64_t, std::size_t> asset_indices;
+  std::set<std::uint64_t> object_ids;
+  std::set<std::string, std::less<>> current_asset_keys;
+  std::set<std::string, std::less<>> current_object_keys;
+
+  const auto add_asset =
+      [&](std::uint64_t source_id,
+          const std::shared_ptr<const RenderAssetPayload> &payload_owner)
+      -> ValidationResult {
+    const auto existing = asset_indices.find(source_id);
+    if (existing != asset_indices.end()) {
+      const GraphicsSceneAssetInput &prior =
+          candidate_assets[existing->second];
+      if (!EquivalentRenderAssetPayload(*prior.payload, *payload_owner)) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH, "assets.payload",
+            "one OGRE 14 dynamic asset identity produced conflicting "
+            "payloads");
+      }
+      return ValidationResult::Success();
+    }
+    GraphicsSceneAssetInput asset;
+    asset.source_asset_id = source_id;
+    asset.payload = payload_owner;
+    asset_indices.emplace(source_id, candidate_assets.size());
+    candidate_assets.push_back(std::move(asset));
+    return ValidationResult::Success();
+  };
+
+  for (std::size_t input_index = 0U; input_index < inputs.size();
+       ++input_index) {
+    const Ogre14GraphicsSceneDynamicSectionCaptureInput &input =
+        inputs[input_index];
+    if (input.exact_entity_name.empty() ||
+        input.exact_entity_name.find('\0') != std::string::npos) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_IDENTIFIER,
+          "dynamic_meshes.exact_entity_name",
+          "actor deformable Entity requires an exact nonempty NUL-free name",
+          input_index);
+    }
+    if (input.mesh_payload == nullptr ||
+        input.mesh_payload->valueless_by_exception() ||
+        RenderAssetPayloadKind(*input.mesh_payload) != RenderAssetKind::MESH) {
+      return ValidationResult::Failure(
+          input.mesh_payload == nullptr ? ValidationCode::EMPTY_PAYLOAD
+                                        : ValidationCode::WRONG_ASSET_KIND,
+          "dynamic_meshes.mesh_payload",
+          "dynamic section requires an immutable base mesh payload",
+          input_index);
+    }
+    if (input.state == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::EMPTY_PAYLOAD, "dynamic_meshes.state",
+          "dynamic section requires one copied post-join CPU staging owner",
+          input_index);
+    }
+    if (input.has_dynamic_vertex_colors) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE,
+          "dynamic_meshes.dynamic_vertex_colors",
+          "frame-varying FlexBody blend colors require an explicit update "
+          "stream",
+          input_index);
+    }
+    if (!HasInvertibleAffineTransform(input.render_from_object)) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          "dynamic_meshes.render_from_object",
+          "dynamic section transform must be finite affine and invertible",
+          input_index);
+    }
+    if (HasMirroredLinearTransform(input.render_from_object)) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE,
+          "dynamic_meshes.render_from_object.mirrored",
+          "mirrored deformable transforms require canonical mesh rebasing",
+          input_index);
+    }
+
+    const MeshResourceDescriptor &mesh =
+        std::get<MeshResourceDescriptor>(*input.mesh_payload);
+    ValidationResult validation = ValidateMeshResourceDescriptor(mesh);
+    if (!validation) {
+      return AtDynamicSection(std::move(validation), input_index);
+    }
+    if (!mesh.dynamic) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "dynamic_meshes.mesh_payload.dynamic",
+          "deformable base mesh must allocate dynamic storage", input_index);
+    }
+    if (input.state->topology_revision != mesh.topology_revision) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "dynamic_meshes.state.topology_revision",
+          "joined staging topology differs from its immutable base mesh",
+          input_index);
+    }
+
+    DynamicMeshUpdateDescriptor compatibility_update;
+    compatibility_update.topology_revision = input.state->topology_revision;
+    compatibility_update.positions = input.state->positions;
+    compatibility_update.normals = input.state->normals;
+    compatibility_update.tangents = input.state->tangents;
+    compatibility_update.velocities = input.state->velocities;
+    compatibility_update.has_updated_bounds = true;
+    compatibility_update.updated_local_bounds = input.state->updated_local_bounds;
+    validation =
+        ValidateDynamicMeshUpdateCompatibility(mesh, compatibility_update);
+    if (!validation) {
+      return AtDynamicSection(std::move(validation), input_index);
+    }
+    Bounds3 tight;
+    tight.minimum = input.state->positions.front();
+    tight.maximum = input.state->positions.front();
+    for (const Float3 &position : input.state->positions) {
+      tight.minimum.x = (std::min)(tight.minimum.x, position.x);
+      tight.minimum.y = (std::min)(tight.minimum.y, position.y);
+      tight.minimum.z = (std::min)(tight.minimum.z, position.z);
+      tight.maximum.x = (std::max)(tight.maximum.x, position.x);
+      tight.maximum.y = (std::max)(tight.maximum.y, position.y);
+      tight.maximum.z = (std::max)(tight.maximum.z, position.z);
+    }
+    if (tight.minimum != input.state->updated_local_bounds.minimum ||
+        tight.maximum != input.state->updated_local_bounds.maximum) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_BOUNDS,
+          "dynamic_meshes.state.updated_local_bounds",
+          "joined staging bounds must be exact and tight", input_index);
+    }
+
+    const std::string mesh_key = BuildDynamicSectionKey(
+        input.identity, kOgre14DynamicMeshIdentityDomain);
+    const std::string object_key = BuildDynamicSectionKey(
+        input.identity, kOgre14DynamicObjectIdentityDomain);
+    const std::string material_key = BuildMaterialAssetKey(
+        input.material.exact_resource_group, input.material.exact_name);
+    std::uint64_t mesh_id = 0U;
+    std::uint64_t material_id = 0U;
+    std::uint64_t object_id = 0U;
+    validation =
+        DeriveOgre14GraphicsSceneDynamicMeshAssetId(input.identity, mesh_id);
+    if (!validation) {
+      return AtDynamicSection(std::move(validation), input_index);
+    }
+    validation = DeriveOgre14GraphicsSceneMaterialAssetId(
+        input.material.exact_resource_group, input.material.exact_name,
+        material_id);
+    if (!validation) {
+      return AtDynamicSection(std::move(validation), input_index);
+    }
+    validation =
+        DeriveOgre14GraphicsSceneDynamicSectionId(input.identity, object_id);
+    if (!validation) {
+      return AtDynamicSection(std::move(validation), input_index);
+    }
+    if (!object_ids.insert(object_id).second ||
+        !current_object_keys.insert(object_key).second) {
+      return ValidationResult::Failure(
+          ValidationCode::DUPLICATE_IDENTIFIER,
+          "dynamic_meshes.source_object_id",
+          "dynamic-section identity is duplicated", input_index);
+    }
+    if (identity_registry.known_object_keys_.find(object_key) !=
+            identity_registry.known_object_keys_.end() &&
+        identity_registry.live_object_keys_.find(object_key) ==
+            identity_registry.live_object_keys_.end()) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "dynamic_meshes.source_object_id",
+          "a removed dynamic-section identity may never return", input_index);
+    }
+
+    validation = RegisterIdentity(
+        mesh_key, mesh_id, candidate_registry.asset_names_by_id_,
+        candidate_registry.asset_ids_by_name_, "assets.dynamic_mesh.exact_key",
+        "assets.dynamic_mesh.source_asset_id");
+    if (!validation) {
+      return AtDynamicSection(std::move(validation), input_index);
+    }
+    validation = RegisterIdentity(
+        material_key, material_id, candidate_registry.asset_names_by_id_,
+        candidate_registry.asset_ids_by_name_, "assets.material.exact_key",
+        "assets.material.source_asset_id");
+    if (!validation) {
+      return AtDynamicSection(std::move(validation), input_index);
+    }
+    validation = RegisterIdentity(
+        object_key, object_id, candidate_registry.object_names_by_id_,
+        candidate_registry.object_ids_by_name_,
+        "dynamic_meshes.exact_key", "dynamic_meshes.source_object_id");
+    if (!validation) {
+      return AtDynamicSection(std::move(validation), input_index);
+    }
+
+    const auto prior_object = identity_registry.object_states_.find(object_key);
+    if (prior_object != identity_registry.object_states_.end() &&
+        (prior_object->second.exact_entity_name != input.exact_entity_name ||
+         prior_object->second.mesh_key != mesh_key ||
+         prior_object->second.material_key != material_key)) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "dynamic_meshes.identity_binding",
+          "a live dynamic identity changed Entity, mesh, or material binding",
+          input_index);
+    }
+
+    MaterialDescriptor material;
+    validation =
+        BuildOgre14GraphicsSceneMaterialFallback(input.material, material);
+    if (!validation) {
+      return AtDynamicSection(std::move(validation), input_index);
+    }
+    validation = ValidateMaterialMeshCompatibility(material, mesh);
+    if (!validation) {
+      return AtDynamicSection(std::move(validation), input_index);
+    }
+    std::shared_ptr<const RenderAssetPayload> material_payload =
+        std::make_shared<const RenderAssetPayload>(std::move(material));
+    const auto canonicalize =
+        [&candidate_registry](
+            const std::string &key,
+            std::shared_ptr<const RenderAssetPayload> proposed) {
+          const auto prior =
+              candidate_registry.canonical_payloads_by_asset_key_.find(key);
+          if (prior !=
+                  candidate_registry.canonical_payloads_by_asset_key_.end() &&
+              EquivalentRenderAssetPayload(*prior->second, *proposed)) {
+            return prior->second;
+          }
+          candidate_registry.canonical_payloads_by_asset_key_[key] = proposed;
+          return proposed;
+        };
+    const std::shared_ptr<const RenderAssetPayload> canonical_mesh =
+        canonicalize(mesh_key, input.mesh_payload);
+    const std::shared_ptr<const RenderAssetPayload> canonical_material =
+        canonicalize(material_key, std::move(material_payload));
+    validation = add_asset(mesh_id, canonical_mesh);
+    if (!validation) {
+      return AtDynamicSection(std::move(validation), input_index);
+    }
+    validation = add_asset(material_id, canonical_material);
+    if (!validation) {
+      return AtDynamicSection(std::move(validation), input_index);
+    }
+    current_asset_keys.insert(mesh_key);
+    current_asset_keys.insert(material_key);
+
+    std::shared_ptr<const GraphicsSceneDynamicMeshState> deformation;
+    if (prior_object != identity_registry.object_states_.end()) {
+      if (prior_object->second.deformation == nullptr) {
+        return ValidationResult::Failure(
+            ValidationCode::MISSING_REFERENCE, "dynamic_meshes.state",
+            "stored dynamic identity has no immutable deformation owner",
+            input_index);
+      }
+      if (EquivalentJoinedDynamicContents(
+              *prior_object->second.deformation, *input.state)) {
+        deformation = prior_object->second.deformation;
+      } else {
+        const std::uint64_t prior_revision =
+            prior_object->second.deformation->deformation_revision;
+        if (prior_revision == (std::numeric_limits<std::uint64_t>::max)()) {
+          return ValidationResult::Failure(
+              ValidationCode::REVISION_MISMATCH,
+              "dynamic_meshes.state.deformation_revision",
+              "dynamic deformation revision would overflow", input_index);
+        }
+        auto next = std::make_shared<GraphicsSceneDynamicMeshState>();
+        next->topology_revision = input.state->topology_revision;
+        next->deformation_revision = prior_revision + 1U;
+        next->positions = input.state->positions;
+        next->normals = input.state->normals;
+        next->tangents = input.state->tangents;
+        next->velocities = input.state->velocities;
+        next->updated_local_bounds = input.state->updated_local_bounds;
+        deformation = std::move(next);
+      }
+    } else {
+      auto first = std::make_shared<GraphicsSceneDynamicMeshState>();
+      first->topology_revision = input.state->topology_revision;
+      first->deformation_revision = 2U;
+      first->positions = input.state->positions;
+      first->normals = input.state->normals;
+      first->tangents = input.state->tangents;
+      first->velocities = input.state->velocities;
+      first->updated_local_bounds = input.state->updated_local_bounds;
+      deformation = std::move(first);
+    }
+
+    Ogre14GraphicsSceneDynamicIdentityRegistry::ObjectState object_state;
+    object_state.exact_entity_name = input.exact_entity_name;
+    object_state.mesh_key = mesh_key;
+    object_state.material_key = material_key;
+    object_state.deformation = deformation;
+    candidate_registry.object_states_[object_key] = std::move(object_state);
+
+    GraphicsSceneDynamicMeshInput instance;
+    instance.source_object_id = object_id;
+    instance.mesh_source_asset_id = mesh_id;
+    instance.material_source_asset_id = material_id;
+    instance.render_from_object = input.render_from_object;
+    instance.visibility_mask = input.visible ? input.visibility_mask : 0U;
+    instance.flags = 0U;
+    if (input.casts_shadows) {
+      instance.flags |= MESH_INSTANCE_CASTS_SHADOW;
+    }
+    if (input.receives_shadows) {
+      instance.flags |= MESH_INSTANCE_RECEIVES_SHADOW;
+    }
+    if (input.visible_in_reflections) {
+      instance.flags |= MESH_INSTANCE_VISIBLE_IN_REFLECTIONS;
+    }
+    instance.state = std::move(deformation);
+    candidate_meshes.push_back(std::move(instance));
+  }
+
+  // Dynamic base assets remain owned for the adapter lifetime. This prevents
+  // a shared material or immutable topology from being tombstoned merely
+  // because its actor was removed, while object identities remain permanent
+  // tombstones.
+  for (const std::string &key : identity_registry.live_asset_keys_) {
+    if (current_asset_keys.find(key) != current_asset_keys.end()) {
+      continue;
+    }
+    const auto id = candidate_registry.asset_ids_by_name_.find(key);
+    const auto payload =
+        candidate_registry.canonical_payloads_by_asset_key_.find(key);
+    if (id == candidate_registry.asset_ids_by_name_.end() ||
+        payload == candidate_registry.canonical_payloads_by_asset_key_.end() ||
+        payload->second == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "assets.dynamic_cache",
+          "retained dynamic asset has incomplete identity or payload state");
+    }
+    ValidationResult validation = add_asset(id->second, payload->second);
+    if (!validation) {
+      return validation;
+    }
+    current_asset_keys.insert(key);
+  }
+
+  std::sort(candidate_assets.begin(), candidate_assets.end(),
+            [](const GraphicsSceneAssetInput &lhs,
+               const GraphicsSceneAssetInput &rhs) {
+              return lhs.source_asset_id < rhs.source_asset_id;
+            });
+  std::sort(candidate_meshes.begin(), candidate_meshes.end(),
+            [](const GraphicsSceneDynamicMeshInput &lhs,
+               const GraphicsSceneDynamicMeshInput &rhs) {
+              return lhs.source_object_id < rhs.source_object_id;
+            });
+  candidate_registry.known_asset_keys_.insert(current_asset_keys.begin(),
+                                               current_asset_keys.end());
+  candidate_registry.live_asset_keys_ = std::move(current_asset_keys);
+  candidate_registry.known_object_keys_.insert(current_object_keys.begin(),
+                                                current_object_keys.end());
+  candidate_registry.live_object_keys_ = std::move(current_object_keys);
+
+  identity_registry = std::move(candidate_registry);
+  assets = std::move(candidate_assets);
+  dynamic_meshes = std::move(candidate_meshes);
   return ValidationResult::Success();
 }
 

@@ -52,6 +52,7 @@ namespace RoR {
 class GfxActor
 {
     friend class ActorSpawner; // The factory
+    friend class GfxScene;     // Joined graphics-owned capture only
 
 public:
 

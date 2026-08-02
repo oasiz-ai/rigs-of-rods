@@ -101,18 +101,22 @@ identity, simulation time, capture generations, and the float render origin.
 That separation lets origin rebasing preserve static probe lineage while the
 native plan still binds the exact derived render-relative transform.
 
-`GraphicsSceneSnapshotProducer` version 3 accepts those lights and absolute-world
+`GraphicsSceneSnapshotProducer` version 4 accepts those lights and absolute-world
 reflection probes in arbitrary
 source traversal order, canonicalizes them, rebases local-light history, and
-enforces permanent identity/type/revision tombstones. Once the entire asset, scene,
-lighting, environment, and camera transaction commits, it release-publishes the
-exact immutable owner returned to the caller. Concurrent consumers acquire-load
-either the previous complete scene or the next complete scene; a failed
-production publishes nothing. The atomic observer pointer does not replace the
-ordered production result: renderer submission still carries that scene's asset
-delta and camera together. Calls into a producer, including observer loads, must
-quiesce before producer destruction starts; immutable snapshot owners already
-acquired by readers remain valid independently.
+enforces permanent identity/type/revision tombstones. It also accepts complete
+dynamic section states under independent limits of 65,536 objects, 16 Mi
+vertices, and 512 MiB of copied position/normal/tangent/velocity storage per
+candidate. These aggregate limits are checked without integer wrap before any
+producer state commits. Once the entire asset, scene, lighting, environment,
+camera, and dynamic-inventory transaction commits, it release-publishes the exact
+immutable owner returned to the caller. Concurrent consumers acquire-load either
+the previous complete scene or the next complete scene; a failed production
+publishes nothing. The atomic observer pointer does not replace the ordered
+production result: renderer submission still carries that scene's asset delta and
+camera together. Calls into a producer, including observer loads, must quiesce
+before producer destruction starts; immutable snapshot owners already acquired by
+readers remain valid independently.
 
 There is no implicit lighting/schema migration. Scene snapshot versions 1, 2, and 3
 and joined-producer input versions 1 and 2 are rejected with `UNSUPPORTED_VERSION`.
@@ -171,7 +175,12 @@ can reorder them.
 The live OGRE 14 adapter samples only after
 `GfxScene::BufferSimulationData()` has copied simulation state and
 `GfxScene::UpdateScene()` has consumed those copies and joined flex/wheel work.
-It never reads live solver state. Its constant ambient conversion is
+Source version 2 requires a nonzero post-update epoch exactly equal to the joined
+buffer epoch; a capture attempted between those boundaries fails with a sequence
+mismatch before identity, lifecycle, or cache state can change. `FlexBody`,
+`FlexObj`, `FlexMesh`, and `FlexMeshWheel` expose copies of their private,
+fully joined CPU graphics staging only. Capture never reads `Actor`, `NodeSB`,
+solver, or hardware-buffer vertex state. Its constant ambient conversion is
 an explicit numeric compatibility calibration: one renderer-linear OGRE 14
 ambient unit equals one scene-radiance unit, with identity intensity and
 exposure and no invented compatible linear-float equirectangular environment
@@ -202,6 +211,30 @@ spotlight falloff exponent, separate specular color, visibility/light masks, or
 material response because scene schema v4 cannot represent those values.
 RT4/V1 also still admits only one directional light and rejects point/spot
 lights; full native local-light rendering remains a downstream milestone.
+
+Every supported actor cab, flexbody, flex-mesh wheel, and mesh-wheel tire is
+split by effective OGRE `SubEntity`, preserving its exact topology draw range,
+material binding, affine transform, visibility mask, reflection visibility, and
+shadow participation. Stable domain-separated identities use actor creation ID,
+component kind, component creation ID, and section ordinal; they never use vector
+position, display name, or a native address. The immutable base asset owns UV0,
+indices, material, and topology, while each scene owns a full post-physics
+position/normal update and exact tight bounds. Semantic deformation revisions
+advance only when copied contents change, unchanged frames reuse the prior
+immutable owner, removed object identities become permanent tombstones, and base
+assets remain retained so actor removal cannot invalidate in-flight snapshots.
+The actor topology cache retains only copied numeric OGRE resource handles, never
+native pointers, and is cleared when the graphics scene is destroyed.
+
+The actor-deformation adapter deliberately fails closed when a vertex declaration
+requires an update stream it cannot reproduce exactly. Current exclusions include
+frame-varying FlexBody blend colors, dynamic tangents, skinning, extra texture
+coordinate sets, and any other unsupported dynamic declaration. As with static
+objects, the compatibility material fallback rejects texture units, shader
+programs, or multipass state; the future material translator must land before
+ordinary textured vehicles can publish end to end without losing authored
+appearance. Mirrored dynamic transforms and identity resurrection also fail
+closed.
 
 The adapter now publishes an authored `MeshObject` static subset only when its
 whole geometry domain is representable. `TerrainObjectManager` supplies
@@ -247,14 +280,14 @@ textures, global-colour maps, lightmaps, composite maps, and generated material
 state are audited before meshing; any authored texture state remains an exact
 publication blocker until portable texture transport is implemented. OGRE 14
 Terrain has no hole API, and the renderer-neutral builder rejects a claimed
-hole rather than silently filling it. Procedural roads, actor or other
-deformable geometry, paged vegetation, animated terrain objects, unsupported
-vertex declarations, and unsupported material states likewise return exact
-diagnostics. Mirrored instance transforms also fail closed until reflection can
-be baked into the canonical mesh basis and winding. Consequently `ASSETS` and
-`STATIC_MESHES` are advertised together only after a complete supported
-inventory; terrain textures and the procedural/deformable domains remain
-required before ordinary maps can publish end to end.
+hole rather than silently filling it. Procedural roads, characters or other
+unimplemented deformable geometry, paged vegetation, animated terrain objects,
+unsupported vertex declarations, and unsupported material states likewise
+return exact diagnostics. Mirrored instance transforms also fail closed until
+reflection can be baked into the canonical mesh basis and winding. Consequently
+`ASSETS`, `STATIC_MESHES`, and `DYNAMIC_MESHES` are advertised together
+only after a complete supported inventory; terrain textures and procedural
+geometry remain required before ordinary maps can publish end to end.
 
 ### Exact OGRE 14 legacy asset translator v1
 

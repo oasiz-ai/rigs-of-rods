@@ -1634,6 +1634,43 @@ void TestDynamicMeshLineageOwnershipAndTombstones() {
               ValidationCode::REVISION_MISMATCH,
           "destroyed deformable identity was resurrected");
 
+  GraphicsSceneSnapshotProducerConfiguration stream_config;
+  stream_config.registry_id = 704U;
+  stream_config.maximum_dynamic_vertex_count = 3U;
+  stream_config.maximum_dynamic_payload_bytes =
+      3U * sizeof(Float3) + 3U * sizeof(Float3);
+  GraphicsSceneSnapshotProducer stream_bounded(stream_config);
+  GraphicsSceneFrameInput stream_frame = MakeFrame();
+  stream_frame.assets.push_back(DynamicMeshAsset());
+  stream_frame.dynamic_meshes.push_back(
+      DynamicObject(350U, DynamicState(2U)));
+  const GraphicsSceneSnapshotProduceResult exact_stream_bound =
+      stream_bounded.Produce(stream_frame);
+  Require(exact_stream_bound.ok(),
+          "exact aggregate dynamic vertex/byte bound was rejected");
+  const std::shared_ptr<const SceneSnapshot> exact_stream_snapshot =
+      stream_bounded.LoadPublishedSnapshot();
+  stream_frame.simulation_tick = 42U;
+  stream_frame.simulation_time_seconds = 2.0;
+  auto oversized_state =
+      std::make_shared<GraphicsSceneDynamicMeshState>(*DynamicState(3U, 0.5F));
+  oversized_state->velocities.assign(3U, Float3{});
+  stream_frame.dynamic_meshes[0U].state = oversized_state;
+  Require(stream_bounded.Produce(stream_frame).validation.code ==
+                  ValidationCode::VALUE_OUT_OF_RANGE &&
+              SameSharedOwner(exact_stream_snapshot,
+                              stream_bounded.LoadPublishedSnapshot()),
+          "over-bound dynamic stream bytes were accepted or published");
+
+  GraphicsSceneSnapshotProducerConfiguration vertex_config;
+  vertex_config.registry_id = 705U;
+  vertex_config.maximum_dynamic_vertex_count = 2U;
+  GraphicsSceneSnapshotProducer vertex_bounded(vertex_config);
+  Require(vertex_bounded.Produce(stream_frame).validation.code ==
+                  ValidationCode::VALUE_OUT_OF_RANGE &&
+              vertex_bounded.LoadPublishedSnapshot() == nullptr,
+          "over-bound aggregate dynamic vertices initialized publication");
+
   GraphicsSceneSnapshotProducer collision_producer = MakeProducer(702U);
   GraphicsSceneFrameInput collision = MakeFrame();
   collision.assets.push_back(DynamicMeshAsset());

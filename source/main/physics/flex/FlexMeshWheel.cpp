@@ -28,6 +28,8 @@
 
 #include <Ogre.h>
 
+#include <utility>
+
 using namespace Ogre;
 using namespace RoR;
 
@@ -150,7 +152,6 @@ FlexMeshWheel::FlexMeshWheel(
 
     // Upload the index data to the card
     ibuf->writeData(0, ibuf->getSizeInBytes(), m_indices.data(), true);
-    m_indices.clear(); // We won't need these anymore.
 
     // Set parameters of the submesh
     m_submesh->useSharedVertices = true;
@@ -262,4 +263,33 @@ Vector3 FlexMeshWheel::flexitFinal()
 {
     m_hw_vbuf->writeData(0, m_hw_vbuf->getSizeInBytes(), m_vertices.data(), true);
     return m_flexit_center;
+}
+
+bool FlexMeshWheel::copyJoinedCpuStaging(
+    std::vector<Ogre::Vector3>& positions,
+    std::vector<Ogre::Vector3>& normals,
+    std::vector<Ogre::Vector2>& texcoords0) const
+{
+    if (!m_mesh || m_tire_entity == nullptr || m_vertices.empty() ||
+        m_hw_vbuf.isNull())
+    {
+        return false;
+    }
+
+    std::vector<Ogre::Vector3> candidate_positions;
+    std::vector<Ogre::Vector3> candidate_normals;
+    std::vector<Ogre::Vector2> candidate_texcoords;
+    candidate_positions.reserve(m_vertices.size());
+    candidate_normals.reserve(m_vertices.size());
+    candidate_texcoords.reserve(m_vertices.size());
+    for (const FlexMeshWheelVertex& vertex : m_vertices)
+    {
+        candidate_positions.push_back(vertex.position);
+        candidate_normals.push_back(vertex.normal);
+        candidate_texcoords.push_back(vertex.texcoord);
+    }
+    positions = std::move(candidate_positions);
+    normals = std::move(candidate_normals);
+    texcoords0 = std::move(candidate_texcoords);
+    return true;
 }

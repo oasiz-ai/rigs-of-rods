@@ -181,6 +181,10 @@ struct GraphicsSceneSnapshotProducerConfiguration {
   std::size_t maximum_asset_records = 65536U;
   std::size_t maximum_static_mesh_objects = 65536U;
   std::size_t maximum_dynamic_mesh_objects = 65536U;
+  /// Aggregate complete position count and copied dynamic stream bytes in one
+  /// candidate frame. Both are checked transactionally before publication.
+  std::uint64_t maximum_dynamic_vertex_count = 16U * 1024U * 1024U;
+  std::uint64_t maximum_dynamic_payload_bytes = 512U * 1024U * 1024U;
   std::size_t maximum_light_records = 4096U;
   std::size_t maximum_reflection_probe_records = 256U;
   /// Sum of descriptor-owned string, vertex/index, and texel bytes in one

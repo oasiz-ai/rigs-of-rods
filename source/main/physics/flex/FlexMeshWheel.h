@@ -48,6 +48,11 @@ public:
     Ogre::Entity* GetTireEntity() { return m_tire_entity; }
 
     Ogre::Vector3 updateVertices();
+    /// Copies only the completed graphics staging arrays. Call only after
+    /// GfxActor::FinishWheelUpdates(); this never exposes NodeSB/solver data.
+    bool copyJoinedCpuStaging(std::vector<Ogre::Vector3>& positions,
+                              std::vector<Ogre::Vector3>& normals,
+                              std::vector<Ogre::Vector2>& texcoords0) const;
 
     // Flexable
     bool flexitPrepare();

@@ -104,6 +104,14 @@ public:
 
 private:
 
+    Render::ValidationResult CaptureOgre14DynamicActorInventory(
+        Render::Ogre14GraphicsSceneDynamicIdentityRegistry& identity_registry,
+        std::map<std::string,
+                 Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
+                 std::less<>>& mesh_cache,
+        std::vector<Render::GraphicsSceneAssetInput>& assets,
+        std::vector<Render::GraphicsSceneDynamicMeshInput>& dynamic_meshes);
+
     std::map<std::string, DustPool *> m_dustpools;
     Ogre::SceneManager*               m_scene_manager = nullptr;
     std::vector<GfxActor*>            m_all_gfx_actors;
@@ -117,6 +125,7 @@ private:
     // copied only inside BufferSimulationData(), before the next physics batch
     // may start; the adapter never reads ActorManager directly.
     std::uint64_t                      m_ogre14_joined_buffer_epoch = 0U;
+    std::uint64_t                      m_ogre14_post_update_scene_epoch = 0U;
     std::uint64_t                      m_ogre14_simulation_tick = 0U;
     double                             m_ogre14_simulation_time_seconds = 0.0;
     bool                               m_ogre14_joined_buffer_ready = false;
@@ -139,6 +148,11 @@ private:
     std::map<std::string,
              Render::Ogre14GraphicsSceneTerrainPageCacheEntry, std::less<>>
                                        m_ogre14_terrain_page_cache;
+    Render::Ogre14GraphicsSceneDynamicIdentityRegistry
+                                       m_ogre14_dynamic_identity_registry;
+    std::map<std::string,
+             Render::Ogre14GraphicsSceneDynamicMeshCacheEntry, std::less<>>
+                                       m_ogre14_dynamic_mesh_cache;
 
     // Free beams GFX:
     std::vector<FreeBeamGfx>          m_gfx_freebeams;

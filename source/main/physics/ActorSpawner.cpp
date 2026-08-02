@@ -5466,6 +5466,7 @@ void ActorSpawner::CreateWheelVisuals(
     try
     {
         WheelGfx visual_wheel;
+        visual_wheel.wx_wheel_id = wheel_index;
 
         const std::string wheel_mesh_name = this->ComposeName("mesh @ wheel*", wheel_index);
         visual_wheel.wx_flex_mesh = new FlexMesh(
