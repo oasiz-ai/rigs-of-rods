@@ -14,6 +14,12 @@
 #include "RendererOgreNextWindowHost.h"
 #include "ror_ogre_next_n1_config.h"
 
+#if defined(_WIN32)
+// This executable owns the normal console entry point. SDL otherwise rewrites
+// `main` to `SDL_main` on Windows, leaving the console subsystem with no entry
+// point unless SDL2main is linked.
+#define SDL_MAIN_HANDLED
+#endif
 #include <SDL.h>
 
 #include <array>
@@ -544,6 +550,9 @@ std::string Report(const OgreNextN1PresentationAudit &audit,
 
 int main(int argc, char **argv) {
   try {
+#if defined(_WIN32)
+    SDL_SetMainReady();
+#endif
     const Arguments arguments = ParseArguments(argc, argv);
     const RenderAssetDelta catalog = MakeCatalog();
     const std::shared_ptr<const SceneSnapshot> scene = MakeScene();

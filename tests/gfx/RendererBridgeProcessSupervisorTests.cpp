@@ -220,13 +220,21 @@ public:
   }
 
   ~PosixIsolation() {
-    (void)::chdir(original_cwd_.c_str());
-    if (had_path_) {
-      (void)::setenv("PATH", original_path_.c_str(), 1);
-    } else {
-      (void)::unsetenv("PATH");
+    if (::chdir(original_cwd_.c_str()) != 0) {
+      std::abort();
     }
-    (void)::rmdir(isolated_cwd_.c_str());
+    if (had_path_) {
+      if (::setenv("PATH", original_path_.c_str(), 1) != 0) {
+        std::abort();
+      }
+    } else {
+      if (::unsetenv("PATH") != 0) {
+        std::abort();
+      }
+    }
+    if (::rmdir(isolated_cwd_.c_str()) != 0) {
+      std::abort();
+    }
   }
 
   PosixIsolation(const PosixIsolation &) = delete;

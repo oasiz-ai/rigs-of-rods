@@ -248,6 +248,18 @@ class OgreNextWindowRunLoopContractTests(unittest.TestCase):
                 self.assertIn(token, self.smoke)
         self.assertNotIn("memcpy", self.smoke)
 
+    def test_windows_console_entrypoint_bypasses_sdl_main_rewrite(self) -> None:
+        handled = self.smoke.index("#define SDL_MAIN_HANDLED")
+        include = self.smoke.index("#include <SDL.h>")
+        entrypoint = self.smoke.index("int main(int argc, char **argv)")
+        ready = self.smoke.index("SDL_SetMainReady();", entrypoint)
+        adapter = self.smoke.index(
+            "RoR::RendererOgreNextSdlWindowRuntime adapter;", entrypoint
+        )
+        self.assertLess(handled, include)
+        self.assertLess(entrypoint, ready)
+        self.assertLess(ready, adapter)
+
     def test_strict_cross_platform_build_and_mac_runtime_gate_are_registered(self) -> None:
         for token in (
             "ror_ogre_next_window_run_loop_smoke",
