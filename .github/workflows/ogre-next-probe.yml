@@ -298,7 +298,60 @@ jobs:
           --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --build-config Release
           --output-on-failure
-          -R '^ror_renderer_ogre_next_child_runtime$'
+          -R '^ror_renderer_ogre_next_child_runtime(_receipt)?$'
+
+      - name: Resolve and revalidate the upload-bound Ogre-Next child evidence
+        id: ogre_next_child_runtime_evidence
+        shell: bash
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          receipt="$build_root/ror-ogre-next-child-runtime-execution-receipt.json"
+          child="$build_root/renderer-ogre-next-child-runtime/Release/RoR-OgreNext"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            child="${child}.exe"
+          fi
+          python tools/ogre_next_probe/validate_child_runtime_receipt.py \
+            --build-dir "$build_root" \
+            --require-pass-or-skip
+          test -f "$receipt"
+          test -f "$child"
+          printf 'receipt=%s\n' "$receipt" >> "$GITHUB_OUTPUT"
+          printf 'child=%s\n' "$child" >> "$GITHUB_OUTPUT"
+
+      - name: Cryptographically attest the Ogre-Next child receipt and binary
+        id: attest_ogre_next_child_runtime
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: |
+            ${{ steps.ogre_next_child_runtime_evidence.outputs.receipt }}
+            ${{ steps.ogre_next_child_runtime_evidence.outputs.child }}
+
+      - name: Stage and verify the GitHub-signed Ogre-Next child evidence
+        if: success() && github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          receipt="${{ steps.ogre_next_child_runtime_evidence.outputs.receipt }}"
+          child="${{ steps.ogre_next_child_runtime_evidence.outputs.child }}"
+          source_bundle="${{ steps.attest_ogre_next_child_runtime.outputs.bundle-path }}"
+          bundle="$build_root/ror-ogre-next-child-runtime-execution-receipt.sigstore.jsonl"
+          test -f "$receipt"
+          test -f "$child"
+          test -f "$source_bundle"
+          cp "$source_bundle" "$bundle"
+          for subject in "$receipt" "$child"; do
+            gh attestation verify \
+              "$subject" \
+              --repo "$GITHUB_REPOSITORY" \
+              --bundle "$bundle" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/ogre-next-probe.yml" \
+              --source-ref "$GITHUB_REF" \
+              --source-digest "$GITHUB_SHA" \
+              --deny-self-hosted-runners
+          done
 
       - name: Build and validate the independent Apple Metal N2 proof
         if: runner.os == 'macOS'
@@ -611,6 +664,11 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-attestation.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-artifact-manifest.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-execution-receipt.sigstore.jsonl
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-child-runtime-execution-receipt.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-child-runtime.stdout.log
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-child-runtime.stderr.log
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-child-runtime-execution-receipt.sigstore.jsonl
+            ${{ steps.ogre_next_child_runtime_evidence.outputs.child }}
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_pssm_shadow_smoke*
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke*
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/share/

@@ -1101,6 +1101,22 @@ Gate R1:
   not installed, staged, bundled, or production-admitted; presentation, the
   game bridge, UI/input, scene lifetime, and package evidence remain open, so
   immutable package facts still select the explicit compatibility fallback.
+  Its probe execution is independently retained in a versioned, fail-closed
+  receipt that records pass, exact capability skip, or failure and binds both
+  pinned commits, platform backend, intent argv, child binary hash/size, and
+  captured logs. The wrapper emits failure receipts for nonzero child exits;
+  exact Windows CRLF and Unix LF markers prevent a broad exit-77 skip. CI
+  revalidates and uses pinned `actions/attest` to GitHub-attest the receipt plus
+  exact platform-selected child binary before uploading them. The per-run value
+  is explicitly an OS-CSPRNG
+  `execution_nonce`, not a child challenge, and wall-clock time is omitted.
+  This audit evidence is not a readiness or packaging admission fact.
+  POSIX timeout handling starts a new session, kills the process group, and
+  reaps the direct child; Windows kills and reaps the direct child under a
+  separately checked reviewed-source-closure contract. Any future
+  fork/spawn/exec/process call fails the build and requires real cross-platform
+  descendant containment. This probe constraint is neither a proof over
+  arbitrary injected linked code nor a general process-tree sandbox.
   Validation configures `-DROR_OGRE14=ON`, builds
   `ror_renderer_launcher`, and verifies exact `bin/RoR[.exe]` plus
   `bin/RoR-Ogre14[.exe]` siblings in build and package layouts.

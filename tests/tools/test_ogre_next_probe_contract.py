@@ -642,6 +642,23 @@ class OgreNextProbeContractTests(unittest.TestCase):
         PROBE.validate_build_contract(
             current_contract, self.lock, self.policy
         )
+        current_contract["schema_version"] = 6
+        current_contract["components"].update(
+            {
+                "headless_child_execution_receipt_schema": (
+                    "ror.ogre_next_child_runtime_execution_receipt.v1"
+                ),
+                "headless_child_execution_receipt_required": True,
+                "headless_child_binary_retained": True,
+                "headless_child_logs_retained": True,
+                "headless_child_process_model": (
+                    "single-process-reviewed-source-closure-v1"
+                ),
+            }
+        )
+        PROBE.validate_build_contract(
+            current_contract, self.lock, self.policy
+        )
         for name, mutate in (
             (
                 "simd",
@@ -750,7 +767,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
         build_contract = (
             PROBE_DIR / "ogre_next_build_contract.json.in"
         ).read_text(encoding="utf-8")
-        self.assertIn('"schema_version": 5', build_contract)
+        self.assertIn('"schema_version": 6', build_contract)
         self.assertIn(
             '"target_type": "@ROR_FREETYPE_TARGET_TYPE@"',
             build_contract,
@@ -764,6 +781,17 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertIn("native_ray_tracing\": \"not_evaluated", build_contract)
         self.assertIn('"headless_child_bootstrap": true', build_contract)
         self.assertIn('"headless_child_packaged": false', build_contract)
+        self.assertIn(
+            '"headless_child_execution_receipt_required": true',
+            build_contract,
+        )
+        self.assertIn('"headless_child_binary_retained": true', build_contract)
+        self.assertIn('"headless_child_logs_retained": true', build_contract)
+        self.assertIn(
+            '"headless_child_process_model": '
+            '"single-process-reviewed-source-closure-v1"',
+            build_contract,
+        )
         self.assertIn(
             '"headless_child_production_admitted": false', build_contract
         )

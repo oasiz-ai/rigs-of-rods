@@ -125,6 +125,29 @@ nonzero diagnostic and fails CTest. This executable is not installed, staged,
 bundled, or production-admitted, and it has no presentation, game bridge, UI,
 input, or scene loop. Its real output name is evidence that the ABI/process
 boundary can bootstrap, not an immutable package-readiness fact.
+Every probe CTest launch now runs through a fail-closed wrapper which writes
+`ror.ogre_next_child_runtime_execution_receipt.v1` even when the child returns
+a nonzero result. The receipt binds the exact RoR and OGRE-Next commits, build
+contract, platform renderer backend, four-record intent contract, child binary
+SHA-256 and byte size before and after execution, and captured stdout/stderr
+logs. Exit 77 is a skip only with the exact reviewed terminal marker (CRLF on
+Windows, LF on macOS/Linux); every other nonzero or marker mismatch is a
+failure. An OS-CSPRNG `execution_nonce` provides per-run uniqueness without
+claiming challenge-response, while wall-clock timestamps are deliberately
+omitted. CI independently validates the receipt, uses the pinned
+`actions/attest` action to GitHub-attest both the receipt and exact
+platform-selected child executable, verifies that DSSE bundle, and uploads the
+receipt, binary, logs, and bundle. This evidence retention does not install,
+stage, bundle, default-select, or production-admit the child.
+On POSIX, timeout cleanup starts the child in a new session, kills its process
+group, and reaps the direct child. Windows kills and reaps the direct child. A
+separate build gate lexically scans the reviewed, pinned RoR/OGRE source closure
+and rejects `fork`, spawn, exec, shell, and process-creation calls; the target
+also excludes `RendererChildLauncher`. This is a reviewed-source-closure
+constraint, not a proof over arbitrary injected linked code or a general
+descendant-process sandbox. If any process-spawn call enters the reviewed child
+closure, the build fails until cross-platform process-tree containment is
+designed and admitted.
 The compatibility child's runtime closure
 and crash symbols remain the OGRE 14 closure; the dependency-free public
 launcher is audited separately. The fake child is confined to the test output

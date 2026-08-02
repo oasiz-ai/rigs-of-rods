@@ -45,6 +45,7 @@ RECEIPT_SCOPE = {
     "probe_only": True,
     "packaged": False,
     "production_admitted": False,
+    "process_model": "single-process-reviewed-source-closure-v1",
 }
 NONCE_POLICY = "os-csprng-256-bit-v1"
 TIMESTAMP_POLICY = "omitted-no-wall-clock-v1"
@@ -291,6 +292,8 @@ def validate_receipt(
         and components.get("headless_child_execution_receipt_required") is True
         and components.get("headless_child_binary_retained") is True
         and components.get("headless_child_logs_retained") is True
+        and components.get("headless_child_process_model")
+        == "single-process-reviewed-source-closure-v1"
         and components.get("headless_child_packaged") is False
         and components.get("headless_child_production_admitted") is False
     ):
@@ -313,7 +316,12 @@ def validate_receipt(
         },
         "child receipt",
     )
-    if receipt.get("schema") != RECEIPT_SCHEMA or receipt.get("schema_version") != 1:
+    schema_version = receipt.get("schema_version")
+    if (
+        receipt.get("schema") != RECEIPT_SCHEMA
+        or type(schema_version) is not int
+        or schema_version != 1
+    ):
         raise ReceiptValidationError("child receipt schema is invalid")
     if not _exact(receipt.get("scope"), RECEIPT_SCOPE):
         raise ReceiptValidationError("child receipt scope is invalid")
@@ -368,10 +376,17 @@ def validate_receipt(
         {"launch_status", "exit_code", "wrapper_return_code"},
         "child process record",
     )
-    if process.get("launch_status") not in {"exited", "timeout", "launch-error"}:
+    launch_status = process.get("launch_status")
+    exit_code = process.get("exit_code")
+    if launch_status not in {"exited", "timeout", "launch-error"}:
         raise ReceiptValidationError("child launch status is invalid")
-    if process.get("exit_code") is not None and type(process.get("exit_code")) is not int:
-        raise ReceiptValidationError("child exit code is invalid")
+    if not (
+        (launch_status == "exited" and type(exit_code) is int)
+        or (launch_status in {"timeout", "launch-error"} and exit_code is None)
+    ):
+        raise ReceiptValidationError(
+            "child launch status and exit code are contradictory"
+        )
     if type(process.get("wrapper_return_code")) is not int:
         raise ReceiptValidationError("wrapper return code is invalid")
 
@@ -405,8 +420,8 @@ def validate_receipt(
     stderr = stderr_path.read_bytes()
     expected_outcome, expected_reason, expected_wrapper_exit = classify_observation(
         expected_platform["policy"],
-        process["launch_status"],
-        process["exit_code"],
+        launch_status,
+        exit_code,
         stdout,
         stderr,
     )

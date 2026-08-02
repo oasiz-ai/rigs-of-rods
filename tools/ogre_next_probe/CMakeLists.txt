@@ -355,6 +355,18 @@ configure_file(
     @ONLY)
 
 add_custom_target(
+    ror_renderer_ogre_next_child_process_closure_verify
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/verify_child_runtime_process_closure.py"
+        --ror-root "${ROR_REPOSITORY_ROOT}"
+        --ogre-root "${ogre_next_SOURCE_DIR}"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/verify_child_runtime_process_closure.py"
+    COMMENT "Proving the probe-only Ogre-Next child has no descendant-process source calls"
+    VERBATIM)
+
+add_custom_target(
     ror_ogre_next_pssm_source_closure_verify
     COMMAND
         "${Python3_EXECUTABLE}"
@@ -741,6 +753,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         target_link_options(
             ror_renderer_ogre_next_child_runtime PRIVATE -municode)
     endif ()
+    add_dependencies(
+        ror_renderer_ogre_next_child_runtime
+        ror_renderer_ogre_next_child_process_closure_verify)
 
     add_executable(
         ror_renderer_child_launcher_tests
@@ -1541,17 +1556,31 @@ endif ()
 if (TARGET ror_renderer_ogre_next_child_runtime)
     add_test(
         NAME ror_renderer_ogre_next_child_runtime
-        COMMAND $<TARGET_FILE:ror_renderer_ogre_next_child_runtime>
-            --ror-renderer-child-intent-version=1
-            --ror-renderer-child-frontend=ogre-next-require
-            --ror-renderer-child-directional-shadows=pssm
-            --ror-renderer-child-native-backend=none)
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/run_child_runtime_receipt.py"
+            --build-dir "${CMAKE_BINARY_DIR}"
+            --child $<TARGET_FILE:ror_renderer_ogre_next_child_runtime>
+            --timeout-seconds 110)
     set_tests_properties(
         ror_renderer_ogre_next_child_runtime
         PROPERTIES
             RESOURCE_LOCK ror_ogre_next_n1_native_device
             SKIP_RETURN_CODE 77
             TIMEOUT 120
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+    add_test(
+        NAME ror_renderer_ogre_next_child_runtime_receipt
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/validate_child_runtime_receipt.py"
+            --build-dir "${CMAKE_BINARY_DIR}"
+            --require-pass-or-skip)
+    set_tests_properties(
+        ror_renderer_ogre_next_child_runtime_receipt
+        PROPERTIES
+            DEPENDS ror_renderer_ogre_next_child_runtime
+            TIMEOUT 10
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif ()
 if (TARGET ror_renderer_child_launcher_tests)

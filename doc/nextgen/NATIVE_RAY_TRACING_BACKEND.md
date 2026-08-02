@@ -490,7 +490,23 @@ adds a probe-only `RoR-OgreNext` with a real native entrypoint and seam-free
 RT4/PSSM 64x64 headless initialize/shutdown path. It is not installed, staged,
 bundled, or production-admitted and has no presentation or game bridge. The
 complete production Ogre-Next child remains open; neither this bootstrap nor
-the N1 evidence can set package admission facts. The exact build and package topology is documented in
+the N1 evidence can set package admission facts. Probe execution now also
+produces a versioned
+pass/skip/failure receipt outside the child process, so initialization,
+shutdown, and nonzero child outcomes are recorded even if the child cannot
+write evidence itself. Independent validation binds the exact RoR/OGRE commits,
+platform backend, intent, captured logs, and SHA-256/size of the retained child;
+CI then uses pinned `actions/attest` to GitHub-attest and upload the receipt and
+exact platform-selected binary. The CSPRNG value is an `execution_nonce` rather
+than challenge-response, timestamps are omitted, and this audit trail does not
+alter the child's non-admitted status. POSIX timeout cleanup uses a new session,
+kills the process group, and reaps the direct process; Windows kills and reaps
+the direct process. A build-time lexical scan rejects process-spawn calls from
+the reviewed pinned child source closure. That constraint is not a proof over
+arbitrary injected linked code or a general process-tree sandbox; adding a
+fork/spawn/exec/process call must fail the build until cross-platform descendant
+containment is designed and admitted. The exact
+build and package topology remains documented in
 `OGRE_NEXT_INTEGRATION.md`; `-DROR_OGRE14=ON` defaults the public launcher on,
 builds target `ror_renderer_launcher`, and emits sibling `bin/RoR[.exe]` and
 `bin/RoR-Ogre14[.exe]` executables.
