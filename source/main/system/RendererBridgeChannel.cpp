@@ -19,6 +19,7 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <sys/stat.h>
@@ -395,6 +396,64 @@ RendererBridgeChannelResult RendererBridgeChannel::ReadSome(
     }
     return FailAndClose(RendererBridgeChannelStatus::FAILED_READ,
                         static_cast<std::uint32_t>(errno));
+  }
+#endif
+}
+
+RendererBridgeChannelResult RendererBridgeChannel::TryReadSome(
+    std::uint8_t *bytes, std::size_t capacity) noexcept {
+  if (bytes == nullptr || capacity == 0U) {
+    return MakeResult(RendererBridgeChannelStatus::REJECTED_INVALID_ARGUMENT);
+  }
+  if (terminal_ || !adopted_ || status_ == RendererBridgeChannelStatus::CLOSED ||
+      !inbound_open_) {
+    return MakeResult(RendererBridgeChannelStatus::REJECTED_NOT_READY);
+  }
+#if defined(_WIN32)
+  DWORD available = 0U;
+  if (::PeekNamedPipe(NativeHandle(inbound_native_handle_), nullptr, 0U,
+                      nullptr, &available, nullptr) == FALSE) {
+    const DWORD error = ::GetLastError();
+    if (error == ERROR_BROKEN_PIPE || error == ERROR_PIPE_NOT_CONNECTED ||
+        error == ERROR_NO_DATA) {
+      (void)CloseInboundNative();
+      RefreshClosedStatus();
+      return MakeResult(RendererBridgeChannelStatus::PEER_CLOSED, 0U,
+                        static_cast<std::uint32_t>(error), true);
+    }
+    return FailAndClose(RendererBridgeChannelStatus::FAILED_READ,
+                        static_cast<std::uint32_t>(error));
+  }
+  if (available == 0U) {
+    return MakeResult(RendererBridgeChannelStatus::READY);
+  }
+  return ReadSome(bytes, capacity);
+#else
+  struct pollfd descriptor {};
+  descriptor.fd = static_cast<int>(inbound_native_handle_);
+  descriptor.events = POLLIN;
+  for (;;) {
+    errno = 0;
+    const int ready = ::poll(&descriptor, 1U, 0);
+    if (ready == 0) {
+      return MakeResult(RendererBridgeChannelStatus::READY);
+    }
+    if (ready < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return FailAndClose(RendererBridgeChannelStatus::FAILED_READ,
+                          static_cast<std::uint32_t>(errno));
+    }
+    if ((descriptor.revents & POLLNVAL) != 0) {
+      return FailAndClose(RendererBridgeChannelStatus::FAILED_READ,
+                          static_cast<std::uint32_t>(EBADF));
+    }
+    if ((descriptor.revents & (POLLIN | POLLHUP)) != 0) {
+      return ReadSome(bytes, capacity);
+    }
+    return FailAndClose(RendererBridgeChannelStatus::FAILED_READ,
+                        static_cast<std::uint32_t>(EIO));
   }
 #endif
 }

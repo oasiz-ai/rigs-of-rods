@@ -306,7 +306,12 @@ void TestBidirectionalTransferAndHalfClose() {
   Require(channel.ReadSome(scratch, sizeof(scratch)).status ==
               RoR::RendererBridgeChannelStatus::REJECTED_NOT_READY,
           "read before adoption was accepted");
-  Require(channel.ReadSome(nullptr, sizeof(scratch)).status ==
+  Require(channel.TryReadSome(scratch, sizeof(scratch)).status ==
+              RoR::RendererBridgeChannelStatus::REJECTED_NOT_READY &&
+              channel.TryReadSome(nullptr, sizeof(scratch)).status ==
+                  RoR::RendererBridgeChannelStatus::
+                      REJECTED_INVALID_ARGUMENT &&
+              channel.ReadSome(nullptr, sizeof(scratch)).status ==
               RoR::RendererBridgeChannelStatus::REJECTED_INVALID_ARGUMENT &&
               channel.WriteAll(nullptr, 1U).status ==
                   RoR::RendererBridgeChannelStatus::REJECTED_INVALID_ARGUMENT,
@@ -329,13 +334,24 @@ void TestBidirectionalTransferAndHalfClose() {
   Require(channel.WriteAll(nullptr, 0U).status ==
               RoR::RendererBridgeChannelStatus::READY,
           "empty write was rejected");
+  const RoR::RendererBridgeChannelResult empty_try =
+      channel.TryReadSome(scratch, sizeof(scratch));
+  Require(empty_try.status == RoR::RendererBridgeChannelStatus::READY &&
+              empty_try.bytes_transferred == 0U &&
+              !empty_try.peer_closed && !empty_try.terminal,
+          "empty zero-wait read did not preserve the open channel");
+#if !defined(_WIN32)
+  Require((::fcntl(static_cast<int>(adopted_inbound), F_GETFL) &
+           O_NONBLOCK) == 0,
+          "zero-wait read changed the descriptor blocking mode");
+#endif
 
   const std::vector<std::uint8_t> inbound_message{
       0x00U, 0x7fU, 0x80U, 0xffU, 0x13U, 0x37U};
   WriteNative(inbound.write_handle, inbound_message.data(),
               inbound_message.size());
   const RoR::RendererBridgeChannelResult read =
-      channel.ReadSome(scratch, sizeof(scratch));
+      channel.TryReadSome(scratch, sizeof(scratch));
   Require(read.status == RoR::RendererBridgeChannelStatus::READY &&
               read.bytes_transferred == inbound_message.size() &&
               std::equal(inbound_message.begin(), inbound_message.end(),
@@ -372,7 +388,7 @@ void TestBidirectionalTransferAndHalfClose() {
 
   CloseNative(inbound.write_handle);
   const RoR::RendererBridgeChannelResult eof =
-      channel.ReadSome(scratch, sizeof(scratch));
+      channel.TryReadSome(scratch, sizeof(scratch));
   Require(eof.status == RoR::RendererBridgeChannelStatus::PEER_CLOSED &&
               eof.peer_closed && !eof.terminal &&
               eof.bytes_transferred == 0U && !channel.inbound_open() &&
