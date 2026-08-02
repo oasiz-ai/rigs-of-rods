@@ -60,6 +60,18 @@ if (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER)
     # The signed RoR.app stager owns dependency rewriting, nested-code signing,
     # and both executable roles. A flat CMake install would bypass those gates
     # and leave the OGRE 14 child's @rpath dependencies unresolved.
+    file(GLOB_RECURSE
+        _ror_stale_macos_install_scripts
+        LIST_DIRECTORIES FALSE
+        "${CMAKE_BINARY_DIR}/cmake_install.cmake"
+        "${CMAKE_BINARY_DIR}/*/cmake_install.cmake")
+    file(REMOVE
+        ${_ror_stale_macos_install_scripts}
+        "${CMAKE_BINARY_DIR}/CPackConfig.cmake"
+        "${CMAKE_BINARY_DIR}/CPackSourceConfig.cmake"
+        "${CMAKE_BINARY_DIR}/CMakeFiles/package.util"
+        "${CMAKE_BINARY_DIR}/CMakeFiles/package_source.util")
+    unset(_ror_stale_macos_install_scripts)
     set(CMAKE_SKIP_INSTALL_RULES ON)
 endif ()
 

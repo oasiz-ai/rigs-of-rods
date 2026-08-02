@@ -58,18 +58,20 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
             "if (ROR_RENDERER_PUBLIC_LAUNCHER AND NOT ROR_OGRE14)",
             self.root_cmake,
         )
-        mac_install_guard = (
-            "if (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER)\n"
-            "    # The signed RoR.app stager owns dependency rewriting, "
-            "nested-code signing,\n"
-            "    # and both executable roles. A flat CMake install would "
-            "bypass those gates\n"
-            "    # and leave the OGRE 14 child's @rpath dependencies "
-            "unresolved.\n"
-            "    set(CMAKE_SKIP_INSTALL_RULES ON)\n"
-            "endif ()"
-        )
-        self.assertIn(mac_install_guard, self.root_cmake)
+        for contract in (
+            "if (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER)",
+            "file(GLOB_RECURSE\n"
+            "        _ror_stale_macos_install_scripts",
+            '"${CMAKE_BINARY_DIR}/*/cmake_install.cmake"',
+            '"${CMAKE_BINARY_DIR}/CPackConfig.cmake"',
+            '"${CMAKE_BINARY_DIR}/CPackSourceConfig.cmake"',
+            '"${CMAKE_BINARY_DIR}/CMakeFiles/package.util"',
+            '"${CMAKE_BINARY_DIR}/CMakeFiles/package_source.util"',
+            "unset(_ror_stale_macos_install_scripts)",
+            "set(CMAKE_SKIP_INSTALL_RULES ON)",
+        ):
+            with self.subTest(mac_install_contract=contract):
+                self.assertIn(contract, self.root_cmake)
         self.assertIn(
             "if (NOT (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER))\n"
             "    include(CPack)\n"

@@ -106,7 +106,9 @@ initialization. The argv contract conveys intent rather than authenticating a
 local caller. Linux/Windows install and CPack staging plus the signed macOS
 application bundle now retain both exact executable roles. Flat macOS install
 and CPack rules remain disabled so they cannot bypass Mach-O dependency
-rewriting and nested-code signing. The compatibility child's runtime closure
+rewriting and nested-code signing; entering this topology also removes only
+stale generated install/CPack control files from a reused macOS build tree.
+The compatibility child's runtime closure
 and crash symbols remain the OGRE 14 closure; the dependency-free public
 launcher is audited separately. The fake child is confined to the test output
 directory and is never installed or staged. A production
