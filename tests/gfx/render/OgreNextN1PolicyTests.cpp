@@ -387,12 +387,12 @@ void TestCapabilitiesFailClosed() {
   Require(metal.frontend_kind == RendererFrontendKind::OGRE_NEXT &&
               metal.supported_outputs == FrameOutputMask::COLOR &&
               metal.maximum_views == 1U && metal.supports_hdr_output &&
+              metal.supports_dynamic_mesh_updates &&
               metal.maximum_texture_dimension_2d ==
                   kOgreNextN1ConservativeMaximumTextureDimension,
           "N1 did not report its admitted raster surface");
   Require(metal.native_api == NativeGraphicsApi::NONE &&
               !metal.supports_compute && !metal.supports_async_compute &&
-              !metal.supports_dynamic_mesh_updates &&
               !metal.supports_particle_events &&
               !metal.supports_native_interop &&
               !metal.supports_native_ray_tracing_api &&
@@ -589,7 +589,9 @@ void TestAssetPolicy() {
           "dynamic policy fixture is not contract valid");
   Require(ValidateOgreNextN1AssetCatalog(dynamic_registry).code ==
               ValidationCode::UNSUPPORTED_FEATURE,
-          "dynamic geometry escaped N1 admission");
+          "explicit static-only policy admitted dynamic geometry");
+  Require(ValidateOgreNextN1AssetCatalog(dynamic_registry, true).ok(),
+          "admitted full-frame dynamic geometry was rejected");
 
   MaterialDescriptor overflowing_emissive = MakeMaterial();
   overflowing_emissive.emissive_factor =

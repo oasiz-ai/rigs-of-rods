@@ -459,6 +459,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
     def test_n1_capability_and_scene_policy_fail_closed(self) -> None:
         for token in (
             "report.supported_outputs = FrameOutputMask::COLOR",
+            "report.supports_dynamic_mesh_updates = true",
             "report.native_api = NativeGraphicsApi::NONE",
             "OgreNextRasterFeatureTier::STATIC_PBR_N1",
             "no calibrated physical-light adapter",
@@ -469,6 +470,27 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.policy)
         self.assertIn("kOgreNextN1MaximumDirectionalLights = 0U", self.policy_header)
+
+    def test_full_dynamic_mesh_replacement_is_native_and_replay_exact(self) -> None:
+        for token in (
+            "RunDynamicMeshProof",
+            "MakeDynamicCatalog",
+            "MakeDynamicScene",
+            "DynamicMeshUpdateDescriptor update",
+            "synchronous_full_frame_owned",
+            "full dynamic mesh replacement was not visible and deterministic",
+            "ror.ogre_next_dynamic_mesh.v1",
+            "base_exact_replay",
+            "deformed_exact_replay",
+        ):
+            self.assertIn(token, self.smoke)
+        for token in (
+            "submitted_frame_meshes.push_back(",
+            "impl_->CreateMesh(instance.mesh, deformed, suffix)",
+            "destroy_submitted_frame_meshes",
+        ):
+            self.assertIn(token, self.frontend)
+        self.assertIn('"dynamic_meshes"', RUNNER_PATH.read_text(encoding="utf-8"))
 
     def test_rt4_directional_light_mapping_is_bounded_and_exact(self) -> None:
         for token in (
@@ -1160,6 +1182,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "compositor2": True,
                 "ui_included": False,
                 "cpu_readback_completed": True,
+                "dynamic_mesh_updates": "synchronous_full_frame_owned",
                 "analytic_lights_calibrated": False,
                 "constant_environment_only": True,
                 "native_interop": False,
@@ -1168,6 +1191,18 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "catalog": {
                 "sequence": 1,
                 "transactional_replay_after_restart": True,
+            },
+            "dynamic_meshes": {
+                "schema": "ror.ogre_next_dynamic_mesh.v1",
+                "base_deformation_revision": 1,
+                "deformed_deformation_revision": 2,
+                "full_update_owned": True,
+                "solver_memory_aliased": False,
+                "changed_pixels": 512,
+                "base_attachment_fnv1a64": "1" * 16,
+                "deformed_attachment_fnv1a64": "2" * 16,
+                "base_exact_replay": True,
+                "deformed_exact_replay": True,
             },
             "hdr": {
                 "format": "RGBA16_FLOAT",
@@ -1208,6 +1243,21 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             with self.assertRaises(RUNNER.ProbeError):
                 RUNNER.validate_n1_checkpoint(
                     invalid, image, lock, policy, manifest, source_identity
+                )
+            invalid_dynamic = copy.deepcopy(report)
+            invalid_dynamic["dynamic_meshes"][
+                "deformed_attachment_fnv1a64"
+            ] = invalid_dynamic["dynamic_meshes"][
+                "base_attachment_fnv1a64"
+            ]
+            with self.assertRaises(RUNNER.ProbeError):
+                RUNNER.validate_n1_checkpoint(
+                    invalid_dynamic,
+                    image,
+                    lock,
+                    policy,
+                    manifest,
+                    source_identity,
                 )
 
     def test_wrapper_makes_n1_artifacts_mandatory(self) -> None:

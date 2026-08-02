@@ -633,6 +633,11 @@ BuildOgreNextN1CapabilityReport(RasterGraphicsApi raster_api,
   report.maximum_views = 1U;
   report.maximum_frames_in_flight = 1U;
   report.supported_outputs = FrameOutputMask::COLOR;
+  // The frontend consumes one complete DynamicMeshUpdateDescriptor, creates a
+  // frame-owned Ogre v2 mesh, submits it synchronously, and destroys it only
+  // after the frame (or retains it with the same-device interop lease). It
+  // never aliases or incrementally reads mutable solver memory.
+  report.supports_dynamic_mesh_updates = true;
   report.raster_ready = raster_api == RasterGraphicsApi::METAL ||
                         raster_api == RasterGraphicsApi::DIRECT3D11 ||
                         raster_api == RasterGraphicsApi::VULKAN;

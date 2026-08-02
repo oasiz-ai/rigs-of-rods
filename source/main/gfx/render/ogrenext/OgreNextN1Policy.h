@@ -95,8 +95,9 @@ private:
     const Matrix4x4 &portable, Matrix4x4 &converted) noexcept;
 
 /// The N1 adapter deliberately reports only what its shipping code path has
-/// proved: one offscreen colour view, static v2 geometry, and synchronous CPU
-/// readback. A concrete native API is not exported by this milestone.
+/// proved: one colour view, immutable v2 base geometry, synchronous full
+/// deformable-mesh replacement for the current frame, and CPU readback. A
+/// concrete native API is not exported by this milestone.
 [[nodiscard]] FrontendCapabilityReport
 BuildOgreNextN1CapabilityReport(RasterGraphicsApi raster_api,
                                 const char *frontend_version);

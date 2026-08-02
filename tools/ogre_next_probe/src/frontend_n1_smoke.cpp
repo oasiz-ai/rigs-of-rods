@@ -39,6 +39,8 @@ constexpr std::uint32_t kHeight = 128U;
 constexpr std::uint64_t kRegistryId = UINT64_C(0x4E315F534D4F4B45);
 constexpr std::uint64_t kRetirementRegistryId =
     UINT64_C(0x5254345F52455449);
+constexpr std::uint64_t kDynamicRegistryId =
+    UINT64_C(0x44594E5F4D455348);
 
 struct Arguments {
   std::string media_root;
@@ -89,6 +91,13 @@ struct SmokeResult final {
   bool reflection_same_device_deterministic_replay = false;
   OgreNextN1TextureAllocationAudit replacement_final_audit;
   bool live_replacement_retirement = false;
+  struct DynamicMeshEvidence final {
+    Metrics base;
+    Metrics deformed;
+    std::size_t changed_pixels = 0U;
+    bool base_exact_replay = false;
+    bool deformed_exact_replay = false;
+  } dynamic_mesh;
   struct TextureRetirementEvidence final {
     OgreNextN1TextureAllocationAudit initial;
     OgreNextN1TextureAllocationAudit expanded;
@@ -583,6 +592,21 @@ RenderAssetDelta MakeCatalog(bool modern_pbr = false,
   return delta;
 }
 
+RenderAssetDelta MakeDynamicCatalog(bool modern_pbr) {
+  RenderAssetDelta catalog = MakeCatalog(
+      modern_pbr, modern_pbr ? &kVariantSpecs.front() : nullptr);
+  catalog.registry_id = kDynamicRegistryId;
+  const auto mesh = std::find_if(
+      catalog.mutations.begin(), catalog.mutations.end(),
+      [](const RenderAssetMutation &mutation) {
+        return mutation.asset.kind == RenderAssetKind::MESH;
+      });
+  Require(mesh != catalog.mutations.end(),
+          "dynamic mesh proof catalog lost its base mesh");
+  std::get<MeshResourceDescriptor>(mesh->payload).dynamic = true;
+  return catalog;
+}
+
 const RenderAssetMutation &MutationFor(const RenderAssetDelta &catalog,
                                        std::uint64_t low) {
   const auto found = std::find_if(
@@ -899,6 +923,57 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
 }
 
 std::shared_ptr<const SceneSnapshot>
+MakeDynamicScene(std::uint64_t snapshot_id, bool modern_pbr,
+                 bool deformed) {
+  SceneSnapshotDescriptor descriptor;
+  descriptor.snapshot_id = snapshot_id;
+  descriptor.asset_registry_id = kDynamicRegistryId;
+  descriptor.asset_sequence = 1U;
+  descriptor.simulation_tick = snapshot_id;
+  descriptor.simulation_time_seconds =
+      static_cast<double>(snapshot_id) / 48.0;
+  descriptor.environment.ambient_radiance = {0.03F, 0.04F, 0.055F};
+
+  MeshResourceDescriptor mesh = MakeMesh(modern_pbr);
+  MeshInstanceDescriptor instance;
+  instance.instance_id = 1U;
+  instance.mesh = AssetRef(RenderAssetKind::MESH, 1U);
+  instance.material = AssetRef(RenderAssetKind::MATERIAL, 2U);
+  instance.deformation_revision = deformed ? 2U : 1U;
+  if (deformed) {
+    mesh.positions[2U] = {0.65F, 0.30F, 0.0F};
+    mesh.local_bounds.minimum = {-1.15F, -0.85F, 0.0F};
+    mesh.local_bounds.maximum = {1.15F, 0.30F, 0.0F};
+  }
+  instance.local_bounds = mesh.local_bounds;
+  descriptor.mesh_instances.push_back(instance);
+
+  if (deformed) {
+    DynamicMeshUpdateDescriptor update;
+    update.update_sequence = 1U;
+    update.instance_id = instance.instance_id;
+    update.mesh = instance.mesh;
+    update.topology_revision = instance.topology_revision;
+    update.deformation_revision = instance.deformation_revision;
+    update.positions = mesh.positions;
+    update.normals = mesh.normals;
+    update.tangents = mesh.tangents;
+    update.velocities = mesh.velocities;
+    update.has_updated_bounds = true;
+    update.updated_local_bounds = mesh.local_bounds;
+    descriptor.dynamic_mesh_updates.push_back(std::move(update));
+  }
+
+  SceneSnapshotCreateResult result =
+      CreateSceneSnapshot(std::move(descriptor));
+  if (!result) {
+    Fail("could not create full dynamic-mesh smoke scene: " +
+         result.validation.field + ": " + result.validation.detail);
+  }
+  return result.snapshot;
+}
+
+std::shared_ptr<const SceneSnapshot>
 MakeRetirementScene(std::uint64_t revision) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = 900U + revision;
@@ -1065,7 +1140,7 @@ std::size_t CountChangedPixels(const std::vector<std::uint8_t> &baseline,
                                std::size_t bytes_per_pixel) {
   Require(baseline.size() == variant.size() && bytes_per_pixel != 0U &&
               baseline.size() % bytes_per_pixel == 0U,
-          "RT4/V1 evidence attachment layout changed");
+          "renderer evidence attachment layout changed");
   std::size_t changed = 0U;
   for (std::size_t offset = 0U; offset < baseline.size();
        offset += bytes_per_pixel) {
@@ -1583,7 +1658,8 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << "    \"relocated_executable\": true,\n"
          << "    \"compositor2\": true,\n"
          << "    \"ui_included\": false,\n"
-         << "    \"cpu_readback_completed\": true,\n";
+         << "    \"cpu_readback_completed\": true,\n"
+         << "    \"dynamic_mesh_updates\": \"synchronous_full_frame_owned\",\n";
   if (modern_pbr) {
     report << "    \"analytic_lights_calibrated\": true,\n"
            << "    \"directional_lux_to_native_power_scale\": 0.0009765625,\n"
@@ -1611,7 +1687,26 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
   report
          << "    \"transactional_replay_after_restart\": true\n"
          << "  },\n"
-         ;
+         << "  \"dynamic_meshes\": {\n"
+         << "    \"schema\": \"ror.ogre_next_dynamic_mesh.v1\",\n"
+         << "    \"base_deformation_revision\": 1,\n"
+         << "    \"deformed_deformation_revision\": 2,\n"
+         << "    \"full_update_owned\": true,\n"
+         << "    \"solver_memory_aliased\": false,\n"
+         << "    \"changed_pixels\": "
+         << result.dynamic_mesh.changed_pixels << ",\n"
+         << "    \"base_attachment_fnv1a64\": \""
+         << HexHash(result.dynamic_mesh.base.attachment_fnv1a64) << "\",\n"
+         << "    \"deformed_attachment_fnv1a64\": \""
+         << HexHash(result.dynamic_mesh.deformed.attachment_fnv1a64)
+         << "\",\n"
+         << "    \"base_exact_replay\": "
+         << (result.dynamic_mesh.base_exact_replay ? "true" : "false")
+         << ",\n"
+         << "    \"deformed_exact_replay\": "
+         << (result.dynamic_mesh.deformed_exact_replay ? "true" : "false")
+         << "\n"
+         << "  },\n";
   if (modern_pbr) {
     constexpr std::size_t kRawReflectionBytes = 32U * 32U * 6U * 8U;
     constexpr std::size_t kFilteredReflectionBytes =
@@ -2199,6 +2294,63 @@ void InitializeAndSync(OgreNextN1Frontend &frontend,
   const FrontendInitializationRequest initialization = Initialization();
   RequireSuccess(frontend.Initialize(initialization), "Initialize");
   RequireSuccess(frontend.SynchronizeAssets(catalog), "SynchronizeAssets");
+}
+
+SmokeResult::DynamicMeshEvidence
+RunDynamicMeshProof(const std::string &media_root, bool modern_pbr) {
+  const RenderAssetDelta catalog = MakeDynamicCatalog(modern_pbr);
+  const auto base_scene = MakeDynamicScene(850U, modern_pbr, false);
+  const auto deformed_scene = MakeDynamicScene(851U, modern_pbr, true);
+
+  OgreNextN1Configuration configuration{
+      media_root,
+      modern_pbr ? OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1
+                 : OgreNextRasterFeatureTier::STATIC_PBR_N1};
+  OgreNextN1Frontend frontend(std::move(configuration));
+  InitializeAndSync(frontend, catalog);
+  Require(frontend.QueryCapabilities().supports_dynamic_mesh_updates,
+          "initialized frontend did not advertise full dynamic updates");
+
+  RenderFrameOutput base_output;
+  RenderFrameOutput deformed_output;
+  RenderFrameOutput base_replay_output;
+  RenderFrameOutput deformed_replay_output;
+  RequireSuccess(frontend.Render(
+                     MakeFrame(1U, base_scene, PixelFormat::RGBA8_SRGB),
+                     base_output),
+                 "dynamic base Render");
+  RequireSuccess(frontend.Render(
+                     MakeFrame(2U, deformed_scene, PixelFormat::RGBA8_SRGB),
+                     deformed_output),
+                 "full dynamic deformation Render");
+  RequireSuccess(frontend.Render(
+                     MakeFrame(3U, base_scene, PixelFormat::RGBA8_SRGB),
+                     base_replay_output),
+                 "dynamic base replay Render");
+  RequireSuccess(frontend.Render(
+                     MakeFrame(4U, deformed_scene, PixelFormat::RGBA8_SRGB),
+                     deformed_replay_output),
+                 "full dynamic deformation replay Render");
+
+  SmokeResult::DynamicMeshEvidence evidence;
+  evidence.base = InspectSdr(base_output);
+  evidence.deformed = InspectSdr(deformed_output);
+  const Metrics base_replay = InspectSdr(base_replay_output);
+  const Metrics deformed_replay = InspectSdr(deformed_replay_output);
+  evidence.changed_pixels = CountChangedPixels(
+      evidence.base.attachment_bytes, evidence.deformed.attachment_bytes, 4U);
+  evidence.base_exact_replay =
+      base_replay.attachment_bytes == evidence.base.attachment_bytes;
+  evidence.deformed_exact_replay =
+      deformed_replay.attachment_bytes == evidence.deformed.attachment_bytes;
+  Require(evidence.changed_pixels >= 256U &&
+              evidence.base.attachment_fnv1a64 !=
+                  evidence.deformed.attachment_fnv1a64 &&
+              evidence.base_exact_replay && evidence.deformed_exact_replay,
+          "full dynamic mesh replacement was not visible and deterministic");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "dynamic mesh proof Shutdown");
+  return evidence;
 }
 
 SmokeResult::TangentHandednessEvidence
@@ -2953,7 +3105,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
                   kOgreNextN1ConservativeMaximumTextureDimension &&
               capabilities.native_api == NativeGraphicsApi::NONE &&
               !capabilities.supports_compute &&
-              !capabilities.supports_dynamic_mesh_updates &&
+              capabilities.supports_dynamic_mesh_updates &&
               !capabilities.supports_particle_events &&
               !capabilities.supports_native_interop &&
               !capabilities.supports_native_ray_tracing_api,
@@ -2962,6 +3114,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
           "N1 unexpectedly exported native interop");
 
   SmokeResult result;
+  result.dynamic_mesh = RunDynamicMeshProof(media_root, modern_pbr);
   if (modern_pbr) {
     result.tangent_handedness = RunTangentHandednessProof(media_root);
     result.texture_upload_rollback =

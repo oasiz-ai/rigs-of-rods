@@ -2325,6 +2325,7 @@ def validate_n1_checkpoint(
     provenance = report.get("provenance", {})
     adapter = report.get("adapter", {})
     catalog = report.get("catalog", {})
+    dynamic_meshes = report.get("dynamic_meshes", {})
     texture_allocations = report.get("texture_allocations", {})
     texture_upload_rollback = report.get("texture_upload_rollback", {})
     texture_retirement = report.get("texture_retirement", {})
@@ -2418,6 +2419,8 @@ def validate_n1_checkpoint(
         "compositor2": adapter.get("compositor2") is True,
         "ui_free": adapter.get("ui_included") is False,
         "readback": adapter.get("cpu_readback_completed") is True,
+        "dynamic_capability": adapter.get("dynamic_mesh_updates")
+        == "synchronous_full_frame_owned",
         "light_policy": (
             adapter.get("analytic_lights_calibrated") is True
             and adapter.get("directional_lux_to_native_power_scale")
@@ -2434,6 +2437,24 @@ def validate_n1_checkpoint(
         and adapter.get("ray_tracing") is False,
         "catalog": catalog.get("sequence") == (7 if modern_pbr else 1)
         and catalog.get("transactional_replay_after_restart") is True,
+        "dynamic_meshes": dynamic_meshes.get("schema")
+        == "ror.ogre_next_dynamic_mesh.v1"
+        and dynamic_meshes.get("base_deformation_revision") == 1
+        and dynamic_meshes.get("deformed_deformation_revision") == 2
+        and dynamic_meshes.get("full_update_owned") is True
+        and dynamic_meshes.get("solver_memory_aliased") is False
+        and isinstance(dynamic_meshes.get("changed_pixels"), int)
+        and dynamic_meshes["changed_pixels"] >= 256
+        and isinstance(dynamic_meshes.get("base_attachment_fnv1a64"), str)
+        and len(dynamic_meshes["base_attachment_fnv1a64"]) == 16
+        and isinstance(
+            dynamic_meshes.get("deformed_attachment_fnv1a64"), str
+        )
+        and len(dynamic_meshes["deformed_attachment_fnv1a64"]) == 16
+        and dynamic_meshes["base_attachment_fnv1a64"]
+        != dynamic_meshes["deformed_attachment_fnv1a64"]
+        and dynamic_meshes.get("base_exact_replay") is True
+        and dynamic_meshes.get("deformed_exact_replay") is True,
         "hdr_format": hdr.get("format") == "RGBA16_FLOAT",
         "hdr_energy": isinstance(hdr.get("maximum_luminance"), (int, float))
         and hdr["maximum_luminance"] > 1.05,
