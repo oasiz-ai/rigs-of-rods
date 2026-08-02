@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -83,8 +84,12 @@ class WindowsOgre14RuntimeContractTests(unittest.TestCase):
     def test_launcher_extended_path_is_normalized_before_runtime_roots(self) -> None:
         source = APP_CONTEXT.read_text(encoding="utf-8")
         self.assertIn('#include "WindowsRuntimePath.h"', source)
-        normalize = "NormalizeWindowsExtendedPathForRuntime(exe_path);"
-        normalize_offset = source.index(normalize)
+        normalize = re.search(
+            r"NormalizeWindowsExtendedPathForRuntime\s*\(\s*exe_path\s*\);",
+            source,
+        )
+        self.assertIsNotNone(normalize)
+        normalize_offset = normalize.start()
         process_root_offset = source.index(
             "App::sys_process_dir->setStr",
             normalize_offset,
