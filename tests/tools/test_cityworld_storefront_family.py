@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -489,6 +490,173 @@ class CityWorldStorefrontFamilyTests(unittest.TestCase):
                 CLEAN_REPRODUCIBILITY.prepare_artifact_free_root(
                     REPOSITORY_ROOT,
                     seeded_root,
+                )
+
+    def test_clean_gate_preserves_bounded_glb_failure_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="storefront-failure-diagnostics-test-"
+        ) as directory:
+            root = Path(directory)
+            left_root = root / "left-root"
+            right_root = root / "right-root"
+            destination = root / "diagnostics"
+            asset_ids = []
+            for variant in self.family()["variants"]:
+                source_manifest = REPOSITORY_ROOT / variant["manifest"]
+                manifest = json.loads(
+                    source_manifest.read_text(encoding="utf-8")
+                )
+                source_glb = (
+                    REPOSITORY_ROOT
+                    / manifest["artifacts"]["glb"]["path"]
+                )
+                asset_id = manifest["asset"]["id"]
+                asset_ids.append(asset_id)
+                for side_root in (left_root, right_root):
+                    asset_directory = (
+                        side_root
+                        / "resources/nextgen/cityworld/buildings/"
+                        "storefront_family"
+                        / asset_id
+                    )
+                    asset_directory.mkdir(parents=True)
+                    glb = asset_directory / f"{asset_id}.glb"
+                    shutil.copyfile(source_glb, glb)
+
+            changed_asset = asset_ids[3]
+            changed = (
+                right_root
+                / "resources/nextgen/cityworld/buildings/storefront_family"
+                / changed_asset
+                / f"{changed_asset}.glb"
+            )
+            changed_payload = bytearray(changed.read_bytes())
+            changed_payload[-1] ^= 1
+            changed.write_bytes(changed_payload)
+
+            report = CLEAN_REPRODUCIBILITY.collect_failure_diagnostics(
+                left_root,
+                right_root,
+                destination,
+                allowed_root=root,
+                error=RuntimeError("fixture mismatch"),
+            )
+
+            self.assertEqual(
+                report["format"],
+                CLEAN_REPRODUCIBILITY.DIAGNOSTIC_FORMAT,
+            )
+            self.assertEqual(report["variants"], 5)
+            self.assertEqual(report["error"], "fixture mismatch")
+            self.assertEqual(
+                {
+                    path.relative_to(destination).as_posix()
+                    for path in destination.rglob("*.glb")
+                },
+                {
+                    f"{side}/{asset_id}.glb"
+                    for side in ("left", "right")
+                    for asset_id in asset_ids
+                },
+            )
+            changed_record = next(
+                item
+                for item in report["assets"]
+                if item["asset_id"] == changed_asset
+            )
+            self.assertIsNone(changed_record["json_first_difference"])
+            self.assertIsNotNone(changed_record["binary_first_difference"])
+            self.assertTrue((destination / "diagnostics.json").is_file())
+
+            diagnostic_error = (
+                CLEAN_REPRODUCIBILITY.collect_failure_diagnostics_safely(
+                    left_root,
+                    right_root,
+                    destination,
+                    allowed_root=root,
+                    error=RuntimeError("primary comparison mismatch"),
+                )
+            )
+            self.assertIsNotNone(diagnostic_error)
+            self.assertIn("not empty", diagnostic_error)
+            with mock.patch.object(
+                CLEAN_REPRODUCIBILITY,
+                "collect_failure_diagnostics",
+                side_effect=ValueError("unexpected diagnostic failure"),
+            ):
+                unexpected_diagnostic_error = (
+                    CLEAN_REPRODUCIBILITY.collect_failure_diagnostics_safely(
+                        left_root,
+                        right_root,
+                        root / "unexpected-diagnostics",
+                        allowed_root=root,
+                        error=RuntimeError("primary comparison mismatch"),
+                    )
+                )
+            self.assertIsNotNone(unexpected_diagnostic_error)
+            self.assertIn(
+                "unexpected diagnostic failure",
+                unexpected_diagnostic_error,
+            )
+
+            with self.assertRaisesRegex(
+                CLEAN_REPRODUCIBILITY.CleanReproducibilityFailure,
+                "not empty",
+            ):
+                CLEAN_REPRODUCIBILITY.collect_failure_diagnostics(
+                    left_root,
+                    right_root,
+                    destination,
+                    allowed_root=root,
+                    error=RuntimeError("second mismatch"),
+                )
+
+            oversized_destination = root / "oversized-diagnostics"
+            with changed.open("r+b") as handle:
+                handle.truncate(
+                    CLEAN_REPRODUCIBILITY.MAX_DIAGNOSTIC_GLB_BYTES + 1
+                )
+            with self.assertRaisesRegex(
+                CLEAN_REPRODUCIBILITY.CleanReproducibilityFailure,
+                "outside the bounded profile",
+            ):
+                CLEAN_REPRODUCIBILITY.collect_failure_diagnostics(
+                    left_root,
+                    right_root,
+                    oversized_destination,
+                    allowed_root=root,
+                    error=RuntimeError("oversized mismatch"),
+                )
+            self.assertFalse(oversized_destination.exists())
+
+            linked_parent = root / "linked-diagnostics"
+            linked_parent.symlink_to(root.parent, target_is_directory=True)
+            with self.assertRaisesRegex(
+                CLEAN_REPRODUCIBILITY.CleanReproducibilityFailure,
+                "escapes its root|symlinked parent",
+            ):
+                CLEAN_REPRODUCIBILITY.validate_diagnostics_destination(
+                    linked_parent / "failure",
+                    root,
+                )
+
+            right_source = (
+                left_root
+                / "resources/nextgen/cityworld/buildings/storefront_family"
+            )
+            escaped_source = root / "escaped-storefront-family"
+            right_source.rename(escaped_source)
+            right_source.symlink_to(escaped_source, target_is_directory=True)
+            with self.assertRaisesRegex(
+                CLEAN_REPRODUCIBILITY.CleanReproducibilityFailure,
+                "escapes its clean root",
+            ):
+                CLEAN_REPRODUCIBILITY.collect_failure_diagnostics(
+                    left_root,
+                    right_root,
+                    root / "escaped-source-diagnostics",
+                    allowed_root=root,
+                    error=RuntimeError("escaped source mismatch"),
                 )
 
     def test_blender_generator_fails_closed_in_tampered_clean_room(self) -> None:
