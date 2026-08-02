@@ -254,6 +254,30 @@ resurrection, or input-lineage failure leave the applicable expected sequence,
 registry/state, and previously published immutable owner unchanged. One caller
 serializes operations on each decoder.
 
+`RendererFrontendTransportDispatcher` is the renderer-neutral consumer for one
+complete, already-envelope-validated game-to-presentation frame at a time. It
+derives a nonzero, non-maximum asset-registry identity from the 128-bit bridge
+session with the pinned SHA-256 domain
+`ror.render.asset-registry-id/renderer-bridge-session/v1`; the two processes can
+therefore agree on the registry without a new handshake. It shares one sequence
+state across both typed decoders, synchronizes every accepted asset delta before
+dependent scene submission, validates scene references against that exact
+catalog, and uses the scene envelope sequence as the strictly increasing
+frontend frame ID.
+
+Presentation is an explicit caller policy. A presented scene selects the sole
+transported camera and exact active surface revision; an offscreen scene names
+no surface. The dispatcher adds no UI and never copies CPU attachment bytes to
+a window. It invokes the frontend's native presentation path, waits infinitely
+for every successful submission before attempting retirement, and calls
+`ReleaseResource` exactly once for each unique transferred GPU attachment on
+success and failure paths. A failed wait still performs that required frontend-
+owned retirement, which may defer native destruction behind queue work. Any
+decode, reverse-direction input, lineage, capability, synchronization, render,
+wait, correlated-output, or release error permanently poisons the dispatcher.
+This establishes transport consumption and ownership, not visual readiness or
+a shipping Ogre-Next default.
+
 The codecs contain no socket, process-spawn, OS packing, SDL, OIS, OGRE header,
 or third-party serializer dependency, so a byte-stream adapter can choose
 platform IPC without changing scene, asset, or input semantics. Input version

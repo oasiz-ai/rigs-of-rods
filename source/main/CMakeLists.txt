@@ -53,6 +53,7 @@ set(SOURCE_FILES
         gfx/render/RenderAssetDeltaTransport.{h,cpp}
         gfx/render/RenderAssetId.{h,cpp}
         gfx/render/RenderAssetRegistry.{h,cpp}
+        gfx/render/RenderBridgeSessionIdentity.{h,cpp}
         gfx/render/README.md
         gfx/render/RenderContracts.h
         gfx/render/RenderFrame.{h,cpp}
@@ -62,6 +63,7 @@ set(SOURCE_FILES
         gfx/render/RenderTransportEnvelope.{h,cpp}
         gfx/render/RenderTransportStream.{h,cpp}
         gfx/render/RendererFrontend.{h,cpp}
+        gfx/render/RendererFrontendTransportDispatcher.{h,cpp}
         gfx/render/RenderValidation.h
         gfx/render/ResourceHandle.{h,cpp}
         gfx/render/SceneSnapshot.{h,cpp}
@@ -391,11 +393,13 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/RenderAssetDeltaTransport.cpp
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
+        gfx/render/RenderBridgeSessionIdentity.cpp
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp
         gfx/render/RenderTransportEnvelope.cpp
         gfx/render/RenderTransportStream.cpp
         gfx/render/RendererFrontend.cpp
+        gfx/render/RendererFrontendTransportDispatcher.cpp
         gfx/render/ResourceHandle.cpp
         gfx/render/SceneSnapshot.cpp
         gfx/render/SceneSnapshotTransport.cpp
@@ -417,11 +421,13 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/RenderAssetDeltaTransport.cpp
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
+        gfx/render/RenderBridgeSessionIdentity.cpp
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp
         gfx/render/RenderTransportEnvelope.cpp
         gfx/render/RenderTransportStream.cpp
         gfx/render/RendererFrontend.cpp
+        gfx/render/RendererFrontendTransportDispatcher.cpp
         gfx/render/SceneSnapshot.cpp
         gfx/render/SceneSnapshotTransport.cpp
         )
