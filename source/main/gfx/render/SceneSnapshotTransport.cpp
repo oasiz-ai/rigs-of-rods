@@ -8,9 +8,8 @@
 
 #include "SceneSnapshotTransport.h"
 
-#include <algorithm>
-#include <array>
-#include <cstring>
+#include "RenderTransportDetail.h"
+
 #include <limits>
 #include <new>
 #include <stdexcept>
@@ -32,417 +31,15 @@ static_assert(kRenderFrameContractVersion ==
                   kSceneSnapshotTransportCameraVersion,
               "a new camera schema requires a new transport message kind");
 
-constexpr std::uint16_t kHeaderFlags = 0U;
-constexpr std::size_t kPayloadDigestOffset = 32U;
+using TransportDetail::AllocationBudget;
+using TransportDetail::WireReader;
+using TransportDetail::WireWriter;
+
 constexpr std::size_t kMinimumMeshInstanceBytes = 230U;
 constexpr std::size_t kMinimumLightBytes = 89U;
 constexpr std::size_t kMinimumReflectionProbeBytes = 202U;
 constexpr std::size_t kMinimumDynamicMeshUpdateBytes = 98U;
 constexpr std::size_t kMinimumParticleEventBytes = 81U;
-
-constexpr std::array<std::uint32_t, 64U> kSha256RoundConstants{{
-    0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U, 0x3956c25bU,
-    0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U, 0xd807aa98U, 0x12835b01U,
-    0x243185beU, 0x550c7dc3U, 0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U,
-    0xc19bf174U, 0xe49b69c1U, 0xefbe4786U, 0x0fc19dc6U, 0x240ca1ccU,
-    0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU, 0x983e5152U,
-    0xa831c66dU, 0xb00327c8U, 0xbf597fc7U, 0xc6e00bf3U, 0xd5a79147U,
-    0x06ca6351U, 0x14292967U, 0x27b70a85U, 0x2e1b2138U, 0x4d2c6dfcU,
-    0x53380d13U, 0x650a7354U, 0x766a0abbU, 0x81c2c92eU, 0x92722c85U,
-    0xa2bfe8a1U, 0xa81a664bU, 0xc24b8b70U, 0xc76c51a3U, 0xd192e819U,
-    0xd6990624U, 0xf40e3585U, 0x106aa070U, 0x19a4c116U, 0x1e376c08U,
-    0x2748774cU, 0x34b0bcb5U, 0x391c0cb3U, 0x4ed8aa4aU, 0x5b9cca4fU,
-    0x682e6ff3U, 0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U,
-    0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U,
-}};
-
-constexpr std::uint32_t RotateRight(std::uint32_t value,
-                                    std::uint32_t amount) noexcept {
-  return (value >> amount) | (value << (32U - amount));
-}
-
-class Sha256 final {
-public:
-  void Update(const std::uint8_t *bytes, std::size_t size) noexcept {
-    for (std::size_t index = 0U; index < size; ++index) {
-      block_[block_size_++] = bytes[index];
-      if (block_size_ == block_.size()) {
-        Transform();
-        total_bytes_ += block_.size();
-        block_size_ = 0U;
-      }
-    }
-  }
-
-  [[nodiscard]] std::array<std::uint8_t, 32U> Final() noexcept {
-    const std::uint64_t bit_count =
-        static_cast<std::uint64_t>(total_bytes_ + block_size_) * 8ULL;
-    block_[block_size_++] = 0x80U;
-    if (block_size_ > 56U) {
-      while (block_size_ < block_.size()) {
-        block_[block_size_++] = 0U;
-      }
-      Transform();
-      block_size_ = 0U;
-    }
-    while (block_size_ < 56U) {
-      block_[block_size_++] = 0U;
-    }
-    for (std::size_t index = 0U; index < 8U; ++index) {
-      block_[63U - index] =
-          static_cast<std::uint8_t>(bit_count >> (index * 8U));
-    }
-    Transform();
-
-    std::array<std::uint8_t, 32U> digest{};
-    for (std::size_t word = 0U; word < state_.size(); ++word) {
-      for (std::size_t byte = 0U; byte < 4U; ++byte) {
-        digest[word * 4U + byte] = static_cast<std::uint8_t>(
-            state_[word] >> ((3U - byte) * 8U));
-      }
-    }
-    return digest;
-  }
-
-private:
-  void Transform() noexcept {
-    std::array<std::uint32_t, 64U> words{};
-    for (std::size_t index = 0U; index < 16U; ++index) {
-      const std::size_t offset = index * 4U;
-      words[index] = (static_cast<std::uint32_t>(block_[offset]) << 24U) |
-                     (static_cast<std::uint32_t>(block_[offset + 1U]) << 16U) |
-                     (static_cast<std::uint32_t>(block_[offset + 2U]) << 8U) |
-                     static_cast<std::uint32_t>(block_[offset + 3U]);
-    }
-    for (std::size_t index = 16U; index < words.size(); ++index) {
-      const std::uint32_t before = words[index - 15U];
-      const std::uint32_t after = words[index - 2U];
-      const std::uint32_t sigma0 = RotateRight(before, 7U) ^
-                                   RotateRight(before, 18U) ^ (before >> 3U);
-      const std::uint32_t sigma1 = RotateRight(after, 17U) ^
-                                   RotateRight(after, 19U) ^ (after >> 10U);
-      words[index] = words[index - 16U] + sigma0 + words[index - 7U] + sigma1;
-    }
-
-    std::uint32_t a = state_[0U];
-    std::uint32_t b = state_[1U];
-    std::uint32_t c = state_[2U];
-    std::uint32_t d = state_[3U];
-    std::uint32_t e = state_[4U];
-    std::uint32_t f = state_[5U];
-    std::uint32_t g = state_[6U];
-    std::uint32_t h = state_[7U];
-
-    for (std::size_t index = 0U; index < words.size(); ++index) {
-      const std::uint32_t sum1 = RotateRight(e, 6U) ^ RotateRight(e, 11U) ^
-                                 RotateRight(e, 25U);
-      const std::uint32_t choose = (e & f) ^ ((~e) & g);
-      const std::uint32_t temporary1 =
-          h + sum1 + choose + kSha256RoundConstants[index] + words[index];
-      const std::uint32_t sum0 = RotateRight(a, 2U) ^ RotateRight(a, 13U) ^
-                                 RotateRight(a, 22U);
-      const std::uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
-      const std::uint32_t temporary2 = sum0 + majority;
-      h = g;
-      g = f;
-      f = e;
-      e = d + temporary1;
-      d = c;
-      c = b;
-      b = a;
-      a = temporary1 + temporary2;
-    }
-
-    state_[0U] += a;
-    state_[1U] += b;
-    state_[2U] += c;
-    state_[3U] += d;
-    state_[4U] += e;
-    state_[5U] += f;
-    state_[6U] += g;
-    state_[7U] += h;
-  }
-
-  std::array<std::uint32_t, 8U> state_{{
-      0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU,
-      0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U,
-  }};
-  std::array<std::uint8_t, 64U> block_{};
-  std::size_t block_size_ = 0U;
-  std::size_t total_bytes_ = 0U;
-};
-
-class WireWriter final {
-public:
-  WireWriter(std::vector<std::uint8_t> *output,
-             std::uint64_t maximum_bytes) noexcept
-      : output_(output), maximum_bytes_(maximum_bytes) {}
-
-  bool AddByte(std::uint8_t value) {
-    if (!Advance(1U)) {
-      return false;
-    }
-    if (output_ != nullptr) {
-      output_->push_back(value);
-    }
-    return true;
-  }
-
-  bool AddBytes(const std::uint8_t *bytes, std::size_t size) {
-    if (!Advance(size)) {
-      return false;
-    }
-    if (output_ != nullptr && size != 0U) {
-      output_->insert(output_->end(), bytes, bytes + size);
-    }
-    return true;
-  }
-
-  bool AddU16(std::uint16_t value) {
-    return AddByte(static_cast<std::uint8_t>(value)) &&
-           AddByte(static_cast<std::uint8_t>(value >> 8U));
-  }
-
-  bool AddU32(std::uint32_t value) {
-    for (std::size_t byte = 0U; byte < 4U; ++byte) {
-      if (!AddByte(static_cast<std::uint8_t>(value >> (byte * 8U)))) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  bool AddU64(std::uint64_t value) {
-    for (std::size_t byte = 0U; byte < 8U; ++byte) {
-      if (!AddByte(static_cast<std::uint8_t>(value >> (byte * 8U)))) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  bool AddBool(bool value) { return AddByte(value ? 1U : 0U); }
-
-  bool AddFloat(float value) {
-    if (value == 0.0F) {
-      value = 0.0F;
-    }
-    std::uint32_t bits = 0U;
-    std::memcpy(&bits, &value, sizeof(bits));
-    return AddU32(bits);
-  }
-
-  bool AddDouble(double value) {
-    if (value == 0.0) {
-      value = 0.0;
-    }
-    std::uint64_t bits = 0U;
-    std::memcpy(&bits, &value, sizeof(bits));
-    return AddU64(bits);
-  }
-
-  [[nodiscard]] std::uint64_t size() const noexcept { return size_; }
-  [[nodiscard]] bool ok() const noexcept { return ok_; }
-
-private:
-  bool Advance(std::size_t amount) noexcept {
-    if (!ok_ || static_cast<std::uint64_t>(amount) > maximum_bytes_ - size_) {
-      ok_ = false;
-      return false;
-    }
-    size_ += static_cast<std::uint64_t>(amount);
-    return true;
-  }
-
-  std::vector<std::uint8_t> *output_ = nullptr;
-  std::uint64_t maximum_bytes_ = 0U;
-  std::uint64_t size_ = 0U;
-  bool ok_ = true;
-};
-
-class AllocationBudget final {
-public:
-  bool Charge(std::uint64_t count, std::size_t item_size) noexcept {
-    if (count != 0U && static_cast<std::uint64_t>(item_size) >
-                           kSceneSnapshotTransportMaximumDecodedAllocationBytes /
-                               count) {
-      return false;
-    }
-    const std::uint64_t bytes = count * static_cast<std::uint64_t>(item_size);
-    if (bytes >
-        kSceneSnapshotTransportMaximumDecodedAllocationBytes - used_bytes_) {
-      return false;
-    }
-    used_bytes_ += bytes;
-    return true;
-  }
-
-private:
-  std::uint64_t used_bytes_ = 0U;
-};
-
-class WireReader final {
-public:
-  WireReader(const std::uint8_t *bytes, std::size_t size,
-             AllocationBudget &allocation_budget) noexcept
-      : bytes_(bytes), size_(size), allocation_budget_(allocation_budget) {}
-
-  bool ReadByte(std::uint8_t &value) noexcept {
-    if (remaining() < 1U) {
-      Fail(SceneSnapshotTransportStatus::MALFORMED_PAYLOAD);
-      return false;
-    }
-    value = bytes_[offset_++];
-    return true;
-  }
-
-  bool ReadU16(std::uint16_t &value) noexcept {
-    value = 0U;
-    for (std::size_t byte = 0U; byte < 2U; ++byte) {
-      std::uint8_t part = 0U;
-      if (!ReadByte(part)) {
-        return false;
-      }
-      value |= static_cast<std::uint16_t>(part) << (byte * 8U);
-    }
-    return true;
-  }
-
-  bool ReadU32(std::uint32_t &value) noexcept {
-    value = 0U;
-    for (std::size_t byte = 0U; byte < 4U; ++byte) {
-      std::uint8_t part = 0U;
-      if (!ReadByte(part)) {
-        return false;
-      }
-      value |= static_cast<std::uint32_t>(part) << (byte * 8U);
-    }
-    return true;
-  }
-
-  bool ReadU64(std::uint64_t &value) noexcept {
-    value = 0U;
-    for (std::size_t byte = 0U; byte < 8U; ++byte) {
-      std::uint8_t part = 0U;
-      if (!ReadByte(part)) {
-        return false;
-      }
-      value |= static_cast<std::uint64_t>(part) << (byte * 8U);
-    }
-    return true;
-  }
-
-  bool ReadBool(bool &value) noexcept {
-    std::uint8_t encoded = 0U;
-    if (!ReadByte(encoded)) {
-      return false;
-    }
-    if (encoded > 1U) {
-      Fail(SceneSnapshotTransportStatus::MALFORMED_PAYLOAD);
-      return false;
-    }
-    value = encoded != 0U;
-    return true;
-  }
-
-  bool ReadFloat(float &value) noexcept {
-    std::uint32_t bits = 0U;
-    if (!ReadU32(bits)) {
-      return false;
-    }
-    if (bits == 0x80000000U || (bits & 0x7f800000U) == 0x7f800000U) {
-      Fail(SceneSnapshotTransportStatus::NON_CANONICAL_FLOAT);
-      return false;
-    }
-    std::memcpy(&value, &bits, sizeof(value));
-    return true;
-  }
-
-  bool ReadDouble(double &value) noexcept {
-    std::uint64_t bits = 0U;
-    if (!ReadU64(bits)) {
-      return false;
-    }
-    if (bits == 0x8000000000000000ULL ||
-        (bits & 0x7ff0000000000000ULL) == 0x7ff0000000000000ULL) {
-      Fail(SceneSnapshotTransportStatus::NON_CANONICAL_FLOAT);
-      return false;
-    }
-    std::memcpy(&value, &bits, sizeof(value));
-    return true;
-  }
-
-  bool ReadCount(std::uint32_t maximum, std::size_t minimum_item_bytes,
-                 std::uint32_t &count) noexcept {
-    if (!ReadU32(count)) {
-      return false;
-    }
-    if (count > maximum) {
-      Fail(SceneSnapshotTransportStatus::COUNT_LIMIT_EXCEEDED);
-      return false;
-    }
-    if (minimum_item_bytes != 0U &&
-        static_cast<std::uint64_t>(count) >
-            static_cast<std::uint64_t>(remaining() / minimum_item_bytes)) {
-      Fail(SceneSnapshotTransportStatus::MALFORMED_PAYLOAD);
-      return false;
-    }
-    return true;
-  }
-
-  template <typename Value>
-  bool Reserve(std::vector<Value> &values, std::uint32_t count) {
-    if (!allocation_budget_.Charge(count, sizeof(Value))) {
-      Fail(SceneSnapshotTransportStatus::DECODED_ALLOCATION_LIMIT_EXCEEDED);
-      return false;
-    }
-    values.reserve(count);
-    return true;
-  }
-
-  [[nodiscard]] std::size_t remaining() const noexcept {
-    return size_ - offset_;
-  }
-  [[nodiscard]] bool consumed() const noexcept { return offset_ == size_; }
-  [[nodiscard]] SceneSnapshotTransportStatus status() const noexcept {
-    return status_;
-  }
-
-  void Fail(SceneSnapshotTransportStatus status) noexcept {
-    if (status_ == SceneSnapshotTransportStatus::OK) {
-      status_ = status;
-    }
-  }
-
-private:
-  const std::uint8_t *bytes_ = nullptr;
-  std::size_t size_ = 0U;
-  std::size_t offset_ = 0U;
-  AllocationBudget &allocation_budget_;
-  SceneSnapshotTransportStatus status_ = SceneSnapshotTransportStatus::OK;
-};
-
-std::uint16_t ReadHeaderU16(const std::uint8_t *bytes) noexcept {
-  return static_cast<std::uint16_t>(bytes[0U]) |
-         (static_cast<std::uint16_t>(bytes[1U]) << 8U);
-}
-
-std::uint64_t ReadHeaderU64(const std::uint8_t *bytes) noexcept {
-  std::uint64_t value = 0U;
-  for (std::size_t index = 0U; index < 8U; ++index) {
-    value |= static_cast<std::uint64_t>(bytes[index]) << (index * 8U);
-  }
-  return value;
-}
-
-bool DigestsEqual(const std::uint8_t *encoded,
-                  const std::array<std::uint8_t, 32U> &computed) noexcept {
-  std::uint8_t difference = 0U;
-  for (std::size_t index = 0U; index < computed.size(); ++index) {
-    difference |= static_cast<std::uint8_t>(encoded[index] ^ computed[index]);
-  }
-  return difference == 0U;
-}
 
 bool WriteFloat2(WireWriter &writer, const Float2 &value) {
   return writer.AddFloat(value.x) && writer.AddFloat(value.y);
@@ -931,7 +528,8 @@ struct DecodedPayload {
 bool ReadPayload(const std::uint8_t *payload, std::size_t payload_size,
                  DecodedPayload &decoded,
                  SceneSnapshotTransportStatus &status) {
-  AllocationBudget allocation_budget;
+  AllocationBudget allocation_budget(
+      kSceneSnapshotTransportMaximumDecodedAllocationBytes);
   WireReader reader(payload, payload_size, allocation_budget);
   SceneSnapshotDescriptor descriptor;
   std::uint32_t payload_version = 0U;
@@ -1075,14 +673,7 @@ bool IsKnownSceneSnapshotTransportMessageKind(
 std::array<std::uint8_t, 32U>
 ComputeSceneSnapshotTransportPayloadDigest(const std::uint8_t *payload,
                                            std::size_t payload_size) noexcept {
-  if (payload == nullptr && payload_size != 0U) {
-    return {};
-  }
-  Sha256 hasher;
-  if (payload_size != 0U) {
-    hasher.Update(payload, payload_size);
-  }
-  return hasher.Final();
+  return ComputeRenderTransportPayloadDigest(payload, payload_size);
 }
 
 DecodedSceneSnapshotTransportMessage::DecodedSceneSnapshotTransportMessage(
@@ -1094,79 +685,45 @@ DecodedSceneSnapshotTransportMessage::DecodedSceneSnapshotTransportMessage(
 
 SceneSnapshotTransportDecoder::SceneSnapshotTransportDecoder(
     std::uint64_t first_expected_sequence) noexcept
-    : next_expected_sequence_(first_expected_sequence) {}
+    : owned_sequence_state_(first_expected_sequence),
+      sequence_state_(&owned_sequence_state_) {}
+
+SceneSnapshotTransportDecoder::SceneSnapshotTransportDecoder(
+    RenderTransportSequenceState &shared_sequence_state) noexcept
+    : owned_sequence_state_(1U), sequence_state_(&shared_sequence_state) {}
 
 SceneSnapshotTransportDecodeResult SceneSnapshotTransportDecoder::Accept(
     const std::vector<std::uint8_t> &frame) {
-  if (next_expected_sequence_ == 0U ||
-      next_expected_sequence_ == (std::numeric_limits<std::uint64_t>::max)()) {
-    return Failure(SceneSnapshotTransportStatus::INVALID_SEQUENCE);
+  RenderTransportEnvelopeView envelope;
+  const RenderTransportStatus envelope_status = DecodeRenderTransportEnvelope(
+      frame, kSceneSnapshotTransportMaximumPayloadBytes, envelope);
+  if (envelope_status != RenderTransportStatus::OK) {
+    return Failure(envelope_status);
   }
-  if (frame.size() < kSceneSnapshotTransportHeaderBytes) {
-    return Failure(SceneSnapshotTransportStatus::FRAME_TRUNCATED);
-  }
-  if (!std::equal(kSceneSnapshotTransportMagic.begin(),
-                  kSceneSnapshotTransportMagic.end(), frame.begin())) {
-    return Failure(SceneSnapshotTransportStatus::INVALID_MAGIC);
-  }
-  const std::uint16_t transport_version = ReadHeaderU16(frame.data() + 8U);
-  const std::uint16_t header_bytes = ReadHeaderU16(frame.data() + 10U);
-  const auto kind = static_cast<SceneSnapshotTransportMessageKind>(
-      ReadHeaderU16(frame.data() + 12U));
-  const std::uint16_t flags = ReadHeaderU16(frame.data() + 14U);
-  const std::uint64_t sequence = ReadHeaderU64(frame.data() + 16U);
-  const std::uint64_t payload_size = ReadHeaderU64(frame.data() + 24U);
-  if (transport_version != kSceneSnapshotTransportVersion) {
-    return Failure(
-        SceneSnapshotTransportStatus::UNSUPPORTED_TRANSPORT_VERSION);
-  }
-  if (header_bytes != kSceneSnapshotTransportHeaderBytes ||
-      flags != kHeaderFlags) {
-    return Failure(SceneSnapshotTransportStatus::INVALID_HEADER);
-  }
-  if (!IsKnownSceneSnapshotTransportMessageKind(kind)) {
+  if (!IsKnownSceneSnapshotTransportMessageKind(envelope.kind)) {
     return Failure(SceneSnapshotTransportStatus::UNKNOWN_MESSAGE_KIND);
   }
-  if (sequence == 0U ||
-      sequence == (std::numeric_limits<std::uint64_t>::max)()) {
-    return Failure(SceneSnapshotTransportStatus::INVALID_SEQUENCE);
-  }
-  if (payload_size > kSceneSnapshotTransportMaximumPayloadBytes) {
-    return Failure(SceneSnapshotTransportStatus::PAYLOAD_LIMIT_EXCEEDED);
-  }
-  if (payload_size != frame.size() - kSceneSnapshotTransportHeaderBytes) {
-    return Failure(SceneSnapshotTransportStatus::FRAME_SIZE_MISMATCH);
-  }
-  if (sequence < next_expected_sequence_) {
-    return Failure(SceneSnapshotTransportStatus::REPLAYED_SEQUENCE);
-  }
-  if (sequence > next_expected_sequence_) {
-    return Failure(SceneSnapshotTransportStatus::OUT_OF_ORDER_SEQUENCE);
-  }
-
-  const std::uint8_t *payload =
-      frame.data() + kSceneSnapshotTransportHeaderBytes;
-  const auto digest = ComputeSceneSnapshotTransportPayloadDigest(
-      payload, static_cast<std::size_t>(payload_size));
-  if (!DigestsEqual(frame.data() + kPayloadDigestOffset, digest)) {
-    return Failure(SceneSnapshotTransportStatus::PAYLOAD_DIGEST_MISMATCH);
+  const RenderTransportStatus sequence_status =
+      sequence_state_->ValidateCandidate(envelope.sequence);
+  if (sequence_status != RenderTransportStatus::OK) {
+    return Failure(sequence_status);
   }
 
   try {
     DecodedPayload decoded;
     SceneSnapshotTransportStatus status =
         SceneSnapshotTransportStatus::MALFORMED_PAYLOAD;
-    if (!ReadPayload(payload, static_cast<std::size_t>(payload_size), decoded,
-                     status)) {
+    if (!ReadPayload(envelope.payload, envelope.payload_size, decoded, status)) {
       return Failure(status);
     }
     std::shared_ptr<const DecodedSceneSnapshotTransportMessage> candidate(
         new DecodedSceneSnapshotTransportMessage(
-            sequence, kind, std::move(decoded.scene),
+            envelope.sequence, envelope.kind, std::move(decoded.scene),
             std::move(decoded.camera)));
+    if (!sequence_state_->CommitAccepted(envelope.sequence)) {
+      return Failure(SceneSnapshotTransportStatus::INVALID_SEQUENCE);
+    }
     published_ = candidate;
-    last_accepted_sequence_ = sequence;
-    next_expected_sequence_ = sequence + 1U;
     return SceneSnapshotTransportDecodeResult{
         std::move(candidate), SceneSnapshotTransportStatus::OK};
   } catch (const std::bad_alloc &) {
@@ -1208,33 +765,9 @@ SceneSnapshotTransportEncodeResult EncodeSceneSnapshotTransportFrame(
       result.status = SceneSnapshotTransportStatus::INVALID_ARGUMENT;
       return result;
     }
-    const auto digest = ComputeSceneSnapshotTransportPayloadDigest(
-        payload.data(), payload.size());
-
-    const std::uint64_t frame_size =
-        kSceneSnapshotTransportHeaderBytes + sizer.size();
-    result.bytes.reserve(static_cast<std::size_t>(frame_size));
-    WireWriter frame_writer(&result.bytes, frame_size);
-    if (!frame_writer.AddBytes(kSceneSnapshotTransportMagic.data(),
-                               kSceneSnapshotTransportMagic.size()) ||
-        !frame_writer.AddU16(kSceneSnapshotTransportVersion) ||
-        !frame_writer.AddU16(
-            static_cast<std::uint16_t>(kSceneSnapshotTransportHeaderBytes)) ||
-        !frame_writer.AddU16(static_cast<std::uint16_t>(
-            SceneSnapshotTransportMessageKind::
-                SCENE_SNAPSHOT_V4_CAMERA_V2)) ||
-        !frame_writer.AddU16(kHeaderFlags) ||
-        !frame_writer.AddU64(sequence) ||
-        !frame_writer.AddU64(static_cast<std::uint64_t>(payload.size())) ||
-        !frame_writer.AddBytes(digest.data(), digest.size()) ||
-        !frame_writer.AddBytes(payload.data(), payload.size()) ||
-        frame_writer.size() != frame_size) {
-      result.bytes.clear();
-      result.status = SceneSnapshotTransportStatus::INVALID_ARGUMENT;
-      return result;
-    }
-    result.status = SceneSnapshotTransportStatus::OK;
-    return result;
+    return EncodeRenderTransportEnvelope(
+        SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2,
+        sequence, payload, kSceneSnapshotTransportMaximumPayloadBytes);
   } catch (const std::bad_alloc &) {
     result.bytes.clear();
     result.status = SceneSnapshotTransportStatus::ALLOCATION_FAILURE;
