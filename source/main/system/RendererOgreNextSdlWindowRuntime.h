@@ -47,7 +47,7 @@ private:
   static bool ClaimOrValidateOwnerThread(void *context);
   static bool IsMainThread(void *context);
   static bool InitializeVideo(void *context, const char *required_driver);
-  static bool CreateWindow(
+  static bool CreateNativeWindow(
       void *context, const RendererOgreNextSdlWindowCreateRequest &request,
       void **sdl_window);
   static bool QueryNativeWindow(
