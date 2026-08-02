@@ -77,6 +77,7 @@ source/main/system/RendererLauncherMain.cpp text eol=lf
 source/main/system/RendererLauncherPackageConfig.h.in text eol=lf
 source/main/system/RendererPublicLauncher.* text eol=lf
 source/main/gfx/render/** text eol=lf
+tests/gfx/render/RenderTransportStreamTests.cpp text eol=lf
 tests/gfx/RendererBackendPolicyTests.cpp text eol=lf
 tests/gfx/RendererChildIntentTests.cpp text eol=lf
 tests/gfx/RendererChildLauncherFakeChild.cpp text eol=lf

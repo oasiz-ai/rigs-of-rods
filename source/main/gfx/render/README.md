@@ -147,6 +147,17 @@ The fixed 64-byte header is independent of host structure packing:
 | 24 | 8 | little-endian `u64` | exact payload byte count |
 | 32 | 32 | bytes | SHA-256 of the exact payload |
 
+`RenderTransportStreamDecoder` version 1 reconstructs these atomic envelopes
+from pipes or other arbitrary byte streams without assuming read boundaries.
+It validates the complete fixed header before reserving the declared payload,
+enforces the lower of an immutable caller cap and the typed 64 MiB scene or
+640 MiB asset cap, consumes no bytes from a coalesced following frame, and
+exposes at most one validated frame at a time.
+Callers must take that frame before continuing. Invalid framing, corruption,
+allocation failure, or EOF inside a frame permanently poisons the decoder;
+there is deliberately no magic-byte resynchronization that could conceal lost
+state or break the shared scene/asset sequence lineage.
+
 The scene payload carries every current scene field: identities and simulation
 time, absolute origin, environment and analytic sky, mesh instances, current
 and previous lights, reflection probes, full dynamic-mesh updates, particle
