@@ -137,6 +137,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         runner = (REPOSITORY_ROOT / "tools" / "run_ogre_next_probe.py").read_text(
             encoding="utf-8"
         )
+        verifier = (
+            REPOSITORY_ROOT / "tools" / "verify_ogre_next_artifact_set.py"
+        ).read_text(encoding="utf-8")
         target_block = cmake[
             cmake.index("add_executable(\n        ror_renderer_startup_plan_tests") :
             cmake.index("target_include_directories(\n        ror_renderer_startup_plan_tests")
@@ -152,6 +155,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         runner_manifest = runner[
             runner.index("RELEVANT_SOURCE_PATHS = (") :
             runner.index("\n)\n\n\nclass ProbeError")
+        ]
+        verifier_manifest = verifier[
+            verifier.index("RELEVANT_SOURCE_PATHS = (") :
+            verifier.index("\n)\nRT4_ATTESTATION_SCHEMA")
         ]
         for token in (
             "ror_renderer_startup_plan_tests",
@@ -172,6 +179,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 self.assertEqual(cmake_manifest.count(f'"{path}"'), 1)
                 self.assertEqual(clean_paths.count(path), 1)
                 self.assertEqual(runner_manifest.count(f'"{path}"'), 1)
+                self.assertEqual(verifier_manifest.count(f'"{path}"'), 1)
+        self.assertEqual(runner_manifest, verifier_manifest)
         for source in (
             "tests/gfx/RendererStartupPlanTests.cpp",
             "source/main/gfx/RendererStartupPlan.cpp",

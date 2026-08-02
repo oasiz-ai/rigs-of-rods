@@ -107,7 +107,12 @@ NORMAL_MAP_SOURCE_LOCK_SHA256 = (
 )
 ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
 RELEVANT_SOURCE_PATHS = (
+    "source/main/gfx/RendererBackendPolicy.cpp",
+    "source/main/gfx/RendererBackendPolicy.h",
+    "source/main/gfx/RendererStartupPlan.cpp",
+    "source/main/gfx/RendererStartupPlan.h",
     "source/main/gfx/render",
+    "tests/gfx/RendererStartupPlanTests.cpp",
     "tools/ogre_next_probe",
     "tools/run_ogre_next_probe.py",
     "tools/validate_ogre_next_frame_probe.py",
