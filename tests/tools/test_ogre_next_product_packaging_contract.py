@@ -157,6 +157,51 @@ class OgreNextProductPackagerTests(unittest.TestCase):
             with self.assertRaisesRegex(PACKAGER.PackageError, "payload changed"):
                 PACKAGER.verify_package(output, strict_root=True)
 
+    def test_stage_replaces_cmake_precreated_output_scaffold(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogrenext-product-scaffold-") as temp:
+            root = Path(temp).resolve()
+            child, n1, presentation, contract, identity = self.make_inputs(root)
+            output = root / "product"
+            # CMake/Ninja materializes parents for OUTPUT and nested BYPRODUCTS
+            # before it runs the packaging command.
+            (output / "provenance").mkdir(parents=True)
+            PACKAGER.stage_package(
+                child=child,
+                n1_package=n1,
+                presentation_root=presentation,
+                build_contract=contract,
+                output=output,
+                identity=identity,
+                policy="macos-arm64-metal",
+            )
+            PACKAGER.verify_package(
+                output,
+                expected_policy="macos-arm64-metal",
+                expected_identity=identity,
+                strict_root=True,
+            )
+
+    def test_stage_refuses_unsealed_nonempty_predecessor(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogrenext-product-partial-") as temp:
+            root = Path(temp).resolve()
+            child, n1, presentation, contract, identity = self.make_inputs(root)
+            output = root / "product"
+            output.mkdir()
+            (output / "partial.bin").write_bytes(b"incomplete")
+            with self.assertRaisesRegex(
+                PACKAGER.PackageError, "product manifest must be one regular file"
+            ):
+                PACKAGER.stage_package(
+                    child=child,
+                    n1_package=n1,
+                    presentation_root=presentation,
+                    build_contract=contract,
+                    output=output,
+                    identity=identity,
+                    policy="macos-arm64-metal",
+                )
+            self.assertEqual((output / "partial.bin").read_bytes(), b"incomplete")
+
     def test_all_three_product_policies_have_exact_child_names(self) -> None:
         self.assertEqual(
             PACKAGER.POLICY_CHILD_NAMES,

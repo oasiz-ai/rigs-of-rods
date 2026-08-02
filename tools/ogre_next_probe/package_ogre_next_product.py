@@ -456,7 +456,14 @@ def stage_package(
         )
 
         if output.exists():
-            verify_package(output, strict_root=True)
+            # CMake/Ninja creates the parent directories of declared outputs
+            # and byproducts before invoking this command.  That leaves an
+            # empty package root (and usually an empty provenance directory)
+            # even on the first build.  Accept only that file-empty scaffold;
+            # every non-empty predecessor still has to be a fully sealed,
+            # verified package before it can be replaced.
+            if _relative_files(output):
+                verify_package(output, strict_root=True)
             os.replace(output, backup)
         try:
             os.replace(temporary, output)
