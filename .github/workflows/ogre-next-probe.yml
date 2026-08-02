@@ -20,6 +20,8 @@ on:
       - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererOgreNextChild.*
+      - source/main/system/RendererOgreNextSdlWindowRuntime*
+      - source/main/system/RendererOgreNextWindowHost.*
       - source/main/system/RendererLauncherMain.cpp
       - source/main/system/RendererLauncherPackageConfig.h.in
       - source/main/system/RendererPublicLauncher.*
@@ -29,6 +31,7 @@ on:
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
+      - tests/gfx/RendererOgreNextWindowHostTests.cpp
       - tests/gfx/RendererPublicLauncherLegacyChild.cpp
       - tests/gfx/RendererPublicLauncherTests.cpp
       - tests/gfx/RendererStartupHandoffTests.cpp
@@ -53,6 +56,8 @@ on:
       - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererOgreNextChild.*
+      - source/main/system/RendererOgreNextSdlWindowRuntime*
+      - source/main/system/RendererOgreNextWindowHost.*
       - source/main/system/RendererLauncherMain.cpp
       - source/main/system/RendererLauncherPackageConfig.h.in
       - source/main/system/RendererPublicLauncher.*
@@ -62,6 +67,7 @@ on:
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
+      - tests/gfx/RendererOgreNextWindowHostTests.cpp
       - tests/gfx/RendererPublicLauncherLegacyChild.cpp
       - tests/gfx/RendererPublicLauncherTests.cpp
       - tests/gfx/RendererStartupHandoffTests.cpp
@@ -96,7 +102,7 @@ jobs:
             runner: windows-2022
             platform: windows-x64-d3d11
             jobs: 4
-          - name: Linux x86_64 Vulkan null-window
+          - name: Linux x86_64 Vulkan null bootstrap plus XCB presentation
             runner: ubuntu-24.04
             platform: linux-x86_64-vulkan
             jobs: 4
@@ -128,6 +134,8 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             libvulkan-dev \
             libx11-dev \
+            libx11-xcb-dev \
+            libxcb1-dev \
             libxt-dev \
             libxaw7-dev \
             mesa-vulkan-drivers \
@@ -198,6 +206,7 @@ jobs:
           python tests/tools/test_ogre_next_frontend_n1_contract.py
           python tests/tools/test_ogre_next_pssm_shadow_contract.py
           python tests/tools/test_ogre_next_child_runtime_contract.py
+          python tests/tools/test_ogre_next_window_host_contract.py
           python tests/tools/test_ogre_next_native_directional_shadow_contract.py
           python tests/tools/test_ogre_next_metal_n2_contract.py
           python tests/tools/test_ogre_next_vulkan_rt5_contract.py
@@ -213,6 +222,7 @@ jobs:
           python -O tests/tools/test_ogre_next_frontend_n1_contract.py
           python -O tests/tools/test_ogre_next_pssm_shadow_contract.py
           python -O tests/tools/test_ogre_next_child_runtime_contract.py
+          python -O tests/tools/test_ogre_next_window_host_contract.py
           python -O tests/tools/test_ogre_next_native_directional_shadow_contract.py
           python -O tests/tools/test_ogre_next_metal_n2_contract.py
           python -O tests/tools/test_ogre_next_vulkan_rt5_contract.py
@@ -352,6 +362,14 @@ jobs:
               --source-digest "$GITHUB_SHA" \
               --deny-self-hosted-runners
           done
+
+      - name: Run the non-admitted hidden SDL native-window smoke
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_renderer_ogre_next_window_host(_smoke)?$'
 
       - name: Build and validate the independent Apple Metal N2 proof
         if: runner.os == 'macOS'

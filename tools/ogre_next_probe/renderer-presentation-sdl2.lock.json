@@ -1,0 +1,23 @@
+{
+  "schema": "ror.renderer_presentation_sdl2_source.v1",
+  "version": "2.32.10",
+  "archive_url": "https://www.libsdl.org/release/SDL2-2.32.10.tar.gz",
+  "archive_sha256": "5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165",
+  "license": {
+    "spdx": "Zlib",
+    "path": "LICENSE.txt",
+    "sha256": "97f35b302b361680ec1e891e95d2d52097bb95abff361434916d99dc1305f127"
+  },
+  "conan": {
+    "reference": "sdl/2.32.10",
+    "recipe_revision": "19432981a8779c918a13682d4186fa3b",
+    "cmake_target": "SDL2::SDL2"
+  },
+  "scope": {
+    "source_dependency_locked": true,
+    "probe_linked": true,
+    "live_window_smoke": true,
+    "production_admitted": false,
+    "packaged": false
+  }
+}

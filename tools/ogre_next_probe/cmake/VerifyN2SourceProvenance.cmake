@@ -22,6 +22,11 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererOgreNextChild.cpp
     source/main/system/RendererOgreNextChild.h
     source/main/system/RendererOgreNextChildMain.cpp
+    source/main/system/RendererOgreNextSdlWindowRuntime.cpp
+    source/main/system/RendererOgreNextSdlWindowRuntime.h
+    source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm
+    source/main/system/RendererOgreNextWindowHost.cpp
+    source/main/system/RendererOgreNextWindowHost.h
     source/main/system/RendererLauncherMain.cpp
     source/main/system/RendererLauncherPackageConfig.h.in
     source/main/system/RendererPublicLauncher.cpp
@@ -32,11 +37,13 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererChildLauncherFakeChild.cpp
     tests/gfx/RendererChildLauncherTests.cpp
     tests/gfx/RendererOgreNextChildTests.cpp
+    tests/gfx/RendererOgreNextWindowHostTests.cpp
     tests/gfx/RendererPublicLauncherLegacyChild.cpp
     tests/gfx/RendererPublicLauncherTests.cpp
     tests/gfx/RendererStartupHandoffTests.cpp
     tests/gfx/RendererStartupPlanTests.cpp
     tests/tools/test_ogre_next_child_runtime_contract.py
+    tests/tools/test_ogre_next_window_host_contract.py
     tools/ogre_next_probe
     tools/run_ogre_next_probe.py
     tools/validate_ogre_next_frame_probe.py
@@ -80,6 +87,11 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererOgreNextChild.cpp"
     "source/main/system/RendererOgreNextChild.h"
     "source/main/system/RendererOgreNextChildMain.cpp"
+    "source/main/system/RendererOgreNextSdlWindowRuntime.cpp"
+    "source/main/system/RendererOgreNextSdlWindowRuntime.h"
+    "source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm"
+    "source/main/system/RendererOgreNextWindowHost.cpp"
+    "source/main/system/RendererOgreNextWindowHost.h"
     "source/main/system/RendererLauncherMain.cpp"
     "source/main/system/RendererLauncherPackageConfig.h.in"
     "source/main/system/RendererPublicLauncher.cpp"
@@ -89,11 +101,13 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererChildLauncherFakeChild.cpp"
     "tests/gfx/RendererChildLauncherTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"
+    "tests/gfx/RendererOgreNextWindowHostTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
     "tests/gfx/RendererPublicLauncherTests.cpp"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
+    "tests/tools/test_ogre_next_window_host_contract.py"
     "tools/run_ogre_next_probe.py"
     "tools/validate_ogre_next_frame_probe.py"
     "tools/verify_ogre_next_artifact_set.py")
