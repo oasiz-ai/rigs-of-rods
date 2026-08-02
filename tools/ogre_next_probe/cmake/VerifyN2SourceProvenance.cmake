@@ -15,6 +15,12 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/RendererStartupHandoff.h
     source/main/gfx/RendererStartupPlan.cpp
     source/main/gfx/RendererStartupPlan.h
+    source/main/system/RendererBridgeEndpoint.cpp
+    source/main/system/RendererBridgeEndpoint.h
+    source/main/system/RendererBridgeLaunchPlan.cpp
+    source/main/system/RendererBridgeLaunchPlan.h
+    source/main/system/RendererBridgeProcessSupervisor.cpp
+    source/main/system/RendererBridgeProcessSupervisor.h
     source/main/system/RendererChildIntent.cpp
     source/main/system/RendererChildIntent.h
     source/main/system/RendererChildLauncher.cpp
@@ -35,6 +41,10 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererPublicLauncher.h
     source/main/gfx/render
     tests/gfx/RendererBackendPolicyTests.cpp
+    tests/gfx/RendererBridgeEndpointTests.cpp
+    tests/gfx/RendererBridgeLaunchPlanTests.cpp
+    tests/gfx/RendererBridgeProcessFakeChild.cpp
+    tests/gfx/RendererBridgeProcessSupervisorTests.cpp
     tests/gfx/RendererChildIntentTests.cpp
     tests/gfx/RendererChildLauncherFakeChild.cpp
     tests/gfx/RendererChildLauncherTests.cpp
@@ -84,6 +94,12 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/system/RendererBridgeEndpoint.cpp"
+    "source/main/system/RendererBridgeEndpoint.h"
+    "source/main/system/RendererBridgeLaunchPlan.cpp"
+    "source/main/system/RendererBridgeLaunchPlan.h"
+    "source/main/system/RendererBridgeProcessSupervisor.cpp"
+    "source/main/system/RendererBridgeProcessSupervisor.h"
     "source/main/system/RendererChildIntent.cpp"
     "source/main/system/RendererChildIntent.h"
     "source/main/system/RendererChildLauncher.cpp"
@@ -103,6 +119,10 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererPublicLauncher.cpp"
     "source/main/system/RendererPublicLauncher.h"
     "tests/gfx/RendererBackendPolicyTests.cpp"
+    "tests/gfx/RendererBridgeEndpointTests.cpp"
+    "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
+    "tests/gfx/RendererBridgeProcessFakeChild.cpp"
+    "tests/gfx/RendererBridgeProcessSupervisorTests.cpp"
     "tests/gfx/RendererChildIntentTests.cpp"
     "tests/gfx/RendererChildLauncherFakeChild.cpp"
     "tests/gfx/RendererChildLauncherTests.cpp"
