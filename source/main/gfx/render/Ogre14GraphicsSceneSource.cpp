@@ -74,10 +74,189 @@ bool IsKnownLightKind(Ogre14GraphicsSceneLightKind kind) noexcept {
 constexpr std::uint64_t kFnv1a64OffsetBasis = 14695981039346656037ULL;
 constexpr std::uint64_t kFnv1a64Prime = 1099511628211ULL;
 constexpr char kOgre14LightIdentityDomain[] = "ror.ogre14.light.name.v1";
+constexpr char kOgre14StaticMeshIdentityDomain[] =
+    "ror.ogre14.static.mesh.asset.v1";
+constexpr char kOgre14StaticMaterialIdentityDomain[] =
+    "ror.ogre14.static.material.asset.v1";
+constexpr char kOgre14StaticObjectIdentityDomain[] =
+    "ror.ogre14.static.object.section.v1";
 
 void HashByte(std::uint64_t &hash, std::uint8_t byte) noexcept {
   hash ^= byte;
   hash *= kFnv1a64Prime;
+}
+
+void AppendU32(std::string &bytes, std::uint32_t value) {
+  for (std::uint32_t shift = 0U; shift < 32U; shift += 8U) {
+    bytes.push_back(static_cast<char>((value >> shift) & 0xFFU));
+  }
+}
+
+void AppendU64(std::string &bytes, std::uint64_t value) {
+  for (std::uint32_t shift = 0U; shift < 64U; shift += 8U) {
+    bytes.push_back(static_cast<char>((value >> shift) & 0xFFU));
+  }
+}
+
+void AppendString(std::string &bytes, std::string_view value) {
+  AppendU64(bytes, static_cast<std::uint64_t>(value.size()));
+  bytes.append(value.data(), value.size());
+}
+
+std::string BuildMeshAssetKey(
+    const Ogre14GraphicsSceneMeshAssetIdentity &identity) {
+  std::string key;
+  key.reserve(sizeof(kOgre14StaticMeshIdentityDomain) +
+              identity.exact_resource_group.size() +
+              identity.exact_mesh_name.size() + 64U);
+  key.append(kOgre14StaticMeshIdentityDomain,
+             sizeof(kOgre14StaticMeshIdentityDomain) - 1U);
+  key.push_back('\0');
+  AppendString(key, identity.exact_resource_group);
+  AppendString(key, identity.exact_mesh_name);
+  AppendU32(key, identity.submesh_index);
+  AppendU32(key, identity.vertex_start);
+  AppendU32(key, identity.vertex_count);
+  AppendU32(key, identity.index_start);
+  AppendU32(key, identity.index_count);
+  key.push_back(identity.reverse_winding ? '\1' : '\0');
+  return key;
+}
+
+std::string BuildMaterialAssetKey(std::string_view exact_resource_group,
+                                  std::string_view exact_name) {
+  std::string key;
+  key.reserve(sizeof(kOgre14StaticMaterialIdentityDomain) +
+              exact_resource_group.size() + exact_name.size() + 24U);
+  key.append(kOgre14StaticMaterialIdentityDomain,
+             sizeof(kOgre14StaticMaterialIdentityDomain) - 1U);
+  key.push_back('\0');
+  AppendString(key, exact_resource_group);
+  AppendString(key, exact_name);
+  return key;
+}
+
+std::string BuildStaticObjectKey(std::uint64_t stable_object_id,
+                                 std::uint32_t section_index) {
+  std::string key;
+  key.reserve(sizeof(kOgre14StaticObjectIdentityDomain) + 16U);
+  key.append(kOgre14StaticObjectIdentityDomain,
+             sizeof(kOgre14StaticObjectIdentityDomain) - 1U);
+  key.push_back('\0');
+  AppendU64(key, stable_object_id);
+  AppendU32(key, section_index);
+  return key;
+}
+
+ValidationResult HashStableKey(std::string_view key, const char *field,
+                               std::uint64_t &stable_id) {
+  if (key.empty()) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, field,
+        "stable OGRE 14 identity key must not be empty");
+  }
+  std::uint64_t candidate = kFnv1a64OffsetBasis;
+  for (const char byte : key) {
+    HashByte(candidate,
+             static_cast<std::uint8_t>(static_cast<unsigned char>(byte)));
+  }
+  if (candidate == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, field,
+        "OGRE 14 identity key hashed to the reserved zero identity");
+  }
+  stable_id = candidate;
+  return ValidationResult::Success();
+}
+
+ValidationResult RegisterIdentity(
+    std::string_view exact_key, std::uint64_t stable_id,
+    std::map<std::uint64_t, std::string> &names_by_id,
+    std::map<std::string, std::uint64_t, std::less<>> &ids_by_name,
+    const char *key_field, const char *id_field) {
+  if (exact_key.empty()) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, key_field,
+        "OGRE 14 identity key must not be empty");
+  }
+  if (stable_id == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, id_field,
+        "derived OGRE 14 identity must be nonzero");
+  }
+  const auto id_match = names_by_id.find(stable_id);
+  if (id_match != names_by_id.end() && id_match->second != exact_key) {
+    return ValidationResult::Failure(
+        ValidationCode::DUPLICATE_IDENTIFIER, id_field,
+        "distinct exact OGRE 14 identity keys collided");
+  }
+  const auto key_match = ids_by_name.find(exact_key);
+  if (key_match != ids_by_name.end() && key_match->second != stable_id) {
+    return ValidationResult::Failure(
+        ValidationCode::REVISION_MISMATCH, key_field,
+        "an exact OGRE 14 identity key changed stable identity");
+  }
+  if (id_match != names_by_id.end()) {
+    return ValidationResult::Success();
+  }
+
+  auto inserted_name = names_by_id.emplace(stable_id, exact_key);
+  try {
+    const auto inserted_id = ids_by_name.emplace(exact_key, stable_id);
+    if (!inserted_id.second) {
+      names_by_id.erase(inserted_name.first);
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH, key_field,
+          "an exact OGRE 14 identity key changed stable identity");
+    }
+  } catch (...) {
+    names_by_id.erase(inserted_name.first);
+    throw;
+  }
+  return ValidationResult::Success();
+}
+
+bool IsKnownMaterialBlend(
+    Ogre14GraphicsSceneMaterialBlend blend) noexcept {
+  switch (blend) {
+  case Ogre14GraphicsSceneMaterialBlend::REPLACE:
+  case Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA:
+    return true;
+  }
+  return false;
+}
+
+bool IsKnownMaterialCull(Ogre14GraphicsSceneMaterialCull cull) noexcept {
+  switch (cull) {
+  case Ogre14GraphicsSceneMaterialCull::NONE:
+  case Ogre14GraphicsSceneMaterialCull::CLOCKWISE:
+  case Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE:
+    return true;
+  }
+  return false;
+}
+
+bool IsKnownMaterialAlphaReject(
+    Ogre14GraphicsSceneMaterialAlphaReject alpha_reject) noexcept {
+  switch (alpha_reject) {
+  case Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS:
+  case Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL:
+    return true;
+  }
+  return false;
+}
+
+ValidationResult AtStaticSection(ValidationResult result,
+                                 std::size_t index) {
+  if (!result) {
+    result.element_index = index;
+    result.field = "static_meshes." + result.field;
+  }
+  return result;
+}
+
+bool HasMirroredLinearTransform(const Matrix4x4 &transform) noexcept {
+  return LinearDeterminant(transform) < 0.0F;
 }
 
 } // namespace
@@ -171,6 +350,542 @@ ValidationResult Ogre14GraphicsSceneSource::CaptureJoinedGraphicsFrame(
         ValidationCode::UNSUPPORTED_FEATURE, "joined_graphics_source",
         "OGRE 14 capture provider threw a non-standard exception");
   }
+}
+
+ValidationResult Ogre14GraphicsSceneStaticIdentityRegistry::
+    RegisterDerivedAssetIdentity(std::string_view exact_key,
+                                 std::uint64_t stable_id) {
+  return RegisterIdentity(exact_key, stable_id, asset_names_by_id_,
+                          asset_ids_by_name_, "assets.exact_key",
+                          "assets.source_asset_id");
+}
+
+ValidationResult Ogre14GraphicsSceneStaticIdentityRegistry::
+    RegisterDerivedObjectIdentity(std::string_view exact_key,
+                                  std::uint64_t stable_id) {
+  return RegisterIdentity(exact_key, stable_id, object_names_by_id_,
+                          object_ids_by_name_, "static_meshes.exact_key",
+                          "static_meshes.source_object_id");
+}
+
+ValidationResult ValidateOgre14GraphicsSceneStaticCoverage(
+    const Ogre14GraphicsSceneUnsupportedGeometry &unsupported) {
+  if (unsupported.terrain) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "static_meshes.unsupported.terrain",
+        "OGRE Terrain pages require a separate exact CPU terrain adapter");
+  }
+  if (unsupported.procedural) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "static_meshes.unsupported.procedural",
+        "procedural road geometry is not an authored immutable MeshObject");
+  }
+  if (unsupported.deformable) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "static_meshes.unsupported.deformable",
+        "actor, skeletal, or vertex-animated geometry requires a deformable "
+        "stream");
+  }
+  if (unsupported.paged) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "static_meshes.unsupported.paged",
+        "paged vegetation batches are camera-dependent generated geometry");
+  }
+  if (unsupported.animated) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "static_meshes.unsupported.animated",
+        "animated or particle terrain-object visuals are not static "
+        "snapshots");
+  }
+  return ValidationResult::Success();
+}
+
+ValidationResult DeriveOgre14GraphicsSceneMeshAssetId(
+    const Ogre14GraphicsSceneMeshAssetIdentity &identity,
+    std::uint64_t &stable_id) {
+  if (identity.exact_mesh_name.empty() ||
+      identity.exact_mesh_name.find('\0') != std::string::npos ||
+      identity.exact_resource_group.find('\0') != std::string::npos ||
+      identity.vertex_count == 0U || identity.index_count == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "assets.mesh.exact_identity",
+        "mesh resource identity requires exact NUL-free names and nonzero "
+        "draw counts");
+  }
+  return HashStableKey(BuildMeshAssetKey(identity),
+                       "assets.mesh.source_asset_id", stable_id);
+}
+
+ValidationResult DeriveOgre14GraphicsSceneMaterialAssetId(
+    std::string_view exact_resource_group, std::string_view exact_name,
+    std::uint64_t &stable_id) {
+  if (exact_name.empty() || exact_name.find('\0') != std::string_view::npos ||
+      exact_resource_group.find('\0') != std::string_view::npos) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER,
+        "assets.material.exact_identity",
+        "material resource identity requires an exact nonempty NUL-free "
+        "name");
+  }
+  return HashStableKey(
+      BuildMaterialAssetKey(exact_resource_group, exact_name),
+      "assets.material.source_asset_id", stable_id);
+}
+
+ValidationResult DeriveOgre14GraphicsSceneStaticSectionId(
+    std::uint64_t stable_object_id, std::uint32_t section_index,
+    std::uint64_t &stable_id) {
+  if (stable_object_id == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER,
+        "static_meshes.stable_object_id",
+        "terrain static-object identity must be nonzero");
+  }
+  return HashStableKey(BuildStaticObjectKey(stable_object_id, section_index),
+                       "static_meshes.source_object_id", stable_id);
+}
+
+ValidationResult BuildOgre14GraphicsSceneStaticMeshPayload(
+    const Ogre14GraphicsSceneCpuMeshSectionInput &input,
+    std::shared_ptr<const RenderAssetPayload> &payload) {
+  if (input.positions.empty()) {
+    return ValidationResult::Failure(
+        ValidationCode::EMPTY_PAYLOAD, "mesh.positions",
+        "OGRE 14 static submesh requires CPU position data");
+  }
+  for (std::size_t index = 0U; index < input.positions.size(); ++index) {
+    if (!IsFinite(input.positions[index])) {
+      return ValidationResult::Failure(
+          ValidationCode::NON_FINITE_VALUE, "mesh.positions",
+          "OGRE 14 CPU positions must be finite", index);
+    }
+  }
+
+  MeshResourceDescriptor descriptor;
+  descriptor.debug_name = input.debug_name;
+  descriptor.topology = MeshPrimitiveTopology::TRIANGLE_LIST;
+  descriptor.index_format = input.index_format;
+  descriptor.topology_revision = input.topology_revision;
+  descriptor.dynamic = false;
+  descriptor.positions = input.positions;
+  descriptor.normals = input.normals;
+  descriptor.tangents = input.tangents;
+  descriptor.texture_coordinates_0 = input.texture_coordinates_0;
+  descriptor.texture_coordinates_1 = input.texture_coordinates_1;
+  descriptor.colors = input.colors;
+  descriptor.indices = input.indices;
+  if (input.reverse_winding) {
+    if (descriptor.indices.size() % 3U != 0U) {
+      return ValidationResult::Failure(
+          ValidationCode::SIZE_MISMATCH, "mesh.indices",
+          "triangle winding conversion requires complete triangles");
+    }
+    for (std::size_t index = 0U; index < descriptor.indices.size();
+         index += 3U) {
+      std::swap(descriptor.indices[index + 1U],
+                descriptor.indices[index + 2U]);
+    }
+  }
+
+  descriptor.local_bounds.minimum = descriptor.positions.front();
+  descriptor.local_bounds.maximum = descriptor.positions.front();
+  for (const Float3 &position : descriptor.positions) {
+    descriptor.local_bounds.minimum.x =
+        (std::min)(descriptor.local_bounds.minimum.x, position.x);
+    descriptor.local_bounds.minimum.y =
+        (std::min)(descriptor.local_bounds.minimum.y, position.y);
+    descriptor.local_bounds.minimum.z =
+        (std::min)(descriptor.local_bounds.minimum.z, position.z);
+    descriptor.local_bounds.maximum.x =
+        (std::max)(descriptor.local_bounds.maximum.x, position.x);
+    descriptor.local_bounds.maximum.y =
+        (std::max)(descriptor.local_bounds.maximum.y, position.y);
+    descriptor.local_bounds.maximum.z =
+        (std::max)(descriptor.local_bounds.maximum.z, position.z);
+  }
+
+  const ValidationResult validation =
+      ValidateMeshResourceDescriptor(descriptor);
+  if (!validation) {
+    return validation;
+  }
+  auto candidate = std::make_shared<const RenderAssetPayload>(
+      std::move(descriptor));
+  payload = std::move(candidate);
+  return ValidationResult::Success();
+}
+
+ValidationResult BuildOgre14GraphicsSceneMaterialFallback(
+    const Ogre14GraphicsSceneMaterialCaptureInput &input,
+    MaterialDescriptor &material) {
+  if (input.exact_name.empty() ||
+      input.exact_name.find('\0') != std::string::npos ||
+      input.exact_resource_group.find('\0') != std::string::npos) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "material.exact_identity",
+        "OGRE 14 material requires an exact nonempty NUL-free name");
+  }
+  if (input.pass_count == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE, "material.pass_count",
+        "OGRE 14 material requires at least one authored pass");
+  }
+  if (input.pass_count != 1U) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.pass_count",
+        "factor-only fallback requires exactly one authored pass");
+  }
+  if (input.texture_unit_count != 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.texture_units",
+        "factor-only fallback cannot discard authored texture units");
+  }
+  if (input.has_vertex_program || input.has_fragment_program) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.programs",
+        "factor-only fallback cannot discard authored shader programs");
+  }
+  if (!IsKnownMaterialBlend(input.blend) ||
+      !IsKnownMaterialCull(input.cull) ||
+      !IsKnownMaterialAlphaReject(input.alpha_reject)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "material.native_state",
+        "unknown OGRE 14 material blend, cull, or alpha-test state");
+  }
+  if (!IsFinite(input.diffuse_linear) ||
+      !IsFinite(input.ambient_linear) ||
+      !IsFinite(input.specular_linear) ||
+      !IsFinite(input.emissive_linear) || !IsFinite(input.shininess)) {
+    return ValidationResult::Failure(
+        ValidationCode::NON_FINITE_VALUE, "material.native_state",
+        "all captured OGRE 14 material factors must be finite");
+  }
+  if (!IsNormalizedColor(input.diffuse_linear) ||
+      !IsNonNegative(input.ambient_linear) ||
+      !IsNonNegative(input.specular_linear) ||
+      !IsNonNegative(input.emissive_linear) || input.shininess < 0.0F) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "material.native_state",
+        "OGRE 14 material factors are outside the portable fallback range");
+  }
+  if (input.blend == Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA &&
+      input.alpha_reject !=
+          Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.alpha_mode",
+        "portable fallback cannot combine legacy alpha blending and rejection");
+  }
+
+  MaterialDescriptor candidate;
+  candidate.debug_name = input.exact_resource_group.empty()
+                             ? input.exact_name
+                             : input.exact_resource_group + "/" +
+                                   input.exact_name;
+  candidate.model = input.lighting_enabled
+                        ? MaterialModel::PBR_METALLIC_ROUGHNESS
+                        : MaterialModel::UNLIT;
+  if (input.blend == Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA) {
+    candidate.alpha_mode = MaterialAlphaMode::BLEND;
+  } else if (input.alpha_reject ==
+             Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL) {
+    candidate.alpha_mode = MaterialAlphaMode::MASK;
+  } else {
+    candidate.alpha_mode = MaterialAlphaMode::OPAQUE;
+  }
+  candidate.double_sided =
+      input.cull == Ogre14GraphicsSceneMaterialCull::NONE;
+  candidate.base_color_factor = input.diffuse_linear;
+  candidate.metallic_factor = 0.0F;
+  candidate.roughness_factor = input.lighting_enabled
+                                   ? std::sqrt(2.0F /
+                                               (input.shininess + 2.0F))
+                                   : 1.0F;
+  candidate.emissive_factor =
+      input.lighting_enabled ? input.emissive_linear : Float3{};
+  candidate.emissive_strength = 1.0F;
+  candidate.alpha_cutoff =
+      static_cast<float>(input.alpha_reject_value) / 255.0F;
+
+  const ValidationResult validation = ValidateMaterialDescriptor(candidate);
+  if (!validation) {
+    return validation;
+  }
+  material = std::move(candidate);
+  return ValidationResult::Success();
+}
+
+ValidationResult BuildOgre14GraphicsSceneStaticInventory(
+    const std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &inputs,
+    Ogre14GraphicsSceneStaticIdentityRegistry &identity_registry,
+    std::vector<GraphicsSceneAssetInput> &assets,
+    std::vector<GraphicsSceneStaticMeshInput> &static_meshes) {
+  Ogre14GraphicsSceneStaticIdentityRegistry candidate_registry =
+      identity_registry;
+  std::vector<GraphicsSceneAssetInput> candidate_assets;
+  std::vector<GraphicsSceneStaticMeshInput> candidate_meshes;
+  candidate_assets.reserve(inputs.size() * 2U);
+  candidate_meshes.reserve(inputs.size());
+  std::map<std::uint64_t, std::size_t> asset_indices;
+  std::set<std::uint64_t> object_ids;
+  std::map<std::string, std::uint64_t, std::less<>> entity_object_ids;
+  std::set<std::string, std::less<>> current_asset_keys;
+  std::set<std::string, std::less<>> current_object_keys;
+
+  for (std::size_t input_index = 0U; input_index < inputs.size();
+       ++input_index) {
+    const Ogre14GraphicsSceneStaticSectionCaptureInput &input =
+        inputs[input_index];
+    if (input.exact_entity_name.empty() ||
+        input.exact_entity_name.find('\0') != std::string::npos) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_IDENTIFIER,
+          "static_meshes.exact_entity_name",
+          "managed terrain Entity requires an exact nonempty NUL-free name",
+          input_index);
+    }
+    const auto entity_identity =
+        entity_object_ids.emplace(input.exact_entity_name,
+                                  input.stable_object_id);
+    if (!entity_identity.second &&
+        entity_identity.first->second != input.stable_object_id) {
+      return ValidationResult::Failure(
+          ValidationCode::DUPLICATE_IDENTIFIER,
+          "static_meshes.exact_entity_name",
+          "one exact managed Entity name identifies multiple static objects",
+          input_index);
+    }
+    if (input.mesh_payload == nullptr ||
+        input.mesh_payload->valueless_by_exception() ||
+        RenderAssetPayloadKind(*input.mesh_payload) != RenderAssetKind::MESH) {
+      return ValidationResult::Failure(
+          input.mesh_payload == nullptr ? ValidationCode::EMPTY_PAYLOAD
+                                        : ValidationCode::WRONG_ASSET_KIND,
+          "static_meshes.mesh_payload",
+          "static section requires an immutable mesh payload", input_index);
+    }
+    const MeshResourceDescriptor &mesh =
+        std::get<MeshResourceDescriptor>(*input.mesh_payload);
+    ValidationResult validation = ValidateMeshResourceDescriptor(mesh);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+    if (mesh.dynamic || !mesh.velocities.empty()) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE,
+          "static_meshes.mesh_payload.dynamic",
+          "static MeshObject inventory cannot contain deformable streams",
+          input_index);
+    }
+    if (input.mesh_identity.reverse_winding !=
+        (input.material.cull ==
+         Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE)) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "static_meshes.mesh_winding",
+          "mesh winding conversion does not match the material front face",
+          input_index);
+    }
+    if (!HasInvertibleAffineTransform(input.render_from_object)) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          "static_meshes.render_from_object",
+          "static MeshObject transform must be finite affine and invertible",
+          input_index);
+    }
+    if (HasMirroredLinearTransform(input.render_from_object)) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE,
+          "static_meshes.render_from_object.mirrored",
+          "mirrored MeshObject transforms require canonical mesh rebasing",
+          input_index);
+    }
+
+    const std::string mesh_key = BuildMeshAssetKey(input.mesh_identity);
+    const std::string material_key = BuildMaterialAssetKey(
+        input.material.exact_resource_group, input.material.exact_name);
+    const std::string object_key =
+        BuildStaticObjectKey(input.stable_object_id, input.section_index);
+    std::uint64_t mesh_id = 0U;
+    std::uint64_t material_id = 0U;
+    std::uint64_t object_id = 0U;
+    validation = DeriveOgre14GraphicsSceneMeshAssetId(input.mesh_identity,
+                                                       mesh_id);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+    validation = DeriveOgre14GraphicsSceneMaterialAssetId(
+        input.material.exact_resource_group, input.material.exact_name,
+        material_id);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+    validation = DeriveOgre14GraphicsSceneStaticSectionId(
+        input.stable_object_id, input.section_index, object_id);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+
+    const auto reject_resurrection = [&](const std::string &key,
+                                         bool object) -> ValidationResult {
+      const auto &known = object ? identity_registry.known_object_keys_
+                                 : identity_registry.known_asset_keys_;
+      const auto &live = object ? identity_registry.live_object_keys_
+                                : identity_registry.live_asset_keys_;
+      if (known.find(key) != known.end() && live.find(key) == live.end()) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH,
+            object ? "static_meshes.source_object_id"
+                   : "assets.source_asset_id",
+            object ? "a removed static-section identity may never return"
+                   : "a removed static-asset identity may never return");
+      }
+      return ValidationResult::Success();
+    };
+    validation = reject_resurrection(mesh_key, false);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+    validation = reject_resurrection(material_key, false);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+    validation = reject_resurrection(object_key, true);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+
+    validation = candidate_registry.RegisterDerivedAssetIdentity(mesh_key,
+                                                                  mesh_id);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+    validation = candidate_registry.RegisterDerivedAssetIdentity(
+        material_key, material_id);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+    validation = candidate_registry.RegisterDerivedObjectIdentity(object_key,
+                                                                   object_id);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+
+    MaterialDescriptor material;
+    validation = BuildOgre14GraphicsSceneMaterialFallback(input.material,
+                                                          material);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+    validation = ValidateMaterialMeshCompatibility(material, mesh);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+    std::shared_ptr<const RenderAssetPayload> material_payload =
+        std::make_shared<const RenderAssetPayload>(std::move(material));
+
+    const auto canonicalize =
+        [&candidate_registry](
+            const std::string &key,
+            std::shared_ptr<const RenderAssetPayload> proposed) {
+          const auto prior =
+              candidate_registry.canonical_payloads_by_asset_key_.find(key);
+          if (prior !=
+                  candidate_registry.canonical_payloads_by_asset_key_.end() &&
+              EquivalentRenderAssetPayload(*prior->second, *proposed)) {
+            return prior->second;
+          }
+          candidate_registry.canonical_payloads_by_asset_key_[key] = proposed;
+          return proposed;
+        };
+    const std::shared_ptr<const RenderAssetPayload> canonical_mesh =
+        canonicalize(mesh_key, input.mesh_payload);
+    const std::shared_ptr<const RenderAssetPayload> canonical_material =
+        canonicalize(material_key, std::move(material_payload));
+
+    const auto add_asset = [&](std::uint64_t source_id,
+                               const std::shared_ptr<const RenderAssetPayload>
+                                   &payload_owner) -> ValidationResult {
+      const auto existing = asset_indices.find(source_id);
+      if (existing != asset_indices.end()) {
+        const GraphicsSceneAssetInput &prior =
+            candidate_assets[existing->second];
+        if (!EquivalentRenderAssetPayload(*prior.payload, *payload_owner)) {
+          return ValidationResult::Failure(
+              ValidationCode::REVISION_MISMATCH, "assets.payload",
+              "one exact OGRE 14 asset key produced conflicting payloads");
+        }
+        return ValidationResult::Success();
+      }
+      GraphicsSceneAssetInput asset;
+      asset.source_asset_id = source_id;
+      asset.payload = payload_owner;
+      asset_indices.emplace(source_id, candidate_assets.size());
+      candidate_assets.push_back(std::move(asset));
+      return ValidationResult::Success();
+    };
+    validation = add_asset(mesh_id, canonical_mesh);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+    validation = add_asset(material_id, canonical_material);
+    if (!validation) {
+      return AtStaticSection(std::move(validation), input_index);
+    }
+    if (!object_ids.insert(object_id).second ||
+        !current_object_keys.insert(object_key).second) {
+      return ValidationResult::Failure(
+          ValidationCode::DUPLICATE_IDENTIFIER,
+          "static_meshes.source_object_id",
+          "static-section identity is duplicated", input_index);
+    }
+    current_asset_keys.insert(mesh_key);
+    current_asset_keys.insert(material_key);
+
+    GraphicsSceneStaticMeshInput instance;
+    instance.source_object_id = object_id;
+    instance.mesh_source_asset_id = mesh_id;
+    instance.material_source_asset_id = material_id;
+    instance.render_from_object = input.render_from_object;
+    instance.visibility_mask = input.visible ? input.visibility_mask : 0U;
+    instance.flags = 0U;
+    if (input.casts_shadows) {
+      instance.flags |= MESH_INSTANCE_CASTS_SHADOW;
+    }
+    if (input.receives_shadows) {
+      instance.flags |= MESH_INSTANCE_RECEIVES_SHADOW;
+    }
+    if (input.visible_in_reflections) {
+      instance.flags |= MESH_INSTANCE_VISIBLE_IN_REFLECTIONS;
+    }
+    candidate_meshes.push_back(std::move(instance));
+  }
+
+  std::sort(candidate_assets.begin(), candidate_assets.end(),
+            [](const GraphicsSceneAssetInput &lhs,
+               const GraphicsSceneAssetInput &rhs) {
+              return lhs.source_asset_id < rhs.source_asset_id;
+            });
+  std::sort(candidate_meshes.begin(), candidate_meshes.end(),
+            [](const GraphicsSceneStaticMeshInput &lhs,
+               const GraphicsSceneStaticMeshInput &rhs) {
+              return lhs.source_object_id < rhs.source_object_id;
+            });
+  candidate_registry.known_asset_keys_.insert(current_asset_keys.begin(),
+                                               current_asset_keys.end());
+  candidate_registry.known_object_keys_.insert(current_object_keys.begin(),
+                                                current_object_keys.end());
+  candidate_registry.live_asset_keys_ = std::move(current_asset_keys);
+  candidate_registry.live_object_keys_ = std::move(current_object_keys);
+
+  identity_registry = std::move(candidate_registry);
+  assets = std::move(candidate_assets);
+  static_meshes = std::move(candidate_meshes);
+  return ValidationResult::Success();
 }
 
 ValidationResult BuildOgre14GraphicsSceneEnvironment(

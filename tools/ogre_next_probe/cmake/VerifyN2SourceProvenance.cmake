@@ -18,6 +18,9 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/RendererStartupHandoff.h
     source/main/gfx/RendererStartupPlan.cpp
     source/main/gfx/RendererStartupPlan.h
+    source/main/terrain/ProceduralManager.h
+    source/main/terrain/TerrainObjectManager.cpp
+    source/main/terrain/TerrainObjectManager.h
     source/main/main.cpp
     source/main/system/RendererBridgeChannel.cpp
     source/main/system/RendererBridgeChannel.h
@@ -126,6 +129,9 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/terrain/ProceduralManager.h"
+    "source/main/terrain/TerrainObjectManager.cpp"
+    "source/main/terrain/TerrainObjectManager.h"
     "source/main/main.cpp"
     "source/main/system/RendererBridgeChannel.cpp"
     "source/main/system/RendererBridgeChannel.h"

@@ -39,6 +39,7 @@
 #include "ImpostorPage.h"
 #endif //USE_PAGED
 
+#include <cstdint>
 #include <map>
 #include <unordered_map>
 #include <vector>
@@ -61,6 +62,15 @@ class TerrainObjectManager: public RefCountingObject<TerrainObjectManager>
     friend class Terrain;
 public:
 
+    struct StaticGraphicsObject
+    {
+        /// Monotonic identity allocated once when the MeshObject enters this
+        /// manager. Zero and reuse are forbidden; vector position and display
+        /// names are deliberately not identity.
+        std::uint64_t stable_id = 0U;
+        MeshObject* mesh_object = nullptr;
+    };
+
     TerrainObjectManager(Terrain* terrainManager);
     ~TerrainObjectManager();
 
@@ -80,6 +90,22 @@ public:
     /// advances on the asynchronous display frame rather than the joined
     /// physics boundary.
     bool           HasTimeVaryingVisuals() const;
+    bool           HasAnimatedStaticGeometry() const
+                   { return !m_animated_objects.empty() ||
+                       !m_particle_effect_objects.empty(); }
+    bool           HasPagedStaticGeometry() const
+    {
+#ifdef USE_PAGED
+        return !m_paged_geometry.empty();
+#else
+        return false;
+#endif
+    }
+    bool           HasProceduralGeometry() const;
+    /// Authoritative read-only inventory used only at the joined graphics
+    /// boundary. Entries remain live until removal or manager destruction.
+    const std::vector<StaticGraphicsObject>& GetStaticGraphicsObjects() const
+                   { return m_static_graphics_objects; }
     /// False once a race-event object was loaded while race collisions were
     /// disabled. Re-enabling the CVar cannot reconstruct omitted boxes.
     bool           HasCanonicalWorldModelCollisionProfile() const
@@ -171,7 +197,9 @@ protected:
     std::uint64_t                         m_next_local_light_id = 0;
     std::size_t                           m_last_logged_local_light_discovered = static_cast<std::size_t>(-1);
     std::size_t                           m_last_logged_local_light_active = static_cast<std::size_t>(-1);
-    std::vector<MeshObject*>              m_mesh_objects;
+    std::vector<StaticGraphicsObject>     m_static_graphics_objects;
+    std::uint64_t                         m_next_static_graphics_object_id = 1U;
+    bool                                  m_static_graphics_object_id_exhausted = false;
     SurveyMapEntityVec                    m_map_entities;
     bool                                  m_worldmodel_collision_profile_canonical = true;
     Terrain*                  terrainManager = nullptr;

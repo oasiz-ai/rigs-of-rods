@@ -126,6 +126,13 @@ private:
     // collision-audited identity for this adapter lifetime.
     Render::Ogre14GraphicsSceneLightIdentityRegistry
                                        m_ogre14_light_identity_registry;
+    Render::Ogre14GraphicsSceneStaticIdentityRegistry
+                                       m_ogre14_static_identity_registry;
+    // CPU extraction is performed only on a new/reloaded immutable OGRE mesh
+    // draw-range key. Stable frames reuse these immutable payload owners.
+    std::map<std::string,
+             Render::Ogre14GraphicsSceneStaticMeshCacheEntry, std::less<>>
+                                       m_ogre14_static_mesh_cache;
 
     // Free beams GFX:
     std::vector<FreeBeamGfx>          m_gfx_freebeams;
