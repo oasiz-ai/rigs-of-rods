@@ -666,6 +666,8 @@ class InputEventTransportDecoder final {
 public:
   explicit InputEventTransportDecoder(
       std::uint64_t first_expected_sequence = 1U) noexcept;
+  explicit InputEventTransportDecoder(
+      RenderTransportSequenceState &shared_sequence_state) noexcept;
 
   InputEventTransportDecoder(const InputEventTransportDecoder &) = delete;
   InputEventTransportDecoder &
@@ -678,10 +680,10 @@ public:
   Accept(const std::vector<std::uint8_t> &frame);
 
   [[nodiscard]] std::uint64_t next_expected_sequence() const noexcept {
-    return sequence_state_.next_expected_sequence();
+    return sequence_state_->next_expected_sequence();
   }
   [[nodiscard]] std::uint64_t last_accepted_sequence() const noexcept {
-    return sequence_state_.last_accepted_sequence();
+    return sequence_state_->last_accepted_sequence();
   }
   [[nodiscard]] std::uint64_t last_event_id() const noexcept {
     return last_event_id_;
@@ -707,7 +709,8 @@ private:
     InputTransportRawDeviceDescriptor raw_descriptor;
   };
 
-  RenderTransportSequenceState sequence_state_;
+  RenderTransportSequenceState owned_sequence_state_;
+  RenderTransportSequenceState *sequence_state_ = &owned_sequence_state_;
   bool clock_configured_ = false;
   InputTransportClockDomain clock_domain_ =
       InputTransportClockDomain::HOST_MONOTONIC_NANOSECONDS;

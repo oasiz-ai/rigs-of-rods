@@ -405,8 +405,11 @@ void TestInterleavedAssetsScenesAndPresentation() {
           "dispatcher did not require the session-derived registry");
 
   const auto asset1 = AssetFrame(1U, AssetDelta(registry_id, 1U, true));
-  Require(dispatcher.Dispatch(asset1, OffscreenPolicy()).ok(),
-          "initial asset catalog was not synchronized");
+  const RendererFrontendTransportDispatchResult synchronized1 =
+      dispatcher.Dispatch(asset1, OffscreenPolicy());
+  Require(synchronized1.ok(), "initial asset catalog was not synchronized");
+  Require(synchronized1.scene_snapshot_id == 0U,
+          "asset result claimed a scene snapshot identity");
 
   const auto scene1 = SceneFrame(2U, Scene(1U, registry_id, 1U));
   const RendererFrontendTransportDispatchResult rendered1 =
@@ -414,6 +417,8 @@ void TestInterleavedAssetsScenesAndPresentation() {
   RequireStatus(rendered1.status,
                 RendererFrontendTransportDispatchStatus::SCENE_FRAME_COMPLETED,
                 "presented scene did not complete");
+  Require(rendered1.scene_snapshot_id == 1U,
+          "presented scene did not expose its decoded snapshot identity");
   Require(rendered1.resources_released == 2U,
           "presented color/depth resources were not released");
   Require(frontend.rendered_requests.size() == 1U,
@@ -445,6 +450,8 @@ void TestInterleavedAssetsScenesAndPresentation() {
       dispatcher.Dispatch(scene2, OffscreenPolicy());
   Require(rendered2.ok() && rendered2.resources_released == 1U,
           "offscreen scene did not complete and release its attachment");
+  Require(rendered2.scene_snapshot_id == 2U,
+          "offscreen scene did not expose its decoded snapshot identity");
   const RenderFrameRequest &request2 = frontend.rendered_requests.back();
   Require(request2.frame_id == 4U && !request2.present &&
               request2.presentation_view_id == 0U &&

@@ -1447,7 +1447,11 @@ bool ValidateCompleteTransition(
 
 InputEventTransportDecoder::InputEventTransportDecoder(
     std::uint64_t first_expected_sequence) noexcept
-    : sequence_state_(first_expected_sequence) {}
+    : owned_sequence_state_(first_expected_sequence) {}
+
+InputEventTransportDecoder::InputEventTransportDecoder(
+    RenderTransportSequenceState &shared_sequence_state) noexcept
+    : owned_sequence_state_(1U), sequence_state_(&shared_sequence_state) {}
 
 InputEventTransportDecodeResult
 InputEventTransportDecoder::Accept(const std::vector<std::uint8_t> &frame) {
@@ -1461,7 +1465,7 @@ InputEventTransportDecoder::Accept(const std::vector<std::uint8_t> &frame) {
     return Failure(RenderTransportStatus::UNKNOWN_MESSAGE_KIND);
   }
   const RenderTransportStatus sequence_status =
-      sequence_state_.ValidateCandidate(envelope.sequence);
+      sequence_state_->ValidateCandidate(envelope.sequence);
   if (sequence_status != RenderTransportStatus::OK) {
     return Failure(sequence_status);
   }
@@ -1625,7 +1629,7 @@ InputEventTransportDecoder::Accept(const std::vector<std::uint8_t> &frame) {
         batch->reconciliation;
     std::shared_ptr<const DecodedInputEventTransportMessage> candidate(
         new DecodedInputEventTransportMessage(envelope.sequence, batch));
-    if (!sequence_state_.CommitAccepted(envelope.sequence)) {
+    if (!sequence_state_->CommitAccepted(envelope.sequence)) {
       return Failure(RenderTransportStatus::INVALID_SEQUENCE);
     }
     clock_configured_ = true;
