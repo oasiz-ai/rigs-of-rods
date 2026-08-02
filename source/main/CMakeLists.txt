@@ -45,7 +45,6 @@ set(SOURCE_FILES
         gfx/render/GraphicsSceneSnapshotProducer.{h,cpp}
         gfx/render/Ogre14GraphicsSceneSource.{h,cpp}
         gfx/render/Ogre14LegacyAssetTranslator.{h,cpp}
-        gfx/render/Ogre14LegacyNativeAssetExtractor.h
         gfx/render/Ogre14ProceduralRoadSource.{h,cpp}
         gfx/render/HdrReference.{h,cpp}
         gfx/render/InputEventTransport.{h,cpp}
@@ -388,11 +387,11 @@ if (ROR_USE_ANGELSCRIPT)
 endif ()
 
 if (ROR_OGRE14)
-    # Native OGRE types remain confined to this adapter implementation. The
-    # renderer-neutral translator above continues to build in standalone tests
-    # and with the legacy dependency graph.
+    # Native OGRE types remain confined to the OGRE 14 integration directory.
+    # The renderer-neutral boundary above continues to build in standalone
+    # tests and with either renderer dependency graph.
     list(APPEND SOURCE_FILES
-        gfx/render/Ogre14LegacyNativeAssetExtractor.cpp)
+        gfx/ogre14/Ogre14LegacyNativeAssetExtractor.{h,cpp})
 endif ()
 
 include(SourceFileUtils)

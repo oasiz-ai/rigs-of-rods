@@ -1135,12 +1135,12 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
 if (ROR_OGRE14 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(
         ror_ogre14_legacy_native_asset_extractor_compile_tests
-        "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
-        "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14LegacyNativeAssetExtractor.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
     )
     target_include_directories(
         ror_ogre14_legacy_native_asset_extractor_compile_tests
-        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
         SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
     )
     if (TARGET OgreMain)
