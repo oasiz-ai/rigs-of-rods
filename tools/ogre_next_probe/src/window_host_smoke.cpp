@@ -14,6 +14,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <thread>
 
 namespace {
 
@@ -93,6 +94,25 @@ int main() {
       native == nullptr || native->sdl_window == nullptr ||
       native->native_window == 0U) {
     std::cerr << "hidden-window native binding/metrics validation failed\n";
+    (void)host.Shutdown();
+    return EXIT_FAILURE;
+  }
+
+  RoR::RendererOgreNextWindowHostStatus foreign_thread_status =
+      RoR::RendererOgreNextWindowHostStatus::FAILED_INTERNAL;
+  std::thread foreign_thread([&host, &foreign_thread_status]() {
+    foreign_thread_status = host.RefreshMetrics();
+  });
+  foreign_thread.join();
+  if (foreign_thread_status !=
+          RoR::RendererOgreNextWindowHostStatus::
+              REJECTED_OWNER_THREAD_REQUIRED ||
+      host.Lifecycle() !=
+          RoR::RendererOgreNextWindowLifecycle::READY_HIDDEN ||
+      host.Binding() != binding || host.Metrics() != metrics ||
+      host.NativeWindow() != native ||
+      host.Metrics()->generation != 1U) {
+    std::cerr << "foreign-thread live host validation did not fail closed\n";
     (void)host.Shutdown();
     return EXIT_FAILURE;
   }

@@ -184,6 +184,86 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
         )
         self.assertIn("PointerString(&binding.x11_pair)", self.host)
 
+    def test_owner_thread_affinity_is_mandatory_and_cross_platform(self) -> None:
+        for token in (
+            "kRendererOgreNextWindowHostContractVersion = 2U",
+            "claim_or_validate_owner_thread",
+            "REJECTED_OWNER_THREAD_REQUIRED = 14",
+            "Explicit successful owner-thread Shutdown is",
+            "bool RendererOgreNextWindowHost::IsOwnerThread()",
+            "const std::thread::id current",
+            "std::this_thread::get_id()",
+            "RendererOgreNextCocoaIsMainThread()",
+            "RequireOwnerThread(\"SDL window creation\")",
+            "RequireOwnerThread(\"SDL native-window query\")",
+            "RequireOwnerThread(\"SDL window visibility\")",
+            "RequireOwnerThread(\"SDL window resize\")",
+            "RequireOwnerThread(\"SDL window destruction\")",
+            "RequireOwnerThread(\"SDL video shutdown\")",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(
+                    token, self.host_header + self.host + self.adapter
+                )
+        owner_check = self.host[
+            self.host.index("bool RendererOgreNextWindowHost::IsOwnerThread()") :
+            self.host.index("bool RendererOgreNextWindowHost::HasLiveOwnership()")
+        ]
+        self.assertLess(owner_check.index("is_main_thread"), owner_check.index(
+            "claim_or_validate_owner_thread(m_runtime.context)"
+        ))
+        tests = (
+            REPOSITORY_ROOT / "tests/gfx/RendererOgreNextWindowHostTests.cpp"
+        ).read_text(encoding="utf-8")
+        for token in (
+            "RunOnForeignThread",
+            "foreign lifecycle calls invoked native callbacks or mutated state",
+            "CocoaMainThreadIsRevalidatedAfterInitialize",
+            "Cocoa off-main shutdown mutated or released live ownership",
+            "a v1 runtime escaped the owner-thread ABI v2 rejection",
+            "a v1 request escaped the owner-thread ABI v2 rejection",
+            "TestDestructorNeverPerformsForeignThreadNativeCleanup",
+            "foreign-thread destructor invoked a native cleanup callback",
+            "owner-thread destructor did not finish best-effort cleanup",
+        ):
+            self.assertIn(token, tests)
+
+    def test_cleanup_retains_exact_ownership_until_retry_succeeds(self) -> None:
+        cleanup = self.host[
+            self.host.index("RendererOgreNextWindowHost::Cleanup(") :
+            self.host.index("bool RendererOgreNextWindowHost::IsOwnerThread()")
+        ]
+        self.assertEqual(
+            cleanup.count("RendererOgreNextWindowHostStatus::FAILED_SHUTDOWN"), 3
+        )
+        self.assertEqual(
+            cleanup.count("m_lifecycle = RendererOgreNextWindowLifecycle::FAILED"),
+            3,
+        )
+        self.assertLess(
+            cleanup.index("if (!destroyed)"),
+            cleanup.index("m_metal_view_owned = false"),
+        )
+        self.assertLess(
+            cleanup.index("m_metal_view_owned = false"),
+            cleanup.index("if (m_window_owned)"),
+        )
+        self.assertLess(
+            cleanup.index("m_window_owned = false"),
+            cleanup.index("if (m_video_owned)"),
+        )
+        self.assertIn("Do not consume the retained bridge until AppKit confirms", self.cocoa)
+        tests = (
+            REPOSITORY_ROOT / "tests/gfx/RendererOgreNextWindowHostTests.cpp"
+        ).read_text(encoding="utf-8")
+        for token in (
+            "ExerciseRetryableCleanup(stage, false)",
+            "ExerciseRetryableCleanup(stage, true)",
+            "teardown did not stop at the first unsafe dependency",
+            "owner-thread teardown retry leaked or double-destroyed a dependency",
+        ):
+            self.assertIn(token, tests)
+
     def test_sdl_syswm_and_x11_pair_have_compile_time_abi_proof(self) -> None:
         for token in (
             "#include <SDL_syswm.h>",
@@ -318,6 +398,10 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
 
     def test_probe_targets_compile_and_run_without_product_admission(self) -> None:
         for token in (
+            "enable_language(OBJC)",
+            "enable_language(OBJCXX)",
+            "find_package(Threads REQUIRED)",
+            "PRIVATE Threads::Threads",
             "ror_renderer_ogre_next_window_host_tests",
             "ror_renderer_ogre_next_sdl_window_runtime",
             "RendererOgreNextSdlWindowRuntimeCocoa.mm",
@@ -427,6 +511,8 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
         smoke = (PROBE_ROOT / "src/window_host_smoke.cpp").read_text(
             encoding="utf-8"
         )
+        self.assertIn("foreign-thread live host validation did not fail closed", smoke)
+        self.assertIn("REJECTED_OWNER_THREAD_REQUIRED", smoke)
         self.assertIn("no Ogre presentation or package admission claimed", smoke)
         self.assertNotRegex(smoke, re.compile(r"createRenderWindow|Compositor|swapBuffers"))
         build_contract = (

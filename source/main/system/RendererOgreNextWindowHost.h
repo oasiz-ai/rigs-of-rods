@@ -18,7 +18,7 @@
 
 namespace RoR {
 
-constexpr std::uint32_t kRendererOgreNextWindowHostContractVersion = 1U;
+constexpr std::uint32_t kRendererOgreNextWindowHostContractVersion = 2U;
 constexpr std::uint32_t kRendererOgreNextWindowHostSdlMajor = 2U;
 constexpr std::uint32_t kRendererOgreNextWindowHostSdlMinor = 32U;
 constexpr std::uint32_t kRendererOgreNextWindowHostSdlPatch = 10U;
@@ -70,6 +70,7 @@ enum class RendererOgreNextWindowHostStatus : std::uint8_t {
   FAILED_WINDOW_RESIZE = 11,
   FAILED_SHUTDOWN = 12,
   FAILED_INTERNAL = 13,
+  REJECTED_OWNER_THREAD_REQUIRED = 14,
 };
 
 enum RendererOgreNextWindowCreateFlag : std::uint32_t {
@@ -169,8 +170,9 @@ struct RendererOgreNextWindowBinding {
 /// The SDL/Objective-C adapter boundary. Callbacks are deliberately injected:
 /// this contract can be tested on every host without constructing a native
 /// window, while the eventual platform adapter remains the only SDL consumer.
-/// Callback implementations may throw; the host catches every exception and
-/// still attempts reverse-order cleanup.
+/// Callback implementations may throw; the host catches every exception.
+/// A teardown callback returning false or throwing means that exact resource
+/// remains owned and must be retried before any dependent owner is destroyed.
 struct RendererOgreNextWindowHostRuntime {
   std::uint32_t version = kRendererOgreNextWindowHostContractVersion;
   RendererOgreNextWindowPlatform compiled_platform =
@@ -179,6 +181,12 @@ struct RendererOgreNextWindowHostRuntime {
   std::uint32_t sdl_minor = 0U;
   std::uint32_t sdl_patch = 0U;
   void *context = nullptr;
+  /// The first successful call claims the calling thread as the sole SDL/native
+  /// window owner. Every later call validates that exact thread. This callback
+  /// is required on every platform; Cocoa additionally requires
+  /// `is_main_thread` and implementations must keep validating the AppKit main
+  /// thread on later calls too.
+  bool (*claim_or_validate_owner_thread)(void *context) = nullptr;
   bool (*is_main_thread)(void *context) = nullptr;
   bool (*initialize_sdl_video)(void *context,
                                const char *required_driver) = nullptr;
@@ -213,7 +221,12 @@ struct RendererOgreNextWindowHostRuntime {
 /// Owns one hidden SDL presentation window and, on macOS, its OgreMetalView.
 /// It never creates an Ogre render window and never admits or packages the
 /// Ogre-Next child. The binding is valid only while this object owns the
-/// native resources and is intentionally returned by reference.
+/// native resources and is intentionally returned by reference. Initialize
+/// claims the sole owner thread and every live lifecycle call, including
+/// Shutdown, must run there. Explicit successful owner-thread Shutdown is
+/// required before destruction. The destructor never invokes native callbacks
+/// when owner validation fails; it intentionally leaves ownership untouched
+/// rather than attempting unsafe cross-thread UI cleanup.
 class RendererOgreNextWindowHost final {
 public:
   RendererOgreNextWindowHost() = default;
@@ -250,6 +263,9 @@ public:
 private:
   RendererOgreNextWindowHostStatus Cleanup(
       RendererOgreNextWindowHostStatus success_status) noexcept;
+  RendererOgreNextWindowHostStatus RefreshMetricsOnOwnerThread() noexcept;
+  bool IsOwnerThread() noexcept;
+  bool HasLiveOwnership() const noexcept;
   void FailClosedAfterLiveWindowFailure() noexcept;
 
   RendererOgreNextWindowLifecycle m_lifecycle =
@@ -262,6 +278,7 @@ private:
   bool m_video_owned = false;
   bool m_window_owned = false;
   bool m_metal_view_owned = false;
+  bool m_owner_thread_claimed = false;
 };
 
 bool IsKnownRendererOgreNextWindowPlatform(

@@ -50,9 +50,18 @@ bool RendererOgreNextCocoaDestroyMetalView(void *metal_view) noexcept {
   if (metal_view == nullptr) {
     return false;
   }
-  OgreMetalView *view = (__bridge_transfer OgreMetalView *)metal_view;
+  // Do not consume the retained bridge until AppKit confirms detachment.
+  // Returning false means the caller still owns this exact retained pointer
+  // and may safely retry destruction.
+  OgreMetalView *view = (__bridge OgreMetalView *)metal_view;
   [view removeFromSuperview];
-  return view.superview == nil;
+  if (view.superview != nil) {
+    return false;
+  }
+  OgreMetalView *released_view =
+      (__bridge_transfer OgreMetalView *)metal_view;
+  (void)released_view;
+  return true;
 }
 
 } // namespace RoR

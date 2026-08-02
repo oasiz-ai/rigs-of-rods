@@ -3,11 +3,11 @@ cmake_minimum_required(VERSION 3.24)
 project(ror_ogre_next_probe LANGUAGES C CXX)
 
 if (APPLE)
+    enable_language(OBJCXX)
     # SDL's Cocoa backend contains Objective-C (.m) translation units. Enable
     # OBJC explicitly so CMake does not route them through the Objective-C++
     # compiler and leak the probe's C++17 flag into plain Objective-C sources.
     enable_language(OBJC)
-    enable_language(OBJCXX)
 endif ()
 
 option(
@@ -31,6 +31,7 @@ endif ()
 set(ROR_OGRE_NEXT_STANDALONE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PinnedOgreNext.cmake")
 find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+find_package(Threads REQUIRED)
 get_filename_component(ROR_REPOSITORY_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 set(ROR_SOURCE_REPOSITORY "https://github.com/oasiz-ai/rigs-of-rods")
@@ -720,6 +721,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     target_include_directories(
         ror_renderer_ogre_next_window_host_tests
         PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system")
+    target_link_libraries(
+        ror_renderer_ogre_next_window_host_tests
+        PRIVATE Threads::Threads)
     set_target_properties(
         ror_renderer_ogre_next_window_host_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -752,7 +756,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PUBLIC "${ROR_REPOSITORY_ROOT}/source/main/system")
     target_link_libraries(
         ror_renderer_ogre_next_sdl_window_runtime
-        PUBLIC SDL2::SDL2-static)
+        PUBLIC SDL2::SDL2-static Threads::Threads)
     set_target_properties(
         ror_renderer_ogre_next_sdl_window_runtime
         PROPERTIES

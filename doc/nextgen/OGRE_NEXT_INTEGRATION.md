@@ -162,12 +162,25 @@ explicit unsupported result. The Linux Ogre build retains both the hidden
 
 Window lifecycle is fail-closed. Creation starts hidden, Cocoa view/window/SDL
 video ownership unwinds in reverse order, and show/hide complete only after a
-bounded native SDL event acknowledgement. Resume then re-queries and validates
-the same native window before publishing its post-show drawable extent; it
-never commits the potentially stale hidden-window backing scale. Logical resize
-does not publish a surface revision until a matching Cocoa/WM_SIZE/X11
-configure event and the acknowledged drawable-pixel extent arrive. A separate
-metrics refresh observes
+bounded native SDL event acknowledgement. The first runtime validation records
+one SDL/native-window owner thread on every platform; Cocoa additionally
+requires and revalidates the AppKit main thread. Resume, suspend, resize,
+metrics refresh, and shutdown reject a foreign thread before any native
+callback or lifecycle mutation. Explicit successful owner-thread shutdown is
+required before host/runtime destruction; destructors never attempt native UI
+cleanup after owner validation fails.
+
+Teardown is dependency-ordered and retryable. A destroy callback returning
+false or throwing means that exact retained view, window, or SDL-video owner
+remains live. The host enters `FAILED`, invalidates its renderer binding, stops
+before destroying a dependency, and permits owner-thread `Shutdown` retry.
+Only confirmed destruction clears a handle or ownership flag, and only complete
+view -> window -> video teardown publishes `SHUTDOWN`. Resume then re-queries
+and validates the same native window before publishing its post-show drawable
+extent; it never commits the potentially stale hidden-window backing scale.
+Logical resize does not publish a surface revision until a matching
+Cocoa/WM_SIZE/X11 configure event and the acknowledged drawable-pixel extent
+arrive. A separate metrics refresh observes
 same-logical-size HiDPI/display-scale changes, so Retina migration can advance
 the monotonic surface generation without pretending a resize occurred. SDL
 event watches observe these acknowledgements without consuming close, focus,
