@@ -22,8 +22,8 @@
 namespace RoR::Render {
 
 constexpr std::uint32_t kRendererFrontendTransportDispatcherContractVersion =
-    1U;
-constexpr std::uint32_t kRendererFrontendPresentationPolicyVersion = 1U;
+    2U;
+constexpr std::uint32_t kRendererFrontendPresentationPolicyVersion = 2U;
 
 /// Explicit policy supplied by the native window/presentation owner for each
 /// complete transport frame. A presented scene selects its sole decoded
@@ -38,11 +38,16 @@ struct RendererFrontendPresentationPolicy final {
   std::uint64_t presentation_surface_revision = 0U;
   bool present = false;
   bool allow_async_compute = false;
+  /// Decode and validate this scene against the exact forward/asset lineage,
+  /// then consume it without querying capabilities or invoking the frontend.
+  /// Used only for a scene already in flight when the native surface changed.
+  bool retire_scene_without_render = false;
 };
 
 enum class RendererFrontendTransportDispatchStatus : std::uint8_t {
   ASSET_DELTA_SYNCHRONIZED = 0U,
   SCENE_FRAME_COMPLETED,
+  SCENE_FRAME_RETIRED,
   REJECTED_TERMINAL,
   REJECTED_INVALID_SESSION,
   REJECTED_INVALID_FRAME,
@@ -82,7 +87,9 @@ struct RendererFrontendTransportDispatchResult final {
     return status == RendererFrontendTransportDispatchStatus::
                          ASSET_DELTA_SYNCHRONIZED ||
            status ==
-               RendererFrontendTransportDispatchStatus::SCENE_FRAME_COMPLETED;
+               RendererFrontendTransportDispatchStatus::SCENE_FRAME_COMPLETED ||
+           status ==
+               RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED;
   }
   explicit operator bool() const noexcept { return ok(); }
 };

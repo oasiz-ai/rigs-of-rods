@@ -18,7 +18,14 @@
 
 namespace RoR {
 
-constexpr std::uint32_t kRendererOgreNextChildContractVersion = 3U;
+constexpr std::uint32_t kRendererOgreNextChildContractVersion = 4U;
+
+/// Reserved process exits consumed by the public launcher. Only a production
+/// child that fails before publishing PEER_READY is eligible for automatic
+/// startup fallback. Any abnormal exit after readiness is a mid-session
+/// failure and must remain visible instead of silently changing renderers.
+constexpr int kRendererOgreNextChildPrePeerReadyFailureExitCode = 73;
+constexpr int kRendererOgreNextChildPostPeerReadyFailureExitCode = 74;
 
 /// The no-suffix mode remains only for the isolated native execution receipt.
 /// A production invocation must carry the exact presentation bridge endpoint
@@ -35,6 +42,12 @@ enum class RendererOgreNextFrontendBootstrapStatus : std::uint8_t {
   SHUTDOWN_FAILED = 3,
   FAILED_INTERNAL = 4,
   ACCEPTED_PRODUCTION_BRIDGE_ORCHESTRATION = 5,
+};
+
+enum class RendererOgreNextProductionReadiness : std::uint8_t {
+  NOT_PRODUCTION = 0U,
+  PRE_PEER_READY = 1U,
+  PEER_READY_SENT = 2U,
 };
 
 /// Fully owned input to the injected frontend seam. The orchestration layer
@@ -57,6 +70,8 @@ struct RendererOgreNextFrontendBootstrapResult final {
       RendererOgreNextChildInvocationMode::PROBE_HEADLESS;
   RendererOgreNextFrontendBootstrapStatus status =
       RendererOgreNextFrontendBootstrapStatus::FAILED_INTERNAL;
+  RendererOgreNextProductionReadiness production_readiness =
+      RendererOgreNextProductionReadiness::NOT_PRODUCTION;
   bool accepted = false;
   bool completed = false;
 };
@@ -105,6 +120,8 @@ struct RendererOgreNextChildResult {
   RendererStartupPlanResult startup_plan;
   RendererOgreNextFrontendBootstrapRequest frontend_request;
   RendererOgreNextFrontendBootstrapResult frontend;
+  RendererOgreNextProductionReadiness production_readiness =
+      RendererOgreNextProductionReadiness::NOT_PRODUCTION;
   bool accepted = false;
   bool completed = false;
 };
@@ -131,6 +148,12 @@ RendererOgreNextChildResult RunRendererOgreNextChild(
     int argc, const RendererChildLauncherChar *const argv[],
     const RendererOgreNextChildRuntime &runtime) noexcept;
 
+/// Return the exact reserved process exit for a failed production runtime, or
+/// zero when the result is not such a failure. The public launcher may fall
+/// back only for kRendererOgreNextChildPrePeerReadyFailureExitCode.
+int ResolveRendererOgreNextProductionFailureExitCode(
+    const RendererOgreNextChildResult &result) noexcept;
+
 /// Preserve decoder-internal failures while classifying all known caller-side
 /// rejections as child-intent failures. READY and unknown values are invalid
 /// in a rejection path and therefore fail internally.
@@ -147,10 +170,13 @@ bool IsKnownRendererOgreNextChildInvocationMode(
     RendererOgreNextChildInvocationMode mode) noexcept;
 bool IsKnownRendererOgreNextFrontendBootstrapStatus(
     RendererOgreNextFrontendBootstrapStatus status) noexcept;
+bool IsKnownRendererOgreNextProductionReadiness(
+    RendererOgreNextProductionReadiness readiness) noexcept;
 bool IsKnownRendererOgreNextChildStatus(
     RendererOgreNextChildStatus status) noexcept;
 const char *ToString(RendererOgreNextChildInvocationMode mode) noexcept;
 const char *ToString(RendererOgreNextFrontendBootstrapStatus status) noexcept;
+const char *ToString(RendererOgreNextProductionReadiness readiness) noexcept;
 const char *ToString(RendererOgreNextChildStatus status) noexcept;
 
 } // namespace RoR
