@@ -18,8 +18,9 @@ namespace RoR::Render {
 namespace {
 
 std::uint16_t ReadU16(const std::uint8_t *bytes) noexcept {
-  return static_cast<std::uint16_t>(bytes[0U]) |
-         (static_cast<std::uint16_t>(bytes[1U]) << 8U);
+  return static_cast<std::uint16_t>(
+      static_cast<std::uint32_t>(bytes[0U]) |
+      (static_cast<std::uint32_t>(bytes[1U]) << 8U));
 }
 
 std::uint64_t ReadU64(const std::uint8_t *bytes) noexcept {

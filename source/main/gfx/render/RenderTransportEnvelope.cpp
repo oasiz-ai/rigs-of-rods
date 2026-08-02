@@ -157,8 +157,9 @@ private:
 };
 
 std::uint16_t ReadHeaderU16(const std::uint8_t *bytes) noexcept {
-  return static_cast<std::uint16_t>(bytes[0U]) |
-         (static_cast<std::uint16_t>(bytes[1U]) << 8U);
+  return static_cast<std::uint16_t>(
+      static_cast<std::uint32_t>(bytes[0U]) |
+      (static_cast<std::uint32_t>(bytes[1U]) << 8U));
 }
 
 std::uint64_t ReadHeaderU64(const std::uint8_t *bytes) noexcept {

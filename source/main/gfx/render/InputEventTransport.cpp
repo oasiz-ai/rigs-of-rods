@@ -1569,24 +1569,25 @@ InputEventTransportDecoder::Accept(const std::vector<std::uint8_t> &frame) {
                      &event.payload)) {
         device_id = axis->device_id;
         generation = axis->connection_generation;
-      } else if (const auto *connection =
+      } else if (const auto *raw_connection =
                      std::get_if<InputTransportRawDeviceConnectionEvent>(
                          &event.payload)) {
         raw = true;
-        device_id = connection->descriptor.device_id;
-        generation = connection->descriptor.connection_generation;
-        reject_absent_reuse = IsConnected(connection->state);
-        raw_descriptor = &connection->descriptor;
-      } else if (const auto *button = std::get_if<InputTransportRawButtonEvent>(
-                     &event.payload)) {
+        device_id = raw_connection->descriptor.device_id;
+        generation = raw_connection->descriptor.connection_generation;
+        reject_absent_reuse = IsConnected(raw_connection->state);
+        raw_descriptor = &raw_connection->descriptor;
+      } else if (const auto *raw_button =
+                     std::get_if<InputTransportRawButtonEvent>(
+                         &event.payload)) {
         raw = true;
-        device_id = button->device_id;
-        generation = button->connection_generation;
-      } else if (const auto *axis =
+        device_id = raw_button->device_id;
+        generation = raw_button->connection_generation;
+      } else if (const auto *raw_axis =
                      std::get_if<InputTransportRawAxisEvent>(&event.payload)) {
         raw = true;
-        device_id = axis->device_id;
-        generation = axis->connection_generation;
+        device_id = raw_axis->device_id;
+        generation = raw_axis->connection_generation;
       } else if (const auto *hat =
                      std::get_if<InputTransportRawHatEvent>(&event.payload)) {
         raw = true;

@@ -227,8 +227,9 @@ RenderAssetDelta MakeMeshOnlyDelta() {
 
 std::uint16_t ReadU16(const std::vector<std::uint8_t> &bytes,
                       std::size_t offset) {
-  return static_cast<std::uint16_t>(bytes[offset]) |
-         (static_cast<std::uint16_t>(bytes[offset + 1U]) << 8U);
+  return static_cast<std::uint16_t>(
+      static_cast<std::uint32_t>(bytes[offset]) |
+      (static_cast<std::uint32_t>(bytes[offset + 1U]) << 8U));
 }
 
 std::uint64_t ReadU64(const std::vector<std::uint8_t> &bytes,
@@ -392,8 +393,11 @@ void TestFramingCountsLengthsAndCorruption() {
   Require(encoded.ok(), "framing fixture was not encoded");
 
   for (std::size_t size = 0U; size < encoded.bytes.size(); ++size) {
+    const auto size_offset =
+        static_cast<std::vector<std::uint8_t>::difference_type>(size);
+    const auto prefix_end = encoded.bytes.begin() + size_offset;
     const std::vector<std::uint8_t> prefix(encoded.bytes.begin(),
-                                           encoded.bytes.begin() + size);
+                                           prefix_end);
     const RenderTransportStatus expected =
         size < kRenderTransportEnvelopeHeaderBytes
             ? RenderTransportStatus::FRAME_TRUNCATED
