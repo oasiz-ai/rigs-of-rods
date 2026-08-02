@@ -254,6 +254,23 @@ target_include_directories(
 )
 
 add_executable(
+    ror_renderer_bridge_launch_plan_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererBridgeLaunchPlanTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeLaunchPlan.cpp"
+)
+target_include_directories(
+    ror_renderer_bridge_launch_plan_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+
+add_executable(
     ror_renderer_child_launcher_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererChildLauncherTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
@@ -1564,6 +1581,11 @@ add_test(
 add_test(
     NAME renderer_bridge_endpoint
     COMMAND ror_renderer_bridge_endpoint_tests
+)
+
+add_test(
+    NAME renderer_bridge_launch_plan
+    COMMAND ror_renderer_bridge_launch_plan_tests
 )
 
 add_test(

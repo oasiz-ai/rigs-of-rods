@@ -269,6 +269,7 @@ set(SOURCE_FILES
         system/ConsoleCmd.{h,cpp}
         system/CVar.{h,cpp}
         system/RendererBridgeEndpoint.{h,cpp}
+        system/RendererBridgeLaunchPlan.{h,cpp}
         system/RendererChildIntent.{h,cpp}
         system/RendererChildLauncher.{h,cpp}
         terrain/OgreTerrainPSSMMaterialGenerator.{h,cpp}
@@ -530,6 +531,8 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
         system/RendererPublicLauncher.h
         system/RendererBridgeEndpoint.cpp
         system/RendererBridgeEndpoint.h
+        system/RendererBridgeLaunchPlan.cpp
+        system/RendererBridgeLaunchPlan.h
         system/RendererChildIntent.cpp
         system/RendererChildIntent.h
         system/RendererChildLauncher.cpp
