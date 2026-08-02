@@ -1193,6 +1193,13 @@ else ()
         if (ROR_RENDERER_PUBLIC_LAUNCHER)
             set(_ror_linux_installed_game_executable "RoR-Ogre14")
         endif ()
+        ror_ogre14_cmakedeps_runtime_search_dirs(
+            _ror_linux_runtime_search_dirs
+            "${CMAKE_BUILD_TYPE}")
+        ror_ogre14_install_set_list_code(
+            _ror_linux_runtime_search_dirs_install_code
+            ROR_LINUX_RUNTIME_SEARCH_DIRS
+            "${_ror_linux_runtime_search_dirs}")
         string(CONCAT
             _ror_linux_runtime_install_code
             "set(ROR_LINUX_BUILD_EXECUTABLE "
@@ -1206,8 +1213,7 @@ else ()
                 "${_ror_ogre14_plugin_dir_RELEASE}>\")\n"
             "set(ROR_LINUX_PLUGINS_CFG "
                 "\"${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg\")\n"
-            "set(ROR_LINUX_RUNTIME_SEARCH_DIRS "
-                "\"${CONAN_RUNTIME_LIB_DIRS}\")\n"
+            "${_ror_linux_runtime_search_dirs_install_code}"
             "set(ROR_LINUX_INSTALL_PLUGIN_FOLDER "
                 "\"${_ror_ogre14_runtime_INSTALL_PLUGIN_FOLDER}\")\n"
             "set(ROR_LINUX_CONTRACT_MODULE "
@@ -1244,6 +1250,8 @@ if (ROR_OGRE14)
     unset(_ror_ogre14_build_plugin_folder)
     unset(_ror_linux_install_root_code)
     unset(_ror_linux_installed_game_executable)
+    unset(_ror_linux_runtime_search_dirs)
+    unset(_ror_linux_runtime_search_dirs_install_code)
     unset(_ror_linux_runtime_install_code)
     unset(_ror_ogre14_runtime_PACKAGE_PLUGIN_SUBDIR)
     unset(_ror_ogre14_runtime_RENDERER_PLUGIN)

@@ -21,6 +21,16 @@ def native_path_text(value: str | Path) -> str:
     return os.path.normcase(os.path.normpath(os.fspath(value)))
 
 
+def cmake_bracket(value: str | Path) -> str:
+    """Return an injection-safe CMake bracket argument."""
+
+    text = os.fspath(value)
+    equals = "="
+    while f"]{equals}]" in text:
+        equals += "="
+    return f"[{equals}[{text}]{equals}]"
+
+
 def select_lockfile(system_name: str, processor: str) -> subprocess.CompletedProcess:
     with tempfile.TemporaryDirectory(prefix="ror-ogre14-platform-") as directory:
         output_path = Path(directory) / "selected.txt"
@@ -200,6 +210,149 @@ def select_package_roots(
                 for value in output_path.read_text(
                     encoding="utf-8"
                 ).splitlines()
+            )
+        return result
+
+
+def generate_runtime_search_install_fixture() -> subprocess.CompletedProcess:
+    """Configure and execute an install(CODE) CMakeDeps-list fixture."""
+
+    with tempfile.TemporaryDirectory(
+        prefix="ror-ogre14-runtime-search-"
+    ) as directory:
+        temporary_root = Path(directory)
+        source_root = temporary_root / "source"
+        build_root = temporary_root / "build"
+        install_root = temporary_root / "install"
+        source_root.mkdir()
+
+        alpha_root = temporary_root / "alpha package"
+        beta_root = temporary_root / "beta package"
+        ogre_root = temporary_root / "ogre package ]=] literal"
+        header_root = temporary_root / "header only"
+        (alpha_root / "lib").mkdir(parents=True)
+        (beta_root / "bin").mkdir(parents=True)
+        (ogre_root / "lib").mkdir(parents=True)
+        (ogre_root / "bin").mkdir()
+        header_root.mkdir()
+
+        configured_output = build_root / "configured-search-dirs.txt"
+        installed_output = build_root / "installed-search-dirs.txt"
+        source_cmake = source_root / "CMakeLists.txt"
+        source_cmake.write_text(
+            "cmake_minimum_required(VERSION 3.16)\n"
+            "project(RuntimeSearchInstallFixture NONE)\n"
+            f"include({cmake_bracket(PLATFORM_MODULE.as_posix())})\n"
+            "set(alpha_PACKAGE_FOLDER_RELEASE "
+            f"{cmake_bracket(alpha_root.as_posix())})\n"
+            "set(beta_PACKAGE_FOLDER_RELEASE "
+            f"{cmake_bracket(beta_root.as_posix())})\n"
+            "set(header_PACKAGE_FOLDER_RELEASE "
+            f"{cmake_bracket(header_root.as_posix())})\n"
+            "set(ogre3d_PACKAGE_FOLDER_RELEASE "
+            f"{cmake_bracket(ogre_root.as_posix())})\n"
+            # A configuration not selected by the fixture must be ignored.
+            "set(injected_PACKAGE_FOLDER_DEBUG relative/not-selected)\n"
+            "ror_ogre14_cmakedeps_runtime_search_dirs(\n"
+            "    runtime_search_dirs Release)\n"
+            "ror_ogre14_install_set_list_code(\n"
+            "    runtime_search_install_code\n"
+            "    ROR_LINUX_RUNTIME_SEARCH_DIRS\n"
+            '    "${runtime_search_dirs}")\n'
+            f"file(WRITE {cmake_bracket(configured_output.as_posix())} "
+            '"${runtime_search_dirs}")\n'
+            "string(APPEND runtime_search_install_code\n"
+            f"    \"file(WRITE {cmake_bracket(installed_output.as_posix())} "
+            '\\\"\\${ROR_LINUX_RUNTIME_SEARCH_DIRS}\\\")\\n\")\n'
+            'install(CODE "${runtime_search_install_code}")\n',
+            encoding="utf-8",
+        )
+        configured = subprocess.run(
+            [
+                "cmake",
+                "-S",
+                str(source_root),
+                "-B",
+                str(build_root),
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if configured.returncode != 0:
+            return configured
+
+        installed = subprocess.run(
+            [
+                "cmake",
+                "--install",
+                str(build_root),
+                "--prefix",
+                str(install_root),
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        installed.configure_stdout = configured.stdout
+        installed.configure_stderr = configured.stderr
+        installed.generated_install_script = (
+            build_root / "cmake_install.cmake"
+        ).read_text(encoding="utf-8")
+        installed.configured_dirs = configured_output.read_text(
+            encoding="utf-8"
+        )
+        if installed.returncode == 0:
+            installed.installed_dirs = installed_output.read_text(
+                encoding="utf-8"
+            )
+        installed.expected_dirs = tuple(
+            native_path_text(path)
+            for path in (
+                alpha_root / "lib",
+                beta_root / "bin",
+                ogre_root / "lib",
+                ogre_root / "bin",
+            )
+        )
+        return installed
+
+
+def collect_runtime_search_dirs(
+    *,
+    build_type: str,
+    package_root: str | Path,
+) -> subprocess.CompletedProcess:
+    """Run the CMakeDeps runtime collector against one package root."""
+
+    with tempfile.TemporaryDirectory(
+        prefix="ror-ogre14-runtime-search-invalid-"
+    ) as directory:
+        temporary_root = Path(directory)
+        output_path = temporary_root / "selected.txt"
+        script_path = temporary_root / "collect.cmake"
+        script_path.write_text(
+            f"include({cmake_bracket(PLATFORM_MODULE.as_posix())})\n"
+            "set(ogre3d_PACKAGE_FOLDER_RELEASE "
+            f"{cmake_bracket(os.fspath(package_root))})\n"
+            "ror_ogre14_cmakedeps_runtime_search_dirs(\n"
+            f"    runtime_search_dirs {cmake_bracket(build_type)})\n"
+            f"file(WRITE {cmake_bracket(output_path.as_posix())} "
+            '"${runtime_search_dirs}")\n',
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            ["cmake", "-P", str(script_path)],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if result.returncode == 0:
+            result.runtime_search_dirs = output_path.read_text(
+                encoding="utf-8"
             )
         return result
 
@@ -626,6 +779,125 @@ class Ogre14PlatformContractTests(unittest.TestCase):
             package_variables={},
         )
         self.assertNotEqual(missing_variable.returncode, 0)
+
+    def test_cmakedeps_runtime_dirs_survive_generated_install_code(
+        self,
+    ) -> None:
+        result = generate_runtime_search_install_fixture()
+        diagnostics = (
+            getattr(result, "configure_stdout", "")
+            + getattr(result, "configure_stderr", "")
+            + result.stdout
+            + result.stderr
+        )
+        self.assertEqual(result.returncode, 0, msg=diagnostics)
+
+        configured_dirs = tuple(
+            native_path_text(value)
+            for value in result.configured_dirs.split(";")
+        )
+        installed_dirs = tuple(
+            native_path_text(value)
+            for value in result.installed_dirs.split(";")
+        )
+        self.assertEqual(configured_dirs, result.expected_dirs)
+        self.assertEqual(installed_dirs, result.expected_dirs)
+        self.assertIn(
+            "set(ROR_LINUX_RUNTIME_SEARCH_DIRS",
+            result.generated_install_script,
+        )
+        self.assertNotIn(
+            "CONAN_RUNTIME_LIB_DIRS",
+            result.generated_install_script,
+        )
+        for runtime_dir in result.expected_dirs:
+            self.assertIn(runtime_dir, result.generated_install_script)
+
+    def test_invalid_cmakedeps_runtime_roots_fail_closed(self) -> None:
+        relative = collect_runtime_search_dirs(
+            build_type="Release",
+            package_root="relative/package",
+        )
+        self.assertNotEqual(relative.returncode, 0)
+        self.assertIn(
+            "is not an absolute,",
+            relative.stdout + relative.stderr,
+        )
+        self.assertIn(
+            "non-symlink directory",
+            relative.stdout + relative.stderr,
+        )
+
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre14-runtime-root-file-"
+        ) as directory:
+            package_file = Path(directory) / "package-file"
+            package_file.write_text("not a directory", encoding="utf-8")
+            not_a_directory = collect_runtime_search_dirs(
+                build_type="Release",
+                package_root=package_file,
+            )
+        self.assertNotEqual(not_a_directory.returncode, 0)
+        self.assertIn(
+            "is not an absolute,",
+            not_a_directory.stdout + not_a_directory.stderr,
+        )
+        self.assertIn(
+            "non-symlink directory",
+            not_a_directory.stdout + not_a_directory.stderr,
+        )
+
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre14-runtime-no-libs-"
+        ) as directory:
+            no_runtime_dirs = collect_runtime_search_dirs(
+                build_type="Release",
+                package_root=Path(directory),
+            )
+        self.assertNotEqual(no_runtime_dirs.returncode, 0)
+        self.assertIn(
+            "has no lib or bin runtime directories",
+            no_runtime_dirs.stdout + no_runtime_dirs.stderr,
+        )
+
+        missing_configuration = collect_runtime_search_dirs(
+            build_type="Debug",
+            package_root="relative/release-package-is-ignored",
+        )
+        self.assertNotEqual(missing_configuration.returncode, 0)
+        self.assertIn(
+            "exposed no package roots for DEBUG",
+            missing_configuration.stdout + missing_configuration.stderr,
+        )
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "creating package-root symlinks is not reliable on Windows runners",
+    )
+    def test_cmakedeps_runtime_package_root_symlink_fails_closed(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre14-runtime-symlink-"
+        ) as directory:
+            temporary_root = Path(directory)
+            real_package = temporary_root / "real-package"
+            (real_package / "lib").mkdir(parents=True)
+            package_link = temporary_root / "package-link"
+            package_link.symlink_to(real_package, target_is_directory=True)
+            result = collect_runtime_search_dirs(
+                build_type="Release",
+                package_root=package_link,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "is not an absolute,",
+            result.stdout + result.stderr,
+        )
+        self.assertIn(
+            "non-symlink directory",
+            result.stdout + result.stderr,
+        )
 
     def test_media_layout_is_exact_for_each_native_platform(self) -> None:
         cases = (
