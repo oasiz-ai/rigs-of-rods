@@ -114,6 +114,8 @@ FlexObj::FlexObj(RoR::GfxActor* gfx_actor, node_t* all_nodes, std::vector<CabTex
     bind->setBinding(0, m_hw_vbuf);
 
     // Set parameters of the submeshes
+    m_cpu_topology_sections.reserve(m_submeshes.size());
+    std::size_t cpu_index_offset = 0U;
     for (size_t j=0; j<m_submeshes.size(); j++)
     {
         size_t index_count;
@@ -139,6 +141,18 @@ FlexObj::FlexObj(RoR::GfxActor* gfx_actor, node_t* all_nodes, std::vector<CabTex
         m_submeshes[j]->indexData->indexBuffer = ibuf;
         m_submeshes[j]->indexData->indexCount = index_count;
         m_submeshes[j]->indexData->indexStart = 0;
+
+        FlexMeshTopologySection topology;
+        topology.index_format = FlexMeshTopologySection::IndexFormat::UINT16;
+        topology.vertex_count = static_cast<std::uint32_t>(m_vertex_count);
+        topology.indices.reserve(index_count);
+        for (std::size_t index = 0U; index < index_count; ++index)
+        {
+            topology.indices.push_back(
+                static_cast<std::uint32_t>(m_indices[cpu_index_offset + index]));
+        }
+        cpu_index_offset += index_count;
+        m_cpu_topology_sections.push_back(std::move(topology));
     }
 
     // Set bounding information (for culling)

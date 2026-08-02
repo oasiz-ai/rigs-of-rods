@@ -426,10 +426,14 @@ public:
     output = frame;
     return RoR::Render::ValidationResult::Success();
   }
+  void CommitJoinedGraphicsFrame() noexcept override { ++commit_count; }
+  void DiscardJoinedGraphicsFrame() noexcept override { ++discard_count; }
 
   RoR::Render::GraphicsSceneFrameInput frame = MakeFrame();
   RoR::Render::ValidationResult capture_validation;
   std::uint32_t capture_count = 0U;
+  std::uint32_t commit_count = 0U;
+  std::uint32_t discard_count = 0U;
 };
 
 void TestJoinedSourceInitialSnapshotAndCanonicalOrder() {
@@ -443,6 +447,8 @@ void TestJoinedSourceInitialSnapshotAndCanonicalOrder() {
       producer.ProduceJoinedFrame(source);
   Require(produced.ok(), "valid joined source frame was rejected");
   Require(source.capture_count == 1U, "joined source was not captured once");
+  Require(source.commit_count == 1U && source.discard_count == 0U,
+          "successful producer output did not commit its source transaction");
   Require(produced.production.asset_delta.has_value(),
           "first production omitted its full asset snapshot");
   const RenderAssetDelta &delta = *produced.production.asset_delta;
@@ -504,6 +510,29 @@ void TestJoinedSourceInitialSnapshotAndCanonicalOrder() {
   source.frame.static_meshes.front().render_from_object = Translation(99.0F);
   Require(scene.mesh_instances()[1U].render_from_object.elements[12U] == 5.0F,
           "immutable scene retained mutable joined-source storage");
+}
+
+void TestJoinedSourceProducerRejectionDiscardsAndRetries() {
+  using namespace RoR::Render;
+  GraphicsSceneSnapshotProducer producer = MakeProducer();
+  FixtureJoinedSource source;
+  source.frame.version = kGraphicsSceneSnapshotProducerVersion + 1U;
+
+  const GraphicsSceneSnapshotProduceResult rejected =
+      producer.ProduceJoinedFrame(source);
+  Require(!rejected &&
+              rejected.validation.code == ValidationCode::UNSUPPORTED_VERSION &&
+              source.capture_count == 1U && source.commit_count == 0U &&
+              source.discard_count == 1U,
+          "producer rejection did not discard the prepared source frame");
+
+  source.frame.version = kGraphicsSceneSnapshotProducerVersion;
+  const GraphicsSceneSnapshotProduceResult accepted =
+      producer.ProduceJoinedFrame(source);
+  Require(accepted && source.capture_count == 2U &&
+              source.commit_count == 1U && source.discard_count == 1U &&
+              accepted.production.scene_snapshot->snapshot_id() == 1U,
+          "discarded source frame advanced producer lineage or blocked retry");
 }
 
 void TestLegacyProducerVersionsRequireExplicitMigration() {
@@ -1890,6 +1919,7 @@ void TestDeterministicAcrossAdapterTraversalOrders() {
 
 int main() {
   TestJoinedSourceInitialSnapshotAndCanonicalOrder();
+  TestJoinedSourceProducerRejectionDiscardsAndRetries();
   TestLegacyProducerVersionsRequireExplicitMigration();
   TestReflectionProbeLineageAndCanonicalOrder();
   TestTransformCameraHistoryAndOriginRebase();

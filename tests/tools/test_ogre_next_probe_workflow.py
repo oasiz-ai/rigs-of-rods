@@ -1050,7 +1050,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         capture_body = gfx_source[
             gfx_source.index("Render::ValidationResult "
                              "GfxScene::CaptureOgre14GraphicsScene") :
-            gfx_source.index("void GfxScene::RemoveGfxActor")
+            gfx_source.index(
+                "void GfxScene::CommitOgre14GraphicsSceneCapture")
         ]
         capture_compact = "".join(capture_body.split())
         for available in (
@@ -1087,6 +1088,16 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             with self.subTest(terrain_tap=terrain_tap):
                 self.assertIn(terrain_tap, gfx_source)
         self.assertIn("BuildOgre14GraphicsSceneStaticInventory(", gfx_source)
+        dynamic_index_copy = gfx_source[
+            gfx_source.index(
+                "RoR::Render::ValidationResult CopyOgre14DynamicIndices") :
+            gfx_source.index("using JoinedVertexRange")
+        ]
+        self.assertNotIn("HardwareBufferLockGuard", dynamic_index_copy)
+        self.assertNotIn("HBL_READ_ONLY", dynamic_index_copy)
+        self.assertNotIn("readData(", dynamic_index_copy)
+        self.assertIn("output = topology.indices;", dynamic_index_copy)
+        self.assertIn("getCpuTopologySections()", gfx_source)
         self.assertIn("object_manager->GetStaticGraphicsObjects()", gfx_source)
         self.assertIn("entity->getVisible() &&", gfx_source)
         self.assertIn("sub_entity->isVisible()", gfx_source)

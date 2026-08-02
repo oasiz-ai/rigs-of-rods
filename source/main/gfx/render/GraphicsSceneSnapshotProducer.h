@@ -170,8 +170,13 @@ struct GraphicsSceneFrameInput {
 class IJoinedGraphicsSceneSource {
 public:
   virtual ~IJoinedGraphicsSceneSource() = default;
+  /// Prepares one immutable frame without advancing source-side identity,
+  /// lifecycle, or semantic-revision state. Exactly one Commit or Discard
+  /// follows every successful capture.
   [[nodiscard]] virtual ValidationResult
   CaptureJoinedGraphicsFrame(GraphicsSceneFrameInput &frame) = 0;
+  virtual void CommitJoinedGraphicsFrame() noexcept {}
+  virtual void DiscardJoinedGraphicsFrame() noexcept {}
 };
 
 struct GraphicsSceneSnapshotProducerConfiguration {

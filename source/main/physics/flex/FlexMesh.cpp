@@ -227,6 +227,20 @@ FlexMesh::FlexMesh(
     m_submesh_tiretread->indexData->indexCount = tiretread_num_indices;
     m_submesh_tiretread->indexData->indexStart = 0;
 
+    m_cpu_topology_sections.resize(2U);
+    m_cpu_topology_sections[0U].index_format =
+        FlexMeshTopologySection::IndexFormat::UINT16;
+    m_cpu_topology_sections[0U].vertex_count =
+        static_cast<std::uint32_t>(m_vertices.size());
+    m_cpu_topology_sections[0U].indices.assign(
+        m_wheelface_indices.begin(), m_wheelface_indices.end());
+    m_cpu_topology_sections[1U].index_format =
+        FlexMeshTopologySection::IndexFormat::UINT16;
+    m_cpu_topology_sections[1U].vertex_count =
+        static_cast<std::uint32_t>(m_vertices.size());
+    m_cpu_topology_sections[1U].indices.assign(
+        m_tiretread_indices.begin(), m_tiretread_indices.end());
+
     // Set bounding information (for culling)
     m_mesh->_setBounds(AxisAlignedBox(-1,-1,0,1,1,0), true);
 
