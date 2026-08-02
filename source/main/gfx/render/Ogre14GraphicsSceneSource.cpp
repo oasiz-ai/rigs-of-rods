@@ -806,30 +806,61 @@ Ogre14GraphicsSceneSource::Ogre14GraphicsSceneSource(
     IOgre14GraphicsSceneCaptureProvider &provider) noexcept
     : provider_(provider) {}
 
+Ogre14GraphicsSceneSource::~Ogre14GraphicsSceneSource() {
+  DiscardJoinedGraphicsFrame();
+}
+
 ValidationResult Ogre14GraphicsSceneSource::CaptureJoinedGraphicsFrame(
     GraphicsSceneFrameInput &frame) {
+  if (capture_pending_) {
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH,
+        "joined_graphics_source.pending_capture",
+        "the preceding joined frame must be committed or discarded first");
+  }
   try {
     Ogre14GraphicsSceneCapture capture;
     ValidationResult validation =
         provider_.CaptureOgre14GraphicsScene(capture);
     if (!validation) {
+      provider_.DiscardOgre14GraphicsSceneCapture();
       return validation;
     }
     validation = ValidateOgre14GraphicsSceneCapture(capture);
     if (!validation) {
+      provider_.DiscardOgre14GraphicsSceneCapture();
       return validation;
     }
     frame = std::move(capture.frame);
+    capture_pending_ = true;
     return ValidationResult::Success();
   } catch (const std::exception &) {
+    provider_.DiscardOgre14GraphicsSceneCapture();
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "joined_graphics_source",
         "OGRE 14 capture provider threw an exception");
   } catch (...) {
+    provider_.DiscardOgre14GraphicsSceneCapture();
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "joined_graphics_source",
         "OGRE 14 capture provider threw a non-standard exception");
   }
+}
+
+void Ogre14GraphicsSceneSource::CommitJoinedGraphicsFrame() noexcept {
+  if (!capture_pending_) {
+    return;
+  }
+  provider_.CommitOgre14GraphicsSceneCapture();
+  capture_pending_ = false;
+}
+
+void Ogre14GraphicsSceneSource::DiscardJoinedGraphicsFrame() noexcept {
+  if (!capture_pending_) {
+    return;
+  }
+  provider_.DiscardOgre14GraphicsSceneCapture();
+  capture_pending_ = false;
 }
 
 ValidationResult Ogre14GraphicsSceneStaticIdentityRegistry::

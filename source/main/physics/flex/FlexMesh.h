@@ -66,6 +66,10 @@ public:
     bool copyJoinedCpuStaging(std::vector<Ogre::Vector3>& positions,
                               std::vector<Ogre::Vector3>& normals,
                               std::vector<Ogre::Vector2>& texcoords0) const;
+    const std::vector<FlexMeshTopologySection>& getCpuTopologySections() const
+    {
+        return m_cpu_topology_sections;
+    }
 
     // Flexable
     bool flexitPrepare() { return true; };
@@ -103,6 +107,7 @@ private:
     // Indices
     std::vector<uint16_t> m_wheelface_indices;
     std::vector<uint16_t> m_tiretread_indices;
+    std::vector<FlexMeshTopologySection> m_cpu_topology_sections;
 
     // Skeletal animation (1 bone per node)
 };

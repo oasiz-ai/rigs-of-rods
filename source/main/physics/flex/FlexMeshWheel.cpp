@@ -159,6 +159,14 @@ FlexMeshWheel::FlexMeshWheel(
     m_submesh->indexData->indexCount = m_index_count;
     m_submesh->indexData->indexStart = 0;
 
+    m_cpu_topology_sections.resize(1U);
+    m_cpu_topology_sections[0U].index_format =
+        FlexMeshTopologySection::IndexFormat::UINT16;
+    m_cpu_topology_sections[0U].vertex_count =
+        static_cast<std::uint32_t>(m_vertices.size());
+    m_cpu_topology_sections[0U].indices.assign(
+        m_indices.begin(), m_indices.end());
+
 
     // Set bounding information (for culling)
     m_mesh->_setBounds(AxisAlignedBox(-1,-1,0,1,1,0), true);
