@@ -24,7 +24,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 3U;
+constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 4U;
 constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 5U;
 
 /// Source identities belong to the joined graphics scene, not a renderer.
@@ -66,8 +66,7 @@ struct GraphicsSceneAssetInput {
 };
 
 /// One static MeshObject/terrain-object style instance. The referenced mesh
-/// supplies exact local bounds and topology revision. Version 3 deliberately
-/// excludes deformable streams; those remain a later GfxActor producer slice.
+/// supplies exact local bounds and topology revision.
 struct GraphicsSceneStaticMeshInput {
   std::uint64_t source_object_id = 0U;
   std::uint64_t mesh_source_asset_id = 0U;
@@ -75,6 +74,34 @@ struct GraphicsSceneStaticMeshInput {
   Matrix4x4 render_from_object;
   std::uint32_t visibility_mask = 0xFFFFFFFFU;
   std::uint32_t flags = MESH_INSTANCE_DEFAULT_FLAGS;
+};
+
+/// One complete immutable CPU deformation state copied from a fully joined
+/// graphics staging array. It never aliases simulation-owned nodes or solver
+/// memory. An unchanged semantic state may reuse the same owner and revision;
+/// changed contents require the next exact deformation revision.
+struct GraphicsSceneDynamicMeshState {
+  std::uint64_t topology_revision = 1U;
+  std::uint64_t deformation_revision = 2U;
+  std::vector<Float3> positions;
+  std::vector<Float3> normals;
+  std::vector<Float4> tangents;
+  std::vector<Float3> velocities;
+  Bounds3 updated_local_bounds;
+};
+
+/// One live deformable section. Base topology, immutable UV/color streams, and
+/// material remain source assets; the state owner contains the full current
+/// position/direction streams and tight local bounds. Source identities are
+/// permanent for one producer lifetime and share the static-object namespace.
+struct GraphicsSceneDynamicMeshInput {
+  std::uint64_t source_object_id = 0U;
+  std::uint64_t mesh_source_asset_id = 0U;
+  std::uint64_t material_source_asset_id = 0U;
+  Matrix4x4 render_from_object;
+  std::uint32_t visibility_mask = 0xFFFFFFFFU;
+  std::uint32_t flags = MESH_INSTANCE_DEFAULT_FLAGS;
+  std::shared_ptr<const GraphicsSceneDynamicMeshState> state;
 };
 
 /// One authoritative analytic light. The source identity is preserved as the
@@ -124,6 +151,7 @@ struct GraphicsSceneFrameInput {
   std::uint64_t environment_sampler_source_asset_id = 0U;
   std::vector<GraphicsSceneAssetInput> assets;
   std::vector<GraphicsSceneStaticMeshInput> static_meshes;
+  std::vector<GraphicsSceneDynamicMeshInput> dynamic_meshes;
   /// May arrive in any order. analytic_sky.sun_light_id names one of these
   /// stable source identities directly.
   std::vector<GraphicsSceneLightInput> lights;
@@ -152,6 +180,7 @@ struct GraphicsSceneSnapshotProducerConfiguration {
   std::uint64_t first_asset_ordinal = 1U;
   std::size_t maximum_asset_records = 65536U;
   std::size_t maximum_static_mesh_objects = 65536U;
+  std::size_t maximum_dynamic_mesh_objects = 65536U;
   std::size_t maximum_light_records = 4096U;
   std::size_t maximum_reflection_probe_records = 256U;
   /// Sum of descriptor-owned string, vertex/index, and texel bytes in one

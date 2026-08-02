@@ -241,6 +241,47 @@ RoR::Render::GraphicsSceneAssetInput MeshAsset() {
   return input;
 }
 
+RoR::Render::GraphicsSceneAssetInput DynamicMeshAsset(
+    std::uint64_t source_asset_id = 50U) {
+  using namespace RoR::Render;
+  GraphicsSceneAssetInput input;
+  input.source_asset_id = source_asset_id;
+  MeshResourceDescriptor mesh = MakeMesh();
+  mesh.debug_name = "joined deformable triangle";
+  mesh.dynamic = true;
+  input.payload =
+      std::make_shared<const RenderAssetPayload>(std::move(mesh));
+  return input;
+}
+
+std::shared_ptr<const RoR::Render::GraphicsSceneDynamicMeshState>
+DynamicState(std::uint64_t deformation_revision, float x_offset = 0.0F) {
+  using namespace RoR::Render;
+  auto state = std::make_shared<GraphicsSceneDynamicMeshState>();
+  state->deformation_revision = deformation_revision;
+  state->positions = {
+      {x_offset, 0.0F, 0.0F},
+      {1.0F + x_offset, 0.0F, 0.0F},
+      {x_offset, 1.0F, 0.0F},
+  };
+  state->normals.assign(3U, Float3{0.0F, 0.0F, 1.0F});
+  state->updated_local_bounds.minimum = {x_offset, 0.0F, 0.0F};
+  state->updated_local_bounds.maximum = {1.0F + x_offset, 1.0F, 0.0F};
+  return state;
+}
+
+RoR::Render::GraphicsSceneDynamicMeshInput DynamicObject(
+    std::uint64_t source_object_id,
+    std::shared_ptr<const RoR::Render::GraphicsSceneDynamicMeshState> state) {
+  RoR::Render::GraphicsSceneDynamicMeshInput input;
+  input.source_object_id = source_object_id;
+  input.mesh_source_asset_id = 50U;
+  input.material_source_asset_id = 20U;
+  input.render_from_object = Translation(3.0F);
+  input.state = std::move(state);
+  return input;
+}
+
 RoR::Render::GraphicsSceneAssetInput MaterialAsset() {
   using namespace RoR::Render;
   GraphicsSceneAssetInput input;
@@ -1498,6 +1539,135 @@ void TestStableCatalogAllocationCountDoesNotScalePerElement() {
           "stable frame exceeded the fixed allocation budget");
 }
 
+void TestDynamicMeshLineageOwnershipAndTombstones() {
+  using namespace RoR::Render;
+  GraphicsSceneSnapshotProducer producer = MakeProducer(701U);
+  GraphicsSceneFrameInput frame = MakeFrame();
+  frame.assets.push_back(DynamicMeshAsset());
+  const auto first_state = DynamicState(2U);
+  frame.dynamic_meshes.push_back(DynamicObject(150U, first_state));
+
+  const GraphicsSceneSnapshotProduceResult first = producer.Produce(frame);
+  Require(first.ok() && first.production.scene_snapshot->mesh_instances().size() ==
+                            3U &&
+              first.production.scene_snapshot->mesh_instances()[1U]
+                      .instance_id == 150U &&
+              first.production.scene_snapshot->dynamic_mesh_updates().size() ==
+                  1U,
+          "initial deformable object was not published in canonical order");
+  const DynamicMeshUpdateDescriptor &first_update =
+      first.production.scene_snapshot->dynamic_mesh_updates().front();
+  Require(first_update.update_sequence == 1U &&
+              first_update.deformation_revision == 2U &&
+              first_update.positions == first_state->positions &&
+              first_update.updated_local_bounds.minimum ==
+                  first_state->updated_local_bounds.minimum &&
+              first_update.updated_local_bounds.maximum ==
+                  first_state->updated_local_bounds.maximum,
+          "initial full deformation update lost revision, data, or bounds");
+
+  frame.simulation_tick = 42U;
+  frame.simulation_time_seconds = 2.0;
+  const GraphicsSceneSnapshotProduceResult stable = producer.Produce(frame);
+  Require(stable.ok() && !stable.production.asset_delta.has_value() &&
+              stable.production.scene_snapshot->dynamic_mesh_updates().front()
+                      .update_sequence == 2U &&
+              stable.production.scene_snapshot->dynamic_mesh_updates().front()
+                      .deformation_revision == 2U,
+          "stable deformable state was not replayed with ordered frame lineage");
+
+  frame.simulation_tick = 43U;
+  frame.simulation_time_seconds = 3.0;
+  frame.dynamic_meshes[0U].state = DynamicState(2U);
+  const GraphicsSceneSnapshotProduceResult equivalent = producer.Produce(frame);
+  Require(equivalent.ok() &&
+              equivalent.production.scene_snapshot->dynamic_mesh_updates()
+                      .front()
+                      .update_sequence == 3U,
+          "equivalent immutable deformation owner was not canonicalized");
+
+  const std::shared_ptr<const SceneSnapshot> before_rejection =
+      producer.LoadPublishedSnapshot();
+  frame.simulation_tick = 44U;
+  frame.simulation_time_seconds = 4.0;
+  frame.dynamic_meshes[0U].state = DynamicState(2U, 0.25F);
+  const GraphicsSceneSnapshotProduceResult stale_revision =
+      producer.Produce(frame);
+  Require(stale_revision.validation.code == ValidationCode::REVISION_MISMATCH &&
+              SameSharedOwner(before_rejection,
+                              producer.LoadPublishedSnapshot()),
+          "changed deformation without the next revision mutated publication");
+
+  frame.dynamic_meshes[0U].state = DynamicState(3U, 0.25F);
+  const GraphicsSceneSnapshotProduceResult revised = producer.Produce(frame);
+  Require(revised.ok() &&
+              revised.production.scene_snapshot->dynamic_mesh_updates().front()
+                      .update_sequence == 4U &&
+              revised.production.scene_snapshot->dynamic_mesh_updates().front()
+                      .deformation_revision == 3U,
+          "rejected frame consumed update sequence or blocked exact retry");
+
+  frame.simulation_tick = 45U;
+  frame.simulation_time_seconds = 5.0;
+  auto loose_state =
+      std::make_shared<GraphicsSceneDynamicMeshState>(
+          *DynamicState(3U, 0.25F));
+  loose_state->updated_local_bounds.maximum.x += 1.0F;
+  frame.dynamic_meshes[0U].state = loose_state;
+  Require(producer.Produce(frame).validation.code ==
+                  ValidationCode::INVALID_BOUNDS &&
+              SameSharedOwner(revised.production.scene_snapshot,
+                              producer.LoadPublishedSnapshot()),
+          "non-tight deformation bounds were accepted or published");
+
+  frame.dynamic_meshes[0U].state = DynamicState(3U, 0.25F);
+  frame.dynamic_meshes.clear();
+  const GraphicsSceneSnapshotProduceResult removed = producer.Produce(frame);
+  Require(removed.ok() &&
+              removed.production.scene_snapshot->dynamic_mesh_updates().empty(),
+          "authoritative deformable removal was rejected");
+  frame.simulation_tick = 46U;
+  frame.simulation_time_seconds = 6.0;
+  frame.dynamic_meshes.push_back(
+      DynamicObject(150U, DynamicState(4U, 0.5F)));
+  Require(producer.Produce(frame).validation.code ==
+              ValidationCode::REVISION_MISMATCH,
+          "destroyed deformable identity was resurrected");
+
+  GraphicsSceneSnapshotProducer collision_producer = MakeProducer(702U);
+  GraphicsSceneFrameInput collision = MakeFrame();
+  collision.assets.push_back(DynamicMeshAsset());
+  collision.dynamic_meshes.push_back(
+      DynamicObject(collision.static_meshes.front().source_object_id,
+                    DynamicState(2U)));
+  Require(collision_producer.Produce(collision).validation.code ==
+              ValidationCode::DUPLICATE_IDENTIFIER,
+          "static and dynamic objects did not share one identity namespace");
+
+  GraphicsSceneSnapshotProducerConfiguration bounded_config;
+  bounded_config.registry_id = 703U;
+  bounded_config.maximum_dynamic_mesh_objects = 1U;
+  GraphicsSceneSnapshotProducer bounded(bounded_config);
+  GraphicsSceneFrameInput bounded_frame = MakeFrame();
+  bounded_frame.assets.push_back(DynamicMeshAsset());
+  bounded_frame.dynamic_meshes.push_back(
+      DynamicObject(300U, DynamicState(2U)));
+  Require(bounded.Produce(bounded_frame).ok(),
+          "last configured dynamic object record was unavailable");
+  bounded_frame.simulation_tick = 42U;
+  bounded_frame.simulation_time_seconds = 2.0;
+  bounded_frame.dynamic_meshes.clear();
+  Require(bounded.Produce(bounded_frame).ok(),
+          "bounded deformable retirement was rejected");
+  bounded_frame.simulation_tick = 43U;
+  bounded_frame.simulation_time_seconds = 3.0;
+  bounded_frame.dynamic_meshes.push_back(
+      DynamicObject(301U, DynamicState(2U)));
+  Require(bounded.Produce(bounded_frame).validation.code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "dynamic lifetime bound ignored a tombstoned identity");
+}
+
 void TestExhaustionAndBoundsFailClosed() {
   using namespace RoR::Render;
   GraphicsSceneSnapshotProducerConfiguration snapshot_config;
@@ -1694,6 +1864,7 @@ int main() {
   TestCanonicalSortingPreservesOriginalFailureIndices();
   TestStableFrameAvoidsLargePayloadCopiesAndComparisons();
   TestStableCatalogAllocationCountDoesNotScalePerElement();
+  TestDynamicMeshLineageOwnershipAndTombstones();
   TestExhaustionAndBoundsFailClosed();
   TestDeterministicAcrossAdapterTraversalOrders();
   return EXIT_SUCCESS;
