@@ -25,6 +25,7 @@
 #include "RenderMath.h"
 #include "RenderResourceDescriptors.h"
 #include "RenderTransportEnvelope.h"
+#include "RenderTransportStream.h"
 #include "RenderValidation.h"
 #include "RendererFrontend.h"
 #include "ResourceHandle.h"

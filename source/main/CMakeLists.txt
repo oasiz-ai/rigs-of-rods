@@ -59,6 +59,7 @@ set(SOURCE_FILES
         gfx/render/RenderResourceDescriptors.{h,cpp}
         gfx/render/RenderTransportDetail.h
         gfx/render/RenderTransportEnvelope.{h,cpp}
+        gfx/render/RenderTransportStream.{h,cpp}
         gfx/render/RendererFrontend.{h,cpp}
         gfx/render/RenderValidation.h
         gfx/render/ResourceHandle.{h,cpp}
@@ -389,6 +390,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp
         gfx/render/RenderTransportEnvelope.cpp
+        gfx/render/RenderTransportStream.cpp
         gfx/render/RendererFrontend.cpp
         gfx/render/ResourceHandle.cpp
         gfx/render/SceneSnapshot.cpp
@@ -413,6 +415,7 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp
         gfx/render/RenderTransportEnvelope.cpp
+        gfx/render/RenderTransportStream.cpp
         gfx/render/RendererFrontend.cpp
         gfx/render/SceneSnapshot.cpp
         gfx/render/SceneSnapshotTransport.cpp
