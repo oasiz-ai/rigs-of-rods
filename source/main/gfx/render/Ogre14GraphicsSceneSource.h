@@ -132,6 +132,22 @@ struct Ogre14CameraCaptureInput {
   std::uint32_t visibility_mask = 0xFFFFFFFFU;
 };
 
+/// OGRE 14's ambient scene color is already consumed as a renderer-linear
+/// multiplier. The bridge defines one native ambient unit as one canonical
+/// radiance unit so Ogre-Next receives the same numeric linear RGB without a
+/// display-gamma round trip or an unaudited exposure multiplier.
+constexpr float kOgre14AmbientNativeUnitRadiance = 1.0F;
+
+/// Converts the complete constant-ambient state supported by OGRE 14. The
+/// legacy bridge has no compatible authored linear-float equirectangular
+/// environment asset or scene-level exposure value; those optional fields
+/// remain canonically absent and identity-valued. Visual sky geometry remains
+/// part of the separate static asset/instance inventory. Failure leaves
+/// `environment` untouched.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneEnvironment(
+    const Float3 &native_ambient_linear,
+    SceneEnvironmentDescriptor &environment);
+
 /// Builds the canonical right-handed, [0,1]-depth camera contract without
 /// consuming an API-specific OGRE projection matrix. Failure leaves `camera`
 /// untouched.

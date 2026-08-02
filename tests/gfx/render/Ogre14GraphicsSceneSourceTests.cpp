@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -227,6 +228,44 @@ void TestProviderFailuresAndExceptionsDoNotEscape() {
           "unknown provider exception escaped or changed identity");
 }
 
+void TestConstantEnvironmentConversionIsExactAndTransactional() {
+  using namespace RoR::Render;
+  SceneEnvironmentDescriptor environment;
+  environment.ambient_radiance = {9.0F, 8.0F, 7.0F};
+  environment.environment_intensity = 3.0F;
+  environment.exposure_compensation_ev = 2.0F;
+
+  ValidationResult result = BuildOgre14GraphicsSceneEnvironment(
+      Float3{0.125F, 0.25F, 0.5F}, environment);
+  Require(result.ok() &&
+              environment.ambient_radiance.x == 0.125F &&
+              environment.ambient_radiance.y == 0.25F &&
+              environment.ambient_radiance.z == 0.5F &&
+              environment.environment_intensity == 1.0F &&
+              !environment.environment_texture.valid() &&
+              !environment.environment_sampler.valid() &&
+              !environment.analytic_sky.enabled &&
+              environment.exposure_compensation_ev == 0.0F,
+          "constant OGRE 14 ambient state was not converted exactly");
+
+  const SceneEnvironmentDescriptor accepted = environment;
+  result = BuildOgre14GraphicsSceneEnvironment(
+      Float3{-0.1F, 0.2F, 0.3F}, environment);
+  Require(!result && result.code == ValidationCode::VALUE_OUT_OF_RANGE &&
+              result.field == "environment.ambient_radiance" &&
+              environment.ambient_radiance.x ==
+                  accepted.ambient_radiance.x,
+          "negative ambient input was accepted or modified output");
+
+  result = BuildOgre14GraphicsSceneEnvironment(
+      Float3{0.1F, std::numeric_limits<float>::infinity(), 0.3F},
+      environment);
+  Require(!result && result.code == ValidationCode::NON_FINITE_VALUE &&
+              environment.ambient_radiance.y ==
+                  accepted.ambient_radiance.y,
+          "non-finite ambient input was accepted or modified output");
+}
+
 void TestPerspectiveAndOrthographicCameraConversion() {
   using namespace RoR::Render;
   Ogre14CameraCaptureInput input = MakeCameraInput();
@@ -296,6 +335,7 @@ int main() {
   TestEveryRequiredFieldHasStableDiagnosticIdentity();
   TestMalformedMetadataFailsClosed();
   TestProviderFailuresAndExceptionsDoNotEscape();
+  TestConstantEnvironmentConversionIsExactAndTransactional();
   TestPerspectiveAndOrthographicCameraConversion();
   TestCameraConversionRejectsGuesswork();
   return EXIT_SUCCESS;
