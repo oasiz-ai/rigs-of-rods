@@ -13,6 +13,7 @@
 
 #include "HdrReference.h"
 #include "GraphicsSceneSnapshotProducer.h"
+#include "InputEventTransport.h"
 #include "MaterialDescriptor.h"
 #include "ParallaxProbeReference.h"
 #include "PbrReference.h"
