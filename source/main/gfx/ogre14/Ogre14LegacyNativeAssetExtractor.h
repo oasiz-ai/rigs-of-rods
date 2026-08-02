@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "Ogre14LegacyAssetTranslator.h"
+#include "gfx/render/Ogre14LegacyAssetTranslator.h"
 
 #include <cstdint>
 #include <vector>

@@ -6,7 +6,7 @@
     published by the Free Software Foundation.
 */
 
-#include "Ogre14LegacyNativeAssetExtractor.h"
+#include "gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
 
 #include <OgreBuildSettings.h>
 #include <OgreLogManager.h>

@@ -320,9 +320,10 @@ end to end.
 
 `Ogre14LegacyAssetTranslator` is the replacement path for textured legacy
 assets. It is deliberately a pure-data catalog and is not wired into
-`GfxScene` yet. `Ogre14LegacyNativeAssetExtractor` is the only source file in
-this slice which includes OGRE headers; the native application and its focused
-compile test pin that edge to OGRE 14.5.2. The eventual static/terrain adapter
+`GfxScene` yet. `gfx/ogre14/Ogre14LegacyNativeAssetExtractor` is the native
+integration adapter and deliberately lives outside this renderer-neutral
+boundary; the native application and its focused compile test pin that edge to
+OGRE 14.5.2. The eventual static/terrain adapter
 must submit a complete post-buffer inventory to the translator, then map each
 dependency-ordered `source_asset_id` and immutable payload owner into
 `GraphicsSceneAssetInput`. For a material, it must use the two IDs in

@@ -23,7 +23,7 @@ TRANSLATOR_HEADER = (
 TRANSLATOR_SOURCE = TRANSLATOR_HEADER.with_suffix(".cpp")
 NATIVE_HEADER = (
     REPOSITORY_ROOT
-    / "source/main/gfx/render/Ogre14LegacyNativeAssetExtractor.h"
+    / "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
 )
 NATIVE_SOURCE = NATIVE_HEADER.with_suffix(".cpp")
 README = REPOSITORY_ROOT / "source/main/gfx/render/README.md"
@@ -131,7 +131,7 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             self.main_cmake,
         )
         self.assertIn(
-            "gfx/render/Ogre14LegacyNativeAssetExtractor.cpp",
+            "gfx/ogre14/Ogre14LegacyNativeAssetExtractor.{h,cpp}",
             self.main_cmake,
         )
         self.assertIn("if (ROR_OGRE14)", self.main_cmake)
@@ -140,7 +140,7 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "Ogre14LegacyAssetTranslatorTests.cpp",
             "ror_ogre14_legacy_native_asset_extractor_compile_tests",
             "Ogre14LegacyNativeAssetExtractorCompileTests.cpp",
-            "Ogre14LegacyNativeAssetExtractor.cpp",
+            "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp",
             "SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}",
             "PRIVATE OgreMain",
             "NAME ogre14_legacy_asset_translator",
@@ -187,7 +187,7 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
                     text,
                 )
                 self.assertIn(
-                    '"tests/gfx/render/'
+                    '"tests/gfx/ogre14/'
                     'Ogre14LegacyNativeAssetExtractorCompileTests.cpp"',
                     text,
                 )

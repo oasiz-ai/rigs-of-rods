@@ -1191,7 +1191,7 @@ ValidationResult BuildOgre14GraphicsSceneTerrainMeshPayload(
         Float3 face = CrossProduct(
             Subtract(adjacent[neighbour], centre),
             Subtract(adjacent[(neighbour + 1U) % adjacent.size()], centre));
-        // Ogre::Math::calculateBasicFaceNormal leaves a zero vector intact.
+        // The legacy renderer's basic face-normal helper leaves zero intact.
         // This is required at an outer page boundary, where a missing
         // neighbour makes getPointFromSelfOrNeighbour clamp some samples.
         if (!NormalizeFaceOrKeepZero(face)) {
