@@ -2806,8 +2806,7 @@ public:
         Ogre::ResourceGroupManager::getSingleton();
     Ogre::MaterialManager &materials = Ogre::MaterialManager::getSingleton();
     if (resources.resourceGroupExists(kOgreNextPresentationResourceGroup) ||
-        materials.getByName("Ogre/Copy/4xFP32",
-                            kOgreNextPresentationResourceGroup)) {
+        materials.getByName("Ogre/Copy/4xFP32")) {
       return RenderOperationResult::Failure(
           RenderOperationCode::BACKEND_FAILURE,
           "presentation-copy resource identity already exists");
