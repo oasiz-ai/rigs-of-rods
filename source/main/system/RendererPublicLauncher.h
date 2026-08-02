@@ -99,12 +99,13 @@ RendererPublicLauncherDecision ResolveRendererPublicLauncherDecision(
     const RendererPublicLauncherIntent &intent,
     const RendererStartupPackageAvailability &availability) noexcept;
 
-/// Parse and resolve the immutable package policy. A legacy selection transfers
-/// control to the exact OGRE 14 sibling. An admitted Ogre-Next selection starts
-/// the exact OGRE 14 game host and Ogre-Next presentation siblings under the
-/// render-bridge supervisor, then propagates the game host's exact exit status
-/// or POSIX terminating signal. No runtime launch failure widens the policy's
-/// legacy-fallback allowance.
+/// Parse and resolve the immutable package policy, then fail closed over the
+/// exact executable-relative runtime artifacts. Missing Ogre-Next artifacts
+/// may narrow OGRE_NEXT_PREFER to OGRE14; an explicit REQUIRE never widens.
+/// A legacy selection transfers control to the exact OGRE 14 sibling. An
+/// admitted Ogre-Next selection starts the exact OGRE 14 game host and
+/// Ogre-Next presentation siblings under the render-bridge supervisor, then
+/// propagates the game host's exact exit status or POSIX terminating signal.
 int RunRendererPublicLauncher(
     int argc, const RendererChildLauncherChar *const argv[]) noexcept;
 

@@ -52,6 +52,13 @@ struct RendererSiblingPathResult final {
 RendererCurrentExecutablePathResult
 ResolveRendererCurrentExecutablePath() noexcept;
 
+/// Pure layout seam used by package-admission tests. The input must be the
+/// canonical final path of the public launcher. It is never interpreted as an
+/// argv, cwd, PATH, or environment override.
+RendererSiblingPathResult ResolveRendererSiblingPathFromExecutable(
+    const RendererChildLauncherString &canonical_executable_path,
+    const char *basename) noexcept;
+
 /// Resolve one ASCII basename relative to the final opened executable rather
 /// than cwd, PATH, environment, or an alias directory. This function does not
 /// open or execute the sibling and deliberately accepts no directory override.

@@ -279,6 +279,7 @@ set(SOURCE_FILES
         system/RendererChildIntent.{h,cpp}
         system/RendererChildLauncher.{h,cpp}
         system/RendererOgre14GameBridge.{h,cpp}
+        system/RendererPackageRuntimeProbe.{h,cpp}
         system/RendererSiblingPath.{h,cpp}
         system/RendererPackagedMediaPath.{h,cpp}
         terrain/OgreTerrainPSSMMaterialGenerator.{h,cpp}
@@ -556,6 +557,8 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
         system/RendererChildIntent.h
         system/RendererChildLauncher.cpp
         system/RendererChildLauncher.h
+        system/RendererPackageRuntimeProbe.cpp
+        system/RendererPackageRuntimeProbe.h
         system/RendererSiblingPath.cpp
         system/RendererSiblingPath.h
         system/RendererPackagedMediaPath.cpp

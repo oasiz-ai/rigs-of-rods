@@ -162,6 +162,36 @@ void TestCanonicalSiblingResolution() {
           "siblings did not share one canonical executable directory");
 }
 
+void TestPureSiblingLayout() {
+#if defined(_WIN32)
+  const auto result = RoR::ResolveRendererSiblingPathFromExecutable(
+      Native(R"(\\?\C:\Games\RoR\RoR.exe)"), "RoR-OgreNext.exe");
+  const char *expected = R"(\\?\C:\Games\RoR\RoR-OgreNext.exe)";
+#else
+  const auto result = RoR::ResolveRendererSiblingPathFromExecutable(
+      Native("/opt/ror/RoR"), "RoR-OgreNext");
+  const char *expected = "/opt/ror/RoR-OgreNext";
+#endif
+  Require(result.accepted &&
+              result.status == RoR::RendererSiblingPathStatus::READY &&
+              result.native_error_code == 0U &&
+              EqualsAscii(result.path, expected),
+          "pure sibling path did not preserve the canonical parent");
+
+  const auto no_parent = RoR::ResolveRendererSiblingPathFromExecutable(
+      Native("RoR"), "RoR-OgreNext");
+  Require(!no_parent.accepted && no_parent.path.empty() &&
+              no_parent.status ==
+                  RoR::RendererSiblingPathStatus::FAILED_CHILD_PATH,
+          "parentless executable path was accepted");
+  const auto unsafe = RoR::ResolveRendererSiblingPathFromExecutable(
+      Native("/opt/ror/RoR"), "../RoR-OgreNext");
+  Require(!unsafe.accepted && unsafe.path.empty() &&
+              unsafe.status == RoR::RendererSiblingPathStatus::
+                                   REJECTED_INVALID_BASENAME,
+          "unsafe basename reached the pure layout seam");
+}
+
 void TestPackagedMediaStatusContract() {
   const unsigned int maximum = std::numeric_limits<std::uint8_t>::max();
   for (unsigned int value = 0U; value <= maximum; ++value) {
@@ -261,6 +291,7 @@ int main() {
   TestStatusContract();
   TestInvalidBasenamesFailBeforePathDiscovery();
   TestCanonicalSiblingResolution();
+  TestPureSiblingLayout();
   TestPackagedMediaStatusContract();
   TestPackagedMediaLayouts();
   return EXIT_SUCCESS;

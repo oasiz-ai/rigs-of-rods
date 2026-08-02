@@ -32,6 +32,10 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererOgre14GameBridge.h
     source/main/system/RendererSiblingPath.cpp
     source/main/system/RendererSiblingPath.h
+    source/main/system/RendererPackagedMediaPath.cpp
+    source/main/system/RendererPackagedMediaPath.h
+    source/main/system/RendererPackageRuntimeProbe.cpp
+    source/main/system/RendererPackageRuntimeProbe.h
     source/main/system/RendererOgreNextChild.cpp
     source/main/system/RendererOgreNextChild.h
     source/main/system/RendererOgreNextChildMain.cpp
@@ -55,6 +59,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererChildLauncherTests.cpp
     tests/gfx/RendererOgre14GameBridgeTests.cpp
     tests/gfx/RendererSiblingPathTests.cpp
+    tests/gfx/RendererPackageRuntimeProbeTests.cpp
     tests/gfx/RendererOgreNextChildTests.cpp
     tests/gfx/RendererOgreNextWindowHostTests.cpp
     tests/gfx/RendererPublicLauncherLegacyChild.cpp
@@ -120,6 +125,10 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererOgre14GameBridge.h"
     "source/main/system/RendererSiblingPath.cpp"
     "source/main/system/RendererSiblingPath.h"
+    "source/main/system/RendererPackagedMediaPath.cpp"
+    "source/main/system/RendererPackagedMediaPath.h"
+    "source/main/system/RendererPackageRuntimeProbe.cpp"
+    "source/main/system/RendererPackageRuntimeProbe.h"
     "source/main/system/RendererOgreNextChild.cpp"
     "source/main/system/RendererOgreNextChild.h"
     "source/main/system/RendererOgreNextChildMain.cpp"
@@ -142,6 +151,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererChildLauncherTests.cpp"
     "tests/gfx/RendererOgre14GameBridgeTests.cpp"
     "tests/gfx/RendererSiblingPathTests.cpp"
+    "tests/gfx/RendererPackageRuntimeProbeTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"
     "tests/gfx/RendererOgreNextWindowHostTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
