@@ -242,11 +242,13 @@ Implemented source-side behavior is:
    domain-separated IDs, aggregate payload limits, and topology lineage. Its
    transaction reuses immutable payload owners for identical geometry and
    commits caches/live IDs/tombstones/output together. Omission permanently
-   tombstones a road. Textured `road2` remains a precise
+   tombstones a road. A focused combined-static contract now verifies that
+   road candidates and terrain/native candidates share one collision audit,
+   stable ordering, and immutable payload-owner reuse without advancing the
+   durable road inventory before commit. Textured `road2` remains a precise
    `road.material.texture_units` blocker until an exact legacy
-   texture/sampler translator is connected. This checkpoint exposes complete
-   manager snapshots and static-section candidates but intentionally does not
-   modify `GfxScene`; joined collection is the next isolated wiring step.
+   texture/sampler translator is connected. Joined `GfxScene` collection and
+   two-phase source wiring remain the next isolated step.
 9. `GfxScene` enumerates the authoritative managed `Ogre::MOT_LIGHT` registry
    at the joined boundary (not backend render queues or scene-node traversal),
    verifies each registry key equals the exact unique Light name, and hashes

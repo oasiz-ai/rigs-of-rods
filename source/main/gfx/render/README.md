@@ -288,9 +288,10 @@ uint16 promotion, exact `road2` identity, transforms, collision-separated
 identity derivation, live/lifetime/payload limits, permanent removal
 tombstones, stable ordering, and revision lineage. Byte-identical roads reuse
 the same immutable mesh owner. The source currently produces static-section
-candidates only; the joined `GfxScene` collection point is deliberately left
-for the next checkpoint so this change cannot conflict with deformable capture
-wiring.
+candidates which can be combined with terrain/native static sections before
+the generic collision-audited static-inventory transaction. The focused
+combined-static contract proves collision rejection, stable ordering, and
+immutable owner reuse without mutating durable road state before commit.
 
 Compatibility-material fallback version 1 is intentionally factor-only. It
 preserves first-pass diffuse/emissive factors, lighting, shininess-derived
@@ -311,8 +312,9 @@ unsupported vertex declarations, and unsupported material states likewise
 return exact diagnostics. Mirrored instance transforms also fail closed until
 reflection can be baked into the canonical mesh basis and winding. Consequently
 `ASSETS`, `STATIC_MESHES`, and `DYNAMIC_MESHES` are advertised together
-only after a complete supported inventory; terrain textures and procedural
-geometry remain required before ordinary maps can publish end to end.
+only after a complete supported inventory; terrain textures and joined
+procedural-road collection remain required before ordinary maps can publish
+end to end.
 
 ### Exact OGRE 14 legacy asset translator v1
 
