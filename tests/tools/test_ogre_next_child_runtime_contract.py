@@ -59,6 +59,14 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
         cls.production_session = ENTRYPOINT_PATH.with_name(
             "RendererOgreNextProductionSession.cpp"
         ).read_text(encoding="utf-8")
+        cls.dispatcher_header = (
+            REPOSITORY_ROOT
+            / "source"
+            / "main"
+            / "gfx"
+            / "render"
+            / "RendererFrontendTransportDispatcher.h"
+        ).read_text(encoding="utf-8")
         cls.cmake = (PROBE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         cls.config = (
             PROBE_ROOT / "renderer_ogre_next_child_config.h.in"
@@ -451,6 +459,80 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
                     "RendererOgreNextChildMain.cpp",
                     cmake_path.read_text(encoding="utf-8"),
                 )
+
+    def test_surface_readiness_and_failure_exit_contracts(self) -> None:
+        for token in (
+            "ready.surface = runtime.initial_surface",
+            "RenderBridgeControlKind::SURFACE_CHANGED",
+            "observation.surface.surface_revision >=",
+            "SameSurface(observation.surface, announced_surface)",
+            "result.peer_ready_sent = true",
+            "FAILED_PEER_CLOSED_BEFORE_READY",
+            "surface_changed || observation.surface.suspended",
+            "channel.TryReadSome(bytes.data(), bytes.size())",
+            "runtime.idle_poll_interval_milliseconds",
+            "policy.retire_scene_without_render",
+        ):
+            with self.subTest(live_surface_token=token):
+                self.assertIn(token, self.live_session)
+        frame_poll = self.live_session.index(
+            "runtime.poll(runtime.context, frame.sequence"
+        )
+        surface_control = self.live_session.index(
+            "send_surface_change(observation.surface)", frame_poll
+        )
+        dispatch = self.live_session.index(
+            "dispatcher.Dispatch(frame, policy)", surface_control
+        )
+        self.assertLess(surface_control, dispatch)
+        self.assertIn("SCENE_FRAME_RETIRED", self.dispatcher_header)
+
+        for token in (
+            "MakeBridgeSurface(",
+            "observation->surface = MakeBridgeSurface(",
+            "live_runtime.initial_surface = initial_bridge_surface",
+            "live_runtime.idle_poll_interval_milliseconds = 4U",
+            "result.live.completed && result.live.peer_ready_sent",
+        ):
+            with self.subTest(production_surface_token=token):
+                self.assertIn(token, self.production_session)
+
+        for token in (
+            "kRendererOgreNextChildPrePeerReadyFailureExitCode = 73",
+            "kRendererOgreNextChildPostPeerReadyFailureExitCode = 74",
+            "PRE_PEER_READY = 1U",
+            "PEER_READY_SENT = 2U",
+            "ResolveRendererOgreNextProductionFailureExitCode(",
+        ):
+            with self.subTest(readiness_token=token):
+                self.assertIn(token, self.orchestration_header)
+        self.assertIn(
+            "ResolveRendererOgreNextProductionFailureExitCode(result)",
+            self.entrypoint,
+        )
+        self.assertIn(
+            "g_production_session.live.peer_ready_sent", self.entrypoint
+        )
+        exit_code_for = self.entrypoint.index("int ExitCodeFor(")
+        self.assertLess(
+            self.entrypoint.index(
+                "ResolveRendererOgreNextProductionFailureExitCode(result)",
+                exit_code_for,
+            ),
+            self.entrypoint.index(
+                "BootstrapObservation::EXACT_PSSM_CAPABILITY_UNSUPPORTED",
+                exit_code_for,
+            ),
+        )
+        self.assertIn(
+            "case RendererOgreNextChildStatus::REJECTED_STARTUP_PLAN:",
+            self.orchestration,
+        )
+        self.assertIn(
+            "case RendererOgreNextChildStatus::"
+            "REJECTED_UNSUPPORTED_STARTUP_PATH:",
+            self.orchestration,
+        )
 
     def test_ctest_runs_and_independently_validates_the_receipt(self) -> None:
         ctest = self.cmake[

@@ -81,6 +81,19 @@ FrontendSurfaceUpdate MakeSurface(
   return update;
 }
 
+RenderBridgeSurfaceState MakeBridgeSurface(
+    const RendererOgreNextWindowMetrics &metrics, std::uint64_t revision,
+    bool suspended) noexcept {
+  RenderBridgeSurfaceState surface;
+  surface.surface_revision = revision;
+  surface.logical_width = metrics.logical_width;
+  surface.logical_height = metrics.logical_height;
+  surface.drawable_width = suspended ? 0U : metrics.drawable_width;
+  surface.drawable_height = suspended ? 0U : metrics.drawable_height;
+  surface.suspended = suspended;
+  return surface;
+}
+
 template <std::size_t DestinationCapacity, std::size_t SourceCapacity>
 bool CopyParameters(
     const std::array<RendererOgreNextWindowParameter, SourceCapacity> &source,
@@ -429,9 +442,8 @@ bool PollProduction(void *opaque, std::uint64_t,
   if (!PollSdlInput(*context, events, *metrics, observation->response)) {
     return false;
   }
-  observation->presentation_suspended = context->suspended;
-  observation->presentation_surface_revision =
-      context->suspended ? 0U : context->surface_revision;
+  observation->surface = MakeBridgeSurface(
+      *metrics, context->surface_revision, context->suspended);
   observation->window_close_requested = events.close_requested;
   return true;
 }
@@ -524,7 +536,6 @@ RendererOgreNextProductionSessionResult RunRendererOgreNextProductionSession(
                          RendererOgreNextProductionSessionStatus::
                              FAILED_INTERNAL);
     }
-
     OgreNextN1Configuration frontend_configuration;
     frontend_configuration.shader_media_root =
         configuration.shader_media_root;
@@ -586,10 +597,27 @@ RendererOgreNextProductionSessionResult RunRendererOgreNextProductionSession(
               FAILED_FRONTEND_INITIALIZATION);
     }
 
+    metrics = host.Metrics();
+    const RenderBridgeSurfaceState initial_bridge_surface =
+        metrics == nullptr
+            ? RenderBridgeSurfaceState{}
+            : MakeBridgeSurface(*metrics, context.surface_revision, false);
+    if (metrics == nullptr ||
+        !IsValidRenderBridgeSurfaceState(initial_bridge_surface, false)) {
+      (void)frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds);
+      (void)host.Shutdown();
+      return MakeFailure(
+          result,
+          RendererOgreNextProductionSessionStatus::
+              FAILED_WINDOW_INITIALIZATION);
+    }
+
     RendererOgreNextLiveSessionRuntime live_runtime;
     live_runtime.frontend = &frontend;
     live_runtime.context = &context;
     live_runtime.poll = &PollProduction;
+    live_runtime.initial_surface = initial_bridge_surface;
+    live_runtime.idle_poll_interval_milliseconds = 4U;
     result.live = RunRendererOgreNextLiveSession(endpoint, live_runtime);
     const OgreNextN1PresentationAudit audit =
         frontend.QueryPresentationAudit();
@@ -600,7 +628,7 @@ RendererOgreNextProductionSessionResult RunRendererOgreNextProductionSession(
     result.cpu_window_copy = audit.cpu_window_copy;
 
     RendererOgreNextProductionSessionStatus status =
-        result.live.completed
+        result.live.completed && result.live.peer_ready_sent
             ? RendererOgreNextProductionSessionStatus::COMPLETED
             : RendererOgreNextProductionSessionStatus::FAILED_LIVE_SESSION;
     if (result.live.presented_scene_frames != audit.presented_frames ||

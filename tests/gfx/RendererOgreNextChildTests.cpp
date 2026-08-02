@@ -50,6 +50,8 @@ RoR::RendererOgreNextChildInvocationMode g_frontend_mode =
 bool g_frontend_accepted = true;
 bool g_frontend_completed = true;
 bool g_use_default_frontend_result = true;
+RoR::RendererOgreNextProductionReadiness g_frontend_readiness =
+    RoR::RendererOgreNextProductionReadiness::NOT_PRODUCTION;
 std::uint32_t g_frontend_version =
     RoR::kRendererOgreNextChildContractVersion;
 
@@ -118,6 +120,11 @@ RoR::RendererOgreNextFrontendBootstrapResult BootstrapFrontend(
   result.version = g_frontend_version;
   if (g_use_default_frontend_result) {
     result.invocation_mode = request.invocation_mode;
+    result.production_readiness =
+        request.invocation_mode ==
+                RoR::RendererOgreNextChildInvocationMode::PRODUCTION_BRIDGE
+            ? RoR::RendererOgreNextProductionReadiness::PEER_READY_SENT
+            : RoR::RendererOgreNextProductionReadiness::NOT_PRODUCTION;
     result.accepted = true;
     result.status =
         RoR::RendererOgreNextFrontendBootstrapStatus::COMPLETED;
@@ -126,6 +133,7 @@ RoR::RendererOgreNextFrontendBootstrapResult BootstrapFrontend(
   }
   result.invocation_mode = g_frontend_mode;
   result.status = g_frontend_status;
+  result.production_readiness = g_frontend_readiness;
   result.accepted = g_frontend_accepted;
   result.completed = g_frontend_completed;
   return result;
@@ -158,6 +166,8 @@ void ResetCallbacks() {
   g_frontend_accepted = true;
   g_frontend_completed = true;
   g_use_default_frontend_result = true;
+  g_frontend_readiness =
+      RoR::RendererOgreNextProductionReadiness::NOT_PRODUCTION;
   g_frontend_version = RoR::kRendererOgreNextChildContractVersion;
 }
 
@@ -259,7 +269,7 @@ std::size_t FindArgument(
 }
 
 void TestStatusAndImmutableAvailabilityContracts() {
-  Require(RoR::kRendererOgreNextChildContractVersion == 3U,
+  Require(RoR::kRendererOgreNextChildContractVersion == 4U,
           "child live-session contract version changed");
   const unsigned int maximum = std::numeric_limits<std::uint8_t>::max();
   for (unsigned int value = 0U; value <= maximum; ++value) {
@@ -273,6 +283,11 @@ void TestStatusAndImmutableAvailabilityContracts() {
     Require(RoR::IsKnownRendererOgreNextFrontendBootstrapStatus(frontend) ==
                 (value <= 5U),
             "frontend status classifier accepted an unknown value");
+    const auto readiness =
+        static_cast<RoR::RendererOgreNextProductionReadiness>(value);
+    Require(RoR::IsKnownRendererOgreNextProductionReadiness(readiness) ==
+                (value <= 2U),
+            "production readiness classifier accepted an unknown value");
     const auto child = static_cast<RoR::RendererOgreNextChildStatus>(value);
     Require(RoR::IsKnownRendererOgreNextChildStatus(child) ==
                 (value <= 12U),
@@ -284,10 +299,23 @@ void TestStatusAndImmutableAvailabilityContracts() {
               "completed-production-bridge-session") == 0 &&
               std::strcmp(
                   RoR::ToString(
-                      RoR::RendererOgreNextChildInvocationMode::
+                  RoR::RendererOgreNextChildInvocationMode::
                           PRODUCTION_BRIDGE),
                   "production-bridge") == 0,
           "production bridge status strings changed");
+  Require(RoR::kRendererOgreNextChildPrePeerReadyFailureExitCode == 73 &&
+              RoR::kRendererOgreNextChildPostPeerReadyFailureExitCode == 74 &&
+              std::strcmp(
+                  RoR::ToString(
+                      RoR::RendererOgreNextProductionReadiness::
+                          PRE_PEER_READY),
+                  "pre-peer-ready") == 0 &&
+              std::strcmp(
+                  RoR::ToString(
+                      RoR::RendererOgreNextProductionReadiness::
+                          PEER_READY_SENT),
+                  "peer-ready-sent") == 0,
+          "production readiness exit/string contract changed");
   Require(std::strcmp(
               RoR::ToString(static_cast<
                   RoR::RendererOgreNextChildStatus>(255U)),
@@ -361,6 +389,8 @@ void TestProbeHeadlessBootstrapAndPreferNativeFallback() {
                                         COMPLETED_HEADLESS_BOOTSTRAP &&
               pssm_result.invocation_mode ==
                   RoR::RendererOgreNextChildInvocationMode::PROBE_HEADLESS &&
+              pssm_result.production_readiness ==
+                  RoR::RendererOgreNextProductionReadiness::NOT_PRODUCTION &&
               pssm_result.bridge_status ==
                   RoR::RendererBridgeEndpointArgvStatus::
                       REJECTED_MISSING_CONTRACT &&
@@ -409,6 +439,8 @@ void TestProductionBridgeAcceptanceAndGameSuffix() {
               result.invocation_mode ==
                   RoR::RendererOgreNextChildInvocationMode::
                       PRODUCTION_BRIDGE &&
+              result.production_readiness ==
+                  RoR::RendererOgreNextProductionReadiness::PEER_READY_SENT &&
               result.frontend_request.has_bridge_endpoint &&
               result.frontend_request.bridge_endpoint.session_id ==
                   endpoint.session_id &&
@@ -558,6 +590,10 @@ void TestIntentRuntimeAndStartupRejections() {
   result = Run(require_native);
   Require(result.status ==
               RoR::RendererOgreNextChildStatus::REJECTED_STARTUP_PLAN &&
+              result.production_readiness ==
+                  RoR::RendererOgreNextProductionReadiness::PRE_PEER_READY &&
+              RoR::ResolveRendererOgreNextProductionFailureExitCode(result) ==
+                  RoR::kRendererOgreNextChildPrePeerReadyFailureExitCode &&
               result.bridge_status ==
                   RoR::RendererBridgeEndpointArgvStatus::READY &&
               result.frontend_request.has_bridge_endpoint &&
@@ -704,6 +740,80 @@ void TestFrontendFailuresAndContradictions() {
           "frontend exception crossed the noexcept child boundary");
 }
 
+void TestProductionReadinessSelectsExactFailureExit() {
+  const std::vector<NativeString> production = ProductionArguments(
+      MakeEndpoint(RoR::RendererBridgeRole::PRESENTATION_FRONTEND),
+      std::vector<NativeString>{ROR_NATIVE_TEXT("RoR")});
+
+  ResetCallbacks();
+  g_use_default_frontend_result = false;
+  g_frontend_mode =
+      RoR::RendererOgreNextChildInvocationMode::PRODUCTION_BRIDGE;
+  g_frontend_status =
+      RoR::RendererOgreNextFrontendBootstrapStatus::INITIALIZATION_FAILED;
+  g_frontend_readiness =
+      RoR::RendererOgreNextProductionReadiness::PRE_PEER_READY;
+  g_frontend_accepted = false;
+  g_frontend_completed = false;
+  const RoR::RendererOgreNextChildResult pre_ready = Run(production);
+  Require(pre_ready.status ==
+              RoR::RendererOgreNextChildStatus::
+                  FAILED_FRONTEND_INITIALIZATION &&
+              pre_ready.production_readiness ==
+                  RoR::RendererOgreNextProductionReadiness::PRE_PEER_READY &&
+              RoR::ResolveRendererOgreNextProductionFailureExitCode(
+                  pre_ready) ==
+                  RoR::kRendererOgreNextChildPrePeerReadyFailureExitCode,
+          "pre-ready production failure did not reserve exit 73");
+
+  ResetCallbacks();
+  g_use_default_frontend_result = false;
+  g_frontend_mode =
+      RoR::RendererOgreNextChildInvocationMode::PRODUCTION_BRIDGE;
+  g_frontend_status =
+      RoR::RendererOgreNextFrontendBootstrapStatus::REJECTED_STARTUP_PATH;
+  g_frontend_readiness =
+      RoR::RendererOgreNextProductionReadiness::PRE_PEER_READY;
+  g_frontend_accepted = false;
+  g_frontend_completed = false;
+  const RoR::RendererOgreNextChildResult unsupported_before_ready =
+      Run(production);
+  Require(unsupported_before_ready.status ==
+              RoR::RendererOgreNextChildStatus::
+                  REJECTED_UNSUPPORTED_STARTUP_PATH &&
+              RoR::ResolveRendererOgreNextProductionFailureExitCode(
+                  unsupported_before_ready) ==
+                  RoR::kRendererOgreNextChildPrePeerReadyFailureExitCode,
+          "pre-ready unsupported production path did not reserve exit 73");
+
+  ResetCallbacks();
+  g_use_default_frontend_result = false;
+  g_frontend_mode =
+      RoR::RendererOgreNextChildInvocationMode::PRODUCTION_BRIDGE;
+  g_frontend_status =
+      RoR::RendererOgreNextFrontendBootstrapStatus::FAILED_INTERNAL;
+  g_frontend_readiness =
+      RoR::RendererOgreNextProductionReadiness::PEER_READY_SENT;
+  g_frontend_accepted = false;
+  g_frontend_completed = false;
+  const RoR::RendererOgreNextChildResult post_ready = Run(production);
+  Require(post_ready.status ==
+              RoR::RendererOgreNextChildStatus::FAILED_FRONTEND_INTERNAL &&
+              post_ready.production_readiness ==
+                  RoR::RendererOgreNextProductionReadiness::PEER_READY_SENT &&
+              RoR::ResolveRendererOgreNextProductionFailureExitCode(
+                  post_ready) ==
+                  RoR::kRendererOgreNextChildPostPeerReadyFailureExitCode,
+          "post-ready production failure did not reserve exit 74");
+
+  ResetCallbacks();
+  const RoR::RendererOgreNextChildResult completed = Run(production);
+  Require(completed.completed &&
+              RoR::ResolveRendererOgreNextProductionFailureExitCode(
+                  completed) == 0,
+          "completed production child resolved to a failure exit");
+}
+
 void TestPureOrchestrationDoesNotAdoptNativeHandles() {
 #if defined(_WIN32)
   SECURITY_ATTRIBUTES security{};
@@ -815,6 +925,7 @@ int main() {
   TestBridgeFailuresHappenBeforeNativeCallbacks();
   TestIntentRuntimeAndStartupRejections();
   TestFrontendFailuresAndContradictions();
+  TestProductionReadinessSelectsExactFailureExit();
   TestPureOrchestrationDoesNotAdoptNativeHandles();
   std::cout << "renderer Ogre-Next child bridge orchestration tests passed\n";
   return EXIT_SUCCESS;

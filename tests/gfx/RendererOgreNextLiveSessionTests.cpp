@@ -271,6 +271,28 @@ CameraViewRequest Camera() {
   return camera;
 }
 
+RenderBridgeSurfaceState ActiveSurface(std::uint64_t revision = 9U) {
+  RenderBridgeSurfaceState surface;
+  surface.surface_revision = revision;
+  surface.logical_width = 96U;
+  surface.logical_height = 64U;
+  surface.drawable_width = 96U;
+  surface.drawable_height = 64U;
+  Require(IsValidRenderBridgeSurfaceState(surface, false),
+          "active surface fixture invalid");
+  return surface;
+}
+
+RenderBridgeSurfaceState SuspendedSurface(std::uint64_t revision) {
+  RenderBridgeSurfaceState surface = ActiveSurface(revision);
+  surface.drawable_width = 0U;
+  surface.drawable_height = 0U;
+  surface.suspended = true;
+  Require(IsValidRenderBridgeSurfaceState(surface, true),
+          "suspended surface fixture invalid");
+  return surface;
+}
+
 std::shared_ptr<const SceneSnapshot> Scene(std::uint64_t registry_id) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = 1U;
@@ -385,6 +407,7 @@ public:
 
 struct PollContext final {
   std::vector<std::uint64_t> observed_forward_sequences;
+  std::vector<RenderBridgeSurfaceState> surfaces;
   std::uint64_t calls = 0U;
   std::uint64_t close_on_call = 0U;
   bool invalid_batch = false;
@@ -399,7 +422,11 @@ bool Poll(void *opaque, std::uint64_t observed_forward_sequence,
   ++context.calls;
   context.observed_forward_sequences.push_back(observed_forward_sequence);
   *observation = RendererOgreNextLiveSessionObservation{};
-  observation->presentation_surface_revision = 9U;
+  observation->surface = context.surfaces.empty()
+                             ? ActiveSurface()
+                             : context.surfaces[(std::min)(
+                                   static_cast<std::size_t>(context.calls - 1U),
+                                   context.surfaces.size() - 1U)];
   observation->response.clock_origin_id = context.invalid_batch ? 0U : 77U;
   observation->response.reconciliation.host_timestamp_ns = context.calls;
   observation->response.reconciliation.focus =
@@ -423,13 +450,14 @@ RendererOgreNextLiveSessionRuntime Runtime(FakeFrontend &frontend,
   runtime.frontend = &frontend;
   runtime.context = &poll;
   runtime.poll = &Poll;
+  runtime.initial_surface = ActiveSurface();
   return runtime;
 }
 
 void TestStatusDomainAndRejections() {
-  Require(kRendererOgreNextLiveSessionContractVersion == 1U,
+  Require(kRendererOgreNextLiveSessionContractVersion == 2U,
           "live session contract version changed");
-  for (unsigned value = 0U; value <= 13U; ++value) {
+  for (unsigned value = 0U; value <= 14U; ++value) {
     const auto status =
         static_cast<RendererOgreNextLiveSessionStatus>(value);
     Require(IsKnownRendererOgreNextLiveSessionStatus(status),
@@ -438,7 +466,7 @@ void TestStatusDomainAndRejections() {
             "known live session status lacks text");
   }
   Require(!IsKnownRendererOgreNextLiveSessionStatus(
-              static_cast<RendererOgreNextLiveSessionStatus>(14U)),
+              static_cast<RendererOgreNextLiveSessionStatus>(15U)),
           "unknown live session status accepted");
 
   RendererBridgeEndpoint invalid;
@@ -465,6 +493,16 @@ void TestStatusDomainAndRejections() {
               RendererOgreNextLiveSessionStatus::REJECTED_INVALID_RUNTIME &&
               !runtime_rejected.channel_adopted,
           "invalid runtime crossed adoption boundary");
+
+  RendererOgreNextLiveSessionRuntime suspended_initial =
+      Runtime(frontend, poll);
+  suspended_initial.initial_surface = SuspendedSurface(10U);
+  const RendererOgreNextLiveSessionResult surface_rejected =
+      RunRendererOgreNextLiveSession(structurally_valid, suspended_initial);
+  Require(surface_rejected.status ==
+              RendererOgreNextLiveSessionStatus::REJECTED_INVALID_RUNTIME &&
+              !surface_rejected.channel_adopted,
+          "suspended PEER_READY surface crossed adoption boundary");
 }
 
 void TestCompleteMonotonicFramesAndResponses() {
@@ -520,7 +558,11 @@ void TestCompleteMonotonicFramesAndResponses() {
                                 RENDER_BRIDGE_CONTROL_V1 &&
               ready.sequence == 1U &&
               ready.control.kind == RenderBridgeControlKind::PEER_READY &&
-              ready.control.command_id == 1U && asset_input.ok() &&
+              ready.control.command_id == 1U &&
+              ready.control.surface.surface_revision == 9U &&
+              ready.control.surface.logical_width == 96U &&
+              ready.control.surface.drawable_width == 96U &&
+              !ready.control.surface.suspended && asset_input.ok() &&
               asset_input.message->sequence() == 2U && asset_ack.ok() &&
               asset_ack.sequence == 3U &&
               asset_ack.acknowledgement.through_forward_sequence == 1U &&
@@ -540,6 +582,9 @@ void TestCompleteMonotonicFramesAndResponses() {
               session.presented_scene_frames == 1U &&
               session.responses_sent == 5U &&
               session.controls_sent == 1U &&
+              session.surface_changes_sent == 0U &&
+              session.last_announced_surface_revision == 9U &&
+              session.peer_ready_sent &&
               session.input_batches_sent == 2U &&
               session.acknowledgements_sent == 2U &&
               session.last_forward_sequence == 2U &&
@@ -574,6 +619,10 @@ void TestWindowCloseControlCompletesCleanly() {
   FakeFrontend frontend;
   PollContext poll;
   poll.close_on_call = 1U;
+  RenderBridgeSurfaceState closing_surface = ActiveSurface(10U);
+  closing_surface.logical_width = 48U;
+  closing_surface.logical_height = 32U;
+  poll.surfaces.push_back(closing_surface);
   RendererOgreNextLiveSessionResult session;
   std::thread worker([&]() {
     session = RunRendererOgreNextLiveSession(endpoint, Runtime(frontend, poll));
@@ -581,6 +630,8 @@ void TestWindowCloseControlCompletesCleanly() {
   const std::vector<std::uint8_t> ready_frame =
       ReadNativeFrame(reverse.read_handle);
   WriteNative(forward.write_handle, asset.data(), asset.size());
+  const std::vector<std::uint8_t> surface_frame =
+      ReadNativeFrame(reverse.read_handle);
   const std::vector<std::uint8_t> input_frame =
       ReadNativeFrame(reverse.read_handle);
   const std::vector<std::uint8_t> shutdown_frame =
@@ -593,25 +644,34 @@ void TestWindowCloseControlCompletesCleanly() {
                                                        reverse_sequence);
   const RenderBridgeControlTransportDecodeResult ready =
       control_decoder.Accept(ready_frame);
+  const RenderBridgeControlTransportDecodeResult surface =
+      control_decoder.Accept(surface_frame);
   const InputEventTransportDecodeResult input =
       input_decoder.Accept(input_frame);
   const RenderBridgeControlTransportDecodeResult shutdown =
       control_decoder.Accept(shutdown_frame);
   Require(ready.ok() && ready.sequence == 1U &&
               ready.control.kind == RenderBridgeControlKind::PEER_READY &&
-              input.ok() && input.message->sequence() == 2U &&
+              ready.control.surface.surface_revision == 9U &&
+              surface.ok() && surface.sequence == 2U &&
+              surface.control.kind ==
+                  RenderBridgeControlKind::SURFACE_CHANGED &&
+              surface.control.command_id == 2U && input.ok() &&
+              input.message->sequence() == 3U &&
               input.message->batch()->events.size() == 1U &&
               input.message->batch()->reconciliation.window_close_requested &&
-              shutdown.ok() && shutdown.sequence == 3U &&
+              shutdown.ok() && shutdown.sequence == 4U &&
               shutdown.control.kind ==
                   RenderBridgeControlKind::REQUEST_GRACEFUL_SHUTDOWN &&
-              shutdown.control.command_id == 2U &&
-              reverse_sequence.next_expected_sequence() == 4U,
+              shutdown.control.command_id == 3U &&
+              reverse_sequence.next_expected_sequence() == 5U,
           "window-close input/control lineage did not round-trip");
   Require(session.status ==
               RendererOgreNextLiveSessionStatus::COMPLETED_WINDOW_CLOSE &&
-              session.completed && session.responses_sent == 3U &&
-              session.controls_sent == 2U &&
+              session.completed && session.responses_sent == 4U &&
+              session.controls_sent == 3U &&
+              session.surface_changes_sent == 1U &&
+              session.peer_ready_sent &&
               session.input_batches_sent == 1U &&
               session.acknowledgements_sent == 0U &&
               session.last_acknowledged_forward_sequence == 0U &&
@@ -651,11 +711,280 @@ void TestEmptyPeerEofDoesNotFabricateAcknowledgement() {
                   RendererOgreNextLiveSessionStatus::COMPLETED_PEER_EOF &&
               session.completed && session.responses_sent == 1U &&
               session.controls_sent == 1U &&
+              session.peer_ready_sent &&
               session.input_batches_sent == 0U &&
               session.acknowledgements_sent == 0U && poll.calls == 0U &&
               frontend.asset_calls == 0U && frontend.render_calls == 0U,
           "empty peer EOF fabricated reverse input or acknowledgement");
   CloseNative(reverse.read_handle);
+}
+
+void TestSurfaceChangePrecedesAffectedFrameResponse() {
+  NativePipe forward = MakePipe();
+  NativePipe reverse = MakePipe();
+  const RendererBridgeEndpoint endpoint =
+      MakeEndpoint(forward.read_handle, reverse.write_handle, 45U);
+  const std::uint64_t registry_id =
+      DeriveRenderAssetRegistryIdFromBridgeSession(endpoint.session_id);
+  const std::vector<std::uint8_t> asset = AssetFrame(registry_id);
+  FakeFrontend frontend;
+  PollContext poll;
+  RenderBridgeSurfaceState scaled = ActiveSurface(10U);
+  scaled.logical_width = 48U;
+  scaled.logical_height = 32U;
+  Require(IsValidRenderBridgeSurfaceState(scaled, false),
+          "scaled surface fixture invalid");
+  poll.surfaces.push_back(scaled);
+  RendererOgreNextLiveSessionResult session;
+  std::thread worker([&]() {
+    session = RunRendererOgreNextLiveSession(endpoint, Runtime(frontend, poll));
+  });
+
+  const std::vector<std::uint8_t> ready_frame =
+      ReadNativeFrame(reverse.read_handle);
+  WriteNative(forward.write_handle, asset.data(), asset.size());
+  const std::vector<std::uint8_t> surface_frame =
+      ReadNativeFrame(reverse.read_handle);
+  const std::vector<std::uint8_t> input_frame =
+      ReadNativeFrame(reverse.read_handle);
+  const std::vector<std::uint8_t> acknowledgement_frame =
+      ReadNativeFrame(reverse.read_handle);
+  CloseNative(forward.write_handle);
+  worker.join();
+
+  RenderTransportSequenceState reverse_sequence(1U);
+  InputEventTransportDecoder input_decoder(reverse_sequence);
+  RenderBridgeControlTransportDecoder control_decoder(registry_id,
+                                                       reverse_sequence);
+  const auto ready = control_decoder.Accept(ready_frame);
+  const auto surface = control_decoder.Accept(surface_frame);
+  const auto input = input_decoder.Accept(input_frame);
+  const auto acknowledgement =
+      control_decoder.Accept(acknowledgement_frame);
+  Require(ready.ok() && ready.sequence == 1U &&
+              ready.control.kind == RenderBridgeControlKind::PEER_READY &&
+              surface.ok() && surface.sequence == 2U &&
+              surface.control.kind ==
+                  RenderBridgeControlKind::SURFACE_CHANGED &&
+              surface.control.command_id == 2U &&
+              surface.control.surface.surface_revision == 10U &&
+              surface.control.surface.logical_width == 48U &&
+              surface.control.surface.drawable_width == 96U && input.ok() &&
+              input.message->sequence() == 3U && acknowledgement.ok() &&
+              acknowledgement.sequence == 4U &&
+              acknowledgement.acknowledgement.through_forward_sequence == 1U,
+          "surface change did not precede the affected input/ACK response");
+  Require(session.completed && session.peer_ready_sent &&
+              session.controls_sent == 2U &&
+              session.surface_changes_sent == 1U &&
+              session.last_announced_surface_revision == 10U &&
+              session.responses_sent == 4U && frontend.asset_calls == 1U &&
+              frontend.render_calls == 0U,
+          "active surface change audit changed");
+  CloseNative(reverse.read_handle);
+}
+
+void TestIdlePumpPublishesSurfaceWithoutForwardEnvelope() {
+  NativePipe forward = MakePipe();
+  NativePipe reverse = MakePipe();
+  const RendererBridgeEndpoint endpoint =
+      MakeEndpoint(forward.read_handle, reverse.write_handle, 46U);
+  const std::uint64_t registry_id =
+      DeriveRenderAssetRegistryIdFromBridgeSession(endpoint.session_id);
+  FakeFrontend frontend;
+  PollContext poll;
+  RenderBridgeSurfaceState scaled = ActiveSurface(10U);
+  scaled.logical_width = 48U;
+  scaled.logical_height = 32U;
+  poll.surfaces.push_back(scaled);
+  RendererOgreNextLiveSessionRuntime runtime = Runtime(frontend, poll);
+  runtime.idle_poll_interval_milliseconds = 1U;
+  RendererOgreNextLiveSessionResult session;
+  std::thread worker([&]() {
+    session = RunRendererOgreNextLiveSession(endpoint, runtime);
+  });
+
+  const std::vector<std::uint8_t> ready_frame =
+      ReadNativeFrame(reverse.read_handle);
+  const std::vector<std::uint8_t> surface_frame =
+      ReadNativeFrame(reverse.read_handle);
+  CloseNative(forward.write_handle);
+  worker.join();
+
+  RenderTransportSequenceState reverse_sequence(1U);
+  RenderBridgeControlTransportDecoder control_decoder(registry_id,
+                                                       reverse_sequence);
+  const auto ready = control_decoder.Accept(ready_frame);
+  const auto surface = control_decoder.Accept(surface_frame);
+  Require(ready.ok() && ready.sequence == 1U && surface.ok() &&
+              surface.sequence == 2U &&
+              surface.control.kind ==
+                  RenderBridgeControlKind::SURFACE_CHANGED &&
+              surface.control.surface.surface_revision == 10U &&
+              reverse_sequence.next_expected_sequence() == 3U,
+          "idle surface control did not preserve reverse lineage");
+  Require(session.completed && session.peer_ready_sent &&
+              session.idle_polls >= 1U && session.responses_sent == 2U &&
+              session.controls_sent == 2U &&
+              session.surface_changes_sent == 1U &&
+              session.input_batches_sent == 0U &&
+              session.acknowledgements_sent == 0U &&
+              session.last_forward_sequence == 0U &&
+              session.last_announced_surface_revision == 10U &&
+              !poll.observed_forward_sequences.empty() &&
+              poll.observed_forward_sequences.front() == 0U &&
+              frontend.asset_calls == 0U && frontend.render_calls == 0U,
+          "idle pump required a forward envelope or fabricated a response");
+  CloseNative(reverse.read_handle);
+}
+
+void RunChangedSurfaceRetirementCase(
+    const RenderBridgeSurfaceState &changed_surface, std::uint8_t seed) {
+  NativePipe forward = MakePipe();
+  NativePipe reverse = MakePipe();
+  const RendererBridgeEndpoint endpoint =
+      MakeEndpoint(forward.read_handle, reverse.write_handle, seed);
+  const std::uint64_t registry_id =
+      DeriveRenderAssetRegistryIdFromBridgeSession(endpoint.session_id);
+  const std::vector<std::uint8_t> asset = AssetFrame(registry_id);
+  const std::vector<std::uint8_t> scene = SceneFrame(registry_id);
+  FakeFrontend frontend;
+  PollContext poll;
+  poll.surfaces = {ActiveSurface(), changed_surface};
+  RendererOgreNextLiveSessionResult session;
+  std::thread worker([&]() {
+    session = RunRendererOgreNextLiveSession(endpoint, Runtime(frontend, poll));
+  });
+
+  const std::vector<std::uint8_t> ready_frame =
+      ReadNativeFrame(reverse.read_handle);
+  WriteNative(forward.write_handle, asset.data(), asset.size());
+  const std::vector<std::uint8_t> asset_input_frame =
+      ReadNativeFrame(reverse.read_handle);
+  const std::vector<std::uint8_t> asset_ack_frame =
+      ReadNativeFrame(reverse.read_handle);
+  WriteNative(forward.write_handle, scene.data(), scene.size());
+  const std::vector<std::uint8_t> suspended_frame =
+      ReadNativeFrame(reverse.read_handle);
+  const std::vector<std::uint8_t> retired_input_frame =
+      ReadNativeFrame(reverse.read_handle);
+  const std::vector<std::uint8_t> retired_ack_frame =
+      ReadNativeFrame(reverse.read_handle);
+  CloseNative(forward.write_handle);
+  worker.join();
+
+  RenderTransportSequenceState reverse_sequence(1U);
+  InputEventTransportDecoder input_decoder(reverse_sequence);
+  RenderBridgeControlTransportDecoder control_decoder(registry_id,
+                                                       reverse_sequence);
+  const auto ready = control_decoder.Accept(ready_frame);
+  const auto asset_input = input_decoder.Accept(asset_input_frame);
+  const auto asset_ack = control_decoder.Accept(asset_ack_frame);
+  const auto suspended = control_decoder.Accept(suspended_frame);
+  const auto retired_input = input_decoder.Accept(retired_input_frame);
+  const auto retired_ack = control_decoder.Accept(retired_ack_frame);
+  Require(ready.ok() && asset_input.ok() && asset_ack.ok() &&
+              suspended.ok() && suspended.sequence == 4U &&
+              suspended.control.kind ==
+                  RenderBridgeControlKind::SURFACE_CHANGED &&
+              suspended.control.surface.suspended ==
+                  changed_surface.suspended &&
+              suspended.control.surface.surface_revision == 10U &&
+              suspended.control.surface.drawable_width ==
+                  changed_surface.drawable_width &&
+              retired_input.ok() && retired_input.message->sequence() == 5U &&
+              retired_ack.ok() && retired_ack.sequence == 6U &&
+              retired_ack.acknowledgement.through_forward_sequence == 2U &&
+              retired_ack.acknowledgement.presented_scene_sequence == 0U &&
+              retired_ack.acknowledgement.presented_snapshot_id == 0U &&
+              reverse_sequence.next_expected_sequence() == 7U,
+          "changed surface retirement lineage changed");
+  Require(session.status ==
+              RendererOgreNextLiveSessionStatus::COMPLETED_PEER_EOF &&
+              session.dispatch_status ==
+                  RendererFrontendTransportDispatchStatus::
+                      SCENE_FRAME_RETIRED &&
+              session.completed && session.peer_ready_sent &&
+              session.asset_frames == 1U && session.scene_frames == 1U &&
+              session.retired_scene_frames == 1U &&
+              session.presented_scene_frames == 0U &&
+              session.last_forward_sequence == 2U &&
+              session.last_acknowledged_forward_sequence == 2U &&
+              session.surface_changes_sent == 1U &&
+              session.input_batches_sent == 2U &&
+              session.acknowledgements_sent == 2U &&
+              frontend.asset_calls == 1U && frontend.render_calls == 0U,
+          "changed scene was not retired without frontend dispatch");
+  CloseNative(reverse.read_handle);
+}
+
+void TestChangedOrSuspendedSurfaceRetiresSceneWithoutDispatch() {
+  RenderBridgeSurfaceState resized = ActiveSurface(10U);
+  resized.drawable_width = 192U;
+  resized.drawable_height = 128U;
+  Require(IsValidRenderBridgeSurfaceState(resized, false),
+          "resized stale-scene fixture invalid");
+  RunChangedSurfaceRetirementCase(resized, 47U);
+  RunChangedSurfaceRetirementCase(SuspendedSurface(10U), 48U);
+}
+
+void TestPreReadyPeerCloseAndSameRevisionMutationFailClosed() {
+  {
+    NativePipe forward = MakePipe();
+    NativePipe reverse = MakePipe();
+    CloseNative(reverse.read_handle);
+    const RendererBridgeEndpoint endpoint =
+        MakeEndpoint(forward.read_handle, reverse.write_handle, 49U);
+    FakeFrontend frontend;
+    PollContext poll;
+    const RendererOgreNextLiveSessionResult session =
+        RunRendererOgreNextLiveSession(endpoint, Runtime(frontend, poll));
+    Require(session.status == RendererOgreNextLiveSessionStatus::
+                                  FAILED_PEER_CLOSED_BEFORE_READY &&
+                !session.completed && session.channel_adopted &&
+                !session.peer_ready_sent && session.responses_sent == 0U &&
+                session.controls_sent == 0U &&
+                session.last_announced_surface_revision == 0U,
+            "pre-ready reverse close was not classified as startup failure");
+    CloseNative(forward.write_handle);
+  }
+
+  {
+    NativePipe forward = MakePipe();
+    NativePipe reverse = MakePipe();
+    const RendererBridgeEndpoint endpoint =
+        MakeEndpoint(forward.read_handle, reverse.write_handle, 50U);
+    const std::uint64_t registry_id =
+        DeriveRenderAssetRegistryIdFromBridgeSession(endpoint.session_id);
+    const std::vector<std::uint8_t> asset = AssetFrame(registry_id);
+    FakeFrontend frontend;
+    PollContext poll;
+    RenderBridgeSurfaceState mutated = ActiveSurface();
+    mutated.logical_width = 95U;
+    poll.surfaces.push_back(mutated);
+    RendererOgreNextLiveSessionResult session;
+    std::thread worker([&]() {
+      session =
+          RunRendererOgreNextLiveSession(endpoint, Runtime(frontend, poll));
+    });
+    const std::vector<std::uint8_t> ready_frame =
+        ReadNativeFrame(reverse.read_handle);
+    WriteNative(forward.write_handle, asset.data(), asset.size());
+    worker.join();
+    RenderTransportSequenceState reverse_sequence(1U);
+    RenderBridgeControlTransportDecoder control_decoder(registry_id,
+                                                         reverse_sequence);
+    Require(control_decoder.Accept(ready_frame).ok() &&
+                session.status ==
+                    RendererOgreNextLiveSessionStatus::FAILED_EVENT_POLL &&
+                session.peer_ready_sent && !session.completed &&
+                session.responses_sent == 1U &&
+                session.surface_changes_sent == 0U &&
+                frontend.asset_calls == 0U && frontend.render_calls == 0U,
+            "same-revision surface mutation crossed the event boundary");
+    CloseNative(forward.write_handle);
+    CloseNative(reverse.read_handle);
+  }
 }
 
 void TestTruncatedEofAndInvalidResponseFailClosed() {
@@ -746,6 +1075,10 @@ int main() {
   TestCompleteMonotonicFramesAndResponses();
   TestWindowCloseControlCompletesCleanly();
   TestEmptyPeerEofDoesNotFabricateAcknowledgement();
+  TestSurfaceChangePrecedesAffectedFrameResponse();
+  TestIdlePumpPublishesSurfaceWithoutForwardEnvelope();
+  TestChangedOrSuspendedSurfaceRetiresSceneWithoutDispatch();
+  TestPreReadyPeerCloseAndSameRevisionMutationFailClosed();
   TestTruncatedEofAndInvalidResponseFailClosed();
   std::cout << "Renderer Ogre-Next live session tests passed\n";
   return EXIT_SUCCESS;
