@@ -14,7 +14,11 @@
 #include "GraphicsSceneSnapshotProducer.h"
 
 #include <cstdint>
+#include <functional>
+#include <map>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace RoR::Render {
 
@@ -137,6 +141,89 @@ struct Ogre14CameraCaptureInput {
 /// radiance unit so Ogre-Next receives the same numeric linear RGB without a
 /// display-gamma round trip or an unaudited exposure multiplier.
 constexpr float kOgre14AmbientNativeUnitRadiance = 1.0F;
+
+/// Compatibility calibration, not a claim of measured physical photometry.
+/// One unit of OGRE 14's renderer-linear `diffuse * powerScale` becomes 1024
+/// canonical lux (directional) or candela (local). Ogre-Next RT4 applies the
+/// exact reciprocal 1/1024 native-power scale, reproducing the legacy direct
+/// RGB term before either renderer's distance/cone attenuation.
+constexpr float kOgre14LegacyDiffusePowerToCanonicalIntensity = 1024.0F;
+constexpr std::uint32_t kOgre14LightCompatibilityCalibrationVersion = 1U;
+
+enum class Ogre14GraphicsSceneLightKind : std::uint8_t {
+  POINT = 0U,
+  DIRECTIONAL = 1U,
+  SPOT = 2U,
+  RECTANGLE = 3U,
+};
+
+/// Renderer-neutral copy of every OGRE 14 value read for one managed Light.
+/// `inner/outer_cone_radians` are OGRE's authored full cone angles. The
+/// specular color, visibility/light masks, attenuation coefficients, and
+/// spotlight falloff are retained here so the adapter audits native state
+/// explicitly; portable scene schema v4 can preserve only diffuse
+/// chromaticity/power, range, cones, and shadow enable from those properties.
+struct Ogre14GraphicsSceneLightCaptureInput {
+  std::string exact_name;
+  Ogre14GraphicsSceneLightKind kind =
+      Ogre14GraphicsSceneLightKind::POINT;
+  Float3 diffuse_linear{1.0F, 1.0F, 1.0F};
+  Float3 specular_linear{};
+  float power_scale = 1.0F;
+  bool visible = true;
+  std::uint32_t visibility_flags = 0xFFFFFFFFU;
+  std::uint32_t light_mask = 0xFFFFFFFFU;
+  Float3 derived_position{};
+  Float3 derived_direction{0.0F, -1.0F, 0.0F};
+  float attenuation_range = 0.0F;
+  float attenuation_constant = 1.0F;
+  float attenuation_linear = 0.0F;
+  float attenuation_quadratic = 0.0F;
+  float inner_cone_radians = 0.0F;
+  float outer_cone_radians = 0.0F;
+  float spot_falloff = 1.0F;
+  bool casts_shadows = true;
+};
+
+/// Retains the exact-name/u64 bijection for one adapter lifetime. The registry
+/// catches both a hash collision and inconsistent identity reuse. It is not
+/// cleared by GfxScene::ClearScene(); a producer lifetime reset remains a
+/// separate scene-lifecycle operation.
+class Ogre14GraphicsSceneLightIdentityRegistry final {
+public:
+  /// Registers a caller-derived stable identity. Exposed as a narrow pure-data
+  /// seam so collision behavior is testable without constructing OGRE objects.
+  /// Failure leaves the registry unchanged.
+  [[nodiscard]] ValidationResult RegisterDerivedIdentity(
+      std::string_view exact_name, std::uint64_t stable_id);
+
+  [[nodiscard]] std::size_t size() const noexcept {
+    return names_by_id_.size();
+  }
+
+private:
+  std::map<std::uint64_t, std::string> names_by_id_;
+  std::map<std::string, std::uint64_t, std::less<>> ids_by_name_;
+};
+
+/// Domain-separated FNV-1a-64 over the exact OGRE Light name bytes. Empty
+/// names and the reserved zero identity fail closed and leave `stable_id`
+/// untouched.
+[[nodiscard]] ValidationResult DeriveOgre14GraphicsSceneLightId(
+    std::string_view exact_name, std::uint64_t &stable_id);
+
+/// Pure conversion of one native light. Failure leaves `light` untouched.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneLight(
+    const Ogre14GraphicsSceneLightCaptureInput &input,
+    GraphicsSceneLightInput &light);
+
+/// Converts a complete authoritative inventory, rejects duplicate exact names
+/// and identity collisions, and sorts by stable identity. Both output and
+/// registry commit only if every record converts.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneLights(
+    const std::vector<Ogre14GraphicsSceneLightCaptureInput> &inputs,
+    Ogre14GraphicsSceneLightIdentityRegistry &identity_registry,
+    std::vector<GraphicsSceneLightInput> &lights);
 
 /// Converts the complete constant-ambient state supported by OGRE 14. The
 /// legacy bridge has no compatible authored linear-float equirectangular

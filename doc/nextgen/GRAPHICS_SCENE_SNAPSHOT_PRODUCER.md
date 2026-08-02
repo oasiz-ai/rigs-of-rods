@@ -1,8 +1,9 @@
 # Joined graphics scene snapshot producer
 
-Status: the renderer-neutral version-three producer core, including immutable
-analytic lighting/environment and reflection-probe publication, is implemented; the OGRE 1.x
-`GfxScene` source adapter remains the next integration change.
+Status: the renderer-neutral version-four producer core and the joined OGRE 14
+adapter for timing, origin, constant ambient, managed lights, the exact empty
+authored reflection-probe inventory, and main camera are implemented. Static
+asset and mesh-instance capture remains the publication blocker.
 
 ## Boundary
 
@@ -165,11 +166,18 @@ Required source-side changes are:
 3. The inventory assigns stable source asset IDs to authored resource
    lifetimes. Material texture/sampler dependencies are submitted as source
    IDs; the adapter never fabricates a `RenderAssetReference`.
-4. `GfxScene` captures graphics-owned sun, terrain/object lights, and sky state
-   into stable, never-reused light identities without asking a backend to scan
-   an OGRE scene graph. Authored legacy attenuation must be converted into the
-   documented candela/range curve by a calibrated adapter, not copied as
-   renderer-specific coefficients.
+4. `GfxScene` enumerates the authoritative managed `Ogre::MOT_LIGHT` registry
+   at the joined boundary (not backend render queues or scene-node traversal),
+   verifies each registry key equals the exact unique Light name, and hashes
+   those exact bytes into collision-audited stable identities. It captures
+   active and inactive directional/point/spot records transactionally, maps
+   local range, full-to-half spot cones, and shadow enable exactly, and applies
+   compatibility-calibration v1: legacy renderer-linear `diffuse * powerScale`
+   luminance times 1024. Ogre-Next's reciprocal scale reproduces that direct
+   RGB term before attenuation. This is not physical photometric calibration;
+   schema v4 cannot preserve OGRE c/l/q attenuation, spot falloff exponent,
+   separate specular color, or light masks, and RT4/V1 still rejects local
+   lights downstream.
 5. `GfxScene` captures the main graphics camera after its copied simbuffer has
    been consumed, converts OGRE matrices into the canonical right-handed,
    column-major, depth-[0,1] contract, and submits the current drawable pixel
@@ -183,12 +191,11 @@ Required source-side changes are:
 
 The current `TerrainObjectManager` and `MeshObject` APIs expose OGRE objects and
 do not yet provide stable source IDs or cached portable resource descriptors.
-That coupling is why the first commit lands the production core and exact seam
-rather than a fake renderer demo or a producer that scans the OGRE scene graph.
+That coupling is why static asset and instance publication remains fail-closed.
 
 Deformable `GfxActor` meshes, particle emission, water state, volumetric weather,
-and auxiliary cameras are later producer slices. Shipping Ogre-Next raster and
-native RT adapters also still need measured mappings for the version-three light
-and sky contract. This milestone transports and validates authoritative data; it
+and auxiliary cameras are later producer slices. Shipping Ogre-Next local-light
+and native RT adapters also still needs an explicitly versioned attenuation and
+sky calibration. This milestone transports and validates authoritative data; it
 does not implement shadow maps, sky scattering, GI, reflections, denoising, or
 ray-traced lighting by itself.

@@ -176,8 +176,30 @@ static asset/instance inventory; this ambient field does not claim to replace
 it. OGRE 14 has no authored
 reflection-probe registry, so its complete authored probe set is exactly empty;
 the vehicle-local dynamic `GfxEnvmap` is not promoted to a world-space probe.
-The adapter continues to withhold publication until complete static
-asset/instance and calibrated light inventories are available.
+The complete managed `Ogre::MOT_LIGHT` registry is captured at that same joined
+boundary, including authored-invisible lights. Exact case-sensitive OGRE names
+are domain-separated FNV-1a-64 identities; empty names, duplicate names, hash
+collisions, type changes, malformed native values, and unsupported rectangle
+lights fail the whole light transaction. Authored visibility maps to zero
+intensity and zero shadow classes without removing the record, so enable/disable
+changes do not churn identity. Directional position/range/cones are canonical
+zero, point direction
+is canonical, local positions and range are retained, OGRE full spot cones are
+halved into portable half-angles, and the OGRE shadow enable maps to both static
+and dynamic shadow classes.
+
+Legacy OGRE lighting is not measured photometry. Calibration version 1 maps one
+renderer-linear Rec.709 luminance unit of OGRE `diffuse * powerScale` to exactly
+1024 canonical lux for directional lights or candela for local lights. RT4/V1's
+documented `1/1024` native scale therefore reconstructs the legacy diffuse RGB
+term numerically before attenuation. This compatibility claim intentionally
+does not cover OGRE's constant/linear/quadratic attenuation coefficients,
+spotlight falloff exponent, separate specular color, visibility/light masks, or
+material response because scene schema v4 cannot represent those values.
+RT4/V1 also still admits only one directional light and rejects point/spot
+lights; full native local-light rendering remains a downstream milestone. The
+adapter continues to withhold publication until complete static asset/instance
+inventories are available.
 
 The asset payload pins the registry, mesh, texture, material, and sampler
 descriptor versions. It carries registry/base/target sequence lineage, the

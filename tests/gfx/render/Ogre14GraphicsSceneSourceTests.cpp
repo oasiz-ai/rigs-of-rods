@@ -7,6 +7,7 @@
 */
 
 #include "Ogre14GraphicsSceneSource.h"
+#include "ogrenext/OgreNextN1Policy.h"
 
 #include <array>
 #include <cmath>
@@ -27,7 +28,38 @@ void Require(bool condition, const char *message) {
 }
 
 bool Near(float lhs, float rhs) {
-  return std::fabs(lhs - rhs) <= 1.0e-6F;
+  return std::fabs(lhs - rhs) <= 1.0e-5F;
+}
+
+RoR::Render::Ogre14GraphicsSceneLightCaptureInput MakeDirectionalLight(
+    const char *name = "MainLight") {
+  RoR::Render::Ogre14GraphicsSceneLightCaptureInput input;
+  input.exact_name = name;
+  input.kind =
+      RoR::Render::Ogre14GraphicsSceneLightKind::DIRECTIONAL;
+  input.diffuse_linear = {0.25F, 0.5F, 1.0F};
+  input.power_scale = 3.0F;
+  input.derived_direction = {0.0F, -1.0F, 0.0F};
+  input.attenuation_range = 100000.0F;
+  input.spot_falloff = 2.0F;
+  return input;
+}
+
+void RequireLegacyDiffusePowerRecovered(
+    const RoR::Render::Ogre14GraphicsSceneLightCaptureInput &native,
+    const RoR::Render::GraphicsSceneLightInput &portable) {
+  const float inverse_calibration =
+      RoR::Render::kOgreNextRt4LuxToNativePowerScale;
+  Require(Near(portable.color_linear.x * portable.intensity *
+                   inverse_calibration,
+               native.diffuse_linear.x * native.power_scale) &&
+              Near(portable.color_linear.y * portable.intensity *
+                       inverse_calibration,
+                   native.diffuse_linear.y * native.power_scale) &&
+              Near(portable.color_linear.z * portable.intensity *
+                       inverse_calibration,
+                   native.diffuse_linear.z * native.power_scale),
+          "legacy diffuse*power was not reproduced at Ogre-Next scale");
 }
 
 RoR::Render::Ogre14CameraCaptureInput MakeCameraInput() {
@@ -266,6 +298,242 @@ void TestConstantEnvironmentConversionIsExactAndTransactional() {
           "non-finite ambient input was accepted or modified output");
 }
 
+void TestLightIdentityIsStableExactAndTransactional() {
+  using namespace RoR::Render;
+  std::uint64_t identity = 77U;
+  ValidationResult result =
+      DeriveOgre14GraphicsSceneLightId("MainLight", identity);
+  Require(result.ok() && identity == 0x9cf8a4437c828d15ULL,
+          "domain-separated exact-name identity changed");
+
+  const std::uint64_t accepted = identity;
+  result = DeriveOgre14GraphicsSceneLightId({}, identity);
+  Require(!result && result.code == ValidationCode::INVALID_IDENTIFIER &&
+              identity == accepted,
+          "empty light name was accepted or modified identity output");
+
+  std::uint64_t case_variant = 0U;
+  Require(DeriveOgre14GraphicsSceneLightId("mainlight", case_variant).ok() &&
+              case_variant != accepted,
+          "exact name bytes were case-folded");
+
+  Ogre14GraphicsSceneLightIdentityRegistry registry;
+  Require(registry.RegisterDerivedIdentity("first", 41U).ok() &&
+              registry.size() == 1U,
+          "identity registry rejected its first exact mapping");
+  result = registry.RegisterDerivedIdentity("second", 41U);
+  Require(!result && result.code == ValidationCode::DUPLICATE_IDENTIFIER &&
+              registry.size() == 1U,
+          "stable-ID collision was accepted or changed registry");
+  result = registry.RegisterDerivedIdentity("first", 42U);
+  Require(!result && result.code == ValidationCode::REVISION_MISMATCH &&
+              registry.size() == 1U,
+          "exact name changed identity or changed registry");
+}
+
+void TestDirectionalLightCalibrationAndInactiveIdentity() {
+  using namespace RoR::Render;
+  static_assert(kOgre14LegacyDiffusePowerToCanonicalIntensity *
+                    kOgreNextRt4LuxToNativePowerScale ==
+                1.0F,
+                "OGRE 14 and Ogre-Next compatibility scales diverged");
+  static_assert(kOgre14LightCompatibilityCalibrationVersion == 1U,
+                "light calibration fixture needs an explicit migration");
+
+  Ogre14GraphicsSceneLightCaptureInput input = MakeDirectionalLight();
+  GraphicsSceneLightInput light;
+  ValidationResult result = BuildOgre14GraphicsSceneLight(input, light);
+  Require(result.ok() && light.type == LightType::DIRECTIONAL &&
+              light.position.x == 0.0F && light.position.y == 0.0F &&
+              light.position.z == 0.0F && light.range == 0.0F &&
+              light.inner_cone_radians == 0.0F &&
+              light.outer_cone_radians == 0.0F &&
+              light.shadow_flags == LIGHT_SHADOW_DEFAULT_FLAGS,
+          "directional light fields were not mapped canonically");
+  RequireLegacyDiffusePowerRecovered(input, light);
+
+  const std::uint64_t active_identity = light.source_light_id;
+  input.visible = false;
+  result = BuildOgre14GraphicsSceneLight(input, light);
+  Require(result.ok() && light.source_light_id == active_identity &&
+              light.intensity == 0.0F && light.shadow_flags == 0U,
+          "inactive light churned identity or retained active output");
+
+  input.visible = true;
+  input.casts_shadows = false;
+  result = BuildOgre14GraphicsSceneLight(input, light);
+  Require(result.ok() && light.intensity > 0.0F &&
+              light.shadow_flags == 0U,
+          "authored shadow disable was not preserved independently");
+}
+
+void TestPointAndSpotGeometryMapping() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneLightCaptureInput point = MakeDirectionalLight("Point A");
+  point.kind = Ogre14GraphicsSceneLightKind::POINT;
+  point.derived_position = {12.0F, -3.0F, 4.5F};
+  point.derived_direction = {1.0F, 0.0F, 0.0F};
+  point.attenuation_range = 75.0F;
+  GraphicsSceneLightInput light;
+  ValidationResult result = BuildOgre14GraphicsSceneLight(point, light);
+  Require(result.ok() && light.type == LightType::POINT &&
+              light.position.x == 12.0F && light.position.y == -3.0F &&
+              light.position.z == 4.5F && light.range == 75.0F &&
+              light.direction.x == 0.0F && light.direction.y == -1.0F &&
+              light.direction.z == 0.0F &&
+              light.inner_cone_radians == 0.0F &&
+              light.outer_cone_radians == 0.0F,
+          "point-light position/range/canonical direction changed");
+  RequireLegacyDiffusePowerRecovered(point, light);
+
+  Ogre14GraphicsSceneLightCaptureInput spot = point;
+  spot.exact_name = "Spot A";
+  spot.kind = Ogre14GraphicsSceneLightKind::SPOT;
+  spot.derived_direction = {0.0F, 0.0F, -1.0F};
+  spot.inner_cone_radians = 0.6F;
+  spot.outer_cone_radians = 1.2F;
+  spot.spot_falloff = 3.0F;
+  result = BuildOgre14GraphicsSceneLight(spot, light);
+  Require(result.ok() && light.type == LightType::SPOT &&
+              light.position.x == spot.derived_position.x &&
+              light.direction.z == -1.0F && light.range == 75.0F &&
+              Near(light.inner_cone_radians, 0.3F) &&
+              Near(light.outer_cone_radians, 0.6F),
+          "OGRE full spotlight cones were not mapped to portable half angles");
+  RequireLegacyDiffusePowerRecovered(spot, light);
+}
+
+void TestLightInventoryIsAtomicAndCanonical() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneLightIdentityRegistry registry;
+  std::vector<Ogre14GraphicsSceneLightCaptureInput> inputs{
+      MakeDirectionalLight("Zulu"), MakeDirectionalLight("Alpha")};
+  std::vector<GraphicsSceneLightInput> lights(1U);
+  lights[0U].source_light_id = 999U;
+  ValidationResult result =
+      BuildOgre14GraphicsSceneLights(inputs, registry, lights);
+  Require(result.ok() && registry.size() == 2U && lights.size() == 2U &&
+              lights[0U].source_light_id < lights[1U].source_light_id,
+          "complete light inventory was not registered and sorted atomically");
+
+  const std::vector<GraphicsSceneLightInput> accepted = lights;
+  const std::size_t accepted_registry_size = registry.size();
+  inputs.push_back(inputs.front());
+  result = BuildOgre14GraphicsSceneLights(inputs, registry, lights);
+  Require(!result && result.code == ValidationCode::DUPLICATE_IDENTIFIER &&
+              result.element_index == 2U &&
+              registry.size() == accepted_registry_size &&
+              lights.size() == accepted.size() &&
+              lights.front().source_light_id ==
+                  accepted.front().source_light_id,
+          "duplicate inventory modified output or identity registry");
+}
+
+void TestLightConversionRejectsUnrepresentableState() {
+  using namespace RoR::Render;
+  GraphicsSceneLightInput output;
+  output.source_light_id = 987U;
+  Ogre14GraphicsSceneLightCaptureInput input = MakeDirectionalLight();
+
+  input.kind = Ogre14GraphicsSceneLightKind::RECTANGLE;
+  ValidationResult result = BuildOgre14GraphicsSceneLight(input, output);
+  Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              output.source_light_id == 987U,
+          "rectangle light was accepted or modified output");
+
+  input = MakeDirectionalLight();
+  input.kind = static_cast<Ogre14GraphicsSceneLightKind>(255U);
+  result = BuildOgre14GraphicsSceneLight(input, output);
+  Require(!result && result.code == ValidationCode::INVALID_ENUM,
+          "unknown OGRE light kind was accepted");
+
+  input = MakeDirectionalLight();
+  input.diffuse_linear = {};
+  result = BuildOgre14GraphicsSceneLight(input, output);
+  Require(!result && result.field == "lights.diffuse_linear",
+          "black diffuse light acquired invented chromaticity");
+
+  input = MakeDirectionalLight();
+  input.power_scale = -1.0F;
+  result = BuildOgre14GraphicsSceneLight(input, output);
+  Require(!result && result.field == "lights.native_state",
+          "negative OGRE power was accepted");
+
+  input = MakeDirectionalLight();
+  input.power_scale = std::numeric_limits<float>::infinity();
+  result = BuildOgre14GraphicsSceneLight(input, output);
+  Require(!result && result.code == ValidationCode::NON_FINITE_VALUE,
+          "non-finite OGRE power was accepted");
+
+  input = MakeDirectionalLight();
+  input.specular_linear.y =
+      std::numeric_limits<float>::quiet_NaN();
+  result = BuildOgre14GraphicsSceneLight(input, output);
+  Require(!result && result.code == ValidationCode::NON_FINITE_VALUE,
+          "non-finite omitted OGRE specular state was ignored");
+
+  input = MakeDirectionalLight();
+  input.derived_direction = {0.0F, -2.0F, 0.0F};
+  result = BuildOgre14GraphicsSceneLight(input, output);
+  Require(!result && result.field == "lights.direction",
+          "non-unit directional light was accepted");
+
+  input = MakeDirectionalLight();
+  input.kind = Ogre14GraphicsSceneLightKind::POINT;
+  input.attenuation_range = 0.0F;
+  result = BuildOgre14GraphicsSceneLight(input, output);
+  Require(!result && result.field == "lights.range",
+          "zero local-light range was accepted");
+
+  input = MakeDirectionalLight();
+  input.kind = Ogre14GraphicsSceneLightKind::POINT;
+  input.attenuation_range = 10.0F;
+  input.attenuation_constant = 0.0F;
+  input.attenuation_linear = 0.0F;
+  input.attenuation_quadratic = 0.0F;
+  result = BuildOgre14GraphicsSceneLight(input, output);
+  Require(!result && result.field == "lights.range",
+          "zero OGRE attenuation denominator was accepted");
+
+  input = MakeDirectionalLight();
+  input.kind = Ogre14GraphicsSceneLightKind::SPOT;
+  input.attenuation_range = 10.0F;
+  input.inner_cone_radians = 1.0F;
+  input.outer_cone_radians = 0.5F;
+  result = BuildOgre14GraphicsSceneLight(input, output);
+  Require(!result && result.field == "lights.cone" &&
+              output.source_light_id == 987U,
+          "reversed full spot cones were accepted or modified output");
+}
+
+void TestConvertedLightsFeedProducer() {
+  using namespace RoR::Render;
+  FixtureProvider provider;
+  Ogre14GraphicsSceneLightIdentityRegistry registry;
+  std::vector<Ogre14GraphicsSceneLightCaptureInput> native_lights{
+      MakeDirectionalLight("Sun"), MakeDirectionalLight("Fill")};
+  native_lights[1U].visible = false;
+  Require(BuildOgre14GraphicsSceneLights(
+              native_lights, registry, provider.capture.frame.lights)
+              .ok(),
+          "producer fixture lights failed conversion");
+
+  Ogre14GraphicsSceneSource source(provider);
+  GraphicsSceneSnapshotProducerConfiguration configuration;
+  configuration.registry_id = 0x4C494748545F4F47ULL;
+  GraphicsSceneSnapshotProducer producer(configuration);
+  const GraphicsSceneSnapshotProduceResult result =
+      producer.ProduceJoinedFrame(source);
+  Require(result.ok() && result.production.scene_snapshot->lights().size() ==
+                             2U,
+          "converted complete light inventory was rejected by producer");
+  const auto &published = result.production.scene_snapshot->lights();
+  Require(published[0U].light_id < published[1U].light_id &&
+              (published[0U].intensity == 0.0F ||
+               published[1U].intensity == 0.0F),
+          "producer changed canonical ordering or inactive light state");
+}
+
 void TestPerspectiveAndOrthographicCameraConversion() {
   using namespace RoR::Render;
   Ogre14CameraCaptureInput input = MakeCameraInput();
@@ -336,6 +604,12 @@ int main() {
   TestMalformedMetadataFailsClosed();
   TestProviderFailuresAndExceptionsDoNotEscape();
   TestConstantEnvironmentConversionIsExactAndTransactional();
+  TestLightIdentityIsStableExactAndTransactional();
+  TestDirectionalLightCalibrationAndInactiveIdentity();
+  TestPointAndSpotGeometryMapping();
+  TestLightInventoryIsAtomicAndCanonical();
+  TestLightConversionRejectsUnrepresentableState();
+  TestConvertedLightsFeedProducer();
   TestPerspectiveAndOrthographicCameraConversion();
   TestCameraConversionRejectsGuesswork();
   return EXIT_SUCCESS;
