@@ -76,6 +76,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/tools/test_ogre_next_frame_probe.py",
             "tests/tools/test_ogre_next_frontend_n1_contract.py",
             "tests/tools/test_ogre_next_pssm_shadow_contract.py",
+            "tests/tools/test_ogre_next_child_runtime_contract.py",
             "tests/tools/test_ogre_next_metal_n2_contract.py",
             "tests/tools/test_ogre_next_vulkan_rt5_contract.py",
             "tests/tools/test_ogre_next_linux_static_closure.py",
@@ -310,6 +311,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererChildLauncher.h",
             "source/main/system/RendererOgreNextChild.cpp",
             "source/main/system/RendererOgreNextChild.h",
+            "source/main/system/RendererOgreNextChildMain.cpp",
             "source/main/system/RendererLauncherMain.cpp",
             "source/main/system/RendererLauncherPackageConfig.h.in",
             "source/main/system/RendererPublicLauncher.cpp",
@@ -323,6 +325,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererPublicLauncherTests.cpp",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
+            "tests/tools/test_ogre_next_child_runtime_contract.py",
         ):
             with self.subTest(provenance_path=path):
                 self.assertEqual(cmake_manifest.count(f'"{path}"'), 1)
@@ -559,6 +562,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tools/run_ogre_next_probe.py",
             "tools/validate_ogre_next_frame_probe.py",
             "tools/verify_ogre_next_artifact_set.py",
+            "tests/tools/test_ogre_next_child_runtime_contract.py",
             "doc/nextgen/evidence/OGRE_NEXT_METAL_*",
         ):
             with self.subTest(path=path):

@@ -21,6 +21,7 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererChildLauncher.h
     source/main/system/RendererOgreNextChild.cpp
     source/main/system/RendererOgreNextChild.h
+    source/main/system/RendererOgreNextChildMain.cpp
     source/main/system/RendererLauncherMain.cpp
     source/main/system/RendererLauncherPackageConfig.h.in
     source/main/system/RendererPublicLauncher.cpp
@@ -35,6 +36,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererPublicLauncherTests.cpp
     tests/gfx/RendererStartupHandoffTests.cpp
     tests/gfx/RendererStartupPlanTests.cpp
+    tests/tools/test_ogre_next_child_runtime_contract.py
     tools/ogre_next_probe
     tools/run_ogre_next_probe.py
     tools/validate_ogre_next_frame_probe.py
@@ -77,6 +79,7 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererChildLauncher.h"
     "source/main/system/RendererOgreNextChild.cpp"
     "source/main/system/RendererOgreNextChild.h"
+    "source/main/system/RendererOgreNextChildMain.cpp"
     "source/main/system/RendererLauncherMain.cpp"
     "source/main/system/RendererLauncherPackageConfig.h.in"
     "source/main/system/RendererPublicLauncher.cpp"
@@ -90,6 +93,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererPublicLauncherTests.cpp"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
+    "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tools/run_ogre_next_probe.py"
     "tools/validate_ogre_next_frame_probe.py"
     "tools/verify_ogre_next_artifact_set.py")

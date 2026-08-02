@@ -112,12 +112,26 @@ application bundle now retain both exact executable roles. Flat macOS install
 and CPack rules remain disabled so they cannot bypass Mach-O dependency
 rewriting and nested-code signing; entering this topology also removes only
 stale generated install/CPack control files from a reused macOS build tree.
+The isolated probe now also builds a probe-only `RoR-OgreNext` executable with
+the real POSIX `main` or Windows Unicode `wWinMain` entrypoint. It decodes a
+synthetic versioned child intent, resolves the child-owned startup plan, and
+constructs a seam-free `OgreNextN1Frontend` against the absolute reviewed
+media root. The bounded callback selects `MODERN_PBR_RT4_V1`, the validated
+three-cascade PSSM path, HDR off, a headless 64x64 extent, one frame in flight,
+and vsync off, then performs a clean shutdown. Exit 77 is reserved solely for
+the exact reviewed PSSM capability-unsupported result; every other rejection,
+initialization failure, shutdown failure, or internal failure has a stable
+nonzero diagnostic and fails CTest. This executable is not installed, staged,
+bundled, or production-admitted, and it has no presentation, game bridge, UI,
+input, or scene loop. Its real output name is evidence that the ABI/process
+boundary can bootstrap, not an immutable package-readiness fact.
 The compatibility child's runtime closure
 and crash symbols remain the OGRE 14 closure; the dependency-free public
 launcher is audited separately. The fake child is confined to the test output
-directory and is never installed or staged. A production
+directory and is never installed or staged. A complete production
 `RoR-OgreNext` game child remains open, so current no-flag packages still run
-OGRE 14 after the explicit policy fallback. This is a real Metal
+OGRE 14 after the explicit policy fallback. This bootstrap is a real
+cross-platform frontend initialization boundary and N4 is a real Metal
 hard-shadow pass, not a soft-shadow, local-light, GI,
 denoising, Vulkan KHR, DXR, production-material, image-quality, or performance
 claim.
@@ -522,9 +536,13 @@ device.
 
 The CMake routing selects Metal on macOS arm64, Direct3D 11 on Windows x64,
 and Vulkan null-window on Linux x86_64. The same strict-warning N1 sources are
-compiled in each matrix job, but only the macOS Metal runtime has been proven
-locally at this checkpoint. This is not evidence for Linux presentation or
-Windows DXR.
+compiled twice in each matrix job: the established seamful smoke library keeps
+all fault-injection evidence and package contents unchanged, while the new
+runtime library exposes no `ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM` or
+`ROR_OGRE_NEXT_N2_TEST_SEAM` definition to the child. The actual child CTest
+runs on all three hosts. Only the macOS Metal runtime has been proven locally
+at this checkpoint. This is not evidence for presentation on any platform or
+for Windows DXR.
 
 ## Run
 

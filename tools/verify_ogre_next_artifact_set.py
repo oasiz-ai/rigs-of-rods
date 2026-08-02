@@ -120,6 +120,7 @@ RELEVANT_SOURCE_PATHS = (
     "source/main/system/RendererChildLauncher.h",
     "source/main/system/RendererOgreNextChild.cpp",
     "source/main/system/RendererOgreNextChild.h",
+    "source/main/system/RendererOgreNextChildMain.cpp",
     "source/main/system/RendererLauncherMain.cpp",
     "source/main/system/RendererLauncherPackageConfig.h.in",
     "source/main/system/RendererPublicLauncher.cpp",
@@ -134,6 +135,7 @@ RELEVANT_SOURCE_PATHS = (
     "tests/gfx/RendererPublicLauncherTests.cpp",
     "tests/gfx/RendererStartupHandoffTests.cpp",
     "tests/gfx/RendererStartupPlanTests.cpp",
+    "tests/tools/test_ogre_next_child_runtime_contract.py",
     "tools/ogre_next_probe",
     "tools/run_ogre_next_probe.py",
     "tools/validate_ogre_next_frame_probe.py",
@@ -796,6 +798,10 @@ def _read_build_contract(
         ),
         "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
         "hdr_visual_evidence_version": 1,
+        "headless_child_bootstrap": True,
+        "headless_child_output_name": "RoR-OgreNext",
+        "headless_child_packaged": False,
+        "headless_child_production_admitted": False,
         "native_ray_tracing": "not_evaluated",
     }
     expected_platform = {

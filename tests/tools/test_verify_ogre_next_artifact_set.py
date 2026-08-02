@@ -202,6 +202,10 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 ),
                 "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
                 "hdr_visual_evidence_version": 1,
+                "headless_child_bootstrap": True,
+                "headless_child_output_name": "RoR-OgreNext",
+                "headless_child_packaged": False,
+                "headless_child_production_admitted": False,
                 "native_ray_tracing": "not_evaluated",
             },
             "compiler": {
