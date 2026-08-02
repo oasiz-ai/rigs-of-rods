@@ -39,6 +39,7 @@ set(SOURCE_FILES
         gfx/PostProcessRuntime.{h,cpp}
         gfx/PostProcessRuntimeContract.{h,cpp}
         gfx/RendererBackendPolicy.{h,cpp}
+        gfx/RendererStartupPlan.{h,cpp}
         gfx/RenderDisplayMetrics.h
         gfx/render/GraphicsSceneSnapshotProducer.{h,cpp}
         gfx/render/HdrReference.{h,cpp}

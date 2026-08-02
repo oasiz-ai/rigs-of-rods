@@ -182,6 +182,17 @@ target_include_directories(
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx"
 )
 
+add_executable(
+    ror_renderer_startup_plan_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererStartupPlanTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+)
+target_include_directories(
+    ror_renderer_startup_plan_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+)
+
 set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/GraphicsSceneSnapshotProducer.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/HdrReference.cpp"
@@ -1068,6 +1079,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_post_process_policy_tests
     ror_post_process_runtime_contract_tests
     ror_renderer_backend_policy_tests
+    ror_renderer_startup_plan_tests
     ror_local_light_budget_tests
     ror_command_line_info_tests
     ror_beam_axial_response_tests
@@ -1217,6 +1229,11 @@ add_test(
 add_test(
     NAME renderer_backend_policy
     COMMAND ror_renderer_backend_policy_tests
+)
+
+add_test(
+    NAME renderer_startup_plan
+    COMMAND ror_renderer_startup_plan_tests
 )
 
 add_test(
