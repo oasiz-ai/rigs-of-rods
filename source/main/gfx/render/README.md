@@ -124,15 +124,16 @@ Old lighting hash values are not comparable with the current version-2 digest
 because the scene schema, registry identity, and calibrated photometry are part
 of the contract.
 
-## Cross-process scene and asset transport
+## Cross-process scene, asset, and input transport
 
 `RenderTransportEnvelope` version 1 is the deterministic, fail-closed wire
 edge shared by isolated render processes. Message kind `1` carries one complete
 `SceneSnapshot` version 4 plus one `CameraViewRequest` under render-frame
 contract version 2. Message kind `2` carries one complete `RenderAssetDelta`
-version 1. Typed decoders publish immutable owners only after the entire
-candidate passes framing, digest, allocation, semantic, and exact-consumption
-validation.
+version 1. Reverse-direction message kind `3` carries one input-event batch
+version 1 from the renderer/window host to the game process. Typed decoders
+publish immutable owners only after the entire candidate passes framing,
+digest, allocation, semantic, and exact-consumption validation.
 
 The fixed 64-byte header is independent of host structure packing:
 
@@ -141,7 +142,7 @@ The fixed 64-byte header is independent of host structure packing:
 | 0 | 8 | bytes | ASCII `RORSCN01` magic |
 | 8 | 2 | little-endian `u16` | transport version (`1`) |
 | 10 | 2 | little-endian `u16` | header size (`64`) |
-| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` assets) |
+| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` assets, `3` input) |
 | 14 | 2 | little-endian `u16` | reserved flags (`0`) |
 | 16 | 8 | little-endian `u64` | strictly ordered sequence |
 | 24 | 8 | little-endian `u64` | exact payload byte count |
@@ -177,12 +178,54 @@ already embedded. Any future resource larger than this atomic message's caps
 requires an explicitly versioned chunking contract rather than an implicit
 reference or partial payload.
 
-Both payloads use explicit little-endian integers and IEC 559 binary32/binary64
-encoding; neither serializes C++ object storage. Scene values canonicalize
+The input payload has an explicit payload version, SDL2 physical-scancode
+table version, SDL2 standardized-gamepad table version, host clock domain, and
+nonzero clock-origin identity. Every event has a strictly increasing nonzero
+`u64` event ID, a nondecreasing `u64` host-monotonic nanosecond timestamp, and
+one exact variant. Version 1 carries physical keyboard key/repeat events,
+pixel mouse position/delta, explicitly numbered mouse buttons, binary32 wheel
+motion/direction, standardized gamepad connect/disconnect/buttons/axes, strict
+UTF-8 text, focus gained/lost, window close, and raw controller
+connect/disconnect/buttons/axes/hats/sliders. Text is layout-resolved input;
+physical scancodes remain layout-independent.
+
+Keyboard, mouse-button, hat, standardized-gamepad button, and standardized-
+gamepad axis numbers are pinned to SDL 2.32.10's
+[`SDL_Scancode`](https://github.com/libsdl-org/SDL/blob/release-2.32.10/include/SDL_scancode.h)
+and
+[`SDL_GameController`](https://github.com/libsdl-org/SDL/blob/release-2.32.10/include/SDL_gamecontroller.h)
+semantics without including an SDL header. Standardized stick samples preserve
+SDL's exact signed-int16
+`[-32768, 32767]` values and triggers preserve `[0, 32767]`; there is no
+backend-dependent float normalization. Raw joysticks, steering wheels, flight
+sticks, and throttles remain distinct from standardized gamepads. Each raw
+connection carries a stable nonzero device ID, increasing nonzero connection
+generation, 16-byte GUID, vendor/product/version, SHA-256 name digest, device
+class, and bounded ordered descriptors for signed axes, deadzones, buttons,
+hats, and two-component sliders. Relative axes are centered at zero; sliders
+are absolute. A device ID cannot change between standardized and raw families,
+and a descriptor cannot change inside one raw connection generation.
+
+Every batch ends with a complete authoritative level-state reconciliation
+through an event-ID/timestamp watermark: focus, latched close request, pressed
+physical keys and mouse buttons, every connected standardized gamepad and its
+exact controls, and every connected raw device with its descriptor and exact
+controls. Focus loss requires all level controls to be neutral, preventing
+stuck keys, buttons, axes, hats, or sliders even if the operating system does
+not deliver releases. Contiguous event IDs must transform the previous
+reconciliation into the new one exactly. A forward gap is permitted only
+because that complete snapshot heals coalesced/dropped events; replay, IDs at
+or below the prior watermark, timestamp regression, clock-origin changes,
+stale connection generations, silent state changes on complete lineage, and a
+cleared close latch fail transactionally.
+
+All payloads use explicit little-endian integers and IEC 559 binary32/binary64
+encoding; none serializes C++ object storage. Scene values canonicalize
 signed zero to positive zero, and the scene decoder rejects negative zero.
 Asset values preserve both signed-zero encodings because asset revision
-identity is bit-exact. Both decoders reject NaN and infinity. Trailing bytes and
-unknown envelope, payload, or descriptor versions are forbidden.
+identity is bit-exact. Every transported floating-point field rejects NaN and
+infinity. Trailing bytes and unknown envelope, payload, or descriptor versions
+are forbidden.
 
 Before any decoded vector reserves memory, its count is checked against the
 protocol cap, bytes still present, and a cumulative allocation budget. Scene
@@ -191,30 +234,43 @@ payloads are capped at 640 MiB and decoded allocations at 768 MiB, with at most
 65,536 mutations, 512 MiB per resource, 512 MiB per texture blob and across all
 texture blobs, and 16 mip levels per texture. Mesh stream and index counts have
 additional fixed caps. These limits are checked before reserve or blob copy.
+Input payloads are capped at 4 MiB and decoded allocations at 8 MiB, with at
+most 8,192 events, 1 MiB of UTF-8 text, 10 connected devices, 64 device
+generations per batch, and 256 stable device identities retained by a decoder.
+Per-device raw limits match the current RoR controller ABI: 32 axes, 128
+buttons, four hats, and four sliders. Every count and text length is bounded
+before reserve or copy.
 
 Standalone typed decoders own a private envelope sequence. A live bridge gives
 the scene and asset decoders one `RenderTransportSequenceState`, producing one
-strictly ordered interleaved stream. The receiver applies an asset transaction
-to its private `RenderAssetRegistry` before committing the envelope sequence;
-the next scene can then validate against that exact asset sequence. Replay,
-gaps, wrong-kind routing, corruption, truncation, semantic failure, dependency
-failure, or tombstone resurrection leave the expected envelope sequence,
-asset registry, and previously published immutable owner unchanged. One caller
-serializes decode operations.
+strictly ordered game-to-renderer stream. `InputEventTransportDecoder` always
+owns a separate private sequence for the renderer-to-game direction, so both
+directions may validly begin at sequence `1` and cannot advance one another.
+The receiver applies an asset transaction to its private `RenderAssetRegistry`
+before committing the forward envelope sequence; the next scene can then
+validate against that exact asset sequence. Replay, gaps, wrong-kind routing,
+corruption, truncation, semantic failure, dependency failure, tombstone
+resurrection, or input-lineage failure leave the applicable expected sequence,
+registry/state, and previously published immutable owner unchanged. One caller
+serializes operations on each decoder.
 
-The codecs contain no socket, process-spawn, OS packing, OGRE header, or
-third-party serializer dependency, so a byte-stream adapter can choose
-platform IPC without changing scene or asset semantics.
+The codecs contain no socket, process-spawn, OS packing, SDL, OIS, OGRE header,
+or third-party serializer dependency, so a byte-stream adapter can choose
+platform IPC without changing scene, asset, or input semantics. Input version
+1 is transport only: it neither polls SDL nor injects `InputEngine` actions.
+Force feedback is deliberately absent and requires a separate versioned
+game-to-host command message rather than overloading input state.
 
 Process isolation is required for the live migration bridge. OGRE 1.14 and
 Ogre-Next expose overlapping global `Ogre::*` C++ symbols and runtime-global
 state; loading both into one executable would make ABI resolution and teardown
 unsafe even when the public renderer boundary itself is neutral. Keeping the
 legacy simulation/game process and modern render process in separate address
-spaces lets each link exactly one OGRE generation. Scene/camera and asset
-transactions now have versioned messages, but this is not a claim that the live
-bridge is complete: input, UI, process lifecycle, back-pressure, surface, and
-presentation messages remain explicit later milestones.
+spaces lets each link exactly one OGRE generation. Scene/camera, asset, and
+input transactions now have versioned messages, but this is not a claim that
+the live bridge is complete: native polling/action injection, UI, process
+lifecycle, back-pressure, surface, presentation, and force-feedback messages
+remain explicit later milestones.
 
 The native interop and native ray-tracing interfaces are contracts, not an
 implementation or readiness claim. All related capabilities fail closed by

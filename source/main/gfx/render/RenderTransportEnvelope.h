@@ -28,6 +28,7 @@ inline constexpr std::array<std::uint8_t, 8U> kRenderTransportEnvelopeMagic{{
 enum class RenderTransportMessageKind : std::uint16_t {
   SCENE_SNAPSHOT_V4_CAMERA_V2 = 1U,
   RENDER_ASSET_DELTA_V1 = 2U,
+  INPUT_EVENT_BATCH_V1 = 3U,
 };
 
 enum class RenderTransportStatus : std::uint8_t {
@@ -53,6 +54,11 @@ enum class RenderTransportStatus : std::uint8_t {
   RESOURCE_LIMIT_EXCEEDED,
   BLOB_LIMIT_EXCEEDED,
   REGISTRY_VALIDATION_FAILED,
+  INVALID_UTF8,
+  EVENT_ID_ORDER_VIOLATION,
+  TIMESTAMP_ORDER_VIOLATION,
+  CLOCK_DOMAIN_MISMATCH,
+  RECONCILIATION_MISMATCH,
 };
 
 [[nodiscard]] bool
