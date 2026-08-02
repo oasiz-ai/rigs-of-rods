@@ -429,8 +429,46 @@ request to a trusted package platform, and rejects inconsistent package facts.
 Presence and production readiness are separate: the latter is a caller-supplied
 package admission fact until signing/package code derives it from the exact
 artifact. N1 and every other probe executable are categorically ineligible to
-set that fact. This closes the dependency-free decision contract only: the
-public launcher executable, child binaries, signing, and packaging remain open.
+set that fact.
+
+`RendererChildLauncher` closes the dependency-free process-execution core
+without adding a public executable yet. It accepts only an already validated
+handoff and has no child-path, cwd, environment, or standard-handle override.
+The child path is the selected basename joined to the canonical directory of
+the running launcher. A package-platform value other than the compile-time
+host is rejected before basename resolution, including Windows `.exe` versus
+POSIX extensionless mismatches. POSIX transfers control through `execv`,
+preserving process identity and exit semantics. Windows uses the exact wide
+`lpApplicationName`, re-encodes all wide arguments after `argv[0]`, inherits
+the current cwd and environment, resolves the opened launcher handle with
+`GetFinalPathNameByHandleW` so reparse aliases cannot redirect the sibling
+directory, retains the validated extended-length `\\?\` DOS prefix so
+final-path and long-path semantics remain exact, and duplicates valid standard
+handles into an explicit inheritance allow-list. Explicit `NULL` and
+`INVALID_HANDLE_VALUE` standard handles remain absent through
+`STARTF_USESTDHANDLES`; when all three are absent, a private
+unnamed event keeps the handle allow-list nonempty without manufacturing a
+standard stream. It creates the child suspended, assigns it to a kill-on-close
+Job Object, then returns the child's complete DWORD status through
+`ExitProcess`. Job creation, configuration, or assignment failure rejects
+launch; there is no uncontained fallback for Windows 7 or a parent job whose
+restrictions prohibit nested assignment.
+Platform tests run a fake child from an isolated test-only directory and verify
+arguments (including empty, quoted, trailing-backslash, and Unicode values),
+cwd, environment, stdin/stdout/stderr, exact exit propagation, and resistance
+to cwd/`PATH`/environment path decoys. They also enumerate all three package
+platforms and reject both foreign platforms on every host. Windows CI also
+checks exact preservation of all-`NULL` and all-`INVALID_HANDLE_VALUE` standard
+handles; when the host permits test symlink creation, the cwd decoy doubles as
+a reparse-alias sibling-hijack regression, and a skipped alias case reports the
+native `CreateSymbolicLinkW` error instead of disappearing silently. Offline
+source contracts require
+final-handle resolution, the explicit inheritance allow-list, suspended
+creation, Job assignment before resume, and exact exit propagation. The public
+launcher target, production child targets, signing, and package assembly remain
+open; the N1 probe is not a production child. Launcher-only option parsing also
+remains in that public wrapper: this core deliberately forwards the final
+caller-supplied argument vector without hidden filtering.
 
 ## Milestones and commit/PR sequence
 

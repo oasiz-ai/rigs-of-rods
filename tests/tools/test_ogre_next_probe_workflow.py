@@ -48,8 +48,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererBackendPolicy.*",
             "source/main/gfx/RendererStartupHandoff.*",
             "source/main/gfx/RendererStartupPlan.*",
+            "source/main/system/RendererChildLauncher.*",
             "source/main/gfx/render/**",
             "tests/gfx/RendererBackendPolicyTests.cpp",
+            "tests/gfx/RendererChildLauncherFakeChild.cpp",
+            "tests/gfx/RendererChildLauncherTests.cpp",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tests/gfx/render/**",
@@ -162,6 +165,15 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 "target_include_directories(\n        ror_renderer_startup_handoff_tests"
             )
         ]
+        launcher_target_block = cmake[
+            cmake.index(
+                "add_executable(\n        ror_renderer_child_launcher_tests"
+            ) :
+            cmake.index(
+                "target_include_directories(\n"
+                "        ror_renderer_child_launcher_tests"
+            )
+        ]
         policy_language_marker = (
             "set_target_properties(\n"
             "        ror_renderer_backend_policy_tests\n"
@@ -210,6 +222,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "source/main/gfx/RendererStartupHandoff.cpp",
             "add_test(NAME ror_renderer_startup_handoff",
+            "ror_renderer_child_launcher_fake_child",
+            "tests/gfx/RendererChildLauncherFakeChild.cpp",
+            "ror_renderer_child_launcher_tests",
+            "tests/gfx/RendererChildLauncherTests.cpp",
+            "source/main/system/RendererChildLauncher.cpp",
+            "add_test(NAME ror_renderer_child_launcher",
         ):
             self.assertIn(token, cmake)
         for path in (
@@ -219,7 +237,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererStartupHandoff.h",
             "source/main/gfx/RendererStartupPlan.cpp",
             "source/main/gfx/RendererStartupPlan.h",
+            "source/main/system/RendererChildLauncher.cpp",
+            "source/main/system/RendererChildLauncher.h",
             "tests/gfx/RendererBackendPolicyTests.cpp",
+            "tests/gfx/RendererChildLauncherFakeChild.cpp",
+            "tests/gfx/RendererChildLauncherTests.cpp",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
         ):
@@ -246,16 +268,84 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(handoff_target_source=source):
                 self.assertEqual(handoff_target_block.count(source), 1)
+        for source in (
+            "tests/gfx/RendererChildLauncherTests.cpp",
+            "source/main/system/RendererChildLauncher.cpp",
+            "source/main/gfx/RendererStartupHandoff.cpp",
+            "source/main/gfx/RendererStartupPlan.cpp",
+            "source/main/gfx/RendererBackendPolicy.cpp",
+        ):
+            with self.subTest(launcher_target_source=source):
+                self.assertEqual(launcher_target_block.count(source), 1)
         for target in (
             "ror_renderer_backend_policy_tests",
             "ror_renderer_startup_plan_tests",
             "ror_renderer_startup_handoff_tests",
+            "ror_renderer_child_launcher_fake_child",
+            "ror_renderer_child_launcher_tests",
         ):
             with self.subTest(cxx11_policy_target=target):
                 self.assertEqual(policy_language_block.count(target), 1)
         self.assertIn("CXX_STANDARD 11", policy_language_block)
         self.assertIn("CXX_STANDARD_REQUIRED YES", policy_language_block)
         self.assertIn("CXX_EXTENSIONS NO", policy_language_block)
+
+    def test_renderer_child_launcher_fails_closed_at_process_boundary(self) -> None:
+        source = (
+            REPOSITORY_ROOT
+            / "source"
+            / "main"
+            / "system"
+            / "RendererChildLauncher.cpp"
+        ).read_text(encoding="utf-8")
+        tests = (
+            REPOSITORY_ROOT
+            / "tests"
+            / "gfx"
+            / "RendererChildLauncherTests.cpp"
+        ).read_text(encoding="utf-8")
+        launch = source[
+            source.index(
+                "RendererChildLaunchFailure LaunchRendererChildAndPropagateExit("
+            ) :
+        ]
+        self.assertLess(
+            launch.index("handoff.package_platform != host_platform"),
+            launch.index("RendererFrontendChildExecutableName(handoff)"),
+        )
+        for token in (
+            "GetFinalPathNameByHandleW",
+            "IsSupportedFinalDosExecutablePath",
+            "PROC_THREAD_ATTRIBUTE_HANDLE_LIST",
+            "STARTF_USESTDHANDLES",
+            "absent_handle_sentinel",
+            "JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE",
+            "CREATE_SUSPENDED",
+            "AssignProcessToJobObject",
+            "ResumeThread",
+            "ExitProcess(child_exit_code)",
+            "execv(child_path.c_str()",
+        ):
+            with self.subTest(process_boundary_token=token):
+                self.assertIn(token, source)
+        self.assertLess(
+            source.index("AssignProcessToJobObject"),
+            source.index("ResumeThread"),
+        )
+        self.assertNotIn("CreateProcessA", source)
+        self.assertNotIn("system(", source)
+        self.assertNotIn("execvp", source)
+        for token in (
+            "foreign_platforms_rejected == 2U",
+            "RoR-OgreNext.exe",
+            "TestPosixExecFailureRestoresCloseOnExec",
+            "--invoke-launcher-null-stdio",
+            "--invoke-launcher-invalid-stdio",
+            "CreateSymbolicLinkW",
+            "regression skipped; CreateSymbolicLinkW error=",
+        ):
+            with self.subTest(launcher_test_token=token):
+                self.assertIn(token, tests)
 
     def test_byte_hashed_probe_inputs_are_checkout_stable(self) -> None:
         attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(
@@ -265,8 +355,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererBackendPolicy.*",
             "source/main/gfx/RendererStartupHandoff.*",
             "source/main/gfx/RendererStartupPlan.*",
+            "source/main/system/RendererChildLauncher.*",
             "source/main/gfx/render/**",
             "tests/gfx/RendererBackendPolicyTests.cpp",
+            "tests/gfx/RendererChildLauncherFakeChild.cpp",
+            "tests/gfx/RendererChildLauncherTests.cpp",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tools/ogre_next_probe/**",

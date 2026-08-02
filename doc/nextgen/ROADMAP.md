@@ -1070,8 +1070,17 @@ Gate R1:
   authoritative current-process preflight and resolve the startup plan before
   `Ogre::Root`. Cartesian three-platform package-fact tests and child-plan
   consistency tests prove the hard-gate precedence and prevent renderer-ABI
-  crossing. The contracts are complete, but the public launcher executable,
-  child renames, signing, and package assembly remain open.
+  crossing. The dependency-free process launcher core is also complete: it
+  accepts only that validated handoff, resolves only an exact canonical
+  sibling, uses `execv` on POSIX and Unicode `CreateProcessW` plus a
+  kill-on-close Job Object on Windows, preserves forwarded arguments, cwd,
+  environment, and standard streams, and propagates the child exit exactly. It
+  rejects any package-platform/compile-time-host mismatch before basename
+  resolution, including Windows `.exe` versus POSIX naming mismatches.
+  Cross-platform-gated fake-child tests exercise empty/quoted/Unicode arguments
+  and prove that cwd, `PATH`, and environment decoys cannot redirect launch.
+  The fake child is test-only and never packaged. The public launcher target,
+  production child renames, signing, and package assembly remain open.
 - The standalone Metal admission probe and the Ogre-Next N2/N3 interop probes
   have passed on the recorded Apple M5. N2 rastered a renderer-neutral deformed RoR
   scene, exported the exact pooled Ogre v2 position/index slices from that

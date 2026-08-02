@@ -205,6 +205,52 @@ target_include_directories(
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx"
 )
 
+add_executable(
+    ror_renderer_child_launcher_fake_child
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererChildLauncherFakeChild.cpp"
+)
+set_target_properties(
+    ror_renderer_child_launcher_fake_child
+    PROPERTIES
+        OUTPUT_NAME "RoR-OgreNext"
+        RUNTIME_OUTPUT_DIRECTORY
+            "${CMAKE_CURRENT_BINARY_DIR}/renderer-child-launcher-tests"
+)
+
+add_executable(
+    ror_renderer_child_launcher_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererChildLauncherTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
+)
+target_include_directories(
+    ror_renderer_child_launcher_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+add_dependencies(
+    ror_renderer_child_launcher_tests
+    ror_renderer_child_launcher_fake_child
+)
+set_target_properties(
+    ror_renderer_child_launcher_tests
+    PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+        "${CMAKE_CURRENT_BINARY_DIR}/renderer-child-launcher-tests"
+)
+if (MINGW)
+    target_link_options(
+        ror_renderer_child_launcher_fake_child
+        PRIVATE -municode
+    )
+    target_link_options(
+        ror_renderer_child_launcher_tests
+        PRIVATE -municode
+    )
+endif ()
+
 set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/GraphicsSceneSnapshotProducer.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/HdrReference.cpp"
@@ -1094,6 +1140,8 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_renderer_backend_policy_tests
     ror_renderer_startup_plan_tests
     ror_renderer_startup_handoff_tests
+    ror_renderer_child_launcher_fake_child
+    ror_renderer_child_launcher_tests
     ror_local_light_budget_tests
     ror_command_line_info_tests
     ror_beam_axial_response_tests
@@ -1253,6 +1301,11 @@ add_test(
 add_test(
     NAME renderer_startup_handoff
     COMMAND ror_renderer_startup_handoff_tests
+)
+
+add_test(
+    NAME renderer_child_launcher
+    COMMAND ror_renderer_child_launcher_tests
 )
 
 add_test(

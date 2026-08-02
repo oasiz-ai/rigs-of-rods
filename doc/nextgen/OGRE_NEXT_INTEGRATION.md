@@ -74,10 +74,25 @@ requires a trusted package-platform match and a distinct production-readiness
 admission fact, never accepts cross-platform backend identity, and never
 crosses `OGRE_NEXT_REQUIRE` or `REQUIRE_NATIVE`. The readiness fact is supplied
 by the caller until package/signing code derives it; N1 and other probes cannot
-set it. Native
-preflight remains mandatory inside the selected Ogre-Next child because device
-identity is process-local. The contract is tested on all three platform
-policies; the launcher executable and package renames are not wired yet. This
+set it. Native preflight remains mandatory inside the selected Ogre-Next child
+because device identity is process-local. The dependency-free
+`RendererChildLauncher` core now enforces the next process boundary without
+exposing a path override: it derives the running launcher's canonical directory
+and launches only the exact selected sibling. It rejects a trusted package
+platform which differs from the compile-time host before deriving the child
+basename, preventing `.exe`/extensionless cross-host execution. POSIX uses
+`execv`; Windows uses Unicode `CreateProcessW`, creates the child suspended,
+resolves the executable handle to a final normalized DOS path, preserves its
+validated extended-length `\\?\` prefix for exact sibling and long-path
+semantics, assigns the child to a kill-on-close Job Object, and propagates the
+full child exit code.
+Arguments after `argv[0]`, the current working directory, environment,
+and standard streams are inherited. A test-only fake child proves those
+properties and proves that `PATH`, cwd, and a renderer-path environment decoy
+cannot redirect selection. The contract and launcher core tests are wired into
+all three platform-policy probe builds; the public launcher target, shipping child
+renames, signing, and package assembly are not wired yet. The fake child is
+confined to the test output directory and is never installed or staged. This
 is a real Metal
 hard-shadow pass, not a soft-shadow, local-light, GI,
 denoising, Vulkan KHR, DXR, production-material, image-quality, or performance

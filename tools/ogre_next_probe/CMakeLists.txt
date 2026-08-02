@@ -83,7 +83,11 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/system/RendererChildLauncher.cpp"
+    "source/main/system/RendererChildLauncher.h"
     "tests/gfx/RendererBackendPolicyTests.cpp"
+    "tests/gfx/RendererChildLauncherFakeChild.cpp"
+    "tests/gfx/RendererChildLauncherTests.cpp"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tools/run_ogre_next_probe.py"
@@ -557,6 +561,44 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_handoff_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+    add_executable(
+        ror_renderer_child_launcher_fake_child
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererChildLauncherFakeChild.cpp")
+    set_target_properties(
+        ror_renderer_child_launcher_fake_child
+        PROPERTIES
+            OUTPUT_NAME "RoR-OgreNext"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${CMAKE_BINARY_DIR}/renderer-child-launcher-tests")
+
+    add_executable(
+        ror_renderer_child_launcher_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererChildLauncherTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp")
+    target_include_directories(
+        ror_renderer_child_launcher_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    set_target_properties(
+        ror_renderer_child_launcher_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+            "${CMAKE_BINARY_DIR}/renderer-child-launcher-tests")
+    add_dependencies(
+        ror_renderer_child_launcher_tests
+        ror_renderer_child_launcher_fake_child)
+    if (MINGW)
+        target_link_options(
+            ror_renderer_child_launcher_fake_child
+            PRIVATE -municode)
+        target_link_options(
+            ror_renderer_child_launcher_tests
+            PRIVATE -municode)
+    endif ()
+
     set(_ror_n1_targets
         ror_ogre_next_n1_contract
         ror_ogre_next_frontend_n1
@@ -564,7 +606,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre_next_pssm_shadow_smoke
         ror_renderer_backend_policy_tests
         ror_renderer_startup_plan_tests
-        ror_renderer_startup_handoff_tests)
+        ror_renderer_startup_handoff_tests
+        ror_renderer_child_launcher_fake_child
+        ror_renderer_child_launcher_tests)
     if (ROR_OGRE_NEXT_VULKAN_RT5 AND
             ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         add_executable(
@@ -830,8 +874,12 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp
             source/main/gfx/RendererStartupPlan.h
+            source/main/system/RendererChildLauncher.cpp
+            source/main/system/RendererChildLauncher.h
             source/main/gfx/render
             tests/gfx/RendererBackendPolicyTests.cpp
+            tests/gfx/RendererChildLauncherFakeChild.cpp
+            tests/gfx/RendererChildLauncherTests.cpp
             tests/gfx/RendererStartupHandoffTests.cpp
             tests/gfx/RendererStartupPlanTests.cpp
             tools/ogre_next_probe
@@ -1007,6 +1055,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_backend_policy_tests
         ror_renderer_startup_plan_tests
         ror_renderer_startup_handoff_tests
+        ror_renderer_child_launcher_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
         "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
         "${ROR_OGRE_NEXT_PACKAGE_RAPIDJSON_LICENSE_SOURCE}"
@@ -1134,6 +1183,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_backend_policy_tests
         ror_renderer_startup_plan_tests
         ror_renderer_startup_handoff_tests
+        ror_renderer_child_launcher_fake_child
+        ror_renderer_child_launcher_tests
         PROPERTIES
             CXX_STANDARD 11
             CXX_STANDARD_REQUIRED YES
@@ -1189,6 +1240,10 @@ endif ()
 if (TARGET ror_renderer_startup_handoff_tests)
     add_test(NAME ror_renderer_startup_handoff
         COMMAND $<TARGET_FILE:ror_renderer_startup_handoff_tests>)
+endif ()
+if (TARGET ror_renderer_child_launcher_tests)
+    add_test(NAME ror_renderer_child_launcher
+        COMMAND $<TARGET_FILE:ror_renderer_child_launcher_tests>)
 endif ()
 add_test(NAME ror_ogre_next_probe_runtime
     COMMAND $<TARGET_FILE:ror_ogre_next_probe>)

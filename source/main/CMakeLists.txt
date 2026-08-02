@@ -264,6 +264,7 @@ set(SOURCE_FILES
         system/Console.{h,cpp}
         system/ConsoleCmd.{h,cpp}
         system/CVar.{h,cpp}
+        system/RendererChildLauncher.{h,cpp}
         terrain/OgreTerrainPSSMMaterialGenerator.{h,cpp}
         terrain/LocalLightBudget.h
         terrain/ProceduralManager.{h,cpp}

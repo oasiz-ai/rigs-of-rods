@@ -14,8 +14,12 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/RendererStartupHandoff.h
     source/main/gfx/RendererStartupPlan.cpp
     source/main/gfx/RendererStartupPlan.h
+    source/main/system/RendererChildLauncher.cpp
+    source/main/system/RendererChildLauncher.h
     source/main/gfx/render
     tests/gfx/RendererBackendPolicyTests.cpp
+    tests/gfx/RendererChildLauncherFakeChild.cpp
+    tests/gfx/RendererChildLauncherTests.cpp
     tests/gfx/RendererStartupHandoffTests.cpp
     tests/gfx/RendererStartupPlanTests.cpp
     tools/ogre_next_probe
@@ -53,7 +57,11 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/system/RendererChildLauncher.cpp"
+    "source/main/system/RendererChildLauncher.h"
     "tests/gfx/RendererBackendPolicyTests.cpp"
+    "tests/gfx/RendererChildLauncherFakeChild.cpp"
+    "tests/gfx/RendererChildLauncherTests.cpp"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tools/run_ogre_next_probe.py"
