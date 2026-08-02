@@ -115,6 +115,64 @@ RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput MakeStaticSection(
   return input;
 }
 
+RoR::Render::Ogre14GraphicsSceneTerrainPageCaptureInput MakeTerrainPage(
+    std::int32_t slot_x = 0, std::int32_t slot_y = 0) {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneTerrainPageCaptureInput input;
+  input.identity.exact_resource_group = "TerrainCache";
+  input.identity.exact_filename_prefix = "cityworld_ogre_140502";
+  input.identity.exact_filename_extension = "mapbin";
+  input.identity.exact_slot_filename =
+      "cityworld_" + std::to_string(slot_x) + "_" +
+      std::to_string(slot_y) + ".mapbin";
+  input.identity.slot_x = slot_x;
+  input.identity.slot_y = slot_y;
+  input.size = 5U;
+  input.minimum_batch_size = 3U;
+  input.maximum_batch_size = 5U;
+  input.lod_level_count = 2U;
+  input.lod_levels_per_leaf = 2U;
+  input.highest_lod_prepared = 0;
+  input.highest_lod_loaded = 0;
+  input.target_lod_level = 0;
+  input.world_size = 4.0F;
+  input.skirt_size = 1.0F;
+  input.page_world_position = {
+      static_cast<float>(slot_x) * input.world_size, 0.0F,
+      static_cast<float>(slot_y) * -input.world_size};
+  input.material = MakeStaticMaterial("Terrain/FactorOnly");
+
+  const std::int32_t point_stride =
+      static_cast<std::int32_t>(input.size - 1U);
+  const auto height = [=](std::int32_t x, std::int32_t y) {
+    const std::int32_t global_x = slot_x * point_stride + x;
+    const std::int32_t global_y = slot_y * point_stride + y;
+    return static_cast<float>(global_x + global_y) * 0.125F;
+  };
+  for (std::uint32_t y = 0U; y < input.size; ++y) {
+    for (std::uint32_t x = 0U; x < input.size; ++x) {
+      input.height_samples.push_back(
+          height(static_cast<std::int32_t>(x),
+                 static_cast<std::int32_t>(y)));
+    }
+  }
+  const std::int32_t halo_side =
+      static_cast<std::int32_t>(input.size + 2U);
+  input.normal_neighbourhood_positions.reserve(
+      static_cast<std::size_t>(halo_side * halo_side));
+  const float base = input.world_size * -0.5F;
+  for (std::int32_t y = -1; y <= static_cast<std::int32_t>(input.size);
+       ++y) {
+    for (std::int32_t x = -1; x <= static_cast<std::int32_t>(input.size);
+         ++x) {
+      input.normal_neighbourhood_positions.push_back(
+          {static_cast<float>(x) + base, height(x, y),
+           static_cast<float>(y) * -1.0F - base});
+    }
+  }
+  return input;
+}
+
 RoR::Render::Ogre14GraphicsSceneLightCaptureInput MakeDirectionalLight(
     const char *name = "MainLight") {
   RoR::Render::Ogre14GraphicsSceneLightCaptureInput input;
@@ -981,6 +1039,411 @@ void TestConvertedStaticInventoryFeedsProducer() {
           "converted complete static inventory was rejected by producer");
 }
 
+void TestTerrainIdentityAndExactStateKeyAreStable() {
+  using namespace RoR::Render;
+  static_assert(kOgre14TerrainCpuCaptureVersion == 1U,
+                "terrain CPU fixture needs an explicit migration");
+  Ogre14GraphicsSceneTerrainPageCaptureInput page = MakeTerrainPage();
+  std::uint64_t page_id = 0U;
+  ValidationResult result =
+      DeriveOgre14GraphicsSceneTerrainPageId(page.identity, page_id);
+  Require(result.ok() && page_id == 0xcfeffb04d3810f22ULL,
+          "domain-separated exact terrain page identity changed");
+  const std::uint64_t accepted_page_id = page_id;
+  page.identity.exact_filename_prefix.clear();
+  result = DeriveOgre14GraphicsSceneTerrainPageId(page.identity, page_id);
+  Require(!result && result.code == ValidationCode::INVALID_IDENTIFIER &&
+              page_id == accepted_page_id,
+          "invalid terrain identity modified caller output");
+
+  Ogre14GraphicsSceneStaticIdentityRegistry registry;
+  Require(registry.RegisterDerivedTerrainPageIdentity("first", 91U).ok() &&
+              registry.terrain_page_identity_count() == 1U,
+          "terrain page registry rejected its first exact mapping");
+  result = registry.RegisterDerivedTerrainPageIdentity("second", 91U);
+  Require(!result && result.code == ValidationCode::DUPLICATE_IDENTIFIER &&
+              registry.terrain_page_identity_count() == 1U,
+          "terrain page ID collision was accepted or mutated registry");
+
+  page = MakeTerrainPage();
+  std::string state_key = "sentinel";
+  result = BuildOgre14GraphicsSceneTerrainGeometryStateKey(page, state_key);
+  Require(result.ok() && state_key.size() > page.height_samples.size(),
+          "exact terrain geometry state key was not built");
+  const std::string accepted_key = state_key;
+  std::string equivalent_key;
+  Require(BuildOgre14GraphicsSceneTerrainGeometryStateKey(
+              MakeTerrainPage(), equivalent_key)
+              .ok() &&
+              equivalent_key == accepted_key,
+          "equivalent terrain geometry changed its exact state key");
+  page.height_samples[0U] += 1.0F;
+  const std::size_t halo_side = page.size + 2U;
+  page.normal_neighbourhood_positions[halo_side + 1U].y += 1.0F;
+  std::string changed_key;
+  Require(BuildOgre14GraphicsSceneTerrainGeometryStateKey(page, changed_key)
+              .ok() &&
+              changed_key != accepted_key,
+          "changed terrain height reused an immutable geometry key");
+
+  page = MakeTerrainPage();
+  page.highest_lod_loaded = 1;
+  page.target_lod_level = 1;
+  std::string camera_lod_key;
+  Require(BuildOgre14GraphicsSceneTerrainGeometryStateKey(
+              page, camera_lod_key)
+              .ok() &&
+              camera_lod_key == accepted_key,
+          "camera-selected terrain draw LOD changed canonical CPU identity");
+  std::shared_ptr<const RenderAssetPayload> lod0_payload;
+  std::shared_ptr<const RenderAssetPayload> camera_lod_payload;
+  Require(BuildOgre14GraphicsSceneTerrainMeshPayload(
+              MakeTerrainPage(), 1U, lod0_payload)
+              .ok() &&
+              BuildOgre14GraphicsSceneTerrainMeshPayload(
+                  page, 1U, camera_lod_payload)
+                  .ok() &&
+              EquivalentRenderAssetPayload(*lod0_payload,
+                                           *camera_lod_payload),
+          "camera-selected terrain draw LOD changed canonical LOD0 payload");
+
+  page.highest_lod_prepared = 1;
+  state_key = accepted_key;
+  result = BuildOgre14GraphicsSceneTerrainGeometryStateKey(page, state_key);
+  Require(!result && result.field == "lod.full_resolution" &&
+              state_key == accepted_key,
+          "partial terrain LOD was accepted or modified state-key output");
+}
+
+void TestTerrainCacheResolutionIsExactAndTransactional() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneTerrainPageCaptureInput page = MakeTerrainPage();
+  Ogre14GraphicsSceneTerrainPageCacheEntry cache;
+  ValidationResult result =
+      ResolveOgre14GraphicsSceneTerrainPageCacheEntry(page, nullptr, cache);
+  Require(result.ok() && !cache.exact_geometry_state_key.empty() &&
+              cache.topology_revision == 1U &&
+              cache.mesh_payload != nullptr,
+          "new terrain cache entry was not built at revision one");
+  const Ogre14GraphicsSceneTerrainPageCacheEntry accepted = cache;
+
+  Ogre14GraphicsSceneTerrainPageCacheEntry stable;
+  result = ResolveOgre14GraphicsSceneTerrainPageCacheEntry(
+      page, &cache, stable);
+  Require(result.ok() && stable.topology_revision == 1U &&
+              stable.exact_geometry_state_key ==
+                  accepted.exact_geometry_state_key &&
+              SameSharedOwner(stable.mesh_payload, accepted.mesh_payload),
+          "stable terrain geometry did not reuse its immutable cache owner");
+
+  page.highest_lod_loaded = 1;
+  page.target_lod_level = 1;
+  Ogre14GraphicsSceneTerrainPageCacheEntry camera_lod;
+  result = ResolveOgre14GraphicsSceneTerrainPageCacheEntry(
+      page, &stable, camera_lod);
+  Require(result.ok() && camera_lod.topology_revision == 1U &&
+              SameSharedOwner(camera_lod.mesh_payload,
+                              accepted.mesh_payload),
+          "camera-selected terrain LOD invalidated the CPU geometry cache");
+
+  page.height_samples[0U] += 0.5F;
+  const std::size_t halo_side = page.size + 2U;
+  page.normal_neighbourhood_positions[halo_side + 1U].y += 0.5F;
+  Ogre14GraphicsSceneTerrainPageCacheEntry changed;
+  result = ResolveOgre14GraphicsSceneTerrainPageCacheEntry(
+      page, &camera_lod, changed);
+  Require(result.ok() && changed.topology_revision == 2U &&
+              changed.exact_geometry_state_key !=
+                  accepted.exact_geometry_state_key &&
+              !SameSharedOwner(changed.mesh_payload,
+                               accepted.mesh_payload),
+          "changed terrain geometry reused a stale cache revision or owner");
+
+  const Ogre14GraphicsSceneTerrainPageCacheEntry committed = changed;
+  page.highest_lod_prepared = 1;
+  result = ResolveOgre14GraphicsSceneTerrainPageCacheEntry(
+      page, &changed, changed);
+  Require(!result && result.field == "lod.full_resolution" &&
+              changed.topology_revision == committed.topology_revision &&
+              changed.exact_geometry_state_key ==
+                  committed.exact_geometry_state_key &&
+              SameSharedOwner(changed.mesh_payload,
+                              committed.mesh_payload),
+          "rejected terrain cache update modified the committed entry");
+}
+
+void TestTerrainLod0MeshPreservesGridSkirtsNormalsAndUv() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneTerrainPageCaptureInput page = MakeTerrainPage();
+  std::shared_ptr<const RenderAssetPayload> payload;
+  ValidationResult result = BuildOgre14GraphicsSceneTerrainMeshPayload(
+      page, 4U, payload);
+  Require(result.ok() && payload != nullptr,
+          "valid full-resolution terrain page was rejected");
+  const MeshResourceDescriptor &mesh =
+      std::get<MeshResourceDescriptor>(*payload);
+  Require(mesh.positions.size() == 45U && mesh.indices.size() == 192U &&
+              mesh.index_format == MeshIndexFormat::UINT16 &&
+              mesh.topology_revision == 4U && !mesh.dynamic,
+          "terrain LOD0 grid or perimeter-skirt topology changed");
+  Require(mesh.positions.front() == Float3{-2.0F, 0.0F, 2.0F} &&
+              mesh.texture_coordinates_0.front() == Float2{0.0F, 1.0F} &&
+              mesh.texture_coordinates_0[24U] == Float2{1.0F, 0.0F} &&
+              Near(mesh.positions[25U].y,
+                   mesh.positions.front().y - page.skirt_size),
+          "terrain basis, upper-left UV, or skirt displacement changed");
+  Require(mesh.local_bounds.minimum.x == -2.0F &&
+              Near(mesh.local_bounds.minimum.y, -1.0F) &&
+              mesh.local_bounds.minimum.z == -2.0F &&
+              mesh.local_bounds.maximum.x == 2.0F &&
+              Near(mesh.local_bounds.maximum.y, 1.0F) &&
+              mesh.local_bounds.maximum.z == 2.0F,
+          "terrain tight local bounds changed");
+  for (std::size_t index = 0U; index < 25U; ++index) {
+    Require(Near(mesh.normals[index].x,
+                 -mesh.normals[index].y * 0.125F) &&
+                Near(mesh.normals[index].z,
+                     -mesh.normals[index].x) &&
+                Near(mesh.tangents[index].w, -1.0F),
+            "terrain eight-face normal or UV tangent frame changed");
+  }
+  for (const std::uint32_t index : mesh.indices) {
+    Require(index < mesh.positions.size(),
+            "terrain strip conversion emitted an out-of-range index");
+  }
+
+  Ogre14GraphicsSceneTerrainPageCaptureInput isolated = MakeTerrainPage();
+  isolated.normal_neighbourhood_positions.clear();
+  const float isolated_base = isolated.world_size * -0.5F;
+  for (std::int32_t y = -1;
+       y <= static_cast<std::int32_t>(isolated.size); ++y) {
+    for (std::int32_t x = -1;
+         x <= static_cast<std::int32_t>(isolated.size); ++x) {
+      const std::int32_t clamped_x = (std::max)(
+          0, (std::min)(x, static_cast<std::int32_t>(isolated.size) - 1));
+      const std::int32_t clamped_y = (std::max)(
+          0, (std::min)(y, static_cast<std::int32_t>(isolated.size) - 1));
+      isolated.normal_neighbourhood_positions.push_back(
+          {static_cast<float>(clamped_x) + isolated_base,
+           static_cast<float>(clamped_x + clamped_y) * 0.125F,
+           static_cast<float>(clamped_y) * -1.0F - isolated_base});
+    }
+  }
+  result = BuildOgre14GraphicsSceneTerrainMeshPayload(
+      isolated, 1U, payload);
+  Require(result.ok() && payload != nullptr &&
+              std::get<MeshResourceDescriptor>(*payload).positions.size() ==
+                  45U,
+          "isolated terrain page rejected OGRE-clamped boundary normals");
+
+  const std::shared_ptr<const RenderAssetPayload> accepted = payload;
+  page.derived_data_update_in_progress = true;
+  result = BuildOgre14GraphicsSceneTerrainMeshPayload(page, 5U, payload);
+  Require(!result && result.field == "derived_data" &&
+              SameSharedOwner(payload, accepted),
+          "concurrent terrain derived update was accepted or changed output");
+  page.derived_data_update_in_progress = false;
+  page.has_holes = true;
+  result = BuildOgre14GraphicsSceneTerrainMeshPayload(page, 5U, payload);
+  Require(!result && result.field == "holes" &&
+              SameSharedOwner(payload, accepted),
+          "terrain holes were silently filled or changed output");
+
+  const auto make_aligned_page = [](Ogre14GraphicsSceneTerrainAlignment alignment) {
+    Ogre14GraphicsSceneTerrainPageCaptureInput aligned = MakeTerrainPage();
+    aligned.alignment = alignment;
+    aligned.normal_neighbourhood_positions.clear();
+    const float base = aligned.world_size * -0.5F;
+    for (std::int32_t y = -1;
+         y <= static_cast<std::int32_t>(aligned.size); ++y) {
+      for (std::int32_t x = -1;
+           x <= static_cast<std::int32_t>(aligned.size); ++x) {
+        const float height = static_cast<float>(x + y) * 0.125F;
+        switch (alignment) {
+        case Ogre14GraphicsSceneTerrainAlignment::X_Z:
+          aligned.normal_neighbourhood_positions.push_back(
+              {static_cast<float>(x) + base, height,
+               static_cast<float>(y) * -1.0F - base});
+          break;
+        case Ogre14GraphicsSceneTerrainAlignment::X_Y:
+          aligned.normal_neighbourhood_positions.push_back(
+              {static_cast<float>(x) + base,
+               static_cast<float>(y) + base, height});
+          break;
+        case Ogre14GraphicsSceneTerrainAlignment::Y_Z:
+          aligned.normal_neighbourhood_positions.push_back(
+              {height, static_cast<float>(y) + base,
+               static_cast<float>(x) * -1.0F - base});
+          break;
+        }
+      }
+    }
+    return aligned;
+  };
+  Ogre14GraphicsSceneTerrainPageCaptureInput aligned = make_aligned_page(
+      Ogre14GraphicsSceneTerrainAlignment::X_Y);
+  result = BuildOgre14GraphicsSceneTerrainMeshPayload(aligned, 1U, payload);
+  Require(result.ok() &&
+              std::get<MeshResourceDescriptor>(*payload).positions.front() ==
+                  Float3{-2.0F, -2.0F, 0.0F} &&
+              Near(std::get<MeshResourceDescriptor>(*payload)
+                       .positions[25U]
+                       .z,
+                   -aligned.skirt_size),
+          "X/Y-aligned terrain basis or skirt direction changed");
+  aligned = make_aligned_page(Ogre14GraphicsSceneTerrainAlignment::Y_Z);
+  result = BuildOgre14GraphicsSceneTerrainMeshPayload(aligned, 1U, payload);
+  Require(result.ok() &&
+              std::get<MeshResourceDescriptor>(*payload).positions.front() ==
+                  Float3{0.0F, -2.0F, 2.0F} &&
+              Near(std::get<MeshResourceDescriptor>(*payload)
+                       .positions[25U]
+                       .x,
+                   -aligned.skirt_size),
+          "Y/Z-aligned terrain basis or skirt direction changed");
+}
+
+void TestTerrainPageSetRequiresCompleteMatchingSharedEdges() {
+  using namespace RoR::Render;
+  std::vector<Ogre14GraphicsSceneTerrainPageCaptureInput> pages{
+      MakeTerrainPage(1, 0), MakeTerrainPage(0, 0)};
+  ValidationResult result =
+      ValidateOgre14GraphicsSceneTerrainPageSet(pages);
+  Require(result.ok(),
+          "complete adjacent terrain pages with shared LOD0 edge were rejected");
+
+  pages.push_back(pages.front());
+  result = ValidateOgre14GraphicsSceneTerrainPageSet(pages);
+  Require(!result && result.code == ValidationCode::DUPLICATE_IDENTIFIER &&
+              result.field == "terrain.pages.identity",
+          "duplicate TerrainGroup slot was accepted");
+  pages.pop_back();
+
+  const std::size_t halo_side = pages[0U].size + 2U;
+  for (std::uint32_t y = 0U; y < pages[0U].size; ++y) {
+    pages[0U].height_samples[static_cast<std::size_t>(y) * pages[0U].size] +=
+        0.25F;
+    pages[0U]
+        .normal_neighbourhood_positions[
+            static_cast<std::size_t>(y + 1U) * halo_side + 1U]
+        .y += 0.25F;
+  }
+  result = ValidateOgre14GraphicsSceneTerrainPageSet(pages);
+  Require(!result && result.code == ValidationCode::REVISION_MISMATCH &&
+              result.field == "terrain.pages.shared_edge",
+          "mismatched adjacent terrain edges were silently stitched");
+}
+
+void TestTerrainMaterialGateAndSectionAreTransactional() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneTerrainPageCaptureInput page = MakeTerrainPage();
+  std::shared_ptr<const RenderAssetPayload> payload;
+  Require(BuildOgre14GraphicsSceneTerrainMeshPayload(page, 1U, payload).ok(),
+          "terrain section fixture mesh was rejected");
+  Ogre14GraphicsSceneStaticSectionCaptureInput section;
+  section.stable_object_id = 999U;
+  ValidationResult result = BuildOgre14GraphicsSceneTerrainSection(
+      page, payload, section);
+  Require(result.ok() && section.stable_object_id != 0U &&
+              section.section_index == 0U &&
+              !section.exact_terrain_page_key.empty() &&
+              section.mesh_payload == payload &&
+              section.render_from_object.elements[12U] ==
+                  page.page_world_position.x,
+          "terrain page was not bound to an exact section identity");
+  const std::uint64_t accepted_id = section.stable_object_id;
+
+  page.material_audit.layer_count = 1U;
+  page.material_audit.sampler_count = 2U;
+  page.material_audit.layer_world_sizes = {12.0F};
+  page.material_audit.layer_texture_names = {"d.png", "n.png"};
+  result = ValidateOgre14GraphicsSceneTerrainPageSet({page});
+  Require(!result && result.field == "terrain.pages.material.layers",
+          "complete-page validation did not gate terrain layers before meshing");
+  result = BuildOgre14GraphicsSceneTerrainSection(page, payload, section);
+  Require(!result && result.field == "material.layers" &&
+              section.stable_object_id == accepted_id,
+          "terrain layers were silently dropped or modified output section");
+
+  page = MakeTerrainPage();
+  page.material_audit.has_composite_map = true;
+  page.material_audit.exact_composite_map_name = "Terrain/Composite";
+  result = BuildOgre14GraphicsSceneTerrainSection(page, payload, section);
+  Require(!result && result.field == "material.composite_map" &&
+              section.stable_object_id == accepted_id,
+          "terrain composite map was silently dropped");
+}
+
+void TestTerrainInventoryReusesPayloadAndFeedsProducer() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneTerrainPageCaptureInput page = MakeTerrainPage();
+  std::shared_ptr<const RenderAssetPayload> payload;
+  Require(BuildOgre14GraphicsSceneTerrainMeshPayload(page, 1U, payload).ok(),
+          "terrain inventory fixture mesh was rejected");
+  Ogre14GraphicsSceneStaticSectionCaptureInput section;
+  Require(BuildOgre14GraphicsSceneTerrainSection(page, payload, section).ok(),
+          "terrain inventory fixture section was rejected");
+
+  Ogre14GraphicsSceneStaticIdentityRegistry registry;
+  std::vector<GraphicsSceneAssetInput> assets;
+  std::vector<GraphicsSceneStaticMeshInput> instances;
+  Require(BuildOgre14GraphicsSceneStaticInventory(
+              {section}, registry, assets, instances)
+              .ok() &&
+              registry.terrain_page_identity_count() == 1U &&
+              assets.size() == 2U && instances.size() == 1U,
+          "terrain page identities/assets were not committed atomically");
+  const std::vector<GraphicsSceneAssetInput> accepted_assets = assets;
+  Require(BuildOgre14GraphicsSceneStaticInventory(
+              {section}, registry, assets, instances)
+              .ok(),
+          "stable terrain inventory was rejected");
+  for (const GraphicsSceneAssetInput &asset : assets) {
+    const auto prior = std::find_if(
+        accepted_assets.begin(), accepted_assets.end(),
+        [&asset](const GraphicsSceneAssetInput &candidate) {
+          return candidate.source_asset_id == asset.source_asset_id;
+        });
+    Require(prior != accepted_assets.end() &&
+                SameSharedOwner(prior->payload, asset.payload),
+            "stable terrain asset did not reuse its immutable owner");
+  }
+
+  Require(BuildOgre14GraphicsSceneStaticInventory(
+              {}, registry, assets, instances)
+              .ok() &&
+              assets.empty() && instances.empty(),
+          "terrain omission did not atomically tombstone the live page");
+  const ValidationResult resurrection =
+      BuildOgre14GraphicsSceneStaticInventory(
+          {section}, registry, assets, instances);
+  Require(!resurrection && assets.empty() && instances.empty() &&
+              registry.terrain_page_identity_count() == 1U,
+          "removed terrain page identity was resurrected or mutated output");
+
+  Ogre14GraphicsSceneStaticIdentityRegistry producer_registry;
+  Require(BuildOgre14GraphicsSceneStaticInventory(
+              {section}, producer_registry, assets, instances)
+              .ok(),
+          "fresh terrain producer inventory fixture was rejected");
+
+  FixtureProvider provider;
+  provider.capture.frame.assets = assets;
+  provider.capture.frame.static_meshes = instances;
+  Ogre14GraphicsSceneSource source(provider);
+  GraphicsSceneSnapshotProducerConfiguration configuration;
+  configuration.registry_id = 0x5445525241494E31ULL;
+  GraphicsSceneSnapshotProducer producer(configuration);
+  const GraphicsSceneSnapshotProduceResult produced =
+      producer.ProduceJoinedFrame(source);
+  Require(produced.ok() &&
+              produced.production.scene_snapshot->mesh_instances().size() ==
+                  1U &&
+              produced.production.asset_delta.has_value() &&
+              produced.production.asset_delta->mutations.size() == 2U,
+          "canonical terrain page was rejected by the scene producer");
+}
+
 void TestPerspectiveAndOrthographicCameraConversion() {
   using namespace RoR::Render;
   Ogre14CameraCaptureInput input = MakeCameraInput();
@@ -1064,6 +1527,12 @@ int main() {
   TestStaticInventorySplitsDeduplicatesAndReusesOwners();
   TestStaticInventoryFailureAndLifecycleAreAtomic();
   TestConvertedStaticInventoryFeedsProducer();
+  TestTerrainIdentityAndExactStateKeyAreStable();
+  TestTerrainCacheResolutionIsExactAndTransactional();
+  TestTerrainLod0MeshPreservesGridSkirtsNormalsAndUv();
+  TestTerrainPageSetRequiresCompleteMatchingSharedEdges();
+  TestTerrainMaterialGateAndSectionAreTransactional();
+  TestTerrainInventoryReusesPayloadAndFeedsProducer();
   TestPerspectiveAndOrthographicCameraConversion();
   TestCameraConversionRejectsGuesswork();
   return EXIT_SUCCESS;

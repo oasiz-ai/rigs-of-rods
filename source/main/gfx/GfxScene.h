@@ -133,6 +133,12 @@ private:
     std::map<std::string,
              Render::Ogre14GraphicsSceneStaticMeshCacheEntry, std::less<>>
                                        m_ogre14_static_mesh_cache;
+    // Full-resolution terrain payload owners are keyed by exact TerrainGroup
+    // page identity; each entry retains its collision-free byte state. Stable
+    // frames never regenerate the large CPU mesh.
+    std::map<std::string,
+             Render::Ogre14GraphicsSceneTerrainPageCacheEntry, std::less<>>
+                                       m_ogre14_terrain_page_cache;
 
     // Free beams GFX:
     std::vector<FreeBeamGfx>          m_gfx_freebeams;

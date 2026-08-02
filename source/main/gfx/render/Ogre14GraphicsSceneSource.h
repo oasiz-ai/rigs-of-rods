@@ -147,6 +147,7 @@ struct Ogre14CameraCaptureInput {
 /// Ambient/specular lobes remain audited native metadata but intentionally
 /// acquire no guessed portable PBR contribution.
 constexpr std::uint32_t kOgre14StaticMaterialFallbackVersion = 1U;
+constexpr std::uint32_t kOgre14TerrainCpuCaptureVersion = 1U;
 
 enum class Ogre14GraphicsSceneMaterialBlend : std::uint8_t {
   REPLACE = 0U,
@@ -242,6 +243,10 @@ struct Ogre14GraphicsSceneStaticSectionCaptureInput {
   bool casts_shadows = true;
   bool receives_shadows = true;
   bool visible_in_reflections = true;
+  /// Present only for a canonical terrain-page section. The exact binary key
+  /// is collision-audited independently from the derived page ID so two page
+  /// source identities can never alias before section IDs are derived.
+  std::string exact_terrain_page_key;
 };
 
 /// Adapter-side immutable CPU cache entry. `native_mesh` is an opaque
@@ -250,6 +255,88 @@ struct Ogre14GraphicsSceneStaticMeshCacheEntry {
   const void *native_mesh = nullptr;
   std::size_t native_state_count = 0U;
   std::shared_ptr<const RenderAssetPayload> payload;
+};
+
+enum class Ogre14GraphicsSceneTerrainAlignment : std::uint8_t {
+  X_Z = 0U,
+  X_Y = 1U,
+  Y_Z = 2U,
+};
+
+/// Exact TerrainGroup source locator for one slot. Slot coordinates are the
+/// signed OGRE group coordinates, not iteration position or packed-map order.
+struct Ogre14GraphicsSceneTerrainPageIdentity {
+  std::string exact_resource_group;
+  std::string exact_filename_prefix;
+  std::string exact_filename_extension;
+  std::string exact_slot_filename;
+  std::int32_t slot_x = 0;
+  std::int32_t slot_y = 0;
+};
+
+/// Complete native terrain texture/material audit. Version one can publish
+/// only an exact factor-only material. Every authored terrain layer, blend,
+/// global-colour, light, or composite texture therefore remains visible to a
+/// stable fail-closed gate instead of being silently flattened.
+struct Ogre14GraphicsSceneTerrainMaterialAuditInput {
+  std::uint32_t layer_count = 0U;
+  std::uint32_t sampler_count = 0U;
+  std::vector<float> layer_world_sizes;
+  /// Flattened layer-major, sampler-minor exact texture names.
+  std::vector<std::string> layer_texture_names;
+  std::uint32_t blend_texture_count = 0U;
+  std::vector<std::string> blend_texture_names;
+  bool global_colour_map_enabled = false;
+  std::string exact_global_colour_map_name;
+  bool has_lightmap = false;
+  std::string exact_lightmap_name;
+  bool has_composite_map = false;
+  std::string exact_composite_map_name;
+};
+
+/// Renderer-neutral copy of one fully loaded OGRE 14 Terrain page. Heights
+/// are row-major from terrain point (0,0), matching getHeightData(). The
+/// (size+2)^2 neighbourhood contains getPointFromSelfOrNeighbour(x-1,y-1)
+/// positions relative to this page's centre and is used to reproduce OGRE's
+/// eight-face normal derivation exactly at page boundaries without touching
+/// mutable derived-data state. `highest_lod_prepared == 0` proves the complete
+/// CPU grid is resident. Loaded/target LOD are audited native GPU/draw state;
+/// they do not select canonical topology or enter its immutable state key.
+struct Ogre14GraphicsSceneTerrainPageCaptureInput {
+  std::uint32_t version = kOgre14TerrainCpuCaptureVersion;
+  Ogre14GraphicsSceneTerrainPageIdentity identity;
+  Ogre14GraphicsSceneTerrainAlignment alignment =
+      Ogre14GraphicsSceneTerrainAlignment::X_Z;
+  std::uint32_t size = 0U;
+  std::uint32_t minimum_batch_size = 0U;
+  std::uint32_t maximum_batch_size = 0U;
+  std::uint32_t lod_level_count = 0U;
+  std::uint32_t lod_levels_per_leaf = 0U;
+  std::int32_t highest_lod_prepared = -1;
+  std::int32_t highest_lod_loaded = -1;
+  std::int32_t target_lod_level = -1;
+  float world_size = 0.0F;
+  float skirt_size = 0.0F;
+  Float3 page_world_position{};
+  std::vector<float> height_samples;
+  std::vector<Float3> normal_neighbourhood_positions;
+  bool derived_data_update_in_progress = false;
+  bool has_holes = false;
+  Ogre14GraphicsSceneTerrainMaterialAuditInput material_audit;
+  Ogre14GraphicsSceneMaterialCaptureInput material;
+  std::uint32_t visibility_mask = 0xFFFFFFFFU;
+  bool visible = true;
+  bool casts_shadows = true;
+  bool receives_shadows = true;
+  bool visible_in_reflections = true;
+};
+
+/// Immutable full-page CPU cache. The exact state key contains every geometry
+/// scalar and IEEE-754 sample byte, so equality never relies on a lossy hash.
+struct Ogre14GraphicsSceneTerrainPageCacheEntry {
+  std::string exact_geometry_state_key;
+  std::uint64_t topology_revision = 0U;
+  std::shared_ptr<const RenderAssetPayload> mesh_payload;
 };
 
 struct Ogre14GraphicsSceneUnsupportedGeometry {
@@ -276,6 +363,11 @@ public:
   [[nodiscard]] std::size_t object_identity_count() const noexcept {
     return object_names_by_id_.size();
   }
+  [[nodiscard]] std::size_t terrain_page_identity_count() const noexcept {
+    return terrain_page_names_by_id_.size();
+  }
+  [[nodiscard]] ValidationResult RegisterDerivedTerrainPageIdentity(
+      std::string_view exact_key, std::uint64_t stable_id);
 
 private:
   friend ValidationResult BuildOgre14GraphicsSceneStaticInventory(
@@ -294,6 +386,11 @@ private:
   std::set<std::string, std::less<>> live_asset_keys_;
   std::set<std::string, std::less<>> known_object_keys_;
   std::set<std::string, std::less<>> live_object_keys_;
+  std::map<std::uint64_t, std::string> terrain_page_names_by_id_;
+  std::map<std::string, std::uint64_t, std::less<>>
+      terrain_page_ids_by_name_;
+  std::set<std::string, std::less<>> known_terrain_page_keys_;
+  std::set<std::string, std::less<>> live_terrain_page_keys_;
 };
 
 [[nodiscard]] ValidationResult ValidateOgre14GraphicsSceneStaticCoverage(
@@ -308,6 +405,55 @@ private:
 [[nodiscard]] ValidationResult DeriveOgre14GraphicsSceneStaticSectionId(
     std::uint64_t stable_object_id, std::uint32_t section_index,
     std::uint64_t &stable_id);
+
+[[nodiscard]] ValidationResult DeriveOgre14GraphicsSceneTerrainPageId(
+    const Ogre14GraphicsSceneTerrainPageIdentity &identity,
+    std::uint64_t &stable_id);
+
+/// Validates the complete native texture/material audit and the factor-only
+/// fallback before a caller allocates the potentially large canonical mesh.
+[[nodiscard]] ValidationResult
+ValidateOgre14GraphicsSceneTerrainMaterialCapture(
+    const Ogre14GraphicsSceneTerrainMaterialAuditInput &audit,
+    const Ogre14GraphicsSceneMaterialCaptureInput &material);
+
+/// Validates a complete page inventory, exact slot uniqueness, common group
+/// geometry, material audit, and every present east/north shared edge. Failure
+/// leaves callers' outputs and lifecycle state untouched.
+[[nodiscard]] ValidationResult ValidateOgre14GraphicsSceneTerrainPageSet(
+    const std::vector<Ogre14GraphicsSceneTerrainPageCaptureInput> &pages);
+
+/// Builds a collision-free byte key for native immutable-payload caching.
+/// Failure leaves `key` untouched.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneTerrainGeometryStateKey(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
+    std::string &key);
+
+/// Builds the full authored LOD0 grid plus page-perimeter skirts as one
+/// immutable CCW triangle-list mesh. Internal quadtree skirts and morph deltas
+/// are intentionally absent because this canonical topology has no internal
+/// LOD draw boundaries. Failure leaves `payload` untouched.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneTerrainMeshPayload(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
+    std::uint64_t topology_revision,
+    std::shared_ptr<const RenderAssetPayload> &payload);
+
+/// Resolves one immutable terrain payload against an optional prior exact
+/// cache entry. Same-state pages reuse the owner and revision; changed pages
+/// advance once. Failure leaves `entry` untouched.
+[[nodiscard]] ValidationResult
+ResolveOgre14GraphicsSceneTerrainPageCacheEntry(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
+    const Ogre14GraphicsSceneTerrainPageCacheEntry *previous,
+    Ogre14GraphicsSceneTerrainPageCacheEntry &entry);
+
+/// Binds one validated page payload to its exact page/section/material
+/// identities and transform. The current factor-only terrain material gate is
+/// explicit and transactional.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneTerrainSection(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
+    const std::shared_ptr<const RenderAssetPayload> &mesh_payload,
+    Ogre14GraphicsSceneStaticSectionCaptureInput &section);
 
 /// Builds an immutable tight-bounds triangle-list payload. Failure leaves the
 /// caller's owner untouched.
