@@ -34,6 +34,11 @@ function(ror_configure_renderer_launcher_package_facts
     # These are intentionally ordinary function-local values, not cache
     # settings or caller inputs. The generated header is the package record for
     # this bounded phase and cannot be changed by an environment/config file.
+    # Default intent is distinct from admission: the public executable always
+    # requests OgreNext first, while the immutable facts below continue to
+    # reject an unadmitted child.
+    set(ROR_RENDERER_LAUNCHER_DEFAULT_FRONTEND "OGRE_NEXT_PREFER")
+    set(ROR_RENDERER_LAUNCHER_DEFAULT_DIRECTIONAL_SHADOWS "PSSM")
     set(ROR_RENDERER_LAUNCHER_OGRE14_CHILD_PRESENT "true")
     set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT "false")
     set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY "false")

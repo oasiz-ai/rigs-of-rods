@@ -105,11 +105,22 @@ The supported defaults are:
 | `ROR_RENDERER_PUBLIC_LAUNCHER` | `ON` | Build the OgreNext-first public chooser. |
 | `ROR_OGRE_NEXT_PRODUCTION_PACKAGE` | `ON` | Build and verify the real isolated OgreNext child. |
 
+These three defaults are independent, explicit `ON` cache initializers. A
+fresh no-flag CMake configuration therefore cannot silently inherit an
+OGRE14-only product topology from option evaluation order. Existing build
+directories retain their previously cached values; use a fresh build directory
+when validating the supported product default.
+
 `ROR_RENDERER_PUBLIC_LAUNCHER=ON` requires `ROR_OGRE14=ON`, because the current
 two-process OgreNext product uses the OGRE 14 executable as its simulation host
 as well as its bounded pre-readiness fallback. Disabling either dependent
 option is an explicit developer configuration and is not a supported shipping
 package.
+
+The packaged user entrypoint is always the public chooser: `RoR.app` with
+`CFBundleExecutable=RoR` on macOS, `RunRoR` (which executes sibling `RoR`) on
+Linux, and `RoR.exe` on Windows. Storefront action metadata names those same
+entrypoints and never launches either renderer child directly.
 
 `ROR_DEPENDENCY_DIR` remains available for the historical dependency-folder
 workflow. The locked Conan provider is the reproducible path used by current

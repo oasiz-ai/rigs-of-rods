@@ -237,7 +237,11 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
 
     def test_public_suite_defaults_to_isolated_verified_product_stage(self) -> None:
         for token in (
-            'set(_ror_ogre_next_product_package_default\n    "${ROR_RENDERER_PUBLIC_LAUNCHER}")',
+            "option(\n"
+            "    ROR_OGRE_NEXT_PRODUCTION_PACKAGE\n"
+            "    \"Build and package the verified real OgreNext renderer "
+            "child\"\n"
+            "    ON)",
             "ROR_OGRE_NEXT_PRODUCTION_PACKAGE",
             "include(OgreNextProductionPackage)",
             "ror_add_ogre_next_production_package()",

@@ -30,6 +30,20 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
             / "cmake"
             / "RendererLauncherPackageConfig.cmake"
         ).read_text(encoding="utf-8")
+        cls.package_header = (
+            REPOSITORY_ROOT
+            / "source"
+            / "main"
+            / "system"
+            / "RendererLauncherPackageConfig.h.in"
+        ).read_text(encoding="utf-8")
+        cls.public_launcher = (
+            REPOSITORY_ROOT
+            / "source"
+            / "main"
+            / "system"
+            / "RendererPublicLauncher.cpp"
+        ).read_text(encoding="utf-8")
         cls.icon_resource = (
             REPOSITORY_ROOT / "source" / "main" / "icon.rc"
         ).read_text(encoding="utf-8")
@@ -48,6 +62,15 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
         cls.native_workflow = (
             REPOSITORY_ROOT / ".github" / "workflows" / "ogre14-native.yml"
         ).read_text(encoding="utf-8")
+        cls.linux_entrypoint = (
+            REPOSITORY_ROOT / "tools" / "linux" / "RunRoR-ogre14"
+        ).read_text(encoding="utf-8")
+        cls.linux_storefront = (
+            REPOSITORY_ROOT / "tools" / "linux" / ".itch.toml"
+        ).read_text(encoding="utf-8")
+        cls.windows_storefront = (
+            REPOSITORY_ROOT / "tools" / "windows" / ".itch.toml"
+        ).read_text(encoding="utf-8")
 
     def test_supported_builds_default_to_the_ogre_next_first_suite(self) -> None:
         self.assertIn(
@@ -57,20 +80,33 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
             self.root_cmake,
         )
         self.assertIn('"ogre14": True,', self.conanfile)
+        for conan_contract in (
+            'tc.variables["ROR_OGRE14"] = build_renderer_suite',
+            'tc.variables["ROR_RENDERER_PUBLIC_LAUNCHER"] = build_renderer_suite',
+            'tc.variables["ROR_OGRE_NEXT_PRODUCTION_PACKAGE"] = (',
+        ):
+            with self.subTest(conan_contract=conan_contract):
+                self.assertIn(conan_contract, self.conanfile)
         self.assertIn(
             '"The OgreNext-first product suite supports only "',
             self.conanfile,
         )
-        option_contract = (
-            'set(_ror_renderer_public_launcher_default "${ROR_OGRE14}")\n'
+        for option_contract in (
             "option(\n"
             "    ROR_RENDERER_PUBLIC_LAUNCHER\n"
             "    \"Build and package the Ogre-Next-first public renderer "
             "chooser with the admitted renderer siblings\"\n"
-            '    "${_ror_renderer_public_launcher_default}")\n'
-            "unset(_ror_renderer_public_launcher_default)"
-        )
-        self.assertIn(option_contract, self.root_cmake)
+            "    ON)",
+            "option(\n"
+            "    ROR_OGRE_NEXT_PRODUCTION_PACKAGE\n"
+            "    \"Build and package the verified real OgreNext renderer "
+            "child\"\n"
+            "    ON)",
+        ):
+            with self.subTest(option_contract=option_contract):
+                self.assertIn(option_contract, self.root_cmake)
+        self.assertNotIn("_ror_renderer_public_launcher_default", self.root_cmake)
+        self.assertNotIn("_ror_ogre_next_product_package_default", self.root_cmake)
         self.assertIn(
             "if (ROR_RENDERER_PUBLIC_LAUNCHER AND NOT ROR_OGRE14)",
             self.root_cmake,
@@ -191,6 +227,27 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
                 self.assertIn(contract, facts)
         self.assertNotIn("CACHE", facts)
 
+    def test_generated_package_metadata_requests_ogrenext_by_default(self) -> None:
+        for contract in (
+            'set(ROR_RENDERER_LAUNCHER_DEFAULT_FRONTEND "OGRE_NEXT_PREFER")',
+            'set(ROR_RENDERER_LAUNCHER_DEFAULT_DIRECTIONAL_SHADOWS "PSSM")',
+        ):
+            with self.subTest(config_contract=contract):
+                self.assertIn(contract, self.package_facts)
+        for contract in (
+            "kDefaultFrontendPreference",
+            "RendererFrontendPreference::@ROR_RENDERER_LAUNCHER_DEFAULT_FRONTEND@",
+            "kDefaultDirectionalShadowPreference",
+            "@ROR_RENDERER_LAUNCHER_DEFAULT_DIRECTIONAL_SHADOWS@",
+            "the public package must request OgreNext by default",
+        ):
+            with self.subTest(header_contract=contract):
+                self.assertIn(contract, self.package_header)
+        self.assertIn(
+            "result.intent = RendererPublicLauncherPackageDefaultIntent();",
+            self.public_launcher,
+        )
+
     def test_platform_stagers_own_the_exact_compatibility_child(self) -> None:
         mac = self.mac_stager
         for contract in (
@@ -215,6 +272,24 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
         ):
             with self.subTest(platform="linux", contract=contract):
                 self.assertIn(contract, linux)
+
+    def test_all_storefront_and_bundle_entrypoints_use_public_launcher(
+        self,
+    ) -> None:
+        self.assertIn(
+            '"-DROR_BUNDLE_EXECUTABLE_NAME=RoR"', self.source_cmake
+        )
+        self.assertIn(
+            'if(NOT ROR_BUNDLE_EXECUTABLE_NAME STREQUAL "RoR")',
+            self.mac_stager,
+        )
+        self.assertIn(
+            '"RoR-Ogre14" _ror_ogre14_sibling_index', self.mac_stager
+        )
+        self.assertIn('exec "${ror_launcher_dir}/RoR" "$@"', self.linux_entrypoint)
+        self.assertIn('path = "RunRoR"', self.linux_storefront)
+        self.assertIn('path = "RoR.exe"', self.windows_storefront)
+        self.assertNotIn('path = "RoR-Ogre14.exe"', self.windows_storefront)
 
     def test_ci_and_runtime_audit_follow_public_to_child_handoff(self) -> None:
         for workflow in (self.mac_workflow, self.native_workflow):

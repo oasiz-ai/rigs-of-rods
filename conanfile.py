@@ -85,7 +85,16 @@ class RoR(ConanFile):
 
     def generate(self):
         tc = CMakeToolchain(self)
-        tc.variables["ROR_OGRE14"] = bool(self.options.ogre14)
+        build_renderer_suite = bool(self.options.ogre14)
+        tc.variables["ROR_OGRE14"] = build_renderer_suite
+        # Keep the supported no-option Conan path on the complete
+        # OgreNext-first suite. The legacy dependency graph is an explicit
+        # developer opt-out and must disable both dependent product targets
+        # rather than relying on CMake's default propagation.
+        tc.variables["ROR_RENDERER_PUBLIC_LAUNCHER"] = build_renderer_suite
+        tc.variables["ROR_OGRE_NEXT_PRODUCTION_PACKAGE"] = (
+            build_renderer_suite
+        )
         tc.generate()
         deps = CMakeDeps(self)
         deps.generate()

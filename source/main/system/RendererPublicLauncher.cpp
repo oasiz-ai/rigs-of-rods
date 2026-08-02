@@ -195,9 +195,20 @@ RendererPublicLauncherPackageAvailability() noexcept {
   return availability;
 }
 
+RendererPublicLauncherIntent
+RendererPublicLauncherPackageDefaultIntent() noexcept {
+  RendererPublicLauncherIntent intent;
+  intent.frontend =
+      RendererLauncherPackageConfig::kDefaultFrontendPreference;
+  intent.directional_shadows =
+      RendererLauncherPackageConfig::kDefaultDirectionalShadowPreference;
+  return intent;
+}
+
 RendererPublicLauncherArguments ParseRendererPublicLauncherArguments(
     int argc, const RendererChildLauncherChar *const argv[]) noexcept {
   RendererPublicLauncherArguments result;
+  result.intent = RendererPublicLauncherPackageDefaultIntent();
   try {
     if (argc < 1 || argv == nullptr) {
       return result;
