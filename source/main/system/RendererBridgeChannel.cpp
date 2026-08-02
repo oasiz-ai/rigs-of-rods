@@ -262,6 +262,7 @@ std::uint32_t RendererBridgeChannel::CloseOutboundNative() noexcept {
     return 0U;
   }
   outbound_open_ = false;
+  outbound_nonblocking_ = false;
 #if defined(_WIN32)
   const HANDLE handle = NativeHandle(outbound_native_handle_);
   outbound_native_handle_ = 0U;
@@ -467,6 +468,9 @@ RendererBridgeChannelResult RendererBridgeChannel::WriteAll(
       !outbound_open_) {
     return MakeResult(RendererBridgeChannelStatus::REJECTED_NOT_READY);
   }
+  if (outbound_nonblocking_) {
+    return MakeResult(RendererBridgeChannelStatus::REJECTED_NOT_READY);
+  }
   if (size == 0U) {
     return MakeResult(RendererBridgeChannelStatus::READY);
   }
@@ -547,6 +551,146 @@ RendererBridgeChannelResult RendererBridgeChannel::WriteAll(
   }
 #endif
   return MakeResult(RendererBridgeChannelStatus::READY, total);
+}
+
+RendererBridgeChannelResult
+RendererBridgeChannel::EnableNonblockingOutbound() noexcept {
+  if (terminal_ || !adopted_ || status_ == RendererBridgeChannelStatus::CLOSED ||
+      !outbound_open_) {
+    return MakeResult(RendererBridgeChannelStatus::REJECTED_NOT_READY);
+  }
+  if (outbound_nonblocking_) {
+    return MakeResult(RendererBridgeChannelStatus::READY);
+  }
+#if defined(_WIN32)
+  DWORD mode = PIPE_NOWAIT;
+  if (::SetNamedPipeHandleState(NativeHandle(outbound_native_handle_), &mode,
+                                nullptr, nullptr) == FALSE) {
+    return FailAndClose(RendererBridgeChannelStatus::FAILED_OUTBOUND_HANDLE,
+                        static_cast<std::uint32_t>(::GetLastError()));
+  }
+#else
+  errno = 0;
+  const int flags =
+      ::fcntl(static_cast<int>(outbound_native_handle_), F_GETFL);
+  if (flags < 0 ||
+      ::fcntl(static_cast<int>(outbound_native_handle_), F_SETFL,
+              flags | O_NONBLOCK) != 0) {
+    return FailAndClose(RendererBridgeChannelStatus::FAILED_OUTBOUND_HANDLE,
+                        static_cast<std::uint32_t>(errno));
+  }
+#endif
+  outbound_nonblocking_ = true;
+  return MakeResult(RendererBridgeChannelStatus::READY);
+}
+
+RendererBridgeChannelResult RendererBridgeChannel::TryWriteSome(
+    const std::uint8_t *bytes, std::size_t size) noexcept {
+  if (bytes == nullptr && size != 0U) {
+    return MakeResult(RendererBridgeChannelStatus::REJECTED_INVALID_ARGUMENT);
+  }
+  if (terminal_ || !adopted_ || status_ == RendererBridgeChannelStatus::CLOSED ||
+      !outbound_open_ || !outbound_nonblocking_) {
+    return MakeResult(RendererBridgeChannelStatus::REJECTED_NOT_READY);
+  }
+  if (size == 0U) {
+    return MakeResult(RendererBridgeChannelStatus::READY);
+  }
+  const std::size_t requested = (std::min)(size, kMaximumIoChunkBytes);
+#if defined(_WIN32)
+  DWORD transferred = 0U;
+  if (::WriteFile(NativeHandle(outbound_native_handle_), bytes,
+                  static_cast<DWORD>(requested), &transferred, nullptr) !=
+      FALSE) {
+    return MakeResult(RendererBridgeChannelStatus::READY,
+                      static_cast<std::size_t>(transferred));
+  }
+  const DWORD error = ::GetLastError();
+  if (error == ERROR_BROKEN_PIPE || error == ERROR_PIPE_NOT_CONNECTED ||
+      error == ERROR_NO_DATA) {
+    (void)CloseOutboundNative();
+    RefreshClosedStatus();
+    return MakeResult(RendererBridgeChannelStatus::PEER_CLOSED, 0U,
+                      static_cast<std::uint32_t>(error), true);
+  }
+  return FailAndClose(RendererBridgeChannelStatus::FAILED_WRITE,
+                      static_cast<std::uint32_t>(error));
+#else
+  ScopedSigpipeBlock sigpipe;
+  std::uint32_t sigpipe_error = 0U;
+  if (!sigpipe.Initialize(sigpipe_error)) {
+    return FailAndClose(RendererBridgeChannelStatus::FAILED_WRITE,
+                        sigpipe_error);
+  }
+  ssize_t transferred = -1;
+  do {
+    errno = 0;
+    transferred = ::write(static_cast<int>(outbound_native_handle_), bytes,
+                          requested);
+  } while (transferred < 0 && errno == EINTR);
+  const int write_error = transferred < 0 ? errno : 0;
+  std::uint32_t sigpipe_drain_error = 0U;
+  if (write_error == EPIPE) {
+    sigpipe_drain_error = sigpipe.ConsumeGeneratedSigpipe();
+  }
+  const int restore_error = sigpipe.Restore();
+  if (sigpipe_drain_error != 0U) {
+    return FailAndClose(RendererBridgeChannelStatus::FAILED_WRITE,
+                        sigpipe_drain_error);
+  }
+  if (restore_error != 0) {
+    return FailAndClose(RendererBridgeChannelStatus::FAILED_WRITE,
+                        static_cast<std::uint32_t>(restore_error));
+  }
+  if (transferred > 0) {
+    return MakeResult(RendererBridgeChannelStatus::READY,
+                      static_cast<std::size_t>(transferred));
+  }
+  if (write_error == EAGAIN || write_error == EWOULDBLOCK) {
+    return MakeResult(RendererBridgeChannelStatus::READY);
+  }
+  if (write_error == EPIPE) {
+    (void)CloseOutboundNative();
+    RefreshClosedStatus();
+    return MakeResult(RendererBridgeChannelStatus::PEER_CLOSED, 0U,
+                      static_cast<std::uint32_t>(write_error), true);
+  }
+  return FailAndClose(
+      RendererBridgeChannelStatus::FAILED_WRITE,
+      static_cast<std::uint32_t>(write_error != 0 ? write_error : EIO));
+#endif
+}
+
+RendererBridgeChannelResult RendererBridgeChannel::CloseInbound() noexcept {
+  if (terminal_) {
+    return MakeResult(status_, terminal_bytes_transferred_,
+                      terminal_native_error_code_);
+  }
+  if (!adopted_) {
+    return MakeResult(RendererBridgeChannelStatus::REJECTED_NOT_READY);
+  }
+  const std::uint32_t error = CloseInboundNative();
+  if (error != 0U) {
+    return FailAndClose(RendererBridgeChannelStatus::FAILED_CLOSE, error);
+  }
+  RefreshClosedStatus();
+  return MakeResult(status_);
+}
+
+RendererBridgeChannelResult RendererBridgeChannel::CloseOutbound() noexcept {
+  if (terminal_) {
+    return MakeResult(status_, terminal_bytes_transferred_,
+                      terminal_native_error_code_);
+  }
+  if (!adopted_) {
+    return MakeResult(RendererBridgeChannelStatus::REJECTED_NOT_READY);
+  }
+  const std::uint32_t error = CloseOutboundNative();
+  if (error != 0U) {
+    return FailAndClose(RendererBridgeChannelStatus::FAILED_CLOSE, error);
+  }
+  RefreshClosedStatus();
+  return MakeResult(status_);
 }
 
 RendererBridgeChannelResult RendererBridgeChannel::Close() noexcept {

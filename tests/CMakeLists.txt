@@ -1119,6 +1119,30 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre_next_vulkan_rt6_contract_tests
     ror_ogre_next_dxr7_contract_tests
 )
+
+add_executable(
+    ror_renderer_ogre14_game_host_session_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgre14GameHostSessionTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameBridge.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameHostSession.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre14_game_host_session_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+target_link_libraries(
+    ror_renderer_ogre14_game_host_session_tests
+    PRIVATE ror_render_contract Threads::Threads
+)
 foreach (render_contract_test IN LISTS ROR_RENDER_CONTRACT_TEST_TARGETS)
     target_link_libraries(${render_contract_test} PRIVATE ror_render_contract)
 endforeach ()
@@ -1127,6 +1151,8 @@ set(ROR_RENDER_CONTRACT_BUILD_TARGETS
     ror_render_contract
     ${ROR_RENDER_CONTRACT_TEST_TARGETS}
     ror_renderer_boundary_header_isolation_tests
+    ror_renderer_ogre14_game_host_session_tests
+    ror_renderer_ogre_next_live_session_tests
 )
 foreach (render_contract_target IN LISTS ROR_RENDER_CONTRACT_BUILD_TARGETS)
     set_target_properties(
@@ -1159,7 +1185,12 @@ endforeach ()
 # test link with the matching opt-out; production game link behavior is
 # intentionally unchanged.
 if (NOT MSVC)
-    foreach (render_contract_test IN LISTS ROR_RENDER_CONTRACT_TEST_TARGETS)
+    set(ROR_RENDER_CONTRACT_LINK_TARGETS
+        ${ROR_RENDER_CONTRACT_TEST_TARGETS}
+        ror_renderer_ogre14_game_host_session_tests
+        ror_renderer_ogre_next_live_session_tests
+    )
+    foreach (render_contract_test IN LISTS ROR_RENDER_CONTRACT_LINK_TARGETS)
         target_link_options(
             ${render_contract_test}
             PRIVATE -fno-fast-math
@@ -1872,7 +1903,6 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_renderer_bridge_process_supervisor_tests
     ror_renderer_ogre14_game_bridge_tests
     ror_renderer_ogre_next_child_tests
-    ror_renderer_ogre_next_live_session_tests
     ror_renderer_ogre_next_window_host_tests
     ror_renderer_child_launcher_fake_child
     ror_renderer_child_launcher_tests
@@ -2090,6 +2120,11 @@ set_tests_properties(
 add_test(
     NAME renderer_ogre14_game_bridge
     COMMAND ror_renderer_ogre14_game_bridge_tests
+)
+
+add_test(
+    NAME renderer_ogre14_game_host_session
+    COMMAND ror_renderer_ogre14_game_host_session_tests
 )
 
 add_test(

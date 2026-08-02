@@ -131,9 +131,11 @@ edge shared by isolated render processes. Message kind `1` carries one complete
 `SceneSnapshot` version 4 plus one `CameraViewRequest` under render-frame
 contract version 2. Message kind `2` carries one complete `RenderAssetDelta`
 version 1. Reverse-direction message kind `3` carries one input-event batch
-version 1 from the renderer/window host to the game process. Typed decoders
-publish immutable owners only after the entire candidate passes framing,
-digest, allocation, semantic, and exact-consumption validation.
+version 1 from the renderer/window host to the game process. Reverse kind `4`
+is a cumulative presentation acknowledgement and reverse kind `5` is a
+lifecycle control command. Typed decoders publish immutable owners only after
+the entire candidate passes framing, digest, allocation, semantic, registry,
+and exact-consumption validation.
 
 The fixed 64-byte header is independent of host structure packing:
 
@@ -142,7 +144,7 @@ The fixed 64-byte header is independent of host structure packing:
 | 0 | 8 | bytes | ASCII `RORSCN01` magic |
 | 8 | 2 | little-endian `u16` | transport version (`1`) |
 | 10 | 2 | little-endian `u16` | header size (`64`) |
-| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` assets, `3` input) |
+| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` assets, `3` input, `4` ACK, `5` control) |
 | 14 | 2 | little-endian `u16` | reserved flags (`0`) |
 | 16 | 8 | little-endian `u64` | strictly ordered sequence |
 | 24 | 8 | little-endian `u64` | exact payload byte count |
@@ -151,9 +153,9 @@ The fixed 64-byte header is independent of host structure packing:
 `RenderTransportStreamDecoder` version 1 reconstructs these atomic envelopes
 from pipes or other arbitrary byte streams without assuming read boundaries.
 It validates the complete fixed header before reserving the declared payload,
-enforces the lower of an immutable caller cap and the typed 4 MiB input,
-64 MiB scene, or 640 MiB asset cap, consumes no bytes from a coalesced
-following frame, and exposes at most one validated frame at a time.
+enforces the lower of an immutable caller cap and the typed 128-byte control,
+4 MiB input, 64 MiB scene, or 640 MiB asset cap, consumes no bytes from a
+coalesced following frame, and exposes at most one validated frame at a time.
 Callers must take that frame before continuing. Invalid framing, corruption,
 allocation failure, or EOF inside a frame permanently poisons the decoder;
 there is deliberately no magic-byte resynchronization that could conceal lost
@@ -254,11 +256,33 @@ Per-device raw limits match the current RoR controller ABI: 32 axes, 128
 buttons, four hats, and four sliders. Every count and text length is bounded
 before reserve or copy.
 
+An acknowledgement names the endpoint-derived registry and a strictly
+increasing `through_forward_sequence`; it cumulatively retires every forward
+envelope through that value. Its optional scene pair must name one exact scene
+envelope and immutable snapshot ID at or below the cumulative watermark. A
+scene may first become presented after an earlier ACK has already consumed it;
+the game host therefore retains bounded identity lineage for acknowledged but
+not-yet-presented scenes until a newer presentation makes them unreachable. A
+control command names the same registry, has an exact command-ID lineage
+starting at one, and is one of `PEER_READY`, `REQUEST_GRACEFUL_SHUTDOWN`, or
+`HEARTBEAT`; control payload version 2 also admits `SURFACE_CHANGED`. The first
+control command is `PEER_READY`, and it cannot be repeated. Ready and changed
+surface controls carry the committed surface revision plus logical and
+drawable integer extents. Their exact X/Y content scales are the corresponding
+drawable/logical ratios, so no redundant floating value can disagree. An
+active surface has four nonzero bounded extents. A suspended changed surface
+preserves nonzero logical size, explicitly marks suspension, and carries a
+0x0 drawable; a ready surface cannot be suspended. Every changed revision is
+strictly newer. Heartbeat and shutdown carry zero surface fields. ACK payload
+version 1 remains independent. Both payload kinds retain reserved-zero layouts
+and a 128-byte cap.
+
 Standalone typed decoders own a private envelope sequence. A live bridge gives
 the scene and asset decoders one `RenderTransportSequenceState`, producing one
-strictly ordered game-to-renderer stream. `InputEventTransportDecoder` always
-owns a separate private sequence for the renderer-to-game direction, so both
-directions may validly begin at sequence `1` and cannot advance one another.
+strictly ordered game-to-renderer stream. The input decoder can likewise join
+the acknowledgement/control decoder on one reverse sequence; the two
+directions still own distinct states, may both validly begin at sequence `1`,
+and cannot advance one another.
 The receiver applies an asset transaction to its private `RenderAssetRegistry`
 before committing the forward envelope sequence; the next scene can then
 validate against that exact asset sequence. Replay, gaps, wrong-kind routing,
@@ -291,6 +315,38 @@ wait, correlated-output, or release error permanently poisons the dispatcher.
 This establishes transport consumption and ownership, not visual readiness or
 a shipping Ogre-Next default.
 
+`RendererOgre14GameHostSession` owns the active game-side stream around an
+already initialized `RendererOgre14GameBridge`. `Submit` applies and serializes
+ordered asset deltas; `PostPhysics` accepts only complete scenes against that
+exact catalog and monotonically increasing snapshot/tick lineage. Both calls
+perform no pipe I/O and enqueue only within configured message, byte, and
+unacknowledged-lineage limits. One worker owns both channel halves, drains
+whole forward envelopes in order, incrementally reconstructs reverse frames,
+and exposes input, cumulative ACK, and control messages through zero-wait poll
+methods. Queue saturation returns deterministic `BACKPRESSURE` without
+advancing any sequence. The worker drains immediately available reverse bytes
+before every bounded zero-wait forward write, and it pauses forward progress
+when the delivered reverse queue is full; neither direction can pin the other
+behind a blocking native-pipe write. `Close` therefore remains bounded even if
+an open peer stops reading. Scene publication remains blocked until an active
+`PEER_READY`, while suspended, or when camera pixels differ from the latest
+drawable extent; there is no guessed 1280x720 path. A consumed newer active
+`SURFACE_CHANGED` applies before the next accepted scene.
+
+Surface events are pumped by the presentation process even while no forward
+frame is available. A resize can still race bytes already assigned an exact
+forward sequence; those bytes cannot be removed without creating a sequence
+gap. The presentation side therefore consumes a stale-size or suspended scene
+without rendering or presenting it, sends `SURFACE_CHANGED` first, and then
+sends a cumulative retirement ACK whose presented-scene pair remains at the
+last scene actually presented. Input may interleave between those two reverse
+messages because their shared envelope sequence preserves causality. Once the
+host consumes the surface change it rejects newly produced stale scenes.
+`FinishForward` drains queued envelopes, closes only the outbound half, and
+continues reading final reverse acknowledgements until peer EOF; corruption,
+wrong registry/sequence, stale surface revision, impossible ACK lineage, or
+unexpected peer teardown is terminal and preserves its first cause.
+
 The codecs contain no socket, process-spawn, OS packing, SDL, OIS, OGRE header,
 or third-party serializer dependency, so a byte-stream adapter can choose
 platform IPC without changing scene, asset, or input semantics. Input version
@@ -303,11 +359,12 @@ Ogre-Next expose overlapping global `Ogre::*` C++ symbols and runtime-global
 state; loading both into one executable would make ABI resolution and teardown
 unsafe even when the public renderer boundary itself is neutral. Keeping the
 legacy simulation/game process and modern render process in separate address
-spaces lets each link exactly one OGRE generation. Scene/camera, asset, and
-input transactions now have versioned messages, but this is not a claim that
-the live bridge is complete: native polling/action injection, UI, process
-lifecycle, back-pressure, surface, presentation, and force-feedback messages
-remain explicit later milestones.
+spaces lets each link exactly one OGRE generation. Scene/camera, asset, input,
+ACK, control, bounded host back-pressure, and half-close transactions now have
+versioned contracts. This is not a claim that the shipping live bridge is
+enabled: native polling/action injection, UI, surface integration, production
+child lifecycle admission, and force-feedback remain explicit later
+milestones.
 
 The native interop and native ray-tracing interfaces are contracts, not an
 implementation or readiness claim. All related capabilities fail closed by

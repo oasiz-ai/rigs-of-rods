@@ -660,8 +660,9 @@ struct InputEventTransportDecodeResult {
 };
 
 /// Transactional receiver for the renderer-child -> game-process direction.
-/// Its envelope sequence is deliberately private and independent of the
-/// game-process -> renderer scene/asset sequence.
+/// Standalone instances own a private sequence; a live session supplies the
+/// reverse sequence shared with acknowledgement and control messages. That
+/// reverse state remains independent of the game-to-renderer scene/asset state.
 class InputEventTransportDecoder final {
 public:
   explicit InputEventTransportDecoder(

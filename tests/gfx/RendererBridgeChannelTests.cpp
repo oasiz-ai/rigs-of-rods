@@ -131,6 +131,16 @@ std::vector<std::uint8_t> ReadNativeExact(NativeHandle handle,
   return result;
 }
 
+bool ReadNativeEof(NativeHandle handle) {
+  std::uint8_t byte = 0U;
+  DWORD transferred = 0U;
+  if (::ReadFile(handle, &byte, 1U, &transferred, nullptr) != FALSE) {
+    return transferred == 0U;
+  }
+  const DWORD error = ::GetLastError();
+  return error == ERROR_BROKEN_PIPE || error == ERROR_PIPE_NOT_CONNECTED;
+}
+
 #else
 
 using NativeHandle = int;
@@ -222,6 +232,16 @@ std::vector<std::uint8_t> ReadNativeExact(NativeHandle handle,
     total += static_cast<std::size_t>(transferred);
   }
   return result;
+}
+
+bool ReadNativeEof(NativeHandle handle) {
+  std::uint8_t byte = 0U;
+  ssize_t transferred = -1;
+  do {
+    errno = 0;
+    transferred = ::read(handle, &byte, 1U);
+  } while (transferred < 0 && errno == EINTR);
+  return transferred == 0;
 }
 
 bool IsSigpipeBlocked() {
@@ -430,6 +450,103 @@ void TestBidirectionalTransferAndHalfClose() {
 
   inbound.read_handle = kInvalidNativeHandle;
   outbound.write_handle = kInvalidNativeHandle;
+}
+
+void TestExplicitHalfClose() {
+  NativePipe inbound = MakePipe();
+  NativePipe outbound = MakePipe();
+  RoR::RendererBridgeChannel channel(
+      MakeEndpoint(inbound.read_handle, outbound.write_handle));
+  Require(channel.Adopt().ok(), "explicit half-close setup failed");
+  inbound.read_handle = kInvalidNativeHandle;
+  outbound.write_handle = kInvalidNativeHandle;
+
+  std::uint8_t scratch[2U]{};
+  const std::uint8_t first = 0x31U;
+  const RoR::RendererBridgeChannelResult outbound_closed =
+      channel.CloseOutbound();
+  Require(outbound_closed.status == RoR::RendererBridgeChannelStatus::READY &&
+              channel.inbound_open() && !channel.outbound_open(),
+          "explicit outbound half-close closed the inbound half");
+  Require(ReadNativeEof(outbound.read_handle),
+          "peer did not observe explicit outbound EOF");
+  Require(channel.WriteAll(&first, 1U).status ==
+              RoR::RendererBridgeChannelStatus::REJECTED_NOT_READY,
+          "explicitly closed outbound half remained writable");
+
+  const std::uint8_t second = 0x72U;
+  WriteNative(inbound.write_handle, &second, 1U);
+  const RoR::RendererBridgeChannelResult inbound_ready =
+      channel.ReadSome(scratch, sizeof(scratch));
+  Require(inbound_ready.status == RoR::RendererBridgeChannelStatus::READY &&
+              inbound_ready.bytes_transferred == 1U &&
+              scratch[0U] == second,
+          "inbound half stopped after explicit outbound close");
+
+  const RoR::RendererBridgeChannelResult inbound_closed =
+      channel.CloseInbound();
+  Require(inbound_closed.status == RoR::RendererBridgeChannelStatus::CLOSED &&
+              !channel.inbound_open() && !channel.outbound_open() &&
+              channel.ReadSome(scratch, sizeof(scratch)).status ==
+                  RoR::RendererBridgeChannelStatus::REJECTED_NOT_READY &&
+              channel.CloseInbound().status ==
+                  RoR::RendererBridgeChannelStatus::CLOSED &&
+              channel.CloseOutbound().status ==
+                  RoR::RendererBridgeChannelStatus::CLOSED,
+          "explicit half-close was not stateful and idempotent");
+
+  CloseNative(inbound.write_handle);
+  CloseNative(outbound.read_handle);
+}
+
+void TestNonblockingOutboundBackpressure() {
+  NativePipe inbound = MakePipe();
+  NativePipe outbound = MakePipe();
+  RoR::RendererBridgeChannel channel(
+      MakeEndpoint(inbound.read_handle, outbound.write_handle));
+  Require(channel.Adopt().ok(), "nonblocking outbound setup failed");
+  inbound.read_handle = kInvalidNativeHandle;
+  outbound.write_handle = kInvalidNativeHandle;
+
+  const std::uint8_t byte = 0xa5U;
+  Require(channel.TryWriteSome(nullptr, 1U).status ==
+                  RoR::RendererBridgeChannelStatus::REJECTED_INVALID_ARGUMENT &&
+              channel.TryWriteSome(&byte, 1U).status ==
+                  RoR::RendererBridgeChannelStatus::REJECTED_NOT_READY &&
+              !channel.outbound_nonblocking(),
+          "zero-wait write accepted an invalid precondition");
+  Require(channel.EnableNonblockingOutbound().ok() &&
+              channel.outbound_nonblocking() &&
+              channel.EnableNonblockingOutbound().ok() &&
+              channel.WriteAll(&byte, 1U).status ==
+                  RoR::RendererBridgeChannelStatus::REJECTED_NOT_READY,
+          "outbound zero-wait mode was not explicit and idempotent");
+
+  const std::vector<std::uint8_t> bytes(16U * 1024U * 1024U, 0x5aU);
+  std::size_t offset = 0U;
+  bool observed_backpressure = false;
+  while (offset < bytes.size()) {
+    const RoR::RendererBridgeChannelResult written =
+        channel.TryWriteSome(bytes.data() + offset, bytes.size() - offset);
+    Require(written.status == RoR::RendererBridgeChannelStatus::READY &&
+                !written.terminal && !written.peer_closed,
+            "zero-wait write failed while its peer remained open");
+    if (written.bytes_transferred == 0U) {
+      observed_backpressure = true;
+      break;
+    }
+    offset += written.bytes_transferred;
+  }
+  Require(offset != 0U && observed_backpressure &&
+              channel.outbound_open() && channel.inbound_open(),
+          "zero-wait write blocked instead of reporting bounded backpressure");
+  Require(channel.Close().status ==
+                  RoR::RendererBridgeChannelStatus::CLOSED &&
+              !channel.outbound_nonblocking(),
+          "nonblocking channel did not close cleanly");
+
+  CloseNative(inbound.write_handle);
+  CloseNative(outbound.read_handle);
 }
 
 void TestCloseAndDestructorOwnership() {
@@ -768,6 +885,8 @@ int main() {
           "test host is unsupported");
   TestKnownStatusContract();
   TestBidirectionalTransferAndHalfClose();
+  TestExplicitHalfClose();
+  TestNonblockingOutboundBackpressure();
   TestCloseAndDestructorOwnership();
   TestStructuralRejectionPreservesCallerOwnership();
   TestNativeRejectionReleasesTransferredOwnership();

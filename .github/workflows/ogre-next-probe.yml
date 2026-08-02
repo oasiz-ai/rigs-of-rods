@@ -26,6 +26,7 @@ on:
       - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererOgre14GameBridge.*
+      - source/main/system/RendererOgre14GameHostSession.*
       - source/main/system/RendererSiblingPath.*
       - source/main/system/RendererPackagedMediaPath.*
       - source/main/system/RendererPackageRuntimeProbe.*
@@ -48,6 +49,7 @@ on:
       - tests/gfx/RendererChildLauncherTests.cpp
       - tests/gfx/RendererBridge*Tests.cpp
       - tests/gfx/RendererOgre14GameBridgeTests.cpp
+      - tests/gfx/RendererOgre14GameHostSessionTests.cpp
       - tests/gfx/RendererSiblingPathTests.cpp
       - tests/gfx/RendererPackageRuntimeProbeTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
@@ -84,6 +86,7 @@ on:
       - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererOgre14GameBridge.*
+      - source/main/system/RendererOgre14GameHostSession.*
       - source/main/system/RendererSiblingPath.*
       - source/main/system/RendererPackagedMediaPath.*
       - source/main/system/RendererPackageRuntimeProbe.*
@@ -106,6 +109,7 @@ on:
       - tests/gfx/RendererChildLauncherTests.cpp
       - tests/gfx/RendererBridge*Tests.cpp
       - tests/gfx/RendererOgre14GameBridgeTests.cpp
+      - tests/gfx/RendererOgre14GameHostSessionTests.cpp
       - tests/gfx/RendererSiblingPathTests.cpp
       - tests/gfx/RendererPackageRuntimeProbeTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
@@ -369,6 +373,14 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^ror_ogre14_graphics_scene_source$'
+
+      - name: Prove the game-host stream and native pipe half-close contract
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^(ror_render_bridge_control_transport|ror_renderer_bridge_channel|ror_renderer_ogre14_game_host_session)$'
 
       - name: Run the non-admitted real Ogre-Next child bootstrap
         run: >-

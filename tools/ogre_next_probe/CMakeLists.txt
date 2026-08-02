@@ -106,6 +106,8 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererChildLauncher.h"
     "source/main/system/RendererOgre14GameBridge.cpp"
     "source/main/system/RendererOgre14GameBridge.h"
+    "source/main/system/RendererOgre14GameHostSession.cpp"
+    "source/main/system/RendererOgre14GameHostSession.h"
     "source/main/system/RendererSiblingPath.cpp"
     "source/main/system/RendererSiblingPath.h"
     "source/main/system/RendererPackagedMediaPath.cpp"
@@ -131,12 +133,14 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/RendererBackendPolicyTests.cpp"
     "tests/gfx/RendererBridgeEndpointTests.cpp"
     "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
+    "tests/gfx/RendererBridgeChannelTests.cpp"
     "tests/gfx/RendererBridgeProcessFakeChild.cpp"
     "tests/gfx/RendererBridgeProcessSupervisorTests.cpp"
     "tests/gfx/RendererChildIntentTests.cpp"
     "tests/gfx/RendererChildLauncherFakeChild.cpp"
     "tests/gfx/RendererChildLauncherTests.cpp"
     "tests/gfx/RendererOgre14GameBridgeTests.cpp"
+    "tests/gfx/RendererOgre14GameHostSessionTests.cpp"
     "tests/gfx/RendererSiblingPathTests.cpp"
     "tests/gfx/RendererPackageRuntimeProbeTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"
@@ -147,9 +151,9 @@ list(APPEND _ror_relevant_source_files
     "tests/cmake/VerifyRendererPublicBridgeExit.cmake"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
+    "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
-    "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
     "tests/tools/test_ogre_next_window_presentation_contract.py"
@@ -849,6 +853,27 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
+        ror_renderer_bridge_channel_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererBridgeChannelTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp")
+    target_include_directories(
+        ror_renderer_bridge_channel_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    target_link_libraries(
+        ror_renderer_bridge_channel_tests
+        PRIVATE Threads::Threads)
+    set_target_properties(
+        ror_renderer_bridge_channel_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
         ror_renderer_ogre14_game_bridge_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererOgre14GameBridgeTests.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
@@ -868,6 +893,30 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PRIVATE Threads::Threads)
     set_target_properties(
         ror_renderer_ogre14_game_bridge_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_renderer_ogre14_game_host_session_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererOgre14GameHostSessionTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameBridge.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameHostSession.cpp")
+    target_include_directories(
+        ror_renderer_ogre14_game_host_session_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${_ror_render_root}"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    target_link_libraries(
+        ror_renderer_ogre14_game_host_session_tests
+        PRIVATE ror_ogre_next_n1_contract Threads::Threads)
+    set_target_properties(
+        ror_renderer_ogre14_game_host_session_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
@@ -1553,7 +1602,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_plan_tests
         ror_renderer_startup_handoff_tests
         ror_renderer_child_intent_tests
+        ror_renderer_bridge_channel_tests
         ror_renderer_ogre14_game_bridge_tests
+        ror_renderer_ogre14_game_host_session_tests
         ror_renderer_sibling_path_tests
         ror_renderer_package_runtime_probe_tests
         ror_renderer_bridge_process_fake_game
@@ -1860,6 +1911,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererChildLauncher.h
             source/main/system/RendererOgre14GameBridge.cpp
             source/main/system/RendererOgre14GameBridge.h
+            source/main/system/RendererOgre14GameHostSession.cpp
+            source/main/system/RendererOgre14GameHostSession.h
             source/main/system/RendererSiblingPath.cpp
             source/main/system/RendererSiblingPath.h
             source/main/system/RendererPackagedMediaPath.cpp
@@ -1877,12 +1930,14 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/RendererBackendPolicyTests.cpp
             tests/gfx/RendererBridgeEndpointTests.cpp
             tests/gfx/RendererBridgeLaunchPlanTests.cpp
+            tests/gfx/RendererBridgeChannelTests.cpp
             tests/gfx/RendererBridgeProcessFakeChild.cpp
             tests/gfx/RendererBridgeProcessSupervisorTests.cpp
             tests/gfx/RendererChildIntentTests.cpp
             tests/gfx/RendererChildLauncherFakeChild.cpp
             tests/gfx/RendererChildLauncherTests.cpp
             tests/gfx/RendererOgre14GameBridgeTests.cpp
+            tests/gfx/RendererOgre14GameHostSessionTests.cpp
             tests/gfx/RendererSiblingPathTests.cpp
             tests/gfx/RendererPackageRuntimeProbeTests.cpp
             tests/gfx/RendererOgreNextChildTests.cpp
@@ -1891,6 +1946,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/cmake/VerifyRendererPublicBridgeExit.cmake
             tests/gfx/RendererStartupHandoffTests.cpp
             tests/gfx/RendererStartupPlanTests.cpp
+            tests/gfx/render/RenderBridgeControlTransportTests.cpp
             tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
             tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
             tests/tools/test_ogre_next_child_runtime_contract.py
@@ -2274,9 +2330,17 @@ if (TARGET ror_renderer_child_intent_tests)
     add_test(NAME ror_renderer_child_intent
         COMMAND $<TARGET_FILE:ror_renderer_child_intent_tests>)
 endif ()
+if (TARGET ror_renderer_bridge_channel_tests)
+    add_test(NAME ror_renderer_bridge_channel
+        COMMAND $<TARGET_FILE:ror_renderer_bridge_channel_tests>)
+endif ()
 if (TARGET ror_renderer_ogre14_game_bridge_tests)
     add_test(NAME ror_renderer_ogre14_game_bridge
         COMMAND $<TARGET_FILE:ror_renderer_ogre14_game_bridge_tests>)
+endif ()
+if (TARGET ror_renderer_ogre14_game_host_session_tests)
+    add_test(NAME ror_renderer_ogre14_game_host_session
+        COMMAND $<TARGET_FILE:ror_renderer_ogre14_game_host_session_tests>)
 endif ()
 if (TARGET ror_renderer_sibling_path_tests)
     add_test(NAME ror_renderer_sibling_path

@@ -281,6 +281,7 @@ set(SOURCE_FILES
         system/RendererChildIntent.{h,cpp}
         system/RendererChildLauncher.{h,cpp}
         system/RendererOgre14GameBridge.{h,cpp}
+        system/RendererOgre14GameHostSession.{h,cpp}
         system/RendererPackageRuntimeProbe.{h,cpp}
         system/RendererOgreNextLiveSession.{h,cpp}
         system/RendererSiblingPath.{h,cpp}
