@@ -257,6 +257,8 @@ jobs:
               --blender \
               "$RUNNER_TEMP/blender-5.2.0-linux-x64/blender" \
               --converter "$converter" \
+              --diagnostics-directory \
+              artifacts/linux-x86_64-storefront-clean-failure \
               --generation-timeout 600 \
               --generation-workers 1 \
             | tee artifacts/linux-x86_64-storefront-clean-reproducibility.json
@@ -641,6 +643,7 @@ jobs:
             artifacts/${{ matrix.platform }}-runtime-audit.json
             artifacts/${{ matrix.platform }}-runtime-audit.log
             artifacts/${{ matrix.platform }}-storefront-clean-reproducibility.json
+            artifacts/${{ matrix.platform }}-storefront-clean-failure
             artifacts/msvc-version.txt
             build-ogre14-${{ matrix.platform }}/CMakeCache.txt
             build-ogre14-${{ matrix.platform }}/CMakeFiles/CMakeConfigureLog.yaml

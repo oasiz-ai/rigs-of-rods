@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -28,6 +30,12 @@ EXPECTED_VARIANTS = 5
 EXPECTED_OUTPUTS = 35
 DEFAULT_GENERATION_TIMEOUT_SECONDS = 600
 DEFAULT_GENERATION_WORKERS = 1
+DIAGNOSTIC_FORMAT = "ror-cityworld-storefront-clean-failure-v1"
+DIAGNOSTIC_GLB_GLOB = (
+    "resources/nextgen/cityworld/buildings/storefront_family/*/*.glb"
+)
+MAX_DIAGNOSTIC_GLB_BYTES = 16 * 1024 * 1024
+MAX_DIAGNOSTIC_TOTAL_BYTES = 96 * 1024 * 1024
 FAMILY_RELATIVE = Path(
     "content-source/cityworld_next/buildings/storefront_family/"
     "rorng_city_storefront_family.v1.json"
@@ -280,6 +288,329 @@ def compare_clean_roots(
     return report
 
 
+def first_byte_difference(left: bytes, right: bytes) -> int | None:
+    """Return the first differing byte, including a length-only difference."""
+
+    for offset, (left_byte, right_byte) in enumerate(zip(left, right)):
+        if left_byte != right_byte:
+            return offset
+    if len(left) != len(right):
+        return min(len(left), len(right))
+    return None
+
+
+def parse_glb_for_diagnostics(path: Path) -> tuple[dict[str, Any], bytes, int]:
+    """Read the JSON document and binary payload from a generated GLB."""
+
+    contents = path.read_bytes()
+    if len(contents) < 28:
+        raise CleanReproducibilityFailure(f"diagnostic GLB is truncated: {path}")
+    magic, version, declared_length = struct.unpack_from("<4sII", contents, 0)
+    if magic != b"glTF" or version != 2 or declared_length != len(contents):
+        raise CleanReproducibilityFailure(f"diagnostic GLB header is invalid: {path}")
+    json_length, json_type = struct.unpack_from("<II", contents, 12)
+    if json_type != 0x4E4F534A:
+        raise CleanReproducibilityFailure(
+            f"diagnostic GLB has no JSON chunk: {path}"
+        )
+    json_start = 20
+    json_end = json_start + json_length
+    if json_end + 8 > len(contents):
+        raise CleanReproducibilityFailure(
+            f"diagnostic GLB JSON chunk is truncated: {path}"
+        )
+    try:
+        document = json.loads(contents[json_start:json_end].rstrip(b" \x00"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise CleanReproducibilityFailure(
+            f"diagnostic GLB JSON is unreadable: {path}: {error}"
+        ) from error
+    if not isinstance(document, dict):
+        raise CleanReproducibilityFailure(
+            f"diagnostic GLB JSON is not an object: {path}"
+        )
+    binary_length, binary_type = struct.unpack_from("<II", contents, json_end)
+    if binary_type != 0x004E4942:
+        raise CleanReproducibilityFailure(
+            f"diagnostic GLB has no binary chunk: {path}"
+        )
+    binary_start = json_end + 8
+    binary_end = binary_start + binary_length
+    if binary_end != len(contents):
+        raise CleanReproducibilityFailure(
+            f"diagnostic GLB binary chunk is truncated: {path}"
+        )
+    return document, contents[binary_start:binary_end], binary_start
+
+
+def first_document_difference(
+    left: Any,
+    right: Any,
+    *,
+    path: str = "$",
+) -> dict[str, Any] | None:
+    """Return a compact JSON-safe description of the first semantic drift."""
+
+    if type(left) is not type(right):
+        return {
+            "left": repr(type(left).__name__),
+            "path": path,
+            "right": repr(type(right).__name__),
+        }
+    if isinstance(left, dict):
+        left_keys = set(left)
+        right_keys = set(right)
+        if left_keys != right_keys:
+            return {
+                "left": sorted(str(key) for key in left_keys - right_keys),
+                "path": path + ".<keys>",
+                "right": sorted(str(key) for key in right_keys - left_keys),
+            }
+        for key in sorted(left):
+            difference = first_document_difference(
+                left[key],
+                right[key],
+                path=f"{path}.{key}",
+            )
+            if difference is not None:
+                return difference
+        return None
+    if isinstance(left, list):
+        if len(left) != len(right):
+            return {
+                "left": len(left),
+                "path": path + ".<length>",
+                "right": len(right),
+            }
+        for index, (left_value, right_value) in enumerate(zip(left, right)):
+            difference = first_document_difference(
+                left_value,
+                right_value,
+                path=f"{path}[{index}]",
+            )
+            if difference is not None:
+                return difference
+        return None
+    if left != right:
+        return {"left": left, "path": path, "right": right}
+    return None
+
+
+def validate_diagnostics_destination(
+    destination: Path,
+    allowed_root: Path,
+) -> Path:
+    """Admit an empty destination below one real, non-symlink directory."""
+
+    if not destination.is_absolute() or not allowed_root.is_absolute():
+        raise CleanReproducibilityFailure(
+            "diagnostics paths must be absolute after CLI normalization"
+        )
+    if ".." in destination.parts:
+        raise CleanReproducibilityFailure(
+            f"diagnostics destination contains parent traversal: {destination}"
+        )
+    if not allowed_root.is_dir() or allowed_root.is_symlink():
+        raise CleanReproducibilityFailure(
+            f"diagnostics root is missing or unsafe: {allowed_root}"
+        )
+    allowed_resolved = allowed_root.resolve()
+    destination_parent_resolved = destination.parent.resolve(strict=False)
+    try:
+        destination.relative_to(allowed_root)
+        destination_parent_resolved.relative_to(allowed_resolved)
+    except ValueError as error:
+        raise CleanReproducibilityFailure(
+            f"diagnostics destination escapes its root: {destination}"
+        ) from error
+    if destination == allowed_root:
+        raise CleanReproducibilityFailure(
+            "diagnostics destination must be below its root"
+        )
+
+    current = allowed_root
+    relative_parent = destination.parent.relative_to(allowed_root)
+    for component in relative_parent.parts:
+        current /= component
+        if current.is_symlink():
+            raise CleanReproducibilityFailure(
+                f"diagnostics destination has a symlinked parent: {current}"
+            )
+        if current.exists() and not current.is_dir():
+            raise CleanReproducibilityFailure(
+                f"diagnostics destination parent is not a directory: {current}"
+            )
+
+    if destination.is_symlink():
+        raise CleanReproducibilityFailure(
+            f"diagnostics destination is unsafe: {destination}"
+        )
+    if destination.exists():
+        if not destination.is_dir():
+            raise CleanReproducibilityFailure(
+                f"diagnostics destination is unsafe: {destination}"
+            )
+        if any(destination.iterdir()):
+            raise CleanReproducibilityFailure(
+                f"diagnostics destination is not empty: {destination}"
+            )
+    return destination
+
+
+def collect_failure_diagnostics(
+    left_root: Path,
+    right_root: Path,
+    destination: Path,
+    *,
+    allowed_root: Path,
+    error: BaseException,
+) -> dict[str, Any]:
+    """Persist only bounded GLB evidence before temporary roots are removed."""
+
+    destination = validate_diagnostics_destination(destination, allowed_root)
+
+    roots = {"left": left_root, "right": right_root}
+    source_paths: dict[str, dict[str, Path]] = {}
+    aggregate_bytes = 0
+    for side, root in roots.items():
+        root_resolved = root.resolve()
+        candidates = sorted(root.glob(DIAGNOSTIC_GLB_GLOB))
+        if len(candidates) != EXPECTED_VARIANTS:
+            raise CleanReproducibilityFailure(
+                f"diagnostic {side} root has {len(candidates)} GLBs, "
+                f"expected {EXPECTED_VARIANTS}"
+            )
+        source_paths[side] = {}
+        for candidate in candidates:
+            source = regular_file(candidate, label=f"diagnostic {side} GLB")
+            try:
+                source.relative_to(root_resolved)
+            except ValueError as error:
+                raise CleanReproducibilityFailure(
+                    f"diagnostic {side} GLB escapes its clean root: {candidate}"
+                ) from error
+            size = source.stat().st_size
+            if size <= 0 or size > MAX_DIAGNOSTIC_GLB_BYTES:
+                raise CleanReproducibilityFailure(
+                    f"diagnostic {side} GLB size is outside the bounded "
+                    f"profile: {candidate}: {size} bytes"
+                )
+            aggregate_bytes += size
+            if aggregate_bytes > MAX_DIAGNOSTIC_TOTAL_BYTES:
+                raise CleanReproducibilityFailure(
+                    "diagnostic GLB evidence exceeds the aggregate byte limit"
+                )
+            asset_id = source.stem
+            if asset_id in source_paths[side]:
+                raise CleanReproducibilityFailure(
+                    f"diagnostic {side} root repeats asset {asset_id}"
+                )
+            source_paths[side][asset_id] = source
+
+    asset_ids = sorted(source_paths["left"])
+    if asset_ids != sorted(source_paths["right"]):
+        raise CleanReproducibilityFailure(
+            "diagnostic roots do not contain the same storefront assets"
+        )
+
+    if not destination.exists():
+        destination.mkdir(parents=True)
+
+    assets: list[dict[str, Any]] = []
+    for asset_id in asset_ids:
+        side_records: dict[str, dict[str, Any]] = {}
+        documents: dict[str, dict[str, Any]] = {}
+        binaries: dict[str, bytes] = {}
+        payloads: dict[str, bytes] = {}
+        for side in ("left", "right"):
+            source = source_paths[side][asset_id]
+            payload = source.read_bytes()
+            document, binary, binary_start = parse_glb_for_diagnostics(source)
+            side_directory = destination / side
+            side_directory.mkdir(exist_ok=True)
+            glb_destination = side_directory / f"{asset_id}.glb"
+            json_destination = side_directory / f"{asset_id}.gltf.json"
+            shutil.copyfile(source, glb_destination)
+            json_destination.write_text(
+                json.dumps(
+                    document,
+                    ensure_ascii=True,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            payloads[side] = payload
+            documents[side] = document
+            binaries[side] = binary
+            side_records[side] = {
+                "binary_offset": binary_start,
+                "bytes": len(payload),
+                "glb": glb_destination.relative_to(destination).as_posix(),
+                "json": json_destination.relative_to(destination).as_posix(),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+
+        assets.append(
+            {
+                "asset_id": asset_id,
+                "binary_first_difference": first_byte_difference(
+                    binaries["left"], binaries["right"]
+                ),
+                "file_first_difference": first_byte_difference(
+                    payloads["left"], payloads["right"]
+                ),
+                "json_first_difference": first_document_difference(
+                    documents["left"], documents["right"]
+                ),
+                "left": side_records["left"],
+                "right": side_records["right"],
+            }
+        )
+
+    report = {
+        "assets": assets,
+        "error": str(error),
+        "format": DIAGNOSTIC_FORMAT,
+        "variants": len(assets),
+    }
+    (destination / "diagnostics.json").write_text(
+        json.dumps(report, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return report
+
+
+def collect_failure_diagnostics_safely(
+    left_root: Path,
+    right_root: Path,
+    destination: Path,
+    *,
+    allowed_root: Path,
+    error: BaseException,
+) -> str | None:
+    """Capture evidence without ever replacing the primary comparison error."""
+
+    try:
+        collect_failure_diagnostics(
+            left_root,
+            right_root,
+            destination,
+            allowed_root=allowed_root,
+            error=error,
+        )
+    # This is deliberately broader than the gate's primary exception handler:
+    # best-effort telemetry must never replace the comparison failure that
+    # caused it to run.
+    except Exception as diagnostic_error:  # noqa: BLE001
+        return (
+            "storefront failure diagnostics could not be captured: "
+            f"{diagnostic_error}"
+        )
+    return None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -289,6 +620,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--blender", type=Path, required=True)
     parser.add_argument("--converter", type=Path, required=True)
+    parser.add_argument(
+        "--diagnostics-directory",
+        type=Path,
+        help=(
+            "empty output directory for bounded left/right GLB evidence when "
+            "the clean-root comparison fails"
+        ),
+    )
     parser.add_argument(
         "--generation-timeout",
         type=int,
@@ -316,6 +655,17 @@ def main() -> int:
     args = parse_args()
     repo_root = args.repo_root.resolve()
     try:
+        diagnostics_directory = None
+        diagnostics_root = None
+        if args.diagnostics_directory is not None:
+            diagnostics_root = repo_root / "artifacts"
+            diagnostics_directory = args.diagnostics_directory
+            if not diagnostics_directory.is_absolute():
+                diagnostics_directory = repo_root / diagnostics_directory
+            diagnostics_directory = validate_diagnostics_destination(
+                diagnostics_directory,
+                diagnostics_root,
+            )
         blender = regular_file(args.blender, label="Blender executable")
         converter = regular_file(
             args.converter,
@@ -358,7 +708,23 @@ def main() -> int:
                 ]
                 for build in builds:
                     build.result()
-            report = compare_clean_roots(repo_root, left_root, right_root)
+            try:
+                report = compare_clean_roots(repo_root, left_root, right_root)
+            except CleanReproducibilityFailure as error:
+                if (
+                    diagnostics_directory is not None
+                    and diagnostics_root is not None
+                ):
+                    diagnostic_error = collect_failure_diagnostics_safely(
+                        left_root,
+                        right_root,
+                        diagnostics_directory,
+                        allowed_root=diagnostics_root,
+                        error=error,
+                    )
+                    if diagnostic_error is not None:
+                        sys.stderr.write(diagnostic_error + "\n")
+                raise
     except (CleanReproducibilityFailure, OSError) as error:
         sys.stderr.write(f"storefront clean reproducibility failed: {error}\n")
         return 1

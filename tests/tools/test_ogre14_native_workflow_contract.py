@@ -974,6 +974,14 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             text,
         )
         self.assertIn("conan-graph.json", text)
+        self.assertIn(
+            "--diagnostics-directory \\\n              artifacts/linux-x86_64-storefront-clean-failure",
+            text,
+        )
+        self.assertIn(
+            "artifacts/${{ matrix.platform }}-storefront-clean-failure",
+            text,
+        )
         self.assertIn("LastTest.log", text)
         self.assertIn("retention-days: 14", text)
 

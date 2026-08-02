@@ -10,10 +10,12 @@ import json
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -43,6 +45,10 @@ CLEAN_REPRODUCIBILITY_TOOL_PATH = (
     REPOSITORY_ROOT
     / "tools/verify_cityworld_storefront_clean_reproducibility.py"
 )
+STOREFRONT_CANONICALIZER_PATH = (
+    REPOSITORY_ROOT
+    / "tools/blender/cityworld_next/canonicalize_storefront_glb.py"
+)
 
 
 def load_module(name: str, path: Path):
@@ -62,6 +68,10 @@ REPRODUCIBILITY = load_module(
 CLEAN_REPRODUCIBILITY = load_module(
     "storefront_clean_reproducibility_test",
     CLEAN_REPRODUCIBILITY_TOOL_PATH,
+)
+STOREFRONT_CANONICALIZER = load_module(
+    "storefront_glb_canonicalizer_test",
+    STOREFRONT_CANONICALIZER_PATH,
 )
 
 
@@ -143,6 +153,192 @@ class CityWorldStorefrontFamilyTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(report["diagnostics"], [])
                 self.assertEqual(report["summary"], expected)
+
+    def test_textureless_tangent_and_vertex_lanes_are_canonical(self) -> None:
+        def write_fixture(
+            path: Path,
+            *,
+            positions: list[tuple[float, float, float]],
+            tangents: list[tuple[float, float, float, float]],
+            indices: list[int],
+            index_component_type: int = 5123,
+            primitive_mode: int | None = None,
+        ) -> None:
+            normals = [(0.0, 0.0, 1.0)] * len(positions)
+            texcoords = [(0.0, 0.0)] * len(positions)
+            binary = bytearray()
+            views: list[dict[str, int]] = []
+            accessors: list[dict[str, object]] = []
+
+            def append(
+                values: list[tuple[float | int, ...]],
+                component_type: int,
+                accessor_type: str,
+                target: int,
+            ) -> int:
+                format_code = "H" if component_type == 5123 else "f"
+                while len(binary) % 4:
+                    binary.append(0)
+                offset = len(binary)
+                for value in values:
+                    binary.extend(
+                        struct.pack("<" + format_code * len(value), *value)
+                    )
+                views.append(
+                    {
+                        "buffer": 0,
+                        "byteLength": len(binary) - offset,
+                        "byteOffset": offset,
+                        "target": target,
+                    }
+                )
+                accessor: dict[str, object] = {
+                    "bufferView": len(views) - 1,
+                    "componentType": component_type,
+                    "count": len(values),
+                    "type": accessor_type,
+                }
+                if accessor_type == "VEC3" and values is positions:
+                    accessor["min"] = [
+                        min(float(value[axis]) for value in values)
+                        for axis in range(3)
+                    ]
+                    accessor["max"] = [
+                        max(float(value[axis]) for value in values)
+                        for axis in range(3)
+                    ]
+                accessors.append(accessor)
+                return len(accessors) - 1
+
+            attributes = {
+                "NORMAL": append(normals, 5126, "VEC3", 34962),
+                "POSITION": append(positions, 5126, "VEC3", 34962),
+                "TANGENT": append(tangents, 5126, "VEC4", 34962),
+                "TEXCOORD_0": append(texcoords, 5126, "VEC2", 34962),
+            }
+            index_accessor = append(
+                [(index,) for index in indices],
+                index_component_type,
+                "SCALAR",
+                34963,
+            )
+            primitive: dict[str, object] = {
+                "attributes": attributes,
+                "indices": index_accessor,
+            }
+            if primitive_mode is not None:
+                primitive["mode"] = primitive_mode
+            document = {
+                "accessors": accessors,
+                "asset": {"version": "2.0"},
+                "bufferViews": views,
+                "buffers": [{"byteLength": len(binary)}],
+                "meshes": [
+                    {
+                        "name": "fixture_lod0_mesh",
+                        "primitives": [primitive],
+                    }
+                ],
+            }
+            STOREFRONT_CANONICALIZER._write_glb(path, document, bytes(binary))
+
+        with tempfile.TemporaryDirectory(
+            prefix="storefront-tangent-canonicalization-"
+        ) as directory:
+            root = Path(directory)
+            left = root / "left.glb"
+            right = root / "right.glb"
+            position_a = (0.0, 0.0, 0.0)
+            position_b = (1.0, 0.0, 0.0)
+            position_c = (0.0, 1.0, 0.0)
+            write_fixture(
+                left,
+                positions=[position_a, position_a, position_b, position_c],
+                tangents=[
+                    (1.0, 0.0, 0.0, 1.0),
+                    (0.999, 0.001, 0.0, 1.0),
+                    (1.0, 0.0, 0.0, 1.0),
+                    (1.0, 0.0, 0.0, -1.0),
+                ],
+                indices=[0, 1, 2, 0, 2, 3],
+            )
+            write_fixture(
+                right,
+                positions=[
+                    position_a,
+                    position_a,
+                    position_a,
+                    position_b,
+                    position_c,
+                ],
+                tangents=[
+                    (0.0, 1.0, 0.0, 1.0),
+                    (0.001, 0.999, 0.0, 1.0),
+                    (0.0, 1.0, 0.0, 1.0),
+                    (0.0, 1.0, 0.0, 1.0),
+                    (0.0, 1.0, 0.0, -1.0),
+                ],
+                indices=[0, 1, 3, 2, 3, 4],
+            )
+
+            STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(left)
+            STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(right)
+            self.assertEqual(left.read_bytes(), right.read_bytes())
+            document, _binary = STOREFRONT_CANONICALIZER._load_glb(left)
+            primitive = document["meshes"][0]["primitives"][0]
+            self.assertEqual(
+                document["accessors"][primitive["attributes"]["POSITION"]][
+                    "count"
+                ],
+                4,
+            )
+            self.assertEqual(
+                document["accessors"][primitive["indices"]]["count"],
+                6,
+            )
+
+            invalid_float_indices = root / "float-indices.glb"
+            write_fixture(
+                invalid_float_indices,
+                positions=[position_a, position_a, position_b, position_c],
+                tangents=[(1.0, 0.0, 0.0, 1.0)] * 4,
+                indices=[0, 1, 2, 0, 2, 3],
+                index_component_type=5126,
+            )
+            with self.assertRaisesRegex(RuntimeError, "index accessor profile"):
+                STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(
+                    invalid_float_indices
+                )
+
+            invalid_strip = root / "triangle-strip.glb"
+            write_fixture(
+                invalid_strip,
+                positions=[position_a, position_a, position_b, position_c],
+                tangents=[(1.0, 0.0, 0.0, 1.0)] * 4,
+                indices=[0, 1, 2, 3],
+                primitive_mode=5,
+            )
+            with self.assertRaisesRegex(RuntimeError, "triangle list"):
+                STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(
+                    invalid_strip
+                )
+
+            invalid_non_finite = root / "non-finite.glb"
+            write_fixture(
+                invalid_non_finite,
+                positions=[
+                    (float("nan"), 0.0, 0.0),
+                    position_a,
+                    position_b,
+                    position_c,
+                ],
+                tangents=[(1.0, 0.0, 0.0, 1.0)] * 4,
+                indices=[0, 1, 2, 0, 2, 3],
+            )
+            with self.assertRaisesRegex(RuntimeError, "non-finite"):
+                STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(
+                    invalid_non_finite
+                )
 
     def test_assets_and_checked_ogre_packages_pass(self) -> None:
         for manifest in self.manifests():
@@ -489,6 +685,173 @@ class CityWorldStorefrontFamilyTests(unittest.TestCase):
                 CLEAN_REPRODUCIBILITY.prepare_artifact_free_root(
                     REPOSITORY_ROOT,
                     seeded_root,
+                )
+
+    def test_clean_gate_preserves_bounded_glb_failure_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="storefront-failure-diagnostics-test-"
+        ) as directory:
+            root = Path(directory)
+            left_root = root / "left-root"
+            right_root = root / "right-root"
+            destination = root / "diagnostics"
+            asset_ids = []
+            for variant in self.family()["variants"]:
+                source_manifest = REPOSITORY_ROOT / variant["manifest"]
+                manifest = json.loads(
+                    source_manifest.read_text(encoding="utf-8")
+                )
+                source_glb = (
+                    REPOSITORY_ROOT
+                    / manifest["artifacts"]["glb"]["path"]
+                )
+                asset_id = manifest["asset"]["id"]
+                asset_ids.append(asset_id)
+                for side_root in (left_root, right_root):
+                    asset_directory = (
+                        side_root
+                        / "resources/nextgen/cityworld/buildings/"
+                        "storefront_family"
+                        / asset_id
+                    )
+                    asset_directory.mkdir(parents=True)
+                    glb = asset_directory / f"{asset_id}.glb"
+                    shutil.copyfile(source_glb, glb)
+
+            changed_asset = asset_ids[3]
+            changed = (
+                right_root
+                / "resources/nextgen/cityworld/buildings/storefront_family"
+                / changed_asset
+                / f"{changed_asset}.glb"
+            )
+            changed_payload = bytearray(changed.read_bytes())
+            changed_payload[-1] ^= 1
+            changed.write_bytes(changed_payload)
+
+            report = CLEAN_REPRODUCIBILITY.collect_failure_diagnostics(
+                left_root,
+                right_root,
+                destination,
+                allowed_root=root,
+                error=RuntimeError("fixture mismatch"),
+            )
+
+            self.assertEqual(
+                report["format"],
+                CLEAN_REPRODUCIBILITY.DIAGNOSTIC_FORMAT,
+            )
+            self.assertEqual(report["variants"], 5)
+            self.assertEqual(report["error"], "fixture mismatch")
+            self.assertEqual(
+                {
+                    path.relative_to(destination).as_posix()
+                    for path in destination.rglob("*.glb")
+                },
+                {
+                    f"{side}/{asset_id}.glb"
+                    for side in ("left", "right")
+                    for asset_id in asset_ids
+                },
+            )
+            changed_record = next(
+                item
+                for item in report["assets"]
+                if item["asset_id"] == changed_asset
+            )
+            self.assertIsNone(changed_record["json_first_difference"])
+            self.assertIsNotNone(changed_record["binary_first_difference"])
+            self.assertTrue((destination / "diagnostics.json").is_file())
+
+            diagnostic_error = (
+                CLEAN_REPRODUCIBILITY.collect_failure_diagnostics_safely(
+                    left_root,
+                    right_root,
+                    destination,
+                    allowed_root=root,
+                    error=RuntimeError("primary comparison mismatch"),
+                )
+            )
+            self.assertIsNotNone(diagnostic_error)
+            self.assertIn("not empty", diagnostic_error)
+            with mock.patch.object(
+                CLEAN_REPRODUCIBILITY,
+                "collect_failure_diagnostics",
+                side_effect=ValueError("unexpected diagnostic failure"),
+            ):
+                unexpected_diagnostic_error = (
+                    CLEAN_REPRODUCIBILITY.collect_failure_diagnostics_safely(
+                        left_root,
+                        right_root,
+                        root / "unexpected-diagnostics",
+                        allowed_root=root,
+                        error=RuntimeError("primary comparison mismatch"),
+                    )
+                )
+            self.assertIsNotNone(unexpected_diagnostic_error)
+            self.assertIn(
+                "unexpected diagnostic failure",
+                unexpected_diagnostic_error,
+            )
+
+            with self.assertRaisesRegex(
+                CLEAN_REPRODUCIBILITY.CleanReproducibilityFailure,
+                "not empty",
+            ):
+                CLEAN_REPRODUCIBILITY.collect_failure_diagnostics(
+                    left_root,
+                    right_root,
+                    destination,
+                    allowed_root=root,
+                    error=RuntimeError("second mismatch"),
+                )
+
+            oversized_destination = root / "oversized-diagnostics"
+            with changed.open("r+b") as handle:
+                handle.truncate(
+                    CLEAN_REPRODUCIBILITY.MAX_DIAGNOSTIC_GLB_BYTES + 1
+                )
+            with self.assertRaisesRegex(
+                CLEAN_REPRODUCIBILITY.CleanReproducibilityFailure,
+                "outside the bounded profile",
+            ):
+                CLEAN_REPRODUCIBILITY.collect_failure_diagnostics(
+                    left_root,
+                    right_root,
+                    oversized_destination,
+                    allowed_root=root,
+                    error=RuntimeError("oversized mismatch"),
+                )
+            self.assertFalse(oversized_destination.exists())
+
+            linked_parent = root / "linked-diagnostics"
+            linked_parent.symlink_to(root.parent, target_is_directory=True)
+            with self.assertRaisesRegex(
+                CLEAN_REPRODUCIBILITY.CleanReproducibilityFailure,
+                "escapes its root|symlinked parent",
+            ):
+                CLEAN_REPRODUCIBILITY.validate_diagnostics_destination(
+                    linked_parent / "failure",
+                    root,
+                )
+
+            right_source = (
+                left_root
+                / "resources/nextgen/cityworld/buildings/storefront_family"
+            )
+            escaped_source = root / "escaped-storefront-family"
+            right_source.rename(escaped_source)
+            right_source.symlink_to(escaped_source, target_is_directory=True)
+            with self.assertRaisesRegex(
+                CLEAN_REPRODUCIBILITY.CleanReproducibilityFailure,
+                "escapes its clean root",
+            ):
+                CLEAN_REPRODUCIBILITY.collect_failure_diagnostics(
+                    left_root,
+                    right_root,
+                    root / "escaped-source-diagnostics",
+                    allowed_root=root,
+                    error=RuntimeError("escaped source mismatch"),
                 )
 
     def test_blender_generator_fails_closed_in_tampered_clean_room(self) -> None:

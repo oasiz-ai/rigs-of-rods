@@ -280,7 +280,9 @@ class StaticGlbCanonicalizerTests(unittest.TestCase):
             root = Path(temporary_directory)
             left = root / "left.glb"
             right = root / "right.glb"
-            left.write_bytes(build_test_glb())
+            left.write_bytes(
+                build_test_glb(texcoords_override=[(0.0, 0.0)] * 3)
+            )
             left_document, binary = read_glb(left)
             primitive = left_document["meshes"][0]["primitives"][0]
             left_document["materials"] = [
@@ -374,8 +376,8 @@ class StaticGlbCanonicalizerTests(unittest.TestCase):
         texcoords = [
             (0.0, 0.0),
             (0.0, 0.0),
-            (1.0, 0.0),
-            (0.0, 1.0),
+            (0.0, 0.0),
+            (0.0, 0.0),
         ]
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -418,7 +420,7 @@ class StaticGlbCanonicalizerTests(unittest.TestCase):
             for accessor_index in primitive["attributes"].values():
                 self.assertEqual(
                     document["accessors"][accessor_index]["count"],
-                    4,
+                    3,
                 )
             indices = read_accessor(
                 document,
@@ -426,7 +428,7 @@ class StaticGlbCanonicalizerTests(unittest.TestCase):
                 primitive["indices"],
             )
             self.assertEqual(len(indices), 6)
-            self.assertEqual({value[0] for value in indices}, {0, 1, 2, 3})
+            self.assertEqual({value[0] for value in indices}, {0, 1, 2})
 
     def test_bounds_match_packed_positions_and_output_is_idempotent(
         self,
