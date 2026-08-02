@@ -279,6 +279,16 @@ target_include_directories(
         "${ROR_REPOSITORY_ROOT}/source/main/system"
 )
 
+add_executable(
+    ror_renderer_ogre_next_window_host_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgreNextWindowHostTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextWindowHost.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre_next_window_host_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+
 if (MINGW)
     target_link_options(
         ror_renderer_child_launcher_fake_child
@@ -1341,6 +1351,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_renderer_startup_handoff_tests
     ror_renderer_child_intent_tests
     ror_renderer_ogre_next_child_tests
+    ror_renderer_ogre_next_window_host_tests
     ror_renderer_child_launcher_fake_child
     ror_renderer_child_launcher_tests
     ror_renderer_public_launcher_tests
@@ -1520,6 +1531,11 @@ add_test(
 add_test(
     NAME renderer_ogre_next_child
     COMMAND ror_renderer_ogre_next_child_tests
+)
+
+add_test(
+    NAME renderer_ogre_next_window_host
+    COMMAND ror_renderer_ogre_next_window_host_tests
 )
 
 add_test(
