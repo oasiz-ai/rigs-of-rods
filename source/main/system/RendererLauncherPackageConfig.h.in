@@ -20,6 +20,11 @@ constexpr std::uint32_t kContractVersion =
     kRendererStartupHandoffContractVersion;
 constexpr HostRenderPlatform kPackagePlatform =
     HostRenderPlatform::@ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM@;
+constexpr RendererFrontendPreference kDefaultFrontendPreference =
+    RendererFrontendPreference::@ROR_RENDERER_LAUNCHER_DEFAULT_FRONTEND@;
+constexpr DirectionalShadowPreference
+    kDefaultDirectionalShadowPreference =
+    DirectionalShadowPreference::@ROR_RENDERER_LAUNCHER_DEFAULT_DIRECTIONAL_SHADOWS@;
 constexpr bool kOgre14ChildPresent =
     @ROR_RENDERER_LAUNCHER_OGRE14_CHILD_PRESENT@;
 constexpr bool kOgreNextChildPresent =
@@ -37,6 +42,12 @@ constexpr NativeRayTracingBackend kNativeDirectionalShadowBackend =
 // or user-controlled package-fact channel available.
 static_assert(kOgre14ChildPresent,
               "the phase-2 launcher requires the OGRE 14 game child");
+static_assert(kDefaultFrontendPreference ==
+                  RendererFrontendPreference::OGRE_NEXT_PREFER,
+              "the public package must request OgreNext by default");
+static_assert(kDefaultDirectionalShadowPreference ==
+                  DirectionalShadowPreference::PSSM,
+              "the public package default must retain admitted PSSM");
 static_assert(kOgreNextChildPresent ||
                   (!kOgreNextChildProductionReady &&
                    !kOgreNextPssmAdmitted &&

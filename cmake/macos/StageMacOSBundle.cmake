@@ -538,6 +538,16 @@ endforeach()
 
 set(_ror_ogre_next_product_root "")
 if(NOT ROR_OGRE_NEXT_PRODUCT_ROOT STREQUAL "")
+    if(NOT ROR_BUNDLE_EXECUTABLE_NAME STREQUAL "RoR")
+        message(FATAL_ERROR
+            "The OgreNext-first macOS package entrypoint must be the public RoR executable")
+    endif()
+    list(FIND _ror_sibling_executable_names
+        "RoR-Ogre14" _ror_ogre14_sibling_index)
+    if(_ror_ogre14_sibling_index EQUAL -1)
+        message(FATAL_ERROR
+            "The OgreNext-first macOS package requires the RoR-Ogre14 simulation host sibling")
+    endif()
     _ror_require_absolute_path("ROR_OGRE_NEXT_PRODUCT_ROOT" "DIRECTORY")
     _ror_real_path(
         "${ROR_OGRE_NEXT_PRODUCT_ROOT}" _ror_ogre_next_product_root)

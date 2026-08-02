@@ -82,6 +82,12 @@ struct RendererPublicLauncherDecision {
   bool accepted = false;
 };
 
+/// Returns the immutable no-flag intent compiled into the public package.
+/// This is a request policy, not a renderer admission fact: an unadmitted
+/// OgreNext child still fails closed through the package handoff contract.
+RendererPublicLauncherIntent
+RendererPublicLauncherPackageDefaultIntent() noexcept;
+
 /// Returns the exact immutable facts compiled into the public launcher. No
 /// environment variable, external file, or command-line option can alter them.
 RendererStartupPackageAvailability

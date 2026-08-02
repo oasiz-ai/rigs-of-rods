@@ -45,19 +45,14 @@ option(
     ROR_OGRE14
     "Build the cross-platform OGRE 14 simulation and compatibility host"
     ON)
-set(_ror_renderer_public_launcher_default "${ROR_OGRE14}")
 option(
     ROR_RENDERER_PUBLIC_LAUNCHER
     "Build and package the Ogre-Next-first public renderer chooser with the admitted renderer siblings"
-    "${_ror_renderer_public_launcher_default}")
-unset(_ror_renderer_public_launcher_default)
-set(_ror_ogre_next_product_package_default
-    "${ROR_RENDERER_PUBLIC_LAUNCHER}")
+    ON)
 option(
     ROR_OGRE_NEXT_PRODUCTION_PACKAGE
     "Build and package the verified real OgreNext renderer child"
-    "${_ror_ogre_next_product_package_default}")
-unset(_ror_ogre_next_product_package_default)
+    ON)
 set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to the dependencies")
 
 if (ROR_RENDERER_PUBLIC_LAUNCHER AND NOT ROR_OGRE14)

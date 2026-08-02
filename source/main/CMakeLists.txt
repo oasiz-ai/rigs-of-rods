@@ -1111,6 +1111,7 @@ if (APPLE AND ROR_OGRE14)
     set(_ror_macos_bundle_arguments
         "-DROR_BUNDLE=${_ror_macos_bundle_path}"
         "-DROR_EXECUTABLE=$<TARGET_FILE:${_ror_macos_primary_target}>"
+        "-DROR_BUNDLE_EXECUTABLE_NAME=RoR"
         "-DROR_SIBLING_EXECUTABLES=${_ror_macos_sibling_executables_argument}"
         "-DROR_RESOURCES=${RUNTIME_OUTPUT_DIRECTORY}/resources"
         "-DROR_LANGUAGES=${RUNTIME_OUTPUT_DIRECTORY}/languages"

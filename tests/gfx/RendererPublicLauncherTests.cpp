@@ -148,6 +148,15 @@ void TestStatusContracts() {
 }
 
 void TestImmutablePackageFactsAndDefaultFallback() {
+  const RoR::RendererPublicLauncherIntent package_default =
+      RoR::RendererPublicLauncherPackageDefaultIntent();
+  Require(package_default.frontend ==
+                  RoR::RendererFrontendPreference::OGRE_NEXT_PREFER &&
+              package_default.directional_shadows ==
+                  RoR::DirectionalShadowPreference::PSSM &&
+              !package_default.frontend_was_explicit &&
+              !package_default.directional_shadows_were_explicit,
+          "immutable package default changed away from OgreNext-first");
   const RoR::RendererStartupPackageAvailability package =
       RoR::RendererPublicLauncherPackageAvailability();
   Require(package.version == RoR::kRendererStartupHandoffContractVersion,
