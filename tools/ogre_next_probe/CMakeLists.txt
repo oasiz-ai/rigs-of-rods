@@ -1804,6 +1804,7 @@ endif ()
 if (TARGET ror_ogre_next_window_present_smoke)
     add_test(NAME ror_ogre_next_window_present_smoke
         COMMAND $<TARGET_FILE:ror_ogre_next_window_present_smoke>
+            --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
             --output "${ROR_OGRE_NEXT_WINDOW_PRESENT_IMAGE}"
             --report "${ROR_OGRE_NEXT_WINDOW_PRESENT_REPORT}")
     set_tests_properties(
@@ -2028,6 +2029,7 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             ror_renderer_ogre_next_child_runtime
             ror_renderer_ogre_next_window_host_tests
             ror_renderer_ogre_next_window_host_smoke
+            ror_ogre_next_window_present_smoke
         BYPRODUCTS
             "${ROR_OGRE_NEXT_N1_IMAGE}"
             "${ROR_OGRE_NEXT_N1_REPORT}"

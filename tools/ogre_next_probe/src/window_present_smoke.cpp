@@ -38,6 +38,7 @@ constexpr std::uint64_t kViewId = 1U;
 constexpr std::uint64_t kFrameId = 1U;
 
 struct Arguments final {
+  std::string media_root;
   std::string output_path;
   std::string report_path;
 };
@@ -73,16 +74,22 @@ Arguments ParseArguments(int argc, char **argv) {
   Arguments arguments;
   for (int index = 1; index < argc; ++index) {
     const std::string option = argv[index];
-    if (option == "--output" && index + 1 < argc) {
+    if (option == "--media-root" && index + 1 < argc) {
+      arguments.media_root = argv[++index];
+    } else if (option == "--output" && index + 1 < argc) {
       arguments.output_path = argv[++index];
     } else if (option == "--report" && index + 1 < argc) {
       arguments.report_path = argv[++index];
     } else {
-      Fail("usage: ror_ogre_next_window_present_smoke --output FRAME.ppm --report REPORT.json");
+      Fail("usage: ror_ogre_next_window_present_smoke --media-root "
+           "ABSOLUTE_PATH --output FRAME.ppm --report REPORT.json");
     }
   }
-  Require(!arguments.output_path.empty() && !arguments.report_path.empty(),
-          "presentation smoke output and report paths are required");
+  Require(!arguments.media_root.empty() && !arguments.output_path.empty() &&
+              !arguments.report_path.empty(),
+          "presentation smoke media, output, and report paths are required");
+  Require(std::filesystem::path(arguments.media_root).is_absolute(),
+          "presentation smoke media root must be absolute");
   return arguments;
 }
 
@@ -497,8 +504,7 @@ int main(int argc, char **argv) {
     show_context.pixel_height = metrics->drawable_height;
 
     OgreNextN1Configuration presentation_configuration;
-    presentation_configuration.shader_media_root =
-        ROR_OGRE_NEXT_N1_SHADER_MEDIA_ROOT;
+    presentation_configuration.shader_media_root = arguments.media_root;
     presentation_configuration.presentation =
         MakePresentationConfiguration(*binding, window, show_context);
     OgreNextN1Frontend frontend(std::move(presentation_configuration));
@@ -585,8 +591,7 @@ int main(int argc, char **argv) {
     ShutdownFrontend(frontend);
 
     OgreNextN1Configuration headless_configuration;
-    headless_configuration.shader_media_root =
-        ROR_OGRE_NEXT_N1_SHADER_MEDIA_ROOT;
+    headless_configuration.shader_media_root = arguments.media_root;
     OgreNextN1Frontend headless(std::move(headless_configuration));
     RequireSuccess(headless.Initialize(MakeInitialization(
                        presented_attachment.width,
