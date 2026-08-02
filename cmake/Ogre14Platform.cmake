@@ -253,27 +253,50 @@ function(ror_ogre14_cmakedeps_runtime_search_dirs
         "${_ror_runtime_search_dirs}" PARENT_SCOPE)
 endfunction()
 
-# Serialize a CMake list into install(CODE) without allowing quotes, dollar
-# expansions, semicolons, or bracket terminators in paths to alter the
-# generated install program.  The bracket delimiter grows until it cannot
-# occur in the value being serialized.
+# Serialize a validated CMake list into install(CODE) without allowing quotes,
+# dollar expansions, or bracket terminators in paths to alter the generated
+# install program.  The source is named instead of expanded through a function
+# argument so every list item remains independently auditable.  The bracket
+# delimiter grows until it cannot occur in the value being serialized.
 function(ror_ogre14_install_set_list_code
-        output_variable installed_variable)
-    if (NOT installed_variable MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
+        output_variable installed_variable source_list_variable)
+    if (NOT ARGC EQUAL 3)
+        message(FATAL_ERROR
+            "Install list serializer requires exactly one source list "
+            "variable")
+    endif ()
+    if (NOT "${installed_variable}" MATCHES
+            "^[A-Za-z_][A-Za-z0-9_]*$")
         message(FATAL_ERROR
             "Unsafe install-time CMake variable name: ${installed_variable}")
     endif ()
-    if (NOT ARGN)
+    if (NOT "${source_list_variable}" MATCHES
+            "^[A-Za-z_][A-Za-z0-9_]*$")
+        message(FATAL_ERROR
+            "Unsafe or undefined install-time source list: "
+            "${source_list_variable}")
+    endif ()
+    if (NOT DEFINED ${source_list_variable})
+        message(FATAL_ERROR
+            "Unsafe or undefined install-time source list: "
+            "${source_list_variable}")
+    endif ()
+    if ("${${source_list_variable}}" STREQUAL "")
         message(FATAL_ERROR
             "Install-time list ${installed_variable} must not be empty")
     endif ()
 
     set(_ror_install_code "set(${installed_variable}\n")
-    foreach (_ror_install_value IN LISTS ARGN)
+    foreach (_ror_install_value IN LISTS ${source_list_variable})
         if ("${_ror_install_value}" STREQUAL "")
             message(FATAL_ERROR
                 "Install-time list ${installed_variable} contains an "
                 "empty value")
+        endif ()
+        if ("${_ror_install_value}" MATCHES ";")
+            message(FATAL_ERROR
+                "Install-time list ${installed_variable} contains a "
+                "semicolon and cannot be serialized safely")
         endif ()
         set(_ror_bracket_equals "=")
         while (TRUE)

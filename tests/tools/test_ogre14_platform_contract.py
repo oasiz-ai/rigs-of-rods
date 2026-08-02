@@ -229,7 +229,9 @@ def generate_runtime_search_install_fixture() -> subprocess.CompletedProcess:
         alpha_root = temporary_root / "alpha package"
         beta_root = temporary_root / "beta package"
         discord_rpc_root = temporary_root / "discord rpc package"
-        ogre_root = temporary_root / "ogre package ]=] literal"
+        # Exercise adaptive bracket delimiters while keeping the value a valid
+        # CMake list element (equal numbers of opening and closing brackets).
+        ogre_root = temporary_root / "ogre package [[ ]=] literal"
         openal_soft_root = temporary_root / "openal soft package"
         header_root = temporary_root / "header only"
         (alpha_root / "lib").mkdir(parents=True)
@@ -266,7 +268,7 @@ def generate_runtime_search_install_fixture() -> subprocess.CompletedProcess:
             "ror_ogre14_install_set_list_code(\n"
             "    runtime_search_install_code\n"
             "    ROR_LINUX_RUNTIME_SEARCH_DIRS\n"
-            '    "${runtime_search_dirs}")\n'
+            "    runtime_search_dirs)\n"
             f"file(WRITE {cmake_bracket(configured_output.as_posix())} "
             '"${runtime_search_dirs}")\n'
             "string(APPEND runtime_search_install_code\n"
@@ -365,6 +367,40 @@ def collect_runtime_search_dirs(
                 encoding="utf-8"
             )
         return result
+
+
+def serialize_runtime_search_list(
+    *,
+    source_argument: str,
+    source_value: str,
+    additional_argument: str | None = None,
+) -> subprocess.CompletedProcess:
+    """Run the install-list serializer with an exact source argument."""
+
+    with tempfile.TemporaryDirectory(
+        prefix="ror-ogre14-runtime-serialize-invalid-"
+    ) as directory:
+        temporary_root = Path(directory)
+        script_path = temporary_root / "serialize.cmake"
+        source_arguments = cmake_bracket(source_argument)
+        if additional_argument is not None:
+            source_arguments += f" {cmake_bracket(additional_argument)}"
+        script_path.write_text(
+            "cmake_minimum_required(VERSION 3.16)\n"
+            f"include({cmake_bracket(PLATFORM_MODULE.as_posix())})\n"
+            f"set(runtime_search_dirs {cmake_bracket(source_value)})\n"
+            "ror_ogre14_install_set_list_code(\n"
+            "    install_code ROR_LINUX_RUNTIME_SEARCH_DIRS "
+            f"{source_arguments})\n",
+            encoding="utf-8",
+        )
+        return subprocess.run(
+            ["cmake", "-P", str(script_path)],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
 
 
 def select_media_root(
@@ -820,8 +856,29 @@ class Ogre14PlatformContractTests(unittest.TestCase):
             "CONAN_RUNTIME_LIB_DIRS",
             result.generated_install_script,
         )
+        set_start = result.generated_install_script.index(
+            "set(ROR_LINUX_RUNTIME_SEARCH_DIRS"
+        )
+        set_end = result.generated_install_script.index(
+            "\n)\n",
+            set_start,
+        )
+        serialized_set = result.generated_install_script[
+            set_start:set_end
+        ]
+        self.assertNotIn(";", serialized_set)
+        self.assertEqual(
+            serialized_set.count("\n    ["),
+            len(result.expected_dirs),
+        )
+        normalized_install_script = result.generated_install_script.replace(
+            "\\", "/"
+        ).casefold()
         for runtime_dir in result.expected_dirs:
-            self.assertIn(runtime_dir, result.generated_install_script)
+            self.assertIn(
+                runtime_dir.replace("\\", "/").casefold(),
+                normalized_install_script,
+            )
 
     def test_invalid_cmakedeps_runtime_roots_fail_closed(self) -> None:
         relative = collect_runtime_search_dirs(
@@ -870,6 +927,21 @@ class Ogre14PlatformContractTests(unittest.TestCase):
             no_runtime_dirs.stdout + no_runtime_dirs.stderr,
         )
 
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre14-runtime-semicolon-root-"
+        ) as directory:
+            semicolon_root = Path(directory) / "package;split"
+            (semicolon_root / "lib").mkdir(parents=True)
+            semicolon_path = collect_runtime_search_dirs(
+                build_type="Release",
+                package_root=semicolon_root,
+            )
+        self.assertNotEqual(semicolon_path.returncode, 0)
+        self.assertRegex(
+            semicolon_path.stdout + semicolon_path.stderr,
+            r"must contain exactly\s+one path",
+        )
+
         missing_configuration = collect_runtime_search_dirs(
             build_type="Debug",
             package_root="relative/release-package-is-ignored",
@@ -879,6 +951,61 @@ class Ogre14PlatformContractTests(unittest.TestCase):
             "exposed no package roots for DEBUG",
             missing_configuration.stdout + missing_configuration.stderr,
         )
+
+    def test_install_list_serializer_rejects_unsafe_sources(self) -> None:
+        cases = (
+            (
+                "undefined_runtime_dirs",
+                "/valid/runtime",
+                None,
+                "Unsafe or undefined install-time source list",
+            ),
+            (
+                "runtime_search_dirs;injected",
+                "/valid/runtime",
+                None,
+                "Unsafe or undefined install-time source list",
+            ),
+            (
+                "runtime_search_dirs",
+                "",
+                None,
+                "must not be empty",
+            ),
+            (
+                "runtime_search_dirs",
+                "first;;second",
+                None,
+                "contains an empty value",
+            ),
+            (
+                "runtime_search_dirs",
+                "/valid/runtime",
+                "ignored_source",
+                "requires exactly one source list variable",
+            ),
+        )
+        for (
+            source_argument,
+            source_value,
+            additional_argument,
+            diagnostic,
+        ) in cases:
+            with self.subTest(
+                source_argument=source_argument,
+                source_value=source_value,
+                additional_argument=additional_argument,
+            ):
+                result = serialize_runtime_search_list(
+                    source_argument=source_argument,
+                    source_value=source_value,
+                    additional_argument=additional_argument,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    diagnostic,
+                    result.stdout + result.stderr,
+                )
 
     @unittest.skipIf(
         os.name == "nt",
