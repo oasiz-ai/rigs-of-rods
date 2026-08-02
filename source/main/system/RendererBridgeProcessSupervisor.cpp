@@ -592,6 +592,32 @@ RendererBridgeProcessResult SuperviseWindows(
   }
 
   const bool game_observed_first = first == WAIT_OBJECT_0;
+  if (!game_observed_first) {
+    DWORD presentation_exit = 0U;
+    if (::GetExitCodeProcess(presentation.process.get(),
+                             &presentation_exit) == FALSE) {
+      result.status = RendererBridgeProcessStatus::FAILED_EXIT_QUERY;
+      result.native_error_code =
+          static_cast<std::uint32_t>(::GetLastError());
+      result.presentation_reaped = true;
+      bool terminated = false;
+      std::uint32_t cleanup_error = 0U;
+      result.game_reaped = TerminateAndWaitWindows(
+          game, ERROR_PROCESS_ABORTED, terminated, cleanup_error);
+      result.peer_terminated = terminated;
+      if (!result.game_reaped) {
+        result.status =
+            RendererBridgeProcessStatus::FAILED_PEER_TERMINATION;
+        result.native_error_code = cleanup_error;
+      }
+      return result;
+    }
+    result.presentation_exit_kind = RendererBridgeGameExitKind::EXIT_CODE;
+    result.presentation_exit_code =
+        static_cast<std::uint32_t>(presentation_exit);
+    result.native_presentation_wait_status =
+        static_cast<std::uint32_t>(presentation_exit);
+  }
   result.first_exit = game_observed_first
                           ? RendererBridgeObservedChild::GAME_HOST
                           : RendererBridgeObservedChild::PRESENTATION_FRONTEND;
@@ -648,6 +674,21 @@ RendererBridgeProcessResult SuperviseWindows(
   }
   result.game_reaped = true;
   result.peer_terminated = terminated;
+  if (!terminated) {
+    DWORD game_exit = 0U;
+    if (::GetExitCodeProcess(game.process.get(), &game_exit) == FALSE) {
+      result.status = RendererBridgeProcessStatus::FAILED_EXIT_QUERY;
+      result.native_error_code = static_cast<std::uint32_t>(::GetLastError());
+      return result;
+    }
+    result.first_exit = RendererBridgeObservedChild::GAME_HOST;
+    result.game_exit_kind = RendererBridgeGameExitKind::EXIT_CODE;
+    result.game_exit_code = static_cast<std::uint32_t>(game_exit);
+    result.native_game_wait_status = static_cast<std::uint32_t>(game_exit);
+    result.status = RendererBridgeProcessStatus::COMPLETED_GAME_EXIT;
+    result.completed = true;
+    return result;
+  }
   result.status = RendererBridgeProcessStatus::PRESENTATION_EXITED_FIRST;
   return result;
 }
@@ -1050,6 +1091,19 @@ bool WaitNoHang(pid_t child, int &status, bool &reaped,
   }
 }
 
+bool WasTerminatedBySignal(int status, int signal_number) noexcept {
+  return WIFSIGNALED(status) && WTERMSIG(status) == signal_number;
+}
+
+bool KillRemainingProcessGroup(pid_t process_group,
+                               std::uint32_t &error_code) noexcept {
+  if (::kill(-process_group, SIGKILL) == 0 || errno == ESRCH) {
+    return true;
+  }
+  error_code = static_cast<std::uint32_t>(errno);
+  return false;
+}
+
 bool TerminateProcessGroupAndReapPeer(pid_t process_group, pid_t peer,
                                      int &peer_status, bool &terminated,
                                      std::uint32_t &error_code) noexcept {
@@ -1058,30 +1112,43 @@ bool TerminateProcessGroupAndReapPeer(pid_t process_group, pid_t peer,
     return false;
   }
   if (reaped) {
-    return true;
+    return KillRemainingProcessGroup(process_group, error_code);
   }
-  if (::kill(-process_group, SIGTERM) != 0 && errno != ESRCH) {
+  errno = 0;
+  const int sigterm_result = ::kill(-process_group, SIGTERM);
+  if (sigterm_result != 0 && errno != ESRCH) {
     error_code = static_cast<std::uint32_t>(errno);
     return false;
   }
-  terminated = true;
+  const bool sent_sigterm = sigterm_result == 0;
   const struct timespec delay = {0, 10L * 1000L * 1000L};
   for (unsigned int attempt = 0U; attempt < 50U; ++attempt) {
     if (!WaitNoHang(peer, peer_status, reaped, error_code)) {
       return false;
     }
     if (reaped) {
-      return true;
+      terminated = sent_sigterm &&
+                   WasTerminatedBySignal(peer_status, SIGTERM);
+      return KillRemainingProcessGroup(process_group, error_code);
     }
     struct timespec remaining = delay;
     while (::nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
     }
   }
-  if (::kill(-process_group, SIGKILL) != 0 && errno != ESRCH) {
+  errno = 0;
+  const int sigkill_result = ::kill(-process_group, SIGKILL);
+  if (sigkill_result != 0 && errno != ESRCH) {
     error_code = static_cast<std::uint32_t>(errno);
     return false;
   }
-  return ReapBlocking(peer, peer_status, error_code);
+  const bool sent_sigkill = sigkill_result == 0;
+  if (!ReapBlocking(peer, peer_status, error_code)) {
+    return false;
+  }
+  terminated =
+      (sent_sigterm && WasTerminatedBySignal(peer_status, SIGTERM)) ||
+      (sent_sigkill && WasTerminatedBySignal(peer_status, SIGKILL));
+  return KillRemainingProcessGroup(process_group, error_code);
 }
 
 void CapturePosixGameExit(int status,
@@ -1095,6 +1162,22 @@ void CapturePosixGameExit(int status,
     result.game_exit_kind =
         RendererBridgeGameExitKind::TERMINATION_SIGNAL;
     result.game_termination_signal =
+        static_cast<std::uint32_t>(WTERMSIG(status));
+  }
+}
+
+void CapturePosixPresentationExit(
+    int status, RendererBridgeProcessResult &result) noexcept {
+  result.native_presentation_wait_status =
+      static_cast<std::uint32_t>(status);
+  if (WIFEXITED(status)) {
+    result.presentation_exit_kind = RendererBridgeGameExitKind::EXIT_CODE;
+    result.presentation_exit_code =
+        static_cast<std::uint32_t>(WEXITSTATUS(status));
+  } else if (WIFSIGNALED(status)) {
+    result.presentation_exit_kind =
+        RendererBridgeGameExitKind::TERMINATION_SIGNAL;
+    result.presentation_termination_signal =
         static_cast<std::uint32_t>(WTERMSIG(status));
   }
 }
@@ -1294,6 +1377,22 @@ RendererBridgeProcessResult SupervisePosix(
   }
 
   result.presentation_reaped = true;
+  CapturePosixPresentationExit(first_status, result);
+  if (result.presentation_exit_kind ==
+      RendererBridgeGameExitKind::UNAVAILABLE) {
+    result.status = RendererBridgeProcessStatus::FAILED_EXIT_QUERY;
+    int game_status = 0;
+    bool terminated = false;
+    if (!TerminateProcessGroupAndReapPeer(game, game, game_status,
+                                          terminated, error_code)) {
+      result.status = RendererBridgeProcessStatus::FAILED_PEER_TERMINATION;
+      result.native_error_code = error_code;
+      return result;
+    }
+    result.game_reaped = true;
+    result.peer_terminated = terminated;
+    return result;
+  }
   int game_status = 0;
   bool game_already_reaped = false;
   if (!WaitNoHang(game, game_status, game_already_reaped, error_code)) {
@@ -1326,6 +1425,17 @@ RendererBridgeProcessResult SupervisePosix(
   }
   result.game_reaped = true;
   result.peer_terminated = terminated;
+  if (!terminated) {
+    result.first_exit = RendererBridgeObservedChild::GAME_HOST;
+    CapturePosixGameExit(game_status, result);
+    if (result.game_exit_kind == RendererBridgeGameExitKind::UNAVAILABLE) {
+      result.status = RendererBridgeProcessStatus::FAILED_EXIT_QUERY;
+      return result;
+    }
+    result.status = RendererBridgeProcessStatus::COMPLETED_GAME_EXIT;
+    result.completed = true;
+    return result;
+  }
   result.status = RendererBridgeProcessStatus::PRESENTATION_EXITED_FIRST;
   return result;
 }

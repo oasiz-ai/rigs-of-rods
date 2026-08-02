@@ -8,6 +8,7 @@
 
 #include "RenderTransportEnvelope.h"
 #include "RendererBridgeEndpoint.h"
+#include "RendererOgreNextChild.h"
 
 #include <algorithm>
 #include <array>
@@ -101,7 +102,11 @@ bool HasExpectedPublicLauncherArguments(
   return StartsWith(arguments[5U],
                     ROR_NATIVE_TEXT("--bridge-test-game-exit=")) ||
          Equals(arguments[5U],
-                ROR_NATIVE_TEXT("--bridge-test-presentation-first"));
+                ROR_NATIVE_TEXT("--bridge-test-presentation-first")) ||
+         Equals(arguments[5U],
+                ROR_NATIVE_TEXT("--bridge-test-post-ready-failure")) ||
+         StartsWith(arguments[5U],
+                    ROR_NATIVE_TEXT("--bridge-test-pre-ready-fallback="));
 #else
   (void)arguments;
   return true;
@@ -265,6 +270,17 @@ bool HasExactInheritedResources(const RoR::RendererBridgeEndpoint &endpoint,
   }
 }
 
+void ExitFortyTwoOnSigterm(int) noexcept { ::_exit(42); }
+
+bool ArmGracefulSigtermExit() noexcept {
+  struct sigaction action = {};
+  action.sa_handler = ExitFortyTwoOnSigterm;
+  if (sigemptyset(&action.sa_mask) != 0) {
+    return false;
+  }
+  return ::sigaction(SIGTERM, &action, nullptr) == 0;
+}
+
 #endif
 
 std::uint64_t ReadU64LittleEndian(const std::uint8_t *bytes) noexcept {
@@ -324,6 +340,10 @@ RunGame(const RoR::RendererBridgeEndpointArgvParseResult &parsed) {
     return kContractFailureExit;
   }
   bool presentation_first = false;
+  bool post_ready_failure = false;
+  bool pre_ready_fallback = false;
+  bool graceful_sigterm_exit = false;
+  bool presentation_signal_requested = false;
   int exit_code = 0;
   int signal_number = 0;
   for (const NativeString &argument : parsed.forwarded_arguments) {
@@ -331,19 +351,49 @@ RunGame(const RoR::RendererBridgeEndpointArgvParseResult &parsed) {
                          Equals(argument,
                                 ROR_NATIVE_TEXT(
                                     "--bridge-test-presentation-first"));
+    post_ready_failure =
+        post_ready_failure ||
+        Equals(argument,
+               ROR_NATIVE_TEXT("--bridge-test-post-ready-failure"));
+    pre_ready_fallback = pre_ready_fallback ||
+                         StartsWith(
+                             argument,
+                             ROR_NATIVE_TEXT(
+                                 "--bridge-test-pre-ready-fallback="));
+    graceful_sigterm_exit =
+        graceful_sigterm_exit ||
+        Equals(argument,
+               ROR_NATIVE_TEXT("--bridge-test-game-graceful-sigterm"));
+    presentation_signal_requested =
+        presentation_signal_requested ||
+        StartsWith(argument,
+                   ROR_NATIVE_TEXT("--bridge-test-presentation-signal="));
     exit_code = ParseDecimalSuffix(
         argument, ROR_NATIVE_TEXT("--bridge-test-game-exit="), exit_code);
     signal_number = ParseDecimalSuffix(
         argument, ROR_NATIVE_TEXT("--bridge-test-game-signal="),
         signal_number);
   }
-  if (presentation_first) {
+  if (presentation_first || post_ready_failure || pre_ready_fallback ||
+      presentation_signal_requested) {
     BlockForever();
   }
 
   const NativeIoHandle inbound = Adopt(parsed.endpoint.inbound_native_handle);
   const NativeIoHandle outbound =
       Adopt(parsed.endpoint.outbound_native_handle);
+#if !defined(_WIN32)
+  if (graceful_sigterm_exit) {
+    constexpr std::array<std::uint8_t, 1U> ready{{0x47U}};
+    if (!ArmGracefulSigtermExit() ||
+        !WriteExact(outbound, ready.data(), ready.size())) {
+      return kContractFailureExit + 9;
+    }
+    BlockForever();
+  }
+#else
+  (void)graceful_sigterm_exit;
+#endif
   const std::vector<std::uint8_t> asset_payload{
       0x61U, 0x73U, 0x73U, 0x65U, 0x74U};
   const std::vector<std::uint8_t> scene_payload{
@@ -389,6 +439,38 @@ RunGame(const RoR::RendererBridgeEndpointArgvParseResult &parsed) {
                ROR_NATIVE_TEXT("--bridge-test-presentation-first"))) {
       return 23;
     }
+    if (StartsWith(
+            argument,
+            ROR_NATIVE_TEXT("--bridge-test-pre-ready-fallback="))) {
+      return RoR::kRendererOgreNextChildPrePeerReadyFailureExitCode;
+    }
+    if (Equals(argument,
+               ROR_NATIVE_TEXT("--bridge-test-post-ready-failure"))) {
+      return RoR::kRendererOgreNextChildPostPeerReadyFailureExitCode;
+    }
+#if !defined(_WIN32)
+    const int presentation_signal = ParseDecimalSuffix(
+        argument, ROR_NATIVE_TEXT("--bridge-test-presentation-signal="), 0);
+    if (presentation_signal > 0) {
+      (void)::raise(presentation_signal);
+      return kContractFailureExit + 11;
+    }
+#endif
+    if (Equals(argument,
+               ROR_NATIVE_TEXT("--bridge-test-game-graceful-sigterm"))) {
+#if !defined(_WIN32)
+      const NativeIoHandle inbound =
+          Adopt(parsed.endpoint.inbound_native_handle);
+      std::array<std::uint8_t, 1U> ready{};
+      if (!ReadExact(inbound, ready.data(), ready.size()) ||
+          ready[0U] != 0x47U) {
+        return kContractFailureExit + 10;
+      }
+      return RoR::kRendererOgreNextChildPrePeerReadyFailureExitCode;
+#else
+      return kContractFailureExit + 10;
+#endif
+    }
   }
 
   const NativeIoHandle inbound = Adopt(parsed.endpoint.inbound_native_handle);
@@ -414,11 +496,47 @@ RunGame(const RoR::RendererBridgeEndpointArgvParseResult &parsed) {
   BlockForever();
 }
 
+[[maybe_unused]] int RunStandaloneFallbackGame(
+    int argc, const RoR::RendererChildLauncherChar *const argv[]) {
+  std::vector<NativeString> arguments;
+  if (argc < 1 || argv == nullptr) {
+    return kContractFailureExit + 8;
+  }
+  arguments.reserve(static_cast<std::size_t>(argc));
+  for (int index = 0; index < argc; ++index) {
+    if (argv[index] == nullptr) {
+      return kContractFailureExit + 8;
+    }
+    arguments.emplace_back(argv[index]);
+  }
+  if (!HasExpectedPublicLauncherArguments(arguments)) {
+    return kContractFailureExit + 8;
+  }
+  for (const NativeString &argument : arguments) {
+    if (StartsWith(
+            argument,
+            ROR_NATIVE_TEXT("--bridge-test-pre-ready-fallback="))) {
+      return ParseDecimalSuffix(
+          argument,
+          ROR_NATIVE_TEXT("--bridge-test-pre-ready-fallback="),
+          kContractFailureExit + 8);
+    }
+  }
+  return kContractFailureExit + 8;
+}
+
 int Run(int argc, const RoR::RendererChildLauncherChar *const argv[]) {
 #if defined(ROR_RENDERER_BRIDGE_FAKE_GAME)
   const RoR::RendererBridgeEndpointArgvParseResult parsed =
       RoR::ParseRendererBridgeEndpoint(argc, argv);
-  return parsed.accepted ? RunGame(parsed) : kContractFailureExit + 5;
+  if (parsed.accepted) {
+    return RunGame(parsed);
+  }
+#if defined(ROR_RENDERER_BRIDGE_FAKE_REQUIRE_PUBLIC_ARGUMENTS)
+  return RunStandaloneFallbackGame(argc, argv);
+#else
+  return kContractFailureExit + 5;
+#endif
 #elif defined(ROR_RENDERER_BRIDGE_FAKE_PRESENTATION)
   const RoR::RendererOgreNextChildIntentParseResult renderer =
       RoR::ParseRendererOgreNextChildIntent(argc, argv);

@@ -7,6 +7,8 @@
 */
 
 #include "RendererPublicLauncher.h"
+#include "RendererBridgeProcessSupervisor.h"
+#include "RendererOgreNextChild.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -765,6 +767,52 @@ void TestStableRuntimeFailureCodes() {
           "missing legacy child did not use the stable launch-failure code");
 }
 
+void TestPreReadyFallbackBoundary() {
+  RoR::RendererPublicLauncherIntent intent;
+  RoR::RendererBridgeProcessResult bridge;
+  bridge.status =
+      RoR::RendererBridgeProcessStatus::PRESENTATION_EXITED_FIRST;
+  bridge.first_exit =
+      RoR::RendererBridgeObservedChild::PRESENTATION_FRONTEND;
+  bridge.presentation_exit_kind =
+      RoR::RendererBridgeGameExitKind::EXIT_CODE;
+  bridge.presentation_exit_code = static_cast<std::uint32_t>(
+      RoR::kRendererOgreNextChildPrePeerReadyFailureExitCode);
+  bridge.game_exec_confirmed = true;
+  bridge.presentation_exec_confirmed = true;
+  bridge.game_reaped = true;
+  bridge.presentation_reaped = true;
+  bridge.peer_terminated = true;
+  Require(RoR::ShouldFallbackRendererBridgeToOgre14(intent, bridge),
+          "exact pre-ready preferred failure was not recoverable");
+
+  RoR::RendererBridgeProcessResult changed = bridge;
+  changed.presentation_exit_code = static_cast<std::uint32_t>(
+      RoR::kRendererOgreNextChildPostPeerReadyFailureExitCode);
+  Require(!RoR::ShouldFallbackRendererBridgeToOgre14(intent, changed),
+          "post-ready failure was allowed to change renderers");
+  changed = bridge;
+  changed.presentation_exit_kind =
+      RoR::RendererBridgeGameExitKind::TERMINATION_SIGNAL;
+  Require(!RoR::ShouldFallbackRendererBridgeToOgre14(intent, changed),
+          "presentation signal was treated as a pre-ready exit");
+  changed = bridge;
+  changed.peer_terminated = false;
+  Require(!RoR::ShouldFallbackRendererBridgeToOgre14(intent, changed),
+          "fallback was allowed before both children were reaped");
+
+  RoR::RendererPublicLauncherIntent required = intent;
+  required.frontend =
+      RoR::RendererFrontendPreference::OGRE_NEXT_REQUIRE;
+  Require(!RoR::ShouldFallbackRendererBridgeToOgre14(required, bridge),
+          "explicit Ogre-Next requirement was allowed to fall back");
+  required = intent;
+  required.directional_shadows =
+      RoR::DirectionalShadowPreference::REQUIRE_NATIVE;
+  Require(!RoR::ShouldFallbackRendererBridgeToOgre14(required, bridge),
+          "native-shadow requirement was allowed to fall back");
+}
+
 } // namespace
 
 int main() {
@@ -777,6 +825,7 @@ int main() {
   TestInvalidNormalizedIntent();
   TestOgreNextIntentEncoding();
   TestOgreNextIntentDecoderRejectsMalformedPrefixes();
+  TestPreReadyFallbackBoundary();
   TestStableRuntimeFailureCodes();
   return EXIT_SUCCESS;
 }

@@ -1077,6 +1077,16 @@ Gate R1:
   environment, and standard streams, and propagates the child exit exactly. It
   rejects any package-platform/compile-time-host mismatch before basename
   resolution, including Windows `.exe` versus POSIX naming mismatches.
+  The version-2 two-process supervisor additionally records a presentation
+  child's natural exit semantics. Only reserved exit 73 before `PEER_READY`
+  may relaunch the exact OGRE14 sibling for an Ogre-Next-preferred request, and
+  only after both children are confirmed reaped. Post-ready exit 74, signals,
+  cleanup failures, explicit Ogre-Next requirements, and native-shadow
+  requirements remain fail-closed, preventing a renderer change after a live
+  session begins. POSIX additionally requires the direct peer's wait status to
+  prove the supervisor's exact signal and kills any remaining private
+  process-group members; a signal handler that exits normally retains the game
+  exit and cannot be mistaken for permission to relaunch.
   Cross-platform-gated fake-child tests exercise empty/quoted/Unicode arguments
   and prove that cwd, `PATH`, and environment decoys cannot redirect launch.
   The fake child is test-only and never packaged. OGRE 14 builds now package

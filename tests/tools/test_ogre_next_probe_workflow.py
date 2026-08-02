@@ -389,6 +389,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "default-prefer",
             "explicit-require",
             "presentation-first",
+            "pre-ready-fallback",
+            "pre-ready-require-terminal",
+            "post-ready-terminal",
+            "native-require-terminal",
         ):
             self.assertIn(token, cmake)
         for path in (

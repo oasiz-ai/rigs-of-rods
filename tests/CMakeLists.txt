@@ -2174,6 +2174,10 @@ foreach (public_bridge_case IN ITEMS
     default-prefer
     explicit-require
     presentation-first
+    pre-ready-fallback
+    pre-ready-require-terminal
+    post-ready-terminal
+    native-require-terminal
 )
     add_test(
         NAME "renderer_public_bridge_${public_bridge_case}"

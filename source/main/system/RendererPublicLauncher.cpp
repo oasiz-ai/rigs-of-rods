@@ -10,6 +10,7 @@
 
 #include "RendererBridgeProcessSupervisor.h"
 #include "RendererLauncherPackageConfig.generated.h"
+#include "RendererOgreNextChild.h"
 #include "RendererPackageRuntimeProbe.h"
 
 #include <atomic>
@@ -103,6 +104,16 @@ void WriteBridgeProcessFailure(
                      ToString(result.launch_plan_status),
                      ToString(result.failed_child),
                      static_cast<unsigned int>(result.native_error_code));
+  (void)std::fflush(stderr);
+}
+
+void WritePreReadyFallback(
+    const RendererBridgeProcessResult &result) {
+  (void)std::fprintf(
+      stderr,
+      "RoR renderer launcher: Ogre-Next exited before PEER_READY "
+      "(exit=%u); relaunching exact OGRE 14 fallback\n",
+      static_cast<unsigned int>(result.presentation_exit_code));
   (void)std::fflush(stderr);
 }
 
@@ -335,6 +346,27 @@ RendererPublicLauncherDecision ResolveRendererPublicLauncherDecision(
   return decision;
 }
 
+bool ShouldFallbackRendererBridgeToOgre14(
+    const RendererPublicLauncherIntent &intent,
+    const RendererBridgeProcessResult &bridge) noexcept {
+  return HasValidIntent(intent) &&
+         intent.frontend == RendererFrontendPreference::OGRE_NEXT_PREFER &&
+         intent.directional_shadows !=
+             DirectionalShadowPreference::REQUIRE_NATIVE &&
+         bridge.version == kRendererBridgeProcessSupervisorContractVersion &&
+         bridge.status ==
+             RendererBridgeProcessStatus::PRESENTATION_EXITED_FIRST &&
+         bridge.first_exit ==
+             RendererBridgeObservedChild::PRESENTATION_FRONTEND &&
+         bridge.presentation_exit_kind ==
+             RendererBridgeGameExitKind::EXIT_CODE &&
+         bridge.presentation_exit_code == static_cast<std::uint32_t>(
+             kRendererOgreNextChildPrePeerReadyFailureExitCode) &&
+         bridge.game_exec_confirmed && bridge.presentation_exec_confirmed &&
+         bridge.game_reaped && bridge.presentation_reaped &&
+         bridge.peer_terminated && !bridge.completed;
+}
+
 int RunRendererPublicLauncher(
     int argc, const RendererChildLauncherChar *const argv[]) noexcept {
   const RendererPublicLauncherArguments arguments =
@@ -393,6 +425,28 @@ int RunRendererPublicLauncher(
         bridge.status ==
             RendererBridgeProcessStatus::COMPLETED_GAME_EXIT) {
       PropagateRendererBridgeGameExit(bridge);
+    }
+    if (ShouldFallbackRendererBridgeToOgre14(arguments.intent, bridge)) {
+      RendererPublicLauncherIntent fallback_intent = arguments.intent;
+      fallback_intent.frontend = RendererFrontendPreference::LEGACY_ONLY;
+      const RendererPublicLauncherDecision fallback =
+          ResolveRendererPublicLauncherDecision(
+              fallback_intent, package.effective_availability);
+      if (!fallback.accepted ||
+          fallback.status !=
+              RendererPublicLauncherDecisionStatus::READY_OGRE14 ||
+          fallback.handoff.child != RendererFrontendChild::OGRE14) {
+        WriteDecisionFailure(fallback);
+        return kRendererPublicLauncherSelectionExitCode;
+      }
+      WritePreReadyFallback(bridge);
+      const RendererChildLaunchFailure failure =
+          LaunchRendererChildAndPropagateExit(
+              fallback.handoff,
+              static_cast<int>(arguments.forwarded_arguments.size()),
+              arguments.forwarded_arguments.data());
+      WriteChildLaunchFailure(failure);
+      return kRendererPublicLauncherChildLaunchExitCode;
     }
     WriteBridgeProcessFailure(bridge);
     return bridge.status == RendererBridgeProcessStatus::FAILED_INTERNAL

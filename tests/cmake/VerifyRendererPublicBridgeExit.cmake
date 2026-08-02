@@ -22,6 +22,24 @@ elseif (ROR_RENDERER_PUBLIC_BRIDGE_CASE STREQUAL "explicit-require")
 elseif (ROR_RENDERER_PUBLIC_BRIDGE_CASE STREQUAL "presentation-first")
     set(_ror_public_bridge_mode "--bridge-test-presentation-first")
     set(_ror_public_bridge_expected_exit 71)
+elseif (ROR_RENDERER_PUBLIC_BRIDGE_CASE STREQUAL "pre-ready-fallback")
+    set(_ror_public_bridge_mode "--bridge-test-pre-ready-fallback=41")
+    set(_ror_public_bridge_expected_exit 41)
+elseif (ROR_RENDERER_PUBLIC_BRIDGE_CASE STREQUAL
+        "pre-ready-require-terminal")
+    list(APPEND _ror_public_bridge_owned_options
+        "--renderer-frontend=ogre-next-require"
+        "--renderer-directional-shadows=pssm")
+    set(_ror_public_bridge_mode "--bridge-test-pre-ready-fallback=41")
+    set(_ror_public_bridge_expected_exit 71)
+elseif (ROR_RENDERER_PUBLIC_BRIDGE_CASE STREQUAL "post-ready-terminal")
+    set(_ror_public_bridge_mode "--bridge-test-post-ready-failure")
+    set(_ror_public_bridge_expected_exit 71)
+elseif (ROR_RENDERER_PUBLIC_BRIDGE_CASE STREQUAL "native-require-terminal")
+    list(APPEND _ror_public_bridge_owned_options
+        "--renderer-directional-shadows=require-native")
+    set(_ror_public_bridge_mode "--bridge-test-pre-ready-fallback=41")
+    set(_ror_public_bridge_expected_exit 70)
 else ()
     message(FATAL_ERROR
         "Unknown renderer public bridge case: "

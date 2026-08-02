@@ -209,7 +209,7 @@ claim.
 The production migration uses a supervisor-owned two-process topology rather
 than loading both renderer ABIs into one address space. Its first
 process-independent contract is `RendererBridgeEndpoint` version 1. The
-`RendererBridgeProcessSupervisor` version-1 core accepts a caller-owned nonzero
+`RendererBridgeProcessSupervisor` version-2 core accepts a caller-owned nonzero
 128-bit session identifier, creates two unidirectional inherited byte streams,
 and launches the OGRE 14 simulation/game host and Ogre-Next presentation
 frontend with mirrored roles and stream directions.
@@ -236,7 +236,16 @@ assigns both to one mandatory `KILL_ON_JOB_CLOSE` Job Object, and resumes them
 only after both assignments succeed. Either implementation terminates and
 reaps the peer when one direct child exits, never leaves a direct zombie, and
 retains the game's exact POSIX wait status (exit or signal) or full Windows
-`DWORD` exit code for a later public-launcher propagation call.
+`DWORD` exit code for a later public-launcher propagation call. Version 2 also
+retains the presentation child's natural exit code or signal when that child is
+observed first; supervisor-induced peer termination is never reported as a
+natural game outcome. POSIX accepts that classification only when the reaped
+peer's wait status contains the exact signal sent by the supervisor, then sends
+`SIGKILL` to any remaining member of the private process group before return.
+A game that handles `SIGTERM` and exits normally therefore keeps its exact game
+exit instead of triggering a renderer fallback. Windows retains the same
+distinction from the result of `TerminateProcess` and the observed process
+wait.
 
 The native fake-child gate runs from a decoy cwd and `PATH`, validates its exact
 role/session and inherited endpoints, sends one valid asset envelope followed
@@ -253,16 +262,21 @@ it remains a local consistency value rather than an authentication boundary.
 handoff selects a production-admitted Ogre-Next child. It supplies a nonzero
 per-transaction session, preserves the original game argv behind both bridge
 contracts, and propagates the game host's exact exit code or POSIX terminating
-signal. A presentation-first or partial-startup failure is terminal and never
-causes an unreviewed runtime fallback to the legacy child. The existing policy
-still selects the exact single-process `RoR-Ogre14` sibling when
-`OGRE_NEXT_PREFER` is allowed to fall back, while `OGRE_NEXT_REQUIRE` remains a
-hard gate.
+signal. One presentation-first result has a deliberately narrow recovery
+contract: under `OGRE_NEXT_PREFER`, natural exit 73 from `RoR-OgreNext` before
+`PEER_READY`, followed by confirmed termination and reaping of both bridge
+children, relaunches the exact single-process `RoR-Ogre14` sibling with the
+original game arguments. Exit 74 after readiness, a signal, incomplete cleanup,
+partial startup, `OGRE_NEXT_REQUIRE`, or `REQUIRE_NATIVE` remains terminal and
+cannot change renderers mid-session.
 
 A test-only admitted-facts fixture runs the real public entrypoint against the
 two exact fake siblings on all three platform policies. It covers no-flag
 Ogre-Next preference, explicit Ogre-Next requirement, Unicode/space-containing
-game argv, exact game exit propagation, and presentation-first teardown. The
+game argv, exact game exit propagation, presentation-first teardown, exact
+pre-ready fallback, post-ready refusal, native-required rejection, a
+presentation signal, a signal-handling game peer that exits naturally, and
+explicit-require refusal of that fallback. The
 production package generator remains unchanged and still records Ogre-Next as
 absent/unadmitted, so current packages continue to choose OGRE 14. This wiring
 does not itself make either child consume production scene/input traffic or

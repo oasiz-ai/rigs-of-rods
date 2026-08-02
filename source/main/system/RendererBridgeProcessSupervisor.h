@@ -18,7 +18,7 @@
 
 namespace RoR {
 
-constexpr std::uint32_t kRendererBridgeProcessSupervisorContractVersion = 1U;
+constexpr std::uint32_t kRendererBridgeProcessSupervisorContractVersion = 2U;
 
 enum class RendererBridgeObservedChild : std::uint8_t {
   NONE = 0U,
@@ -86,14 +86,27 @@ struct RendererBridgeProcessResult final {
       RendererBridgeObservedChild::NONE;
   RendererBridgeGameExitKind game_exit_kind =
       RendererBridgeGameExitKind::UNAVAILABLE;
+  /// Natural presentation-child exit captured when the supervisor observes
+  /// that child before any supervisor-induced termination. A same-observation
+  /// tie may still resolve `first_exit` to GAME_HOST so its natural outcome
+  /// can be propagated. The existing exit-kind domain is process-generic even
+  /// though its historical type name refers to the game child.
+  RendererBridgeGameExitKind presentation_exit_kind =
+      RendererBridgeGameExitKind::UNAVAILABLE;
   std::uint32_t native_error_code = 0U;
   std::uint32_t game_exit_code = 0U;
   std::uint32_t game_termination_signal = 0U;
   std::uint32_t native_game_wait_status = 0U;
+  std::uint32_t presentation_exit_code = 0U;
+  std::uint32_t presentation_termination_signal = 0U;
+  std::uint32_t native_presentation_wait_status = 0U;
   bool game_exec_confirmed = false;
   bool presentation_exec_confirmed = false;
   bool game_reaped = false;
   bool presentation_reaped = false;
+  /// True only when the peer's observed exit semantics prove the supervisor's
+  /// platform termination operation ended it; an attempted signal is not
+  /// sufficient.
   bool peer_terminated = false;
   bool completed = false;
 };

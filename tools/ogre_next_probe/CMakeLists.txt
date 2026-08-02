@@ -2463,7 +2463,11 @@ if (TARGET ror_renderer_public_bridge_entrypoint)
     foreach (_ror_public_bridge_case IN ITEMS
         default-prefer
         explicit-require
-        presentation-first)
+        presentation-first
+        pre-ready-fallback
+        pre-ready-require-terminal
+        post-ready-terminal
+        native-require-terminal)
         add_test(
             NAME "ror_renderer_public_bridge_${_ror_public_bridge_case}"
             COMMAND
