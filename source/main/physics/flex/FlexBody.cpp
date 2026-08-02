@@ -32,6 +32,8 @@
 
 #include <Ogre.h>
 
+#include <utility>
+
 using namespace Ogre;
 using namespace RoR;
 
@@ -571,6 +573,58 @@ FlexBody::FlexBody(
     {
         this->defragmentFlexbodyMesh();
     }
+
+    // Preserve immutable UV0 on the CPU before any renderer bridge capture.
+    // Position/normal streams are copied from m_dst_* after task join; UVs
+    // never need to be read back from a dynamic hardware buffer.
+    if (m_has_texture)
+    {
+        std::vector<Ogre::Vector2> candidate_texcoords;
+        candidate_texcoords.reserve(m_vertex_count);
+        const auto append_texcoords = [&candidate_texcoords](
+            const Ogre::VertexData* vertex_data) -> bool
+        {
+            if (vertex_data == nullptr || vertex_data->vertexStart != 0U ||
+                vertex_data->vertexDeclaration == nullptr ||
+                vertex_data->vertexBufferBinding == nullptr)
+            {
+                return false;
+            }
+            const Ogre::VertexElement* const element =
+                vertex_data->vertexDeclaration->findElementBySemantic(
+                    Ogre::VES_TEXTURE_COORDINATES, 0U);
+            if (element == nullptr || element->getType() != Ogre::VET_FLOAT2)
+                return false;
+            const Ogre::HardwareVertexBufferSharedPtr buffer =
+                vertex_data->vertexBufferBinding->getBuffer(
+                    element->getSource());
+            if (buffer.isNull() ||
+                buffer->getVertexSize() != sizeof(Ogre::Vector2) ||
+                element->getOffset() != 0U ||
+                vertex_data->vertexCount > buffer->getNumVertices())
+            {
+                return false;
+            }
+            const std::size_t old_size = candidate_texcoords.size();
+            candidate_texcoords.resize(old_size + vertex_data->vertexCount);
+            buffer->readData(
+                0U, vertex_data->vertexCount * sizeof(Ogre::Vector2),
+                candidate_texcoords.data() + old_size);
+            return true;
+        };
+
+        bool captured = true;
+        if (mesh->sharedVertexData != nullptr)
+            captured = append_texcoords(mesh->sharedVertexData);
+        for (int index = 0; captured && index < num_submeshes; ++index)
+        {
+            const Ogre::SubMesh* const submesh = mesh->getSubMesh(index);
+            if (!submesh->useSharedVertices)
+                captured = append_texcoords(submesh->vertexData);
+        }
+        if (captured && candidate_texcoords.size() == m_vertex_count)
+            m_src_texcoords0 = std::move(candidate_texcoords);
+    }
 }
 
 FlexBody::FlexBody(PlaceholderType p_type, FlexbodyID_t id, const std::string& orig_meshname)
@@ -724,6 +778,29 @@ void FlexBody::updateFlexbodyVertexBuffers()
     }
 
     m_scene_node->setPosition(m_flexit_center);
+}
+
+bool FlexBody::copyJoinedCpuStaging(
+    std::vector<Ogre::Vector3>& positions,
+    std::vector<Ogre::Vector3>& normals,
+    std::vector<Ogre::Vector2>& texcoords0) const
+{
+    if (m_scene_entity == nullptr || m_scene_node == nullptr ||
+        m_vertex_count == 0U || m_dst_pos == nullptr ||
+        m_dst_normals == nullptr)
+    {
+        return false;
+    }
+    std::vector<Ogre::Vector3> candidate_positions(
+        m_dst_pos, m_dst_pos + m_vertex_count);
+    std::vector<Ogre::Vector3> candidate_normals(
+        m_dst_normals, m_dst_normals + m_vertex_count);
+    if (m_has_texture && m_src_texcoords0.size() != m_vertex_count)
+        return false;
+    positions = std::move(candidate_positions);
+    normals = std::move(candidate_normals);
+    texcoords0 = m_src_texcoords0;
+    return true;
 }
 
 void FlexBody::reset()

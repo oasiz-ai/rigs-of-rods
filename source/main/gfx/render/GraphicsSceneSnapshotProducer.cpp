@@ -537,6 +537,8 @@ public:
     } else if (configuration.maximum_asset_records == 0U ||
                configuration.maximum_static_mesh_objects == 0U ||
                configuration.maximum_dynamic_mesh_objects == 0U ||
+               configuration.maximum_dynamic_vertex_count == 0U ||
+               configuration.maximum_dynamic_payload_bytes == 0U ||
                configuration.maximum_light_records == 0U ||
                configuration.maximum_reflection_probe_records == 0U ||
                configuration.maximum_asset_payload_bytes == 0U) {
@@ -813,6 +815,8 @@ public:
 
     std::vector<IndexedDynamicMeshInput> sorted_dynamic_objects;
     sorted_dynamic_objects.reserve(frame.dynamic_meshes.size());
+    std::uint64_t dynamic_vertex_count = 0U;
+    std::uint64_t dynamic_payload_bytes = 0U;
     for (std::size_t index = 0U; index < frame.dynamic_meshes.size(); ++index) {
       const GraphicsSceneDynamicMeshInput &object =
           frame.dynamic_meshes[index];
@@ -835,6 +839,37 @@ public:
         result.validation = Failure(
             ValidationCode::EMPTY_PAYLOAD, "dynamic_meshes.state",
             "dynamic object requires one immutable joined CPU state", index);
+        return result;
+      }
+      if (object.state->positions.size() >
+              (std::numeric_limits<std::uint64_t>::max)() -
+                  dynamic_vertex_count) {
+        result.validation = Failure(
+            ValidationCode::SIZE_MISMATCH,
+            "dynamic_meshes.state.vertex_count",
+            "aggregate dynamic vertex count overflowed", index);
+        return result;
+      }
+      dynamic_vertex_count +=
+          static_cast<std::uint64_t>(object.state->positions.size());
+      if (dynamic_vertex_count > configuration.maximum_dynamic_vertex_count ||
+          !AddElementBytes(object.state->positions.size(), sizeof(Float3),
+                           dynamic_payload_bytes) ||
+          !AddElementBytes(object.state->normals.size(), sizeof(Float3),
+                           dynamic_payload_bytes) ||
+          !AddElementBytes(object.state->tangents.size(), sizeof(Float4),
+                           dynamic_payload_bytes) ||
+          !AddElementBytes(object.state->velocities.size(), sizeof(Float3),
+                           dynamic_payload_bytes) ||
+          dynamic_payload_bytes >
+              configuration.maximum_dynamic_payload_bytes) {
+        result.validation = Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE,
+            dynamic_vertex_count > configuration.maximum_dynamic_vertex_count
+                ? "dynamic_meshes.state.vertex_count"
+                : "dynamic_meshes.state.payload_bytes",
+            "aggregate dynamic staging exceeds the configured frame bound",
+            index);
         return result;
       }
       sorted_dynamic_objects.push_back(

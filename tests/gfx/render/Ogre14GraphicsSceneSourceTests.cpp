@@ -115,6 +115,44 @@ RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput MakeStaticSection(
   return input;
 }
 
+std::shared_ptr<const RoR::Render::Ogre14GraphicsSceneJoinedDynamicState>
+MakeJoinedDynamicState(float x_offset = 0.0F) {
+  using namespace RoR::Render;
+  auto state = std::make_shared<Ogre14GraphicsSceneJoinedDynamicState>();
+  state->topology_revision = 7U;
+  state->positions = {{-1.0F + x_offset, 2.0F, 3.0F},
+                      {4.0F + x_offset, -5.0F, 6.0F},
+                      {x_offset, 1.0F, -2.0F}};
+  state->normals.assign(3U, Float3{0.0F, 0.0F, 1.0F});
+  state->updated_local_bounds.minimum = {-1.0F + x_offset, -5.0F, -2.0F};
+  state->updated_local_bounds.maximum = {4.0F + x_offset, 2.0F, 6.0F};
+  return state;
+}
+
+RoR::Render::Ogre14GraphicsSceneDynamicSectionCaptureInput MakeDynamicSection(
+    std::int64_t actor_id = 41,
+    RoR::Render::Ogre14GraphicsSceneDynamicComponentKind kind =
+        RoR::Render::Ogre14GraphicsSceneDynamicComponentKind::FLEXBODY,
+    std::uint32_t component_id = 2U, std::uint32_t section_index = 0U,
+    float x_offset = 0.0F) {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneDynamicSectionCaptureInput input;
+  input.identity.actor_instance_id = actor_id;
+  input.identity.component_kind = kind;
+  input.identity.component_id = component_id;
+  input.identity.section_index = section_index;
+  input.exact_entity_name = "actor-41-flexbody-2";
+  input.material = MakeStaticMaterial("Vehicle/Paint");
+  Ogre14GraphicsSceneCpuMeshSectionInput mesh =
+      MakeCpuTriangle("actor-41-flexbody-2");
+  const ValidationResult validation =
+      BuildOgre14GraphicsSceneDynamicMeshPayload(mesh, input.mesh_payload);
+  Require(validation.ok(), "dynamic-section fixture mesh was rejected");
+  input.render_from_object = Translation(10.0F, 2.0F, -3.0F);
+  input.state = MakeJoinedDynamicState(x_offset);
+  return input;
+}
+
 RoR::Render::Ogre14GraphicsSceneLightCaptureInput MakeDirectionalLight(
     const char *name = "MainLight") {
   RoR::Render::Ogre14GraphicsSceneLightCaptureInput input;
@@ -163,6 +201,7 @@ RoR::Render::Ogre14CameraCaptureInput MakeCameraInput() {
 RoR::Render::Ogre14GraphicsSceneCapture MakeCompleteCapture() {
   RoR::Render::Ogre14GraphicsSceneCapture capture;
   capture.joined_buffer_epoch = 7U;
+  capture.post_update_scene_epoch = 7U;
   capture.available_fields =
       RoR::Render::kOgre14GraphicsSceneRequiredFields;
   capture.frame.simulation_tick = 81U;
@@ -255,7 +294,8 @@ void TestMissingFieldsAreCompleteAndTransactional() {
           "first missing field was not exact");
   Require(result.detail ==
               "missing required OGRE 14 joined fields: environment, assets, "
-              "static_meshes, lights, reflection_probes",
+              "static_meshes, lights, reflection_probes, "
+              "post_update_scene_atomicity, dynamic_meshes",
           "complete missing-field detail changed");
   Require(output.simulation_tick == 999U &&
               output.simulation_time_seconds == 3.0,
@@ -264,7 +304,7 @@ void TestMissingFieldsAreCompleteAndTransactional() {
 
 void TestEveryRequiredFieldHasStableDiagnosticIdentity() {
   using namespace RoR::Render;
-  const std::array<Ogre14GraphicsSceneCaptureField, 10U> fields{{
+  const std::array<Ogre14GraphicsSceneCaptureField, 12U> fields{{
       Ogre14GraphicsSceneCaptureField::JOINED_BUFFER_ATOMICITY,
       Ogre14GraphicsSceneCaptureField::SIMULATION_TICK,
       Ogre14GraphicsSceneCaptureField::SIMULATION_TIME_SECONDS,
@@ -275,6 +315,8 @@ void TestEveryRequiredFieldHasStableDiagnosticIdentity() {
       Ogre14GraphicsSceneCaptureField::LIGHTS,
       Ogre14GraphicsSceneCaptureField::REFLECTION_PROBES,
       Ogre14GraphicsSceneCaptureField::CAMERA,
+      Ogre14GraphicsSceneCaptureField::POST_UPDATE_SCENE_ATOMICITY,
+      Ogre14GraphicsSceneCaptureField::DYNAMIC_MESHES,
   }};
   for (const Ogre14GraphicsSceneCaptureField field : fields) {
     Ogre14GraphicsSceneCapture capture = MakeCompleteCapture();
@@ -314,6 +356,24 @@ void TestMalformedMetadataFailsClosed() {
   Require(!epoch && epoch.code == ValidationCode::INVALID_IDENTIFIER &&
               epoch.field == "joined_buffer_epoch",
           "zero joined-buffer epoch was accepted");
+
+  capture = MakeCompleteCapture();
+  capture.post_update_scene_epoch = 0U;
+  const ValidationResult incomplete_update =
+      ValidateOgre14GraphicsSceneCapture(capture);
+  Require(!incomplete_update &&
+              incomplete_update.code == ValidationCode::SEQUENCE_MISMATCH &&
+              incomplete_update.field == "post_update_scene_epoch",
+          "missing post-UpdateScene completion epoch was accepted");
+
+  capture = MakeCompleteCapture();
+  ++capture.post_update_scene_epoch;
+  const ValidationResult mismatched_update =
+      ValidateOgre14GraphicsSceneCapture(capture);
+  Require(!mismatched_update &&
+              mismatched_update.code == ValidationCode::SEQUENCE_MISMATCH &&
+              mismatched_update.field == "post_update_scene_epoch",
+          "mismatched joined/update epochs were accepted");
 }
 
 void TestProviderFailuresAndExceptionsDoNotEscape() {
@@ -981,6 +1041,218 @@ void TestConvertedStaticInventoryFeedsProducer() {
           "converted complete static inventory was rejected by producer");
 }
 
+void TestDynamicIdentityPayloadRevisionAndLifecycle() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneDynamicSectionIdentity identity;
+  identity.actor_instance_id = 41;
+  identity.component_kind = Ogre14GraphicsSceneDynamicComponentKind::FLEXBODY;
+  identity.component_id = 2U;
+  identity.section_index = 1U;
+  std::uint64_t mesh_id = 0U;
+  std::uint64_t object_id = 0U;
+  Require(DeriveOgre14GraphicsSceneDynamicMeshAssetId(identity, mesh_id).ok() &&
+              DeriveOgre14GraphicsSceneDynamicSectionId(identity, object_id)
+                  .ok() &&
+              mesh_id != 0U && object_id != 0U && mesh_id != object_id,
+          "dynamic mesh/object identities were not stable domain-separated IDs");
+  const std::uint64_t flexbody_mesh_id = mesh_id;
+  identity.component_kind =
+      Ogre14GraphicsSceneDynamicComponentKind::FLEXMESH_WHEEL;
+  Require(DeriveOgre14GraphicsSceneDynamicMeshAssetId(identity, mesh_id).ok() &&
+              mesh_id != flexbody_mesh_id,
+          "dynamic component kind was omitted from stable identity");
+  identity.actor_instance_id = -1;
+  Require(DeriveOgre14GraphicsSceneDynamicSectionId(identity, object_id).code ==
+              ValidationCode::INVALID_IDENTIFIER,
+          "negative actor identity was accepted");
+
+  std::shared_ptr<const RenderAssetPayload> payload;
+  Require(BuildOgre14GraphicsSceneDynamicMeshPayload(MakeCpuTriangle(), payload)
+              .ok() &&
+              std::get<MeshResourceDescriptor>(*payload).dynamic,
+          "dynamic base payload did not preserve validated topology storage");
+
+  Ogre14GraphicsSceneDynamicIdentityRegistry registry;
+  std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> inputs{
+      MakeDynamicSection()};
+  std::vector<GraphicsSceneAssetInput> assets;
+  std::vector<GraphicsSceneDynamicMeshInput> meshes;
+  ValidationResult result = BuildOgre14GraphicsSceneDynamicInventory(
+      inputs, registry, assets, meshes);
+  Require(result.ok() && registry.asset_identity_count() == 2U &&
+              registry.object_identity_count() == 1U && assets.size() == 2U &&
+              meshes.size() == 1U &&
+              meshes.front().state->deformation_revision == 2U,
+          "initial dynamic inventory did not own base assets and revision two");
+  const std::shared_ptr<const GraphicsSceneDynamicMeshState> first_state =
+      meshes.front().state;
+  const auto first_mesh_asset = std::find_if(
+      assets.begin(), assets.end(), [](const GraphicsSceneAssetInput &asset) {
+        return RenderAssetPayloadKind(*asset.payload) == RenderAssetKind::MESH;
+      });
+  Require(first_mesh_asset != assets.end(),
+          "dynamic inventory omitted its base mesh asset");
+  const std::shared_ptr<const RenderAssetPayload> first_mesh_owner =
+      first_mesh_asset->payload;
+
+  inputs[0U].state = MakeJoinedDynamicState();
+  result = BuildOgre14GraphicsSceneDynamicInventory(inputs, registry, assets,
+                                                     meshes);
+  const auto stable_mesh_asset = std::find_if(
+      assets.begin(), assets.end(), [](const GraphicsSceneAssetInput &asset) {
+        return RenderAssetPayloadKind(*asset.payload) == RenderAssetKind::MESH;
+      });
+  Require(result.ok() && SameSharedOwner(first_state, meshes.front().state) &&
+              stable_mesh_asset != assets.end() &&
+              SameSharedOwner(first_mesh_owner, stable_mesh_asset->payload),
+          "equivalent dynamic staging did not reuse immutable owners");
+
+  inputs[0U].state = MakeJoinedDynamicState(0.25F);
+  result = BuildOgre14GraphicsSceneDynamicInventory(inputs, registry, assets,
+                                                     meshes);
+  Require(result.ok() && !SameSharedOwner(first_state, meshes.front().state) &&
+              meshes.front().state->deformation_revision == 3U,
+          "changed joined staging did not advance semantic revision exactly");
+  const std::vector<GraphicsSceneAssetInput> accepted_assets = assets;
+  const std::vector<GraphicsSceneDynamicMeshInput> accepted_meshes = meshes;
+  const std::size_t accepted_object_count = registry.object_identity_count();
+
+  inputs[0U].has_dynamic_vertex_colors = true;
+  result = BuildOgre14GraphicsSceneDynamicInventory(inputs, registry, assets,
+                                                     meshes);
+  Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              registry.object_identity_count() == accepted_object_count &&
+              assets.size() == accepted_assets.size() &&
+              SameSharedOwner(meshes.front().state,
+                              accepted_meshes.front().state),
+          "unsupported dynamic colors mutated identity or output state");
+  inputs[0U].has_dynamic_vertex_colors = false;
+
+  result = BuildOgre14GraphicsSceneDynamicInventory({}, registry, assets,
+                                                     meshes);
+  Require(result.ok() && meshes.empty() && assets.size() == 2U,
+          "dynamic removal did not tombstone object while retaining base assets");
+  result = BuildOgre14GraphicsSceneDynamicInventory(inputs, registry, assets,
+                                                     meshes);
+  Require(!result && result.code == ValidationCode::REVISION_MISMATCH &&
+              meshes.empty() && assets.size() == 2U,
+          "removed dynamic identity returned or modified retained output");
+}
+
+void TestDynamicSectionsPreserveTopologyAndMaterialBindings() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneDynamicSectionCaptureInput first =
+      MakeDynamicSection(41, Ogre14GraphicsSceneDynamicComponentKind::FLEXBODY,
+                         2U, 0U);
+  Ogre14GraphicsSceneDynamicSectionCaptureInput second =
+      MakeDynamicSection(41, Ogre14GraphicsSceneDynamicComponentKind::FLEXBODY,
+                         2U, 1U);
+  second.material = MakeStaticMaterial("Vehicle/Tire");
+  const Ogre14GraphicsSceneCpuMeshSectionInput reversed =
+      MakeCpuTriangle("actor-41-flexbody-2/section-1", true);
+  Require(BuildOgre14GraphicsSceneDynamicMeshPayload(
+              reversed, second.mesh_payload)
+              .ok(),
+          "second dynamic section topology fixture was rejected");
+
+  Ogre14GraphicsSceneDynamicIdentityRegistry registry;
+  std::vector<GraphicsSceneAssetInput> assets;
+  std::vector<GraphicsSceneDynamicMeshInput> meshes;
+  Require(BuildOgre14GraphicsSceneDynamicInventory(
+              {first, second}, registry, assets, meshes)
+              .ok() &&
+              meshes.size() == 2U && assets.size() == 4U,
+          "multi-section deformable inventory was not preserved exactly");
+
+  std::uint64_t first_object_id = 0U;
+  std::uint64_t second_object_id = 0U;
+  std::uint64_t first_mesh_id = 0U;
+  std::uint64_t second_mesh_id = 0U;
+  std::uint64_t first_material_id = 0U;
+  std::uint64_t second_material_id = 0U;
+  Require(DeriveOgre14GraphicsSceneDynamicSectionId(
+              first.identity, first_object_id)
+                  .ok() &&
+              DeriveOgre14GraphicsSceneDynamicSectionId(
+                  second.identity, second_object_id)
+                  .ok() &&
+              DeriveOgre14GraphicsSceneDynamicMeshAssetId(
+                  first.identity, first_mesh_id)
+                  .ok() &&
+              DeriveOgre14GraphicsSceneDynamicMeshAssetId(
+                  second.identity, second_mesh_id)
+                  .ok() &&
+              DeriveOgre14GraphicsSceneMaterialAssetId(
+                  first.material.exact_resource_group,
+                  first.material.exact_name, first_material_id)
+                  .ok() &&
+              DeriveOgre14GraphicsSceneMaterialAssetId(
+                  second.material.exact_resource_group,
+                  second.material.exact_name, second_material_id)
+                  .ok(),
+          "multi-section expected identities could not be derived");
+
+  const auto find_object = [&meshes](std::uint64_t object_id) {
+    return std::find_if(
+        meshes.begin(), meshes.end(),
+        [object_id](const GraphicsSceneDynamicMeshInput &mesh) {
+          return mesh.source_object_id == object_id;
+        });
+  };
+  const auto first_object = find_object(first_object_id);
+  const auto second_object = find_object(second_object_id);
+  const auto find_asset = [&assets](std::uint64_t asset_id) {
+    return std::find_if(
+        assets.begin(), assets.end(),
+        [asset_id](const GraphicsSceneAssetInput &asset) {
+          return asset.source_asset_id == asset_id;
+        });
+  };
+  const auto first_asset = find_asset(first_mesh_id);
+  const auto second_asset = find_asset(second_mesh_id);
+  Require(first_object != meshes.end() && second_object != meshes.end() &&
+              first_object->mesh_source_asset_id == first_mesh_id &&
+              second_object->mesh_source_asset_id == second_mesh_id &&
+              first_object->material_source_asset_id == first_material_id &&
+              second_object->material_source_asset_id == second_material_id &&
+              first_material_id != second_material_id &&
+              first_asset != assets.end() && second_asset != assets.end() &&
+              std::get<MeshResourceDescriptor>(*first_asset->payload).indices ==
+                  std::vector<std::uint32_t>({0U, 1U, 2U}) &&
+              std::get<MeshResourceDescriptor>(*second_asset->payload).indices ==
+                  std::vector<std::uint32_t>({0U, 2U, 1U}),
+          "dynamic sections lost an exact topology or material binding");
+}
+
+void TestConvertedDynamicInventoryFeedsProducer() {
+  using namespace RoR::Render;
+  FixtureProvider provider;
+  Ogre14GraphicsSceneDynamicIdentityRegistry registry;
+  const std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> inputs{
+      MakeDynamicSection()};
+  Require(BuildOgre14GraphicsSceneDynamicInventory(
+              inputs, registry, provider.capture.frame.assets,
+              provider.capture.frame.dynamic_meshes)
+              .ok(),
+          "producer dynamic inventory fixture failed conversion");
+
+  Ogre14GraphicsSceneSource source(provider);
+  GraphicsSceneSnapshotProducerConfiguration configuration;
+  configuration.registry_id = 0x44594E414D4F4731ULL;
+  GraphicsSceneSnapshotProducer producer(configuration);
+  const GraphicsSceneSnapshotProduceResult produced =
+      producer.ProduceJoinedFrame(source);
+  Require(produced.ok() &&
+              produced.production.scene_snapshot->mesh_instances().size() ==
+                  1U &&
+              produced.production.scene_snapshot->dynamic_mesh_updates().size() ==
+                  1U &&
+              produced.production.scene_snapshot->dynamic_mesh_updates()
+                      .front()
+                      .deformation_revision == 2U,
+          "converted dynamic inventory was rejected by scene producer");
+}
+
 void TestPerspectiveAndOrthographicCameraConversion() {
   using namespace RoR::Render;
   Ogre14CameraCaptureInput input = MakeCameraInput();
@@ -1064,6 +1336,9 @@ int main() {
   TestStaticInventorySplitsDeduplicatesAndReusesOwners();
   TestStaticInventoryFailureAndLifecycleAreAtomic();
   TestConvertedStaticInventoryFeedsProducer();
+  TestDynamicIdentityPayloadRevisionAndLifecycle();
+  TestDynamicSectionsPreserveTopologyAndMaterialBindings();
+  TestConvertedDynamicInventoryFeedsProducer();
   TestPerspectiveAndOrthographicCameraConversion();
   TestCameraConversionRejectsGuesswork();
   return EXIT_SUCCESS;

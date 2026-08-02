@@ -24,7 +24,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kOgre14GraphicsSceneSourceVersion = 1U;
+constexpr std::uint32_t kOgre14GraphicsSceneSourceVersion = 2U;
 
 /// Every bit names state which must come from the same completed
 /// GfxScene::BufferSimulationData() boundary. An adapter may expose a partial
@@ -41,6 +41,8 @@ enum class Ogre14GraphicsSceneCaptureField : std::uint32_t {
   LIGHTS = 1U << 7U,
   REFLECTION_PROBES = 1U << 8U,
   CAMERA = 1U << 9U,
+  POST_UPDATE_SCENE_ATOMICITY = 1U << 10U,
+  DYNAMIC_MESHES = 1U << 11U,
 };
 
 constexpr std::uint32_t Ogre14GraphicsSceneCaptureFieldBit(
@@ -68,12 +70,20 @@ constexpr std::uint32_t kOgre14GraphicsSceneRequiredFields =
     Ogre14GraphicsSceneCaptureFieldBit(
         Ogre14GraphicsSceneCaptureField::REFLECTION_PROBES) |
     Ogre14GraphicsSceneCaptureFieldBit(
-        Ogre14GraphicsSceneCaptureField::CAMERA);
+        Ogre14GraphicsSceneCaptureField::CAMERA) |
+    Ogre14GraphicsSceneCaptureFieldBit(
+        Ogre14GraphicsSceneCaptureField::POST_UPDATE_SCENE_ATOMICITY) |
+    Ogre14GraphicsSceneCaptureFieldBit(
+        Ogre14GraphicsSceneCaptureField::DYNAMIC_MESHES);
 
 struct Ogre14GraphicsSceneCapture {
   std::uint32_t version = kOgre14GraphicsSceneSourceVersion;
   /// Nonzero generation of the completed BufferSimulationData() call.
   std::uint64_t joined_buffer_epoch = 0U;
+  /// Must exactly equal joined_buffer_epoch and is written only after every
+  /// GfxScene::UpdateScene() Flex* task has joined and finalized its CPU/GPU
+  /// staging state.
+  std::uint64_t post_update_scene_epoch = 0U;
   std::uint32_t available_fields = 0U;
   GraphicsSceneFrameInput frame;
 };
@@ -251,6 +261,127 @@ struct Ogre14GraphicsSceneStaticMeshCacheEntry {
   std::size_t native_state_count = 0U;
   std::shared_ptr<const RenderAssetPayload> payload;
 };
+
+/// Adapter-side immutable topology cache for one actor deformable section.
+/// The numeric resource handle is copied while the Mesh is live; no native
+/// pointer survives actor removal. Dynamic positions/normals are deliberately
+/// not cached here; every frame owns a fresh post-join CPU staging copy.
+struct Ogre14GraphicsSceneDynamicMeshCacheEntry {
+  std::uint64_t native_mesh_handle = 0U;
+  std::size_t native_state_count = 0U;
+  std::uint32_t vertex_start = 0U;
+  std::uint32_t vertex_count = 0U;
+  std::uint32_t index_start = 0U;
+  std::uint32_t index_count = 0U;
+  bool reverse_winding = false;
+  std::shared_ptr<const RenderAssetPayload> payload;
+};
+
+enum class Ogre14GraphicsSceneDynamicComponentKind : std::uint8_t {
+  CAB = 0U,
+  FLEXBODY = 1U,
+  FLEXMESH_WHEEL = 2U,
+  MESHWHEEL_TIRE = 3U,
+};
+
+/// Stable source identity of one actor-owned deformable draw section. Actor,
+/// flexbody/cab/wheel, and section ordinals are creation identities, never
+/// current vector positions or mutable OGRE display names.
+struct Ogre14GraphicsSceneDynamicSectionIdentity {
+  std::int64_t actor_instance_id = -1;
+  Ogre14GraphicsSceneDynamicComponentKind component_kind =
+      Ogre14GraphicsSceneDynamicComponentKind::CAB;
+  std::uint32_t component_id = 0U;
+  std::uint32_t section_index = 0U;
+};
+
+/// Complete copy of one post-join CPU staging range. This owner never aliases
+/// NodeSB, Actor, solver, or OGRE hardware-buffer memory.
+struct Ogre14GraphicsSceneJoinedDynamicState {
+  std::uint64_t topology_revision = 1U;
+  std::vector<Float3> positions;
+  std::vector<Float3> normals;
+  std::vector<Float4> tangents;
+  std::vector<Float3> velocities;
+  Bounds3 updated_local_bounds;
+};
+
+struct Ogre14GraphicsSceneDynamicSectionCaptureInput {
+  Ogre14GraphicsSceneDynamicSectionIdentity identity;
+  std::string exact_entity_name;
+  std::shared_ptr<const RenderAssetPayload> mesh_payload;
+  Ogre14GraphicsSceneMaterialCaptureInput material;
+  Matrix4x4 render_from_object;
+  std::uint32_t visibility_mask = 0xFFFFFFFFU;
+  bool visible = true;
+  bool casts_shadows = true;
+  bool receives_shadows = true;
+  bool visible_in_reflections = true;
+  /// FlexBody blend colors are frame-varying and cannot be omitted silently.
+  bool has_dynamic_vertex_colors = false;
+  std::shared_ptr<const Ogre14GraphicsSceneJoinedDynamicState> state;
+};
+
+/// Collision-audited, transactional identity/lifecycle and semantic-revision
+/// owner for the actor deformable inventory. Removed identities are permanent
+/// tombstones for this adapter lifetime.
+class Ogre14GraphicsSceneDynamicIdentityRegistry final {
+public:
+  [[nodiscard]] std::size_t asset_identity_count() const noexcept {
+    return asset_names_by_id_.size();
+  }
+  [[nodiscard]] std::size_t object_identity_count() const noexcept {
+    return object_names_by_id_.size();
+  }
+
+private:
+  struct ObjectState {
+    std::string exact_entity_name;
+    std::string mesh_key;
+    std::string material_key;
+    std::shared_ptr<const GraphicsSceneDynamicMeshState> deformation;
+  };
+
+  friend ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
+      const std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> &,
+      Ogre14GraphicsSceneDynamicIdentityRegistry &,
+      std::vector<GraphicsSceneAssetInput> &,
+      std::vector<GraphicsSceneDynamicMeshInput> &);
+
+  std::map<std::uint64_t, std::string> asset_names_by_id_;
+  std::map<std::string, std::uint64_t, std::less<>> asset_ids_by_name_;
+  std::map<std::uint64_t, std::string> object_names_by_id_;
+  std::map<std::string, std::uint64_t, std::less<>> object_ids_by_name_;
+  std::map<std::string, std::shared_ptr<const RenderAssetPayload>, std::less<>>
+      canonical_payloads_by_asset_key_;
+  std::map<std::string, ObjectState, std::less<>> object_states_;
+  std::set<std::string, std::less<>> known_asset_keys_;
+  std::set<std::string, std::less<>> live_asset_keys_;
+  std::set<std::string, std::less<>> known_object_keys_;
+  std::set<std::string, std::less<>> live_object_keys_;
+};
+
+[[nodiscard]] ValidationResult DeriveOgre14GraphicsSceneDynamicMeshAssetId(
+    const Ogre14GraphicsSceneDynamicSectionIdentity &identity,
+    std::uint64_t &stable_id);
+[[nodiscard]] ValidationResult DeriveOgre14GraphicsSceneDynamicSectionId(
+    const Ogre14GraphicsSceneDynamicSectionIdentity &identity,
+    std::uint64_t &stable_id);
+
+/// Builds immutable base topology/UV/color/index storage for a deformable
+/// allocation. Failure leaves the caller's owner untouched.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneDynamicMeshPayload(
+    const Ogre14GraphicsSceneCpuMeshSectionInput &input,
+    std::shared_ptr<const RenderAssetPayload> &payload);
+
+/// Canonicalizes the complete actor deformable inventory, owns semantic
+/// deformation revisions and immutable owner reuse, and commits lifecycle
+/// state only after every section succeeds.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
+    const std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> &inputs,
+    Ogre14GraphicsSceneDynamicIdentityRegistry &identity_registry,
+    std::vector<GraphicsSceneAssetInput> &assets,
+    std::vector<GraphicsSceneDynamicMeshInput> &dynamic_meshes);
 
 struct Ogre14GraphicsSceneUnsupportedGeometry {
   bool terrain = false;

@@ -460,6 +460,52 @@ public:
   ProductSceneSource() {
     frame.simulation_tick = 41U;
     frame.simulation_time_seconds = 1.0;
+
+    MeshResourceDescriptor mesh;
+    mesh.debug_name = "pending joined deformable triangle";
+    mesh.dynamic = true;
+    mesh.local_bounds.minimum = {0.0F, 0.0F, 0.0F};
+    mesh.local_bounds.maximum = {1.0F, 1.0F, 0.0F};
+    mesh.positions = {
+        {0.0F, 0.0F, 0.0F},
+        {1.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F},
+    };
+    mesh.normals.assign(3U, Float3{0.0F, 0.0F, 1.0F});
+    mesh.texture_coordinates_0 = {
+        {0.0F, 0.0F}, {1.0F, 0.0F}, {0.0F, 1.0F}};
+    mesh.indices = {0U, 1U, 2U};
+    GraphicsSceneAssetInput mesh_asset;
+    mesh_asset.source_asset_id = 50U;
+    mesh_asset.payload = std::make_shared<const RenderAssetPayload>(
+        std::move(mesh));
+    frame.assets.push_back(std::move(mesh_asset));
+
+    MaterialDescriptor material;
+    material.debug_name = "pending joined deformable material";
+    GraphicsSceneAssetInput material_asset;
+    material_asset.source_asset_id = 20U;
+    material_asset.payload = std::make_shared<const RenderAssetPayload>(
+        std::move(material));
+    frame.assets.push_back(std::move(material_asset));
+
+    auto state = std::make_shared<GraphicsSceneDynamicMeshState>();
+    state->deformation_revision = 2U;
+    state->positions = {
+        {0.0F, 0.0F, 0.0F},
+        {1.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F},
+    };
+    state->normals.assign(3U, Float3{0.0F, 0.0F, 1.0F});
+    state->updated_local_bounds.minimum = {0.0F, 0.0F, 0.0F};
+    state->updated_local_bounds.maximum = {1.0F, 1.0F, 0.0F};
+    GraphicsSceneDynamicMeshInput object;
+    object.source_object_id = 150U;
+    object.mesh_source_asset_id = 50U;
+    object.material_source_asset_id = 20U;
+    object.state = std::move(state);
+    frame.dynamic_meshes.push_back(std::move(object));
+
     frame.camera.view_id = 1U;
     frame.camera.width = 1600U;
     frame.camera.height = 1200U;
@@ -1323,6 +1369,18 @@ void TestProductLifecycleRetainsPendingFrameAcrossBackpressureAndResize() {
               scene_frame.kind == RenderTransportMessageKind::
                                       SCENE_SNAPSHOT_V4_CAMERA_V2,
           "retained scene did not follow its asset without a lineage gap");
+  SceneSnapshotTransportDecoder scene_decoder(2U);
+  const SceneSnapshotTransportDecodeResult decoded_scene =
+      scene_decoder.Accept(scene_frame.bytes);
+  Require(decoded_scene.ok() &&
+              decoded_scene.message->scene_snapshot()
+                      ->dynamic_mesh_updates().size() == 1U &&
+              decoded_scene.message->scene_snapshot()
+                      ->dynamic_mesh_updates().front().update_sequence == 1U &&
+              decoded_scene.message->scene_snapshot()
+                      ->dynamic_mesh_updates().front().instance_id == 150U,
+          "backpressure/resize changed or dropped the immutable deformable "
+          "update");
 
   RenderBridgeAcknowledgement scene_ack;
   scene_ack.registry_id = registry_id;

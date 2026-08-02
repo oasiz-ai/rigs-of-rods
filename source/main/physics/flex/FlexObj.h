@@ -76,6 +76,10 @@ public:
 
     Ogre::Vector3   UpdateFlexObj();
     void            ScaleFlexObj(float factor);
+    bool            copyJoinedCpuStaging(
+                        std::vector<Ogre::Vector3>& positions,
+                        std::vector<Ogre::Vector3>& normals,
+                        std::vector<Ogre::Vector2>& texcoords0) const;
 
 private:
 

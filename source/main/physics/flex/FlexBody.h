@@ -85,6 +85,14 @@ public:
     void computeFlexbody(); //!< Updates mesh deformation; works on CPU using local copy of vertex data.
     void updateFlexbodyVertexBuffers();
 
+    /// Copies only the fully computed graphics staging arrays. Callers must
+    /// invoke this after GfxActor::FinishFlexbodyTasks(); no NodeSB/solver
+    /// memory is exposed.
+    bool copyJoinedCpuStaging(std::vector<Ogre::Vector3>& positions,
+                              std::vector<Ogre::Vector3>& normals,
+                              std::vector<Ogre::Vector2>& texcoords0) const;
+    bool hasDynamicTextureBlend() const { return m_has_texture_blend; }
+
     bool isVisible() const;
     void setVisible(bool visible);
 
@@ -121,6 +129,7 @@ private:
     Ogre::Vector3*    m_src_normals = nullptr;
     Ogre::Vector3*    m_dst_normals = nullptr;
     Ogre::ARGB*       m_src_colors = nullptr;
+    std::vector<Ogre::Vector2> m_src_texcoords0;
     Locator_t*        m_locators = nullptr; //!< 1 loc per vertex
 
     NodeNum_t         m_node_center = NODENUM_INVALID;

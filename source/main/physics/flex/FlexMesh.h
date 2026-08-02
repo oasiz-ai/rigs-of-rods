@@ -63,6 +63,9 @@ public:
     ~FlexMesh();
 
     Ogre::Vector3 updateVertices();
+    bool copyJoinedCpuStaging(std::vector<Ogre::Vector3>& positions,
+                              std::vector<Ogre::Vector3>& normals,
+                              std::vector<Ogre::Vector2>& texcoords0) const;
 
     // Flexable
     bool flexitPrepare() { return true; };
