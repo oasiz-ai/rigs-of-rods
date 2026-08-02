@@ -102,7 +102,7 @@ jobs:
             runner: windows-2022
             platform: windows-x64-d3d11
             jobs: 4
-          - name: Linux x86_64 Vulkan null bootstrap plus XCB presentation
+          - name: Linux x86_64 Vulkan null bootstrap plus XCB window-host
             runner: ubuntu-24.04
             platform: linux-x86_64-vulkan
             jobs: 4
@@ -140,7 +140,9 @@ jobs:
             libxaw7-dev \
             mesa-vulkan-drivers \
             ninja-build \
-            vulkan-tools
+            vulkan-tools \
+            xauth \
+            xvfb
           lvp_icd="$(find /usr/share/vulkan/icd.d -name 'lvp*json' -print -quit)"
           test -n "$lvp_icd"
           echo "VK_ICD_FILENAMES=$lvp_icd" >> "$GITHUB_ENV"
@@ -363,13 +365,32 @@ jobs:
               --deny-self-hosted-runners
           done
 
-      - name: Run the non-admitted hidden SDL native-window smoke
+      - name: Run the non-admitted SDL window-host contract
         run: >-
           ctest
           --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --build-config Release
           --output-on-failure
-          -R '^ror_renderer_ogre_next_window_host(_smoke)?$'
+          -R '^ror_renderer_ogre_next_window_host$'
+
+      - name: Run the non-admitted hidden SDL native-window smoke
+        if: runner.os != 'Linux'
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_renderer_ogre_next_window_host_smoke$'
+
+      - name: Require the hidden SDL X11 window host under Xvfb
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          smoke="$build_root/bin/ror_renderer_ogre_next_window_host_smoke"
+          test -x "$smoke"
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+            "$smoke"
 
       - name: Build and validate the independent Apple Metal N2 proof
         if: runner.os == 'macOS'

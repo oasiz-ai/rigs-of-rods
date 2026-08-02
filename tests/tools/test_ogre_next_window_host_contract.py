@@ -376,11 +376,29 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
         for token in (
             "libx11-xcb-dev",
             "libxcb1-dev",
-            "Linux x86_64 Vulkan null bootstrap plus XCB presentation",
+            "xauth",
+            "xvfb",
+            "Linux x86_64 Vulkan null bootstrap plus XCB window-host",
+            "Run the non-admitted SDL window-host contract",
+            "-R '^ror_renderer_ogre_next_window_host$'",
             "Run the non-admitted hidden SDL native-window smoke",
-            "-R '^ror_renderer_ogre_next_window_host(_smoke)?$'",
+            "if: runner.os != 'Linux'",
+            "-R '^ror_renderer_ogre_next_window_host_smoke$'",
+            "Require the hidden SDL X11 window host under Xvfb",
+            "xvfb-run --auto-servernum",
+            'smoke="$build_root/bin/ror_renderer_ogre_next_window_host_smoke"',
         ):
             self.assertIn(token, self.workflow)
+        linux_live_gate = self.workflow[
+            self.workflow.index(
+                "- name: Require the hidden SDL X11 window host under Xvfb"
+            ) :
+            self.workflow.index(
+                "- name: Build and validate the independent Apple Metal N2 proof"
+            )
+        ]
+        self.assertNotIn("ctest", linux_live_gate)
+        self.assertNotIn("SKIP_RETURN_CODE", linux_live_gate)
 
     def test_relevant_source_manifests_cover_every_new_contract_file(self) -> None:
         manifests = (
