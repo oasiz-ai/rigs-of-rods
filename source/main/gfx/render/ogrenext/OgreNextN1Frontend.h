@@ -34,6 +34,14 @@ struct OgreNextReflectionProbeNativeOwnershipEvidence;
 
 constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 1U;
 
+/// The exact one-frame gate remains the default and is deliberately unchanged.
+/// The production run loop is a separate opt-in lifetime contract that reuses
+/// its source target and Compositor2 graph across presented frames.
+enum class OgreNextN1PresentationMode : std::uint8_t {
+  EXACT_ONE_FRAME_GATE = 0,
+  PRODUCTION_RUN_LOOP,
+};
+
 struct OgreNextN1PresentationParameter final {
   std::string name;
   std::string value;
@@ -46,6 +54,8 @@ struct OgreNextN1PresentationParameter final {
 struct OgreNextN1PresentationConfiguration final {
   std::uint32_t version = kOgreNextN1PresentationContractVersion;
   bool enabled = false;
+  OgreNextN1PresentationMode mode =
+      OgreNextN1PresentationMode::EXACT_ONE_FRAME_GATE;
   std::string shader_media_root;
   NativeWindowHandle exact_window;
   std::array<OgreNextN1PresentationParameter, 2U> renderer_options{};
@@ -70,6 +80,8 @@ struct OgreNextN1PresentationConfiguration final {
 struct OgreNextN1PresentationAudit final {
   std::uint32_t version = kOgreNextN1PresentationContractVersion;
   bool enabled = false;
+  OgreNextN1PresentationMode mode =
+      OgreNextN1PresentationMode::EXACT_ONE_FRAME_GATE;
   bool exact_external_window_binding = false;
   bool exact_two_external_channels = false;
   bool ui_free_source = false;
@@ -77,7 +89,19 @@ struct OgreNextN1PresentationAudit final {
   bool cpu_window_copy = false;
   bool workspace_ready_before_show = false;
   bool bounded_swap_completed = false;
+  bool monotonic_presented_frame_ids = false;
   std::uint64_t window_moved_or_resized_calls = 0U;
+  std::uint64_t show_callback_calls = 0U;
+  std::uint64_t source_target_creates = 0U;
+  std::uint64_t source_target_destroys = 0U;
+  std::uint64_t compositor_node_definition_creates = 0U;
+  std::uint64_t compositor_node_definition_destroys = 0U;
+  std::uint64_t compositor_workspace_creates = 0U;
+  std::uint64_t compositor_workspace_destroys = 0U;
+  std::uint64_t compositor_workspace_rebinds = 0U;
+  std::uint64_t surface_graph_rebuilds = 0U;
+  std::uint64_t suspended_surface_updates = 0U;
+  std::uint64_t restored_surface_updates = 0U;
   std::uint64_t source_scene_passes = 0U;
   std::uint64_t presentation_quad_passes = 0U;
   std::uint64_t render_one_frame_calls = 0U;
@@ -85,6 +109,8 @@ struct OgreNextN1PresentationAudit final {
   std::uint64_t window_swap_completions = 0U;
   std::uint64_t presented_frames = 0U;
   std::uint64_t source_readbacks = 0U;
+  std::uint64_t first_presented_frame_id = 0U;
+  std::uint64_t last_presented_frame_id = 0U;
   std::uint64_t last_view_id = 0U;
   std::uint64_t last_surface_revision = 0U;
   std::uint32_t last_width = 0U;
