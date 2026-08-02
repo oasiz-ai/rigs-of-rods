@@ -780,7 +780,13 @@ class OgreNextProbeContractTests(unittest.TestCase):
         )
         self.assertIn("native_ray_tracing\": \"not_evaluated", build_contract)
         self.assertIn('"headless_child_bootstrap": true', build_contract)
-        self.assertIn('"headless_child_packaged": false', build_contract)
+        self.assertIn(
+            '"headless_child_packaged": @ROR_OGRE_NEXT_CHILD_PACKAGED_JSON@',
+            build_contract,
+        )
+        self.assertIn(
+            'set(ROR_OGRE_NEXT_CHILD_PACKAGED_JSON "false")', cmake
+        )
         self.assertIn(
             '"headless_child_execution_receipt_required": true',
             build_contract,

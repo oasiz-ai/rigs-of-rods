@@ -585,6 +585,14 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
         ror_renderer_launcher
         ${_ror_renderer_launcher_sources})
     add_dependencies(ror_renderer_launcher ${BINNAME})
+    if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
+        # The launcher is never emitted ahead of the authenticated real-child
+        # stage. Immutable availability/readiness facts remain fail-closed
+        # until the separate native admission pass promotes them.
+        add_dependencies(
+            ror_renderer_launcher
+            ${ROR_OGRE_NEXT_PRODUCT_TARGET})
+    endif ()
     target_include_directories(
         ror_renderer_launcher
         PRIVATE
@@ -1068,6 +1076,12 @@ if (APPLE AND ROR_OGRE14)
         fast_copy_Main
         fast_copy_RTShaderLib
         fast_copy_Terrain)
+    if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
+        list(APPEND _ror_macos_sibling_executables
+            "${ROR_OGRE_NEXT_PRODUCT_CHILD}")
+        list(APPEND _ror_macos_bundle_dependencies
+            ${ROR_OGRE_NEXT_PRODUCT_TARGET})
+    endif ()
     set(_ror_macos_bundle_arguments
         "-DROR_BUNDLE=${_ror_macos_bundle_path}"
         "-DROR_EXECUTABLE=$<TARGET_FILE:${_ror_macos_primary_target}>"
@@ -1083,6 +1097,11 @@ if (APPLE AND ROR_OGRE14)
         "-DROR_BUNDLE_SHORT_VERSION=${CMAKE_PROJECT_VERSION}"
         "-DROR_BUNDLE_BUILD_VERSION=${CMAKE_PROJECT_VERSION_MAJOR}.${CMAKE_PROJECT_VERSION_MINOR}.0"
         "-DROR_MACOS_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+
+    if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
+        list(APPEND _ror_macos_bundle_arguments
+            "-DROR_OGRE_NEXT_PRODUCT_ROOT=${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}")
+    endif ()
 
     if (ROR_CREATE_CONTENT_FOLDER)
         list(APPEND _ror_macos_bundle_arguments
@@ -1133,6 +1152,18 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/languages/ DESTINATION languages COMPONENT
 install(DIRECTORY ${RUNTIME_OUTPUT_DIRECTORY}/resources/ DESTINATION resources COMPONENT "Base_Game")
 if (ROR_CREATE_CONTENT_FOLDER)
     install(DIRECTORY ${RUNTIME_OUTPUT_DIRECTORY}/content/ DESTINATION content COMPONENT "Base_Content")
+endif ()
+
+if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE AND NOT APPLE)
+    # Preserve the verified product-stage layout in Linux/Windows installs and
+    # CPack archives: RoR-OgreNext sits beside RoR and resolves its immutable
+    # media under resources/ogrenext. USE_SOURCE_PERMISSIONS retains the native
+    # execute bit on Unix. A missing stage is a hard install failure.
+    install(
+        DIRECTORY "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}/"
+        DESTINATION .
+        COMPONENT "Base_Game"
+        USE_SOURCE_PERMISSIONS)
 endif ()
 
 if (ROR_OGRE14 AND NOT APPLE)

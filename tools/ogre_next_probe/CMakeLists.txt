@@ -14,6 +14,15 @@ option(
     ROR_OGRE_NEXT_PROBE
     "Explicitly opt in to the standalone pinned OGRE-Next dependency probe"
     OFF)
+option(
+    ROR_OGRE_NEXT_PRODUCT_STAGE
+    "Stage the real OgreNext child and its exact relocatable runtime closure"
+    OFF)
+set(
+    ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT
+    "${CMAKE_BINARY_DIR}/ror-ogre-next-product-stage"
+    CACHE PATH
+    "Absolute output root for the verified OgreNext product child")
 if (NOT ROR_OGRE_NEXT_PROBE)
     message(FATAL_ERROR
         "The OGRE-Next probe is opt-in. Reconfigure with "
@@ -82,7 +91,10 @@ file(GLOB_RECURSE _ror_relevant_source_files
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/*"
     "${ROR_REPOSITORY_ROOT}/tools/ogre_next_probe/*")
 list(APPEND _ror_relevant_source_files
+    "CMakeLists.txt"
+    "cmake/OgreNextProductionPackage.cmake"
     "cmake/RendererLauncherPackageConfig.cmake"
+    "cmake/macos/StageMacOSBundle.cmake"
     "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
     "source/main/gfx/RendererBackendPolicy.cpp"
     "source/main/gfx/RendererBackendPolicy.h"
@@ -131,6 +143,7 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererLauncherPackageConfig.h.in"
     "source/main/system/RendererPublicLauncher.cpp"
     "source/main/system/RendererPublicLauncher.h"
+    "source/main/CMakeLists.txt"
     "tests/gfx/RendererBackendPolicyTests.cpp"
     "tests/gfx/RendererBridgeEndpointTests.cpp"
     "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
@@ -156,11 +169,13 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
+    "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
     "tests/tools/test_ogre_next_window_presentation_contract.py"
     "tests/tools/test_ogre_next_window_run_loop_contract.py"
     "tools/run_ogre_next_probe.py"
+    "tools/ogre14_runtime_audit.py"
     "tools/validate_ogre_next_frame_probe.py"
     "tools/verify_ogre_next_artifact_set.py")
 list(FILTER _ror_relevant_source_files EXCLUDE REGEX
@@ -505,6 +520,41 @@ if (NOT IS_ABSOLUTE "${ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT}" OR
         ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT MATCHES "[;\"]")
     message(FATAL_ERROR
         "The probe-only Ogre-Next child requires one representable absolute pinned media root")
+endif ()
+set(ROR_OGRE_NEXT_CHILD_SCOPE "probe-only-non-admitted")
+set(ROR_OGRE_NEXT_CHILD_PACKAGED_JSON "false")
+set(_ror_ogre_next_product_identity_source "")
+if (ROR_OGRE_NEXT_PRODUCT_STAGE)
+    if (NOT IS_ABSOLUTE "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}" OR
+            ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT MATCHES "[;\"]")
+        message(FATAL_ERROR
+            "The OgreNext product-stage root must be one representable absolute path")
+    endif ()
+    file(REAL_PATH "${CMAKE_BINARY_DIR}" _ror_product_binary_root)
+    file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" _ror_product_source_root)
+    cmake_path(IS_PREFIX
+        _ror_product_source_root "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}"
+        NORMALIZE _ror_product_stage_in_source)
+    if (_ror_product_stage_in_source)
+        message(FATAL_ERROR
+            "The OgreNext product stage must remain outside the source tree")
+    endif ()
+    set(ROR_OGRE_NEXT_CHILD_SCOPE "production-package-non-admitted")
+    set(ROR_OGRE_NEXT_CHILD_PACKAGED_JSON "true")
+    string(CONCAT ROR_OGRE_NEXT_PRODUCT_IDENTITY
+        "ror-ogre-next-production-child-v1"
+        "|ror=${ROR_SOURCE_COMMIT}"
+        "|ogre=${ROR_OGRE_NEXT_COMMIT}"
+        "|platform=${ROR_OGRE_NEXT_PLATFORM_POLICY}")
+    set(_ror_ogre_next_product_identity_source
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/renderer_ogre_next_product_identity.cpp")
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/renderer_ogre_next_product_identity.cpp.in"
+        "${_ror_ogre_next_product_identity_source}"
+        @ONLY)
+    unset(_ror_product_binary_root)
+    unset(_ror_product_source_root)
+    unset(_ror_product_stage_in_source)
 endif ()
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/renderer_ogre_next_child_config.h.in"
@@ -1118,6 +1168,11 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextLiveSession.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextProductionSession.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextChild.cpp")
+    if (ROR_OGRE_NEXT_PRODUCT_STAGE)
+        target_sources(
+            ror_renderer_ogre_next_child_runtime
+            PRIVATE "${_ror_ogre_next_product_identity_source}")
+    endif ()
     target_include_directories(
         ror_renderer_ogre_next_child_runtime
         PRIVATE
@@ -1889,7 +1944,10 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         set(_ror_n2_repository_root
             "${CMAKE_CURRENT_SOURCE_DIR}/../..")
         set(_ror_n2_relevant_source_paths
+            CMakeLists.txt
+            cmake/OgreNextProductionPackage.cmake
             cmake/RendererLauncherPackageConfig.cmake
+            cmake/macos/StageMacOSBundle.cmake
             source/main/gfx/RendererBackendPolicy.cpp
             source/main/gfx/RendererBackendPolicy.h
             source/main/gfx/GfxScene.cpp
@@ -1928,6 +1986,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererLauncherPackageConfig.h.in
             source/main/system/RendererPublicLauncher.cpp
             source/main/system/RendererPublicLauncher.h
+            source/main/CMakeLists.txt
             source/main/gfx/render
             tests/gfx/RendererBackendPolicyTests.cpp
             tests/gfx/RendererBridgeEndpointTests.cpp
@@ -1952,7 +2011,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
             tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
             tests/tools/test_ogre_next_child_runtime_contract.py
+            tests/tools/test_ogre_next_product_packaging_contract.py
             tools/ogre_next_probe
+            tools/ogre14_runtime_audit.py
             tools/run_ogre_next_probe.py
             tools/validate_ogre_next_frame_probe.py
             tools/verify_ogre_next_artifact_set.py)
@@ -2236,6 +2297,52 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         VERBATIM)
     add_custom_target(ror_ogre_next_frontend_n1_package ALL
         DEPENDS "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}")
+
+    if (ROR_OGRE_NEXT_PRODUCT_STAGE)
+        set(_ror_ogre_next_product_completion
+            "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}/.ror-ogre-next-product-complete.json")
+        add_custom_command(
+            OUTPUT "${_ror_ogre_next_product_completion}"
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/package_ogre_next_product.py"
+                stage
+                --child $<TARGET_FILE:ror_renderer_ogre_next_child_runtime>
+                --n1-package "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}"
+                --presentation-root "${ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT}"
+                --build-contract
+                    "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
+                --output "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}"
+                --identity "${ROR_OGRE_NEXT_PRODUCT_IDENTITY}"
+                --platform-policy "${ROR_OGRE_NEXT_PLATFORM_POLICY}"
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/package_ogre_next_product.py"
+                verify
+                --root "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}"
+                --platform-policy "${ROR_OGRE_NEXT_PLATFORM_POLICY}"
+                --identity "${ROR_OGRE_NEXT_PRODUCT_IDENTITY}"
+                --strict-root
+            DEPENDS
+                ror_renderer_ogre_next_child_runtime
+                ror_ogre_next_frontend_n1_package
+                "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
+                "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
+                "${CMAKE_CURRENT_SOURCE_DIR}/package_ogre_next_product.py"
+                "${_ror_ogre_next_product_identity_source}"
+            BYPRODUCTS
+                "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}/$<TARGET_FILE_NAME:ror_renderer_ogre_next_child_runtime>"
+                "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}/provenance/ogre-next-product-package.manifest.json"
+            COMMENT
+                "Staging the verified real OgreNext product child and exact media closure"
+            VERBATIM)
+        add_custom_target(ror_ogre_next_product_stage ALL
+            DEPENDS "${_ror_ogre_next_product_completion}")
+        set_property(
+            TARGET ror_ogre_next_product_stage
+            PROPERTY FOLDER "Packaging")
+        unset(_ror_ogre_next_product_completion)
+    endif ()
 
     foreach (_ror_n1_target IN LISTS _ror_n1_targets)
         set_target_properties(

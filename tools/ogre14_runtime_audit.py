@@ -335,6 +335,9 @@ def linux_elf_files(root: Path, executable: Path) -> list[Path]:
     public_executable = root / "RoR"
     if public_executable.is_file() and public_executable != executable:
         candidates.append(public_executable)
+    ogre_next_executable = root / "RoR-OgreNext"
+    if ogre_next_executable.is_file() and ogre_next_executable not in candidates:
+        candidates.append(ogre_next_executable)
     library_root = root / "lib"
     if library_root.is_dir():
         candidates.extend(

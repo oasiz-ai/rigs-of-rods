@@ -48,12 +48,24 @@ option(
     "Build and package the Ogre-Next-first public renderer chooser with the admitted renderer siblings"
     "${_ror_renderer_public_launcher_default}")
 unset(_ror_renderer_public_launcher_default)
+set(_ror_ogre_next_product_package_default
+    "${ROR_RENDERER_PUBLIC_LAUNCHER}")
+option(
+    ROR_OGRE_NEXT_PRODUCTION_PACKAGE
+    "Build and package the verified real OgreNext renderer child"
+    "${_ror_ogre_next_product_package_default}")
+unset(_ror_ogre_next_product_package_default)
 set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to the dependencies")
 
 if (ROR_RENDERER_PUBLIC_LAUNCHER AND NOT ROR_OGRE14)
     message(FATAL_ERROR
         "ROR_RENDERER_PUBLIC_LAUNCHER requires ROR_OGRE14 because its only "
         "admitted production child is RoR-Ogre14")
+endif ()
+if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE AND
+        NOT ROR_RENDERER_PUBLIC_LAUNCHER)
+    message(FATAL_ERROR
+        "ROR_OGRE_NEXT_PRODUCTION_PACKAGE requires the public renderer launcher")
 endif ()
 
 if (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER)
@@ -240,6 +252,11 @@ ELSEIF (UNIX)
 endif (WIN32)
 
 include(DependenciesConfig)
+
+if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
+    include(OgreNextProductionPackage)
+    ror_add_ogre_next_production_package()
+endif ()
 
 ################################################################################
 # Recurse into subdirectories
