@@ -15,6 +15,20 @@ import struct
 import sys
 
 
+TOOLS_ROOT = Path(__file__).resolve().parent
+if str(TOOLS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOLS_ROOT))
+
+from ogre_next_probe.validate_child_runtime_receipt import (  # noqa: E402
+    RECEIPT_NAME as CHILD_RUNTIME_RECEIPT_ARTIFACT,
+    STDERR_LOG_NAME as CHILD_RUNTIME_STDERR_ARTIFACT,
+    STDOUT_LOG_NAME as CHILD_RUNTIME_STDOUT_ARTIFACT,
+    ReceiptValidationError as ChildReceiptValidationError,
+    expected_child_relative,
+    validate_receipt as validate_child_runtime_receipt,
+)
+
+
 REQUIRED_ARTIFACTS = (
     "ogre-next-build-contract.json",
     "ror-ogre-next-probe-report.json",
@@ -693,7 +707,7 @@ def _read_build_contract(
     )
     if (
         type(contract.get("schema_version")) is not int
-        or contract.get("schema_version") != 5
+        or contract.get("schema_version") not in (5, 6)
         or not isinstance(ror_source, dict)
         or not isinstance(ogre_source, dict)
         or not isinstance(ror_source.get("repository"), str)
@@ -804,6 +818,20 @@ def _read_build_contract(
         "headless_child_production_admitted": False,
         "native_ray_tracing": "not_evaluated",
     }
+    if contract.get("schema_version") == 6:
+        expected_components.update(
+            {
+                "headless_child_execution_receipt_schema": (
+                    "ror.ogre_next_child_runtime_execution_receipt.v1"
+                ),
+                "headless_child_execution_receipt_required": True,
+                "headless_child_binary_retained": True,
+                "headless_child_logs_retained": True,
+                "headless_child_process_model": (
+                    "single-process-reviewed-source-closure-v1"
+                ),
+            }
+        )
     expected_platform = {
         "policy": platform["policy"],
         "system": platform.get("system"),
@@ -4800,6 +4828,38 @@ def _verify_metal_n4(
         raise ArtifactSetError("Metal N4 capability skip is not exact")
 
 
+def _verify_child_runtime_receipt(
+    root: Path,
+    manifest: list[dict[str, object]],
+    build_contract: dict[str, object],
+) -> None:
+    try:
+        validate_child_runtime_receipt(root, require_pass_or_skip=False)
+    except ChildReceiptValidationError as error:
+        raise ArtifactSetError(
+            f"Ogre-Next child execution receipt is invalid: {error}"
+        ) from error
+    child_relative = expected_child_relative(build_contract)
+    for relative in (
+        CHILD_RUNTIME_RECEIPT_ARTIFACT,
+        CHILD_RUNTIME_STDOUT_ARTIFACT,
+        CHILD_RUNTIME_STDERR_ARTIFACT,
+        child_relative,
+    ):
+        path = root.joinpath(*relative.split("/"))
+        if path.is_symlink() or not path.is_file():
+            raise ArtifactSetError(
+                f"Ogre-Next child upload artifact is missing or indirect: {relative}"
+            )
+        manifest.append(
+            {
+                "path": relative,
+                "bytes": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+        )
+
+
 def verify_artifact_set(
     build_dir: Path,
     verify_metal_n2_evidence: bool = False,
@@ -4845,6 +4905,8 @@ def verify_artifact_set(
         expected_commit=expected_ror_commit,
     )
     build_contract = _read_build_contract(root, expected_source)
+    if build_contract.get("schema_version") == 6:
+        _verify_child_runtime_receipt(root, manifest, build_contract)
     _verify_pssm(root, manifest, build_contract)
     _verify_rt4(root, manifest, build_contract)
     _verify_freetype_package_licenses(root, manifest)

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import signal
 import subprocess
 import sys
 import tempfile
@@ -43,6 +44,7 @@ from validate_child_runtime_receipt import (  # noqa: E402
 
 WRAPPER_FAILURE_EXIT_CODE = 78
 DEFAULT_TIMEOUT_SECONDS = 110
+POSIX_PROCESS_GROUPS = os.name == "posix"
 
 
 class ChildReceiptRunnerError(RuntimeError):
@@ -98,6 +100,40 @@ def _emit(stdout: bytes, stderr: bytes) -> None:
         sys.stderr.buffer.flush()
 
 
+def _execute_child(
+    command: list[str], timeout_seconds: int
+) -> subprocess.CompletedProcess[bytes]:
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=POSIX_PROCESS_GROUPS,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as error:
+        if POSIX_PROCESS_GROUPS:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            process.kill()
+        stdout, stderr = process.communicate()
+        raise subprocess.TimeoutExpired(
+            command,
+            timeout_seconds,
+            output=stdout if stdout is not None else error.stdout,
+            stderr=stderr if stderr is not None else error.stderr,
+        ) from error
+    return subprocess.CompletedProcess(
+        command,
+        process.returncode,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+
 def run_child(
     build_dir: Path,
     child: Path,
@@ -117,7 +153,9 @@ def run_child(
     try:
         resolved_child = child.expanduser().resolve(strict=True)
     except OSError as error:
-        raise ChildReceiptRunnerError(f"child binary is unavailable: {error}") from error
+        raise ChildReceiptRunnerError(
+            f"child binary is unavailable: {error}"
+        ) from error
     if child.is_symlink() or resolved_child != expected_child:
         raise ChildReceiptRunnerError("child binary path does not match build policy")
     if not resolved_child.is_file() or resolved_child.stat().st_size <= 0:
@@ -143,13 +181,7 @@ def run_child(
     launch_status = "exited"
     exit_code: int | None = None
     try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout_seconds,
-        )
+        completed = _execute_child(command, timeout_seconds)
         exit_code = completed.returncode
         stdout = _captured_bytes(completed.stdout)
         stderr = _captured_bytes(completed.stderr)

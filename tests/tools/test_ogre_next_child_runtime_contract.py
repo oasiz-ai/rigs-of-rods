@@ -25,6 +25,7 @@ ENTRYPOINT_PATH = (
 SELF_PATH = "tests/tools/test_ogre_next_child_runtime_contract.py"
 RUNNER_PATH = PROBE_ROOT / "run_child_runtime_receipt.py"
 VALIDATOR_PATH = PROBE_ROOT / "validate_child_runtime_receipt.py"
+PROCESS_CLOSURE_PATH = PROBE_ROOT / "verify_child_runtime_process_closure.py"
 
 
 def load_module(name: str, path: Path):
@@ -37,6 +38,7 @@ def load_module(name: str, path: Path):
 
 RECEIPT_RUNNER = load_module("ror_child_receipt_runner", RUNNER_PATH)
 RECEIPT_VALIDATOR = load_module("ror_child_receipt_validator", VALIDATOR_PATH)
+PROCESS_CLOSURE = load_module("ror_child_process_closure", PROCESS_CLOSURE_PATH)
 
 
 class OgreNextChildRuntimeContractTests(unittest.TestCase):
@@ -117,6 +119,9 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
                 "headless_child_execution_receipt_required": True,
                 "headless_child_binary_retained": True,
                 "headless_child_logs_retained": True,
+                "headless_child_process_model": (
+                    "single-process-reviewed-source-closure-v1"
+                ),
                 "headless_child_packaged": False,
                 "headless_child_production_admitted": False,
             },
@@ -139,7 +144,7 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
         )
         with (
             mock.patch.object(
-                RECEIPT_RUNNER.subprocess, "run", return_value=completed
+                RECEIPT_RUNNER, "_execute_child", return_value=completed
             ),
             mock.patch.object(
                 RECEIPT_RUNNER.secrets,
@@ -309,7 +314,7 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
                     cmake_path.read_text(encoding="utf-8"),
                 )
 
-    def test_ctest_supplies_exact_synthetic_intent(self) -> None:
+    def test_ctest_runs_and_independently_validates_the_receipt(self) -> None:
         ctest = self.cmake[
             self.cmake.index(
                 "if (TARGET ror_renderer_ogre_next_child_runtime)"
@@ -319,16 +324,21 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
             )
         ]
         for token in (
-            "--ror-renderer-child-intent-version=1",
-            "--ror-renderer-child-frontend=ogre-next-require",
-            "--ror-renderer-child-directional-shadows=pssm",
-            "--ror-renderer-child-native-backend=none",
+            "run_child_runtime_receipt.py",
+            "validate_child_runtime_receipt.py",
+            "--timeout-seconds 110",
+            "--require-pass-or-skip",
             "RESOURCE_LOCK ror_ogre_next_n1_native_device",
             "SKIP_RETURN_CODE 77",
             "TIMEOUT 120",
+            "DEPENDS ror_renderer_ogre_next_child_runtime",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, ctest)
+        for argument in RECEIPT_VALIDATOR.INTENT_ARGUMENTS:
+            with self.subTest(intent_argument=argument):
+                self.assertEqual(self.receipt_validator.count(argument), 1)
+        self.assertIn("*INTENT_ARGUMENTS", self.receipt_runner)
 
     def test_receipt_wrapper_records_and_validates_pass_on_every_policy(self) -> None:
         for policy in RECEIPT_VALIDATOR.PLATFORM_BACKENDS:
@@ -476,6 +486,78 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
                 ):
                     RECEIPT_VALIDATOR.validate_receipt(root)
 
+    def test_receipt_rejects_contradictory_launch_status_and_exit_code(self) -> None:
+        for launch_status, exit_code in (
+            ("timeout", 0),
+            ("launch-error", 70),
+            ("exited", None),
+        ):
+            with (
+                self.subTest(
+                    launch_status=launch_status, exit_code=exit_code
+                ),
+                tempfile.TemporaryDirectory(
+                    prefix="ror-child-receipt-process-tamper-"
+                ) as temp,
+            ):
+                root = Path(temp).resolve()
+                child = self.make_receipt_fixture(root, "macos-arm64-metal")
+                self.assertEqual(
+                    self.run_receipt_observation(
+                        root,
+                        child,
+                        0,
+                        RECEIPT_VALIDATOR.SUCCESS_LINE + b"\n",
+                        b"",
+                    ),
+                    0,
+                )
+                receipt_path = root / RECEIPT_VALIDATOR.RECEIPT_NAME
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                receipt["process"]["launch_status"] = launch_status
+                receipt["process"]["exit_code"] = exit_code
+                receipt_path.write_text(
+                    json.dumps(receipt, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(
+                    RECEIPT_VALIDATOR.ReceiptValidationError,
+                    "contradictory",
+                ):
+                    RECEIPT_VALIDATOR.validate_receipt(root)
+
+    def test_receipt_rejects_boolean_version_values(self) -> None:
+        for target in ("receipt", "intent"):
+            with self.subTest(target=target), tempfile.TemporaryDirectory(
+                prefix="ror-child-receipt-version-tamper-"
+            ) as temp:
+                root = Path(temp).resolve()
+                child = self.make_receipt_fixture(root, "macos-arm64-metal")
+                self.assertEqual(
+                    self.run_receipt_observation(
+                        root,
+                        child,
+                        0,
+                        RECEIPT_VALIDATOR.SUCCESS_LINE + b"\n",
+                        b"",
+                    ),
+                    0,
+                )
+                receipt_path = root / RECEIPT_VALIDATOR.RECEIPT_NAME
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                if target == "receipt":
+                    receipt["schema_version"] = True
+                else:
+                    receipt["intent_contract"]["version"] = True
+                receipt_path.write_text(
+                    json.dumps(receipt, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaises(
+                    RECEIPT_VALIDATOR.ReceiptValidationError
+                ):
+                    RECEIPT_VALIDATOR.validate_receipt(root)
+
     def test_media_path_and_build_provenance_are_explicit(self) -> None:
         self.assertIn(
             'ROR_OGRE_NEXT_CHILD_SCOPE "probe-only-non-admitted"', self.config
@@ -483,8 +565,16 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
         self.assertIn("@ROR_SOURCE_COMMIT@", self.config)
         self.assertIn("@ROR_OGRE_NEXT_COMMIT@", self.config)
         for token in (
+            '"schema_version": 6',
             '"headless_child_bootstrap": true',
             '"headless_child_output_name": "RoR-OgreNext"',
+            '"headless_child_execution_receipt_schema": '
+            '"ror.ogre_next_child_runtime_execution_receipt.v1"',
+            '"headless_child_execution_receipt_required": true',
+            '"headless_child_binary_retained": true',
+            '"headless_child_logs_retained": true',
+            '"headless_child_process_model": '
+            '"single-process-reviewed-source-closure-v1"',
             '"headless_child_packaged": false',
             '"headless_child_production_admitted": false',
         ):
@@ -495,7 +585,8 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
             self.cmake,
         )
         self.assertIn(
-            "The probe-only Ogre-Next child requires one representable absolute pinned media root",
+            "The probe-only Ogre-Next child requires one representable "
+            "absolute pinned media root",
             self.cmake,
         )
 
@@ -520,8 +611,133 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
         self.assertEqual(self.workflow.count(f"python {SELF_PATH}"), 1)
         self.assertEqual(self.workflow.count(f"python -O {SELF_PATH}"), 1)
         self.assertIn(
-            "-R '^ror_renderer_ogre_next_child_runtime$'", self.workflow
+            "-R '^ror_renderer_ogre_next_child_runtime(_receipt)?$'",
+            self.workflow,
         )
+        for token in (
+            "Resolve and revalidate the upload-bound Ogre-Next child evidence",
+            "Cryptographically attest the Ogre-Next child receipt and binary",
+            "Stage and verify the GitHub-signed Ogre-Next child evidence",
+            "actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d",
+            "steps.ogre_next_child_runtime_evidence.outputs.receipt",
+            "steps.ogre_next_child_runtime_evidence.outputs.child",
+            "attest_ogre_next_child_runtime.outputs.bundle-path",
+            "gh attestation verify",
+            "ror-ogre-next-child-runtime-execution-receipt.json",
+            "ror-ogre-next-child-runtime.stdout.log",
+            "ror-ogre-next-child-runtime.stderr.log",
+            "ror-ogre-next-child-runtime-execution-receipt.sigstore.jsonl",
+        ):
+            with self.subTest(workflow_token=token):
+                self.assertIn(token, self.workflow)
+        child_attestation = self.workflow[
+            self.workflow.index(
+                "- name: Cryptographically attest the Ogre-Next child"
+            ) : self.workflow.index(
+                "- name: Stage and verify the GitHub-signed Ogre-Next child"
+            )
+        ]
+        self.assertNotIn("RoR-OgreNext*", child_attestation)
+        self.assertNotIn("actions/attest-build-provenance@", child_attestation)
+        self.assertNotIn(
+            "renderer-ogre-next-child-runtime/Release/\n", self.workflow
+        )
+
+    def test_receipt_validator_is_exact_and_fail_closed(self) -> None:
+        for token in (
+            "duplicate JSON key",
+            "build contract schema 6",
+            "child binary artifact binding mismatch",
+            "child execution log binding mismatch",
+            "child receipt outcome classification mismatch",
+            "child launch status and exit code are contradictory",
+            'b"\\r\\n" if platform_policy == "windows-x64-d3d11"',
+            'return "failure", "invalid-skip-observation", 78',
+            'return "skip", "exact-pssm-capability-unsupported", 77',
+            'NONCE_POLICY = "os-csprng-256-bit-v1"',
+            'TIMESTAMP_POLICY = "omitted-no-wall-clock-v1"',
+        ):
+            with self.subTest(validator_token=token):
+                self.assertIn(token, self.receipt_validator)
+        self.assertNotIn("challenge_nonce", self.receipt_runner)
+        self.assertNotIn("challenge_nonce", self.receipt_validator)
+
+    def test_runtime_process_closure_forbids_descendant_creation_calls(self) -> None:
+        for call in (
+            "fork()",
+            "posix_spawn()",
+            "execve()",
+            "CreateProcessW()",
+            "ShellExecuteA()",
+            "popen()",
+            "system()",
+        ):
+            with self.subTest(call=call):
+                self.assertIsNotNone(PROCESS_CLOSURE.FORBIDDEN_CALL.search(call))
+        ignored = PROCESS_CLOSURE._scrub_comments_and_literals(
+            '// fork()\\\n system()\n'
+            "/* CreateProcessW() */\n"
+            '"execve() and an escaped quote: \\\""\n'
+            "'p'\n"
+            'R"marker(popen())marker"\n'
+        )
+        self.assertIsNone(PROCESS_CLOSURE.FORBIDDEN_CALL.search(ignored))
+        for bypass in (
+            '"/*"; fork(); "*/"',
+            'R"open(/*)open"; execve(); R"close(*/)close"',
+            '"//"; CreateProcessW();',
+        ):
+            with self.subTest(bypass=bypass):
+                scrubbed = PROCESS_CLOSURE._scrub_comments_and_literals(bypass)
+                self.assertIsNotNone(
+                    PROCESS_CLOSURE.FORBIDDEN_CALL.search(scrubbed)
+                )
+        for malformed in (
+            "/* unterminated",
+            '"unterminated',
+            'R"marker(unterminated',
+        ):
+            with self.subTest(malformed=malformed), self.assertRaises(
+                PROCESS_CLOSURE.ProcessClosureError
+            ):
+                PROCESS_CLOSURE._scrub_comments_and_literals(malformed)
+        for token in (
+            "ror_renderer_ogre_next_child_process_closure_verify",
+            "verify_child_runtime_process_closure.py",
+            "--ror-root",
+            "--ogre-root",
+            "add_dependencies(\n"
+            "        ror_renderer_ogre_next_child_runtime",
+        ):
+            with self.subTest(cmake_token=token):
+                self.assertIn(token, self.cmake)
+
+    def test_posix_timeout_kills_and_reaps_the_child_process_group(self) -> None:
+        process = mock.Mock()
+        process.pid = 8675
+        process.communicate.side_effect = (
+            subprocess.TimeoutExpired(["child"], 1),
+            (b"partial stdout", b"partial stderr"),
+        )
+        with (
+            mock.patch.object(
+                RECEIPT_RUNNER.subprocess, "Popen", return_value=process
+            ) as popen,
+            mock.patch.object(RECEIPT_RUNNER, "POSIX_PROCESS_GROUPS", True),
+            mock.patch.object(RECEIPT_RUNNER.os, "killpg") as killpg,
+            self.assertRaises(subprocess.TimeoutExpired) as timeout,
+        ):
+            RECEIPT_RUNNER._execute_child(["child"], 1)
+        self.assertEqual(timeout.exception.stdout, b"partial stdout")
+        self.assertEqual(timeout.exception.stderr, b"partial stderr")
+        popen.assert_called_once_with(
+            ["child"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        killpg.assert_called_once_with(8675, RECEIPT_RUNNER.signal.SIGKILL)
+        self.assertEqual(process.communicate.call_count, 2)
 
     def test_docs_keep_the_child_non_admitted(self) -> None:
         integration = (
@@ -536,6 +752,9 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
             "64x64",
             "game bridge",
             "presentation",
+            "execution_nonce",
+            "GitHub-attest",
+            "actions/attest",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, integration + roadmap)

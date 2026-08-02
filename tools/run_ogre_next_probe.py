@@ -1264,7 +1264,7 @@ def validate_build_contract(
         "dds_codec": True,
         "native_ray_tracing": "not_evaluated",
     }
-    if schema_version in (4, 5):
+    if schema_version in (4, 5, 6):
         expected_components.update(
             {
                 "hlms_unlit": True,
@@ -1277,7 +1277,7 @@ def validate_build_contract(
                 "hdr_visual_evidence_version": 1,
             }
         )
-    if schema_version == 5:
+    if schema_version in (5, 6):
         expected_components.update(
             {
                 "headless_child_bootstrap": True,
@@ -1286,13 +1286,28 @@ def validate_build_contract(
                 "headless_child_production_admitted": False,
             }
         )
+    if schema_version == 6:
+        expected_components.update(
+            {
+                "headless_child_execution_receipt_schema": (
+                    "ror.ogre_next_child_runtime_execution_receipt.v1"
+                ),
+                "headless_child_execution_receipt_required": True,
+                "headless_child_binary_retained": True,
+                "headless_child_logs_retained": True,
+                "headless_child_process_model": (
+                    "single-process-reviewed-source-closure-v1"
+                ),
+            }
+        )
     checks = {
         # Schema 2 remains readable for the immutable checked-in M5 evidence,
         # schema 3 remains the reflection/IBL lineage contract, and schema 4
         # remains the original HDR contract. Every newly generated contract
-        # with the pinned static FreeType/Overlay closure is schema 5.
+        # with the pinned static FreeType/Overlay closure is schema 5; schema 6
+        # adds upload-bound execution evidence for the non-admitted child.
         "schema_version": type(schema_version) is int
-        and schema_version in (2, 3, 4, 5),
+        and schema_version in (2, 3, 4, 5, 6),
         "repository": provenance.get("repository") == lock["repository"],
         "branch": provenance.get("branch") == lock["branch"],
         "commit": provenance.get("commit") == lock["commit"],
@@ -1344,14 +1359,18 @@ def validate_build_contract(
                     "disabled_optional_dependencies"
                 ],
             }
-            if schema_version == 5
+            if schema_version in (5, 6)
             else {}
         ),
         "shader_media": contract.get("shader_media") == shader_media,
         "reflection_shader_media": contract.get("reflection_shader_media")
-        == (reflection_shader_media if schema_version in (3, 4, 5) else None),
+        == (
+            reflection_shader_media
+            if schema_version in (3, 4, 5, 6)
+            else None
+        ),
         "patches": contract.get("patches")
-        == (lock["patches"] if schema_version in (3, 4, 5) else None),
+        == (lock["patches"] if schema_version in (3, 4, 5, 6) else None),
         "platform_policy": platform_contract.get("policy") == policy["name"],
         "renderer_target": platform_contract.get("renderer_target")
         == policy["renderer_target"],

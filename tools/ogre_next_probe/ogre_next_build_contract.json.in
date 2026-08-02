@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "ror_source": {
     "repository": "@ROR_SOURCE_REPOSITORY@",
     "ref": "@ROR_SOURCE_REF@",
@@ -139,6 +139,11 @@
     "hdr_visual_evidence_version": 1,
     "headless_child_bootstrap": true,
     "headless_child_output_name": "RoR-OgreNext",
+    "headless_child_execution_receipt_schema": "ror.ogre_next_child_runtime_execution_receipt.v1",
+    "headless_child_execution_receipt_required": true,
+    "headless_child_binary_retained": true,
+    "headless_child_logs_retained": true,
+    "headless_child_process_model": "single-process-reviewed-source-closure-v1",
     "headless_child_packaged": false,
     "headless_child_production_admitted": false,
     "native_ray_tracing": "not_evaluated"
