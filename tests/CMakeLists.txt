@@ -1121,6 +1121,33 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
 )
 
 add_executable(
+    ror_renderer_ogre14_input_adapter_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgre14InputAdapterTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14InputAdapter.cpp"
+)
+
+add_executable(
+    ror_renderer_ogre14_runtime_ownership_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgre14RuntimeOwnershipTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14RuntimeOwnership.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre14_runtime_ownership_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+target_include_directories(
+    ror_renderer_ogre14_input_adapter_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+target_link_libraries(
+    ror_renderer_ogre14_input_adapter_tests
+    PRIVATE ror_render_contract
+)
+
+add_executable(
     ror_renderer_ogre14_game_host_session_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgre14GameHostSessionTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
@@ -1131,6 +1158,8 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameBridge.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameHostSession.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14InputAdapter.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14ProductSession.cpp"
 )
 target_include_directories(
     ror_renderer_ogre14_game_host_session_tests
@@ -1151,6 +1180,8 @@ set(ROR_RENDER_CONTRACT_BUILD_TARGETS
     ror_render_contract
     ${ROR_RENDER_CONTRACT_TEST_TARGETS}
     ror_renderer_boundary_header_isolation_tests
+    ror_renderer_ogre14_input_adapter_tests
+    ror_renderer_ogre14_runtime_ownership_tests
     ror_renderer_ogre14_game_host_session_tests
     ror_renderer_ogre_next_live_session_tests
 )
@@ -1187,6 +1218,8 @@ endforeach ()
 if (NOT MSVC)
     set(ROR_RENDER_CONTRACT_LINK_TARGETS
         ${ROR_RENDER_CONTRACT_TEST_TARGETS}
+        ror_renderer_ogre14_input_adapter_tests
+        ror_renderer_ogre14_runtime_ownership_tests
         ror_renderer_ogre14_game_host_session_tests
         ror_renderer_ogre_next_live_session_tests
     )
@@ -2120,6 +2153,16 @@ set_tests_properties(
 add_test(
     NAME renderer_ogre14_game_bridge
     COMMAND ror_renderer_ogre14_game_bridge_tests
+)
+
+add_test(
+    NAME renderer_ogre14_input_adapter
+    COMMAND ror_renderer_ogre14_input_adapter_tests
+)
+
+add_test(
+    NAME renderer_ogre14_runtime_ownership
+    COMMAND ror_renderer_ogre14_runtime_ownership_tests
 )
 
 add_test(

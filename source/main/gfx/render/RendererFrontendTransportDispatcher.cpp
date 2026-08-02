@@ -47,7 +47,10 @@ ValidationResult ValidateRendererFrontendPresentationPolicy(
         "presentation policy color must be SDR sRGB or linear HDR");
   }
   if (policy.retire_scene_without_render &&
-      (policy.present || policy.presentation_surface_revision != 0U)) {
+      (policy.present || policy.presentation_surface_revision != 0U ||
+       policy.presentation_drawable_width != 0U ||
+       policy.presentation_drawable_height != 0U ||
+       policy.retire_scene_on_presentation_extent_mismatch)) {
     return ValidationResult::Failure(
         ValidationCode::INVALID_IDENTIFIER, "retire_scene_without_render",
         "retired scene policy cannot name or present a native surface");
@@ -63,10 +66,27 @@ ValidationResult ValidateRendererFrontendPresentationPolicy(
           ValidationCode::INVALID_IDENTIFIER, "presentation_surface_revision",
           "native presentation requires the active surface revision");
     }
-  } else if (policy.presentation_surface_revision != 0U) {
+    if (policy.retire_scene_on_presentation_extent_mismatch &&
+        (policy.presentation_drawable_width == 0U ||
+         policy.presentation_drawable_height == 0U)) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_DIMENSIONS, "presentation_drawable_extent",
+          "extent-guarded presentation requires a nonzero drawable extent");
+    }
+    if (!policy.retire_scene_on_presentation_extent_mismatch &&
+        (policy.presentation_drawable_width != 0U ||
+         policy.presentation_drawable_height != 0U)) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_DIMENSIONS, "presentation_drawable_extent",
+          "presentation drawable extent requires the stale-scene guard");
+    }
+  } else if (policy.presentation_surface_revision != 0U ||
+             policy.presentation_drawable_width != 0U ||
+             policy.presentation_drawable_height != 0U ||
+             policy.retire_scene_on_presentation_extent_mismatch) {
     return ValidationResult::Failure(
         ValidationCode::INVALID_IDENTIFIER, "presentation_surface_revision",
-        "UI-free offscreen rendering cannot name a presentation surface");
+        "UI-free offscreen rendering cannot name a presentation surface or extent");
   }
   return ValidationResult::Success();
 }
@@ -360,7 +380,13 @@ RendererFrontendTransportDispatcher::DispatchScene(
                 RenderOperationCode::OK);
   }
 
-  if (presentation_policy.retire_scene_without_render) {
+  const CameraViewRequest &camera = decoded.message->camera();
+  const bool stale_presentation_extent =
+      presentation_policy.retire_scene_on_presentation_extent_mismatch &&
+      (camera.width != presentation_policy.presentation_drawable_width ||
+       camera.height != presentation_policy.presentation_drawable_height);
+  if (presentation_policy.retire_scene_without_render ||
+      stale_presentation_extent) {
     RendererFrontendTransportDispatchResult result = Success(
         RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED, frame);
     result.scene_snapshot_id = scene_snapshot_id;
@@ -370,7 +396,7 @@ RendererFrontendTransportDispatcher::DispatchScene(
   RenderFrameRequest request;
   request.frame_id = decoded.message->sequence();
   request.scene_snapshot = decoded.message->scene_snapshot();
-  request.views.push_back(decoded.message->camera());
+  request.views.push_back(camera);
   request.requested_outputs = presentation_policy.requested_outputs;
   request.color_format = presentation_policy.color_format;
   request.present = presentation_policy.present;

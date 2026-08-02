@@ -48,6 +48,8 @@
 
 namespace RoR {
 
+struct RendererOgre14LegacyInputState;
+
 /// @addtogroup Input
 /// @{
 
@@ -472,7 +474,7 @@ public:
     static const int         DEFAULT_MAPFILE_DEVICEID = -1; //!< virtual device ID for "input.map" entries
     static const int         BUILTIN_MAPPING_DEVICEID = -2; //!< virtual device ID for builtin defaults
 
-    InputEngine();
+    explicit InputEngine(bool enable_physical_input = true);
     ~InputEngine();
 
     /// @name Setup
@@ -501,6 +503,15 @@ public:
     void                RefreshSdlControllerStates();
 #endif
     void                ProcessJoystickEvent(const OIS::JoyStickEvent& arg);
+    /// Renderer-child input becomes the authoritative physical device source
+    /// only in an adopted Ogre-Next game-host process.
+    bool                EnableRendererTransportInput() noexcept;
+    bool                ApplyRendererTransportInput(
+                            const RendererOgre14LegacyInputState& state) noexcept;
+    bool                IsRendererTransportInputActive() const noexcept
+                            { return m_renderer_transport_input_active; }
+    bool                OwnsPhysicalInputDevices() const noexcept
+                            { return m_physical_input_enabled; }
     void                resetKeysAndMouseButtons();
     void                setEventSimulatedValue(events eventID, float value);
     void                setEventStatusSupressed(events eventID, bool supress);
@@ -521,7 +532,10 @@ public:
     int                 getJoyComponentCount(OIS::ComponentType type, int joystickNumber);
     std::string         getJoyVendor(int joystickNumber);
     int                 getNumJoysticks() const;                            //!< Connected device count
-    int                 getJoystickSlotLimit() const { return free_joysticks; } //!< Addressable slot high-water mark
+    int                 getJoystickSlotLimit() const
+                            { return m_renderer_transport_input_active
+                                ? m_renderer_transport_slot_limit
+                                : free_joysticks; } //!< Addressable slot high-water mark
     bool                isJoystickConnected(int joystickNumber) const { return IsJoystickConnected(joystickNumber); }
     EventMap&           getEvents() { return events; };
     /// @}
@@ -607,6 +621,20 @@ protected:
 #endif
     OIS::JoyStickState joyState[MAX_JOYSTICKS];
     OIS::MouseState mouseState;
+    struct RendererTransportJoystickMetadata
+    {
+        bool connected = false;
+        int axis_count = 0;
+        int button_count = 0;
+        int pov_count = 0;
+        int slider_count = 0;
+        std::string vendor;
+    };
+    RendererTransportJoystickMetadata
+        m_renderer_transport_joysticks[MAX_JOYSTICKS];
+    bool m_renderer_transport_input_active = false;
+    int m_renderer_transport_slot_limit = 0;
+    bool m_physical_input_enabled = true;
 
     // define event aliases
     std::map<int, std::vector<event_trigger_t>> events;

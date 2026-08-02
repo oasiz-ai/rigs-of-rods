@@ -884,7 +884,7 @@ DiscordRpc*          GetDiscordRpc();
 // Factories
 void CreateOverlayWrapper();
 void CreateGuiManager();
-void CreateInputEngine();
+void CreateInputEngine(bool enable_physical_input = true);
 void CreateMumble();
 void CreateThreadPool();
 void CreateCameraManager();

@@ -345,10 +345,10 @@ void CreateGuiManager()
     g_gui_manager = new GUIManager();
 }
 
-void CreateInputEngine()
+void CreateInputEngine(bool enable_physical_input)
 {
     ROR_ASSERT(!g_input_engine);
-    g_input_engine = new InputEngine();
+    g_input_engine = new InputEngine(enable_physical_input);
 }
 
 void CreateMumble()

@@ -535,6 +535,13 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
         policy.present = scene_frame && !policy.retire_scene_without_render;
         policy.presentation_surface_revision =
             policy.present ? observation.surface.surface_revision : 0U;
+        if (policy.present) {
+          policy.presentation_drawable_width =
+              observation.surface.drawable_width;
+          policy.presentation_drawable_height =
+              observation.surface.drawable_height;
+          policy.retire_scene_on_presentation_extent_mismatch = true;
+        }
         policy.allow_async_compute = false;
         const Render::RendererFrontendTransportDispatchResult dispatched =
             dispatcher.Dispatch(frame, policy);
@@ -555,10 +562,18 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
         } else if (frame.kind ==
                    Render::RenderTransportMessageKind::
                        SCENE_SNAPSHOT_V4_CAMERA_V2) {
+          const bool retired =
+              dispatched.status == Render::
+                  RendererFrontendTransportDispatchStatus::
+                      SCENE_FRAME_RETIRED;
+          const bool presented =
+              dispatched.status == Render::
+                  RendererFrontendTransportDispatchStatus::
+                      SCENE_FRAME_COMPLETED &&
+              policy.present;
           if (!AddCounter(1U, result.scene_frames) ||
-              (policy.retire_scene_without_render &&
-               !AddCounter(1U, result.retired_scene_frames)) ||
-              (policy.present &&
+              (retired && !AddCounter(1U, result.retired_scene_frames)) ||
+              (presented &&
                !AddCounter(1U, result.presented_scene_frames))) {
             return FinishWithClose(
                 result, RendererOgreNextLiveSessionStatus::FAILED_INTERNAL,
@@ -590,6 +605,9 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
         if (frame.kind ==
                 Render::RenderTransportMessageKind::
                     SCENE_SNAPSHOT_V4_CAMERA_V2 &&
+            dispatched.status == Render::
+                RendererFrontendTransportDispatchStatus::
+                    SCENE_FRAME_COMPLETED &&
             policy.present) {
           if (dispatched.scene_snapshot_id == 0U) {
             return FinishWithClose(

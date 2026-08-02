@@ -284,11 +284,19 @@ pre-ready fallback, post-ready refusal, native-required rejection, a
 presentation signal, a signal-handling game peer that exits naturally, and
 explicit-require refusal of that fallback. The
 production package generator remains unchanged and still records Ogre-Next as
-absent/unadmitted, so current packages continue to choose OGRE 14. This wiring
-does not itself make either child consume production scene/input traffic or
-change generated presence/readiness/admission facts. Production stream
-back-pressure, endpoint handshake/EOF policy, game/frontend consumers, and
-package admission remain separate gates.
+absent/unadmitted, so current packages continue to choose OGRE 14. The
+endpoint-adopted compatibility child now owns the real
+[`RendererOgre14ProductSession`](OGRE14_PRODUCT_SESSION.md): it drains reverse
+input/control/ACK traffic before gameplay, opens no legacy physical input
+devices, keeps OGRE 14's scene/resource host hidden and non-presenting, and
+publishes the joined scene only after `GfxScene::UpdateScene()` has consumed
+copied simulation buffers and joined flex/wheel work. The lossless bounded
+production owner and presentation-side decoded-camera extent guard prevent
+backpressure or an idle resize from presenting stale state, and it performs ordered
+half-close/EOF/join shutdown. Direct standalone launches are unchanged. This
+closes the OGRE 14 game-host consumer gate only; it does not change generated
+presence/readiness/admission facts or admit/package the production Ogre-Next
+presentation child.
 
 Configure and build the renderer suite explicitly (the launcher is already the
 default when `ROR_OGRE14=ON`):

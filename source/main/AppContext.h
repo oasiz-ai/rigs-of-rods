@@ -26,10 +26,13 @@
 
 #pragma once
 
+#include <string_view>
+
 #include "Application.h"
 #include "ForceFeedback.h"
 #include "PostProcessRuntime.h"
 #include "RenderDisplayMetrics.h"
+#include "RendererOgre14RuntimeOwnership.h"
 
 #include <Bites/OgreWindowEventUtilities.h>
 #include <Ogre.h>
@@ -76,11 +79,21 @@ public:
     bool                 SetUpProgramPaths();
     void                 SetUpLogging();
     bool                 SetUpResourcesDir();
-    bool                 SetUpRendering();
+    bool                 SetUpRendering(const RendererOgre14RuntimeOwnership& ownership);
     bool                 SetUpConfigSkeleton();
-    bool                 SetUpInput();
+    bool                 SetUpInput(const RendererOgre14RuntimeOwnership& ownership);
     void                 SetUpObsoleteConfMarker();
     void                 ProcessWindowEvents();
+    // Ordered injections from the adopted Ogre-Next presentation child. They
+    // reuse the same GUI/camera callbacks as local OIS/SDL events; InputEngine
+    // held state is reconciled atomically after the batch.
+    void                 InjectRendererBridgeKey(OIS::KeyCode key, bool down) noexcept;
+    void                 InjectRendererBridgeMouseMotion(int x, int y, int dx, int dy) noexcept;
+    void                 InjectRendererBridgeMouseButton(OIS::MouseButtonID button, bool down) noexcept;
+    void                 InjectRendererBridgeMouseWheel(float x, float y) noexcept;
+    void                 InjectRendererBridgeText(std::string_view utf8) noexcept;
+    void                 InjectRendererBridgeFocus(bool focused) noexcept;
+    void                 InjectRendererBridgeWindowClose() noexcept;
 
     // Rendering
     Ogre::RenderWindow*  CreateCustomRenderWindow(std::string const& name, int width, int height);
@@ -145,6 +158,7 @@ private:
     bool                 m_render_window_registered = false;
     bool                 m_window_event_listener_registered = false;
     bool                 m_rendering_shutdown = false;
+    bool                 m_renderer_child_owns_presentation = false;
     RenderDisplayMetrics m_display_metrics;
     PostProcessRuntime   m_postprocess_runtime;
 #if OGRE_VERSION_MAJOR >= 14

@@ -72,6 +72,7 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 using namespace RoR;
@@ -184,9 +185,14 @@ bool AppContext::ShutdownRendering() noexcept
 // --------------------------
 // Input handling
 
-bool AppContext::SetUpInput()
+bool AppContext::SetUpInput(
+    const RendererOgre14RuntimeOwnership& ownership)
 {
-    App::CreateInputEngine();
+    if (!ownership.valid())
+        return false;
+    const bool enable_physical_input =
+        ownership.legacy_physical_input_enabled;
+    App::CreateInputEngine(enable_physical_input);
     App::GetInputEngine()->SetMouseListener(this);
     App::GetInputEngine()->SetKeyboardListener(this);
     App::GetInputEngine()->SetJoystickListener(this);
@@ -196,16 +202,131 @@ bool AppContext::SetUpInput()
     // displacing SDL's field editor. Stop/start is intentional: calling only
     // SDL_StartTextInput() does not reselect an already-attached field editor.
     // SDL remains the sole buffered source for physical keys and Unicode text.
-    SDL_StopTextInput();
-    SDL_StartTextInput();
-    ROR_ASSERT(SDL_IsTextInputActive() == SDL_TRUE);
+    if (enable_physical_input)
+    {
+        SDL_StopTextInput();
+        SDL_StartTextInput();
+        ROR_ASSERT(SDL_IsTextInputActive() == SDL_TRUE);
+    }
 #endif
 
-    if (App::io_ffb_enabled->getBool())
+    if (enable_physical_input && App::io_ffb_enabled->getBool())
     {
         m_force_feedback.Setup();
     }
     return true;
+}
+
+void AppContext::InjectRendererBridgeKey(OIS::KeyCode key, bool down) noexcept
+{
+    try
+    {
+        const OIS::KeyEvent event(App::GetInputEngine()->GetOisKeyboard(),
+                                  key, 0U);
+        if (down)
+            (void)this->keyPressed(event);
+        else
+            (void)this->keyReleased(event);
+    }
+    catch (...)
+    {
+    }
+}
+
+void AppContext::InjectRendererBridgeMouseMotion(
+    int x, int y, int dx, int dy) noexcept
+{
+    try
+    {
+        OIS::MouseState state = App::GetInputEngine()->getMouseState();
+        state.X.abs = x;
+        state.Y.abs = y;
+        state.X.rel = dx;
+        state.Y.rel = dy;
+        state.Z.rel = 0;
+        const OIS::MouseEvent event(nullptr, state);
+        (void)this->mouseMoved(event);
+    }
+    catch (...)
+    {
+    }
+}
+
+void AppContext::InjectRendererBridgeMouseButton(
+    OIS::MouseButtonID button, bool down) noexcept
+{
+    try
+    {
+        OIS::MouseState state = App::GetInputEngine()->getMouseState();
+        const int bit = 1 << static_cast<int>(button);
+        if (down)
+            state.buttons |= bit;
+        else
+            state.buttons &= ~bit;
+        const OIS::MouseEvent event(nullptr, state);
+        if (down)
+            (void)this->mousePressed(event, button);
+        else
+            (void)this->mouseReleased(event, button);
+    }
+    catch (...)
+    {
+    }
+}
+
+void AppContext::InjectRendererBridgeMouseWheel(float x, float y) noexcept
+{
+    (void)x; // Legacy OIS has one wheel axis; horizontal state is reconciled.
+    try
+    {
+        OIS::MouseState state = App::GetInputEngine()->getMouseState();
+        state.X.rel = 0;
+        state.Y.rel = 0;
+        state.Z.rel = static_cast<int>(y * 120.0F);
+        state.Z.abs += state.Z.rel;
+        const OIS::MouseEvent event(nullptr, state);
+        (void)this->mouseMoved(event);
+    }
+    catch (...)
+    {
+    }
+}
+
+void AppContext::InjectRendererBridgeText(std::string_view utf8) noexcept
+{
+    try
+    {
+        if (ImGui::GetCurrentContext() != nullptr)
+        {
+            const std::string owned(utf8);
+            ImGui::GetIO().AddInputCharactersUTF8(owned.c_str());
+        }
+    }
+    catch (...)
+    {
+    }
+}
+
+void AppContext::InjectRendererBridgeFocus(bool focused) noexcept
+{
+    if (!focused && App::GetInputEngine() != nullptr)
+        App::GetInputEngine()->resetKeysAndMouseButtons();
+}
+
+void AppContext::InjectRendererBridgeWindowClose() noexcept
+{
+    try
+    {
+        if (!m_window_shutdown_requested)
+        {
+            m_window_shutdown_requested = true;
+            App::GetGameContext()->PushMessage(
+                Message(MSG_APP_SHUTDOWN_REQUESTED));
+        }
+    }
+    catch (...)
+    {
+    }
 }
 
 bool AppContext::mouseMoved(const OIS::MouseEvent& arg) // overrides OIS::MouseListener
@@ -371,8 +492,13 @@ void AppContext::SetRenderWindowIcon(Ogre::RenderWindow* rw)
 #endif // _WIN32
 }
 
-bool AppContext::SetUpRendering()
+bool AppContext::SetUpRendering(
+    const RendererOgre14RuntimeOwnership& ownership)
 {
+    if (!ownership.valid())
+        return false;
+    m_renderer_child_owns_presentation =
+        ownership.child_window_visible;
     // Create 'OGRE root' facade
     // * leave 'plugins' param empty, we load manually below
     // * note file 'ogre.cfg' isn't read immediatelly but only after calling 'restoreConfig()' below.
@@ -479,6 +605,14 @@ bool AppContext::SetUpRendering()
     if (!App::diag_allow_window_resize->getBool())
     {
         miscParams["border"] = "fixed";
+    }
+    if (m_renderer_child_owns_presentation)
+    {
+        // Every supported OGRE 14 desktop backend consumes this at native
+        // window creation time. It is not a post-create hide that could flash
+        // a second presentation surface.
+        miscParams["hidden"] = "true";
+        miscParams["border"] = "none";
     }
 #if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
     const auto rd = ropts["Rendering Device"];
@@ -588,14 +722,18 @@ bool AppContext::SetUpRendering()
         m_owns_sdl_video = true;
     }
 
-    const bool full_screen = ropts["Full Screen"].currentValue == "Yes";
+    const bool full_screen =
+        !m_renderer_child_owns_presentation &&
+        ropts["Full Screen"].currentValue == "Yes";
     Ogre::Real content_scale = SanitizeRequestedContentScale(
         Ogre::StringConverter::parseReal(
             miscParams["contentScalingFactor"], 1.0f));
     miscParams["contentScalingFactor"] =
         Ogre::StringConverter::toString(content_scale);
 
-    Uint32 sdl_window_flags = SDL_WINDOW_SHOWN;
+    Uint32 sdl_window_flags = m_renderer_child_owns_presentation
+                                  ? SDL_WINDOW_HIDDEN
+                                  : SDL_WINDOW_SHOWN;
     if (ShouldRequestHighPixelDensity(content_scale))
     {
         sdl_window_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
@@ -604,7 +742,8 @@ bool AppContext::SetUpRendering()
     {
         sdl_window_flags |= SDL_WINDOW_FULLSCREEN;
     }
-    else if (App::diag_allow_window_resize->getBool())
+    else if (!m_renderer_child_owns_presentation &&
+             App::diag_allow_window_resize->getBool())
     {
         sdl_window_flags |= SDL_WINDOW_RESIZABLE;
     }
@@ -638,6 +777,18 @@ bool AppContext::SetUpRendering()
                         SDL_GetError()));
         return false;
     }
+    if (m_renderer_child_owns_presentation)
+    {
+        const Uint32 actual_flags = SDL_GetWindowFlags(m_sdl_window);
+        if ((actual_flags & SDL_WINDOW_HIDDEN) == 0U ||
+            (actual_flags & SDL_WINDOW_SHOWN) != 0U)
+        {
+            ErrorUtils::ShowError(
+                _L("Startup error"),
+                _L("The OGRE 14 resource host could not create a hidden macOS window; refusing to expose a second presentation owner."));
+            return false;
+        }
+    }
     SDL_SetWindowMinimumSize(
         m_sdl_window,
         static_cast<int>(std::ceil(800.0f / content_scale)),
@@ -669,15 +820,27 @@ bool AppContext::SetUpRendering()
 #else
     m_render_window = Ogre::Root::getSingleton().createRenderWindow (
         "Rigs of Rods version " + Ogre::String (ROR_VERSION_STRING),
-        width, height, ropts["Full Screen"].currentValue == "Yes", &miscParams);
+        width, height,
+        !m_renderer_child_owns_presentation &&
+            ropts["Full Screen"].currentValue == "Yes",
+        &miscParams);
 #endif
+    if (m_renderer_child_owns_presentation &&
+        !m_render_window->isHidden())
+    {
+        ErrorUtils::ShowError(
+            _L("Startup error"),
+            _L("The OGRE 14 backend does not support the required hidden resource host; refusing to run with two presentation windows."));
+        return false;
+    }
     OgreBites::WindowEventUtilities::_addRenderWindow(m_render_window);
     m_render_window_registered = true;
     OgreBites::WindowEventUtilities::addWindowEventListener(m_render_window, this);
     m_window_event_listener_registered = true;
 
-    this->SetRenderWindowIcon(m_render_window);
-    m_render_window->setActive(true);
+    if (!m_renderer_child_owns_presentation)
+        this->SetRenderWindowIcon(m_render_window);
+    m_render_window->setActive(!m_renderer_child_owns_presentation);
 
     // Create viewport (without camera)
     m_viewport = m_render_window->addViewport(/*camera=*/nullptr);
@@ -817,6 +980,23 @@ void AppContext::ProcessWindowEvents()
     SDL_Event event;
     while (SDL_PollEvent(&event))
     {
+        if (m_renderer_child_owns_presentation)
+        {
+            // The Ogre-Next child is the only physical input and visible
+            // presentation owner. Drain the hidden SDL host queue without
+            // translating any event into gameplay. If platform code attempts
+            // to reveal the resource host, force it back to hidden state.
+            if (event.type == SDL_WINDOWEVENT &&
+                event.window.windowID == main_window_id &&
+                (event.window.event == SDL_WINDOWEVENT_SHOWN ||
+                 event.window.event == SDL_WINDOWEVENT_RESTORED))
+            {
+                SDL_HideWindow(m_sdl_window);
+                m_render_window->setHidden(true);
+                m_render_window->setActive(false);
+            }
+            continue;
+        }
         if (input_engine->ProcessSdlControllerEvent(event))
         {
             continue;
@@ -1066,8 +1246,17 @@ Ogre::RenderWindow* AppContext::CreateCustomRenderWindow(std::string const& wind
     Ogre::NameValuePairList misc;
     Ogre::ConfigOptionMap ropts = m_ogre_root->getRenderSystem()->getConfigOptions();
     misc["FSAA"] = Ogre::StringConverter::parseInt(ropts["FSAA"].currentValue, 0);
+    if (m_renderer_child_owns_presentation)
+        misc["hidden"] = "true";
 
     Ogre::RenderWindow* rw = Ogre::Root::getSingleton().createRenderWindow(window_name, width, height, false, &misc);
+    if (m_renderer_child_owns_presentation)
+    {
+        if (!rw->isHidden())
+            throw std::runtime_error(
+                "OGRE 14 custom render window could not remain hidden in Ogre-Next bridge mode");
+        rw->setActive(false);
+    }
     return rw;
 }
 
@@ -1173,6 +1362,8 @@ void AppContext::FinishPendingScreenshot() noexcept
 
 void AppContext::ActivateFullscreen(bool val)
 {
+    if (m_renderer_child_owns_presentation)
+        return;
     if (!val && !m_windowed_fix)
     {
         // Workaround OGRE glitch - badly aligned viewport after first full->window switch
