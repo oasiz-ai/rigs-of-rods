@@ -8,6 +8,7 @@ on:
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
       - source/main/CMakeLists.txt
+      - source/main/main.cpp
       - tests/CMakeLists.txt
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
@@ -20,6 +21,7 @@ on:
       - source/main/system/RendererBridge*
       - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
+      - source/main/system/RendererOgre14GameBridge.*
       - source/main/system/RendererSiblingPath.*
       - source/main/system/RendererOgreNextChild.*
       - source/main/system/RendererOgreNextSdlWindowRuntime*
@@ -33,6 +35,7 @@ on:
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
       - tests/gfx/RendererBridge*Tests.cpp
+      - tests/gfx/RendererOgre14GameBridgeTests.cpp
       - tests/gfx/RendererSiblingPathTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
       - tests/gfx/RendererOgreNextWindowHostTests.cpp
@@ -48,6 +51,7 @@ on:
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
       - source/main/CMakeLists.txt
+      - source/main/main.cpp
       - tests/CMakeLists.txt
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
@@ -60,6 +64,7 @@ on:
       - source/main/system/RendererBridge*
       - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
+      - source/main/system/RendererOgre14GameBridge.*
       - source/main/system/RendererSiblingPath.*
       - source/main/system/RendererOgreNextChild.*
       - source/main/system/RendererOgreNextSdlWindowRuntime*
@@ -73,6 +78,7 @@ on:
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
       - tests/gfx/RendererBridge*Tests.cpp
+      - tests/gfx/RendererOgre14GameBridgeTests.cpp
       - tests/gfx/RendererSiblingPathTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
       - tests/gfx/RendererOgreNextWindowHostTests.cpp

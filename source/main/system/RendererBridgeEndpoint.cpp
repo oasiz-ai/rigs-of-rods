@@ -15,7 +15,8 @@
 namespace RoR {
 namespace {
 
-constexpr std::size_t kBridgePrefixRecords = 6U;
+constexpr std::size_t kBridgePrefixRecords =
+    kRendererBridgeEndpointArgvRecordCount;
 
 template <typename Character>
 bool HasValidArguments(int argc, const Character *const argv[]) {

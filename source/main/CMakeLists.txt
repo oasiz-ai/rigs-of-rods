@@ -275,6 +275,7 @@ set(SOURCE_FILES
         system/RendererBridgeLaunchPlan.{h,cpp}
         system/RendererChildIntent.{h,cpp}
         system/RendererChildLauncher.{h,cpp}
+        system/RendererOgre14GameBridge.{h,cpp}
         system/RendererSiblingPath.{h,cpp}
         terrain/OgreTerrainPSSMMaterialGenerator.{h,cpp}
         terrain/LocalLightBudget.h

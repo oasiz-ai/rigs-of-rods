@@ -15,10 +15,17 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/RendererStartupHandoff.h
     source/main/gfx/RendererStartupPlan.cpp
     source/main/gfx/RendererStartupPlan.h
+    source/main/main.cpp
     source/main/system/RendererChildIntent.cpp
     source/main/system/RendererChildIntent.h
     source/main/system/RendererChildLauncher.cpp
     source/main/system/RendererChildLauncher.h
+    source/main/system/RendererBridgeChannel.cpp
+    source/main/system/RendererBridgeChannel.h
+    source/main/system/RendererBridgeEndpoint.cpp
+    source/main/system/RendererBridgeEndpoint.h
+    source/main/system/RendererOgre14GameBridge.cpp
+    source/main/system/RendererOgre14GameBridge.h
     source/main/system/RendererSiblingPath.cpp
     source/main/system/RendererSiblingPath.h
     source/main/system/RendererOgreNextChild.cpp
@@ -38,6 +45,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererChildIntentTests.cpp
     tests/gfx/RendererChildLauncherFakeChild.cpp
     tests/gfx/RendererChildLauncherTests.cpp
+    tests/gfx/RendererOgre14GameBridgeTests.cpp
     tests/gfx/RendererSiblingPathTests.cpp
     tests/gfx/RendererOgreNextChildTests.cpp
     tests/gfx/RendererOgreNextWindowHostTests.cpp
@@ -85,10 +93,17 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/main.cpp"
     "source/main/system/RendererChildIntent.cpp"
     "source/main/system/RendererChildIntent.h"
     "source/main/system/RendererChildLauncher.cpp"
     "source/main/system/RendererChildLauncher.h"
+    "source/main/system/RendererBridgeChannel.cpp"
+    "source/main/system/RendererBridgeChannel.h"
+    "source/main/system/RendererBridgeEndpoint.cpp"
+    "source/main/system/RendererBridgeEndpoint.h"
+    "source/main/system/RendererOgre14GameBridge.cpp"
+    "source/main/system/RendererOgre14GameBridge.h"
     "source/main/system/RendererSiblingPath.cpp"
     "source/main/system/RendererSiblingPath.h"
     "source/main/system/RendererOgreNextChild.cpp"
@@ -107,6 +122,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererChildIntentTests.cpp"
     "tests/gfx/RendererChildLauncherFakeChild.cpp"
     "tests/gfx/RendererChildLauncherTests.cpp"
+    "tests/gfx/RendererOgre14GameBridgeTests.cpp"
     "tests/gfx/RendererSiblingPathTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"
     "tests/gfx/RendererOgreNextWindowHostTests.cpp"

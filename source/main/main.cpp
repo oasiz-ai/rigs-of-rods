@@ -54,6 +54,7 @@
 #include "RigDef_TestHooks.h"
 #endif
 #include "RoRVersion.h"
+#include "RendererOgre14GameBridge.h"
 #include "ScriptEngine.h"
 #include "Skidmark.h"
 #include "SoundScriptManager.h"
@@ -61,6 +62,7 @@
 #include "Utils.h"
 #include <Overlay/OgreOverlaySystem.h>
 #include <ctime>
+#include <cstdio>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
@@ -256,6 +258,38 @@ extern "C" {
 int main(int argc, char *argv[])
 {
     using namespace RoR;
+
+    // Decode and adopt the optional supervisor bridge before libraries or
+    // worker threads can inherit its private handles. Direct RoR-Ogre14
+    // launches retain the caller's original argv vector byte-for-byte.
+    RendererOgre14GameBridge renderer_game_bridge;
+    const RendererOgre14GameBridgeResult renderer_bridge_result =
+        renderer_game_bridge.Initialize(argc, argv);
+    if (!renderer_bridge_result)
+    {
+        std::fprintf(
+            stderr,
+            "RoR OGRE 14 game bridge: %s (endpoint=%s, channel=%s, "
+            "native-error=%u)\n",
+            ToString(renderer_bridge_result.status),
+            ToString(renderer_bridge_result.endpoint_status),
+            ToString(renderer_bridge_result.channel.status),
+            static_cast<unsigned int>(
+                renderer_bridge_result.channel.native_error_code));
+        std::fflush(stderr);
+        return renderer_bridge_result.status ==
+                       RendererOgre14GameBridgeStatus::FAILED_INTERNAL ||
+                   renderer_bridge_result.status ==
+                       RendererOgre14GameBridgeStatus::
+                           FAILED_CHANNEL_ADOPTION
+                   ? 70
+                   : 64;
+    }
+    if (renderer_bridge_result.active)
+    {
+        argc = renderer_game_bridge.forwarded_argc();
+        argv = renderer_game_bridge.forwarded_argv();
+    }
 
 #ifdef USE_CURL
     curl_global_init(CURL_GLOBAL_ALL); // MUST init before any threads are started

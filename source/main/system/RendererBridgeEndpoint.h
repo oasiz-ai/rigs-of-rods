@@ -14,6 +14,7 @@
 #include "RendererChildIntent.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -24,6 +25,7 @@ namespace RoR {
 /// It is independent of the renderer-selection intent version because the
 /// compatibility game host and Ogre-Next presentation child both consume it.
 constexpr std::uint32_t kRendererBridgeEndpointArgvContractVersion = 1U;
+constexpr std::size_t kRendererBridgeEndpointArgvRecordCount = 6U;
 
 enum class RendererBridgeRole : std::uint8_t {
   GAME_HOST = 0U,
