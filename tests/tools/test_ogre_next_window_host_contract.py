@@ -459,6 +459,7 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
         self.assertEqual(self.workflow.count(f"python -O {SELF_PATH}"), 1)
         for token in (
             "libx11-xcb-dev",
+            "libxrandr-dev",
             "libxcb1-dev",
             "xauth",
             "xvfb",
