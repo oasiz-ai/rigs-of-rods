@@ -49,6 +49,7 @@ set(SOURCE_FILES
         gfx/render/PbrReference.{h,cpp}
         gfx/render/ReflectionProbeCaptureReceipt.{h,cpp}
         gfx/render/ReflectionProbeRuntime.{h,cpp}
+        gfx/render/RenderAssetDeltaTransport.{h,cpp}
         gfx/render/RenderAssetId.{h,cpp}
         gfx/render/RenderAssetRegistry.{h,cpp}
         gfx/render/README.md
@@ -56,6 +57,8 @@ set(SOURCE_FILES
         gfx/render/RenderFrame.{h,cpp}
         gfx/render/RenderMath.h
         gfx/render/RenderResourceDescriptors.{h,cpp}
+        gfx/render/RenderTransportDetail.h
+        gfx/render/RenderTransportEnvelope.{h,cpp}
         gfx/render/RendererFrontend.{h,cpp}
         gfx/render/RenderValidation.h
         gfx/render/ResourceHandle.{h,cpp}
@@ -377,10 +380,12 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/PbrReference.cpp
         gfx/render/ReflectionProbeCaptureReceipt.cpp
         gfx/render/ReflectionProbeRuntime.cpp
+        gfx/render/RenderAssetDeltaTransport.cpp
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp
+        gfx/render/RenderTransportEnvelope.cpp
         gfx/render/RendererFrontend.cpp
         gfx/render/ResourceHandle.cpp
         gfx/render/SceneSnapshot.cpp
@@ -399,10 +404,12 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/PbrReference.cpp
         gfx/render/ReflectionProbeCaptureReceipt.cpp
         gfx/render/ReflectionProbeRuntime.cpp
+        gfx/render/RenderAssetDeltaTransport.cpp
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp
+        gfx/render/RenderTransportEnvelope.cpp
         gfx/render/RendererFrontend.cpp
         gfx/render/SceneSnapshot.cpp
         gfx/render/SceneSnapshotTransport.cpp

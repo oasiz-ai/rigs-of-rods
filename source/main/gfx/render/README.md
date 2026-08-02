@@ -124,17 +124,15 @@ Old lighting hash values are not comparable with the current version-2 digest
 because the scene schema, registry identity, and calibrated photometry are part
 of the contract.
 
-## Cross-process scene snapshot transport
+## Cross-process scene and asset transport
 
-`SceneSnapshotTransport` version 1 is the deterministic, fail-closed wire edge
-for moving one complete `SceneSnapshot` version 4 and one
-`CameraViewRequest` under render-frame contract version 2 between isolated
-processes. It carries every current scene field: identities and simulation
-time, absolute origin, environment and analytic sky, mesh instances, current
-and previous lights, reflection probes, full dynamic-mesh updates, particle
-events, and camera history/jitter/exposure. The immutable decoded owner is
-published only after the entire candidate passes framing, digest, allocation,
-semantic, and exact-consumption validation.
+`RenderTransportEnvelope` version 1 is the deterministic, fail-closed wire
+edge shared by isolated render processes. Message kind `1` carries one complete
+`SceneSnapshot` version 4 plus one `CameraViewRequest` under render-frame
+contract version 2. Message kind `2` carries one complete `RenderAssetDelta`
+version 1. Typed decoders publish immutable owners only after the entire
+candidate passes framing, digest, allocation, semantic, and exact-consumption
+validation.
 
 The fixed 64-byte header is independent of host structure packing:
 
@@ -143,42 +141,69 @@ The fixed 64-byte header is independent of host structure packing:
 | 0 | 8 | bytes | ASCII `RORSCN01` magic |
 | 8 | 2 | little-endian `u16` | transport version (`1`) |
 | 10 | 2 | little-endian `u16` | header size (`64`) |
-| 12 | 2 | little-endian `u16` | message kind (`1`) |
+| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` assets) |
 | 14 | 2 | little-endian `u16` | reserved flags (`0`) |
 | 16 | 8 | little-endian `u64` | strictly ordered sequence |
 | 24 | 8 | little-endian `u64` | exact payload byte count |
 | 32 | 32 | bytes | SHA-256 of the exact payload |
 
-The payload uses explicit little-endian integer and IEC 559 binary32/binary64
-encoding; it never serializes C++ object storage. Signed zero is canonicalized
-to positive zero during encoding and negative-zero, NaN, and infinity bit
-patterns are rejected during decoding. Scene collections retain their
-validated strictly increasing identity order, no map or backend traversal can
-reorder them, and trailing bytes are forbidden. Unknown transport versions,
-message kinds, payload versions, scene versions, and camera versions are never
-implicitly migrated.
+The scene payload carries every current scene field: identities and simulation
+time, absolute origin, environment and analytic sky, mesh instances, current
+and previous lights, reflection probes, full dynamic-mesh updates, particle
+events, and camera history/jitter/exposure. Scene collections retain their
+validated strictly increasing identity order, so no map or backend traversal
+can reorder them.
+
+The asset payload pins the registry, mesh, texture, material, and sampler
+descriptor versions. It carries registry/base/target sequence lineage, the
+full-snapshot marker, sorted UPSERT/DESTROY mutations, every descriptor field,
+mesh stream and index bytes, and every texture-mip byte. Each UPSERT has an
+explicit resource kind and exact `u64` byte length; its nested reader must
+consume that resource subframe exactly. Material texture and sampler
+dependencies remain stable asset references. No separate bulk-data carrier is
+needed for the current descriptor contract because mesh and texture storage is
+already embedded. Any future resource larger than this atomic message's caps
+requires an explicitly versioned chunking contract rather than an implicit
+reference or partial payload.
+
+Both payloads use explicit little-endian integers and IEC 559 binary32/binary64
+encoding; neither serializes C++ object storage. Scene values canonicalize
+signed zero to positive zero, and the scene decoder rejects negative zero.
+Asset values preserve both signed-zero encodings because asset revision
+identity is bit-exact. Both decoders reject NaN and infinity. Trailing bytes and
+unknown envelope, payload, or descriptor versions are forbidden.
 
 Before any decoded vector reserves memory, its count is checked against the
-protocol cap, the bytes still present, and the cumulative 128 MiB decoded
-allocation budget. Payloads are capped at 64 MiB, with additional limits for
-every scene collection and deformable vertex stream. A decoder accepts exactly
-the next sequence; replay, gaps, corruption, truncation, or semantic failure
-leave both its expected sequence and previously published immutable owner
-unchanged. The codec contains no socket, process-spawn, OS packing, OGRE header,
-or third-party serializer dependency, so an eventual byte-stream adapter can
-choose platform IPC without changing scene semantics.
+protocol cap, bytes still present, and a cumulative allocation budget. Scene
+payloads are capped at 64 MiB and decoded allocations at 128 MiB. Asset
+payloads are capped at 640 MiB and decoded allocations at 768 MiB, with at most
+65,536 mutations, 512 MiB per resource, 512 MiB per texture blob and across all
+texture blobs, and 16 mip levels per texture. Mesh stream and index counts have
+additional fixed caps. These limits are checked before reserve or blob copy.
+
+Standalone typed decoders own a private envelope sequence. A live bridge gives
+the scene and asset decoders one `RenderTransportSequenceState`, producing one
+strictly ordered interleaved stream. The receiver applies an asset transaction
+to its private `RenderAssetRegistry` before committing the envelope sequence;
+the next scene can then validate against that exact asset sequence. Replay,
+gaps, wrong-kind routing, corruption, truncation, semantic failure, dependency
+failure, or tombstone resurrection leave the expected envelope sequence,
+asset registry, and previously published immutable owner unchanged. One caller
+serializes decode operations.
+
+The codecs contain no socket, process-spawn, OS packing, OGRE header, or
+third-party serializer dependency, so a byte-stream adapter can choose
+platform IPC without changing scene or asset semantics.
 
 Process isolation is required for the live migration bridge. OGRE 1.14 and
 Ogre-Next expose overlapping global `Ogre::*` C++ symbols and runtime-global
 state; loading both into one executable would make ABI resolution and teardown
 unsafe even when the public renderer boundary itself is neutral. Keeping the
 legacy simulation/game process and modern render process in separate address
-spaces lets each link exactly one OGRE generation. This transport is the first
-scene/camera message, not a claim that the live bridge is complete:
-`RenderAssetDelta` synchronization must receive its own versioned message kind
-before a remote renderer can resolve scene assets, and input, UI, process
-lifecycle, back-pressure, surface, and presentation messages remain explicit
-later milestones.
+spaces lets each link exactly one OGRE generation. Scene/camera and asset
+transactions now have versioned messages, but this is not a claim that the live
+bridge is complete: input, UI, process lifecycle, back-pressure, surface, and
+presentation messages remain explicit later milestones.
 
 The native interop and native ray-tracing interfaces are contracts, not an
 implementation or readiness claim. All related capabilities fail closed by

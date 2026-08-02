@@ -12,6 +12,7 @@
 #pragma once
 
 #include "RenderFrame.h"
+#include "RenderTransportEnvelope.h"
 
 #include <array>
 #include <cstddef>
@@ -21,11 +22,13 @@
 
 namespace RoR::Render {
 
-constexpr std::uint16_t kSceneSnapshotTransportVersion = 1U;
+constexpr std::uint16_t kSceneSnapshotTransportVersion =
+    kRenderTransportEnvelopeVersion;
 constexpr std::uint32_t kSceneSnapshotPayloadVersion = 1U;
 constexpr std::uint32_t kSceneSnapshotTransportSceneVersion = 4U;
 constexpr std::uint32_t kSceneSnapshotTransportCameraVersion = 2U;
-constexpr std::size_t kSceneSnapshotTransportHeaderBytes = 64U;
+constexpr std::size_t kSceneSnapshotTransportHeaderBytes =
+    kRenderTransportEnvelopeHeaderBytes;
 constexpr std::uint64_t kSceneSnapshotTransportMaximumPayloadBytes =
     64ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t kSceneSnapshotTransportMaximumDecodedAllocationBytes =
@@ -41,35 +44,11 @@ constexpr std::uint32_t kSceneSnapshotTransportMaximumVerticesPerUpdate =
 constexpr std::uint64_t kSceneSnapshotTransportMaximumPositionsPerMessage =
     4194304ULL;
 
-inline constexpr std::array<std::uint8_t, 8U> kSceneSnapshotTransportMagic{{
-    0x52U, 0x4fU, 0x52U, 0x53U, 0x43U, 0x4eU, 0x30U, 0x31U,
-}};
+inline constexpr auto kSceneSnapshotTransportMagic =
+    kRenderTransportEnvelopeMagic;
 
-enum class SceneSnapshotTransportMessageKind : std::uint16_t {
-  SCENE_SNAPSHOT_V4_CAMERA_V2 = 1U,
-};
-
-enum class SceneSnapshotTransportStatus : std::uint8_t {
-  OK = 0U,
-  INVALID_ARGUMENT,
-  ALLOCATION_FAILURE,
-  FRAME_TRUNCATED,
-  INVALID_MAGIC,
-  UNSUPPORTED_TRANSPORT_VERSION,
-  INVALID_HEADER,
-  UNKNOWN_MESSAGE_KIND,
-  INVALID_SEQUENCE,
-  REPLAYED_SEQUENCE,
-  OUT_OF_ORDER_SEQUENCE,
-  PAYLOAD_LIMIT_EXCEEDED,
-  FRAME_SIZE_MISMATCH,
-  PAYLOAD_DIGEST_MISMATCH,
-  COUNT_LIMIT_EXCEEDED,
-  DECODED_ALLOCATION_LIMIT_EXCEEDED,
-  NON_CANONICAL_FLOAT,
-  MALFORMED_PAYLOAD,
-  PAYLOAD_VALIDATION_FAILED,
-};
+using SceneSnapshotTransportMessageKind = RenderTransportMessageKind;
+using SceneSnapshotTransportStatus = RenderTransportStatus;
 
 [[nodiscard]] bool IsKnownSceneSnapshotTransportMessageKind(
     SceneSnapshotTransportMessageKind kind) noexcept;
@@ -81,16 +60,8 @@ enum class SceneSnapshotTransportStatus : std::uint8_t {
 ComputeSceneSnapshotTransportPayloadDigest(const std::uint8_t *payload,
                                            std::size_t payload_size) noexcept;
 
-struct SceneSnapshotTransportEncodeResult {
-  std::vector<std::uint8_t> bytes;
-  SceneSnapshotTransportStatus status =
-      SceneSnapshotTransportStatus::INVALID_ARGUMENT;
-
-  [[nodiscard]] bool ok() const noexcept {
-    return status == SceneSnapshotTransportStatus::OK && !bytes.empty();
-  }
-  explicit operator bool() const noexcept { return ok(); }
-};
+using SceneSnapshotTransportEncodeResult =
+    RenderTransportEnvelopeEncodeResult;
 
 /// Immutable decoded ownership. The scene is a validated deep-owned snapshot;
 /// camera state is accessible only through this const message owner.
@@ -151,6 +122,8 @@ class SceneSnapshotTransportDecoder final {
 public:
   explicit SceneSnapshotTransportDecoder(
       std::uint64_t first_expected_sequence = 1U) noexcept;
+  explicit SceneSnapshotTransportDecoder(
+      RenderTransportSequenceState &shared_sequence_state) noexcept;
 
   SceneSnapshotTransportDecoder(const SceneSnapshotTransportDecoder &) =
       delete;
@@ -165,10 +138,10 @@ public:
   Accept(const std::vector<std::uint8_t> &frame);
 
   [[nodiscard]] std::uint64_t next_expected_sequence() const noexcept {
-    return next_expected_sequence_;
+    return sequence_state_->next_expected_sequence();
   }
   [[nodiscard]] std::uint64_t last_accepted_sequence() const noexcept {
-    return last_accepted_sequence_;
+    return sequence_state_->last_accepted_sequence();
   }
   [[nodiscard]] const std::shared_ptr<
       const DecodedSceneSnapshotTransportMessage> &
@@ -177,8 +150,8 @@ public:
   }
 
 private:
-  std::uint64_t next_expected_sequence_ = 0U;
-  std::uint64_t last_accepted_sequence_ = 0U;
+  RenderTransportSequenceState owned_sequence_state_;
+  RenderTransportSequenceState *sequence_state_ = &owned_sequence_state_;
   std::shared_ptr<const DecodedSceneSnapshotTransportMessage> published_;
 };
 
