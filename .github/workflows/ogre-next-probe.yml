@@ -17,12 +17,14 @@ on:
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
+      - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererLauncherMain.cpp
       - source/main/system/RendererLauncherPackageConfig.h.in
       - source/main/system/RendererPublicLauncher.*
       - source/main/gfx/render/**
       - tests/gfx/RendererBackendPolicyTests.cpp
+      - tests/gfx/RendererChildIntentTests.cpp
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
       - tests/gfx/RendererPublicLauncherLegacyChild.cpp
@@ -46,12 +48,14 @@ on:
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
+      - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererLauncherMain.cpp
       - source/main/system/RendererLauncherPackageConfig.h.in
       - source/main/system/RendererPublicLauncher.*
       - source/main/gfx/render/**
       - tests/gfx/RendererBackendPolicyTests.cpp
+      - tests/gfx/RendererChildIntentTests.cpp
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
       - tests/gfx/RendererPublicLauncherLegacyChild.cpp

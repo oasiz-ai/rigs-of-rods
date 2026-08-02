@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "RendererChildIntent.h"
 #include "RendererChildLauncher.h"
 
 #include <cstdint>

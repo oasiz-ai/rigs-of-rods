@@ -49,12 +49,14 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererBackendPolicy.*",
             "source/main/gfx/RendererStartupHandoff.*",
             "source/main/gfx/RendererStartupPlan.*",
+            "source/main/system/RendererChildIntent.*",
             "source/main/system/RendererChildLauncher.*",
             "source/main/system/RendererLauncherMain.cpp",
             "source/main/system/RendererLauncherPackageConfig.h.in",
             "source/main/system/RendererPublicLauncher.*",
             "source/main/gfx/render/**",
             "tests/gfx/RendererBackendPolicyTests.cpp",
+            "tests/gfx/RendererChildIntentTests.cpp",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
@@ -171,6 +173,15 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 "target_include_directories(\n        ror_renderer_startup_handoff_tests"
             )
         ]
+        intent_target_block = cmake[
+            cmake.index(
+                "add_executable(\n        ror_renderer_child_intent_tests"
+            ) :
+            cmake.index(
+                "target_include_directories(\n"
+                "        ror_renderer_child_intent_tests"
+            )
+        ]
         launcher_target_block = cmake[
             cmake.index(
                 "add_executable(\n        ror_renderer_child_launcher_tests"
@@ -248,6 +259,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "source/main/gfx/RendererStartupHandoff.cpp",
             "add_test(NAME ror_renderer_startup_handoff",
+            "ror_renderer_child_intent_tests",
+            "tests/gfx/RendererChildIntentTests.cpp",
+            "source/main/system/RendererChildIntent.cpp",
+            "add_test(NAME ror_renderer_child_intent",
+            "_ror_n1_package_dependencies\n"
+            "        ror_renderer_backend_policy_tests",
             "ror_renderer_child_launcher_fake_child",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "ror_renderer_child_launcher_tests",
@@ -272,6 +289,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererStartupHandoff.h",
             "source/main/gfx/RendererStartupPlan.cpp",
             "source/main/gfx/RendererStartupPlan.h",
+            "source/main/system/RendererChildIntent.cpp",
+            "source/main/system/RendererChildIntent.h",
             "source/main/system/RendererChildLauncher.cpp",
             "source/main/system/RendererChildLauncher.h",
             "source/main/system/RendererLauncherMain.cpp",
@@ -279,6 +298,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererPublicLauncher.cpp",
             "source/main/system/RendererPublicLauncher.h",
             "tests/gfx/RendererBackendPolicyTests.cpp",
+            "tests/gfx/RendererChildIntentTests.cpp",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
@@ -310,7 +330,25 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             with self.subTest(handoff_target_source=source):
                 self.assertEqual(handoff_target_block.count(source), 1)
         for source in (
+            "tests/gfx/RendererChildIntentTests.cpp",
+            "source/main/system/RendererChildIntent.cpp",
+            "source/main/gfx/RendererStartupHandoff.cpp",
+            "source/main/gfx/RendererStartupPlan.cpp",
+            "source/main/gfx/RendererBackendPolicy.cpp",
+        ):
+            with self.subTest(intent_target_source=source):
+                self.assertEqual(intent_target_block.count(source), 1)
+        self.assertNotIn("RendererChildLauncher.cpp", intent_target_block)
+        package_dependencies = cmake[
+            cmake.index("set(_ror_n1_package_dependencies") :
+            cmake.index(")", cmake.index("set(_ror_n1_package_dependencies"))
+        ]
+        self.assertEqual(
+            package_dependencies.count("ror_renderer_child_intent_tests"), 1
+        )
+        for source in (
             "tests/gfx/RendererChildLauncherTests.cpp",
+            "source/main/system/RendererChildIntent.cpp",
             "source/main/system/RendererChildLauncher.cpp",
             "source/main/gfx/RendererStartupHandoff.cpp",
             "source/main/gfx/RendererStartupPlan.cpp",
@@ -327,6 +365,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         for source in (
             "source/main/system/RendererLauncherMain.cpp",
             "source/main/system/RendererPublicLauncher.cpp",
+            "source/main/system/RendererChildIntent.cpp",
             "source/main/system/RendererChildLauncher.cpp",
             "source/main/gfx/RendererStartupHandoff.cpp",
             "source/main/gfx/RendererStartupPlan.cpp",
@@ -338,6 +377,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror_renderer_backend_policy_tests",
             "ror_renderer_startup_plan_tests",
             "ror_renderer_startup_handoff_tests",
+            "ror_renderer_child_intent_tests",
             "ror_renderer_child_launcher_fake_child",
             "ror_renderer_child_launcher_tests",
             "ror_renderer_public_launcher_legacy_child",
@@ -457,12 +497,14 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererBackendPolicy.*",
             "source/main/gfx/RendererStartupHandoff.*",
             "source/main/gfx/RendererStartupPlan.*",
+            "source/main/system/RendererChildIntent.*",
             "source/main/system/RendererChildLauncher.*",
             "source/main/system/RendererLauncherMain.cpp",
             "source/main/system/RendererLauncherPackageConfig.h.in",
             "source/main/system/RendererPublicLauncher.*",
             "source/main/gfx/render/**",
             "tests/gfx/RendererBackendPolicyTests.cpp",
+            "tests/gfx/RendererChildIntentTests.cpp",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",

@@ -1087,12 +1087,15 @@ Gate R1:
   game suffix, binds the decoded request and native backend to the compile-time
   child host, and rejects unknown, reordered, malformed, legacy, reserved
   duplicate, null, foreign-platform, or inconsistent handoff inputs before
-  renderer initialization. Linux/Windows install and CPack staging plus the
-  signed macOS application bundle retain both exact roles and preserve OGRE 14
-  crash symbols. Flat macOS install/CPack remains disabled so it cannot bypass
-  Mach-O rewriting and nested-code signing. The production Ogre-Next child
-  remains open, so immutable package facts still select the explicit
-  compatibility fallback.
+  renderer initialization. The versioned codec is now isolated in
+  `RendererChildIntent`, with a standalone cross-platform target that links no
+  OS process-spawning implementation; `RendererChildLauncher` retains only
+  exact-sibling execution and exit propagation. Linux/Windows install and
+  CPack staging plus the signed macOS application bundle retain both exact
+  roles and preserve OGRE 14 crash symbols. Flat macOS install/CPack remains
+  disabled so it cannot bypass Mach-O rewriting and nested-code signing. The
+  production Ogre-Next child remains open, so immutable package facts still
+  select the explicit compatibility fallback.
   Validation configures `-DROR_OGRE14=ON`, builds
   `ror_renderer_launcher`, and verifies exact `bin/RoR[.exe]` plus
   `bin/RoR-Ogre14[.exe]` siblings in build and package layouts.

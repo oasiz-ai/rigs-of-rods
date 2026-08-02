@@ -218,11 +218,27 @@ set_target_properties(
 )
 
 add_executable(
+    ror_renderer_child_intent_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererChildIntentTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+)
+target_include_directories(
+    ror_renderer_child_intent_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+
+add_executable(
     ror_renderer_child_launcher_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererChildLauncherTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
 )
 target_include_directories(
@@ -266,6 +282,7 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPublicLauncher.cpp"
     "${_ror_renderer_public_launcher_generated_header}"
@@ -326,6 +343,7 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPublicLauncher.cpp"
     "${_ror_renderer_public_launcher_generated_header}"
@@ -1270,6 +1288,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_renderer_backend_policy_tests
     ror_renderer_startup_plan_tests
     ror_renderer_startup_handoff_tests
+    ror_renderer_child_intent_tests
     ror_renderer_child_launcher_fake_child
     ror_renderer_child_launcher_tests
     ror_renderer_public_launcher_tests
@@ -1434,6 +1453,11 @@ add_test(
 add_test(
     NAME renderer_startup_handoff
     COMMAND ror_renderer_startup_handoff_tests
+)
+
+add_test(
+    NAME renderer_child_intent
+    COMMAND ror_renderer_child_intent_tests
 )
 
 add_test(

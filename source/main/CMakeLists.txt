@@ -264,6 +264,7 @@ set(SOURCE_FILES
         system/Console.{h,cpp}
         system/ConsoleCmd.{h,cpp}
         system/CVar.{h,cpp}
+        system/RendererChildIntent.{h,cpp}
         system/RendererChildLauncher.{h,cpp}
         terrain/OgreTerrainPSSMMaterialGenerator.{h,cpp}
         terrain/LocalLightBudget.h
@@ -515,6 +516,8 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
         system/RendererLauncherMain.cpp
         system/RendererPublicLauncher.cpp
         system/RendererPublicLauncher.h
+        system/RendererChildIntent.cpp
+        system/RendererChildIntent.h
         system/RendererChildLauncher.cpp
         system/RendererChildLauncher.h
         gfx/RendererBackendPolicy.cpp

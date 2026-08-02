@@ -102,8 +102,12 @@ Ogre-Next selection as an exact version/frontend/shadow/native-backend argv
 prefix. The child decoder strips only that ordered prefix, owns the preserved
 game suffix, binds the request and declared backend to the compiled host, and
 rejects unknown, malformed, or duplicate reserved state before renderer
-initialization. The argv contract conveys intent rather than authenticating a
-local caller. Linux/Windows install and CPack staging plus the signed macOS
+initialization. That codec now lives in the dependency-free
+`RendererChildIntent` module rather than the OS process launcher. A dedicated
+target includes and links only the intent side of this boundary, so the future
+native child does not inherit `execv`, `CreateProcessW`, or compatibility-child
+process ownership. The argv contract conveys intent rather than authenticating
+a local caller. Linux/Windows install and CPack staging plus the signed macOS
 application bundle now retain both exact executable roles. Flat macOS install
 and CPack rules remain disabled so they cannot bypass Mach-O dependency
 rewriting and nested-code signing; entering this topology also removes only

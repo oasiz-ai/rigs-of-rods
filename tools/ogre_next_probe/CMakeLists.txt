@@ -84,6 +84,8 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/system/RendererChildIntent.cpp"
+    "source/main/system/RendererChildIntent.h"
     "source/main/system/RendererChildLauncher.cpp"
     "source/main/system/RendererChildLauncher.h"
     "source/main/system/RendererLauncherMain.cpp"
@@ -91,6 +93,7 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererPublicLauncher.cpp"
     "source/main/system/RendererPublicLauncher.h"
     "tests/gfx/RendererBackendPolicyTests.cpp"
+    "tests/gfx/RendererChildIntentTests.cpp"
     "tests/gfx/RendererChildLauncherFakeChild.cpp"
     "tests/gfx/RendererChildLauncherTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
@@ -569,6 +572,22 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
+        ror_renderer_child_intent_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererChildIntentTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp")
+    target_include_directories(
+        ror_renderer_child_intent_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    set_target_properties(
+        ror_renderer_child_intent_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
         ror_renderer_child_launcher_fake_child
         "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererChildLauncherFakeChild.cpp")
     set_target_properties(
@@ -584,6 +603,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp")
     target_include_directories(
         ror_renderer_child_launcher_tests
@@ -644,6 +664,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPublicLauncher.cpp"
         "${_ror_renderer_public_launcher_generated_header}")
@@ -698,6 +719,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_backend_policy_tests
         ror_renderer_startup_plan_tests
         ror_renderer_startup_handoff_tests
+        ror_renderer_child_intent_tests
         ror_renderer_child_launcher_fake_child
         ror_renderer_child_launcher_tests
         ror_renderer_public_launcher_legacy_child
@@ -968,6 +990,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp
             source/main/gfx/RendererStartupPlan.h
+            source/main/system/RendererChildIntent.cpp
+            source/main/system/RendererChildIntent.h
             source/main/system/RendererChildLauncher.cpp
             source/main/system/RendererChildLauncher.h
             source/main/system/RendererLauncherMain.cpp
@@ -976,6 +1000,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererPublicLauncher.h
             source/main/gfx/render
             tests/gfx/RendererBackendPolicyTests.cpp
+            tests/gfx/RendererChildIntentTests.cpp
             tests/gfx/RendererChildLauncherFakeChild.cpp
             tests/gfx/RendererChildLauncherTests.cpp
             tests/gfx/RendererPublicLauncherLegacyChild.cpp
@@ -1155,6 +1180,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_backend_policy_tests
         ror_renderer_startup_plan_tests
         ror_renderer_startup_handoff_tests
+        ror_renderer_child_intent_tests
         ror_renderer_child_launcher_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
         "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
@@ -1283,6 +1309,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_backend_policy_tests
         ror_renderer_startup_plan_tests
         ror_renderer_startup_handoff_tests
+        ror_renderer_child_intent_tests
         ror_renderer_child_launcher_fake_child
         ror_renderer_child_launcher_tests
         ror_renderer_public_launcher_legacy_child
@@ -1347,6 +1374,10 @@ endif ()
 if (TARGET ror_renderer_startup_handoff_tests)
     add_test(NAME ror_renderer_startup_handoff
         COMMAND $<TARGET_FILE:ror_renderer_startup_handoff_tests>)
+endif ()
+if (TARGET ror_renderer_child_intent_tests)
+    add_test(NAME ror_renderer_child_intent
+        COMMAND $<TARGET_FILE:ror_renderer_child_intent_tests>)
 endif ()
 if (TARGET ror_renderer_child_launcher_tests)
     add_test(NAME ror_renderer_child_launcher
