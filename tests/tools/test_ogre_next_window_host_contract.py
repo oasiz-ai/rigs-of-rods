@@ -481,6 +481,7 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
             "libx11-xcb-dev",
             "libxrandr-dev",
             "libxcb1-dev",
+            "libxcb-randr0-dev",
             "xauth",
             "xvfb",
             "Linux x86_64 Vulkan null bootstrap plus XCB window-host",

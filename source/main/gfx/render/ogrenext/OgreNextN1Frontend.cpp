@@ -2823,9 +2823,10 @@ public:
     }
     Ogre::ResourceGroupManager &resources =
         Ogre::ResourceGroupManager::getSingleton();
-    Ogre::MaterialManager &materials = Ogre::MaterialManager::getSingleton();
+    Ogre::MaterialManager &material_manager =
+        Ogre::MaterialManager::getSingleton();
     if (resources.resourceGroupExists(kOgreNextPresentationResourceGroup) ||
-        materials.getByName("Ogre/Copy/4xFP32")) {
+        material_manager.getByName("Ogre/Copy/4xFP32")) {
       return RenderOperationResult::Failure(
           RenderOperationCode::BACKEND_FAILURE,
           "presentation-copy resource identity already exists");
@@ -2853,7 +2854,7 @@ public:
     resources.initialiseResourceGroup(kOgreNextPresentationResourceGroup,
                                       true);
 
-    Ogre::MaterialPtr copy_material = materials.getByName(
+    Ogre::MaterialPtr copy_material = material_manager.getByName(
         "Ogre/Copy/4xFP32", kOgreNextPresentationResourceGroup);
     if (!copy_material || copy_material->getNumTechniques() != 1U) {
       return RenderOperationResult::Failure(
