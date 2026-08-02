@@ -44,6 +44,7 @@
 #include "GUI_VehicleInfoTPanel.h"
 #include "GUIManager.h"
 #include "GUIUtils.h"
+#include "gfx/render/GraphicsSceneSnapshotProducer.h"
 #include "InputEngine.h"
 #include "Language.h"
 #include "MumbleIntegration.h"
@@ -55,6 +56,7 @@
 #endif
 #include "RoRVersion.h"
 #include "RendererOgre14GameBridge.h"
+#include "gfx/render/Ogre14GraphicsSceneSource.h"
 #include "ScriptEngine.h"
 #include "Skidmark.h"
 #include "SoundScriptManager.h"
@@ -66,6 +68,7 @@
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 #include <fstream>
@@ -301,6 +304,11 @@ int main(int argc, char *argv[])
     RendererRuntimeGuard renderer_runtime_guard;
     WindowBoundRuntimeGuard window_bound_runtime_guard(overlay_system);
     WorkerRuntimeGuard worker_runtime_guard;
+    std::unique_ptr<Render::Ogre14GraphicsSceneSource>
+        renderer_bridge_scene_source;
+    std::unique_ptr<Render::GraphicsSceneSnapshotProducer>
+        renderer_bridge_scene_producer;
+    std::string renderer_bridge_scene_failure_signature;
 
 #ifndef _DEBUG
     try
@@ -484,6 +492,35 @@ int main(int argc, char *argv[])
         App::GetGfxScene()->GetSceneManager()->addRenderQueueListener(overlay_system);
         App::CreateCameraManager(); // Creates OGRE Camera
         App::GetGfxScene()->GetEnvMap().SetupEnvMap(); // Needs camera
+
+        if (renderer_game_bridge.active())
+        {
+            try
+            {
+                Render::GraphicsSceneSnapshotProducerConfiguration
+                    scene_configuration;
+                // One game-host process owns one producer lifetime. This
+                // nonzero registry identity is stable within that lifetime;
+                // the supervisor session already separates process streams.
+                scene_configuration.registry_id =
+                    0x524F525F4F473134ULL; // "ROR_OG14"
+                renderer_bridge_scene_source =
+                    std::make_unique<Render::Ogre14GraphicsSceneSource>(
+                        *App::GetGfxScene());
+                renderer_bridge_scene_producer =
+                    std::make_unique<
+                        Render::GraphicsSceneSnapshotProducer>(
+                            scene_configuration);
+                App::GetGfxScene()->
+                    EnableOgre14GraphicsSceneCapture();
+            }
+            catch (...)
+            {
+                LOG("[RoR|RendererBridge|Scene] Could not initialize the "
+                    "OGRE 14 joined-scene adapter");
+                return 70;
+            }
+        }
 
         App::CreateGuiManager(); // Needs scene manager
 
@@ -2550,6 +2587,36 @@ int main(int argc, char *argv[])
                 App::sim_state->getEnum<SimState>() == SimState::EDITOR_MODE) // Needed for character movement
             {
                 App::GetGfxScene()->BufferSimulationData();
+                if (renderer_bridge_scene_source != nullptr &&
+                    renderer_bridge_scene_producer != nullptr)
+                {
+                    const Render::GraphicsSceneSnapshotProduceResult
+                        scene_result =
+                            renderer_bridge_scene_producer->
+                                ProduceJoinedFrame(
+                                    *renderer_bridge_scene_source);
+                    if (!scene_result)
+                    {
+                        const std::string failure_signature =
+                            scene_result.validation.field + "\n" +
+                            scene_result.validation.detail;
+                        if (failure_signature !=
+                            renderer_bridge_scene_failure_signature)
+                        {
+                            renderer_bridge_scene_failure_signature =
+                                failure_signature;
+                            LOG(fmt::format(
+                                "[RoR|RendererBridge|Scene] Snapshot not "
+                                "published: field='{}', detail='{}'",
+                                scene_result.validation.field,
+                                scene_result.validation.detail));
+                        }
+                    }
+                    else
+                    {
+                        renderer_bridge_scene_failure_signature.clear();
+                    }
+                }
             }
 
             // Calculate elapsed simulation time (taking simulation speed and pause into account)

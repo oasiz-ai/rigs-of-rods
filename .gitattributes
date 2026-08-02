@@ -65,6 +65,7 @@ content-source/cityworld_next/provenance/*.json text eol=lf
 # exact byte hashes. Keep the isolated probe identical on every checkout.
 cmake/RendererLauncherPackageConfig.cmake text eol=lf
 source/main/gfx/RendererBackendPolicy.* text eol=lf
+source/main/gfx/GfxScene.* text eol=lf
 source/main/gfx/RendererStartupHandoff.* text eol=lf
 source/main/gfx/RendererStartupPlan.* text eol=lf
 source/main/system/RendererBridge* text eol=lf
@@ -85,6 +86,7 @@ source/main/system/RendererPublicLauncher.* text eol=lf
 source/main/gfx/render/** text eol=lf
 tests/gfx/render/RenderTransportStreamTests.cpp text eol=lf
 tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp text eol=lf
+tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp text eol=lf
 tests/gfx/RendererBackendPolicyTests.cpp text eol=lf
 tests/gfx/RendererChildIntentTests.cpp text eol=lf
 tests/gfx/RendererChildLauncherFakeChild.cpp text eol=lf

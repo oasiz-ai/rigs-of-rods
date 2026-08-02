@@ -44,8 +44,86 @@
 
 #include <Ogre.h>
 
+#include <cmath>
+#include <limits>
+
 using namespace Ogre;
 using namespace RoR;
+
+namespace
+{
+
+RoR::Render::Matrix4x4 ToRendererBoundaryMatrix(
+    const Ogre::Matrix4& matrix)
+{
+    RoR::Render::Matrix4x4 converted;
+    for (std::size_t row = 0U; row < 4U; ++row)
+    {
+        for (std::size_t column = 0U; column < 4U; ++column)
+        {
+            converted.elements[column * 4U + row] =
+                static_cast<float>(matrix[row][column]);
+        }
+    }
+    return converted;
+}
+
+bool CaptureOgre14MainCamera(
+    RoR::Render::GraphicsSceneCameraInput& output)
+{
+    if (RoR::App::GetCameraManager() == nullptr ||
+        RoR::App::GetAppContext() == nullptr)
+    {
+        return false;
+    }
+    Ogre::Camera* const camera =
+        RoR::App::GetCameraManager()->GetCamera();
+    Ogre::Viewport* const viewport =
+        RoR::App::GetAppContext()->GetViewport();
+    if (camera == nullptr || viewport == nullptr ||
+        camera->getViewport() != viewport ||
+        camera->isCustomProjectionMatrixEnabled())
+    {
+        return false;
+    }
+
+    const Ogre::RealRect extents = camera->getFrustumExtents();
+    RoR::Render::Ogre14CameraCaptureInput input;
+    input.view_id = 1U;
+    input.width = static_cast<std::uint32_t>(viewport->getActualWidth());
+    input.height = static_cast<std::uint32_t>(viewport->getActualHeight());
+    input.view_from_render =
+        ToRendererBoundaryMatrix(camera->getViewMatrix(true));
+    if (camera->getProjectionType() == Ogre::PT_PERSPECTIVE)
+    {
+        input.projection =
+            RoR::Render::Ogre14CameraProjectionKind::PERSPECTIVE;
+    }
+    else if (camera->getProjectionType() == Ogre::PT_ORTHOGRAPHIC)
+    {
+        input.projection =
+            RoR::Render::Ogre14CameraProjectionKind::ORTHOGRAPHIC;
+    }
+    else
+    {
+        return false;
+    }
+    input.left = static_cast<float>(extents.left);
+    input.right = static_cast<float>(extents.right);
+    input.top = static_cast<float>(extents.top);
+    input.bottom = static_cast<float>(extents.bottom);
+    input.near_plane =
+        static_cast<float>(camera->getNearClipDistance());
+    input.far_plane =
+        static_cast<float>(camera->getFarClipDistance());
+    // OGRE 14 has no scene-linear view-exposure state. Identity is therefore
+    // exact here; optional display postprocessing remains outside the scene.
+    input.exposure = 1.0F;
+    input.visibility_mask = viewport->getVisibilityMask();
+    return RoR::Render::BuildOgre14GraphicsSceneCamera(input, output).ok();
+}
+
+} // namespace
 
 void GfxScene::CreateDustPools()
 {
@@ -60,6 +138,9 @@ void GfxScene::CreateDustPools()
 
 void GfxScene::ClearScene()
 {
+    m_ogre14_joined_buffer_ready = false;
+    m_ogre14_joined_buffer_atomic = false;
+
     // Delete dustpools
     for (auto itor : m_dustpools)
     {
@@ -294,6 +375,23 @@ void GfxScene::RegisterGfxActor(RoR::GfxActor* gfx_actor)
 
 void GfxScene::BufferSimulationData()
 {
+    ActorManager* actor_manager = nullptr;
+    std::uint64_t simulation_tick_before = 0U;
+    float simulation_time_before = 0.0F;
+    if (m_ogre14_scene_capture_enabled)
+    {
+        m_ogre14_joined_buffer_ready = false;
+        m_ogre14_joined_buffer_atomic = false;
+        actor_manager = App::GetGameContext()->GetActorManager();
+        if (actor_manager == nullptr)
+        {
+            return;
+        }
+        simulation_tick_before =
+            actor_manager->GetCompletedPhysicsSteps();
+        simulation_time_before = actor_manager->GetTotalTime();
+    }
+
     m_simbuf.simbuf_player_actor = App::GetGameContext()->GetPlayerActor();
     m_simbuf.simbuf_character_pos = App::GetGameContext()->GetPlayerCharacter()->getPosition();
     m_simbuf.simbuf_sim_paused = App::GetGameContext()->GetActorManager()->IsSimulationPaused();
@@ -325,6 +423,81 @@ void GfxScene::BufferSimulationData()
     {
         a->BufferSimulationData();
     }
+
+    if (!m_ogre14_scene_capture_enabled)
+    {
+        return;
+    }
+    const std::uint64_t simulation_tick_after =
+        actor_manager->GetCompletedPhysicsSteps();
+    const float simulation_time_after = actor_manager->GetTotalTime();
+    if (m_ogre14_joined_buffer_epoch ==
+        (std::numeric_limits<std::uint64_t>::max)())
+    {
+        return;
+    }
+    ++m_ogre14_joined_buffer_epoch;
+    m_ogre14_joined_buffer_ready = true;
+    m_ogre14_joined_buffer_atomic =
+        simulation_tick_before == simulation_tick_after &&
+        simulation_time_before == simulation_time_after &&
+        std::isfinite(simulation_time_after) &&
+        simulation_time_after >= 0.0F;
+    if (m_ogre14_joined_buffer_atomic)
+    {
+        m_ogre14_simulation_tick = simulation_tick_after;
+        m_ogre14_simulation_time_seconds =
+            static_cast<double>(simulation_time_after);
+    }
+}
+
+Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
+    Render::Ogre14GraphicsSceneCapture& capture)
+{
+    Render::Ogre14GraphicsSceneCapture candidate;
+    candidate.joined_buffer_epoch = m_ogre14_joined_buffer_epoch;
+    if (m_ogre14_joined_buffer_ready && m_ogre14_joined_buffer_atomic)
+    {
+        candidate.available_fields |=
+            Render::Ogre14GraphicsSceneCaptureFieldBit(
+                Render::Ogre14GraphicsSceneCaptureField::
+                    JOINED_BUFFER_ATOMICITY);
+        candidate.frame.simulation_tick = m_ogre14_simulation_tick;
+        candidate.available_fields |=
+            Render::Ogre14GraphicsSceneCaptureFieldBit(
+                Render::Ogre14GraphicsSceneCaptureField::SIMULATION_TICK);
+        candidate.frame.simulation_time_seconds =
+            m_ogre14_simulation_time_seconds;
+        candidate.available_fields |=
+            Render::Ogre14GraphicsSceneCaptureFieldBit(
+                Render::Ogre14GraphicsSceneCaptureField::
+                    SIMULATION_TIME_SECONDS);
+
+        // OGRE 14 stores the live world directly in simulation coordinates;
+        // it has no floating render-origin rebase in this process.
+        candidate.frame.absolute_world_origin_meters = {};
+        candidate.available_fields |=
+            Render::Ogre14GraphicsSceneCaptureFieldBit(
+                Render::Ogre14GraphicsSceneCaptureField::
+                    ABSOLUTE_WORLD_ORIGIN_METERS);
+
+        if (CaptureOgre14MainCamera(candidate.frame.camera))
+        {
+            candidate.available_fields |=
+                Render::Ogre14GraphicsSceneCaptureFieldBit(
+                    Render::Ogre14GraphicsSceneCaptureField::CAMERA);
+        }
+    }
+
+    // Deliberately unavailable in this first production slice:
+    // - environment: OGRE colors have no reviewed radiometric calibration;
+    // - assets/static_meshes: no complete stable CPU inventory yet separates
+    //   terrain MeshObjects from deformable actor geometry;
+    // - lights: stable photometric lux/candela values are not authored;
+    // - reflection_probes: the dynamic GfxEnvmap is not an authored probe.
+    // Their bits remain clear so no empty or unit-valued substitutes publish.
+    capture = std::move(candidate);
+    return Render::ValidationResult::Success();
 }
 
 void GfxScene::RemoveGfxActor(RoR::GfxActor* remove_me)

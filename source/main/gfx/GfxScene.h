@@ -29,6 +29,7 @@
 #include "ForwardDeclarations.h"
 #include "EnvironmentMap.h" // RoR::GfxEnvmap
 #include "GfxData.h"
+#include "render/Ogre14GraphicsSceneSource.h"
 #include "SimBuffers.h"
 #include "Skidmark.h"
 
@@ -43,7 +44,7 @@ namespace RoR {
 
 /// Provides a 3D graphical representation of the simulation
 /// Idea: simulation runs at it's own constant rate, scene updates and rendering run asynchronously.
-class GfxScene
+class GfxScene: public Render::IOgre14GraphicsSceneCaptureProvider
 {
 public:
 
@@ -85,6 +86,13 @@ public:
     void           RegisterGfxCharacter(RoR::GfxCharacter* gfx_character);
     void           RemoveGfxCharacter(RoR::GfxCharacter* gfx_character);
     void           BufferSimulationData(); //!< Run this when simulation is halted
+    void           EnableOgre14GraphicsSceneCapture() noexcept
+                   { m_ogre14_scene_capture_enabled = true; }
+    /// Reads only the completed simulation buffer and graphics-owned OGRE 14
+    /// state. Incomplete renderer-neutral inventories are identified through
+    /// available_fields rather than populated with guessed defaults.
+    Render::ValidationResult CaptureOgre14GraphicsScene(
+        Render::Ogre14GraphicsSceneCapture& capture) override;
     GameContextSB&     GetSimDataBuffer() { return m_simbuf; }
     GfxEnvmap&     GetEnvMap() { return m_envmap; }
     RoR::SkidmarkConfig* GetSkidmarkConf () { return &m_skidmark_conf; }
@@ -104,6 +112,16 @@ private:
     RoR::GfxEnvmap                    m_envmap;
     GameContextSB                     m_simbuf;
     SkidmarkConfig                    m_skidmark_conf;
+
+    // Exact joined-boundary identity for the OGRE 14 scene adapter. These are
+    // copied only inside BufferSimulationData(), before the next physics batch
+    // may start; the adapter never reads ActorManager directly.
+    std::uint64_t                      m_ogre14_joined_buffer_epoch = 0U;
+    std::uint64_t                      m_ogre14_simulation_tick = 0U;
+    double                             m_ogre14_simulation_time_seconds = 0.0;
+    bool                               m_ogre14_joined_buffer_ready = false;
+    bool                               m_ogre14_joined_buffer_atomic = false;
+    bool                               m_ogre14_scene_capture_enabled = false;
 
     // Free beams GFX:
     std::vector<FreeBeamGfx>          m_gfx_freebeams;
