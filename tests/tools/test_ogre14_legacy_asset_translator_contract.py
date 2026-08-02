@@ -148,7 +148,11 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             self.physics_workflow,
         )
         self.assertIn("-DROR_BUILD_TESTS=ON", self.native_workflow)
-        self.assertIn("-DROR_OGRE14=ON", self.native_workflow)
+        self.assertIn(
+            "Configure OgreNext-first native Release",
+            self.native_workflow,
+        )
+        self.assertNotIn("-DROR_OGRE14=", self.native_workflow)
         self.assertIn("--target all", self.native_workflow)
 
     def test_docs_and_provenance_cover_the_new_contract(self) -> None:
