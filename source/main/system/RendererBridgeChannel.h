@@ -58,10 +58,11 @@ struct RendererBridgeChannelResult final {
 /// exposes it, rejects nonblocking POSIX descriptors, and immediately removes
 /// inheritance from both handles. Once Adopt() accepts a structurally valid
 /// endpoint, this object owns both handles even if native validation fails.
-/// Windows validates byte-stream and blocking pipe modes, but its documented
-/// pipe APIs do not expose handle access direction or overlapped creation. The
-/// trusted supervisor must therefore pass the exact CreatePipe() read/write
-/// ends from its restricted inheritance allow-list.
+/// Windows validates byte-stream and blocking mode on the inbound/read handle.
+/// Its documented query APIs require read-attribute rights not promised for a
+/// CreatePipe() write handle, and do not expose overlapped creation. The trusted
+/// supervisor must therefore pass the exact write end from its restricted
+/// inheritance allow-list.
 /// Operations are blocking and one caller must serialize access to the object.
 /// status() describes the channel lifecycle: it remains READY while either
 /// half can transfer, becomes CLOSED when neither half remains, and preserves
