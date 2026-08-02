@@ -21,7 +21,10 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/RendererStartupHandoff.h
     source/main/gfx/RendererStartupPlan.cpp
     source/main/gfx/RendererStartupPlan.h
+    source/main/terrain/ProceduralManager.cpp
     source/main/terrain/ProceduralManager.h
+    source/main/terrain/ProceduralRoad.cpp
+    source/main/terrain/ProceduralRoad.h
     source/main/terrain/TerrainObjectManager.cpp
     source/main/terrain/TerrainObjectManager.h
     source/main/main.cpp
@@ -89,6 +92,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/render/RenderBridgeControlTransportTests.cpp
     tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
     tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
+    tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp
     tests/tools/test_ogre_next_child_runtime_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
     tests/tools/test_ogre_next_probe_workflow.py
@@ -138,7 +142,10 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/terrain/ProceduralManager.cpp"
     "source/main/terrain/ProceduralManager.h"
+    "source/main/terrain/ProceduralRoad.cpp"
+    "source/main/terrain/ProceduralRoad.h"
     "source/main/terrain/TerrainObjectManager.cpp"
     "source/main/terrain/TerrainObjectManager.h"
     "source/main/main.cpp"
@@ -205,6 +212,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
+    "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"

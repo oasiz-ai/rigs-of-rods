@@ -223,7 +223,31 @@ Implemented source-side behavior is:
    `terrain.pages.material.*` diagnostic until texture transport exists. OGRE
    14 Terrain exposes no hole topology, and the pure input contract rejects a
    claimed hole rather than filling it.
-8. `GfxScene` enumerates the authoritative managed `Ogre::MOT_LIGHT` registry
+8. `ProceduralManager` owns a monotonic nonzero identity for every accepted
+   procedural object. The identity is unrelated to vector position or display
+   name, is never reused, and remains embedded after permanent removal so a
+   duplicate or re-add fails closed. `ProceduralRoad::createMesh()` retains an
+   owning CPU copy of the exact uploaded positions, normalized render normals,
+   UV0, and uint16 indices promoted value-for-value to uint32; `finish()` adds
+   native mesh/entity identity, exact `road2` material audit, derived transform,
+   visibility, and shadow state. No GPU readback, collision mesh, terrain
+   physics, or simulation object is consulted. Rebuild creates and validates a
+   replacement before releasing the old road, preserves source identity, and
+   advances topology revision exactly once only when the finalized geometry
+   byte key changes.
+
+   The renderer-neutral road inventory validates stream bounds, finite unit
+   normals, nondegenerate winding, source-width promotion, exact material
+   identity, affine handedness, stable ordering, collision-audited
+   domain-separated IDs, aggregate payload limits, and topology lineage. Its
+   transaction reuses immutable payload owners for identical geometry and
+   commits caches/live IDs/tombstones/output together. Omission permanently
+   tombstones a road. Textured `road2` remains a precise
+   `road.material.texture_units` blocker until an exact legacy
+   texture/sampler translator is connected. This checkpoint exposes complete
+   manager snapshots and static-section candidates but intentionally does not
+   modify `GfxScene`; joined collection is the next isolated wiring step.
+9. `GfxScene` enumerates the authoritative managed `Ogre::MOT_LIGHT` registry
    at the joined boundary (not backend render queues or scene-node traversal),
    verifies each registry key equals the exact unique Light name, and hashes
    those exact bytes into collision-audited stable identities. It captures
@@ -235,17 +259,18 @@ Implemented source-side behavior is:
    schema v4 cannot preserve OGRE c/l/q attenuation, spot falloff exponent,
    separate specular color, or light masks, and RT4/V1 still rejects local
    lights downstream.
-9. `GfxScene` captures the main graphics camera after its copied simbuffer has
+10. `GfxScene` captures the main graphics camera after its copied simbuffer has
    been consumed, converts OGRE matrices into the canonical right-handed,
    column-major, depth-[0,1] contract, and submits the current drawable pixel
    extent. The producer owns previous matrices.
-10. OGRE 14 has no authored world reflection-probe registry, so the adapter
+11. OGRE 14 has no authored world reflection-probe registry, so the adapter
    publishes the exact empty inventory rather than inferring probes from the
    vehicle-local environment-map implementation.
 
 Remaining source-side work is portable texture/sampler extraction for legacy
-material units and terrain layers plus explicit adapters for procedural roads,
-paged vegetation, and animated/deformable geometry. `GfxScene::ClearScene()`
+material units, terrain layers, and `road2`; joined procedural-road collection;
+plus explicit adapters for paged vegetation and animated/deformable geometry.
+`GfxScene::ClearScene()`
 must also deliver the final authoritative empty inventory before the producer
 is destroyed so a new terrain receives a fresh registry lifetime. Until those
 domains are covered, maps containing any of them stay fail-closed even though

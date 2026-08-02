@@ -237,6 +237,28 @@ revision. The candidate terrain cache and combined terrain/`MeshObject`
 inventory commit only after all pages and sections succeed. Capture never
 mutates LOD, normal, delta, or derived-data state.
 
+Procedural-road capture version 1 now starts at the graphics owner rather than
+recovering data from collision triangles or GPU buffers. `ProceduralRoad`
+retains an owning post-`createMesh()` copy of the exact uploaded positions,
+normalized render normals, UV0 values, and safely promoted uint16 indices; its
+post-`finish()` snapshot adds exact native mesh/entity/material identity,
+derived node transform, visibility, and shadow state. `ProceduralManager`
+allocates monotonic nonzero identities independent of vector position and road
+name. Duplicate registration, identity exhaustion, and re-adding a removed
+object fail closed. Rebuilds preserve identity and advance topology revision
+exactly once only when the finalized geometry byte key changes; the previous
+native road remains live until its replacement validates.
+
+`Ogre14ProceduralRoadSource` is the renderer-neutral transaction for that
+snapshot. It audits native bounds, finite unit normals, triangle winding,
+uint16 promotion, exact `road2` identity, transforms, collision-separated
+identity derivation, live/lifetime/payload limits, permanent removal
+tombstones, stable ordering, and revision lineage. Byte-identical roads reuse
+the same immutable mesh owner. The source currently produces static-section
+candidates only; the joined `GfxScene` collection point is deliberately left
+for the next checkpoint so this change cannot conflict with deformable capture
+wiring.
+
 Compatibility-material fallback version 1 is intentionally factor-only. It
 preserves first-pass diffuse/emissive factors, lighting, shininess-derived
 roughness, supported culling, straight alpha, and alpha rejection while
@@ -245,15 +267,18 @@ Additional passes or authored texture/shader content fail closed rather than
 being silently dropped. Terrain layer/sampler names and world scales, blend
 textures, global-colour maps, lightmaps, composite maps, and generated material
 state are audited before meshing; any authored texture state remains an exact
-publication blocker until portable texture transport is implemented. OGRE 14
+publication blocker until portable texture transport is implemented. The same
+rule intentionally keeps the textured legacy `road2` material blocked until an
+exact texture/sampler translator is connected; no factor-only road material is
+guessed. OGRE 14
 Terrain has no hole API, and the renderer-neutral builder rejects a claimed
-hole rather than silently filling it. Procedural roads, actor or other
-deformable geometry, paged vegetation, animated terrain objects, unsupported
+hole rather than silently filling it. Actor or other deformable geometry,
+paged vegetation, animated terrain objects, unsupported
 vertex declarations, and unsupported material states likewise return exact
 diagnostics. Mirrored instance transforms also fail closed until reflection can
 be baked into the canonical mesh basis and winding. Consequently `ASSETS` and
 `STATIC_MESHES` are advertised together only after a complete supported
-inventory; terrain textures and the procedural/deformable domains remain
+inventory; terrain and road textures plus the deformable domains remain
 required before ordinary maps can publish end to end.
 
 The asset payload pins the registry, mesh, texture, material, and sampler

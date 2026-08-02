@@ -19,7 +19,8 @@ on:
       - source/main/gfx/GfxScene.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
-      - source/main/terrain/ProceduralManager.h
+      - source/main/terrain/ProceduralManager.*
+      - source/main/terrain/ProceduralRoad.*
       - source/main/terrain/TerrainObjectManager.*
       - source/main/system/RendererBridge*
       - source/main/system/RendererBridgeEndpoint.*
@@ -87,7 +88,8 @@ on:
       - source/main/gfx/GfxScene.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
-      - source/main/terrain/ProceduralManager.h
+      - source/main/terrain/ProceduralManager.*
+      - source/main/terrain/ProceduralRoad.*
       - source/main/terrain/TerrainObjectManager.*
       - source/main/system/RendererBridge*
       - source/main/system/RendererBridgeEndpoint.*
@@ -391,6 +393,14 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^ror_ogre14_graphics_scene_source$'
+
+      - name: Prove procedural-road capture and lifecycle on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_procedural_road_source$'
 
       - name: Prove the game-host stream and native pipe half-close contract
         run: >-

@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 using namespace Ogre;
 using namespace RoR;
@@ -41,6 +42,160 @@ static int id_counter = 0;
 
 namespace
 {
+
+RoR::Render::Float3 ToRoadCaptureFloat3(const Ogre::Vector3& value)
+{
+    return {
+        static_cast<float>(value.x),
+        static_cast<float>(value.y),
+        static_cast<float>(value.z)};
+}
+
+RoR::Render::Float2 ToRoadCaptureFloat2(const Ogre::Vector2& value)
+{
+    return {static_cast<float>(value.x), static_cast<float>(value.y)};
+}
+
+RoR::Render::Float3 ToRoadCaptureFloat3(const Ogre::ColourValue& value)
+{
+    return {
+        static_cast<float>(value.r),
+        static_cast<float>(value.g),
+        static_cast<float>(value.b)};
+}
+
+RoR::Render::Float4 ToRoadCaptureFloat4(const Ogre::ColourValue& value)
+{
+    return {
+        static_cast<float>(value.r),
+        static_cast<float>(value.g),
+        static_cast<float>(value.b),
+        static_cast<float>(value.a)};
+}
+
+RoR::Render::Matrix4x4 ToRoadCaptureMatrix(const Ogre::Matrix4& value)
+{
+    RoR::Render::Matrix4x4 converted;
+    for (std::size_t row = 0U; row < 4U; ++row)
+    {
+        for (std::size_t column = 0U; column < 4U; ++column)
+        {
+            converted.elements[column * 4U + row] =
+                static_cast<float>(value[row][column]);
+        }
+    }
+    return converted;
+}
+
+bool CaptureRoadMaterial(
+    const Ogre::MaterialPtr& material,
+    RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput& output)
+{
+    if (!material || material->getName().empty() ||
+        material->getNumTechniques() == 0U)
+    {
+        return false;
+    }
+    Ogre::Technique* const technique = material->getTechnique(0U);
+    if (technique == nullptr || technique->getNumPasses() == 0U)
+    {
+        return false;
+    }
+    Ogre::Pass* const pass = technique->getPass(0U);
+    if (pass == nullptr)
+    {
+        return false;
+    }
+
+    RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput candidate;
+    candidate.exact_resource_group = material->getGroup();
+    candidate.exact_name = material->getName();
+    candidate.pass_count =
+        static_cast<std::uint32_t>(technique->getNumPasses());
+    candidate.texture_unit_count =
+        static_cast<std::uint32_t>(pass->getNumTextureUnitStates());
+    candidate.has_vertex_program = pass->hasVertexProgram();
+    candidate.has_fragment_program = pass->hasFragmentProgram();
+    candidate.lighting_enabled = pass->getLightingEnabled();
+    candidate.diffuse_linear = ToRoadCaptureFloat4(pass->getDiffuse());
+    candidate.ambient_linear = ToRoadCaptureFloat3(pass->getAmbient());
+    candidate.specular_linear = ToRoadCaptureFloat3(pass->getSpecular());
+    candidate.emissive_linear =
+        ToRoadCaptureFloat3(pass->getSelfIllumination());
+    candidate.shininess = static_cast<float>(pass->getShininess());
+
+    bool write_red = false;
+    bool write_green = false;
+    bool write_blue = false;
+    bool write_alpha = false;
+    pass->getColourWriteEnabled(
+        write_red, write_green, write_blue, write_alpha);
+    if (!write_red || !write_green || !write_blue || !write_alpha ||
+        pass->getSceneBlendingOperation() != Ogre::SBO_ADD ||
+        pass->getSceneBlendingOperationAlpha() != Ogre::SBO_ADD)
+    {
+        return false;
+    }
+
+    const Ogre::SceneBlendFactor source = pass->getSourceBlendFactor();
+    const Ogre::SceneBlendFactor destination = pass->getDestBlendFactor();
+    const Ogre::SceneBlendFactor source_alpha =
+        pass->getSourceBlendFactorAlpha();
+    const Ogre::SceneBlendFactor destination_alpha =
+        pass->getDestBlendFactorAlpha();
+    const bool replace = source == Ogre::SBF_ONE &&
+        destination == Ogre::SBF_ZERO &&
+        source_alpha == Ogre::SBF_ONE &&
+        destination_alpha == Ogre::SBF_ZERO;
+    const bool straight_alpha = source == Ogre::SBF_SOURCE_ALPHA &&
+        destination == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA &&
+        ((source_alpha == Ogre::SBF_SOURCE_ALPHA &&
+          destination_alpha == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA) ||
+         (source_alpha == Ogre::SBF_ONE &&
+          destination_alpha == Ogre::SBF_ZERO));
+    if (!replace && !straight_alpha)
+    {
+        return false;
+    }
+    candidate.blend = replace
+        ? RoR::Render::Ogre14GraphicsSceneMaterialBlend::REPLACE
+        : RoR::Render::Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA;
+
+    switch (pass->getCullingMode())
+    {
+    case Ogre::CULL_NONE:
+        candidate.cull =
+            RoR::Render::Ogre14GraphicsSceneMaterialCull::NONE;
+        break;
+    case Ogre::CULL_CLOCKWISE:
+        candidate.cull =
+            RoR::Render::Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+        break;
+    case Ogre::CULL_ANTICLOCKWISE:
+        candidate.cull =
+            RoR::Render::Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE;
+        break;
+    default:
+        return false;
+    }
+
+    switch (pass->getAlphaRejectFunction())
+    {
+    case Ogre::CMPF_ALWAYS_PASS:
+        candidate.alpha_reject = RoR::Render::
+            Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
+        break;
+    case Ogre::CMPF_GREATER_EQUAL:
+        candidate.alpha_reject = RoR::Render::
+            Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL;
+        break;
+    default:
+        return false;
+    }
+    candidate.alpha_reject_value = pass->getAlphaRejectValue();
+    output = std::move(candidate);
+    return true;
+}
 
 // Pillartype 3 is deliberately a separate geometry path. These dimensions are
 // part of the `bridge_side_pillars` content contract and must remain stable so
@@ -408,6 +563,11 @@ ProceduralRoad::ProceduralRoad()
 
 ProceduralRoad::~ProceduralRoad()
 {
+    if (m_entity)
+    {
+        App::GetGfxScene()->GetSceneManager()->destroyEntity(m_entity);
+        m_entity = nullptr;
+    }
     if (snode)
     {
         App::GetGfxScene()->GetSceneManager()->destroySceneNode(snode);
@@ -422,6 +582,20 @@ ProceduralRoad::~ProceduralRoad()
     {
         App::GetGameContext()->GetTerrain()->GetCollisions()->removeCollisionTri(number);
     }
+}
+
+bool ProceduralRoad::AssignFinalizedGraphicsLineage(
+    std::uint64_t stable_graphics_id,
+    std::uint64_t topology_revision) noexcept
+{
+    if (!m_finalized_graphics_snapshot.finalized ||
+        stable_graphics_id == 0U || topology_revision == 0U)
+    {
+        return false;
+    }
+    m_finalized_graphics_snapshot.stable_graphics_id = stable_graphics_id;
+    m_finalized_graphics_snapshot.topology_revision = topology_revision;
+    return true;
 }
 
 void ProceduralRoad::finish(Ogre::SceneNode* groupingSceneNode)
@@ -450,8 +624,41 @@ void ProceduralRoad::finish(Ogre::SceneNode* groupingSceneNode)
     String entity_name = String("RoadSystem_Instance-").append(StringConverter::toString(mid));
     String mesh_name = String("RoadSystem-").append(StringConverter::toString(mid));
     Entity* ec = App::GetGfxScene()->GetSceneManager()->createEntity(entity_name, mesh_name);
+    m_entity = ec;
     snode = groupingSceneNode->createChildSceneNode();
     snode->attachObject(ec);
+
+    m_finalized_graphics_snapshot.exact_native_entity_name = ec->getName();
+    m_finalized_graphics_snapshot.render_from_object =
+        ToRoadCaptureMatrix(static_cast<const Ogre::Matrix4&>(
+            ec->_getParentNodeFullTransform()));
+    m_finalized_graphics_snapshot.visibility_mask = ec->getVisibilityFlags();
+    m_finalized_graphics_snapshot.visible = ec->getVisible();
+    m_finalized_graphics_snapshot.casts_shadows = ec->getCastShadows();
+    m_finalized_graphics_snapshot.visible_in_reflections = true;
+    m_finalized_graphics_snapshot.native_material_audit_complete = false;
+    if (ec->getNumSubEntities() == 1U && ec->getSubEntity(0U) != nullptr)
+    {
+        Ogre::SubEntity* const sub_entity = ec->getSubEntity(0U);
+        const Ogre::MaterialPtr material = sub_entity->getMaterial();
+        if (material)
+        {
+            // Preserve exact identity even if a later unsupported native
+            // state prevents the complete fallback audit from succeeding.
+            m_finalized_graphics_snapshot.material.exact_resource_group =
+                material->getGroup();
+            m_finalized_graphics_snapshot.material.exact_name =
+                material->getName();
+            m_finalized_graphics_snapshot.receives_shadows =
+                material->getReceiveShadows();
+        }
+        m_finalized_graphics_snapshot.visible =
+            m_finalized_graphics_snapshot.visible && sub_entity->isVisible();
+        m_finalized_graphics_snapshot.native_material_audit_complete =
+            CaptureRoadMaterial(
+                material, m_finalized_graphics_snapshot.material);
+    }
+    m_finalized_graphics_snapshot.finalized = true;
 
     if (collision && !registeredCollTris.empty())
     {
@@ -1005,6 +1212,12 @@ void ProceduralRoad::createMesh()
     Ogre::String mesh_name = Ogre::String("RoadSystem-").append(Ogre::StringConverter::toString(mid));
     msh = MeshManager::getSingleton().createManual(mesh_name, ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 
+    m_finalized_graphics_snapshot =
+        RoR::Render::Ogre14ProceduralRoadCapture{};
+    m_finalized_graphics_snapshot.exact_native_mesh_resource_group =
+        msh->getGroup();
+    m_finalized_graphics_snapshot.exact_native_mesh_name = msh->getName();
+
     mainsub = msh->createSubMesh();
     mainsub->setMaterialName("road2");
 
@@ -1041,6 +1254,28 @@ void ProceduralRoad::createMesh()
     for (i = 0; i < vertexcount; i++)
     {
         covertices[i].normal.normalise();
+    }
+
+    m_finalized_graphics_snapshot.positions.reserve(
+        static_cast<std::size_t>(vertexcount));
+    m_finalized_graphics_snapshot.exact_render_normals.reserve(
+        static_cast<std::size_t>(vertexcount));
+    m_finalized_graphics_snapshot.texture_coordinates_0.reserve(
+        static_cast<std::size_t>(vertexcount));
+    for (i = 0; i < vertexcount; ++i)
+    {
+        m_finalized_graphics_snapshot.positions.push_back(
+            ToRoadCaptureFloat3(covertices[i].vertex));
+        m_finalized_graphics_snapshot.exact_render_normals.push_back(
+            ToRoadCaptureFloat3(covertices[i].normal));
+        m_finalized_graphics_snapshot.texture_coordinates_0.push_back(
+            ToRoadCaptureFloat2(covertices[i].texcoord));
+    }
+    m_finalized_graphics_snapshot.indices.reserve(ibufCount);
+    for (std::size_t index = 0U; index < ibufCount; ++index)
+    {
+        m_finalized_graphics_snapshot.indices.push_back(
+            static_cast<std::uint32_t>(tris[index]));
     }
 
     /// Create vertex data structure for vertices shared between sub meshes

@@ -51,6 +51,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererBackendPolicy.*",
             "source/main/gfx/RendererStartupHandoff.*",
             "source/main/gfx/RendererStartupPlan.*",
+            "source/main/terrain/ProceduralManager.*",
+            "source/main/terrain/ProceduralRoad.*",
             "source/main/system/RendererBridge*",
             "source/main/system/RendererChildIntent.*",
             "source/main/system/RendererChildLauncher.*",
@@ -411,7 +413,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererStartupHandoff.h",
             "source/main/gfx/RendererStartupPlan.cpp",
             "source/main/gfx/RendererStartupPlan.h",
+            "source/main/terrain/ProceduralManager.cpp",
             "source/main/terrain/ProceduralManager.h",
+            "source/main/terrain/ProceduralRoad.cpp",
+            "source/main/terrain/ProceduralRoad.h",
             "source/main/terrain/TerrainObjectManager.cpp",
             "source/main/terrain/TerrainObjectManager.h",
             "source/main/main.cpp",
@@ -466,6 +471,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp",
+            "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp",
             "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
             "tests/tools/test_ogre_next_child_runtime_contract.py",
         ):
@@ -933,6 +939,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "-R '^ror_ogre14_graphics_scene_source$'", self.workflow
         )
         self.assertIn(
+            "-R '^ror_ogre14_procedural_road_source$'", self.workflow
+        )
+        self.assertIn(
             "ror_renderer_frontend_transport_dispatcher_tests",
             native_cmake,
         )
@@ -1118,6 +1127,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             self.assertIn("Ogre14GraphicsSceneSource.cpp", cmake)
             self.assertIn("Ogre14GraphicsSceneSourceTests.cpp", cmake)
             self.assertIn("ror_ogre14_graphics_scene_source_tests", cmake)
+            self.assertIn("Ogre14ProceduralRoadSource.cpp", cmake)
+            self.assertIn("Ogre14ProceduralRoadSourceTests.cpp", cmake)
+            self.assertIn(
+                "ror_ogre14_procedural_road_source_tests", cmake
+            )
         package_dependencies = probe_cmake[
             probe_cmake.index("set(_ror_n1_package_dependencies") :
             probe_cmake.index(")", probe_cmake.index(
@@ -1127,6 +1141,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertEqual(
             package_dependencies.count(
                 "ror_ogre14_graphics_scene_source_tests"
+            ),
+            1,
+        )
+        self.assertEqual(
+            package_dependencies.count(
+                "ror_ogre14_procedural_road_source_tests"
             ),
             1,
         )

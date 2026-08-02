@@ -44,6 +44,7 @@ set(SOURCE_FILES
         gfx/RenderDisplayMetrics.h
         gfx/render/GraphicsSceneSnapshotProducer.{h,cpp}
         gfx/render/Ogre14GraphicsSceneSource.{h,cpp}
+        gfx/render/Ogre14ProceduralRoadSource.{h,cpp}
         gfx/render/HdrReference.{h,cpp}
         gfx/render/InputEventTransport.{h,cpp}
         gfx/render/MaterialDescriptor.{h,cpp}
@@ -395,6 +396,7 @@ expand_file_extensions(SOURCE_FILES ${SOURCE_FILES})
 set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/GraphicsSceneSnapshotProducer.cpp
         gfx/render/Ogre14GraphicsSceneSource.cpp
+        gfx/render/Ogre14ProceduralRoadSource.cpp
         gfx/render/HdrReference.cpp
         gfx/render/InputEventTransport.cpp
         gfx/render/MaterialDescriptor.cpp
@@ -425,6 +427,7 @@ set_source_files_properties(
 set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/GraphicsSceneSnapshotProducer.cpp
         gfx/render/Ogre14GraphicsSceneSource.cpp
+        gfx/render/Ogre14ProceduralRoadSource.cpp
         gfx/render/HdrReference.cpp
         gfx/render/InputEventTransport.cpp
         gfx/render/MaterialDescriptor.cpp
