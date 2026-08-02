@@ -191,8 +191,11 @@ struct RendererOgreNextWindowHostRuntime {
   bool (*create_ogre_metal_view)(void *context, void *sdl_window,
                                  std::uintptr_t cocoa_window,
                                  void **metal_view) = nullptr;
-  bool (*set_sdl_window_visible)(void *context, void *sdl_window,
-                                 bool visible) = nullptr;
+  /// Requests visibility and returns only after the matching native SDL event
+  /// and settled window flags are observed within `timeout_ms`.
+  bool (*set_sdl_window_visible_and_wait_for_ack)(
+      void *context, void *sdl_window, bool visible,
+      std::uint32_t timeout_ms) = nullptr;
   /// Requests the logical size, pumps native events, and returns only after a
   /// matching Cocoa/WM_SIZE/X11 ConfigureNotify has been observed. An
   /// immediate post-SDL_SetWindowSize query is not an acknowledgement. The
@@ -231,6 +234,10 @@ public:
   RendererOgreNextWindowHostStatus Resize(
       std::uint32_t logical_width,
       std::uint32_t logical_height) noexcept;
+  /// Observes drawable-pixel changes without issuing a logical resize. Use for
+  /// display/content-scale changes such as Retina migration at the same SDL
+  /// logical extent.
+  RendererOgreNextWindowHostStatus RefreshMetrics() noexcept;
   RendererOgreNextWindowHostStatus Shutdown() noexcept;
 
   RendererOgreNextWindowLifecycle Lifecycle() const noexcept {

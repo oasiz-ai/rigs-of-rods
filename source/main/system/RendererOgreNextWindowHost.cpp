@@ -119,7 +119,7 @@ bool IsValidRuntime(const RendererOgreNextWindowHostRuntime &runtime,
       runtime.initialize_sdl_video == nullptr ||
       runtime.create_sdl_window == nullptr ||
       runtime.query_sdl_native_window == nullptr ||
-      runtime.set_sdl_window_visible == nullptr ||
+      runtime.set_sdl_window_visible_and_wait_for_ack == nullptr ||
       runtime.resize_sdl_window_and_wait_for_configure == nullptr ||
       runtime.destroy_sdl_window == nullptr ||
       runtime.shutdown_sdl_video == nullptr) {
@@ -425,19 +425,27 @@ RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Resume() noexcept {
       FailClosedAfterLiveWindowFailure();
       return RendererOgreNextWindowHostStatus::FAILED_NATIVE_WINDOW_QUERY;
     }
-    if (!m_runtime.set_sdl_window_visible(
-            m_runtime.context, m_native.sdl_window, true)) {
+    if (!m_runtime.set_sdl_window_visible_and_wait_for_ack(
+            m_runtime.context, m_native.sdl_window, true,
+            m_request.configure_ack_timeout_ms)) {
       FailClosedAfterLiveWindowFailure();
       return RendererOgreNextWindowHostStatus::FAILED_WINDOW_VISIBILITY;
     }
+    RendererOgreNextSdlNativeWindow post_ack_candidate;
+    if (!m_runtime.query_sdl_native_window(
+            m_runtime.context, m_native.sdl_window, &post_ack_candidate) ||
+        !IsSameNativeWindow(post_ack_candidate, m_native, m_request)) {
+      FailClosedAfterLiveWindowFailure();
+      return RendererOgreNextWindowHostStatus::FAILED_NATIVE_WINDOW_QUERY;
+    }
     if (!CommitMetrics(m_request.logical_width, m_request.logical_height,
-                       candidate.drawable_width, candidate.drawable_height,
-                       m_metrics)) {
+                       post_ack_candidate.drawable_width,
+                       post_ack_candidate.drawable_height, m_metrics)) {
       FailClosedAfterLiveWindowFailure();
       return RendererOgreNextWindowHostStatus::FAILED_INTERNAL;
     }
-    candidate.native_render_view = m_native.native_render_view;
-    m_native = candidate;
+    post_ack_candidate.native_render_view = m_native.native_render_view;
+    m_native = post_ack_candidate;
     m_lifecycle = RendererOgreNextWindowLifecycle::ACTIVE;
     return RendererOgreNextWindowHostStatus::COMPLETED;
   } catch (...) {
@@ -456,8 +464,9 @@ RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Suspend() noexcept 
     return RendererOgreNextWindowHostStatus::REJECTED_INVALID_REQUEST;
   }
   try {
-    if (!m_runtime.set_sdl_window_visible(
-            m_runtime.context, m_native.sdl_window, false)) {
+    if (!m_runtime.set_sdl_window_visible_and_wait_for_ack(
+            m_runtime.context, m_native.sdl_window, false,
+            m_request.configure_ack_timeout_ms)) {
       FailClosedAfterLiveWindowFailure();
       return RendererOgreNextWindowHostStatus::FAILED_WINDOW_VISIBILITY;
     }
@@ -476,6 +485,10 @@ RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Resize(
        m_lifecycle != RendererOgreNextWindowLifecycle::SUSPENDED) ||
       !HasValidExtent(logical_width, logical_height)) {
     return RendererOgreNextWindowHostStatus::REJECTED_INVALID_REQUEST;
+  }
+  if (m_metrics.logical_width == logical_width &&
+      m_metrics.logical_height == logical_height) {
+    return RefreshMetrics();
   }
   try {
     RendererOgreNextSdlNativeWindow candidate;
@@ -499,6 +512,36 @@ RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Resize(
     m_native = candidate;
     m_request.logical_width = logical_width;
     m_request.logical_height = logical_height;
+    return RendererOgreNextWindowHostStatus::COMPLETED;
+  } catch (...) {
+    FailClosedAfterLiveWindowFailure();
+    return RendererOgreNextWindowHostStatus::FAILED_INTERNAL;
+  }
+}
+
+RendererOgreNextWindowHostStatus
+RendererOgreNextWindowHost::RefreshMetrics() noexcept {
+  if (m_lifecycle != RendererOgreNextWindowLifecycle::READY_HIDDEN &&
+      m_lifecycle != RendererOgreNextWindowLifecycle::ACTIVE &&
+      m_lifecycle != RendererOgreNextWindowLifecycle::SUSPENDED) {
+    return RendererOgreNextWindowHostStatus::REJECTED_INVALID_REQUEST;
+  }
+  try {
+    RendererOgreNextSdlNativeWindow candidate;
+    if (!m_runtime.query_sdl_native_window(
+            m_runtime.context, m_native.sdl_window, &candidate) ||
+        !IsSameNativeWindow(candidate, m_native, m_request)) {
+      FailClosedAfterLiveWindowFailure();
+      return RendererOgreNextWindowHostStatus::FAILED_NATIVE_WINDOW_QUERY;
+    }
+    if (!CommitMetrics(m_request.logical_width, m_request.logical_height,
+                       candidate.drawable_width, candidate.drawable_height,
+                       m_metrics)) {
+      FailClosedAfterLiveWindowFailure();
+      return RendererOgreNextWindowHostStatus::FAILED_INTERNAL;
+    }
+    candidate.native_render_view = m_native.native_render_view;
+    m_native = candidate;
     return RendererOgreNextWindowHostStatus::COMPLETED;
   } catch (...) {
     FailClosedAfterLiveWindowFailure();
@@ -581,10 +624,12 @@ RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Cleanup(
 
 void RendererOgreNextWindowHost::FailClosedAfterLiveWindowFailure() noexcept {
   m_binding.valid = false;
-  if (m_window_owned && m_runtime.set_sdl_window_visible != nullptr) {
+  if (m_window_owned &&
+      m_runtime.set_sdl_window_visible_and_wait_for_ack != nullptr) {
     try {
-      (void)m_runtime.set_sdl_window_visible(
-          m_runtime.context, m_native.sdl_window, false);
+      (void)m_runtime.set_sdl_window_visible_and_wait_for_ack(
+          m_runtime.context, m_native.sdl_window, false,
+          m_request.configure_ack_timeout_ms);
     } catch (...) {
     }
   }

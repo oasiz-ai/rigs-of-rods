@@ -31,6 +31,8 @@ struct FakeSdlRuntime {
       reinterpret_cast<void *>(static_cast<std::uintptr_t>(0x3330U));
   std::uint32_t drawable_width = 1600U;
   std::uint32_t drawable_height = 1200U;
+  std::uint32_t post_show_drawable_width = 0U;
+  std::uint32_t post_show_drawable_height = 0U;
   bool main_thread = true;
   bool fail_video = false;
   bool fail_create = false;
@@ -47,6 +49,7 @@ struct FakeSdlRuntime {
   std::string required_driver;
   RoR::RendererOgreNextSdlWindowCreateRequest create_request{};
   std::uint32_t resize_timeout_ms = 0U;
+  std::uint32_t visibility_timeout_ms = 0U;
   std::vector<std::string> calls;
 };
 
@@ -129,14 +132,21 @@ bool CreateMetalView(void *context, void *window,
   return !fake.fail_metal_view;
 }
 
-bool SetVisible(void *context, void *window, bool visible) {
+bool SetVisibleAndWaitForAck(void *context, void *window, bool visible,
+                            std::uint32_t timeout_ms) {
   FakeSdlRuntime &fake = *static_cast<FakeSdlRuntime *>(context);
   fake.calls.push_back(visible ? "window-show" : "window-hide");
   Require(window == fake.window, "visibility used a foreign SDL window");
+  fake.visibility_timeout_ms = timeout_ms;
   if (fake.fail_visibility) {
     return false;
   }
   fake.visible = visible;
+  if (visible && fake.post_show_drawable_width != 0U &&
+      fake.post_show_drawable_height != 0U) {
+    fake.drawable_width = fake.post_show_drawable_width;
+    fake.drawable_height = fake.post_show_drawable_height;
+  }
   return true;
 }
 
@@ -192,7 +202,8 @@ RoR::RendererOgreNextWindowHostRuntime Runtime(
   runtime.create_sdl_window = &CreateWindow;
   runtime.query_sdl_native_window = &QueryWindow;
   runtime.create_ogre_metal_view = &CreateMetalView;
-  runtime.set_sdl_window_visible = &SetVisible;
+  runtime.set_sdl_window_visible_and_wait_for_ack =
+      &SetVisibleAndWaitForAck;
   runtime.resize_sdl_window_and_wait_for_configure =
       &ResizeWindowAndWaitForConfigure;
   runtime.destroy_ogre_metal_view = &DestroyMetalView;
@@ -355,19 +366,37 @@ void TestCocoaMetalViewTranslationAndLifecycle() {
           "Cocoa Ogre parameters changed");
   RequireMetrics(host, 1U, 800U, 600U, 1600U, 1200U);
 
+  fake.post_show_drawable_width = 2000U;
+  fake.post_show_drawable_height = 1500U;
   Require(host.Resume() ==
               RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
               host.Lifecycle() ==
                   RoR::RendererOgreNextWindowLifecycle::ACTIVE &&
               fake.visible,
           "Cocoa host did not resume");
-  RequireMetrics(host, 1U, 800U, 600U, 1600U, 1200U);
+  Require(fake.visibility_timeout_ms == 2000U,
+          "visibility did not enforce the finite native-ack timeout");
+  Require(fake.calls.size() >= 3U &&
+              fake.calls[fake.calls.size() - 3U] == "window-query" &&
+              fake.calls[fake.calls.size() - 2U] == "window-show" &&
+              fake.calls.back() == "window-query",
+          "resume did not re-query native metrics after the show ack");
+  RequireMetrics(host, 2U, 800U, 600U, 2000U, 1500U);
   Require(host.Resize(1024U, 700U) ==
               RoR::RendererOgreNextWindowHostStatus::COMPLETED,
           "Cocoa host did not accept a logical resize");
   Require(fake.resize_timeout_ms == 2000U,
           "resize did not enforce the finite configure-ack timeout");
-  RequireMetrics(host, 2U, 1024U, 700U, 2048U, 1400U);
+  RequireMetrics(host, 3U, 1024U, 700U, 2048U, 1400U);
+  const std::size_t calls_before_scale_refresh = fake.calls.size();
+  fake.drawable_width = 2560U;
+  fake.drawable_height = 1750U;
+  Require(host.Resize(1024U, 700U) ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
+              fake.calls.size() == calls_before_scale_refresh + 1U &&
+              fake.calls.back() == "window-query",
+          "same-logical HiDPI migration issued a resize instead of refresh");
+  RequireMetrics(host, 4U, 1024U, 700U, 2560U, 1750U);
   Require(host.Suspend() ==
               RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
               !fake.visible,

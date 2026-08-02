@@ -91,6 +91,11 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererOgreNextChild.cpp"
     "source/main/system/RendererOgreNextChild.h"
     "source/main/system/RendererOgreNextChildMain.cpp"
+    "source/main/system/RendererOgreNextSdlWindowRuntime.cpp"
+    "source/main/system/RendererOgreNextSdlWindowRuntime.h"
+    "source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm"
+    "source/main/system/RendererOgreNextWindowHost.cpp"
+    "source/main/system/RendererOgreNextWindowHost.h"
     "source/main/system/RendererLauncherMain.cpp"
     "source/main/system/RendererLauncherPackageConfig.h.in"
     "source/main/system/RendererPublicLauncher.cpp"
@@ -100,11 +105,13 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/RendererChildLauncherFakeChild.cpp"
     "tests/gfx/RendererChildLauncherTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"
+    "tests/gfx/RendererOgreNextWindowHostTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
     "tests/gfx/RendererPublicLauncherTests.cpp"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
+    "tests/tools/test_ogre_next_window_host_contract.py"
     "tools/run_ogre_next_probe.py"
     "tools/validate_ogre_next_frame_probe.py"
     "tools/verify_ogre_next_artifact_set.py")
@@ -690,6 +697,62 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_ogre_next_child_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+    add_executable(
+        ror_renderer_ogre_next_window_host_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererOgreNextWindowHostTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextWindowHost.cpp")
+    target_include_directories(
+        ror_renderer_ogre_next_window_host_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system")
+    set_target_properties(
+        ror_renderer_ogre_next_window_host_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_library(
+        ror_renderer_ogre_next_sdl_window_runtime STATIC
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextWindowHost.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextSdlWindowRuntime.cpp")
+    if (APPLE)
+        target_sources(
+            ror_renderer_ogre_next_sdl_window_runtime
+            PRIVATE
+                "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm")
+        target_compile_options(
+            ror_renderer_ogre_next_sdl_window_runtime
+            PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+        target_include_directories(
+            ror_renderer_ogre_next_sdl_window_runtime
+            SYSTEM PRIVATE
+                "${ogre_next_SOURCE_DIR}/OgreMain/include"
+                "${ogre_next_BINARY_DIR}/include"
+                "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
+                "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX")
+        target_link_libraries(
+            ror_renderer_ogre_next_sdl_window_runtime
+            PRIVATE ${ROR_OGRE_NEXT_RENDERER_TARGET})
+    endif ()
+    target_include_directories(
+        ror_renderer_ogre_next_sdl_window_runtime
+        PUBLIC "${ROR_REPOSITORY_ROOT}/source/main/system")
+    target_link_libraries(
+        ror_renderer_ogre_next_sdl_window_runtime
+        PUBLIC SDL2::SDL2-static)
+    set_target_properties(
+        ror_renderer_ogre_next_sdl_window_runtime
+        PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES)
+
+    add_executable(
+        ror_renderer_ogre_next_window_host_smoke
+        src/window_host_smoke.cpp)
+    target_link_libraries(
+        ror_renderer_ogre_next_window_host_smoke
+        PRIVATE ror_renderer_ogre_next_sdl_window_runtime)
+    set_target_properties(
+        ror_renderer_ogre_next_window_host_smoke
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
     # Real native entrypoint and frontend bootstrap, still confined to this
     # probe project. It is intentionally absent from all package/install and
     # product source/main CMake paths until presentation and the game bridge
@@ -867,6 +930,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_handoff_tests
         ror_renderer_child_intent_tests
         ror_renderer_ogre_next_child_tests
+        ror_renderer_ogre_next_window_host_tests
+        ror_renderer_ogre_next_sdl_window_runtime
+        ror_renderer_ogre_next_window_host_smoke
         ror_renderer_ogre_next_child_runtime
         ror_renderer_child_launcher_fake_child
         ror_renderer_child_launcher_tests
@@ -1537,6 +1603,20 @@ endif ()
 if (TARGET ror_renderer_ogre_next_child_tests)
     add_test(NAME ror_renderer_ogre_next_child
         COMMAND $<TARGET_FILE:ror_renderer_ogre_next_child_tests>)
+endif ()
+if (TARGET ror_renderer_ogre_next_window_host_tests)
+    add_test(NAME ror_renderer_ogre_next_window_host
+        COMMAND $<TARGET_FILE:ror_renderer_ogre_next_window_host_tests>)
+endif ()
+if (TARGET ror_renderer_ogre_next_window_host_smoke)
+    add_test(NAME ror_renderer_ogre_next_window_host_smoke
+        COMMAND $<TARGET_FILE:ror_renderer_ogre_next_window_host_smoke>)
+    set_tests_properties(
+        ror_renderer_ogre_next_window_host_smoke
+        PROPERTIES
+            RESOURCE_LOCK ror_ogre_next_n1_native_device
+            SKIP_RETURN_CODE 77
+            TIMEOUT 20)
 endif ()
 if (TARGET ror_renderer_ogre_next_child_runtime)
     add_test(

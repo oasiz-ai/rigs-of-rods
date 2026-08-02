@@ -104,7 +104,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "vulkaninfo --summary",
             "VK_ICD_FILENAMES",
             "LIBGL_ALWAYS_SOFTWARE=1",
-            "Linux x86_64 Vulkan null-window",
+            "Linux x86_64 Vulkan null bootstrap plus XCB presentation",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, self.workflow)

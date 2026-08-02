@@ -2,8 +2,8 @@
 
 Status: **opt-in N1/RT4 raster frontend with bounded directional PSSM, Apple
 Metal N2 geometry, N3 view-dependent hybrid HDR, soaked N4 native directional
-hard shadows, and bounded Vulkan/DXR semantic probes; no shipping renderer
-switch**
+hard shadows, bounded Vulkan/DXR semantic probes, and a non-admitted native
+SDL window-host probe; no shipping renderer switch**
 
 This checkpoint compiles a core standalone probe family plus platform-specific
 Metal, Vulkan, and DXR executables against an exact OGRE-Next `v3-0` revision
@@ -125,6 +125,38 @@ nonzero diagnostic and fails CTest. This executable is not installed, staged,
 bundled, or production-admitted, and it has no presentation, game bridge, UI,
 input, or scene loop. Its real output name is evidence that the ABI/process
 boundary can bootstrap, not an immutable package-readiness fact.
+Separately, the probe builds a renderer-neutral presentation-window ownership
+contract and a real pinned SDL 2.32.10 adapter. The adapter creates only a
+hidden native window. On macOS it requires the Cocoa main thread, owns an
+autoresizing `OgreMetalView` child of SDL's `NSWindow`, and serializes that
+exact view as `externalWindowHandle`. On Windows it serializes SDL's exact
+`HWND` as `externalWindowHandle`, never `parentWindowHandle`. On Linux it
+forces SDL's X11 driver and uses the audited process-local `SDL2x11`
+`{Display*, Window}` bridge with Ogre's Vulkan `Interface=xcb`; Wayland is an
+explicit unsupported result. The Linux Ogre build retains both the hidden
+`windowType=null` bootstrap and XCB presentation sources.
+
+Window lifecycle is fail-closed. Creation starts hidden, Cocoa view/window/SDL
+video ownership unwinds in reverse order, and show/hide complete only after a
+bounded native SDL event acknowledgement. Resume then re-queries and validates
+the same native window before publishing its post-show drawable extent; it
+never commits the potentially stale hidden-window backing scale. Logical resize
+does not publish a surface revision until a matching Cocoa/WM_SIZE/X11
+configure event and the acknowledged drawable-pixel extent arrive. A separate
+metrics refresh observes
+same-logical-size HiDPI/display-scale changes, so Retina migration can advance
+the monotonic surface generation without pretending a resize occurred. SDL
+event watches observe these acknowledgements without consuming close, focus,
+minimize, input, or other-window events.
+
+This remains a source/ABI/lifecycle checkpoint, not presentation admission.
+The live smoke may report CTest skip 77 when a hosted runner has no native
+window server. It does not create an Ogre presentation `RenderWindow`, attach
+a Compositor2 workspace, swap or read back a presented frame, bridge game/UI/
+input state, package SDL with `RoR-OgreNext`, or flip immutable readiness
+facts. The pinned Vulkan/XCB implementation's device-wide resize wait is also
+not accepted as a finite GPU-drain contract; real resize after Ogre surface
+creation remains blocked on a reviewed drain strategy or upstream patch.
 The compatibility child's runtime closure
 and crash symbols remain the OGRE 14 closure; the dependency-free public
 launcher is audited separately. The fake child is confined to the test output
