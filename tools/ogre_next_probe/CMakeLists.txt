@@ -85,6 +85,8 @@ list(APPEND _ror_relevant_source_files
     "cmake/RendererLauncherPackageConfig.cmake"
     "source/main/gfx/RendererBackendPolicy.cpp"
     "source/main/gfx/RendererBackendPolicy.h"
+    "source/main/gfx/GfxScene.cpp"
+    "source/main/gfx/GfxScene.h"
     "source/main/gfx/RendererStartupHandoff.cpp"
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
@@ -136,6 +138,7 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
+    "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
     "tests/tools/test_ogre_next_window_presentation_contract.py"
@@ -607,8 +610,10 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${CMAKE_CURRENT_SOURCE_DIR}/../../source/main/gfx/render")
     add_library(
         ror_ogre_next_n1_contract STATIC
+        "${_ror_render_root}/GraphicsSceneSnapshotProducer.cpp"
         "${_ror_render_root}/HdrReference.cpp"
         "${_ror_render_root}/MaterialDescriptor.cpp"
+        "${_ror_render_root}/Ogre14GraphicsSceneSource.cpp"
         "${_ror_render_root}/ReflectionProbeCaptureReceipt.cpp"
         "${_ror_render_root}/ReflectionProbeRuntime.cpp"
         "${_ror_render_root}/RenderAssetDeltaTransport.cpp"
@@ -888,6 +893,16 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PRIVATE ror_ogre_next_n1_contract)
     set_target_properties(
         ror_renderer_frontend_transport_dispatcher_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_graphics_scene_source_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp")
+    target_link_libraries(
+        ror_ogre14_graphics_scene_source_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_graphics_scene_source_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
@@ -1443,6 +1458,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_bridge_process_supervisor_tests
         ror_renderer_ogre_next_child_tests
         ror_renderer_frontend_transport_dispatcher_tests
+        ror_ogre14_graphics_scene_source_tests
         ror_renderer_ogre_next_window_host_tests
         ror_renderer_ogre_next_sdl_window_runtime
         ror_renderer_ogre_next_window_host_smoke
@@ -1718,6 +1734,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             cmake/RendererLauncherPackageConfig.cmake
             source/main/gfx/RendererBackendPolicy.cpp
             source/main/gfx/RendererBackendPolicy.h
+            source/main/gfx/GfxScene.cpp
+            source/main/gfx/GfxScene.h
             source/main/gfx/RendererStartupHandoff.cpp
             source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp
@@ -1764,6 +1782,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/RendererStartupHandoffTests.cpp
             tests/gfx/RendererStartupPlanTests.cpp
             tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
+            tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
             tests/tools/test_ogre_next_child_runtime_contract.py
             tools/ogre_next_probe
             tools/run_ogre_next_probe.py
@@ -1942,6 +1961,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_sibling_path_tests
         ror_renderer_bridge_process_supervisor_tests
         ror_renderer_ogre_next_child_tests
+        ror_ogre14_graphics_scene_source_tests
         ror_renderer_child_launcher_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
         "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
@@ -2164,6 +2184,10 @@ endif ()
 if (TARGET ror_renderer_frontend_transport_dispatcher_tests)
     add_test(NAME ror_renderer_frontend_transport_dispatcher
         COMMAND $<TARGET_FILE:ror_renderer_frontend_transport_dispatcher_tests>)
+endif ()
+if (TARGET ror_ogre14_graphics_scene_source_tests)
+    add_test(NAME ror_ogre14_graphics_scene_source
+        COMMAND $<TARGET_FILE:ror_ogre14_graphics_scene_source_tests>)
 endif ()
 if (TARGET ror_renderer_ogre_next_window_host_tests)
     add_test(NAME ror_renderer_ogre_next_window_host

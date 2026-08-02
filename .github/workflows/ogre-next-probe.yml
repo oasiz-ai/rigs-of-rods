@@ -16,6 +16,7 @@ on:
       - tools/verify_ogre_next_artifact_set.py
       - cmake/RendererLauncherPackageConfig.cmake
       - source/main/gfx/RendererBackendPolicy.*
+      - source/main/gfx/GfxScene.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/system/RendererBridge*
@@ -67,6 +68,7 @@ on:
       - tools/verify_ogre_next_artifact_set.py
       - cmake/RendererLauncherPackageConfig.cmake
       - source/main/gfx/RendererBackendPolicy.*
+      - source/main/gfx/GfxScene.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/system/RendererBridge*
@@ -346,6 +348,14 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^ror_renderer_frontend_transport_dispatcher$'
+
+      - name: Prove the OGRE 14 joined-scene adapter on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_graphics_scene_source$'
 
       - name: Run the non-admitted real Ogre-Next child bootstrap
         run: >-

@@ -11,6 +11,8 @@ set(_ror_n2_relevant_source_paths
     cmake/RendererLauncherPackageConfig.cmake
     source/main/gfx/RendererBackendPolicy.cpp
     source/main/gfx/RendererBackendPolicy.h
+    source/main/gfx/GfxScene.cpp
+    source/main/gfx/GfxScene.h
     source/main/gfx/RendererStartupHandoff.cpp
     source/main/gfx/RendererStartupHandoff.h
     source/main/gfx/RendererStartupPlan.cpp
@@ -63,6 +65,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererStartupHandoffTests.cpp
     tests/gfx/RendererStartupPlanTests.cpp
     tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
+    tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
     tests/tools/test_ogre_next_child_runtime_contract.py
     tests/tools/test_ogre_next_window_host_contract.py
     tests/tools/test_ogre_next_window_presentation_contract.py
@@ -99,6 +102,8 @@ list(APPEND _ror_n2_relevant_source_files
     "cmake/RendererLauncherPackageConfig.cmake"
     "source/main/gfx/RendererBackendPolicy.cpp"
     "source/main/gfx/RendererBackendPolicy.h"
+    "source/main/gfx/GfxScene.cpp"
+    "source/main/gfx/GfxScene.h"
     "source/main/gfx/RendererStartupHandoff.cpp"
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
@@ -150,6 +155,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
+    "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
     "tests/tools/test_ogre_next_window_presentation_contract.py"

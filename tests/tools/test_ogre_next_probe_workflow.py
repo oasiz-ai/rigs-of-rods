@@ -47,6 +47,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/main.cpp",
             "tests/CMakeLists.txt",
             "cmake/RendererLauncherPackageConfig.cmake",
+            "source/main/gfx/GfxScene.*",
             "source/main/gfx/RendererBackendPolicy.*",
             "source/main/gfx/RendererStartupHandoff.*",
             "source/main/gfx/RendererStartupPlan.*",
@@ -361,6 +362,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             self.assertIn(token, cmake)
         for path in (
             "cmake/RendererLauncherPackageConfig.cmake",
+            "source/main/gfx/GfxScene.cpp",
+            "source/main/gfx/GfxScene.h",
             "source/main/gfx/RendererBackendPolicy.cpp",
             "source/main/gfx/RendererBackendPolicy.h",
             "source/main/gfx/RendererStartupHandoff.cpp",
@@ -409,6 +412,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/cmake/VerifyRendererPublicBridgeExit.cmake",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
+            "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp",
             "tests/tools/test_ogre_next_child_runtime_contract.py",
         ):
             with self.subTest(provenance_path=path):
@@ -744,6 +748,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         )
         for path in (
             "cmake/RendererLauncherPackageConfig.cmake",
+            "source/main/gfx/GfxScene.*",
             "source/main/gfx/RendererBackendPolicy.*",
             "source/main/gfx/RendererStartupHandoff.*",
             "source/main/gfx/RendererStartupPlan.*",
@@ -777,6 +782,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/cmake/VerifyRendererPublicBridgeExit.cmake",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
+            "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp",
             "tools/ogre_next_probe/**",
             "tools/run_ogre_next_probe.py",
             "tools/validate_ogre_next_frame_probe.py",
@@ -839,8 +845,94 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "-R '^ror_renderer_frontend_transport_dispatcher$'", self.workflow
         )
         self.assertIn(
+            "-R '^ror_ogre14_graphics_scene_source$'", self.workflow
+        )
+        self.assertIn(
             "ror_renderer_frontend_transport_dispatcher_tests",
             native_cmake,
+        )
+
+    def test_ogre14_scene_adapter_is_exactly_tapped_and_fail_closed(self) -> None:
+        main = (REPOSITORY_ROOT / "source/main/main.cpp").read_text(
+            encoding="utf-8"
+        )
+        gfx_header = (
+            REPOSITORY_ROOT / "source/main/gfx/GfxScene.h"
+        ).read_text(encoding="utf-8")
+        gfx_source = (
+            REPOSITORY_ROOT / "source/main/gfx/GfxScene.cpp"
+        ).read_text(encoding="utf-8")
+        adapter = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/render/Ogre14GraphicsSceneSource.cpp"
+        ).read_text(encoding="utf-8")
+        probe_cmake = (
+            REPOSITORY_ROOT / "tools/ogre_next_probe/CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        native_cmake = (REPOSITORY_ROOT / "tests/CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+
+        buffer_call = "App::GetGfxScene()->BufferSimulationData();"
+        producer_call = "ProduceJoinedFrame("
+        self.assertEqual(main.count(buffer_call), 1)
+        self.assertEqual(main.count(producer_call), 1)
+        self.assertLess(main.index(buffer_call), main.index(producer_call))
+        self.assertIn("if (renderer_game_bridge.active())", main)
+        self.assertIn("EnableOgre14GraphicsSceneCapture();", main)
+
+        self.assertIn(
+            "bool                               "
+            "m_ogre14_scene_capture_enabled = false;",
+            gfx_header,
+        )
+        buffer_body = gfx_source[
+            gfx_source.index("void GfxScene::BufferSimulationData()") :
+            gfx_source.index("Render::ValidationResult "
+                             "GfxScene::CaptureOgre14GraphicsScene")
+        ]
+        self.assertIn("if (!m_ogre14_scene_capture_enabled)", buffer_body)
+        self.assertLess(
+            buffer_body.index("a->BufferSimulationData();"),
+            buffer_body.index("if (!m_ogre14_scene_capture_enabled)"),
+        )
+
+        capture_body = gfx_source[
+            gfx_source.index("Render::ValidationResult "
+                             "GfxScene::CaptureOgre14GraphicsScene") :
+            gfx_source.index("void GfxScene::RemoveGfxActor")
+        ]
+        for unavailable in (
+            "ENVIRONMENT",
+            "ASSETS",
+            "STATIC_MESHES",
+            "LIGHTS",
+            "REFLECTION_PROBES",
+        ):
+            with self.subTest(unavailable=unavailable):
+                self.assertNotIn(
+                    f"Ogre14GraphicsSceneCaptureField::{unavailable}",
+                    capture_body,
+                )
+        self.assertIn(
+            "missing required OGRE 14 joined fields: " + '" + missing',
+            adapter,
+        )
+        for cmake in (probe_cmake, native_cmake):
+            self.assertIn("Ogre14GraphicsSceneSource.cpp", cmake)
+            self.assertIn("Ogre14GraphicsSceneSourceTests.cpp", cmake)
+            self.assertIn("ror_ogre14_graphics_scene_source_tests", cmake)
+        package_dependencies = probe_cmake[
+            probe_cmake.index("set(_ror_n1_package_dependencies") :
+            probe_cmake.index(")", probe_cmake.index(
+                "set(_ror_n1_package_dependencies"
+            ))
+        ]
+        self.assertEqual(
+            package_dependencies.count(
+                "ror_ogre14_graphics_scene_source_tests"
+            ),
+            1,
         )
 
     def test_ogre_next_child_core_runs_in_the_normal_native_suite(self) -> None:
