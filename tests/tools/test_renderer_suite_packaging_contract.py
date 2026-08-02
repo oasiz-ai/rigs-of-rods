@@ -19,6 +19,9 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
         cls.conanfile = (REPOSITORY_ROOT / "conanfile.py").read_text(
             encoding="utf-8"
         )
+        cls.building_guide = (REPOSITORY_ROOT / "BUILDING.md").read_text(
+            encoding="utf-8"
+        )
         cls.source_cmake = (
             REPOSITORY_ROOT / "source" / "main" / "CMakeLists.txt"
         ).read_text(encoding="utf-8")
@@ -54,6 +57,10 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
             self.root_cmake,
         )
         self.assertIn('"ogre14": True,', self.conanfile)
+        self.assertIn(
+            '"The OgreNext-first product suite supports only "',
+            self.conanfile,
+        )
         option_contract = (
             'set(_ror_renderer_public_launcher_default "${ROR_OGRE14}")\n'
             "option(\n"
@@ -92,6 +99,23 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
             "AND NOT ROR_RENDERER_PUBLIC_LAUNCHER",
             self.source_cmake,
         )
+
+    def test_building_guide_describes_the_default_product_truthfully(self) -> None:
+        guide = self.building_guide
+        for contract in (
+            "The supported product build is OgreNext-first",
+            "`RoR`: the public launcher, which requests OgreNext by default",
+            "`RoR-OgreNext`: the isolated presentation renderer",
+            "`RoR-Ogre14`: the simulation/game host and bounded compatibility "
+            "fallback",
+            "immutable package facts keep the",
+            "normal launch fail-closed on `RoR-Ogre14`",
+            "`ROR_OGRE14` | `ON`",
+            "`ROR_RENDERER_PUBLIC_LAUNCHER` | `ON`",
+            "`ROR_OGRE_NEXT_PRODUCTION_PACKAGE` | `ON`",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, guide)
 
     def test_launcher_and_compatibility_child_are_staged_together(self) -> None:
         source = self.source_cmake

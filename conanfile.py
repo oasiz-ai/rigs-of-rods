@@ -35,7 +35,7 @@ class RoR(ConanFile):
         target = (str(self.settings.os), str(self.settings.arch))
         if self.options.ogre14 and target not in SUPPORTED_OGRE14_TARGETS:
             raise ConanInvalidConfiguration(
-                "The opt-in OGRE 14 application graph supports only "
+                "The OgreNext-first product suite supports only "
                 "Linux/x86_64, Macos/armv8, and Windows/x86_64; "
                 f"received {target[0]}/{target[1]}"
             )
