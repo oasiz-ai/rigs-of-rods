@@ -46,6 +46,12 @@ ValidationResult ValidateRendererFrontendPresentationPolicy(
         ValidationCode::INVALID_ENUM, "color_format",
         "presentation policy color must be SDR sRGB or linear HDR");
   }
+  if (policy.retire_scene_without_render &&
+      (policy.present || policy.presentation_surface_revision != 0U)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "retire_scene_without_render",
+        "retired scene policy cannot name or present a native surface");
+  }
   if (policy.present) {
     if (!HasFrameOutput(policy.requested_outputs, FrameOutputMask::COLOR)) {
       return ValidationResult::Failure(
@@ -70,6 +76,7 @@ bool IsKnownRendererFrontendTransportDispatchStatus(
   switch (status) {
   case RendererFrontendTransportDispatchStatus::ASSET_DELTA_SYNCHRONIZED:
   case RendererFrontendTransportDispatchStatus::SCENE_FRAME_COMPLETED:
+  case RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED:
   case RendererFrontendTransportDispatchStatus::REJECTED_TERMINAL:
   case RendererFrontendTransportDispatchStatus::REJECTED_INVALID_SESSION:
   case RendererFrontendTransportDispatchStatus::REJECTED_INVALID_FRAME:
@@ -97,6 +104,8 @@ const char *ToString(RendererFrontendTransportDispatchStatus status) noexcept {
     return "asset-delta-synchronized";
   case RendererFrontendTransportDispatchStatus::SCENE_FRAME_COMPLETED:
     return "scene-frame-completed";
+  case RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED:
+    return "scene-frame-retired";
   case RendererFrontendTransportDispatchStatus::REJECTED_TERMINAL:
     return "rejected-terminal";
   case RendererFrontendTransportDispatchStatus::REJECTED_INVALID_SESSION:
@@ -349,6 +358,13 @@ RendererFrontendTransportDispatcher::DispatchScene(
     return Fail(RendererFrontendTransportDispatchStatus::FAILED_LINEAGE, &frame,
                 RenderTransportStatus::OK, asset_validation.code,
                 RenderOperationCode::OK);
+  }
+
+  if (presentation_policy.retire_scene_without_render) {
+    RendererFrontendTransportDispatchResult result = Success(
+        RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED, frame);
+    result.scene_snapshot_id = scene_snapshot_id;
+    return result;
   }
 
   RenderFrameRequest request;

@@ -62,6 +62,11 @@ RoR::RendererOgreNextFrontendBootstrapResult BootstrapProductionFrontend(
   RoR::RendererOgreNextFrontendBootstrapResult result;
   try {
     result.invocation_mode = request.invocation_mode;
+    result.production_readiness =
+        request.invocation_mode ==
+                RoR::RendererOgreNextChildInvocationMode::PRODUCTION_BRIDGE
+            ? RoR::RendererOgreNextProductionReadiness::PRE_PEER_READY
+            : RoR::RendererOgreNextProductionReadiness::NOT_PRODUCTION;
     if (request.version != RoR::kRendererOgreNextChildContractVersion ||
         request.startup_plan.version !=
             RoR::kRendererStartupPlanContractVersion ||
@@ -103,6 +108,10 @@ RoR::RendererOgreNextFrontendBootstrapResult BootstrapProductionFrontend(
               .u8string();
       g_production_session = RoR::RunRendererOgreNextProductionSession(
           request.bridge_endpoint, configuration);
+      result.production_readiness =
+          g_production_session.live.peer_ready_sent
+              ? RoR::RendererOgreNextProductionReadiness::PEER_READY_SENT
+              : RoR::RendererOgreNextProductionReadiness::PRE_PEER_READY;
       if (g_production_session.completed &&
           g_production_session.status ==
               RoR::RendererOgreNextProductionSessionStatus::COMPLETED) {
@@ -224,6 +233,11 @@ int ExitCodeFor(const RoR::RendererOgreNextChildResult &result) noexcept {
       (headless_completed || production_completed)) {
     return kRendererOgreNextChildSuccessExitCode;
   }
+  const int production_failure_exit =
+      RoR::ResolveRendererOgreNextProductionFailureExitCode(result);
+  if (production_failure_exit != 0) {
+    return production_failure_exit;
+  }
   if (result.status ==
           RoR::RendererOgreNextChildStatus::FAILED_FRONTEND_INITIALIZATION &&
       result.frontend.status ==
@@ -295,13 +309,14 @@ int RunRendererOgreNextChildExecutable(
   (void)std::fprintf(
       stderr,
       "RoR Ogre-Next child: %s (intent=%s, bridge=%s, mode=%s, "
-      "startup=%s, frontend=%s)\n",
+      "startup=%s, frontend=%s, readiness=%s)\n",
       RoR::ToString(result.status),
       RoR::ToString(result.intent_status),
       RoR::ToString(result.bridge_status),
       RoR::ToString(result.invocation_mode),
       RoR::ToString(result.startup_plan.status),
-      RoR::ToString(result.frontend.status));
+      RoR::ToString(result.frontend.status),
+      RoR::ToString(result.production_readiness));
   if (result.invocation_mode ==
       RoR::RendererOgreNextChildInvocationMode::PRODUCTION_BRIDGE) {
     if (g_bootstrap_observation ==

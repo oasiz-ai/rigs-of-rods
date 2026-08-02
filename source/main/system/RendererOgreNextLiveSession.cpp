@@ -9,7 +9,9 @@
 #include "RendererOgreNextLiveSession.h"
 
 #include <array>
+#include <chrono>
 #include <limits>
+#include <thread>
 
 namespace RoR {
 namespace {
@@ -20,7 +22,32 @@ bool IsValidRuntime(
     const RendererOgreNextLiveSessionRuntime &runtime) noexcept {
   return runtime.version == kRendererOgreNextLiveSessionContractVersion &&
          runtime.frontend != nullptr && runtime.context != nullptr &&
-         runtime.poll != nullptr;
+         runtime.poll != nullptr && !runtime.initial_surface.suspended &&
+         Render::IsValidRenderBridgeSurfaceState(runtime.initial_surface,
+                                                 false) &&
+         runtime.idle_poll_interval_milliseconds <= 1000U;
+}
+
+bool SameSurface(const Render::RenderBridgeSurfaceState &lhs,
+                 const Render::RenderBridgeSurfaceState &rhs) noexcept {
+  return lhs.surface_revision == rhs.surface_revision &&
+         lhs.logical_width == rhs.logical_width &&
+         lhs.logical_height == rhs.logical_height &&
+         lhs.drawable_width == rhs.drawable_width &&
+         lhs.drawable_height == rhs.drawable_height &&
+         lhs.suspended == rhs.suspended;
+}
+
+bool IsValidObservation(
+    const RendererOgreNextLiveSessionObservation &observation,
+    const Render::RenderBridgeSurfaceState &announced_surface) noexcept {
+  return observation.version == kRendererOgreNextLiveSessionContractVersion &&
+         Render::IsValidRenderBridgeSurfaceState(observation.surface, true) &&
+         observation.surface.surface_revision >=
+             announced_surface.surface_revision &&
+         (observation.surface.surface_revision !=
+              announced_surface.surface_revision ||
+          SameSurface(observation.surface, announced_surface));
 }
 
 bool AddCounter(std::uint64_t amount, std::uint64_t &value) noexcept {
@@ -82,6 +109,11 @@ bool HasReverseSequenceCapacity(std::uint64_t next_sequence,
   return next_sequence != 0U && count != 0U &&
          next_sequence <= maximum_valid &&
          count - 1U <= maximum_valid - next_sequence;
+}
+
+bool HasControlCommandCapacity(std::uint64_t next_command,
+                               std::uint64_t count) noexcept {
+  return count == 0U || HasReverseSequenceCapacity(next_command, count);
 }
 
 RendererOgreNextLiveSessionResult FinishWithClose(
@@ -149,20 +181,25 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
     ready.kind = Render::RenderBridgeControlKind::PEER_READY;
     ready.registry_id = dispatcher.registry_id();
     ready.command_id = next_control_command_id;
+    ready.surface = runtime.initial_surface;
     const ReverseSendOutcome ready_sent = SendReverseFrame(
         Render::EncodeRenderBridgeControlFrame(reverse_sequence, ready),
         channel, result);
     if (ready_sent == ReverseSendOutcome::PEER_CLOSED) {
       return FinishWithClose(
           result,
-          RendererOgreNextLiveSessionStatus::COMPLETED_PEER_REVERSE_CLOSE,
-          channel, true);
+          RendererOgreNextLiveSessionStatus::
+              FAILED_PEER_CLOSED_BEFORE_READY,
+          channel, false);
     }
     if (ready_sent != ReverseSendOutcome::SENT) {
       return FinishWithClose(result, FailureForReverseSend(ready_sent),
                              channel, false);
     }
     result.last_reverse_sequence = reverse_sequence;
+    result.last_announced_surface_revision =
+        runtime.initial_surface.surface_revision;
+    result.peer_ready_sent = true;
     if (!AddCounter(1U, result.controls_sent)) {
       return FinishWithClose(
           result, RendererOgreNextLiveSessionStatus::FAILED_INTERNAL, channel,
@@ -170,11 +207,78 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
     }
     ++reverse_sequence;
     ++next_control_command_id;
+    Render::RenderBridgeSurfaceState announced_surface =
+        runtime.initial_surface;
+
+    const auto send_surface_change =
+        [&](const Render::RenderBridgeSurfaceState &surface) noexcept {
+          Render::RenderBridgeControl control;
+          control.kind = Render::RenderBridgeControlKind::SURFACE_CHANGED;
+          control.registry_id = dispatcher.registry_id();
+          control.command_id = next_control_command_id;
+          control.surface = surface;
+          const ReverseSendOutcome outcome = SendReverseFrame(
+              Render::EncodeRenderBridgeControlFrame(reverse_sequence,
+                                                     control),
+              channel, result);
+          if (outcome != ReverseSendOutcome::SENT) {
+            return outcome;
+          }
+          result.last_reverse_sequence = reverse_sequence;
+          result.last_announced_surface_revision = surface.surface_revision;
+          if (!AddCounter(1U, result.controls_sent) ||
+              !AddCounter(1U, result.surface_changes_sent)) {
+            return ReverseSendOutcome::COUNTER_OVERFLOW;
+          }
+          announced_surface = surface;
+          ++reverse_sequence;
+          ++next_control_command_id;
+          return ReverseSendOutcome::SENT;
+        };
+
+    const auto send_input_batch =
+        [&](const Render::InputTransportBatch &batch) noexcept {
+          const ReverseSendOutcome outcome = SendReverseFrame(
+              Render::EncodeInputEventTransportFrame(reverse_sequence, batch),
+              channel, result);
+          if (outcome != ReverseSendOutcome::SENT) {
+            return outcome;
+          }
+          result.last_reverse_sequence = reverse_sequence;
+          if (!AddCounter(1U, result.input_batches_sent)) {
+            return ReverseSendOutcome::COUNTER_OVERFLOW;
+          }
+          ++reverse_sequence;
+          return ReverseSendOutcome::SENT;
+        };
+
+    const auto send_shutdown = [&]() noexcept {
+      Render::RenderBridgeControl shutdown;
+      shutdown.kind =
+          Render::RenderBridgeControlKind::REQUEST_GRACEFUL_SHUTDOWN;
+      shutdown.registry_id = dispatcher.registry_id();
+      shutdown.command_id = next_control_command_id;
+      const ReverseSendOutcome outcome = SendReverseFrame(
+          Render::EncodeRenderBridgeControlFrame(reverse_sequence, shutdown),
+          channel, result);
+      if (outcome != ReverseSendOutcome::SENT) {
+        return outcome;
+      }
+      result.last_reverse_sequence = reverse_sequence;
+      if (!AddCounter(1U, result.controls_sent)) {
+        return ReverseSendOutcome::COUNTER_OVERFLOW;
+      }
+      ++reverse_sequence;
+      ++next_control_command_id;
+      return ReverseSendOutcome::SENT;
+    };
 
     std::array<std::uint8_t, kReadBufferBytes> bytes{};
     for (;;) {
       const RendererBridgeChannelResult read =
-          channel.ReadSome(bytes.data(), bytes.size());
+          runtime.idle_poll_interval_milliseconds == 0U
+              ? channel.ReadSome(bytes.data(), bytes.size())
+              : channel.TryReadSome(bytes.data(), bytes.size());
       result.channel_status = read.status;
       if (!AddCounter(static_cast<std::uint64_t>(read.bytes_transferred),
                       result.bytes_read)) {
@@ -194,10 +298,122 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
             result, RendererOgreNextLiveSessionStatus::COMPLETED_PEER_EOF,
             channel, true);
       }
-      if (!read || read.bytes_transferred == 0U) {
+      if (!read) {
         return FinishWithClose(
             result, RendererOgreNextLiveSessionStatus::FAILED_CHANNEL_READ,
             channel, false);
+      }
+      if (read.bytes_transferred == 0U) {
+        if (runtime.idle_poll_interval_milliseconds == 0U) {
+          return FinishWithClose(
+              result, RendererOgreNextLiveSessionStatus::FAILED_CHANNEL_READ,
+              channel, false);
+        }
+        RendererOgreNextLiveSessionObservation observation;
+        bool polled = false;
+        try {
+          polled = runtime.poll(runtime.context, result.last_forward_sequence,
+                                &observation);
+        } catch (...) {
+          polled = false;
+        }
+        if (!AddCounter(1U, result.idle_polls)) {
+          return FinishWithClose(
+              result, RendererOgreNextLiveSessionStatus::FAILED_INTERNAL,
+              channel, false);
+        }
+        if (!polled || !IsValidObservation(observation, announced_surface)) {
+          return FinishWithClose(
+              result, RendererOgreNextLiveSessionStatus::FAILED_EVENT_POLL,
+              channel, false);
+        }
+        const bool surface_changed =
+            observation.surface.surface_revision >
+            announced_surface.surface_revision;
+        const bool input_available = !observation.response.events.empty();
+        const std::uint64_t response_count =
+            static_cast<std::uint64_t>(surface_changed ? 1U : 0U) +
+            static_cast<std::uint64_t>(
+                observation.window_close_requested ? 2U
+                                                    : (input_available ? 1U
+                                                                       : 0U));
+        const std::uint64_t control_count =
+            static_cast<std::uint64_t>(surface_changed ? 1U : 0U) +
+            static_cast<std::uint64_t>(
+                observation.window_close_requested ? 1U : 0U);
+        if ((response_count != 0U &&
+             !HasReverseSequenceCapacity(reverse_sequence, response_count)) ||
+            !HasControlCommandCapacity(next_control_command_id,
+                                       control_count)) {
+          return FinishWithClose(
+              result, RendererOgreNextLiveSessionStatus::FAILED_INTERNAL,
+              channel, false);
+        }
+        if (surface_changed) {
+          const ReverseSendOutcome surface_sent =
+              send_surface_change(observation.surface);
+          if (surface_sent == ReverseSendOutcome::PEER_CLOSED) {
+            return FinishWithClose(
+                result,
+                RendererOgreNextLiveSessionStatus::
+                    COMPLETED_PEER_REVERSE_CLOSE,
+                channel, true);
+          }
+          if (surface_sent != ReverseSendOutcome::SENT) {
+            return FinishWithClose(result,
+                                   FailureForReverseSend(surface_sent),
+                                   channel, false);
+          }
+        }
+        if (observation.window_close_requested) {
+          const ReverseSendOutcome input_sent =
+              send_input_batch(observation.response);
+          if (input_sent == ReverseSendOutcome::PEER_CLOSED) {
+            return FinishWithClose(
+                result,
+                RendererOgreNextLiveSessionStatus::
+                    COMPLETED_PEER_REVERSE_CLOSE,
+                channel, true);
+          }
+          if (input_sent != ReverseSendOutcome::SENT) {
+            return FinishWithClose(result, FailureForReverseSend(input_sent),
+                                   channel, false);
+          }
+          const ReverseSendOutcome shutdown_sent = send_shutdown();
+          if (shutdown_sent == ReverseSendOutcome::PEER_CLOSED) {
+            return FinishWithClose(
+                result,
+                RendererOgreNextLiveSessionStatus::
+                    COMPLETED_PEER_REVERSE_CLOSE,
+                channel, true);
+          }
+          if (shutdown_sent != ReverseSendOutcome::SENT) {
+            return FinishWithClose(
+                result, FailureForReverseSend(shutdown_sent), channel, false);
+          }
+          return FinishWithClose(
+              result,
+              RendererOgreNextLiveSessionStatus::COMPLETED_WINDOW_CLOSE,
+              channel, true);
+        }
+        if (input_available) {
+          const ReverseSendOutcome input_sent =
+              send_input_batch(observation.response);
+          if (input_sent == ReverseSendOutcome::PEER_CLOSED) {
+            return FinishWithClose(
+                result,
+                RendererOgreNextLiveSessionStatus::
+                    COMPLETED_PEER_REVERSE_CLOSE,
+                channel, true);
+          }
+          if (input_sent != ReverseSendOutcome::SENT) {
+            return FinishWithClose(result, FailureForReverseSend(input_sent),
+                                   channel, false);
+          }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(
+            runtime.idle_poll_interval_milliseconds));
+        continue;
       }
 
       std::size_t offset = 0U;
@@ -236,27 +452,47 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
         } catch (...) {
           polled = false;
         }
-        if (!polled || observation.version !=
-                           kRendererOgreNextLiveSessionContractVersion ||
-            (!observation.presentation_suspended &&
-             observation.presentation_surface_revision == 0U) ||
-            (observation.presentation_suspended &&
-             observation.presentation_surface_revision != 0U)) {
+        if (!polled || !IsValidObservation(observation, announced_surface)) {
           return FinishWithClose(
               result, RendererOgreNextLiveSessionStatus::FAILED_EVENT_POLL,
               channel, false);
         }
-        if (!HasReverseSequenceCapacity(reverse_sequence, 2U)) {
+        const bool surface_changed =
+            observation.surface.surface_revision >
+            announced_surface.surface_revision;
+        const std::uint64_t response_count = surface_changed ? 3U : 2U;
+        const std::uint64_t control_count =
+            static_cast<std::uint64_t>(surface_changed ? 1U : 0U) +
+            static_cast<std::uint64_t>(
+                observation.window_close_requested ? 1U : 0U);
+        if (!HasReverseSequenceCapacity(reverse_sequence, response_count) ||
+            !HasControlCommandCapacity(next_control_command_id,
+                                       control_count)) {
           return FinishWithClose(
               result, RendererOgreNextLiveSessionStatus::FAILED_INTERNAL,
               channel, false);
         }
 
+        if (surface_changed) {
+          const ReverseSendOutcome surface_sent =
+              send_surface_change(observation.surface);
+          if (surface_sent == ReverseSendOutcome::PEER_CLOSED) {
+            return FinishWithClose(
+                result,
+                RendererOgreNextLiveSessionStatus::
+                    COMPLETED_PEER_REVERSE_CLOSE,
+                channel, true);
+          }
+          if (surface_sent != ReverseSendOutcome::SENT) {
+            return FinishWithClose(result,
+                                   FailureForReverseSend(surface_sent),
+                                   channel, false);
+          }
+        }
+
         if (observation.window_close_requested) {
-          const ReverseSendOutcome input_sent = SendReverseFrame(
-              Render::EncodeInputEventTransportFrame(
-                  reverse_sequence, observation.response),
-              channel, result);
+          const ReverseSendOutcome input_sent =
+              send_input_batch(observation.response);
           if (input_sent == ReverseSendOutcome::PEER_CLOSED) {
             return FinishWithClose(
                 result,
@@ -269,40 +505,17 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
                                    FailureForReverseSend(input_sent), channel,
                                    false);
           }
-          result.last_reverse_sequence = reverse_sequence;
-          if (!AddCounter(1U, result.input_batches_sent)) {
-            return FinishWithClose(
-                result, RendererOgreNextLiveSessionStatus::FAILED_INTERNAL,
-                channel, false);
-          }
-          ++reverse_sequence;
-
-          Render::RenderBridgeControl shutdown;
-          shutdown.kind =
-              Render::RenderBridgeControlKind::REQUEST_GRACEFUL_SHUTDOWN;
-          shutdown.registry_id = dispatcher.registry_id();
-          shutdown.command_id = next_control_command_id;
-          const ReverseSendOutcome control_sent = SendReverseFrame(
-              Render::EncodeRenderBridgeControlFrame(reverse_sequence,
-                                                     shutdown),
-              channel, result);
-          if (control_sent == ReverseSendOutcome::PEER_CLOSED) {
+          const ReverseSendOutcome shutdown_sent = send_shutdown();
+          if (shutdown_sent == ReverseSendOutcome::PEER_CLOSED) {
             return FinishWithClose(
                 result,
                 RendererOgreNextLiveSessionStatus::
                     COMPLETED_PEER_REVERSE_CLOSE,
                 channel, true);
           }
-          if (control_sent != ReverseSendOutcome::SENT) {
-            return FinishWithClose(result,
-                                   FailureForReverseSend(control_sent),
-                                   channel, false);
-          }
-          result.last_reverse_sequence = reverse_sequence;
-          if (!AddCounter(1U, result.controls_sent)) {
+          if (shutdown_sent != ReverseSendOutcome::SENT) {
             return FinishWithClose(
-                result, RendererOgreNextLiveSessionStatus::FAILED_INTERNAL,
-                channel, false);
+                result, FailureForReverseSend(shutdown_sent), channel, false);
           }
           return FinishWithClose(
               result,
@@ -313,9 +526,15 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
         Render::RendererFrontendPresentationPolicy policy;
         policy.requested_outputs = Render::FrameOutputMask::COLOR;
         policy.color_format = Render::PixelFormat::RGBA8_SRGB;
+        const bool scene_frame =
+            frame.kind == Render::RenderTransportMessageKind::
+                              SCENE_SNAPSHOT_V4_CAMERA_V2;
+        policy.retire_scene_without_render =
+            scene_frame &&
+            (surface_changed || observation.surface.suspended);
+        policy.present = scene_frame && !policy.retire_scene_without_render;
         policy.presentation_surface_revision =
-            observation.presentation_surface_revision;
-        policy.present = !observation.presentation_suspended;
+            policy.present ? observation.surface.surface_revision : 0U;
         policy.allow_async_compute = false;
         const Render::RendererFrontendTransportDispatchResult dispatched =
             dispatcher.Dispatch(frame, policy);
@@ -337,6 +556,8 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
                    Render::RenderTransportMessageKind::
                        SCENE_SNAPSHOT_V4_CAMERA_V2) {
           if (!AddCounter(1U, result.scene_frames) ||
+              (policy.retire_scene_without_render &&
+               !AddCounter(1U, result.retired_scene_frames)) ||
               (policy.present &&
                !AddCounter(1U, result.presented_scene_frames))) {
             return FinishWithClose(
@@ -349,10 +570,8 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
               channel, false);
         }
 
-        const ReverseSendOutcome input_sent = SendReverseFrame(
-            Render::EncodeInputEventTransportFrame(
-                reverse_sequence, observation.response),
-            channel, result);
+        const ReverseSendOutcome input_sent =
+            send_input_batch(observation.response);
         if (input_sent == ReverseSendOutcome::PEER_CLOSED) {
           return FinishWithClose(
               result,
@@ -364,14 +583,6 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
           return FinishWithClose(result, FailureForReverseSend(input_sent),
                                  channel, false);
         }
-        result.last_reverse_sequence = reverse_sequence;
-        if (!AddCounter(1U, result.input_batches_sent)) {
-          return FinishWithClose(
-              result, RendererOgreNextLiveSessionStatus::FAILED_INTERNAL,
-              channel, false);
-        }
-        ++reverse_sequence;
-
         std::uint64_t acknowledged_presented_scene_sequence =
             last_presented_scene_sequence;
         std::uint64_t acknowledged_presented_snapshot_id =
@@ -444,6 +655,7 @@ bool IsKnownRendererOgreNextLiveSessionStatus(
   case RendererOgreNextLiveSessionStatus::REJECTED_INVALID_ENDPOINT:
   case RendererOgreNextLiveSessionStatus::REJECTED_INVALID_RUNTIME:
   case RendererOgreNextLiveSessionStatus::FAILED_CHANNEL_ADOPTION:
+  case RendererOgreNextLiveSessionStatus::FAILED_PEER_CLOSED_BEFORE_READY:
   case RendererOgreNextLiveSessionStatus::FAILED_CHANNEL_READ:
   case RendererOgreNextLiveSessionStatus::FAILED_CHANNEL_WRITE:
   case RendererOgreNextLiveSessionStatus::FAILED_STREAM:
@@ -471,6 +683,8 @@ const char *ToString(RendererOgreNextLiveSessionStatus status) noexcept {
     return "rejected-invalid-runtime";
   case RendererOgreNextLiveSessionStatus::FAILED_CHANNEL_ADOPTION:
     return "failed-channel-adoption";
+  case RendererOgreNextLiveSessionStatus::FAILED_PEER_CLOSED_BEFORE_READY:
+    return "failed-peer-closed-before-ready";
   case RendererOgreNextLiveSessionStatus::FAILED_CHANNEL_READ:
     return "failed-channel-read";
   case RendererOgreNextLiveSessionStatus::FAILED_CHANNEL_WRITE:

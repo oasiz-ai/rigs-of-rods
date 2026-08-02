@@ -160,6 +160,12 @@ RendererFrontendPresentationPolicy PresentedPolicy() {
   return policy;
 }
 
+RendererFrontendPresentationPolicy RetiredPolicy() {
+  RendererFrontendPresentationPolicy policy = OffscreenPolicy();
+  policy.retire_scene_without_render = true;
+  return policy;
+}
+
 PixelFormat FormatForOutput(FrameOutputMask output, PixelFormat color_format) {
   switch (output) {
   case FrameOutputMask::COLOR:
@@ -360,7 +366,7 @@ void TestIdentityDerivationAndStatusDomain() {
   Require(first_id == DeriveRenderAssetRegistryIdFromBridgeSession(first),
           "registry derivation was not deterministic");
 
-  for (unsigned value = 0U; value <= 15U; ++value) {
+  for (unsigned value = 0U; value <= 16U; ++value) {
     const auto status =
         static_cast<RendererFrontendTransportDispatchStatus>(value);
     Require(IsKnownRendererFrontendTransportDispatchStatus(status),
@@ -369,7 +375,7 @@ void TestIdentityDerivationAndStatusDomain() {
             "known dispatcher status lacked stable text");
   }
   Require(!IsKnownRendererFrontendTransportDispatchStatus(
-              static_cast<RendererFrontendTransportDispatchStatus>(16U)),
+              static_cast<RendererFrontendTransportDispatchStatus>(17U)),
           "unknown dispatcher status was accepted");
 }
 
@@ -378,6 +384,8 @@ void TestPresentationPolicyValidation() {
           "valid UI-free offscreen policy was rejected");
   Require(ValidateRendererFrontendPresentationPolicy(PresentedPolicy()).ok(),
           "valid native presentation policy was rejected");
+  Require(ValidateRendererFrontendPresentationPolicy(RetiredPolicy()).ok(),
+          "valid stale-scene retirement policy was rejected");
 
   RendererFrontendPresentationPolicy invalid = OffscreenPolicy();
   invalid.presentation_surface_revision = 1U;
@@ -394,6 +402,47 @@ void TestPresentationPolicyValidation() {
   Require(ValidateRendererFrontendPresentationPolicy(invalid).code ==
               ValidationCode::INVALID_OUTPUT_MASK,
           "unknown output policy was accepted");
+  invalid = PresentedPolicy();
+  invalid.retire_scene_without_render = true;
+  Require(ValidateRendererFrontendPresentationPolicy(invalid).code ==
+              ValidationCode::INVALID_IDENTIFIER,
+          "retired scene policy retained native presentation identity");
+}
+
+void TestRetiredSceneAdvancesLineageWithoutFrontendWork() {
+  FakeFrontend frontend;
+  const RenderBridgeSessionIdentity session = Session(17U);
+  RendererFrontendTransportDispatcher dispatcher(frontend, session);
+  const std::uint64_t registry_id = dispatcher.registry_id();
+  const auto asset = AssetFrame(1U, AssetDelta(registry_id, 1U, true));
+  Require(dispatcher.Dispatch(asset, OffscreenPolicy()).ok(),
+          "retirement fixture asset did not synchronize");
+
+  const auto stale_scene = SceneFrame(2U, Scene(11U, registry_id, 1U));
+  const RendererFrontendTransportDispatchResult retired =
+      dispatcher.Dispatch(stale_scene, RetiredPolicy());
+  RequireStatus(retired.status,
+                RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED,
+                "stale scene was not retired nonterminally");
+  Require(retired.ok() && !retired.terminal &&
+              retired.scene_snapshot_id == 11U &&
+              retired.resources_released == 0U &&
+              dispatcher.last_accepted_sequence() == 2U &&
+              dispatcher.next_expected_sequence() == 3U &&
+              frontend.rendered_requests.empty() &&
+              frontend.waited_frame_ids.empty() && frontend.calls.size() == 1U,
+          "retired scene invoked frontend work or lost forward lineage");
+
+  const auto current_scene = SceneFrame(3U, Scene(12U, registry_id, 1U));
+  const RendererFrontendTransportDispatchResult rendered =
+      dispatcher.Dispatch(current_scene, PresentedPolicy());
+  RequireStatus(rendered.status,
+                RendererFrontendTransportDispatchStatus::SCENE_FRAME_COMPLETED,
+                "dispatcher did not continue after stale-scene retirement");
+  Require(rendered.scene_snapshot_id == 12U && !rendered.terminal &&
+              frontend.rendered_requests.size() == 1U &&
+              dispatcher.next_expected_sequence() == 4U,
+          "post-retirement scene did not render on the same live dispatcher");
 }
 
 void TestInterleavedAssetsScenesAndPresentation() {
@@ -759,6 +808,7 @@ void TestForgedCompleteFrameMetadataFailsClosed() {
 int main() {
   TestIdentityDerivationAndStatusDomain();
   TestPresentationPolicyValidation();
+  TestRetiredSceneAdvancesLineageWithoutFrontendWork();
   TestInterleavedAssetsScenesAndPresentation();
   TestArbitrarySessionsAndRequiredRegistry();
   TestReplayOutOfOrderAndTerminalState();
