@@ -220,6 +220,16 @@ class OgreNextWindowRunLoopContractTests(unittest.TestCase):
             self.cmake.index("if (ROR_OGRE_NEXT_VULKAN_RT5")
         ]
         self.assertIn("ror_ogre_next_window_run_loop_smoke", target)
+        source_manifest = self.cmake[
+            self.cmake.index("list(APPEND _ror_relevant_source_files") :
+            self.cmake.index(
+                "list(FILTER _ror_relevant_source_files EXCLUDE REGEX"
+            )
+        ]
+        self.assertIn(
+            '"tests/tools/test_ogre_next_window_run_loop_contract.py"',
+            source_manifest,
+        )
         runtime_gate = self.cmake[
             self.cmake.index(
                 "if (APPLE AND TARGET ror_ogre_next_window_run_loop_smoke)"
