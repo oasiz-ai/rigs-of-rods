@@ -41,7 +41,10 @@ option(ROR_BUILD_DOC_DOXYGEN "Build documentation from sources with Doxygen" OFF
 option(ROR_BUILD_TESTS "Build deterministic dependency-free physics tests" OFF)
 option(ROR_USE_PCH "Use a Precompiled header for speeding up the build" ON)
 option(ROR_CREATE_CONTENT_FOLDER "Create the base content folder" ON)
-option(ROR_OGRE14 "Opt in to the cross-platform OGRE 14 bring-up" OFF)
+option(
+    ROR_OGRE14
+    "Build the cross-platform OGRE 14 simulation and compatibility host"
+    ON)
 set(_ror_renderer_public_launcher_default "${ROR_OGRE14}")
 option(
     ROR_RENDERER_PUBLIC_LAUNCHER
@@ -59,8 +62,9 @@ set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to th
 
 if (ROR_RENDERER_PUBLIC_LAUNCHER AND NOT ROR_OGRE14)
     message(FATAL_ERROR
-        "ROR_RENDERER_PUBLIC_LAUNCHER requires ROR_OGRE14 because its only "
-        "admitted production child is RoR-Ogre14")
+        "ROR_RENDERER_PUBLIC_LAUNCHER requires ROR_OGRE14 because the "
+        "Ogre-Next presentation child uses RoR-Ogre14 as its simulation "
+        "host and bounded compatibility fallback")
 endif ()
 if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE AND
         NOT ROR_RENDERER_PUBLIC_LAUNCHER)

@@ -16,6 +16,9 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
         cls.root_cmake = (REPOSITORY_ROOT / "CMakeLists.txt").read_text(
             encoding="utf-8"
         )
+        cls.conanfile = (REPOSITORY_ROOT / "conanfile.py").read_text(
+            encoding="utf-8"
+        )
         cls.source_cmake = (
             REPOSITORY_ROOT / "source" / "main" / "CMakeLists.txt"
         ).read_text(encoding="utf-8")
@@ -43,7 +46,14 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
             REPOSITORY_ROOT / ".github" / "workflows" / "ogre14-native.yml"
         ).read_text(encoding="utf-8")
 
-    def test_ogre14_builds_default_to_the_public_renderer_suite(self) -> None:
+    def test_supported_builds_default_to_the_ogre_next_first_suite(self) -> None:
+        self.assertIn(
+            'option(\n    ROR_OGRE14\n'
+            '    "Build the cross-platform OGRE 14 simulation and compatibility host"\n'
+            '    ON)',
+            self.root_cmake,
+        )
+        self.assertIn('"ogre14": True,', self.conanfile)
         option_contract = (
             'set(_ror_renderer_public_launcher_default "${ROR_OGRE14}")\n'
             "option(\n"

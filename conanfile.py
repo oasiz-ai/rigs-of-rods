@@ -21,7 +21,9 @@ class RoR(ConanFile):
         "ogre14": [True, False],
     }
     default_options = {
-        "ogre14": False,
+        # The public product is OgreNext-first, while OGRE 14 supplies the
+        # simulation/game host and the bounded compatibility fallback.
+        "ogre14": True,
         "ogre3d*:resourcemanager_strict": "off",
         "ogre3d/1.11.*:profiling": "True",
     }
