@@ -29,6 +29,26 @@ bool IsBackpressure(RendererOgre14GameHostSessionStatus status) noexcept {
   return status == RendererOgre14GameHostSessionStatus::BACKPRESSURE;
 }
 
+class JoinedCaptureGuard final {
+public:
+  explicit JoinedCaptureGuard(
+      Render::IJoinedGraphicsSceneSource &source) noexcept
+      : source_(source) {}
+  ~JoinedCaptureGuard() {
+    if (active_) {
+      source_.DiscardJoinedGraphicsFrame();
+    }
+  }
+  void Commit() noexcept {
+    source_.CommitJoinedGraphicsFrame();
+    active_ = false;
+  }
+
+private:
+  Render::IJoinedGraphicsSceneSource &source_;
+  bool active_ = true;
+};
+
 } // namespace
 
 RendererOgre14ProductSession::RendererOgre14ProductSession(
@@ -252,6 +272,7 @@ RendererOgre14ProductSession::PostUpdatedScene(
     result.surface_revision = surface.surface_revision;
     return result;
   }
+  JoinedCaptureGuard capture_guard(source);
   if (frame.camera.width != surface.drawable_width ||
       frame.camera.height != surface.drawable_height) {
     RendererOgre14ProductSessionResult result = MakeResult(
@@ -269,6 +290,7 @@ RendererOgre14ProductSession::PostUpdatedScene(
     result.surface_revision = surface.surface_revision;
     return result;
   }
+  capture_guard.Commit();
   PendingProduction pending;
   pending.production = std::move(produced.production);
   pending.captured_surface_revision = surface.surface_revision;

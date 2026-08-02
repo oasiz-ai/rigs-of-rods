@@ -2123,7 +2123,18 @@ GraphicsSceneSnapshotProducer::ProduceJoinedFrame(
     result.validation = capture;
     return result;
   }
-  return Produce(frame);
+  try {
+    GraphicsSceneSnapshotProduceResult result = Produce(frame);
+    if (result) {
+      source.CommitJoinedGraphicsFrame();
+    } else {
+      source.DiscardJoinedGraphicsFrame();
+    }
+    return result;
+  } catch (...) {
+    source.DiscardJoinedGraphicsFrame();
+    throw;
+  }
 }
 
 GraphicsSceneAssetRecoveryResult

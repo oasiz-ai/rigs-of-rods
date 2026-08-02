@@ -97,6 +97,8 @@ public:
   virtual ~IOgre14GraphicsSceneCaptureProvider() = default;
   [[nodiscard]] virtual ValidationResult CaptureOgre14GraphicsScene(
       Ogre14GraphicsSceneCapture &capture) = 0;
+  virtual void CommitOgre14GraphicsSceneCapture() noexcept {}
+  virtual void DiscardOgre14GraphicsSceneCapture() noexcept {}
 };
 
 /// Validates adapter metadata and reports the first missing field plus the
@@ -115,12 +117,16 @@ class Ogre14GraphicsSceneSource final : public IJoinedGraphicsSceneSource {
 public:
   explicit Ogre14GraphicsSceneSource(
       IOgre14GraphicsSceneCaptureProvider &provider) noexcept;
+  ~Ogre14GraphicsSceneSource() override;
 
   [[nodiscard]] ValidationResult CaptureJoinedGraphicsFrame(
       GraphicsSceneFrameInput &frame) override;
+  void CommitJoinedGraphicsFrame() noexcept override;
+  void DiscardJoinedGraphicsFrame() noexcept override;
 
 private:
   IOgre14GraphicsSceneCaptureProvider &provider_;
+  bool capture_pending_ = false;
 };
 
 enum class Ogre14CameraProjectionKind : std::uint8_t {
@@ -269,6 +275,7 @@ struct Ogre14GraphicsSceneStaticMeshCacheEntry {
 struct Ogre14GraphicsSceneDynamicMeshCacheEntry {
   std::uint64_t native_mesh_handle = 0U;
   std::size_t native_state_count = 0U;
+  std::uint64_t cpu_topology_revision = 0U;
   std::uint32_t vertex_start = 0U;
   std::uint32_t vertex_count = 0U;
   std::uint32_t index_start = 0U;

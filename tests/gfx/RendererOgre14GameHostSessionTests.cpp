@@ -519,9 +519,13 @@ public:
     output = frame;
     return ValidationResult::Success();
   }
+  void CommitJoinedGraphicsFrame() noexcept override { ++commits; }
+  void DiscardJoinedGraphicsFrame() noexcept override { ++discards; }
 
   GraphicsSceneFrameInput frame;
   std::uint32_t captures = 0U;
+  std::uint32_t commits = 0U;
+  std::uint32_t discards = 0U;
 };
 
 bool ReadFrame(NativeHandle handle, RenderTransportStreamDecoder &stream,
@@ -1298,11 +1302,21 @@ void TestProductLifecycleRetainsPendingFrameAcrossBackpressureAndResize() {
           "product did not apply decoded renderer input exactly once");
 
   ProductSceneSource source;
+  source.frame.camera.width = 1599U;
+  const RendererOgre14ProductSessionResult wrong_extent =
+      product.PostUpdatedScene(source);
+  Require(wrong_extent.status == RendererOgre14ProductSessionStatus::
+                                     WAITING_FOR_CAMERA_EXTENT &&
+              source.captures == 1U && source.commits == 0U &&
+              source.discards == 1U && !product.has_pending_frame(),
+          "camera-extent rejection did not discard source candidate state");
+  source.frame.camera.width = 1600U;
   const RendererOgre14ProductSessionResult first =
       product.PostUpdatedScene(source);
   Require(first.status ==
                   RendererOgre14ProductSessionStatus::PENDING_BACKPRESSURE &&
-              first.pending_frame && source.captures == 1U &&
+              first.pending_frame && source.captures == 2U &&
+              source.commits == 1U && source.discards == 1U &&
               product.has_pending_frame(),
           "asset-first bounded lineage did not retain the produced scene");
   for (int retry = 0; retry < 3; ++retry) {
@@ -1310,7 +1324,8 @@ void TestProductLifecycleRetainsPendingFrameAcrossBackpressureAndResize() {
         product.PostUpdatedScene(source);
     Require(pending.status == RendererOgre14ProductSessionStatus::
                                   PENDING_BACKPRESSURE &&
-                source.captures == 1U,
+                source.captures == 2U && source.commits == 1U &&
+                source.discards == 1U,
             "backpressure advanced or recaptured producer lineage");
   }
 
@@ -1361,7 +1376,8 @@ void TestProductLifecycleRetainsPendingFrameAcrossBackpressureAndResize() {
       product.PostUpdatedScene(source);
   Require(posted.status == RendererOgre14ProductSessionStatus::FRAME_QUEUED &&
               posted.accepted && !posted.pending_frame &&
-              source.captures == 1U && !product.has_pending_frame(),
+              source.captures == 2U && source.commits == 1U &&
+              source.discards == 1U && !product.has_pending_frame(),
           "pre-resize immutable scene was not sequenced for child retirement");
   RenderTransportStreamFrameResult scene_frame;
   Require(ReadFrame(fixture.game_outbound.read_handle, stream, scene_frame) &&

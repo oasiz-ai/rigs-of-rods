@@ -22,7 +22,27 @@
 
 #include <OgreVector3.h>
 
+#include <cstdint>
+#include <vector>
+
 namespace RoR {
+
+/// Immutable CPU-owned topology for one deformable material section. The
+/// renderer bridge consumes this copy instead of trying to read a write-only
+/// hardware index buffer back from the GPU.
+struct FlexMeshTopologySection
+{
+    enum class IndexFormat : std::uint8_t
+    {
+        UINT16 = 0U,
+        UINT32 = 1U,
+    };
+
+    IndexFormat index_format = IndexFormat::UINT32;
+    std::uint64_t revision = 1U;
+    std::uint32_t vertex_count = 0U;
+    std::vector<std::uint32_t> indices;
+};
 
 /// @addtogroup Gfx
 /// @{

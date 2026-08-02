@@ -16,6 +16,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -239,10 +240,66 @@ public:
         RoR::Render::ValidationCode::INVALID_ENUM, "provider.behavior",
         "unknown fixture behavior");
   }
+  void CommitOgre14GraphicsSceneCapture() noexcept override { ++commits; }
+  void DiscardOgre14GraphicsSceneCapture() noexcept override { ++discards; }
 
   RoR::Render::Ogre14GraphicsSceneCapture capture = MakeCompleteCapture();
   Behavior behavior = Behavior::RETURN_CAPTURE;
   std::uint32_t calls = 0U;
+  std::uint32_t commits = 0U;
+  std::uint32_t discards = 0U;
+};
+
+class TransactionalDynamicProvider final
+    : public RoR::Render::IOgre14GraphicsSceneCaptureProvider {
+public:
+  [[nodiscard]] RoR::Render::ValidationResult CaptureOgre14GraphicsScene(
+      RoR::Render::Ogre14GraphicsSceneCapture &output) override {
+    using namespace RoR::Render;
+    if (pending_registry.has_value()) {
+      return ValidationResult::Failure(
+          ValidationCode::SEQUENCE_MISMATCH, "fixture.pending",
+          "fixture capture was prepared twice");
+    }
+    Ogre14GraphicsSceneDynamicIdentityRegistry candidate = registry;
+    Ogre14GraphicsSceneCapture capture = MakeCompleteCapture();
+    const ValidationResult built = BuildOgre14GraphicsSceneDynamicInventory(
+        {input}, candidate, capture.frame.assets,
+        capture.frame.dynamic_meshes);
+    if (!built) {
+      return built;
+    }
+    if (reject_camera) {
+      capture.frame.camera.width = 0U;
+    }
+    pending_registry.emplace(std::move(candidate));
+    output = std::move(capture);
+    return ValidationResult::Success();
+  }
+
+  void CommitOgre14GraphicsSceneCapture() noexcept override {
+    if (!pending_registry.has_value()) {
+      return;
+    }
+    registry = std::move(*pending_registry);
+    pending_registry.reset();
+    ++commits;
+  }
+  void DiscardOgre14GraphicsSceneCapture() noexcept override {
+    if (pending_registry.has_value()) {
+      pending_registry.reset();
+      ++discards;
+    }
+  }
+
+  RoR::Render::Ogre14GraphicsSceneDynamicSectionCaptureInput input =
+      MakeDynamicSection();
+  RoR::Render::Ogre14GraphicsSceneDynamicIdentityRegistry registry;
+  std::optional<RoR::Render::Ogre14GraphicsSceneDynamicIdentityRegistry>
+      pending_registry;
+  bool reject_camera = true;
+  std::uint32_t commits = 0U;
+  std::uint32_t discards = 0U;
 };
 
 void TestCompleteCaptureFeedsProducerOnce() {
@@ -257,6 +314,8 @@ void TestCompleteCaptureFeedsProducerOnce() {
       producer.ProduceJoinedFrame(source);
   Require(result.ok(), "complete joined capture was rejected");
   Require(provider.calls == 1U, "provider was not called exactly once");
+  Require(provider.commits == 1U && provider.discards == 0U,
+          "producer acceptance did not commit provider state exactly once");
   Require(result.production.scene_snapshot->simulation_tick() == 81U,
           "simulation tick was not preserved");
   Require(result.production.scene_snapshot->mesh_instances().empty() &&
@@ -267,6 +326,61 @@ void TestCompleteCaptureFeedsProducerOnce() {
               result.production.camera.width == 1280U &&
               result.production.camera.height == 720U,
           "main camera identity or dimensions changed");
+}
+
+void TestPreparedCaptureRequiresExplicitResolution() {
+  using namespace RoR::Render;
+  FixtureProvider provider;
+  Ogre14GraphicsSceneSource source(provider);
+  GraphicsSceneFrameInput first;
+  Require(source.CaptureJoinedGraphicsFrame(first).ok(),
+          "complete provider frame could not be prepared");
+  GraphicsSceneFrameInput second;
+  const ValidationResult overlapping =
+      source.CaptureJoinedGraphicsFrame(second);
+  Require(!overlapping &&
+              overlapping.code == ValidationCode::SEQUENCE_MISMATCH &&
+              overlapping.field == "joined_graphics_source.pending_capture" &&
+              provider.calls == 1U && provider.commits == 0U &&
+              provider.discards == 0U,
+          "overlapping source preparation was not rejected transactionally");
+
+  source.DiscardJoinedGraphicsFrame();
+  Require(provider.discards == 1U,
+          "explicit source discard did not reach the provider");
+  Require(source.CaptureJoinedGraphicsFrame(second).ok(),
+          "source could not prepare after an explicit discard");
+  source.CommitJoinedGraphicsFrame();
+  Require(provider.calls == 2U && provider.commits == 1U &&
+              provider.discards == 1U,
+          "explicit source commit did not resolve the prepared provider state");
+}
+
+void TestRejectedCaptureDoesNotSkipDeformationRevision() {
+  using namespace RoR::Render;
+  TransactionalDynamicProvider provider;
+  Ogre14GraphicsSceneSource source(provider);
+  GraphicsSceneSnapshotProducerConfiguration configuration;
+  configuration.registry_id = 0x5452414E53414354ULL;
+  GraphicsSceneSnapshotProducer producer(configuration);
+
+  const GraphicsSceneSnapshotProduceResult rejected =
+      producer.ProduceJoinedFrame(source);
+  Require(!rejected && provider.commits == 0U && provider.discards == 1U &&
+              provider.registry.object_identity_count() == 0U,
+          "rejected producer frame committed dynamic source lineage");
+
+  provider.reject_camera = false;
+  provider.input.state = MakeJoinedDynamicState(0.25F);
+  const GraphicsSceneSnapshotProduceResult accepted =
+      producer.ProduceJoinedFrame(source);
+  Require(accepted && provider.commits == 1U && provider.discards == 1U &&
+              accepted.production.scene_snapshot->dynamic_mesh_updates()
+                      .size() == 1U &&
+              accepted.production.scene_snapshot->dynamic_mesh_updates()
+                      .front()
+                      .deformation_revision == 2U,
+          "discarded deformation advanced past the producer's next revision");
 }
 
 void TestMissingFieldsAreCompleteAndTransactional() {
@@ -1107,6 +1221,21 @@ void TestDynamicIdentityPayloadRevisionAndLifecycle() {
               SameSharedOwner(first_mesh_owner, stable_mesh_asset->payload),
           "equivalent dynamic staging did not reuse immutable owners");
 
+  inputs[0U].visible = false;
+  result = BuildOgre14GraphicsSceneDynamicInventory(inputs, registry, assets,
+                                                     meshes);
+  Require(result.ok() && meshes.size() == 1U &&
+              meshes.front().visibility_mask == 0U &&
+              SameSharedOwner(first_state, meshes.front().state),
+          "hidden actor section was tombstoned or changed deformation state");
+  inputs[0U].visible = true;
+  result = BuildOgre14GraphicsSceneDynamicInventory(inputs, registry, assets,
+                                                     meshes);
+  Require(result.ok() && meshes.size() == 1U &&
+              meshes.front().visibility_mask != 0U &&
+              SameSharedOwner(first_state, meshes.front().state),
+          "unhidden actor section did not preserve identity and lineage");
+
   inputs[0U].state = MakeJoinedDynamicState(0.25F);
   result = BuildOgre14GraphicsSceneDynamicInventory(inputs, registry, assets,
                                                      meshes);
@@ -1318,6 +1447,8 @@ void TestCameraConversionRejectsGuesswork() {
 
 int main() {
   TestCompleteCaptureFeedsProducerOnce();
+  TestPreparedCaptureRequiresExplicitResolution();
+  TestRejectedCaptureDoesNotSkipDeformationRevision();
   TestMissingFieldsAreCompleteAndTransactional();
   TestEveryRequiredFieldHasStableDiagnosticIdentity();
   TestMalformedMetadataFailsClosed();

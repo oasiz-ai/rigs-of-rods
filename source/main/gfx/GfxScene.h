@@ -73,7 +73,9 @@ public:
     void           UpdateScene(float dt);
     void           ClearScene();
     void           RegisterGfxActor(RoR::GfxActor* gfx_actor);
-    void           RemoveGfxActor(RoR::GfxActor* gfx_actor);
+    void           HideGfxActor(RoR::GfxActor* gfx_actor);
+    void           UnhideGfxActor(RoR::GfxActor* gfx_actor);
+    void           DestroyGfxActor(RoR::GfxActor* gfx_actor);
     void           ForceUpdateSingleGfxActor(RoR::GfxActor* gfx_actor);
     /// Synchronizes all non-UI visuals needed by canonical capture from one
     /// joined simulation boundary. The supplied camera replaces mutable
@@ -93,6 +95,8 @@ public:
     /// available_fields rather than populated with guessed defaults.
     Render::ValidationResult CaptureOgre14GraphicsScene(
         Render::Ogre14GraphicsSceneCapture& capture) override;
+    void CommitOgre14GraphicsSceneCapture() noexcept override;
+    void DiscardOgre14GraphicsSceneCapture() noexcept override;
     GameContextSB&     GetSimDataBuffer() { return m_simbuf; }
     GfxEnvmap&     GetEnvMap() { return m_envmap; }
     RoR::SkidmarkConfig* GetSkidmarkConf () { return &m_skidmark_conf; }
@@ -116,6 +120,17 @@ private:
     Ogre::SceneManager*               m_scene_manager = nullptr;
     std::vector<GfxActor*>            m_all_gfx_actors;
     std::vector<GfxActor*>            m_live_gfx_actors;
+    struct GfxActorInventoryRecord
+    {
+        GfxActor* actor = nullptr;
+        bool hidden = false;
+    };
+    // Ownership/lifecycle inventory is distinct from m_all_gfx_actors, which
+    // remains the active legacy update list. Hidden network actors stay here
+    // so capture preserves their identities; only destruction removes them.
+    std::map<std::int64_t, GfxActorInventoryRecord>
+                                       m_gfx_actor_inventory;
+    std::set<std::int64_t>             m_destroyed_gfx_actor_ids;
     std::vector<GfxCharacter*>        m_all_gfx_characters;
     RoR::GfxEnvmap                    m_envmap;
     GameContextSB                     m_simbuf;
@@ -147,6 +162,19 @@ private:
     std::map<std::string,
              Render::Ogre14GraphicsSceneDynamicMeshCacheEntry, std::less<>>
                                        m_ogre14_dynamic_mesh_cache;
+    struct Ogre14PendingCaptureState
+    {
+        Render::Ogre14GraphicsSceneLightIdentityRegistry light_registry;
+        Render::Ogre14GraphicsSceneStaticIdentityRegistry static_registry;
+        std::map<std::string,
+                 Render::Ogre14GraphicsSceneStaticMeshCacheEntry, std::less<>>
+            static_mesh_cache;
+        Render::Ogre14GraphicsSceneDynamicIdentityRegistry dynamic_registry;
+        std::map<std::string,
+                 Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
+                 std::less<>> dynamic_mesh_cache;
+    };
+    std::unique_ptr<Ogre14PendingCaptureState> m_ogre14_pending_capture;
 
     // Free beams GFX:
     std::vector<FreeBeamGfx>          m_gfx_freebeams;

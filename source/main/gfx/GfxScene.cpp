@@ -886,6 +886,7 @@ RoR::Render::ValidationResult ValidateOgre14DynamicVertexDeclaration(
 
 RoR::Render::ValidationResult CopyOgre14DynamicIndices(
     const Ogre::RenderOperation& operation,
+    const RoR::FlexMeshTopologySection& topology,
     std::vector<std::uint32_t>& output,
     RoR::Render::MeshIndexFormat& format)
 {
@@ -912,40 +913,33 @@ RoR::Render::ValidationResult CopyOgre14DynamicIndices(
             "dynamic_meshes.native_index_range",
             "deformable index range exceeds its immutable buffer");
     }
-    Ogre::HardwareBufferLockGuard lock(
-        buffer, Ogre::HardwareBuffer::HBL_READ_ONLY);
-    if (lock.pData == nullptr)
+    if (topology.revision == 0U || topology.indices.size() != count)
     {
         return NativeStaticFailure(
-            RoR::Render::ValidationCode::MISSING_REFERENCE,
-            "dynamic_meshes.native_indices",
-            "deformable index buffer exposed no immutable CPU data");
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "dynamic_meshes.cpu_topology",
+            "CPU-owned topology does not match the native draw range");
     }
-    std::vector<std::uint32_t> candidate(count);
-    if (buffer->getType() == Ogre::HardwareIndexBuffer::IT_16BIT)
+    if (topology.index_format ==
+            RoR::FlexMeshTopologySection::IndexFormat::UINT16 &&
+        buffer->getType() == Ogre::HardwareIndexBuffer::IT_16BIT)
     {
         format = RoR::Render::MeshIndexFormat::UINT16;
-        const auto* const source =
-            static_cast<const std::uint16_t*>(lock.pData);
-        for (std::size_t index = 0U; index < count; ++index)
-            candidate[index] = source[start + index];
     }
-    else if (buffer->getType() == Ogre::HardwareIndexBuffer::IT_32BIT)
+    else if (topology.index_format ==
+                 RoR::FlexMeshTopologySection::IndexFormat::UINT32 &&
+             buffer->getType() == Ogre::HardwareIndexBuffer::IT_32BIT)
     {
         format = RoR::Render::MeshIndexFormat::UINT32;
-        const auto* const source =
-            static_cast<const std::uint32_t*>(lock.pData);
-        for (std::size_t index = 0U; index < count; ++index)
-            candidate[index] = source[start + index];
     }
     else
     {
         return NativeStaticFailure(
-            RoR::Render::ValidationCode::INVALID_ENUM,
-            "dynamic_meshes.native_index_format",
-            "deformable index buffer has an unknown format");
+            RoR::Render::ValidationCode::REVISION_MISMATCH,
+            "dynamic_meshes.cpu_index_format",
+            "CPU-owned and native deformable index formats differ");
     }
-    output = std::move(candidate);
+    output = topology.indices;
     return RoR::Render::ValidationResult::Success();
 }
 
@@ -1019,6 +1013,7 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
     const std::vector<Ogre::Vector3>& joined_positions,
     const std::vector<Ogre::Vector3>& joined_normals,
     const std::vector<Ogre::Vector2>& joined_texcoords0,
+    const std::vector<RoR::FlexMeshTopologySection>& topology_sections,
     bool has_dynamic_vertex_colors,
     std::map<std::string,
              RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
@@ -1037,6 +1032,7 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
     const Ogre::MeshPtr mesh = entity->getMesh();
     if (mesh.isNull() ||
         entity->getNumSubEntities() != mesh->getNumSubMeshes() ||
+        entity->getNumSubEntities() != topology_sections.size() ||
         entity->getNumSubEntities() >
             (std::numeric_limits<std::uint32_t>::max)())
     {
@@ -1119,7 +1115,9 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             return validation;
         const auto range = vertex_ranges.find(operation.vertexData);
         if (range == vertex_ranges.end() ||
-            range->second.second != operation.vertexData->vertexCount)
+            range->second.second != operation.vertexData->vertexCount ||
+            topology_sections[section_index].vertex_count !=
+                operation.vertexData->vertexCount)
         {
             return NativeStaticFailure(
                 RoR::Render::ValidationCode::REVISION_MISMATCH,
@@ -1185,6 +1183,8 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             cached != mesh_cache.end() &&
             cached->second.native_mesh_handle == native_mesh_handle &&
             cached->second.native_state_count == native_state_count &&
+            cached->second.cpu_topology_revision ==
+                topology_sections[section_index].revision &&
             cached->second.vertex_start == operation.vertexData->vertexStart &&
             cached->second.vertex_count == operation.vertexData->vertexCount &&
             cached->second.index_start == operation.indexData->indexStart &&
@@ -1200,7 +1200,8 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             // Immutable topology is copied only for a new/reloaded native
             // allocation. Stable frames never read back a dynamic buffer.
             validation = CopyOgre14DynamicIndices(
-                operation, base.indices, base.index_format);
+                operation, topology_sections[section_index],
+                base.indices, base.index_format);
             if (!validation)
                 return validation;
             base.topology_revision = 1U;
@@ -1228,6 +1229,8 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry entry;
             entry.native_mesh_handle = native_mesh_handle;
             entry.native_state_count = native_state_count;
+            entry.cpu_topology_revision =
+                topology_sections[section_index].revision;
             entry.vertex_start = static_cast<std::uint32_t>(
                 operation.vertexData->vertexStart);
             entry.vertex_count = static_cast<std::uint32_t>(
@@ -1559,6 +1562,7 @@ void GfxScene::CreateDustPools()
 
 void GfxScene::ClearScene()
 {
+    DiscardOgre14GraphicsSceneCapture();
     m_ogre14_joined_buffer_ready = false;
     m_ogre14_joined_buffer_atomic = false;
     m_ogre14_post_update_scene_epoch = 0U;
@@ -1578,6 +1582,9 @@ void GfxScene::ClearScene()
 
     // Delete game elements
     m_all_gfx_actors.clear();
+    m_live_gfx_actors.clear();
+    m_gfx_actor_inventory.clear();
+    m_destroyed_gfx_actor_ids.clear();
     m_all_gfx_characters.clear();
 
     // Wipe scene manager
@@ -1805,7 +1812,69 @@ DustPool* GfxScene::GetDustPool(const char* name)
 
 void GfxScene::RegisterGfxActor(RoR::GfxActor* gfx_actor)
 {
+    if (gfx_actor == nullptr || gfx_actor->GetActorId() < 0)
+    {
+        LOG("GfxScene: rejected GfxActor registration without a stable ID");
+        return;
+    }
+    const std::int64_t actor_id = gfx_actor->GetActorId();
+    if (m_destroyed_gfx_actor_ids.find(actor_id) !=
+        m_destroyed_gfx_actor_ids.end())
+    {
+        LOG(fmt::format(
+            "GfxScene: rejected resurrection of destroyed GfxActor {}",
+            actor_id));
+        return;
+    }
+    auto existing = m_gfx_actor_inventory.find(actor_id);
+    if (existing != m_gfx_actor_inventory.end())
+    {
+        if (existing->second.actor != gfx_actor || !existing->second.hidden)
+        {
+            LOG(fmt::format(
+                "GfxScene: rejected duplicate GfxActor registration {}",
+                actor_id));
+            return;
+        }
+        existing->second.hidden = false;
+    }
+    else
+    {
+        m_gfx_actor_inventory.emplace(
+            actor_id, GfxActorInventoryRecord{gfx_actor, false});
+    }
+    if (std::find(m_all_gfx_actors.begin(), m_all_gfx_actors.end(),
+                  gfx_actor) != m_all_gfx_actors.end())
+    {
+        return;
+    }
     m_all_gfx_actors.push_back(gfx_actor);
+}
+
+void GfxScene::HideGfxActor(RoR::GfxActor* gfx_actor)
+{
+    if (gfx_actor == nullptr)
+        return;
+    const auto record = m_gfx_actor_inventory.find(gfx_actor->GetActorId());
+    if (record == m_gfx_actor_inventory.end() ||
+        record->second.actor != gfx_actor || record->second.hidden)
+    {
+        LOG("GfxScene: rejected hide of an unknown or hidden GfxActor");
+        return;
+    }
+    record->second.hidden = true;
+    const auto erase_actor = [gfx_actor](std::vector<GfxActor*>& actors)
+    {
+        actors.erase(std::remove(actors.begin(), actors.end(), gfx_actor),
+                     actors.end());
+    };
+    erase_actor(m_all_gfx_actors);
+    erase_actor(m_live_gfx_actors);
+}
+
+void GfxScene::UnhideGfxActor(RoR::GfxActor* gfx_actor)
+{
+    RegisterGfxActor(gfx_actor);
 }
 
 void GfxScene::BufferSimulationData()
@@ -1897,8 +1966,9 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
 {
     std::vector<Render::Ogre14GraphicsSceneDynamicSectionCaptureInput>
         sections;
-    for (GfxActor* const actor : m_all_gfx_actors)
+    for (const auto& actor_record : m_gfx_actor_inventory)
     {
+        GfxActor* const actor = actor_record.second.actor;
         if (actor == nullptr || actor->GetActorId() < 0)
         {
             return Render::ValidationResult::Failure(
@@ -1936,7 +2006,8 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
             Render::ValidationResult validation =
                 CaptureOgre14DynamicEntitySections(
                     actor->m_cab_entity, identity,
-                    positions, normals, texcoords0, false,
+                    positions, normals, texcoords0,
+                    actor->m_cab_mesh->getCpuTopologySections(), false,
                     mesh_cache, sections);
             if (!validation)
                 return validation;
@@ -1981,6 +2052,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                 CaptureOgre14DynamicEntitySections(
                     flexbody->getEntity(), identity,
                     positions, normals, texcoords0,
+                    flexbody->getCpuTopologySections(),
                     flexbody->hasDynamicTextureBlend(), mesh_cache, sections);
             if (!validation)
                 return validation;
@@ -2001,6 +2073,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     "deformable wheel has no stable uint32 wheel ID");
             }
             Ogre::Entity* entity = nullptr;
+            const std::vector<FlexMeshTopologySection>* topology = nullptr;
             if (FlexMesh* const flexmesh =
                     dynamic_cast<FlexMesh*>(wheel.wx_flex_mesh))
             {
@@ -2016,6 +2089,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                 }
                 entity = dynamic_cast<Ogre::Entity*>(
                     wheel.wx_scenenode->getAttachedObject(0U));
+                topology = &flexmesh->getCpuTopologySections();
                 identity.component_kind = Render::
                     Ogre14GraphicsSceneDynamicComponentKind::FLEXMESH_WHEEL;
             }
@@ -2031,6 +2105,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                         "MeshWheel tire did not expose completed CPU staging");
                 }
                 entity = meshwheel->GetTireEntity();
+                topology = &meshwheel->getCpuTopologySections();
                 identity.component_kind = Render::
                     Ogre14GraphicsSceneDynamicComponentKind::MESHWHEEL_TIRE;
             }
@@ -2045,6 +2120,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
             Render::ValidationResult validation =
                 CaptureOgre14DynamicEntitySections(
                     entity, identity, positions, normals, texcoords0,
+                    *topology,
                     false, mesh_cache, sections);
             if (!validation)
                 return validation;
@@ -2058,6 +2134,20 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
 Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     Render::Ogre14GraphicsSceneCapture& capture)
 {
+    if (m_ogre14_pending_capture != nullptr)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::SEQUENCE_MISMATCH,
+            "ogre14_capture.pending",
+            "the preceding OGRE 14 capture must be committed or discarded");
+    }
+    auto pending = std::make_unique<Ogre14PendingCaptureState>();
+    pending->light_registry = m_ogre14_light_identity_registry;
+    pending->static_registry = m_ogre14_static_identity_registry;
+    pending->static_mesh_cache = m_ogre14_static_mesh_cache;
+    pending->dynamic_registry = m_ogre14_dynamic_identity_registry;
+    pending->dynamic_mesh_cache = m_ogre14_dynamic_mesh_cache;
+
     Render::Ogre14GraphicsSceneCapture candidate;
     candidate.joined_buffer_epoch = m_ogre14_joined_buffer_epoch;
     candidate.post_update_scene_epoch = m_ogre14_post_update_scene_epoch;
@@ -2122,17 +2212,13 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 terrain != nullptr ? terrain->getObjectManager() : nullptr;
             TerrainGeometryManager* const geometry_manager =
                 terrain != nullptr ? terrain->getGeometryManager() : nullptr;
-            Render::Ogre14GraphicsSceneStaticIdentityRegistry
-                candidate_static_registry =
-                    m_ogre14_static_identity_registry;
-            auto candidate_static_cache = m_ogre14_static_mesh_cache;
             std::vector<Render::GraphicsSceneAssetInput> static_assets;
             Render::ValidationResult static_validation =
                 CaptureOgre14StaticMeshObjects(
                     object_manager, geometry_manager,
                     !m_all_gfx_characters.empty(),
-                    candidate_static_registry,
-                    candidate_static_cache,
+                    pending->static_registry,
+                    pending->static_mesh_cache,
                     static_assets,
                     candidate.frame.static_meshes);
             if (!static_validation)
@@ -2140,14 +2226,11 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 return static_validation;
             }
 
-            Render::Ogre14GraphicsSceneDynamicIdentityRegistry
-                candidate_dynamic_registry =
-                    m_ogre14_dynamic_identity_registry;
-            auto candidate_dynamic_cache = m_ogre14_dynamic_mesh_cache;
             std::vector<Render::GraphicsSceneAssetInput> dynamic_assets;
             Render::ValidationResult dynamic_validation =
                 CaptureOgre14DynamicActorInventory(
-                    candidate_dynamic_registry, candidate_dynamic_cache,
+                    pending->dynamic_registry,
+                    pending->dynamic_mesh_cache,
                     dynamic_assets, candidate.frame.dynamic_meshes);
             if (!dynamic_validation)
                 return dynamic_validation;
@@ -2156,21 +2239,10 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             if (!dynamic_validation)
                 return dynamic_validation;
 
-            // Commit all static/dynamic topology, identity and lifecycle state
-            // only after the full joined actor inventory and cross-inventory
-            // asset merge succeeds. No Flex*/Actor/native pointer escapes in
-            // the published frame; it owns portable values and shared payloads.
-            m_ogre14_static_identity_registry =
-                std::move(candidate_static_registry);
-            m_ogre14_static_mesh_cache =
-                std::move(candidate_static_cache);
-            m_ogre14_dynamic_identity_registry =
-                std::move(candidate_dynamic_registry);
-            m_ogre14_dynamic_mesh_cache =
-                std::move(candidate_dynamic_cache);
-            // These bits commit together only after coverage, native CPU
-            // extraction, material fallback, identity/lifecycle auditing, and
-            // complete inventory conversion have all succeeded.
+            // These bits stage together only after coverage, native CPU
+            // extraction, material translation, identity/lifecycle auditing,
+            // and complete inventory conversion have all succeeded. Durable
+            // registries advance only after producer acceptance.
             candidate.available_fields |=
                 Render::Ogre14GraphicsSceneCaptureFieldBit(
                     Render::Ogre14GraphicsSceneCaptureField::ASSETS);
@@ -2183,7 +2255,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
 
             Render::ValidationResult light_validation =
                 CaptureOgre14ManagedLights(
-                    *m_scene_manager, m_ogre14_light_identity_registry,
+                    *m_scene_manager, pending->light_registry,
                     candidate.frame.lights);
             if (!light_validation)
             {
@@ -2212,17 +2284,55 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
         }
     }
 
+    m_ogre14_pending_capture = std::move(pending);
     capture = std::move(candidate);
     return Render::ValidationResult::Success();
 }
 
-void GfxScene::RemoveGfxActor(RoR::GfxActor* remove_me)
+void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
 {
-    auto itor = std::remove(m_all_gfx_actors.begin(), m_all_gfx_actors.end(), remove_me);
-    if (itor != m_all_gfx_actors.end())
+    if (m_ogre14_pending_capture == nullptr)
+        return;
+    using std::swap;
+    swap(m_ogre14_light_identity_registry,
+         m_ogre14_pending_capture->light_registry);
+    swap(m_ogre14_static_identity_registry,
+         m_ogre14_pending_capture->static_registry);
+    swap(m_ogre14_static_mesh_cache,
+         m_ogre14_pending_capture->static_mesh_cache);
+    swap(m_ogre14_dynamic_identity_registry,
+         m_ogre14_pending_capture->dynamic_registry);
+    swap(m_ogre14_dynamic_mesh_cache,
+         m_ogre14_pending_capture->dynamic_mesh_cache);
+    m_ogre14_pending_capture.reset();
+}
+
+void GfxScene::DiscardOgre14GraphicsSceneCapture() noexcept
+{
+    m_ogre14_pending_capture.reset();
+}
+
+void GfxScene::DestroyGfxActor(RoR::GfxActor* remove_me)
+{
+    if (remove_me == nullptr)
+        return;
+    const std::int64_t actor_id = remove_me->GetActorId();
+    const auto record = m_gfx_actor_inventory.find(actor_id);
+    if (record == m_gfx_actor_inventory.end() ||
+        record->second.actor != remove_me)
     {
-        m_all_gfx_actors.erase(itor, m_all_gfx_actors.end());
+        LOG("GfxScene: rejected destruction of an unknown GfxActor");
+        return;
     }
+    m_gfx_actor_inventory.erase(record);
+    m_destroyed_gfx_actor_ids.insert(actor_id);
+    const auto erase_actor = [remove_me](std::vector<GfxActor*>& actors)
+    {
+        actors.erase(std::remove(actors.begin(), actors.end(), remove_me),
+                     actors.end());
+    };
+    erase_actor(m_all_gfx_actors);
+    erase_actor(m_live_gfx_actors);
 }
 
 void GfxScene::ForceUpdateSingleGfxActor(RoR::GfxActor* gfx_actor)

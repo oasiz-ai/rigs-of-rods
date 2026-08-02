@@ -574,6 +574,15 @@ FlexBody::FlexBody(
         this->defragmentFlexbodyMesh();
     }
 
+    // Snapshot topology only after optional defragmentation has rewritten the
+    // native index ranges. The renderer bridge subsequently consumes this
+    // CPU owner and never locks the hardware index buffers.
+    if (!this->captureCpuTopology())
+    {
+        LOG("FLEXBODY Warning: could not retain immutable CPU topology for " +
+            mesh_name);
+    }
+
     // Preserve immutable UV0 on the CPU before any renderer bridge capture.
     // Position/normal streams are copied from m_dst_* after task join; UVs
     // never need to be read back from a dynamic hardware buffer.
@@ -800,6 +809,96 @@ bool FlexBody::copyJoinedCpuStaging(
     positions = std::move(candidate_positions);
     normals = std::move(candidate_normals);
     texcoords0 = m_src_texcoords0;
+    return true;
+}
+
+bool FlexBody::captureCpuTopology()
+{
+    if (m_scene_entity == nullptr || m_scene_entity->getMesh().isNull())
+        return false;
+
+    const Ogre::MeshPtr mesh = m_scene_entity->getMesh();
+    std::vector<FlexMeshTopologySection> candidate;
+    candidate.reserve(mesh->getNumSubMeshes());
+    for (std::size_t section_index = 0U;
+         section_index < mesh->getNumSubMeshes(); ++section_index)
+    {
+        const Ogre::SubMesh* const submesh = mesh->getSubMesh(section_index);
+        if (submesh == nullptr || submesh->indexData == nullptr ||
+            submesh->indexData->indexBuffer.isNull())
+        {
+            return false;
+        }
+        const Ogre::VertexData* const vertex_data = submesh->useSharedVertices
+            ? mesh->sharedVertexData
+            : submesh->vertexData;
+        if (vertex_data == nullptr || vertex_data->vertexStart != 0U ||
+            vertex_data->vertexCount == 0U ||
+            vertex_data->vertexCount >
+                (std::numeric_limits<std::uint32_t>::max)())
+        {
+            return false;
+        }
+
+        const Ogre::HardwareIndexBufferSharedPtr buffer =
+            submesh->indexData->indexBuffer;
+        const std::size_t start = submesh->indexData->indexStart;
+        const std::size_t count = submesh->indexData->indexCount;
+        if (count == 0U || count % 3U != 0U ||
+            start > buffer->getNumIndexes() ||
+            count > buffer->getNumIndexes() - start)
+        {
+            return false;
+        }
+
+        FlexMeshTopologySection section;
+        section.vertex_count =
+            static_cast<std::uint32_t>(vertex_data->vertexCount);
+        section.indices.resize(count);
+        if (buffer->getType() == Ogre::HardwareIndexBuffer::IT_16BIT)
+        {
+            section.index_format =
+                FlexMeshTopologySection::IndexFormat::UINT16;
+            std::vector<std::uint16_t> source(count);
+            buffer->readData(start * sizeof(std::uint16_t),
+                             count * sizeof(std::uint16_t), source.data());
+            for (std::size_t index = 0U; index < count; ++index)
+                section.indices[index] = source[index];
+        }
+        else if (buffer->getType() == Ogre::HardwareIndexBuffer::IT_32BIT)
+        {
+            section.index_format =
+                FlexMeshTopologySection::IndexFormat::UINT32;
+            buffer->readData(start * sizeof(std::uint32_t),
+                             count * sizeof(std::uint32_t),
+                             section.indices.data());
+        }
+        else
+        {
+            return false;
+        }
+        if (std::any_of(section.indices.begin(), section.indices.end(),
+                        [&section](std::uint32_t index) {
+                            return index >= section.vertex_count;
+                        }))
+        {
+            return false;
+        }
+        candidate.push_back(std::move(section));
+    }
+
+    if (candidate.size() != mesh->getNumSubMeshes())
+        return false;
+    if (!m_cpu_topology_sections.empty())
+    {
+        const std::uint64_t prior_revision =
+            m_cpu_topology_sections.front().revision;
+        if (prior_revision == (std::numeric_limits<std::uint64_t>::max)())
+            return false;
+        for (FlexMeshTopologySection& section : candidate)
+            section.revision = prior_revision + 1U;
+    }
+    m_cpu_topology_sections = std::move(candidate);
     return true;
 }
 
