@@ -7,6 +7,7 @@
 */
 
 #include "OgreNextN1Frontend.h"
+#include "OgreNextN1NativeInterop.h"
 #include "OgreNextN1Policy.h"
 #include "OgreNextReflectionProbeRuntime.h"
 #include "ror_ogre_next_n1_config.h"
@@ -2910,6 +2911,22 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
               "): " + missing_media_result.detail);
 
   if (modern_pbr) {
+    OgreNextN1Configuration n4_with_pssm_configuration{
+        media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1};
+    n4_with_pssm_configuration.directional_shadow_mode =
+        OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+    OgreNextN1Frontend n4_with_pssm(
+        std::move(n4_with_pssm_configuration),
+        OgreNextNativeFeatureTier::
+            METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW);
+    const RenderOperationResult n4_with_pssm_result =
+        n4_with_pssm.Initialize(Initialization());
+    Require(
+        n4_with_pssm_result.code == RenderOperationCode::UNSUPPORTED &&
+            n4_with_pssm_result.detail.find("mutually exclusive") !=
+                std::string::npos,
+        "N4 initialization did not reject simultaneous PSSM shadowing");
+
     OgreNextN1Frontend legacy_rejection(OgreNextN1Configuration{media_root});
     RequireSuccess(legacy_rejection.Initialize(Initialization()),
                    "legacy rejection Initialize");

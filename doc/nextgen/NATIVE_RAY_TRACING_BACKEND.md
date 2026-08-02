@@ -502,6 +502,14 @@ provenance artifacts pass. Only then may the macOS build report
 Exit: `PREFER_HARDWARE` degradation is visually complete on every supported
 machine.
 
+The renderer-neutral contract for the later Metal N4 directional-hard-shadow
+feature tier is now implemented independently of platform headers. It locks
+the two-BLAS/two-instance-TLAS lineage, primary plus secondary directional ray,
+and exact R16/RGBA16 sample behavior for Metal, Vulkan KHR, and DXR. This is a
+contract prerequisite only: PSSM remains the implemented fallback, and native
+N4 runtime dispatch/evidence is still required before any ray-traced-shadow
+claim.
+
 ### RT5 — Vulkan external-device foundation
 
 - Create and prove the application-owned Vulkan instance, device, graphics

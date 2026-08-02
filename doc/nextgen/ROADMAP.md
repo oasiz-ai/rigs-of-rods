@@ -1116,6 +1116,16 @@ Gate R1:
   report only a real pass or explicit unsupported capability evidence. This
   does not close local-light shadows, CityWorld quality, ray-traced shadows,
   presentation, or cross-platform native runtime parity.
+- The next native-shadow increment now has one platform-neutral
+  `NATIVE_DIRECTIONAL_HARD_SHADOW_V1` admission and sample oracle shared by
+  Metal, Vulkan KHR, and DXR. It requires RT4, two distinct receiver/occluder
+  BLAS, a two-instance TLAS, exact primary/secondary ray lineage, UI-free input,
+  exact R16 visibility, and byte-exact RGBA16 composition. N4 and PSSM are
+  mutually exclusive within one initialized frontend; incomplete native
+  capability selects the already validated PSSM fallback before initialization,
+  never midway through a frame. The Metal N4 full-frame dispatch, native
+  evidence/attestation, Vulkan/DXR implementations, resize/fault soak, and
+  image/performance gates remain open.
 - The renderer-neutral scene boundary now has the prerequisite lighting slice:
   snapshot version 4 retains the sorted stable directional/point/spot identities
   introduced by version 3 and adds an ordered absolute-world reflection-probe set,

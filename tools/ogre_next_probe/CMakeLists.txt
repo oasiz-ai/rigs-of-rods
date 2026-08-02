@@ -413,6 +413,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
 
     add_library(
         ror_ogre_next_frontend_n1 STATIC
+        "${_ror_render_root}/ogrenext/NativeDirectionalShadowContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"

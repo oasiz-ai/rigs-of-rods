@@ -162,12 +162,19 @@ bool TryResolveNativeVertexLayout(
     case OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3:
       layout = OgreNextNativeVertexLayout::POSITION_NORMAL_FLOAT32_24;
       return true;
+    case OgreNextNativeFeatureTier::
+        METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW:
+      // N4 consumes the complete RT4 tangent/UV material layout and never
+      // silently degrades to the texture-free N1 geometry contract.
+      return false;
     }
     return false;
   case OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1:
     switch (native_feature_tier) {
     case OgreNextNativeFeatureTier::RASTER_N1:
     case OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3:
+    case OgreNextNativeFeatureTier::
+        METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW:
       layout = OgreNextNativeVertexLayout::
           POSITION_NORMAL_TANGENT_UV0_FLOAT32_48;
       return true;
@@ -179,6 +186,20 @@ bool TryResolveNativeVertexLayout(
     return false;
   }
   return false;
+}
+
+bool UsesMetalImageInterop(
+    OgreNextNativeFeatureTier native_feature_tier) noexcept {
+  return native_feature_tier ==
+             OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3 ||
+         native_feature_tier == OgreNextNativeFeatureTier::
+                                    METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW;
+}
+
+bool UsesMetalDirectionalHardShadow(
+    OgreNextNativeFeatureTier native_feature_tier) noexcept {
+  return native_feature_tier == OgreNextNativeFeatureTier::
+                                    METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW;
 }
 
 enum class UploadedTextureChannel : std::uint8_t {
@@ -2648,7 +2669,7 @@ public:
   std::map<RenderAssetId, NativeMaterial> materials;
   std::map<RenderAssetId, NativeTexture> textures;
   std::vector<NativeMesh> frame_meshes;
-  /// N3 alone retains its last HDR target until the native image publication
+  /// N3/N4 retain their last HDR target until the native image publication
   /// is discarded, or until frontend shutdown first revokes every token.
   Ogre::TextureGpu *retained_output_target = nullptr;
   std::shared_ptr<OgreNextN1NativeInteropBridge> native_interop;
@@ -2802,6 +2823,14 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
   if (!shadow_configuration) {
     return OgreNextN1OperationFromValidation(shadow_configuration);
   }
+  if (UsesMetalDirectionalHardShadow(impl_->native_feature_tier) &&
+      impl_->directional_shadow_mode !=
+          OgreNextDirectionalShadowMode::DISABLED) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "native N4 and PSSM directional shadows are mutually exclusive; "
+        "select the validated fallback before frontend initialization");
+  }
   if (impl_->hdr_enabled &&
       impl_->directional_shadow_mode !=
           OgreNextDirectionalShadowMode::DISABLED) {
@@ -2823,7 +2852,7 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
            OgreNextNativeFeatureTier::RASTER_N1)) {
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
-        "the persistent HDR compositor requires RT4/V1 raster without native N2/N3 image interop");
+        "the persistent HDR compositor requires RT4/V1 raster without native N2/N3/N4 image interop");
   }
 #if !defined(ROR_OGRE_NEXT_N1_METAL)
   if (impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1) {
@@ -3004,8 +3033,7 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
         OgreNextNativeFeatureTier::RASTER_N1) {
       const RenderOperationResult interop_result = CreateOgreNextMetalInterop(
           reinterpret_cast<std::uintptr_t>(impl_->renderer),
-          impl_->native_feature_tier ==
-              OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3,
+          UsesMetalImageInterop(impl_->native_feature_tier),
           impl_->native_interop);
       if (!interop_result) {
         return fail_after_cleanup(interop_result);
@@ -3581,12 +3609,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
           "Ogre-Next N2 prior frame geometry retirement");
     }
   }
-  if (impl_->native_feature_tier ==
-          OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3 &&
+  if (UsesMetalImageInterop(impl_->native_feature_tier) &&
       request.color_format != PixelFormat::RGBA16_FLOAT) {
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
-        "Ogre-Next Metal N3 requires a linear RGBA16_FLOAT colour target");
+        "Ogre-Next Metal N3/N4 requires a linear RGBA16_FLOAT colour target");
   }
 
   const bool persistent_hdr = impl_->hdr_enabled;
@@ -4311,8 +4338,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
     if (!persistent_hdr) {
       target_text = "RoRN1Target_" + std::to_string(request.frame_id);
     std::uint32_t target_flags = Ogre::TextureFlags::RenderToTexture;
-    if (impl_->native_feature_tier ==
-        OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3) {
+    if (UsesMetalImageInterop(impl_->native_feature_tier)) {
       target_flags |= Ogre::TextureFlags::Uav;
     }
     target = impl_->renderer->getTextureGpuManager()->createTexture(
@@ -4439,8 +4465,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
                   static_cast<std::size_t>(attachment.row_pitch_bytes));
     }
 
-    if (impl_->native_feature_tier ==
-        OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3) {
+    if (UsesMetalImageInterop(impl_->native_feature_tier)) {
       OgreNextN3FrameImageBinding binding;
       binding.frame_id = request.frame_id;
       binding.snapshot_id = snapshot.snapshot_id();

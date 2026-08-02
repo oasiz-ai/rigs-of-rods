@@ -161,6 +161,7 @@ jobs:
           python tests/tools/test_ogre_next_frame_probe.py
           python tests/tools/test_ogre_next_frontend_n1_contract.py
           python tests/tools/test_ogre_next_pssm_shadow_contract.py
+          python tests/tools/test_ogre_next_native_directional_shadow_contract.py
           python tests/tools/test_ogre_next_metal_n2_contract.py
           python tests/tools/test_ogre_next_vulkan_rt5_contract.py
           python tests/tools/test_ogre_next_vulkan_rt6_contract.py
@@ -173,6 +174,7 @@ jobs:
           python -O tests/tools/test_ogre_next_frame_probe.py
           python -O tests/tools/test_ogre_next_frontend_n1_contract.py
           python -O tests/tools/test_ogre_next_pssm_shadow_contract.py
+          python -O tests/tools/test_ogre_next_native_directional_shadow_contract.py
           python -O tests/tools/test_ogre_next_metal_n2_contract.py
           python -O tests/tools/test_ogre_next_vulkan_rt5_contract.py
           python -O tests/tools/test_ogre_next_vulkan_rt6_contract.py

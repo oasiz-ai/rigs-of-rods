@@ -1,8 +1,9 @@
 # OGRE-Next isolated integration checkpoint
 
-Status: **opt-in N1/RT4 raster frontend with bounded directional PSSM, plus
-Apple Metal N2 geometry and N3 view-dependent hybrid-HDR proofs; no shipping
-renderer switch**
+Status: **opt-in N1/RT4 raster frontend with bounded directional PSSM, Apple
+Metal N2 geometry and N3 view-dependent hybrid-HDR proofs, plus the portable
+N4 directional-hard-shadow contract; no N4 native pass or shipping renderer
+switch**
 
 This checkpoint compiles six standalone executables against an exact
 OGRE-Next `v3-0` revision while leaving every default RoR and OGRE 14 build
@@ -51,6 +52,20 @@ pixels stay on the receiver and darken in both formats; an unsupported host
 writes an explicit report and exits with CTest skip code 77. It is not a
 local-light, ray-traced-shadow, CityWorld, or shipping-quality claim.
 
+The next native feature tier's portable prerequisites are defined, but no N4
+backend may report a pass yet. `NATIVE_DIRECTIONAL_HARD_SHADOW_V1` is one
+renderer-neutral contract shared by
+Metal, Vulkan KHR, and DXR adapters. It requires the exact RT4 raster tier, a
+distinct receiver and occluder, two built BLAS, a two-instance TLAS, one
+primary camera-ray sample, one secondary ray toward the directional light,
+UI-free raster input, and completed visibility/hybrid readbacks. Its oracle
+accepts only canonical R16 visibility (`0x3c00` visible, `0x0000` occluded):
+visible samples preserve every RGBA16 bit, while occluded samples zero RGB and
+preserve alpha exactly. Capability admission is fail-closed and retains the
+separately validated PSSM path before frame submission. This foundation does
+not claim that any N4 native backend, full-frame shadow pass, or cross-platform
+ray-traced image has passed yet.
+
 The original capability and frame probes do not consume a RoR scene. The N1
 through N3 executables consume the renderer-neutral RoR scene and asset contracts,
 but never link into the OGRE 1.14 executable or touch simulation/solver state.
@@ -71,8 +86,10 @@ claim.
   `AreaLights_LTC_piece_ps.any` source hash and a checked-in notice preserving
   its Eric Heitz, Jonathan Dupuy, Stephen Hill, and David Neubelt attribution,
   paper-reference condition, and source/binary redistribution terms;
-- FreeType `2.14.3` from its official Savannah release archive, including the
-  archive SHA-256, its `FTL OR GPL-2.0-or-later` license expression, the
+- FreeType `2.14.3` from its official Savannah release archive with the
+  official SourceForge mirror as an ordered availability fallback; both
+  transports must resolve to the same pinned archive SHA-256. The lock also
+  records its `FTL OR GPL-2.0-or-later` license expression, the
   selected `GPL-2.0-or-later` license and overview hashes, static linkage, and
   the disabled BZip2, Brotli, HarfBuzz, PNG, and ZLIB optional dependencies;
 - RapidJSON `v1.1.0`, required by OGRE core even when optional tools and scene

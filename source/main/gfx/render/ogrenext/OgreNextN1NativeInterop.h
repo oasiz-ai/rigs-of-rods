@@ -23,6 +23,10 @@ enum class OgreNextNativeFeatureTier : std::uint8_t {
   RASTER_N1 = 0,
   METAL_RAY_TRACING_N2 = 1,
   METAL_RAY_TRACING_N3 = 2,
+  /// Same-device directional hard-shadow integration. This tier retains the
+  /// complete RT4/PSSM raster fallback and is admitted only by its separate
+  /// renderer-neutral shadow contract and native evidence gate.
+  METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW = 3,
 };
 
 /// Exact reviewed interleaved vertex layouts which may cross the Ogre/native
