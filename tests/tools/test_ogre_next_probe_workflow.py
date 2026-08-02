@@ -113,6 +113,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         for required in (
             "libvulkan-dev",
             "libx11-dev",
+            "libxcb-randr0-dev",
             "libxt-dev",
             "libxaw7-dev",
             "mesa-vulkan-drivers",
