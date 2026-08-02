@@ -3,6 +3,10 @@ cmake_minimum_required(VERSION 3.24)
 project(ror_ogre_next_probe LANGUAGES C CXX)
 
 if (APPLE)
+    # SDL's Cocoa backend contains Objective-C (.m) translation units. Enable
+    # OBJC explicitly so CMake does not route them through the Objective-C++
+    # compiler and leak the probe's C++17 flag into plain Objective-C sources.
+    enable_language(OBJC)
     enable_language(OBJCXX)
 endif ()
 
