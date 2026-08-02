@@ -123,14 +123,38 @@ jobs:
           app="build-macos-ogre14/bin/RoR.app"
           executable="$app/Contents/MacOS/RoR"
           compatibility_executable="$app/Contents/MacOS/RoR-Ogre14"
+          ogre_next_executable="$app/Contents/MacOS/RoR-OgreNext"
+          ogre_next_stage="build-macos-ogre14/ogre-next-product-stage"
 
           test -d "$app"
           test -x "$executable"
           test -x "$compatibility_executable"
+          test -x "$ogre_next_executable"
           test "$({
             find "$app/Contents/MacOS" \
               -maxdepth 1 -type f -perm -111 -print
-          } | wc -l | tr -d ' ')" = "2"
+          } | wc -l | tr -d ' ')" = "3"
+          python3 tools/ogre_next_probe/package_ogre_next_product.py \
+            verify \
+            --root "$ogre_next_stage" \
+            --platform-policy macos-arm64-metal \
+            --strict-root
+          cmp "$ogre_next_stage/RoR-OgreNext" "$ogre_next_executable"
+          diff -qr \
+            "$ogre_next_stage/resources/ogrenext/Hlms" \
+            "$app/Contents/Resources/ogrenext/Hlms"
+          diff -qr \
+            "$ogre_next_stage/resources/ogrenext/Presentation" \
+            "$app/Contents/Resources/ogrenext/Presentation"
+          diff -qr \
+            "$ogre_next_stage/licenses" \
+            "$app/Contents/Resources/ogrenext/licenses"
+          diff -qr \
+            "$ogre_next_stage/provenance" \
+            "$app/Contents/Resources/ogrenext/provenance"
+          cmp \
+            "$ogre_next_stage/.ror-ogre-next-product-complete.json" \
+            "$app/Contents/Resources/ogrenext/.ror-ogre-next-product-complete.json"
           test "$(lipo -archs "$executable")" = "arm64"
           test "$(
             otool -l "$executable" |
@@ -167,7 +191,10 @@ jobs:
                 '
             )" = "11.0"
           done < <(
-            printf '%s\0%s\0' "$executable" "$compatibility_executable"
+            printf '%s\0%s\0%s\0' \
+              "$executable" \
+              "$compatibility_executable" \
+              "$ogre_next_executable"
             find \
               "$app/Contents/PlugIns" \
               "$app/Contents/Frameworks" \
@@ -175,6 +202,7 @@ jobs:
           )
 
           codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --verify --strict --verbose=2 "$ogre_next_executable"
           plutil -lint "$app/Contents/Info.plist"
 
           test -L "$app/Contents/MacOS/resources"

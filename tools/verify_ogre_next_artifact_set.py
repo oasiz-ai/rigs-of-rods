@@ -121,7 +121,10 @@ NORMAL_MAP_SOURCE_LOCK_SHA256 = (
 )
 ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
 RELEVANT_SOURCE_PATHS = (
+    "CMakeLists.txt",
+    "cmake/OgreNextProductionPackage.cmake",
     "cmake/RendererLauncherPackageConfig.cmake",
+    "cmake/macos/StageMacOSBundle.cmake",
     "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md",
     "source/main/gfx/RendererBackendPolicy.cpp",
     "source/main/gfx/RendererBackendPolicy.h",
@@ -173,6 +176,7 @@ RELEVANT_SOURCE_PATHS = (
     "source/main/system/RendererLauncherPackageConfig.h.in",
     "source/main/system/RendererPublicLauncher.cpp",
     "source/main/system/RendererPublicLauncher.h",
+    "source/main/CMakeLists.txt",
     "source/main/gfx/render",
     "tests/gfx/RendererBackendPolicyTests.cpp",
     "tests/gfx/RendererBridgeEndpointTests.cpp",
@@ -199,11 +203,13 @@ RELEVANT_SOURCE_PATHS = (
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp",
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp",
     "tests/tools/test_ogre_next_child_runtime_contract.py",
+    "tests/tools/test_ogre_next_product_packaging_contract.py",
     "tests/tools/test_ogre_next_probe_workflow.py",
     "tests/tools/test_ogre_next_window_host_contract.py",
     "tests/tools/test_ogre_next_window_presentation_contract.py",
     "tests/tools/test_ogre_next_window_run_loop_contract.py",
     "tools/ogre_next_probe",
+    "tools/ogre14_runtime_audit.py",
     "tools/run_ogre_next_probe.py",
     "tools/validate_ogre_next_frame_probe.py",
     "tools/verify_ogre_next_artifact_set.py",

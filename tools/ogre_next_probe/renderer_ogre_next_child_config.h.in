@@ -5,6 +5,6 @@
 // running child executable and never consumes this build-tree path.
 #define ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT \
   "@ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT@"
-#define ROR_OGRE_NEXT_CHILD_SCOPE "probe-only-non-admitted"
+#define ROR_OGRE_NEXT_CHILD_SCOPE "@ROR_OGRE_NEXT_CHILD_SCOPE@"
 #define ROR_OGRE_NEXT_CHILD_ROR_COMMIT "@ROR_SOURCE_COMMIT@"
 #define ROR_OGRE_NEXT_CHILD_OGRE_COMMIT "@ROR_OGRE_NEXT_COMMIT@"

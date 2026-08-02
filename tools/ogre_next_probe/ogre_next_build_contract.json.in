@@ -144,7 +144,7 @@
     "headless_child_binary_retained": true,
     "headless_child_logs_retained": true,
     "headless_child_process_model": "single-process-reviewed-source-closure-v1",
-    "headless_child_packaged": false,
+    "headless_child_packaged": @ROR_OGRE_NEXT_CHILD_PACKAGED_JSON@,
     "headless_child_production_admitted": false,
     "native_ray_tracing": "not_evaluated"
   },

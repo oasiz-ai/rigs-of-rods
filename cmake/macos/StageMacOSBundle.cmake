@@ -19,6 +19,9 @@
 #   ROR_CONTENT                Absolute content directory or archive.
 #   ROR_SIBLING_EXECUTABLES    Additional absolute executable paths staged
 #                              beside the public executable.
+#   ROR_OGRE_NEXT_PRODUCT_ROOT Verified product-stage root containing the real
+#                              RoR-OgreNext child, exact media, notices,
+#                              provenance, manifest, and completion marker.
 #   ROR_RUNTIME_SEARCH_DIRS    Additional absolute dependency search directories.
 #   ROR_INFO_PLIST_TEMPLATE    Defaults to the adjacent RoRInfo.plist.in.
 #   ROR_DRY_RUN                Validate and print the plan without modifying output.
@@ -102,6 +105,40 @@ function(_ror_assert_no_recursive_copy input_path input_label bundle_path)
             "${input_label} and ROR_BUNDLE overlap; refusing a recursive or "
             "destructive copy ('${input_path}', '${bundle_path}')")
     endif()
+endfunction()
+
+function(_ror_compare_regular_trees source_root destination_root description)
+    file(GLOB_RECURSE _source_files
+        LIST_DIRECTORIES FALSE
+        RELATIVE "${source_root}"
+        "${source_root}/*")
+    file(GLOB_RECURSE _destination_files
+        LIST_DIRECTORIES FALSE
+        RELATIVE "${destination_root}"
+        "${destination_root}/*")
+    list(SORT _source_files)
+    list(SORT _destination_files)
+    if(NOT "${_source_files}" STREQUAL "${_destination_files}")
+        message(FATAL_ERROR
+            "${description} file set changed while staging")
+    endif()
+    foreach(_relative IN LISTS _source_files)
+        set(_source "${source_root}/${_relative}")
+        set(_destination "${destination_root}/${_relative}")
+        if(IS_SYMLINK "${_source}" OR IS_SYMLINK "${_destination}" OR
+                NOT EXISTS "${_source}" OR IS_DIRECTORY "${_source}" OR
+                NOT EXISTS "${_destination}" OR IS_DIRECTORY "${_destination}")
+            message(FATAL_ERROR
+                "${description} contains an indirect or irregular file: "
+                "'${_relative}'")
+        endif()
+        file(SHA256 "${_source}" _source_sha256)
+        file(SHA256 "${_destination}" _destination_sha256)
+        if(NOT _source_sha256 STREQUAL _destination_sha256)
+            message(FATAL_ERROR
+                "${description} bytes changed while staging: '${_relative}'")
+        endif()
+    endforeach()
 endfunction()
 
 function(_ror_find_tool output_variable)
@@ -427,6 +464,9 @@ endif()
 if(NOT DEFINED ROR_SIBLING_EXECUTABLES)
     set(ROR_SIBLING_EXECUTABLES "")
 endif()
+if(NOT DEFINED ROR_OGRE_NEXT_PRODUCT_ROOT)
+    set(ROR_OGRE_NEXT_PRODUCT_ROOT "")
+endif()
 
 foreach(_name_variable IN ITEMS ROR_BUNDLE_NAME ROR_BUNDLE_EXECUTABLE_NAME)
     if("${${_name_variable}}" STREQUAL "" OR
@@ -495,6 +535,176 @@ foreach(_ror_sibling IN LISTS ROR_SIBLING_EXECUTABLES)
     list(APPEND _ror_sibling_executables "${_ror_sibling_real}")
     list(APPEND _ror_sibling_executable_names "${_ror_sibling_name}")
 endforeach()
+
+set(_ror_ogre_next_product_root "")
+if(NOT ROR_OGRE_NEXT_PRODUCT_ROOT STREQUAL "")
+    _ror_require_absolute_path("ROR_OGRE_NEXT_PRODUCT_ROOT" "DIRECTORY")
+    _ror_real_path(
+        "${ROR_OGRE_NEXT_PRODUCT_ROOT}" _ror_ogre_next_product_root)
+    set(_ror_ogre_next_product_child
+        "${_ror_ogre_next_product_root}/RoR-OgreNext")
+    set(_ror_ogre_next_product_manifest
+        "${_ror_ogre_next_product_root}/provenance/ogre-next-product-package.manifest.json")
+    set(_ror_ogre_next_product_completion
+        "${_ror_ogre_next_product_root}/.ror-ogre-next-product-complete.json")
+    foreach(_ror_product_file IN ITEMS
+            "${_ror_ogre_next_product_child}"
+            "${_ror_ogre_next_product_manifest}"
+            "${_ror_ogre_next_product_completion}")
+        if(NOT EXISTS "${_ror_product_file}" OR
+                IS_DIRECTORY "${_ror_product_file}" OR
+                IS_SYMLINK "${_ror_product_file}")
+            message(FATAL_ERROR
+                "The OgreNext product stage is incomplete or indirect: "
+                "'${_ror_product_file}'")
+        endif()
+    endforeach()
+    foreach(_ror_product_directory IN ITEMS
+            "${_ror_ogre_next_product_root}/resources/ogrenext/Hlms/Hlms"
+            "${_ror_ogre_next_product_root}/resources/ogrenext/Presentation/CommonCopy"
+            "${_ror_ogre_next_product_root}/licenses"
+            "${_ror_ogre_next_product_root}/provenance")
+        if(NOT IS_DIRECTORY "${_ror_product_directory}" OR
+                IS_SYMLINK "${_ror_product_directory}")
+            message(FATAL_ERROR
+                "The OgreNext product closure is missing: "
+                "'${_ror_product_directory}'")
+        endif()
+    endforeach()
+    _ror_real_path(
+        "${_ror_ogre_next_product_child}" _ror_ogre_next_product_child_real)
+    list(FIND _ror_sibling_executables
+        "${_ror_ogre_next_product_child_real}" _ror_product_child_index)
+    if(_ror_product_child_index EQUAL -1)
+        message(FATAL_ERROR
+            "The verified RoR-OgreNext product child must be an exact sibling executable")
+    endif()
+
+    file(READ "${_ror_ogre_next_product_completion}"
+        _ror_product_completion_json)
+    foreach(_ror_completion_key IN ITEMS
+            schema identity manifest manifest_sha256)
+        string(JSON _ror_completion_${_ror_completion_key}
+            ERROR_VARIABLE _ror_completion_error
+            GET "${_ror_product_completion_json}" ${_ror_completion_key})
+        if(NOT _ror_completion_error STREQUAL "NOTFOUND")
+            message(FATAL_ERROR
+                "The OgreNext completion marker is invalid: "
+                "${_ror_completion_error}")
+        endif()
+    endforeach()
+    if(NOT _ror_completion_schema STREQUAL
+            "ror.ogre_next.product_package_completion.v1" OR
+            NOT _ror_completion_manifest STREQUAL
+            "provenance/ogre-next-product-package.manifest.json" OR
+            NOT _ror_completion_identity MATCHES
+            "^ror-ogre-next-production-child-v1\\|" OR
+            _ror_completion_identity MATCHES "[Pp][Rr][Oo][Bb][Ee]")
+        message(FATAL_ERROR
+            "The OgreNext completion marker is not a production-child seal")
+    endif()
+    string(LENGTH "${_ror_completion_manifest_sha256}"
+        _ror_completion_manifest_sha256_length)
+    file(SHA256 "${_ror_ogre_next_product_manifest}"
+        _ror_product_manifest_sha256)
+    if(NOT _ror_completion_manifest_sha256_length EQUAL 64 OR
+            NOT _ror_completion_manifest_sha256 STREQUAL
+            _ror_product_manifest_sha256)
+        message(FATAL_ERROR
+            "The OgreNext completion marker does not seal its manifest")
+    endif()
+
+    file(READ "${_ror_ogre_next_product_manifest}" _ror_product_manifest_json)
+    foreach(_ror_manifest_key IN ITEMS schema platform_policy identity child)
+        string(JSON _ror_manifest_${_ror_manifest_key}
+            ERROR_VARIABLE _ror_manifest_error
+            GET "${_ror_product_manifest_json}" ${_ror_manifest_key})
+        if(NOT _ror_manifest_error STREQUAL "NOTFOUND")
+            message(FATAL_ERROR
+                "The OgreNext product manifest is invalid: "
+                "${_ror_manifest_error}")
+        endif()
+    endforeach()
+    if(NOT _ror_manifest_schema STREQUAL
+            "ror.ogre_next.product_package.v1" OR
+            NOT _ror_manifest_platform_policy STREQUAL
+            "macos-arm64-metal" OR
+            NOT _ror_manifest_identity STREQUAL _ror_completion_identity OR
+            NOT _ror_manifest_child STREQUAL "RoR-OgreNext")
+        message(FATAL_ERROR
+            "The OgreNext product manifest does not describe this macOS child")
+    endif()
+    string(JSON _ror_manifest_file_count
+        ERROR_VARIABLE _ror_manifest_error
+        LENGTH "${_ror_product_manifest_json}" files)
+    if(NOT _ror_manifest_error STREQUAL "NOTFOUND" OR
+            _ror_manifest_file_count LESS 1)
+        message(FATAL_ERROR "The OgreNext product manifest has no file closure")
+    endif()
+    math(EXPR _ror_manifest_file_last "${_ror_manifest_file_count} - 1")
+    set(_ror_manifest_relatives)
+    foreach(_ror_manifest_index RANGE 0 ${_ror_manifest_file_last})
+        foreach(_ror_manifest_field IN ITEMS path size sha256)
+            string(JSON _ror_manifest_${_ror_manifest_field}
+                ERROR_VARIABLE _ror_manifest_error
+                GET "${_ror_product_manifest_json}" files
+                ${_ror_manifest_index} ${_ror_manifest_field})
+            if(NOT _ror_manifest_error STREQUAL "NOTFOUND")
+                message(FATAL_ERROR
+                    "The OgreNext product manifest entry is invalid: "
+                    "${_ror_manifest_error}")
+            endif()
+        endforeach()
+        if(_ror_manifest_path STREQUAL "" OR
+                IS_ABSOLUTE "${_ror_manifest_path}" OR
+                _ror_manifest_path MATCHES "(^|/)\\.\\.(/|$)|[;\\\\]" OR
+                NOT _ror_manifest_sha256 MATCHES "^[0-9a-f]+$")
+            message(FATAL_ERROR
+                "Unsafe OgreNext product manifest entry: '${_ror_manifest_path}'")
+        endif()
+        string(LENGTH "${_ror_manifest_sha256}" _ror_manifest_hash_length)
+        set(_ror_manifest_payload
+            "${_ror_ogre_next_product_root}/${_ror_manifest_path}")
+        if(NOT _ror_manifest_hash_length EQUAL 64 OR
+                NOT EXISTS "${_ror_manifest_payload}" OR
+                IS_DIRECTORY "${_ror_manifest_payload}" OR
+                IS_SYMLINK "${_ror_manifest_payload}")
+            message(FATAL_ERROR
+                "Missing or indirect OgreNext product payload: "
+                "'${_ror_manifest_path}'")
+        endif()
+        file(SIZE "${_ror_manifest_payload}" _ror_manifest_observed_size)
+        file(SHA256 "${_ror_manifest_payload}" _ror_manifest_observed_sha256)
+        if(NOT _ror_manifest_observed_size EQUAL _ror_manifest_size OR
+                NOT _ror_manifest_observed_sha256 STREQUAL
+                _ror_manifest_sha256)
+            message(FATAL_ERROR
+                "OgreNext product payload differs from its manifest: "
+                "'${_ror_manifest_path}'")
+        endif()
+        list(APPEND _ror_manifest_relatives "${_ror_manifest_path}")
+    endforeach()
+    set(_ror_manifest_sorted "${_ror_manifest_relatives}")
+    list(SORT _ror_manifest_sorted)
+    list(REMOVE_DUPLICATES _ror_manifest_sorted)
+    if(NOT "${_ror_manifest_relatives}" STREQUAL "${_ror_manifest_sorted}")
+        message(FATAL_ERROR
+            "The OgreNext product manifest paths are duplicated or unsorted")
+    endif()
+    file(GLOB_RECURSE _ror_product_actual_files
+        LIST_DIRECTORIES FALSE
+        RELATIVE "${_ror_ogre_next_product_root}"
+        "${_ror_ogre_next_product_root}/*")
+    list(REMOVE_ITEM _ror_product_actual_files
+        ".ror-ogre-next-product-complete.json"
+        "provenance/ogre-next-product-package.manifest.json")
+    list(SORT _ror_product_actual_files)
+    if(NOT "${_ror_product_actual_files}" STREQUAL
+            "${_ror_manifest_relatives}")
+        message(FATAL_ERROR
+            "The OgreNext product stage contains an unmanifested payload")
+    endif()
+endif()
 
 if(NOT IS_ABSOLUTE "${ROR_BUNDLE}")
     message(FATAL_ERROR "ROR_BUNDLE must be absolute: '${ROR_BUNDLE}'")
@@ -565,6 +775,12 @@ foreach(_input_pair IN ITEMS
     list(GET _pair 1 _input_label)
     _ror_assert_no_recursive_copy("${_input_path}" "${_input_label}" "${_ror_bundle}")
 endforeach()
+if(NOT _ror_ogre_next_product_root STREQUAL "")
+    _ror_assert_no_recursive_copy(
+        "${_ror_ogre_next_product_root}"
+        "ROR_OGRE_NEXT_PRODUCT_ROOT"
+        "${_ror_bundle}")
+endif()
 if(DEFINED ROR_CONTENT AND NOT ROR_CONTENT STREQUAL "")
     _ror_require_absolute_path("ROR_CONTENT" "FILE_OR_DIRECTORY")
     _ror_real_path("${ROR_CONTENT}" _ror_content)
@@ -926,6 +1142,39 @@ _ror_run_checked(
     "Copying RoR languages"
     "${CMAKE_COMMAND}" -E copy_directory
     "${_ror_languages}" "${_ror_bundle_resources}/languages")
+if(NOT _ror_ogre_next_product_root STREQUAL "")
+    _ror_run_checked(
+        "Copying authenticated OgreNext media"
+        "${CMAKE_COMMAND}" -E copy_directory
+        "${_ror_ogre_next_product_root}/resources/ogrenext"
+        "${_ror_bundle_resources}/ogrenext")
+    _ror_compare_regular_trees(
+        "${_ror_ogre_next_product_root}/resources/ogrenext"
+        "${_ror_bundle_resources}/ogrenext"
+        "OgreNext media")
+    _ror_run_checked(
+        "Copying OgreNext notices"
+        "${CMAKE_COMMAND}" -E copy_directory
+        "${_ror_ogre_next_product_root}/licenses"
+        "${_ror_bundle_resources}/ogrenext/licenses")
+    _ror_compare_regular_trees(
+        "${_ror_ogre_next_product_root}/licenses"
+        "${_ror_bundle_resources}/ogrenext/licenses"
+        "OgreNext notices")
+    _ror_run_checked(
+        "Copying OgreNext provenance"
+        "${CMAKE_COMMAND}" -E copy_directory
+        "${_ror_ogre_next_product_root}/provenance"
+        "${_ror_bundle_resources}/ogrenext/provenance")
+    _ror_compare_regular_trees(
+        "${_ror_ogre_next_product_root}/provenance"
+        "${_ror_bundle_resources}/ogrenext/provenance"
+        "OgreNext provenance")
+    file(COPY_FILE
+        "${_ror_ogre_next_product_completion}"
+        "${_ror_bundle_resources}/ogrenext/.ror-ogre-next-product-complete.json"
+        ONLY_IF_DIFFERENT)
+endif()
 foreach(_media_directory IN ITEMS Main RTShaderLib Terrain)
     _ror_run_checked(
         "Copying OGRE ${_media_directory} media"

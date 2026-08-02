@@ -198,6 +198,8 @@ jobs:
           python -O -m unittest discover \
             -s tests/tools \
             -p 'test_*ogre14*.py'
+          python tests/tools/test_ogre_next_product_packaging_contract.py
+          python -O tests/tools/test_ogre_next_product_packaging_contract.py
 
       - name: Verify the locked native Conan graph
         shell: bash
@@ -299,6 +301,19 @@ jobs:
           cmake -E rename \
             "stage-ogre14-${{ matrix.platform }}" \
             "artifacts/runtime-${{ matrix.platform }}"
+
+      - name: Verify relocated OgreNext child and exact media closure
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "linux-x86_64" ]]; then
+            policy="linux-x86_64-vulkan"
+          else
+            policy="windows-x64-d3d11"
+          fi
+          python tools/ogre_next_probe/package_ogre_next_product.py \
+            verify \
+            --root "artifacts/runtime-${{ matrix.platform }}" \
+            --platform-policy "$policy"
 
       - name: Audit relocated Linux runtime
         if: runner.os == 'Linux'

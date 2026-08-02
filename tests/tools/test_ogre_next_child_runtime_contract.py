@@ -780,7 +780,15 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
 
     def test_media_path_and_build_provenance_are_explicit(self) -> None:
         self.assertIn(
-            'ROR_OGRE_NEXT_CHILD_SCOPE "probe-only-non-admitted"', self.config
+            'ROR_OGRE_NEXT_CHILD_SCOPE "@ROR_OGRE_NEXT_CHILD_SCOPE@"', self.config
+        )
+        self.assertIn(
+            'set(ROR_OGRE_NEXT_CHILD_SCOPE "probe-only-non-admitted")',
+            self.cmake,
+        )
+        self.assertIn(
+            'set(ROR_OGRE_NEXT_CHILD_SCOPE "production-package-non-admitted")',
+            self.cmake,
         )
         self.assertIn("@ROR_SOURCE_COMMIT@", self.config)
         self.assertIn("@ROR_OGRE_NEXT_COMMIT@", self.config)
@@ -795,7 +803,7 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
             '"headless_child_logs_retained": true',
             '"headless_child_process_model": '
             '"single-process-reviewed-source-closure-v1"',
-            '"headless_child_packaged": false',
+            '"headless_child_packaged": @ROR_OGRE_NEXT_CHILD_PACKAGED_JSON@',
             '"headless_child_production_admitted": false',
         ):
             with self.subTest(token=token):
