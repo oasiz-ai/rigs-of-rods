@@ -474,6 +474,10 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/PbrReferenceTests.cpp"
 )
 add_executable(
+    ror_render_strict_fp_environment_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/StrictFloatingPointEnvironmentTests.cpp"
+)
+add_executable(
     ror_render_reflection_probe_capture_receipt_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ReflectionProbeCaptureReceiptTests.cpp"
 )
@@ -580,6 +584,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_render_resource_handle_tests
     ror_render_material_descriptor_tests
     ror_render_pbr_reference_tests
+    ror_render_strict_fp_environment_tests
     ror_render_asset_registry_tests
     ror_render_scene_snapshot_tests
     ror_render_resource_descriptor_tests
@@ -623,6 +628,22 @@ foreach (render_contract_target IN LISTS ROR_RENDER_CONTRACT_BUILD_TARGETS)
         )
     endif ()
 endforeach ()
+
+# Optimized game builds enable fast-math globally. On GCC, leaving
+# `-ffast-math` active on an executable's link command selects crtfastmath.o,
+# whose process-start constructor enables flush-to-zero/denormals-are-zero.
+# Compile-only `-fno-fast-math` therefore cannot preserve the renderer
+# contract's strict IEEE environment by itself. End every portable strict-FP
+# test link with the matching opt-out; production game link behavior is
+# intentionally unchanged.
+if (NOT MSVC)
+    foreach (render_contract_test IN LISTS ROR_RENDER_CONTRACT_TEST_TARGETS)
+        target_link_options(
+            ${render_contract_test}
+            PRIVATE -fno-fast-math
+        )
+    endforeach ()
+endif ()
 
 # This test intentionally replaces global new/delete with one malloc/free pair
 # so it can count allocations. GCC 11's interprocedural analysis diagnoses the
@@ -1558,6 +1579,11 @@ add_test(
 add_test(
     NAME render_pbr_reference
     COMMAND ror_render_pbr_reference_tests
+)
+
+add_test(
+    NAME render_strict_fp_environment
+    COMMAND ror_render_strict_fp_environment_tests
 )
 
 add_test(
