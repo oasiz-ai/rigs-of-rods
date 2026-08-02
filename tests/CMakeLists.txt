@@ -150,6 +150,11 @@ add_executable(
 )
 
 add_executable(
+    ror_windows_runtime_path_tests
+    "${CMAKE_CURRENT_LIST_DIR}/platform/WindowsRuntimePathTests.cpp"
+)
+
+add_executable(
     ror_sky_mode_availability_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/SkyModeAvailabilityTests.cpp"
 )
@@ -1108,6 +1113,12 @@ target_include_directories(
 )
 
 target_include_directories(
+    ror_windows_runtime_path_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/utils"
+)
+
+target_include_directories(
     ror_sky_mode_availability_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/gfx"
@@ -1299,6 +1310,7 @@ target_link_libraries(
 
 set(ROR_PHYSICS_TEST_TARGETS
     ror_render_display_metrics_tests
+    ror_windows_runtime_path_tests
     ror_sky_mode_availability_tests
     ror_v0_post_process_math_tests
     ror_post_process_policy_tests
@@ -1437,6 +1449,11 @@ set_target_properties(
 add_test(
     NAME render_display_metrics
     COMMAND ror_render_display_metrics_tests
+)
+
+add_test(
+    NAME windows_runtime_path
+    COMMAND ror_windows_runtime_path_tests
 )
 
 add_test(
