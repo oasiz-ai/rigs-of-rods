@@ -50,6 +50,10 @@ static_assert(
 static_assert(std::is_trivially_copyable_v<RoR::Render::HdrR16Float>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::ResourceHandle>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::RenderAssetId>);
+static_assert(!std::is_copy_constructible_v<
+              RoR::Render::DecodedSceneSnapshotTransportMessage>);
+static_assert(!std::is_move_assignable_v<
+              RoR::Render::DecodedSceneSnapshotTransportMessage>);
 static_assert(std::is_standard_layout_v<RoR::Render::NativeObjectToken>);
 static_assert(
     std::is_abstract_v<RoR::Render::IJoinedGraphicsSceneSource>,
