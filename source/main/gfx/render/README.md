@@ -256,6 +256,65 @@ be baked into the canonical mesh basis and winding. Consequently `ASSETS` and
 inventory; terrain textures and the procedural/deformable domains remain
 required before ordinary maps can publish end to end.
 
+### Exact OGRE 14 legacy asset translator v1
+
+`Ogre14LegacyAssetTranslator` is the replacement path for textured legacy
+assets. It is deliberately a pure-data catalog and is not wired into
+`GfxScene` yet. `Ogre14LegacyNativeAssetExtractor` is the only source file in
+this slice which includes OGRE headers; the native application and its focused
+compile test pin that edge to OGRE 14.5.2. The eventual static/terrain adapter
+must submit a complete post-buffer inventory to the translator, then map each
+dependency-ordered `source_asset_id` and immutable payload owner into
+`GraphicsSceneAssetInput`. For a material, it must use the two IDs in
+`Ogre14LegacyMaterialPipelineAudit` as the base-color binding and reverse mesh
+winding when `requires_reverse_winding` is true. It may publish nothing unless
+the companion audit is present and version 1.
+
+The v1 acceptance set is exact and intentionally narrow:
+
+- one loaded material technique containing one pass, with no authored or
+  RTSS-generated GPU program;
+- zero or one ordinary named, loaded, non-manual 2D base-color texture, one
+  frame, identity UV transform, and OGRE's texture-times-current color and
+  alpha combine;
+- explicit `BASE_COLOR_SRGB` or `LINEAR_DATA` intent supplied by versioned
+  content metadata, with hardware-gamma state required to agree. The decoder
+  never applies a transfer curve: native `PF_BYTE_RGBA` or the pure contract's
+  byte-order-specific formats are channel-normalized to RGBA8 and the sRGB bit
+  is attached exactly once;
+- a contiguous base-to-smallest-provided mip prefix with exact halved
+  dimensions, byte pitches, padding, and slice sizes. Output rows and slices
+  are canonical tightly packed RGBA8;
+- exact wrap/mirror/clamp/border, min/mag/mip filtering, anisotropy, LOD bias,
+  effective LOD range, comparison, and border-color state;
+- replace or true straight-alpha source-over blending, full color writes,
+  canonical depth checking/writing, default manual culling, solid fill, one
+  pass iteration, no bias or alpha-to-coverage, and always-pass or `>=` alpha
+  rejection. Clockwise, anticlockwise, and disabled hardware culling remain in
+  the immutable audit; anticlockwise culling requires mesh winding reversal;
+- an explicit unlit or rough-dielectric PBR base-color declaration. The latter
+  fixes metallic to zero and roughness to one by contract, not by inspecting
+  a filename or shininess. Ambient, specular, emissive, and shininess lobes
+  reject because v1 has no exact role for them.
+
+Multipass or multi-technique materials; compressed or unsupported formats;
+cubemap, array, 3D, multisample, external, compositor, render-target, manual,
+generated, animated, procedural, projective, or environment texture content;
+nonidentity gamma/UV/color transforms; comparison base-color sampling; and
+every other blend/depth/raster state fail closed. A later version must add an
+explicit portable semantic before accepting any of those cases.
+
+Each accepted source frame starts at sequence one and advances exactly once.
+Exact length-prefixed resource-group/name keys produce domain-separated stable
+64-bit IDs. Semantic byte changes require a higher native source revision and
+advance one translated revision; owner replacement and source-only revision
+changes reuse the immutable payload and do not advance it. Transactions emit
+texture/sampler/material UPSERTs in dependency order and material/sampler/
+texture DESTROYs in reverse order. Removed keys become permanent tombstones;
+full snapshots include them. Validation, allocation, native readback, injected
+fault, collision, or lineage failure leaves the catalog, sequence, output
+frame, and previously shared owners untouched.
+
 The asset payload pins the registry, mesh, texture, material, and sampler
 descriptor versions. It carries registry/base/target sequence lineage, the
 full-snapshot marker, sorted UPSERT/DESTROY mutations, every descriptor field,

@@ -903,6 +903,7 @@ endif ()
 set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/GraphicsSceneSnapshotProducer.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14GraphicsSceneSource.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14LegacyAssetTranslator.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/HdrReference.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/InputEventTransport.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
@@ -943,6 +944,10 @@ target_link_libraries(
 add_executable(
     ror_ogre14_graphics_scene_source_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
+)
+add_executable(
+    ror_ogre14_legacy_asset_translator_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"
 )
 add_executable(
     ror_render_resource_handle_tests
@@ -1093,6 +1098,7 @@ target_include_directories(
 set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_graphics_scene_snapshot_producer_tests
     ror_ogre14_graphics_scene_source_tests
+    ror_ogre14_legacy_asset_translator_tests
     ror_render_hdr_reference_tests
     ror_input_event_transport_tests
     ror_render_bridge_control_transport_tests
@@ -1119,6 +1125,32 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre_next_vulkan_rt6_contract_tests
     ror_ogre_next_dxr7_contract_tests
 )
+
+if (ROR_OGRE14 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    add_executable(
+        ror_ogre14_legacy_native_asset_extractor_compile_tests
+        "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14LegacyNativeAssetExtractor.cpp"
+    )
+    target_include_directories(
+        ror_ogre14_legacy_native_asset_extractor_compile_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
+        SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
+    )
+    if (TARGET OgreMain)
+        target_link_libraries(
+            ror_ogre14_legacy_native_asset_extractor_compile_tests
+            PRIVATE OgreMain
+        )
+    else ()
+        target_link_libraries(
+            ror_ogre14_legacy_native_asset_extractor_compile_tests
+            PRIVATE ${OGRE_LIBRARIES}
+        )
+    endif ()
+    list(APPEND ROR_RENDER_CONTRACT_TEST_TARGETS
+        ror_ogre14_legacy_native_asset_extractor_compile_tests)
+endif ()
 
 add_executable(
     ror_renderer_ogre14_input_adapter_tests
@@ -2246,6 +2278,18 @@ add_test(
     NAME ogre14_graphics_scene_source
     COMMAND ror_ogre14_graphics_scene_source_tests
 )
+
+add_test(
+    NAME ogre14_legacy_asset_translator
+    COMMAND ror_ogre14_legacy_asset_translator_tests
+)
+
+if (TARGET ror_ogre14_legacy_native_asset_extractor_compile_tests)
+    add_test(
+        NAME ogre14_legacy_native_asset_extractor_compile
+        COMMAND ror_ogre14_legacy_native_asset_extractor_compile_tests
+    )
+endif ()
 
 add_test(
     NAME render_resource_handle

@@ -15,6 +15,7 @@
 #include "GraphicsSceneSnapshotProducer.h"
 #include "InputEventTransport.h"
 #include "MaterialDescriptor.h"
+#include "Ogre14LegacyAssetTranslator.h"
 #include "ParallaxProbeReference.h"
 #include "PbrReference.h"
 #include "ReflectionProbeCaptureReceipt.h"

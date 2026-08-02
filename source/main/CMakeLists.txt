@@ -44,6 +44,8 @@ set(SOURCE_FILES
         gfx/RenderDisplayMetrics.h
         gfx/render/GraphicsSceneSnapshotProducer.{h,cpp}
         gfx/render/Ogre14GraphicsSceneSource.{h,cpp}
+        gfx/render/Ogre14LegacyAssetTranslator.{h,cpp}
+        gfx/render/Ogre14LegacyNativeAssetExtractor.h
         gfx/render/HdrReference.{h,cpp}
         gfx/render/InputEventTransport.{h,cpp}
         gfx/render/MaterialDescriptor.{h,cpp}
@@ -384,6 +386,14 @@ if (ROR_USE_ANGELSCRIPT)
             )
 endif ()
 
+if (ROR_OGRE14)
+    # Native OGRE types remain confined to this adapter implementation. The
+    # renderer-neutral translator above continues to build in standalone tests
+    # and with the legacy dependency graph.
+    list(APPEND SOURCE_FILES
+        gfx/render/Ogre14LegacyNativeAssetExtractor.cpp)
+endif ()
+
 include(SourceFileUtils)
 
 # Expand file extensions (i.e. path/to/file.{h,cpp} becomes path/to/file.h;path/to/file.cpp)
@@ -395,6 +405,7 @@ expand_file_extensions(SOURCE_FILES ${SOURCE_FILES})
 set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/GraphicsSceneSnapshotProducer.cpp
         gfx/render/Ogre14GraphicsSceneSource.cpp
+        gfx/render/Ogre14LegacyAssetTranslator.cpp
         gfx/render/HdrReference.cpp
         gfx/render/InputEventTransport.cpp
         gfx/render/MaterialDescriptor.cpp
@@ -425,6 +436,7 @@ set_source_files_properties(
 set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/GraphicsSceneSnapshotProducer.cpp
         gfx/render/Ogre14GraphicsSceneSource.cpp
+        gfx/render/Ogre14LegacyAssetTranslator.cpp
         gfx/render/HdrReference.cpp
         gfx/render/InputEventTransport.cpp
         gfx/render/MaterialDescriptor.cpp
