@@ -64,8 +64,24 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, self.entrypoint)
         self.assertNotIn("enable_hdr_compositor = true", self.entrypoint)
-        self.assertNotIn("ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM", self.entrypoint)
-        self.assertNotIn("ROR_OGRE_NEXT_N2_TEST_SEAM", self.entrypoint)
+
+    def test_entrypoint_refuses_test_seams_at_compile_time(self) -> None:
+        self.assertIn(
+            "#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM) || \\\n"
+            "    defined(ROR_OGRE_NEXT_N2_TEST_SEAM)",
+            self.entrypoint,
+        )
+        self.assertIn(
+            '#error "RoR-OgreNext child must not compile with an '
+            'Ogre-Next test seam"',
+            self.entrypoint,
+        )
+        self.assertEqual(
+            self.entrypoint.count("ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM"), 1
+        )
+        self.assertEqual(
+            self.entrypoint.count("ROR_OGRE_NEXT_N2_TEST_SEAM"), 1
+        )
 
     def test_skip_77_is_only_the_exact_reviewed_pssm_capability_result(self) -> None:
         exact_classifier = self.entrypoint[
