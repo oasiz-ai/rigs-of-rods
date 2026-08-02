@@ -20,12 +20,6 @@ namespace RoR {
 
 constexpr std::uint32_t kRendererPublicLauncherContractVersion = 1U;
 
-/// Zero is an explicit fail-closed sentinel. Before an admitted Ogre-Next
-/// child can be launched this must become a separately versioned encoder which
-/// transfers normalized frontend/shadow intent through argv. Environment or
-/// mutable file state is not an admissible replacement.
-constexpr std::uint32_t kRendererOgreNextChildIntentArgvContractVersion = 0U;
-
 constexpr int kRendererPublicLauncherUsageExitCode = 64;
 constexpr int kRendererPublicLauncherSelectionExitCode = 70;
 constexpr int kRendererPublicLauncherChildLaunchExitCode = 71;
@@ -44,7 +38,10 @@ enum class RendererPublicLauncherDecisionStatus : std::uint8_t {
   READY_OGRE14 = 0,
   REJECTED_INVALID_INTENT = 1,
   REJECTED_HANDOFF = 2,
+  /// Retained as a stable version-one status value. The version-one child argv
+  /// contract is now available, so production code no longer emits it.
   REJECTED_OGRE_NEXT_CHILD_INTENT_ENCODING_UNAVAILABLE = 3,
+  READY_OGRE_NEXT = 4,
 };
 
 /// Versioned normalized intent retained independently from the argv forwarded

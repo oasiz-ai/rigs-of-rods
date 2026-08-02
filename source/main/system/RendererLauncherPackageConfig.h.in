@@ -31,8 +31,9 @@ constexpr bool kOgreNextPssmAdmitted =
 constexpr NativeRayTracingBackend kNativeDirectionalShadowBackend =
     NativeRayTracingBackend::@ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND@;
 
-// Phase 2 has no normalized launcher-to-OgreNext argv encoder. Keep this
-// generated package profile categorically incapable of selecting that child.
+// The argv encoder exists, but this bounded package still has no admitted
+// production Ogre-Next game child. Keep its immutable facts categorically
+// incapable of selecting a probe or incomplete presentation executable.
 static_assert(kOgre14ChildPresent,
               "the phase-2 launcher requires the OGRE 14 game child");
 static_assert(!kOgreNextChildPresent &&
@@ -40,7 +41,7 @@ static_assert(!kOgreNextChildPresent &&
                   !kOgreNextPssmAdmitted &&
                   kNativeDirectionalShadowBackend ==
                       NativeRayTracingBackend::NONE,
-              "Ogre-Next package admission requires the versioned child-intent encoder");
+              "Ogre-Next package admission requires a production-ready game child");
 
 } // namespace RendererLauncherPackageConfig
 } // namespace RoR

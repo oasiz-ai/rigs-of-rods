@@ -25,6 +25,16 @@ namespace {
 
 using NativeString = std::basic_string<RoR::RendererChildLauncherChar>;
 
+NativeString NativeAscii(const char *value) {
+  NativeString result;
+  while (value != nullptr && *value != '\0') {
+    result.push_back(static_cast<RoR::RendererChildLauncherChar>(
+        static_cast<unsigned char>(*value)));
+    ++value;
+  }
+  return result;
+}
+
 void Require(bool condition, const char *message) {
   if (!condition) {
     std::cerr << "renderer public launcher test failed: " << message << '\n';
@@ -39,6 +49,32 @@ RoR::HostRenderPlatform CurrentPlatform() {
   return RoR::HostRenderPlatform::MACOS;
 #else
   return RoR::HostRenderPlatform::LINUX;
+#endif
+}
+
+RoR::HostRenderPlatform ForeignPlatform() {
+#if defined(_WIN32)
+  return RoR::HostRenderPlatform::MACOS;
+#else
+  return RoR::HostRenderPlatform::WINDOWS;
+#endif
+}
+
+const char *CurrentNativeBackendValue() {
+#if defined(_WIN32)
+  return "dxr";
+#elif defined(__APPLE__)
+  return "metal";
+#else
+  return "vulkan-khr";
+#endif
+}
+
+const char *ForeignNativeBackendValue() {
+#if defined(_WIN32)
+  return "metal";
+#else
+  return "dxr";
 #endif
 }
 
@@ -73,8 +109,13 @@ void TestStatusContracts() {
     const auto decision_status =
         static_cast<RoR::RendererPublicLauncherDecisionStatus>(value);
     Require(RoR::IsKnownRendererPublicLauncherDecisionStatus(decision_status) ==
-                (value <= 3U),
+                (value <= 4U),
             "decision status classifier accepted an unknown value");
+    const auto child_intent_status =
+        static_cast<RoR::RendererOgreNextChildIntentArgvStatus>(value);
+    Require(RoR::IsKnownRendererOgreNextChildIntentArgvStatus(
+                child_intent_status) == (value <= 6U),
+            "child-intent status classifier accepted an unknown value");
   }
   Require(std::strcmp(
               RoR::ToString(
@@ -90,12 +131,18 @@ void TestStatusContracts() {
           "decision status string changed");
   Require(std::strcmp(
               RoR::ToString(
+                  RoR::RendererPublicLauncherDecisionStatus::
+                      READY_OGRE_NEXT),
+              "ready-ogre-next") == 0,
+          "Ogre-Next ready decision string changed");
+  Require(std::strcmp(
+              RoR::ToString(
                   static_cast<RoR::RendererPublicLauncherDecisionStatus>(
                       255U)),
               "invalid") == 0,
           "unknown decision status did not fail closed");
-  Require(RoR::kRendererOgreNextChildIntentArgvContractVersion == 0U,
-          "phase-2 build unexpectedly enabled Ogre-Next intent encoding");
+  Require(RoR::kRendererOgreNextChildIntentArgvContractVersion == 1U,
+          "Ogre-Next child-intent argv contract version changed");
 }
 
 void TestImmutablePackageFactsAndDefaultFallback() {
@@ -363,7 +410,7 @@ void TestInvalidNormalizedIntent() {
           "unknown normalized frontend escaped validation");
 }
 
-void TestFutureOgreNextIntentGate() {
+void TestOgreNextIntentEncoding() {
   RoR::RendererStartupPackageAvailability future =
       RoR::RendererPublicLauncherPackageAvailability();
   future.ogre_next_child_present = true;
@@ -372,13 +419,325 @@ void TestFutureOgreNextIntentGate() {
   const RoR::RendererPublicLauncherIntent intent;
   const auto decision =
       RoR::ResolveRendererPublicLauncherDecision(intent, future);
-  Require(!decision.accepted && decision.handoff.accepted &&
+  Require(decision.accepted && decision.handoff.accepted &&
               decision.handoff.child ==
                   RoR::RendererFrontendChild::OGRE_NEXT &&
               decision.status ==
                   RoR::RendererPublicLauncherDecisionStatus::
-                      REJECTED_OGRE_NEXT_CHILD_INTENT_ENCODING_UNAVAILABLE,
-          "future Ogre-Next facts bypassed the missing intent encoder");
+                      READY_OGRE_NEXT,
+          "admitted Ogre-Next facts did not select the encoded child");
+
+  const RoR::RendererChildLauncherChar *game_arguments[] = {
+      ROR_NATIVE_TEXT("launcher"), ROR_NATIVE_TEXT("-map"),
+      ROR_NATIVE_TEXT("City World"), ROR_NATIVE_TEXT(""),
+      ROR_NATIVE_TEXT("unicode-\u03a9")};
+  auto encoded = RoR::EncodeRendererOgreNextChildIntent(
+      decision.handoff, 5, game_arguments);
+  Require(encoded.accepted &&
+              encoded.status ==
+                  RoR::RendererOgreNextChildIntentArgvStatus::READY &&
+              encoded.arguments.size() == 9U,
+          "Ogre-Next child intent was not encoded");
+  Require(encoded.startup.frontend ==
+                  RoR::RendererFrontendPreference::OGRE_NEXT_PREFER &&
+              encoded.startup.directional_shadows ==
+                  RoR::DirectionalShadowPreference::PSSM &&
+              encoded.startup.host_platform == CurrentPlatform() &&
+              encoded.declared_native_backend ==
+                  RoR::NativeRayTracingBackend::NONE,
+          "encoded startup request changed");
+  Require(encoded.arguments[0] == game_arguments[0] &&
+              encoded.arguments[1] == ROR_NATIVE_TEXT(
+                  "--ror-renderer-child-intent-version=1") &&
+              encoded.arguments[2] == ROR_NATIVE_TEXT(
+                  "--ror-renderer-child-frontend=ogre-next-prefer") &&
+              encoded.arguments[3] == ROR_NATIVE_TEXT(
+                  "--ror-renderer-child-directional-shadows=pssm") &&
+              encoded.arguments[4] == ROR_NATIVE_TEXT(
+                  "--ror-renderer-child-native-backend=none") &&
+              encoded.arguments[5] == game_arguments[1] &&
+              encoded.arguments[6] == game_arguments[2] &&
+              encoded.arguments[7] == game_arguments[3] &&
+              encoded.arguments[8] == game_arguments[4],
+          "encoded child argv was not byte/code-unit exact");
+
+  std::vector<const RoR::RendererChildLauncherChar *> encoded_pointers;
+  encoded_pointers.reserve(encoded.arguments.size());
+  for (const NativeString &argument : encoded.arguments) {
+    encoded_pointers.push_back(argument.c_str());
+  }
+  const auto parsed = RoR::ParseRendererOgreNextChildIntent(
+      static_cast<int>(encoded_pointers.size()), encoded_pointers.data());
+  Require(parsed.accepted &&
+              parsed.status ==
+                  RoR::RendererOgreNextChildIntentArgvStatus::READY &&
+              parsed.startup.frontend ==
+                  RoR::RendererFrontendPreference::OGRE_NEXT_PREFER &&
+              parsed.startup.directional_shadows ==
+                  RoR::DirectionalShadowPreference::PSSM &&
+              parsed.startup.host_platform == CurrentPlatform() &&
+              parsed.declared_native_backend ==
+                  RoR::NativeRayTracingBackend::NONE &&
+              parsed.forwarded_arguments.size() == 5U,
+          "Ogre-Next child did not decode the exact startup request");
+  for (std::size_t index = 0U;
+       index < parsed.forwarded_arguments.size(); ++index) {
+    Require(NativeString(parsed.forwarded_arguments[index]) ==
+                game_arguments[index],
+            "decoded game suffix changed");
+  }
+  encoded.arguments.clear();
+  encoded.arguments.shrink_to_fit();
+  Require(parsed.forwarded_arguments[2] ==
+              NativeString(ROR_NATIVE_TEXT("City World")) &&
+              parsed.forwarded_arguments[3].empty(),
+          "decoded game suffix still borrowed the source argv lifetime");
+
+  RoR::RendererStartupHandoffResult invalid_handoff = decision.handoff;
+  invalid_handoff.accepted = false;
+  Require(!RoR::EncodeRendererOgreNextChildIntent(
+               invalid_handoff, 5, game_arguments)
+               .accepted,
+          "rejected handoff entered the child encoder");
+  Require(!RoR::EncodeRendererOgreNextChildIntent(
+               decision.handoff, 0, nullptr)
+               .accepted,
+          "empty game argv entered the child encoder");
+  RoR::RendererStartupHandoffResult foreign_handoff = decision.handoff;
+  foreign_handoff.package_platform = ForeignPlatform();
+  Require(!RoR::EncodeRendererOgreNextChildIntent(
+               foreign_handoff, 5, game_arguments)
+               .accepted,
+          "foreign package platform entered the child encoder");
+  RoR::RendererStartupHandoffResult wrong_child = decision.handoff;
+  wrong_child.child = RoR::RendererFrontendChild::OGRE14;
+  Require(!RoR::EncodeRendererOgreNextChildIntent(
+               wrong_child, 5, game_arguments)
+               .accepted,
+          "legacy handoff entered the Ogre-Next child encoder");
+
+  struct IntentCase {
+    RoR::RendererFrontendPreference frontend;
+    const char *frontend_value;
+    RoR::DirectionalShadowPreference shadows;
+    const char *shadow_value;
+  };
+  const IntentCase intent_cases[] = {
+      {RoR::RendererFrontendPreference::OGRE_NEXT_PREFER,
+       "ogre-next-prefer", RoR::DirectionalShadowPreference::PSSM,
+       "pssm"},
+      {RoR::RendererFrontendPreference::OGRE_NEXT_PREFER,
+       "ogre-next-prefer",
+       RoR::DirectionalShadowPreference::PREFER_NATIVE,
+       "prefer-native"},
+      {RoR::RendererFrontendPreference::OGRE_NEXT_PREFER,
+       "ogre-next-prefer",
+       RoR::DirectionalShadowPreference::REQUIRE_NATIVE,
+       "require-native"},
+      {RoR::RendererFrontendPreference::OGRE_NEXT_REQUIRE,
+       "ogre-next-require", RoR::DirectionalShadowPreference::PSSM,
+       "pssm"},
+      {RoR::RendererFrontendPreference::OGRE_NEXT_REQUIRE,
+       "ogre-next-require",
+       RoR::DirectionalShadowPreference::PREFER_NATIVE,
+       "prefer-native"},
+      {RoR::RendererFrontendPreference::OGRE_NEXT_REQUIRE,
+       "ogre-next-require",
+       RoR::DirectionalShadowPreference::REQUIRE_NATIVE,
+       "require-native"},
+  };
+  future.native_directional_shadow_backend =
+      RoR::ExpectedNativeRayTracingBackend(CurrentPlatform());
+  for (const IntentCase &intent_case : intent_cases) {
+    RoR::RendererPublicLauncherIntent candidate;
+    candidate.frontend = intent_case.frontend;
+    candidate.directional_shadows = intent_case.shadows;
+    const auto candidate_decision =
+        RoR::ResolveRendererPublicLauncherDecision(candidate, future);
+    Require(candidate_decision.accepted &&
+                candidate_decision.status ==
+                    RoR::RendererPublicLauncherDecisionStatus::
+                        READY_OGRE_NEXT,
+            "valid Ogre-Next child intent was not selected");
+    const auto candidate_encoding =
+        RoR::EncodeRendererOgreNextChildIntent(
+            candidate_decision.handoff, 5, game_arguments);
+    Require(candidate_encoding.accepted &&
+                candidate_encoding.arguments[2] ==
+                    NativeAscii("--ror-renderer-child-frontend=") +
+                        NativeAscii(intent_case.frontend_value) &&
+                candidate_encoding.arguments[3] ==
+                    NativeAscii(
+                        "--ror-renderer-child-directional-shadows=") +
+                        NativeAscii(intent_case.shadow_value) &&
+                candidate_encoding.arguments[4] ==
+                    NativeAscii("--ror-renderer-child-native-backend=") +
+                        NativeAscii(CurrentNativeBackendValue()),
+            "Ogre-Next intent value encoding changed");
+    std::vector<const RoR::RendererChildLauncherChar *> candidate_pointers;
+    for (const NativeString &argument : candidate_encoding.arguments) {
+      candidate_pointers.push_back(argument.c_str());
+    }
+    const auto candidate_parse =
+        RoR::ParseRendererOgreNextChildIntent(
+            static_cast<int>(candidate_pointers.size()),
+            candidate_pointers.data());
+    Require(candidate_parse.accepted &&
+                candidate_parse.startup.frontend ==
+                    intent_case.frontend &&
+                candidate_parse.startup.directional_shadows ==
+                    intent_case.shadows &&
+                candidate_parse.declared_native_backend ==
+                    RoR::ExpectedNativeRayTracingBackend(CurrentPlatform()),
+            "Ogre-Next intent value round trip changed");
+  }
+}
+
+void TestOgreNextIntentDecoderRejectsMalformedPrefixes() {
+  const RoR::RendererChildLauncherChar *wrong_version[] = {
+      ROR_NATIVE_TEXT("RoR-OgreNext"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-intent-version=2"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-frontend=ogre-next-prefer"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-directional-shadows=pssm"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-native-backend=none")};
+  Require(RoR::ParseRendererOgreNextChildIntent(
+              5, wrong_version)
+              .status == RoR::RendererOgreNextChildIntentArgvStatus::
+                  REJECTED_MISSING_CONTRACT,
+          "unknown child-intent contract version was accepted");
+
+  const RoR::RendererChildLauncherChar *legacy_frontend[] = {
+      ROR_NATIVE_TEXT("RoR-OgreNext"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-intent-version=1"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-frontend=legacy-only"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-directional-shadows=pssm"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-native-backend=none")};
+  Require(RoR::ParseRendererOgreNextChildIntent(
+              5, legacy_frontend)
+              .status == RoR::RendererOgreNextChildIntentArgvStatus::
+                  REJECTED_MALFORMED_CONTRACT,
+          "legacy frontend entered the Ogre-Next child");
+
+  const RoR::RendererChildLauncherChar *reordered[] = {
+      ROR_NATIVE_TEXT("RoR-OgreNext"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-intent-version=1"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-directional-shadows=pssm"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-frontend=ogre-next-prefer"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-native-backend=none")};
+  Require(RoR::ParseRendererOgreNextChildIntent(
+              5, reordered)
+              .status == RoR::RendererOgreNextChildIntentArgvStatus::
+                  REJECTED_MALFORMED_CONTRACT,
+          "reordered child-intent fields were accepted");
+
+  const RoR::RendererChildLauncherChar *invalid_shadow[] = {
+      ROR_NATIVE_TEXT("RoR-OgreNext"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-intent-version=1"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-frontend=ogre-next-prefer"),
+      ROR_NATIVE_TEXT(
+          "--ror-renderer-child-directional-shadows=maybe-native"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-native-backend=none")};
+  Require(RoR::ParseRendererOgreNextChildIntent(
+              5, invalid_shadow)
+              .status == RoR::RendererOgreNextChildIntentArgvStatus::
+                  REJECTED_MALFORMED_CONTRACT,
+          "unknown child shadow intent was accepted");
+
+  const RoR::RendererChildLauncherChar *embedded_null[] = {
+      ROR_NATIVE_TEXT("RoR-OgreNext"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-intent-version=1"), nullptr,
+      ROR_NATIVE_TEXT("--ror-renderer-child-directional-shadows=pssm"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-native-backend=none")};
+  Require(RoR::ParseRendererOgreNextChildIntent(
+              5, embedded_null)
+              .status == RoR::RendererOgreNextChildIntentArgvStatus::
+                  REJECTED_INVALID_ARGUMENTS,
+          "null child-intent field was accepted");
+  const NativeString foreign_backend =
+      NativeAscii("--ror-renderer-child-native-backend=") +
+      NativeAscii(ForeignNativeBackendValue());
+  const RoR::RendererChildLauncherChar *foreign_native[] = {
+      ROR_NATIVE_TEXT("RoR-OgreNext"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-intent-version=1"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-frontend=ogre-next-prefer"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-directional-shadows=pssm"),
+      foreign_backend.c_str()};
+  Require(RoR::ParseRendererOgreNextChildIntent(5, foreign_native)
+              .status == RoR::RendererOgreNextChildIntentArgvStatus::
+                  REJECTED_MALFORMED_CONTRACT,
+          "foreign native backend entered this compiled child");
+
+  const RoR::RendererChildLauncherChar *required_without_backend[] = {
+      ROR_NATIVE_TEXT("RoR-OgreNext"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-intent-version=1"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-frontend=ogre-next-require"),
+      ROR_NATIVE_TEXT(
+          "--ror-renderer-child-directional-shadows=require-native"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-native-backend=none")};
+  Require(RoR::ParseRendererOgreNextChildIntent(
+              5, required_without_backend)
+              .status == RoR::RendererOgreNextChildIntentArgvStatus::
+                  REJECTED_MALFORMED_CONTRACT,
+          "required-native intent without a package backend was accepted");
+
+  const RoR::RendererChildLauncherChar *reserved_duplicate[] = {
+      ROR_NATIVE_TEXT("RoR-OgreNext"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-intent-version=1"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-frontend=ogre-next-prefer"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-directional-shadows=pssm"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-native-backend=none"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-frontend=ogre-next-require")};
+  Require(RoR::ParseRendererOgreNextChildIntent(6, reserved_duplicate)
+              .status == RoR::RendererOgreNextChildIntentArgvStatus::
+                  REJECTED_MALFORMED_CONTRACT,
+          "duplicate reserved child-intent record entered the game suffix");
+
+  const RoR::RendererChildLauncherChar *near_collision[] = {
+      ROR_NATIVE_TEXT("RoR-OgreNext"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-intent-version=1"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-frontend=ogre-next-prefer"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-directional-shadows=pssm"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-native-backend=none"),
+      ROR_NATIVE_TEXT("--ror-renderer-childish=game-value")};
+  const auto direct_parse =
+      RoR::ParseRendererOgreNextChildIntent(6, near_collision);
+  Require(direct_parse.accepted &&
+              direct_parse.forwarded_arguments.size() == 2U &&
+              direct_parse.forwarded_arguments[1] ==
+                  NativeString(
+                      ROR_NATIVE_TEXT("--ror-renderer-childish=game-value")),
+          "near-collision game argument was consumed as launcher intent");
+
+  const RoR::RendererChildLauncherChar *null_suffix[] = {
+      ROR_NATIVE_TEXT("RoR-OgreNext"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-intent-version=1"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-frontend=ogre-next-prefer"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-directional-shadows=pssm"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-native-backend=none"), nullptr};
+  Require(RoR::ParseRendererOgreNextChildIntent(6, null_suffix)
+              .status == RoR::RendererOgreNextChildIntentArgvStatus::
+                  REJECTED_INVALID_ARGUMENTS,
+          "null child game suffix was accepted");
+  const RoR::RendererChildLauncherChar *empty_argv0[] = {
+      ROR_NATIVE_TEXT(""),
+      ROR_NATIVE_TEXT("--ror-renderer-child-intent-version=1"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-frontend=ogre-next-prefer"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-directional-shadows=pssm"),
+      ROR_NATIVE_TEXT("--ror-renderer-child-native-backend=none")};
+  Require(RoR::ParseRendererOgreNextChildIntent(5, empty_argv0)
+              .status == RoR::RendererOgreNextChildIntentArgvStatus::
+                  REJECTED_INVALID_ARGUMENTS,
+          "empty child argv[0] was accepted");
+  Require(RoR::ParseRendererOgreNextChildIntent(0, nullptr)
+              .status == RoR::RendererOgreNextChildIntentArgvStatus::
+                  REJECTED_INVALID_ARGUMENTS,
+          "null child argv was accepted");
+  Require(std::strcmp(
+              RoR::ToString(
+                  RoR::RendererOgreNextChildIntentArgvStatus::
+                      REJECTED_MALFORMED_CONTRACT),
+              "rejected-malformed-contract") == 0,
+          "child-intent status string changed");
 }
 
 void TestStableRuntimeFailureCodes() {
@@ -416,7 +775,8 @@ int main() {
   TestShadowFallbackAndHardGates();
   TestMalformedAndDuplicateOptions();
   TestInvalidNormalizedIntent();
-  TestFutureOgreNextIntentGate();
+  TestOgreNextIntentEncoding();
+  TestOgreNextIntentDecoderRejectsMalformedPrefixes();
   TestStableRuntimeFailureCodes();
   return EXIT_SUCCESS;
 }

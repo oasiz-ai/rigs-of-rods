@@ -471,14 +471,21 @@ game target is emitted as the sibling `RoR-Ogre14` compatibility child. The
 launcher consumes only immutable generated package facts, so the current
 profile falls back to that real child while `RoR-OgreNext` is absent and not
 production-ready. It owns only exact launcher options in the initial argument
-prefix and forwards the untouched legacy suffix. The normalized frontend and
-shadow intent remains a separate versioned contract; an Ogre-Next selection
-fails closed until a separately versioned child-argv encoder can transmit that
-intent without environment variables or mutable state. Shipping stagers,
-signing, package assembly, and the production Ogre-Next child remain open; the
-N1 probe is not a production child. While this build-tree option is enabled,
-CMake suppresses install, package, and platform bundle targets so the renamed
-compatibility child cannot be mistaken for the public executable.
+prefix and forwards the untouched legacy suffix. The separately versioned
+Ogre-Next child-argv contract now emits an exact four-record prefix containing
+the contract version, frontend preference, directional-shadow preference, and
+package-declared native backend. The future child must decode that prefix, bind
+it to its compile-time host/backend, own the decoded game suffix, and
+independently resolve the startup plan before `Ogre::Root`; unknown versions,
+reordered fields, legacy frontend values, foreign backends, reserved duplicate
+records, malformed values, and null arguments fail closed without consulting
+environment variables or mutable state. This local argv protocol preserves
+intent and is deliberately not described as process authentication.
+Shipping stagers, signing, package assembly, and the production Ogre-Next child
+remain open; the N1 probe is not a production child. While this build-tree
+option is enabled, CMake suppresses install, package, and platform bundle
+targets so the renamed compatibility child cannot be mistaken for the public
+executable.
 The exact build-tree invocation is documented in
 `OGRE_NEXT_INTEGRATION.md`; it requires both `-DROR_OGRE14=ON` and
 `-DROR_RENDERER_PUBLIC_LAUNCHER=ON`, builds target `ror_renderer_launcher`, and

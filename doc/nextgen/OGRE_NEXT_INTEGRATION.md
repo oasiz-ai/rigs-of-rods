@@ -95,11 +95,16 @@ also wired as `RoR`, with the real OGRE 14 game emitted as its exact
 `RoR-Ogre14` sibling. A no-flag launch carries Ogre-Next-preferred/PSSM intent,
 but immutable generated facts admit only the OGRE 14 child in this phase. The
 launcher strips only exact options from the initial owned prefix, retains the
-normalized intent independently, and fails closed before any future Ogre-Next
-launch until a versioned child-argv encoder is available. Shipping child
-staging, signing, package assembly, and a production Ogre-Next game child are
-not wired yet; the opt-in topology therefore suppresses CMake install, package,
-and platform bundle targets. The fake child is confined to the test output
+normalized intent independently, and now serializes an admitted future
+Ogre-Next selection as an exact version/frontend/shadow/native-backend argv
+prefix. The child decoder strips only that ordered prefix, owns the preserved
+game suffix, binds the request and declared backend to the compiled host, and
+rejects unknown, malformed, or duplicate reserved state before renderer
+initialization. The argv contract conveys intent rather than authenticating a
+local caller. Shipping child staging, signing, package
+assembly, and a production Ogre-Next game child are not wired yet; the opt-in
+topology therefore suppresses CMake install, package, and platform bundle
+targets. The fake child is confined to the test output
 directory and is never installed or staged. This is a real Metal
 hard-shadow pass, not a soft-shadow, local-light, GI,
 denoising, Vulkan KHR, DXR, production-material, image-quality, or performance

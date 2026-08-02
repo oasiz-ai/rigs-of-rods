@@ -90,6 +90,14 @@ void WriteChildLaunchFailure(const RendererChildLaunchFailure &failure) {
   (void)std::fflush(stderr);
 }
 
+void WriteChildIntentFailure(
+    RendererOgreNextChildIntentArgvStatus status) {
+  (void)std::fprintf(stderr,
+                     "RoR renderer launcher: child-intent-%s\n",
+                     ToString(status));
+  (void)std::fflush(stderr);
+}
+
 } // namespace
 
 RendererStartupPackageAvailability
@@ -246,14 +254,10 @@ RendererPublicLauncherDecision ResolveRendererPublicLauncherDecision(
   }
 
   if (decision.handoff.child == RendererFrontendChild::OGRE_NEXT) {
-    // The normalized intent is retained above, but there is deliberately no
-    // argv encoder yet. Reject before process creation rather than selecting a
-    // child which would silently fall back to its compile-time defaults.
-    if (kRendererOgreNextChildIntentArgvContractVersion == 0U) {
-      decision.status = RendererPublicLauncherDecisionStatus::
-          REJECTED_OGRE_NEXT_CHILD_INTENT_ENCODING_UNAVAILABLE;
-      return decision;
-    }
+    decision.status =
+        RendererPublicLauncherDecisionStatus::READY_OGRE_NEXT;
+    decision.accepted = true;
+    return decision;
   }
   if (decision.handoff.child != RendererFrontendChild::OGRE14) {
     decision.status =
@@ -292,6 +296,36 @@ int RunRendererPublicLauncher(
         RendererPublicLauncherArgumentStatus::FAILED_INTERNAL);
     return kRendererPublicLauncherInternalExitCode;
   }
+  if (decision.handoff.child == RendererFrontendChild::OGRE_NEXT) {
+    const RendererOgreNextChildIntentEncoding encoded =
+        EncodeRendererOgreNextChildIntent(
+            decision.handoff,
+            static_cast<int>(arguments.forwarded_arguments.size()),
+            arguments.forwarded_arguments.data());
+    if (!encoded.accepted) {
+      WriteChildIntentFailure(encoded.status);
+      return kRendererPublicLauncherInternalExitCode;
+    }
+    try {
+      std::vector<const RendererChildLauncherChar *> encoded_pointers;
+      encoded_pointers.reserve(encoded.arguments.size());
+      for (const RendererChildLauncherString &argument :
+           encoded.arguments) {
+        encoded_pointers.push_back(argument.c_str());
+      }
+      const RendererChildLaunchFailure failure =
+          LaunchRendererChildAndPropagateExit(
+              decision.handoff,
+              static_cast<int>(encoded_pointers.size()),
+              encoded_pointers.data());
+      WriteChildLaunchFailure(failure);
+      return kRendererPublicLauncherChildLaunchExitCode;
+    } catch (...) {
+      WriteChildIntentFailure(
+          RendererOgreNextChildIntentArgvStatus::FAILED_INTERNAL);
+      return kRendererPublicLauncherInternalExitCode;
+    }
+  }
 
   const RendererChildLaunchFailure failure =
       LaunchRendererChildAndPropagateExit(
@@ -324,6 +358,7 @@ bool IsKnownRendererPublicLauncherDecisionStatus(
   case RendererPublicLauncherDecisionStatus::REJECTED_HANDOFF:
   case RendererPublicLauncherDecisionStatus::
       REJECTED_OGRE_NEXT_CHILD_INTENT_ENCODING_UNAVAILABLE:
+  case RendererPublicLauncherDecisionStatus::READY_OGRE_NEXT:
     return true;
   }
   return false;
@@ -358,6 +393,8 @@ const char *ToString(RendererPublicLauncherDecisionStatus status) noexcept {
   case RendererPublicLauncherDecisionStatus::
       REJECTED_OGRE_NEXT_CHILD_INTENT_ENCODING_UNAVAILABLE:
     return "rejected-ogre-next-child-intent-encoding-unavailable";
+  case RendererPublicLauncherDecisionStatus::READY_OGRE_NEXT:
+    return "ready-ogre-next";
   }
   return "invalid";
 }

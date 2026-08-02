@@ -1081,9 +1081,14 @@ Gate R1:
   and prove that cwd, `PATH`, and environment decoys cannot redirect launch.
   The fake child is test-only and never packaged. The opt-in build-tree public
   launcher and exact `RoR-Ogre14` sibling rename are now wired with generated
-  immutable facts and an Ogre-Next-preferred/PSSM default. Shipping staging,
-  signing, package assembly, the production Ogre-Next child, and its versioned
-  normalized-intent argv encoder remain open.
+  immutable facts and an Ogre-Next-preferred/PSSM default. The versioned
+  normalized-intent argv encoder/decoder is complete: it inserts and strips an
+  exact ordered four-record native argv prefix, owns the complete preserved
+  game suffix, binds the decoded request and native backend to the compile-time
+  child host, and rejects unknown, reordered, malformed, legacy, reserved
+  duplicate, null, foreign-platform, or inconsistent handoff inputs before
+  renderer initialization. Shipping staging, signing, package assembly, and
+  the production Ogre-Next child remain open.
   Build-tree validation explicitly configures `-DROR_OGRE14=ON` and
   `-DROR_RENDERER_PUBLIC_LAUNCHER=ON`, builds `ror_renderer_launcher`, and
   verifies exact `bin/RoR[.exe]` plus `bin/RoR-Ogre14[.exe]` siblings.
