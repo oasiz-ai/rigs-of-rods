@@ -1,9 +1,10 @@
 # OGRE-Next isolated integration checkpoint
 
-Status: **opt-in N1/RT4 raster frontend with bounded directional PSSM, Apple
-Metal N2 geometry, N3 view-dependent hybrid HDR, soaked N4 native directional
-hard shadows, bounded Vulkan/DXR semantic probes, and a non-admitted native
-SDL window-host probe; no shipping renderer switch**
+Status: **Ogre-Next-preferred public default with bounded pre-readiness OGRE 14
+fallback; N1/RT4 raster frontend with full frame-owned deformation updates,
+directional PSSM, Apple Metal N2 geometry, N3 view-dependent hybrid HDR, soaked
+N4 native directional hard shadows, bounded Vulkan/DXR semantic probes, and a
+production child that remains fail-closed until package admission completes**
 
 This checkpoint compiles a core standalone probe family plus platform-specific
 Metal, Vulkan, and DXR executables against an exact OGRE-Next `v3-0` revision
@@ -23,7 +24,12 @@ imports a real `RenderAssetRegistry` catalog into immutable Ogre v2 vertex and
 index buffers plus a `VertexArrayObject`, maps a texture-free material into an
 HLMS PBS datablock, renders a `SceneSnapshot`, and returns both
 `RGBA16_FLOAT` and `RGBA8_SRGB` CPU attachments through `IRendererFrontend`.
-It is deliberately an N1 admission slice, not a complete game renderer.
+It also consumes a complete copied `DynamicMeshUpdateDescriptor` as a
+frame-owned Ogre v2 mesh. A native proof renders base and deformation revision
+2, requires a visible pixel difference, replays both inputs byte exactly, and
+proves that the frontend never aliases mutable solver memory. This closes the
+frontend's full-update consumption contract; the OGRE 14 game-host adapter
+which publishes real vehicle deformation remains a separate admission gate.
 
 The fourth executable is an explicit macOS-only N2 acceptance slice. It asks
 that same frontend to raster a full deformed `SceneSnapshot` revision, borrows
@@ -852,6 +858,16 @@ frontend, reinitialized, resynchronized, rendered again, and shut down cleanly.
 Its report also records that live HLMS getters matched the reviewed metallic
 workflow and height-correlated GGX mapping. These values are local macOS
 evidence, not cross-platform golden pixels.
+
+On 2026-08-02 a clean Release rebuild at RoR commit
+`600242155acfdfc87909e45af5e3dea648bf6241` exercised the full dynamic-mesh
+replacement path on the physical Apple M5. The N1 fixture changed 1,014 pixels
+between the base and deformed revisions; RT4/V1 changed 1,710 pixels. Their
+base/deformed attachment hashes were distinct, both exact-replay checks passed,
+and both reports record `full_update_owned: true` and
+`solver_memory_aliased: false`. This is native Metal evidence for frontend
+consumption, not yet a claim that production vehicles are captured or that the
+same pixels are golden across D3D11 and Vulkan.
 
 The opt-in N2 smoke then passed on the same Apple M5. Ogre rastered deformation
 revision 2 and exported its live pooled 24-byte-stride vertex allocation and

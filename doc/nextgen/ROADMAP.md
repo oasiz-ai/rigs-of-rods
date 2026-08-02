@@ -1130,6 +1130,14 @@ Gate R1:
   Validation configures `-DROR_OGRE14=ON`, builds
   `ror_renderer_launcher`, and verifies exact `bin/RoR[.exe]` plus
   `bin/RoR-Ogre14[.exe]` siblings in build and package layouts.
+- The Ogre-Next frontend now admits complete dynamic-mesh replacements. It
+  copies positions, normals, tangents, velocities, bounds, topology lineage,
+  and deformation lineage into frame-owned Ogre v2 resources, submits them
+  synchronously, and retires them only after completion; it never aliases live
+  solver memory. A clean native Apple Metal proof changed 1,014 N1 pixels and
+  1,710 RT4/V1 pixels between base and deformation revision 2 and replayed all
+  four attachments byte exactly. Real OGRE 14 vehicle capture into this
+  contract and Windows/Linux native execution remain separate gates.
 - The standalone Metal admission probe and the Ogre-Next N2/N3 interop probes
   have passed on the recorded Apple M5. N2 rastered a renderer-neutral deformed RoR
   scene, exported the exact pooled Ogre v2 position/index slices from that
