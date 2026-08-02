@@ -724,7 +724,15 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
                 RECEIPT_RUNNER.subprocess, "Popen", return_value=process
             ) as popen,
             mock.patch.object(RECEIPT_RUNNER, "POSIX_PROCESS_GROUPS", True),
-            mock.patch.object(RECEIPT_RUNNER.os, "killpg") as killpg,
+            # Windows does not export these POSIX-only names. Create both
+            # seams explicitly so every CI host still exercises the timeout
+            # branch instead of making the contract test host-dependent.
+            mock.patch.object(
+                RECEIPT_RUNNER.os, "killpg", create=True
+            ) as killpg,
+            mock.patch.object(
+                RECEIPT_RUNNER.signal, "SIGKILL", 9, create=True
+            ),
             self.assertRaises(subprocess.TimeoutExpired) as timeout,
         ):
             RECEIPT_RUNNER._execute_child(["child"], 1)
@@ -736,7 +744,7 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
             stderr=subprocess.PIPE,
             start_new_session=True,
         )
-        killpg.assert_called_once_with(8675, RECEIPT_RUNNER.signal.SIGKILL)
+        killpg.assert_called_once_with(8675, 9)
         self.assertEqual(process.communicate.call_count, 2)
 
     def test_docs_keep_the_child_non_admitted(self) -> None:
