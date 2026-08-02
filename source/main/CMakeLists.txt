@@ -269,6 +269,7 @@ set(SOURCE_FILES
         system/Console.{h,cpp}
         system/ConsoleCmd.{h,cpp}
         system/CVar.{h,cpp}
+        system/RendererBridgeChannel.{h,cpp}
         system/RendererBridgeEndpoint.{h,cpp}
         system/RendererBridgeLaunchPlan.{h,cpp}
         system/RendererChildIntent.{h,cpp}
