@@ -51,6 +51,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererStartupPlan.*",
             "source/main/system/RendererChildIntent.*",
             "source/main/system/RendererChildLauncher.*",
+            "source/main/system/RendererSiblingPath.*",
             "source/main/system/RendererOgreNextChild.*",
             "source/main/system/RendererLauncherMain.cpp",
             "source/main/system/RendererLauncherPackageConfig.h.in",
@@ -60,6 +61,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildIntentTests.cpp",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
+            "tests/gfx/RendererSiblingPathTests.cpp",
             "tests/gfx/RendererOgreNextChildTests.cpp",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
             "tests/gfx/RendererPublicLauncherTests.cpp",
@@ -275,6 +277,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildIntentTests.cpp",
             "source/main/system/RendererChildIntent.cpp",
             "add_test(NAME ror_renderer_child_intent",
+            "ror_renderer_sibling_path_tests",
+            "tests/gfx/RendererSiblingPathTests.cpp",
+            "source/main/system/RendererSiblingPath.cpp",
+            "add_test(NAME ror_renderer_sibling_path",
             "ror_renderer_ogre_next_child_tests",
             "tests/gfx/RendererOgreNextChildTests.cpp",
             "source/main/system/RendererOgreNextChild.cpp",
@@ -309,6 +315,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererChildIntent.h",
             "source/main/system/RendererChildLauncher.cpp",
             "source/main/system/RendererChildLauncher.h",
+            "source/main/system/RendererSiblingPath.cpp",
+            "source/main/system/RendererSiblingPath.h",
             "source/main/system/RendererOgreNextChild.cpp",
             "source/main/system/RendererOgreNextChild.h",
             "source/main/system/RendererOgreNextChildMain.cpp",
@@ -320,6 +328,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildIntentTests.cpp",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
+            "tests/gfx/RendererSiblingPathTests.cpp",
             "tests/gfx/RendererOgreNextChildTests.cpp",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
             "tests/gfx/RendererPublicLauncherTests.cpp",
@@ -388,12 +397,16 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             package_dependencies.count("ror_renderer_child_intent_tests"), 1
         )
         self.assertEqual(
+            package_dependencies.count("ror_renderer_sibling_path_tests"), 1
+        )
+        self.assertEqual(
             package_dependencies.count("ror_renderer_ogre_next_child_tests"), 1
         )
         for source in (
             "tests/gfx/RendererChildLauncherTests.cpp",
             "source/main/system/RendererChildIntent.cpp",
             "source/main/system/RendererChildLauncher.cpp",
+            "source/main/system/RendererSiblingPath.cpp",
             "source/main/gfx/RendererStartupHandoff.cpp",
             "source/main/gfx/RendererStartupPlan.cpp",
             "source/main/gfx/RendererBackendPolicy.cpp",
@@ -411,6 +424,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererPublicLauncher.cpp",
             "source/main/system/RendererChildIntent.cpp",
             "source/main/system/RendererChildLauncher.cpp",
+            "source/main/system/RendererSiblingPath.cpp",
             "source/main/gfx/RendererStartupHandoff.cpp",
             "source/main/gfx/RendererStartupPlan.cpp",
             "source/main/gfx/RendererBackendPolicy.cpp",
@@ -422,6 +436,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror_renderer_startup_plan_tests",
             "ror_renderer_startup_handoff_tests",
             "ror_renderer_child_intent_tests",
+            "ror_renderer_sibling_path_tests",
             "ror_renderer_ogre_next_child_tests",
             "ror_renderer_child_launcher_fake_child",
             "ror_renderer_child_launcher_tests",
@@ -484,6 +499,13 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             / "system"
             / "RendererChildLauncher.cpp"
         ).read_text(encoding="utf-8")
+        sibling_path_source = (
+            REPOSITORY_ROOT
+            / "source"
+            / "main"
+            / "system"
+            / "RendererSiblingPath.cpp"
+        ).read_text(encoding="utf-8")
         tests = (
             REPOSITORY_ROOT
             / "tests"
@@ -502,6 +524,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         for token in (
             "GetFinalPathNameByHandleW",
             "IsSupportedFinalDosExecutablePath",
+        ):
+            with self.subTest(sibling_path_token=token):
+                self.assertIn(token, sibling_path_source)
+        for token in (
             "PROC_THREAD_ATTRIBUTE_HANDLE_LIST",
             "STARTF_USESTDHANDLES",
             "absent_handle_sentinel",
@@ -544,6 +570,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererStartupPlan.*",
             "source/main/system/RendererChildIntent.*",
             "source/main/system/RendererChildLauncher.*",
+            "source/main/system/RendererSiblingPath.*",
             "source/main/system/RendererOgreNextChild.*",
             "source/main/system/RendererLauncherMain.cpp",
             "source/main/system/RendererLauncherPackageConfig.h.in",
@@ -553,6 +580,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildIntentTests.cpp",
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
+            "tests/gfx/RendererSiblingPathTests.cpp",
             "tests/gfx/RendererOgreNextChildTests.cpp",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
             "tests/gfx/RendererPublicLauncherTests.cpp",

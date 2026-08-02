@@ -19,6 +19,7 @@ on:
       - source/main/gfx/RendererStartupPlan.*
       - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
+      - source/main/system/RendererSiblingPath.*
       - source/main/system/RendererOgreNextChild.*
       - source/main/system/RendererOgreNextSdlWindowRuntime*
       - source/main/system/RendererOgreNextWindowHost.*
@@ -30,6 +31,7 @@ on:
       - tests/gfx/RendererChildIntentTests.cpp
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
+      - tests/gfx/RendererSiblingPathTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
       - tests/gfx/RendererOgreNextWindowHostTests.cpp
       - tests/gfx/RendererPublicLauncherLegacyChild.cpp
@@ -55,6 +57,7 @@ on:
       - source/main/gfx/RendererStartupPlan.*
       - source/main/system/RendererChildIntent.*
       - source/main/system/RendererChildLauncher.*
+      - source/main/system/RendererSiblingPath.*
       - source/main/system/RendererOgreNextChild.*
       - source/main/system/RendererOgreNextSdlWindowRuntime*
       - source/main/system/RendererOgreNextWindowHost.*
@@ -66,6 +69,7 @@ on:
       - tests/gfx/RendererChildIntentTests.cpp
       - tests/gfx/RendererChildLauncherFakeChild.cpp
       - tests/gfx/RendererChildLauncherTests.cpp
+      - tests/gfx/RendererSiblingPathTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
       - tests/gfx/RendererOgreNextWindowHostTests.cpp
       - tests/gfx/RendererPublicLauncherLegacyChild.cpp
