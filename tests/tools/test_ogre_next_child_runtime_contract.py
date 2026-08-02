@@ -81,7 +81,11 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
         cls.receipt_validator = VALIDATOR_PATH.read_text(encoding="utf-8")
 
     def make_receipt_fixture(
-        self, root: Path, requested_policy: str | None = None
+        self,
+        root: Path,
+        requested_policy: str | None = None,
+        *,
+        packaged: bool = False,
     ) -> Path:
         host = platform.system()
         policies = {
@@ -144,7 +148,7 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
                 "headless_child_process_model": (
                     "single-process-reviewed-source-closure-v1"
                 ),
-                "headless_child_packaged": False,
+                "headless_child_packaged": packaged,
                 "headless_child_production_admitted": False,
             },
         }
@@ -588,6 +592,37 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
                     receipt["execution"]["timestamp_policy"],
                     RECEIPT_VALIDATOR.TIMESTAMP_POLICY,
                 )
+
+    def test_receipt_scope_tracks_non_admitted_product_stage(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-child-product-receipt-pass-"
+        ) as temp:
+            root = Path(temp).resolve()
+            child = self.make_receipt_fixture(
+                root, "macos-arm64-metal", packaged=True
+            )
+            result = self.run_receipt_observation(
+                root,
+                child,
+                0,
+                RECEIPT_VALIDATOR.SUCCESS_LINE + b"\n",
+                b"",
+            )
+            self.assertEqual(result, 0)
+            receipt = RECEIPT_VALIDATOR.validate_receipt(
+                root, require_pass_or_skip=True
+            )
+            self.assertEqual(
+                receipt["scope"],
+                {
+                    "probe_only": False,
+                    "packaged": True,
+                    "production_admitted": False,
+                    "process_model": (
+                        RECEIPT_VALIDATOR.RECEIPT_PROCESS_MODEL
+                    ),
+                },
+            )
 
     def test_receipt_wrapper_records_only_exact_platform_skip(self) -> None:
         for policy in RECEIPT_VALIDATOR.PLATFORM_BACKENDS:

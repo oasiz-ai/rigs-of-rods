@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the probe-only RoR-OgreNext child and atomically record evidence."""
+"""Run the non-admitted RoR-OgreNext child and atomically record evidence."""
 
 from __future__ import annotations
 
@@ -26,7 +26,6 @@ from validate_child_runtime_receipt import (  # noqa: E402
     NONCE_POLICY,
     RECEIPT_NAME,
     RECEIPT_SCHEMA,
-    RECEIPT_SCOPE,
     STDERR_LOG_NAME,
     STDOUT_LOG_NAME,
     TIMESTAMP_POLICY,
@@ -37,6 +36,7 @@ from validate_child_runtime_receipt import (  # noqa: E402
     _read_json_object,
     classify_observation,
     expected_child_relative,
+    expected_receipt_scope,
     sha256_file,
     validate_receipt,
 )
@@ -228,7 +228,7 @@ def run_child(
     receipt: dict[str, Any] = {
         "schema": RECEIPT_SCHEMA,
         "schema_version": 1,
-        "scope": RECEIPT_SCOPE,
+        "scope": expected_receipt_scope(build_contract),
         "outcome": outcome,
         "reason": reason,
         "process": {
