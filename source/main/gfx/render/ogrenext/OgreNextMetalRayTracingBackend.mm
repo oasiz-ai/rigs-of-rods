@@ -7,7 +7,7 @@
 */
 
 /// @file
-/// @brief Same-device Metal BLAS/TLAS and hybrid image path for N2/N3.
+/// @brief Same-device Metal BLAS/TLAS and hybrid image path for N2/N3/N4.
 
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
@@ -50,10 +50,29 @@ struct alignas(16) HybridParameters {
 static_assert(sizeof(HybridParameters) == 80U,
               "the Metal and host N3 parameter ABI must remain 80 bytes");
 
+struct alignas(16) DirectionalShadowParameters {
+  simd_float4x4 render_from_clip;
+  simd_float4 surface_to_light_and_minimum_distance;
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
+  std::uint32_t reserved_0 = 0U;
+  std::uint32_t reserved_1 = 0U;
+};
+static_assert(
+    sizeof(DirectionalShadowParameters) == 96U,
+    "the Metal and host N4 directional-shadow parameter ABI must remain 96 bytes");
+
 enum class SubmissionKind : std::uint8_t {
   NONE = 0,
   N2_PROBE = 1,
   N3_HYBRID = 2,
+  N4_DIRECTIONAL_SHADOW = 3,
+};
+
+struct DirectionalShadowSceneSelection final {
+  const MeshInstanceDescriptor *receiver = nullptr;
+  const MeshInstanceDescriptor *occluder = nullptr;
+  const LightDescriptor *light = nullptr;
 };
 
 RenderOperationResult Failure(RenderOperationCode code,
@@ -224,6 +243,57 @@ NativeImageExportRequest MakeImageRequest(
   return image_request;
 }
 
+bool TrySelectDirectionalShadowScene(
+    const SceneSnapshot &snapshot, const CameraViewRequest &view,
+    DirectionalShadowSceneSelection &selection) noexcept {
+  if (snapshot.mesh_instances().size() != 2U ||
+      snapshot.lights().size() != 1U) {
+    return false;
+  }
+  const LightDescriptor &light = snapshot.lights().front();
+  if (light.type != LightType::DIRECTIONAL || light.shadow_flags == 0U) {
+    return false;
+  }
+  DirectionalShadowSceneSelection candidate;
+  for (const MeshInstanceDescriptor &instance : snapshot.mesh_instances()) {
+    const bool casts =
+        (instance.flags & MESH_INSTANCE_CASTS_SHADOW) != 0U;
+    const bool receives =
+        (instance.flags & MESH_INSTANCE_RECEIVES_SHADOW) != 0U;
+    if (receives && !casts && candidate.receiver == nullptr) {
+      if ((instance.visibility_mask & view.visibility_mask) == 0U) {
+        return false;
+      }
+      candidate.receiver = &instance;
+    } else if (casts && !receives && candidate.occluder == nullptr) {
+      candidate.occluder = &instance;
+    } else {
+      return false;
+    }
+  }
+  if (candidate.receiver == nullptr || candidate.occluder == nullptr ||
+      candidate.receiver->instance_id == candidate.occluder->instance_id) {
+    return false;
+  }
+  candidate.light = &light;
+  selection = candidate;
+  return true;
+}
+
+NativeDirectionalShadowCapabilities MetalDirectionalShadowCapabilities()
+    noexcept {
+  NativeDirectionalShadowCapabilities capabilities;
+  capabilities.backend = NativeDirectionalShadowBackend::METAL;
+  capabilities.hardware_ray_tracing = true;
+  capabilities.same_device_raster_and_ray_queue = true;
+  capabilities.two_level_acceleration_structures = true;
+  capabilities.primary_camera_rays = true;
+  capabilities.secondary_directional_visibility_rays = true;
+  capabilities.r16_float_visibility = true;
+  capabilities.rgba16_float_hybrid_composite = true;
+  return capabilities;
+}
+
 Matrix4x4 Multiply(const Matrix4x4 &lhs,
                    const Matrix4x4 &rhs) noexcept {
   Matrix4x4 result;
@@ -332,10 +402,45 @@ std::uint64_t AlignUp(std::uint64_t value,
   return (value + alignment - 1U) & ~(alignment - 1U);
 }
 
+bool TryComputeMetalReadbackLayout(
+    std::uint32_t width, std::uint32_t height,
+    std::uint64_t bytes_per_pixel, std::uint64_t &row_pitch,
+    std::uint64_t &total_bytes) noexcept {
+  if (width == 0U || height == 0U || bytes_per_pixel == 0U ||
+      static_cast<std::uint64_t>(width) >
+          (std::numeric_limits<std::uint64_t>::max)() /
+              bytes_per_pixel) {
+    return false;
+  }
+  const std::uint64_t tight_row_pitch =
+      static_cast<std::uint64_t>(width) * bytes_per_pixel;
+  if (tight_row_pitch >
+      (std::numeric_limits<std::uint64_t>::max)() - 255U) {
+    return false;
+  }
+  const std::uint64_t candidate_row_pitch = AlignUp(tight_row_pitch, 256U);
+  if (candidate_row_pitch == 0U ||
+      candidate_row_pitch >
+          (std::numeric_limits<std::uint64_t>::max)() / height) {
+    return false;
+  }
+  const std::uint64_t candidate_total =
+      candidate_row_pitch * static_cast<std::uint64_t>(height);
+  if (candidate_total > static_cast<std::uint64_t>(
+                            (std::numeric_limits<NSUInteger>::max)())) {
+    return false;
+  }
+  row_pitch = candidate_row_pitch;
+  total_bytes = candidate_total;
+  return true;
+}
+
 } // namespace
 
 class OgreNextMetalRayTracingBackend::Impl final {
 public:
+  explicit Impl(OgreNextMetalRayTracingMode mode) noexcept : mode_(mode) {}
+
   NativeRayTracingCapabilityReport Capabilities() const {
     NativeRayTracingCapabilityReport report;
     report.native_api = NativeGraphicsApi::METAL;
@@ -358,13 +463,24 @@ public:
     report.hybrid_composite_ready =
         report.view_dependent_output_ready &&
         evidence_.hybrid_composite_passed;
-    report.maximum_instances = report.hardware_accelerated ? 1U : 0U;
+    report.maximum_instances =
+        report.hardware_accelerated
+            ? (mode_ == OgreNextMetalRayTracingMode::
+                            N4_DIRECTIONAL_HARD_SHADOW
+                   ? kNativeDirectionalShadowRequiredTlasInstanceCount
+                   : 1U)
+            : 0U;
     return report;
   }
 
   RenderOperationResult Initialize(NativeRenderInterop &interop) {
     if (initialized_) {
       return Invalid("Metal N2 ray-tracing backend is already initialized");
+    }
+    if (mode_ != OgreNextMetalRayTracingMode::AUTOMATIC_N2_N3 &&
+        mode_ != OgreNextMetalRayTracingMode::
+                     N4_DIRECTIONAL_HARD_SHADOW) {
+      return Invalid("unknown Metal ray-tracing backend mode");
     }
     evidence_ = {};
     auto *borrowed_bridge =
@@ -378,6 +494,23 @@ public:
     if (!bridge || bridge.get() != borrowed_bridge) {
       return BackendFailure(
           "Metal N2 could not retain the live Ogre-Next interop bridge");
+    }
+    const OgreNextNativeFeatureTier configured_tier =
+        bridge->ConfiguredNativeFeatureTier();
+    const bool n4_mode =
+        mode_ == OgreNextMetalRayTracingMode::N4_DIRECTIONAL_HARD_SHADOW;
+    const bool n4_frontend =
+        configured_tier == OgreNextNativeFeatureTier::
+                               METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW;
+    if (n4_mode != n4_frontend ||
+        (!n4_mode &&
+         configured_tier !=
+             OgreNextNativeFeatureTier::METAL_RAY_TRACING_N2 &&
+         configured_tier !=
+             OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3)) {
+      return Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "Metal ray-tracing backend mode does not match the configured Ogre native feature tier");
     }
     NativeContextExport context;
     RenderOperationResult result = bridge->AcquireContext(context);
@@ -482,6 +615,13 @@ public:
       return BackendFailure(
           "Metal N3 image capabilities are only partially enabled");
     }
+    if (mode_ == OgreNextMetalRayTracingMode::
+                     N4_DIRECTIONAL_HARD_SHADOW &&
+        !n3_enabled) {
+      return Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "Metal N4 requires the exact Ogre RGBA16 read/write image contract");
+    }
 
     id<MTLComputePipelineState> hybrid_pipeline = nil;
     if (n3_enabled) {
@@ -563,6 +703,119 @@ public:
       }
     }
 
+    id<MTLComputePipelineState> directional_shadow_pipeline = nil;
+    if (mode_ == OgreNextMetalRayTracingMode::
+                     N4_DIRECTIONAL_HARD_SHADOW) {
+      MTLTextureDescriptor *visibility_probe_descriptor =
+          [MTLTextureDescriptor
+              texture2DDescriptorWithPixelFormat:MTLPixelFormatR16Float
+                                           width:1U
+                                          height:1U
+                                       mipmapped:NO];
+      visibility_probe_descriptor.storageMode = MTLStorageModePrivate;
+      visibility_probe_descriptor.usage = MTLTextureUsageShaderWrite;
+      id<MTLTexture> visibility_probe =
+          [device newTextureWithDescriptor:visibility_probe_descriptor];
+      if (visibility_probe == nil ||
+          visibility_probe.pixelFormat != MTLPixelFormatR16Float ||
+          visibility_probe.width != 1U || visibility_probe.height != 1U) {
+        return Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "the exact Ogre Metal device cannot allocate the required R16_FLOAT visibility UAV");
+      }
+      static NSString *const directional_shadow_shader_source =
+          @"#include <metal_stdlib>\n"
+           "#include <metal_raytracing>\n"
+           "using namespace metal;\n"
+           "using namespace raytracing;\n"
+           "struct DirectionalShadowParameters {\n"
+           "    float4x4 render_from_clip;\n"
+           "    float4 surface_to_light_and_minimum_distance;\n"
+           "    uint width;\n"
+           "    uint height;\n"
+           "    uint reserved_0;\n"
+           "    uint reserved_1;\n"
+           "};\n"
+           "kernel void ror_ogre_next_metal_n4_directional_shadow(\n"
+           "    instance_acceleration_structure scene [[buffer(0)]],\n"
+           "    constant DirectionalShadowParameters& parameters [[buffer(1)]],\n"
+           "    texture2d<half, access::read_write> hybrid [[texture(0)]],\n"
+           "    texture2d<half, access::write> visibility [[texture(1)]],\n"
+           "    texture2d<uint, access::write> lineage [[texture(2)]],\n"
+           "    uint2 pixel [[thread_position_in_grid]])\n"
+           "{\n"
+           "    if (pixel.x >= parameters.width || pixel.y >= parameters.height) { return; }\n"
+           "    const float2 sample_position = float2(pixel) + 0.5f;\n"
+           "    const float2 uv = sample_position / float2(parameters.width, parameters.height);\n"
+           "    const float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);\n"
+           "    const float4 near_h = parameters.render_from_clip * float4(ndc, 0.0f, 1.0f);\n"
+           "    const float4 far_h = parameters.render_from_clip * float4(ndc, 1.0f, 1.0f);\n"
+           "    const float3 near_point = near_h.xyz / near_h.w;\n"
+           "    const float3 far_point = far_h.xyz / far_h.w;\n"
+           "    const float3 segment = far_point - near_point;\n"
+           "    ray primary;\n"
+           "    primary.origin = near_point;\n"
+           "    primary.direction = normalize(segment);\n"
+           "    primary.min_distance = parameters.surface_to_light_and_minimum_distance.w;\n"
+           "    primary.max_distance = length(segment);\n"
+           "    intersector<triangle_data, instancing> primary_tracer;\n"
+           "    primary_tracer.accept_any_intersection(false);\n"
+           "    const auto primary_hit = primary_tracer.intersect(primary, scene, 0x01u);\n"
+           "    if (primary_hit.type == intersection_type::none) {\n"
+           "        visibility.write(half(-1.0h), pixel);\n"
+           "        lineage.write(0u, pixel);\n"
+           "        return;\n"
+           "    }\n"
+           "    uint ray_lineage = 1u;\n"
+           "    bool blocked = false;\n"
+           "        const float minimum_distance = parameters.surface_to_light_and_minimum_distance.w;\n"
+           "        const float3 surface_to_light = parameters.surface_to_light_and_minimum_distance.xyz;\n"
+           "        const float3 hit_point = primary.origin + primary.direction * primary_hit.distance;\n"
+           "        ray shadow;\n"
+           "        shadow.origin = hit_point + surface_to_light * (2.0f * minimum_distance);\n"
+           "        shadow.direction = surface_to_light;\n"
+           "        shadow.min_distance = minimum_distance;\n"
+           "        shadow.max_distance = 1000000.0f;\n"
+           "        intersector<triangle_data, instancing> shadow_tracer;\n"
+           "        shadow_tracer.accept_any_intersection(true);\n"
+           "        const auto shadow_hit = shadow_tracer.intersect(shadow, scene, 0x02u);\n"
+           "        blocked = shadow_hit.type != intersection_type::none;\n"
+           "    if (blocked) { ray_lineage = 3u; }\n"
+           "    visibility.write(blocked ? half(0.0h) : half(1.0h), pixel);\n"
+           "    lineage.write(ray_lineage, pixel);\n"
+           "    if (blocked) {\n"
+           "        const half4 raster = hybrid.read(pixel);\n"
+           "        hybrid.write(half4(half3(0.0h), raster.a), pixel);\n"
+           "    }\n"
+           "}\n";
+      NSError *directional_library_error = nil;
+      id<MTLLibrary> directional_library =
+          [device newLibraryWithSource:directional_shadow_shader_source
+                                options:nil
+                                  error:&directional_library_error];
+      if (directional_library == nil) {
+        return BackendFailure(
+            "Metal N4 directional-shadow shader compile failed: " +
+            Utf8(directional_library_error.localizedDescription));
+      }
+      id<MTLFunction> directional_function = [directional_library
+          newFunctionWithName:
+              @"ror_ogre_next_metal_n4_directional_shadow"];
+      if (directional_function == nil) {
+        return BackendFailure(
+            "Metal N4 directional-shadow function was not found");
+      }
+      NSError *directional_pipeline_error = nil;
+      directional_shadow_pipeline = [device
+          newComputePipelineStateWithFunction:directional_function
+                                        error:&directional_pipeline_error];
+      if (directional_shadow_pipeline == nil) {
+        return BackendFailure(
+            "Metal N4 directional-shadow pipeline creation failed: " +
+            Utf8(directional_pipeline_error.localizedDescription));
+      }
+    }
+
     result = bridge->RegisterRayTracingBackend();
     if (!result) {
       return result;
@@ -573,6 +826,7 @@ public:
     queue_ = queue;
     pipeline_ = pipeline;
     hybrid_pipeline_ = hybrid_pipeline;
+    directional_shadow_pipeline_ = directional_shadow_pipeline;
     n3_enabled_ = n3_enabled;
     owner_thread_ = std::this_thread::get_id();
     initialized_ = true;
@@ -583,9 +837,15 @@ public:
       const NativeRayTracingFrameRequest &request) {
     // N2 does not produce a view-dependent RenderFrameOutput. N3 is a
     // separate, explicitly image-enabled tier.
+    if (mode_ == OgreNextMetalRayTracingMode::
+                     N4_DIRECTIONAL_HARD_SHADOW) {
+      return Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "Metal N4 executes only through its directional-shadow image path");
+    }
     if (!initialized_) {
       return Failure(RenderOperationCode::NOT_INITIALIZED,
-                     "Metal N2 ray-tracing backend is not initialized");
+                     "Metal ray-tracing backend is not initialized");
     }
     if (!OnOwnerThread()) {
       return Invalid("Metal N2 probe was called off its owner thread");
@@ -813,6 +1073,10 @@ public:
 
   RenderOperationResult Render(const NativeRayTracingFrameRequest &request,
                                RenderFrameOutput &output) {
+    if (mode_ == OgreNextMetalRayTracingMode::
+                     N4_DIRECTIONAL_HARD_SHADOW) {
+      return RenderDirectionalShadow(request, output);
+    }
     if (!initialized_) {
       return Failure(RenderOperationCode::NOT_INITIALIZED,
                      "Metal N2/N3 ray-tracing backend is not initialized");
@@ -1208,10 +1472,10 @@ public:
   RenderOperationResult Shutdown(std::uint64_t timeout_nanoseconds) {
     if (!initialized_) {
       return Failure(RenderOperationCode::NOT_INITIALIZED,
-                     "Metal N2 ray-tracing backend is not initialized");
+                     "Metal ray-tracing backend is not initialized");
     }
     if (!OnOwnerThread()) {
-      return Invalid("Metal N2 shutdown was called off its owner thread");
+      return Invalid("Metal ray-tracing shutdown was called off its owner thread");
     }
 
     RenderOperationResult dispatch_result = RenderOperationResult::Success();
@@ -1220,7 +1484,7 @@ public:
           0) {
         return Failure(
             RenderOperationCode::TIMEOUT,
-            "timed out waiting for submitted Metal N2 work; backend and leases remain live");
+            "timed out waiting for submitted Metal ray-tracing work; backend and leases remain live");
       }
       completion_observed_ = true;
     }
@@ -1249,6 +1513,7 @@ public:
       frame_live_ = false;
     }
     ReleaseImage();
+    ReleaseSecondaryGeometry();
     ReleaseGeometry();
     bridge_->SetRayTracingProof(false, false);
     const RenderOperationResult unregistered =
@@ -1303,6 +1568,490 @@ public:
   }
 
 private:
+  RenderOperationResult RenderDirectionalShadow(
+      const NativeRayTracingFrameRequest &request,
+      RenderFrameOutput &output) {
+    if (!initialized_) {
+      return Failure(RenderOperationCode::NOT_INITIALIZED,
+                     "Metal N4 directional-shadow backend is not initialized");
+    }
+    if (!OnOwnerThread()) {
+      return Invalid(
+          "Metal N4 directional-shadow render was called off its owner thread");
+    }
+    if (!n3_enabled_ || directional_shadow_pipeline_ == nil) {
+      return Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "Metal N4 directional-shadow image pipeline is unavailable");
+    }
+    if (command_submitted_ || geometry_live_ || secondary_geometry_live_ ||
+        image_live_ || frame_live_) {
+      return Failure(
+          RenderOperationCode::OUTSTANDING_LEASES,
+          "Metal N4 still owns a prior native submission or lease");
+    }
+    const ValidationResult request_validation =
+        ValidateNativeRayTracingFrameRequest(request);
+    if (!request_validation) {
+      return Invalid("invalid Metal N4 request: " +
+                     request_validation.field + ": " +
+                     request_validation.detail);
+    }
+    if (request.frame.views.size() != 1U ||
+        request.frame.requested_outputs != FrameOutputMask::COLOR ||
+        request.frame.color_format != PixelFormat::RGBA16_FLOAT ||
+        request.frame.allow_async_compute || request.samples_per_pixel != 1U ||
+        request.maximum_bounces != 1U || request.denoise) {
+      return Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "Metal N4 requires one synchronous UI-free RGBA16_FLOAT colour view, one camera sample, one directional visibility ray, and denoising disabled");
+    }
+
+    const SceneSnapshot &snapshot = *request.frame.scene_snapshot;
+    const CameraViewRequest &view = request.frame.views.front();
+    DirectionalShadowSceneSelection selection;
+    if (!TrySelectDirectionalShadowScene(snapshot, view, selection)) {
+      return Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "Metal N4 requires exactly one receiver-only instance, one distinct occluder-only instance, and one shadow-enabled directional light");
+    }
+
+    Matrix4x4 render_from_clip;
+    if (!Invert(Multiply(view.clip_from_view, view.view_from_render),
+                render_from_clip)) {
+      return Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "Metal N4 could not invert the canonical camera transform");
+    }
+    DirectionalShadowParameters parameters;
+    parameters.render_from_clip = ToSimd(render_from_clip);
+    parameters.surface_to_light_and_minimum_distance = simd_make_float4(
+        -selection.light->direction.x, -selection.light->direction.y,
+        -selection.light->direction.z, 0.0001F);
+    parameters.width = view.width;
+    parameters.height = view.height;
+
+    const NativeGeometryExportRequest receiver_request =
+        MakeGeometryRequest(request, *selection.receiver);
+    const NativeGeometryExportRequest occluder_request =
+        MakeGeometryRequest(request, *selection.occluder);
+    const NativeImageExportRequest image_request = MakeImageRequest(request);
+
+    NativeGeometryExport receiver_geometry;
+    RenderOperationResult result =
+        bridge_->AcquireGeometry(receiver_request, receiver_geometry);
+    if (!result) {
+      return result;
+    }
+    geometry_ = receiver_geometry;
+    geometry_live_ = true;
+
+    NativeGeometryExport occluder_geometry;
+    result = bridge_->AcquireGeometry(occluder_request, occluder_geometry);
+    if (!result) {
+      ReleaseGeometry();
+      return result;
+    }
+    secondary_geometry_ = occluder_geometry;
+    secondary_geometry_live_ = true;
+
+    NativeImageExport image;
+    result = bridge_->AcquireImage(image_request, image);
+    if (!result) {
+      ReleaseSecondaryGeometry();
+      ReleaseGeometry();
+      return result;
+    }
+    image_ = image;
+    image_live_ = true;
+
+    NativeFrameSynchronization synchronization;
+    result = bridge_->BeginExternalFrame(request.frame.frame_id,
+                                         snapshot.snapshot_id(),
+                                         synchronization);
+    if (!result) {
+      ReleaseImage();
+      ReleaseSecondaryGeometry();
+      ReleaseGeometry();
+      return result;
+    }
+    frame_live_ = true;
+    synchronization_ = synchronization;
+    result = bridge_->ArmExternalCompletion(synchronization_);
+    if (!result) {
+      AbortBeforeSubmission();
+      return result;
+    }
+
+    const ValidationResult receiver_validation = ValidateNativeGeometryExport(
+        receiver_request, geometry_, NativeGraphicsApi::METAL,
+        context_.context_id);
+    const ValidationResult occluder_validation =
+        ValidateNativeGeometryExport(
+            occluder_request, secondary_geometry_, NativeGraphicsApi::METAL,
+            context_.context_id);
+    const ValidationResult image_validation = ValidateNativeImageExport(
+        image_request, image_, NativeGraphicsApi::METAL, context_.context_id);
+    const ValidationResult synchronization_validation =
+        ValidateNativeFrameSynchronization(synchronization_, context_, true);
+    if (!receiver_validation || !occluder_validation || !image_validation ||
+        !synchronization_validation ||
+        synchronization_.frontend_image_release_state !=
+            NativeImageState::GENERAL_READ_WRITE ||
+        synchronization_.external_image_return_state !=
+            NativeImageState::GENERAL_READ_WRITE ||
+        !SameToken(synchronization_.interop_queue,
+                   context_.graphics_queue) ||
+        !SameToken(synchronization_.frontend_complete_timeline,
+                   synchronization_.external_complete_timeline)) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 bridge generated invalid dual geometry, image, or shared-event synchronization");
+    }
+
+    id<MTLBuffer> receiver_vertices =
+        Decode<id<MTLBuffer>>(geometry_.positions.buffer);
+    id<MTLBuffer> receiver_indices =
+        Decode<id<MTLBuffer>>(geometry_.indices.buffer);
+    id<MTLBuffer> occluder_vertices =
+        Decode<id<MTLBuffer>>(secondary_geometry_.positions.buffer);
+    id<MTLBuffer> occluder_indices =
+        Decode<id<MTLBuffer>>(secondary_geometry_.indices.buffer);
+    id<MTLTexture> hybrid_texture = Decode<id<MTLTexture>>(image_.image);
+    id<MTLSharedEvent> timeline = Decode<id<MTLSharedEvent>>(
+        synchronization_.frontend_complete_timeline);
+    id<MTLCommandQueue> interop_queue = Decode<id<MTLCommandQueue>>(
+        synchronization_.interop_queue);
+    const auto slice_is_live = [this](id<MTLBuffer> buffer,
+                                      const NativeBufferSlice &slice) {
+      return buffer != nil && buffer.device == device_ &&
+             slice.offset_bytes <= buffer.length &&
+             slice.size_bytes <= buffer.length - slice.offset_bytes;
+    };
+    if (!slice_is_live(receiver_vertices, geometry_.positions) ||
+        !slice_is_live(receiver_indices, geometry_.indices) ||
+        !slice_is_live(occluder_vertices, secondary_geometry_.positions) ||
+        !slice_is_live(occluder_indices, secondary_geometry_.indices) ||
+        hybrid_texture == nil || timeline == nil || interop_queue == nil ||
+        interop_queue != queue_ || interop_queue.device != device_ ||
+        hybrid_texture.device != device_ ||
+        hybrid_texture.pixelFormat != MTLPixelFormatRGBA16Float ||
+        hybrid_texture.width != image_.width ||
+        hybrid_texture.height != image_.height) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 exports do not belong to the exact Ogre device and queue");
+    }
+
+    MTLAccelerationStructureTriangleGeometryDescriptor *receiver_triangle =
+        [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
+    receiver_triangle.vertexBuffer = receiver_vertices;
+    receiver_triangle.vertexBufferOffset =
+        static_cast<NSUInteger>(geometry_.positions.offset_bytes);
+    receiver_triangle.vertexStride = geometry_.positions.stride_bytes;
+    receiver_triangle.indexBuffer = receiver_indices;
+    receiver_triangle.indexBufferOffset =
+        static_cast<NSUInteger>(geometry_.indices.offset_bytes);
+    receiver_triangle.indexType =
+        geometry_.index_format == NativeIndexFormat::UINT16
+            ? MTLIndexTypeUInt16
+            : MTLIndexTypeUInt32;
+    receiver_triangle.triangleCount = geometry_.index_count / 3U;
+    receiver_triangle.opaque = YES;
+    MTLPrimitiveAccelerationStructureDescriptor *receiver_blas_descriptor =
+        [MTLPrimitiveAccelerationStructureDescriptor descriptor];
+    receiver_blas_descriptor.geometryDescriptors = @[ receiver_triangle ];
+    const MTLAccelerationStructureSizes receiver_blas_sizes =
+        [device_ accelerationStructureSizesWithDescriptor:
+                     receiver_blas_descriptor];
+    id<MTLAccelerationStructure> receiver_blas = [device_
+        newAccelerationStructureWithSize:
+            receiver_blas_sizes.accelerationStructureSize];
+
+    MTLAccelerationStructureTriangleGeometryDescriptor *occluder_triangle =
+        [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
+    occluder_triangle.vertexBuffer = occluder_vertices;
+    occluder_triangle.vertexBufferOffset =
+        static_cast<NSUInteger>(secondary_geometry_.positions.offset_bytes);
+    occluder_triangle.vertexStride =
+        secondary_geometry_.positions.stride_bytes;
+    occluder_triangle.indexBuffer = occluder_indices;
+    occluder_triangle.indexBufferOffset =
+        static_cast<NSUInteger>(secondary_geometry_.indices.offset_bytes);
+    occluder_triangle.indexType =
+        secondary_geometry_.index_format == NativeIndexFormat::UINT16
+            ? MTLIndexTypeUInt16
+            : MTLIndexTypeUInt32;
+    occluder_triangle.triangleCount = secondary_geometry_.index_count / 3U;
+    occluder_triangle.opaque = YES;
+    MTLPrimitiveAccelerationStructureDescriptor *occluder_blas_descriptor =
+        [MTLPrimitiveAccelerationStructureDescriptor descriptor];
+    occluder_blas_descriptor.geometryDescriptors = @[ occluder_triangle ];
+    const MTLAccelerationStructureSizes occluder_blas_sizes =
+        [device_ accelerationStructureSizesWithDescriptor:
+                     occluder_blas_descriptor];
+    id<MTLAccelerationStructure> occluder_blas = [device_
+        newAccelerationStructureWithSize:
+            occluder_blas_sizes.accelerationStructureSize];
+
+    std::array<MTLAccelerationStructureInstanceDescriptor, 2U>
+        native_instances{};
+    native_instances[0U].transformationMatrix =
+        ToMetalTransform(selection.receiver->render_from_object);
+    native_instances[0U].options =
+        MTLAccelerationStructureInstanceOptionNone;
+    native_instances[0U].mask = 0x01U;
+    native_instances[0U].intersectionFunctionTableOffset = 0U;
+    native_instances[0U].accelerationStructureIndex = 0U;
+    native_instances[1U].transformationMatrix =
+        ToMetalTransform(selection.occluder->render_from_object);
+    native_instances[1U].options =
+        MTLAccelerationStructureInstanceOptionNone;
+    native_instances[1U].mask = 0x02U;
+    native_instances[1U].intersectionFunctionTableOffset = 0U;
+    native_instances[1U].accelerationStructureIndex = 1U;
+    id<MTLBuffer> instance_buffer = [device_
+        newBufferWithBytes:native_instances.data()
+                    length:sizeof(native_instances)
+                   options:MTLResourceStorageModeShared];
+    MTLInstanceAccelerationStructureDescriptor *tlas_descriptor =
+        [MTLInstanceAccelerationStructureDescriptor descriptor];
+    tlas_descriptor.instanceDescriptorBuffer = instance_buffer;
+    tlas_descriptor.instanceDescriptorBufferOffset = 0U;
+    tlas_descriptor.instanceDescriptorStride =
+        sizeof(MTLAccelerationStructureInstanceDescriptor);
+    tlas_descriptor.instanceCount = native_instances.size();
+    tlas_descriptor.instancedAccelerationStructures =
+        @[ receiver_blas, occluder_blas ];
+    const MTLAccelerationStructureSizes tlas_sizes =
+        [device_ accelerationStructureSizesWithDescriptor:tlas_descriptor];
+    id<MTLAccelerationStructure> tlas = [device_
+        newAccelerationStructureWithSize:tlas_sizes.accelerationStructureSize];
+
+    const NSUInteger scratch_size = std::max(
+        {receiver_blas_sizes.buildScratchBufferSize,
+         occluder_blas_sizes.buildScratchBufferSize,
+         tlas_sizes.buildScratchBufferSize});
+    id<MTLBuffer> scratch =
+        [device_ newBufferWithLength:scratch_size
+                             options:MTLResourceStorageModePrivate];
+
+    MTLTextureDescriptor *visibility_descriptor =
+        [MTLTextureDescriptor
+            texture2DDescriptorWithPixelFormat:MTLPixelFormatR16Float
+                                         width:view.width
+                                        height:view.height
+                                     mipmapped:NO];
+    visibility_descriptor.storageMode = MTLStorageModePrivate;
+    visibility_descriptor.usage = MTLTextureUsageShaderWrite;
+    id<MTLTexture> visibility_texture =
+        [device_ newTextureWithDescriptor:visibility_descriptor];
+    MTLTextureDescriptor *lineage_descriptor =
+        [MTLTextureDescriptor
+            texture2DDescriptorWithPixelFormat:MTLPixelFormatR32Uint
+                                         width:view.width
+                                        height:view.height
+                                     mipmapped:NO];
+    lineage_descriptor.storageMode = MTLStorageModePrivate;
+    lineage_descriptor.usage = MTLTextureUsageShaderWrite;
+    id<MTLTexture> lineage_texture =
+        [device_ newTextureWithDescriptor:lineage_descriptor];
+
+    std::uint64_t rgba_row_pitch = 0U;
+    std::uint64_t rgba_total_bytes = 0U;
+    std::uint64_t visibility_row_pitch = 0U;
+    std::uint64_t visibility_total_bytes = 0U;
+    std::uint64_t lineage_row_pitch = 0U;
+    std::uint64_t lineage_total_bytes = 0U;
+    if (!TryComputeMetalReadbackLayout(view.width, view.height, 8U,
+                                       rgba_row_pitch,
+                                       rgba_total_bytes) ||
+        !TryComputeMetalReadbackLayout(view.width, view.height, 2U,
+                                       visibility_row_pitch,
+                                       visibility_total_bytes) ||
+        !TryComputeMetalReadbackLayout(view.width, view.height, 4U,
+                                       lineage_row_pitch,
+                                       lineage_total_bytes)) {
+      AbortBeforeSubmission();
+      return Failure(RenderOperationCode::OUT_OF_MEMORY,
+                     "Metal N4 readback extent cannot be represented");
+    }
+    id<MTLBuffer> raster_readback = [device_
+        newBufferWithLength:static_cast<NSUInteger>(rgba_total_bytes)
+                    options:MTLResourceStorageModeShared];
+    id<MTLBuffer> visibility_readback = [device_
+        newBufferWithLength:static_cast<NSUInteger>(visibility_total_bytes)
+                    options:MTLResourceStorageModeShared];
+    id<MTLBuffer> lineage_readback = [device_
+        newBufferWithLength:static_cast<NSUInteger>(lineage_total_bytes)
+                    options:MTLResourceStorageModeShared];
+    id<MTLBuffer> hybrid_readback = [device_
+        newBufferWithLength:static_cast<NSUInteger>(rgba_total_bytes)
+                    options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> command_buffer = [queue_ commandBuffer];
+
+    if (receiver_blas_sizes.accelerationStructureSize == 0U ||
+        receiver_blas_sizes.buildScratchBufferSize == 0U ||
+        occluder_blas_sizes.accelerationStructureSize == 0U ||
+        occluder_blas_sizes.buildScratchBufferSize == 0U ||
+        tlas_sizes.accelerationStructureSize == 0U ||
+        tlas_sizes.buildScratchBufferSize == 0U || receiver_blas == nil ||
+        occluder_blas == nil || instance_buffer == nil || tlas == nil ||
+        scratch == nil || visibility_texture == nil ||
+        lineage_texture == nil || raster_readback == nil ||
+        visibility_readback == nil || lineage_readback == nil ||
+        hybrid_readback == nil || command_buffer == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 could not allocate its dual acceleration, visibility, or readback resources");
+    }
+
+    [command_buffer encodeWaitForEvent:timeline
+                                  value:synchronization_.frontend_complete_value];
+    const MTLOrigin origin = MTLOriginMake(0U, 0U, 0U);
+    const MTLSize image_size = MTLSizeMake(view.width, view.height, 1U);
+    id<MTLBlitCommandEncoder> raster_blit =
+        [command_buffer blitCommandEncoder];
+    if (raster_blit == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 could not create its raster blit encoder");
+    }
+    [raster_blit copyFromTexture:hybrid_texture
+                     sourceSlice:0U
+                     sourceLevel:0U
+                    sourceOrigin:origin
+                      sourceSize:image_size
+                        toBuffer:raster_readback
+               destinationOffset:0U
+          destinationBytesPerRow:static_cast<NSUInteger>(rgba_row_pitch)
+        destinationBytesPerImage:static_cast<NSUInteger>(rgba_total_bytes)];
+    [raster_blit endEncoding];
+
+    id<MTLAccelerationStructureCommandEncoder> acceleration_encoder =
+        [command_buffer accelerationStructureCommandEncoder];
+    if (acceleration_encoder == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 could not create an acceleration-structure encoder");
+    }
+    [acceleration_encoder buildAccelerationStructure:receiver_blas
+                                          descriptor:receiver_blas_descriptor
+                                       scratchBuffer:scratch
+                                 scratchBufferOffset:0U];
+    [acceleration_encoder buildAccelerationStructure:occluder_blas
+                                          descriptor:occluder_blas_descriptor
+                                       scratchBuffer:scratch
+                                 scratchBufferOffset:0U];
+    [acceleration_encoder buildAccelerationStructure:tlas
+                                          descriptor:tlas_descriptor
+                                       scratchBuffer:scratch
+                                 scratchBufferOffset:0U];
+    [acceleration_encoder endEncoding];
+
+    id<MTLComputeCommandEncoder> compute_encoder =
+        [command_buffer computeCommandEncoder];
+    if (compute_encoder == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 could not create its directional-shadow encoder");
+    }
+    [compute_encoder setComputePipelineState:directional_shadow_pipeline_];
+    [compute_encoder setAccelerationStructure:tlas atBufferIndex:0U];
+    [compute_encoder setBytes:&parameters length:sizeof(parameters) atIndex:1U];
+    [compute_encoder setTexture:hybrid_texture atIndex:0U];
+    [compute_encoder setTexture:visibility_texture atIndex:1U];
+    [compute_encoder setTexture:lineage_texture atIndex:2U];
+    const NSUInteger thread_width =
+        directional_shadow_pipeline_.threadExecutionWidth;
+    const NSUInteger thread_height = std::max<NSUInteger>(
+        1U, directional_shadow_pipeline_.maxTotalThreadsPerThreadgroup /
+                thread_width);
+    [compute_encoder dispatchThreads:image_size
+                threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height,
+                                                  1U)];
+    [compute_encoder endEncoding];
+
+    id<MTLBlitCommandEncoder> output_blit =
+        [command_buffer blitCommandEncoder];
+    if (output_blit == nil) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 could not create its output blit encoder");
+    }
+    [output_blit copyFromTexture:visibility_texture
+                     sourceSlice:0U
+                     sourceLevel:0U
+                    sourceOrigin:origin
+                      sourceSize:image_size
+                        toBuffer:visibility_readback
+               destinationOffset:0U
+          destinationBytesPerRow:
+              static_cast<NSUInteger>(visibility_row_pitch)
+        destinationBytesPerImage:
+              static_cast<NSUInteger>(visibility_total_bytes)];
+    [output_blit copyFromTexture:lineage_texture
+                     sourceSlice:0U
+                     sourceLevel:0U
+                    sourceOrigin:origin
+                      sourceSize:image_size
+                        toBuffer:lineage_readback
+               destinationOffset:0U
+          destinationBytesPerRow:static_cast<NSUInteger>(lineage_row_pitch)
+        destinationBytesPerImage:static_cast<NSUInteger>(lineage_total_bytes)];
+    [output_blit copyFromTexture:hybrid_texture
+                     sourceSlice:0U
+                     sourceLevel:0U
+                    sourceOrigin:origin
+                      sourceSize:image_size
+                        toBuffer:hybrid_readback
+               destinationOffset:0U
+          destinationBytesPerRow:static_cast<NSUInteger>(rgba_row_pitch)
+        destinationBytesPerImage:static_cast<NSUInteger>(rgba_total_bytes)];
+    [output_blit endEncoding];
+    [command_buffer encodeSignalEvent:timeline
+                                 value:synchronization_.external_complete_value];
+
+    dispatch_semaphore_t completion = dispatch_semaphore_create(0);
+    [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+      dispatch_semaphore_signal(completion);
+    }];
+    result = bridge_->MarkExternalSubmitted(synchronization_);
+    if (!result) {
+      AbortBeforeSubmission();
+      return BackendFailure(
+          "Metal N4 lifecycle rejected its fully encoded submission");
+    }
+    command_submitted_ = true;
+    submission_kind_ = SubmissionKind::N4_DIRECTIONAL_SHADOW;
+    command_buffer_ = command_buffer;
+    completion_ = completion;
+    blas_ = receiver_blas;
+    secondary_blas_ = occluder_blas;
+    tlas_ = tlas;
+    scratch_ = scratch;
+    instance_buffer_ = instance_buffer;
+    visibility_texture_ = visibility_texture;
+    lineage_texture_ = lineage_texture;
+    raster_readback_buffer_ = raster_readback;
+    visibility_readback_buffer_ = visibility_readback;
+    lineage_readback_buffer_ = lineage_readback;
+    hybrid_readback_buffer_ = hybrid_readback;
+    [command_buffer commit];
+
+    if (dispatch_semaphore_wait(
+            completion_, Deadline(kDispatchTimeoutNanoseconds)) != 0) {
+      return Failure(
+          RenderOperationCode::TIMEOUT,
+          "Metal N4 dispatch exceeded five seconds; live leases were retained for retryable Shutdown");
+    }
+    completion_observed_ = true;
+    return CompleteDirectionalShadow(
+        request, selection, receiver_request, occluder_request, image_request,
+        rgba_row_pitch, visibility_row_pitch, lineage_row_pitch,
+        receiver_blas_sizes, occluder_blas_sizes, tlas_sizes, output);
+  }
+
   bool OnOwnerThread() const noexcept {
     return std::this_thread::get_id() == owner_thread_;
   }
@@ -1322,8 +2071,18 @@ private:
     evidence_.image_state_handoff_passed = false;
     evidence_.view_dependent_image_passed = false;
     evidence_.hybrid_composite_passed = false;
+    evidence_.visibility_readback_bytes.clear();
+    evidence_.directional_lineage_readback_bytes.clear();
+    evidence_.receiver_visible_pixel_count = 0U;
+    evidence_.occluded_pixel_count = 0U;
+    evidence_.directional_shadow_samples = {};
+    evidence_.directional_shadow_sample_x = {};
+    evidence_.directional_shadow_sample_y = {};
+    evidence_.directional_shadow_passed = false;
     if (bridge_) {
-      bridge_->SetRayTracingProof(false, false);
+      if (bridge_) {
+        bridge_->SetRayTracingProof(false, false);
+      }
       const RenderOperationResult abandoned =
           bridge_->AbandonRayTracingBackendAfterFault();
       if (!abandoned && cause.ok()) {
@@ -1345,6 +2104,7 @@ private:
       frame_live_ = false;
     }
     ReleaseImage();
+    ReleaseSecondaryGeometry();
     ReleaseGeometry();
   }
 
@@ -1353,6 +2113,14 @@ private:
       bridge_->ReleaseGeometry(geometry_.export_id);
       geometry_live_ = false;
       geometry_ = {};
+    }
+  }
+
+  void ReleaseSecondaryGeometry() noexcept {
+    if (secondary_geometry_live_) {
+      bridge_->ReleaseGeometry(secondary_geometry_.export_id);
+      secondary_geometry_live_ = false;
+      secondary_geometry_ = {};
     }
   }
 
@@ -1396,6 +2164,20 @@ private:
       }
       return RenderOperationResult::Success();
     }
+    if (submission_kind_ == SubmissionKind::N4_DIRECTIONAL_SHADOW) {
+      if (raster_readback_buffer_ == nil ||
+          visibility_readback_buffer_ == nil ||
+          lineage_readback_buffer_ == nil ||
+          hybrid_readback_buffer_ == nil ||
+          raster_readback_buffer_.contents == nullptr ||
+          visibility_readback_buffer_.contents == nullptr ||
+          lineage_readback_buffer_.contents == nullptr ||
+          hybrid_readback_buffer_.contents == nullptr) {
+        return BackendFailure(
+            "submitted Metal N4 command has incomplete shadow readbacks");
+      }
+      return RenderOperationResult::Success();
+    }
     if (submission_kind_ != SubmissionKind::N2_PROBE ||
         result_buffer_ == nil || result_buffer_.contents == nullptr ||
         result_buffer_.length < sizeof(ProbeResult)) {
@@ -1420,7 +2202,7 @@ private:
         bridge_->MarkExternalCompleted(synchronization_);
     if (!result) {
       return AbandonAfterFault(BackendFailure(
-          "Metal N3 lifecycle rejected its completed command buffer"));
+          "Metal N3/N4 lifecycle rejected its completed command buffer"));
     }
     external_completed_ = true;
     result = bridge_->EndExternalFrame(synchronization_);
@@ -1429,17 +2211,24 @@ private:
     }
     frame_live_ = false;
     ReleaseImage();
+    ReleaseSecondaryGeometry();
     ReleaseGeometry();
     return RenderOperationResult::Success();
   }
 
-  bool CopyTightReadback(id<MTLBuffer> source,
-                         std::uint64_t source_row_pitch,
-                         std::uint32_t width, std::uint32_t height,
-                         std::vector<std::uint8_t> &destination) const {
-    constexpr std::uint64_t kBytesPerPixel = 8U;
+  bool CopyTightReadbackBytes(
+      id<MTLBuffer> source, std::uint64_t source_row_pitch,
+      std::uint32_t width, std::uint32_t height,
+      std::uint64_t bytes_per_pixel,
+      std::vector<std::uint8_t> &destination) const {
+    if (bytes_per_pixel == 0U ||
+        static_cast<std::uint64_t>(width) >
+            (std::numeric_limits<std::uint64_t>::max)() /
+                bytes_per_pixel) {
+      return false;
+    }
     const std::uint64_t tight_row_pitch =
-        static_cast<std::uint64_t>(width) * kBytesPerPixel;
+        static_cast<std::uint64_t>(width) * bytes_per_pixel;
     if (source == nil || source.contents == nullptr ||
         source_row_pitch < tight_row_pitch ||
         source_row_pitch >
@@ -1460,6 +2249,14 @@ private:
                   static_cast<std::size_t>(tight_row_pitch));
     }
     return true;
+  }
+
+  bool CopyTightReadback(id<MTLBuffer> source,
+                         std::uint64_t source_row_pitch,
+                         std::uint32_t width, std::uint32_t height,
+                         std::vector<std::uint8_t> &destination) const {
+    return CopyTightReadbackBytes(source, source_row_pitch, width, height, 8U,
+                                  destination);
   }
 
   bool ValidateHybridReadbacks(std::uint64_t row_pitch,
@@ -1530,6 +2327,306 @@ private:
       }
     }
     return contribution_pixels != 0U && untouched_pixels != 0U;
+  }
+
+  RenderOperationResult CompleteDirectionalShadow(
+      const NativeRayTracingFrameRequest &request,
+      const DirectionalShadowSceneSelection &selection,
+      const NativeGeometryExportRequest &receiver_request,
+      const NativeGeometryExportRequest &occluder_request,
+      const NativeImageExportRequest &image_request,
+      std::uint64_t rgba_row_pitch,
+      std::uint64_t visibility_row_pitch,
+      std::uint64_t lineage_row_pitch,
+      const MTLAccelerationStructureSizes &receiver_blas_sizes,
+      const MTLAccelerationStructureSizes &occluder_blas_sizes,
+      const MTLAccelerationStructureSizes &tlas_sizes,
+      RenderFrameOutput &output) {
+    RenderOperationResult result = ObserveSubmittedCommand();
+    if (!result) {
+      return result;
+    }
+
+    const NativeGeometryExport used_receiver = geometry_;
+    const NativeGeometryExport used_occluder = secondary_geometry_;
+    const NativeImageExport used_image = image_;
+    const NativeFrameSynchronization used_synchronization = synchronization_;
+    const std::uint32_t width = request.frame.views.front().width;
+    const std::uint32_t height = request.frame.views.front().height;
+
+    const auto fail_after_finalize = [this](RenderOperationResult failure) {
+      const RenderOperationResult finalized =
+          FinalizeCompletedFrameAndRelease();
+      ClearTransientSubmissionState();
+      evidence_.dispatch_readback_passed = false;
+      evidence_.geometry_interop_passed = false;
+      evidence_.view_dependent_image_passed = false;
+      evidence_.hybrid_composite_passed = false;
+      evidence_.directional_shadow_passed = false;
+      if (bridge_) {
+        bridge_->SetRayTracingProof(false, false);
+      }
+      return finalized ? failure : finalized;
+    };
+
+    std::vector<std::uint8_t> raster;
+    std::vector<std::uint8_t> visibility;
+    std::vector<std::uint8_t> lineage;
+    std::vector<std::uint8_t> hybrid;
+    try {
+      if (!CopyTightReadbackBytes(raster_readback_buffer_, rgba_row_pitch,
+                                  width, height, 8U, raster) ||
+          !CopyTightReadbackBytes(visibility_readback_buffer_,
+                                  visibility_row_pitch, width, height, 2U,
+                                  visibility) ||
+          !CopyTightReadbackBytes(lineage_readback_buffer_, lineage_row_pitch,
+                                  width, height, 4U, lineage) ||
+          !CopyTightReadbackBytes(hybrid_readback_buffer_, rgba_row_pitch,
+                                  width, height, 8U, hybrid)) {
+        return fail_after_finalize(BackendFailure(
+            "Metal N4 could not repack its complete GPU shadow readbacks"));
+      }
+    } catch (const std::bad_alloc &) {
+      return fail_after_finalize(Failure(
+          RenderOperationCode::OUT_OF_MEMORY,
+          "Metal N4 could not retain its GPU shadow readbacks"));
+    }
+
+    std::uint64_t receiver_visible_pixels = 0U;
+    std::uint64_t occluded_pixels = 0U;
+    std::size_t visible_sample =
+        (std::numeric_limits<std::size_t>::max)();
+    std::size_t occluded_sample =
+        (std::numeric_limits<std::size_t>::max)();
+    const std::size_t pixel_count =
+        static_cast<std::size_t>(width) * height;
+    for (std::size_t pixel = 0U; pixel < pixel_count; ++pixel) {
+      std::uint16_t visibility_bits = 0U;
+      std::uint32_t lineage_bits = 0U;
+      NativeDirectionalShadowRgba16Pixel raster_pixel;
+      NativeDirectionalShadowRgba16Pixel hybrid_pixel;
+      std::memcpy(&visibility_bits, visibility.data() + pixel * 2U,
+                  sizeof(visibility_bits));
+      std::memcpy(&lineage_bits, lineage.data() + pixel * 4U,
+                  sizeof(lineage_bits));
+      std::memcpy(raster_pixel.channels.data(), raster.data() + pixel * 8U,
+                  8U);
+      std::memcpy(hybrid_pixel.channels.data(), hybrid.data() + pixel * 8U,
+                  8U);
+
+      NativeDirectionalShadowVisibility observed_visibility =
+          NativeDirectionalShadowVisibility::INVALID;
+      if (visibility_bits == kNativeDirectionalShadowVisibleR16) {
+        observed_visibility = NativeDirectionalShadowVisibility::VISIBLE;
+        if (lineage_bits != 1U) {
+          return fail_after_finalize(BackendFailure(
+              "Metal N4 visible sample did not contain one primary and one unblocked directional ray"));
+        }
+        if (visible_sample ==
+            (std::numeric_limits<std::size_t>::max)()) {
+          visible_sample = pixel;
+        }
+        ++receiver_visible_pixels;
+      } else if (visibility_bits ==
+                 kNativeDirectionalShadowOccludedR16) {
+        observed_visibility = NativeDirectionalShadowVisibility::OCCLUDED;
+        if (lineage_bits != 3U) {
+          return fail_after_finalize(BackendFailure(
+              "Metal N4 occluded sample did not contain one primary and one blocked directional ray"));
+        }
+        if (occluded_sample ==
+            (std::numeric_limits<std::size_t>::max)()) {
+          occluded_sample = pixel;
+        }
+        ++occluded_pixels;
+      } else {
+        return fail_after_finalize(BackendFailure(
+            "Metal N4 visibility contained a primary miss or noncanonical R16 value"));
+      }
+
+      NativeDirectionalShadowSampleOracle oracle;
+      const ValidationResult oracle_result =
+          TryBuildNativeDirectionalShadowSampleOracle(
+              observed_visibility, raster_pixel, oracle);
+      if (!oracle_result ||
+          oracle.visibility_r16_bits != visibility_bits ||
+          oracle.hybrid_rgba16.channels != hybrid_pixel.channels) {
+        return fail_after_finalize(BackendFailure(
+            "Metal N4 hybrid output differed from the exact per-pixel directional-shadow oracle"));
+      }
+    }
+    if (receiver_visible_pixels == 0U || occluded_pixels == 0U ||
+        visible_sample == (std::numeric_limits<std::size_t>::max)() ||
+        occluded_sample == (std::numeric_limits<std::size_t>::max)()) {
+      return fail_after_finalize(BackendFailure(
+          "Metal N4 proof image did not contain both receiver-visible and occluded pixels"));
+    }
+
+    const NativeDirectionalShadowCapabilities shadow_capabilities =
+        MetalDirectionalShadowCapabilities();
+    const auto build_sample = [&](std::size_t pixel,
+                                  NativeDirectionalShadowVisibility state) {
+      NativeDirectionalShadowPassContract contract;
+      contract.tier = NativeDirectionalShadowTier::
+          NATIVE_DIRECTIONAL_HARD_SHADOW_V1;
+      contract.raster_feature_tier =
+          OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+      contract.capabilities = shadow_capabilities;
+      contract.frame_id = request.frame.frame_id;
+      contract.snapshot_id = request.frame.scene_snapshot->snapshot_id();
+      contract.view_id = request.frame.views.front().view_id;
+      contract.receiver_instance_id = selection.receiver->instance_id;
+      contract.occluder_instance_id = selection.occluder->instance_id;
+      contract.blas_count = kNativeDirectionalShadowRequiredBlasCount;
+      contract.tlas_instance_count =
+          kNativeDirectionalShadowRequiredTlasInstanceCount;
+      contract.receiver_blas_built = true;
+      contract.occluder_blas_built = true;
+      contract.tlas_built = true;
+      contract.primary_camera_ray_count =
+          kNativeDirectionalShadowRequiredPrimaryRayCount;
+      contract.secondary_visibility_ray_count =
+          kNativeDirectionalShadowRequiredVisibilityRayCount;
+      contract.primary_hit_instance_id = selection.receiver->instance_id;
+      contract.secondary_blocker_instance_id =
+          state == NativeDirectionalShadowVisibility::OCCLUDED
+              ? selection.occluder->instance_id
+              : 0U;
+      contract.primary_camera_ray_geometry_exact = true;
+      contract.secondary_directional_ray_geometry_exact = true;
+      contract.native_submission_completed = true;
+      contract.raster_source_ui_free = true;
+      contract.visibility_readback_completed = true;
+      contract.hybrid_readback_completed = true;
+      contract.visibility = state;
+      std::memcpy(&contract.native_visibility_r16_bits,
+                  visibility.data() + pixel * 2U,
+                  sizeof(contract.native_visibility_r16_bits));
+      std::memcpy(contract.raster_rgba16.channels.data(),
+                  raster.data() + pixel * 8U, 8U);
+      std::memcpy(contract.native_hybrid_rgba16.channels.data(),
+                  hybrid.data() + pixel * 8U, 8U);
+      return contract;
+    };
+
+    std::array<NativeDirectionalShadowPassContract, 2U> samples{{
+        build_sample(visible_sample,
+                     NativeDirectionalShadowVisibility::VISIBLE),
+        build_sample(occluded_sample,
+                     NativeDirectionalShadowVisibility::OCCLUDED),
+    }};
+    for (const NativeDirectionalShadowPassContract &sample : samples) {
+      const ValidationResult sample_validation =
+          ValidateNativeDirectionalShadowPassContract(sample);
+      if (!sample_validation) {
+        return fail_after_finalize(BackendFailure(
+            "Metal N4 sample evidence failed the portable contract: " +
+            sample_validation.field + ": " + sample_validation.detail));
+      }
+    }
+
+    OgreNextMetalRayTracingEvidence evidence_candidate = evidence_;
+    RenderFrameOutput output_candidate;
+    try {
+      evidence_candidate.geometry_request = receiver_request;
+      evidence_candidate.geometry_export = used_receiver;
+      evidence_candidate.secondary_geometry_request = occluder_request;
+      evidence_candidate.secondary_geometry_export = used_occluder;
+      evidence_candidate.frame_synchronization = used_synchronization;
+      evidence_candidate.image_request = image_request;
+      evidence_candidate.image_export = used_image;
+      evidence_candidate.image_frame_synchronization = used_synchronization;
+      evidence_candidate.vertex_buffer_length_bytes =
+          Decode<id<MTLBuffer>>(used_receiver.positions.buffer).length;
+      evidence_candidate.index_buffer_length_bytes =
+          Decode<id<MTLBuffer>>(used_receiver.indices.buffer).length;
+      evidence_candidate.secondary_vertex_buffer_length_bytes =
+          Decode<id<MTLBuffer>>(used_occluder.positions.buffer).length;
+      evidence_candidate.secondary_index_buffer_length_bytes =
+          Decode<id<MTLBuffer>>(used_occluder.indices.buffer).length;
+      evidence_candidate.blas_bytes =
+          receiver_blas_sizes.accelerationStructureSize;
+      evidence_candidate.blas_scratch_bytes =
+          receiver_blas_sizes.buildScratchBufferSize;
+      evidence_candidate.secondary_blas_bytes =
+          occluder_blas_sizes.accelerationStructureSize;
+      evidence_candidate.secondary_blas_scratch_bytes =
+          occluder_blas_sizes.buildScratchBufferSize;
+      evidence_candidate.tlas_bytes = tlas_sizes.accelerationStructureSize;
+      evidence_candidate.tlas_scratch_bytes =
+          tlas_sizes.buildScratchBufferSize;
+      evidence_candidate.image_row_pitch_bytes = rgba_row_pitch;
+      evidence_candidate.visibility_row_pitch_bytes =
+          visibility_row_pitch;
+      evidence_candidate.directional_lineage_row_pitch_bytes =
+          lineage_row_pitch;
+      evidence_candidate.raster_readback_bytes = std::move(raster);
+      evidence_candidate.contribution_readback_bytes.clear();
+      evidence_candidate.hybrid_readback_bytes = hybrid;
+      evidence_candidate.visibility_readback_bytes = std::move(visibility);
+      evidence_candidate.directional_lineage_readback_bytes =
+          std::move(lineage);
+      evidence_candidate.contribution_pixel_count = 0U;
+      evidence_candidate.receiver_visible_pixel_count =
+          receiver_visible_pixels;
+      evidence_candidate.occluded_pixel_count = occluded_pixels;
+      evidence_candidate.directional_shadow_capabilities =
+          shadow_capabilities;
+      evidence_candidate.directional_shadow_samples = samples;
+      evidence_candidate.directional_shadow_sample_x = {
+          static_cast<std::uint32_t>(visible_sample % width),
+          static_cast<std::uint32_t>(occluded_sample % width)};
+      evidence_candidate.directional_shadow_sample_y = {
+          static_cast<std::uint32_t>(visible_sample / width),
+          static_cast<std::uint32_t>(occluded_sample / width)};
+      evidence_candidate.exact_secondary_vertex_slice_used = true;
+      evidence_candidate.exact_secondary_index_slice_used = true;
+      evidence_candidate.exact_exported_vertex_slice_used = true;
+      evidence_candidate.exact_exported_index_slice_used = true;
+      evidence_candidate.exact_exported_color_image_used = true;
+      evidence_candidate.image_state_handoff_passed = true;
+      evidence_candidate.dispatch_readback_passed = true;
+      evidence_candidate.geometry_interop_passed = true;
+      evidence_candidate.view_dependent_image_passed = true;
+      evidence_candidate.hybrid_composite_passed = true;
+      evidence_candidate.directional_shadow_passed = true;
+
+      output_candidate.frame_id = request.frame.frame_id;
+      output_candidate.snapshot_id =
+          request.frame.scene_snapshot->snapshot_id();
+      output_candidate.status = RenderFrameStatus::RENDERED;
+      output_candidate.presented = false;
+      FrameAttachment attachment;
+      attachment.view_id = request.frame.views.front().view_id;
+      attachment.output = FrameOutputMask::COLOR;
+      attachment.format = PixelFormat::RGBA16_FLOAT;
+      attachment.width = width;
+      attachment.height = height;
+      attachment.row_pitch_bytes = static_cast<std::uint64_t>(width) * 8U;
+      attachment.bytes = std::move(hybrid);
+      output_candidate.attachments.push_back(std::move(attachment));
+    } catch (const std::bad_alloc &) {
+      return fail_after_finalize(Failure(
+          RenderOperationCode::OUT_OF_MEMORY,
+          "Metal N4 could not retain its validated shadow evidence"));
+    }
+
+    const ValidationResult output_validation =
+        ValidateNativeRayTracingFrameOutput(request, output_candidate);
+    if (!output_validation) {
+      return fail_after_finalize(BackendFailure(
+          "Metal N4 generated invalid output: " + output_validation.field +
+          ": " + output_validation.detail));
+    }
+    result = FinalizeCompletedFrameAndRelease();
+    if (!result) {
+      return result;
+    }
+    ClearTransientSubmissionState();
+    evidence_ = std::move(evidence_candidate);
+    bridge_->SetRayTracingProof(true, true);
+    output = std::move(output_candidate);
+    return RenderOperationResult::Success();
   }
 
   RenderOperationResult CompleteHybrid(
@@ -1715,11 +2812,17 @@ private:
     scratch_ = nil;
     instance_buffer_ = nil;
     contribution_texture_ = nil;
+    visibility_texture_ = nil;
+    lineage_texture_ = nil;
     raster_readback_buffer_ = nil;
     contribution_readback_buffer_ = nil;
+    visibility_readback_buffer_ = nil;
+    lineage_readback_buffer_ = nil;
     hybrid_readback_buffer_ = nil;
+    secondary_blas_ = nil;
     synchronization_ = {};
     geometry_ = {};
+    secondary_geometry_ = {};
     image_ = {};
     submission_kind_ = SubmissionKind::NONE;
     command_submitted_ = false;
@@ -1727,6 +2830,7 @@ private:
     external_completed_ = false;
     frame_live_ = false;
     geometry_live_ = false;
+    secondary_geometry_live_ = false;
     image_live_ = false;
 #if defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
     test_observation_ = OgreNextMetalN2TestObservation::NONE;
@@ -1737,6 +2841,7 @@ private:
     ClearTransientSubmissionState();
     pipeline_ = nil;
     hybrid_pipeline_ = nil;
+    directional_shadow_pipeline_ = nil;
     queue_ = nil;
     device_ = nil;
     n3_enabled_ = false;
@@ -1745,6 +2850,7 @@ private:
   std::shared_ptr<OgreNextN1NativeInteropBridge> bridge_;
   NativeContextExport context_;
   NativeGeometryExport geometry_;
+  NativeGeometryExport secondary_geometry_;
   NativeImageExport image_;
   NativeFrameSynchronization synchronization_;
   OgreNextMetalRayTracingEvidence evidence_;
@@ -1752,22 +2858,31 @@ private:
   id<MTLCommandQueue> queue_ = nil;
   id<MTLComputePipelineState> pipeline_ = nil;
   id<MTLComputePipelineState> hybrid_pipeline_ = nil;
+  id<MTLComputePipelineState> directional_shadow_pipeline_ = nil;
   id<MTLCommandBuffer> command_buffer_ = nil;
   id<MTLBuffer> result_buffer_ = nil;
   id<MTLBuffer> scratch_ = nil;
   id<MTLBuffer> instance_buffer_ = nil;
   id<MTLTexture> contribution_texture_ = nil;
+  id<MTLTexture> visibility_texture_ = nil;
+  id<MTLTexture> lineage_texture_ = nil;
   id<MTLBuffer> raster_readback_buffer_ = nil;
   id<MTLBuffer> contribution_readback_buffer_ = nil;
+  id<MTLBuffer> visibility_readback_buffer_ = nil;
+  id<MTLBuffer> lineage_readback_buffer_ = nil;
   id<MTLBuffer> hybrid_readback_buffer_ = nil;
   id<MTLAccelerationStructure> blas_ = nil;
+  id<MTLAccelerationStructure> secondary_blas_ = nil;
   id<MTLAccelerationStructure> tlas_ = nil;
   dispatch_semaphore_t completion_ = nullptr;
   std::thread::id owner_thread_;
   SubmissionKind submission_kind_ = SubmissionKind::NONE;
+  OgreNextMetalRayTracingMode mode_ =
+      OgreNextMetalRayTracingMode::AUTOMATIC_N2_N3;
   bool initialized_ = false;
   bool n3_enabled_ = false;
   bool geometry_live_ = false;
+  bool secondary_geometry_live_ = false;
   bool image_live_ = false;
   bool frame_live_ = false;
   bool command_submitted_ = false;
@@ -1780,7 +2895,12 @@ private:
 };
 
 OgreNextMetalRayTracingBackend::OgreNextMetalRayTracingBackend()
-    : impl_(std::make_unique<Impl>()) {}
+    : OgreNextMetalRayTracingBackend(
+          OgreNextMetalRayTracingMode::AUTOMATIC_N2_N3) {}
+
+OgreNextMetalRayTracingBackend::OgreNextMetalRayTracingBackend(
+    OgreNextMetalRayTracingMode mode)
+    : impl_(std::make_unique<Impl>(mode)) {}
 
 OgreNextMetalRayTracingBackend::~OgreNextMetalRayTracingBackend() {
   if (impl_) {

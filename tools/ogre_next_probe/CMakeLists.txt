@@ -870,9 +870,40 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyN2SourceProvenance.cmake"
             COMMENT "Verifying clean Metal N3 source provenance"
             VERBATIM)
+        add_executable(
+            ror_ogre_next_metal_n4_directional_shadow_smoke
+            src/metal_n4_directional_shadow_smoke.cpp)
+        target_include_directories(
+            ror_ogre_next_metal_n4_directional_shadow_smoke
+            PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+        target_compile_definitions(
+            ror_ogre_next_metal_n4_directional_shadow_smoke
+            PRIVATE
+                ROR_OGRE_NEXT_N2_TEST_SEAM=1
+                ROR_OGRE_NEXT_N4_SOURCE_REPOSITORY="${ROR_SOURCE_REPOSITORY}"
+                ROR_OGRE_NEXT_N4_SOURCE_COMMIT="${_ror_n2_source_commit}"
+                ROR_OGRE_NEXT_N4_SOURCE_REF="${_ror_n2_source_ref}"
+                ROR_OGRE_NEXT_N4_RELEVANT_SOURCE_CLEAN=1
+                ROR_OGRE_NEXT_N4_SOURCE_MANIFEST_SHA256="${ROR_SOURCE_MANIFEST_SHA256}")
+        target_link_libraries(
+            ror_ogre_next_metal_n4_directional_shadow_smoke
+            PRIVATE ror_ogre_next_frontend_n1)
+        set_target_properties(
+            ror_ogre_next_metal_n4_directional_shadow_smoke
+            PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+        add_custom_command(
+            TARGET ror_ogre_next_metal_n4_directional_shadow_smoke PRE_LINK
+            COMMAND
+                "${CMAKE_COMMAND}"
+                "-DN2_REPOSITORY_ROOT=${_ror_n2_repository_root}"
+                "-DN2_EXPECTED_SOURCE_MANIFEST_SHA256=${ROR_SOURCE_MANIFEST_SHA256}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyN2SourceProvenance.cmake"
+            COMMENT "Verifying clean Metal N4 source provenance"
+            VERBATIM)
         list(APPEND _ror_n1_targets
             ror_ogre_next_metal_n2_smoke
-            ror_ogre_next_metal_n3_smoke)
+            ror_ogre_next_metal_n3_smoke
+            ror_ogre_next_metal_n4_directional_shadow_smoke)
     endif ()
 
     set(ROR_OGRE_NEXT_N1_PACKAGE_ROOT
@@ -1485,6 +1516,62 @@ if (TARGET ror_ogre_next_metal_n3_smoke)
                 --report "${ROR_OGRE_NEXT_N3_CTEST_REPORT}")
     set_tests_properties(
         ror_ogre_next_metal_n3_runtime
+        PROPERTIES
+            TIMEOUT 180
+            SKIP_RETURN_CODE 77
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif ()
+
+if (TARGET ror_ogre_next_metal_n4_directional_shadow_smoke)
+    set(ROR_OGRE_NEXT_N4_RASTER
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n4-raster.bin")
+    set(ROR_OGRE_NEXT_N4_VISIBILITY
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n4-visibility-r16.bin")
+    set(ROR_OGRE_NEXT_N4_LINEAGE
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n4-ray-lineage-r32.bin")
+    set(ROR_OGRE_NEXT_N4_HYBRID
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n4-hybrid.bin")
+    set(ROR_OGRE_NEXT_N4_REPORT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n4-directional-shadow-report.json")
+    set(ROR_OGRE_NEXT_N4_CTEST_REPORT
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-metal-n4-directional-shadow-ctest-report.json")
+    add_custom_target(
+        ror_ogre_next_metal_n4_directional_shadow_report
+        COMMAND
+            "${CMAKE_COMMAND}" -E rm -f
+            "${ROR_OGRE_NEXT_N4_RASTER}"
+            "${ROR_OGRE_NEXT_N4_VISIBILITY}"
+            "${ROR_OGRE_NEXT_N4_LINEAGE}"
+            "${ROR_OGRE_NEXT_N4_HYBRID}"
+            "${ROR_OGRE_NEXT_N4_REPORT}"
+        COMMAND
+            "${CMAKE_COMMAND}"
+            "-DN4_EXECUTABLE=$<TARGET_FILE:ror_ogre_next_metal_n4_directional_shadow_smoke>"
+            "-DN4_MEDIA_ROOT=${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+            "-DN4_RASTER=${ROR_OGRE_NEXT_N4_RASTER}"
+            "-DN4_VISIBILITY=${ROR_OGRE_NEXT_N4_VISIBILITY}"
+            "-DN4_LINEAGE=${ROR_OGRE_NEXT_N4_LINEAGE}"
+            "-DN4_HYBRID=${ROR_OGRE_NEXT_N4_HYBRID}"
+            "-DN4_REPORT=${ROR_OGRE_NEXT_N4_REPORT}"
+            -P "${CMAKE_CURRENT_LIST_DIR}/cmake/RunN4Smoke.cmake"
+        DEPENDS
+            ror_ogre_next_metal_n4_directional_shadow_smoke
+            ror_ogre_next_frontend_n1_package
+        BYPRODUCTS
+            "${ROR_OGRE_NEXT_N4_RASTER}"
+            "${ROR_OGRE_NEXT_N4_VISIBILITY}"
+            "${ROR_OGRE_NEXT_N4_LINEAGE}"
+            "${ROR_OGRE_NEXT_N4_HYBRID}"
+            "${ROR_OGRE_NEXT_N4_REPORT}"
+        COMMENT "Running Ogre-Next Metal N4 directional hard-shadow proof"
+        VERBATIM)
+    add_test(NAME ror_ogre_next_metal_n4_directional_shadow_runtime
+        COMMAND
+            $<TARGET_FILE:ror_ogre_next_metal_n4_directional_shadow_smoke>
+            --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+            --report "${ROR_OGRE_NEXT_N4_CTEST_REPORT}")
+    set_tests_properties(
+        ror_ogre_next_metal_n4_directional_shadow_runtime
         PROPERTIES
             TIMEOUT 180
             SKIP_RETURN_CODE 77

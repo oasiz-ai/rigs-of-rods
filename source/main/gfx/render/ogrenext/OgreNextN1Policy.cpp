@@ -776,17 +776,27 @@ ValidationResult ValidateOgreNextN1Scene(
     bool allow_dynamic_meshes,
     OgreNextRasterFeatureTier raster_feature_tier,
     OgreNextDirectionalShadowMode shadow_mode,
-    bool hdr_compositor_enabled) {
+    bool hdr_compositor_enabled,
+    bool native_directional_shadow_enabled) {
   if (!IsKnownOgreNextRasterFeatureTier(raster_feature_tier)) {
     return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
                                      "raster_feature_tier",
                                      "unknown Ogre-Next raster feature tier");
   }
   if (hdr_compositor_enabled &&
-      shadow_mode != OgreNextDirectionalShadowMode::DISABLED) {
+      (shadow_mode != OgreNextDirectionalShadowMode::DISABLED ||
+       native_directional_shadow_enabled)) {
     return Unsupported(
         "directional_shadow_mode",
-        "persistent HDR and PSSM require a reviewed shared compositor node");
+        "persistent HDR and directional shadows require a reviewed shared compositor node");
+  }
+  if (native_directional_shadow_enabled &&
+      (raster_feature_tier !=
+           OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 ||
+       shadow_mode != OgreNextDirectionalShadowMode::DISABLED)) {
+    return Unsupported(
+        "directional_shadow_mode",
+        "native directional shadows require RT4/V1 and a disabled PSSM fallback selected before initialization");
   }
   ValidationResult validation = ValidateSceneSnapshotAssets(snapshot, registry);
   if (!validation) {
@@ -866,10 +876,58 @@ ValidationResult ValidateOgreNextN1Scene(
       }
     }
   }
-  validation = ValidateOgreNextPssmShadowScene(
-      snapshot, raster_feature_tier, shadow_mode);
-  if (!validation) {
-    return validation;
+  if (native_directional_shadow_enabled) {
+    if (snapshot.lights().size() != 1U ||
+        snapshot.lights().front().type != LightType::DIRECTIONAL ||
+        snapshot.lights().front().shadow_flags == 0U) {
+      return Unsupported(
+          "lights",
+          "native directional shadows require exactly one shadow-enabled directional light");
+    }
+    if (snapshot.mesh_instances().size() != 2U) {
+      return Unsupported(
+          "mesh_instances",
+          "native directional shadows require exactly one receiver and one distinct occluder");
+    }
+    std::uint32_t receiver_count = 0U;
+    std::uint32_t occluder_count = 0U;
+    for (std::size_t index = 0U;
+         index < snapshot.mesh_instances().size(); ++index) {
+      const MeshInstanceDescriptor &instance =
+          snapshot.mesh_instances()[index];
+      const MeshResourceDescriptor *mesh = registry.ResolveMesh(instance.mesh);
+      if (mesh == nullptr) {
+        return ValidationResult::Failure(
+            ValidationCode::MISSING_REFERENCE, "mesh_instances.mesh",
+            "native directional shadow classification lost its synchronized mesh",
+            index);
+      }
+      const bool casts = MeshInstanceCastsShadowForLight(
+          snapshot.lights().front(), instance, *mesh);
+      const bool receives =
+          (instance.flags & MESH_INSTANCE_RECEIVES_SHADOW) != 0U;
+      if (receives && !casts) {
+        ++receiver_count;
+      } else if (casts && !receives) {
+        ++occluder_count;
+      } else {
+        return Unsupported(
+            "mesh_instances.flags",
+            "native directional shadow instances must be exclusively receiver-only or occluder-only",
+            index);
+      }
+    }
+    if (receiver_count != 1U || occluder_count != 1U) {
+      return Unsupported(
+          "mesh_instances.flags",
+          "native directional shadows require one receiver-only and one occluder-only instance");
+    }
+  } else {
+    validation = ValidateOgreNextPssmShadowScene(
+        snapshot, raster_feature_tier, shadow_mode);
+    if (!validation) {
+      return validation;
+    }
   }
   if (!IsFiniteScaled(snapshot.environment().ambient_radiance,
                       snapshot.environment().environment_intensity)) {
@@ -940,7 +998,8 @@ ValidationResult ValidateOgreNextN1Frame(
     const RenderAssetRegistry &registry,
     OgreNextRasterFeatureTier raster_feature_tier,
     OgreNextDirectionalShadowMode shadow_mode,
-    bool hdr_compositor_enabled) {
+    bool hdr_compositor_enabled,
+    bool native_directional_shadow_enabled) {
   ValidationResult validation =
       ValidateRenderFrameRequestAgainstCapabilities(request, capabilities);
   if (!validation) {
@@ -1009,9 +1068,13 @@ ValidationResult ValidateOgreNextN1Frame(
   validation = ValidateOgreNextN1Scene(
       *request.scene_snapshot, registry,
       capabilities.supports_dynamic_mesh_updates, raster_feature_tier,
-      shadow_mode, hdr_compositor_enabled);
+      shadow_mode, hdr_compositor_enabled,
+      native_directional_shadow_enabled);
   if (!validation) {
     return validation;
+  }
+  if (native_directional_shadow_enabled) {
+    return ValidationResult::Success();
   }
   OgreNextPssmShadowFramePlan shadow_plan;
   return TryBuildOgreNextPssmShadowFramePlan(

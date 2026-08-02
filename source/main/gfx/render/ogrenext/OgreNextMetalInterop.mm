@@ -126,13 +126,18 @@ public:
                        NativeContextExport context,
                        bool ray_tracing_api_supported,
                        bool apple_family_9_supported,
-                       bool image_exports_enabled)
+                       OgreNextNativeFeatureTier native_feature_tier)
       : metal_device_(metal_device), device_(metal_device->mDevice),
         queue_(metal_device->mMainCommandQueue), timeline_(timeline),
         context_(std::move(context)),
         ray_tracing_api_supported_(ray_tracing_api_supported),
         apple_family_9_supported_(apple_family_9_supported),
-        image_exports_enabled_(image_exports_enabled),
+        native_feature_tier_(native_feature_tier),
+        image_exports_enabled_(
+            native_feature_tier ==
+                OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3 ||
+            native_feature_tier == OgreNextNativeFeatureTier::
+                                       METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW),
         owner_thread_(std::this_thread::get_id()) {
     const RenderOperationResult initialized = state_.Initialize(
         context_, Token(NativeObjectKind::TIMELINE_SYNC, timeline_,
@@ -177,6 +182,11 @@ public:
     report.native_ray_tracing_probe_passed = dispatch_readback_passed_;
     report.native_ray_tracing_geometry_interop_ready =
         geometry_interop_passed_;
+  }
+
+  OgreNextNativeFeatureTier ConfiguredNativeFeatureTier() const noexcept
+      override {
+    return native_feature_tier_;
   }
 
   RenderOperationResult AcquireContext(NativeContextExport &output) override {
@@ -819,7 +829,7 @@ private:
         (texture.usage & required_usage) != required_usage ||
         texture.storageMode == MTLStorageModeMemoryless) {
       return BackendFailure(
-          "native MTLTexture does not match Ogre's exact N3 HDR target");
+        "native MTLTexture does not match Ogre's exact N3/N4 HDR target");
     }
 
     NativeImageExport &image = output.image;
@@ -850,6 +860,8 @@ private:
   OgreNextN2InteropState state_;
   bool ray_tracing_api_supported_ = false;
   bool apple_family_9_supported_ = false;
+  OgreNextNativeFeatureTier native_feature_tier_ =
+      OgreNextNativeFeatureTier::RASTER_N1;
   bool image_exports_enabled_ = false;
   bool dispatch_readback_passed_ = false;
   bool geometry_interop_passed_ = false;
@@ -863,13 +875,19 @@ private:
 } // namespace
 
 RenderOperationResult CreateOgreNextMetalInterop(
-    std::uintptr_t ogre_render_system, bool enable_image_exports,
+    std::uintptr_t ogre_render_system,
+    OgreNextNativeFeatureTier native_feature_tier,
     std::shared_ptr<OgreNextN1NativeInteropBridge> &output) {
   output.reset();
   if (ogre_render_system == 0U) {
     return RenderOperationResult::Failure(
         RenderOperationCode::INVALID_ARGUMENT,
         "Ogre Metal interop requires a live render system");
+  }
+  if (native_feature_tier == OgreNextNativeFeatureTier::RASTER_N1) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "Ogre Metal interop requires an explicit native feature tier");
   }
   auto *render_system = reinterpret_cast<Ogre::MetalRenderSystem *>(
       ogre_render_system);
@@ -922,7 +940,7 @@ RenderOperationResult CreateOgreNextMetalInterop(
   try {
     output = std::make_shared<OgreNextMetalInterop>(
         metal_device, timeline, context, ray_tracing_api_supported,
-        apple_family_9_supported, enable_image_exports);
+        apple_family_9_supported, native_feature_tier);
     return RenderOperationResult::Success();
   } catch (const std::bad_alloc &) {
     return RenderOperationResult::Failure(

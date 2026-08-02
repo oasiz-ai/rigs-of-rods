@@ -3033,7 +3033,7 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
         OgreNextNativeFeatureTier::RASTER_N1) {
       const RenderOperationResult interop_result = CreateOgreNextMetalInterop(
           reinterpret_cast<std::uintptr_t>(impl_->renderer),
-          UsesMetalImageInterop(impl_->native_feature_tier),
+          impl_->native_feature_tier,
           impl_->native_interop);
       if (!interop_result) {
         return fail_after_cleanup(interop_result);
@@ -3521,19 +3521,22 @@ RenderOperationResult OgreNextN1Frontend::Render(
   const ValidationResult validation = ValidateOgreNextN1Frame(
       request, impl_->Capabilities(), *impl_->registry,
       impl_->raster_feature_tier, impl_->directional_shadow_mode,
-      impl_->hdr_enabled);
+      impl_->hdr_enabled,
+      UsesMetalDirectionalHardShadow(impl_->native_feature_tier));
   if (!validation) {
     return OgreNextN1OperationFromValidation(validation);
   }
   const CameraViewRequest &validated_view = request.views.front();
   OgreNextPssmShadowFramePlan shadow_plan;
-  const ValidationResult shadow_validation =
-      TryBuildOgreNextPssmShadowFramePlan(
-          *request.scene_snapshot, *impl_->registry, validated_view,
-          impl_->raster_feature_tier, impl_->directional_shadow_mode,
-          shadow_plan);
-  if (!shadow_validation) {
-    return OgreNextN1OperationFromValidation(shadow_validation);
+  if (!UsesMetalDirectionalHardShadow(impl_->native_feature_tier)) {
+    const ValidationResult shadow_validation =
+        TryBuildOgreNextPssmShadowFramePlan(
+            *request.scene_snapshot, *impl_->registry, validated_view,
+            impl_->raster_feature_tier, impl_->directional_shadow_mode,
+            shadow_plan);
+    if (!shadow_validation) {
+      return OgreNextN1OperationFromValidation(shadow_validation);
+    }
   }
   OgreNextHdrTemporalFramePlan hdr_plan;
   if (impl_->hdr_enabled) {
@@ -4533,7 +4536,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       interop_commit_prepared = true;
     }
-    // Keep only the N3 target and its frame geometry alive across ordinary
+    // Keep only the N3/N4 target and its frame geometry alive across ordinary
     // scene cleanup. Every fallible publication stage is now prepared, so a
     // teardown failure can abort all pending transactions through one path.
     if (!cleanup_scene(false)) {

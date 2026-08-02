@@ -116,7 +116,8 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
         OgreNextRasterFeatureTier::STATIC_PBR_N1,
     OgreNextDirectionalShadowMode shadow_mode =
         OgreNextDirectionalShadowMode::DISABLED,
-    bool hdr_compositor_enabled = false);
+    bool hdr_compositor_enabled = false,
+    bool native_directional_shadow_enabled = false);
 [[nodiscard]] ValidationResult ValidateOgreNextN1Frame(
     const RenderFrameRequest &request,
     const FrontendCapabilityReport &capabilities,
@@ -125,7 +126,8 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
         OgreNextRasterFeatureTier::STATIC_PBR_N1,
     OgreNextDirectionalShadowMode shadow_mode =
         OgreNextDirectionalShadowMode::DISABLED,
-    bool hdr_compositor_enabled = false);
+    bool hdr_compositor_enabled = false,
+    bool native_directional_shadow_enabled = false);
 
 [[nodiscard]] RenderOperationResult
 OgreNextN1OperationFromValidation(const ValidationResult &validation);

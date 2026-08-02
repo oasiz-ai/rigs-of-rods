@@ -64,7 +64,7 @@ struct OgreNextN2FrameGeometryBinding {
   NativeIndexFormat index_format = NativeIndexFormat::UINT32;
 };
 
-/// Opaque reference to the exact Ogre render target retained by N3 after its
+/// Opaque reference to the exact Ogre render target retained by N3/N4 after its
 /// UI-free raster pass. The platform adapter alone may resolve the Ogre object
 /// to its native image and must independently verify every declared property.
 struct OgreNextN3FrameImageBinding {
@@ -101,6 +101,8 @@ public:
 
   virtual void DecorateFrontendCapabilities(
       FrontendCapabilityReport &report) const = 0;
+  [[nodiscard]] virtual OgreNextNativeFeatureTier
+  ConfiguredNativeFeatureTier() const noexcept = 0;
   [[nodiscard]] virtual RenderOperationResult CanPublishFrame() const = 0;
   virtual RenderOperationResult PublishFrame(
       std::uint64_t frame_id, std::uint64_t snapshot_id,
@@ -140,7 +142,8 @@ public:
 /// Creates Metal interop only from an initialized live Ogre Metal renderer.
 /// The implementation exists solely in the Apple ObjC++ target.
 RenderOperationResult CreateOgreNextMetalInterop(
-    std::uintptr_t ogre_render_system, bool enable_image_exports,
+    std::uintptr_t ogre_render_system,
+    OgreNextNativeFeatureTier native_feature_tier,
     std::shared_ptr<OgreNextN1NativeInteropBridge> &output);
 
 } // namespace RoR::Render

@@ -7,18 +7,27 @@
 */
 
 /// @file
-/// @brief Metal hardware-ray-tracing backend for Ogre-Next N2/N3.
+/// @brief Metal hardware-ray-tracing backend for Ogre-Next N2/N3/N4.
 
 #pragma once
 
 #include "../RendererFrontend.h"
+#include "NativeDirectionalShadowContract.h"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace RoR::Render {
+
+/// Keeps the original N2/N3 acceptance behavior source-compatible while an
+/// explicitly selected N4 instance executes the directional-shadow contract.
+enum class OgreNextMetalRayTracingMode : std::uint8_t {
+  AUTOMATIC_N2_N3 = 0,
+  N4_DIRECTIONAL_HARD_SHADOW = 1,
+};
 
 #if defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
 /// Test-only post-submission observation outcomes. This API is compiled only
@@ -35,6 +44,8 @@ enum class OgreNextMetalN2TestObservation : std::uint8_t {
 /// single-ray fields and retains its leases until Shutdown(). N3 fills the
 /// image fields only after a real view-dependent dispatch has completed,
 /// returned the exact Ogre image to its queue, and released every frame lease.
+/// N4 additionally retains both exact geometry exports, R16 visibility and
+/// ray-lineage readbacks, and one validated visible plus occluded sample.
 /// Shutdown and fault abandonment clear the payload, including its strong
 /// snapshot owners, so evidence never pins a retired world snapshot.
 struct OgreNextMetalRayTracingEvidence {
@@ -78,15 +89,39 @@ struct OgreNextMetalRayTracingEvidence {
   bool image_state_handoff_passed = false;
   bool view_dependent_image_passed = false;
   bool hybrid_composite_passed = false;
+
+  NativeGeometryExportRequest secondary_geometry_request;
+  NativeGeometryExport secondary_geometry_export;
+  std::uint64_t secondary_vertex_buffer_length_bytes = 0U;
+  std::uint64_t secondary_index_buffer_length_bytes = 0U;
+  std::uint64_t secondary_blas_bytes = 0U;
+  std::uint64_t secondary_blas_scratch_bytes = 0U;
+  std::uint64_t visibility_row_pitch_bytes = 0U;
+  std::uint64_t directional_lineage_row_pitch_bytes = 0U;
+  /// Tightly packed R16_FLOAT visibility and R32_UINT ray-lineage images.
+  std::vector<std::uint8_t> visibility_readback_bytes;
+  std::vector<std::uint8_t> directional_lineage_readback_bytes;
+  std::uint64_t receiver_visible_pixel_count = 0U;
+  std::uint64_t occluded_pixel_count = 0U;
+  NativeDirectionalShadowCapabilities directional_shadow_capabilities;
+  std::array<NativeDirectionalShadowPassContract, 2U>
+      directional_shadow_samples{};
+  std::array<std::uint32_t, 2U> directional_shadow_sample_x{};
+  std::array<std::uint32_t, 2U> directional_shadow_sample_y{};
+  bool exact_secondary_vertex_slice_used = false;
+  bool exact_secondary_index_slice_used = false;
+  bool directional_shadow_passed = false;
 };
 
-/// macOS-only N2/N3 backend. Its implementation is ObjC++ and must be compiled
+/// macOS-only N2/N3/N4 backend. Its implementation is ObjC++ and must be compiled
 /// only in the Apple Metal target; this header remains pure C++ so callers and
 /// contract tests do not import native platform headers.
 class OgreNextMetalRayTracingBackend final
     : public INativeRayTracingBackend {
 public:
   OgreNextMetalRayTracingBackend();
+  explicit OgreNextMetalRayTracingBackend(
+      OgreNextMetalRayTracingMode mode);
   ~OgreNextMetalRayTracingBackend() override;
 
   OgreNextMetalRayTracingBackend(

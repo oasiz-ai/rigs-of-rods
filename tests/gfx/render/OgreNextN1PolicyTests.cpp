@@ -434,6 +434,86 @@ void TestHdrFeatureCombinationPolicy() {
           "reflection probes were incorrectly excluded from the HDR path");
 }
 
+void TestNativeDirectionalShadowScenePolicy() {
+  constexpr std::uint64_t kRegistryId = 174U;
+  constexpr OgreNextRasterFeatureTier kModern =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  RenderAssetRegistry registry(kRegistryId);
+  Require(registry.Apply(MakeModernCatalogDelta(kRegistryId)).ok(),
+          "native directional-shadow catalog setup failed");
+
+  const auto make_scene = [&](std::uint32_t receiver_flags,
+                              std::uint32_t occluder_flags) {
+    SceneSnapshotDescriptor descriptor;
+    descriptor.snapshot_id = 1U;
+    descriptor.asset_registry_id = kRegistryId;
+    descriptor.asset_sequence = 1U;
+    LightDescriptor light;
+    light.light_id = 1U;
+    light.type = LightType::DIRECTIONAL;
+    light.intensity = 1024.0F;
+    light.direction = {0.0F, 0.0F, -1.0F};
+    light.previous_direction = light.direction;
+    light.shadow_flags = LIGHT_SHADOW_DEFAULT_FLAGS;
+    descriptor.lights.push_back(light);
+    MeshInstanceDescriptor receiver;
+    receiver.instance_id = 1U;
+    receiver.mesh = Ref(RenderAssetKind::MESH, 1U);
+    receiver.material = Ref(RenderAssetKind::MATERIAL, 2U);
+    receiver.local_bounds = MakeModernMesh().local_bounds;
+    receiver.flags = receiver_flags;
+    descriptor.mesh_instances.push_back(receiver);
+    MeshInstanceDescriptor occluder = receiver;
+    occluder.instance_id = 2U;
+    occluder.flags = occluder_flags;
+    descriptor.mesh_instances.push_back(occluder);
+    SceneSnapshotCreateResult created =
+        CreateSceneSnapshot(std::move(descriptor));
+    Require(created.ok(),
+            "native directional-shadow policy fixture is invalid");
+    return created.snapshot;
+  };
+
+  const auto scene = make_scene(MESH_INSTANCE_RECEIVES_SHADOW,
+                                MESH_INSTANCE_CASTS_SHADOW);
+  Require(ValidateOgreNextN1Scene(*scene, registry, false, kModern).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "shadow light escaped the default PSSM-disabled policy");
+  Require(ValidateOgreNextN1Scene(
+              *scene, registry, false, kModern,
+              OgreNextDirectionalShadowMode::DISABLED, false, true)
+              .ok(),
+          "the explicit RT4 native directional-shadow scene was rejected");
+  Require(ValidateOgreNextN1Scene(
+              *scene, registry, false, kModern,
+              OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, false, true)
+              .field == "directional_shadow_mode",
+          "native directional shadows and PSSM were admitted together");
+  Require(ValidateOgreNextN1Scene(
+              *scene, registry, false, kModern,
+              OgreNextDirectionalShadowMode::DISABLED, true, true)
+              .field == "directional_shadow_mode",
+          "native directional shadows and persistent HDR were admitted together");
+
+  const auto ambiguous = make_scene(MESH_INSTANCE_DEFAULT_FLAGS,
+                                    MESH_INSTANCE_CASTS_SHADOW);
+  Require(ValidateOgreNextN1Scene(
+              *ambiguous, registry, false, kModern,
+              OgreNextDirectionalShadowMode::DISABLED, false, true)
+              .field == "mesh_instances.flags",
+          "an instance that both casts and receives escaped native role admission");
+
+  RenderFrameRequest request = MakeFrame(scene);
+  request.color_format = PixelFormat::RGBA16_FLOAT;
+  const FrontendCapabilityReport capabilities =
+      BuildOgreNextN1CapabilityReport(RasterGraphicsApi::METAL, "test");
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry, kModern,
+              OgreNextDirectionalShadowMode::DISABLED, false, true)
+              .ok(),
+          "native directional-shadow frame incorrectly entered the PSSM planner");
+}
+
 void TestInitializationPolicy() {
   const FrontendCapabilityReport capabilities =
       BuildOgreNextN1CapabilityReport(RasterGraphicsApi::METAL, "test");
@@ -1051,6 +1131,7 @@ int main() {
   TestLifetimeSubmissionState();
   TestCapabilitiesFailClosed();
   TestHdrFeatureCombinationPolicy();
+  TestNativeDirectionalShadowScenePolicy();
   TestInitializationPolicy();
   TestAssetPolicy();
   TestModernPbrAssetPolicy();
