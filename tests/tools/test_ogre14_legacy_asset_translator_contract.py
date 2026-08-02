@@ -53,6 +53,9 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "kOgre14LegacyMaterialInputVersion = 1U",
             "kOgre14LegacyPipelineAuditVersion = 1U",
             "kOgre14LegacyTranslatedFrameVersion = 1U",
+            "kOgre14LegacyAssetTranslatorConfigurationVersion = 1U",
+            "maximum_lifetime_asset_records",
+            "maximum_decoded_bytes_per_frame",
             "std::shared_ptr<const RenderAssetPayload>",
             "std::shared_ptr<const Ogre14LegacyMaterialPipelineAudit>",
             "BuildFullSnapshot",
@@ -80,6 +83,8 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "material.texture_color_role",
             "EquivalentRenderAssetPayload",
             "a permanently tombstoned legacy identity may never return",
+            "frame.lifetime_asset_records",
+            "frame.decoded_texture_bytes",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.source)
@@ -106,6 +111,12 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "getDepthFunction",
             "getAlphaRejectFunction",
             "getCullingMode",
+            "getTransparentSortingEnabled",
+            "getIteratePerLight",
+            "getVertexColourTracking",
+            "getGPUVendorRules",
+            "getUnorderedAccessMipLevel",
+            "maximum_decoded_bytes_per_asset",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.native_source)
@@ -163,6 +174,8 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "permanent tombstones",
             "attached exactly once",
             "OGRE 14.5.2",
+            "aggregate canonical decoded bytes",
+            "checked arithmetic",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.readme)

@@ -27,6 +27,41 @@ constexpr std::uint32_t kOgre14LegacyTextureInputVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyMaterialInputVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyPipelineAuditVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyTranslatedFrameVersion = 1U;
+constexpr std::uint32_t kOgre14LegacyAssetTranslatorConfigurationVersion = 1U;
+
+/// Defaults match the joined graphics producer's lifetime-record and payload
+/// budgets so this earlier decode/catalog stage cannot consume more resources
+/// than the transaction which will ultimately publish it.
+constexpr std::size_t kDefaultOgre14LegacyMaximumTextureInputsPerFrame =
+    65536U;
+constexpr std::size_t kDefaultOgre14LegacyMaximumMaterialInputsPerFrame =
+    65536U;
+constexpr std::size_t kDefaultOgre14LegacyMaximumLiveAssetsPerFrame = 65536U;
+constexpr std::size_t kDefaultOgre14LegacyMaximumLifetimeAssetRecords =
+    65536U;
+constexpr std::uint64_t kDefaultOgre14LegacyMaximumDecodedBytesPerAsset =
+    512U * 1024U * 1024U;
+constexpr std::uint64_t kDefaultOgre14LegacyMaximumDecodedBytesPerFrame =
+    512U * 1024U * 1024U;
+
+struct Ogre14LegacyAssetTranslatorConfiguration {
+  std::uint32_t version =
+      kOgre14LegacyAssetTranslatorConfigurationVersion;
+  std::size_t maximum_texture_inputs_per_frame =
+      kDefaultOgre14LegacyMaximumTextureInputsPerFrame;
+  std::size_t maximum_material_inputs_per_frame =
+      kDefaultOgre14LegacyMaximumMaterialInputsPerFrame;
+  /// Textures + materials + material-owned samplers in one authoritative frame.
+  std::size_t maximum_live_assets_per_frame =
+      kDefaultOgre14LegacyMaximumLiveAssetsPerFrame;
+  /// Includes permanent tombstones for the complete translator lifetime.
+  std::size_t maximum_lifetime_asset_records =
+      kDefaultOgre14LegacyMaximumLifetimeAssetRecords;
+  std::uint64_t maximum_decoded_bytes_per_asset =
+      kDefaultOgre14LegacyMaximumDecodedBytesPerAsset;
+  std::uint64_t maximum_decoded_bytes_per_frame =
+      kDefaultOgre14LegacyMaximumDecodedBytesPerFrame;
+};
 
 /// Byte layouts are explicit and independent of the compiling host. The two
 /// packed-word encodings describe an A8R8G8B8 integer serialized in the named
@@ -334,17 +369,24 @@ public:
 ValidateOgre14LegacyTextureInput(const Ogre14LegacyTextureInput &input);
 [[nodiscard]] ValidationResult
 ValidateOgre14LegacyMaterialInput(const Ogre14LegacyMaterialInput &input);
+[[nodiscard]] ValidationResult ValidateOgre14LegacyAssetTranslatorConfiguration(
+    const Ogre14LegacyAssetTranslatorConfiguration &configuration);
 [[nodiscard]] ValidationResult
 DeriveOgre14LegacySourceAssetId(RenderAssetKind kind,
                                 const Ogre14LegacyAssetKey &key,
                                 std::uint64_t &source_asset_id);
 [[nodiscard]] ValidationResult
 DecodeOgre14LegacyTexture(const Ogre14LegacyTextureInput &input,
-                          TextureResourceDescriptor &descriptor);
+                          TextureResourceDescriptor &descriptor,
+                          std::uint64_t maximum_decoded_bytes =
+                              kDefaultOgre14LegacyMaximumDecodedBytesPerAsset);
 
 class Ogre14LegacyAssetTranslator final {
 public:
   explicit Ogre14LegacyAssetTranslator(
+      IOgre14LegacyAssetTranslatorFaultInjector *fault_injector = nullptr);
+  explicit Ogre14LegacyAssetTranslator(
+      const Ogre14LegacyAssetTranslatorConfiguration &configuration,
       IOgre14LegacyAssetTranslatorFaultInjector *fault_injector = nullptr);
   ~Ogre14LegacyAssetTranslator();
 

@@ -33,6 +33,9 @@ struct Ogre14LegacyNativeMaterialDeclaration {
       Ogre14LegacyBaseColorSemantic::UNLIT;
   Ogre14LegacyTextureColorRole texture_color_role =
       Ogre14LegacyTextureColorRole::BASE_COLOR_SRGB;
+  /// Must match the translator which consumes this capture. Native readback
+  /// applies the per-asset decoded-byte cap before allocating mip storage.
+  Ogre14LegacyAssetTranslatorConfiguration translator_configuration;
 };
 
 struct Ogre14LegacyNativeMaterialCapture {

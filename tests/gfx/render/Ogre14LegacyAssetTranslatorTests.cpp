@@ -526,6 +526,122 @@ void TestLinearTextureCannotAcquireAmbiguousPbrRole() {
           "linear data texture was guessed into the base-color PBR role");
 }
 
+void TestConfiguredBoundsRejectTransactionally() {
+  using namespace RoR::Render;
+
+  Ogre14LegacyAssetTranslatorConfiguration invalid_configuration;
+  invalid_configuration.maximum_decoded_bytes_per_asset = 0U;
+  Ogre14LegacyAssetTranslator invalid(invalid_configuration);
+  Ogre14LegacyTranslatedFrame sentinel;
+  sentinel.source_sequence = 777U;
+  ValidationResult result = invalid.Translate(MakeFrame(1U), sentinel);
+  Require(!result && result.field == "configuration.limits" &&
+              invalid.source_sequence() == 0U &&
+              sentinel.source_sequence == 777U,
+          "invalid nonzero configuration requirement mutated translator output");
+  result = invalid.BuildFullSnapshot(sentinel);
+  Require(!result && result.field == "configuration.limits" &&
+              sentinel.source_sequence == 777U,
+          "invalid configuration full snapshot mutated caller output");
+
+  Ogre14LegacyAssetTranslatorConfiguration count_configuration;
+  count_configuration.maximum_texture_inputs_per_frame = 1U;
+  count_configuration.maximum_material_inputs_per_frame = 1U;
+  count_configuration.maximum_live_assets_per_frame = 3U;
+  count_configuration.maximum_lifetime_asset_records = 3U;
+  Ogre14LegacyAssetTranslator count_bounded(count_configuration);
+  Ogre14LegacyAssetFrameInput excess_count = MakeFrame(1U);
+  excess_count.textures.push_back(MakeTexture("City/Second"));
+  result = count_bounded.Translate(excess_count, sentinel);
+  Require(!result && result.code == ValidationCode::VALUE_OUT_OF_RANGE &&
+              result.field == "frame.asset_inputs" &&
+              count_bounded.source_sequence() == 0U &&
+              sentinel.source_sequence == 777U,
+          "per-frame source count cap failed to roll back exactly");
+
+  Ogre14LegacyAssetTranslatorConfiguration live_configuration;
+  live_configuration.maximum_texture_inputs_per_frame = 2U;
+  live_configuration.maximum_material_inputs_per_frame = 2U;
+  live_configuration.maximum_live_assets_per_frame = 2U;
+  live_configuration.maximum_lifetime_asset_records = 3U;
+  Ogre14LegacyAssetTranslator live_bounded(live_configuration);
+  result = live_bounded.Translate(MakeFrame(1U), sentinel);
+  Require(!result && result.field == "frame.live_assets" &&
+              live_bounded.source_sequence() == 0U,
+          "derived sampler escaped the configured live-asset cap");
+
+  Ogre14LegacyAssetTranslatorConfiguration byte_configuration;
+  byte_configuration.maximum_decoded_bytes_per_asset = 3U;
+  byte_configuration.maximum_decoded_bytes_per_frame = 8U;
+  Ogre14LegacyAssetTranslator byte_bounded(byte_configuration);
+  result = byte_bounded.Translate(MakeFrame(1U), sentinel);
+  Require(!result && result.field == "texture.decoded_bytes" &&
+              byte_bounded.source_sequence() == 0U,
+          "per-asset decoded-byte cap failed before commit");
+
+  TextureResourceDescriptor decode_sentinel;
+  decode_sentinel.debug_name = "unchanged";
+  result = DecodeOgre14LegacyTexture(MakeTexture(), decode_sentinel, 3U);
+  Require(!result && result.field == "texture.decoded_bytes" &&
+              decode_sentinel.debug_name == "unchanged",
+          "standalone decode cap mutated output");
+
+  Ogre14LegacyAssetTranslatorConfiguration aggregate_configuration;
+  aggregate_configuration.maximum_decoded_bytes_per_asset = 4U;
+  aggregate_configuration.maximum_decoded_bytes_per_frame = 4U;
+  Ogre14LegacyAssetTranslator aggregate_bounded(aggregate_configuration);
+  Ogre14LegacyAssetFrameInput two_textures;
+  two_textures.source_sequence = 1U;
+  two_textures.textures.push_back(MakeTexture("City/First"));
+  two_textures.textures.push_back(MakeTexture("City/Second"));
+  result = aggregate_bounded.Translate(two_textures, sentinel);
+  Require(!result && result.field == "frame.decoded_texture_bytes" &&
+              result.element_index == 1U &&
+              aggregate_bounded.source_sequence() == 0U,
+          "aggregate decoded-byte cap partially committed a texture frame");
+}
+
+void TestLifetimeRecordCapIncludesPermanentTombstones() {
+  using namespace RoR::Render;
+  Ogre14LegacyAssetTranslatorConfiguration configuration;
+  configuration.maximum_texture_inputs_per_frame = 3U;
+  configuration.maximum_material_inputs_per_frame = 3U;
+  configuration.maximum_live_assets_per_frame = 3U;
+  configuration.maximum_lifetime_asset_records = 4U;
+  Ogre14LegacyAssetTranslator translator(configuration);
+  Ogre14LegacyTranslatedFrame output;
+  Require(translator.Translate(MakeFrame(1U), output).ok(),
+          "bounded catalog initial frame failed");
+
+  Ogre14LegacyAssetFrameInput removed;
+  removed.source_sequence = 2U;
+  Require(translator.Translate(removed, output).ok() &&
+              output.live_assets.empty(),
+          "bounded catalog tombstone frame failed");
+
+  Ogre14LegacyAssetFrameInput new_identity;
+  new_identity.source_sequence = 3U;
+  new_identity.textures.push_back(MakeTexture("City/NewBase"));
+  new_identity.materials.push_back(
+      MakeMaterial(&new_identity.textures.front(), "City/NewFacade"));
+  Ogre14LegacyTranslatedFrame sentinel = output;
+  const ValidationResult result = translator.Translate(new_identity, sentinel);
+  Require(!result && result.code == ValidationCode::VALUE_OUT_OF_RANGE &&
+              result.field == "frame.lifetime_asset_records" &&
+              translator.source_sequence() == 2U &&
+              sentinel.source_sequence == output.source_sequence &&
+              sentinel.mutations.size() == output.mutations.size() &&
+              sentinel.live_assets.size() == output.live_assets.size(),
+          "partial new identities escaped the tombstone lifetime cap or "
+          "committed");
+
+  Ogre14LegacyAssetFrameInput retry;
+  retry.source_sequence = 3U;
+  Require(translator.Translate(retry, sentinel).ok() &&
+              translator.source_sequence() == 3U,
+          "same source sequence could not retry after lifetime-cap rollback");
+}
+
 } // namespace
 
 int main() {
@@ -537,6 +653,8 @@ int main() {
   TestTransactionsFaultsAndLineageAreAtomic();
   TestEmptyAuthoritativeCatalogInitializesSequence();
   TestLinearTextureCannotAcquireAmbiguousPbrRole();
+  TestConfiguredBoundsRejectTransactionally();
+  TestLifetimeRecordCapIncludesPermanentTombstones();
   std::cout << "OGRE 14 legacy asset translator tests passed\n";
   return EXIT_SUCCESS;
 }
