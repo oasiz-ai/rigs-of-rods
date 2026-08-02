@@ -9,6 +9,7 @@
 #include "OgreNextN1MediaIntegrity.h"
 
 #include "ror_ogre_next_n1_media_manifest.h"
+#include "ror_ogre_next_presentation_media_manifest.h"
 #include "ror_ogre_next_reflection_media_manifest.h"
 
 #include <algorithm>
@@ -602,6 +603,23 @@ RenderOperationResult VerifyOgreNextN1HdrMedia(
         "Ogre-Next N1 HDR compositor media integrity check ran out of memory");
   } catch (const std::filesystem::filesystem_error &) {
     return IntegrityFailure("HDR compositor",
+                            "filesystem operation failed");
+  }
+}
+
+RenderOperationResult VerifyOgreNextN1PresentationMedia(
+    const std::string &resolved_presentation_media_root) {
+  try {
+    return VerifyMediaManifest(
+        resolved_presentation_media_root, {"CommonCopy"}, true,
+        kOgreNextN1PresentationMediaManifest,
+        kOgreNextN1PresentationMediaManifestCount, "presentation copy");
+  } catch (const std::bad_alloc &) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUT_OF_MEMORY,
+        "Ogre-Next N1 presentation media integrity check ran out of memory");
+  } catch (const std::filesystem::filesystem_error &) {
+    return IntegrityFailure("presentation copy",
                             "filesystem operation failed");
   }
 }

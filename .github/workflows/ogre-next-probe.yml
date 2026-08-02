@@ -213,6 +213,7 @@ jobs:
           python tests/tools/test_ogre_next_pssm_shadow_contract.py
           python tests/tools/test_ogre_next_child_runtime_contract.py
           python tests/tools/test_ogre_next_window_host_contract.py
+          python tests/tools/test_ogre_next_window_presentation_contract.py
           python tests/tools/test_ogre_next_native_directional_shadow_contract.py
           python tests/tools/test_ogre_next_metal_n2_contract.py
           python tests/tools/test_ogre_next_vulkan_rt5_contract.py
@@ -229,6 +230,7 @@ jobs:
           python -O tests/tools/test_ogre_next_pssm_shadow_contract.py
           python -O tests/tools/test_ogre_next_child_runtime_contract.py
           python -O tests/tools/test_ogre_next_window_host_contract.py
+          python -O tests/tools/test_ogre_next_window_presentation_contract.py
           python -O tests/tools/test_ogre_next_native_directional_shadow_contract.py
           python -O tests/tools/test_ogre_next_metal_n2_contract.py
           python -O tests/tools/test_ogre_next_vulkan_rt5_contract.py
@@ -376,6 +378,27 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^ror_renderer_ogre_next_window_host$'
+
+      - name: Require one-frame native Ogre-Next presentation
+        if: runner.os != 'Linux'
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre_next_window_present_smoke$'
+
+      - name: Require one-frame Vulkan X11 presentation under Xvfb
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          smoke="$build_root/bin/ror_ogre_next_window_present_smoke"
+          test -x "$smoke"
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+            "$smoke" \
+              --output "$build_root/ogre-next-window-present.ppm" \
+              --report "$build_root/ogre-next-window-present.json"
 
       - name: Run the non-admitted hidden SDL native-window smoke
         if: runner.os != 'Linux'

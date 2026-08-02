@@ -94,6 +94,7 @@ tools/validate_ogre_next_frame_probe.py text eol=lf
 tools/verify_ogre_next_artifact_set.py text eol=lf
 tests/tools/test_ogre_next_child_runtime_contract.py text eol=lf
 tests/tools/test_ogre_next_window_host_contract.py text eol=lf
+tests/tools/test_ogre_next_window_presentation_contract.py text eol=lf
 doc/nextgen/OGRE_NEXT_INTEGRATION.md text eol=lf
 doc/nextgen/NATIVE_RAY_TRACING_BACKEND.md text eol=lf
 doc/nextgen/ROADMAP.md text eol=lf

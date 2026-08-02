@@ -642,7 +642,8 @@ BuildOgreNextN1CapabilityReport(RasterGraphicsApi raster_api,
 
 ValidationResult ValidateOgreNextN1Initialization(
     const FrontendInitializationRequest &request,
-    const FrontendCapabilityReport &capabilities) {
+    const FrontendCapabilityReport &capabilities,
+    bool native_presentation_enabled) {
   ValidationResult validation = ValidateFrontendCapabilityReport(capabilities);
   if (!validation) {
     return validation;
@@ -651,9 +652,14 @@ ValidationResult ValidateOgreNextN1Initialization(
   if (!validation) {
     return validation;
   }
-  if (!request.headless) {
+  if (!request.headless && !native_presentation_enabled) {
     return Unsupported("headless",
                        "N1 is an offscreen frontend and cannot present");
+  }
+  if (request.headless && native_presentation_enabled) {
+    return Unsupported(
+        "headless",
+        "the optional N1 presentation contract requires its native window");
   }
   if (request.maximum_frames_in_flight != 1U) {
     return Unsupported("maximum_frames_in_flight",
@@ -999,14 +1005,20 @@ ValidationResult ValidateOgreNextN1Frame(
     OgreNextRasterFeatureTier raster_feature_tier,
     OgreNextDirectionalShadowMode shadow_mode,
     bool hdr_compositor_enabled,
-    bool native_directional_shadow_enabled) {
+    bool native_directional_shadow_enabled,
+    bool native_presentation_enabled) {
   ValidationResult validation =
       ValidateRenderFrameRequestAgainstCapabilities(request, capabilities);
   if (!validation) {
     return validation;
   }
-  if (request.present) {
+  if (request.present && !native_presentation_enabled) {
     return Unsupported("present", "N1 produces offscreen readbacks only");
+  }
+  if (!request.present && native_presentation_enabled) {
+    return Unsupported(
+        "present",
+        "the optional native-presentation milestone requires its one presented frame");
   }
   if (request.requested_outputs != FrameOutputMask::COLOR ||
       request.views.size() != 1U) {
