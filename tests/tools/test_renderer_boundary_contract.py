@@ -199,8 +199,36 @@ class RendererBoundaryContractTests(unittest.TestCase):
             "/fp:strict",
             "-fno-fast-math",
             "-ffp-contract=off",
+            "crtfastmath.o",
+            "target_link_options",
         ):
             self.assertIn(required, strict_test_block)
+        self.assertIn(
+            "ror_render_strict_fp_environment_tests",
+            _cmake_set(tests_cmake, "ROR_RENDER_CONTRACT_TEST_TARGETS"),
+        )
+        self.assertRegex(
+            tests_cmake,
+            r"if \(NOT MSVC\)\s*"
+            r"foreach \(render_contract_test IN LISTS "
+            r"ROR_RENDER_CONTRACT_TEST_TARGETS\)\s*"
+            r"target_link_options\(\s*\$\{render_contract_test\}\s*"
+            r"PRIVATE -fno-fast-math\s*\)",
+        )
+        self.assertRegex(
+            tests_cmake,
+            r"add_test\(\s*NAME\s+render_strict_fp_environment\s+"
+            r"COMMAND\s+ror_render_strict_fp_environment_tests\s*\)",
+        )
+        self.assertTrue(
+            (
+                REPOSITORY_ROOT
+                / "tests"
+                / "gfx"
+                / "render"
+                / "StrictFloatingPointEnvironmentTests.cpp"
+            ).is_file()
+        )
 
     def test_reflection_runtime_and_receipt_are_shipping_strict_sources(self) -> None:
         main_cmake = (
