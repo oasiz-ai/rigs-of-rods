@@ -241,6 +241,7 @@ add_executable(
     ror_renderer_sibling_path_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererSiblingPathTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp"
 )
 target_include_directories(
     ror_renderer_sibling_path_tests

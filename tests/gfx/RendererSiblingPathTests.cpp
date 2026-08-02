@@ -7,6 +7,7 @@
 */
 
 #include "RendererSiblingPath.h"
+#include "RendererPackagedMediaPath.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -42,6 +43,24 @@ bool EndsWithAscii(const RoR::RendererChildLauncherString &path,
     }
   }
   return true;
+}
+
+RoR::RendererChildLauncherString Native(const char *ascii) {
+  RoR::RendererChildLauncherString result;
+  if (ascii == nullptr) {
+    return result;
+  }
+  while (*ascii != '\0') {
+    result.push_back(static_cast<RoR::RendererChildLauncherChar>(
+        static_cast<unsigned char>(*ascii)));
+    ++ascii;
+  }
+  return result;
+}
+
+bool EqualsAscii(const RoR::RendererChildLauncherString &path,
+                 const char *ascii) {
+  return path == Native(ascii);
 }
 
 void TestStatusContract() {
@@ -143,11 +162,106 @@ void TestCanonicalSiblingResolution() {
           "siblings did not share one canonical executable directory");
 }
 
+void TestPackagedMediaStatusContract() {
+  const unsigned int maximum = std::numeric_limits<std::uint8_t>::max();
+  for (unsigned int value = 0U; value <= maximum; ++value) {
+    const auto status =
+        static_cast<RoR::RendererPackagedMediaPathStatus>(value);
+    Require(RoR::IsKnownRendererPackagedMediaPathStatus(status) ==
+                (value <= 5U),
+            "packaged-media status classifier accepted an unknown value");
+  }
+  Require(std::strcmp(
+              RoR::ToString(
+                  RoR::RendererPackagedMediaPathStatus::READY),
+              "ready") == 0,
+          "packaged-media ready string changed");
+  Require(std::strcmp(
+              RoR::ToString(static_cast<
+                            RoR::RendererPackagedMediaPathStatus>(255U)),
+              "invalid") == 0,
+          "unknown packaged-media status did not fail closed");
+}
+
+void RequireMediaLayout(
+    RoR::HostRenderPlatform platform, const char *executable,
+    const char *expected_shader_root,
+    const char *expected_presentation_root) {
+  const RoR::RendererPackagedMediaPathResult result =
+      RoR::ResolveRendererPackagedMediaPathFromExecutable(
+          platform, Native(executable));
+  Require(result.version ==
+              RoR::kRendererPackagedMediaPathContractVersion &&
+              result.accepted &&
+              result.status ==
+                  RoR::RendererPackagedMediaPathStatus::READY &&
+              result.package_platform == platform &&
+              result.native_error_code == 0U &&
+              EqualsAscii(result.shader_media_root,
+                          expected_shader_root) &&
+              EqualsAscii(result.presentation_media_root,
+                          expected_presentation_root),
+          "fixed packaged-media layout changed");
+}
+
+void TestPackagedMediaLayouts() {
+  RequireMediaLayout(
+      RoR::HostRenderPlatform::MACOS,
+      "/Applications/RoR.app/Contents/MacOS/RoR-OgreNext",
+      "/Applications/RoR.app/Contents/Resources/ogrenext/Hlms",
+      "/Applications/RoR.app/Contents/Resources/ogrenext/Presentation");
+  RequireMediaLayout(
+      RoR::HostRenderPlatform::LINUX, "/opt/ror/RoR-OgreNext",
+      "/opt/ror/resources/ogrenext/Hlms",
+      "/opt/ror/resources/ogrenext/Presentation");
+  RequireMediaLayout(
+      RoR::HostRenderPlatform::WINDOWS,
+      R"(\\?\C:\Games\RoR\RoR-OgreNext.exe)",
+      R"(\\?\C:\Games\RoR\resources\ogrenext\Hlms)",
+      R"(\\?\C:\Games\RoR\resources\ogrenext\Presentation)");
+
+  const auto unknown =
+      RoR::ResolveRendererPackagedMediaPathFromExecutable(
+          RoR::HostRenderPlatform::UNKNOWN, Native("/x/RoR-OgreNext"));
+  Require(!unknown.accepted && unknown.shader_media_root.empty() &&
+              unknown.presentation_media_root.empty() &&
+              unknown.status == RoR::RendererPackagedMediaPathStatus::
+                                    REJECTED_INVALID_PLATFORM,
+          "unknown package platform did not fail closed");
+
+  const char *invalid_macos[] = {
+      "",
+      "/Applications/RoR.app/Contents/MacOS/",
+      "/Applications/RoR.app/Contents/MacOS/RoR-Renamed",
+      "/Applications/RoR.app/MacOS/RoR-OgreNext",
+      "/tmp/RoR-OgreNext",
+  };
+  for (const char *path : invalid_macos) {
+    const auto rejected =
+        RoR::ResolveRendererPackagedMediaPathFromExecutable(
+            RoR::HostRenderPlatform::MACOS, Native(path));
+    Require(!rejected.accepted && rejected.shader_media_root.empty() &&
+                rejected.presentation_media_root.empty(),
+            "invalid macOS media layout was accepted");
+  }
+
+  const auto renamed_linux =
+      RoR::ResolveRendererPackagedMediaPathFromExecutable(
+          RoR::HostRenderPlatform::LINUX, Native("/opt/ror/renamed"));
+  Require(!renamed_linux.accepted &&
+              renamed_linux.status ==
+                  RoR::RendererPackagedMediaPathStatus::
+                      REJECTED_INVALID_EXECUTABLE_PATH,
+          "renamed Linux child was accepted as a package anchor");
+}
+
 } // namespace
 
 int main() {
   TestStatusContract();
   TestInvalidBasenamesFailBeforePathDiscovery();
   TestCanonicalSiblingResolution();
+  TestPackagedMediaStatusContract();
+  TestPackagedMediaLayouts();
   return EXIT_SUCCESS;
 }

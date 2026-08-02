@@ -251,16 +251,39 @@ RendererSiblingPathResult ResolveRendererSiblingPath(
     if (!HasSafeChildBasename(basename)) {
       return result;
     }
-    RendererChildLauncherString executable_path;
-    if (!CurrentExecutablePath(executable_path,
-                               result.native_error_code)) {
+    const RendererCurrentExecutablePathResult executable =
+        ResolveRendererCurrentExecutablePath();
+    result.native_error_code = executable.native_error_code;
+    if (!executable.accepted) {
       result.status =
           RendererSiblingPathStatus::FAILED_CURRENT_EXECUTABLE_PATH;
       return result;
     }
-    if (!BuildChildPath(executable_path, basename, result.path)) {
+    if (!BuildChildPath(executable.path, basename, result.path)) {
       result.path.clear();
       result.status = RendererSiblingPathStatus::FAILED_CHILD_PATH;
+      return result;
+    }
+    result.status = RendererSiblingPathStatus::READY;
+    result.accepted = true;
+    return result;
+  } catch (...) {
+    result.path.clear();
+    result.accepted = false;
+    result.status = RendererSiblingPathStatus::FAILED_INTERNAL;
+    return result;
+  }
+}
+
+RendererCurrentExecutablePathResult
+ResolveRendererCurrentExecutablePath() noexcept {
+  RendererCurrentExecutablePathResult result;
+  try {
+    if (!CurrentExecutablePath(result.path, result.native_error_code) ||
+        result.path.empty()) {
+      result.path.clear();
+      result.status =
+          RendererSiblingPathStatus::FAILED_CURRENT_EXECUTABLE_PATH;
       return result;
     }
     result.status = RendererSiblingPathStatus::READY;
