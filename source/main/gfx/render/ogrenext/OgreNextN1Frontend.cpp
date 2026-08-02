@@ -1009,16 +1009,20 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
 
 constexpr const char kOgreNextHdrResourceGroup[] = "RoROgreNextHdrV2";
 constexpr const char kOgreNextHdrWorkspace[] = "RoRHdrWorkspaceUiFreeV2";
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
 constexpr const char kOgreNextHdrUiOverlayControlWorkspace[] =
     "RoRHdrWorkspaceUiOverlayControlV3";
+#endif
 constexpr const char kOgreNextHdrRenderingNode[] = "HdrRenderingNode";
 constexpr const char kOgreNextHdrPostprocessingNode[] =
     "HdrPostprocessingNode";
 constexpr const char kOgreNextHdrUiNode[] = "HdrRenderUi";
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
 constexpr const char kOgreNextHdrUiOverlayName[] = "RoRHdrUiOverlayControl";
 constexpr const char kOgreNextHdrUiPanelName[] = "RoRHdrUiOverlayPanel";
 constexpr const char kOgreNextHdrUiDatablockName[] =
     "RoRHdrUiOverlayMagenta";
+#endif
 
 RenderOperationResult HdrBackendFailure(const std::string &detail) {
   return RenderOperationResult::Failure(
