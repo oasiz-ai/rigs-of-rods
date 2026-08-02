@@ -1847,6 +1847,8 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
         DEPENDS
             ror_ogre_next_frontend_n1_package
             ror_renderer_ogre_next_child_runtime
+            ror_renderer_ogre_next_window_host_tests
+            ror_renderer_ogre_next_window_host_smoke
         BYPRODUCTS
             "${ROR_OGRE_NEXT_N1_IMAGE}"
             "${ROR_OGRE_NEXT_N1_REPORT}"
