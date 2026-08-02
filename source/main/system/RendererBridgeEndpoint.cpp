@@ -418,6 +418,11 @@ RendererBridgeEndpointArgvParseResult ParseRendererBridgeEndpoint(
   }
 }
 
+bool IsValidRendererBridgeEndpoint(
+    const RendererBridgeEndpoint &endpoint) noexcept {
+  return IsValidEndpoint(endpoint);
+}
+
 bool IsKnownRendererBridgeRole(RendererBridgeRole role) noexcept {
   switch (role) {
   case RendererBridgeRole::GAME_HOST:

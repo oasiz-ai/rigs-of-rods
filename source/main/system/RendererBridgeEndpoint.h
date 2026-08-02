@@ -87,6 +87,8 @@ RendererBridgeEndpointArgvParseResult ParseRendererBridgeEndpoint(
     int argc, const RendererChildLauncherChar *const argv[]) noexcept;
 
 bool IsKnownRendererBridgeRole(RendererBridgeRole role) noexcept;
+bool IsValidRendererBridgeEndpoint(
+    const RendererBridgeEndpoint &endpoint) noexcept;
 bool IsKnownRendererBridgeEndpointArgvStatus(
     RendererBridgeEndpointArgvStatus status) noexcept;
 const char *ToString(RendererBridgeRole role) noexcept;
