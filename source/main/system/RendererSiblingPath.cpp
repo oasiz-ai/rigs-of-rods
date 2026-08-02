@@ -259,7 +259,27 @@ RendererSiblingPathResult ResolveRendererSiblingPath(
           RendererSiblingPathStatus::FAILED_CURRENT_EXECUTABLE_PATH;
       return result;
     }
-    if (!BuildChildPath(executable.path, basename, result.path)) {
+    result = ResolveRendererSiblingPathFromExecutable(executable.path,
+                                                      basename);
+    result.native_error_code = executable.native_error_code;
+    return result;
+  } catch (...) {
+    result.path.clear();
+    result.accepted = false;
+    result.status = RendererSiblingPathStatus::FAILED_INTERNAL;
+    return result;
+  }
+}
+
+RendererSiblingPathResult ResolveRendererSiblingPathFromExecutable(
+    const RendererChildLauncherString &canonical_executable_path,
+    const char *basename) noexcept {
+  RendererSiblingPathResult result;
+  try {
+    if (!HasSafeChildBasename(basename)) {
+      return result;
+    }
+    if (!BuildChildPath(canonical_executable_path, basename, result.path)) {
       result.path.clear();
       result.status = RendererSiblingPathStatus::FAILED_CHILD_PATH;
       return result;

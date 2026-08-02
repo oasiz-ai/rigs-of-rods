@@ -27,6 +27,8 @@ on:
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererOgre14GameBridge.*
       - source/main/system/RendererSiblingPath.*
+      - source/main/system/RendererPackagedMediaPath.*
+      - source/main/system/RendererPackageRuntimeProbe.*
       - source/main/system/RendererOgreNextChild.*
       - source/main/system/RendererOgreNextSdlWindowRuntime*
       - source/main/system/RendererOgreNextWindowHost.*
@@ -45,6 +47,7 @@ on:
       - tests/gfx/RendererBridge*Tests.cpp
       - tests/gfx/RendererOgre14GameBridgeTests.cpp
       - tests/gfx/RendererSiblingPathTests.cpp
+      - tests/gfx/RendererPackageRuntimeProbeTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
       - tests/gfx/RendererOgreNextWindowHostTests.cpp
       - tests/gfx/RendererPublicLauncherLegacyChild.cpp
@@ -79,6 +82,8 @@ on:
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererOgre14GameBridge.*
       - source/main/system/RendererSiblingPath.*
+      - source/main/system/RendererPackagedMediaPath.*
+      - source/main/system/RendererPackageRuntimeProbe.*
       - source/main/system/RendererOgreNextChild.*
       - source/main/system/RendererOgreNextSdlWindowRuntime*
       - source/main/system/RendererOgreNextWindowHost.*
@@ -97,6 +102,7 @@ on:
       - tests/gfx/RendererBridge*Tests.cpp
       - tests/gfx/RendererOgre14GameBridgeTests.cpp
       - tests/gfx/RendererSiblingPathTests.cpp
+      - tests/gfx/RendererPackageRuntimeProbeTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
       - tests/gfx/RendererOgreNextWindowHostTests.cpp
       - tests/gfx/RendererPublicLauncherLegacyChild.cpp

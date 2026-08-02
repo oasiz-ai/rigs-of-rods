@@ -56,6 +56,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererChildLauncher.*",
             "source/main/system/RendererOgre14GameBridge.*",
             "source/main/system/RendererSiblingPath.*",
+            "source/main/system/RendererPackagedMediaPath.*",
+            "source/main/system/RendererPackageRuntimeProbe.*",
             "source/main/system/RendererBridgeEndpoint.*",
             "source/main/system/RendererBridgeLaunchPlan.*",
             "source/main/system/RendererBridgeProcessSupervisor.*",
@@ -71,6 +73,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererBridge*Tests.cpp",
             "tests/gfx/RendererOgre14GameBridgeTests.cpp",
             "tests/gfx/RendererSiblingPathTests.cpp",
+            "tests/gfx/RendererPackageRuntimeProbeTests.cpp",
             "tests/gfx/RendererBridgeEndpointTests.cpp",
             "tests/gfx/RendererBridgeLaunchPlanTests.cpp",
             "tests/gfx/RendererBridgeProcessFakeChild.cpp",
@@ -237,6 +240,16 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 "        ror_renderer_ogre_next_child_tests"
             )
         ]
+        runtime_probe_target_block = cmake[
+            cmake.index(
+                "add_executable(\n"
+                "        ror_renderer_package_runtime_probe_tests"
+            ) :
+            cmake.index(
+                "target_include_directories(\n"
+                "        ror_renderer_package_runtime_probe_tests"
+            )
+        ]
         public_child_target_block = cmake[
             cmake.index(
                 "add_executable(\n"
@@ -313,6 +326,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererSiblingPathTests.cpp",
             "source/main/system/RendererSiblingPath.cpp",
             "add_test(NAME ror_renderer_sibling_path",
+            "ror_renderer_package_runtime_probe_tests",
+            "tests/gfx/RendererPackageRuntimeProbeTests.cpp",
+            "source/main/system/RendererPackageRuntimeProbe.cpp",
+            "source/main/system/RendererPackagedMediaPath.cpp",
+            "add_test(NAME ror_renderer_package_runtime_probe",
             "ror_renderer_bridge_process_fake_game",
             "ror_renderer_bridge_process_fake_presentation",
             "tests/gfx/RendererBridgeProcessFakeChild.cpp",
@@ -384,6 +402,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererOgre14GameBridge.h",
             "source/main/system/RendererSiblingPath.cpp",
             "source/main/system/RendererSiblingPath.h",
+            "source/main/system/RendererPackagedMediaPath.cpp",
+            "source/main/system/RendererPackagedMediaPath.h",
+            "source/main/system/RendererPackageRuntimeProbe.cpp",
+            "source/main/system/RendererPackageRuntimeProbe.h",
             "source/main/system/RendererBridgeEndpoint.cpp",
             "source/main/system/RendererBridgeEndpoint.h",
             "source/main/system/RendererBridgeLaunchPlan.cpp",
@@ -403,6 +425,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildLauncherTests.cpp",
             "tests/gfx/RendererOgre14GameBridgeTests.cpp",
             "tests/gfx/RendererSiblingPathTests.cpp",
+            "tests/gfx/RendererPackageRuntimeProbeTests.cpp",
             "tests/gfx/RendererBridgeEndpointTests.cpp",
             "tests/gfx/RendererBridgeLaunchPlanTests.cpp",
             "tests/gfx/RendererBridgeProcessFakeChild.cpp",
@@ -449,6 +472,15 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             with self.subTest(intent_target_source=source):
                 self.assertEqual(intent_target_block.count(source), 1)
         self.assertNotIn("RendererChildLauncher.cpp", intent_target_block)
+        for source in (
+            "tests/gfx/RendererPackageRuntimeProbeTests.cpp",
+            "source/main/gfx/RendererBackendPolicy.cpp",
+            "source/main/system/RendererSiblingPath.cpp",
+            "source/main/system/RendererPackagedMediaPath.cpp",
+            "source/main/system/RendererPackageRuntimeProbe.cpp",
+        ):
+            with self.subTest(runtime_probe_target_source=source):
+                self.assertEqual(runtime_probe_target_block.count(source), 1)
         for source in (
             "tests/gfx/RendererBridgeProcessFakeChild.cpp",
             "source/main/gfx/RendererBackendPolicy.cpp",
@@ -505,6 +537,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(
             package_dependencies.count(
+                "ror_renderer_package_runtime_probe_tests"
+            ),
+            1,
+        )
+        self.assertEqual(
+            package_dependencies.count(
                 "ror_renderer_bridge_process_supervisor_tests"
             ),
             1,
@@ -537,6 +575,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererBridgeLaunchPlan.cpp",
             "source/main/system/RendererBridgeProcessSupervisor.cpp",
             "source/main/system/RendererChildLauncher.cpp",
+            "source/main/system/RendererPackageRuntimeProbe.cpp",
+            "source/main/system/RendererPackagedMediaPath.cpp",
             "source/main/system/RendererSiblingPath.cpp",
             "source/main/gfx/RendererStartupHandoff.cpp",
             "source/main/gfx/RendererStartupPlan.cpp",
@@ -550,6 +590,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror_renderer_startup_handoff_tests",
             "ror_renderer_child_intent_tests",
             "ror_renderer_sibling_path_tests",
+            "ror_renderer_package_runtime_probe_tests",
             "ror_renderer_ogre_next_child_tests",
             "ror_renderer_child_launcher_fake_child",
             "ror_renderer_child_launcher_tests",
@@ -758,6 +799,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererChildLauncher.*",
             "source/main/system/RendererOgre14GameBridge.*",
             "source/main/system/RendererSiblingPath.*",
+            "source/main/system/RendererPackagedMediaPath.*",
+            "source/main/system/RendererPackageRuntimeProbe.*",
             "source/main/system/RendererBridgeEndpoint.*",
             "source/main/system/RendererBridgeLaunchPlan.*",
             "source/main/system/RendererBridgeProcessSupervisor.*",
@@ -773,6 +816,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererBridge*Tests.cpp",
             "tests/gfx/RendererOgre14GameBridgeTests.cpp",
             "tests/gfx/RendererSiblingPathTests.cpp",
+            "tests/gfx/RendererPackageRuntimeProbeTests.cpp",
             "tests/gfx/RendererBridgeEndpointTests.cpp",
             "tests/gfx/RendererBridgeLaunchPlanTests.cpp",
             "tests/gfx/RendererBridgeProcessFakeChild.cpp",

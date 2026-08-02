@@ -10,6 +10,7 @@
 
 #include "RendererBridgeProcessSupervisor.h"
 #include "RendererLauncherPackageConfig.generated.h"
+#include "RendererPackageRuntimeProbe.h"
 
 #include <atomic>
 #include <chrono>
@@ -102,6 +103,21 @@ void WriteBridgeProcessFailure(
                      ToString(result.launch_plan_status),
                      ToString(result.failed_child),
                      static_cast<unsigned int>(result.native_error_code));
+  (void)std::fflush(stderr);
+}
+
+void WriteRuntimePackageProbe(
+    const RendererPackageRuntimeProbeResult &result) {
+  (void)std::fprintf(
+      stderr,
+      "RoR renderer launcher: package-%s "
+      "(ogre14=%s ogre-next=%s shader-media=%s "
+      "presentation-media=%s native-error=%u)\n",
+      ToString(result.status), ToString(result.observation.ogre14_child),
+      ToString(result.observation.ogre_next_child),
+      ToString(result.observation.ogre_next_shader_media),
+      ToString(result.observation.ogre_next_presentation_media),
+      static_cast<unsigned int>(result.native_error_code));
   (void)std::fflush(stderr);
 }
 
@@ -331,9 +347,31 @@ int RunRendererPublicLauncher(
                : kRendererPublicLauncherUsageExitCode;
   }
 
+  const RendererStartupPackageAvailability declared_availability =
+      RendererPublicLauncherPackageAvailability();
+  const RendererPublicLauncherDecision declared_decision =
+      ResolveRendererPublicLauncherDecision(arguments.intent,
+                                            declared_availability);
+  if (!declared_decision.accepted) {
+    WriteDecisionFailure(declared_decision);
+    return kRendererPublicLauncherSelectionExitCode;
+  }
+
+  const RendererPackageRuntimeProbeResult package =
+      ProbeRendererPackageRuntimeAvailability(declared_availability);
+  if (!package.accepted) {
+    WriteRuntimePackageProbe(package);
+    return package.status == RendererPackageRuntimeProbeStatus::FAILED_INTERNAL
+               ? kRendererPublicLauncherInternalExitCode
+               : kRendererPublicLauncherChildLaunchExitCode;
+  }
+  if (package.ogre_next_runtime_degraded) {
+    WriteRuntimePackageProbe(package);
+  }
+
   const RendererPublicLauncherDecision decision =
-      ResolveRendererPublicLauncherDecision(
-          arguments.intent, RendererPublicLauncherPackageAvailability());
+      ResolveRendererPublicLauncherDecision(arguments.intent,
+                                            package.effective_availability);
   if (!decision.accepted) {
     WriteDecisionFailure(decision);
     return kRendererPublicLauncherSelectionExitCode;
