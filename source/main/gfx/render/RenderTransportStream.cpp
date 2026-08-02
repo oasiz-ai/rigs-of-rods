@@ -116,6 +116,10 @@ bool RenderTransportStreamDecoder::InspectCompleteHeader() noexcept {
   case RenderTransportMessageKind::INPUT_EVENT_BATCH_V1:
     message_payload_limit = kRenderTransportStreamInputMaximumPayloadBytes;
     break;
+  case RenderTransportMessageKind::RENDER_BRIDGE_ACKNOWLEDGEMENT_V1:
+  case RenderTransportMessageKind::RENDER_BRIDGE_CONTROL_V1:
+    message_payload_limit = kRenderTransportStreamControlMaximumPayloadBytes;
+    break;
   }
   if (message_payload_limit == 0U) {
     Fail(RenderTransportStreamStatus::FAILED_INTERNAL,

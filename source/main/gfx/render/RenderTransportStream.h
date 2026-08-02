@@ -26,6 +26,8 @@ constexpr std::uint64_t kRenderTransportStreamInputMaximumPayloadBytes =
     4ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t kRenderTransportStreamAssetMaximumPayloadBytes =
     640ULL * 1024ULL * 1024ULL;
+constexpr std::uint64_t kRenderTransportStreamControlMaximumPayloadBytes =
+    128ULL;
 constexpr std::uint64_t kRenderTransportStreamAbsoluteMaximumPayloadBytes =
     kRenderTransportStreamAssetMaximumPayloadBytes;
 

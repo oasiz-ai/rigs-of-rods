@@ -210,7 +210,10 @@ RendererFrontendTransportDispatcher::Dispatch(
                 &frame, RenderTransportStatus::INVALID_ARGUMENT,
                 ValidationCode::OK, RenderOperationCode::OK);
   }
-  if (frame.kind == RenderTransportMessageKind::INPUT_EVENT_BATCH_V1) {
+  if (frame.kind == RenderTransportMessageKind::INPUT_EVENT_BATCH_V1 ||
+      frame.kind ==
+          RenderTransportMessageKind::RENDER_BRIDGE_ACKNOWLEDGEMENT_V1 ||
+      frame.kind == RenderTransportMessageKind::RENDER_BRIDGE_CONTROL_V1) {
     return Fail(
         RendererFrontendTransportDispatchStatus::REJECTED_REVERSE_DIRECTION,
         &frame, RenderTransportStatus::UNKNOWN_MESSAGE_KIND, ValidationCode::OK,
@@ -224,6 +227,8 @@ RendererFrontendTransportDispatcher::Dispatch(
     case RenderTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2:
       return DispatchScene(frame, presentation_policy);
     case RenderTransportMessageKind::INPUT_EVENT_BATCH_V1:
+    case RenderTransportMessageKind::RENDER_BRIDGE_ACKNOWLEDGEMENT_V1:
+    case RenderTransportMessageKind::RENDER_BRIDGE_CONTROL_V1:
       break;
     }
   } catch (const std::bad_alloc &) {
@@ -335,6 +340,8 @@ RendererFrontendTransportDispatcher::DispatchScene(
                 RenderTransportStatus::INVALID_SEQUENCE,
                 ValidationCode::INVALID_IDENTIFIER, RenderOperationCode::OK);
   }
+  const std::uint64_t scene_snapshot_id =
+      decoded.message->scene_snapshot()->snapshot_id();
 
   const ValidationResult asset_validation = ValidateSceneSnapshotAssets(
       *decoded.message->scene_snapshot(), asset_decoder_.registry());
@@ -439,8 +446,11 @@ RendererFrontendTransportDispatcher::DispatchScene(
                 &frame, RenderTransportStatus::OK, output_validation.code,
                 RenderOperationCode::BACKEND_FAILURE, cleanup.released);
   }
-  return Success(RendererFrontendTransportDispatchStatus::SCENE_FRAME_COMPLETED,
-                 frame, cleanup.released);
+  RendererFrontendTransportDispatchResult result = Success(
+      RendererFrontendTransportDispatchStatus::SCENE_FRAME_COMPLETED, frame,
+      cleanup.released);
+  result.scene_snapshot_id = scene_snapshot_id;
+  return result;
 }
 
 } // namespace RoR::Render

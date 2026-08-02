@@ -68,6 +68,9 @@ struct RendererFrontendTransportDispatchResult final {
   RenderTransportMessageKind kind =
       RenderTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2;
   std::uint64_t sequence = 0U;
+  /// Exact decoded immutable snapshot identity for a successfully completed
+  /// scene. Asset results and every rejected/failed result leave this zero.
+  std::uint64_t scene_snapshot_id = 0U;
   RenderTransportStatus transport_status =
       RenderTransportStatus::INVALID_ARGUMENT;
   ValidationCode validation_code = ValidationCode::OK;
