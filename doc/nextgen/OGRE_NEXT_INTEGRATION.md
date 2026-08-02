@@ -7,7 +7,9 @@ switch**
 
 This checkpoint compiles a core standalone probe family plus platform-specific
 Metal, Vulkan, and DXR executables against an exact OGRE-Next `v3-0` revision
-while leaving every default RoR and OGRE 14 build unchanged. The capability
+while leaving legacy RoR builds unchanged. OGRE 14 builds now default to the
+renderer-suite process topology described below, but still select the admitted
+OGRE 14 compatibility child at runtime. The capability
 executable proves that the reviewed platform renderer registers with OGRE core,
 HLMS PBS links and selects the expected
 shader family, and Compositor2 remains deferred before a window exists. It
@@ -90,8 +92,8 @@ Arguments after `argv[0]`, the current working directory, environment,
 and standard streams are inherited. A test-only fake child proves those
 properties and proves that `PATH`, cwd, and a renderer-path environment decoy
 cannot redirect selection. The contract and launcher core tests are wired into
-all three platform-policy probe builds. An opt-in public build-tree launcher is
-also wired as `RoR`, with the real OGRE 14 game emitted as its exact
+all three platform-policy probe builds. OGRE 14 builds now package the public
+launcher as `RoR`, with the real OGRE 14 game emitted as its exact
 `RoR-Ogre14` sibling. A no-flag launch carries Ogre-Next-preferred/PSSM intent,
 but immutable generated facts admit only the OGRE 14 child in this phase. The
 launcher strips only exact options from the initial owned prefix, retains the
@@ -101,16 +103,21 @@ prefix. The child decoder strips only that ordered prefix, owns the preserved
 game suffix, binds the request and declared backend to the compiled host, and
 rejects unknown, malformed, or duplicate reserved state before renderer
 initialization. The argv contract conveys intent rather than authenticating a
-local caller. Shipping child staging, signing, package
-assembly, and a production Ogre-Next game child are not wired yet; the opt-in
-topology therefore suppresses CMake install, package, and platform bundle
-targets. The fake child is confined to the test output
-directory and is never installed or staged. This is a real Metal
+local caller. Linux/Windows install and CPack staging plus the signed macOS
+application bundle now retain both exact executable roles. Flat macOS install
+and CPack rules remain disabled so they cannot bypass Mach-O dependency
+rewriting and nested-code signing. The compatibility child's runtime closure
+and crash symbols remain the OGRE 14 closure; the dependency-free public
+launcher is audited separately. The fake child is confined to the test output
+directory and is never installed or staged. A production
+`RoR-OgreNext` game child remains open, so current no-flag packages still run
+OGRE 14 after the explicit policy fallback. This is a real Metal
 hard-shadow pass, not a soft-shadow, local-light, GI,
 denoising, Vulkan KHR, DXR, production-material, image-quality, or performance
 claim.
 
-Configure and build the build-tree topology explicitly:
+Configure and build the renderer suite explicitly (the launcher is already the
+default when `ROR_OGRE14=ON`):
 
 ```sh
 cmake -S . -B build-renderer-launcher \
@@ -125,8 +132,9 @@ cmake --build build-renderer-launcher \
 
 The active runtime output directory is `build-renderer-launcher/bin` for this
 tree. It contains exact siblings `RoR` and `RoR-Ogre14` on Linux/macOS, or
-`RoR.exe` and `RoR-Ogre14.exe` on Windows. This is intentionally not an install
-or package recipe. Initialize the starter-content submodule and omit
+`RoR.exe` and `RoR-Ogre14.exe` on Windows. The same roles are retained by
+Linux/Windows install/package targets and by `RoR.app/Contents/MacOS` on
+macOS. Initialize the starter-content submodule and omit
 `-DROR_CREATE_CONTENT_FOLDER=OFF` when that content is required in the build
 tree.
 

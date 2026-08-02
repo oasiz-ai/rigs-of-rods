@@ -467,33 +467,30 @@ jobs:
           New-Item -ItemType Directory -Force -Path $symbolRoot | Out-Null
 
           $buildRoot = Join-Path $env:GITHUB_WORKSPACE "build-ogre14-${{ matrix.platform }}"
-          $pdbCandidates = @(
-            Get-ChildItem -LiteralPath $buildRoot -Filter "RoR.pdb" -File -Recurse
-          )
-          if ($pdbCandidates.Count -ne 1) {
-            throw "Expected exactly one RoR.pdb, found $($pdbCandidates.Count)"
+          $pdb = Join-Path $buildRoot "bin/RoR-Ogre14.pdb"
+          if (-not (Test-Path -LiteralPath $pdb -PathType Leaf)) {
+            throw "Production RoR-Ogre14.pdb is missing: $pdb"
           }
-          $pdb = $pdbCandidates[0]
-          $copiedPdb = Join-Path $symbolRoot "RoR.pdb"
-          Copy-Item -LiteralPath $pdb.FullName -Destination $copiedPdb
+          $copiedPdb = Join-Path $symbolRoot "RoR-Ogre14.pdb"
+          Copy-Item -LiteralPath $pdb -Destination $copiedPdb
 
-          $executable = Join-Path $env:GITHUB_WORKSPACE "artifacts/runtime-${{ matrix.platform }}/RoR.exe"
+          $executable = Join-Path $env:GITHUB_WORKSPACE "artifacts/runtime-${{ matrix.platform }}/RoR-Ogre14.exe"
           if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
-            throw "Relocated RoR.exe is missing: $executable"
+            throw "Relocated RoR-Ogre14.exe is missing: $executable"
           }
           $symbolRecord = [ordered]@{
             format = "ror-windows-native-symbol-evidence-v1"
             repository_commit = (git rev-parse HEAD).Trim()
-            executable = "runtime-${{ matrix.platform }}/RoR.exe"
+            executable = "runtime-${{ matrix.platform }}/RoR-Ogre14.exe"
             executable_sha256 = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash.ToLowerInvariant()
-            pdb = "symbols/RoR.pdb"
+            pdb = "symbols/RoR-Ogre14.pdb"
             pdb_sha256 = (Get-FileHash -LiteralPath $copiedPdb -Algorithm SHA256).Hash.ToLowerInvariant()
-            pdb_source = $pdb.FullName
+            pdb_source = $pdb
           }
           $symbolJson = $symbolRecord | ConvertTo-Json
           Set-Content -LiteralPath (Join-Path $evidenceRoot "symbols.json") -Value $symbolJson -Encoding utf8
 
-          $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR.exe"
+          $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR-Ogre14.exe"
           New-Item -Path $werKey -Force | Out-Null
           New-ItemProperty -Path $werKey -Name "DumpCount" -PropertyType DWord -Value 8 -Force | Out-Null
           New-ItemProperty -Path $werKey -Name "DumpType" -PropertyType DWord -Value 2 -Force | Out-Null
@@ -509,7 +506,7 @@ jobs:
           $dumpDir = Join-Path $evidenceRoot "dumps/async"
           $sceneArtifact = Join-Path $env:GITHUB_WORKSPACE "artifacts/cityworld-bridge-${{ matrix.platform }}"
           New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
-          $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR.exe"
+          $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR-Ogre14.exe"
           New-ItemProperty -Path $werKey -Name "DumpFolder" -PropertyType ExpandString -Value $dumpDir -Force | Out-Null
 
           $driverStdout = Join-Path $evidenceRoot "async-driver.stdout.log"
@@ -543,8 +540,8 @@ jobs:
             $stderrText
           ) | Set-Content -LiteralPath "artifacts/cityworld-bridge-${{ matrix.platform }}.driver.log" -Encoding utf8
           $processDiagnostic = Join-Path $sceneArtifact "diagnostics/runtime-process.json"
-          $executable = Join-Path $env:GITHUB_WORKSPACE "artifacts/runtime-${{ matrix.platform }}/RoR.exe"
-          $pdb = Join-Path $evidenceRoot "symbols/RoR.pdb"
+          $executable = Join-Path $env:GITHUB_WORKSPACE "artifacts/runtime-${{ matrix.platform }}/RoR-Ogre14.exe"
+          $pdb = Join-Path $evidenceRoot "symbols/RoR-Ogre14.pdb"
           $manifest = Join-Path $evidenceRoot "async-dumps.json"
           & python tools/collect_windows_cityworld_crash_evidence.py --mode async --driver-exit-code $process.ExitCode --process-diagnostic $processDiagnostic --dump-dir $dumpDir --executable $executable --pdb $pdb --output $manifest --poll-attempts 40 --poll-interval-ms 250
           $evidenceExitCode = $LASTEXITCODE
@@ -567,7 +564,7 @@ jobs:
           $dumpDir = Join-Path $evidenceRoot "dumps/sync"
           $sceneArtifact = Join-Path $env:GITHUB_WORKSPACE "artifacts/cityworld-bridge-sync-${{ matrix.platform }}"
           New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
-          $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR.exe"
+          $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR-Ogre14.exe"
           New-ItemProperty -Path $werKey -Name "DumpFolder" -PropertyType ExpandString -Value $dumpDir -Force | Out-Null
 
           $driverStdout = Join-Path $evidenceRoot "sync-driver.stdout.log"
@@ -601,8 +598,8 @@ jobs:
             $stderrText
           ) | Set-Content -LiteralPath "artifacts/cityworld-bridge-sync-${{ matrix.platform }}.driver.log" -Encoding utf8
           $processDiagnostic = Join-Path $sceneArtifact "diagnostics/runtime-process.json"
-          $executable = Join-Path $env:GITHUB_WORKSPACE "artifacts/runtime-${{ matrix.platform }}/RoR.exe"
-          $pdb = Join-Path $evidenceRoot "symbols/RoR.pdb"
+          $executable = Join-Path $env:GITHUB_WORKSPACE "artifacts/runtime-${{ matrix.platform }}/RoR-Ogre14.exe"
+          $pdb = Join-Path $evidenceRoot "symbols/RoR-Ogre14.pdb"
           $manifest = Join-Path $evidenceRoot "sync-dumps.json"
           & python tools/collect_windows_cityworld_crash_evidence.py --mode sync --driver-exit-code $process.ExitCode --process-diagnostic $processDiagnostic --dump-dir $dumpDir --executable $executable --pdb $pdb --output $manifest --poll-attempts 40 --poll-interval-ms 250
           $evidenceExitCode = $LASTEXITCODE
@@ -618,7 +615,7 @@ jobs:
           steps.windows-cityworld-crash-evidence.outcome == 'success' }}
         shell: pwsh
         run: |
-          $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR.exe"
+          $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\RoR-Ogre14.exe"
           Remove-Item -LiteralPath $werKey -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Upload runtime, audit, and diagnostics

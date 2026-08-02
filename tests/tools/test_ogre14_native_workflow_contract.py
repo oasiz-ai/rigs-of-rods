@@ -614,19 +614,21 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
 
         for contract in (
             "windows-cityworld-crash-evidence",
-            "Windows Error Reporting\\LocalDumps\\RoR.exe",
+            "Windows Error Reporting\\LocalDumps\\RoR-Ogre14.exe",
             '"DumpCount"',
             '"DumpType"',
             "-Value 8",
             "-Value 2",
-            'Filter "RoR.pdb"',
-            'pdb = "symbols/RoR.pdb"',
+            'Join-Path $buildRoot "bin/RoR-Ogre14.pdb"',
+            "Production RoR-Ogre14.pdb is missing",
+            'pdb = "symbols/RoR-Ogre14.pdb"',
             "executable_sha256",
             "pdb_sha256",
             '"symbols.json"',
         ):
             with self.subTest(setup_contract=contract):
                 self.assertIn(contract, setup)
+        self.assertNotIn("Get-ChildItem", setup)
 
         for gate, mode, artifact, dump in (
             (

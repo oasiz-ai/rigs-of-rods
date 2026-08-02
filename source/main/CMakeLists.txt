@@ -486,14 +486,22 @@ add_executable(${BINNAME} ${SOURCE_FILES})
 if (ROR_RENDERER_PUBLIC_LAUNCHER)
     # Preserve the logical game target so its dependency/resource/test wiring
     # remains intact, while giving the two process roles exact, non-colliding
-    # sibling names in the build tree. Shipping stagers/installers are a later
-    # phase and deliberately remain disabled-by-default consumers of this
-    # opt-in topology.
+    # sibling names. The public executable carries Ogre-Next-first intent; the
+    # immutable package facts continue to admit only this OGRE 14 child until a
+    # production RoR-OgreNext child clears its independent renderer gates.
     set_target_properties(
         ${BINNAME}
         PROPERTIES
             OUTPUT_NAME "RoR-Ogre14"
+            PDB_NAME "RoR-Ogre14"
             DEBUG_POSTFIX "")
+    if (WIN32 AND NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+        target_compile_definitions(
+            ${BINNAME}
+            PRIVATE
+                ROR_RESOURCE_INTERNAL_NAME_STRING=\"RoR-Ogre14\"
+                ROR_RESOURCE_ORIGINAL_FILENAME_STRING=\"RoR-Ogre14.exe\")
+    endif ()
 
     include(RendererLauncherPackageConfig)
     set(_ror_renderer_launcher_generated_include_dir
@@ -556,6 +564,13 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
         set_target_properties(
             ror_renderer_launcher
             PROPERTIES WIN32_EXECUTABLE YES)
+        if (NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+            target_sources(ror_renderer_launcher PRIVATE "icon.rc")
+            target_include_directories(
+                ror_renderer_launcher
+                PRIVATE "${CMAKE_BINARY_DIR}/source/version_info")
+            add_dependencies(ror_renderer_launcher generate_version)
+        endif ()
         target_compile_definitions(
             ror_renderer_launcher
             PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
@@ -573,8 +588,8 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
         FILES "${_ror_renderer_launcher_generated_header}")
 
     message(STATUS
-        "Renderer public launcher topology is build-tree-only in phase 2; "
-        "install, package, and platform bundle targets are suppressed")
+        "Renderer suite packages Ogre-Next-first RoR with admitted "
+        "RoR-Ogre14 fallback")
 endif ()
 
 if (ROR_OGRE14 AND UNIX AND NOT APPLE)
@@ -976,15 +991,22 @@ fast_copy("${CMAKE_SOURCE_DIR}/resources/managed_materials" "${RUNTIME_OUTPUT_DI
 fast_copy("${CMAKE_SOURCE_DIR}/resources/fonts" "${RUNTIME_OUTPUT_DIRECTORY}/languages")
 fast_copy("${CMAKE_SOURCE_DIR}/languages" "${RUNTIME_OUTPUT_DIRECTORY}/languages")
 
-if (APPLE AND ROR_OGRE14 AND NOT ROR_RENDERER_PUBLIC_LAUNCHER)
+if (APPLE AND ROR_OGRE14)
     # Build a signed, relocatable application only when explicitly requested.
     # StageMacOSBundle derives the complete dylib closure from the executable
     # and active OGRE plugins; ROR_RUNTIME_DYLIBS remains available for future
     # non-linked runtime libraries.
     set(_ror_macos_bundle_path
         "${RUNTIME_OUTPUT_DIRECTORY}/RoR.app")
+    set(_ror_macos_primary_target ${BINNAME})
+    set(_ror_macos_sibling_executables "")
+    if (ROR_RENDERER_PUBLIC_LAUNCHER)
+        set(_ror_macos_primary_target ror_renderer_launcher)
+        set(_ror_macos_sibling_executables "$<TARGET_FILE:${BINNAME}>")
+    endif ()
     set(_ror_macos_bundle_dependencies
         ${BINNAME}
+        ${_ror_macos_primary_target}
         zip_folder_resources
         fast_copy_managed_materials
         fast_copy_fonts
@@ -994,7 +1016,8 @@ if (APPLE AND ROR_OGRE14 AND NOT ROR_RENDERER_PUBLIC_LAUNCHER)
         fast_copy_Terrain)
     set(_ror_macos_bundle_arguments
         "-DROR_BUNDLE=${_ror_macos_bundle_path}"
-        "-DROR_EXECUTABLE=$<TARGET_FILE:${BINNAME}>"
+        "-DROR_EXECUTABLE=$<TARGET_FILE:${_ror_macos_primary_target}>"
+        "-DROR_SIBLING_EXECUTABLES=${_ror_macos_sibling_executables}"
         "-DROR_RESOURCES=${RUNTIME_OUTPUT_DIRECTORY}/resources"
         "-DROR_LANGUAGES=${RUNTIME_OUTPUT_DIRECTORY}/languages"
         "-DROR_OGRE_PACKAGE_DIR=$<IF:$<CONFIG:Debug>,${_ror_ogre14_package_DEBUG},${_ror_ogre14_package_RELEASE}>"
@@ -1027,6 +1050,8 @@ if (APPLE AND ROR_OGRE14 AND NOT ROR_RENDERER_PUBLIC_LAUNCHER)
     set_property(TARGET ror_macos_bundle PROPERTY FOLDER "Packaging")
 
     unset(_ror_macos_bundle_path)
+    unset(_ror_macos_primary_target)
+    unset(_ror_macos_sibling_executables)
     unset(_ror_macos_bundle_dependencies)
     unset(_ror_macos_bundle_arguments)
 endif ()
@@ -1039,13 +1064,22 @@ endif ()
 
 #  Install targets
 # -----------------------
-if (NOT ROR_RENDERER_PUBLIC_LAUNCHER)
-install(TARGETS ${BINNAME} DESTINATION . COMPONENT "Base_Game")
+set(_ror_application_install_targets ${BINNAME})
+if (ROR_RENDERER_PUBLIC_LAUNCHER)
+    list(PREPEND _ror_application_install_targets ror_renderer_launcher)
+endif ()
+install(
+    TARGETS ${_ror_application_install_targets}
+    DESTINATION .
+    COMPONENT "Base_Game")
+unset(_ror_application_install_targets)
 
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/resources/fonts/ DESTINATION languages COMPONENT "Base_Game")
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/languages/ DESTINATION languages COMPONENT "Base_Game" FILES_MATCHING PATTERN "*.mo" )
 install(DIRECTORY ${RUNTIME_OUTPUT_DIRECTORY}/resources/ DESTINATION resources COMPONENT "Base_Game")
-install(DIRECTORY ${RUNTIME_OUTPUT_DIRECTORY}/content/ DESTINATION content COMPONENT "Base_Content")
+if (ROR_CREATE_CONTENT_FOLDER)
+    install(DIRECTORY ${RUNTIME_OUTPUT_DIRECTORY}/content/ DESTINATION content COMPONENT "Base_Content")
+endif ()
 
 if (ROR_OGRE14 AND NOT APPLE)
     # Never install the build-tree config: its PluginFolder deliberately names
@@ -1151,11 +1185,17 @@ else ()
         set(_ror_linux_install_root_code
 [=[set(ROR_LINUX_INSTALL_ROOT "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
 ]=])
+        set(_ror_linux_installed_game_executable "RoR")
+        if (ROR_RENDERER_PUBLIC_LAUNCHER)
+            set(_ror_linux_installed_game_executable "RoR-Ogre14")
+        endif ()
         string(CONCAT
             _ror_linux_runtime_install_code
             "set(ROR_LINUX_BUILD_EXECUTABLE "
                 "\"$<TARGET_FILE:${BINNAME}>\")\n"
             "${_ror_linux_install_root_code}"
+            "set(ROR_LINUX_INSTALLED_EXECUTABLE_NAME "
+                "\"${_ror_linux_installed_game_executable}\")\n"
             "set(ROR_LINUX_PLUGIN_DIR "
                 "\"$<IF:$<CONFIG:Debug>,"
                 "${_ror_ogre14_plugin_dir_DEBUG},"
@@ -1184,7 +1224,6 @@ else ()
                 file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX}/lib FOLLOW_SYMLINK_CHAIN)")
     endif ()
 endif ()
-endif ()
 
 if (ROR_OGRE14)
     unset(_ror_ogre14_media_root)
@@ -1200,6 +1239,7 @@ if (ROR_OGRE14)
     unset(_ror_ogre14_multi_config)
     unset(_ror_ogre14_build_plugin_folder)
     unset(_ror_linux_install_root_code)
+    unset(_ror_linux_installed_game_executable)
     unset(_ror_linux_runtime_install_code)
     unset(_ror_ogre14_runtime_PACKAGE_PLUGIN_SUBDIR)
     unset(_ror_ogre14_runtime_RENDERER_PLUGIN)
@@ -1218,7 +1258,6 @@ endif ()
 
 #  CPack
 # -----------------------
-if (NOT ROR_RENDERER_PUBLIC_LAUNCHER)
 set(CPACK_PACKAGE_NAME "Rigs of Rods")
 set(CPACK_PACKAGE_FILE_NAME "rigs-of-rods-${CMAKE_PROJECT_VERSION}-${ROR_BUILD_INSTALLER}")
 set(CPACK_PACKAGE_DESCRIPTION "Rigs of Rods soft-body physics simulator")
@@ -1272,5 +1311,6 @@ else ()
     set(CPACK_GENERATOR ZIP)
 endif ()
 
-include(CPack)
+if (NOT (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER))
+    include(CPack)
 endif ()

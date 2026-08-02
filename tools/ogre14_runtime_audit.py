@@ -332,6 +332,9 @@ def linux_elf_files(root: Path, executable: Path) -> list[Path]:
     """Find unique real ELF candidates in the installed runtime closure."""
 
     candidates = [executable]
+    public_executable = root / "RoR"
+    if public_executable.is_file() and public_executable != executable:
+        candidates.append(public_executable)
     library_root = root / "lib"
     if library_root.is_dir():
         candidates.extend(
@@ -869,10 +872,20 @@ def audit(
     assert_no_forbidden_plugin_binaries(root, platform)
     plugins = active_plugin_paths(root, platform, expected_plugins)
     if platform == "linux-x86_64":
-        executable = root / "RoR"
+        public_executable = root / "RoR"
+        compatibility_executable = root / "RoR-Ogre14"
+        executable = (
+            compatibility_executable
+            if compatibility_executable.exists()
+            else public_executable
+        )
         launcher = root / "RunRoR"
+        if not public_executable.is_file() or not os.access(
+            public_executable, os.X_OK
+        ):
+            raise AuditError("installed Linux public RoR executable is unavailable")
         if not executable.is_file() or not os.access(executable, os.X_OK):
-            raise AuditError("installed Linux RoR executable is unavailable")
+            raise AuditError("installed Linux OGRE 14 executable is unavailable")
         if not launcher.is_file() or not os.access(launcher, os.X_OK):
             raise AuditError("installed Linux RunRoR launcher is unavailable")
         metadata = audit_linux_elf(
@@ -884,6 +897,12 @@ def audit(
         executable = root / "RoR.exe"
         if not executable.is_file():
             raise AuditError("installed Windows RoR.exe is unavailable")
+        compatibility_executable = root / "RoR-Ogre14.exe"
+        if (
+            compatibility_executable.exists()
+            and not compatibility_executable.is_file()
+        ):
+            raise AuditError("installed Windows RoR-Ogre14.exe is not a file")
         metadata = audit_windows_pe(
             root,
             forbidden_prefixes=forbidden_prefixes,

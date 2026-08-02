@@ -37,8 +37,8 @@ class WindowsCityWorldCrashEvidenceTests(unittest.TestCase):
         root: Path,
         returncode: int | None,
     ) -> tuple[Path, Path, Path, Path, Path]:
-        executable = root / "runtime" / "RoR.exe"
-        pdb = root / "evidence" / "symbols" / "RoR.pdb"
+        executable = root / "runtime" / "RoR-Ogre14.exe"
+        pdb = root / "evidence" / "symbols" / "RoR-Ogre14.pdb"
         diagnostic = root / "scene" / "diagnostics" / "runtime-process.json"
         dump_dir = root / "evidence" / "dumps" / "async"
         output = root / "evidence" / "async-dumps.json"
@@ -135,8 +135,16 @@ class WindowsCityWorldCrashEvidenceTests(unittest.TestCase):
                 sha256(b"exact RoR executable"),
             )
             self.assertEqual(
+                document["binaries"]["executable"]["artifact"],
+                "runtime/RoR-Ogre14.exe",
+            )
+            self.assertEqual(
                 document["binaries"]["pdb"]["sha256"],
                 sha256(b"exact RoR program database"),
+            )
+            self.assertEqual(
+                document["binaries"]["pdb"]["artifact"],
+                "symbols/RoR-Ogre14.pdb",
             )
             self.assertEqual(
                 json.loads(output.read_text(encoding="utf-8")),
@@ -152,7 +160,7 @@ class WindowsCityWorldCrashEvidenceTests(unittest.TestCase):
                     executable, pdb, diagnostic, dump_dir, output = (
                         self.fixture(root, returncode)
                     )
-                    dump = dump_dir / "RoR.exe.4242.dmp"
+                    dump = dump_dir / "RoR-Ogre14.exe.4242.dmp"
                     dump.write_bytes(b"full WER minidump")
 
                     document = COLLECTOR.collect(
@@ -187,7 +195,7 @@ class WindowsCityWorldCrashEvidenceTests(unittest.TestCase):
                         document["dumps"],
                         [
                             {
-                                "artifact": "dumps/async/RoR.exe.4242.dmp",
+                                "artifact": "dumps/async/RoR-Ogre14.exe.4242.dmp",
                                 "bytes": len(b"full WER minidump"),
                                 "sha256": sha256(b"full WER minidump"),
                             }

@@ -7,6 +7,10 @@
 #   ROR_LINUX_INSTALL_ROOT
 #       Absolute DESTDIR-aware installation root containing the installed RoR
 #       executable and plugins configuration.
+#   ROR_LINUX_INSTALLED_EXECUTABLE_NAME
+#       Package-root basename of the OGRE 14 game executable whose runtime
+#       closure is being staged. Defaults to RoR for legacy single-process
+#       packages and is RoR-Ogre14 for renderer-suite packages.
 #   ROR_LINUX_PLUGIN_DIR
 #       Absolute, configuration-specific Conan OGRE plugin directory.
 #   ROR_LINUX_PLUGINS_CFG
@@ -23,6 +27,10 @@
 # the target distribution.
 
 cmake_minimum_required(VERSION 3.16)
+
+if (NOT DEFINED ROR_LINUX_INSTALLED_EXECUTABLE_NAME)
+    set(ROR_LINUX_INSTALLED_EXECUTABLE_NAME "RoR")
+endif ()
 
 foreach (_ror_required_variable IN ITEMS
         ROR_LINUX_BUILD_EXECUTABLE
@@ -47,6 +55,12 @@ endif ()
 if (NOT ROR_LINUX_INSTALL_PLUGIN_FOLDER STREQUAL "lib/OGRE")
     message(FATAL_ERROR
         "The Linux OGRE 14 install plugin folder must be lib/OGRE")
+endif ()
+if (NOT ROR_LINUX_INSTALLED_EXECUTABLE_NAME MATCHES
+        "^[A-Za-z0-9_.+-]+$")
+    message(FATAL_ERROR
+        "Unsafe installed Linux game executable name: "
+        "${ROR_LINUX_INSTALLED_EXECUTABLE_NAME}")
 endif ()
 if (NOT IS_ABSOLUTE "${ROR_LINUX_CONTRACT_MODULE}"
         OR NOT EXISTS "${ROR_LINUX_CONTRACT_MODULE}")
@@ -73,7 +87,8 @@ if (NOT IS_ABSOLUTE "${ROR_LINUX_INSTALL_ROOT}"
         "Linux runtime install root is not an absolute directory: "
         "${ROR_LINUX_INSTALL_ROOT}")
 endif ()
-set(_ror_installed_executable "${ROR_LINUX_INSTALL_ROOT}/RoR")
+set(_ror_installed_executable
+    "${ROR_LINUX_INSTALL_ROOT}/${ROR_LINUX_INSTALLED_EXECUTABLE_NAME}")
 if (NOT EXISTS "${_ror_installed_executable}"
         OR IS_DIRECTORY "${_ror_installed_executable}"
         OR IS_SYMLINK "${_ror_installed_executable}")

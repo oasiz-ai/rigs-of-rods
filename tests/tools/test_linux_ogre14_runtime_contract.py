@@ -505,6 +505,14 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
         )
         self.assertIn("tools/linux/RunRoR-ogre14", source)
         self.assertIn("StageLinuxRuntime.cmake", source)
+        self.assertIn(
+            'set(_ror_linux_installed_game_executable "RoR-Ogre14")',
+            source,
+        )
+        self.assertIn(
+            "ROR_LINUX_INSTALLED_EXECUTABLE_NAME",
+            stager,
+        )
         self.assertIn("${CONAN_RUNTIME_LIB_DIRS}", source)
         self.assertIn(
             '[=[set(ROR_LINUX_INSTALL_ROOT '

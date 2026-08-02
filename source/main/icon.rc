@@ -5,6 +5,13 @@
 #include <Windows.h>
 #include "version_def.h"
 #include "resource.h"
+
+#ifndef ROR_RESOURCE_INTERNAL_NAME_STRING
+#define ROR_RESOURCE_INTERNAL_NAME_STRING "RoR"
+#endif
+#ifndef ROR_RESOURCE_ORIGINAL_FILENAME_STRING
+#define ROR_RESOURCE_ORIGINAL_FILENAME_STRING "RoR.exe"
+#endif
 /////////////////////////////////////////////////////////////////////////////
 // English (United States) resources
 
@@ -71,9 +78,9 @@ BEGIN
             VALUE "CompanyName", "rigsofrods.org"
             VALUE "FileDescription", "Rigs of Rods Simulator"
             VALUE "FileVersion", ROR_RESOURCE_VERSION_STRING
-            VALUE "InternalName", "RoR"
+            VALUE "InternalName", ROR_RESOURCE_INTERNAL_NAME_STRING
             VALUE "LegalCopyright", "Copyright (C) 2005-2019 rigsofrods.org"
-            VALUE "OriginalFilename", "RoR.exe"
+            VALUE "OriginalFilename", ROR_RESOURCE_ORIGINAL_FILENAME_STRING
             VALUE "ProductName", "Rigs of Rods"
             VALUE "ProductVersion", ROR_RESOURCE_VERSION_STRING
 			

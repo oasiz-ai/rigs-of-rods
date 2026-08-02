@@ -1079,19 +1079,23 @@ Gate R1:
   resolution, including Windows `.exe` versus POSIX naming mismatches.
   Cross-platform-gated fake-child tests exercise empty/quoted/Unicode arguments
   and prove that cwd, `PATH`, and environment decoys cannot redirect launch.
-  The fake child is test-only and never packaged. The opt-in build-tree public
-  launcher and exact `RoR-Ogre14` sibling rename are now wired with generated
+  The fake child is test-only and never packaged. OGRE 14 builds now package
+  the public launcher and exact `RoR-Ogre14` sibling with generated
   immutable facts and an Ogre-Next-preferred/PSSM default. The versioned
   normalized-intent argv encoder/decoder is complete: it inserts and strips an
   exact ordered four-record native argv prefix, owns the complete preserved
   game suffix, binds the decoded request and native backend to the compile-time
   child host, and rejects unknown, reordered, malformed, legacy, reserved
   duplicate, null, foreign-platform, or inconsistent handoff inputs before
-  renderer initialization. Shipping staging, signing, package assembly, and
-  the production Ogre-Next child remain open.
-  Build-tree validation explicitly configures `-DROR_OGRE14=ON` and
-  `-DROR_RENDERER_PUBLIC_LAUNCHER=ON`, builds `ror_renderer_launcher`, and
-  verifies exact `bin/RoR[.exe]` plus `bin/RoR-Ogre14[.exe]` siblings.
+  renderer initialization. Linux/Windows install and CPack staging plus the
+  signed macOS application bundle retain both exact roles and preserve OGRE 14
+  crash symbols. Flat macOS install/CPack remains disabled so it cannot bypass
+  Mach-O rewriting and nested-code signing. The production Ogre-Next child
+  remains open, so immutable package facts still select the explicit
+  compatibility fallback.
+  Validation configures `-DROR_OGRE14=ON`, builds
+  `ror_renderer_launcher`, and verifies exact `bin/RoR[.exe]` plus
+  `bin/RoR-Ogre14[.exe]` siblings in build and package layouts.
 - The standalone Metal admission probe and the Ogre-Next N2/N3 interop probes
   have passed on the recorded Apple M5. N2 rastered a renderer-neutral deformed RoR
   scene, exported the exact pooled Ogre v2 position/index slices from that
@@ -1171,8 +1175,8 @@ Gate R1:
   initializes its frontend and then emits explicit unsupported evidence when
   backend admission fails. A pure pre-initialization plan now chooses native,
   Ogre-Next PSSM, OGRE14 PSSM, or rejection without loading either renderer
-  ABI. The package-level executable handoff contract is implemented; the
-  production launcher and child binaries remain open. The Metal
+  ABI. The package-level executable handoff and production launcher are
+  implemented; the Ogre-Next child binary remains open. The Metal
   N4 implementation now passes on a
   physical Apple M5 with 5,712 visible receiver pixels, 432 pixels blocked by
   the distinct occluder, zero primary misses, exact R16 visibility, exact R32
@@ -1188,7 +1192,7 @@ Gate R1:
   packed Vulkan SSBO encodings). They explicitly do
   not claim an exact Ogre RGBA16 source, an Ogre image composite, or full native
   V1 readiness. Linux/Windows hardware execution, soft/area-light shadows,
-  the production launcher, and image/performance gates remain open.
+  the production Ogre-Next child, and image/performance gates remain open.
 - The renderer-neutral scene boundary now has the prerequisite lighting slice:
   snapshot version 4 retains the sorted stable directional/point/spot identities
   introduced by version 3 and adds an ordered absolute-world reflection-probe set,

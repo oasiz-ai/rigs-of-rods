@@ -192,8 +192,11 @@ def collect(
     ]
     document: dict[str, object] = {
         "binaries": {
-            "executable": file_record(executable, "runtime/RoR.exe"),
-            "pdb": file_record(pdb, "symbols/RoR.pdb"),
+            "executable": file_record(
+                executable,
+                f"runtime/{executable.name}",
+            ),
+            "pdb": file_record(pdb, f"symbols/{pdb.name}"),
         },
         "driver_exit_code": driver_exit_code,
         "dump_capture": {

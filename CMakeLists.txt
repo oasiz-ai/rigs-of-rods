@@ -42,10 +42,12 @@ option(ROR_BUILD_TESTS "Build deterministic dependency-free physics tests" OFF)
 option(ROR_USE_PCH "Use a Precompiled header for speeding up the build" ON)
 option(ROR_CREATE_CONTENT_FOLDER "Create the base content folder" ON)
 option(ROR_OGRE14 "Opt in to the cross-platform OGRE 14 bring-up" OFF)
+set(_ror_renderer_public_launcher_default "${ROR_OGRE14}")
 option(
     ROR_RENDERER_PUBLIC_LAUNCHER
-    "Build the phase-2 public renderer chooser and sibling OGRE 14 game (build tree only)"
-    OFF)
+    "Build and package the Ogre-Next-first public renderer chooser with the admitted renderer siblings"
+    "${_ror_renderer_public_launcher_default}")
+unset(_ror_renderer_public_launcher_default)
 set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to the dependencies")
 
 if (ROR_RENDERER_PUBLIC_LAUNCHER AND NOT ROR_OGRE14)
@@ -54,10 +56,10 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER AND NOT ROR_OGRE14)
         "admitted production child is RoR-Ogre14")
 endif ()
 
-if (ROR_RENDERER_PUBLIC_LAUNCHER)
-    # Phase 2 proves only a build-tree process topology. Suppress CMake's
-    # install graph entirely so an opt-in launcher build cannot accidentally
-    # package the renamed compatibility child as the public executable.
+if (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER)
+    # The signed RoR.app stager owns dependency rewriting, nested-code signing,
+    # and both executable roles. A flat CMake install would bypass those gates
+    # and leave the OGRE 14 child's @rpath dependencies unresolved.
     set(CMAKE_SKIP_INSTALL_RULES ON)
 endif ()
 

@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Configure the immutable package facts consumed by the public renderer
-# launcher. Phase 2 deliberately admits only the real OGRE 14 game child;
-# changing any Ogre-Next fact requires the later production-admission gate.
+# launcher. The renderer-suite package deliberately admits only the real
+# OGRE 14 game child; changing any Ogre-Next fact requires the independent
+# production-child admission gate.
 function(ror_configure_renderer_launcher_package_facts
         template_path output_directory output_header_variable)
     if (NOT IS_ABSOLUTE "${template_path}"

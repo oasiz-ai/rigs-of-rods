@@ -17,6 +17,8 @@
 #
 # Optional -D inputs:
 #   ROR_CONTENT                Absolute content directory or archive.
+#   ROR_SIBLING_EXECUTABLES    Additional absolute executable paths staged
+#                              beside the public executable.
 #   ROR_RUNTIME_SEARCH_DIRS    Additional absolute dependency search directories.
 #   ROR_INFO_PLIST_TEMPLATE    Defaults to the adjacent RoRInfo.plist.in.
 #   ROR_DRY_RUN                Validate and print the plan without modifying output.
@@ -422,6 +424,9 @@ endif()
 if(NOT DEFINED ROR_RUNTIME_SEARCH_DIRS)
     set(ROR_RUNTIME_SEARCH_DIRS "")
 endif()
+if(NOT DEFINED ROR_SIBLING_EXECUTABLES)
+    set(ROR_SIBLING_EXECUTABLES "")
+endif()
 
 foreach(_name_variable IN ITEMS ROR_BUNDLE_NAME ROR_BUNDLE_EXECUTABLE_NAME)
     if("${${_name_variable}}" STREQUAL "" OR
@@ -455,6 +460,41 @@ _ror_require_absolute_path("ROR_OGRE_PACKAGE_DIR" "DIRECTORY")
 _ror_require_absolute_path("ROR_OGRE_PLUGIN_DIR" "DIRECTORY")
 _ror_require_absolute_path("ROR_OGRE_PLUGINS_CFG" "FILE")
 _ror_require_absolute_path("ROR_INFO_PLIST_TEMPLATE" "FILE")
+
+set(_ror_sibling_executables)
+set(_ror_sibling_executable_names)
+foreach(_ror_sibling IN LISTS ROR_SIBLING_EXECUTABLES)
+    if(_ror_sibling STREQUAL "")
+        continue()
+    endif()
+    if(NOT IS_ABSOLUTE "${_ror_sibling}" OR
+            NOT EXISTS "${_ror_sibling}" OR
+            IS_DIRECTORY "${_ror_sibling}")
+        message(FATAL_ERROR
+            "ROR_SIBLING_EXECUTABLES contains a missing or non-file path: "
+            "'${_ror_sibling}'")
+    endif()
+    get_filename_component(_ror_sibling_name "${_ror_sibling}" NAME)
+    if(_ror_sibling_name STREQUAL "" OR
+            NOT _ror_sibling_name MATCHES "^[A-Za-z0-9_.+-]+$")
+        message(FATAL_ERROR
+            "Unsafe sibling executable basename: '${_ror_sibling_name}'")
+    endif()
+    if(_ror_sibling_name STREQUAL ROR_BUNDLE_EXECUTABLE_NAME)
+        message(FATAL_ERROR
+            "Sibling executable collides with the public executable: "
+            "'${_ror_sibling_name}'")
+    endif()
+    list(FIND _ror_sibling_executable_names
+        "${_ror_sibling_name}" _ror_sibling_name_index)
+    if(NOT _ror_sibling_name_index EQUAL -1)
+        message(FATAL_ERROR
+            "Duplicate sibling executable basename: '${_ror_sibling_name}'")
+    endif()
+    _ror_real_path("${_ror_sibling}" _ror_sibling_real)
+    list(APPEND _ror_sibling_executables "${_ror_sibling_real}")
+    list(APPEND _ror_sibling_executable_names "${_ror_sibling_name}")
+endforeach()
 
 if(NOT IS_ABSOLUTE "${ROR_BUNDLE}")
     message(FATAL_ERROR "ROR_BUNDLE must be absolute: '${ROR_BUNDLE}'")
@@ -492,6 +532,14 @@ _ror_find_tool(_ror_install_name_tool install_name_tool)
 _ror_find_tool(_ror_codesign codesign)
 _ror_find_tool(_ror_plutil plutil)
 _ror_assert_macho("${_ror_executable}" "EXECUTABLE")
+foreach(_ror_sibling IN LISTS _ror_sibling_executables)
+    if(_ror_sibling STREQUAL _ror_executable)
+        message(FATAL_ERROR
+            "A sibling executable resolves to ROR_EXECUTABLE: "
+            "'${_ror_sibling}'")
+    endif()
+    _ror_assert_macho("${_ror_sibling}" "EXECUTABLE")
+endforeach()
 
 set(_ror_contents "${_ror_bundle}/Contents")
 set(_ror_macos "${_ror_contents}/MacOS")
@@ -500,6 +548,11 @@ set(_ror_plugins "${_ror_contents}/PlugIns")
 set(_ror_bundle_resources "${_ror_contents}/Resources")
 set(_ror_destination_executable
     "${_ror_macos}/${ROR_BUNDLE_EXECUTABLE_NAME}")
+set(_ror_destination_sibling_executables)
+foreach(_ror_sibling_name IN LISTS _ror_sibling_executable_names)
+    list(APPEND _ror_destination_sibling_executables
+        "${_ror_macos}/${_ror_sibling_name}")
+endforeach()
 
 # Validate every input and the exact destination before any output mutation.
 foreach(_input_pair IN ITEMS
@@ -537,6 +590,15 @@ if(_executable_in_bundle)
         "ROR_EXECUTABLE must be an external source so ROR_BUNDLE can be "
         "recreated without preserving stale runtime state: '${_ror_executable}'")
 endif()
+foreach(_ror_sibling IN LISTS _ror_sibling_executables)
+    _ror_path_is_within(
+        "${_ror_sibling}" "${_ror_bundle}" _sibling_in_bundle)
+    if(_sibling_in_bundle)
+        message(FATAL_ERROR
+            "ROR_SIBLING_EXECUTABLES must contain only external sources: "
+            "'${_ror_sibling}'")
+    endif()
+endforeach()
 
 if(EXISTS "${_ror_bundle}")
     foreach(_protected_path IN ITEMS
@@ -698,7 +760,7 @@ endforeach()
 list(REMOVE_DUPLICATES _ror_runtime_search_dirs)
 
 file(GET_RUNTIME_DEPENDENCIES
-    EXECUTABLES "${_ror_executable}"
+    EXECUTABLES "${_ror_executable}" ${_ror_sibling_executables}
     LIBRARIES ${_ror_plugin_sources} ${_ror_explicit_runtime_dylibs}
     DIRECTORIES ${_ror_runtime_search_dirs}
     RESOLVED_DEPENDENCIES_VAR _ror_resolved_dependencies
@@ -814,6 +876,7 @@ file(MAKE_DIRECTORY
     "${_ror_macos}"
     "${_ror_bundle_resources}")
 foreach(_owned_directory IN ITEMS
+        "${_ror_macos}"
         "${_ror_frameworks}"
         "${_ror_plugins}"
         "${_ror_bundle_resources}/resources"
@@ -825,6 +888,7 @@ foreach(_owned_directory IN ITEMS
     endif()
 endforeach()
 file(MAKE_DIRECTORY
+    "${_ror_macos}"
     "${_ror_frameworks}"
     "${_ror_plugins}"
     "${_ror_bundle_resources}/resources"
@@ -841,6 +905,18 @@ file(CHMOD "${_ror_destination_executable}"
         OWNER_READ OWNER_WRITE OWNER_EXECUTE
         GROUP_READ GROUP_EXECUTE
         WORLD_READ WORLD_EXECUTE)
+foreach(_ror_sibling IN LISTS _ror_sibling_executables)
+    get_filename_component(_ror_sibling_name "${_ror_sibling}" NAME)
+    set(_ror_sibling_destination "${_ror_macos}/${_ror_sibling_name}")
+    file(COPY_FILE
+        "${_ror_sibling}" "${_ror_sibling_destination}"
+        ONLY_IF_DIFFERENT)
+    file(CHMOD "${_ror_sibling_destination}"
+        PERMISSIONS
+            OWNER_READ OWNER_WRITE OWNER_EXECUTE
+            GROUP_READ GROUP_EXECUTE
+            WORLD_READ WORLD_EXECUTE)
+endforeach()
 
 _ror_run_checked(
     "Copying RoR resources"
@@ -984,11 +1060,16 @@ foreach(_binary IN LISTS _ror_plugin_binaries)
         "@loader_path"
         "@loader_path/../Frameworks")
 endforeach()
-_ror_rewrite_dependencies("${_ror_destination_executable}")
-_ror_set_exact_rpaths(
+set(_ror_bundle_executables
     "${_ror_destination_executable}"
-    "@executable_path/../Frameworks"
-    "@executable_path/../PlugIns")
+    ${_ror_destination_sibling_executables})
+foreach(_binary IN LISTS _ror_bundle_executables)
+    _ror_rewrite_dependencies("${_binary}")
+    _ror_set_exact_rpaths(
+        "${_binary}"
+        "@executable_path/../Frameworks"
+        "@executable_path/../PlugIns")
+endforeach()
 
 foreach(_binary IN LISTS _ror_framework_binaries)
     _ror_verify_binary("${_binary}" "DYLIB" "@loader_path")
@@ -999,16 +1080,19 @@ foreach(_binary IN LISTS _ror_plugin_binaries)
         "@loader_path"
         "@loader_path/../Frameworks")
 endforeach()
-_ror_verify_binary(
-    "${_ror_destination_executable}" "EXECUTABLE"
-    "@executable_path/../Frameworks"
-    "@executable_path/../PlugIns")
+foreach(_binary IN LISTS _ror_bundle_executables)
+    _ror_verify_binary(
+        "${_binary}" "EXECUTABLE"
+        "@executable_path/../Frameworks"
+        "@executable_path/../PlugIns")
+endforeach()
 
 # Sign nested code from the inside out. Do not use --deep for signing; every
 # Mach-O is signed intentionally before the outer bundle seal is created.
 foreach(_binary IN LISTS
         _ror_framework_binaries
-        _ror_plugin_binaries)
+        _ror_plugin_binaries
+        _ror_bundle_executables)
     _ror_run_checked(
         "Ad-hoc signing ${_binary}"
         "${_ror_codesign}" --force --sign - --timestamp=none "${_binary}")
@@ -1034,9 +1118,11 @@ foreach(_binary IN LISTS _ror_plugin_binaries)
         "@loader_path"
         "@loader_path/../Frameworks")
 endforeach()
-_ror_verify_binary(
-    "${_ror_destination_executable}" "EXECUTABLE"
-    "@executable_path/../Frameworks"
-    "@executable_path/../PlugIns")
+foreach(_binary IN LISTS _ror_bundle_executables)
+    _ror_verify_binary(
+        "${_binary}" "EXECUTABLE"
+        "@executable_path/../Frameworks"
+        "@executable_path/../PlugIns")
+endforeach()
 
 message(STATUS "Staged and verified relocatable bundle: ${_ror_bundle}")

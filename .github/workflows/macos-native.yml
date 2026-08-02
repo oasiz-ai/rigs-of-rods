@@ -122,8 +122,15 @@ jobs:
         run: |
           app="build-macos-ogre14/bin/RoR.app"
           executable="$app/Contents/MacOS/RoR"
+          compatibility_executable="$app/Contents/MacOS/RoR-Ogre14"
 
           test -d "$app"
+          test -x "$executable"
+          test -x "$compatibility_executable"
+          test "$({
+            find "$app/Contents/MacOS" \
+              -maxdepth 1 -type f -perm -111 -print
+          } | wc -l | tr -d ' ')" = "2"
           test "$(lipo -archs "$executable")" = "arm64"
           test "$(
             otool -l "$executable" |
@@ -160,7 +167,7 @@ jobs:
                 '
             )" = "11.0"
           done < <(
-            printf '%s\0' "$executable"
+            printf '%s\0%s\0' "$executable" "$compatibility_executable"
             find \
               "$app/Contents/PlugIns" \
               "$app/Contents/Frameworks" \

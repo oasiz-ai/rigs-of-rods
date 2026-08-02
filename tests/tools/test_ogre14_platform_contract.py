@@ -713,6 +713,11 @@ class Ogre14PlatformContractTests(unittest.TestCase):
             "ROR_CONTENT directory contains no regular files",
             stager,
         )
+        self.assertIn("ROR_SIBLING_EXECUTABLES", stager)
+        self.assertIn(
+            'compatibility_executable="$app/Contents/MacOS/RoR-Ogre14"',
+            workflow,
+        )
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ source/main/gfx/particle/FireExtinguisherAffector.cpp whitespace=cr-at-eol
 source/main/gfx/particle/OgreParticleCustomParam.h whitespace=cr-at-eol
 source/main/gfx/particle/OgreShaderParticleRenderer.cpp whitespace=cr-at-eol
 source/main/gfx/particle/OgreShaderParticleRenderer.h whitespace=cr-at-eol
+source/main/icon.rc whitespace=cr-at-eol
 source/main/main.cpp whitespace=cr-at-eol
 source/main/physics/flex/FlexBody.cpp whitespace=cr-at-eol
 source/main/resources/ContentManager.cpp whitespace=cr-at-eol

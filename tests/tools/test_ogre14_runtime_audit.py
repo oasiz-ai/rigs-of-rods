@@ -677,6 +677,23 @@ class Ogre14RuntimeAuditTests(unittest.TestCase):
             with self.assertRaises(AUDIT.AuditError):
                 AUDIT.windows_pe_files(root)
 
+    def test_linux_renderer_suite_audits_public_and_compatibility_elves(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre14-audit-renderer-suite-"
+        ) as temporary:
+            root = Path(temporary)
+            public = root / "RoR"
+            compatibility = root / "RoR-Ogre14"
+            public.write_bytes(b"public")
+            compatibility.write_bytes(b"compatibility")
+            files = AUDIT.linux_elf_files(root, compatibility)
+            self.assertEqual(
+                {path.name for path in files},
+                {"RoR", "RoR-Ogre14"},
+            )
+
     def test_script_has_no_platform_specific_import_dependency(self) -> None:
         source = TOOL.read_text(encoding="utf-8")
         for dependency in ("pefile", "elftools", "yaml"):
