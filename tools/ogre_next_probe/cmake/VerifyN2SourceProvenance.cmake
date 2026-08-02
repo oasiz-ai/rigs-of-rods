@@ -41,6 +41,10 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererOgreNextChild.cpp
     source/main/system/RendererOgreNextChild.h
     source/main/system/RendererOgreNextChildMain.cpp
+    source/main/system/RendererOgreNextLiveSession.cpp
+    source/main/system/RendererOgreNextLiveSession.h
+    source/main/system/RendererOgreNextProductionSession.cpp
+    source/main/system/RendererOgreNextProductionSession.h
     source/main/system/RendererOgreNextSdlWindowRuntime.cpp
     source/main/system/RendererOgreNextSdlWindowRuntime.h
     source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm
@@ -63,6 +67,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererSiblingPathTests.cpp
     tests/gfx/RendererPackageRuntimeProbeTests.cpp
     tests/gfx/RendererOgreNextChildTests.cpp
+    tests/gfx/RendererOgreNextLiveSessionTests.cpp
     tests/gfx/RendererOgreNextWindowHostTests.cpp
     tests/gfx/RendererPublicLauncherLegacyChild.cpp
     tests/gfx/RendererPublicLauncherTests.cpp
@@ -71,6 +76,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererStartupPlanTests.cpp
     tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
     tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
+    tests/gfx/render/RenderBridgeControlTransportTests.cpp
     tests/tools/test_ogre_next_child_runtime_contract.py
     tests/tools/test_ogre_next_window_host_contract.py
     tests/tools/test_ogre_next_window_presentation_contract.py
@@ -137,6 +143,10 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererOgreNextChild.cpp"
     "source/main/system/RendererOgreNextChild.h"
     "source/main/system/RendererOgreNextChildMain.cpp"
+    "source/main/system/RendererOgreNextLiveSession.cpp"
+    "source/main/system/RendererOgreNextLiveSession.h"
+    "source/main/system/RendererOgreNextProductionSession.cpp"
+    "source/main/system/RendererOgreNextProductionSession.h"
     "source/main/system/RendererOgreNextSdlWindowRuntime.cpp"
     "source/main/system/RendererOgreNextSdlWindowRuntime.h"
     "source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm"
@@ -158,6 +168,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererSiblingPathTests.cpp"
     "tests/gfx/RendererPackageRuntimeProbeTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"
+    "tests/gfx/RendererOgreNextLiveSessionTests.cpp"
     "tests/gfx/RendererOgreNextWindowHostTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
     "tests/gfx/RendererPublicLauncherTests.cpp"
@@ -166,6 +177,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
+    "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
     "tests/tools/test_ogre_next_window_presentation_contract.py"

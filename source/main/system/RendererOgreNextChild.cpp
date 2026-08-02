@@ -158,21 +158,22 @@ RendererOgreNextChildResult RunRendererOgreNextChild(
     if (result.invocation_mode ==
         RendererOgreNextChildInvocationMode::PRODUCTION_BRIDGE) {
       if (result.frontend.status ==
-          RendererOgreNextFrontendBootstrapStatus::
-              ACCEPTED_PRODUCTION_BRIDGE_ORCHESTRATION) {
-        if (!result.frontend.accepted || result.frontend.completed) {
+          RendererOgreNextFrontendBootstrapStatus::COMPLETED) {
+        if (!result.frontend.accepted || !result.frontend.completed) {
           result.status =
               RendererOgreNextChildStatus::FAILED_FRONTEND_INTERNAL;
           return result;
         }
         result.status = RendererOgreNextChildStatus::
-            ACCEPTED_PRODUCTION_BRIDGE_ORCHESTRATION;
+            COMPLETED_PRODUCTION_BRIDGE_SESSION;
         result.accepted = true;
+        result.completed = true;
         return result;
       }
       if (result.frontend.accepted || result.frontend.completed ||
           result.frontend.status ==
-              RendererOgreNextFrontendBootstrapStatus::COMPLETED) {
+              RendererOgreNextFrontendBootstrapStatus::
+                  ACCEPTED_PRODUCTION_BRIDGE_ORCHESTRATION) {
         result.status =
             RendererOgreNextChildStatus::FAILED_FRONTEND_INTERNAL;
         return result;
@@ -272,6 +273,7 @@ bool IsKnownRendererOgreNextChildStatus(
   case RendererOgreNextChildStatus::FAILED_INTERNAL:
   case RendererOgreNextChildStatus::REJECTED_BRIDGE_ENDPOINT:
   case RendererOgreNextChildStatus::REJECTED_BRIDGE_ROLE:
+  case RendererOgreNextChildStatus::COMPLETED_PRODUCTION_BRIDGE_SESSION:
     return true;
   }
   return false;
@@ -335,6 +337,8 @@ const char *ToString(RendererOgreNextChildStatus status) noexcept {
     return "rejected-bridge-endpoint";
   case RendererOgreNextChildStatus::REJECTED_BRIDGE_ROLE:
     return "rejected-bridge-role";
+  case RendererOgreNextChildStatus::COMPLETED_PRODUCTION_BRIDGE_SESSION:
+    return "completed-production-bridge-session";
   }
   return "invalid";
 }

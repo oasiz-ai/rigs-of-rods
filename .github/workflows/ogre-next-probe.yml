@@ -30,6 +30,8 @@ on:
       - source/main/system/RendererPackagedMediaPath.*
       - source/main/system/RendererPackageRuntimeProbe.*
       - source/main/system/RendererOgreNextChild.*
+      - source/main/system/RendererOgreNextLiveSession.*
+      - source/main/system/RendererOgreNextProductionSession.*
       - source/main/system/RendererOgreNextSdlWindowRuntime*
       - source/main/system/RendererOgreNextWindowHost.*
       - source/main/system/RendererLauncherMain.cpp
@@ -49,6 +51,7 @@ on:
       - tests/gfx/RendererSiblingPathTests.cpp
       - tests/gfx/RendererPackageRuntimeProbeTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
+      - tests/gfx/RendererOgreNextLiveSessionTests.cpp
       - tests/gfx/RendererOgreNextWindowHostTests.cpp
       - tests/gfx/RendererPublicLauncherLegacyChild.cpp
       - tests/gfx/RendererPublicLauncherTests.cpp
@@ -85,6 +88,8 @@ on:
       - source/main/system/RendererPackagedMediaPath.*
       - source/main/system/RendererPackageRuntimeProbe.*
       - source/main/system/RendererOgreNextChild.*
+      - source/main/system/RendererOgreNextLiveSession.*
+      - source/main/system/RendererOgreNextProductionSession.*
       - source/main/system/RendererOgreNextSdlWindowRuntime*
       - source/main/system/RendererOgreNextWindowHost.*
       - source/main/system/RendererLauncherMain.cpp
@@ -104,6 +109,7 @@ on:
       - tests/gfx/RendererSiblingPathTests.cpp
       - tests/gfx/RendererPackageRuntimeProbeTests.cpp
       - tests/gfx/RendererOgreNextChildTests.cpp
+      - tests/gfx/RendererOgreNextLiveSessionTests.cpp
       - tests/gfx/RendererOgreNextWindowHostTests.cpp
       - tests/gfx/RendererPublicLauncherLegacyChild.cpp
       - tests/gfx/RendererPublicLauncherTests.cpp

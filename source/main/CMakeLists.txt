@@ -54,6 +54,7 @@ set(SOURCE_FILES
         gfx/render/RenderAssetDeltaTransport.{h,cpp}
         gfx/render/RenderAssetId.{h,cpp}
         gfx/render/RenderAssetRegistry.{h,cpp}
+        gfx/render/RenderBridgeControlTransport.{h,cpp}
         gfx/render/RenderBridgeSessionIdentity.{h,cpp}
         gfx/render/README.md
         gfx/render/RenderContracts.h
@@ -281,6 +282,7 @@ set(SOURCE_FILES
         system/RendererChildLauncher.{h,cpp}
         system/RendererOgre14GameBridge.{h,cpp}
         system/RendererPackageRuntimeProbe.{h,cpp}
+        system/RendererOgreNextLiveSession.{h,cpp}
         system/RendererSiblingPath.{h,cpp}
         system/RendererPackagedMediaPath.{h,cpp}
         terrain/OgreTerrainPSSMMaterialGenerator.{h,cpp}
@@ -398,6 +400,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/RenderAssetDeltaTransport.cpp
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
+        gfx/render/RenderBridgeControlTransport.cpp
         gfx/render/RenderBridgeSessionIdentity.cpp
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp
@@ -427,6 +430,7 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/RenderAssetDeltaTransport.cpp
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
+        gfx/render/RenderBridgeControlTransport.cpp
         gfx/render/RenderBridgeSessionIdentity.cpp
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp

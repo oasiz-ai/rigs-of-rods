@@ -119,16 +119,9 @@ RoR::RendererOgreNextFrontendBootstrapResult BootstrapFrontend(
   if (g_use_default_frontend_result) {
     result.invocation_mode = request.invocation_mode;
     result.accepted = true;
-    if (request.invocation_mode ==
-        RoR::RendererOgreNextChildInvocationMode::PRODUCTION_BRIDGE) {
-      result.status = RoR::RendererOgreNextFrontendBootstrapStatus::
-          ACCEPTED_PRODUCTION_BRIDGE_ORCHESTRATION;
-      result.completed = false;
-    } else {
-      result.status =
-          RoR::RendererOgreNextFrontendBootstrapStatus::COMPLETED;
-      result.completed = true;
-    }
+    result.status =
+        RoR::RendererOgreNextFrontendBootstrapStatus::COMPLETED;
+    result.completed = true;
     return result;
   }
   result.invocation_mode = g_frontend_mode;
@@ -266,8 +259,8 @@ std::size_t FindArgument(
 }
 
 void TestStatusAndImmutableAvailabilityContracts() {
-  Require(RoR::kRendererOgreNextChildContractVersion == 2U,
-          "child orchestration contract version changed");
+  Require(RoR::kRendererOgreNextChildContractVersion == 3U,
+          "child live-session contract version changed");
   const unsigned int maximum = std::numeric_limits<std::uint8_t>::max();
   for (unsigned int value = 0U; value <= maximum; ++value) {
     const auto mode =
@@ -282,13 +275,13 @@ void TestStatusAndImmutableAvailabilityContracts() {
             "frontend status classifier accepted an unknown value");
     const auto child = static_cast<RoR::RendererOgreNextChildStatus>(value);
     Require(RoR::IsKnownRendererOgreNextChildStatus(child) ==
-                (value <= 11U),
+                (value <= 12U),
             "child status classifier accepted an unknown value");
   }
   Require(std::strcmp(
               RoR::ToString(RoR::RendererOgreNextChildStatus::
-                                ACCEPTED_PRODUCTION_BRIDGE_ORCHESTRATION),
-              "accepted-production-bridge-orchestration") == 0 &&
+                                COMPLETED_PRODUCTION_BRIDGE_SESSION),
+              "completed-production-bridge-session") == 0 &&
               std::strcmp(
                   RoR::ToString(
                       RoR::RendererOgreNextChildInvocationMode::
@@ -408,9 +401,9 @@ void TestProductionBridgeAcceptanceAndGameSuffix() {
       ProductionArguments(endpoint, game_arguments);
   ResetCallbacks();
   const RoR::RendererOgreNextChildResult result = Run(arguments);
-  Require(result.accepted && !result.completed &&
+  Require(result.accepted && result.completed &&
               result.status == RoR::RendererOgreNextChildStatus::
-                                   ACCEPTED_PRODUCTION_BRIDGE_ORCHESTRATION &&
+                                   COMPLETED_PRODUCTION_BRIDGE_SESSION &&
               result.bridge_status ==
                   RoR::RendererBridgeEndpointArgvStatus::READY &&
               result.invocation_mode ==
@@ -433,8 +426,8 @@ void TestProductionBridgeAcceptanceAndGameSuffix() {
               g_frontend_request.game_arguments == game_arguments &&
               result.frontend.status ==
                   RoR::RendererOgreNextFrontendBootstrapStatus::
-                      ACCEPTED_PRODUCTION_BRIDGE_ORCHESTRATION &&
-              result.frontend.accepted && !result.frontend.completed &&
+                      COMPLETED &&
+              result.frontend.accepted && result.frontend.completed &&
               g_calls.size() == 2U && g_calls[0] == 1 && g_calls[1] == 2,
           "valid production bridge was not accepted with only its game suffix");
   for (const NativeString &argument : result.frontend_request.game_arguments) {
@@ -659,11 +652,11 @@ void TestFrontendFailuresAndContradictions() {
   g_frontend_status =
       RoR::RendererOgreNextFrontendBootstrapStatus::COMPLETED;
   g_frontend_accepted = true;
-  g_frontend_completed = true;
+  g_frontend_completed = false;
   result = Run(production);
   Require(result.status ==
               RoR::RendererOgreNextChildStatus::FAILED_FRONTEND_INTERNAL,
-          "headless completion was accepted for a production bridge");
+          "incomplete completion was accepted for a production bridge");
 
   ResetCallbacks();
   g_use_default_frontend_result = false;
@@ -755,7 +748,7 @@ void TestPureOrchestrationDoesNotAdoptNativeHandles() {
       endpoint, std::vector<NativeString>{ROR_NATIVE_TEXT("RoR")});
   ResetCallbacks();
   const RoR::RendererOgreNextChildResult result = Run(arguments);
-  Require(result.accepted && !result.completed &&
+  Require(result.accepted && result.completed &&
               result.frontend_request.bridge_endpoint.
                       inbound_native_handle == inbound &&
               result.frontend_request.bridge_endpoint.

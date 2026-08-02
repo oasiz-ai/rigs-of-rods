@@ -18,7 +18,7 @@
 
 namespace RoR {
 
-constexpr std::uint32_t kRendererOgreNextChildContractVersion = 2U;
+constexpr std::uint32_t kRendererOgreNextChildContractVersion = 3U;
 
 /// The no-suffix mode remains only for the isolated native execution receipt.
 /// A production invocation must carry the exact presentation bridge endpoint
@@ -39,8 +39,8 @@ enum class RendererOgreNextFrontendBootstrapStatus : std::uint8_t {
 
 /// Fully owned input to the injected frontend seam. The orchestration layer
 /// copies endpoint tokens and decoded game arguments but never adopts, closes,
-/// duplicates, reads, or writes either inherited native handle. A future
-/// presentation-session implementation will own that separate transition.
+/// duplicates, reads, or writes either inherited native handle. The injected
+/// production callback owns that separate presentation-session transition.
 struct RendererOgreNextFrontendBootstrapRequest final {
   std::uint32_t version = kRendererOgreNextChildContractVersion;
   RendererOgreNextChildInvocationMode invocation_mode =
@@ -74,6 +74,7 @@ enum class RendererOgreNextChildStatus : std::uint8_t {
   FAILED_INTERNAL = 9,
   REJECTED_BRIDGE_ENDPOINT = 10,
   REJECTED_BRIDGE_ROLE = 11,
+  COMPLETED_PRODUCTION_BRIDGE_SESSION = 12,
 };
 
 using RendererOgreNextNativePreflightFunction =
@@ -122,8 +123,10 @@ CollectRendererOgreNextChildNativePreflight() noexcept;
 /// Decode immutable launcher intent and then either accept the exact no-suffix
 /// probe path or strictly decode a same-host presentation endpoint. Endpoint
 /// rejection happens before native preflight or the frontend callback. The
-/// accepted decoded endpoint and game suffix are copied into frontend_request;
-/// this pure layer deliberately performs no native-handle adoption.
+/// accepted decoded endpoint and game suffix are copied into frontend_request.
+/// This pure layer deliberately performs no native-handle adoption; the
+/// production frontend callback owns the one exact adoption and blocks until
+/// its live presentation session has shut down.
 RendererOgreNextChildResult RunRendererOgreNextChild(
     int argc, const RendererChildLauncherChar *const argv[],
     const RendererOgreNextChildRuntime &runtime) noexcept;

@@ -115,6 +115,10 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererOgreNextChild.cpp"
     "source/main/system/RendererOgreNextChild.h"
     "source/main/system/RendererOgreNextChildMain.cpp"
+    "source/main/system/RendererOgreNextLiveSession.cpp"
+    "source/main/system/RendererOgreNextLiveSession.h"
+    "source/main/system/RendererOgreNextProductionSession.cpp"
+    "source/main/system/RendererOgreNextProductionSession.h"
     "source/main/system/RendererOgreNextSdlWindowRuntime.cpp"
     "source/main/system/RendererOgreNextSdlWindowRuntime.h"
     "source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm"
@@ -136,6 +140,7 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/RendererSiblingPathTests.cpp"
     "tests/gfx/RendererPackageRuntimeProbeTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"
+    "tests/gfx/RendererOgreNextLiveSessionTests.cpp"
     "tests/gfx/RendererOgreNextWindowHostTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
     "tests/gfx/RendererPublicLauncherTests.cpp"
@@ -144,6 +149,7 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
+    "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
     "tests/tools/test_ogre_next_window_presentation_contract.py"
@@ -617,6 +623,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre_next_n1_contract STATIC
         "${_ror_render_root}/GraphicsSceneSnapshotProducer.cpp"
         "${_ror_render_root}/HdrReference.cpp"
+        "${_ror_render_root}/InputEventTransport.cpp"
         "${_ror_render_root}/MaterialDescriptor.cpp"
         "${_ror_render_root}/Ogre14GraphicsSceneSource.cpp"
         "${_ror_render_root}/ReflectionProbeCaptureReceipt.cpp"
@@ -624,6 +631,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/RenderAssetDeltaTransport.cpp"
         "${_ror_render_root}/RenderAssetId.cpp"
         "${_ror_render_root}/RenderAssetRegistry.cpp"
+        "${_ror_render_root}/RenderBridgeControlTransport.cpp"
         "${_ror_render_root}/RenderBridgeSessionIdentity.cpp"
         "${_ror_render_root}/RenderFrame.cpp"
         "${_ror_render_root}/RenderResourceDescriptors.cpp"
@@ -891,6 +899,28 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
+        ror_renderer_ogre_next_live_session_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererOgreNextLiveSessionTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextLiveSession.cpp")
+    target_include_directories(
+        ror_renderer_ogre_next_live_session_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    target_link_libraries(
+        ror_renderer_ogre_next_live_session_tests
+        PRIVATE ror_ogre_next_n1_contract Threads::Threads)
+    set_target_properties(
+        ror_renderer_ogre_next_live_session_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
         ror_renderer_frontend_transport_dispatcher_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp")
     target_link_libraries(
@@ -908,6 +938,16 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PRIVATE ror_ogre_next_n1_contract)
     set_target_properties(
         ror_ogre14_graphics_scene_source_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_render_bridge_control_transport_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/RenderBridgeControlTransportTests.cpp")
+    target_link_libraries(
+        ror_render_bridge_control_transport_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_render_bridge_control_transport_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
@@ -1021,6 +1061,11 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextLiveSession.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextProductionSession.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextChild.cpp")
     target_include_directories(
         ror_renderer_ogre_next_child_runtime
@@ -1030,7 +1075,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_link_libraries(
         ror_renderer_ogre_next_child_runtime
-        PRIVATE ror_ogre_next_frontend_n1_runtime)
+        PRIVATE
+            ror_ogre_next_frontend_n1_runtime
+            ror_renderer_ogre_next_sdl_window_runtime)
     set_target_properties(
         ror_renderer_ogre_next_child_runtime
         PROPERTIES
@@ -1513,8 +1560,10 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_bridge_process_fake_presentation
         ror_renderer_bridge_process_supervisor_tests
         ror_renderer_ogre_next_child_tests
+        ror_renderer_ogre_next_live_session_tests
         ror_renderer_frontend_transport_dispatcher_tests
         ror_ogre14_graphics_scene_source_tests
+        ror_render_bridge_control_transport_tests
         ror_renderer_ogre_next_window_host_tests
         ror_renderer_ogre_next_sdl_window_runtime
         ror_renderer_ogre_next_window_host_smoke
@@ -2248,6 +2297,13 @@ if (TARGET ror_renderer_ogre_next_child_tests)
     add_test(NAME ror_renderer_ogre_next_child
         COMMAND $<TARGET_FILE:ror_renderer_ogre_next_child_tests>)
 endif ()
+if (TARGET ror_renderer_ogre_next_live_session_tests)
+    add_test(NAME ror_renderer_ogre_next_live_session
+        COMMAND $<TARGET_FILE:ror_renderer_ogre_next_live_session_tests>)
+    set_tests_properties(
+        ror_renderer_ogre_next_live_session
+        PROPERTIES TIMEOUT 30)
+endif ()
 if (TARGET ror_renderer_frontend_transport_dispatcher_tests)
     add_test(NAME ror_renderer_frontend_transport_dispatcher
         COMMAND $<TARGET_FILE:ror_renderer_frontend_transport_dispatcher_tests>)
@@ -2255,6 +2311,10 @@ endif ()
 if (TARGET ror_ogre14_graphics_scene_source_tests)
     add_test(NAME ror_ogre14_graphics_scene_source
         COMMAND $<TARGET_FILE:ror_ogre14_graphics_scene_source_tests>)
+endif ()
+if (TARGET ror_render_bridge_control_transport_tests)
+    add_test(NAME ror_render_bridge_control_transport
+        COMMAND $<TARGET_FILE:ror_render_bridge_control_transport_tests>)
 endif ()
 if (TARGET ror_renderer_ogre_next_window_host_tests)
     add_test(NAME ror_renderer_ogre_next_window_host

@@ -10,6 +10,8 @@
 /// @brief Probe-only native entrypoint for the real Ogre-Next child bootstrap.
 
 #include "RendererOgreNextChild.h"
+#include "RendererOgreNextProductionSession.h"
+#include "RendererPackagedMediaPath.h"
 
 #include "OgreNextN1Frontend.h"
 #include "renderer_ogre_next_child_config.generated.h"
@@ -20,6 +22,7 @@
 #endif
 
 #include <cstdio>
+#include <filesystem>
 #include <utility>
 
 namespace {
@@ -30,7 +33,6 @@ constexpr int kRendererOgreNextChildInitializationExitCode = 70;
 constexpr int kRendererOgreNextChildShutdownExitCode = 71;
 constexpr int kRendererOgreNextChildInternalExitCode = 72;
 constexpr int kRendererOgreNextChildCapabilityUnsupportedExitCode = 77;
-constexpr int kRendererOgreNextChildBridgeSessionUnavailableExitCode = 78;
 
 enum class BootstrapObservation {
   NOT_RUN = 0,
@@ -39,10 +41,14 @@ enum class BootstrapObservation {
   INITIALIZATION_FAILED,
   SHUTDOWN_FAILED,
   FAILED_INTERNAL,
-  PRODUCTION_BRIDGE_ORCHESTRATION_ACCEPTED,
+  PRODUCTION_BRIDGE_SESSION_COMPLETED,
+  PRODUCTION_BRIDGE_SESSION_FAILED,
+  PRODUCTION_MEDIA_RESOLUTION_FAILED,
 };
 
 BootstrapObservation g_bootstrap_observation = BootstrapObservation::NOT_RUN;
+RoR::RendererOgreNextProductionSessionResult g_production_session;
+RoR::RendererPackagedMediaPathResult g_packaged_media;
 
 bool IsExactPssmCapabilityUnsupported(
     const RoR::Render::RenderOperationResult &result) {
@@ -78,13 +84,66 @@ RoR::RendererOgreNextFrontendBootstrapResult BootstrapProductionFrontend(
             FAILED_INTERNAL;
         return result;
       }
-      // This gate accepts only the fully decoded orchestration request. Native
-      // channel adoption and the presentation session remain a separate gate.
-      g_bootstrap_observation = BootstrapObservation::
-          PRODUCTION_BRIDGE_ORCHESTRATION_ACCEPTED;
-      result.status = RoR::RendererOgreNextFrontendBootstrapStatus::
-          ACCEPTED_PRODUCTION_BRIDGE_ORCHESTRATION;
-      result.accepted = true;
+      g_packaged_media = RoR::ResolveRendererPackagedMediaPath(
+          request.bridge_endpoint.platform);
+      if (!g_packaged_media.accepted ||
+          g_packaged_media.status !=
+              RoR::RendererPackagedMediaPathStatus::READY) {
+        g_bootstrap_observation =
+            BootstrapObservation::PRODUCTION_MEDIA_RESOLUTION_FAILED;
+        result.status = RoR::RendererOgreNextFrontendBootstrapStatus::
+            INITIALIZATION_FAILED;
+        return result;
+      }
+      RoR::RendererOgreNextProductionSessionConfiguration configuration;
+      configuration.shader_media_root =
+          std::filesystem::path(g_packaged_media.shader_media_root).u8string();
+      configuration.presentation_media_root =
+          std::filesystem::path(g_packaged_media.presentation_media_root)
+              .u8string();
+      g_production_session = RoR::RunRendererOgreNextProductionSession(
+          request.bridge_endpoint, configuration);
+      if (g_production_session.completed &&
+          g_production_session.status ==
+              RoR::RendererOgreNextProductionSessionStatus::COMPLETED) {
+        g_bootstrap_observation =
+            BootstrapObservation::PRODUCTION_BRIDGE_SESSION_COMPLETED;
+        result.status =
+            RoR::RendererOgreNextFrontendBootstrapStatus::COMPLETED;
+        result.accepted = true;
+        result.completed = true;
+        return result;
+      }
+      g_bootstrap_observation =
+          BootstrapObservation::PRODUCTION_BRIDGE_SESSION_FAILED;
+      switch (g_production_session.status) {
+      case RoR::RendererOgreNextProductionSessionStatus::
+          FAILED_WINDOW_INITIALIZATION:
+      case RoR::RendererOgreNextProductionSessionStatus::
+          FAILED_FRONTEND_INITIALIZATION:
+        result.status = RoR::RendererOgreNextFrontendBootstrapStatus::
+            INITIALIZATION_FAILED;
+        return result;
+      case RoR::RendererOgreNextProductionSessionStatus::
+          FAILED_FRONTEND_SHUTDOWN:
+      case RoR::RendererOgreNextProductionSessionStatus::
+          FAILED_WINDOW_SHUTDOWN:
+        result.status =
+            RoR::RendererOgreNextFrontendBootstrapStatus::SHUTDOWN_FAILED;
+        return result;
+      case RoR::RendererOgreNextProductionSessionStatus::COMPLETED:
+      case RoR::RendererOgreNextProductionSessionStatus::
+          REJECTED_INVALID_CONFIGURATION:
+      case RoR::RendererOgreNextProductionSessionStatus::FAILED_LIVE_SESSION:
+      case RoR::RendererOgreNextProductionSessionStatus::
+          FAILED_FRONTEND_AUDIT:
+      case RoR::RendererOgreNextProductionSessionStatus::FAILED_INTERNAL:
+        result.status =
+            RoR::RendererOgreNextFrontendBootstrapStatus::FAILED_INTERNAL;
+        return result;
+      }
+      result.status =
+          RoR::RendererOgreNextFrontendBootstrapStatus::FAILED_INTERNAL;
       return result;
     }
     if (request.invocation_mode !=
@@ -152,22 +211,18 @@ RoR::RendererOgreNextFrontendBootstrapResult BootstrapProductionFrontend(
 }
 
 int ExitCodeFor(const RoR::RendererOgreNextChildResult &result) noexcept {
-  if (result.completed &&
-      result.accepted &&
+  const bool headless_completed =
       result.status == RoR::RendererOgreNextChildStatus::
                            COMPLETED_HEADLESS_BOOTSTRAP &&
-      g_bootstrap_observation == BootstrapObservation::COMPLETED) {
-    return kRendererOgreNextChildSuccessExitCode;
-  }
-  if (result.accepted && !result.completed &&
+      g_bootstrap_observation == BootstrapObservation::COMPLETED;
+  const bool production_completed =
       result.status == RoR::RendererOgreNextChildStatus::
-                           ACCEPTED_PRODUCTION_BRIDGE_ORCHESTRATION &&
-      result.frontend.status ==
-          RoR::RendererOgreNextFrontendBootstrapStatus::
-              ACCEPTED_PRODUCTION_BRIDGE_ORCHESTRATION &&
-      g_bootstrap_observation == BootstrapObservation::
-          PRODUCTION_BRIDGE_ORCHESTRATION_ACCEPTED) {
-    return kRendererOgreNextChildBridgeSessionUnavailableExitCode;
+                           COMPLETED_PRODUCTION_BRIDGE_SESSION &&
+      g_bootstrap_observation ==
+          BootstrapObservation::PRODUCTION_BRIDGE_SESSION_COMPLETED;
+  if (result.completed && result.accepted &&
+      (headless_completed || production_completed)) {
+    return kRendererOgreNextChildSuccessExitCode;
   }
   if (result.status ==
           RoR::RendererOgreNextChildStatus::FAILED_FRONTEND_INITIALIZATION &&
@@ -198,6 +253,8 @@ int RunRendererOgreNextChildExecutable(
     int argc,
     const RoR::RendererChildLauncherChar *const argv[]) noexcept {
   g_bootstrap_observation = BootstrapObservation::NOT_RUN;
+  g_production_session = RoR::RendererOgreNextProductionSessionResult{};
+  g_packaged_media = RoR::RendererPackagedMediaPathResult{};
   RoR::RendererOgreNextChildRuntime runtime;
   runtime.collect_native_preflight =
       &RoR::CollectRendererOgreNextChildNativePreflight;
@@ -207,9 +264,23 @@ int RunRendererOgreNextChildExecutable(
   const int exit_code = ExitCodeFor(result);
 
   if (exit_code == kRendererOgreNextChildSuccessExitCode) {
-    (void)std::fprintf(
-        stdout,
-        "RoR Ogre-Next child: completed-headless-bootstrap\n");
+    if (result.invocation_mode ==
+        RoR::RendererOgreNextChildInvocationMode::PRODUCTION_BRIDGE) {
+      (void)std::fprintf(
+          stdout,
+          "RoR Ogre-Next child: completed-production-bridge-session "
+          "(frames=%llu, gpu-only=%llu, readbacks=%llu)\n",
+          static_cast<unsigned long long>(
+              g_production_session.presented_frames),
+          static_cast<unsigned long long>(
+              g_production_session.gpu_only_output_frames),
+          static_cast<unsigned long long>(
+              g_production_session.source_readbacks));
+    } else {
+      (void)std::fprintf(
+          stdout,
+          "RoR Ogre-Next child: completed-headless-bootstrap\n");
+    }
     (void)std::fflush(stdout);
     return exit_code;
   }
@@ -221,16 +292,6 @@ int RunRendererOgreNextChildExecutable(
     (void)std::fflush(stderr);
     return exit_code;
   }
-  if (exit_code ==
-      kRendererOgreNextChildBridgeSessionUnavailableExitCode) {
-    (void)std::fprintf(
-        stderr,
-        "RoR Ogre-Next child: accepted-production-bridge-orchestration; "
-        "native-presentation-session-unavailable\n");
-    (void)std::fflush(stderr);
-    return exit_code;
-  }
-
   (void)std::fprintf(
       stderr,
       "RoR Ogre-Next child: %s (intent=%s, bridge=%s, mode=%s, "
@@ -241,6 +302,26 @@ int RunRendererOgreNextChildExecutable(
       RoR::ToString(result.invocation_mode),
       RoR::ToString(result.startup_plan.status),
       RoR::ToString(result.frontend.status));
+  if (result.invocation_mode ==
+      RoR::RendererOgreNextChildInvocationMode::PRODUCTION_BRIDGE) {
+    if (g_bootstrap_observation ==
+        BootstrapObservation::PRODUCTION_MEDIA_RESOLUTION_FAILED) {
+      (void)std::fprintf(
+          stderr,
+          "RoR Ogre-Next packaged media: %s (native-error=%u)\n",
+          RoR::ToString(g_packaged_media.status),
+          static_cast<unsigned>(g_packaged_media.native_error_code));
+    }
+    (void)std::fprintf(
+        stderr,
+        "RoR Ogre-Next production session: %s "
+        "(live=%s, channel=%s, stream=%s, dispatch=%s)\n",
+        RoR::ToString(g_production_session.status),
+        RoR::ToString(g_production_session.live.status),
+        RoR::ToString(g_production_session.live.channel_status),
+        RoR::Render::ToString(g_production_session.live.stream_status),
+        RoR::Render::ToString(g_production_session.live.dispatch_status));
+  }
   (void)std::fflush(stderr);
   return exit_code;
 }
