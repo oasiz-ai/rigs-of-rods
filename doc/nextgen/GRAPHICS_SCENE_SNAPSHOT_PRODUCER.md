@@ -1,9 +1,12 @@
 # Joined graphics scene snapshot producer
 
 Status: the renderer-neutral version-four producer core and the joined OGRE 14
-adapter for timing, origin, constant ambient, managed lights, the exact empty
-authored reflection-probe inventory, and main camera are implemented. Static
-asset and mesh-instance capture remains the publication blocker.
+adapter for timing, origin, constant ambient, managed lights, authored static
+`MeshObject` sections, the exact empty authored reflection-probe inventory,
+and main camera are implemented. Actual OGRE Terrain pages, procedural roads,
+paged/animated geometry, deformable actors, and portable legacy texture assets
+remain explicit publication blockers; their presence never produces a false
+complete snapshot.
 
 ## Boundary
 
@@ -146,27 +149,54 @@ hash version 1 must be discarded rather than compared with version 2.
 Producer limits bound lifetime asset/object/light/probe records and authoritative
 descriptor payload bytes.
 
-## Exact remaining `GfxScene` adapter tap
+## Live `GfxScene` adapter status and remaining taps
 
 The adapter belongs in graphics code, not in the renderer contract library. It
 must translate OGRE values in a `.cpp` file behind
 `IJoinedGraphicsSceneSource`; no OGRE header may be included by
 `source/main/gfx/render` public contracts.
 
-Required source-side changes are:
+Implemented source-side behavior is:
 
-1. `TerrainObjectManager` exposes a read-only graphics-owned static-object
-   inventory with a monotonically allocated, never-reused numeric object ID.
-   Its current private `m_mesh_objects` vector and pointer position are not a
-   stable identity contract.
-2. `MeshObject`/`ContentManager` cache portable mesh, texture, sampler, and
-   material descriptors when authored resources are loaded. The adapter may
-   use OGRE to extract them once in its implementation file, but it must not
-   make a frontend reverse-engineer an `Ogre::Entity` each frame.
-3. The inventory assigns stable source asset IDs to authored resource
-   lifetimes. Material texture/sampler dependencies are submitted as source
-   IDs; the adapter never fabricates a `RenderAssetReference`.
-4. `GfxScene` enumerates the authoritative managed `Ogre::MOT_LIGHT` registry
+1. `TerrainObjectManager` exposes a read-only graphics-owned `MeshObject`
+   inventory with monotonically allocated, never-reused numeric IDs. Removal
+   erases and deletes the inventory record before destroying its OGRE entity,
+   so capture cannot retain the former dangling pointer. ID exhaustion fails
+   object loading rather than wrapping.
+2. `GfxScene` preflights the entire visible geometry domain before publishing.
+   Any OGRE Terrain page, procedural road, actor/deformable mesh, paged batch,
+   or animated terrain object returns a stable `static_meshes.unsupported.*`
+   diagnostic. The `ASSETS` and `STATIC_MESHES` availability bits are committed
+   together only after the complete supported inventory succeeds.
+3. Each managed entity is split at its authored `SubEntity` boundary. The
+   adapter honors `vertexStart`/`vertexCount` and `indexStart`/`indexCount`,
+   supports 16- and 32-bit indices, copies position plus optional normal,
+   tangent, two UV, and normalized RGBA color streams under read-only buffer
+   locks, and rejects blend streams, unsupported declarations, non-triangle
+   operations, skeletons, and vertex animation. OGRE 14 and the portable
+   contract share right-handed +Y-up local space and upper-left UVs; values are
+   copied without basis or UV guessing. Anticlockwise-cull material sections
+   reverse each triangle into the contract's canonical CCW front face. Tight
+   local bounds are recomputed from the exact copied positions. Mirrored world
+   transforms fail closed until their reflection can be baked into every
+   position/normal/tangent stream without violating canonical winding. Capture
+   uses authored LOD zero and rejects nonzero OGRE rendering-distance culling,
+   so camera state cannot silently change the submitted topology or membership.
+4. Mesh, material, and object-section identities are domain-separated,
+   length-framed FNV-1a-64 hashes over exact case-sensitive resource groups,
+   names, draw ranges, winding, manager object ID, and section index. Every
+   mapping is collision-audited, omissions are permanent tombstones, and
+   equivalent frames reuse immutable descriptor owners. Native mesh pointer
+   and OGRE resource-state changes invalidate the CPU cache transactionally.
+5. Compatibility-material fallback version 1 accepts exactly one pass with no
+   texture units or vertex/fragment program and preserves that pass's
+   renderer-linear diffuse/emissive factors, lighting enable, Phong-shininess
+   to roughness conversion, straight alpha or alpha test, and culling. It
+   records ambient and specular state as audited native input but deliberately
+   creates no guessed portable contribution. Additional passes, texture units,
+   shader programs, unsupported blending, alpha combinations, or native values
+   fail closed instead of losing authored visuals.
+6. `GfxScene` enumerates the authoritative managed `Ogre::MOT_LIGHT` registry
    at the joined boundary (not backend render queues or scene-node traversal),
    verifies each registry key equals the exact unique Light name, and hashes
    those exact bytes into collision-audited stable identities. It captures
@@ -178,20 +208,22 @@ Required source-side changes are:
    schema v4 cannot preserve OGRE c/l/q attenuation, spot falloff exponent,
    separate specular color, or light masks, and RT4/V1 still rejects local
    lights downstream.
-5. `GfxScene` captures the main graphics camera after its copied simbuffer has
+7. `GfxScene` captures the main graphics camera after its copied simbuffer has
    been consumed, converts OGRE matrices into the canonical right-handed,
    column-major, depth-[0,1] contract, and submits the current drawable pixel
    extent. The producer owns previous matrices.
-6. `GfxScene` supplies authored reflection probes from graphics-owned terrain
-   metadata as binary64 world positions and stable revisions. It must not infer
-   them by scanning backend cubemap objects.
-7. `GfxScene::ClearScene()` destroys the producer after its final authoritative
-   empty inventory has been delivered, so a new terrain starts a fresh registry
-   identity instead of resurrecting tombstones.
+8. OGRE 14 has no authored world reflection-probe registry, so the adapter
+   publishes the exact empty inventory rather than inferring probes from the
+   vehicle-local environment-map implementation.
 
-The current `TerrainObjectManager` and `MeshObject` APIs expose OGRE objects and
-do not yet provide stable source IDs or cached portable resource descriptors.
-That coupling is why static asset and instance publication remains fail-closed.
+Remaining source-side work is an exact CPU adapter for `Ogre::TerrainGroup`,
+portable texture/sampler extraction for legacy material units, and explicit
+adapters for procedural roads, paged vegetation, and animated/deformable
+geometry. `GfxScene::ClearScene()` must also deliver the final authoritative
+empty inventory before the producer is destroyed so a new terrain receives a
+fresh registry lifetime. Until those domains are covered, maps containing any
+of them stay fail-closed even though their immutable `MeshObject` subset is
+fully convertible.
 
 Deformable `GfxActor` meshes, particle emission, water state, volumetric weather,
 and auxiliary cameras are later producer slices. Shipping Ogre-Next local-light

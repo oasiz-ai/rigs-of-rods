@@ -92,6 +92,9 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/terrain/ProceduralManager.h"
+    "source/main/terrain/TerrainObjectManager.cpp"
+    "source/main/terrain/TerrainObjectManager.h"
     "source/main/main.cpp"
     "source/main/system/RendererBridgeChannel.cpp"
     "source/main/system/RendererBridgeChannel.h"
@@ -1898,6 +1901,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp
             source/main/gfx/RendererStartupPlan.h
+            source/main/terrain/ProceduralManager.h
+            source/main/terrain/TerrainObjectManager.cpp
+            source/main/terrain/TerrainObjectManager.h
             source/main/main.cpp
             source/main/system/RendererBridgeChannel.cpp
             source/main/system/RendererBridgeChannel.h

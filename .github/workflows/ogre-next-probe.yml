@@ -19,6 +19,8 @@ on:
       - source/main/gfx/GfxScene.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
+      - source/main/terrain/ProceduralManager.h
+      - source/main/terrain/TerrainObjectManager.*
       - source/main/system/RendererBridge*
       - source/main/system/RendererBridgeEndpoint.*
       - source/main/system/RendererBridgeLaunchPlan.*
@@ -79,6 +81,8 @@ on:
       - source/main/gfx/GfxScene.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
+      - source/main/terrain/ProceduralManager.h
+      - source/main/terrain/TerrainObjectManager.*
       - source/main/system/RendererBridge*
       - source/main/system/RendererBridgeEndpoint.*
       - source/main/system/RendererBridgeLaunchPlan.*

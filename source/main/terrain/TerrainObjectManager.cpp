@@ -54,6 +54,7 @@
 #include <Overlay/OgreFontManager.h>
 
 #include <cstring>
+#include <limits>
 #include <list>
 #include <stdexcept>
 
@@ -83,10 +84,10 @@ TerrainObjectManager::TerrainObjectManager(Terrain* terrainManager) :
 
 TerrainObjectManager::~TerrainObjectManager()
 {
-    for (MeshObject* mo : m_mesh_objects)
+    for (const StaticGraphicsObject& object : m_static_graphics_objects)
     {
-        if (mo)
-            delete mo;
+        if (object.mesh_object)
+            delete object.mesh_object;
     }
 #ifdef USE_PAGED
     for (auto geom : m_paged_geometry)
@@ -783,6 +784,19 @@ void TerrainObjectManager::destroyObject(const String& instancename)
         this->UnregisterLocalLightsForOwner(object->static_object_node);
         for (Ogre::MovableObject* mova : object->static_object_node->getAttachedObjects())
         {
+            const auto captured_object = std::find_if(
+                m_static_graphics_objects.begin(),
+                m_static_graphics_objects.end(),
+                [mova](const StaticGraphicsObject& candidate)
+                {
+                    return candidate.mesh_object != nullptr &&
+                        candidate.mesh_object->getEntity() == mova;
+                });
+            if (captured_object != m_static_graphics_objects.end())
+            {
+                delete captured_object->mesh_object;
+                m_static_graphics_objects.erase(captured_object);
+            }
             App::GetGfxScene()->GetSceneManager()->destroyMovableObject(mova);
         }
         App::GetGfxScene()->GetSceneManager()->destroySceneNode(object->static_object_node);
@@ -879,6 +893,13 @@ bool TerrainObjectManager::LoadTerrainObject(const Ogre::String& name, const Ogr
         return false;
     }
 
+    if (odef->header.mesh_name != "none" &&
+        m_static_graphics_object_id_exhausted)
+    {
+        LOG("[RoR] Static graphics object ID space is exhausted");
+        return false;
+    }
+
     SceneNode* tenode = this->getGroupingSceneNode()->createChildSceneNode();
 
     MeshObject* mo = nullptr;
@@ -890,7 +911,19 @@ bool TerrainObjectManager::LoadTerrainObject(const Ogre::String& name, const Ogr
         {
             mo->getEntity()->setCastShadows(odef->header.cast_shadows);
             mo->getEntity()->setRenderingDistance(rendering_distance);
-            m_mesh_objects.push_back(mo);
+            StaticGraphicsObject static_object;
+            static_object.stable_id = m_next_static_graphics_object_id;
+            static_object.mesh_object = mo;
+            m_static_graphics_objects.push_back(static_object);
+            if (m_next_static_graphics_object_id ==
+                (std::numeric_limits<std::uint64_t>::max)())
+            {
+                m_static_graphics_object_id_exhausted = true;
+            }
+            else
+            {
+                ++m_next_static_graphics_object_id;
+            }
         }
         else
         {
@@ -1567,6 +1600,12 @@ bool TerrainObjectManager::HasTimeVaryingVisuals() const
         return true;
 #endif
     return false;
+}
+
+bool TerrainObjectManager::HasProceduralGeometry() const
+{
+    return m_procedural_manager &&
+        m_procedural_manager->getNumObjects() != 0;
 }
 
 void TerrainObjectManager::ProcessODefCollisionBoxes(TerrainEditorObjectPtr obj, ODefDocument* odef, const TerrainEditorObjectPtr& params, bool race_event)

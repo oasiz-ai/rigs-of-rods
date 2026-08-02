@@ -199,9 +199,31 @@ does not cover OGRE's constant/linear/quadratic attenuation coefficients,
 spotlight falloff exponent, separate specular color, visibility/light masks, or
 material response because scene schema v4 cannot represent those values.
 RT4/V1 also still admits only one directional light and rejects point/spot
-lights; full native local-light rendering remains a downstream milestone. The
-adapter continues to withhold publication until complete static asset/instance
-inventories are available.
+lights; full native local-light rendering remains a downstream milestone.
+
+The adapter now publishes an authored `MeshObject` static subset only when its
+whole geometry domain is representable. `TerrainObjectManager` supplies
+monotonic never-reused object IDs; every `SubEntity` becomes one exact
+mesh/material section; CPU extraction honors OGRE vertex/index draw ranges,
+16/32-bit indices, authored basis/UV/color streams, material culling, and tight
+bounds. Domain-separated exact-resource IDs are collision-audited, omitted
+identities are permanent tombstones, and an immutable payload cache makes
+stable frames reuse the same owners. Entity and section visibility plus
+shadow/reflection flags are preserved.
+
+Compatibility-material fallback version 1 is intentionally factor-only. It
+preserves first-pass diffuse/emissive factors, lighting, shininess-derived
+roughness, supported culling, straight alpha, and alpha rejection while
+requiring exactly one pass, zero texture units, and no vertex/fragment program.
+Additional passes or authored texture/shader content fail closed rather than
+being silently dropped. OGRE Terrain pages, procedural roads, actor or other
+deformable geometry, paged vegetation, animated terrain objects, unsupported
+vertex declarations, and unsupported material states likewise return exact
+diagnostics. Mirrored instance transforms also fail closed until reflection can
+be baked into the canonical mesh basis and winding. Consequently `ASSETS` and
+`STATIC_MESHES` are advertised together only after a complete supported
+inventory, and terrain/texture/procedural adapters remain required before
+ordinary maps can publish end to end.
 
 The asset payload pins the registry, mesh, texture, material, and sampler
 descriptor versions. It carries registry/base/target sequence lineage, the

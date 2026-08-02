@@ -405,6 +405,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/RendererStartupHandoff.h",
             "source/main/gfx/RendererStartupPlan.cpp",
             "source/main/gfx/RendererStartupPlan.h",
+            "source/main/terrain/ProceduralManager.h",
+            "source/main/terrain/TerrainObjectManager.cpp",
+            "source/main/terrain/TerrainObjectManager.h",
             "source/main/main.cpp",
             "source/main/system/RendererChildIntent.cpp",
             "source/main/system/RendererChildIntent.h",
@@ -864,6 +867,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIn(f"{path} text eol=lf", attributes)
         self.assertIn(
+            "source/main/terrain/TerrainObjectManager.* "
+            "whitespace=cr-at-eol",
+            attributes,
+        )
+        self.assertIn(
             "source/main/main.cpp -text whitespace=cr-at-eol", attributes
         )
 
@@ -937,6 +945,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             REPOSITORY_ROOT
             / "source/main/gfx/render/Ogre14GraphicsSceneSource.cpp"
         ).read_text(encoding="utf-8")
+        terrain_objects = (
+            REPOSITORY_ROOT / "source/main/terrain/TerrainObjectManager.cpp"
+        ).read_text(encoding="utf-8")
+        terrain_objects_header = (
+            REPOSITORY_ROOT / "source/main/terrain/TerrainObjectManager.h"
+        ).read_text(encoding="utf-8")
         probe_cmake = (
             REPOSITORY_ROOT / "tools/ogre_next_probe/CMakeLists.txt"
         ).read_text(encoding="utf-8")
@@ -974,13 +988,13 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             gfx_source.index("void GfxScene::RemoveGfxActor")
         ]
         capture_compact = "".join(capture_body.split())
-        for unavailable in ("ASSETS", "STATIC_MESHES"):
-            with self.subTest(unavailable=unavailable):
-                self.assertNotIn(
-                    f"Ogre14GraphicsSceneCaptureField::{unavailable}",
-                    capture_compact,
-                )
-        for available in ("ENVIRONMENT", "LIGHTS", "REFLECTION_PROBES"):
+        for available in (
+            "ENVIRONMENT",
+            "ASSETS",
+            "STATIC_MESHES",
+            "LIGHTS",
+            "REFLECTION_PROBES",
+        ):
             with self.subTest(available=available):
                 self.assertIn(
                     f"Ogre14GraphicsSceneCaptureField::{available}",
@@ -992,9 +1006,31 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn("input.visible = light->getVisible();", gfx_source)
         self.assertNotIn("light->isVisible()", gfx_source)
         self.assertIn("BuildOgre14GraphicsSceneLights(", gfx_source)
+        self.assertIn("CaptureOgre14StaticMeshObjects(", gfx_source)
+        self.assertIn("BuildOgre14GraphicsSceneStaticInventory(", gfx_source)
+        self.assertIn("object_manager->GetStaticGraphicsObjects()", gfx_source)
+        self.assertIn("entity->getVisible() &&", gfx_source)
+        self.assertIn("sub_entity->isVisible()", gfx_source)
+        self.assertIn("entity->getRenderingDistance()", gfx_source)
+        self.assertIn("_getRenderOperation(operation, 0U)", gfx_source)
+        for diagnostic in (
+            "static_meshes.unsupported.terrain",
+            "static_meshes.unsupported.procedural",
+            "static_meshes.unsupported.deformable",
+            "static_meshes.unsupported.paged",
+            "static_meshes.unsupported.animated",
+        ):
+            with self.subTest(static_diagnostic=diagnostic):
+                self.assertIn(diagnostic, adapter)
+        self.assertIn("m_next_static_graphics_object_id", terrain_objects)
+        self.assertIn("m_static_graphics_objects.push_back", terrain_objects)
+        self.assertIn("struct StaticGraphicsObject", terrain_objects_header)
+        self.assertIn("GetStaticGraphicsObjects() const", terrain_objects_header)
         self.assertIn(
             "m_ogre14_light_identity_registry", gfx_header
         )
+        self.assertIn("m_ogre14_static_identity_registry", gfx_header)
+        self.assertIn("m_ogre14_static_mesh_cache", gfx_header)
         self.assertIn(
             "kOgre14LegacyDiffusePowerToCanonicalIntensity", adapter
         )

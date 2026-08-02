@@ -9,13 +9,16 @@
 #include "Ogre14GraphicsSceneSource.h"
 #include "ogrenext/OgreNextN1Policy.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -29,6 +32,87 @@ void Require(bool condition, const char *message) {
 
 bool Near(float lhs, float rhs) {
   return std::fabs(lhs - rhs) <= 1.0e-5F;
+}
+
+template <typename T>
+bool SameSharedOwner(const std::shared_ptr<const T> &lhs,
+                     const std::shared_ptr<const T> &rhs) noexcept {
+  return lhs.get() == rhs.get() && !lhs.owner_before(rhs) &&
+         !rhs.owner_before(lhs);
+}
+
+RoR::Render::Matrix4x4 Translation(float x, float y = 0.0F,
+                                   float z = 0.0F) {
+  RoR::Render::Matrix4x4 transform;
+  transform.elements[12U] = x;
+  transform.elements[13U] = y;
+  transform.elements[14U] = z;
+  return transform;
+}
+
+RoR::Render::Ogre14GraphicsSceneCpuMeshSectionInput MakeCpuTriangle(
+    const char *name = "city.mesh/submesh/0", bool reverse_winding = false) {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneCpuMeshSectionInput input;
+  input.debug_name = name;
+  input.index_format = MeshIndexFormat::UINT16;
+  input.topology_revision = 7U;
+  input.reverse_winding = reverse_winding;
+  input.positions = {{-1.0F, 2.0F, 3.0F}, {4.0F, -5.0F, 6.0F},
+                     {0.0F, 1.0F, -2.0F}};
+  input.normals = {{0.0F, 0.0F, 1.0F}, {0.0F, 0.0F, 1.0F},
+                   {0.0F, 0.0F, 1.0F}};
+  input.texture_coordinates_0 = {
+      {0.0F, 0.0F}, {1.0F, 0.0F}, {0.25F, 1.0F}};
+  input.colors = {{1.0F, 0.0F, 0.0F, 1.0F},
+                  {0.0F, 1.0F, 0.0F, 0.5F},
+                  {0.0F, 0.0F, 1.0F, 0.25F}};
+  input.indices = {0U, 1U, 2U};
+  return input;
+}
+
+RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput MakeStaticMaterial(
+    const char *name = "City/Concrete") {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneMaterialCaptureInput input;
+  input.exact_resource_group = "General";
+  input.exact_name = name;
+  input.diffuse_linear = {0.25F, 0.5F, 0.75F, 1.0F};
+  input.ambient_linear = {0.2F, 0.2F, 0.2F};
+  input.specular_linear = {0.1F, 0.1F, 0.1F};
+  input.emissive_linear = {0.05F, 0.1F, 0.15F};
+  input.shininess = 30.0F;
+  return input;
+}
+
+RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput MakeStaticSection(
+    std::uint64_t stable_object_id, std::uint32_t section_index,
+    const char *entity_name, const char *material_name = "City/Concrete",
+    bool reverse_winding = false) {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneStaticSectionCaptureInput input;
+  input.stable_object_id = stable_object_id;
+  input.section_index = section_index;
+  input.exact_entity_name = entity_name;
+  input.mesh_identity.exact_resource_group = "General";
+  input.mesh_identity.exact_mesh_name = "city.mesh";
+  input.mesh_identity.submesh_index = section_index;
+  input.mesh_identity.vertex_count = 3U;
+  input.mesh_identity.index_count = 3U;
+  input.mesh_identity.reverse_winding = reverse_winding;
+  input.material = MakeStaticMaterial(material_name);
+  input.material.cull =
+      reverse_winding ? Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE
+                      : Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+  std::shared_ptr<const RenderAssetPayload> payload;
+  const ValidationResult validation =
+      BuildOgre14GraphicsSceneStaticMeshPayload(
+          MakeCpuTriangle(entity_name, reverse_winding), payload);
+  Require(validation.ok(), "static-section fixture mesh was rejected");
+  input.mesh_payload = std::move(payload);
+  input.render_from_object =
+      Translation(static_cast<float>(stable_object_id), 2.0F, -3.0F);
+  return input;
 }
 
 RoR::Render::Ogre14GraphicsSceneLightCaptureInput MakeDirectionalLight(
@@ -534,6 +618,369 @@ void TestConvertedLightsFeedProducer() {
           "producer changed canonical ordering or inactive light state");
 }
 
+void TestStaticIdentityDerivationAndCollisionAudit() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneMeshAssetIdentity mesh_identity;
+  mesh_identity.exact_resource_group = "General";
+  mesh_identity.exact_mesh_name = "city.mesh";
+  mesh_identity.submesh_index = 2U;
+  mesh_identity.vertex_start = 4U;
+  mesh_identity.vertex_count = 3U;
+  mesh_identity.index_start = 6U;
+  mesh_identity.index_count = 3U;
+
+  std::uint64_t mesh_id = 77U;
+  ValidationResult result =
+      DeriveOgre14GraphicsSceneMeshAssetId(mesh_identity, mesh_id);
+  Require(result.ok() && mesh_id == 0x36b00c07cc5e5fbeULL,
+          "exact mesh resource/range identity changed");
+
+  std::uint64_t material_id = 0U;
+  result = DeriveOgre14GraphicsSceneMaterialAssetId(
+      "General", "City/Glass", material_id);
+  Require(result.ok() && material_id == 0xd4863bfd0c205e1fULL,
+          "exact material resource identity changed");
+
+  std::uint64_t object_id = 0U;
+  result = DeriveOgre14GraphicsSceneStaticSectionId(41U, 2U, object_id);
+  Require(result.ok() && object_id == 0x28919f5212bdc362ULL,
+          "manager-object/section identity changed");
+
+  const std::uint64_t accepted_mesh_id = mesh_id;
+  mesh_identity.exact_mesh_name.clear();
+  result = DeriveOgre14GraphicsSceneMeshAssetId(mesh_identity, mesh_id);
+  Require(!result && result.code == ValidationCode::INVALID_IDENTIFIER &&
+              mesh_id == accepted_mesh_id,
+          "invalid mesh identity modified caller output");
+
+  mesh_identity.exact_mesh_name = "city.mesh";
+  mesh_identity.reverse_winding = true;
+  std::uint64_t reversed_id = 0U;
+  Require(DeriveOgre14GraphicsSceneMeshAssetId(mesh_identity, reversed_id)
+              .ok() &&
+              reversed_id != accepted_mesh_id,
+          "winding conversion was omitted from mesh asset identity");
+
+  Ogre14GraphicsSceneStaticIdentityRegistry registry;
+  Require(registry.RegisterDerivedAssetIdentity("first", 41U).ok() &&
+              registry.asset_identity_count() == 1U,
+          "static asset registry rejected first exact mapping");
+  result = registry.RegisterDerivedAssetIdentity("second", 41U);
+  Require(!result && result.code == ValidationCode::DUPLICATE_IDENTIFIER &&
+              registry.asset_identity_count() == 1U,
+          "static asset ID collision was accepted or mutated registry");
+  Require(registry.RegisterDerivedObjectIdentity("object", 51U).ok() &&
+              registry.object_identity_count() == 1U,
+          "static object registry rejected first exact mapping");
+  result = registry.RegisterDerivedObjectIdentity("object", 52U);
+  Require(!result && result.code == ValidationCode::REVISION_MISMATCH &&
+              registry.object_identity_count() == 1U,
+          "static object exact key changed identity");
+}
+
+void TestStaticMeshPayloadPreservesBasisUvAndTightBounds() {
+  using namespace RoR::Render;
+  const Ogre14GraphicsSceneCpuMeshSectionInput input = MakeCpuTriangle();
+  std::shared_ptr<const RenderAssetPayload> payload;
+  ValidationResult result =
+      BuildOgre14GraphicsSceneStaticMeshPayload(input, payload);
+  Require(result.ok() && payload != nullptr &&
+              RenderAssetPayloadKind(*payload) == RenderAssetKind::MESH,
+          "valid CPU static mesh was rejected");
+  const MeshResourceDescriptor &mesh =
+      std::get<MeshResourceDescriptor>(*payload);
+  Require(mesh.index_format == MeshIndexFormat::UINT16 && !mesh.dynamic &&
+              mesh.topology_revision == 7U &&
+              mesh.local_bounds.minimum.x == -1.0F &&
+              mesh.local_bounds.minimum.y == -5.0F &&
+              mesh.local_bounds.minimum.z == -2.0F &&
+              mesh.local_bounds.maximum.x == 4.0F &&
+              mesh.local_bounds.maximum.y == 2.0F &&
+              mesh.local_bounds.maximum.z == 6.0F,
+          "CPU mesh format or tight local bounds changed");
+  Require(mesh.positions == input.positions &&
+              mesh.normals == input.normals &&
+              mesh.texture_coordinates_0 == input.texture_coordinates_0 &&
+              mesh.colors == input.colors &&
+              mesh.indices == input.indices,
+          "canonical basis, upper-left UV, color, or CCW stream changed");
+
+  std::shared_ptr<const RenderAssetPayload> reversed;
+  result = BuildOgre14GraphicsSceneStaticMeshPayload(
+      MakeCpuTriangle("city.mesh/reversed", true), reversed);
+  Require(result.ok() &&
+              std::get<MeshResourceDescriptor>(*reversed).indices ==
+                  std::vector<std::uint32_t>({0U, 2U, 1U}),
+          "explicit reverse-winding conversion changed or was omitted");
+
+  const std::shared_ptr<const RenderAssetPayload> accepted = payload;
+  Ogre14GraphicsSceneCpuMeshSectionInput malformed = input;
+  malformed.indices[2U] = 3U;
+  result = BuildOgre14GraphicsSceneStaticMeshPayload(malformed, payload);
+  Require(!result && result.code == ValidationCode::VALUE_OUT_OF_RANGE &&
+              SameSharedOwner(payload, accepted),
+          "out-of-range CPU index was accepted or modified output owner");
+}
+
+void TestStaticMaterialFallbackIsExplicitAndTransactional() {
+  using namespace RoR::Render;
+  static_assert(kOgre14StaticMaterialFallbackVersion == 1U,
+                "material compatibility fixture needs an explicit migration");
+  Ogre14GraphicsSceneMaterialCaptureInput input =
+      MakeStaticMaterial("City/Glass");
+  input.alpha_reject =
+      Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL;
+  input.alpha_reject_value = 128U;
+  input.cull = Ogre14GraphicsSceneMaterialCull::NONE;
+
+  MaterialDescriptor material;
+  ValidationResult result =
+      BuildOgre14GraphicsSceneMaterialFallback(input, material);
+  Require(result.ok() &&
+              material.model == MaterialModel::PBR_METALLIC_ROUGHNESS &&
+              material.alpha_mode == MaterialAlphaMode::MASK &&
+              material.double_sided &&
+              material.base_color_factor == input.diffuse_linear &&
+              material.emissive_factor == input.emissive_linear &&
+              Near(material.roughness_factor, 0.25F) &&
+              Near(material.alpha_cutoff, 128.0F / 255.0F) &&
+              !material.base_color_texture.texture.valid() &&
+              !material.normal_texture.texture.valid(),
+          "versioned factor-only material fallback changed");
+
+  const MaterialDescriptor factor_only = material;
+  input.pass_count = 2U;
+  result = BuildOgre14GraphicsSceneMaterialFallback(input, material);
+  Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              result.field == "material.pass_count" &&
+              material.debug_name == factor_only.debug_name,
+          "additional authored pass was silently dropped or modified output");
+  input.pass_count = 1U;
+  input.texture_unit_count = 3U;
+  result = BuildOgre14GraphicsSceneMaterialFallback(input, material);
+  Require(!result && result.field == "material.texture_units" &&
+              material.debug_name == factor_only.debug_name,
+          "authored texture units were silently dropped or modified output");
+  input.texture_unit_count = 0U;
+  input.has_vertex_program = true;
+  input.has_fragment_program = true;
+  result = BuildOgre14GraphicsSceneMaterialFallback(input, material);
+  Require(!result && result.field == "material.programs" &&
+              material.debug_name == factor_only.debug_name,
+          "authored shader programs were silently dropped or modified output");
+
+  input = MakeStaticMaterial("City/Glass");
+  input.lighting_enabled = false;
+  input.blend = Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA;
+  input.alpha_reject =
+      Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
+  result = BuildOgre14GraphicsSceneMaterialFallback(input, material);
+  Require(result.ok() && material.model == MaterialModel::UNLIT &&
+              material.alpha_mode == MaterialAlphaMode::BLEND &&
+              material.emissive_factor == Float3{} &&
+              material.roughness_factor == 1.0F,
+          "unlit straight-alpha fallback changed");
+
+  const MaterialDescriptor accepted = material;
+  input.alpha_reject =
+      Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL;
+  result = BuildOgre14GraphicsSceneMaterialFallback(input, material);
+  Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              material.debug_name == accepted.debug_name &&
+              material.alpha_mode == accepted.alpha_mode,
+          "unrepresentable blend/test combination modified output");
+
+  input = MakeStaticMaterial();
+  input.shininess = std::numeric_limits<float>::infinity();
+  result = BuildOgre14GraphicsSceneMaterialFallback(input, material);
+  Require(!result && result.code == ValidationCode::NON_FINITE_VALUE,
+          "non-finite legacy material factor was accepted");
+}
+
+void TestUnsupportedStaticGeometryFailsClosedInStableOrder() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneUnsupportedGeometry unsupported;
+  unsupported.terrain = true;
+  unsupported.procedural = true;
+  ValidationResult result =
+      ValidateOgre14GraphicsSceneStaticCoverage(unsupported);
+  Require(!result &&
+              result.field == "static_meshes.unsupported.terrain",
+          "terrain did not win deterministic unsupported-coverage order");
+
+  unsupported = {};
+  unsupported.procedural = true;
+  result = ValidateOgre14GraphicsSceneStaticCoverage(unsupported);
+  Require(!result &&
+              result.field == "static_meshes.unsupported.procedural",
+          "procedural geometry lacks an exact fail-closed diagnostic");
+  unsupported = {};
+  unsupported.deformable = true;
+  result = ValidateOgre14GraphicsSceneStaticCoverage(unsupported);
+  Require(!result &&
+              result.field == "static_meshes.unsupported.deformable",
+          "deformable geometry lacks an exact fail-closed diagnostic");
+  unsupported = {};
+  unsupported.paged = true;
+  result = ValidateOgre14GraphicsSceneStaticCoverage(unsupported);
+  Require(!result && result.field == "static_meshes.unsupported.paged",
+          "paged geometry lacks an exact fail-closed diagnostic");
+  unsupported = {};
+  unsupported.animated = true;
+  result = ValidateOgre14GraphicsSceneStaticCoverage(unsupported);
+  Require(!result &&
+              result.field == "static_meshes.unsupported.animated",
+          "animated geometry lacks an exact fail-closed diagnostic");
+  Require(ValidateOgre14GraphicsSceneStaticCoverage({}).ok(),
+          "fully supported static coverage was rejected");
+}
+
+void TestStaticInventorySplitsDeduplicatesAndReusesOwners() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneStaticIdentityRegistry registry;
+  std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> sections{
+      MakeStaticSection(9U, 1U, "CityBuilding"),
+      MakeStaticSection(9U, 0U, "CityBuilding")};
+  sections[0U].visible = false;
+  sections[0U].casts_shadows = false;
+  sections[0U].receives_shadows = false;
+  sections[0U].visible_in_reflections = false;
+  sections[1U].visibility_mask = 0x12345678U;
+
+  std::vector<GraphicsSceneAssetInput> assets;
+  std::vector<GraphicsSceneStaticMeshInput> instances;
+  ValidationResult result = BuildOgre14GraphicsSceneStaticInventory(
+      sections, registry, assets, instances);
+  Require(result.ok() && assets.size() == 3U && instances.size() == 2U &&
+              registry.asset_identity_count() == 3U &&
+              registry.object_identity_count() == 2U,
+          "multi-submesh inventory was not split/deduplicated exactly");
+  Require(assets[0U].source_asset_id < assets[1U].source_asset_id &&
+              assets[1U].source_asset_id < assets[2U].source_asset_id &&
+              instances[0U].source_object_id <
+                  instances[1U].source_object_id,
+          "static assets or section instances lack canonical ordering");
+  bool saw_hidden = false;
+  bool saw_visible = false;
+  for (const GraphicsSceneStaticMeshInput &instance : instances) {
+    if (instance.visibility_mask == 0U) {
+      saw_hidden = instance.flags == 0U;
+    } else if (instance.visibility_mask == 0x12345678U) {
+      saw_visible =
+          instance.flags == MESH_INSTANCE_DEFAULT_FLAGS &&
+          instance.render_from_object.elements[12U] == 9.0F;
+    }
+  }
+  Require(saw_hidden && saw_visible,
+          "visibility, shadow/reflection flags, or transform changed");
+
+  const std::vector<GraphicsSceneAssetInput> first_assets = assets;
+  sections = {MakeStaticSection(9U, 0U, "CityBuilding"),
+              MakeStaticSection(9U, 1U, "CityBuilding")};
+  result = BuildOgre14GraphicsSceneStaticInventory(
+      sections, registry, assets, instances);
+  Require(result.ok(), "equivalent reordered static frame was rejected");
+  for (const GraphicsSceneAssetInput &asset : assets) {
+    const auto prior = std::find_if(
+        first_assets.begin(), first_assets.end(),
+        [&asset](const GraphicsSceneAssetInput &candidate) {
+          return candidate.source_asset_id == asset.source_asset_id;
+        });
+    Require(prior != first_assets.end() &&
+                SameSharedOwner(prior->payload, asset.payload),
+            "equivalent static asset did not reuse immutable owner");
+  }
+}
+
+void TestStaticInventoryFailureAndLifecycleAreAtomic() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneStaticIdentityRegistry registry;
+  std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> sections{
+      MakeStaticSection(17U, 0U, "Warehouse")};
+  std::vector<GraphicsSceneAssetInput> assets;
+  std::vector<GraphicsSceneStaticMeshInput> instances;
+  Require(BuildOgre14GraphicsSceneStaticInventory(
+              sections, registry, assets, instances)
+              .ok(),
+          "static lifecycle fixture was rejected");
+  const std::vector<GraphicsSceneAssetInput> accepted_assets = assets;
+  const std::vector<GraphicsSceneStaticMeshInput> accepted_instances =
+      instances;
+  const std::size_t accepted_asset_ids = registry.asset_identity_count();
+  const std::size_t accepted_object_ids = registry.object_identity_count();
+
+  Ogre14GraphicsSceneStaticSectionCaptureInput conflicting = sections[0U];
+  std::shared_ptr<const RenderAssetPayload> conflicting_payload;
+  Ogre14GraphicsSceneCpuMeshSectionInput changed = MakeCpuTriangle();
+  changed.positions[0U].x = -2.0F;
+  Require(BuildOgre14GraphicsSceneStaticMeshPayload(
+              changed, conflicting_payload)
+              .ok(),
+          "conflicting static fixture payload was invalid");
+  conflicting.mesh_payload = std::move(conflicting_payload);
+  sections.push_back(std::move(conflicting));
+  ValidationResult result = BuildOgre14GraphicsSceneStaticInventory(
+      sections, registry, assets, instances);
+  Require(!result && result.code == ValidationCode::REVISION_MISMATCH &&
+              registry.asset_identity_count() == accepted_asset_ids &&
+              registry.object_identity_count() == accepted_object_ids &&
+              assets.size() == accepted_assets.size() &&
+              instances.size() == accepted_instances.size() &&
+              SameSharedOwner(assets.front().payload,
+                              accepted_assets.front().payload),
+          "conflicting same-frame asset changed committed inventory state");
+
+  sections.resize(1U);
+  sections.front().render_from_object.elements[0U] = -1.0F;
+  result = BuildOgre14GraphicsSceneStaticInventory(
+      sections, registry, assets, instances);
+  Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              result.field ==
+                  "static_meshes.render_from_object.mirrored" &&
+              assets.size() == accepted_assets.size() &&
+              instances.size() == accepted_instances.size(),
+          "mirrored static transform was guessed or modified inventory");
+
+  sections.front().render_from_object.elements[0U] = 1.0F;
+  Require(BuildOgre14GraphicsSceneStaticInventory(
+              {}, registry, assets, instances)
+              .ok() &&
+              assets.empty() && instances.empty(),
+          "static removal did not commit an empty complete inventory");
+  result = BuildOgre14GraphicsSceneStaticInventory(
+      sections, registry, assets, instances);
+  Require(!result && result.code == ValidationCode::REVISION_MISMATCH &&
+              result.field.find("source_asset_id") != std::string::npos &&
+              assets.empty() && instances.empty(),
+          "removed static identity resurrected or modified empty inventory");
+}
+
+void TestConvertedStaticInventoryFeedsProducer() {
+  using namespace RoR::Render;
+  FixtureProvider provider;
+  Ogre14GraphicsSceneStaticIdentityRegistry registry;
+  const std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> sections{
+      MakeStaticSection(23U, 0U, "Bridge")};
+  Require(BuildOgre14GraphicsSceneStaticInventory(
+              sections, registry, provider.capture.frame.assets,
+              provider.capture.frame.static_meshes)
+              .ok(),
+          "producer static inventory fixture failed conversion");
+
+  Ogre14GraphicsSceneSource source(provider);
+  GraphicsSceneSnapshotProducerConfiguration configuration;
+  configuration.registry_id = 0x5354415449434F47ULL;
+  GraphicsSceneSnapshotProducer producer(configuration);
+  const GraphicsSceneSnapshotProduceResult result =
+      producer.ProduceJoinedFrame(source);
+  Require(result.ok() &&
+              result.production.scene_snapshot->mesh_instances().size() ==
+                  1U &&
+              result.production.asset_delta.has_value() &&
+              result.production.asset_delta->mutations.size() == 2U,
+          "converted complete static inventory was rejected by producer");
+}
+
 void TestPerspectiveAndOrthographicCameraConversion() {
   using namespace RoR::Render;
   Ogre14CameraCaptureInput input = MakeCameraInput();
@@ -610,6 +1057,13 @@ int main() {
   TestLightInventoryIsAtomicAndCanonical();
   TestLightConversionRejectsUnrepresentableState();
   TestConvertedLightsFeedProducer();
+  TestStaticIdentityDerivationAndCollisionAudit();
+  TestStaticMeshPayloadPreservesBasisUvAndTightBounds();
+  TestStaticMaterialFallbackIsExplicitAndTransactional();
+  TestUnsupportedStaticGeometryFailsClosedInStableOrder();
+  TestStaticInventorySplitsDeduplicatesAndReusesOwners();
+  TestStaticInventoryFailureAndLifecycleAreAtomic();
+  TestConvertedStaticInventoryFeedsProducer();
   TestPerspectiveAndOrthographicCameraConversion();
   TestCameraConversionRejectsGuesswork();
   return EXIT_SUCCESS;

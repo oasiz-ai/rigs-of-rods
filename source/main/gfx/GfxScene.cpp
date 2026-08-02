@@ -45,7 +45,9 @@
 #include <Ogre.h>
 
 #include <cmath>
+#include <cstring>
 #include <limits>
+#include <set>
 
 using namespace Ogre;
 using namespace RoR;
@@ -245,6 +247,757 @@ RoR::Render::ValidationResult CaptureOgre14ManagedLights(
         inputs, identity_registry, output);
 }
 
+RoR::Render::ValidationResult NativeStaticFailure(
+    RoR::Render::ValidationCode code,
+    const char* field,
+    const char* detail)
+{
+    return RoR::Render::ValidationResult::Failure(code, field, detail);
+}
+
+RoR::Render::Float3 ToFloat3(const Ogre::ColourValue& color)
+{
+    return {
+        static_cast<float>(color.r),
+        static_cast<float>(color.g),
+        static_cast<float>(color.b)};
+}
+
+RoR::Render::Float4 ToFloat4(const Ogre::ColourValue& color)
+{
+    return {
+        static_cast<float>(color.r),
+        static_cast<float>(color.g),
+        static_cast<float>(color.b),
+        static_cast<float>(color.a)};
+}
+
+std::string BuildNativeStaticMeshCacheKey(
+    const RoR::Render::Ogre14GraphicsSceneMeshAssetIdentity& identity)
+{
+    std::string key;
+    const auto append_u32 = [&key](std::uint32_t value)
+    {
+        for (std::uint32_t shift = 0U; shift < 32U; shift += 8U)
+        {
+            key.push_back(static_cast<char>((value >> shift) & 0xFFU));
+        }
+    };
+    key.append(identity.exact_resource_group);
+    key.push_back('\0');
+    key.append(identity.exact_mesh_name);
+    key.push_back('\0');
+    append_u32(identity.submesh_index);
+    append_u32(identity.vertex_start);
+    append_u32(identity.vertex_count);
+    append_u32(identity.index_start);
+    append_u32(identity.index_count);
+    key.push_back(identity.reverse_winding ? '\1' : '\0');
+    return key;
+}
+
+RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
+    const Ogre::MaterialPtr& material,
+    RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput& output,
+    bool& reverse_winding)
+{
+    if (!material || material->getName().empty() ||
+        material->getNumTechniques() == 0U)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "assets.material.native_resource",
+            "terrain SubEntity has no authored OGRE material technique");
+    }
+    Ogre::Technique* const technique = material->getTechnique(0U);
+    if (technique == nullptr || technique->getNumPasses() == 0U)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "assets.material.native_pass",
+            "terrain SubEntity material has no authored first pass");
+    }
+    Ogre::Pass* const pass = technique->getPass(0U);
+    if (pass == nullptr)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "assets.material.native_pass",
+            "terrain SubEntity material first pass is null");
+    }
+
+    bool write_red = false;
+    bool write_green = false;
+    bool write_blue = false;
+    bool write_alpha = false;
+    pass->getColourWriteEnabled(
+        write_red, write_green, write_blue, write_alpha);
+    if (!write_red || !write_green || !write_blue || !write_alpha ||
+        pass->getSceneBlendingOperation() != Ogre::SBO_ADD ||
+        pass->getSceneBlendingOperationAlpha() != Ogre::SBO_ADD)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "assets.material.color_write",
+            "portable fallback requires additive RGBA color writes");
+    }
+
+    const Ogre::SceneBlendFactor source = pass->getSourceBlendFactor();
+    const Ogre::SceneBlendFactor destination = pass->getDestBlendFactor();
+    const Ogre::SceneBlendFactor source_alpha =
+        pass->getSourceBlendFactorAlpha();
+    const Ogre::SceneBlendFactor destination_alpha =
+        pass->getDestBlendFactorAlpha();
+    const bool replace = source == Ogre::SBF_ONE &&
+        destination == Ogre::SBF_ZERO &&
+        source_alpha == Ogre::SBF_ONE &&
+        destination_alpha == Ogre::SBF_ZERO;
+    const bool straight_alpha = source == Ogre::SBF_SOURCE_ALPHA &&
+        destination == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA &&
+        ((source_alpha == Ogre::SBF_SOURCE_ALPHA &&
+          destination_alpha == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA) ||
+         (source_alpha == Ogre::SBF_ONE &&
+          destination_alpha == Ogre::SBF_ZERO));
+    if (!replace && !straight_alpha)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "assets.material.blend",
+            "portable fallback supports replace or straight-alpha blending");
+    }
+
+    RoR::Render::Ogre14GraphicsSceneMaterialCull cull;
+    switch (pass->getCullingMode())
+    {
+    case Ogre::CULL_NONE:
+        cull = RoR::Render::Ogre14GraphicsSceneMaterialCull::NONE;
+        reverse_winding = false;
+        break;
+    case Ogre::CULL_CLOCKWISE:
+        cull = RoR::Render::Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+        reverse_winding = false;
+        break;
+    case Ogre::CULL_ANTICLOCKWISE:
+        cull =
+            RoR::Render::Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE;
+        reverse_winding = true;
+        break;
+    default:
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::INVALID_ENUM,
+            "assets.material.cull",
+            "OGRE material has an unknown culling mode");
+    }
+
+    RoR::Render::Ogre14GraphicsSceneMaterialAlphaReject alpha_reject;
+    switch (pass->getAlphaRejectFunction())
+    {
+    case Ogre::CMPF_ALWAYS_PASS:
+        alpha_reject = RoR::Render::
+            Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
+        break;
+    case Ogre::CMPF_GREATER_EQUAL:
+        alpha_reject = RoR::Render::
+            Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL;
+        break;
+    default:
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "assets.material.alpha_reject",
+            "portable fallback supports always-pass or greater-equal alpha "
+            "rejection");
+    }
+
+    RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput candidate;
+    candidate.exact_resource_group = material->getGroup();
+    candidate.exact_name = material->getName();
+    candidate.pass_count =
+        static_cast<std::uint32_t>(technique->getNumPasses());
+    candidate.texture_unit_count =
+        static_cast<std::uint32_t>(pass->getNumTextureUnitStates());
+    candidate.has_vertex_program = pass->hasVertexProgram();
+    candidate.has_fragment_program = pass->hasFragmentProgram();
+    candidate.lighting_enabled = pass->getLightingEnabled();
+    candidate.diffuse_linear = ToFloat4(pass->getDiffuse());
+    candidate.ambient_linear = ToFloat3(pass->getAmbient());
+    candidate.specular_linear = ToFloat3(pass->getSpecular());
+    candidate.emissive_linear = ToFloat3(pass->getSelfIllumination());
+    candidate.shininess = static_cast<float>(pass->getShininess());
+    candidate.blend = replace
+        ? RoR::Render::Ogre14GraphicsSceneMaterialBlend::REPLACE
+        : RoR::Render::Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA;
+    candidate.cull = cull;
+    candidate.alpha_reject = alpha_reject;
+    candidate.alpha_reject_value = pass->getAlphaRejectValue();
+    output = std::move(candidate);
+    return RoR::Render::ValidationResult::Success();
+}
+
+RoR::Render::ValidationResult ValidateOgre14StaticVertexDeclaration(
+    const Ogre::VertexData& vertex_data)
+{
+    std::uint32_t positions = 0U;
+    std::uint32_t normals = 0U;
+    std::uint32_t tangents = 0U;
+    std::uint32_t colors = 0U;
+    bool uv0 = false;
+    bool uv1 = false;
+    for (const Ogre::VertexElement& element :
+         vertex_data.vertexDeclaration->getElements())
+    {
+        switch (element.getSemantic())
+        {
+        case Ogre::VES_POSITION:
+            ++positions;
+            if (element.getType() != Ogre::VET_FLOAT3)
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "assets.mesh.vertex.position_format",
+                    "portable static capture requires FLOAT3 positions");
+            break;
+        case Ogre::VES_NORMAL:
+            ++normals;
+            if (element.getType() != Ogre::VET_FLOAT3)
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "assets.mesh.vertex.normal_format",
+                    "portable static capture requires FLOAT3 normals");
+            break;
+        case Ogre::VES_TANGENT:
+            ++tangents;
+            if (element.getType() != Ogre::VET_FLOAT4)
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "assets.mesh.vertex.tangent_format",
+                    "portable static capture requires FLOAT4 tangents with "
+                    "authored handedness");
+            break;
+        case Ogre::VES_COLOUR:
+            ++colors;
+            if (element.getType() != Ogre::VET_UBYTE4_NORM)
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "assets.mesh.vertex.color_format",
+                    "portable static capture requires normalized UBYTE4 "
+                    "vertex color");
+            break;
+        case Ogre::VES_TEXTURE_COORDINATES:
+            if (element.getIndex() == 0U)
+            {
+                if (uv0)
+                    return NativeStaticFailure(
+                        RoR::Render::ValidationCode::SIZE_MISMATCH,
+                        "assets.mesh.vertex.texture_coordinates",
+                        "OGRE vertex declaration duplicates UV set zero");
+                uv0 = true;
+            }
+            else if (element.getIndex() == 1U)
+            {
+                if (uv1)
+                    return NativeStaticFailure(
+                        RoR::Render::ValidationCode::SIZE_MISMATCH,
+                        "assets.mesh.vertex.texture_coordinates",
+                        "OGRE vertex declaration duplicates UV set one");
+                uv1 = true;
+            }
+            else
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "assets.mesh.vertex.texture_coordinates",
+                    "portable static capture supports exactly UV sets zero "
+                    "and one");
+            if (element.getType() != Ogre::VET_FLOAT2)
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "assets.mesh.vertex.uv_format",
+                    "portable static capture requires FLOAT2 UVs");
+            break;
+        case Ogre::VES_BLEND_WEIGHTS:
+        case Ogre::VES_BLEND_INDICES:
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                "static_meshes.unsupported.deformable",
+                "blend streams belong to the deformable geometry adapter");
+        case Ogre::VES_BINORMAL:
+        case Ogre::VES_COLOUR2:
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                "assets.mesh.vertex.semantic",
+                "portable static mesh schema cannot preserve this authored "
+                "vertex semantic");
+        default:
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::INVALID_ENUM,
+                "assets.mesh.vertex.semantic",
+                "OGRE vertex declaration contains an unknown semantic");
+        }
+    }
+    if (positions != 1U || normals > 1U || tangents > 1U || colors > 1U)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "assets.mesh.vertex.declaration",
+            "portable static capture requires one position and at most one "
+            "normal, tangent, color, UV0, and UV1 element");
+    }
+    (void)uv0;
+    (void)uv1;
+    return RoR::Render::ValidationResult::Success();
+}
+
+template <typename Portable, std::size_t ComponentCount>
+RoR::Render::ValidationResult ExtractOgre14FloatVertexStream(
+    const Ogre::VertexData& vertex_data,
+    Ogre::VertexElementSemantic semantic,
+    unsigned short semantic_index,
+    Ogre::VertexElementType required_type,
+    std::vector<Portable>& output)
+{
+    const Ogre::VertexElement* const element =
+        vertex_data.vertexDeclaration->findElementBySemantic(
+            semantic, semantic_index);
+    if (element == nullptr)
+    {
+        output.clear();
+        return RoR::Render::ValidationResult::Success();
+    }
+    if (element->getType() != required_type)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "assets.mesh.vertex.format",
+            "OGRE vertex element type changed after declaration validation");
+    }
+    const Ogre::HardwareVertexBufferSharedPtr buffer =
+        vertex_data.vertexBufferBinding->getBuffer(element->getSource());
+    if (!buffer || vertex_data.vertexStart > buffer->getNumVertices() ||
+        vertex_data.vertexCount >
+            buffer->getNumVertices() - vertex_data.vertexStart ||
+        element->getOffset() + element->getSize() > buffer->getVertexSize())
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "assets.mesh.vertex.buffer_range",
+            "OGRE vertex draw range exceeds its bound hardware buffer");
+    }
+
+    Ogre::HardwareBufferLockGuard lock(
+        buffer, Ogre::HardwareBuffer::HBL_READ_ONLY);
+    if (lock.pData == nullptr)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "assets.mesh.vertex.cpu_data",
+            "OGRE vertex buffer did not expose read-only CPU data");
+    }
+    std::vector<Portable> candidate(vertex_data.vertexCount);
+    const auto* const bytes = static_cast<const unsigned char*>(lock.pData);
+    const std::size_t stride = buffer->getVertexSize();
+    for (std::size_t index = 0U; index < candidate.size(); ++index)
+    {
+        float components[ComponentCount] = {};
+        const std::size_t native_index =
+            static_cast<std::size_t>(vertex_data.vertexStart) + index;
+        std::memcpy(
+            components,
+            bytes + native_index * stride + element->getOffset(),
+            sizeof(components));
+        if constexpr (ComponentCount == 2U)
+            candidate[index] = {components[0U], components[1U]};
+        else if constexpr (ComponentCount == 3U)
+            candidate[index] = {
+                components[0U], components[1U], components[2U]};
+        else
+            candidate[index] = {
+                components[0U], components[1U], components[2U],
+                components[3U]};
+    }
+    output = std::move(candidate);
+    return RoR::Render::ValidationResult::Success();
+}
+
+RoR::Render::ValidationResult ExtractOgre14ColorVertexStream(
+    const Ogre::VertexData& vertex_data,
+    std::vector<RoR::Render::Float4>& output)
+{
+    const Ogre::VertexElement* const element =
+        vertex_data.vertexDeclaration->findElementBySemantic(
+            Ogre::VES_COLOUR);
+    if (element == nullptr)
+    {
+        output.clear();
+        return RoR::Render::ValidationResult::Success();
+    }
+    const Ogre::HardwareVertexBufferSharedPtr buffer =
+        vertex_data.vertexBufferBinding->getBuffer(element->getSource());
+    if (!buffer || vertex_data.vertexStart > buffer->getNumVertices() ||
+        vertex_data.vertexCount >
+            buffer->getNumVertices() - vertex_data.vertexStart ||
+        element->getOffset() + 4U > buffer->getVertexSize())
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "assets.mesh.vertex.color_range",
+            "OGRE color draw range exceeds its bound hardware buffer");
+    }
+    Ogre::HardwareBufferLockGuard lock(
+        buffer, Ogre::HardwareBuffer::HBL_READ_ONLY);
+    if (lock.pData == nullptr)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "assets.mesh.vertex.cpu_data",
+            "OGRE color buffer did not expose read-only CPU data");
+    }
+    std::vector<RoR::Render::Float4> candidate(vertex_data.vertexCount);
+    const auto* const bytes = static_cast<const unsigned char*>(lock.pData);
+    const std::size_t stride = buffer->getVertexSize();
+    constexpr float kByteToUnit = 1.0F / 255.0F;
+    for (std::size_t index = 0U; index < candidate.size(); ++index)
+    {
+        const std::size_t native_index =
+            static_cast<std::size_t>(vertex_data.vertexStart) + index;
+        const unsigned char* const color =
+            bytes + native_index * stride + element->getOffset();
+        // VET_UBYTE4_NORM is OGRE's PF_BYTE_RGBA memory order on every
+        // endian; no render-system-specific ARGB conversion is required.
+        candidate[index] = {
+            color[0U] * kByteToUnit,
+            color[1U] * kByteToUnit,
+            color[2U] * kByteToUnit,
+            color[3U] * kByteToUnit};
+    }
+    output = std::move(candidate);
+    return RoR::Render::ValidationResult::Success();
+}
+
+RoR::Render::ValidationResult ExtractOgre14CpuMeshSection(
+    const Ogre::RenderOperation& operation,
+    const std::string& debug_name,
+    bool reverse_winding,
+    std::uint64_t topology_revision,
+    std::shared_ptr<const RoR::Render::RenderAssetPayload>& payload)
+{
+    if (operation.operationType != Ogre::RenderOperation::OT_TRIANGLE_LIST ||
+        !operation.useIndexes || operation.vertexData == nullptr ||
+        operation.indexData == nullptr ||
+        operation.indexData->indexBuffer == nullptr)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "assets.mesh.native_topology",
+            "portable static capture requires indexed OGRE triangle lists");
+    }
+    if (operation.vertexData->vertexDeclaration == nullptr ||
+        operation.vertexData->vertexBufferBinding == nullptr)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "assets.mesh.vertex.declaration",
+            "OGRE static draw has no vertex declaration or buffer binding");
+    }
+    RoR::Render::ValidationResult validation =
+        ValidateOgre14StaticVertexDeclaration(*operation.vertexData);
+    if (!validation)
+        return validation;
+
+    RoR::Render::Ogre14GraphicsSceneCpuMeshSectionInput input;
+    input.debug_name = debug_name;
+    input.topology_revision = topology_revision;
+    input.reverse_winding = reverse_winding;
+    validation = ExtractOgre14FloatVertexStream<RoR::Render::Float3, 3U>(
+        *operation.vertexData, Ogre::VES_POSITION, 0U, Ogre::VET_FLOAT3,
+        input.positions);
+    if (!validation)
+        return validation;
+    validation = ExtractOgre14FloatVertexStream<RoR::Render::Float3, 3U>(
+        *operation.vertexData, Ogre::VES_NORMAL, 0U, Ogre::VET_FLOAT3,
+        input.normals);
+    if (!validation)
+        return validation;
+    validation = ExtractOgre14FloatVertexStream<RoR::Render::Float4, 4U>(
+        *operation.vertexData, Ogre::VES_TANGENT, 0U, Ogre::VET_FLOAT4,
+        input.tangents);
+    if (!validation)
+        return validation;
+    validation = ExtractOgre14FloatVertexStream<RoR::Render::Float2, 2U>(
+        *operation.vertexData, Ogre::VES_TEXTURE_COORDINATES, 0U,
+        Ogre::VET_FLOAT2, input.texture_coordinates_0);
+    if (!validation)
+        return validation;
+    validation = ExtractOgre14FloatVertexStream<RoR::Render::Float2, 2U>(
+        *operation.vertexData, Ogre::VES_TEXTURE_COORDINATES, 1U,
+        Ogre::VET_FLOAT2, input.texture_coordinates_1);
+    if (!validation)
+        return validation;
+    validation = ExtractOgre14ColorVertexStream(
+        *operation.vertexData, input.colors);
+    if (!validation)
+        return validation;
+
+    const Ogre::HardwareIndexBufferSharedPtr index_buffer =
+        operation.indexData->indexBuffer;
+    const std::size_t index_start = operation.indexData->indexStart;
+    const std::size_t index_count = operation.indexData->indexCount;
+    if (index_start > index_buffer->getNumIndexes() ||
+        index_count > index_buffer->getNumIndexes() - index_start)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "assets.mesh.index.buffer_range",
+            "OGRE index draw range exceeds its bound hardware buffer");
+    }
+    Ogre::HardwareBufferLockGuard index_lock(
+        index_buffer, Ogre::HardwareBuffer::HBL_READ_ONLY);
+    if (index_lock.pData == nullptr)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "assets.mesh.index.cpu_data",
+            "OGRE index buffer did not expose read-only CPU data");
+    }
+    input.indices.resize(index_count);
+    if (index_buffer->getType() == Ogre::HardwareIndexBuffer::IT_16BIT)
+    {
+        input.index_format = RoR::Render::MeshIndexFormat::UINT16;
+        const auto* const indices =
+            static_cast<const std::uint16_t*>(index_lock.pData);
+        for (std::size_t index = 0U; index < index_count; ++index)
+            input.indices[index] = indices[index_start + index];
+    }
+    else if (index_buffer->getType() ==
+             Ogre::HardwareIndexBuffer::IT_32BIT)
+    {
+        input.index_format = RoR::Render::MeshIndexFormat::UINT32;
+        const auto* const indices =
+            static_cast<const std::uint32_t*>(index_lock.pData);
+        for (std::size_t index = 0U; index < index_count; ++index)
+            input.indices[index] = indices[index_start + index];
+    }
+    else
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::INVALID_ENUM,
+            "assets.mesh.index.format",
+            "OGRE index buffer has an unknown format");
+    }
+    return RoR::Render::BuildOgre14GraphicsSceneStaticMeshPayload(
+        input, payload);
+}
+
+RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
+    RoR::TerrainObjectManager* object_manager,
+    RoR::TerrainGeometryManager* geometry_manager,
+    bool has_deformable_geometry,
+    RoR::Render::Ogre14GraphicsSceneStaticIdentityRegistry& identity_registry,
+    std::map<std::string,
+             RoR::Render::Ogre14GraphicsSceneStaticMeshCacheEntry,
+             std::less<>>& mesh_cache,
+    std::vector<RoR::Render::GraphicsSceneAssetInput>& assets,
+    std::vector<RoR::Render::GraphicsSceneStaticMeshInput>& static_meshes)
+{
+    RoR::Render::Ogre14GraphicsSceneUnsupportedGeometry unsupported;
+    if (geometry_manager != nullptr &&
+        geometry_manager->getTerrainGroup() != nullptr)
+    {
+        Ogre::TerrainGroup::TerrainIterator terrains =
+            geometry_manager->getTerrainGroup()->getTerrainIterator();
+        unsupported.terrain = terrains.hasMoreElements();
+    }
+    unsupported.deformable = has_deformable_geometry;
+    if (object_manager != nullptr)
+    {
+        unsupported.procedural = object_manager->HasProceduralGeometry();
+        unsupported.paged = object_manager->HasPagedStaticGeometry();
+        unsupported.animated = object_manager->HasAnimatedStaticGeometry();
+    }
+    RoR::Render::ValidationResult validation =
+        RoR::Render::ValidateOgre14GraphicsSceneStaticCoverage(unsupported);
+    if (!validation)
+        return validation;
+
+    std::map<std::string,
+             RoR::Render::Ogre14GraphicsSceneStaticMeshCacheEntry,
+             std::less<>> candidate_cache = mesh_cache;
+    std::vector<RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput>
+        sections;
+    if (object_manager != nullptr)
+    {
+        for (const RoR::TerrainObjectManager::StaticGraphicsObject& record :
+             object_manager->GetStaticGraphicsObjects())
+        {
+            MeshObject* const mesh_object = record.mesh_object;
+            Ogre::Entity* const entity =
+                mesh_object != nullptr ? mesh_object->getEntity() : nullptr;
+            const Ogre::MeshPtr mesh =
+                mesh_object != nullptr ? mesh_object->getLoadedMesh()
+                                       : Ogre::MeshPtr{};
+            if (record.stable_id == 0U || mesh_object == nullptr ||
+                entity == nullptr || !mesh || !entity->isAttached() ||
+                entity->getMesh().get() != mesh.get())
+            {
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::MISSING_REFERENCE,
+                    "static_meshes.native_object",
+                    "terrain static-object inventory contains an incomplete "
+                    "MeshObject");
+            }
+            if (entity->hasSkeleton() || entity->hasVertexAnimation() ||
+                mesh->hasSkeleton() || mesh->hasVertexAnimation())
+            {
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "static_meshes.unsupported.deformable",
+                    "terrain MeshObject contains skeletal or vertex animation");
+            }
+            if (entity->getRenderingDistance() != 0.0F)
+            {
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "static_meshes.native_rendering_distance",
+                    "portable static instances do not yet carry OGRE "
+                    "rendering-distance culling");
+            }
+            if (entity->getNumSubEntities() != mesh->getNumSubMeshes() ||
+                entity->getNumSubEntities() >
+                    static_cast<std::size_t>(
+                        (std::numeric_limits<std::uint32_t>::max)()))
+            {
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::SIZE_MISMATCH,
+                    "static_meshes.native_submeshes",
+                    "Entity and Mesh submesh inventories do not match");
+            }
+
+            const RoR::Render::Matrix4x4 render_from_object =
+                ToRendererBoundaryMatrix(
+                    static_cast<const Ogre::Matrix4&>(
+                        entity->_getParentNodeFullTransform()));
+            for (std::size_t section_index = 0U;
+                 section_index < entity->getNumSubEntities();
+                 ++section_index)
+            {
+                Ogre::SubEntity* const sub_entity =
+                    entity->getSubEntity(section_index);
+                if (sub_entity == nullptr || sub_entity->getSubMesh() !=
+                                                 mesh->getSubMesh(section_index))
+                {
+                    return NativeStaticFailure(
+                        RoR::Render::ValidationCode::REVISION_MISMATCH,
+                        "static_meshes.native_submeshes",
+                        "Entity SubEntity no longer maps to its Mesh SubMesh");
+                }
+                RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput
+                    section;
+                section.stable_object_id = record.stable_id;
+                section.section_index =
+                    static_cast<std::uint32_t>(section_index);
+                section.exact_entity_name = entity->getName();
+                section.render_from_object = render_from_object;
+                section.visibility_mask = entity->getVisibilityFlags();
+                section.visible = entity->getVisible() &&
+                    sub_entity->isVisible();
+                section.casts_shadows = entity->getCastShadows();
+                section.visible_in_reflections = true;
+
+                bool reverse_winding = false;
+                validation = CaptureOgre14MaterialFallbackInput(
+                    sub_entity->getMaterial(), section.material,
+                    reverse_winding);
+                if (!validation)
+                    return validation;
+                section.receives_shadows =
+                    sub_entity->getMaterial()->getReceiveShadows();
+
+                Ogre::RenderOperation operation;
+                // Capture authored LOD zero, not the camera-selected Entity
+                // LOD left behind by the preceding OGRE render traversal.
+                sub_entity->getSubMesh()->_getRenderOperation(operation, 0U);
+                if (operation.vertexData == nullptr ||
+                    operation.indexData == nullptr ||
+                    operation.vertexData->vertexCount >
+                        (std::numeric_limits<std::uint32_t>::max)() ||
+                    operation.indexData->indexCount >
+                        (std::numeric_limits<std::uint32_t>::max)())
+                {
+                    return NativeStaticFailure(
+                        RoR::Render::ValidationCode::SIZE_MISMATCH,
+                        "assets.mesh.native_draw_range",
+                        "OGRE static draw range is absent or exceeds uint32");
+                }
+                section.mesh_identity.exact_resource_group = mesh->getGroup();
+                section.mesh_identity.exact_mesh_name = mesh->getName();
+                section.mesh_identity.submesh_index = section.section_index;
+                section.mesh_identity.vertex_start =
+                    operation.vertexData->vertexStart;
+                section.mesh_identity.vertex_count =
+                    operation.vertexData->vertexCount;
+                section.mesh_identity.index_start =
+                    operation.indexData->indexStart;
+                section.mesh_identity.index_count =
+                    operation.indexData->indexCount;
+                section.mesh_identity.reverse_winding = reverse_winding;
+
+                const std::string cache_key =
+                    BuildNativeStaticMeshCacheKey(section.mesh_identity);
+                auto cached = candidate_cache.find(cache_key);
+                const std::size_t native_state_count = mesh->getStateCount();
+                if (cached != candidate_cache.end() &&
+                    cached->second.native_mesh == mesh.get() &&
+                    cached->second.native_state_count == native_state_count &&
+                    cached->second.payload != nullptr)
+                {
+                    section.mesh_payload = cached->second.payload;
+                }
+                else
+                {
+                    std::uint64_t topology_revision = 1U;
+                    if (cached != candidate_cache.end() &&
+                        cached->second.payload != nullptr &&
+                        std::holds_alternative<
+                            RoR::Render::MeshResourceDescriptor>(
+                                *cached->second.payload))
+                    {
+                        const std::uint64_t previous_revision =
+                            std::get<RoR::Render::MeshResourceDescriptor>(
+                                *cached->second.payload).topology_revision;
+                        if (previous_revision ==
+                            (std::numeric_limits<std::uint64_t>::max)())
+                        {
+                            return NativeStaticFailure(
+                                RoR::Render::ValidationCode::REVISION_MISMATCH,
+                                "assets.mesh.topology_revision",
+                                "OGRE mesh topology revision would overflow");
+                        }
+                        topology_revision = previous_revision + 1U;
+                    }
+                    validation = ExtractOgre14CpuMeshSection(
+                        operation,
+                        mesh->getGroup() + "/" + mesh->getName() + "#" +
+                            std::to_string(section_index),
+                        reverse_winding, topology_revision,
+                        section.mesh_payload);
+                    if (!validation)
+                        return validation;
+                    RoR::Render::Ogre14GraphicsSceneStaticMeshCacheEntry entry;
+                    entry.native_mesh = mesh.get();
+                    entry.native_state_count = native_state_count;
+                    entry.payload = section.mesh_payload;
+                    candidate_cache[cache_key] = std::move(entry);
+                }
+                sections.push_back(std::move(section));
+            }
+        }
+    }
+
+    validation = RoR::Render::BuildOgre14GraphicsSceneStaticInventory(
+        sections, identity_registry, assets, static_meshes);
+    if (!validation)
+        return validation;
+    mesh_cache = std::move(candidate_cache);
+    return RoR::Render::ValidationResult::Success();
+}
+
 } // namespace
 
 void GfxScene::CreateDustPools()
@@ -262,6 +1015,10 @@ void GfxScene::ClearScene()
 {
     m_ogre14_joined_buffer_ready = false;
     m_ogre14_joined_buffer_atomic = false;
+    // Native mesh pointers cannot outlive SceneManager resource teardown.
+    // Stable/tombstoned source identities intentionally remain in the
+    // registry until the owning producer lifetime is explicitly replaced.
+    m_ogre14_static_mesh_cache.clear();
 
     // Delete dustpools
     for (auto itor : m_dustpools)
@@ -620,6 +1377,36 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                             ENVIRONMENT);
             }
 
+            Terrain* const terrain = App::GetGameContext() != nullptr
+                ? App::GetGameContext()->GetTerrain().GetRef()
+                : nullptr;
+            TerrainObjectManager* const object_manager =
+                terrain != nullptr ? terrain->getObjectManager() : nullptr;
+            TerrainGeometryManager* const geometry_manager =
+                terrain != nullptr ? terrain->getGeometryManager() : nullptr;
+            Render::ValidationResult static_validation =
+                CaptureOgre14StaticMeshObjects(
+                    object_manager, geometry_manager,
+                    !m_all_gfx_actors.empty() ||
+                        !m_all_gfx_characters.empty(),
+                    m_ogre14_static_identity_registry,
+                    m_ogre14_static_mesh_cache,
+                    candidate.frame.assets,
+                    candidate.frame.static_meshes);
+            if (!static_validation)
+            {
+                return static_validation;
+            }
+            // These bits commit together only after coverage, native CPU
+            // extraction, material fallback, identity/lifecycle auditing, and
+            // complete inventory conversion have all succeeded.
+            candidate.available_fields |=
+                Render::Ogre14GraphicsSceneCaptureFieldBit(
+                    Render::Ogre14GraphicsSceneCaptureField::ASSETS);
+            candidate.available_fields |=
+                Render::Ogre14GraphicsSceneCaptureFieldBit(
+                    Render::Ogre14GraphicsSceneCaptureField::STATIC_MESHES);
+
             Render::ValidationResult light_validation =
                 CaptureOgre14ManagedLights(
                     *m_scene_manager, m_ogre14_light_identity_registry,
@@ -651,10 +1438,6 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
         }
     }
 
-    // Deliberately unavailable in this first production slice:
-    // - assets/static_meshes: no complete stable CPU inventory yet separates
-    //   terrain MeshObjects from deformable actor geometry;
-    // Their bits remain clear so no empty substitutes publish.
     capture = std::move(candidate);
     return Render::ValidationResult::Success();
 }

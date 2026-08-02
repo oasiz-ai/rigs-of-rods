@@ -88,6 +88,7 @@ source/main/system/RendererLauncherMain.cpp text eol=lf
 source/main/system/RendererLauncherPackageConfig.h.in text eol=lf
 source/main/system/RendererPublicLauncher.* text eol=lf
 source/main/gfx/render/** text eol=lf
+source/main/terrain/TerrainObjectManager.* whitespace=cr-at-eol
 tests/gfx/render/RenderTransportStreamTests.cpp text eol=lf
 tests/gfx/render/RenderBridgeControlTransportTests.cpp text eol=lf
 tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp text eol=lf

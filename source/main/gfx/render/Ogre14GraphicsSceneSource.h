@@ -16,6 +16,8 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -135,6 +137,200 @@ struct Ogre14CameraCaptureInput {
   float exposure = 1.0F;
   std::uint32_t visibility_mask = 0xFFFFFFFFU;
 };
+
+/// Compatibility fallback, not a claim that fixed-function OGRE materials
+/// have physically authored metallic/roughness values. Version one preserves
+/// the first authored pass's renderer-linear diffuse/emissive factors,
+/// straight-alpha or alpha-test mode, lighting enable, and culling. Legacy
+/// texture units, shader programs, and additional passes fail closed because
+/// publishing factor data alone would silently discard authored visuals.
+/// Ambient/specular lobes remain audited native metadata but intentionally
+/// acquire no guessed portable PBR contribution.
+constexpr std::uint32_t kOgre14StaticMaterialFallbackVersion = 1U;
+
+enum class Ogre14GraphicsSceneMaterialBlend : std::uint8_t {
+  REPLACE = 0U,
+  STRAIGHT_ALPHA = 1U,
+};
+
+enum class Ogre14GraphicsSceneMaterialCull : std::uint8_t {
+  NONE = 0U,
+  CLOCKWISE = 1U,
+  ANTICLOCKWISE = 2U,
+};
+
+enum class Ogre14GraphicsSceneMaterialAlphaReject : std::uint8_t {
+  ALWAYS_PASS = 0U,
+  GREATER_EQUAL = 1U,
+};
+
+/// Renderer-neutral copy of the fixed-function state used by the portable
+/// material fallback. `pass_count`, texture-unit count, and program flags are
+/// validated as the exact factor-only eligibility gate. Ambient and specular
+/// are retained to make the compatibility conversion explicit.
+struct Ogre14GraphicsSceneMaterialCaptureInput {
+  std::string exact_resource_group;
+  std::string exact_name;
+  std::uint32_t pass_count = 1U;
+  std::uint32_t texture_unit_count = 0U;
+  bool has_vertex_program = false;
+  bool has_fragment_program = false;
+  bool lighting_enabled = true;
+  Float4 diffuse_linear{1.0F, 1.0F, 1.0F, 1.0F};
+  Float3 ambient_linear{1.0F, 1.0F, 1.0F};
+  Float3 specular_linear{};
+  Float3 emissive_linear{};
+  float shininess = 0.0F;
+  Ogre14GraphicsSceneMaterialBlend blend =
+      Ogre14GraphicsSceneMaterialBlend::REPLACE;
+  Ogre14GraphicsSceneMaterialCull cull =
+      Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+  Ogre14GraphicsSceneMaterialAlphaReject alpha_reject =
+      Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
+  std::uint8_t alpha_reject_value = 0U;
+};
+
+/// Exact identity of one effective OGRE submesh draw range. A single OGRE
+/// Mesh may therefore yield several independently material-bound portable mesh
+/// assets. Reverse winding is part of the identity because OGRE supports both
+/// clockwise- and anticlockwise-front materials while the portable contract
+/// has one CCW convention.
+struct Ogre14GraphicsSceneMeshAssetIdentity {
+  std::string exact_resource_group;
+  std::string exact_mesh_name;
+  std::uint32_t submesh_index = 0U;
+  std::uint32_t vertex_start = 0U;
+  std::uint32_t vertex_count = 0U;
+  std::uint32_t index_start = 0U;
+  std::uint32_t index_count = 0U;
+  bool reverse_winding = false;
+};
+
+/// CPU streams copied from one immutable OGRE 14 render operation. OGRE 14
+/// and the portable contract share right-handed +Y-up object space, upper-left
+/// UV origin, and CCW front faces for the default clockwise-cull mode. The
+/// pure builder therefore preserves basis and UV values byte-for-byte and
+/// swaps only triangle indices when reverse_winding is explicitly requested.
+struct Ogre14GraphicsSceneCpuMeshSectionInput {
+  std::string debug_name;
+  MeshIndexFormat index_format = MeshIndexFormat::UINT32;
+  std::uint64_t topology_revision = 1U;
+  bool reverse_winding = false;
+  std::vector<Float3> positions;
+  std::vector<Float3> normals;
+  std::vector<Float4> tangents;
+  std::vector<Float2> texture_coordinates_0;
+  std::vector<Float2> texture_coordinates_1;
+  std::vector<Float4> colors;
+  std::vector<std::uint32_t> indices;
+};
+
+/// One material-bound static section after native CPU extraction. The
+/// graphics-owned object ID is monotonically allocated by
+/// TerrainObjectManager and never derived from vector position or display
+/// text. Mesh/material payloads and object transforms remain transactional.
+struct Ogre14GraphicsSceneStaticSectionCaptureInput {
+  std::uint64_t stable_object_id = 0U;
+  std::uint32_t section_index = 0U;
+  std::string exact_entity_name;
+  Ogre14GraphicsSceneMeshAssetIdentity mesh_identity;
+  std::shared_ptr<const RenderAssetPayload> mesh_payload;
+  Ogre14GraphicsSceneMaterialCaptureInput material;
+  Matrix4x4 render_from_object;
+  std::uint32_t visibility_mask = 0xFFFFFFFFU;
+  bool visible = true;
+  bool casts_shadows = true;
+  bool receives_shadows = true;
+  bool visible_in_reflections = true;
+};
+
+/// Adapter-side immutable CPU cache entry. `native_mesh` is an opaque
+/// identity token only; it is never dereferenced by renderer-neutral code.
+struct Ogre14GraphicsSceneStaticMeshCacheEntry {
+  const void *native_mesh = nullptr;
+  std::size_t native_state_count = 0U;
+  std::shared_ptr<const RenderAssetPayload> payload;
+};
+
+struct Ogre14GraphicsSceneUnsupportedGeometry {
+  bool terrain = false;
+  bool procedural = false;
+  bool deformable = false;
+  bool paged = false;
+  bool animated = false;
+};
+
+/// Collision-audited source identity and lifecycle state for all static assets
+/// and section instances. A complete successful inventory commits atomically;
+/// omission tombstones an identity, and later resurrection fails closed.
+class Ogre14GraphicsSceneStaticIdentityRegistry final {
+public:
+  [[nodiscard]] ValidationResult RegisterDerivedAssetIdentity(
+      std::string_view exact_key, std::uint64_t stable_id);
+  [[nodiscard]] ValidationResult RegisterDerivedObjectIdentity(
+      std::string_view exact_key, std::uint64_t stable_id);
+
+  [[nodiscard]] std::size_t asset_identity_count() const noexcept {
+    return asset_names_by_id_.size();
+  }
+  [[nodiscard]] std::size_t object_identity_count() const noexcept {
+    return object_names_by_id_.size();
+  }
+
+private:
+  friend ValidationResult BuildOgre14GraphicsSceneStaticInventory(
+      const std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &,
+      Ogre14GraphicsSceneStaticIdentityRegistry &,
+      std::vector<GraphicsSceneAssetInput> &,
+      std::vector<GraphicsSceneStaticMeshInput> &);
+
+  std::map<std::uint64_t, std::string> asset_names_by_id_;
+  std::map<std::string, std::uint64_t, std::less<>> asset_ids_by_name_;
+  std::map<std::uint64_t, std::string> object_names_by_id_;
+  std::map<std::string, std::uint64_t, std::less<>> object_ids_by_name_;
+  std::map<std::string, std::shared_ptr<const RenderAssetPayload>, std::less<>>
+      canonical_payloads_by_asset_key_;
+  std::set<std::string, std::less<>> known_asset_keys_;
+  std::set<std::string, std::less<>> live_asset_keys_;
+  std::set<std::string, std::less<>> known_object_keys_;
+  std::set<std::string, std::less<>> live_object_keys_;
+};
+
+[[nodiscard]] ValidationResult ValidateOgre14GraphicsSceneStaticCoverage(
+    const Ogre14GraphicsSceneUnsupportedGeometry &unsupported);
+
+[[nodiscard]] ValidationResult DeriveOgre14GraphicsSceneMeshAssetId(
+    const Ogre14GraphicsSceneMeshAssetIdentity &identity,
+    std::uint64_t &stable_id);
+[[nodiscard]] ValidationResult DeriveOgre14GraphicsSceneMaterialAssetId(
+    std::string_view exact_resource_group, std::string_view exact_name,
+    std::uint64_t &stable_id);
+[[nodiscard]] ValidationResult DeriveOgre14GraphicsSceneStaticSectionId(
+    std::uint64_t stable_object_id, std::uint32_t section_index,
+    std::uint64_t &stable_id);
+
+/// Builds an immutable tight-bounds triangle-list payload. Failure leaves the
+/// caller's owner untouched.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneStaticMeshPayload(
+    const Ogre14GraphicsSceneCpuMeshSectionInput &input,
+    std::shared_ptr<const RenderAssetPayload> &payload);
+
+/// Builds the versioned factor-only portable fallback. Failure leaves the
+/// material untouched.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneMaterialFallback(
+    const Ogre14GraphicsSceneMaterialCaptureInput &input,
+    MaterialDescriptor &material);
+
+/// Converts the complete supported static-section inventory, deduplicates
+/// shared mesh/material resources, validates every mesh/material pairing,
+/// canonicalizes stable ordering, and commits identity/lifecycle state only
+/// after the entire candidate succeeds. All outputs remain unchanged on
+/// failure.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneStaticInventory(
+    const std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &inputs,
+    Ogre14GraphicsSceneStaticIdentityRegistry &identity_registry,
+    std::vector<GraphicsSceneAssetInput> &assets,
+    std::vector<GraphicsSceneStaticMeshInput> &static_meshes);
 
 /// OGRE 14's ambient scene color is already consumed as a renderer-linear
 /// multiplier. The bridge defines one native ambient unit as one canonical

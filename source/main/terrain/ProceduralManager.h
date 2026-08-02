@@ -92,7 +92,7 @@ public:
     /// Clears road mesh and removes from internal list
     void removeObject(ProceduralObjectPtr po);
 
-    int getNumObjects() { return (int)pObjects.size(); }
+    int getNumObjects() const { return (int)pObjects.size(); }
 
     ProceduralObjectPtr getObject(int pos);
 
