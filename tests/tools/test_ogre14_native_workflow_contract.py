@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static contract tests for the isolated OGRE 14 native CI workflow."""
+"""Static contracts for the OgreNext-first native product CI workflow."""
 
 from __future__ import annotations
 
@@ -118,12 +118,12 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
 
     def test_workflow_is_isolated_read_only_and_cancellable(self) -> None:
         text = self.text
-        self.assertIn("name: OGRE 14 native Release", text)
+        self.assertIn("name: OgreNext-first native Release", text)
         self.assertIn("branches: [master]", text)
         self.assertIn("pull_request:", text)
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("contents: read", text)
-        self.assertIn("group: ogre14-native-${{ github.ref }}", text)
+        self.assertIn("group: renderer-suite-native-${{ github.ref }}", text)
         self.assertIn("cancel-in-progress: true", text)
         self.assertNotIn("secrets.", text)
         for mutation in ("butler", "git push", "gh release", "npm publish"):
@@ -387,7 +387,7 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             "-DCMAKE_BUILD_TYPE=Release",
             "-DROR_BUILD_TESTS=ON",
             "-DROR_CREATE_CONTENT_FOLDER=ON",
-            "-DROR_OGRE14=ON",
+            "Configure OgreNext-first native Release",
             "ctest",
             "cmake --install",
             "cmake -E rename",
@@ -403,6 +403,9 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         for contract in required:
             with self.subTest(contract=contract):
                 self.assertIn(contract, text)
+        self.assertNotIn("-DROR_OGRE14=", text)
+        self.assertNotIn("-DROR_RENDERER_PUBLIC_LAUNCHER=", text)
+        self.assertNotIn("-DROR_OGRE_NEXT_PRODUCTION_PACKAGE=", text)
         self.assertEqual(text.count("cmake --install"), 1)
         self.assertEqual(text.count("cmake -E rename"), 1)
 

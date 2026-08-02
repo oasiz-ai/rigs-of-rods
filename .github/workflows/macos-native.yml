@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   ogre14-app:
-    name: OGRE 14 app bundle (arm64)
+    name: OgreNext-first app bundle (arm64)
     runs-on: macos-15
     timeout-minutes: 120
     env:
@@ -76,7 +76,7 @@ jobs:
           xcodebuild -version
           clang++ --version
 
-      - name: Configure native OGRE 14 application
+      - name: Configure OgreNext-first native application
         run: |
           cmake \
             -S . \
@@ -87,8 +87,7 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
             -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
             -DROR_BUILD_TESTS=ON \
-            -DROR_CREATE_CONTENT_FOLDER=ON \
-            -DROR_OGRE14=ON
+            -DROR_CREATE_CONTENT_FOLDER=ON
 
       - name: Build native application and tests
         run: >-

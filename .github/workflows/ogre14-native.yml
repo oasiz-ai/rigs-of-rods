@@ -1,4 +1,4 @@
-name: OGRE 14 native Release
+name: OgreNext-first native Release
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ogre14-native-${{ github.ref }}
+  group: renderer-suite-native-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
             compiler: gcc11
             cc: gcc-11
             cxx: g++-11
-            artifact: Rigs-of-Rods-Linux-x86_64-OGRE14
+            artifact: Rigs-of-Rods-Linux-x86_64-OgreNext-first
           - name: Windows x64 (MSVC 19.44)
             # VS 17 is required by pinned v143 Conan recipes. GitHub's
             # windows-2025 label moved to the VS 18 image in June 2026.
@@ -39,7 +39,7 @@ jobs:
             compiler: msvc1944
             cc: cl
             cxx: cl
-            artifact: Rigs-of-Rods-Windows-x64-OGRE14
+            artifact: Rigs-of-Rods-Windows-x64-OgreNext-first
     env:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
@@ -209,7 +209,7 @@ jobs:
             --platform "${{ matrix.platform }}" \
             | tee "artifacts/${{ matrix.platform }}-conan-graph.json"
 
-      - name: Configure native OGRE 14 Release
+      - name: Configure OgreNext-first native Release
         shell: bash
         run: |
           cmake \
@@ -222,8 +222,7 @@ jobs:
             -DCONAN_HOST_PROFILE="${GITHUB_WORKSPACE}/${{ matrix.profile }}" \
             -DCONAN_BUILD_PROFILE="${GITHUB_WORKSPACE}/${{ matrix.profile }}" \
             -DROR_BUILD_TESTS=ON \
-            -DROR_CREATE_CONTENT_FOLDER=ON \
-            -DROR_OGRE14=ON
+            -DROR_CREATE_CONTENT_FOLDER=ON
 
       - name: Build native application and tests
         shell: bash

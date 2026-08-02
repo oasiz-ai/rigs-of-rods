@@ -215,6 +215,13 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
                 self.assertIn(contract, linux)
 
     def test_ci_and_runtime_audit_follow_public_to_child_handoff(self) -> None:
+        for workflow in (self.mac_workflow, self.native_workflow):
+            with self.subTest(workflow_default="OgreNext-first"):
+                self.assertNotIn("-DROR_OGRE14=", workflow)
+                self.assertNotIn("-DROR_RENDERER_PUBLIC_LAUNCHER=", workflow)
+                self.assertNotIn(
+                    "-DROR_OGRE_NEXT_PRODUCTION_PACKAGE=", workflow
+                )
         self.assertIn(
             'compatibility_executable="$app/Contents/MacOS/RoR-Ogre14"',
             self.mac_workflow,
