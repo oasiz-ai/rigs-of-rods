@@ -45,6 +45,7 @@ set(_ror_n2_relevant_source_paths
     tests/tools/test_ogre_next_child_runtime_contract.py
     tests/tools/test_ogre_next_window_host_contract.py
     tests/tools/test_ogre_next_window_presentation_contract.py
+    tests/tools/test_ogre_next_window_run_loop_contract.py
     tools/ogre_next_probe
     tools/run_ogre_next_probe.py
     tools/validate_ogre_next_frame_probe.py
@@ -110,6 +111,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
     "tests/tools/test_ogre_next_window_presentation_contract.py"
+    "tests/tools/test_ogre_next_window_run_loop_contract.py"
     "tools/run_ogre_next_probe.py"
     "tools/validate_ogre_next_frame_probe.py"
     "tools/verify_ogre_next_artifact_set.py")

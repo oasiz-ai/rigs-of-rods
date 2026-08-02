@@ -159,7 +159,9 @@ RenderOperationResult ValidatePresentationConfiguration(
         "unsupported Ogre-Next presentation configuration version");
   }
   if (!configuration.enabled) {
-    if (!configuration.shader_media_root.empty() ||
+    if (configuration.mode !=
+            OgreNextN1PresentationMode::EXACT_ONE_FRAME_GATE ||
+        !configuration.shader_media_root.empty() ||
         configuration.exact_window.valid() ||
         configuration.renderer_option_count != 0U ||
         configuration.bootstrap_window_parameter_count != 0U ||
@@ -171,6 +173,14 @@ RenderOperationResult ValidatePresentationConfiguration(
           "disabled presentation configuration retained live inputs");
     }
     return RenderOperationResult::Success();
+  }
+  if (configuration.mode !=
+          OgreNextN1PresentationMode::EXACT_ONE_FRAME_GATE &&
+      configuration.mode !=
+          OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "unknown Ogre-Next presentation lifetime mode");
   }
   if (configuration.shader_media_root.empty() ||
       !configuration.exact_window.valid() ||
@@ -1281,6 +1291,15 @@ bool TryComputeHdrAverageLogLuminance(
   return true;
 }
 
+} // namespace
+
+namespace {
+constexpr const char *kProductionPresentationTargetName =
+    "RoRN1ProductionPresentationTarget";
+constexpr const char *kProductionPresentationNodeName =
+    "RoRN1ProductionPresentationNode";
+constexpr const char *kProductionPresentationWorkspaceName =
+    "RoRN1ProductionPresentationWorkspace";
 } // namespace
 
 class OgreNextN1Frontend::Impl final {
@@ -2889,6 +2908,369 @@ public:
     return RenderOperationResult::Success();
   }
 
+  [[nodiscard]] bool ProductionPresentationEnabled() const noexcept {
+    return presentation_configuration.enabled &&
+           presentation_configuration.mode ==
+               OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP;
+  }
+
+  /// Retires only the production run-loop graph. The borrowed native window,
+  /// presentation material group, Root, scene manager, and one-frame gate
+  /// remain under their existing lifetime contracts.
+  [[nodiscard]] bool DestroyProductionPresentationGraph() noexcept {
+    if (root == nullptr || renderer == nullptr) {
+      return production_workspace == nullptr &&
+             production_source_target == nullptr &&
+             !production_workspace_definition_created &&
+             !production_node_definition_created;
+    }
+    Ogre::CompositorManager2 *compositors = root->getCompositorManager2();
+    if (compositors == nullptr) {
+      return false;
+    }
+    if (production_workspace != nullptr) {
+      try {
+        compositors->removeWorkspace(production_workspace);
+        production_workspace = nullptr;
+        production_window_texture = nullptr;
+        ++presentation_audit.compositor_workspace_destroys;
+      } catch (...) {
+        return false;
+      }
+    }
+    if (production_workspace_definition_created) {
+      try {
+        compositors->removeWorkspaceDefinition(
+            Ogre::IdString(kProductionPresentationWorkspaceName));
+        production_workspace_definition_created = false;
+      } catch (...) {
+        return false;
+      }
+    }
+    if (production_node_definition_created) {
+      try {
+        compositors->removeNodeDefinition(
+            Ogre::IdString(kProductionPresentationNodeName));
+        production_node_definition_created = false;
+        ++presentation_audit.compositor_node_definition_destroys;
+      } catch (...) {
+        return false;
+      }
+    }
+    if (production_source_target != nullptr) {
+      try {
+        Ogre::TextureGpuManager *texture_manager =
+            renderer->getTextureGpuManager();
+        texture_manager->destroyTexture(production_source_target);
+        texture_manager->waitForStreamingCompletion();
+        production_source_target = nullptr;
+        ++presentation_audit.source_target_destroys;
+      } catch (...) {
+        return false;
+      }
+    }
+    production_width = 0U;
+    production_height = 0U;
+    production_color_format = PixelFormat::INVALID;
+    return true;
+  }
+
+  [[nodiscard]] RenderOperationResult RebindProductionPresentationWorkspace(
+      Ogre::TextureGpu *window_texture) {
+    if (window_texture == nullptr || production_source_target == nullptr ||
+        !production_workspace_definition_created ||
+        !production_node_definition_created || root == nullptr) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "production presentation rebind has an incomplete persistent graph");
+    }
+    Ogre::CompositorManager2 *compositors = root->getCompositorManager2();
+    try {
+      if (production_workspace != nullptr) {
+        compositors->removeWorkspace(production_workspace);
+        production_workspace = nullptr;
+        production_window_texture = nullptr;
+        ++presentation_audit.compositor_workspace_destroys;
+      }
+      Ogre::CompositorChannelVec channels;
+      channels.reserve(2U);
+      channels.push_back(production_source_target);
+      channels.push_back(window_texture);
+      production_workspace = compositors->addWorkspace(
+          scene_manager, channels, camera,
+          kProductionPresentationWorkspaceName, true);
+      ++presentation_audit.compositor_workspace_creates;
+      const Ogre::CompositorChannelVec &observed =
+          production_workspace->getExternalRenderTargets();
+      if (observed.size() != 2U ||
+          observed[0U] != production_source_target ||
+          observed[1U] != window_texture) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "production Compositor2 workspace lost its exact source/window channel order");
+      }
+      production_window_texture = window_texture;
+      return RenderOperationResult::Success();
+    } catch (const Ogre::Exception &error) {
+      return BackendFailure(error);
+    } catch (const std::exception &error) {
+      return RenderOperationResult::Failure(RenderOperationCode::BACKEND_FAILURE,
+                                            error.what());
+    }
+  }
+
+  [[nodiscard]] RenderOperationResult EnsureProductionPresentationGraph(
+      const RenderFrameRequest &request, const CameraViewRequest &view,
+      std::uint32_t authored_view_visibility) {
+    if (!ProductionPresentationEnabled() || !request.present ||
+        presentation_window == nullptr ||
+        !presentation_resource_group_created || surface.suspended) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "production presentation graph requested outside its active native-window contract");
+    }
+    if (production_workspace != nullptr) {
+      Ogre::TextureGpu *window_texture = presentation_window->getTexture();
+      const bool exact = production_source_target != nullptr &&
+                         production_width == view.width &&
+                         production_height == view.height &&
+                         production_color_format == request.color_format &&
+                         production_window_texture == window_texture &&
+                         window_texture != nullptr &&
+                         window_texture->getWidth() == view.width &&
+                         window_texture->getHeight() == view.height;
+      if (exact) {
+        return RenderOperationResult::Success();
+      }
+      if (!DestroyProductionPresentationGraph()) {
+        return NativeTeardownFailure(
+            "Ogre-Next production presentation graph replacement");
+      }
+    }
+
+    const bool rebuilding = presentation_audit.source_target_creates != 0U;
+    try {
+      Ogre::TextureGpuManager *texture_manager =
+          renderer->getTextureGpuManager();
+      production_source_target = texture_manager->createTexture(
+          kProductionPresentationTargetName,
+          Ogre::GpuPageOutStrategy::Discard,
+          Ogre::TextureFlags::RenderToTexture,
+          Ogre::TextureTypes::Type2D);
+      ++presentation_audit.source_target_creates;
+      production_source_target->setResolution(view.width, view.height);
+      production_source_target->setPixelFormat(
+          request.color_format == PixelFormat::RGBA16_FLOAT
+              ? Ogre::PFG_RGBA16_FLOAT
+              : Ogre::PFG_RGBA8_UNORM_SRGB);
+      production_source_target->scheduleTransitionTo(
+          Ogre::GpuResidency::Resident);
+      production_width = view.width;
+      production_height = view.height;
+      production_color_format = request.color_format;
+
+      Ogre::CompositorManager2 *compositors = root->getCompositorManager2();
+      const Ogre::IdString node_name(kProductionPresentationNodeName);
+      const Ogre::IdString workspace_name(
+          kProductionPresentationWorkspaceName);
+      if (compositors->hasNodeDefinition(node_name) ||
+          compositors->hasWorkspaceDefinition(workspace_name)) {
+        throw std::runtime_error(
+            "production presentation compositor identity already exists");
+      }
+      Ogre::CompositorNodeDef *node =
+          compositors->addNodeDefinition(kProductionPresentationNodeName);
+      production_node_definition_created = true;
+      ++presentation_audit.compositor_node_definition_creates;
+      node->addTextureSourceName(
+          "MainRT", 0U, Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+      node->addTextureSourceName(
+          "PresentationRT", 1U,
+          Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+      node->setNumTargetPass(2U);
+      Ogre::CompositorTargetDef *main_target = node->addTargetPass("MainRT");
+      main_target->setNumPasses(1U);
+      auto *scene = static_cast<Ogre::CompositorPassSceneDef *>(
+          main_target->addPass(Ogre::PASS_SCENE));
+      scene->mFirstRQ = 0U;
+      scene->mLastRQ = kOgreNextPccReservedRenderQueue;
+      scene->mIncludeOverlays = false;
+      scene->mEnableForwardPlus = true;
+      scene->setVisibilityMask(authored_view_visibility);
+      scene->setAllClearColours(
+          Ogre::ColourValue(0.0F, 0.0F, 0.0F, 1.0F));
+      scene->setAllLoadActions(Ogre::LoadAction::Clear);
+      scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
+      scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
+      Ogre::CompositorTargetDef *presentation_target =
+          node->addTargetPass("PresentationRT");
+      presentation_target->setNumPasses(1U);
+      auto *copy = static_cast<Ogre::CompositorPassQuadDef *>(
+          presentation_target->addPass(Ogre::PASS_QUAD));
+      copy->mMaterialIsHlms = false;
+      copy->mMaterialName = "Ogre/Copy/4xFP32";
+      copy->mUseQuad = false;
+      copy->addQuadTextureSource(0U, "MainRT");
+
+      Ogre::CompositorWorkspaceDef *workspace_definition =
+          compositors->addWorkspaceDefinition(
+              kProductionPresentationWorkspaceName);
+      production_workspace_definition_created = true;
+      workspace_definition->connectExternal(0U, node->getName(), 0U);
+      workspace_definition->connectExternal(1U, node->getName(), 1U);
+      Ogre::TextureGpu *window_texture = presentation_window->getTexture();
+      if (window_texture == nullptr ||
+          window_texture->getWidth() != view.width ||
+          window_texture->getHeight() != view.height) {
+        throw std::runtime_error(
+            "production presentation window texture lost the acknowledged pixel extent");
+      }
+      const RenderOperationResult bound =
+          RebindProductionPresentationWorkspace(window_texture);
+      if (!bound) {
+        const bool clean = DestroyProductionPresentationGraph();
+        return clean ? bound
+                     : NativeTeardownFailure(
+                           "Ogre-Next production presentation bind rollback");
+      }
+      if (rebuilding) {
+        ++presentation_audit.surface_graph_rebuilds;
+      }
+
+      if (!production_window_shown) {
+        presentation_audit.workspace_ready_before_show = true;
+        ++presentation_audit.show_callback_calls;
+        FrontendSurfaceUpdate acknowledged_surface;
+        if (!presentation_configuration.show_after_workspace_ready(
+                presentation_configuration.show_callback_context,
+                &acknowledged_surface)) {
+          throw std::runtime_error(
+              "native host did not acknowledge production show/configure after workspace readiness");
+        }
+        const ValidationResult observed_surface =
+            ValidateFrontendSurfaceUpdate(acknowledged_surface, false);
+        if (!observed_surface) {
+          const RenderOperationResult failure =
+              OgreNextN1OperationFromValidation(observed_surface);
+          const bool clean = DestroyProductionPresentationGraph();
+          return clean ? failure
+                       : NativeTeardownFailure(
+                             "Ogre-Next production show rollback");
+        }
+        if (!SameNativeWindow(acknowledged_surface.window,
+                              presentation_configuration.exact_window)) {
+          const bool clean = DestroyProductionPresentationGraph();
+          return clean
+                     ? RenderOperationResult::Failure(
+                           RenderOperationCode::BACKEND_FAILURE,
+                           "production show acknowledgement changed native window identity or generation")
+                     : NativeTeardownFailure(
+                           "Ogre-Next production show identity rollback");
+        }
+        if (acknowledged_surface.surface_revision == surface.surface_revision) {
+          if (acknowledged_surface.pixel_width != surface.pixel_width ||
+              acknowledged_surface.pixel_height != surface.pixel_height ||
+              acknowledged_surface.content_scale != surface.content_scale ||
+              acknowledged_surface.suspended != surface.suspended) {
+            const bool clean = DestroyProductionPresentationGraph();
+            return clean
+                       ? RenderOperationResult::Failure(
+                             RenderOperationCode::BACKEND_FAILURE,
+                             "production show surface changed without advancing its revision")
+                       : NativeTeardownFailure(
+                             "Ogre-Next production show surface rollback");
+          }
+        } else {
+          const ValidationResult transition = ValidateFrontendSurfaceTransition(
+              surface, acknowledged_surface, false, true);
+          if (!transition) {
+            const RenderOperationResult failure =
+                OgreNextN1OperationFromValidation(transition);
+            const bool clean = DestroyProductionPresentationGraph();
+            return clean ? failure
+                         : NativeTeardownFailure(
+                               "Ogre-Next production show transition rollback");
+          }
+        }
+        const ValidationResult exact_presentation =
+            ValidateRenderFramePresentation(request, acknowledged_surface);
+        const RenderOperationResult shown_extent =
+            RefreshPresentationWindowExtent(
+                acknowledged_surface.pixel_width,
+                acknowledged_surface.pixel_height, true);
+        if (!shown_extent) {
+          const bool clean = DestroyProductionPresentationGraph();
+          return clean ? shown_extent
+                       : NativeTeardownFailure(
+                             "Ogre-Next production shown-extent rollback");
+        }
+        surface = acknowledged_surface;
+        production_window_shown = true;
+        if (!exact_presentation) {
+          std::ostringstream detail;
+          detail << "production presentation surface out of date after native show ACK; resubmit revision "
+                 << acknowledged_surface.surface_revision << " at "
+                 << acknowledged_surface.pixel_width << 'x'
+                 << acknowledged_surface.pixel_height;
+          const bool clean = DestroyProductionPresentationGraph();
+          return clean
+                     ? RenderOperationResult::Failure(
+                           RenderOperationCode::RESOURCE_STALE, detail.str())
+                     : NativeTeardownFailure(
+                           "Ogre-Next production stale-show rollback");
+        }
+        Ogre::TextureGpu *acknowledged_window_texture =
+            presentation_window->getTexture();
+        if (acknowledged_window_texture != production_window_texture) {
+          const RenderOperationResult rebound =
+              RebindProductionPresentationWorkspace(
+                  acknowledged_window_texture);
+          if (!rebound) {
+            const bool clean = DestroyProductionPresentationGraph();
+            return clean ? rebound
+                         : NativeTeardownFailure(
+                               "Ogre-Next production post-show rebind rollback");
+          }
+          ++presentation_audit.compositor_workspace_rebinds;
+        }
+      }
+
+      const Ogre::CompositorChannelVec &channels =
+          production_workspace->getExternalRenderTargets();
+      if (channels.size() != 2U ||
+          channels[0U] != production_source_target ||
+          channels[1U] != production_window_texture ||
+          production_window_texture == nullptr ||
+          production_window_texture->getWidth() != surface.pixel_width ||
+          production_window_texture->getHeight() != surface.pixel_height) {
+        throw std::runtime_error(
+            "production presentation graph failed final channel/extent validation");
+      }
+      return RenderOperationResult::Success();
+    } catch (const std::bad_alloc &) {
+      const bool clean = DestroyProductionPresentationGraph();
+      return clean
+                 ? RenderOperationResult::Failure(
+                       RenderOperationCode::OUT_OF_MEMORY,
+                       "production presentation graph allocation ran out of memory")
+                 : NativeTeardownFailure(
+                       "Ogre-Next production allocation rollback");
+    } catch (const Ogre::Exception &error) {
+      const RenderOperationResult failure = BackendFailure(error);
+      const bool clean = DestroyProductionPresentationGraph();
+      return clean ? failure
+                   : NativeTeardownFailure(
+                         "Ogre-Next production Ogre rollback");
+    } catch (const std::exception &error) {
+      const RenderOperationResult failure = RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE, error.what());
+      const bool clean = DestroyProductionPresentationGraph();
+      return clean ? failure
+                   : NativeTeardownFailure(
+                         "Ogre-Next production graph rollback");
+    }
+  }
+
   [[nodiscard]] bool DestroyPresentationResources() noexcept {
     bool clean = true;
     if (presentation_window != nullptr) {
@@ -2929,6 +3311,7 @@ public:
       clean = reflection_probe_runtime->Shutdown() && clean;
       reflection_probe_runtime.reset();
     }
+    clean = DestroyProductionPresentationGraph() && clean;
     clean = DestroyRetainedOutputTarget() && clean;
     clean = DestroyHdrCompositor() && clean;
     clean = DestroyFrameMeshes() && clean;
@@ -3000,6 +3383,12 @@ public:
   std::string configured_shader_media_root;
   OgreNextN1PresentationConfiguration presentation_configuration;
   OgreNextN1PresentationAudit presentation_audit;
+  Ogre::TextureGpu *production_source_target = nullptr;
+  Ogre::TextureGpu *production_window_texture = nullptr;
+  Ogre::CompositorWorkspace *production_workspace = nullptr;
+  std::uint32_t production_width = 0U;
+  std::uint32_t production_height = 0U;
+  PixelFormat production_color_format = PixelFormat::INVALID;
   std::string resolved_shader_media_root;
   OgreNextHdrTemporalConfiguration hdr_configuration;
   OgreNextHdrTemporalState hdr_temporal_state;
@@ -3014,6 +3403,9 @@ public:
   bool owns_root_claim = false;
   bool hdr_enabled = false;
   bool presentation_resource_group_created = false;
+  bool production_node_definition_created = false;
+  bool production_workspace_definition_created = false;
+  bool production_window_shown = false;
   bool hdr_resource_group_created = false;
   bool hdr_workspace_definition_created = false;
   bool hdr_manual_delta_bound = false;
@@ -3185,7 +3577,16 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
        impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1)) {
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
-        "the first native presentation gate requires the exact N1 raster path without persistent HDR or native image interop");
+        "native presentation requires the exact raster path without persistent HDR or native image interop");
+  }
+  if (impl_->presentation_configuration.enabled &&
+      impl_->presentation_configuration.mode ==
+          OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP &&
+      impl_->directional_shadow_mode !=
+          OgreNextDirectionalShadowMode::DISABLED) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "the first production presentation run loop requires directional shadows disabled");
   }
 #if !defined(ROR_OGRE_NEXT_N1_METAL)
   if (impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1) {
@@ -3495,7 +3896,10 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     if (impl_->presentation_configuration.enabled) {
       impl_->surface.window = request.window;
       impl_->presentation_audit.enabled = true;
+      impl_->presentation_audit.mode =
+          impl_->presentation_configuration.mode;
       impl_->presentation_audit.exact_external_window_binding = true;
+      impl_->presentation_audit.monotonic_presented_frame_ids = true;
     }
     impl_->owner_thread = std::this_thread::get_id();
     impl_->initialized = true;
@@ -3526,6 +3930,8 @@ RenderOperationResult OgreNextN1Frontend::UpdateSurface(
   }
   const bool presentation_enabled =
       impl_->presentation_configuration.enabled;
+  const bool production_presentation =
+      impl_->ProductionPresentationEnabled();
   if (headless == presentation_enabled) {
     return RenderOperationResult::Failure(
         RenderOperationCode::INVALID_ARGUMENT,
@@ -3541,7 +3947,7 @@ RenderOperationResult OgreNextN1Frontend::UpdateSurface(
                         impl_->presentation_configuration.exact_window)) {
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
-        "the first Ogre-Next presentation gate cannot replace its borrowed native window");
+        "Ogre-Next presentation cannot replace its borrowed native window");
   }
   if (update.pixel_width > impl_->maximum_texture_dimension ||
       update.pixel_height > impl_->maximum_texture_dimension) {
@@ -3558,6 +3964,18 @@ RenderOperationResult OgreNextN1Frontend::UpdateSurface(
   }
   if (presentation_enabled) {
     try {
+      const bool retire_production_graph =
+          production_presentation &&
+          (update.suspended != impl_->surface.suspended ||
+           update.pixel_width != impl_->surface.pixel_width ||
+           update.pixel_height != impl_->surface.pixel_height ||
+           update.content_scale != impl_->surface.content_scale);
+      if (retire_production_graph &&
+          !impl_->DestroyProductionPresentationGraph()) {
+        impl_->faulted = true;
+        return NativeTeardownFailure(
+            "Ogre-Next production presentation surface transition");
+      }
       if (update.suspended) {
         if (impl_->presentation_window == nullptr) {
           impl_->faulted = true;
@@ -3575,6 +3993,15 @@ RenderOperationResult OgreNextN1Frontend::UpdateSurface(
           impl_->faulted = true;
           return extent;
         }
+        if (production_presentation &&
+            impl_->production_workspace != nullptr &&
+            impl_->presentation_window->getTexture() !=
+                impl_->production_window_texture &&
+            !impl_->DestroyProductionPresentationGraph()) {
+          impl_->faulted = true;
+          return NativeTeardownFailure(
+              "Ogre-Next production drawable-texture transition");
+        }
       }
     } catch (const Ogre::Exception &error) {
       impl_->faulted = true;
@@ -3583,6 +4010,13 @@ RenderOperationResult OgreNextN1Frontend::UpdateSurface(
       impl_->faulted = true;
       return RenderOperationResult::Failure(
           RenderOperationCode::BACKEND_FAILURE, error.what());
+    }
+  }
+  if (production_presentation) {
+    if (update.suspended) {
+      ++impl_->presentation_audit.suspended_surface_updates;
+    } else if (impl_->surface.suspended) {
+      ++impl_->presentation_audit.restored_surface_updates;
     }
   }
   impl_->surface = update;
@@ -3963,8 +4397,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
   if (!validation) {
     return OgreNextN1OperationFromValidation(validation);
   }
+  const bool production_presentation =
+      impl_->ProductionPresentationEnabled();
   if (request.present) {
-    if (impl_->presentation_audit.presented_frames != 0U) {
+    if (!production_presentation &&
+        impl_->presentation_audit.presented_frames != 0U) {
       return RenderOperationResult::Failure(
           RenderOperationCode::UNSUPPORTED,
           "the first native presentation gate admits exactly one presented frame per frontend lifetime");
@@ -4072,10 +4509,18 @@ RenderOperationResult OgreNextN1Frontend::Render(
 
   const bool persistent_hdr = impl_->hdr_enabled;
   Ogre::TextureGpu *target =
-      persistent_hdr ? impl_->hdr_output_target : nullptr;
+      persistent_hdr
+          ? impl_->hdr_output_target
+          : (production_presentation
+                 ? impl_->production_source_target
+                 : nullptr);
   Ogre::TextureGpu *retained_target = nullptr;
   Ogre::CompositorWorkspace *workspace =
-      persistent_hdr ? impl_->hdr_workspace : nullptr;
+      persistent_hdr
+          ? impl_->hdr_workspace
+          : (production_presentation
+                 ? impl_->production_workspace
+                 : nullptr);
   Ogre::IdString workspace_name;
   bool reflection_frame_prepared = false;
   bool submission_commit_prepared = false;
@@ -4111,7 +4556,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
     bool clean = true;
     Ogre::CompositorManager2 *compositors =
         impl_->root->getCompositorManager2();
-    if (!persistent_hdr && workspace != nullptr) {
+    if (!persistent_hdr && !production_presentation &&
+        workspace != nullptr) {
       try {
         compositors->removeWorkspace(workspace);
       } catch (...) {
@@ -4213,7 +4659,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       shadow_node_text.clear();
     }
-    if (!persistent_hdr && (target != nullptr || !target_text.empty())) {
+    if (!persistent_hdr && !production_presentation &&
+        (target != nullptr || !target_text.empty())) {
       Ogre::TextureGpuManager *texture_manager =
           impl_->renderer->getTextureGpuManager();
       Ogre::TextureGpu *registered_target = target;
@@ -4789,7 +5236,16 @@ RenderOperationResult OgreNextN1Frontend::Render(
       reflection_frame_prepared = true;
     }
 
-    if (!persistent_hdr) {
+    if (production_presentation) {
+      const RenderOperationResult production_graph =
+          impl_->EnsureProductionPresentationGraph(
+              request, view, authored_view_visibility);
+      if (!production_graph) {
+        return fail_after_cleanup(production_graph);
+      }
+      target = impl_->production_source_target;
+      workspace = impl_->production_workspace;
+    } else if (!persistent_hdr) {
       target_text = "RoRN1Target_" + std::to_string(request.frame_id);
     std::uint32_t target_flags = Ogre::TextureFlags::RenderToTexture;
     if (UsesMetalImageInterop(impl_->native_feature_tier)) {
@@ -4915,6 +5371,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
             "Compositor2 did not retain the exact ordered source/window channel pair");
       }
       FrontendSurfaceUpdate acknowledged_surface;
+      ++impl_->presentation_audit.show_callback_calls;
       if (!impl_->presentation_configuration.show_after_workspace_ready(
               impl_->presentation_configuration.show_callback_context,
               &acknowledged_surface)) {
@@ -5195,6 +5652,15 @@ RenderOperationResult OgreNextN1Frontend::Render(
     impl_->submission_state.CommitPrepared(request);
     submission_commit_prepared = false;
     if (request.present) {
+      if (impl_->presentation_audit.presented_frames == 0U) {
+        impl_->presentation_audit.first_presented_frame_id = request.frame_id;
+      } else {
+        impl_->presentation_audit.monotonic_presented_frame_ids =
+            impl_->presentation_audit.monotonic_presented_frame_ids &&
+            request.frame_id >
+                impl_->presentation_audit.last_presented_frame_id;
+      }
+      impl_->presentation_audit.last_presented_frame_id = request.frame_id;
       impl_->presentation_audit.exact_two_external_channels = true;
       impl_->presentation_audit.ui_free_source = true;
       impl_->presentation_audit.gpu_quad_copy = true;

@@ -136,6 +136,7 @@ RELEVANT_SOURCE_PATHS = (
     "tests/tools/test_ogre_next_child_runtime_contract.py",
     "tests/tools/test_ogre_next_window_host_contract.py",
     "tests/tools/test_ogre_next_window_presentation_contract.py",
+    "tests/tools/test_ogre_next_window_run_loop_contract.py",
     "tools/ogre_next_probe",
     "tools/run_ogre_next_probe.py",
     "tools/validate_ogre_next_frame_probe.py",
