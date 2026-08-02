@@ -7,6 +7,7 @@
 */
 
 #include "RendererBridgeProcessSupervisor.h"
+#include "RendererOgreNextChild.h"
 
 #include <cerrno>
 #include <cstddef>
@@ -113,6 +114,8 @@ void RequireNoChildProcesses(const char *message) {
 #endif
 
 void TestStatusDomains() {
+  Require(RoR::kRendererBridgeProcessSupervisorContractVersion == 2U,
+          "supervisor contract version changed");
   for (unsigned int value = 0U;
        value <= static_cast<unsigned int>(
                     RoR::RendererBridgeProcessStatus::FAILED_INTERNAL);
@@ -286,11 +289,19 @@ void TestPresentationFirstTerminatesGame() {
                   RoR::RendererBridgeObservedChild::PRESENTATION_FRONTEND &&
               result.game_exit_kind ==
                   RoR::RendererBridgeGameExitKind::UNAVAILABLE &&
+              result.presentation_exit_kind ==
+                  RoR::RendererBridgeGameExitKind::EXIT_CODE &&
+              result.presentation_exit_code == 23U &&
               result.game_exec_confirmed &&
               result.presentation_exec_confirmed && result.game_reaped &&
               result.presentation_reaped && result.peer_terminated,
           "presentation-first exit did not terminate and reap game host");
 #if !defined(_WIN32)
+  const int native_presentation_status =
+      static_cast<int>(result.native_presentation_wait_status);
+  Require(WIFEXITED(native_presentation_status) &&
+              WEXITSTATUS(native_presentation_status) == 23,
+          "raw POSIX presentation wait status changed");
   RequireNoChildProcesses("presentation-first supervision left a zombie");
 #endif
 }
@@ -339,6 +350,61 @@ void TestSignalExitAndPropagation() {
               WTERMSIG(wrapper_status) == SIGABRT,
           "signal propagation changed the game terminating signal");
   RequireNoChildProcesses("propagation wrappers left a zombie");
+}
+
+void TestSupervisorSignalHandlerExitIsNaturalGameExit() {
+  const std::vector<NativeString> arguments{
+      ROR_NATIVE_TEXT("untrusted-launcher"),
+      ROR_NATIVE_TEXT("--bridge-test-game-graceful-sigterm")};
+  const RoR::RendererBridgeProcessResult result = Run(arguments);
+  const int native_game_status =
+      static_cast<int>(result.native_game_wait_status);
+  const int native_presentation_status =
+      static_cast<int>(result.native_presentation_wait_status);
+  Require(result.completed &&
+              result.status ==
+                  RoR::RendererBridgeProcessStatus::COMPLETED_GAME_EXIT &&
+              result.first_exit ==
+                  RoR::RendererBridgeObservedChild::GAME_HOST &&
+              result.game_exit_kind ==
+                  RoR::RendererBridgeGameExitKind::EXIT_CODE &&
+              result.game_exit_code == 42U &&
+              result.presentation_exit_kind ==
+                  RoR::RendererBridgeGameExitKind::EXIT_CODE &&
+              result.presentation_exit_code == static_cast<std::uint32_t>(
+                  RoR::kRendererOgreNextChildPrePeerReadyFailureExitCode) &&
+              result.game_reaped && result.presentation_reaped &&
+              !result.peer_terminated && WIFEXITED(native_game_status) &&
+              WEXITSTATUS(native_game_status) == 42 &&
+              WIFEXITED(native_presentation_status),
+          "a signal-handler game exit was misclassified as supervisor kill");
+  RequireNoChildProcesses("signal-handler race left a zombie");
+}
+
+void TestPresentationSignalRemainsTerminal() {
+  const std::vector<NativeString> arguments{
+      ROR_NATIVE_TEXT("untrusted-launcher"),
+      ROR_NATIVE_TEXT("--bridge-test-presentation-signal=6")};
+  const RoR::RendererBridgeProcessResult result = Run(arguments);
+  const int native_presentation_status =
+      static_cast<int>(result.native_presentation_wait_status);
+  Require(!result.completed &&
+              result.status == RoR::RendererBridgeProcessStatus::
+                                   PRESENTATION_EXITED_FIRST &&
+              result.first_exit ==
+                  RoR::RendererBridgeObservedChild::PRESENTATION_FRONTEND &&
+              result.game_exit_kind ==
+                  RoR::RendererBridgeGameExitKind::UNAVAILABLE &&
+              result.presentation_exit_kind ==
+                  RoR::RendererBridgeGameExitKind::TERMINATION_SIGNAL &&
+              result.presentation_termination_signal ==
+                  static_cast<std::uint32_t>(SIGABRT) &&
+              result.game_reaped && result.presentation_reaped &&
+              result.peer_terminated &&
+              WIFSIGNALED(native_presentation_status) &&
+              WTERMSIG(native_presentation_status) == SIGABRT,
+          "presentation signal was not retained as a terminal failure");
+  RequireNoChildProcesses("presentation-signal supervision left a zombie");
 }
 #endif
 
@@ -406,6 +472,8 @@ int main() {
   TestPresentationFirstTerminatesGame();
 #if !defined(_WIN32)
   TestSignalExitAndPropagation();
+  TestSupervisorSignalHandlerExitIsNaturalGameExit();
+  TestPresentationSignalRemainsTerminal();
 #endif
   TestPartialStartupFailsClosed();
   return EXIT_SUCCESS;

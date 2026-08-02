@@ -19,6 +19,8 @@
 
 namespace RoR {
 
+struct RendererBridgeProcessResult;
+
 constexpr std::uint32_t kRendererPublicLauncherContractVersion = 1U;
 
 constexpr int kRendererPublicLauncherUsageExitCode = 64;
@@ -98,6 +100,14 @@ RendererPublicLauncherArguments ParseRendererPublicLauncherArguments(
 RendererPublicLauncherDecision ResolveRendererPublicLauncherDecision(
     const RendererPublicLauncherIntent &intent,
     const RendererStartupPackageAvailability &availability) noexcept;
+
+/// True only for the exact recoverable production-child boundary: an
+/// Ogre-Next-preferred, non-native-required launch whose presentation child
+/// exits with the reserved pre-PEER_READY status after both bridge children
+/// were reaped. Post-ready failures and explicit requirements never fall back.
+bool ShouldFallbackRendererBridgeToOgre14(
+    const RendererPublicLauncherIntent &intent,
+    const RendererBridgeProcessResult &bridge) noexcept;
 
 /// Parse and resolve the immutable package policy, then fail closed over the
 /// exact executable-relative runtime artifacts. Missing Ogre-Next artifacts
