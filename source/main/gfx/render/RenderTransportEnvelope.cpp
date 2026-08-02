@@ -187,6 +187,8 @@ bool IsKnownRenderTransportMessageKind(
   case RenderTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2:
   case RenderTransportMessageKind::RENDER_ASSET_DELTA_V1:
   case RenderTransportMessageKind::INPUT_EVENT_BATCH_V1:
+  case RenderTransportMessageKind::RENDER_BRIDGE_ACKNOWLEDGEMENT_V1:
+  case RenderTransportMessageKind::RENDER_BRIDGE_CONTROL_V1:
     return true;
   }
   return false;

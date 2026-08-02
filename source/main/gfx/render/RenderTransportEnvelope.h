@@ -29,6 +29,8 @@ enum class RenderTransportMessageKind : std::uint16_t {
   SCENE_SNAPSHOT_V4_CAMERA_V2 = 1U,
   RENDER_ASSET_DELTA_V1 = 2U,
   INPUT_EVENT_BATCH_V1 = 3U,
+  RENDER_BRIDGE_ACKNOWLEDGEMENT_V1 = 4U,
+  RENDER_BRIDGE_CONTROL_V1 = 5U,
 };
 
 enum class RenderTransportStatus : std::uint8_t {
