@@ -117,6 +117,7 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
+    "tests/tools/test_ogre_next_window_presentation_contract.py"
     "tools/run_ogre_next_probe.py"
     "tools/validate_ogre_next_frame_probe.py"
     "tools/verify_ogre_next_artifact_set.py")
@@ -259,6 +260,120 @@ string(SHA256 ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_SHA256
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend_n1_media_manifest.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_n1_media_manifest.h"
+    @ONLY)
+
+# Native presentation registers a deliberately smaller resource group than
+# HDR. Authenticate and stage only the fullscreen-quad and 4xFP32 copy closure
+# selected by the reviewed lock; unrelated Common programs must not enter this
+# resource group.
+set(ROR_OGRE_NEXT_PRESENTATION_COPY_LOCK
+    "${CMAKE_CURRENT_SOURCE_DIR}/ogre-next-presentation-copy-v1.lock.json")
+file(SHA256 "${ROR_OGRE_NEXT_PRESENTATION_COPY_LOCK}"
+    ROR_OGRE_NEXT_PRESENTATION_COPY_LOCK_SHA256)
+file(READ "${ROR_OGRE_NEXT_PRESENTATION_COPY_LOCK}"
+    _ror_presentation_copy_lock_json)
+string(JSON _ror_presentation_copy_schema GET
+    "${_ror_presentation_copy_lock_json}" schema)
+string(JSON _ror_presentation_copy_ogre_commit GET
+    "${_ror_presentation_copy_lock_json}" ogre_next_commit)
+string(JSON _ror_presentation_copy_material GET
+    "${_ror_presentation_copy_lock_json}" material)
+string(JSON _ror_presentation_copy_file_count LENGTH
+    "${_ror_presentation_copy_lock_json}" files)
+if (NOT _ror_presentation_copy_schema STREQUAL
+        "ror.ogre_next.presentation_copy_media.v1" OR
+    NOT _ror_presentation_copy_ogre_commit STREQUAL ROR_OGRE_NEXT_COMMIT OR
+    NOT _ror_presentation_copy_material STREQUAL "Ogre/Copy/4xFP32" OR
+    NOT _ror_presentation_copy_file_count EQUAL 8)
+    message(FATAL_ERROR "The Ogre-Next presentation copy lock changed")
+endif ()
+set(ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT
+    "${CMAKE_CURRENT_BINARY_DIR}/presentation-media")
+set(_ror_presentation_copy_stage
+    "${ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT}/CommonCopy")
+file(MAKE_DIRECTORY
+    "${_ror_presentation_copy_stage}/GLSL"
+    "${_ror_presentation_copy_stage}/HLSL"
+    "${_ror_presentation_copy_stage}/Metal")
+set(_ror_presentation_staged_files "")
+math(EXPR _ror_presentation_copy_last
+    "${_ror_presentation_copy_file_count} - 1")
+foreach (_ror_presentation_copy_index RANGE 0 ${_ror_presentation_copy_last})
+    string(JSON _ror_presentation_copy_path GET
+        "${_ror_presentation_copy_lock_json}" files
+        ${_ror_presentation_copy_index} path)
+    string(JSON _ror_presentation_copy_size GET
+        "${_ror_presentation_copy_lock_json}" files
+        ${_ror_presentation_copy_index} size)
+    string(JSON _ror_presentation_copy_sha256 GET
+        "${_ror_presentation_copy_lock_json}" files
+        ${_ror_presentation_copy_index} sha256)
+    if (_ror_presentation_copy_path MATCHES
+            "^tools/ogre_next_probe/presentation_media/CommonCopy/([^/]+)$")
+        set(_ror_presentation_copy_source
+            "${ROR_REPOSITORY_ROOT}/${_ror_presentation_copy_path}")
+        set(_ror_presentation_copy_relative
+            "CommonCopy/${CMAKE_MATCH_1}")
+    elseif (_ror_presentation_copy_path MATCHES
+            "^Samples/Media/2\\.0/scripts/materials/Common/(GLSL|HLSL|Metal)/([^/]+)$")
+        set(_ror_presentation_copy_source
+            "${ogre_next_SOURCE_DIR}/${_ror_presentation_copy_path}")
+        set(_ror_presentation_copy_relative
+            "CommonCopy/${CMAKE_MATCH_1}/${CMAKE_MATCH_2}")
+    else ()
+        message(FATAL_ERROR
+            "Presentation copy lock contains an unreviewed path: "
+            "${_ror_presentation_copy_path}")
+    endif ()
+    if (IS_SYMLINK "${_ror_presentation_copy_source}")
+        message(FATAL_ERROR
+            "Presentation copy source is an unreviewed symbolic link: "
+            "${_ror_presentation_copy_path}")
+    endif ()
+    file(SIZE "${_ror_presentation_copy_source}"
+        _ror_presentation_copy_observed_size)
+    file(SHA256 "${_ror_presentation_copy_source}"
+        _ror_presentation_copy_observed_sha256)
+    if (NOT _ror_presentation_copy_observed_size EQUAL
+            _ror_presentation_copy_size OR
+        NOT _ror_presentation_copy_observed_sha256 STREQUAL
+            _ror_presentation_copy_sha256)
+        message(FATAL_ERROR
+            "Presentation copy source bytes changed: "
+            "${_ror_presentation_copy_path}")
+    endif ()
+    set(_ror_presentation_copy_destination
+        "${ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT}/${_ror_presentation_copy_relative}")
+    configure_file(
+        "${_ror_presentation_copy_source}"
+        "${_ror_presentation_copy_destination}"
+        COPYONLY)
+    list(APPEND _ror_presentation_staged_files
+        "${_ror_presentation_copy_relative}")
+endforeach ()
+list(SORT _ror_presentation_staged_files)
+set(ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_ENTRIES "")
+set(_ror_presentation_media_manifest_serialized "")
+foreach (_ror_presentation_relative IN LISTS _ror_presentation_staged_files)
+    set(_ror_presentation_file
+        "${ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT}/${_ror_presentation_relative}")
+    file(SIZE "${_ror_presentation_file}" _ror_presentation_size)
+    file(SHA256 "${_ror_presentation_file}" _ror_presentation_sha256)
+    string(APPEND ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_ENTRIES
+        "    {\"${_ror_presentation_relative}\", "
+        "static_cast<std::uint64_t>(${_ror_presentation_size}), "
+        "\"${_ror_presentation_sha256}\"},\n")
+    string(APPEND _ror_presentation_media_manifest_serialized
+        "${_ror_presentation_relative}|${_ror_presentation_size}|"
+        "${_ror_presentation_sha256}\n")
+endforeach ()
+list(LENGTH _ror_presentation_staged_files
+    ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_COUNT)
+string(SHA256 ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_SHA256
+    "${_ror_presentation_media_manifest_serialized}")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend_presentation_media_manifest.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_presentation_media_manifest.h"
     @ONLY)
 set(_ror_reflection_media_files
     "2.0/scripts/materials/Common/Any/PccDepthCompressor_ps.any"
@@ -761,6 +876,25 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_ogre_next_window_host_smoke
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+    set(ROR_OGRE_NEXT_WINDOW_PRESENT_IMAGE
+        "${CMAKE_BINARY_DIR}/ogre-next-window-present.ppm")
+    set(ROR_OGRE_NEXT_WINDOW_PRESENT_REPORT
+        "${CMAKE_BINARY_DIR}/ogre-next-window-present.json")
+    add_executable(
+        ror_ogre_next_window_present_smoke
+        src/window_present_smoke.cpp)
+    target_include_directories(
+        ror_ogre_next_window_present_smoke
+        PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_link_libraries(
+        ror_ogre_next_window_present_smoke
+        PRIVATE
+            ror_ogre_next_frontend_n1
+            ror_renderer_ogre_next_sdl_window_runtime)
+    set_target_properties(
+        ror_ogre_next_window_present_smoke
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
     # Real native entrypoint and frontend bootstrap, still confined to this
     # probe project. It is intentionally absent from all package/install and
     # product source/main CMake paths until presentation and the game bridge
@@ -941,6 +1075,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_ogre_next_window_host_tests
         ror_renderer_ogre_next_sdl_window_runtime
         ror_renderer_ogre_next_window_host_smoke
+        ror_ogre_next_window_present_smoke
         ror_renderer_ogre_next_child_runtime
         ror_renderer_child_launcher_fake_child
         ror_renderer_child_launcher_tests
@@ -1625,6 +1760,17 @@ if (TARGET ror_renderer_ogre_next_window_host_smoke)
             RESOURCE_LOCK ror_ogre_next_n1_native_device
             SKIP_RETURN_CODE 77
             TIMEOUT 20)
+endif ()
+if (TARGET ror_ogre_next_window_present_smoke)
+    add_test(NAME ror_ogre_next_window_present_smoke
+        COMMAND $<TARGET_FILE:ror_ogre_next_window_present_smoke>
+            --output "${ROR_OGRE_NEXT_WINDOW_PRESENT_IMAGE}"
+            --report "${ROR_OGRE_NEXT_WINDOW_PRESENT_REPORT}")
+    set_tests_properties(
+        ror_ogre_next_window_present_smoke
+        PROPERTIES
+            RESOURCE_LOCK ror_ogre_next_n1_native_device
+            TIMEOUT 60)
 endif ()
 if (TARGET ror_renderer_ogre_next_child_runtime)
     add_test(

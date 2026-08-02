@@ -103,7 +103,8 @@ BuildOgreNextN1CapabilityReport(RasterGraphicsApi raster_api,
 
 [[nodiscard]] ValidationResult ValidateOgreNextN1Initialization(
     const FrontendInitializationRequest &request,
-    const FrontendCapabilityReport &capabilities);
+    const FrontendCapabilityReport &capabilities,
+    bool native_presentation_enabled = false);
 [[nodiscard]] ValidationResult
 ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
                                bool allow_dynamic_meshes = false,
@@ -127,7 +128,8 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
     OgreNextDirectionalShadowMode shadow_mode =
         OgreNextDirectionalShadowMode::DISABLED,
     bool hdr_compositor_enabled = false,
-    bool native_directional_shadow_enabled = false);
+    bool native_directional_shadow_enabled = false,
+    bool native_presentation_enabled = false);
 
 [[nodiscard]] RenderOperationResult
 OgreNextN1OperationFromValidation(const ValidationResult &validation);

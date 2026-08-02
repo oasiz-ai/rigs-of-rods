@@ -21,8 +21,10 @@
 #include "Compositor/OgreCompositorShadowNodeDef.h"
 #include "Compositor/OgreCompositorWorkspace.h"
 #include "Compositor/OgreCompositorWorkspaceDef.h"
+#include "Compositor/OgreCompositorChannel.h"
 #include "Compositor/OgreTextureDefinition.h"
 #include "Compositor/Pass/OgreCompositorPassDef.h"
+#include "Compositor/Pass/PassQuad/OgreCompositorPassQuadDef.h"
 #include "Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h"
 #include "OgreAbiUtils.h"
 #include "OgreArchiveManager.h"
@@ -91,6 +93,7 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #include <cstring>
 #include <exception>
 #include <filesystem>
+#include <initializer_list>
 #include <limits>
 #include <map>
 #include <new>
@@ -105,6 +108,8 @@ namespace RoR::Render {
 namespace {
 
 std::atomic<bool> g_ogre_next_n1_root_claimed{false};
+constexpr char kOgreNextPresentationResourceGroup[] =
+    "RoROgreNextPresentationCopyV1";
 
 bool TryClaimOgreNextN1Root() noexcept {
   bool expected = false;
@@ -114,6 +119,177 @@ bool TryClaimOgreNextN1Root() noexcept {
 
 void ReleaseOgreNextN1Root() noexcept {
   g_ogre_next_n1_root_claimed.store(false, std::memory_order_release);
+}
+
+bool SameNativeWindow(const NativeWindowHandle &lhs,
+                      const NativeWindowHandle &rhs) noexcept {
+  return lhs.system == rhs.system && lhs.connection == rhs.connection &&
+         lhs.surface == rhs.surface && lhs.generation == rhs.generation;
+}
+
+template <std::size_t Capacity>
+bool HasExactPresentationParameters(
+    const std::array<OgreNextN1PresentationParameter, Capacity> &parameters,
+    std::size_t count,
+    std::initializer_list<std::pair<const char *, std::string>> expected) {
+  if (count != expected.size() || count > parameters.size()) {
+    return false;
+  }
+  for (const auto &required : expected) {
+    std::size_t matches = 0U;
+    for (std::size_t index = 0U; index < count; ++index) {
+      matches += parameters[index].name == required.first &&
+                         parameters[index].value == required.second
+                     ? 1U
+                     : 0U;
+    }
+    if (matches != 1U) {
+      return false;
+    }
+  }
+  return true;
+}
+
+RenderOperationResult ValidatePresentationConfiguration(
+    const OgreNextN1PresentationConfiguration &configuration,
+    const FrontendInitializationRequest &request) {
+  if (configuration.version != kOgreNextN1PresentationContractVersion) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "unsupported Ogre-Next presentation configuration version");
+  }
+  if (!configuration.enabled) {
+    if (!configuration.shader_media_root.empty() ||
+        configuration.exact_window.valid() ||
+        configuration.renderer_option_count != 0U ||
+        configuration.bootstrap_window_parameter_count != 0U ||
+        configuration.presentation_window_parameter_count != 0U ||
+        configuration.show_callback_context != nullptr ||
+        configuration.show_after_workspace_ready != nullptr) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::INVALID_ARGUMENT,
+          "disabled presentation configuration retained live inputs");
+    }
+    return RenderOperationResult::Success();
+  }
+  if (configuration.shader_media_root.empty() ||
+      !configuration.exact_window.valid() ||
+      !SameNativeWindow(configuration.exact_window, request.window) ||
+      configuration.show_callback_context == nullptr ||
+      configuration.show_after_workspace_ready == nullptr) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "enabled presentation configuration is incomplete or identifies another native window");
+  }
+
+  const std::string surface = std::to_string(request.window.surface);
+#if defined(ROR_OGRE_NEXT_N1_METAL)
+  const bool exact = request.window.system == NativeWindowSystem::COCOA &&
+                     HasExactPresentationParameters(
+                         configuration.renderer_options,
+                         configuration.renderer_option_count, {}) &&
+                     HasExactPresentationParameters(
+                         configuration.bootstrap_window_parameters,
+                         configuration.bootstrap_window_parameter_count, {}) &&
+                     HasExactPresentationParameters(
+                         configuration.presentation_window_parameters,
+                         configuration.presentation_window_parameter_count,
+                         {{"externalWindowHandle", surface},
+                          {"gamma", "true"},
+                          {"FSAA", "0"},
+                          {"presentsWithTransaction", "false"}});
+#elif defined(ROR_OGRE_NEXT_N1_D3D11)
+  const bool exact = request.window.system == NativeWindowSystem::WINDOWS &&
+                     HasExactPresentationParameters(
+                         configuration.renderer_options,
+                         configuration.renderer_option_count, {}) &&
+                     HasExactPresentationParameters(
+                         configuration.bootstrap_window_parameters,
+                         configuration.bootstrap_window_parameter_count, {}) &&
+                     HasExactPresentationParameters(
+                         configuration.presentation_window_parameters,
+                         configuration.presentation_window_parameter_count,
+                         {{"externalWindowHandle", surface},
+                          {"gamma", "true"},
+                          {"FSAA", "0"},
+                          {"vsync", "false"},
+                          {"vsyncInterval", "0"}});
+#elif defined(ROR_OGRE_NEXT_N1_VULKAN)
+  bool stable_pair = false;
+  if (configuration.presentation_window_parameter_count <=
+      configuration.presentation_window_parameters.size()) {
+    for (std::size_t index = 0U;
+         index < configuration.presentation_window_parameter_count; ++index) {
+      const OgreNextN1PresentationParameter &parameter =
+          configuration.presentation_window_parameters[index];
+      if (parameter.name == "SDL2x11") {
+        try {
+          stable_pair = std::stoull(parameter.value) != 0ULL;
+        } catch (...) {
+          stable_pair = false;
+        }
+      }
+    }
+  }
+  const bool exact = request.window.system == NativeWindowSystem::X11 &&
+                     stable_pair &&
+                     HasExactPresentationParameters(
+                         configuration.renderer_options,
+                         configuration.renderer_option_count,
+                         {{"Interface", "xcb"}}) &&
+                     HasExactPresentationParameters(
+                         configuration.bootstrap_window_parameters,
+                         configuration.bootstrap_window_parameter_count,
+                         {{"windowType", "null"}}) &&
+                     configuration.presentation_window_parameter_count == 5U &&
+                     HasExactPresentationParameters(
+                         configuration.presentation_window_parameters,
+                         configuration.presentation_window_parameter_count,
+                         {{"SDL2x11",
+                           [&configuration]() {
+                             for (std::size_t index = 0U;
+                                  index < configuration
+                                              .presentation_window_parameter_count;
+                                  ++index) {
+                               if (configuration
+                                       .presentation_window_parameters[index]
+                                       .name == "SDL2x11") {
+                                 return configuration
+                                     .presentation_window_parameters[index]
+                                     .value;
+                               }
+                             }
+                             return std::string{};
+                           }()},
+                          {"gamma", "true"},
+                          {"FSAA", "0"},
+                          {"vsync", "false"},
+                          {"vsyncInterval", "0"}});
+#else
+  constexpr bool exact = false;
+#endif
+  if (!exact) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "presentation binding differs from the reviewed native platform contract");
+  }
+  return RenderOperationResult::Success();
+}
+
+template <std::size_t Capacity>
+Ogre::NameValuePairList ToOgreParameters(
+    const std::array<OgreNextN1PresentationParameter, Capacity> &parameters,
+    std::size_t count) {
+  Ogre::NameValuePairList result;
+  for (std::size_t index = 0U; index < count; ++index) {
+    const bool inserted =
+        result.emplace(parameters[index].name, parameters[index].value).second;
+    if (!inserted) {
+      throw std::runtime_error(
+          "presentation binding contains a duplicate Ogre parameter");
+    }
+  }
+  return result;
 }
 
 struct N1Vertex {
@@ -1114,6 +1290,7 @@ public:
         directional_shadow_mode(configuration.directional_shadow_mode),
         configured_shader_media_root(
             std::move(configuration.shader_media_root)),
+        presentation_configuration(std::move(configuration.presentation)),
         hdr_configuration(configuration.hdr_temporal_configuration),
         hdr_enabled(configuration.enable_hdr_compositor)
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -1231,6 +1408,10 @@ public:
     OgreNextPssmShadowRuntimeAudit audit = shadow_audit;
     audit.configured_mode = directional_shadow_mode;
     return audit;
+  }
+
+  OgreNextN1PresentationAudit PresentationAudit() const noexcept {
+    return presentation_audit;
   }
 
   bool OnOwnerThread() const noexcept {
@@ -2614,6 +2795,131 @@ public:
     return clean;
   }
 
+  [[nodiscard]] RenderOperationResult CreatePresentationResourceGroup() {
+    if (!presentation_configuration.enabled || root == nullptr ||
+        renderer == nullptr || presentation_resource_group_created) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "invalid presentation-copy resource-group lifecycle");
+    }
+    Ogre::ResourceGroupManager &resources =
+        Ogre::ResourceGroupManager::getSingleton();
+    Ogre::MaterialManager &materials = Ogre::MaterialManager::getSingleton();
+    if (resources.resourceGroupExists(kOgreNextPresentationResourceGroup) ||
+        materials.getByName("Ogre/Copy/4xFP32",
+                            kOgreNextPresentationResourceGroup)) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "presentation-copy resource identity already exists");
+    }
+
+    const std::filesystem::path media_root = std::filesystem::u8path(
+        presentation_configuration.shader_media_root);
+    resources.createResourceGroup(kOgreNextPresentationResourceGroup, true);
+    presentation_resource_group_created = true;
+    resources.addResourceLocation(
+        (media_root / "CommonCopy").generic_u8string(), "FileSystem",
+        kOgreNextPresentationResourceGroup, false, true);
+#if defined(ROR_OGRE_NEXT_N1_METAL)
+    constexpr const char *platform_directory = "Metal";
+#elif defined(ROR_OGRE_NEXT_N1_D3D11)
+    constexpr const char *platform_directory = "HLSL";
+#elif defined(ROR_OGRE_NEXT_N1_VULKAN)
+    constexpr const char *platform_directory = "GLSL";
+#else
+#error "No reviewed Ogre-Next N1 renderer policy selected"
+#endif
+    resources.addResourceLocation(
+        (media_root / "CommonCopy" / platform_directory).generic_u8string(),
+        "FileSystem", kOgreNextPresentationResourceGroup, false, true);
+    resources.initialiseResourceGroup(kOgreNextPresentationResourceGroup,
+                                      true);
+
+    Ogre::MaterialPtr copy_material = materials.getByName(
+        "Ogre/Copy/4xFP32", kOgreNextPresentationResourceGroup);
+    if (!copy_material || copy_material->getNumTechniques() != 1U) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "exact Ogre/Copy/4xFP32 material was not registered once");
+    }
+    Ogre::Technique *technique = copy_material->getTechnique(0U);
+    if (technique == nullptr || technique->getNumPasses() != 1U) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "exact Ogre/Copy/4xFP32 technique/pass closure changed");
+    }
+    Ogre::Pass *pass = technique->getPass(0U);
+    if (pass == nullptr || pass->getNumTextureUnitStates() != 1U ||
+        pass->getVertexProgramName() != "Ogre/Compositor/Quad_vs" ||
+        pass->getFragmentProgramName() != "Ogre/Copy/4xFP32_ps") {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "exact Ogre/Copy/4xFP32 GPU-copy binding changed");
+    }
+    return RenderOperationResult::Success();
+  }
+
+  [[nodiscard]] RenderOperationResult RefreshPresentationWindowExtent(
+      std::uint32_t expected_width, std::uint32_t expected_height,
+      bool notify_window) {
+    if (!presentation_configuration.enabled || presentation_window == nullptr ||
+        expected_width == 0U || expected_height == 0U) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "invalid active presentation-window extent transaction");
+    }
+    if (notify_window) {
+      presentation_window->windowMovedOrResized();
+      ++presentation_audit.window_moved_or_resized_calls;
+    }
+    const Ogre::TextureGpu *window_texture = presentation_window->getTexture();
+    std::uint32_t observed_width = 0U;
+    std::uint32_t observed_height = 0U;
+    std::int32_t observed_left = 0;
+    std::int32_t observed_top = 0;
+    presentation_window->getMetrics(observed_width, observed_height,
+                                    observed_left, observed_top);
+    if (window_texture == nullptr || observed_width != expected_width ||
+        observed_height != expected_height ||
+        window_texture->getWidth() != expected_width ||
+        window_texture->getHeight() != expected_height) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "native presentation window pixel extent differs from the acknowledged host extent");
+    }
+    return RenderOperationResult::Success();
+  }
+
+  [[nodiscard]] bool DestroyPresentationResources() noexcept {
+    bool clean = true;
+    if (presentation_window != nullptr) {
+      try {
+        renderer->destroyRenderWindow(presentation_window);
+        presentation_window = nullptr;
+      } catch (...) {
+        clean = false;
+      }
+    }
+    if (bootstrap_window != nullptr) {
+      try {
+        renderer->destroyRenderWindow(bootstrap_window);
+        bootstrap_window = nullptr;
+      } catch (...) {
+        clean = false;
+      }
+    }
+    if (presentation_resource_group_created) {
+      try {
+        Ogre::ResourceGroupManager::getSingleton().destroyResourceGroup(
+            kOgreNextPresentationResourceGroup);
+        presentation_resource_group_created = false;
+      } catch (...) {
+        clean = false;
+      }
+    }
+    return clean;
+  }
+
   [[nodiscard]] bool CleanupBackend() noexcept {
     if (native_interop) {
       native_interop->RevokeFrontend();
@@ -2639,8 +2945,10 @@ public:
     camera = nullptr;
     pbs = nullptr;
     unlit = nullptr;
+    if (!DestroyPresentationResources()) {
+      return false;
+    }
     renderer = nullptr;
-    bootstrap_window = nullptr;
     root.reset();
     plugin.reset();
     if (owns_root_claim) {
@@ -2663,6 +2971,7 @@ public:
   std::unique_ptr<Ogre::Root> root;
   Ogre::RenderSystem *renderer = nullptr;
   Ogre::Window *bootstrap_window = nullptr;
+  Ogre::Window *presentation_window = nullptr;
   Ogre::HlmsPbs *pbs = nullptr;
   Ogre::HlmsUnlit *unlit = nullptr;
   Ogre::SceneManager *scene_manager = nullptr;
@@ -2690,6 +2999,8 @@ public:
   OgreNextPssmShadowRuntimeAudit shadow_audit;
   std::thread::id owner_thread;
   std::string configured_shader_media_root;
+  OgreNextN1PresentationConfiguration presentation_configuration;
+  OgreNextN1PresentationAudit presentation_audit;
   std::string resolved_shader_media_root;
   OgreNextHdrTemporalConfiguration hdr_configuration;
   OgreNextHdrTemporalState hdr_temporal_state;
@@ -2703,6 +3014,7 @@ public:
   bool faulted = false;
   bool owns_root_claim = false;
   bool hdr_enabled = false;
+  bool presentation_resource_group_created = false;
   bool hdr_resource_group_created = false;
   bool hdr_workspace_definition_created = false;
   bool hdr_manual_delta_bound = false;
@@ -2809,6 +3121,11 @@ OgreNextN1Frontend::QueryHdrCompositorAudit() const noexcept {
   return impl_->HdrCompositorAudit();
 }
 
+OgreNextN1PresentationAudit
+OgreNextN1Frontend::QueryPresentationAudit() const noexcept {
+  return impl_->PresentationAudit();
+}
+
 RenderOperationResult OgreNextN1Frontend::Initialize(
     const FrontendInitializationRequest &request) {
   if (impl_->initialized) {
@@ -2858,6 +3175,19 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
         RenderOperationCode::UNSUPPORTED,
         "the persistent HDR compositor requires RT4/V1 raster without native N2/N3/N4 image interop");
   }
+  const RenderOperationResult presentation_configuration =
+      ValidatePresentationConfiguration(impl_->presentation_configuration,
+                                        request);
+  if (!presentation_configuration) {
+    return presentation_configuration;
+  }
+  if (impl_->presentation_configuration.enabled &&
+      (impl_->hdr_enabled ||
+       impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1)) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "the first native presentation gate requires the exact N1 raster path without persistent HDR or native image interop");
+  }
 #if !defined(ROR_OGRE_NEXT_N1_METAL)
   if (impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1) {
     return RenderOperationResult::Failure(
@@ -2866,7 +3196,9 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
   }
 #endif
   const ValidationResult validation =
-      ValidateOgreNextN1Initialization(request, impl_->Capabilities());
+      ValidateOgreNextN1Initialization(
+          request, impl_->Capabilities(),
+          impl_->presentation_configuration.enabled);
   if (!validation) {
     return OgreNextN1OperationFromValidation(validation);
   }
@@ -2892,6 +3224,14 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
             impl_->resolved_shader_media_root, true);
     if (!reflection_media_integrity) {
       return reflection_media_integrity;
+    }
+  }
+  if (impl_->presentation_configuration.enabled) {
+    const RenderOperationResult presentation_media_integrity =
+        VerifyOgreNextN1PresentationMedia(
+            impl_->presentation_configuration.shader_media_root);
+    if (!presentation_media_integrity) {
+      return presentation_media_integrity;
     }
   }
   if (!TryClaimOgreNextN1Root()) {
@@ -2938,19 +3278,69 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     if (options.find("sRGB Gamma Conversion") != options.end()) {
       impl_->renderer->setConfigOption("sRGB Gamma Conversion", "Yes");
     }
+    if (impl_->presentation_configuration.enabled) {
+      for (std::size_t index = 0U;
+           index < impl_->presentation_configuration.renderer_option_count;
+           ++index) {
+        const OgreNextN1PresentationParameter &option =
+            impl_->presentation_configuration.renderer_options[index];
+        if (options.find(option.name) == options.end()) {
+          return fail_after_cleanup(RenderOperationResult::Failure(
+              RenderOperationCode::BACKEND_FAILURE,
+              "reviewed presentation renderer option is unavailable: " +
+                  option.name));
+        }
+        impl_->renderer->setConfigOption(option.name, option.value);
+      }
+    }
     impl_->root->initialise(false);
-    Ogre::NameValuePairList window_parameters;
-    window_parameters["hidden"] = "true";
-    window_parameters["gamma"] = "true";
-    window_parameters["FSAA"] = "1";
-    impl_->bootstrap_window = impl_->root->createRenderWindow(
-        "RoR Ogre-Next N1 bootstrap", 64U, 64U, false,
-        &window_parameters);
-    if (impl_->bootstrap_window == nullptr ||
+    if (!impl_->presentation_configuration.enabled) {
+      Ogre::NameValuePairList window_parameters;
+      window_parameters["hidden"] = "true";
+      window_parameters["gamma"] = "true";
+      window_parameters["FSAA"] = "1";
+      impl_->bootstrap_window = impl_->root->createRenderWindow(
+          "RoR Ogre-Next N1 bootstrap", 64U, 64U, false,
+          &window_parameters);
+    } else {
+      if (impl_->presentation_configuration
+              .bootstrap_window_parameter_count != 0U) {
+        Ogre::NameValuePairList bootstrap_parameters = ToOgreParameters(
+            impl_->presentation_configuration.bootstrap_window_parameters,
+            impl_->presentation_configuration
+                .bootstrap_window_parameter_count);
+        impl_->bootstrap_window = impl_->root->createRenderWindow(
+            "RoR Ogre-Next N1 null bootstrap", 64U, 64U, false,
+            &bootstrap_parameters);
+      }
+      Ogre::NameValuePairList presentation_parameters = ToOgreParameters(
+          impl_->presentation_configuration.presentation_window_parameters,
+          impl_->presentation_configuration.presentation_window_parameter_count);
+      impl_->presentation_window = impl_->root->createRenderWindow(
+          "RoR Ogre-Next N1 native presentation", request.initial_width,
+          request.initial_height, false, &presentation_parameters);
+    }
+    if ((!impl_->presentation_configuration.enabled &&
+         impl_->bootstrap_window == nullptr) ||
+        (impl_->presentation_configuration.enabled &&
+         impl_->presentation_window == nullptr) ||
         impl_->root->getCompositorManager2() == nullptr) {
       return fail_after_cleanup(RenderOperationResult::Failure(
           RenderOperationCode::BACKEND_FAILURE,
           "Ogre-Next did not initialize its hidden/null Compositor2 device"));
+    }
+    if (impl_->presentation_configuration.enabled) {
+      const RenderOperationResult exact_extent =
+          impl_->RefreshPresentationWindowExtent(
+              request.initial_width, request.initial_height, false);
+      if (!exact_extent) {
+        return fail_after_cleanup(exact_extent);
+      }
+      const RenderOperationResult presentation_resources =
+          impl_->CreatePresentationResourceGroup();
+      if (!presentation_resources) {
+        return fail_after_cleanup(presentation_resources);
+      }
     }
     const Ogre::RenderSystemCapabilities *device_capabilities =
         impl_->renderer->getCapabilities();
@@ -3103,6 +3493,11 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     impl_->surface.pixel_height = request.initial_height;
     impl_->surface.content_scale = request.initial_content_scale;
     impl_->surface.suspended = false;
+    if (impl_->presentation_configuration.enabled) {
+      impl_->surface.window = request.window;
+      impl_->presentation_audit.enabled = true;
+      impl_->presentation_audit.exact_external_window_binding = true;
+    }
     impl_->owner_thread = std::this_thread::get_id();
     impl_->initialized = true;
     return RenderOperationResult::Success();
@@ -3130,15 +3525,24 @@ RenderOperationResult OgreNextN1Frontend::UpdateSurface(
   if (impl_->faulted) {
     return FaultedFrontend();
   }
+  const bool presentation_enabled =
+      impl_->presentation_configuration.enabled;
+  if (headless == presentation_enabled) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "surface update mode differs from the initialized Ogre-Next presentation mode");
+  }
   const ValidationResult validation = ValidateFrontendSurfaceTransition(
-      impl_->surface, update, headless, true);
+      impl_->surface, update, !presentation_enabled, true);
   if (!validation) {
     return OgreNextN1OperationFromValidation(validation);
   }
-  if (!headless) {
+  if (presentation_enabled &&
+      !SameNativeWindow(update.window,
+                        impl_->presentation_configuration.exact_window)) {
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
-        "Ogre-Next N1 cannot adopt a presentation surface");
+        "the first Ogre-Next presentation gate cannot replace its borrowed native window");
   }
   if (update.pixel_width > impl_->maximum_texture_dimension ||
       update.pixel_height > impl_->maximum_texture_dimension) {
@@ -3152,6 +3556,35 @@ RenderOperationResult OgreNextN1Frontend::UpdateSurface(
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
         "the first persistent HDR compositor keeps a fixed initialized extent");
+  }
+  if (presentation_enabled) {
+    try {
+      if (update.suspended) {
+        if (impl_->presentation_window == nullptr) {
+          impl_->faulted = true;
+          return RenderOperationResult::Failure(
+              RenderOperationCode::BACKEND_FAILURE,
+              "presentation window disappeared before suspend acknowledgement");
+        }
+        impl_->presentation_window->windowMovedOrResized();
+        ++impl_->presentation_audit.window_moved_or_resized_calls;
+      } else {
+        const RenderOperationResult extent =
+            impl_->RefreshPresentationWindowExtent(
+                update.pixel_width, update.pixel_height, true);
+        if (!extent) {
+          impl_->faulted = true;
+          return extent;
+        }
+      }
+    } catch (const Ogre::Exception &error) {
+      impl_->faulted = true;
+      return BackendFailure(error);
+    } catch (const std::exception &error) {
+      impl_->faulted = true;
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE, error.what());
+    }
   }
   impl_->surface = update;
   return RenderOperationResult::Success();
@@ -3526,9 +3959,24 @@ RenderOperationResult OgreNextN1Frontend::Render(
       request, impl_->Capabilities(), *impl_->registry,
       impl_->raster_feature_tier, impl_->directional_shadow_mode,
       impl_->hdr_enabled,
-      UsesMetalDirectionalHardShadow(impl_->native_feature_tier));
+      UsesMetalDirectionalHardShadow(impl_->native_feature_tier),
+      impl_->presentation_configuration.enabled);
   if (!validation) {
     return OgreNextN1OperationFromValidation(validation);
+  }
+  if (request.present) {
+    if (impl_->presentation_audit.presented_frames != 0U) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "the first native presentation gate admits exactly one presented frame per frontend lifetime");
+    }
+    if (impl_->presentation_window == nullptr ||
+        !impl_->presentation_resource_group_created) {
+      impl_->faulted = true;
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "native presentation resources disappeared before submission");
+    }
   }
   const CameraViewRequest &validated_view = request.views.front();
   OgreNextPssmShadowFramePlan shadow_plan;
@@ -4376,7 +4824,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
     workspace_node_creation_counted = true;
     node->addTextureSourceName(
         "MainRT", 0U, Ogre::TextureDefinitionBase::TEXTURE_INPUT);
-    node->setNumTargetPass(1U);
+    if (request.present) {
+      node->addTextureSourceName(
+          "PresentationRT", 1U,
+          Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+    }
+    node->setNumTargetPass(request.present ? 2U : 1U);
     Ogre::CompositorTargetDef *main_target =
         node->addTargetPass("MainRT");
     main_target->setNumPasses(1U);
@@ -4391,6 +4844,17 @@ RenderOperationResult OgreNextN1Frontend::Render(
     scene->setAllLoadActions(Ogre::LoadAction::Clear);
     scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
     scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
+    if (request.present) {
+      Ogre::CompositorTargetDef *presentation_target =
+          node->addTargetPass("PresentationRT");
+      presentation_target->setNumPasses(1U);
+      auto *copy = static_cast<Ogre::CompositorPassQuadDef *>(
+          presentation_target->addPass(Ogre::PASS_QUAD));
+      copy->mMaterialIsHlms = false;
+      copy->mMaterialName = "Ogre/Copy/4xFP32";
+      copy->mUseQuad = false;
+      copy->addQuadTextureSource(0U, "MainRT");
+    }
     Ogre::CompositorWorkspaceDef *workspace_definition =
         compositors->addWorkspaceDefinition(workspace_text);
     if (!compositors->hasNodeDefinition(
@@ -4426,8 +4890,127 @@ RenderOperationResult OgreNextN1Frontend::Render(
                                  shadow_node_text);
     }
     workspace_definition->connectExternal(0U, node->getName(), 0U);
-    workspace = compositors->addWorkspace(impl_->scene_manager, target,
-                                          impl_->camera, workspace_text, true);
+    if (request.present) {
+      workspace_definition->connectExternal(1U, node->getName(), 1U);
+      Ogre::TextureGpu *window_texture =
+          impl_->presentation_window->getTexture();
+      if (window_texture == nullptr ||
+          window_texture->getWidth() != view.width ||
+          window_texture->getHeight() != view.height) {
+        throw std::runtime_error(
+            "native presentation window texture lost the acknowledged pixel extent");
+      }
+      Ogre::CompositorChannelVec external_channels;
+      external_channels.reserve(2U);
+      external_channels.push_back(target);
+      external_channels.push_back(window_texture);
+      workspace = compositors->addWorkspace(
+          impl_->scene_manager, external_channels, impl_->camera,
+          workspace_text, true);
+      const Ogre::CompositorChannelVec &observed_channels =
+          workspace->getExternalRenderTargets();
+      if (observed_channels.size() != 2U ||
+          observed_channels[0U] != target ||
+          observed_channels[1U] != window_texture) {
+        throw std::runtime_error(
+            "Compositor2 did not retain the exact ordered source/window channel pair");
+      }
+      FrontendSurfaceUpdate acknowledged_surface;
+      if (!impl_->presentation_configuration.show_after_workspace_ready(
+              impl_->presentation_configuration.show_callback_context,
+              &acknowledged_surface)) {
+        throw std::runtime_error(
+            "native host did not acknowledge show/configure after workspace readiness");
+      }
+      const ValidationResult observed_surface =
+          ValidateFrontendSurfaceUpdate(acknowledged_surface, false);
+      if (!observed_surface) {
+        return fail_after_cleanup(
+            OgreNextN1OperationFromValidation(observed_surface));
+      }
+      if (!SameNativeWindow(
+              acknowledged_surface.window,
+              impl_->presentation_configuration.exact_window)) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "post-show acknowledgement changed native window identity or generation"));
+      }
+      if (acknowledged_surface.surface_revision ==
+          impl_->surface.surface_revision) {
+        if (acknowledged_surface.pixel_width != impl_->surface.pixel_width ||
+            acknowledged_surface.pixel_height != impl_->surface.pixel_height ||
+            acknowledged_surface.content_scale != impl_->surface.content_scale ||
+            acknowledged_surface.suspended != impl_->surface.suspended) {
+          return fail_after_cleanup(RenderOperationResult::Failure(
+              RenderOperationCode::BACKEND_FAILURE,
+              "post-show surface changed without advancing its revision"));
+        }
+      } else {
+        const ValidationResult transition =
+            ValidateFrontendSurfaceTransition(
+                impl_->surface, acknowledged_surface, false, true);
+        if (!transition) {
+          return fail_after_cleanup(
+              OgreNextN1OperationFromValidation(transition));
+        }
+      }
+      const ValidationResult exact_presentation =
+          ValidateRenderFramePresentation(request, acknowledged_surface);
+      const RenderOperationResult shown_extent =
+          impl_->RefreshPresentationWindowExtent(
+              acknowledged_surface.pixel_width,
+              acknowledged_surface.pixel_height, true);
+      if (!shown_extent) {
+        return fail_after_cleanup(shown_extent);
+      }
+      impl_->surface = acknowledged_surface;
+      if (!exact_presentation) {
+        std::ostringstream detail;
+        detail << "presentation surface out of date after native show ACK; "
+               << "resubmit revision "
+               << acknowledged_surface.surface_revision << " at "
+               << acknowledged_surface.pixel_width << 'x'
+               << acknowledged_surface.pixel_height;
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::RESOURCE_STALE, detail.str()));
+      }
+
+      Ogre::TextureGpu *acknowledged_window_texture =
+          impl_->presentation_window->getTexture();
+      if (acknowledged_window_texture == nullptr) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "post-show acknowledgement lost the Ogre window texture"));
+      }
+      if (acknowledged_window_texture != window_texture) {
+        compositors->removeWorkspace(workspace);
+        workspace = nullptr;
+        Ogre::CompositorChannelVec rebound_channels;
+        rebound_channels.reserve(2U);
+        rebound_channels.push_back(target);
+        rebound_channels.push_back(acknowledged_window_texture);
+        workspace = compositors->addWorkspace(
+            impl_->scene_manager, rebound_channels, impl_->camera,
+            workspace_text, true);
+      }
+      const Ogre::CompositorChannelVec &post_show_channels =
+          workspace->getExternalRenderTargets();
+      if (post_show_channels.size() != 2U ||
+          post_show_channels[0U] != target ||
+          post_show_channels[1U] != acknowledged_window_texture ||
+          acknowledged_window_texture->getWidth() !=
+              acknowledged_surface.pixel_width ||
+          acknowledged_window_texture->getHeight() !=
+              acknowledged_surface.pixel_height) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "post-show Compositor2 rebind did not retain the exact acknowledged window texture"));
+      }
+    } else {
+      workspace = compositors->addWorkspace(impl_->scene_manager, target,
+                                            impl_->camera, workspace_text,
+                                            true);
+    }
     if (shadow_plan.enabled &&
         workspace->findShadowNode(Ogre::IdString(shadow_node_text)) ==
             nullptr) {
@@ -4435,7 +5018,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
           "Ogre-Next did not instantiate the reviewed PSSM shadow node");
     }
     }
-    const std::size_t render_iterations = persistent_hdr ? 1U : 3U;
+    const std::size_t render_iterations =
+        request.present || persistent_hdr ? 1U : 3U;
     for (std::size_t warmup = 0U; warmup < render_iterations; ++warmup) {
       if (persistent_hdr) {
         hdr_native_frame_executed = true;
@@ -4494,8 +5078,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
     candidate.frame_id = request.frame_id;
     candidate.snapshot_id = snapshot.snapshot_id();
     candidate.status = RenderFrameStatus::RENDERED;
-    candidate.presented = false;
-    candidate.presented_view_id = 0U;
+    candidate.presented = request.present;
+    candidate.presented_view_id =
+        request.present ? request.presentation_view_id : 0U;
     candidate.cpu_submit_milliseconds =
         std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - cpu_start)
@@ -4610,6 +5195,27 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     impl_->submission_state.CommitPrepared(request);
     submission_commit_prepared = false;
+    if (request.present) {
+      impl_->presentation_audit.exact_two_external_channels = true;
+      impl_->presentation_audit.ui_free_source = true;
+      impl_->presentation_audit.gpu_quad_copy = true;
+      impl_->presentation_audit.cpu_window_copy = false;
+      impl_->presentation_audit.workspace_ready_before_show = true;
+      impl_->presentation_audit.bounded_swap_completed = true;
+      ++impl_->presentation_audit.source_scene_passes;
+      ++impl_->presentation_audit.presentation_quad_passes;
+      ++impl_->presentation_audit.render_one_frame_calls;
+      ++impl_->presentation_audit.window_final_target_updates;
+      ++impl_->presentation_audit.window_swap_completions;
+      ++impl_->presentation_audit.presented_frames;
+      ++impl_->presentation_audit.source_readbacks;
+      impl_->presentation_audit.last_view_id =
+          request.presentation_view_id;
+      impl_->presentation_audit.last_surface_revision =
+          request.presentation_surface_revision;
+      impl_->presentation_audit.last_width = validated_view.width;
+      impl_->presentation_audit.last_height = validated_view.height;
+    }
     output = std::move(candidate);
     return RenderOperationResult::Success();
   } catch (const std::bad_alloc &) {

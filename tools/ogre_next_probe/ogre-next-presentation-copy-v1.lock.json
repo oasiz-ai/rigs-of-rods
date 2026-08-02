@@ -1,0 +1,57 @@
+{
+  "schema": "ror.ogre_next.presentation_copy_media.v1",
+  "ogre_next_commit": "37149a802de747f6806996fa3067b0748ecc1084",
+  "material": "Ogre/Copy/4xFP32",
+  "license": "MIT",
+  "files": [
+    {
+      "path": "tools/ogre_next_probe/presentation_media/CommonCopy/PresentationCopy.material",
+      "size": 1004,
+      "sha256": "dcfb7c362b09c70ca728b0a9dc3a69cfec2b32cb72c53f105400f195b76defef",
+      "source": "reviewed minimal definition derived from Samples/Media/2.0/scripts/materials/Common/Copyback.material"
+    },
+    {
+      "path": "tools/ogre_next_probe/presentation_media/CommonCopy/PresentationQuad.program",
+      "size": 660,
+      "sha256": "043028cdb7aca5c2ff4ccf9f3e62e7231ddc88aab33e9ee5086763f4f5411972",
+      "source": "reviewed minimal definition derived from Samples/Media/2.0/scripts/materials/Common/Quad.program"
+    },
+    {
+      "path": "Samples/Media/2.0/scripts/materials/Common/GLSL/Copyback_4xFP32_ps.glsl",
+      "size": 329,
+      "sha256": "ed9b038d9c5b97d4e208d65afd4c624a2f6d77532403c7a9650244a6fade35cc"
+    },
+    {
+      "path": "Samples/Media/2.0/scripts/materials/Common/GLSL/Quad_vs.glsl",
+      "size": 409,
+      "sha256": "ed7274c111e75ffb3ca249a23c9b76dc84dbcb8d811dab84cf110e75c1363c6d"
+    },
+    {
+      "path": "Samples/Media/2.0/scripts/materials/Common/HLSL/Copyback_4xFP32_ps.hlsl",
+      "size": 187,
+      "sha256": "2b1c2b77737c6c132a3d609ece75c7afd516a6f6a34202f4ce2115180b4cebf4"
+    },
+    {
+      "path": "Samples/Media/2.0/scripts/materials/Common/HLSL/Quad_vs.hlsl",
+      "size": 350,
+      "sha256": "830a7da848cc440a89bac06a20cc9a8176c33e50016b4b6ab9cc42b202ec80c1"
+    },
+    {
+      "path": "Samples/Media/2.0/scripts/materials/Common/Metal/Copyback_4xFP32_ps.metal",
+      "size": 299,
+      "sha256": "60941d5230936c265ae94c0fa0cada8b7ea67d57de762e11d578f80e44771048"
+    },
+    {
+      "path": "Samples/Media/2.0/scripts/materials/Common/Metal/Quad_vs.metal",
+      "size": 486,
+      "sha256": "22f85ee4b879536de901f9ffeab5d404cc06e48f96786f6a4fece9a4dd54ec49"
+    }
+  ],
+  "scope": {
+    "programs_registered": 2,
+    "material_registered": "Ogre/Copy/4xFP32",
+    "cpu_window_copy_allowed": false,
+    "production_admitted": false,
+    "packaged": false
+  }
+}

@@ -832,7 +832,13 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.frontend.index("TryComputeReadbackLayout(validated_view.width"),
             self.frontend.index("createTexture(\n        target_text"),
         )
-        self.assertEqual(self.frontend.count("createRenderWindow("), 1)
+        self.assertEqual(self.frontend.count("createRenderWindow("), 3)
+        self.assertIn(
+            "if (!impl_->presentation_configuration.enabled)", self.frontend
+        )
+        self.assertIn("RoR Ogre-Next N1 bootstrap", self.frontend)
+        self.assertIn("RoR Ogre-Next N1 null bootstrap", self.frontend)
+        self.assertIn("RoR Ogre-Next N1 native presentation", self.frontend)
 
     def test_rt4_isolation_validator_is_exact_and_tamper_closed(self) -> None:
         names = (

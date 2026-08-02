@@ -17,6 +17,7 @@
 #include "RasterFeatureTier.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -30,6 +31,65 @@ struct OgreNextReflectionProbeAudit;
 struct OgreNextReflectionProbeCaptureEvidence;
 struct OgreNextReflectionProbeNativeOwnershipEvidence;
 #endif
+
+constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 1U;
+
+struct OgreNextN1PresentationParameter final {
+  std::string name;
+  std::string value;
+};
+
+/// Optional probe-only presentation binding copied from the hardened SDL
+/// window host. The frontend owns these strings, but native identities named
+/// by them remain borrowed from the host until Shutdown completes. Production
+/// child/package admission deliberately remains outside this contract.
+struct OgreNextN1PresentationConfiguration final {
+  std::uint32_t version = kOgreNextN1PresentationContractVersion;
+  bool enabled = false;
+  std::string shader_media_root;
+  NativeWindowHandle exact_window;
+  std::array<OgreNextN1PresentationParameter, 2U> renderer_options{};
+  std::size_t renderer_option_count = 0U;
+  std::array<OgreNextN1PresentationParameter, 2U>
+      bootstrap_window_parameters{};
+  std::size_t bootstrap_window_parameter_count = 0U;
+  std::array<OgreNextN1PresentationParameter, 8U>
+      presentation_window_parameters{};
+  std::size_t presentation_window_parameter_count = 0U;
+  /// Invoked only after the two-channel Compositor2 workspace exists and its
+  /// external window texture has passed identity/extent validation. The host
+  /// callback performs its bounded native show/configure acknowledgement.
+  void *show_callback_context = nullptr;
+  bool (*show_after_workspace_ready)(
+      void *context, FrontendSurfaceUpdate *acknowledged_surface) = nullptr;
+};
+
+/// Exact evidence for the optional one-frame native presentation gate.
+/// Counters are committed only after source-only GPU readback and the matching
+/// RenderFrameOutput have both validated successfully.
+struct OgreNextN1PresentationAudit final {
+  std::uint32_t version = kOgreNextN1PresentationContractVersion;
+  bool enabled = false;
+  bool exact_external_window_binding = false;
+  bool exact_two_external_channels = false;
+  bool ui_free_source = false;
+  bool gpu_quad_copy = false;
+  bool cpu_window_copy = false;
+  bool workspace_ready_before_show = false;
+  bool bounded_swap_completed = false;
+  std::uint64_t window_moved_or_resized_calls = 0U;
+  std::uint64_t source_scene_passes = 0U;
+  std::uint64_t presentation_quad_passes = 0U;
+  std::uint64_t render_one_frame_calls = 0U;
+  std::uint64_t window_final_target_updates = 0U;
+  std::uint64_t window_swap_completions = 0U;
+  std::uint64_t presented_frames = 0U;
+  std::uint64_t source_readbacks = 0U;
+  std::uint64_t last_view_id = 0U;
+  std::uint64_t last_surface_revision = 0U;
+  std::uint32_t last_width = 0U;
+  std::uint32_t last_height = 0U;
+};
 
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
 /// Isolated native-smoke fault seam; never compiled into the production RoR
@@ -120,6 +180,7 @@ struct OgreNextN1Configuration final {
   /// explicit RT4 raster mode so raw linear-HDR capture remains unchanged.
   bool enable_hdr_compositor = false;
   OgreNextHdrTemporalConfiguration hdr_temporal_configuration{};
+  OgreNextN1PresentationConfiguration presentation{};
 };
 
 /// Exact observable state of the opt-in persistent HDR compositor. Counts
@@ -268,6 +329,8 @@ public:
   QueryDirectionalShadowAudit() const noexcept;
   [[nodiscard]] OgreNextHdrCompositorAudit
   QueryHdrCompositorAudit() const noexcept;
+  [[nodiscard]] OgreNextN1PresentationAudit
+  QueryPresentationAudit() const noexcept;
   RenderOperationResult
   Initialize(const FrontendInitializationRequest &request) override;
   RenderOperationResult
