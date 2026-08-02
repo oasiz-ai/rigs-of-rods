@@ -348,6 +348,8 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "QueryNativeOwnershipEvidence",
             "is_nothrow_destructible<Ogre::ParallaxCorrectedCubemap>",
             "filtered_nonzero_rgb_component_count",
+            "numeric_limits<std::uint8_t>::max",
+            "static_cast<std::uint8_t>(mip)",
             "view.inverseAffine().getTrans()",
             "owner_thread",
         ):

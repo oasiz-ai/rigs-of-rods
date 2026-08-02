@@ -388,6 +388,12 @@ struct FilteredReadback final {
 void ReadFilteredTexture(Ogre::TextureGpu &texture,
                          const ReflectionProbeCaptureMipMetadata &metadata,
                          FilteredReadback &result) {
+  if (metadata.mip_count == 0U ||
+      metadata.mip_count >
+          (std::numeric_limits<std::uint8_t>::max)()) {
+    throw std::runtime_error(
+        "filtered PCC mip count cannot be represented by Ogre Image2");
+  }
   if (!TextureShapeMatches(texture, metadata.widths[0U], metadata.mip_count)) {
     throw std::runtime_error(
         "filtered PCC texture differs from its receipt layout");
@@ -398,7 +404,8 @@ void ReadFilteredTexture(Ogre::TextureGpu &texture,
   result.views.reserve(static_cast<std::size_t>(metadata.face_count) *
                        metadata.mip_count);
   for (std::uint16_t mip = 0U; mip < metadata.mip_count; ++mip) {
-    const Ogre::TextureBox box = result.image.getData(mip);
+    const std::uint8_t native_mip = static_cast<std::uint8_t>(mip);
+    const Ogre::TextureBox box = result.image.getData(native_mip);
     if (box.width != metadata.widths[mip] ||
         box.height != metadata.heights[mip] ||
         box.numSlices != metadata.face_count ||
