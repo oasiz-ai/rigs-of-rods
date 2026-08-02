@@ -166,6 +166,19 @@ events, and camera history/jitter/exposure. Scene collections retain their
 validated strictly increasing identity order, so no map or backend traversal
 can reorder them.
 
+The live OGRE 14 adapter samples only at the completed
+`GfxScene::BufferSimulationData()` boundary. Its constant ambient conversion is
+an explicit numeric compatibility calibration: one renderer-linear OGRE 14
+ambient unit equals one scene-radiance unit, with identity intensity and
+exposure and no invented compatible linear-float equirectangular environment
+texture. Cubemap/procedural sky presentation remains part of the pending
+static asset/instance inventory; this ambient field does not claim to replace
+it. OGRE 14 has no authored
+reflection-probe registry, so its complete authored probe set is exactly empty;
+the vehicle-local dynamic `GfxEnvmap` is not promoted to a world-space probe.
+The adapter continues to withhold publication until complete static
+asset/instance and calibrated light inventories are available.
+
 The asset payload pins the registry, mesh, texture, material, and sampler
 descriptor versions. It carries registry/base/target sequence lineage, the
 full-snapshot marker, sorted UPSERT/DESTROY mutations, every descriptor field,

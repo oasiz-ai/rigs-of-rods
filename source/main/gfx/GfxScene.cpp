@@ -481,6 +481,34 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 Render::Ogre14GraphicsSceneCaptureField::
                     ABSOLUTE_WORLD_ORIGIN_METERS);
 
+        if (m_scene_manager != nullptr)
+        {
+            const Ogre::ColourValue ambient =
+                m_scene_manager->getAmbientLight();
+            const Render::Float3 native_ambient{
+                static_cast<float>(ambient.r),
+                static_cast<float>(ambient.g),
+                static_cast<float>(ambient.b)};
+            if (Render::BuildOgre14GraphicsSceneEnvironment(
+                    native_ambient, candidate.frame.environment).ok())
+            {
+                candidate.available_fields |=
+                    Render::Ogre14GraphicsSceneCaptureFieldBit(
+                        Render::Ogre14GraphicsSceneCaptureField::
+                            ENVIRONMENT);
+            }
+        }
+
+        // OGRE 14 has no authored reflection-probe registry. Its dynamic
+        // GfxEnvmap is a vehicle-local compatibility reflection and cannot be
+        // promoted to a world-space parallax-corrected probe. The complete
+        // authored probe inventory is therefore exactly empty.
+        candidate.frame.reflection_probes.clear();
+        candidate.available_fields |=
+            Render::Ogre14GraphicsSceneCaptureFieldBit(
+                Render::Ogre14GraphicsSceneCaptureField::
+                    REFLECTION_PROBES);
+
         if (CaptureOgre14MainCamera(candidate.frame.camera))
         {
             candidate.available_fields |=
@@ -490,11 +518,9 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     }
 
     // Deliberately unavailable in this first production slice:
-    // - environment: OGRE colors have no reviewed radiometric calibration;
     // - assets/static_meshes: no complete stable CPU inventory yet separates
     //   terrain MeshObjects from deformable actor geometry;
     // - lights: stable photometric lux/candela values are not authored;
-    // - reflection_probes: the dynamic GfxEnvmap is not an authored probe.
     // Their bits remain clear so no empty or unit-valued substitutes publish.
     capture = std::move(candidate);
     return Render::ValidationResult::Success();

@@ -151,6 +151,33 @@ ValidationResult Ogre14GraphicsSceneSource::CaptureJoinedGraphicsFrame(
   }
 }
 
+ValidationResult BuildOgre14GraphicsSceneEnvironment(
+    const Float3 &native_ambient_linear,
+    SceneEnvironmentDescriptor &environment) {
+  if (!IsFinite(native_ambient_linear)) {
+    return ValidationResult::Failure(
+        ValidationCode::NON_FINITE_VALUE, "environment.ambient_radiance",
+        "OGRE 14 ambient color must be finite");
+  }
+  if (!IsNonNegative(native_ambient_linear)) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "environment.ambient_radiance",
+        "OGRE 14 ambient color must be nonnegative");
+  }
+
+  SceneEnvironmentDescriptor candidate;
+  candidate.ambient_radiance = {
+      native_ambient_linear.x * kOgre14AmbientNativeUnitRadiance,
+      native_ambient_linear.y * kOgre14AmbientNativeUnitRadiance,
+      native_ambient_linear.z * kOgre14AmbientNativeUnitRadiance};
+  candidate.environment_intensity = 1.0F;
+  candidate.analytic_sky = {};
+  candidate.exposure_compensation_ev = 0.0F;
+  environment = candidate;
+  return ValidationResult::Success();
+}
+
 ValidationResult BuildOgre14GraphicsSceneCamera(
     const Ogre14CameraCaptureInput &input,
     GraphicsSceneCameraInput &camera) {
