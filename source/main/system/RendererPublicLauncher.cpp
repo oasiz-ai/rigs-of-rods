@@ -8,8 +8,11 @@
 
 #include "RendererPublicLauncher.h"
 
+#include "RendererBridgeProcessSupervisor.h"
 #include "RendererLauncherPackageConfig.generated.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -90,12 +93,58 @@ void WriteChildLaunchFailure(const RendererChildLaunchFailure &failure) {
   (void)std::fflush(stderr);
 }
 
-void WriteChildIntentFailure(
-    RendererOgreNextChildIntentArgvStatus status) {
+void WriteBridgeProcessFailure(
+    const RendererBridgeProcessResult &result) {
   (void)std::fprintf(stderr,
-                     "RoR renderer launcher: child-intent-%s\n",
-                     ToString(status));
+                     "RoR renderer launcher: bridge-%s "
+                     "(plan=%s child=%s native-error=%u)\n",
+                     ToString(result.status),
+                     ToString(result.launch_plan_status),
+                     ToString(result.failed_child),
+                     static_cast<unsigned int>(result.native_error_code));
   (void)std::fflush(stderr);
+}
+
+std::uint64_t MixRendererBridgeSessionWord(std::uint64_t value) noexcept {
+  value += UINT64_C(0x9e3779b97f4a7c15);
+  value = (value ^ (value >> 30U)) * UINT64_C(0xbf58476d1ce4e5b9);
+  value = (value ^ (value >> 27U)) * UINT64_C(0x94d049bb133111eb);
+  return value ^ (value >> 31U);
+}
+
+RendererBridgeSessionId CreateRendererBridgeSessionId() noexcept {
+  // The session binds two inherited pipes to one launch transaction; it is
+  // explicitly not an authentication secret. A process-local ordinal makes
+  // repeated launches distinct even when the steady clock has coarse
+  // resolution, while the mixer avoids exposing raw addresses or clock bits
+  // in the versioned child argv contract.
+  static std::atomic<std::uint64_t> ordinal{UINT64_C(0)};
+  const std::uint64_t sequence =
+      ordinal.fetch_add(UINT64_C(1), std::memory_order_relaxed) +
+      UINT64_C(1);
+  const std::uint64_t ticks = static_cast<std::uint64_t>(
+      std::chrono::steady_clock::now().time_since_epoch().count());
+  const std::uint64_t process_identity = static_cast<std::uint64_t>(
+      reinterpret_cast<std::uintptr_t>(&ordinal));
+  const std::uint64_t first = MixRendererBridgeSessionWord(
+      ticks ^ process_identity ^ sequence);
+  const std::uint64_t second = MixRendererBridgeSessionWord(
+      first ^ (sequence * UINT64_C(0xd1342543de82ef95)));
+
+  RendererBridgeSessionId session{};
+  for (std::size_t index = 0U; index < 8U; ++index) {
+    const std::size_t shift = index * 8U;
+    session[index] = static_cast<std::uint8_t>(first >> shift);
+    session[index + 8U] = static_cast<std::uint8_t>(second >> shift);
+  }
+  bool any_nonzero = false;
+  for (const std::uint8_t byte : session) {
+    any_nonzero = any_nonzero || byte != 0U;
+  }
+  if (!any_nonzero) {
+    session[0U] = 1U;
+  }
+  return session;
 }
 
 } // namespace
@@ -297,34 +346,20 @@ int RunRendererPublicLauncher(
     return kRendererPublicLauncherInternalExitCode;
   }
   if (decision.handoff.child == RendererFrontendChild::OGRE_NEXT) {
-    const RendererOgreNextChildIntentEncoding encoded =
-        EncodeRendererOgreNextChildIntent(
-            decision.handoff,
+    const RendererBridgeProcessResult bridge =
+        SuperviseRendererBridgeProcesses(
+            decision.handoff, CreateRendererBridgeSessionId(),
             static_cast<int>(arguments.forwarded_arguments.size()),
             arguments.forwarded_arguments.data());
-    if (!encoded.accepted) {
-      WriteChildIntentFailure(encoded.status);
-      return kRendererPublicLauncherInternalExitCode;
+    if (bridge.completed &&
+        bridge.status ==
+            RendererBridgeProcessStatus::COMPLETED_GAME_EXIT) {
+      PropagateRendererBridgeGameExit(bridge);
     }
-    try {
-      std::vector<const RendererChildLauncherChar *> encoded_pointers;
-      encoded_pointers.reserve(encoded.arguments.size());
-      for (const RendererChildLauncherString &argument :
-           encoded.arguments) {
-        encoded_pointers.push_back(argument.c_str());
-      }
-      const RendererChildLaunchFailure failure =
-          LaunchRendererChildAndPropagateExit(
-              decision.handoff,
-              static_cast<int>(encoded_pointers.size()),
-              encoded_pointers.data());
-      WriteChildLaunchFailure(failure);
-      return kRendererPublicLauncherChildLaunchExitCode;
-    } catch (...) {
-      WriteChildIntentFailure(
-          RendererOgreNextChildIntentArgvStatus::FAILED_INTERNAL);
-      return kRendererPublicLauncherInternalExitCode;
-    }
+    WriteBridgeProcessFailure(bridge);
+    return bridge.status == RendererBridgeProcessStatus::FAILED_INTERNAL
+               ? kRendererPublicLauncherInternalExitCode
+               : kRendererPublicLauncherChildLaunchExitCode;
   }
 
   const RendererChildLaunchFailure failure =

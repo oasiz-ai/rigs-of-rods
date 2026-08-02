@@ -99,9 +99,12 @@ RendererPublicLauncherDecision ResolveRendererPublicLauncherDecision(
     const RendererPublicLauncherIntent &intent,
     const RendererStartupPackageAvailability &availability) noexcept;
 
-/// Parse, resolve, and transfer control to the selected exact sibling. On a
-/// successful POSIX launch this never returns; on Windows the child launcher
-/// terminates with the child's complete DWORD exit status.
+/// Parse and resolve the immutable package policy. A legacy selection transfers
+/// control to the exact OGRE 14 sibling. An admitted Ogre-Next selection starts
+/// the exact OGRE 14 game host and Ogre-Next presentation siblings under the
+/// render-bridge supervisor, then propagates the game host's exact exit status
+/// or POSIX terminating signal. No runtime launch failure widens the policy's
+/// legacy-fallback allowance.
 int RunRendererPublicLauncher(
     int argc, const RendererChildLauncherChar *const argv[]) noexcept;
 

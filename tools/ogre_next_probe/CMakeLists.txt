@@ -132,6 +132,7 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/RendererOgreNextWindowHostTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
     "tests/gfx/RendererPublicLauncherTests.cpp"
+    "tests/cmake/VerifyRendererPublicBridgeExit.cmake"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
@@ -1225,6 +1226,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeLaunchPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeProcessSupervisor.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPublicLauncher.cpp"
@@ -1272,6 +1276,156 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             PRIVATE -municode)
     endif ()
 
+    # Real two-process public-launcher path with test-only admitted facts. The
+    # production package generator above remains immutable and fail-closed.
+    set(_ror_renderer_public_bridge_generated_include_dir
+        "${CMAKE_BINARY_DIR}/renderer-public-bridge-generated")
+    if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        set(ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM "MACOS")
+    elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set(ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM "LINUX")
+    elseif (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        set(ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM "WINDOWS")
+    else ()
+        message(FATAL_ERROR
+            "The renderer public bridge fixture has no platform contract")
+    endif ()
+    set(ROR_RENDERER_LAUNCHER_OGRE14_CHILD_PRESENT "true")
+    set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT "true")
+    set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY "true")
+    set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED "true")
+    set(ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND "NONE")
+    file(MAKE_DIRECTORY
+        "${_ror_renderer_public_bridge_generated_include_dir}")
+    set(_ror_renderer_public_bridge_generated_header
+        "${_ror_renderer_public_bridge_generated_include_dir}/RendererLauncherPackageConfig.generated.h")
+    configure_file(
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherPackageConfig.h.in"
+        "${_ror_renderer_public_bridge_generated_header}"
+        @ONLY)
+    unset(ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM)
+    unset(ROR_RENDERER_LAUNCHER_OGRE14_CHILD_PRESENT)
+    unset(ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT)
+    unset(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY)
+    unset(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED)
+    unset(ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND)
+
+    set(_ror_renderer_public_bridge_test_output
+        "${CMAKE_BINARY_DIR}/renderer-public-bridge-tests")
+    add_executable(
+        ror_renderer_public_bridge_fake_game
+        ${_ror_renderer_bridge_process_fake_common_sources})
+    target_compile_definitions(
+        ror_renderer_public_bridge_fake_game
+        PRIVATE
+            ROR_RENDERER_BRIDGE_FAKE_GAME=1
+            ROR_RENDERER_BRIDGE_FAKE_ACCEPT_ANY_SESSION=1
+            ROR_RENDERER_BRIDGE_FAKE_REQUIRE_PUBLIC_ARGUMENTS=1)
+    add_executable(
+        ror_renderer_public_bridge_fake_presentation
+        ${_ror_renderer_bridge_process_fake_common_sources})
+    target_compile_definitions(
+        ror_renderer_public_bridge_fake_presentation
+        PRIVATE
+            ROR_RENDERER_BRIDGE_FAKE_PRESENTATION=1
+            ROR_RENDERER_BRIDGE_FAKE_ACCEPT_ANY_SESSION=1
+            ROR_RENDERER_BRIDGE_FAKE_REQUIRE_PUBLIC_ARGUMENTS=1)
+    foreach (_ror_public_bridge_fake_target IN ITEMS
+        ror_renderer_public_bridge_fake_game
+        ror_renderer_public_bridge_fake_presentation)
+        target_include_directories(
+            ${_ror_public_bridge_fake_target}
+            PRIVATE
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+                "${_ror_render_root}"
+                "${ROR_REPOSITORY_ROOT}/source/main/system")
+    endforeach ()
+    set_target_properties(
+        ror_renderer_public_bridge_fake_game
+        PROPERTIES
+            OUTPUT_NAME "RoR-Ogre14"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_public_bridge_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_public_bridge_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_public_bridge_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_public_bridge_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_public_bridge_test_output}/MinSizeRel")
+    set_target_properties(
+        ror_renderer_public_bridge_fake_presentation
+        PROPERTIES
+            OUTPUT_NAME "RoR-OgreNext"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_public_bridge_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_public_bridge_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_public_bridge_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_public_bridge_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_public_bridge_test_output}/MinSizeRel")
+
+    add_executable(
+        ror_renderer_public_bridge_entrypoint
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherMain.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeLaunchPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeProcessSupervisor.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPublicLauncher.cpp"
+        "${_ror_renderer_public_bridge_generated_header}")
+    target_include_directories(
+        ror_renderer_public_bridge_entrypoint
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system"
+            "${_ror_renderer_public_bridge_generated_include_dir}")
+    set_target_properties(
+        ror_renderer_public_bridge_entrypoint
+        PROPERTIES
+            OUTPUT_NAME "RoR"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_public_bridge_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_public_bridge_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_public_bridge_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_public_bridge_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_public_bridge_test_output}/MinSizeRel")
+    add_dependencies(
+        ror_renderer_public_bridge_entrypoint
+        ror_renderer_public_bridge_fake_game
+        ror_renderer_public_bridge_fake_presentation)
+    if (WIN32)
+        set_target_properties(
+            ror_renderer_public_bridge_entrypoint
+            PROPERTIES WIN32_EXECUTABLE YES)
+        target_compile_definitions(
+            ror_renderer_public_bridge_entrypoint
+            PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+        target_link_libraries(
+            ror_renderer_public_bridge_entrypoint PRIVATE Shell32)
+    endif ()
+    if (MINGW)
+        target_link_options(
+            ror_renderer_public_bridge_fake_game PRIVATE -municode)
+        target_link_options(
+            ror_renderer_public_bridge_fake_presentation PRIVATE -municode)
+        target_link_options(
+            ror_renderer_public_bridge_entrypoint PRIVATE -municode)
+    endif ()
+
     set(_ror_n1_targets
         ror_ogre_next_n1_contract
         ror_ogre_next_frontend_n1
@@ -1298,7 +1452,10 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_child_launcher_fake_child
         ror_renderer_child_launcher_tests
         ror_renderer_public_launcher_legacy_child
-        ror_renderer_public_launcher_entrypoint)
+        ror_renderer_public_launcher_entrypoint
+        ror_renderer_public_bridge_fake_game
+        ror_renderer_public_bridge_fake_presentation
+        ror_renderer_public_bridge_entrypoint)
     if (ROR_OGRE_NEXT_VULKAN_RT5 AND
             ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         add_executable(
@@ -1603,6 +1760,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/RendererOgreNextChildTests.cpp
             tests/gfx/RendererPublicLauncherLegacyChild.cpp
             tests/gfx/RendererPublicLauncherTests.cpp
+            tests/cmake/VerifyRendererPublicBridgeExit.cmake
             tests/gfx/RendererStartupHandoffTests.cpp
             tests/gfx/RendererStartupPlanTests.cpp
             tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
@@ -1919,6 +2077,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_child_launcher_tests
         ror_renderer_public_launcher_legacy_child
         ror_renderer_public_launcher_entrypoint
+        ror_renderer_public_bridge_entrypoint
         PROPERTIES
             CXX_STANDARD 11
             CXX_STANDARD_REQUIRED YES
@@ -1941,7 +2100,6 @@ if (TARGET ror_renderer_public_launcher_entrypoint)
         ror_ogre_next_probe_report
         ror_renderer_public_launcher_entrypoint)
 endif ()
-
 set(ROR_OGRE_NEXT_FRAME_IMAGE
     "${CMAKE_BINARY_DIR}/ror-ogre-next-frame-probe.ppm")
 set(ROR_OGRE_NEXT_FRAME_REPORT
@@ -2085,6 +2243,24 @@ if (TARGET ror_renderer_public_launcher_entrypoint)
     set_tests_properties(
         ror_renderer_public_launcher_entrypoint
         PROPERTIES TIMEOUT 10)
+endif ()
+if (TARGET ror_renderer_public_bridge_entrypoint)
+    foreach (_ror_public_bridge_case IN ITEMS
+        default-prefer
+        explicit-require
+        presentation-first)
+        add_test(
+            NAME "ror_renderer_public_bridge_${_ror_public_bridge_case}"
+            COMMAND
+                "${CMAKE_COMMAND}"
+                "-DROR_RENDERER_PUBLIC_BRIDGE_LAUNCHER=$<TARGET_FILE:ror_renderer_public_bridge_entrypoint>"
+                "-DROR_RENDERER_PUBLIC_BRIDGE_CASE=${_ror_public_bridge_case}"
+                -P
+                "${ROR_REPOSITORY_ROOT}/tests/cmake/VerifyRendererPublicBridgeExit.cmake")
+        set_tests_properties(
+            "ror_renderer_public_bridge_${_ror_public_bridge_case}"
+            PROPERTIES TIMEOUT 20)
+    endforeach ()
 endif ()
 add_test(NAME ror_ogre_next_probe_runtime
     COMMAND $<TARGET_FILE:ror_ogre_next_probe>)

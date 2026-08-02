@@ -150,6 +150,7 @@ RELEVANT_SOURCE_PATHS = (
     "tests/gfx/RendererOgreNextWindowHostTests.cpp",
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
     "tests/gfx/RendererPublicLauncherTests.cpp",
+    "tests/cmake/VerifyRendererPublicBridgeExit.cmake",
     "tests/gfx/RendererStartupHandoffTests.cpp",
     "tests/gfx/RendererStartupPlanTests.cpp",
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp",
