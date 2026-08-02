@@ -39,6 +39,9 @@
 #include "InputEngine.h"
 #include "Language.h"
 #include "PlatformUtils.h"
+#if defined(_WIN32)
+    #include "WindowsRuntimePath.h"
+#endif
 #if defined(__APPLE__)
     #include "MacOSUserDirectoryLayout.h"
 #endif
@@ -1215,6 +1218,15 @@ bool AppContext::SetUpProgramPaths()
 {
     // Process directory
     std::string exe_path = RoR::GetExecutablePath();
+#if defined(_WIN32)
+    // The public renderer launcher resolves its child through the extended
+    // Win32 namespace. OGRE's filesystem archive appends resource names with
+    // '/', which cannot be normalized under that namespace. Restore the
+    // conventional drive/UNC spelling before deriving any runtime roots.
+    exe_path =
+        RoR::PlatformUtilsDetail::NormalizeWindowsExtendedPathForRuntime(
+            exe_path);
+#endif
     if (exe_path.empty())
     {
         ErrorUtils::ShowError(_L("Startup error"), _L("Error while retrieving program directory path"));
