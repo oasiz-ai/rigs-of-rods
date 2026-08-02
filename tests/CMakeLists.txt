@@ -489,6 +489,28 @@ target_link_libraries(
     PRIVATE Threads::Threads
 )
 
+add_executable(
+    ror_renderer_ogre_next_live_session_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgreNextLiveSessionTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextLiveSession.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre_next_live_session_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+target_link_libraries(
+    ror_renderer_ogre_next_live_session_tests
+    PRIVATE ror_render_contract Threads::Threads
+)
+
 if (MINGW)
     target_link_options(
         ror_renderer_child_launcher_fake_child
@@ -658,6 +680,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetDeltaTransport.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetId.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetRegistry.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderBridgeControlTransport.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderBridgeSessionIdentity.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderFrame.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderResourceDescriptors.cpp"
@@ -699,6 +722,10 @@ add_executable(
 add_executable(
     ror_input_event_transport_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/InputEventTransportTests.cpp"
+)
+add_executable(
+    ror_render_bridge_control_transport_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RenderBridgeControlTransportTests.cpp"
 )
 add_executable(
     ror_render_parallax_probe_reference_tests
@@ -830,6 +857,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_graphics_scene_snapshot_producer_tests
     ror_render_hdr_reference_tests
     ror_input_event_transport_tests
+    ror_render_bridge_control_transport_tests
     ror_render_parallax_probe_reference_tests
     ror_render_reflection_probe_capture_receipt_tests
     ror_render_reflection_probe_runtime_tests
@@ -1605,6 +1633,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_renderer_bridge_process_supervisor_tests
     ror_renderer_ogre14_game_bridge_tests
     ror_renderer_ogre_next_child_tests
+    ror_renderer_ogre_next_live_session_tests
     ror_renderer_ogre_next_window_host_tests
     ror_renderer_child_launcher_fake_child
     ror_renderer_child_launcher_tests
@@ -1825,6 +1854,15 @@ add_test(
 )
 
 add_test(
+    NAME renderer_ogre_next_live_session
+    COMMAND ror_renderer_ogre_next_live_session_tests
+)
+set_tests_properties(
+    renderer_ogre_next_live_session
+    PROPERTIES TIMEOUT 30
+)
+
+add_test(
     NAME renderer_ogre_next_window_host
     COMMAND ror_renderer_ogre_next_window_host_tests
 )
@@ -1871,6 +1909,11 @@ add_test(
 add_test(
     NAME input_event_transport
     COMMAND ror_input_event_transport_tests
+)
+
+add_test(
+    NAME render_bridge_control_transport
+    COMMAND ror_render_bridge_control_transport_tests
 )
 
 add_test(

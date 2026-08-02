@@ -83,10 +83,52 @@ class OgreNextWindowRunLoopContractTests(unittest.TestCase):
             'copy->mMaterialName = "Ogre/Copy/4xFP32"',
             "channels.push_back(production_source_target)",
             "channels.push_back(window_texture)",
+            "kProductionPresentationShadowNodeName",
+            "CreateAndVerifyPssmShadowNode(",
+            "BindAndVerifyPssmWorkspace(",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, graph)
         self.assertNotIn("memcpy", graph)
+
+    def test_production_output_is_gpu_only_and_released_exactly_once(self) -> None:
+        for token in (
+            "bool gpu_only_output = false",
+            "gpu_only_output_frames",
+            "ResourceHandlePool production_output_handles",
+            "production_output_handles.Allocate()",
+            "attachment.gpu_resource = production_output_resource",
+            "production_output_handles.IsLive(resource)",
+            "production_output_handles.Release(resource)",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.header + self.frontend)
+        gpu_branch = self.frontend[
+            self.frontend.index("if (gpu_only_output) {") :
+            self.frontend.index("if (UsesMetalImageInterop", self.frontend.index("if (gpu_only_output) {"))
+        ]
+        self.assertNotIn("convertFromTexture", gpu_branch.split("} else {", 1)[0])
+        self.assertIn("convertFromTexture", gpu_branch.split("} else {", 1)[1])
+
+    def test_production_pssm_is_persistent_and_balanced(self) -> None:
+        graph = self.frontend[
+            self.frontend.index("DestroyProductionPresentationGraph()") :
+            self.frontend.index("[[nodiscard]] bool DestroyPresentationResources()")
+        ]
+        for token in (
+            "production_shadow_node_definition_created",
+            "production_shadow_visibility_mask",
+            "removeShadowNodeDefinition(",
+            "shadow_audit.shadow_node_creates",
+            "shadow_audit.shadow_node_destroys",
+            "production_workspace->findShadowNode(",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, graph)
+        self.assertNotIn(
+            "the first production presentation run loop requires directional shadows disabled",
+            self.frontend,
+        )
 
     def test_render_reuses_owned_graph_instead_of_frame_local_resources(self) -> None:
         render = self.frontend[self.frontend.index("OgreNextN1Frontend::Render(") :]

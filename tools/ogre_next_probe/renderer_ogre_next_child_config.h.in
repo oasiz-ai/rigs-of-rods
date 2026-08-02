@@ -1,7 +1,8 @@
 #pragma once
 
-// Absolute build-tree media root from the exact pinned Ogre-Next source.
-// This probe-only child is deliberately non-relocatable and non-admitted.
+// Absolute build-tree media root used only by the explicit no-suffix headless
+// probe. Production bridge mode resolves immutable media relative to the
+// running child executable and never consumes this build-tree path.
 #define ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT \
   "@ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT@"
 #define ROR_OGRE_NEXT_CHILD_SCOPE "probe-only-non-admitted"

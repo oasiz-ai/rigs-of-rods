@@ -32,7 +32,7 @@ struct OgreNextReflectionProbeCaptureEvidence;
 struct OgreNextReflectionProbeNativeOwnershipEvidence;
 #endif
 
-constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 1U;
+constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 2U;
 
 /// The exact one-frame gate remains the default and is deliberately unchanged.
 /// The production run loop is a separate opt-in lifetime contract that reuses
@@ -56,6 +56,10 @@ struct OgreNextN1PresentationConfiguration final {
   bool enabled = false;
   OgreNextN1PresentationMode mode =
       OgreNextN1PresentationMode::EXACT_ONE_FRAME_GATE;
+  /// Production child mode exports only a frontend-owned GPU lease for the
+  /// already-presented source target. No CPU attachment bytes are generated.
+  /// The legacy one-frame and evidence smokes retain readback by default.
+  bool gpu_only_output = false;
   std::string shader_media_root;
   NativeWindowHandle exact_window;
   std::array<OgreNextN1PresentationParameter, 2U> renderer_options{};
@@ -109,6 +113,7 @@ struct OgreNextN1PresentationAudit final {
   std::uint64_t window_swap_completions = 0U;
   std::uint64_t presented_frames = 0U;
   std::uint64_t source_readbacks = 0U;
+  std::uint64_t gpu_only_output_frames = 0U;
   std::uint64_t first_presented_frame_id = 0U;
   std::uint64_t last_presented_frame_id = 0U;
   std::uint64_t last_view_id = 0U;

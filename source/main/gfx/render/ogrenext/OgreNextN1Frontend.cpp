@@ -167,7 +167,8 @@ RenderOperationResult ValidatePresentationConfiguration(
         configuration.bootstrap_window_parameter_count != 0U ||
         configuration.presentation_window_parameter_count != 0U ||
         configuration.show_callback_context != nullptr ||
-        configuration.show_after_workspace_ready != nullptr) {
+        configuration.show_after_workspace_ready != nullptr ||
+        configuration.gpu_only_output) {
       return RenderOperationResult::Failure(
           RenderOperationCode::INVALID_ARGUMENT,
           "disabled presentation configuration retained live inputs");
@@ -181,6 +182,13 @@ RenderOperationResult ValidatePresentationConfiguration(
     return RenderOperationResult::Failure(
         RenderOperationCode::INVALID_ARGUMENT,
         "unknown Ogre-Next presentation lifetime mode");
+  }
+  if (configuration.gpu_only_output &&
+      configuration.mode !=
+          OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "GPU-only presentation output requires the production run loop");
   }
   if (configuration.shader_media_root.empty() ||
       !configuration.exact_window.valid() ||
@@ -1300,6 +1308,8 @@ constexpr const char *kProductionPresentationNodeName =
     "RoRN1ProductionPresentationNode";
 constexpr const char *kProductionPresentationWorkspaceName =
     "RoRN1ProductionPresentationWorkspace";
+constexpr const char *kProductionPresentationShadowNodeName =
+    "RoRN1ProductionPresentationPssmShadowNode";
 } // namespace
 
 class OgreNextN1Frontend::Impl final {
@@ -2923,7 +2933,8 @@ public:
       return production_workspace == nullptr &&
              production_source_target == nullptr &&
              !production_workspace_definition_created &&
-             !production_node_definition_created;
+             !production_node_definition_created &&
+             !production_shadow_node_definition_created;
     }
     Ogre::CompositorManager2 *compositors = root->getCompositorManager2();
     if (compositors == nullptr) {
@@ -2958,6 +2969,33 @@ public:
         return false;
       }
     }
+    try {
+      const Ogre::IdString shadow_name(
+          kProductionPresentationShadowNodeName);
+      const bool shadow_exists =
+          compositors->hasShadowNodeDefinition(shadow_name);
+      if (production_shadow_node_definition_created && !shadow_exists) {
+        return false;
+      }
+      if (shadow_exists) {
+        // The helper publishes its native definition before every validation
+        // below can complete. Account for and retire that partial ownership
+        // even when construction threw before the durable flag was set.
+        if (!production_shadow_node_definition_created) {
+          production_shadow_node_definition_created = true;
+          ++shadow_audit.shadow_node_creates;
+        }
+        compositors->removeShadowNodeDefinition(
+            shadow_name);
+        production_shadow_node_definition_created = false;
+        ++shadow_audit.shadow_node_destroys;
+      }
+      if (compositors->hasShadowNodeDefinition(shadow_name)) {
+        return false;
+      }
+    } catch (...) {
+      return false;
+    }
     if (production_source_target != nullptr) {
       try {
         Ogre::TextureGpuManager *texture_manager =
@@ -2973,6 +3011,7 @@ public:
     production_width = 0U;
     production_height = 0U;
     production_color_format = PixelFormat::INVALID;
+    production_shadow_visibility_mask = 0U;
     return true;
   }
 
@@ -3022,7 +3061,7 @@ public:
 
   [[nodiscard]] RenderOperationResult EnsureProductionPresentationGraph(
       const RenderFrameRequest &request, const CameraViewRequest &view,
-      std::uint32_t authored_view_visibility) {
+      std::uint32_t authored_view_visibility, bool pssm_enabled) {
     if (!ProductionPresentationEnabled() || !request.present ||
         presentation_window == nullptr ||
         !presentation_resource_group_created || surface.suspended) {
@@ -3036,6 +3075,11 @@ public:
                          production_width == view.width &&
                          production_height == view.height &&
                          production_color_format == request.color_format &&
+                         production_shadow_node_definition_created ==
+                             pssm_enabled &&
+                         (!pssm_enabled ||
+                          production_shadow_visibility_mask ==
+                              authored_view_visibility) &&
                          production_window_texture == window_texture &&
                          window_texture != nullptr &&
                          window_texture->getWidth() == view.width &&
@@ -3075,7 +3119,9 @@ public:
       const Ogre::IdString workspace_name(
           kProductionPresentationWorkspaceName);
       if (compositors->hasNodeDefinition(node_name) ||
-          compositors->hasWorkspaceDefinition(workspace_name)) {
+          compositors->hasWorkspaceDefinition(workspace_name) ||
+          compositors->hasShadowNodeDefinition(Ogre::IdString(
+              kProductionPresentationShadowNodeName))) {
         throw std::runtime_error(
             "production presentation compositor identity already exists");
       }
@@ -3103,6 +3149,24 @@ public:
       scene->setAllLoadActions(Ogre::LoadAction::Clear);
       scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
       scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
+      if (pssm_enabled) {
+        const Ogre::RenderSystemCapabilities *capabilities =
+            renderer->getCapabilities();
+        if (capabilities == nullptr) {
+          throw std::runtime_error(
+              "Ogre-Next lost device capabilities before persistent PSSM construction");
+        }
+        CreateAndVerifyPssmShadowNode(
+            *compositors, *capabilities,
+            kProductionPresentationShadowNodeName,
+            authored_view_visibility);
+        production_shadow_node_definition_created = true;
+        production_shadow_visibility_mask = authored_view_visibility;
+        ++shadow_audit.shadow_node_creates;
+        BindAndVerifyPssmWorkspace(
+            *compositors, kProductionPresentationNodeName,
+            kProductionPresentationShadowNodeName);
+      }
       Ogre::CompositorTargetDef *presentation_target =
           node->addTargetPass("PresentationRT");
       presentation_target->setNumPasses(1U);
@@ -3247,6 +3311,13 @@ public:
         throw std::runtime_error(
             "production presentation graph failed final channel/extent validation");
       }
+      if (pssm_enabled &&
+          production_workspace->findShadowNode(
+              Ogre::IdString(kProductionPresentationShadowNodeName)) ==
+              nullptr) {
+        throw std::runtime_error(
+            "production presentation graph did not instantiate persistent PSSM");
+      }
       return RenderOperationResult::Success();
     } catch (const std::bad_alloc &) {
       const bool clean = DestroyProductionPresentationGraph();
@@ -3307,7 +3378,7 @@ public:
       native_interop->RevokeFrontend();
       native_interop.reset();
     }
-    bool clean = true;
+    bool clean = production_output_handles.live_count() == 0U;
     if (reflection_probe_runtime) {
       clean = reflection_probe_runtime->Shutdown() && clean;
       reflection_probe_runtime.reset();
@@ -3384,11 +3455,13 @@ public:
   std::string configured_shader_media_root;
   OgreNextN1PresentationConfiguration presentation_configuration;
   OgreNextN1PresentationAudit presentation_audit;
+  ResourceHandlePool production_output_handles{ResourceKind::RENDER_TARGET};
   Ogre::TextureGpu *production_source_target = nullptr;
   Ogre::TextureGpu *production_window_texture = nullptr;
   Ogre::CompositorWorkspace *production_workspace = nullptr;
   std::uint32_t production_width = 0U;
   std::uint32_t production_height = 0U;
+  std::uint32_t production_shadow_visibility_mask = 0U;
   PixelFormat production_color_format = PixelFormat::INVALID;
   std::string resolved_shader_media_root;
   OgreNextHdrTemporalConfiguration hdr_configuration;
@@ -3405,6 +3478,7 @@ public:
   bool hdr_enabled = false;
   bool presentation_resource_group_created = false;
   bool production_node_definition_created = false;
+  bool production_shadow_node_definition_created = false;
   bool production_workspace_definition_created = false;
   bool production_window_shown = false;
   bool hdr_resource_group_created = false;
@@ -3579,15 +3653,6 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
         "native presentation requires the exact raster path without persistent HDR or native image interop");
-  }
-  if (impl_->presentation_configuration.enabled &&
-      impl_->presentation_configuration.mode ==
-          OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP &&
-      impl_->directional_shadow_mode !=
-          OgreNextDirectionalShadowMode::DISABLED) {
-    return RenderOperationResult::Failure(
-        RenderOperationCode::UNSUPPORTED,
-        "the first production presentation run loop requires directional shadows disabled");
   }
 #if !defined(ROR_OGRE_NEXT_N1_METAL)
   if (impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1) {
@@ -4367,6 +4432,13 @@ OgreNextN1Frontend::ReleaseResource(ResourceHandle resource) {
   if (impl_->faulted) {
     return FaultedFrontend();
   }
+  if (impl_->production_output_handles.IsLive(resource)) {
+    return impl_->production_output_handles.Release(resource)
+               ? RenderOperationResult::Success()
+               : RenderOperationResult::Failure(
+                     RenderOperationCode::RESOURCE_STALE,
+                     "Ogre-Next production output lease became stale");
+  }
   return RenderOperationResult::Failure(
       resource.valid() ? RenderOperationCode::RESOURCE_STALE
                        : RenderOperationCode::INVALID_ARGUMENT,
@@ -4463,10 +4535,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
   }
   std::uint64_t readback_row_pitch = 0U;
   std::size_t readback_total_bytes = 0U;
-  if (!TryComputeReadbackLayout(validated_view.width,
-                                validated_view.height,
-                                request.color_format,
-                                readback_row_pitch,
+  const bool gpu_only_output =
+      production_presentation &&
+      impl_->presentation_configuration.gpu_only_output;
+  if (!gpu_only_output &&
+      !TryComputeReadbackLayout(validated_view.width, validated_view.height,
+                                request.color_format, readback_row_pitch,
                                 readback_total_bytes)) {
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
@@ -4522,6 +4596,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
           : (production_presentation
                  ? impl_->production_workspace
                  : nullptr);
+  ResourceHandle production_output_resource;
   Ogre::IdString workspace_name;
   bool reflection_frame_prepared = false;
   bool submission_commit_prepared = false;
@@ -4629,7 +4704,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       workspace_node_text.clear();
     }
-    if (!shadow_node_text.empty()) {
+    if (!production_presentation && !shadow_node_text.empty()) {
       const Ogre::IdString shadow_node_name(shadow_node_text);
       try {
         if (compositors->hasShadowNodeDefinition(shadow_node_name)) {
@@ -4829,11 +4904,21 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     return true;
   };
+  const auto abort_production_output = [&]() noexcept {
+    if (!production_output_resource.valid()) {
+      return true;
+    }
+    const bool released =
+        impl_->production_output_handles.Release(production_output_resource);
+    production_output_resource = {};
+    return released;
+  };
   const auto fail_after_cleanup = [&](RenderOperationResult failure) {
     bool clean = abort_reflection_frame();
     clean = abort_submission_commit() && clean;
     clean = abort_interop_commit() && clean;
     clean = abort_hdr_commit() && clean;
+    clean = abort_production_output() && clean;
     clean = cleanup_scene(false) && clean;
     clean = destroy_retained_target() && clean;
     clean = destroy_submitted_frame_meshes() && clean;
@@ -5240,12 +5325,16 @@ RenderOperationResult OgreNextN1Frontend::Render(
     if (production_presentation) {
       const RenderOperationResult production_graph =
           impl_->EnsureProductionPresentationGraph(
-              request, view, authored_view_visibility);
+              request, view, authored_view_visibility,
+              shadow_plan.enabled);
       if (!production_graph) {
         return fail_after_cleanup(production_graph);
       }
       target = impl_->production_source_target;
       workspace = impl_->production_workspace;
+      if (shadow_plan.enabled) {
+        shadow_node_text = kProductionPresentationShadowNodeName;
+      }
     } else if (!persistent_hdr) {
       target_text = "RoRN1Target_" + std::to_string(request.frame_id);
     std::uint32_t target_flags = Ogre::TextureFlags::RenderToTexture;
@@ -5493,24 +5582,35 @@ RenderOperationResult OgreNextN1Frontend::Render(
           ReadAndVerifyNativePssmState(*workspace, shadow_node_text);
     }
 
-    Ogre::Image2 image;
-    image.convertFromTexture(target, 0U, 0U);
-    const Ogre::TextureBox pixels = image.getData(0U);
     FrameAttachment attachment;
     attachment.view_id = view.view_id;
     attachment.output = FrameOutputMask::COLOR;
     attachment.format = request.color_format;
     attachment.width = view.width;
     attachment.height = view.height;
-    attachment.row_pitch_bytes = readback_row_pitch;
-    attachment.bytes.resize(readback_total_bytes);
-    for (std::uint32_t row = 0U; row < view.height; ++row) {
-      const void *source = pixels.at(0U, row, 0U);
-      void *destination = attachment.bytes.data() +
-                          static_cast<std::size_t>(row) *
-                              attachment.row_pitch_bytes;
-      std::memcpy(destination, source,
-                  static_cast<std::size_t>(attachment.row_pitch_bytes));
+    if (gpu_only_output) {
+      production_output_resource =
+          impl_->production_output_handles.Allocate();
+      if (!production_output_resource.valid()) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::OUT_OF_MEMORY,
+            "Ogre-Next could not allocate a production GPU output lease"));
+      }
+      attachment.gpu_resource = production_output_resource;
+    } else {
+      Ogre::Image2 image;
+      image.convertFromTexture(target, 0U, 0U);
+      const Ogre::TextureBox pixels = image.getData(0U);
+      attachment.row_pitch_bytes = readback_row_pitch;
+      attachment.bytes.resize(readback_total_bytes);
+      for (std::uint32_t row = 0U; row < view.height; ++row) {
+        const void *source = pixels.at(0U, row, 0U);
+        void *destination = attachment.bytes.data() +
+                            static_cast<std::size_t>(row) *
+                                attachment.row_pitch_bytes;
+        std::memcpy(destination, source,
+                    static_cast<std::size_t>(attachment.row_pitch_bytes));
+      }
     }
 
     if (UsesMetalImageInterop(impl_->native_feature_tier)) {
@@ -5674,7 +5774,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
       ++impl_->presentation_audit.window_final_target_updates;
       ++impl_->presentation_audit.window_swap_completions;
       ++impl_->presentation_audit.presented_frames;
-      ++impl_->presentation_audit.source_readbacks;
+      if (gpu_only_output) {
+        ++impl_->presentation_audit.gpu_only_output_frames;
+      } else {
+        ++impl_->presentation_audit.source_readbacks;
+      }
       impl_->presentation_audit.last_view_id =
           request.presentation_view_id;
       impl_->presentation_audit.last_surface_revision =
@@ -5683,6 +5787,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->presentation_audit.last_height = validated_view.height;
     }
     output = std::move(candidate);
+    // Ownership of this live token moved to the caller's attachment. The
+    // frontend retires it only through ReleaseResource().
+    production_output_resource = {};
     return RenderOperationResult::Success();
   } catch (const std::bad_alloc &) {
     return fail_after_cleanup(RenderOperationResult::Failure(

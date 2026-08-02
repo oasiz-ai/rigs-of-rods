@@ -32,9 +32,15 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererOgre14GameBridge.h
     source/main/system/RendererSiblingPath.cpp
     source/main/system/RendererSiblingPath.h
+    source/main/system/RendererPackagedMediaPath.cpp
+    source/main/system/RendererPackagedMediaPath.h
     source/main/system/RendererOgreNextChild.cpp
     source/main/system/RendererOgreNextChild.h
     source/main/system/RendererOgreNextChildMain.cpp
+    source/main/system/RendererOgreNextLiveSession.cpp
+    source/main/system/RendererOgreNextLiveSession.h
+    source/main/system/RendererOgreNextProductionSession.cpp
+    source/main/system/RendererOgreNextProductionSession.h
     source/main/system/RendererOgreNextSdlWindowRuntime.cpp
     source/main/system/RendererOgreNextSdlWindowRuntime.h
     source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm
@@ -56,12 +62,14 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererOgre14GameBridgeTests.cpp
     tests/gfx/RendererSiblingPathTests.cpp
     tests/gfx/RendererOgreNextChildTests.cpp
+    tests/gfx/RendererOgreNextLiveSessionTests.cpp
     tests/gfx/RendererOgreNextWindowHostTests.cpp
     tests/gfx/RendererPublicLauncherLegacyChild.cpp
     tests/gfx/RendererPublicLauncherTests.cpp
     tests/gfx/RendererStartupHandoffTests.cpp
     tests/gfx/RendererStartupPlanTests.cpp
     tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
+    tests/gfx/render/RenderBridgeControlTransportTests.cpp
     tests/tools/test_ogre_next_child_runtime_contract.py
     tests/tools/test_ogre_next_window_host_contract.py
     tests/tools/test_ogre_next_window_presentation_contract.py
@@ -119,9 +127,15 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererOgre14GameBridge.h"
     "source/main/system/RendererSiblingPath.cpp"
     "source/main/system/RendererSiblingPath.h"
+    "source/main/system/RendererPackagedMediaPath.cpp"
+    "source/main/system/RendererPackagedMediaPath.h"
     "source/main/system/RendererOgreNextChild.cpp"
     "source/main/system/RendererOgreNextChild.h"
     "source/main/system/RendererOgreNextChildMain.cpp"
+    "source/main/system/RendererOgreNextLiveSession.cpp"
+    "source/main/system/RendererOgreNextLiveSession.h"
+    "source/main/system/RendererOgreNextProductionSession.cpp"
+    "source/main/system/RendererOgreNextProductionSession.h"
     "source/main/system/RendererOgreNextSdlWindowRuntime.cpp"
     "source/main/system/RendererOgreNextSdlWindowRuntime.h"
     "source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm"
@@ -142,12 +156,14 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererOgre14GameBridgeTests.cpp"
     "tests/gfx/RendererSiblingPathTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"
+    "tests/gfx/RendererOgreNextLiveSessionTests.cpp"
     "tests/gfx/RendererOgreNextWindowHostTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
     "tests/gfx/RendererPublicLauncherTests.cpp"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
+    "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
     "tests/tools/test_ogre_next_window_presentation_contract.py"

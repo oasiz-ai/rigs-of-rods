@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline contract for the probe-only real RoR-OgreNext bootstrap child."""
+"""Offline contract for the standalone real RoR-OgreNext child."""
 
 from __future__ import annotations
 
@@ -53,6 +53,12 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
         cls.orchestration_header = ORCHESTRATION_HEADER_PATH.read_text(
             encoding="utf-8"
         )
+        cls.live_session = ENTRYPOINT_PATH.with_name(
+            "RendererOgreNextLiveSession.cpp"
+        ).read_text(encoding="utf-8")
+        cls.production_session = ENTRYPOINT_PATH.with_name(
+            "RendererOgreNextProductionSession.cpp"
+        ).read_text(encoding="utf-8")
         cls.cmake = (PROBE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         cls.config = (
             PROBE_ROOT / "renderer_ogre_next_child_config.h.in"
@@ -232,7 +238,7 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
             self.cmake.index(
                 "add_executable(\n        ror_renderer_ogre_next_child_tests"
             ) : self.cmake.index(
-                "add_executable(\n        ror_renderer_ogre_next_window_host_tests"
+                "add_executable(\n        ror_renderer_ogre_next_live_session_tests"
             )
         ]
         runtime_target = self.cmake[
@@ -360,7 +366,12 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
             "RendererStartupPlan.cpp",
             "RendererStartupHandoff.cpp",
             "RendererBackendPolicy.cpp",
-            "PRIVATE ror_ogre_next_frontend_n1_runtime",
+            "RendererBridgeChannel.cpp",
+            "RendererOgreNextLiveSession.cpp",
+            "RendererOgreNextProductionSession.cpp",
+            "RendererPackagedMediaPath.cpp",
+            "ror_ogre_next_frontend_n1_runtime",
+            "ror_renderer_ogre_next_sdl_window_runtime",
             'OUTPUT_NAME "RoR-OgreNext"',
             "WIN32_EXECUTABLE YES",
             "PRIVATE Shell32",
@@ -371,7 +382,6 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
             "RendererChildLauncher.cpp",
             "source/main/main.cpp",
             "AppContext",
-            "SDL",
             "OIS",
             "MyGUI",
             "TEST_SEAM",
@@ -387,6 +397,51 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
         ]
         self.assertNotIn("ror_renderer_ogre_next_child_runtime", package)
         self.assertNotIn("RoR-OgreNext", package)
+
+    def test_production_bridge_runs_owned_relocatable_live_session(self) -> None:
+        for token in (
+            '#include "RendererPackagedMediaPath.h"',
+            "ResolveRendererPackagedMediaPath(",
+            "std::filesystem::path(g_packaged_media.shader_media_root).u8string()",
+            "RunRendererOgreNextProductionSession(",
+            "COMPLETED_PRODUCTION_BRIDGE_SESSION",
+        ):
+            with self.subTest(entrypoint_token=token):
+                self.assertIn(token, self.entrypoint)
+        self.assertNotIn("BridgeSessionUnavailable", self.entrypoint)
+        self.assertNotIn("ExitCode = 78", self.entrypoint)
+        self.assertNotIn(
+            "ROR_OGRE_NEXT_CHILD_PRESENTATION_MEDIA_ROOT", self.config
+        )
+        for token in (
+            "channel.Adopt()",
+            "RenderTransportStreamDecoder",
+            "RendererFrontendTransportDispatcher",
+            "RenderBridgeControlKind::PEER_READY",
+            "EncodeInputEventTransportFrame(",
+            "EncodeRenderBridgeAcknowledgementFrame(",
+            "RenderBridgeControlKind::REQUEST_GRACEFUL_SHUTDOWN",
+        ):
+            with self.subTest(live_token=token):
+                self.assertIn(token, self.live_session)
+        dispatch = self.live_session.index("dispatcher.Dispatch(frame, policy)")
+        acknowledgement = self.live_session.index(
+            "EncodeRenderBridgeAcknowledgementFrame(", dispatch
+        )
+        self.assertLess(dispatch, acknowledgement)
+        for token in (
+            "RendererOgreNextSdlWindowRuntime adapter",
+            "RendererOgreNextWindowHost host",
+            "OgreNextN1Frontend frontend",
+            "OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP",
+            "presentation.gpu_only_output = true",
+            "PSSM_3_CASCADE_V1",
+            "RunRendererOgreNextLiveSession(endpoint, live_runtime)",
+            "audit.source_readbacks != 0U",
+            "audit.cpu_window_copy",
+        ):
+            with self.subTest(production_token=token):
+                self.assertIn(token, self.production_session)
         for cmake_path in (
             REPOSITORY_ROOT / "CMakeLists.txt",
             REPOSITORY_ROOT / "source/main/CMakeLists.txt",
