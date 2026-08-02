@@ -191,11 +191,12 @@ function(ror_ogre14_cmakedeps_runtime_search_dirs
 
     get_cmake_property(_ror_all_variables VARIABLES)
     list(SORT _ror_all_variables)
+    set(_ror_package_root_pattern
+        "^[A-Za-z0-9_][A-Za-z0-9_.+-]*_PACKAGE_FOLDER_${_ror_config}$")
     set(_ror_package_root_count 0)
     set(_ror_runtime_search_dirs)
     foreach (_ror_variable IN LISTS _ror_all_variables)
-        if (NOT _ror_variable MATCHES
-                "^[A-Za-z0-9_]+_PACKAGE_FOLDER_${_ror_config}$")
+        if (NOT _ror_variable MATCHES "${_ror_package_root_pattern}")
             continue()
         endif ()
 
