@@ -187,6 +187,7 @@ class OgreNextWindowPresentationContractTests(unittest.TestCase):
             'resolved_presentation_media_root, {"CommonCopy"}, true',
             "kOgreNextN1PresentationMediaManifest",
             "resourceGroupExists(kOgreNextPresentationResourceGroup)",
+            'materials.getByName("Ogre/Copy/4xFP32")',
             'getByName("Ogre/Copy/4xFP32"',
             "getNumTechniques() != 1U",
             "getNumPasses() != 1U",
