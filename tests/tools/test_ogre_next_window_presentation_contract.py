@@ -232,6 +232,7 @@ class OgreNextWindowPresentationContractTests(unittest.TestCase):
             "src/window_present_smoke.cpp",
             "ogre-next-window-present.ppm",
             "ogre-next-window-present.json",
+            '--media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"',
             "TIMEOUT 60",
         ):
             self.assertIn(token, self.cmake)
@@ -241,8 +242,29 @@ class OgreNextWindowPresentationContractTests(unittest.TestCase):
         ]
         self.assertNotIn("SKIP_RETURN_CODE", presentation_test)
         self.assertIn("ror.ogre_next_n1_native_presentation.v1", self.smoke)
+        self.assertIn("arguments.media_root", self.smoke)
+        self.assertNotIn("ROR_OGRE_NEXT_N1_SHADER_MEDIA_ROOT", self.smoke)
         self.assertIn("strict native window Initialize failed", self.smoke)
         self.assertNotIn("return 77", self.smoke)
+        report_target = self.cmake[
+            self.cmake.index(
+                "add_custom_target(\n        ror_ogre_next_frontend_n1_report"
+            ) : self.cmake.index(
+                "add_test(NAME ror_ogre_next_frontend_n1_runtime"
+            )
+        ]
+        self.assertEqual(
+            report_target.count("ror_ogre_next_window_present_smoke"), 1
+        )
+        for artifact in (
+            "ogre-next-window-present.json",
+            "ogre-next-window-present.ppm",
+        ):
+            self.assertIn(artifact, self.workflow)
+        self.assertIn(
+            "ror-ogre-next-n1-package/share/ror/ogre-next/media",
+            self.workflow,
+        )
 
 
 if __name__ == "__main__":

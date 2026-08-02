@@ -341,6 +341,7 @@ jobs:
           test -x "$smoke"
           xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
             "$smoke" \
+              --media-root "$build_root/ror-ogre-next-n1-package/share/ror/ogre-next/media" \
               --output "$build_root/ogre-next-window-present.ppm" \
               --report "$build_root/ogre-next-window-present.json"
 
@@ -659,6 +660,8 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-probe-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-window-present.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-window-present.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-report.json
