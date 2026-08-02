@@ -1126,17 +1126,19 @@ Gate R1:
   Metal, Vulkan KHR, and DXR. It requires RT4, two distinct receiver/occluder
   BLAS, a two-instance TLAS, exact primary/secondary ray lineage, UI-free input,
   exact R16 visibility, and byte-exact RGBA16 composition. N4 and PSSM are
-  mutually exclusive within one initialized frontend; incomplete native
-  capability selects the already validated PSSM fallback before initialization,
-  never midway through a frame. The Metal N4 implementation now passes on a
+  mutually exclusive within one initialized frontend. The standalone N4 smoke
+  initializes its frontend and then emits explicit unsupported evidence when
+  backend admission fails; wiring the production selector so incomplete native
+  capability chooses the separately validated PSSM frontend before
+  initialization remains open. The Metal N4 implementation now passes on a
   physical Apple M5 with 5,712 visible receiver pixels, 432 pixels blocked by
   the distinct occluder, zero primary misses, exact R16 visibility, exact R32
   lineage, and byte-validated RGBA16 composition. CI compiles and executes the
   target on macOS, accepts only an explicit capability skip on unsupported
   hosted hardware, independently revalidates every retained byte, and runs the
   portable source contract on Linux and Windows. Vulkan/DXR implementations,
-  soft/area-light shadows, resize/fault soak, temporal stability, and
-  image/performance gates remain open.
+  soft/area-light shadows, production frontend selection, resize/fault soak,
+  temporal stability, and image/performance gates remain open.
 - The renderer-neutral scene boundary now has the prerequisite lighting slice:
   snapshot version 4 retains the sorted stable directional/point/spot identities
   introduced by version 3 and adds an ordered absolute-world reflection-probe set,

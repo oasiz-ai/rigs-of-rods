@@ -4333,6 +4333,22 @@ def _metal_n4_rgba16_strings(payload: bytes, offset: int) -> list[str]:
     ]
 
 
+def _validate_metal_n4_rgba16_pixel(
+    payload: bytes, offset: int, label: str
+) -> None:
+    channels = struct.unpack_from("<4H", payload, offset)
+    for channel, bits in enumerate(channels):
+        if (bits & 0x8000) != 0 or (bits & 0x7C00) == 0x7C00:
+            raise ArtifactSetError(
+                f"Metal N4 {label} channel {channel} is not a canonical "
+                "finite nonnegative binary16 value"
+            )
+    if channels[3] > 0x3C00:
+        raise ArtifactSetError(
+            f"Metal N4 {label} alpha exceeds the straight-alpha [0, 1] envelope"
+        )
+
+
 def _verify_metal_n4_pass_semantics(
     report: dict[str, object], payloads: dict[str, bytes]
 ) -> None:
@@ -4468,12 +4484,8 @@ def _verify_metal_n4_pass_semantics(
         rgba_offset = pixel * 8
         visibility_bits = struct.unpack_from("<H", visibility, pixel * 2)[0]
         ray_lineage = struct.unpack_from("<I", lineage, pixel * 4)[0]
-        raster_values = struct.unpack_from("<4e", raster, rgba_offset)
-        hybrid_values = struct.unpack_from("<4e", hybrid, rgba_offset)
-        if not all(
-            math.isfinite(value) for value in raster_values + hybrid_values
-        ):
-            raise ArtifactSetError("Metal N4 image contains non-finite data")
+        _validate_metal_n4_rgba16_pixel(raster, rgba_offset, "raster")
+        _validate_metal_n4_rgba16_pixel(hybrid, rgba_offset, "hybrid")
         if visibility_bits == 0x3C00:
             visible_count += 1
             if ray_lineage != 1 or hybrid[rgba_offset : rgba_offset + 8] != (

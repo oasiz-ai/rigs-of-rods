@@ -60,9 +60,11 @@ by one ray toward the directional light; writes R16 visibility and R32 lineage;
 and GPU-composites the result on Ogre's device and queue. Its oracle accepts
 only canonical R16 visibility (`0x3c00` visible, `0x0000` occluded): visible
 pixels preserve every RGBA16 bit, while occluded pixels zero RGB and preserve
-alpha exactly. Capability admission is fail-closed, and unsupported Metal
-devices select the separately validated PSSM path before initialization. This
-is a real Metal hard-shadow pass, not a soft-shadow, local-light, GI,
+alpha exactly. Capability admission is fail-closed: the standalone N4 smoke
+initializes its frontend, then records an explicit unsupported result if the
+Metal backend rejects the device. The separately validated PSSM path exists,
+but a production pre-initialization selector between N4 and PSSM is not wired
+yet. This is a real Metal hard-shadow pass, not a soft-shadow, local-light, GI,
 denoising, Vulkan KHR, DXR, production-material, image-quality, or performance
 claim.
 

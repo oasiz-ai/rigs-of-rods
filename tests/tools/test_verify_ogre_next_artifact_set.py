@@ -2982,6 +2982,57 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     root, verify_metal_n4_evidence=True
                 )
 
+    def test_metal_n4_gate_rejects_noncanonical_rgba16_after_hash_refresh(
+        self,
+    ) -> None:
+        cases = (
+            ("negative-zero", 0, 0x8000, "canonical finite nonnegative"),
+            ("negative-rgb", 0, 0xBC00, "canonical finite nonnegative"),
+            ("alpha-above-one", 3, 0x3C01, "alpha exceeds"),
+        )
+        for label, channel, bits, expected in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory(
+                prefix=f"ror-ogre-n4-{label}-"
+            ) as temp:
+                root = Path(temp)
+                self.write_baseline(root)
+                self.write_metal_n4(root, "pass")
+                # Pixel one is visible but intentionally absent from the two
+                # report samples. Mutate both payloads coherently so this test
+                # exercises the independent all-pixel semantic gate.
+                pixel_offset = 8
+                channel_offset = pixel_offset + channel * 2
+                for key in ("raster", "hybrid"):
+                    path = root / dict(
+                        (artifact_key, name)
+                        for artifact_key, name, _, _ in (
+                            VERIFY.METAL_N4_IMAGE_ARTIFACTS
+                        )
+                    )[key]
+                    payload = bytearray(path.read_bytes())
+                    payload[channel_offset : channel_offset + 2] = struct.pack(
+                        "<H", bits
+                    )
+                    path.write_bytes(payload)
+
+                def refresh_hashes(report):
+                    for key in ("raster", "hybrid"):
+                        path = root / dict(
+                            (artifact_key, name)
+                            for artifact_key, name, _, _ in (
+                                VERIFY.METAL_N4_IMAGE_ARTIFACTS
+                            )
+                        )[key]
+                        report["artifacts"][key]["sha256"] = (
+                            VERIFY.sha256_file(path)
+                        )
+
+                self.mutate_metal_n4_report(root, refresh_hashes)
+                with self.assertRaisesRegex(VERIFY.ArtifactSetError, expected):
+                    VERIFY.verify_artifact_set(
+                        root, verify_metal_n4_evidence=True
+                    )
+
     def test_metal_n4_gate_cross_checks_coverage_and_samples(self) -> None:
         self.assert_metal_n4_report_rejected(
             lambda report: report["coverage"].__setitem__(
