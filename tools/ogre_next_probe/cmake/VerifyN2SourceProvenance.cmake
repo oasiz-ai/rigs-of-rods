@@ -30,6 +30,8 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererChildLauncher.h
     source/main/system/RendererOgre14GameBridge.cpp
     source/main/system/RendererOgre14GameBridge.h
+    source/main/system/RendererOgre14GameHostSession.cpp
+    source/main/system/RendererOgre14GameHostSession.h
     source/main/system/RendererSiblingPath.cpp
     source/main/system/RendererSiblingPath.h
     source/main/system/RendererOgreNextChild.cpp
@@ -48,12 +50,14 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererBackendPolicyTests.cpp
     tests/gfx/RendererBridgeEndpointTests.cpp
     tests/gfx/RendererBridgeLaunchPlanTests.cpp
+    tests/gfx/RendererBridgeChannelTests.cpp
     tests/gfx/RendererBridgeProcessFakeChild.cpp
     tests/gfx/RendererBridgeProcessSupervisorTests.cpp
     tests/gfx/RendererChildIntentTests.cpp
     tests/gfx/RendererChildLauncherFakeChild.cpp
     tests/gfx/RendererChildLauncherTests.cpp
     tests/gfx/RendererOgre14GameBridgeTests.cpp
+    tests/gfx/RendererOgre14GameHostSessionTests.cpp
     tests/gfx/RendererSiblingPathTests.cpp
     tests/gfx/RendererOgreNextChildTests.cpp
     tests/gfx/RendererOgreNextWindowHostTests.cpp
@@ -61,6 +65,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererPublicLauncherTests.cpp
     tests/gfx/RendererStartupHandoffTests.cpp
     tests/gfx/RendererStartupPlanTests.cpp
+    tests/gfx/render/RenderBridgeControlTransportTests.cpp
     tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
     tests/tools/test_ogre_next_child_runtime_contract.py
     tests/tools/test_ogre_next_window_host_contract.py
@@ -117,6 +122,8 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererChildLauncher.h"
     "source/main/system/RendererOgre14GameBridge.cpp"
     "source/main/system/RendererOgre14GameBridge.h"
+    "source/main/system/RendererOgre14GameHostSession.cpp"
+    "source/main/system/RendererOgre14GameHostSession.h"
     "source/main/system/RendererSiblingPath.cpp"
     "source/main/system/RendererSiblingPath.h"
     "source/main/system/RendererOgreNextChild.cpp"
@@ -134,12 +141,14 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererBackendPolicyTests.cpp"
     "tests/gfx/RendererBridgeEndpointTests.cpp"
     "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
+    "tests/gfx/RendererBridgeChannelTests.cpp"
     "tests/gfx/RendererBridgeProcessFakeChild.cpp"
     "tests/gfx/RendererBridgeProcessSupervisorTests.cpp"
     "tests/gfx/RendererChildIntentTests.cpp"
     "tests/gfx/RendererChildLauncherFakeChild.cpp"
     "tests/gfx/RendererChildLauncherTests.cpp"
     "tests/gfx/RendererOgre14GameBridgeTests.cpp"
+    "tests/gfx/RendererOgre14GameHostSessionTests.cpp"
     "tests/gfx/RendererSiblingPathTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"
     "tests/gfx/RendererOgreNextWindowHostTests.cpp"
@@ -147,6 +156,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererPublicLauncherTests.cpp"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
+    "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre_next_window_host_contract.py"

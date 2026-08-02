@@ -63,7 +63,9 @@ struct RendererBridgeChannelResult final {
 /// CreatePipe() write handle, and do not expose overlapped creation. The trusted
 /// supervisor must therefore pass the exact write end from its restricted
 /// inheritance allow-list.
-/// Operations are blocking and one caller must serialize access to the object.
+/// Operations are blocking by default and one caller must serialize access to
+/// the object. A live duplex session may explicitly switch only the outbound
+/// half to zero-wait writes; inherited nonblocking state remains rejected.
 /// status() describes the channel lifecycle: it remains READY while either
 /// half can transfer, becomes CLOSED when neither half remains, and preserves
 /// fatal failures. PEER_CLOSED is an operation result, and terminal() means a
@@ -87,8 +89,19 @@ public:
   TryReadSome(std::uint8_t *bytes, std::size_t capacity) noexcept;
   RendererBridgeChannelResult
   ReadSome(std::uint8_t *bytes, std::size_t capacity) noexcept;
+  /// Permanently changes only the owned outbound half to zero-wait mode. The
+  /// endpoint is adopted in blocking mode first, so inherited state is still
+  /// rejected deterministically. Call before TryWriteSome().
+  RendererBridgeChannelResult
+  EnableNonblockingOutbound() noexcept;
+  /// Writes at most one immediately accepted chunk. READY with zero bytes
+  /// means the peer is open but its pipe buffer has no capacity right now.
+  RendererBridgeChannelResult
+  TryWriteSome(const std::uint8_t *bytes, std::size_t size) noexcept;
   RendererBridgeChannelResult
   WriteAll(const std::uint8_t *bytes, std::size_t size) noexcept;
+  RendererBridgeChannelResult CloseInbound() noexcept;
+  RendererBridgeChannelResult CloseOutbound() noexcept;
   RendererBridgeChannelResult Close() noexcept;
 
   const RendererBridgeEndpoint &endpoint() const noexcept {
@@ -100,6 +113,9 @@ public:
   bool adopted() const noexcept { return adopted_; }
   bool inbound_open() const noexcept { return inbound_open_; }
   bool outbound_open() const noexcept { return outbound_open_; }
+  bool outbound_nonblocking() const noexcept {
+    return outbound_nonblocking_;
+  }
   bool terminal() const noexcept { return terminal_; }
 
 private:
@@ -124,6 +140,7 @@ private:
   bool adopted_ = false;
   bool inbound_open_ = false;
   bool outbound_open_ = false;
+  bool outbound_nonblocking_ = false;
   bool terminal_ = false;
   std::size_t terminal_bytes_transferred_ = 0U;
   std::uint32_t terminal_native_error_code_ = 0U;

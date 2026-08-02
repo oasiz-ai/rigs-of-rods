@@ -53,6 +53,7 @@ set(SOURCE_FILES
         gfx/render/RenderAssetDeltaTransport.{h,cpp}
         gfx/render/RenderAssetId.{h,cpp}
         gfx/render/RenderAssetRegistry.{h,cpp}
+        gfx/render/RenderBridgeControlTransport.{h,cpp}
         gfx/render/RenderBridgeSessionIdentity.{h,cpp}
         gfx/render/README.md
         gfx/render/RenderContracts.h
@@ -279,6 +280,7 @@ set(SOURCE_FILES
         system/RendererChildIntent.{h,cpp}
         system/RendererChildLauncher.{h,cpp}
         system/RendererOgre14GameBridge.{h,cpp}
+        system/RendererOgre14GameHostSession.{h,cpp}
         system/RendererSiblingPath.{h,cpp}
         terrain/OgreTerrainPSSMMaterialGenerator.{h,cpp}
         terrain/LocalLightBudget.h

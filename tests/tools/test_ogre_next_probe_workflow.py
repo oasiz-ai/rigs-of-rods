@@ -54,6 +54,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererChildIntent.*",
             "source/main/system/RendererChildLauncher.*",
             "source/main/system/RendererOgre14GameBridge.*",
+            "source/main/system/RendererOgre14GameHostSession.*",
             "source/main/system/RendererSiblingPath.*",
             "source/main/system/RendererBridgeEndpoint.*",
             "source/main/system/RendererBridgeLaunchPlan.*",
@@ -69,6 +70,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildLauncherTests.cpp",
             "tests/gfx/RendererBridge*Tests.cpp",
             "tests/gfx/RendererOgre14GameBridgeTests.cpp",
+            "tests/gfx/RendererOgre14GameHostSessionTests.cpp",
             "tests/gfx/RendererSiblingPathTests.cpp",
             "tests/gfx/RendererBridgeEndpointTests.cpp",
             "tests/gfx/RendererBridgeLaunchPlanTests.cpp",
@@ -338,6 +340,16 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererOgre14GameBridgeTests.cpp",
             "source/main/system/RendererOgre14GameBridge.cpp",
             "add_test(NAME ror_renderer_ogre14_game_bridge",
+            "ror_renderer_bridge_channel_tests",
+            "tests/gfx/RendererBridgeChannelTests.cpp",
+            "add_test(NAME ror_renderer_bridge_channel",
+            "ror_render_bridge_control_transport_tests",
+            "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
+            "add_test(NAME ror_render_bridge_control_transport",
+            "ror_renderer_ogre14_game_host_session_tests",
+            "tests/gfx/RendererOgre14GameHostSessionTests.cpp",
+            "source/main/system/RendererOgre14GameHostSession.cpp",
+            "add_test(NAME ror_renderer_ogre14_game_host_session",
             "ror_renderer_public_launcher_legacy_child",
             "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
             "ror_renderer_public_launcher_entrypoint",
@@ -367,6 +379,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererBridgeEndpoint.h",
             "source/main/system/RendererOgre14GameBridge.cpp",
             "source/main/system/RendererOgre14GameBridge.h",
+            "source/main/system/RendererOgre14GameHostSession.cpp",
+            "source/main/system/RendererOgre14GameHostSession.h",
             "source/main/system/RendererSiblingPath.cpp",
             "source/main/system/RendererSiblingPath.h",
             "source/main/system/RendererBridgeEndpoint.cpp",
@@ -387,6 +401,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildLauncherFakeChild.cpp",
             "tests/gfx/RendererChildLauncherTests.cpp",
             "tests/gfx/RendererOgre14GameBridgeTests.cpp",
+            "tests/gfx/RendererOgre14GameHostSessionTests.cpp",
+            "tests/gfx/RendererBridgeChannelTests.cpp",
             "tests/gfx/RendererSiblingPathTests.cpp",
             "tests/gfx/RendererBridgeEndpointTests.cpp",
             "tests/gfx/RendererBridgeLaunchPlanTests.cpp",
@@ -397,6 +413,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererPublicLauncherTests.cpp",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
+            "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
             "tests/tools/test_ogre_next_child_runtime_contract.py",
         ):
             with self.subTest(provenance_path=path):
@@ -549,6 +566,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror_renderer_bridge_process_fake_game",
             "ror_renderer_bridge_process_fake_presentation",
             "ror_renderer_bridge_process_supervisor_tests",
+            "ror_renderer_bridge_channel_tests",
+            "ror_render_bridge_control_transport_tests",
+            "ror_renderer_ogre14_game_host_session_tests",
         ):
             with self.subTest(cxx17_bridge_target=target):
                 self.assertEqual(n1_target_list.count(target), 1)
@@ -729,6 +749,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererChildIntent.*",
             "source/main/system/RendererChildLauncher.*",
             "source/main/system/RendererOgre14GameBridge.*",
+            "source/main/system/RendererOgre14GameHostSession.*",
             "source/main/system/RendererSiblingPath.*",
             "source/main/system/RendererBridgeEndpoint.*",
             "source/main/system/RendererBridgeLaunchPlan.*",
@@ -744,6 +765,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererChildLauncherTests.cpp",
             "tests/gfx/RendererBridge*Tests.cpp",
             "tests/gfx/RendererOgre14GameBridgeTests.cpp",
+            "tests/gfx/RendererOgre14GameHostSessionTests.cpp",
             "tests/gfx/RendererSiblingPathTests.cpp",
             "tests/gfx/RendererBridgeEndpointTests.cpp",
             "tests/gfx/RendererBridgeLaunchPlanTests.cpp",
@@ -819,6 +841,116 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror_renderer_frontend_transport_dispatcher_tests",
             native_cmake,
         )
+
+    def test_game_host_stream_is_strict_cross_platform_and_attested(self) -> None:
+        probe_cmake = (
+            REPOSITORY_ROOT / "tools" / "ogre_next_probe" / "CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        native_cmake = (REPOSITORY_ROOT / "tests" / "CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+        prelink = (
+            REPOSITORY_ROOT
+            / "tools"
+            / "ogre_next_probe"
+            / "cmake"
+            / "VerifyN2SourceProvenance.cmake"
+        ).read_text(encoding="utf-8")
+        runner = (REPOSITORY_ROOT / "tools" / "run_ogre_next_probe.py").read_text(
+            encoding="utf-8"
+        )
+        verifier = (
+            REPOSITORY_ROOT / "tools" / "verify_ogre_next_artifact_set.py"
+        ).read_text(encoding="utf-8")
+        attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(
+            encoding="utf-8"
+        )
+        channel_header = (
+            REPOSITORY_ROOT
+            / "source"
+            / "main"
+            / "system"
+            / "RendererBridgeChannel.h"
+        ).read_text(encoding="utf-8")
+        session_source = (
+            REPOSITORY_ROOT
+            / "source"
+            / "main"
+            / "system"
+            / "RendererOgre14GameHostSession.cpp"
+        ).read_text(encoding="utf-8")
+        session_tests = (
+            REPOSITORY_ROOT
+            / "tests"
+            / "gfx"
+            / "RendererOgre14GameHostSessionTests.cpp"
+        ).read_text(encoding="utf-8")
+        paths = (
+            "source/main/system/RendererOgre14GameHostSession.cpp",
+            "source/main/system/RendererOgre14GameHostSession.h",
+            "tests/gfx/RendererBridgeChannelTests.cpp",
+            "tests/gfx/RendererOgre14GameHostSessionTests.cpp",
+            "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
+        )
+        for manifest in (probe_cmake, prelink, runner, verifier):
+            for path in paths:
+                with self.subTest(manifest_size=len(manifest), path=path):
+                    self.assertIn(path, manifest)
+        for source in (
+            "InputEventTransport.cpp",
+            "RenderBridgeControlTransport.cpp",
+            "RenderTransportEnvelope.cpp",
+            "RenderTransportStream.cpp",
+        ):
+            with self.subTest(probe_contract_source=source):
+                self.assertIn(source, probe_cmake)
+                self.assertIn(source, native_cmake)
+        for target in (
+            "ror_render_bridge_control_transport_tests",
+            "ror_renderer_bridge_channel_tests",
+            "ror_renderer_ogre14_game_host_session_tests",
+        ):
+            with self.subTest(target=target):
+                self.assertIn(target, probe_cmake)
+                self.assertIn(target, native_cmake)
+        self.assertIn(
+            "Prove the game-host stream and native pipe half-close contract",
+            self.workflow,
+        )
+        self.assertIn("ror_render_bridge_control_transport", self.workflow)
+        self.assertIn("ror_renderer_bridge_channel", self.workflow)
+        self.assertIn("ror_renderer_ogre14_game_host_session", self.workflow)
+        for token in (
+            "TryReadSome",
+            "EnableNonblockingOutbound",
+            "TryWriteSome",
+            "CloseInbound",
+            "CloseOutbound",
+        ):
+            with self.subTest(channel_seam=token):
+                self.assertIn(token, channel_header)
+        for token in (
+            "PumpReverse(read_buffer",
+            "reverse_queue.size() >= config.maximum_reverse_messages",
+            "channel->TryWriteSome",
+            "EnableNonblockingOutbound",
+        ):
+            with self.subTest(host_duplex_contract=token):
+                self.assertIn(token, session_source)
+        for token in (
+            "TestReverseCapacityPausesForwardWrites",
+            "TestCloseIsBoundedWhenPeerDoesNotDrainForwardPipe",
+            "TestAcknowledgedSceneCanBePresentedByALaterAck",
+            "TestQueuedSceneRetiresAcrossSurfaceBarrier",
+        ):
+            with self.subTest(host_duplex_test=token):
+                self.assertIn(token, session_tests)
+        for pattern in (
+            "source/main/system/RendererOgre14GameHostSession.* text eol=lf",
+            "tests/gfx/RendererOgre14GameHostSessionTests.cpp text eol=lf",
+            "tests/gfx/render/RenderBridgeControlTransportTests.cpp text eol=lf",
+        ):
+            self.assertIn(pattern, attributes)
 
     def test_ogre_next_child_core_runs_in_the_normal_native_suite(self) -> None:
         native_cmake = (REPOSITORY_ROOT / "tests" / "CMakeLists.txt").read_text(
