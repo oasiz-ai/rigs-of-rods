@@ -577,7 +577,7 @@ def _read_pinned_lock() -> dict[str, object]:
     lock = _read_json_object(PINNED_LOCK_PATH, "pinned OGRE-Next lock")
     if (
         type(lock.get("schema_version")) is not int
-        or lock.get("schema_version") != 4
+        or lock.get("schema_version") != 5
         or lock.get("name") != "OGRE-Next"
     ):
         raise ArtifactSetError("pinned OGRE-Next lock identity is invalid")

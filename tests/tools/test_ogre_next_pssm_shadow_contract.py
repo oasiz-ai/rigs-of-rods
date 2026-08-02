@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -69,7 +72,94 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         )
         reference = os.environ.get("ROR_OGRE_NEXT_REFERENCE_SOURCE_ROOT")
         if reference:
-            VERIFIER.verify_source_root(validated, Path(reference))
+            reference_policy = os.environ.get(
+                "ROR_OGRE_NEXT_REFERENCE_PLATFORM_POLICY"
+            )
+            self.assertIn(reference_policy, VERIFIER.PLATFORM_POLICIES)
+            VERIFIER.verify_source_root(
+                validated, Path(reference), reference_policy
+            )
+
+    def test_windows_patch_digest_is_an_exact_platform_override(self) -> None:
+        validated = VERIFIER.validate_lock(LOCK_PATH, CANONICAL_LOCK_PATH)
+        self.assertEqual(
+            [
+                (
+                    record["platform_policy"],
+                    record["role"],
+                    record["path"],
+                    record["sha256"],
+                )
+                for record in validated["platform_source_overrides"]
+            ],
+            VERIFIER.PLATFORM_SOURCE_OVERRIDES,
+        )
+        source = next(
+            record
+            for record in validated["sources"]
+            if record["role"] == "d3d11_render_system_capabilities"
+        )
+        self.assertEqual(
+            source["sha256"],
+            "036cb9ed4666a36839d03c8fe66eb0de05e516dc94c1f6642e3192a9e6acea41",
+        )
+        self.assertEqual(
+            VERIFIER._expected_source_digest(
+                validated, source, "windows-x64-d3d11"
+            ),
+            "d27e8af72005cadda20834ce67bb5cb476a83f03dc9280d5fc3aff0759330b7a",
+        )
+        for policy in ("macos-arm64-metal", "linux-x86_64-vulkan"):
+            self.assertEqual(
+                VERIFIER._expected_source_digest(validated, source, policy),
+                source["sha256"],
+            )
+
+    def test_source_digest_selection_and_diagnostics_are_platform_exact(self) -> None:
+        pristine = b"pristine upstream bytes\n"
+        windows_patched = b"reviewed Windows patch bytes\n"
+        relative = "RenderSystems/Direct3D11/src/OgreD3D11RenderSystem.cpp"
+        record = {
+            "role": "d3d11_render_system_capabilities",
+            "path": relative,
+            "sha256": hashlib.sha256(pristine).hexdigest(),
+        }
+        lock = {
+            "platform_source_overrides": [
+                {
+                    "platform_policy": "windows-x64-d3d11",
+                    "role": record["role"],
+                    "path": relative,
+                    "sha256": hashlib.sha256(windows_patched).hexdigest(),
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory(prefix="ror-pssm-platform-digest-") as temporary:
+            root = Path(temporary).resolve()
+            source = root / relative
+            source.parent.mkdir(parents=True)
+            source.write_bytes(pristine)
+            VERIFIER._verify_source_record(
+                lock, root, 69, record, "macos-arm64-metal"
+            )
+            with self.assertRaisesRegex(
+                VERIFIER.VerificationError,
+                rf"index 69 for windows-x64-d3d11: .*expected=.*got=",
+            ):
+                VERIFIER._verify_source_record(
+                    lock, root, 69, record, "windows-x64-d3d11"
+                )
+            source.write_bytes(windows_patched)
+            VERIFIER._verify_source_record(
+                lock, root, 69, record, "windows-x64-d3d11"
+            )
+            with self.assertRaisesRegex(
+                VERIFIER.VerificationError,
+                rf"index 69 for linux-x86_64-vulkan: .*expected=.*got=",
+            ):
+                VERIFIER._verify_source_record(
+                    lock, root, 69, record, "linux-x86_64-vulkan"
+                )
 
     def test_lock_rejects_unknown_keys_reordering_and_hash_drift(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-pssm-lock-") as temporary:
@@ -93,6 +183,16 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
                     "path traversal",
                     lambda value: value["sources"][0].update(path="../escape"),
                 ),
+                (
+                    "platform override drift",
+                    lambda value: value["platform_source_overrides"][0].update(
+                        sha256="0" * 64
+                    ),
+                ),
+                (
+                    "platform override removal",
+                    lambda value: value.update(platform_source_overrides=[]),
+                ),
             ):
                 with self.subTest(label=label):
                     value = copy.deepcopy(self.lock)
@@ -105,8 +205,8 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
     def test_lock_rejects_duplicate_root_and_nested_json_keys(self) -> None:
         canonical = LOCK_PATH.read_text(encoding="utf-8")
         root_duplicate = canonical.replace(
-            '{\n  "schema_version": 1,',
-            '{\n  "schema_version": 1,\n  "schema_version": 1,',
+            '{\n  "schema_version": 2,',
+            '{\n  "schema_version": 2,\n  "schema_version": 2,',
             1,
         )
         nested_duplicate = canonical.replace(
@@ -127,6 +227,28 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
                         VERIFIER.VerificationError, "duplicate JSON object key"
                     ):
                         VERIFIER.validate_lock(path, CANONICAL_LOCK_PATH)
+
+    def test_platform_policy_cli_is_bound_to_source_verification(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                VERIFIER.parse_arguments(
+                    [
+                        "--contract-only",
+                        "--platform-policy",
+                        "windows-x64-d3d11",
+                    ]
+                )
+            with self.assertRaises(SystemExit):
+                VERIFIER.parse_arguments(["--source-root", "."])
+        parsed = VERIFIER.parse_arguments(
+            [
+                "--source-root",
+                ".",
+                "--platform-policy",
+                "windows-x64-d3d11",
+            ]
+        )
+        self.assertEqual(parsed.platform_policy, "windows-x64-d3d11")
 
     def test_shadow_mode_is_opt_in_and_rt4_only(self) -> None:
         self.assertRegex(
@@ -299,6 +421,7 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
             "SKIP_RETURN_CODE 77",
             "verify_pssm_shadow_source_closure.py",
             "ogre-next-pssm-shadow-v1.lock.json",
+            '--platform-policy "${ROR_OGRE_NEXT_PLATFORM_POLICY}"',
         ):
             self.assertIn(token, self.cmake)
         for policy in VERIFIER.PLATFORM_POLICIES:

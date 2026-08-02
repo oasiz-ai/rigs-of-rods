@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "name": "OGRE-Next",
   "repository": "https://github.com/OGRECave/ogre-next",
   "branch": "v3-0",
@@ -57,6 +57,7 @@
       "repository": "https://gitlab.freedesktop.org/freetype/freetype",
       "version": "2.14.3",
       "archive_url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
+      "archive_fallback_url": "https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz",
       "archive_sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
       "license_expression": "FTL OR GPL-2.0-or-later",
       "selected_license_spdx": "GPL-2.0-or-later",

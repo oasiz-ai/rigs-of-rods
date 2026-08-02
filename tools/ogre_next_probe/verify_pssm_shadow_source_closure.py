@@ -12,12 +12,20 @@ import sys
 from typing import NoReturn
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 OGRE_NEXT_COMMIT = "37149a802de747f6806996fa3067b0748ecc1084"
 PLATFORM_POLICIES = [
     "macos-arm64-metal",
     "linux-x86_64-vulkan",
     "windows-x64-d3d11",
+]
+PLATFORM_SOURCE_OVERRIDES = [
+    (
+        "windows-x64-d3d11",
+        "d3d11_render_system_capabilities",
+        "RenderSystems/Direct3D11/src/OgreD3D11RenderSystem.cpp",
+        "d27e8af72005cadda20834ce67bb5cb476a83f03dc9280d5fc3aff0759330b7a",
+    ),
 ]
 SOURCE_ROLES_AND_PATHS = [
     ("shadow_node_api", "OgreMain/include/Compositor/OgreCompositorShadowNode.h"),
@@ -270,9 +278,16 @@ _ROOT_KEYS = {
     "canonical_dependency_lock",
     "ogre_next_commit",
     "platform_policies",
+    "platform_source_overrides",
     "sources",
 }
 _SOURCE_KEYS = {"role", "path", "sha256"}
+_PLATFORM_SOURCE_OVERRIDE_KEYS = {
+    "platform_policy",
+    "role",
+    "path",
+    "sha256",
+}
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -322,7 +337,7 @@ def validate_lock(lock_path: Path, canonical_lock_path: Path) -> dict:
     canonical = _load_object(canonical_lock_path, "canonical Ogre-Next lock")
 
     if type(lock["schema_version"]) is not int or lock["schema_version"] != SCHEMA_VERSION:
-        _reject("PSSM lock schema_version is not exactly 1")
+        _reject(f"PSSM lock schema_version is not exactly {SCHEMA_VERSION}")
     if type(lock["name"]) is not str or not lock["name"]:
         _reject("PSSM lock name must be a nonempty string")
     if lock["canonical_dependency_lock"] != canonical_lock_path.name:
@@ -333,6 +348,47 @@ def validate_lock(lock_path: Path, canonical_lock_path: Path) -> dict:
         _reject("PSSM source closure pin differs from the canonical dependency pin")
     if lock["platform_policies"] != PLATFORM_POLICIES:
         _reject("PSSM platform policy list or ordering changed")
+
+    overrides = lock["platform_source_overrides"]
+    if type(overrides) is not list or len(overrides) != len(PLATFORM_SOURCE_OVERRIDES):
+        _reject(
+            "PSSM platform source override count must be exactly "
+            f"{len(PLATFORM_SOURCE_OVERRIDES)}"
+        )
+    observed_overrides: list[tuple[str, str, str, str]] = []
+    for index, raw_override in enumerate(overrides):
+        override = _require_exact_keys(
+            raw_override,
+            _PLATFORM_SOURCE_OVERRIDE_KEYS,
+            f"platform_source_overrides[{index}]",
+        )
+        values = (
+            override["platform_policy"],
+            override["role"],
+            override["path"],
+            override["sha256"],
+        )
+        if any(type(value) is not str for value in values):
+            _reject(f"platform_source_overrides[{index}] values must all be strings")
+        if override["platform_policy"] not in PLATFORM_POLICIES:
+            _reject(f"platform_source_overrides[{index}] names an unknown policy")
+        pure_path = PurePosixPath(override["path"])
+        if (
+            pure_path.is_absolute()
+            or not pure_path.parts
+            or any(part in ("", ".", "..") for part in pure_path.parts)
+            or "\\" in override["path"]
+        ):
+            _reject(
+                f"platform_source_overrides[{index}] has a noncanonical relative path"
+            )
+        if _SHA256.fullmatch(override["sha256"]) is None:
+            _reject(
+                f"platform_source_overrides[{index}] sha256 must be lowercase hexadecimal"
+            )
+        observed_overrides.append(values)
+    if observed_overrides != PLATFORM_SOURCE_OVERRIDES:
+        _reject("PSSM platform source overrides or stable ordering changed")
 
     sources = lock["sources"]
     if type(sources) is not list or len(sources) != len(SOURCE_ROLES_AND_PATHS):
@@ -375,7 +431,46 @@ def _require_tokens(root: Path, relative: str, tokens: tuple[str, ...]) -> None:
             _reject(f"pinned source behavior token {token!r} is absent from {relative}")
 
 
-def verify_source_root(lock: dict, source_root: Path) -> None:
+def _expected_source_digest(lock: dict, record: dict, platform_policy: str) -> str:
+    for override in lock["platform_source_overrides"]:
+        if (
+            override["platform_policy"] == platform_policy
+            and override["role"] == record["role"]
+            and override["path"] == record["path"]
+        ):
+            return override["sha256"]
+    return record["sha256"]
+
+
+def _verify_source_record(
+    lock: dict,
+    canonical_root: Path,
+    index: int,
+    record: dict,
+    platform_policy: str,
+) -> None:
+    candidate = canonical_root / record["path"]
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as error:
+        raise VerificationError(
+            f"PSSM closure source is missing: {record['path']}: {error}"
+        ) from error
+    if not resolved.is_file() or canonical_root not in resolved.parents:
+        _reject(f"PSSM closure source is indirect or escapes its root: {record['path']}")
+    digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
+    expected_digest = _expected_source_digest(lock, record, platform_policy)
+    if digest != expected_digest:
+        _reject(
+            f"PSSM closure source digest mismatch at index {index} for "
+            f"{platform_policy}: {record['path']}: "
+            f"expected={expected_digest}, got={digest}"
+        )
+
+
+def verify_source_root(lock: dict, source_root: Path, platform_policy: str) -> None:
+    if platform_policy not in PLATFORM_POLICIES:
+        _reject(f"unknown PSSM platform policy: {platform_policy!r}")
     try:
         canonical_root = source_root.resolve(strict=True)
     except OSError as error:
@@ -384,20 +479,7 @@ def verify_source_root(lock: dict, source_root: Path) -> None:
         _reject("Ogre-Next source root is not a directory")
 
     for index, record in enumerate(lock["sources"]):
-        candidate = canonical_root / record["path"]
-        try:
-            resolved = candidate.resolve(strict=True)
-        except OSError as error:
-            raise VerificationError(
-                f"PSSM closure source is missing: {record['path']}: {error}"
-            ) from error
-        if not resolved.is_file() or canonical_root not in resolved.parents:
-            _reject(f"PSSM closure source is indirect or escapes its root: {record['path']}")
-        digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
-        if digest != record["sha256"]:
-            _reject(
-                f"PSSM closure source digest mismatch at index {index}: {record['path']}"
-            )
+        _verify_source_record(lock, canonical_root, index, record, platform_policy)
 
     # Hashes pin the bytes; these checks additionally state the behavior RoR
     # relies on so a deliberate future lock update cannot silently broaden it.
@@ -586,10 +668,15 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
         "--canonical-lock", type=Path, default=script_root / "ogre-next.lock.json"
     )
     parser.add_argument("--source-root", type=Path)
+    parser.add_argument("--platform-policy", choices=PLATFORM_POLICIES)
     parser.add_argument("--contract-only", action="store_true")
     args = parser.parse_args(argv)
     if args.contract_only == (args.source_root is not None):
         parser.error("choose exactly one of --contract-only or --source-root")
+    if args.platform_policy is not None and args.source_root is None:
+        parser.error("--platform-policy is valid only with --source-root")
+    if args.source_root is not None and args.platform_policy is None:
+        parser.error("--platform-policy is required with --source-root")
     return args
 
 
@@ -598,12 +685,13 @@ def main(argv: list[str]) -> int:
         args = parse_arguments(argv)
         lock = validate_lock(args.lock, args.canonical_lock)
         if args.source_root is not None:
-            verify_source_root(lock, args.source_root)
+            verify_source_root(lock, args.source_root, args.platform_policy)
         print(
             json.dumps(
                 {
                     "status": "pass",
                     "ogre_next_commit": lock["ogre_next_commit"],
+                    "platform_policy": args.platform_policy,
                     "source_count": len(lock["sources"]),
                     "source_bytes_verified": args.source_root is not None,
                 },

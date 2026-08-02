@@ -5,15 +5,20 @@ from __future__ import annotations
 
 import base64
 import copy
+import functools
 import gzip
 import hashlib
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
+import zipfile
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -24,6 +29,9 @@ FRAME_TOOL_PATH = (
 PROBE_DIR = REPOSITORY_ROOT / "tools" / "ogre_next_probe"
 CMAKE_PATH = PROBE_DIR / "CMakeLists.txt"
 PINNED_CMAKE_PATH = PROBE_DIR / "cmake" / "PinnedOgreNext.cmake"
+FREETYPE_ARCHIVE_POLICY_PATH = (
+    PROBE_DIR / "cmake" / "FreeTypeArchivePolicy.cmake"
+)
 LOCK_PATH = PROBE_DIR / "ogre-next.lock.json"
 EVIDENCE_PATH = (
     REPOSITORY_ROOT
@@ -44,6 +52,45 @@ FRAME_SPEC = importlib.util.spec_from_file_location(
 assert FRAME_SPEC and FRAME_SPEC.loader
 FRAME = importlib.util.module_from_spec(FRAME_SPEC)
 FRAME_SPEC.loader.exec_module(FRAME)
+
+
+def select_freetype_archive_urls(
+    *,
+    local_archive: Path | None,
+    expected_sha256: str,
+    primary_url: str,
+    fallback_url: str,
+) -> subprocess.CompletedProcess:
+    """Execute the production CMake selector and return its ordered result."""
+
+    with tempfile.TemporaryDirectory(prefix="ror-freetype-policy-") as temp:
+        temporary_root = Path(temp)
+        output_path = temporary_root / "selected.txt"
+        script_path = temporary_root / "select.cmake"
+        local_text = "" if local_archive is None else local_archive.as_posix()
+        script_path.write_text(
+            f'include("{FREETYPE_ARCHIVE_POLICY_PATH.as_posix()}")\n'
+            "ror_select_freetype_archive_urls(\n"
+            f'    selected "{local_text}" "{expected_sha256}"\n'
+            f'    "{primary_url}" "{fallback_url}")\n'
+            "list(LENGTH selected selected_count)\n"
+            'string(REPLACE ";" "\\n" selected_lines "${selected}")\n'
+            f'file(WRITE "{output_path.as_posix()}"\n'
+            '    "${selected_count}\\n${selected_lines}\\n")\n',
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            ["cmake", "-P", str(script_path)],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if result.returncode == 0:
+            lines = output_path.read_text(encoding="utf-8").splitlines()
+            result.selected_count = int(lines[0])
+            result.selected_urls = lines[1:]
+        return result
 
 
 class OgreNextProbeContractTests(unittest.TestCase):
@@ -152,7 +199,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
         }
 
     def test_exact_upstream_and_dependency_pins(self) -> None:
-        self.assertEqual(self.lock["schema_version"], 4)
+        self.assertEqual(self.lock["schema_version"], 5)
         self.assertEqual(
             self.lock["commit"],
             "37149a802de747f6806996fa3067b0748ecc1084",
@@ -179,6 +226,16 @@ class OgreNextProbeContractTests(unittest.TestCase):
         )
         freetype = self.lock["dependencies"]["freetype"]
         self.assertEqual(freetype["version"], "2.14.3")
+        self.assertEqual(
+            freetype["archive_url"],
+            "https://download.savannah.gnu.org/releases/freetype/"
+            "freetype-2.14.3.tar.xz",
+        )
+        self.assertEqual(
+            freetype["archive_fallback_url"],
+            "https://downloads.sourceforge.net/project/freetype/freetype2/"
+            "2.14.3/freetype-2.14.3.tar.xz",
+        )
         self.assertEqual(
             freetype["archive_sha256"],
             "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
@@ -591,10 +648,12 @@ class OgreNextProbeContractTests(unittest.TestCase):
         cmake = entry_cmake + "\n" + pinned_cmake
         self.assertIn("ROR_OGRE_NEXT_PROBE", cmake)
         self.assertIn("cmake/PinnedOgreNext.cmake", entry_cmake)
+        self.assertIn("FreeTypeArchivePolicy.cmake", pinned_cmake)
         self.assertIn("if (TARGET OgreMain)", pinned_cmake)
         self.assertIn("URL_HASH \"SHA256=${ROR_OGRE_NEXT_ARCHIVE_SHA256}\"", cmake)
         self.assertIn("URL_HASH \"SHA256=${ROR_RAPIDJSON_ARCHIVE_SHA256}\"", cmake)
         self.assertIn("URL_HASH \"SHA256=${ROR_FREETYPE_ARCHIVE_SHA256}\"", cmake)
+        self.assertIn("URL ${_ror_freetype_urls}", pinned_cmake)
         self.assertIn("FETCHCONTENT_SOURCE_DIR_OGRE_NEXT", cmake)
         self.assertIn("FETCHCONTENT_SOURCE_DIR_RAPIDJSON", cmake)
         self.assertIn("FETCHCONTENT_SOURCE_DIR_ROR_FREETYPE", cmake)
@@ -662,6 +721,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
             '"target_type": "@ROR_FREETYPE_TARGET_TYPE@"',
             build_contract,
         )
+        self.assertNotIn("archive_fallback_url", build_contract)
         self.assertIn(
             '"overlay_link_target": '
             "@ROR_FREETYPE_OVERLAY_LINK_TARGET_JSON@",
@@ -733,6 +793,163 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("FETCHCONTENT_SOURCE_DIR_ROR_FREETYPE", result.stdout)
         self.assertIn("bypasses archive verification", result.stdout)
+
+    def test_cmake_selects_primary_then_fallback_freetype_urls(self) -> None:
+        freetype = self.lock["dependencies"]["freetype"]
+        result = select_freetype_archive_urls(
+            local_archive=None,
+            expected_sha256=freetype["archive_sha256"],
+            primary_url=freetype["archive_url"],
+            fallback_url=freetype["archive_fallback_url"],
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(result.selected_count, 2)
+        self.assertEqual(
+            result.selected_urls,
+            [freetype["archive_url"], freetype["archive_fallback_url"]],
+        )
+
+    def test_cmake_fetchcontent_uses_hash_verified_fallback_url(self) -> None:
+        class QuietHandler(SimpleHTTPRequestHandler):
+            requested_paths: list[str] = []
+
+            def do_GET(self) -> None:
+                self.requested_paths.append(self.path)
+                super().do_GET()
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory(
+            prefix="ror-freetype-fetch-fallback-"
+        ) as temp:
+            root = Path(temp).resolve()
+            archive = root / "fallback.zip"
+            payload = b"hash-verified fallback archive payload\n"
+            with zipfile.ZipFile(archive, "w") as bundle:
+                bundle.writestr(
+                    "CMakeLists.txt",
+                    "add_library(ror_freetype_fallback_fixture INTERFACE)\n",
+                )
+                bundle.writestr("payload.txt", payload)
+            archive_sha256 = hashlib.sha256(archive.read_bytes()).hexdigest()
+            payload_sha256 = hashlib.sha256(payload).hexdigest()
+            source = root / "source"
+            source.mkdir()
+            marker = root / "fallback-result.txt"
+            server = ThreadingHTTPServer(
+                ("127.0.0.1", 0),
+                functools.partial(QuietHandler, directory=str(root)),
+            )
+            server_thread = threading.Thread(
+                target=server.serve_forever, daemon=True
+            )
+            server_thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+            (source / "CMakeLists.txt").write_text(
+                "cmake_minimum_required(VERSION 3.24)\n"
+                "project(ror_freetype_fallback_fixture NONE)\n"
+                "include(FetchContent)\n"
+                "FetchContent_Declare(\n"
+                "    ror_freetype_fallback_fixture\n"
+                f'    URL "{base_url}/missing.zip"\n'
+                f'        "{base_url}/{archive.name}"\n'
+                f'    URL_HASH "SHA256={archive_sha256}"\n'
+                "    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)\n"
+                "FetchContent_MakeAvailable(ror_freetype_fallback_fixture)\n"
+                "file(SHA256\n"
+                "    \"${ror_freetype_fallback_fixture_SOURCE_DIR}/payload.txt\"\n"
+                "    observed_payload_sha256)\n"
+                f'file(WRITE "{marker.as_posix()}" '
+                '"${observed_payload_sha256}\\n")\n',
+                encoding="utf-8",
+            )
+            try:
+                result = subprocess.run(
+                    ["cmake", "-S", str(source), "-B", str(root / "build")],
+                    check=False,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                server_thread.join(timeout=5.0)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(
+                marker.read_text(encoding="utf-8"), payload_sha256 + "\n"
+            )
+            self.assertEqual(
+                QuietHandler.requested_paths,
+                ["/missing.zip", "/fallback.zip"],
+            )
+
+    def test_cmake_local_freetype_archive_is_one_verified_path(self) -> None:
+        freetype = self.lock["dependencies"]["freetype"]
+        with tempfile.TemporaryDirectory(prefix="ror-freetype-local-") as temp:
+            archive = Path(temp) / "freetype.tar.xz"
+            archive.write_bytes(b"deterministic local FreeType fixture")
+            archive_sha256 = hashlib.sha256(archive.read_bytes()).hexdigest()
+            result = select_freetype_archive_urls(
+                local_archive=archive,
+                expected_sha256=archive_sha256,
+                primary_url=freetype["archive_url"],
+                fallback_url=freetype["archive_fallback_url"],
+            )
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(result.selected_count, 1)
+            self.assertEqual(result.selected_urls, [archive.as_posix()])
+
+            tampered = select_freetype_archive_urls(
+                local_archive=archive,
+                expected_sha256="0" * 64,
+                primary_url=freetype["archive_url"],
+                fallback_url=freetype["archive_fallback_url"],
+            )
+        self.assertNotEqual(tampered.returncode, 0)
+        self.assertIn("Pinned FreeType SHA-256 mismatch", tampered.stdout)
+
+    def test_cmake_rejects_tampered_freetype_fallback_lock(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-freetype-lock-") as temp:
+            temporary_root = Path(temp)
+            copied_probe = temporary_root / "ogre_next_probe"
+            shutil.copytree(
+                PROBE_DIR,
+                copied_probe,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            )
+            copied_lock_path = copied_probe / LOCK_PATH.name
+            copied_lock = json.loads(
+                copied_lock_path.read_text(encoding="utf-8")
+            )
+            copied_lock["dependencies"]["freetype"][
+                "archive_fallback_url"
+            ] = "https://example.invalid/freetype-2.14.3.tar.xz"
+            copied_lock_path.write_text(
+                json.dumps(copied_lock, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    "cmake",
+                    "-S",
+                    str(copied_probe),
+                    "-B",
+                    str(temporary_root / "build"),
+                    "-DROR_OGRE_NEXT_PROBE=ON",
+                    "-DCMAKE_BUILD_TYPE=Release",
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "reviewed FreeType pin or license contract changed",
+            result.stdout,
+        )
 
     def test_lock_is_canonical_json(self) -> None:
         text = LOCK_PATH.read_text(encoding="utf-8")

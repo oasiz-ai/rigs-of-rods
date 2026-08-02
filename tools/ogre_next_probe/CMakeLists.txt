@@ -314,6 +314,7 @@ add_custom_target(
         --canonical-lock
         "${CMAKE_CURRENT_SOURCE_DIR}/ogre-next.lock.json"
         --source-root "${ogre_next_SOURCE_DIR}"
+        --platform-policy "${ROR_OGRE_NEXT_PLATFORM_POLICY}"
     COMMENT "Verifying the exact pinned Ogre-Next directional-shadow source closure"
     VERBATIM)
 

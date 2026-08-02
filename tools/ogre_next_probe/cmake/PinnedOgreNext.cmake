@@ -14,6 +14,7 @@ endif ()
 
 include(FetchContent)
 find_package(Git REQUIRED)
+include("${CMAKE_CURRENT_LIST_DIR}/FreeTypeArchivePolicy.cmake")
 
 set(_ror_lock_path "${ROR_OGRE_NEXT_STANDALONE_ROOT}/ogre-next.lock.json")
 file(READ "${_ror_lock_path}" _ror_lock_json)
@@ -85,6 +86,8 @@ string(JSON ROR_RAPIDJSON_LICENSE_SHA256 GET "${_ror_lock_json}" dependencies ra
 string(JSON ROR_FREETYPE_REPOSITORY GET "${_ror_lock_json}" dependencies freetype repository)
 string(JSON ROR_FREETYPE_VERSION GET "${_ror_lock_json}" dependencies freetype version)
 string(JSON ROR_FREETYPE_ARCHIVE_URL GET "${_ror_lock_json}" dependencies freetype archive_url)
+string(JSON ROR_FREETYPE_ARCHIVE_FALLBACK_URL GET
+    "${_ror_lock_json}" dependencies freetype archive_fallback_url)
 string(JSON ROR_FREETYPE_ARCHIVE_SHA256 GET "${_ror_lock_json}" dependencies freetype archive_sha256)
 string(JSON ROR_FREETYPE_LICENSE_EXPRESSION GET "${_ror_lock_json}" dependencies freetype license_expression)
 string(JSON ROR_FREETYPE_SELECTED_LICENSE_SPDX GET "${_ror_lock_json}" dependencies freetype selected_license_spdx)
@@ -325,7 +328,7 @@ string(JSON ROR_LINUX_SPIRV_REFLECT_HEADER_PATH GET
 string(JSON ROR_LINUX_SPIRV_REFLECT_HEADER_SHA256 GET
     "${_ror_linux_toolchain_lock_json}" ogre_embedded_components spirv_reflect header_sha256)
 
-if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 4 OR
+if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 5 OR
         NOT ROR_OGRE_NEXT_REPOSITORY STREQUAL
         "https://github.com/OGRECave/ogre-next" OR
         NOT ROR_OGRE_NEXT_BRANCH STREQUAL "v3-0" OR
@@ -428,6 +431,8 @@ if (NOT ROR_FREETYPE_REPOSITORY STREQUAL
         NOT ROR_FREETYPE_VERSION STREQUAL "2.14.3" OR
         NOT ROR_FREETYPE_ARCHIVE_URL STREQUAL
         "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz" OR
+        NOT ROR_FREETYPE_ARCHIVE_FALLBACK_URL STREQUAL
+        "https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz" OR
         NOT ROR_FREETYPE_ARCHIVE_SHA256 STREQUAL
         "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f" OR
         NOT ROR_FREETYPE_LICENSE_EXPRESSION STREQUAL
@@ -611,22 +616,11 @@ if (ROR_RAPIDJSON_ARCHIVE)
 else ()
     set(_ror_rapidjson_url "${ROR_RAPIDJSON_ARCHIVE_URL}")
 endif ()
-if (ROR_FREETYPE_ARCHIVE)
-    if (NOT EXISTS "${ROR_FREETYPE_ARCHIVE}")
-        message(FATAL_ERROR
-            "Pinned FreeType archive does not exist: ${ROR_FREETYPE_ARCHIVE}")
-    endif ()
-    file(SHA256 "${ROR_FREETYPE_ARCHIVE}" _ror_local_freetype_sha256)
-    if (NOT _ror_local_freetype_sha256 STREQUAL
-            ROR_FREETYPE_ARCHIVE_SHA256)
-        message(FATAL_ERROR
-            "Pinned FreeType SHA-256 mismatch: expected "
-            "${ROR_FREETYPE_ARCHIVE_SHA256}, got ${_ror_local_freetype_sha256}")
-    endif ()
-    set(_ror_freetype_url "${ROR_FREETYPE_ARCHIVE}")
-else ()
-    set(_ror_freetype_url "${ROR_FREETYPE_ARCHIVE_URL}")
-endif ()
+ror_select_freetype_archive_urls(
+    _ror_freetype_urls "${ROR_FREETYPE_ARCHIVE}"
+    "${ROR_FREETYPE_ARCHIVE_SHA256}"
+    "${ROR_FREETYPE_ARCHIVE_URL}"
+    "${ROR_FREETYPE_ARCHIVE_FALLBACK_URL}")
 
 if (APPLE)
     if (NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
@@ -1030,7 +1024,7 @@ set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
 set(FT_ENABLE_ERROR_STRINGS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     ror_freetype
-    URL "${_ror_freetype_url}"
+    URL ${_ror_freetype_urls}
     URL_HASH "SHA256=${ROR_FREETYPE_ARCHIVE_SHA256}"
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(ror_freetype)

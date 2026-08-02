@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "RoR Ogre-Next directional PSSM_3_CASCADE_V1 source closure",
   "canonical_dependency_lock": "ogre-next.lock.json",
   "ogre_next_commit": "37149a802de747f6806996fa3067b0748ecc1084",
@@ -7,6 +7,14 @@
     "macos-arm64-metal",
     "linux-x86_64-vulkan",
     "windows-x64-d3d11"
+  ],
+  "platform_source_overrides": [
+    {
+      "platform_policy": "windows-x64-d3d11",
+      "role": "d3d11_render_system_capabilities",
+      "path": "RenderSystems/Direct3D11/src/OgreD3D11RenderSystem.cpp",
+      "sha256": "d27e8af72005cadda20834ce67bb5cb476a83f03dc9280d5fc3aff0759330b7a"
+    }
   ],
   "sources": [
     {

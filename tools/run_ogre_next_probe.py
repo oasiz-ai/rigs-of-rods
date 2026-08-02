@@ -490,7 +490,7 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_ibl_patch_sha256 = (
         "2a4792a553a3911db197750ae6e4de2155f7b9604e9bc6d730cc19bba0b1075f"
     )
-    if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 4:
+    if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 5:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
         raise ProbeError("OGRE-Next repository contract changed")
@@ -607,6 +607,10 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
         "archive_url": (
             "https://download.savannah.gnu.org/releases/freetype/"
             "freetype-2.14.3.tar.xz"
+        ),
+        "archive_fallback_url": (
+            "https://downloads.sourceforge.net/project/freetype/freetype2/"
+            "2.14.3/freetype-2.14.3.tar.xz"
         ),
         "archive_sha256": expected_freetype_archive_sha256,
         "license_expression": "FTL OR GPL-2.0-or-later",
