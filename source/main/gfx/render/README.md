@@ -273,7 +273,8 @@ the companion audit is present and version 1.
 The v1 acceptance set is exact and intentionally narrow:
 
 - one loaded material technique containing one pass, with no authored or
-  RTSS-generated GPU program;
+  RTSS-generated GPU program, custom shadow material, hardware vendor/device
+  rule, nondefault shadow policy, or nondefault technique scheme/LOD;
 - zero or one ordinary named, loaded, non-manual 2D base-color texture, one
   frame, identity UV transform, and OGRE's texture-times-current color and
   alpha combine;
@@ -292,6 +293,10 @@ The v1 acceptance set is exact and intentionally narrow:
   pass iteration, no bias or alpha-to-coverage, and always-pass or `>=` alpha
   rejection. Clockwise, anticlockwise, and disabled hardware culling remain in
   the immutable audit; anticlockwise culling requires mesh winding reversal;
+- canonical Gouraud shading and scene-controlled fog, conditional transparent
+  sorting, default line/point rasterization, the default all-light mask/range,
+  no per-light iteration, vertex-colour tracking, light scissoring/clipping,
+  manual illumination staging, or unordered-access texture mip;
 - an explicit unlit or rough-dielectric PBR base-color declaration. The latter
   fixes metallic to zero and roughness to one by contract, not by inspecting
   a filename or shininess. Ambient, specular, emissive, and shininess lobes
@@ -314,6 +319,19 @@ texture DESTROYs in reverse order. Removed keys become permanent tombstones;
 full snapshots include them. Validation, allocation, native readback, injected
 fault, collision, or lineage failure leaves the catalog, sequence, output
 frame, and previously shared owners untouched.
+
+Versioned translator configuration bounds texture inputs, material inputs,
+derived live assets (including material-owned samplers), permanent lifetime
+records (including tombstones), canonical decoded bytes per texture, and
+aggregate canonical decoded bytes per source frame. Every limit is nonzero.
+The default 65,536-record and 512 MiB payload ceilings match the joined
+`GraphicsSceneSnapshotProducer` defaults; a native capture declaration must use
+the same configuration as its consuming translator. Counts and decoded-byte
+sums use checked arithmetic, and a cap failure is transactional: no source or
+catalog sequence, output frame, lifetime identity, or immutable payload owner
+is changed. Native readback applies the per-texture cap before allocating mip
+storage, while the pure translator rechecks both the per-texture and aggregate
+frame budgets before decode.
 
 The asset payload pins the registry, mesh, texture, material, and sampler
 descriptor versions. It carries registry/base/target sequence lineage, the

@@ -11,6 +11,7 @@
 #include <OgreBuildSettings.h>
 #include <OgreHardwarePixelBuffer.h>
 #include <OgreMaterial.h>
+#include <OgreMaterialManager.h>
 #include <OgrePass.h>
 #include <OgrePixelFormat.h>
 #include <OgreTechnique.h>
@@ -21,14 +22,35 @@
 #include <limits>
 #include <new>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 static_assert(OGRE_VERSION_MAJOR == 14 && OGRE_VERSION_MINOR == 5 &&
                   OGRE_VERSION_PATCH == 2,
               "legacy asset capture is pinned to OGRE 14.5.2");
+static_assert(std::is_same<Ogre::Real, float>::value,
+              "legacy asset capture requires OGRE binary32 Real");
 
 namespace RoR::Render {
 namespace {
+
+bool CheckedMultiplyU64(std::uint64_t lhs, std::uint64_t rhs,
+                        std::uint64_t &result) noexcept {
+  if (lhs != 0U && rhs > (std::numeric_limits<std::uint64_t>::max)() / lhs) {
+    return false;
+  }
+  result = lhs * rhs;
+  return true;
+}
+
+bool CheckedAddU64(std::uint64_t lhs, std::uint64_t rhs,
+                   std::uint64_t &result) noexcept {
+  if (rhs > (std::numeric_limits<std::uint64_t>::max)() - lhs) {
+    return false;
+  }
+  result = lhs + rhs;
+  return true;
+}
 
 Float3 ToFloat3(const Ogre::ColourValue &color) noexcept {
   return {color.r, color.g, color.b};
@@ -215,9 +237,9 @@ ValidationResult ValidateNativePixelFormat(Ogre::PixelFormat format) {
   const bool exact_rgb8 = channels[0] == 8 && channels[1] == 8 &&
                           channels[2] == 8 &&
                           (channels[3] == 0 || channels[3] == 8);
-  const std::uint8_t component_count =
+  const std::size_t component_count =
       Ogre::PixelUtil::getComponentCount(format);
-  const std::uint8_t element_bytes = Ogre::PixelUtil::getNumElemBytes(format);
+  const std::size_t element_bytes = Ogre::PixelUtil::getNumElemBytes(format);
   if (!Ogre::PixelUtil::isAccessible(format) ||
       Ogre::PixelUtil::isCompressed(format) ||
       Ogre::PixelUtil::isFloatingPoint(format) ||
@@ -234,8 +256,84 @@ ValidationResult ValidateNativePixelFormat(Ogre::PixelFormat format) {
   return ValidationResult::Success();
 }
 
+ValidationResult ValidateNativeTechniqueAndPassState(
+    const Ogre::Material &material, const Ogre::Technique &technique,
+    const Ogre::Pass &pass) {
+  if (technique.getSchemeName() != Ogre::MaterialManager::DEFAULT_SCHEME_NAME ||
+      technique.getLodIndex() != 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.technique_state",
+        "v1 requires one default-scheme LOD-zero technique");
+  }
+  if (technique.getShadowCasterMaterial() ||
+      technique.getShadowReceiverMaterial()) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.shadow_materials",
+        "custom shadow materials are not representable in v1");
+  }
+  if (!material.getReceiveShadows() || material.getTransparencyCastsShadows()) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.shadow_policy",
+        "v1 requires canonical shadow receiving and casting policy");
+  }
+  if (!technique.getGPUVendorRules().empty() ||
+      !technique.getGPUDeviceNameRules().empty()) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "material.technique_hardware_rules",
+        "hardware-vendor and device-specific technique rules are not portable");
+  }
+  if (pass.getVertexColourTracking() != Ogre::TVC_NONE) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "material.pipeline.vertex_colour_tracking",
+        "legacy vertex-colour material tracking is not representable in v1");
+  }
+  if (pass.getShadingMode() != Ogre::SO_GOURAUD ||
+      pass.getMaxSimultaneousLights() != OGRE_MAX_SIMULTANEOUS_LIGHTS ||
+      pass.getStartLight() != 0U || pass.getLightMask() != 0xFFFFFFFFU ||
+      pass.getIteratePerLight() || pass.getRunOnlyForOneLightType() ||
+      pass.getLightCountPerIteration() != 1U) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "material.pipeline.lighting_controls",
+        "legacy shading, light selection, or iteration is outside the "
+        "canonical v1 state");
+  }
+  if (pass.getFogOverride() || !pass.getPolygonModeOverrideable() ||
+      pass.getLightScissoringEnabled() ||
+      pass.getLightClipPlanesEnabled() ||
+      pass.getIlluminationStage() != Ogre::IS_UNKNOWN) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "material.pipeline.scene_overrides",
+        "fog, polygon override, light clipping, or illumination staging is not "
+        "representable in v1");
+  }
+  if (!pass.getTransparentSortingEnabled() ||
+      pass.getTransparentSortingForced()) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "material.pipeline.transparent_sorting",
+        "v1 requires canonical conditional transparent sorting");
+  }
+  if (pass.getLineWidth() != 1.0F || pass.getPointSize() != 1.0F ||
+      pass.getPointSpritesEnabled() || pass.isPointAttenuationEnabled() ||
+      pass.getPointAttenuationConstant() != 1.0F ||
+      pass.getPointAttenuationLinear() != 0.0F ||
+      pass.getPointAttenuationQuadratic() != 0.0F ||
+      pass.getPointMinSize() != 0.0F || pass.getPointMaxSize() != 0.0F) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "material.pipeline.line_point_raster",
+        "nondefault legacy line or point raster state is not representable");
+  }
+  return ValidationResult::Success();
+}
+
 ValidationResult CaptureTexture(Ogre::Texture &native,
                                 Ogre14LegacyTextureColorRole color_role,
+                                std::uint64_t maximum_decoded_bytes,
                                 Ogre14LegacyTextureInput &texture) {
   Ogre14LegacyTextureInput candidate;
   candidate.key.exact_resource_group = native.getGroup();
@@ -288,6 +386,7 @@ ValidationResult CaptureTexture(Ogre::Texture &native,
   }
   const std::uint32_t mip_count = native.getNumMipmaps() + 1U;
   candidate.mip_levels.reserve(mip_count);
+  std::uint64_t decoded_texture_bytes = 0U;
   for (std::uint32_t level = 0U; level < mip_count; ++level) {
     const Ogre::HardwarePixelBufferPtr &buffer = native.getBuffer(0U, level);
     if (!buffer || buffer->getDepth() != 1U) {
@@ -310,8 +409,22 @@ ValidationResult CaptureTexture(Ogre::Texture &native,
           ValidationCode::INVALID_DIMENSIONS, "texture.pixel_buffer",
           "native mip dimensions are outside the portable range", level);
     }
-    const std::uint64_t row_bytes = static_cast<std::uint64_t>(mip.width) * 4U;
-    const std::uint64_t slice_bytes = row_bytes * mip.height;
+    std::uint64_t row_bytes = 0U;
+    std::uint64_t slice_bytes = 0U;
+    std::uint64_t next_decoded_texture_bytes = 0U;
+    if (!CheckedMultiplyU64(mip.width, 4U, row_bytes) ||
+        !CheckedMultiplyU64(row_bytes, mip.height, slice_bytes) ||
+        !CheckedAddU64(decoded_texture_bytes, slice_bytes,
+                       next_decoded_texture_bytes)) {
+      return ValidationResult::Failure(
+          ValidationCode::SIZE_MISMATCH, "texture.pixel_buffer",
+          "canonical native mip byte count overflows", level);
+    }
+    if (next_decoded_texture_bytes > maximum_decoded_bytes) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "texture.decoded_bytes",
+          "native texture exceeds the configured decoded-byte cap", level);
+    }
     if (slice_bytes >
         static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)())) {
       return ValidationResult::Failure(
@@ -325,6 +438,7 @@ ValidationResult CaptureTexture(Ogre::Texture &native,
                                mip.bytes.data());
     buffer->blitToMemory(destination);
     candidate.mip_levels.push_back(std::move(mip));
+    decoded_texture_bytes = next_decoded_texture_bytes;
   }
   validation = ValidateOgre14LegacyTextureInput(candidate);
   if (!validation) {
@@ -334,8 +448,8 @@ ValidationResult CaptureTexture(Ogre::Texture &native,
   return ValidationResult::Success();
 }
 
-void CapturePipeline(const Ogre::Pass &pass,
-                     Ogre14LegacyPipelineStateInput &state) {
+ValidationResult CapturePipeline(const Ogre::Pass &pass,
+                                 Ogre14LegacyPipelineStateInput &state) {
   state.source_color = ToBlendFactor(pass.getSourceBlendFactor());
   state.destination_color = ToBlendFactor(pass.getDestBlendFactor());
   state.source_alpha = ToBlendFactor(pass.getSourceBlendFactorAlpha());
@@ -364,10 +478,14 @@ void CapturePipeline(const Ogre::Pass &pass,
   state.alpha_to_coverage = pass.isAlphaToCoverageEnabled();
   state.solid_fill = pass.getPolygonMode() == Ogre::PM_SOLID;
   const std::size_t iterations = pass.getPassIterationCount();
-  state.pass_iteration_count =
-      iterations <= (std::numeric_limits<std::uint32_t>::max)()
-          ? static_cast<std::uint32_t>(iterations)
-          : (std::numeric_limits<std::uint32_t>::max)();
+  if (iterations > (std::numeric_limits<std::uint32_t>::max)()) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "material.pipeline.pass_iteration_count",
+        "native pass iteration count exceeds the portable integer range");
+  }
+  state.pass_iteration_count = static_cast<std::uint32_t>(iterations);
+  return ValidationResult::Success();
 }
 
 ValidationResult
@@ -379,11 +497,25 @@ CaptureTextureUnit(const Ogre::TextureUnitState &native,
   Ogre14LegacyTextureUnitInput candidate;
   candidate.texture_key.exact_name = native.getTextureName();
   candidate.sampler.source_revision = material_revision;
-  candidate.texture_coordinate_set = native.getTextureCoordSet();
+  const unsigned int texture_coordinate_set = native.getTextureCoordSet();
+  if (texture_coordinate_set > 1U) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "material.texture_unit.texture_coordinate_set",
+        "native texture coordinate set exceeds the portable UV range");
+  }
+  candidate.texture_coordinate_set =
+      static_cast<std::uint8_t>(texture_coordinate_set);
   candidate.named_content =
       native.getContentType() == Ogre::TextureUnitState::CONTENT_NAMED;
   candidate.texture_2d = native.getTextureType() == Ogre::TEX_TYPE_2D;
-  candidate.frame_count = native.getNumFrames();
+  const unsigned int frame_count = native.getNumFrames();
+  if (frame_count != 1U) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.texture_unit.frame_count",
+        "v1 requires exactly one native texture frame");
+  }
+  candidate.frame_count = static_cast<std::uint32_t>(frame_count);
   candidate.compositor =
       native.getContentType() == Ogre::TextureUnitState::CONTENT_COMPOSITOR;
   candidate.projective = native.getProjectiveTexturingFrustum() != nullptr;
@@ -391,6 +523,12 @@ CaptureTextureUnit(const Ogre::TextureUnitState &native,
   candidate.environment_mapping =
       native.getEffects().find(Ogre::TextureUnitState::ET_ENVIRONMENT_MAP) !=
       native.getEffects().end();
+  if (native.getUnorderedAccessMipLevel() != -1) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "material.texture_unit.unordered_access",
+        "unordered-access texture bindings are not representable in v1");
+  }
   candidate.identity_texture_transform =
       IsIdentity(native.getTextureTransform());
   candidate.canonical_color_modulate =
@@ -410,7 +548,16 @@ CaptureTextureUnit(const Ogre::TextureUnitState &native,
   candidate.sampler.mip = ToFilter(native.getTextureFiltering(Ogre::FT_MIP));
   candidate.sampler.mip_lod_bias = native.getTextureMipmapBias();
   candidate.sampler.minimum_lod = 0.0F;
-  candidate.sampler.maximum_anisotropy = native.getTextureAnisotropy();
+  const unsigned int maximum_anisotropy = native.getTextureAnisotropy();
+  if (static_cast<std::uint64_t>(maximum_anisotropy) >
+      (std::numeric_limits<std::uint32_t>::max)()) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "material.sampler.maximum_anisotropy",
+        "native anisotropy exceeds the portable integer range");
+  }
+  candidate.sampler.maximum_anisotropy =
+      static_cast<std::uint32_t>(maximum_anisotropy);
   candidate.sampler.compare_enabled = native.getTextureCompareEnabled();
   candidate.sampler.compare_operation =
       ToCompare(native.getTextureCompareFunction());
@@ -428,8 +575,10 @@ CaptureTextureUnit(const Ogre::TextureUnitState &native,
         "legacy texture unit has no successfully loaded texture");
   }
   const Ogre::TexturePtr &native_texture = native._getTexturePtr();
-  ValidationResult validation =
-      CaptureTexture(*native_texture, declaration.texture_color_role, texture);
+  ValidationResult validation = CaptureTexture(
+      *native_texture, declaration.texture_color_role,
+      declaration.translator_configuration.maximum_decoded_bytes_per_asset,
+      texture);
   if (!validation) {
     return validation;
   }
@@ -453,6 +602,12 @@ ValidationResult CaptureOgre14LegacyNativeMaterial(
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_VERSION, "declaration.version",
         "unsupported native material declaration version");
+  }
+  ValidationResult configuration_validation =
+      ValidateOgre14LegacyAssetTranslatorConfiguration(
+          declaration.translator_configuration);
+  if (!configuration_validation) {
+    return configuration_validation;
   }
   if (!material.isLoaded()) {
     return ValidationResult::Failure(
@@ -502,6 +657,11 @@ ValidationResult CaptureOgre14LegacyNativeMaterial(
                                        "material.pass",
                                        "native material pass is absent");
     }
+    validation =
+        ValidateNativeTechniqueAndPassState(material, *technique, *pass);
+    if (!validation) {
+      return validation;
+    }
     candidate.material.has_vertex_program = pass->hasVertexProgram();
     candidate.material.has_fragment_program = pass->hasFragmentProgram();
     candidate.material.has_geometry_program = pass->hasGeometryProgram();
@@ -519,7 +679,10 @@ ValidationResult CaptureOgre14LegacyNativeMaterial(
     candidate.material.specular_linear = ToFloat3(pass->getSpecular());
     candidate.material.emissive_linear = ToFloat3(pass->getEmissive());
     candidate.material.shininess = pass->getShininess();
-    CapturePipeline(*pass, candidate.material.pipeline);
+    validation = CapturePipeline(*pass, candidate.material.pipeline);
+    if (!validation) {
+      return validation;
+    }
 
     const std::size_t texture_unit_count = pass->getNumTextureUnitStates();
     if (texture_unit_count > 1U) {
@@ -545,6 +708,11 @@ ValidationResult CaptureOgre14LegacyNativeMaterial(
       }
       candidate.material.texture_units.push_back(std::move(unit));
       candidate.textures.push_back(std::move(texture));
+    }
+    if (!technique->isSupported()) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE, "material.technique_state",
+          "v1 requires a technique supported by the current render system");
     }
     validation = ValidateOgre14LegacyMaterialInput(candidate.material);
     if (!validation) {

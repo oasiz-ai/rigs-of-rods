@@ -173,6 +173,45 @@ bool CheckedMultiply(std::uint64_t lhs, std::uint64_t rhs,
   return true;
 }
 
+bool CheckedAdd(std::uint64_t lhs, std::uint64_t rhs,
+                std::uint64_t &result) noexcept {
+  if (rhs > (std::numeric_limits<std::uint64_t>::max)() - lhs) {
+    return false;
+  }
+  result = lhs + rhs;
+  return true;
+}
+
+bool CheckedAddSize(std::size_t lhs, std::size_t rhs,
+                    std::size_t &result) noexcept {
+  if (rhs > (std::numeric_limits<std::size_t>::max)() - lhs) {
+    return false;
+  }
+  result = lhs + rhs;
+  return true;
+}
+
+ValidationResult DecodedTextureByteCount(
+    const Ogre14LegacyTextureInput &input, std::uint64_t &decoded_bytes) {
+  std::uint64_t candidate = 0U;
+  for (std::size_t index = 0U; index < input.mip_levels.size(); ++index) {
+    const Ogre14LegacyTextureMipInput &mip = input.mip_levels[index];
+    std::uint64_t texels = 0U;
+    std::uint64_t mip_bytes = 0U;
+    std::uint64_t next = 0U;
+    if (!CheckedMultiply(mip.width, mip.height, texels) ||
+        !CheckedMultiply(texels, 4U, mip_bytes) ||
+        !CheckedAdd(candidate, mip_bytes, next)) {
+      return ValidationResult::Failure(
+          ValidationCode::SIZE_MISMATCH, "texture.decoded_bytes",
+          "canonical decoded texture byte count overflows", index);
+    }
+    candidate = next;
+  }
+  decoded_bytes = candidate;
+  return ValidationResult::Success();
+}
+
 bool IsKnownFilter(Ogre14LegacyFilter filter) noexcept {
   switch (filter) {
   case Ogre14LegacyFilter::NONE:
@@ -507,9 +546,44 @@ struct Ogre14LegacyAssetTranslator::State {
 
   std::uint64_t source_sequence = 0U;
   std::uint64_t catalog_sequence = 0U;
+  Ogre14LegacyAssetTranslatorConfiguration configuration;
+  ValidationResult configuration_validation;
   std::map<std::string, Record, std::less<>> records;
   std::map<std::uint64_t, std::string> stable_keys_by_id;
 };
+
+ValidationResult ValidateOgre14LegacyAssetTranslatorConfiguration(
+    const Ogre14LegacyAssetTranslatorConfiguration &configuration) {
+  if (configuration.version !=
+      kOgre14LegacyAssetTranslatorConfigurationVersion) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_VERSION, "configuration.version",
+        "unsupported OGRE 14 legacy translator configuration version");
+  }
+  if (configuration.maximum_texture_inputs_per_frame == 0U ||
+      configuration.maximum_material_inputs_per_frame == 0U ||
+      configuration.maximum_live_assets_per_frame == 0U ||
+      configuration.maximum_lifetime_asset_records == 0U ||
+      configuration.maximum_decoded_bytes_per_asset == 0U ||
+      configuration.maximum_decoded_bytes_per_frame == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "configuration.limits",
+        "all translator count and decoded-byte limits must be nonzero");
+  }
+  if (configuration.maximum_texture_inputs_per_frame >
+          configuration.maximum_live_assets_per_frame ||
+      configuration.maximum_material_inputs_per_frame >
+          configuration.maximum_live_assets_per_frame ||
+      configuration.maximum_live_assets_per_frame >
+          configuration.maximum_lifetime_asset_records ||
+      configuration.maximum_decoded_bytes_per_asset >
+          configuration.maximum_decoded_bytes_per_frame) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "configuration.limits",
+        "per-input and per-asset limits must fit their frame and lifetime caps");
+  }
+  return ValidationResult::Success();
+}
 
 ValidationResult
 ValidateOgre14LegacyTextureInput(const Ogre14LegacyTextureInput &input) {
@@ -616,10 +690,26 @@ ValidateOgre14LegacyTextureInput(const Ogre14LegacyTextureInput &input) {
 
 ValidationResult
 DecodeOgre14LegacyTexture(const Ogre14LegacyTextureInput &input,
-                          TextureResourceDescriptor &descriptor) {
+                          TextureResourceDescriptor &descriptor,
+                          std::uint64_t maximum_decoded_bytes) {
   ValidationResult validation = ValidateOgre14LegacyTextureInput(input);
   if (!validation) {
     return validation;
+  }
+  if (maximum_decoded_bytes == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "texture.decoded_bytes",
+        "decoded texture byte limit must be nonzero");
+  }
+  std::uint64_t decoded_bytes = 0U;
+  validation = DecodedTextureByteCount(input, decoded_bytes);
+  if (!validation) {
+    return validation;
+  }
+  if (decoded_bytes > maximum_decoded_bytes) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "texture.decoded_bytes",
+        "canonical decoded texture exceeds the configured per-asset limit");
   }
 
   try {
@@ -855,7 +945,17 @@ DeriveOgre14LegacySourceAssetId(RenderAssetKind kind,
 
 Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
     IOgre14LegacyAssetTranslatorFaultInjector *fault_injector)
-    : state_(std::make_unique<State>()), fault_injector_(fault_injector) {}
+    : Ogre14LegacyAssetTranslator(Ogre14LegacyAssetTranslatorConfiguration{},
+                                  fault_injector) {}
+
+Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
+    const Ogre14LegacyAssetTranslatorConfiguration &configuration,
+    IOgre14LegacyAssetTranslatorFaultInjector *fault_injector)
+    : state_(std::make_unique<State>()), fault_injector_(fault_injector) {
+  state_->configuration = configuration;
+  state_->configuration_validation =
+      ValidateOgre14LegacyAssetTranslatorConfiguration(configuration);
+}
 
 Ogre14LegacyAssetTranslator::~Ogre14LegacyAssetTranslator() = default;
 Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
@@ -879,10 +979,46 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
                                      "translator.state",
                                      "moved-from translator has no state");
   }
+  if (!state_->configuration_validation) {
+    return state_->configuration_validation;
+  }
   if (input.version != kOgre14LegacyAssetTranslatorVersion) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_VERSION, "frame.version",
         "unsupported OGRE 14 legacy frame version");
+  }
+  const Ogre14LegacyAssetTranslatorConfiguration &configuration =
+      state_->configuration;
+  if (input.textures.size() >
+          configuration.maximum_texture_inputs_per_frame ||
+      input.materials.size() >
+          configuration.maximum_material_inputs_per_frame) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "frame.asset_inputs",
+        "legacy texture or material input count exceeds its configured cap");
+  }
+  std::size_t live_asset_count = 0U;
+  if (!CheckedAddSize(input.textures.size(), input.materials.size(),
+                      live_asset_count)) {
+    return ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "frame.live_assets",
+        "legacy live asset count overflows the host range");
+  }
+  for (const Ogre14LegacyMaterialInput &material : input.materials) {
+    if (material.texture_units.empty()) {
+      continue;
+    }
+    if (live_asset_count == (std::numeric_limits<std::size_t>::max)()) {
+      return ValidationResult::Failure(
+          ValidationCode::SIZE_MISMATCH, "frame.live_assets",
+          "legacy live asset count overflows the host range");
+    }
+    ++live_asset_count;
+  }
+  if (live_asset_count > configuration.maximum_live_assets_per_frame) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "frame.live_assets",
+        "legacy live asset count exceeds the configured frame cap");
   }
   const std::uint64_t expected_source_sequence =
       state_->source_sequence == 0U ? 1U : state_->source_sequence + 1U;
@@ -898,6 +1034,27 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
     std::map<std::string, Ogre14LegacyTranslatedAsset, std::less<>> proposed;
     std::map<std::string, const Ogre14LegacyTextureInput *, std::less<>>
         textures_by_key;
+    std::uint64_t decoded_frame_bytes = 0U;
+    std::size_t new_lifetime_records = 0U;
+
+    const auto register_new_lifetime_record =
+        [&](const std::string &key) -> ValidationResult {
+      if (candidate.records.find(key) != candidate.records.end()) {
+        return ValidationResult::Success();
+      }
+      std::size_t candidate_lifetime_count = 0U;
+      if (!CheckedAddSize(candidate.records.size(), new_lifetime_records,
+                          candidate_lifetime_count) ||
+          candidate_lifetime_count >=
+              configuration.maximum_lifetime_asset_records) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE,
+            "frame.lifetime_asset_records",
+            "new legacy asset would exceed the configured lifetime cap");
+      }
+      ++new_lifetime_records;
+      return ValidationResult::Success();
+    };
 
     for (std::size_t index = 0U; index < input.textures.size(); ++index) {
       const Ogre14LegacyTextureInput &texture = input.textures[index];
@@ -912,8 +1069,38 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
             ValidationCode::DUPLICATE_IDENTIFIER, "textures.key",
             "texture key is duplicated in one authoritative frame", index);
       }
+      validation = register_new_lifetime_record(key);
+      if (!validation) {
+        validation.element_index = index;
+        return validation;
+      }
+      std::uint64_t decoded_asset_bytes = 0U;
+      validation = DecodedTextureByteCount(texture, decoded_asset_bytes);
+      if (!validation) {
+        validation.element_index = index;
+        return validation;
+      }
+      if (decoded_asset_bytes >
+          configuration.maximum_decoded_bytes_per_asset) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, "texture.decoded_bytes",
+            "canonical texture exceeds the configured per-asset byte cap",
+            index);
+      }
+      std::uint64_t next_decoded_frame_bytes = 0U;
+      if (!CheckedAdd(decoded_frame_bytes, decoded_asset_bytes,
+                      next_decoded_frame_bytes) ||
+          next_decoded_frame_bytes >
+              configuration.maximum_decoded_bytes_per_frame) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, "frame.decoded_texture_bytes",
+            "canonical textures exceed the configured frame byte cap", index);
+      }
+      decoded_frame_bytes = next_decoded_frame_bytes;
       TextureResourceDescriptor descriptor;
-      validation = DecodeOgre14LegacyTexture(texture, descriptor);
+      validation = DecodeOgre14LegacyTexture(
+          texture, descriptor,
+          configuration.maximum_decoded_bytes_per_asset);
       if (!validation) {
         validation.element_index = index;
         return validation;
@@ -949,6 +1136,11 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
         return ValidationResult::Failure(
             ValidationCode::DUPLICATE_IDENTIFIER, "materials.key",
             "material key is duplicated in one authoritative frame", index);
+      }
+      validation = register_new_lifetime_record(material_stable_key);
+      if (!validation) {
+        validation.element_index = index;
+        return validation;
       }
 
       std::uint64_t texture_id = 0U;
@@ -991,6 +1183,11 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
         const Ogre14LegacyAssetKey sampler_key = SamplerKey(material_input.key);
         const std::string sampler_stable_key =
             StableKey(RenderAssetKind::SAMPLER, sampler_key);
+        validation = register_new_lifetime_record(sampler_stable_key);
+        if (!validation) {
+          validation.element_index = index;
+          return validation;
+        }
         SamplerResourceDescriptor sampler;
         validation =
             BuildSamplerDescriptor(material_input.key, unit.sampler, sampler);
@@ -1208,8 +1405,15 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
 
 ValidationResult Ogre14LegacyAssetTranslator::BuildFullSnapshot(
     Ogre14LegacyTranslatedFrame &output) const {
-  if (state_ == nullptr || state_->source_sequence == 0U ||
-      state_->catalog_sequence == 0U) {
+  if (state_ == nullptr) {
+    return ValidationResult::Failure(ValidationCode::EMPTY_PAYLOAD,
+                                     "translator.state",
+                                     "moved-from translator has no state");
+  }
+  if (!state_->configuration_validation) {
+    return state_->configuration_validation;
+  }
+  if (state_->source_sequence == 0U || state_->catalog_sequence == 0U) {
     return ValidationResult::Failure(
         ValidationCode::SEQUENCE_MISMATCH, "frame.catalog_sequence",
         "an uninitialized translator cannot produce a full snapshot");
