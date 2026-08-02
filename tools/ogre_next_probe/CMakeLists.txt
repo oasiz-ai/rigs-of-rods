@@ -93,6 +93,8 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererChildIntent.h"
     "source/main/system/RendererChildLauncher.cpp"
     "source/main/system/RendererChildLauncher.h"
+    "source/main/system/RendererSiblingPath.cpp"
+    "source/main/system/RendererSiblingPath.h"
     "source/main/system/RendererOgreNextChild.cpp"
     "source/main/system/RendererOgreNextChild.h"
     "source/main/system/RendererOgreNextChildMain.cpp"
@@ -109,6 +111,7 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/RendererChildIntentTests.cpp"
     "tests/gfx/RendererChildLauncherFakeChild.cpp"
     "tests/gfx/RendererChildLauncherTests.cpp"
+    "tests/gfx/RendererSiblingPathTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"
     "tests/gfx/RendererOgreNextWindowHostTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
@@ -829,13 +832,24 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_ogre_next_child_process_closure_verify)
 
     add_executable(
+        ror_renderer_sibling_path_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererSiblingPathTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp")
+    target_include_directories(
+        ror_renderer_sibling_path_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+
+    add_executable(
         ror_renderer_child_launcher_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererChildLauncherTests.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
-        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp")
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp")
     target_include_directories(
         ror_renderer_child_launcher_tests
         PRIVATE
@@ -897,6 +911,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPublicLauncher.cpp"
         "${_ror_renderer_public_launcher_generated_header}")
     target_include_directories(
@@ -952,6 +967,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_plan_tests
         ror_renderer_startup_handoff_tests
         ror_renderer_child_intent_tests
+        ror_renderer_sibling_path_tests
         ror_renderer_ogre_next_child_tests
         ror_renderer_ogre_next_window_host_tests
         ror_renderer_ogre_next_sdl_window_runtime
@@ -1231,6 +1247,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererChildIntent.h
             source/main/system/RendererChildLauncher.cpp
             source/main/system/RendererChildLauncher.h
+            source/main/system/RendererSiblingPath.cpp
+            source/main/system/RendererSiblingPath.h
             source/main/system/RendererOgreNextChild.cpp
             source/main/system/RendererOgreNextChild.h
             source/main/system/RendererOgreNextChildMain.cpp
@@ -1243,6 +1261,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/RendererChildIntentTests.cpp
             tests/gfx/RendererChildLauncherFakeChild.cpp
             tests/gfx/RendererChildLauncherTests.cpp
+            tests/gfx/RendererSiblingPathTests.cpp
             tests/gfx/RendererOgreNextChildTests.cpp
             tests/gfx/RendererPublicLauncherLegacyChild.cpp
             tests/gfx/RendererPublicLauncherTests.cpp
@@ -1423,6 +1442,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_plan_tests
         ror_renderer_startup_handoff_tests
         ror_renderer_child_intent_tests
+        ror_renderer_sibling_path_tests
         ror_renderer_ogre_next_child_tests
         ror_renderer_child_launcher_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
@@ -1553,6 +1573,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_plan_tests
         ror_renderer_startup_handoff_tests
         ror_renderer_child_intent_tests
+        ror_renderer_sibling_path_tests
         ror_renderer_ogre_next_child_tests
         ror_renderer_child_launcher_fake_child
         ror_renderer_child_launcher_tests
@@ -1622,6 +1643,10 @@ endif ()
 if (TARGET ror_renderer_child_intent_tests)
     add_test(NAME ror_renderer_child_intent
         COMMAND $<TARGET_FILE:ror_renderer_child_intent_tests>)
+endif ()
+if (TARGET ror_renderer_sibling_path_tests)
+    add_test(NAME ror_renderer_sibling_path
+        COMMAND $<TARGET_FILE:ror_renderer_sibling_path_tests>)
 endif ()
 if (TARGET ror_renderer_ogre_next_child_tests)
     add_test(NAME ror_renderer_ogre_next_child

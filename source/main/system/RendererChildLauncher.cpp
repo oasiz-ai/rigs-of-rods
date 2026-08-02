@@ -7,6 +7,7 @@
 */
 
 #include "RendererChildLauncher.h"
+#include "RendererSiblingPath.h"
 
 #include <cerrno>
 #include <cstddef>
@@ -22,10 +23,6 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
-#elif defined(__APPLE__)
-#include <mach-o/dyld.h>
-#include <fcntl.h>
-#include <unistd.h>
 #else
 #include <fcntl.h>
 #include <unistd.h>
@@ -49,18 +46,6 @@ bool HasValidArguments(int argc, const Character *const argv[]) {
   }
   for (int index = 0; index < argc; ++index) {
     if (argv[index] == nullptr) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool HasSafeChildBasename(const char *basename) {
-  if (basename == nullptr || basename[0] == '\0') {
-    return false;
-  }
-  for (const char *cursor = basename; *cursor != '\0'; ++cursor) {
-    if (*cursor == '/' || *cursor == '\\') {
       return false;
     }
   }
@@ -108,122 +93,6 @@ public:
 private:
   HANDLE m_handle = nullptr;
 };
-
-bool IsSupportedFinalDosExecutablePath(const std::wstring &path) {
-  // VOLUME_NAME_DOS returns an extended-length DOS path. Preserve that exact
-  // spelling for CreateProcessW so long paths remain valid, but reject any
-  // unexpected device namespace before deriving a sibling executable.
-  constexpr wchar_t extended_prefix[] = L"\\\\?\\";
-  if (path.compare(0U, 4U, extended_prefix) != 0) {
-    return false;
-  }
-
-  constexpr wchar_t unc_prefix[] = L"UNC\\";
-  if (path.compare(4U, 4U, unc_prefix) == 0) {
-    const std::wstring::size_type server_end = path.find(L'\\', 8U);
-    if (server_end == std::wstring::npos || server_end == 8U) {
-      return false;
-    }
-    const std::wstring::size_type share_end =
-        path.find(L'\\', server_end + 1U);
-    return share_end != std::wstring::npos &&
-           share_end != server_end + 1U && share_end + 1U < path.size();
-  }
-
-  if (path.size() <= 7U) {
-    return false;
-  }
-  const wchar_t drive = path[4U];
-  const bool is_ascii_drive =
-      (drive >= L'A' && drive <= L'Z') ||
-      (drive >= L'a' && drive <= L'z');
-  return is_ascii_drive && path[5U] == L':' && path[6U] == L'\\';
-}
-
-bool CurrentExecutablePath(std::wstring &path, std::uint32_t &error_code) {
-  std::vector<wchar_t> buffer(512U);
-  constexpr std::size_t maximum_windows_path = 32768U;
-  for (;;) {
-    ::SetLastError(ERROR_SUCCESS);
-    const DWORD length = ::GetModuleFileNameW(
-        nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-    if (length == 0U) {
-      error_code = static_cast<std::uint32_t>(::GetLastError());
-      return false;
-    }
-    if (length < buffer.size()) {
-      const std::wstring loaded_path(buffer.data(),
-                                     static_cast<std::size_t>(length));
-      // GetModuleFileNameW preserves the spelling used to load the module.
-      // Resolve the opened executable handle so a symlink/junction alias cannot
-      // redirect sibling selection to the alias directory.
-      WindowsHandle executable(::CreateFileW(
-          loaded_path.c_str(), FILE_READ_ATTRIBUTES,
-          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-          OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
-      if (!executable.IsValid()) {
-        error_code = static_cast<std::uint32_t>(::GetLastError());
-        return false;
-      }
-
-      const DWORD final_flags = FILE_NAME_NORMALIZED | VOLUME_NAME_DOS;
-      const DWORD required =
-          ::GetFinalPathNameByHandleW(executable.Get(), nullptr, 0U,
-                                      final_flags);
-      if (required == 0U) {
-        error_code = static_cast<std::uint32_t>(::GetLastError());
-        return false;
-      }
-      std::vector<wchar_t> final_path(static_cast<std::size_t>(required));
-      const DWORD final_length = ::GetFinalPathNameByHandleW(
-          executable.Get(), final_path.data(),
-          static_cast<DWORD>(final_path.size()), final_flags);
-      if (final_length == 0U || final_length >= final_path.size()) {
-        error_code = final_length >= final_path.size()
-                         ? static_cast<std::uint32_t>(
-                               ERROR_INSUFFICIENT_BUFFER)
-                         : static_cast<std::uint32_t>(::GetLastError());
-        return false;
-      }
-      path.assign(final_path.data(),
-                  static_cast<std::size_t>(final_length));
-      if (!IsSupportedFinalDosExecutablePath(path)) {
-        path.clear();
-        error_code = static_cast<std::uint32_t>(ERROR_INVALID_NAME);
-        return false;
-      }
-      return true;
-    }
-    if (buffer.size() >= maximum_windows_path) {
-      error_code = static_cast<std::uint32_t>(ERROR_INSUFFICIENT_BUFFER);
-      return false;
-    }
-    const std::size_t next_size =
-        buffer.size() > maximum_windows_path / 2U
-            ? maximum_windows_path
-            : buffer.size() * 2U;
-    buffer.resize(next_size);
-  }
-}
-
-bool BuildChildPath(const std::wstring &executable_path, const char *basename,
-                    std::wstring &child_path) {
-  const std::wstring::size_type separator =
-      executable_path.find_last_of(L"/\\");
-  if (separator == std::wstring::npos ||
-      separator + 1U >= executable_path.size()) {
-    return false;
-  }
-  child_path.assign(executable_path, 0U, separator + 1U);
-  for (const char *cursor = basename; *cursor != '\0'; ++cursor) {
-    const unsigned char value = static_cast<unsigned char>(*cursor);
-    if (value > 0x7fU) {
-      return false;
-    }
-    child_path.push_back(static_cast<wchar_t>(value));
-  }
-  return true;
-}
 
 void AppendQuotedWindowsArgument(const wchar_t *argument,
                                  std::wstring &command_line) {
@@ -477,62 +346,6 @@ RendererChildLaunchFailure LaunchWindows(
 
 #else
 
-bool CurrentExecutablePath(std::string &path, std::uint32_t &error_code) {
-#if defined(__APPLE__)
-  std::uint32_t required_size = 0U;
-  if (::_NSGetExecutablePath(nullptr, &required_size) != -1 ||
-      required_size == 0U) {
-    error_code = static_cast<std::uint32_t>(errno);
-    return false;
-  }
-  std::vector<char> buffer(required_size);
-  if (::_NSGetExecutablePath(buffer.data(), &required_size) != 0) {
-    error_code = static_cast<std::uint32_t>(errno);
-    return false;
-  }
-  char *canonical = ::realpath(buffer.data(), nullptr);
-  if (canonical == nullptr) {
-    error_code = static_cast<std::uint32_t>(errno);
-    return false;
-  }
-  path.assign(canonical);
-  std::free(canonical);
-  return !path.empty();
-#else
-  std::vector<char> buffer(1024U);
-  constexpr std::size_t maximum_path = 1024U * 1024U;
-  for (;;) {
-    const ssize_t length = ::readlink("/proc/self/exe", buffer.data(),
-                                      buffer.size());
-    if (length < 0) {
-      error_code = static_cast<std::uint32_t>(errno);
-      return false;
-    }
-    if (static_cast<std::size_t>(length) < buffer.size()) {
-      path.assign(buffer.data(), static_cast<std::size_t>(length));
-      return !path.empty();
-    }
-    if (buffer.size() >= maximum_path) {
-      error_code = static_cast<std::uint32_t>(ENAMETOOLONG);
-      return false;
-    }
-    buffer.resize(buffer.size() * 2U);
-  }
-#endif
-}
-
-bool BuildChildPath(const std::string &executable_path, const char *basename,
-                    std::string &child_path) {
-  const std::string::size_type separator = executable_path.find_last_of('/');
-  if (separator == std::string::npos ||
-      separator + 1U >= executable_path.size()) {
-    return false;
-  }
-  child_path.assign(executable_path, 0U, separator + 1U);
-  child_path.append(basename);
-  return true;
-}
-
 RendererChildLaunchFailure LaunchPosix(const std::string &child_path, int argc,
                                        const char *const argv[]) {
   std::vector<char *> child_arguments;
@@ -630,43 +443,44 @@ RendererChildLaunchFailure LaunchRendererChildAndPropagateExit(
   try {
     const HostRenderPlatform host_platform = CompileTimeHostPlatform();
     if (host_platform == HostRenderPlatform::UNKNOWN ||
-        handoff.package_platform != host_platform) {
+        !handoff.accepted || handoff.package_platform != host_platform) {
       return Failure(RendererChildLaunchStatus::REJECTED_INVALID_HANDOFF);
     }
     const char *basename = RendererFrontendChildExecutableName(handoff);
-    if (!HasSafeChildBasename(basename)) {
+    if (basename == nullptr || basename[0] == '\0') {
       return Failure(RendererChildLaunchStatus::REJECTED_INVALID_HANDOFF);
     }
     if (!HasValidArguments(argc, argv)) {
       return Failure(RendererChildLaunchStatus::REJECTED_INVALID_ARGUMENTS);
     }
 
+    const RendererSiblingPathResult sibling =
+        ResolveRendererSiblingPath(basename);
+    if (!sibling.accepted) {
+      switch (sibling.status) {
+      case RendererSiblingPathStatus::REJECTED_INVALID_BASENAME:
+        return Failure(
+            RendererChildLaunchStatus::REJECTED_INVALID_HANDOFF,
+            sibling.native_error_code);
+      case RendererSiblingPathStatus::FAILED_CURRENT_EXECUTABLE_PATH:
+        return Failure(
+            RendererChildLaunchStatus::FAILED_CURRENT_EXECUTABLE_PATH,
+            sibling.native_error_code);
+      case RendererSiblingPathStatus::FAILED_CHILD_PATH:
+        return Failure(RendererChildLaunchStatus::FAILED_CHILD_PATH,
+                       sibling.native_error_code);
+      case RendererSiblingPathStatus::FAILED_INTERNAL:
+        return Failure(RendererChildLaunchStatus::FAILED_INTERNAL,
+                       sibling.native_error_code);
+      case RendererSiblingPathStatus::READY:
+        return Failure(RendererChildLaunchStatus::FAILED_INTERNAL);
+      }
+      return Failure(RendererChildLaunchStatus::FAILED_INTERNAL);
+    }
 #if defined(_WIN32)
-    std::wstring executable_path;
-    std::uint32_t native_error = 0U;
-    if (!CurrentExecutablePath(executable_path, native_error)) {
-      return Failure(
-          RendererChildLaunchStatus::FAILED_CURRENT_EXECUTABLE_PATH,
-          native_error);
-    }
-    std::wstring child_path;
-    if (!BuildChildPath(executable_path, basename, child_path)) {
-      return Failure(RendererChildLaunchStatus::FAILED_CHILD_PATH);
-    }
-    return LaunchWindows(child_path, argc, argv);
+    return LaunchWindows(sibling.path, argc, argv);
 #else
-    std::string executable_path;
-    std::uint32_t native_error = 0U;
-    if (!CurrentExecutablePath(executable_path, native_error)) {
-      return Failure(
-          RendererChildLaunchStatus::FAILED_CURRENT_EXECUTABLE_PATH,
-          native_error);
-    }
-    std::string child_path;
-    if (!BuildChildPath(executable_path, basename, child_path)) {
-      return Failure(RendererChildLaunchStatus::FAILED_CHILD_PATH);
-    }
-    return LaunchPosix(child_path, argc, argv);
+    return LaunchPosix(sibling.path, argc, argv);
 #endif
   } catch (...) {
     return Failure(RendererChildLaunchStatus::FAILED_INTERNAL);

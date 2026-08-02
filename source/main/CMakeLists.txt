@@ -272,6 +272,7 @@ set(SOURCE_FILES
         system/RendererBridgeLaunchPlan.{h,cpp}
         system/RendererChildIntent.{h,cpp}
         system/RendererChildLauncher.{h,cpp}
+        system/RendererSiblingPath.{h,cpp}
         terrain/OgreTerrainPSSMMaterialGenerator.{h,cpp}
         terrain/LocalLightBudget.h
         terrain/ProceduralManager.{h,cpp}
@@ -537,6 +538,8 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
         system/RendererChildIntent.h
         system/RendererChildLauncher.cpp
         system/RendererChildLauncher.h
+        system/RendererSiblingPath.cpp
+        system/RendererSiblingPath.h
         gfx/RendererBackendPolicy.cpp
         gfx/RendererBackendPolicy.h
         gfx/RendererStartupPlan.cpp
