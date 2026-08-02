@@ -2307,6 +2307,11 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     if (ROR_OGRE_NEXT_PRODUCT_STAGE)
         set(_ror_ogre_next_product_completion
             "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}/.ror-ogre-next-product-complete.json")
+        if (WIN32)
+            set(_ror_ogre_next_product_child_name "RoR-OgreNext.exe")
+        else ()
+            set(_ror_ogre_next_product_child_name "RoR-OgreNext")
+        endif ()
         add_custom_command(
             OUTPUT "${_ror_ogre_next_product_completion}"
             COMMAND
@@ -2337,7 +2342,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 "${CMAKE_CURRENT_SOURCE_DIR}/package_ogre_next_product.py"
                 "${_ror_ogre_next_product_identity_source}"
             BYPRODUCTS
-                "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}/$<TARGET_FILE_NAME:ror_renderer_ogre_next_child_runtime>"
+                "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}/${_ror_ogre_next_product_child_name}"
                 "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}/provenance/ogre-next-product-package.manifest.json"
             COMMENT
                 "Staging the verified real OgreNext product child and exact media closure"
@@ -2348,6 +2353,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             TARGET ror_ogre_next_product_stage
             PROPERTY FOLDER "Packaging")
         unset(_ror_ogre_next_product_completion)
+        unset(_ror_ogre_next_product_child_name)
     endif ()
 
     foreach (_ror_n1_target IN LISTS _ror_n1_targets)
