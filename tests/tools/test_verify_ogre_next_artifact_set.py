@@ -1653,7 +1653,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             "build_artifact_sha256": VERIFY.sha256_file(executable_path),
         }
         report: dict[str, object] = {
-            "schema": "ror.ogre_next_metal_rt_n4_directional_shadow.v1",
+            "schema": "ror.ogre_next_metal_rt_n4_directional_shadow.v2",
             "status": status,
             "scope": (
                 VERIFY.METAL_N4_PASS_SCOPE
@@ -1783,6 +1783,51 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                         sample(0, "VISIBLE", 0),
                         sample(occluded_start, "OCCLUDED", 2),
                     ],
+                    "runtime_sequence": {
+                        "exact_repeat": {
+                            "frame_id": 2,
+                            "width": width,
+                            "height": height,
+                            "pixels": pixel_count,
+                            "receiver_visible_pixels": pixel_count - 100,
+                            "occluded_pixels": 100,
+                            "primary_miss_pixels": 0,
+                            "raster_sha256": artifacts["raster"]["sha256"],
+                            "visibility_sha256": artifacts["visibility"][
+                                "sha256"
+                            ],
+                            "ray_lineage_sha256": artifacts["ray_lineage"][
+                                "sha256"
+                            ],
+                            "hybrid_sha256": artifacts["hybrid"]["sha256"],
+                        },
+                        "moved_occluder": {
+                            "frame_id": 3,
+                            "width": width,
+                            "height": height,
+                            "pixels": pixel_count,
+                            "receiver_visible_pixels": pixel_count - 120,
+                            "occluded_pixels": 120,
+                            "primary_miss_pixels": 0,
+                            "raster_sha256": artifacts["raster"]["sha256"],
+                            "visibility_sha256": "1" * 64,
+                            "ray_lineage_sha256": "2" * 64,
+                            "hybrid_sha256": "3" * 64,
+                        },
+                        "resized_extent": {
+                            "frame_id": 4,
+                            "width": 80,
+                            "height": 48,
+                            "pixels": 80 * 48,
+                            "receiver_visible_pixels": 80 * 48 - 80,
+                            "occluded_pixels": 80,
+                            "primary_miss_pixels": 0,
+                            "raster_sha256": "4" * 64,
+                            "visibility_sha256": "5" * 64,
+                            "ray_lineage_sha256": "6" * 64,
+                            "hybrid_sha256": "7" * 64,
+                        },
+                    },
                     "proof": {
                         field: True
                         for field in VERIFY.METAL_N4_REQUIRED_PROOF_BOOLEANS
@@ -3046,6 +3091,34 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             ),
             "sample differs",
         )
+
+    def test_metal_n4_gate_requires_exact_runtime_sequence(self) -> None:
+        cases = (
+            (
+                lambda report: report["runtime_sequence"]["exact_repeat"].__setitem__(
+                    "hybrid_sha256", "8" * 64
+                ),
+                "exact repeat differs",
+            ),
+            (
+                lambda report: report["runtime_sequence"][
+                    "moved_occluder"
+                ].__setitem__(
+                    "visibility_sha256",
+                    report["artifacts"]["visibility"]["sha256"],
+                ),
+                "moved occluder",
+            ),
+            (
+                lambda report: report["runtime_sequence"][
+                    "resized_extent"
+                ].__setitem__("width", 96),
+                "coverage is invalid",
+            ),
+        )
+        for mutation, expected in cases:
+            with self.subTest(expected=expected):
+                self.assert_metal_n4_report_rejected(mutation, expected)
 
     def test_metal_n4_gate_requires_every_explicit_proof(self) -> None:
         for field in VERIFY.METAL_N4_REQUIRED_PROOF_BOOLEANS:

@@ -421,6 +421,10 @@ METAL_N4_REQUIRED_PROOF_BOOLEANS = (
     "exact_exported_dual_geometry_used",
     "exact_exported_color_image_used",
     "gpu_composite_not_cpu_postprocess",
+    "consecutive_identical_scene_bytes_stable",
+    "occluder_motion_changes_only_shadow_outputs",
+    "released_frame_allows_extent_change",
+    "submitted_device_loss_and_timeout_paths_tested",
     "view_dependent_output_ready",
     "hybrid_composite_ready",
 )
@@ -4365,6 +4369,7 @@ def _verify_metal_n4_pass_semantics(
             "artifacts",
             "coverage",
             "samples",
+            "runtime_sequence",
             "proof",
         },
         "Metal N4 pass report",
@@ -4583,6 +4588,104 @@ def _verify_metal_n4_pass_semantics(
                 "Metal N4 reported sample differs from exact readback bytes"
             )
 
+    sequence = _require_exact_keys(
+        report.get("runtime_sequence"),
+        {"exact_repeat", "moved_occluder", "resized_extent"},
+        "Metal N4 runtime sequence",
+    )
+    metric_keys = {
+        "frame_id",
+        "width",
+        "height",
+        "pixels",
+        "receiver_visible_pixels",
+        "occluded_pixels",
+        "primary_miss_pixels",
+        "raster_sha256",
+        "visibility_sha256",
+        "ray_lineage_sha256",
+        "hybrid_sha256",
+    }
+    sequence_metrics: dict[str, dict[str, object]] = {}
+    for key in ("exact_repeat", "moved_occluder", "resized_extent"):
+        observed = _require_exact_keys(
+            sequence.get(key), metric_keys, f"Metal N4 {key} metrics"
+        )
+        observed_width = observed.get("width")
+        observed_height = observed.get("height")
+        observed_pixels = observed.get("pixels")
+        visible_pixels = observed.get("receiver_visible_pixels")
+        blocked_pixels = observed.get("occluded_pixels")
+        if not (
+            type(observed_width) is int
+            and type(observed_height) is int
+            and type(observed_pixels) is int
+            and type(visible_pixels) is int
+            and type(blocked_pixels) is int
+            and observed_width > 0
+            and observed_height > 0
+            and observed_pixels == observed_width * observed_height
+            and visible_pixels > 0
+            and blocked_pixels > 0
+            and visible_pixels + blocked_pixels == observed_pixels
+            and observed.get("primary_miss_pixels") == 0
+        ):
+            raise ArtifactSetError(f"Metal N4 {key} coverage is invalid")
+        for hash_key in (
+            "raster_sha256",
+            "visibility_sha256",
+            "ray_lineage_sha256",
+            "hybrid_sha256",
+        ):
+            digest = observed.get(hash_key)
+            if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+                raise ArtifactSetError(f"Metal N4 {key} {hash_key} is invalid")
+        sequence_metrics[key] = observed
+
+    repeat = sequence_metrics["exact_repeat"]
+    if not _json_exact(
+        repeat,
+        {
+            "frame_id": 2,
+            "width": width,
+            "height": height,
+            "pixels": pixel_count,
+            "receiver_visible_pixels": visible_count,
+            "occluded_pixels": occluded_count,
+            "primary_miss_pixels": 0,
+            "raster_sha256": artifacts["raster"]["sha256"],
+            "visibility_sha256": artifacts["visibility"]["sha256"],
+            "ray_lineage_sha256": artifacts["ray_lineage"]["sha256"],
+            "hybrid_sha256": artifacts["hybrid"]["sha256"],
+        },
+    ):
+        raise ArtifactSetError(
+            "Metal N4 exact repeat differs from the retained baseline"
+        )
+
+    moved = sequence_metrics["moved_occluder"]
+    if not (
+        moved.get("frame_id") == 3
+        and moved.get("width") == width
+        and moved.get("height") == height
+        and moved.get("raster_sha256") == artifacts["raster"]["sha256"]
+        and moved.get("visibility_sha256") != artifacts["visibility"]["sha256"]
+        and moved.get("ray_lineage_sha256") != artifacts["ray_lineage"]["sha256"]
+        and moved.get("hybrid_sha256") != artifacts["hybrid"]["sha256"]
+    ):
+        raise ArtifactSetError(
+            "Metal N4 moved occluder did not isolate shadow-output changes"
+        )
+
+    resized = sequence_metrics["resized_extent"]
+    if not (
+        resized.get("frame_id") == 4
+        and resized.get("width") == 80
+        and resized.get("height") == 48
+        and resized.get("pixels") == 80 * 48
+    ):
+        raise ArtifactSetError("Metal N4 resized extent evidence is invalid")
+
     proof = _require_exact_keys(
         report.get("proof"),
         set(METAL_N4_REQUIRED_PROOF_BOOLEANS),
@@ -4602,7 +4705,7 @@ def _verify_metal_n4(
     report = _read_json_object(report_path, "Metal N4 report")
     status = report.get("status")
     if report.get("schema") != (
-        "ror.ogre_next_metal_rt_n4_directional_shadow.v1"
+        "ror.ogre_next_metal_rt_n4_directional_shadow.v2"
     ) or status not in ("pass", "skip"):
         raise ArtifactSetError("Metal N4 report schema or status is invalid")
     _verify_metal_n4_provenance(report, executable_path, build_contract)

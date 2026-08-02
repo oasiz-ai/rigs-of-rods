@@ -103,8 +103,8 @@ class MetalN4ContractTests(unittest.TestCase):
 
     def test_both_reported_samples_pass_the_portable_contract(self) -> None:
         for token in (
-            "RequireSampleMatchesReadback(evidence, 0U, kWidth, kHeight)",
-            "RequireSampleMatchesReadback(evidence, 1U, kWidth, kHeight)",
+            "RequireSampleMatchesReadback(evidence, 0U, width, height)",
+            "RequireSampleMatchesReadback(evidence, 1U, width, height)",
             "ValidateNativeDirectionalShadowPassContract(sample)",
             "NativeDirectionalShadowVisibility::VISIBLE",
             "NativeDirectionalShadowVisibility::OCCLUDED",
@@ -150,8 +150,26 @@ class MetalN4ContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.smoke)
         self.assertIn(
-            "ror.ogre_next_metal_rt_n4_directional_shadow.v1", self.smoke
+            "ror.ogre_next_metal_rt_n4_directional_shadow.v2", self.smoke
         )
+
+    def test_runtime_sequence_proves_stability_motion_resize_and_faults(self) -> None:
+        for token in (
+            "RequireExactShadowBytes(evidence, repeat_evidence)",
+            "RequireOnlyShadowOutputsChanged(evidence, moved_evidence)",
+            "MakeScene(3U, 3U, 0.65F)",
+            "MakeFrame(4U, resized_scene, resized_width, resized_height)",
+            "OgreNextMetalN2TestObservation::DEVICE_LOST",
+            "OgreNextMetalN2TestObservation::TIMEOUT",
+            "RenderOperationCode::OUTSTANDING_LEASES",
+            '\\"runtime_sequence\\"',
+            '\\"exact_repeat\\"',
+            '\\"moved_occluder\\"',
+            '\\"resized_extent\\"',
+            '\\"consecutive_identical_scene_bytes_stable\\": true',
+            '\\"submitted_device_loss_and_timeout_paths_tested\\": true',
+        ):
+            self.assertIn(token, self.smoke)
 
     def test_provenance_binds_source_ogre_and_executable(self) -> None:
         for token in (

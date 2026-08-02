@@ -60,6 +60,8 @@ constexpr std::uint32_t kWidth = 96U;
 constexpr std::uint32_t kHeight = 64U;
 constexpr std::uint64_t kRegistryId = UINT64_C(0x4E345F4D4554414C);
 constexpr int kCapabilitySkipExitCode = 77;
+constexpr const char *kReportSchema =
+    "ror.ogre_next_metal_rt_n4_directional_shadow.v2";
 
 struct Arguments final {
   std::string media_root;
@@ -77,6 +79,9 @@ struct FileDigest final {
 };
 
 struct ShadowMetrics final {
+  std::uint64_t frame_id = 0U;
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
   std::uint64_t pixel_count = 0U;
   std::uint64_t visible_pixels = 0U;
   std::uint64_t occluded_pixels = 0U;
@@ -289,13 +294,16 @@ RenderAssetDelta MakeCatalog() {
   return delta;
 }
 
-std::shared_ptr<const SceneSnapshot> MakeScene() {
+std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
+                                               std::uint64_t simulation_tick,
+                                               float occluder_x = 0.0F) {
   SceneSnapshotDescriptor descriptor;
-  descriptor.snapshot_id = 1U;
+  descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kRegistryId;
   descriptor.asset_sequence = 1U;
-  descriptor.simulation_tick = 1U;
-  descriptor.simulation_time_seconds = 1.0 / 48.0;
+  descriptor.simulation_tick = simulation_tick;
+  descriptor.simulation_time_seconds =
+      static_cast<double>(simulation_tick) / 48.0;
   descriptor.environment.ambient_radiance = {0.035F, 0.04F, 0.05F};
 
   MeshInstanceDescriptor receiver;
@@ -312,6 +320,7 @@ std::shared_ptr<const SceneSnapshot> MakeScene() {
   occluder.mesh = Asset(RenderAssetKind::MESH, 2U);
   occluder.material = Asset(RenderAssetKind::MATERIAL, 4U);
   occluder.local_bounds = Quad(0.72F, 0.58F, "occluder").local_bounds;
+  occluder.render_from_object.elements[12U] = occluder_x;
   occluder.render_from_object.elements[14U] = 1.0F;
   occluder.previous_render_from_object = occluder.render_from_object;
   occluder.flags = MESH_INSTANCE_CASTS_SHADOW;
@@ -355,9 +364,11 @@ Matrix4x4 Projection() {
 }
 
 RenderFrameRequest MakeFrame(
-    const std::shared_ptr<const SceneSnapshot> &scene) {
+    std::uint64_t frame_id,
+    const std::shared_ptr<const SceneSnapshot> &scene,
+    std::uint32_t width = kWidth, std::uint32_t height = kHeight) {
   RenderFrameRequest frame;
-  frame.frame_id = 1U;
+  frame.frame_id = frame_id;
   frame.scene_snapshot = scene;
   frame.present = false;
   frame.color_format = PixelFormat::RGBA16_FLOAT;
@@ -365,8 +376,8 @@ RenderFrameRequest MakeFrame(
   frame.allow_async_compute = false;
   CameraViewRequest view;
   view.view_id = 1U;
-  view.width = kWidth;
-  view.height = kHeight;
+  view.width = width;
+  view.height = height;
   view.near_plane = 0.1F;
   view.far_plane = 20.0F;
   view.visibility_mask = 0x01U;
@@ -435,9 +446,10 @@ void RequireSampleMatchesReadback(
 ShadowMetrics ValidateEvidence(
     const OgreNextMetalRayTracingEvidence &evidence,
     const RenderFrameOutput &raster_output,
-    const RenderFrameOutput &hybrid_output) {
-  constexpr std::uint64_t pixel_count =
-      static_cast<std::uint64_t>(kWidth) * kHeight;
+    const RenderFrameOutput &hybrid_output, std::uint64_t frame_id,
+    std::uint32_t width, std::uint32_t height) {
+  const std::uint64_t pixel_count =
+      static_cast<std::uint64_t>(width) * height;
   Require(evidence.directional_shadow_passed &&
               evidence.dispatch_readback_passed &&
               evidence.geometry_interop_passed &&
@@ -467,8 +479,8 @@ ShadowMetrics ValidateEvidence(
                   kOgreNextPositionNormalTangentUv0VertexStrideBytes,
           "N4 did not use two exact RT4 48-byte geometry exports");
   Require(evidence.image_export.format == PixelFormat::RGBA16_FLOAT &&
-              evidence.image_export.width == kWidth &&
-              evidence.image_export.height == kHeight &&
+              evidence.image_export.width == width &&
+              evidence.image_export.height == height &&
               evidence.image_frame_synchronization
                       .frontend_image_release_state ==
                   NativeImageState::GENERAL_READ_WRITE &&
@@ -483,11 +495,11 @@ ShadowMetrics ValidateEvidence(
               evidence.hybrid_readback_bytes.size() == pixel_count * 8U,
           "N4 readback byte layout is incomplete");
   Require(evidence.image_row_pitch_bytes >=
-                  static_cast<std::uint64_t>(kWidth) * 8U &&
+                  static_cast<std::uint64_t>(width) * 8U &&
               evidence.visibility_row_pitch_bytes >=
-                  static_cast<std::uint64_t>(kWidth) * 2U &&
+                  static_cast<std::uint64_t>(width) * 2U &&
               evidence.directional_lineage_row_pitch_bytes >=
-                  static_cast<std::uint64_t>(kWidth) * 4U &&
+                  static_cast<std::uint64_t>(width) * 4U &&
               evidence.image_row_pitch_bytes % 256U == 0U &&
               evidence.visibility_row_pitch_bytes % 256U == 0U &&
               evidence.directional_lineage_row_pitch_bytes % 256U == 0U,
@@ -501,6 +513,9 @@ ShadowMetrics ValidateEvidence(
           "N4 exact frontend/backend frame bytes disagree");
 
   ShadowMetrics metrics;
+  metrics.frame_id = frame_id;
+  metrics.width = width;
+  metrics.height = height;
   metrics.pixel_count = pixel_count;
   for (std::size_t pixel = 0U;
        pixel < static_cast<std::size_t>(pixel_count); ++pixel) {
@@ -542,8 +557,8 @@ ShadowMetrics ValidateEvidence(
               metrics.occluded_pixels == evidence.occluded_pixel_count &&
               metrics.visible_pixels + metrics.occluded_pixels == pixel_count,
           "N4 full-view receiver and partial occluder evidence is incomplete");
-  RequireSampleMatchesReadback(evidence, 0U, kWidth, kHeight);
-  RequireSampleMatchesReadback(evidence, 1U, kWidth, kHeight);
+  RequireSampleMatchesReadback(evidence, 0U, width, height);
+  RequireSampleMatchesReadback(evidence, 1U, width, height);
   Require(evidence.directional_shadow_samples[0U].visibility ==
                   NativeDirectionalShadowVisibility::VISIBLE &&
               evidence.directional_shadow_samples[1U].visibility ==
@@ -568,6 +583,22 @@ void WritePixelJson(std::ostream &output,
     output << '"' << Hex16(pixel.channels[index]) << '"';
   }
   output << ']';
+}
+
+void WriteFrameMetricsJson(std::ostream &output,
+                           const ShadowMetrics &metrics) {
+  output << "{\"frame_id\": " << metrics.frame_id
+         << ", \"width\": " << metrics.width
+         << ", \"height\": " << metrics.height
+         << ", \"pixels\": " << metrics.pixel_count
+         << ", \"receiver_visible_pixels\": " << metrics.visible_pixels
+         << ", \"occluded_pixels\": " << metrics.occluded_pixels
+         << ", \"primary_miss_pixels\": 0"
+         << ", \"raster_sha256\": \"" << metrics.raster_sha256
+         << "\", \"visibility_sha256\": \"" << metrics.visibility_sha256
+         << "\", \"ray_lineage_sha256\": \"" << metrics.lineage_sha256
+         << "\", \"hybrid_sha256\": \"" << metrics.hybrid_sha256
+         << "\"}";
 }
 
 std::string ProvenanceJson(const FileDigest &executable) {
@@ -598,7 +629,7 @@ std::string SkipReport(const OgreNextMetalRayTracingEvidence &evidence,
                        const FileDigest &executable) {
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_metal_rt_n4_directional_shadow.v1\",\n"
+         << "  \"schema\": \"" << kReportSchema << "\",\n"
          << "  \"status\": \"skip\",\n"
          << "  \"scope\": \"same-device Metal two-BLAS directional hard shadow; no GI, reflection, denoising, multi-bounce, soft-shadow, or material-parity claim\",\n"
          << "  \"reason\": \"" << JsonEscape(initialization.detail)
@@ -614,11 +645,14 @@ std::string SkipReport(const OgreNextMetalRayTracingEvidence &evidence,
 
 std::string PassReport(const OgreNextMetalRayTracingEvidence &evidence,
                        const ShadowMetrics &metrics,
+                       const ShadowMetrics &repeat_metrics,
+                       const ShadowMetrics &moved_occluder_metrics,
+                       const ShadowMetrics &resized_metrics,
                        const NativeRayTracingCapabilityReport &capabilities,
                        const FileDigest &executable) {
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_metal_rt_n4_directional_shadow.v1\",\n"
+         << "  \"schema\": \"" << kReportSchema << "\",\n"
          << "  \"status\": \"pass\",\n"
          << "  \"scope\": \"same-device Metal two-BLAS hard directional visibility applied to the exact UI-free Ogre-Next HDR target; no GI, reflection, denoising, multi-bounce, soft-shadow, or material-parity claim\",\n"
          << ProvenanceJson(executable) << ",\n"
@@ -673,12 +707,114 @@ std::string PassReport(const OgreNextMetalRayTracingEvidence &evidence,
                    : ",\n");
   }
   report << "  ],\n"
-         << "  \"proof\": {\"full_view_receiver\": true, \"partial_distinct_occluder\": true, \"every_visibility_texel_canonical_r16\": true, \"visible_preserves_exact_rgba16\": true, \"occluded_zeros_rgb_preserves_alpha\": true, \"visible_and_occluded_sample_contracts_validated\": true, \"exact_exported_dual_geometry_used\": true, \"exact_exported_color_image_used\": true, \"gpu_composite_not_cpu_postprocess\": true, \"view_dependent_output_ready\": "
+         << "  \"runtime_sequence\": {\n"
+         << "    \"exact_repeat\": ";
+  WriteFrameMetricsJson(report, repeat_metrics);
+  report << ",\n    \"moved_occluder\": ";
+  WriteFrameMetricsJson(report, moved_occluder_metrics);
+  report << ",\n    \"resized_extent\": ";
+  WriteFrameMetricsJson(report, resized_metrics);
+  report << "\n  },\n"
+         << "  \"proof\": {\"full_view_receiver\": true, \"partial_distinct_occluder\": true, \"every_visibility_texel_canonical_r16\": true, \"visible_preserves_exact_rgba16\": true, \"occluded_zeros_rgb_preserves_alpha\": true, \"visible_and_occluded_sample_contracts_validated\": true, \"exact_exported_dual_geometry_used\": true, \"exact_exported_color_image_used\": true, \"gpu_composite_not_cpu_postprocess\": true, \"consecutive_identical_scene_bytes_stable\": true, \"occluder_motion_changes_only_shadow_outputs\": true, \"released_frame_allows_extent_change\": true, \"submitted_device_loss_and_timeout_paths_tested\": true, \"view_dependent_output_ready\": "
          << (capabilities.view_dependent_output_ready ? "true" : "false")
          << ", \"hybrid_composite_ready\": "
          << (capabilities.hybrid_composite_ready ? "true" : "false")
          << "}\n}\n";
   return report.str();
+}
+
+void RequireExactShadowBytes(
+    const OgreNextMetalRayTracingEvidence &expected,
+    const OgreNextMetalRayTracingEvidence &observed) {
+  Require(observed.raster_readback_bytes == expected.raster_readback_bytes &&
+              observed.visibility_readback_bytes ==
+                  expected.visibility_readback_bytes &&
+              observed.directional_lineage_readback_bytes ==
+                  expected.directional_lineage_readback_bytes &&
+              observed.hybrid_readback_bytes == expected.hybrid_readback_bytes,
+          "N4 consecutive identical scene produced non-deterministic bytes");
+}
+
+void RequireOnlyShadowOutputsChanged(
+    const OgreNextMetalRayTracingEvidence &baseline,
+    const OgreNextMetalRayTracingEvidence &moved_occluder) {
+  Require(moved_occluder.raster_readback_bytes ==
+                  baseline.raster_readback_bytes &&
+              moved_occluder.visibility_readback_bytes !=
+                  baseline.visibility_readback_bytes &&
+              moved_occluder.directional_lineage_readback_bytes !=
+                  baseline.directional_lineage_readback_bytes &&
+              moved_occluder.hybrid_readback_bytes !=
+                  baseline.hybrid_readback_bytes,
+          "N4 occluder motion did not change only visibility, lineage, and hybrid output");
+}
+
+void ClearEvidenceSnapshotOwners(OgreNextMetalRayTracingEvidence &evidence) {
+  evidence.image_request.scene_snapshot.reset();
+  evidence.image_export.scene_snapshot.reset();
+}
+
+void ProveInjectedObservation(OgreNextMetalN2TestObservation observation,
+                              RenderOperationCode expected,
+                              const std::string &media_root) {
+  OgreNextN1Configuration configuration{
+      media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1};
+  configuration.directional_shadow_mode =
+      OgreNextDirectionalShadowMode::DISABLED;
+  OgreNextN1Frontend frontend(
+      configuration,
+      OgreNextNativeFeatureTier::
+          METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW);
+  FrontendInitializationRequest initialization;
+  initialization.initial_width = kWidth;
+  initialization.initial_height = kHeight;
+  initialization.maximum_frames_in_flight = 1U;
+  initialization.headless = true;
+  initialization.vertical_sync = false;
+  RequireSuccess(frontend.Initialize(initialization),
+                 "N4 fault frontend Initialize");
+  RequireSuccess(frontend.SynchronizeAssets(MakeCatalog()),
+                 "N4 fault SynchronizeAssets");
+  NativeRenderInterop *interop = frontend.GetNativeInterop();
+  Require(interop != nullptr, "N4 fault frontend did not export interop");
+  OgreNextMetalRayTracingBackend backend(
+      OgreNextMetalRayTracingMode::N4_DIRECTIONAL_HARD_SHADOW);
+  RequireSuccess(backend.Initialize(*interop), "N4 fault backend Initialize");
+  RequireSuccess(backend.InjectObservationForTesting(observation),
+                 "inject N4 native observation");
+
+  std::shared_ptr<const SceneSnapshot> scene = MakeScene(1U, 1U);
+  RenderFrameRequest frame = MakeFrame(1U, scene);
+  const std::weak_ptr<const SceneSnapshot> frame_snapshot = scene;
+  RenderFrameOutput raster;
+  RequireSuccess(frontend.Render(frame, raster), "N4 fault raster frame");
+  RenderFrameOutput hybrid;
+  const RenderOperationResult render =
+      backend.Render(MakeRayRequest(frame), hybrid);
+  Require(render.code == expected && hybrid.attachments.empty(),
+          "injected native observation did not follow a real N4 submission");
+
+  frame.scene_snapshot.reset();
+  scene.reset();
+  const RenderFrameRequest resized =
+      MakeFrame(2U, MakeScene(2U, 2U), 80U, 48U);
+  RenderFrameOutput blocked;
+  Require(frontend.Render(resized, blocked).code ==
+              RenderOperationCode::OUTSTANDING_LEASES,
+          "submitted N4 fault did not block image replacement/resize");
+  Require(frontend.Shutdown(0U).code ==
+              RenderOperationCode::OUTSTANDING_LEASES,
+          "submitted N4 fault did not block frontend shutdown");
+  const RenderOperationResult shutdown = backend.Shutdown(0U);
+  Require(shutdown.code == expected,
+          "bounded N4 shutdown did not preserve the native fault outcome");
+  Require(!backend.evidence().image_request.scene_snapshot &&
+              !backend.evidence().image_export.scene_snapshot,
+          "N4 fault abandonment retained its exact scene snapshot evidence");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "N4 fault frontend final Shutdown");
+  Require(frame_snapshot.expired(),
+          "N4 fault teardown retained the submitted world snapshot");
 }
 
 std::pair<std::string, int> Run(const Arguments &arguments) {
@@ -728,8 +864,8 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
   }
   RequireSuccess(initialized, "backend Initialize");
 
-  std::shared_ptr<const SceneSnapshot> scene = MakeScene();
-  RenderFrameRequest frame = MakeFrame(scene);
+  std::shared_ptr<const SceneSnapshot> scene = MakeScene(1U, 1U);
+  RenderFrameRequest frame = MakeFrame(1U, scene);
   const std::weak_ptr<const SceneSnapshot> scene_weak = scene;
   RenderFrameOutput raster_output;
   RequireSuccess(frontend.Render(frame, raster_output), "N4 raster frame");
@@ -738,7 +874,55 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
                  "N4 directional shadow");
   OgreNextMetalRayTracingEvidence evidence = backend.evidence();
   const ShadowMetrics metrics =
-      ValidateEvidence(evidence, raster_output, hybrid_output);
+      ValidateEvidence(evidence, raster_output, hybrid_output, 1U, kWidth,
+                       kHeight);
+
+  std::shared_ptr<const SceneSnapshot> repeat_scene = MakeScene(2U, 2U);
+  RenderFrameRequest repeat_frame = MakeFrame(2U, repeat_scene);
+  const std::weak_ptr<const SceneSnapshot> repeat_scene_weak = repeat_scene;
+  RenderFrameOutput repeat_raster;
+  RequireSuccess(frontend.Render(repeat_frame, repeat_raster),
+                 "N4 exact-repeat raster frame");
+  RenderFrameOutput repeat_hybrid;
+  RequireSuccess(backend.Render(MakeRayRequest(repeat_frame), repeat_hybrid),
+                 "N4 exact-repeat directional shadow");
+  OgreNextMetalRayTracingEvidence repeat_evidence = backend.evidence();
+  const ShadowMetrics repeat_metrics = ValidateEvidence(
+      repeat_evidence, repeat_raster, repeat_hybrid, 2U, kWidth, kHeight);
+  RequireExactShadowBytes(evidence, repeat_evidence);
+
+  std::shared_ptr<const SceneSnapshot> moved_scene =
+      MakeScene(3U, 3U, 0.65F);
+  RenderFrameRequest moved_frame = MakeFrame(3U, moved_scene);
+  const std::weak_ptr<const SceneSnapshot> moved_scene_weak = moved_scene;
+  RenderFrameOutput moved_raster;
+  RequireSuccess(frontend.Render(moved_frame, moved_raster),
+                 "N4 moved-occluder raster frame");
+  RenderFrameOutput moved_hybrid;
+  RequireSuccess(backend.Render(MakeRayRequest(moved_frame), moved_hybrid),
+                 "N4 moved-occluder directional shadow");
+  OgreNextMetalRayTracingEvidence moved_evidence = backend.evidence();
+  const ShadowMetrics moved_metrics = ValidateEvidence(
+      moved_evidence, moved_raster, moved_hybrid, 3U, kWidth, kHeight);
+  RequireOnlyShadowOutputsChanged(evidence, moved_evidence);
+
+  constexpr std::uint32_t resized_width = 80U;
+  constexpr std::uint32_t resized_height = 48U;
+  std::shared_ptr<const SceneSnapshot> resized_scene = MakeScene(4U, 4U);
+  RenderFrameRequest resized_frame =
+      MakeFrame(4U, resized_scene, resized_width, resized_height);
+  const std::weak_ptr<const SceneSnapshot> resized_scene_weak = resized_scene;
+  RenderFrameOutput resized_raster;
+  RequireSuccess(frontend.Render(resized_frame, resized_raster),
+                 "N4 resized raster frame");
+  RenderFrameOutput resized_hybrid;
+  RequireSuccess(backend.Render(MakeRayRequest(resized_frame), resized_hybrid),
+                 "N4 resized directional shadow");
+  OgreNextMetalRayTracingEvidence resized_evidence = backend.evidence();
+  const ShadowMetrics resized_metrics = ValidateEvidence(
+      resized_evidence, resized_raster, resized_hybrid, 4U, resized_width,
+      resized_height);
+
   const NativeRayTracingCapabilityReport capabilities =
       backend.QueryCapabilities();
   Require(capabilities.hardware_accelerated &&
@@ -749,28 +933,45 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
               capabilities.hybrid_composite_ready,
           "N4 readiness was published without complete native evidence");
 
-  WriteBinary(arguments.raster_path, evidence.raster_readback_bytes);
-  WriteBinary(arguments.visibility_path, evidence.visibility_readback_bytes);
-  WriteBinary(arguments.lineage_path,
-              evidence.directional_lineage_readback_bytes);
-  WriteBinary(arguments.hybrid_path, evidence.hybrid_readback_bytes);
-  const std::string report =
-      PassReport(evidence, metrics, capabilities, executable);
+  ClearEvidenceSnapshotOwners(evidence);
+  ClearEvidenceSnapshotOwners(repeat_evidence);
+  ClearEvidenceSnapshotOwners(moved_evidence);
+  ClearEvidenceSnapshotOwners(resized_evidence);
+  frame.scene_snapshot.reset();
+  repeat_frame.scene_snapshot.reset();
+  moved_frame.scene_snapshot.reset();
+  resized_frame.scene_snapshot.reset();
+  scene.reset();
+  repeat_scene.reset();
+  moved_scene.reset();
+  resized_scene.reset();
 
-  // Do not let the report-side copy mask ownership retained by either runtime.
-  evidence.image_request.scene_snapshot.reset();
-  evidence.image_export.scene_snapshot.reset();
   RequireSuccess(backend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "backend Shutdown");
   Require(!backend.evidence().image_request.scene_snapshot &&
               !backend.evidence().image_export.scene_snapshot,
           "N4 backend shutdown retained the exact world snapshot");
-  frame.scene_snapshot.reset();
-  scene.reset();
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "frontend Shutdown");
-  Require(scene_weak.expired(),
-          "N4 successful teardown retained the world snapshot");
+  Require(scene_weak.expired() && repeat_scene_weak.expired() &&
+              moved_scene_weak.expired() && resized_scene_weak.expired(),
+          "N4 successful teardown retained a world snapshot");
+
+  ProveInjectedObservation(OgreNextMetalN2TestObservation::DEVICE_LOST,
+                           RenderOperationCode::DEVICE_LOST,
+                           arguments.media_root);
+  ProveInjectedObservation(OgreNextMetalN2TestObservation::TIMEOUT,
+                           RenderOperationCode::TIMEOUT,
+                           arguments.media_root);
+
+  WriteBinary(arguments.raster_path, evidence.raster_readback_bytes);
+  WriteBinary(arguments.visibility_path, evidence.visibility_readback_bytes);
+  WriteBinary(arguments.lineage_path,
+              evidence.directional_lineage_readback_bytes);
+  WriteBinary(arguments.hybrid_path, evidence.hybrid_readback_bytes);
+  const std::string report = PassReport(
+      evidence, metrics, repeat_metrics, moved_metrics, resized_metrics,
+      capabilities, executable);
   return {report, EXIT_SUCCESS};
 }
 
@@ -787,7 +988,7 @@ int main(int argc, char **argv) {
     return result.second;
   } catch (const std::exception &error) {
     std::ostringstream report;
-    report << "{\n  \"schema\": \"ror.ogre_next_metal_rt_n4_directional_shadow.v1\",\n"
+    report << "{\n  \"schema\": \"" << kReportSchema << "\",\n"
            << "  \"status\": \"fail\",\n"
            << "  \"error\": \"" << JsonEscape(error.what())
            << "\"\n}\n";
