@@ -67,10 +67,11 @@ constexpr Ogre::uint32 kFrameWidth = 192U;
 constexpr Ogre::uint32 kFrameHeight = 128U;
 constexpr std::size_t kWarmupFrames = 4U;
 constexpr const char* kScopeLimitation =
-    "one hardware DXR primary-ray closest-hit readback plus exact D3D11On12 "
-    "Ogre device adoption and a separate UI-free Ogre PBS raster readback; "
-    "no hybrid ray/raster composite, GI, reflection, denoising, multi-bounce, "
-    "or production material-parity claim";
+    "two-sample hardware DXR directional-shadow semantics plus exact "
+    "D3D11On12 Ogre device adoption and a separate UI-free Ogre PBS raster "
+    "readback; semantic probe only, with no exact Ogre RGBA16 source, hybrid "
+    "Ogre image composite, GI, reflection, denoising, multi-bounce, or "
+    "production material-parity claim";
 
 struct Arguments {
   std::filesystem::path report;
@@ -88,6 +89,44 @@ struct FrameMetrics {
   float maximum_luminance = -std::numeric_limits<float>::infinity();
   std::vector<unsigned char> rgb;
 };
+
+const char* DirectionalShadowBackendName(
+    RoR::Render::NativeDirectionalShadowBackend backend) noexcept {
+  using RoR::Render::NativeDirectionalShadowBackend;
+  switch (backend) {
+    case NativeDirectionalShadowBackend::DIRECT3D12_DXR:
+      return "DIRECT3D12_DXR";
+    case NativeDirectionalShadowBackend::METAL:
+      return "METAL";
+    case NativeDirectionalShadowBackend::VULKAN_KHR:
+      return "VULKAN_KHR";
+    case NativeDirectionalShadowBackend::INVALID:
+      return "INVALID";
+  }
+  return "INVALID";
+}
+
+const char* DirectionalShadowVisibilityName(
+    RoR::Render::NativeDirectionalShadowVisibility visibility) noexcept {
+  using RoR::Render::NativeDirectionalShadowVisibility;
+  switch (visibility) {
+    case NativeDirectionalShadowVisibility::VISIBLE:
+      return "VISIBLE";
+    case NativeDirectionalShadowVisibility::OCCLUDED:
+      return "OCCLUDED";
+    case NativeDirectionalShadowVisibility::INVALID:
+      return "INVALID";
+  }
+  return "INVALID";
+}
+
+void AppendRgba16Bits(
+    std::ostringstream& output,
+    const RoR::Render::NativeDirectionalShadowRgba16Pixel& pixel) {
+  output << '[' << pixel.channels[0U] << ", " << pixel.channels[1U]
+         << ", " << pixel.channels[2U] << ", " << pixel.channels[3U]
+         << ']';
+}
 
 std::string JsonEscape(const std::string& value) {
   std::ostringstream escaped;
@@ -349,6 +388,9 @@ std::string MakeReport(const char* status, const std::string& reason,
                        const std::string& execution_nonce,
                        const Dxr7BootstrapEvidence& evidence) {
   const bool passed = std::string(status) == "pass";
+  const auto& semantic = evidence.directional_shadow;
+  const bool semantic_pass =
+      RoR::Render::ValidateDxr7DirectionalShadowSemanticContract(semantic);
   std::ostringstream report;
   report << "{\n"
          << "  \"schema\": \"" << ROR_OGRE_NEXT_DXR7_SCHEMA << "\",\n"
@@ -368,10 +410,13 @@ std::string MakeReport(const char* status, const std::string& reason,
          << "    \"acceleration_structure_built\": "
          << Boolean(evidence.blas_built && evidence.tlas_built) << ",\n"
          << "    \"ray_traced_probe_readback\": "
-         << Boolean(evidence.closest_hit_readback_exact) << ",\n"
+         << Boolean(semantic_pass) << ",\n"
+         << "    \"semantic_directional_shadow_probe\": "
+         << Boolean(semantic_pass) << ",\n"
          << "    \"ray_traced_image_produced\": false,\n"
          << "    \"ogre_raster_image_produced\": "
          << Boolean(evidence.ogre_frame_readback_completed) << ",\n"
+         << "    \"exact_ogre_rgba16_source\": false,\n"
          << "    \"hybrid_ogre_image_composite\": false,\n"
          << "    \"limitation\": \"" << kScopeLimitation << "\"\n"
          << "  },\n"
@@ -482,8 +527,15 @@ std::string MakeReport(const char* status, const std::string& reason,
          << "  \"ray_tracing\": {\n"
          << "    \"blas_built\": " << Boolean(evidence.blas_built)
          << ",\n"
+         << "    \"blas_count\": " << semantic.blas_count << ",\n"
+         << "    \"receiver_blas_built\": "
+         << Boolean(semantic.receiver_blas_built) << ",\n"
+         << "    \"occluder_blas_built\": "
+         << Boolean(semantic.occluder_blas_built) << ",\n"
          << "    \"tlas_built\": " << Boolean(evidence.tlas_built)
          << ",\n"
+         << "    \"tlas_instance_count\": "
+         << semantic.tlas_instance_count << ",\n"
          << "    \"state_object_created\": "
          << Boolean(evidence.state_object_created) << ",\n"
          << "    \"shader_identifiers_resolved\": "
@@ -494,9 +546,78 @@ std::string MakeReport(const char* status, const std::string& reason,
          << "    \"dispatch_height\": " << evidence.dispatch_height
          << ",\n"
          << "    \"dispatch_depth\": " << evidence.dispatch_depth << ",\n"
-         << "    \"readback_value\": " << evidence.readback_value << ",\n"
-         << "    \"closest_hit_readback_exact\": "
-         << Boolean(evidence.closest_hit_readback_exact) << "\n"
+         << "    \"typed_semantic_readback_exact\": "
+         << Boolean(semantic_pass) << "\n"
+         << "  },\n"
+         << "  \"directional_shadow_semantics\": {\n"
+         << "    \"contract_version\": " << semantic.version << ",\n"
+         << "    \"backend\": \""
+         << DirectionalShadowBackendName(semantic.capabilities.backend)
+         << "\",\n"
+         << "    \"target_tier\": \"NATIVE_DIRECTIONAL_HARD_SHADOW_V1\",\n"
+         << "    \"semantic_probe_only\": "
+         << Boolean(semantic.semantic_probe_only) << ",\n"
+         << "    \"exact_ogre_rgba16_source\": "
+         << Boolean(semantic.exact_ogre_rgba16_source) << ",\n"
+         << "    \"hybrid_ogre_image_composite\": "
+         << Boolean(semantic.hybrid_ogre_image_composite) << ",\n"
+         << "    \"capabilities\": {\n"
+         << "      \"hardware_ray_tracing\": "
+         << Boolean(semantic.capabilities.hardware_ray_tracing) << ",\n"
+         << "      \"same_device_raster_and_ray_queue\": "
+         << Boolean(semantic.capabilities.same_device_raster_and_ray_queue)
+         << ",\n"
+         << "      \"two_level_acceleration_structures\": "
+         << Boolean(semantic.capabilities.two_level_acceleration_structures)
+         << ",\n"
+         << "      \"primary_camera_rays\": "
+         << Boolean(semantic.capabilities.primary_camera_rays) << ",\n"
+         << "      \"secondary_directional_visibility_rays\": "
+         << Boolean(
+                semantic.capabilities.secondary_directional_visibility_rays)
+         << ",\n"
+         << "      \"r16_float_visibility\": "
+         << Boolean(semantic.capabilities.r16_float_visibility) << ",\n"
+         << "      \"rgba16_float_hybrid_composite\": "
+         << Boolean(semantic.capabilities.rgba16_float_hybrid_composite)
+         << "\n"
+         << "    },\n"
+         << "    \"receiver_instance_id\": "
+         << semantic.receiver_instance_id << ",\n"
+         << "    \"occluder_instance_id\": "
+         << semantic.occluder_instance_id << ",\n"
+         << "    \"primary_camera_rays_per_sample\": "
+         << semantic.primary_camera_rays_per_sample << ",\n"
+         << "    \"secondary_directional_visibility_rays_per_sample\": "
+         << semantic.secondary_directional_visibility_rays_per_sample
+         << ",\n"
+         << "    \"visibility_format\": \"R16_FLOAT\",\n"
+         << "    \"lineage_format\": \"R32_UINT\",\n"
+         << "    \"hybrid_format\": \"RGBA16_FLOAT\",\n"
+         << "    \"visibility_readback_completed\": "
+         << Boolean(semantic.visibility_readback_completed) << ",\n"
+         << "    \"lineage_readback_completed\": "
+         << Boolean(semantic.lineage_readback_completed) << ",\n"
+         << "    \"hybrid_readback_completed\": "
+         << Boolean(semantic.hybrid_readback_completed) << ",\n"
+         << "    \"samples\": [\n";
+  for (std::size_t index = 0U; index < semantic.samples.size(); ++index) {
+    const auto& sample = semantic.samples[index];
+    report << "      {\"visibility\": \""
+           << DirectionalShadowVisibilityName(sample.visibility)
+           << "\", \"visibility_r16_bits\": "
+           << sample.visibility_r16_bits << ", \"ray_lineage\": "
+           << sample.ray_lineage << ", \"primary_hit_instance_id\": "
+           << sample.primary_hit_instance_id
+           << ", \"secondary_blocker_instance_id\": "
+           << sample.secondary_blocker_instance_id
+           << ", \"raster_rgba16_bits\": ";
+    AppendRgba16Bits(report, sample.raster_rgba16);
+    report << ", \"hybrid_rgba16_bits\": ";
+    AppendRgba16Bits(report, sample.hybrid_rgba16);
+    report << '}' << (index + 1U == semantic.samples.size() ? "\n" : ",\n");
+  }
+  report << "    ]\n"
          << "  },\n"
          << "  \"ogre_frame\": {\n"
          << "    \"native_hidden_window_created\": "
@@ -756,7 +877,8 @@ int main(int argc, char** argv) {
     }
     RequireReady(initialization);
     RequireReady(bootstrap.ProveFenceBeforeDispatch());
-    RequireReady(bootstrap.DispatchProbe(arguments.shader));
+    RequireReady(
+        bootstrap.DispatchDirectionalShadowSemanticProbe(arguments.shader));
     RunOgreFrameProof(bootstrap, arguments.media_root, arguments.image);
     RequireReady(bootstrap.ProveFenceAfterOgre());
     RequireReady(bootstrap.Shutdown());
@@ -767,7 +889,8 @@ int main(int argc, char** argv) {
     WriteAtomically(arguments.report,
                     MakeReport("pass", "", arguments.execution_nonce,
                                bootstrap.evidence()));
-    std::cout << "DXR7 D3D12/D3D11On12/Ogre frame proof passed\n";
+    std::cout << "DXR7 D3D12 directional-shadow semantic and "
+                 "D3D11On12/Ogre frame proof passed\n";
     return 0;
   } catch (const std::exception& error) {
     static_cast<void>(bootstrap.AbortAfterFailure());

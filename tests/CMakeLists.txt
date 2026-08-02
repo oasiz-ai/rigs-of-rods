@@ -307,6 +307,7 @@ add_executable(
     ror_ogre_next_dxr7_contract_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/OgreNextDxr7ContractTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextDxr7Contract.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/NativeDirectionalShadowContract.cpp"
 )
 target_include_directories(
     ror_ogre_next_n1_policy_tests

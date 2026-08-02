@@ -80,8 +80,7 @@ struct Dxr7BootstrapEvidence {
   std::uint32_t dispatch_width = 0U;
   std::uint32_t dispatch_height = 0U;
   std::uint32_t dispatch_depth = 0U;
-  std::uint32_t readback_value = 0U;
-  bool closest_hit_readback_exact = false;
+  Dxr7DirectionalShadowSemanticContract directional_shadow;
   std::uint64_t fence_before_dispatch = 0U;
   std::uint64_t fence_after_dispatch = 0U;
   std::uint64_t fence_after_ogre = 0U;
@@ -103,7 +102,7 @@ class OgreNextD3D12DxrBootstrap final {
 
   Dxr7BootstrapResult Initialize();
   Dxr7BootstrapResult ProveFenceBeforeDispatch();
-  Dxr7BootstrapResult DispatchProbe(
+  Dxr7BootstrapResult DispatchDirectionalShadowSemanticProbe(
       const std::filesystem::path& dxil_library);
 
   std::uintptr_t external_d3d11_device_address() const noexcept;

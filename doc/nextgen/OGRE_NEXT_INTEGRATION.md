@@ -1,13 +1,15 @@
 # OGRE-Next isolated integration checkpoint
 
 Status: **opt-in N1/RT4 raster frontend with bounded directional PSSM, Apple
-Metal N2 geometry, N3 view-dependent hybrid-HDR, and N4 native directional
-hard-shadow proofs; no shipping renderer switch**
+Metal N2 geometry, N3 view-dependent hybrid HDR, soaked N4 native directional
+hard shadows, and bounded Vulkan/DXR semantic probes; no shipping renderer
+switch**
 
-This checkpoint compiles seven standalone executables against an exact
-OGRE-Next `v3-0` revision while leaving every default RoR and OGRE 14 build
-unchanged. The capability executable proves that the reviewed platform
-renderer registers with OGRE core, HLMS PBS links and selects the expected
+This checkpoint compiles a core standalone probe family plus platform-specific
+Metal, Vulkan, and DXR executables against an exact OGRE-Next `v3-0` revision
+while leaving every default RoR and OGRE 14 build unchanged. The capability
+executable proves that the reviewed platform renderer registers with OGRE core,
+HLMS PBS links and selects the expected
 shader family, and Compositor2 remains deferred before a window exists. It
 does not create a render window. The frame executable then creates the
 platform's reviewed hidden or null-window surface, initializes the logical
@@ -63,17 +65,30 @@ pixels preserve every RGBA16 bit, while occluded pixels zero RGB and preserve
 alpha exactly. Capability admission is fail-closed: the standalone N4 smoke
 initializes its frontend, then records an explicit unsupported result if the
 Metal backend rejects the device. The separately validated PSSM path exists,
-but a production pre-initialization selector between N4 and PSSM is not wired
-yet. This is a real Metal hard-shadow pass, not a soft-shadow, local-light, GI,
+and the pure `RendererStartupPlan` now resolves native N4, Ogre-Next PSSM,
+OGRE14 PSSM, or rejection before either ABI is loaded. The production launcher
+and separate-executable handoff are not wired yet. This is a real Metal
+hard-shadow pass, not a soft-shadow, local-light, GI,
 denoising, Vulkan KHR, DXR, production-material, image-quality, or performance
 claim.
 
+Linux RT6 and Windows RT7 now mirror the renderer-neutral N4 sample semantics
+inside their native API probes: two distinct BLAS, a two-instance TLAS, one
+receiver ray and one +light visibility ray per sample, canonical R16 visibility,
+R32 instance lineage, and RGBA16 hybrid output. DXR uses typed UAVs; Vulkan
+packs the same binary16 and R32 encodings into a std430 storage buffer. Both
+reports are deliberately marked `semantic_probe_only`; neither claims that its raster sample came from
+the exact Ogre target or that its hybrid result was composited back into an
+Ogre image. Their portable validators are green on macOS, while real Vulkan RT
+and DXR execution remains a Linux/Windows hardware gate.
+
 The original capability and frame probes do not consume a RoR scene. The N1
-through N4 executables consume the renderer-neutral RoR scene and asset contracts,
+through N4 and N4A executables consume the renderer-neutral RoR scene and asset
+contracts,
 but never link into the OGRE 1.14 executable or touch simulation/solver state.
 N2 evaluates capability and exact geometry interop without producing an image;
 N3 adds the first measured view-dependent hybrid scene output, and N4 adds
-directional visibility over distinct receiver and occluder geometry. None of the seven
+directional visibility over distinct receiver and occluder geometry. None of the
 executables is a shipping presentation-window, performance, or visual-quality
 claim.
 
@@ -647,11 +662,16 @@ two BLAS, two TLAS instances with disjoint receiver/occluder masks, the exact
 Ogre color-image lease, and one command buffer on Ogre's Metal queue. Allocation
 failures are checked before any acceleration-structure object enters a Metal
 descriptor collection, so memory pressure follows the pre-submission cleanup
-path instead of raising an Objective-C exception. These measurements close the
+path instead of raising an Objective-C exception. A consecutive identical
+scene produced byte-identical raster, visibility, lineage, and hybrid outputs;
+moving only the occluder preserved the raster while changing all shadow-derived
+outputs. Releasing the frame permitted an 80x48 target replacement, and fresh
+post-submission device-loss and timeout cases both revoked leases, tore down the
+backend, and latched the frontend fail-closed. These measurements close the
 first native full-view hard-directional-shadow slice on Metal only. They do not
 close soft shadows, local lights, materials beyond the retained raster color,
-temporal stability, resize/fault soak, CityWorld content quality, performance,
-Vulkan KHR, or DXR.
+long-running soak, CityWorld content quality, performance, full Vulkan/Ogre
+interop, or full DXR/Ogre interop.
 
 ## Next gates
 

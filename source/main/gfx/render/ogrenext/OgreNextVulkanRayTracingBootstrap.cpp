@@ -8,6 +8,11 @@
 
 #include "OgreNextVulkanRayTracingBootstrap.h"
 
+// The RT6 smoke executable is deliberately standalone and does not link the
+// frontend library. Compile the exact renderer-neutral sample oracle into this
+// isolated binary instead of cloning its RGBA16 mapping rules here.
+#include "NativeDirectionalShadowContract.cpp"
+
 #if !defined(ROR_OGRE_NEXT_N1_VULKAN)
 #error "The RT6 ray-tracing bootstrap is reviewed only for Linux Vulkan"
 #endif
@@ -34,6 +39,11 @@ constexpr std::uint64_t kTimelineWaitNanoseconds = 10'000'000'000ULL;
 constexpr VkFormat kOutputFormat = VK_FORMAT_R32G32B32A32_UINT;
 constexpr std::array<std::uint32_t, 4U> kExpectedPrimaryHit = {
     0x52543601U, 0x13579bdfU, 0x2468ace0U, 0x00000001U};
+constexpr std::uint32_t kSemanticSampleCount = 2U;
+constexpr std::uint32_t kReceiverInstanceId = 1U;
+constexpr std::uint32_t kOccluderInstanceId = 2U;
+constexpr std::array<std::uint16_t, 4U> kSemanticRasterRgba16 = {
+    0x3800U, 0x3400U, 0x3a00U, 0x3c00U};
 constexpr std::array<const char*, 4U> kRequiredDeviceExtensions = {
     VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
     VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
@@ -46,16 +56,61 @@ constexpr const char* kRayGenerationShader = R"glsl(
 #extension GL_EXT_ray_tracing : require
 layout(set = 0, binding = 0) uniform accelerationStructureEXT scene;
 layout(set = 0, binding = 1, rgba32ui) uniform uimage2D output_image;
+layout(set = 0, binding = 2, std430) buffer SemanticOutput {
+  uint visibility_r16_bits[2];
+  uint lineage_r32[2];
+  uvec2 raster_rgba16_words[2];
+  uvec2 hybrid_rgba16_words[2];
+} semantic_output;
 layout(location = 0) rayPayloadEXT uvec4 payload;
 void main() {
+  // Preserve the original RT6 1x1 primary-hit proof byte-for-byte.
   payload = uvec4(0u);
   traceRayEXT(scene,
               gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
-              0xff, 0, 0, 0,
+              0x01, 0, 0, 0,
               vec3(0.0, 0.0, 1.0), 0.001,
               vec3(0.0, 0.0, -1.0), 100.0,
               0);
   imageStore(output_image, ivec2(0, 0), payload);
+
+  const vec4 raster = vec4(0.5, 0.25, 0.75, 1.0);
+  const vec3 directional_light_direction = vec3(0.0, 0.0, 1.0);
+  for (uint sample_index = 0u; sample_index < 2u; ++sample_index) {
+    const float sample_x = sample_index == 0u ? -0.5 : 0.5;
+    payload = uvec4(0u);
+    traceRayEXT(scene,
+                gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
+                0x01, 0, 0, 0,
+                vec3(sample_x, 0.0, 1.0), 0.001,
+                vec3(0.0, 0.0, -1.0), 100.0,
+                0);
+    const bool receiver_hit =
+        all(equal(payload,
+                  uvec4(0x52543601u, 0x13579bdfu, 0x2468ace0u, 1u)));
+
+    // The initialized payload is the canonical visible/miss result. The
+    // occluder closest-hit shader changes it to occluded and adds lineage bit 2.
+    payload = uvec4(0x3c00u, receiver_hit ? 1u : 0u, 0u, 0x4e344101u);
+    traceRayEXT(scene,
+                gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
+                0x02, 0, 0, 0,
+                vec3(sample_x, 0.0, 0.001), 0.001,
+                directional_light_direction, 100.0,
+                0);
+
+    const float visibility = payload.z == 2u ? 0.0 : 1.0;
+    const vec4 hybrid = payload.z == 2u
+                            ? vec4(0.0, 0.0, 0.0, raster.a)
+                            : raster;
+    semantic_output.visibility_r16_bits[sample_index] =
+        packHalf2x16(vec2(visibility, 0.0)) & 0xffffu;
+    semantic_output.lineage_r32[sample_index] = payload.y;
+    semantic_output.raster_rgba16_words[sample_index] =
+        uvec2(packHalf2x16(raster.rg), packHalf2x16(raster.ba));
+    semantic_output.hybrid_rgba16_words[sample_index] =
+        uvec2(packHalf2x16(hybrid.rg), packHalf2x16(hybrid.ba));
+  }
 }
 )glsl";
 
@@ -64,7 +119,15 @@ constexpr const char* kClosestHitShader = R"glsl(
 #extension GL_EXT_ray_tracing : require
 layout(location = 0) rayPayloadInEXT uvec4 payload;
 void main() {
-  payload = uvec4(0x52543601u, 0x13579bdfu, 0x2468ace0u, 1u);
+  if (uint(gl_InstanceCustomIndexEXT) == 1u) {
+    payload = uvec4(0x52543601u, 0x13579bdfu, 0x2468ace0u, 1u);
+  } else if (uint(gl_InstanceCustomIndexEXT) == 2u) {
+    payload.x = 0u;
+    payload.y |= 2u;
+    payload.z = 2u;
+  } else {
+    payload = uvec4(0xffffffffu);
+  }
 }
 )glsl";
 
@@ -73,7 +136,8 @@ constexpr const char* kMissShader = R"glsl(
 #extension GL_EXT_ray_tracing : require
 layout(location = 0) rayPayloadInEXT uvec4 payload;
 void main() {
-  payload = uvec4(0u);
+  // Preserve the ray-generation shader's initialized miss value. The original
+  // primary ray initializes zero; the N4A secondary ray initializes visible.
 }
 )glsl";
 
@@ -330,7 +394,7 @@ bool InspectCandidate(VkPhysicalDevice physical_device, Candidate& candidate,
       candidate.ray_pipeline_properties.maxRayDispatchInvocationCount >= 1U &&
       candidate.acceleration_properties.maxGeometryCount >= 1U &&
       candidate.acceleration_properties.maxPrimitiveCount >= 1U &&
-      candidate.acceleration_properties.maxInstanceCount >= 1U &&
+      candidate.acceleration_properties.maxInstanceCount >= 2U &&
       candidate.acceleration_properties
               .maxDescriptorSetAccelerationStructures >= 1U &&
       IsPowerOfTwo(candidate.acceleration_properties
@@ -431,6 +495,18 @@ struct OwnedBuffer {
   VkDeviceSize size = 0U;
 };
 
+struct SemanticGpuOutput {
+  std::array<std::uint32_t, kSemanticSampleCount> visibility_r16_bits{};
+  std::array<std::uint32_t, kSemanticSampleCount> lineage_r32{};
+  std::array<std::array<std::uint32_t, 2U>, kSemanticSampleCount>
+      raster_rgba16_words{};
+  std::array<std::array<std::uint32_t, 2U>, kSemanticSampleCount>
+      hybrid_rgba16_words{};
+};
+
+static_assert(sizeof(SemanticGpuOutput) == 48U,
+              "N4A semantic storage-buffer layout must remain std430 exact");
+
 }  // namespace
 
 struct OgreNextVulkanRayTracingBootstrap::Impl {
@@ -461,11 +537,15 @@ struct OgreNextVulkanRayTracingBootstrap::Impl {
   OwnedBuffer geometry_buffer;
   OwnedBuffer instance_buffer;
   OwnedBuffer blas_storage;
+  OwnedBuffer semantic_occluder_blas_storage;
   OwnedBuffer tlas_storage;
   OwnedBuffer scratch_buffer;
   OwnedBuffer shader_binding_table;
   OwnedBuffer readback_buffer;
+  OwnedBuffer semantic_output_buffer;
+  OwnedBuffer semantic_readback_buffer;
   VkAccelerationStructureKHR blas = VK_NULL_HANDLE;
+  VkAccelerationStructureKHR semantic_occluder_blas = VK_NULL_HANDLE;
   VkAccelerationStructureKHR tlas = VK_NULL_HANDLE;
   VkImage output_image = VK_NULL_HANDLE;
   VkDeviceMemory output_image_memory = VK_NULL_HANDLE;
@@ -677,12 +757,20 @@ struct OgreNextVulkanRayTracingBootstrap::Impl {
       destroy_acceleration_structure(device, blas, nullptr);
       blas = VK_NULL_HANDLE;
     }
+    if (semantic_occluder_blas != VK_NULL_HANDLE &&
+        destroy_acceleration_structure != nullptr) {
+      destroy_acceleration_structure(device, semantic_occluder_blas, nullptr);
+      semantic_occluder_blas = VK_NULL_HANDLE;
+    }
     DestroyBuffer(shader_binding_table);
     DestroyBuffer(readback_buffer);
+    DestroyBuffer(semantic_readback_buffer);
+    DestroyBuffer(semantic_output_buffer);
     DestroyBuffer(scratch_buffer);
     DestroyBuffer(instance_buffer);
     DestroyBuffer(geometry_buffer);
     DestroyBuffer(tlas_storage);
+    DestroyBuffer(semantic_occluder_blas_storage);
     DestroyBuffer(blas_storage);
   }
 
@@ -1055,8 +1143,17 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
     float y;
     float z;
   };
-  const std::array<Vertex, 3U> vertices = {
-      {{-0.75F, -0.75F, 0.0F}, {0.75F, -0.75F, 0.0F}, {0.0F, 0.75F, 0.0F}}};
+  // Receiver and occluder occupy distinct vertex ranges and distinct BLAS.
+  // The receiver covers both controlled sample rays. The elevated occluder
+  // covers only x=+0.5 for a deterministic visible/occluded pair.
+  const std::array<Vertex, 6U> vertices = {{
+      {-2.0F, -1.0F, 0.0F},
+      {2.0F, -1.0F, 0.0F},
+      {0.0F, 2.0F, 0.0F},
+      {0.1F, -0.6F, 0.5F},
+      {0.9F, -0.6F, 0.5F},
+      {0.5F, 0.7F, 0.5F},
+  }};
   VulkanRt6BootstrapResult operation = impl_->CreateBuffer(
       sizeof(vertices),
       VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
@@ -1091,11 +1188,17 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   triangles.vertexStride = sizeof(Vertex);
   triangles.maxVertex = 2U;
   triangles.indexType = VK_INDEX_TYPE_NONE_KHR;
+  VkAccelerationStructureGeometryTrianglesDataKHR occluder_triangles =
+      triangles;
+  occluder_triangles.vertexData.deviceAddress =
+      geometry_address + sizeof(Vertex) * 3U;
   VkAccelerationStructureGeometryKHR blas_geometry{};
   blas_geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
   blas_geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
   blas_geometry.geometry.triangles = triangles;
   blas_geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+  VkAccelerationStructureGeometryKHR occluder_blas_geometry = blas_geometry;
+  occluder_blas_geometry.geometry.triangles = occluder_triangles;
   VkAccelerationStructureBuildGeometryInfoKHR blas_build{};
   blas_build.sType =
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
@@ -1104,6 +1207,8 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   blas_build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
   blas_build.geometryCount = 1U;
   blas_build.pGeometries = &blas_geometry;
+  VkAccelerationStructureBuildGeometryInfoKHR occluder_blas_build = blas_build;
+  occluder_blas_build.pGeometries = &occluder_blas_geometry;
   const std::uint32_t primitive_count = 1U;
   VkAccelerationStructureBuildSizesInfoKHR blas_sizes{};
   blas_sizes.sType =
@@ -1111,8 +1216,17 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   impl_->get_build_sizes(impl_->device,
                          VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
                          &blas_build, &primitive_count, &blas_sizes);
+  VkAccelerationStructureBuildSizesInfoKHR occluder_blas_sizes{};
+  occluder_blas_sizes.sType =
+      VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+  impl_->get_build_sizes(impl_->device,
+                         VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+                         &occluder_blas_build, &primitive_count,
+                         &occluder_blas_sizes);
   if (blas_sizes.accelerationStructureSize == 0U ||
-      blas_sizes.buildScratchSize == 0U) {
+      blas_sizes.buildScratchSize == 0U ||
+      occluder_blas_sizes.accelerationStructureSize == 0U ||
+      occluder_blas_sizes.buildScratchSize == 0U) {
     return Failure("Vulkan returned zero BLAS build sizes");
   }
   operation = impl_->CreateBuffer(
@@ -1120,6 +1234,15 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
       VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, true, impl_->blas_storage);
+  if (!operation.ready()) {
+    return operation;
+  }
+  operation = impl_->CreateBuffer(
+      occluder_blas_sizes.accelerationStructureSize,
+      VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
+          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, true,
+      impl_->semantic_occluder_blas_storage);
   if (!operation.ready()) {
     return operation;
   }
@@ -1133,6 +1256,17 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   if (result != VK_SUCCESS) {
     return Failure(VkFailure("vkCreateAccelerationStructureKHR(BLAS)", result));
   }
+  VkAccelerationStructureCreateInfoKHR occluder_blas_create = blas_create;
+  occluder_blas_create.buffer = impl_->semantic_occluder_blas_storage.buffer;
+  occluder_blas_create.size =
+      occluder_blas_sizes.accelerationStructureSize;
+  result = impl_->create_acceleration_structure(
+      impl_->device, &occluder_blas_create, nullptr,
+      &impl_->semantic_occluder_blas);
+  if (result != VK_SUCCESS) {
+    return Failure(
+        VkFailure("vkCreateAccelerationStructureKHR(occluder BLAS)", result));
+  }
   VkAccelerationStructureDeviceAddressInfoKHR blas_address_info{};
   blas_address_info.sType =
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
@@ -1144,16 +1278,36 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   }
   impl_->evidence.blas_device_address = blas_address;
 
-  VkAccelerationStructureInstanceKHR instance_data{};
-  instance_data.transform.matrix[0][0] = 1.0F;
-  instance_data.transform.matrix[1][1] = 1.0F;
-  instance_data.transform.matrix[2][2] = 1.0F;
-  instance_data.instanceCustomIndex = 0U;
-  instance_data.mask = 0xffU;
-  instance_data.instanceShaderBindingTableRecordOffset = 0U;
-  instance_data.flags =
-      VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-  instance_data.accelerationStructureReference = blas_address;
+  VkAccelerationStructureDeviceAddressInfoKHR occluder_blas_address_info{};
+  occluder_blas_address_info.sType =
+      VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+  occluder_blas_address_info.accelerationStructure =
+      impl_->semantic_occluder_blas;
+  const VkDeviceAddress occluder_blas_address =
+      impl_->get_acceleration_address(impl_->device,
+                                      &occluder_blas_address_info);
+  if (occluder_blas_address == 0U || occluder_blas_address == blas_address) {
+    return Failure("semantic receiver and occluder BLAS addresses are not "
+                   "distinct nonzero values");
+  }
+  impl_->evidence.semantic_occluder_blas_device_address =
+      occluder_blas_address;
+
+  std::array<VkAccelerationStructureInstanceKHR, 2U> instance_data{};
+  for (VkAccelerationStructureInstanceKHR& instance : instance_data) {
+    instance.transform.matrix[0][0] = 1.0F;
+    instance.transform.matrix[1][1] = 1.0F;
+    instance.transform.matrix[2][2] = 1.0F;
+    instance.instanceShaderBindingTableRecordOffset = 0U;
+    instance.flags =
+        VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+  }
+  instance_data[0U].instanceCustomIndex = kReceiverInstanceId;
+  instance_data[0U].mask = 0x01U;
+  instance_data[0U].accelerationStructureReference = blas_address;
+  instance_data[1U].instanceCustomIndex = kOccluderInstanceId;
+  instance_data[1U].mask = 0x02U;
+  instance_data[1U].accelerationStructureReference = occluder_blas_address;
   operation = impl_->CreateBuffer(
       sizeof(instance_data),
       VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
@@ -1164,7 +1318,7 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   if (!operation.ready()) {
     return operation;
   }
-  operation = impl_->Upload(impl_->instance_buffer, &instance_data,
+  operation = impl_->Upload(impl_->instance_buffer, instance_data.data(),
                             sizeof(instance_data));
   if (!operation.ready()) {
     return operation;
@@ -1196,12 +1350,14 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   tlas_build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
   tlas_build.geometryCount = 1U;
   tlas_build.pGeometries = &tlas_geometry;
+  const std::uint32_t tlas_primitive_count =
+      static_cast<std::uint32_t>(instance_data.size());
   VkAccelerationStructureBuildSizesInfoKHR tlas_sizes{};
   tlas_sizes.sType =
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
   impl_->get_build_sizes(impl_->device,
                          VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
-                         &tlas_build, &primitive_count, &tlas_sizes);
+                         &tlas_build, &tlas_primitive_count, &tlas_sizes);
   if (tlas_sizes.accelerationStructureSize == 0U ||
       tlas_sizes.buildScratchSize == 0U) {
     return Failure("Vulkan returned zero TLAS build sizes");
@@ -1236,7 +1392,9 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   impl_->evidence.tlas_device_address = tlas_address;
 
   const VkDeviceSize required_scratch_size =
-      std::max(blas_sizes.buildScratchSize, tlas_sizes.buildScratchSize);
+      std::max({blas_sizes.buildScratchSize,
+                occluder_blas_sizes.buildScratchSize,
+                tlas_sizes.buildScratchSize});
   const VkDeviceSize scratch_alignment =
       impl_->evidence.acceleration_structure_scratch_alignment;
   if (scratch_alignment == 0U ||
@@ -1267,6 +1425,9 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   impl_->evidence.scratch_buffer_device_address = scratch_address;
   blas_build.dstAccelerationStructure = impl_->blas;
   blas_build.scratchData.deviceAddress = scratch_address;
+  occluder_blas_build.dstAccelerationStructure =
+      impl_->semantic_occluder_blas;
+  occluder_blas_build.scratchData.deviceAddress = scratch_address;
   tlas_build.dstAccelerationStructure = impl_->tlas;
   tlas_build.scratchData.deviceAddress = scratch_address;
 
@@ -1332,12 +1493,30 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   if (!operation.ready()) {
     return operation;
   }
+  operation = impl_->CreateBuffer(
+      sizeof(SemanticGpuOutput),
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false,
+      impl_->semantic_output_buffer);
+  if (!operation.ready()) {
+    return operation;
+  }
+  operation = impl_->CreateBuffer(
+      sizeof(SemanticGpuOutput), VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      false, impl_->semantic_readback_buffer);
+  if (!operation.ready()) {
+    return operation;
+  }
 
-  const std::array<VkDescriptorSetLayoutBinding, 2U> bindings = {{
+  const std::array<VkDescriptorSetLayoutBinding, 3U> bindings = {{
       {0U, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1U,
        VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr},
       {1U, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1U, VK_SHADER_STAGE_RAYGEN_BIT_KHR,
        nullptr},
+      {2U, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1U,
+       VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr},
   }};
   VkDescriptorSetLayoutCreateInfo descriptor_layout_info{};
   descriptor_layout_info.sType =
@@ -1350,9 +1529,10 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   if (result != VK_SUCCESS) {
     return Failure(VkFailure("vkCreateDescriptorSetLayout", result));
   }
-  const std::array<VkDescriptorPoolSize, 2U> pool_sizes = {{
+  const std::array<VkDescriptorPoolSize, 3U> pool_sizes = {{
       {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1U},
       {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1U},
+      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1U},
   }};
   VkDescriptorPoolCreateInfo pool_info{};
   pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1382,7 +1562,11 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   VkDescriptorImageInfo output_descriptor{};
   output_descriptor.imageView = impl_->output_image_view;
   output_descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-  std::array<VkWriteDescriptorSet, 2U> descriptor_writes{};
+  VkDescriptorBufferInfo semantic_descriptor{};
+  semantic_descriptor.buffer = impl_->semantic_output_buffer.buffer;
+  semantic_descriptor.offset = 0U;
+  semantic_descriptor.range = sizeof(SemanticGpuOutput);
+  std::array<VkWriteDescriptorSet, 3U> descriptor_writes{};
   descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   descriptor_writes[0].pNext = &acceleration_write;
   descriptor_writes[0].dstSet = impl_->descriptor_set;
@@ -1396,6 +1580,12 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   descriptor_writes[1].descriptorCount = 1U;
   descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   descriptor_writes[1].pImageInfo = &output_descriptor;
+  descriptor_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  descriptor_writes[2].dstSet = impl_->descriptor_set;
+  descriptor_writes[2].dstBinding = 2U;
+  descriptor_writes[2].descriptorCount = 1U;
+  descriptor_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  descriptor_writes[2].pBufferInfo = &semantic_descriptor;
   vkUpdateDescriptorSets(impl_->device,
                          static_cast<std::uint32_t>(descriptor_writes.size()),
                          descriptor_writes.data(), 0U, nullptr);
@@ -1565,7 +1755,13 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
                        VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
                        VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
                        0U, 1U, &blas_barrier, 0U, nullptr, 0U, nullptr);
-  const VkAccelerationStructureBuildRangeInfoKHR tlas_range = {1U, 0U, 0U, 0U};
+  impl_->cmd_build_acceleration_structures(
+      command_buffer, 1U, &occluder_blas_build, &blas_ranges);
+  vkCmdPipelineBarrier(command_buffer,
+                       VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                       VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                       0U, 1U, &blas_barrier, 0U, nullptr, 0U, nullptr);
+  const VkAccelerationStructureBuildRangeInfoKHR tlas_range = {2U, 0U, 0U, 0U};
   const VkAccelerationStructureBuildRangeInfoKHR* tlas_ranges = &tlas_range;
   impl_->cmd_build_acceleration_structures(command_buffer, 1U, &tlas_build,
                                            &tlas_ranges);
@@ -1619,10 +1815,19 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   image_to_transfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   image_to_transfer.subresourceRange.levelCount = 1U;
   image_to_transfer.subresourceRange.layerCount = 1U;
+  VkBufferMemoryBarrier semantic_to_transfer{};
+  semantic_to_transfer.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+  semantic_to_transfer.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  semantic_to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  semantic_to_transfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  semantic_to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  semantic_to_transfer.buffer = impl_->semantic_output_buffer.buffer;
+  semantic_to_transfer.offset = 0U;
+  semantic_to_transfer.size = VK_WHOLE_SIZE;
   vkCmdPipelineBarrier(command_buffer,
                        VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
-                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0U, 0U, nullptr, 0U,
-                       nullptr, 1U, &image_to_transfer);
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0U, 0U, nullptr, 1U,
+                       &semantic_to_transfer, 1U, &image_to_transfer);
   VkBufferImageCopy copy_region{};
   copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   copy_region.imageSubresource.layerCount = 1U;
@@ -1630,6 +1835,11 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   vkCmdCopyImageToBuffer(command_buffer, impl_->output_image,
                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                          impl_->readback_buffer.buffer, 1U, &copy_region);
+  VkBufferCopy semantic_copy{};
+  semantic_copy.size = sizeof(SemanticGpuOutput);
+  vkCmdCopyBuffer(command_buffer, impl_->semantic_output_buffer.buffer,
+                  impl_->semantic_readback_buffer.buffer, 1U,
+                  &semantic_copy);
   VkBufferMemoryBarrier readback_barrier{};
   readback_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
   readback_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -1639,9 +1849,14 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   readback_barrier.buffer = impl_->readback_buffer.buffer;
   readback_barrier.offset = 0U;
   readback_barrier.size = VK_WHOLE_SIZE;
+  VkBufferMemoryBarrier semantic_readback_barrier = readback_barrier;
+  semantic_readback_barrier.buffer = impl_->semantic_readback_buffer.buffer;
+  const std::array<VkBufferMemoryBarrier, 2U> readback_barriers = {
+      readback_barrier, semantic_readback_barrier};
   vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_PIPELINE_STAGE_HOST_BIT, 0U, 0U, nullptr, 1U,
-                       &readback_barrier, 0U, nullptr);
+                       VK_PIPELINE_STAGE_HOST_BIT, 0U, 0U, nullptr,
+                       static_cast<std::uint32_t>(readback_barriers.size()),
+                       readback_barriers.data(), 0U, nullptr);
   result = vkEndCommandBuffer(command_buffer);
   if (result != VK_SUCCESS) {
     return Failure(VkFailure("vkEndCommandBuffer(RT6)", result));
@@ -1685,6 +1900,16 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
   impl_->evidence.timeline_value_at_ray_dispatch = observed_dispatch_value;
   impl_->evidence.blas_built = true;
   impl_->evidence.tlas_built = true;
+  impl_->evidence.semantic_blas_count = 2U;
+  impl_->evidence.semantic_tlas_instance_count = 2U;
+  impl_->evidence.semantic_sample_count = kSemanticSampleCount;
+  impl_->evidence.semantic_primary_receiver_ray_count = kSemanticSampleCount;
+  impl_->evidence.semantic_directional_visibility_ray_count =
+      kSemanticSampleCount;
+  impl_->evidence.semantic_receiver_blas_built = true;
+  impl_->evidence.semantic_occluder_blas_built = true;
+  impl_->evidence.semantic_tlas_built = true;
+  impl_->evidence.semantic_controlled_geometry_exact = true;
   impl_->evidence.ray_dispatch_completed = true;
 
   void* readback_mapping = nullptr;
@@ -1703,6 +1928,72 @@ OgreNextVulkanRayTracingBootstrap::ProveRayTracingDispatch(
     return Failure(
         "RT6 dispatch did not produce the deterministic primary-hit pixel");
   }
+
+  SemanticGpuOutput semantic_output{};
+  result = vkMapMemory(impl_->device, impl_->semantic_readback_buffer.memory,
+                       0U, sizeof(semantic_output), 0U, &readback_mapping);
+  if (result != VK_SUCCESS) {
+    return Failure(VkFailure("vkMapMemory(N4A semantic readback)", result));
+  }
+  std::memcpy(&semantic_output, readback_mapping, sizeof(semantic_output));
+  vkUnmapMemory(impl_->device, impl_->semantic_readback_buffer.memory);
+
+  const auto unpack_rgba16 = [](const std::array<std::uint32_t, 2U>& words) {
+    return std::array<std::uint16_t, 4U>{
+        static_cast<std::uint16_t>(words[0U] & 0xffffU),
+        static_cast<std::uint16_t>(words[0U] >> 16U),
+        static_cast<std::uint16_t>(words[1U] & 0xffffU),
+        static_cast<std::uint16_t>(words[1U] >> 16U)};
+  };
+  for (std::size_t sample = 0U; sample < kSemanticSampleCount; ++sample) {
+    if ((semantic_output.visibility_r16_bits[sample] & 0xffff0000U) != 0U) {
+      return Failure("N4A visibility readback is not a canonical R16 value");
+    }
+    impl_->evidence.semantic_visibility_r16_bits[sample] =
+        static_cast<std::uint16_t>(
+            semantic_output.visibility_r16_bits[sample]);
+    impl_->evidence.semantic_lineage_r32[sample] =
+        semantic_output.lineage_r32[sample];
+    impl_->evidence.semantic_raster_rgba16_bits[sample] =
+        unpack_rgba16(semantic_output.raster_rgba16_words[sample]);
+    impl_->evidence.semantic_hybrid_rgba16_bits[sample] =
+        unpack_rgba16(semantic_output.hybrid_rgba16_words[sample]);
+  }
+  impl_->evidence.semantic_readback_completed = true;
+
+  const std::array<std::uint16_t, kSemanticSampleCount> expected_visibility = {
+      kNativeDirectionalShadowVisibleR16,
+      kNativeDirectionalShadowOccludedR16};
+  const std::array<std::uint32_t, kSemanticSampleCount> expected_lineage = {
+      kReceiverInstanceId, kReceiverInstanceId | kOccluderInstanceId};
+  if (impl_->evidence.semantic_visibility_r16_bits != expected_visibility ||
+      impl_->evidence.semantic_lineage_r32 != expected_lineage) {
+    return Failure("N4A rays did not produce the controlled visible/occluded "
+                   "lineage pair");
+  }
+  for (std::size_t sample = 0U; sample < kSemanticSampleCount; ++sample) {
+    NativeDirectionalShadowRgba16Pixel raster{};
+    raster.channels = impl_->evidence.semantic_raster_rgba16_bits[sample];
+    if (raster.channels != kSemanticRasterRgba16) {
+      return Failure("N4A raster sample is not the canonical RGBA16 mapping");
+    }
+    NativeDirectionalShadowSampleOracle oracle{};
+    const NativeDirectionalShadowVisibility visibility =
+        sample == 0U ? NativeDirectionalShadowVisibility::VISIBLE
+                     : NativeDirectionalShadowVisibility::OCCLUDED;
+    const ValidationResult oracle_result =
+        TryBuildNativeDirectionalShadowSampleOracle(visibility, raster,
+                                                     oracle);
+    if (!oracle_result ||
+        oracle.visibility_r16_bits !=
+            impl_->evidence.semantic_visibility_r16_bits[sample] ||
+        oracle.hybrid_rgba16.channels !=
+            impl_->evidence.semantic_hybrid_rgba16_bits[sample]) {
+      return Failure("N4A GPU sample differs from the portable directional "
+                     "shadow sample oracle");
+    }
+  }
+  impl_->evidence.semantic_sample_oracle_passed = true;
   if (!impl_->lifecycle.MarkRayDispatched()) {
     return Failure("RT6 lifecycle rejected completed ray dispatch");
   }

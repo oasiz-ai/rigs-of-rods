@@ -45,8 +45,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/CMakeLists.txt",
             "tests/CMakeLists.txt",
             "source/main/gfx/RendererBackendPolicy.*",
+            "source/main/gfx/RendererStartupPlan.*",
             "source/main/gfx/render/**",
             "tests/gfx/RendererBackendPolicyTests.cpp",
+            "tests/gfx/RendererStartupPlanTests.cpp",
             "tests/gfx/render/**",
         ):
             with self.subTest(path=path):
@@ -127,6 +129,56 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(artifact=artifact):
                 self.assertIn(artifact, self.workflow)
+
+    def test_startup_plan_is_built_and_run_on_every_probe_platform(self) -> None:
+        cmake = (
+            REPOSITORY_ROOT / "tools" / "ogre_next_probe" / "CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        runner = (REPOSITORY_ROOT / "tools" / "run_ogre_next_probe.py").read_text(
+            encoding="utf-8"
+        )
+        target_block = cmake[
+            cmake.index("add_executable(\n        ror_renderer_startup_plan_tests") :
+            cmake.index("target_include_directories(\n        ror_renderer_startup_plan_tests")
+        ]
+        cmake_manifest = cmake[
+            cmake.index("list(APPEND _ror_relevant_source_files") :
+            cmake.index("list(FILTER _ror_relevant_source_files")
+        ]
+        clean_paths = cmake[
+            cmake.index("set(_ror_n2_relevant_source_paths") :
+            cmake.index("execute_process(", cmake.index("set(_ror_n2_relevant_source_paths"))
+        ]
+        runner_manifest = runner[
+            runner.index("RELEVANT_SOURCE_PATHS = (") :
+            runner.index("\n)\n\n\nclass ProbeError")
+        ]
+        for token in (
+            "ror_renderer_startup_plan_tests",
+            "tests/gfx/RendererStartupPlanTests.cpp",
+            "source/main/gfx/RendererStartupPlan.cpp",
+            "source/main/gfx/RendererBackendPolicy.cpp",
+            "add_test(NAME ror_renderer_startup_plan",
+        ):
+            self.assertIn(token, cmake)
+        for path in (
+            "source/main/gfx/RendererBackendPolicy.cpp",
+            "source/main/gfx/RendererBackendPolicy.h",
+            "source/main/gfx/RendererStartupPlan.cpp",
+            "source/main/gfx/RendererStartupPlan.h",
+            "tests/gfx/RendererStartupPlanTests.cpp",
+        ):
+            with self.subTest(provenance_path=path):
+                self.assertEqual(cmake_manifest.count(f'"{path}"'), 1)
+                self.assertEqual(clean_paths.count(path), 1)
+                self.assertEqual(runner_manifest.count(f'"{path}"'), 1)
+        for source in (
+            "tests/gfx/RendererStartupPlanTests.cpp",
+            "source/main/gfx/RendererStartupPlan.cpp",
+            "source/main/gfx/RendererBackendPolicy.cpp",
+        ):
+            with self.subTest(target_source=source):
+                self.assertEqual(target_block.count(source), 1)
 
     def test_byte_hashed_probe_inputs_are_checkout_stable(self) -> None:
         attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(

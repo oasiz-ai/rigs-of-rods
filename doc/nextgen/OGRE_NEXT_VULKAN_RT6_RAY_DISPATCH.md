@@ -1,8 +1,9 @@
-# Ogre-Next Vulkan RT6 KHR ray-dispatch checkpoint
+# Ogre-Next Vulkan RT6 KHR ray-dispatch and N4A checkpoint
 
 RT6 is the first Linux checkpoint that may report Vulkan KHR ray tracing. A
 pass requires a real hardware ray dispatch and an exact nonzero primary-hit
-readback. Compiling the KHR types, creating placeholder objects, or running on
+readback plus the bounded directional-shadow semantic readbacks described
+below. Compiling the KHR types, creating placeholder objects, or running on
 lavapipe is not a pass.
 
 This remains an opt-in standalone proof around the pinned Ogre-Next project. It
@@ -33,17 +34,24 @@ evidence and must have zero dispatch/readback claims.
 
 ## Dispatch proof
 
-The owner creates a host-visible three-vertex mirror geometry buffer, a BLAS,
-a one-instance TLAS, an acceleration-structure descriptor, a storage-image
-descriptor, three runtime-compiled SPIR-V 1.4 shaders, a KHR ray pipeline, and
-aligned ray-generation/miss/hit shader-binding-table records. Scratch and SBT
-device addresses are aligned using the selected device's reported limits.
+The owner creates one six-vertex buffer containing a three-vertex receiver and
+a distinct three-vertex elevated occluder. It builds one BLAS per triangle and
+a two-instance TLAS with receiver mask `0x01`/ID `1` and occluder mask
+`0x02`/ID `2`. The original 1x1 RGBA32_UINT primary-hit storage image remains
+unchanged. A separate std430 storage buffer carries two semantic samples as
+R16 binary16 visibility encodings packed into 32-bit words, R32_UINT lineage,
+and RGBA16 binary16 pairs packed into `uvec2` words. These are exact encodings,
+not typed `VK_FORMAT_R16_SFLOAT` or `VK_FORMAT_R16G16B16A16_SFLOAT` images.
+Three runtime-compiled SPIR-V 1.4 shaders, a KHR ray pipeline, and aligned
+ray-generation/miss/hit shader-binding-table records complete the dispatch.
+Scratch and SBT device addresses are aligned using the selected device's
+reported limits.
 
 One primary command buffer on the shared graphics-and-compute queue:
 
-1. builds the BLAS;
-2. makes the BLAS and reused scratch writes available to the TLAS build;
-3. builds the TLAS and makes it visible to ray shaders;
+1. builds both BLAS with an intervening acceleration-structure barrier;
+2. makes both BLAS and reused scratch writes available to the TLAS build;
+3. builds the two-instance TLAS and makes it visible to ray shaders;
 4. transitions a 1x1 integer image to general layout;
 5. executes `vkCmdTraceRaysKHR(1, 1, 1)`;
 6. copies the image to coherent host-visible memory; and
@@ -58,6 +66,15 @@ closest-hit shader must produce exactly:
 
 A miss, zero output, different output, failed host wait, or omitted dispatch is
 a hard error, not an unsupported skip and not a pass.
+
+The same dispatch also traces one receiver ray and one +Z directional
+visibility ray at each of two controlled sample positions. The first sample
+must miss the occluder and return visibility `0x3c00` with lineage `1`; the
+second must hit it and return `0x0000` with lineage `3`. GPU-packed raster and
+hybrid RGBA16 words must match the platform-neutral sample oracle exactly.
+This closes only the N4A semantic submilestone: the report fixes
+`semantic_probe_only=true`, `exact_ogre_rgba16_source=false`, and
+`hybrid_ogre_image_composite=false`.
 
 ## Ogre adoption and ownership
 
@@ -99,7 +116,7 @@ python tools/ogre_next_probe/run_vulkan_rt6.py \
   --reuse-build-dir
 ```
 
-A hardware pass proves the fixed same-device primary-hit path only. Ogre-native
-image compositing, shared live scene extraction, resize/soak, validation-layer
-cleanliness, performance, and production renderer registration remain later
-gates.
+A hardware pass proves the fixed same-device primary-hit path and bounded N4A
+directional-shadow semantics. Exact Ogre RGBA16 image input/compositing, shared
+live scene extraction, resize/soak, validation-layer cleanliness, performance,
+and production renderer registration remain later gates.

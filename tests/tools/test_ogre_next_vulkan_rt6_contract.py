@@ -39,6 +39,9 @@ class OgreNextVulkanRt6ContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         cls.cmake = (PROBE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        cls.config = (PROBE_ROOT / "vulkan_rt6_config.h.in").read_text(
+            encoding="utf-8"
+        )
         cls.workflow = (
             REPOSITORY_ROOT / ".github/workflows/ogre-next-probe.yml"
         ).read_text(encoding="utf-8")
@@ -62,6 +65,10 @@ class OgreNextVulkanRt6ContractTests(unittest.TestCase):
                 "native_ray_tracing": "hardware_dispatch_pass",
                 "ray_traced_image_produced": True,
                 "ogre_native_image_composite": "not_evaluated",
+                "semantic_probe_only": True,
+                "full_native_directional_shadow_v1": False,
+                "exact_ogre_rgba16_source": False,
+                "hybrid_ogre_image_composite": False,
             },
             "provenance": {
                 "ror_repository": self.source_identity["repository"],
@@ -147,7 +154,12 @@ class OgreNextVulkanRt6ContractTests(unittest.TestCase):
                 "ogre_external_ownership_observed": True,
             },
             "geometry_and_acceleration": {
-                "mirror_vertex_count": 3,
+                "total_vertex_count": 6,
+                "receiver_vertex_count": 3,
+                "occluder_vertex_count": 3,
+                "total_triangle_count": 2,
+                "receiver_triangle_count": 1,
+                "occluder_triangle_count": 1,
                 "geometry_buffer_created": True,
                 "geometry_buffer_device_address": 0x1000,
                 "instance_buffer_device_address": 0x2000,
@@ -156,6 +168,42 @@ class OgreNextVulkanRt6ContractTests(unittest.TestCase):
                 "tlas_device_address": 0x5000,
                 "blas_built": True,
                 "tlas_built": True,
+            },
+            "n4a_semantic_directional_shadow": {
+                "milestone": "N4A_SEMANTIC_SUBMILESTONE",
+                "semantic_probe_only": True,
+                "full_native_directional_shadow_v1": False,
+                "exact_ogre_rgba16_source": False,
+                "hybrid_ogre_image_composite": False,
+                "receiver_instance_id": 1,
+                "occluder_instance_id": 2,
+                "blas_count": 2,
+                "receiver_blas_device_address": 0x4000,
+                "occluder_blas_device_address": 0x4800,
+                "tlas_instance_count": 2,
+                "sample_count": 2,
+                "primary_receiver_ray_count_total": 2,
+                "directional_visibility_ray_count_total": 2,
+                "primary_receiver_rays_per_sample": 1,
+                "directional_visibility_rays_per_sample": 1,
+                "receiver_blas_built": True,
+                "occluder_blas_built": True,
+                "tlas_built": True,
+                "controlled_geometry_exact": True,
+                "visibility_encoding": "R16_FLOAT_binary16",
+                "visibility_r16_bits": RUNNER.EXPECTED_N4A_VISIBILITY_R16.copy(),
+                "lineage_encoding": "R32_UINT_instance_bitset",
+                "lineage_r32": RUNNER.EXPECTED_N4A_LINEAGE_R32.copy(),
+                "raster_encoding": "canonical_RGBA16_FLOAT_binary16",
+                "raster_rgba16_bits": [
+                    RUNNER.EXPECTED_N4A_RASTER_RGBA16.copy(),
+                    RUNNER.EXPECTED_N4A_RASTER_RGBA16.copy(),
+                ],
+                "hybrid_rgba16_bits": copy.deepcopy(
+                    RUNNER.EXPECTED_N4A_HYBRID_RGBA16
+                ),
+                "readback_completed": True,
+                "portable_sample_oracle_passed": True,
             },
             "pipeline_and_dispatch": {
                 "shader_contract_compiled": True,
@@ -238,6 +286,27 @@ class OgreNextVulkanRt6ContractTests(unittest.TestCase):
             tlas_device_address=0,
             blas_built=False,
             tlas_built=False,
+        )
+        report["n4a_semantic_directional_shadow"].update(
+            blas_count=0,
+            receiver_blas_device_address=0,
+            occluder_blas_device_address=0,
+            tlas_instance_count=0,
+            sample_count=0,
+            primary_receiver_ray_count_total=0,
+            directional_visibility_ray_count_total=0,
+            primary_receiver_rays_per_sample=0,
+            directional_visibility_rays_per_sample=0,
+            receiver_blas_built=False,
+            occluder_blas_built=False,
+            tlas_built=False,
+            controlled_geometry_exact=False,
+            visibility_r16_bits=[0, 0],
+            lineage_r32=[0, 0],
+            raster_rgba16_bits=[[0, 0, 0, 0], [0, 0, 0, 0]],
+            hybrid_rgba16_bits=[[0, 0, 0, 0], [0, 0, 0, 0]],
+            readback_completed=False,
+            portable_sample_oracle_passed=False,
         )
         report["pipeline_and_dispatch"].update(
             descriptor_set_bound=False,
@@ -352,6 +421,29 @@ class OgreNextVulkanRt6ContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, self.bootstrap)
 
+    def test_n4a_semantic_probe_is_real_but_claim_bounded(self) -> None:
+        self.assertEqual(
+            RUNNER.SCHEMA, "ror.ogre_next_vulkan_khr_ray_dispatch_rt6.v2"
+        )
+        self.assertEqual(
+            RUNNER.ATTESTATION_SCHEMA,
+            "ror.ogre_next_vulkan_khr_ray_dispatch_rt6.attestation.v2",
+        )
+        self.assertIn(f'"{RUNNER.SCHEMA}"', self.config)
+        for token in (
+            "semantic_occluder_blas",
+            "instance_data[0U].mask = 0x01U",
+            "instance_data[1U].mask = 0x02U",
+            "vec3(0.0, 0.0, 1.0)",
+            "packHalf2x16",
+            "TryBuildNativeDirectionalShadowSampleOracle",
+            "semantic_probe_only\\\": true",
+            "exact_ogre_rgba16_source\\\": false",
+            "hybrid_ogre_image_composite\\\": false",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.bootstrap + self.smoke)
+
     def test_exact_extensions_features_and_hardware_gate_are_statically_bound(self) -> None:
         for token in (
             "VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME",
@@ -424,6 +516,33 @@ class OgreNextVulkanRt6ContractTests(unittest.TestCase):
             lambda report: report["geometry_and_acceleration"].update(
                 scratch_buffer_device_address=0x3080
             ),
+            lambda report: report["n4a_semantic_directional_shadow"].update(
+                blas_count=1
+            ),
+            lambda report: report["n4a_semantic_directional_shadow"].update(
+                receiver_instance_id=True
+            ),
+            lambda report: report["n4a_semantic_directional_shadow"].update(
+                occluder_instance_id=2.0
+            ),
+            lambda report: report["n4a_semantic_directional_shadow"].update(
+                receiver_blas_device_address=0x4801
+            ),
+            lambda report: report["geometry_and_acceleration"].update(
+                total_vertex_count=3
+            ),
+            lambda report: report["n4a_semantic_directional_shadow"].update(
+                visibility_r16_bits=[0, 0]
+            ),
+            lambda report: report["n4a_semantic_directional_shadow"].update(
+                lineage_r32=[1, 1]
+            ),
+            lambda report: report["n4a_semantic_directional_shadow"].update(
+                portable_sample_oracle_passed=False
+            ),
+            lambda report: report["scope"].update(
+                full_native_directional_shadow_v1=True
+            ),
         )
         for index, mutate in enumerate(mutations):
             with self.subTest(index=index):
@@ -447,6 +566,9 @@ class OgreNextVulkanRt6ContractTests(unittest.TestCase):
                 readback_words=RUNNER.EXPECTED_HIT_WORDS.copy()
             ),
             lambda report: report["timeline"].update(value_at_ray_dispatch=2),
+            lambda report: report["n4a_semantic_directional_shadow"].update(
+                portable_sample_oracle_passed=True
+            ),
         )
         for index, mutate in enumerate(mutations):
             with self.subTest(index=index):
@@ -603,6 +725,16 @@ class OgreNextVulkanRt6ContractTests(unittest.TestCase):
                 self.assertIn(token, self.cmake)
         self.assertIn("run_vulkan_rt6.py", self.workflow)
         self.assertIn("hosted lavapipe runner must not report an RT6 hardware pass", self.workflow)
+        self.assertIn(
+            "hosted RT6 evidence contains an N4A execution claim", self.workflow
+        )
+        for token in (
+            'scope.get("semantic_probe_only") is True',
+            'scope.get("full_native_directional_shadow_v1") is False',
+            'semantic.get("visibility_r16_bits") == [0, 0]',
+            'semantic.get("portable_sample_oracle_passed") is False',
+        ):
+            self.assertIn(token, self.workflow)
         self.assertIn("OGRE-Next-vulkan-rt6-${{ github.sha }}", self.workflow)
 
     def test_contract_only_path_is_network_free_and_optimization_safe(self) -> None:

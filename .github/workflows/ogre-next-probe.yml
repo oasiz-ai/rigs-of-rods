@@ -13,8 +13,10 @@ on:
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
       - source/main/gfx/RendererBackendPolicy.*
+      - source/main/gfx/RendererStartupPlan.*
       - source/main/gfx/render/**
       - tests/gfx/RendererBackendPolicyTests.cpp
+      - tests/gfx/RendererStartupPlanTests.cpp
       - tests/gfx/render/**
       - tests/tools/test_ogre_next_*.py
   pull_request:
@@ -28,8 +30,10 @@ on:
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
       - source/main/gfx/RendererBackendPolicy.*
+      - source/main/gfx/RendererStartupPlan.*
       - source/main/gfx/render/**
       - tests/gfx/RendererBackendPolicyTests.cpp
+      - tests/gfx/RendererStartupPlanTests.cpp
       - tests/gfx/render/**
       - tests/tools/test_ogre_next_*.py
   workflow_dispatch:
@@ -334,6 +338,29 @@ jobs:
               raise SystemExit("unsupported RT6 evidence must not claim a dispatch")
           if dispatch.get("readback_words") != [0, 0, 0, 0]:
               raise SystemExit("unsupported RT6 evidence must not claim ray output")
+          scope = report.get("scope", {})
+          if not (
+              scope.get("semantic_probe_only") is True
+              and scope.get("full_native_directional_shadow_v1") is False
+              and scope.get("exact_ogre_rgba16_source") is False
+              and scope.get("hybrid_ogre_image_composite") is False
+          ):
+              raise SystemExit("hosted RT6 evidence changed its bounded scope")
+          semantic = report.get("n4a_semantic_directional_shadow", {})
+          if not (
+              semantic.get("semantic_probe_only") is True
+              and semantic.get("full_native_directional_shadow_v1") is False
+              and semantic.get("exact_ogre_rgba16_source") is False
+              and semantic.get("hybrid_ogre_image_composite") is False
+              and semantic.get("blas_count") == 0
+              and semantic.get("tlas_instance_count") == 0
+              and semantic.get("sample_count") == 0
+              and semantic.get("visibility_r16_bits") == [0, 0]
+              and semantic.get("lineage_r32") == [0, 0]
+              and semantic.get("readback_completed") is False
+              and semantic.get("portable_sample_oracle_passed") is False
+          ):
+              raise SystemExit("hosted RT6 evidence contains an N4A execution claim")
           PY
 
       - name: Build, render, read back, and validate the legacy probes
@@ -366,6 +393,16 @@ jobs:
           if ($report.scope.hardware_dxr_pass -ne $false -or
               $report.ray_tracing.dispatch_rays_called -ne $false) {
             throw 'Hosted Windows unsupported evidence contains an RT pass claim'
+          }
+          if ($report.scope.semantic_directional_shadow_probe -ne $false -or
+              $report.scope.exact_ogre_rgba16_source -ne $false -or
+              $report.scope.hybrid_ogre_image_composite -ne $false -or
+              $report.ray_tracing.typed_semantic_readback_exact -ne $false -or
+              $report.directional_shadow_semantics.semantic_probe_only -ne $false -or
+              $report.directional_shadow_semantics.visibility_readback_completed -ne $false -or
+              $report.directional_shadow_semantics.lineage_readback_completed -ne $false -or
+              $report.directional_shadow_semantics.hybrid_readback_completed -ne $false) {
+            throw 'Hosted Windows unsupported evidence contains a directional-shadow claim'
           }
 
       - name: Build, render, read back, and validate the Windows legacy probes

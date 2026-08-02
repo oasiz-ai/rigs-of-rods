@@ -14,6 +14,67 @@ void Require(bool condition, const char* message) {
   }
 }
 
+RoR::Render::Dxr7DirectionalShadowSemanticContract CompleteSemanticProof() {
+  using namespace RoR::Render;
+  Dxr7DirectionalShadowSemanticContract proof;
+  proof.capabilities.backend =
+      NativeDirectionalShadowBackend::DIRECT3D12_DXR;
+  proof.capabilities.hardware_ray_tracing = true;
+  proof.capabilities.same_device_raster_and_ray_queue = true;
+  proof.capabilities.two_level_acceleration_structures = true;
+  proof.capabilities.primary_camera_rays = true;
+  proof.capabilities.secondary_directional_visibility_rays = true;
+  proof.capabilities.r16_float_visibility = true;
+  proof.capabilities.rgba16_float_hybrid_composite = true;
+  proof.semantic_probe_only = true;
+  proof.blas_count = kNativeDirectionalShadowRequiredBlasCount;
+  proof.tlas_instance_count =
+      kNativeDirectionalShadowRequiredTlasInstanceCount;
+  proof.receiver_instance_id = kDxr7DirectionalShadowReceiverInstanceId;
+  proof.occluder_instance_id = kDxr7DirectionalShadowOccluderInstanceId;
+  proof.receiver_blas_built = true;
+  proof.occluder_blas_built = true;
+  proof.tlas_built = true;
+  proof.primary_camera_rays_per_sample =
+      kNativeDirectionalShadowRequiredPrimaryRayCount;
+  proof.secondary_directional_visibility_rays_per_sample =
+      kNativeDirectionalShadowRequiredVisibilityRayCount;
+  proof.visibility_r16_float = true;
+  proof.lineage_r32_uint = true;
+  proof.hybrid_rgba16_float = true;
+  proof.visibility_readback_completed = true;
+  proof.lineage_readback_completed = true;
+  proof.hybrid_readback_completed = true;
+
+  proof.samples[0U].visibility =
+      NativeDirectionalShadowVisibility::VISIBLE;
+  proof.samples[0U].visibility_r16_bits =
+      kNativeDirectionalShadowVisibleR16;
+  proof.samples[0U].ray_lineage =
+      kDxr7DirectionalShadowVisibleLineage;
+  proof.samples[0U].primary_hit_instance_id =
+      kDxr7DirectionalShadowReceiverInstanceId;
+  proof.samples[0U].raster_rgba16.channels =
+      {0x3400U, 0x3800U, 0x3a00U, 0x3c00U};
+  proof.samples[0U].hybrid_rgba16 = proof.samples[0U].raster_rgba16;
+
+  proof.samples[1U].visibility =
+      NativeDirectionalShadowVisibility::OCCLUDED;
+  proof.samples[1U].visibility_r16_bits =
+      kNativeDirectionalShadowOccludedR16;
+  proof.samples[1U].ray_lineage =
+      kDxr7DirectionalShadowOccludedLineage;
+  proof.samples[1U].primary_hit_instance_id =
+      kDxr7DirectionalShadowReceiverInstanceId;
+  proof.samples[1U].secondary_blocker_instance_id =
+      kDxr7DirectionalShadowOccluderInstanceId;
+  proof.samples[1U].raster_rgba16.channels =
+      {0x3a00U, 0x3800U, 0x3400U, 0x3800U};
+  proof.samples[1U].hybrid_rgba16.channels =
+      {0U, 0U, 0U, 0x3800U};
+  return proof;
+}
+
 RoR::Render::Dxr7PassContract CompletePass() {
   RoR::Render::Dxr7PassContract proof;
   proof.candidate = {true, true, true, true, 11U};
@@ -38,7 +99,7 @@ RoR::Render::Dxr7PassContract CompletePass() {
   proof.state_object_created = true;
   proof.shader_identifiers_resolved = true;
   proof.dispatch_rays_called = true;
-  proof.closest_hit_readback_exact = true;
+  proof.directional_shadow = CompleteSemanticProof();
   proof.queue_fence_before_dispatch = true;
   proof.queue_fence_after_dispatch = true;
   proof.queue_fence_after_ogre = true;
@@ -171,9 +232,33 @@ int main() {
 
   Dxr7PassContract proof = CompletePass();
   Require(ValidateDxr7PassContract(proof), "complete RT7 proof rejected");
+  Require(ValidateDxr7DirectionalShadowSemanticContract(
+              proof.directional_shadow),
+          "complete DXR N4A semantic proof rejected");
   proof.dispatch_rays_called = false;
   Require(!ValidateDxr7PassContract(proof),
           "pass accepted without DispatchRays");
+  proof = CompletePass();
+  proof.directional_shadow.exact_ogre_rgba16_source = true;
+  Require(!ValidateDxr7PassContract(proof),
+          "semantic probe forged exact Ogre RGBA16 ownership");
+  proof = CompletePass();
+  proof.directional_shadow.hybrid_ogre_image_composite = true;
+  Require(!ValidateDxr7PassContract(proof),
+          "semantic probe forged an Ogre hybrid composite");
+  proof = CompletePass();
+  proof.directional_shadow.blas_count = 1U;
+  Require(!ValidateDxr7PassContract(proof),
+          "semantic probe accepted one BLAS");
+  proof = CompletePass();
+  proof.directional_shadow.samples[1U].ray_lineage =
+      kDxr7DirectionalShadowVisibleLineage;
+  Require(!ValidateDxr7PassContract(proof),
+          "semantic probe accepted false occluder lineage");
+  proof = CompletePass();
+  proof.directional_shadow.samples[1U].hybrid_rgba16.channels[0U] = 0x3400U;
+  Require(!ValidateDxr7PassContract(proof),
+          "semantic probe accepted a nonzero occluded RGB channel");
   proof = CompletePass();
   proof.ogre_d3d11_device_exact = false;
   Require(!ValidateDxr7PassContract(proof),

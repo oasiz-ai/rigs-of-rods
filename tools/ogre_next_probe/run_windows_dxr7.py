@@ -37,8 +37,8 @@ EXECUTION_RECEIPT_NAME = "ror-ogre-next-windows-dxr7-execution-receipt.json"
 DSSE_BUNDLE_NAME = "ror-ogre-next-windows-dxr7-execution-receipt.sigstore.jsonl"
 OGRE_FRAME_NAME = "ror-ogre-next-windows-dxr7-ogre-frame.ppm"
 DXIL_RELATIVE = "generated/ror_ogre_next_windows_dxr7_probe.dxil"
-SCHEMA = "ror.ogre_next_windows_dxr_rt7.v3"
-ATTESTATION_SCHEMA = "ror.ogre_next_windows_dxr_rt7.attestation.v3"
+SCHEMA = "ror.ogre_next_windows_dxr_rt7.v4"
+ATTESTATION_SCHEMA = "ror.ogre_next_windows_dxr_rt7.attestation.v4"
 EXECUTION_RECEIPT_SCHEMA = (
     "ror.ogre_next_windows_dxr_rt7.execution_receipt.v2"
 )
@@ -50,17 +50,18 @@ TRUSTED_SIGNER_WORKFLOW = (
 TRUSTED_WORKFLOW_PATH = ".github/workflows/ogre-next-probe.yml"
 LOCK_NAME = "windows-dxr7.lock.json"
 LOCK_SHA256 = (
-    "c7092a523109a08111173acc6c30e9d838ca56e997764be38454db2f4b8d5359"
+    "1f54ee0b94978ccefb46753fd9b943c91a126e16b6dd28c83c641759351d9820"
 )
 UNSUPPORTED_EXIT_CODE = 77
 REQUIRED_CONFIG = "Release"
 UINT32_MAX = (1 << 32) - 1
 UINT64_MAX = (1 << 64) - 1
 SCOPE_LIMITATION = (
-    "one hardware DXR primary-ray closest-hit readback plus exact D3D11On12 "
-    "Ogre device adoption and a separate UI-free Ogre PBS raster readback; "
-    "no hybrid ray/raster composite, GI, reflection, denoising, multi-bounce, "
-    "or production material-parity claim"
+    "two-sample hardware DXR directional-shadow semantics plus exact "
+    "D3D11On12 Ogre device adoption and a separate UI-free Ogre PBS raster "
+    "readback; semantic probe only, with no exact Ogre RGBA16 source, hybrid "
+    "Ogre image composite, GI, reflection, denoising, multi-bounce, or "
+    "production material-parity claim"
 )
 OFFLINE_EXECUTION_LIMITATION = (
     "hashes, binary structure, report semantics, and a fresh nonce can be "
@@ -91,6 +92,10 @@ def is_sha256(value: object) -> bool:
 
 def is_uint32(value: object) -> bool:
     return type(value) is int and 0 <= value <= UINT32_MAX
+
+
+def is_uint16(value: object) -> bool:
+    return type(value) is int and 0 <= value <= 0xFFFF
 
 
 def is_uint64(value: object) -> bool:
@@ -259,13 +264,22 @@ def load_dxr7_lock() -> dict[str, Any]:
             "minimum_dxr_tier",
             "software_adapter_pass_allowed",
             "required_dispatch_dimensions",
-            "closest_hit_readback",
+            "required_blas_count",
+            "required_tlas_instance_count",
+            "receiver_instance_id",
+            "occluder_instance_id",
+            "visible_r16_bits",
+            "occluded_r16_bits",
+            "visible_ray_lineage",
+            "occluded_ray_lineage",
+            "visible_raster_rgba16_bits",
+            "occluded_raster_rgba16_bits",
         },
         "Windows DXR7 runtime lock",
     )
     expected = {
         "schema": lock.get("schema")
-        == "ror.ogre_next_windows_dxr7_toolchain.v2",
+        == "ror.ogre_next_windows_dxr7_toolchain.v3",
         "platform": lock.get("platform_policy")
         == "windows-x64-d3d11on12-dxr",
         "ogre_commit": lock.get("ogre_next_commit")
@@ -282,7 +296,7 @@ def load_dxr7_lock() -> dict[str, Any]:
         "shader_path": shader.get("path")
         == "shaders/windows_dxr7_probe.hlsl",
         "shader_hash": shader.get("sha256")
-        == "3246fcd8c91b0dffa149c25223455ca136a2e1813cd75af6d5dd49368d897df3",
+        == "60ad3baaa92eadd43c4eb3b15aa815c6b8a8ba00b9eb9a8ec34c3e07a08807c0",
         "shader_target": shader.get("target") == "lib_6_5",
         "exports": shader.get("entry_exports")
         == ["RayGen", "Miss", "ClosestHit"],
@@ -298,8 +312,19 @@ def load_dxr7_lock() -> dict[str, Any]:
         == ["-HV", "2021", "-O3", "-Qstrip_debug", "-Qstrip_reflect"],
         "tier": runtime.get("minimum_dxr_tier") == "1.1",
         "no_software": runtime.get("software_adapter_pass_allowed") is False,
-        "dispatch": runtime.get("required_dispatch_dimensions") == [1, 1, 1],
-        "readback": runtime.get("closest_hit_readback") == 0xD1CEB00B,
+        "dispatch": runtime.get("required_dispatch_dimensions") == [2, 1, 1],
+        "blas_count": runtime.get("required_blas_count") == 2,
+        "tlas_instances": runtime.get("required_tlas_instance_count") == 2,
+        "instance_ids": runtime.get("receiver_instance_id") == 1
+        and runtime.get("occluder_instance_id") == 2,
+        "visibility_bits": runtime.get("visible_r16_bits") == 0x3C00
+        and runtime.get("occluded_r16_bits") == 0x0000,
+        "lineage": runtime.get("visible_ray_lineage") == 1
+        and runtime.get("occluded_ray_lineage") == 3,
+        "raster_samples": runtime.get("visible_raster_rgba16_bits")
+        == [0x3400, 0x3800, 0x3A00, 0x3C00]
+        and runtime.get("occluded_raster_rgba16_bits")
+        == [0x3A00, 0x3800, 0x3400, 0x3800],
     }
     failed = sorted(name for name, passed in expected.items() if not passed)
     if failed:
@@ -852,6 +877,7 @@ def validate_report(
             "adapter",
             "ownership",
             "ray_tracing",
+            "directional_shadow_semantics",
             "ogre_frame",
             "synchronization",
             "lifecycle",
@@ -870,8 +896,10 @@ def validate_report(
             "native_ray_tracing",
             "acceleration_structure_built",
             "ray_traced_probe_readback",
+            "semantic_directional_shadow_probe",
             "ray_traced_image_produced",
             "ogre_raster_image_produced",
+            "exact_ogre_rgba16_source",
             "hybrid_ogre_image_composite",
             "limitation",
         },
@@ -954,18 +982,77 @@ def validate_report(
         report["ray_tracing"],
         {
             "blas_built",
+            "blas_count",
+            "receiver_blas_built",
+            "occluder_blas_built",
             "tlas_built",
+            "tlas_instance_count",
             "state_object_created",
             "shader_identifiers_resolved",
             "dispatch_rays_called",
             "dispatch_width",
             "dispatch_height",
             "dispatch_depth",
-            "readback_value",
-            "closest_hit_readback_exact",
+            "typed_semantic_readback_exact",
         },
         "DXR7 ray tracing",
     )
+    directional = require_exact_keys(
+        report["directional_shadow_semantics"],
+        {
+            "contract_version",
+            "backend",
+            "target_tier",
+            "semantic_probe_only",
+            "exact_ogre_rgba16_source",
+            "hybrid_ogre_image_composite",
+            "capabilities",
+            "receiver_instance_id",
+            "occluder_instance_id",
+            "primary_camera_rays_per_sample",
+            "secondary_directional_visibility_rays_per_sample",
+            "visibility_format",
+            "lineage_format",
+            "hybrid_format",
+            "visibility_readback_completed",
+            "lineage_readback_completed",
+            "hybrid_readback_completed",
+            "samples",
+        },
+        "DXR7 directional shadow semantics",
+    )
+    directional_capabilities = require_exact_keys(
+        directional["capabilities"],
+        {
+            "hardware_ray_tracing",
+            "same_device_raster_and_ray_queue",
+            "two_level_acceleration_structures",
+            "primary_camera_rays",
+            "secondary_directional_visibility_rays",
+            "r16_float_visibility",
+            "rgba16_float_hybrid_composite",
+        },
+        "DXR7 directional shadow capabilities",
+    )
+    directional_samples = directional["samples"]
+    if not isinstance(directional_samples, list) or len(directional_samples) != 2:
+        raise Dxr7Error("DXR7 directional shadow samples changed")
+    directional_samples = [
+        require_exact_keys(
+            sample,
+            {
+                "visibility",
+                "visibility_r16_bits",
+                "ray_lineage",
+                "primary_hit_instance_id",
+                "secondary_blocker_instance_id",
+                "raster_rgba16_bits",
+                "hybrid_rgba16_bits",
+            },
+            f"DXR7 directional shadow sample {index}",
+        )
+        for index, sample in enumerate(directional_samples)
+    ]
     ogre_frame = require_exact_keys(
         report["ogre_frame"],
         {
@@ -1021,8 +1108,10 @@ def validate_report(
                 "hardware_dxr_pass",
                 "acceleration_structure_built",
                 "ray_traced_probe_readback",
+                "semantic_directional_shadow_probe",
                 "ray_traced_image_produced",
                 "ogre_raster_image_produced",
+                "exact_ogre_rgba16_source",
                 "hybrid_ogre_image_composite",
             )
         ]
@@ -1035,9 +1124,22 @@ def validate_report(
                 "dispatch_width",
                 "dispatch_height",
                 "dispatch_depth",
-                "readback_value",
+                "blas_count",
+                "tlas_instance_count",
             }
         ]
+        + [
+            directional[field]
+            for field in (
+                "semantic_probe_only",
+                "exact_ogre_rgba16_source",
+                "hybrid_ogre_image_composite",
+                "visibility_readback_completed",
+                "lineage_readback_completed",
+                "hybrid_readback_completed",
+            )
+        ]
+        + list(directional_capabilities.values())
         + [
             ogre_frame[field]
             for field in (
@@ -1063,6 +1165,7 @@ def validate_report(
     )
     patch_lock = dxr7_lock["adaptation_patch"]
     shader_lock = dxr7_lock["shader"]
+    runtime_lock = dxr7_lock["runtime"]
     components = dxc_closure["components"]
     checks = {
         "schema": report.get("schema") == SCHEMA,
@@ -1070,6 +1173,8 @@ def validate_report(
         "status_domain": status in {"pass", "unsupported"},
         "boolean_types": all(type(value) is bool for value in boolean_fields),
         "scope_no_image": scope.get("ray_traced_image_produced") is False,
+        "scope_no_exact_ogre_rgba16": scope.get("exact_ogre_rgba16_source")
+        is False,
         "scope_no_hybrid": scope.get("hybrid_ogre_image_composite") is False,
         "scope_limitation": scope.get("limitation") == SCOPE_LIMITATION,
         "ror_repository": provenance.get("ror_repository")
@@ -1163,8 +1268,37 @@ def validate_report(
                 "dispatch_width",
                 "dispatch_height",
                 "dispatch_depth",
-                "readback_value",
+                "blas_count",
+                "tlas_instance_count",
             )
+        ),
+        "directional_integer_types": all(
+            is_uint32(directional.get(field))
+            for field in (
+                "contract_version",
+                "primary_camera_rays_per_sample",
+                "secondary_directional_visibility_rays_per_sample",
+            )
+        )
+        and all(
+            is_uint64(directional.get(field))
+            for field in ("receiver_instance_id", "occluder_instance_id")
+        )
+        and all(
+            is_uint16(sample.get("visibility_r16_bits"))
+            and is_uint32(sample.get("ray_lineage"))
+            and is_uint64(sample.get("primary_hit_instance_id"))
+            and is_uint64(sample.get("secondary_blocker_instance_id"))
+            and all(
+                isinstance(values, list)
+                and len(values) == 4
+                and all(is_uint16(value) for value in values)
+                for values in (
+                    sample.get("raster_rgba16_bits"),
+                    sample.get("hybrid_rgba16_bits"),
+                )
+            )
+            for sample in directional_samples
         ),
         "fence_integer_types": all(
             is_uint64(synchronization.get(field))
@@ -1198,6 +1332,7 @@ def validate_report(
                 and scope.get("native_ray_tracing") == "dispatch_rays"
                 and scope.get("acceleration_structure_built") is True
                 and scope.get("ray_traced_probe_readback") is True
+                and scope.get("semantic_directional_shadow_probe") is True
                 and scope.get("ogre_raster_image_produced") is True,
                 "hardware_identity": bool(adapter.get("name"))
                 and re.fullmatch(r"[0-9a-f]{16}", adapter.get("luid", ""))
@@ -1217,21 +1352,101 @@ def validate_report(
                     ray_tracing.get(field) is True
                     for field in (
                         "blas_built",
+                        "receiver_blas_built",
+                        "occluder_blas_built",
                         "tlas_built",
                         "state_object_created",
                         "shader_identifiers_resolved",
                         "dispatch_rays_called",
-                        "closest_hit_readback_exact",
+                        "typed_semantic_readback_exact",
                     )
                 ),
+                "acceleration_counts": ray_tracing.get("blas_count")
+                == runtime_lock["required_blas_count"]
+                and ray_tracing.get("tlas_instance_count")
+                == runtime_lock["required_tlas_instance_count"],
                 "dispatch_dimensions": [
                     ray_tracing.get("dispatch_width"),
                     ray_tracing.get("dispatch_height"),
                     ray_tracing.get("dispatch_depth"),
                 ]
-                == dxr7_lock["runtime"]["required_dispatch_dimensions"],
-                "readback": ray_tracing.get("readback_value")
-                == dxr7_lock["runtime"]["closest_hit_readback"],
+                == runtime_lock["required_dispatch_dimensions"],
+                "directional_scope": directional.get("contract_version") == 1
+                and directional.get("backend") == "DIRECT3D12_DXR"
+                and directional.get("target_tier")
+                == "NATIVE_DIRECTIONAL_HARD_SHADOW_V1"
+                and directional.get("semantic_probe_only") is True
+                and directional.get("exact_ogre_rgba16_source") is False
+                and directional.get("hybrid_ogre_image_composite") is False,
+                "directional_capabilities": all(
+                    value is True for value in directional_capabilities.values()
+                ),
+                "directional_lineage_contract": directional.get(
+                    "receiver_instance_id"
+                )
+                == runtime_lock["receiver_instance_id"]
+                and directional.get("occluder_instance_id")
+                == runtime_lock["occluder_instance_id"]
+                and directional.get("primary_camera_rays_per_sample") == 1
+                and directional.get(
+                    "secondary_directional_visibility_rays_per_sample"
+                )
+                == 1,
+                "directional_formats": directional.get("visibility_format")
+                == "R16_FLOAT"
+                and directional.get("lineage_format") == "R32_UINT"
+                and directional.get("hybrid_format") == "RGBA16_FLOAT"
+                and directional.get("visibility_readback_completed") is True
+                and directional.get("lineage_readback_completed") is True
+                and directional.get("hybrid_readback_completed") is True,
+                "directional_samples": exact_json_equal(
+                    directional_samples,
+                    [
+                        {
+                            "visibility": "VISIBLE",
+                            "visibility_r16_bits": runtime_lock[
+                                "visible_r16_bits"
+                            ],
+                            "ray_lineage": runtime_lock[
+                                "visible_ray_lineage"
+                            ],
+                            "primary_hit_instance_id": runtime_lock[
+                                "receiver_instance_id"
+                            ],
+                            "secondary_blocker_instance_id": 0,
+                            "raster_rgba16_bits": runtime_lock[
+                                "visible_raster_rgba16_bits"
+                            ],
+                            "hybrid_rgba16_bits": runtime_lock[
+                                "visible_raster_rgba16_bits"
+                            ],
+                        },
+                        {
+                            "visibility": "OCCLUDED",
+                            "visibility_r16_bits": runtime_lock[
+                                "occluded_r16_bits"
+                            ],
+                            "ray_lineage": runtime_lock[
+                                "occluded_ray_lineage"
+                            ],
+                            "primary_hit_instance_id": runtime_lock[
+                                "receiver_instance_id"
+                            ],
+                            "secondary_blocker_instance_id": runtime_lock[
+                                "occluder_instance_id"
+                            ],
+                            "raster_rgba16_bits": runtime_lock[
+                                "occluded_raster_rgba16_bits"
+                            ],
+                            "hybrid_rgba16_bits": [
+                                0,
+                                0,
+                                0,
+                                runtime_lock["occluded_raster_rgba16_bits"][3],
+                            ],
+                        },
+                    ],
+                ),
                 "fence_sequence": exact_json_equal(
                     synchronization,
                     {
@@ -1286,6 +1501,7 @@ def validate_report(
                 and scope.get("native_ray_tracing") == "unsupported"
                 and scope.get("acceleration_structure_built") is False
                 and scope.get("ray_traced_probe_readback") is False
+                and scope.get("semantic_directional_shadow_probe") is False
                 and scope.get("ogre_raster_image_produced") is False,
                 "no_ownership_claim": all(
                     ownership.get(field) is False
@@ -1296,11 +1512,13 @@ def validate_report(
                     ray_tracing.get(field) is False
                     for field in (
                         "blas_built",
+                        "receiver_blas_built",
+                        "occluder_blas_built",
                         "tlas_built",
                         "state_object_created",
                         "shader_identifiers_resolved",
                         "dispatch_rays_called",
-                        "closest_hit_readback_exact",
+                        "typed_semantic_readback_exact",
                     )
                 )
                 and all(
@@ -1309,8 +1527,57 @@ def validate_report(
                         "dispatch_width",
                         "dispatch_height",
                         "dispatch_depth",
-                        "readback_value",
+                        "blas_count",
+                        "tlas_instance_count",
                     )
+                ),
+                "no_directional_claim": directional.get("contract_version")
+                == 1
+                and directional.get("backend") == "INVALID"
+                and directional.get("target_tier")
+                == "NATIVE_DIRECTIONAL_HARD_SHADOW_V1"
+                and directional.get("semantic_probe_only") is False
+                and directional.get("exact_ogre_rgba16_source") is False
+                and directional.get("hybrid_ogre_image_composite") is False
+                and all(
+                    value is False
+                    for value in directional_capabilities.values()
+                )
+                and directional.get("receiver_instance_id") == 0
+                and directional.get("occluder_instance_id") == 0
+                and directional.get("primary_camera_rays_per_sample") == 0
+                and directional.get(
+                    "secondary_directional_visibility_rays_per_sample"
+                )
+                == 0
+                and directional.get("visibility_format") == "R16_FLOAT"
+                and directional.get("lineage_format") == "R32_UINT"
+                and directional.get("hybrid_format") == "RGBA16_FLOAT"
+                and directional.get("visibility_readback_completed") is False
+                and directional.get("lineage_readback_completed") is False
+                and directional.get("hybrid_readback_completed") is False
+                and exact_json_equal(
+                    directional_samples,
+                    [
+                        {
+                            "visibility": "INVALID",
+                            "visibility_r16_bits": 0xFFFF,
+                            "ray_lineage": 0,
+                            "primary_hit_instance_id": 0,
+                            "secondary_blocker_instance_id": 0,
+                            "raster_rgba16_bits": [0, 0, 0, 0],
+                            "hybrid_rgba16_bits": [0, 0, 0, 0],
+                        },
+                        {
+                            "visibility": "INVALID",
+                            "visibility_r16_bits": 0xFFFF,
+                            "ray_lineage": 0,
+                            "primary_hit_instance_id": 0,
+                            "secondary_blocker_instance_id": 0,
+                            "raster_rgba16_bits": [0, 0, 0, 0],
+                            "hybrid_rgba16_bits": [0, 0, 0, 0],
+                        },
+                    ],
                 ),
                 "no_fence_claim": all(value == 0 for value in synchronization.values()),
                 "only_shutdown_claim": exact_json_equal(
@@ -1635,8 +1902,10 @@ def make_attestation(
             "report_declares_external_d3d11on12_foundation": passed,
             "report_declares_hardware_dxr_pass": passed,
             "report_declares_dispatch_rays": passed,
+            "report_declares_directional_shadow_semantic_probe": passed,
             "report_declares_ui_free_ogre_raster_frame": passed,
             "software_adapter_rt_pass": False,
+            "exact_ogre_rgba16_source": False,
             "hybrid_ray_raster_composite": False,
         },
         "complete": True,
@@ -1700,8 +1969,10 @@ def validate_attestation(
             "report_declares_external_d3d11on12_foundation",
             "report_declares_hardware_dxr_pass",
             "report_declares_dispatch_rays",
+            "report_declares_directional_shadow_semantic_probe",
             "report_declares_ui_free_ogre_raster_frame",
             "software_adapter_rt_pass",
+            "exact_ogre_rgba16_source",
             "hybrid_ray_raster_composite",
         },
         "DXR7 attested claims",
@@ -1713,8 +1984,10 @@ def validate_attestation(
         "report_declares_external_d3d11on12_foundation": passed,
         "report_declares_hardware_dxr_pass": passed,
         "report_declares_dispatch_rays": passed,
+        "report_declares_directional_shadow_semantic_probe": passed,
         "report_declares_ui_free_ogre_raster_frame": passed,
         "software_adapter_rt_pass": False,
+        "exact_ogre_rgba16_source": False,
         "hybrid_ray_raster_composite": False,
     }
     checks = {
@@ -1782,7 +2055,13 @@ def validate_static_contract() -> None:
     smoke = (PROBE_SOURCE / "src/windows_dxr7_smoke.cpp").read_text(
         encoding="utf-8"
     )
+    hlsl = (PROBE_SOURCE / "shaders/windows_dxr7_probe.hlsl").read_text(
+        encoding="utf-8"
+    )
     cmake = (PROBE_SOURCE / "CMakeLists.txt").read_text(encoding="utf-8")
+    config = (PROBE_SOURCE / "windows_dxr7_config.h.in").read_text(
+        encoding="utf-8"
+    )
     for token in (
         "EnumAdapterByGpuPreference",
         "D3D12_RAYTRACING_TIER_1_1",
@@ -1792,7 +2071,12 @@ def validate_static_contract() -> None:
         "CreateStateObject",
         "GetShaderIdentifier",
         "DispatchRays",
-        "closest_hit_readback_exact",
+        "DXGI_FORMAT_R16_FLOAT",
+        "DXGI_FORMAT_R32_UINT",
+        "DXGI_FORMAT_R16G16B16A16_FLOAT",
+        "kDxr7DirectionalShadowReceiverInstanceId",
+        "kDxr7DirectionalShadowOccluderInstanceId",
+        "ValidateDxr7DirectionalShadowSemanticContract",
         "WaitForFence(1U)",
         "WaitForFence(2U)",
         "WaitForFence(3U)",
@@ -1829,9 +2113,27 @@ def validate_static_contract() -> None:
         "unregisterHlms",
         "destroyRenderWindow",
         "ROOT_SHUTDOWN_COMPLETED",
+        "semantic_directional_shadow_probe",
+        "exact_ogre_rgba16_source",
+        "hybrid_ogre_image_composite",
     ):
         if token not in smoke:
             raise Dxr7Error(f"DXR7 smoke contract token is missing: {token}")
+    for token in (
+        "RWTexture2D<float> Visibility",
+        "RWTexture2D<uint> RayLineage",
+        "RWTexture2D<float4> Hybrid",
+        "kReceiverMask = 0x01",
+        "kOccluderMask = 0x02",
+        "TraceRay(Scene, RAY_FLAG_FORCE_OPAQUE, kReceiverMask",
+        "RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH",
+        "kOccluderMask",
+        "lineage = 3",
+        "InstanceID()",
+        "RayTCurrent()",
+    ):
+        if token not in hlsl:
+            raise Dxr7Error(f"DXR7 HLSL semantic token is missing: {token}")
     for token in (
         "ROR_OGRE_NEXT_WINDOWS_DXR7",
         "ror_ogre_next_windows_dxr7_shader",
@@ -1841,10 +2143,13 @@ def validate_static_contract() -> None:
         "ROR_OGRE_NEXT_DXC_SDK_BIN_ROOT",
         "Program Files (x86)/Windows Kits/10/bin",
         "ror_ogre_next_windows_dxr7_runtime_repeat",
+        "NativeDirectionalShadowContract.cpp",
         "SKIP_RETURN_CODE 77",
     ):
         if token not in cmake:
             raise Dxr7Error(f"DXR7 CMake contract token is missing: {token}")
+    if f'"{SCHEMA}"' not in config:
+        raise Dxr7Error("DXR7 generated config schema differs from the validator")
 
 
 def requested_dxc_closure(args: argparse.Namespace) -> dict[str, Any]:

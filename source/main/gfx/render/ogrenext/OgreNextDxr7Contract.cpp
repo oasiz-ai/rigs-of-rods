@@ -8,6 +8,7 @@
 
 #include "OgreNextDxr7Contract.h"
 
+#include <cstddef>
 #include <limits>
 
 namespace RoR::Render {
@@ -106,6 +107,70 @@ const Dxr7OgreTeardownContract& Dxr7OgreTeardownTracker::contract()
   return contract_;
 }
 
+bool ValidateDxr7DirectionalShadowSemanticContract(
+    const Dxr7DirectionalShadowSemanticContract& contract) noexcept {
+  if (contract.version != kNativeDirectionalShadowContractVersion ||
+      !contract.semantic_probe_only || contract.exact_ogre_rgba16_source ||
+      contract.hybrid_ogre_image_composite ||
+      contract.capabilities.backend !=
+          NativeDirectionalShadowBackend::DIRECT3D12_DXR ||
+      !HasAttestedNativeDirectionalShadowCapabilities(contract.capabilities) ||
+      contract.blas_count != kNativeDirectionalShadowRequiredBlasCount ||
+      contract.tlas_instance_count !=
+          kNativeDirectionalShadowRequiredTlasInstanceCount ||
+      contract.receiver_instance_id !=
+          kDxr7DirectionalShadowReceiverInstanceId ||
+      contract.occluder_instance_id !=
+          kDxr7DirectionalShadowOccluderInstanceId ||
+      !contract.receiver_blas_built || !contract.occluder_blas_built ||
+      !contract.tlas_built ||
+      contract.primary_camera_rays_per_sample !=
+          kNativeDirectionalShadowRequiredPrimaryRayCount ||
+      contract.secondary_directional_visibility_rays_per_sample !=
+          kNativeDirectionalShadowRequiredVisibilityRayCount ||
+      !contract.visibility_r16_float || !contract.lineage_r32_uint ||
+      !contract.hybrid_rgba16_float ||
+      !contract.visibility_readback_completed ||
+      !contract.lineage_readback_completed ||
+      !contract.hybrid_readback_completed) {
+    return false;
+  }
+
+  constexpr std::array<NativeDirectionalShadowVisibility,
+                       kDxr7DirectionalShadowSemanticSampleCount>
+      kExpectedVisibility = {NativeDirectionalShadowVisibility::VISIBLE,
+                             NativeDirectionalShadowVisibility::OCCLUDED};
+  constexpr std::array<std::uint32_t,
+                       kDxr7DirectionalShadowSemanticSampleCount>
+      kExpectedLineage = {kDxr7DirectionalShadowVisibleLineage,
+                          kDxr7DirectionalShadowOccludedLineage};
+  try {
+    for (std::size_t index = 0U; index < contract.samples.size(); ++index) {
+      const Dxr7DirectionalShadowSemanticSample& sample =
+          contract.samples[index];
+      if (sample.visibility != kExpectedVisibility[index] ||
+          sample.ray_lineage != kExpectedLineage[index] ||
+          sample.primary_hit_instance_id != contract.receiver_instance_id ||
+          sample.secondary_blocker_instance_id !=
+              (sample.visibility == NativeDirectionalShadowVisibility::OCCLUDED
+                   ? contract.occluder_instance_id
+                   : 0U)) {
+        return false;
+      }
+      NativeDirectionalShadowSampleOracle oracle;
+      if (!TryBuildNativeDirectionalShadowSampleOracle(
+              sample.visibility, sample.raster_rgba16, oracle) ||
+          sample.visibility_r16_bits != oracle.visibility_r16_bits ||
+          sample.hybrid_rgba16.channels != oracle.hybrid_rgba16.channels) {
+        return false;
+      }
+    }
+  } catch (...) {
+    return false;
+  }
+  return true;
+}
+
 bool ValidateDxr7PassContract(const Dxr7PassContract& contract) noexcept {
   return EvaluateDxr7Candidate(contract.candidate) ==
              Dxr7CandidateDecision::ACCEPT &&
@@ -135,7 +200,8 @@ bool ValidateDxr7PassContract(const Dxr7PassContract& contract) noexcept {
          contract.tlas_built && contract.state_object_created &&
          contract.shader_identifiers_resolved &&
          contract.dispatch_rays_called &&
-         contract.closest_hit_readback_exact &&
+         ValidateDxr7DirectionalShadowSemanticContract(
+             contract.directional_shadow) &&
          contract.queue_fence_before_dispatch &&
          contract.queue_fence_after_dispatch &&
          contract.queue_fence_after_ogre &&

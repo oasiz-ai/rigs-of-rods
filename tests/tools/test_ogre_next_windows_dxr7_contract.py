@@ -121,8 +121,10 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
                 "native_ray_tracing": "dispatch_rays",
                 "acceleration_structure_built": True,
                 "ray_traced_probe_readback": True,
+                "semantic_directional_shadow_probe": True,
                 "ray_traced_image_produced": False,
                 "ogre_raster_image_produced": True,
+                "exact_ogre_rgba16_source": False,
                 "hybrid_ogre_image_composite": False,
                 "limitation": RUNNER.SCOPE_LIMITATION,
             },
@@ -201,15 +203,80 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             },
             "ray_tracing": {
                 "blas_built": True,
+                "blas_count": 2,
+                "receiver_blas_built": True,
+                "occluder_blas_built": True,
                 "tlas_built": True,
+                "tlas_instance_count": 2,
                 "state_object_created": True,
                 "shader_identifiers_resolved": True,
                 "dispatch_rays_called": True,
-                "dispatch_width": 1,
+                "dispatch_width": 2,
                 "dispatch_height": 1,
                 "dispatch_depth": 1,
-                "readback_value": 0xD1CEB00B,
-                "closest_hit_readback_exact": True,
+                "typed_semantic_readback_exact": True,
+            },
+            "directional_shadow_semantics": {
+                "contract_version": 1,
+                "backend": "DIRECT3D12_DXR",
+                "target_tier": "NATIVE_DIRECTIONAL_HARD_SHADOW_V1",
+                "semantic_probe_only": True,
+                "exact_ogre_rgba16_source": False,
+                "hybrid_ogre_image_composite": False,
+                "capabilities": {
+                    "hardware_ray_tracing": True,
+                    "same_device_raster_and_ray_queue": True,
+                    "two_level_acceleration_structures": True,
+                    "primary_camera_rays": True,
+                    "secondary_directional_visibility_rays": True,
+                    "r16_float_visibility": True,
+                    "rgba16_float_hybrid_composite": True,
+                },
+                "receiver_instance_id": 1,
+                "occluder_instance_id": 2,
+                "primary_camera_rays_per_sample": 1,
+                "secondary_directional_visibility_rays_per_sample": 1,
+                "visibility_format": "R16_FLOAT",
+                "lineage_format": "R32_UINT",
+                "hybrid_format": "RGBA16_FLOAT",
+                "visibility_readback_completed": True,
+                "lineage_readback_completed": True,
+                "hybrid_readback_completed": True,
+                "samples": [
+                    {
+                        "visibility": "VISIBLE",
+                        "visibility_r16_bits": 0x3C00,
+                        "ray_lineage": 1,
+                        "primary_hit_instance_id": 1,
+                        "secondary_blocker_instance_id": 0,
+                        "raster_rgba16_bits": [
+                            0x3400,
+                            0x3800,
+                            0x3A00,
+                            0x3C00,
+                        ],
+                        "hybrid_rgba16_bits": [
+                            0x3400,
+                            0x3800,
+                            0x3A00,
+                            0x3C00,
+                        ],
+                    },
+                    {
+                        "visibility": "OCCLUDED",
+                        "visibility_r16_bits": 0x0000,
+                        "ray_lineage": 3,
+                        "primary_hit_instance_id": 1,
+                        "secondary_blocker_instance_id": 2,
+                        "raster_rgba16_bits": [
+                            0x3A00,
+                            0x3800,
+                            0x3400,
+                            0x3800,
+                        ],
+                        "hybrid_rgba16_bits": [0, 0, 0, 0x3800],
+                    },
+                ],
             },
             "ogre_frame": {
                 "native_hidden_window_created": True,
@@ -254,6 +321,7 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
         scope["native_ray_tracing"] = "unsupported"
         scope["acceleration_structure_built"] = False
         scope["ray_traced_probe_readback"] = False
+        scope["semantic_directional_shadow_probe"] = False
         scope["ogre_raster_image_produced"] = False
         report["adapter"] = {
             "name": "",
@@ -273,6 +341,53 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             report["ray_tracing"][key] = (
                 False if isinstance(report["ray_tracing"][key], bool) else 0
             )
+        report["directional_shadow_semantics"] = {
+            "contract_version": 1,
+            "backend": "INVALID",
+            "target_tier": "NATIVE_DIRECTIONAL_HARD_SHADOW_V1",
+            "semantic_probe_only": False,
+            "exact_ogre_rgba16_source": False,
+            "hybrid_ogre_image_composite": False,
+            "capabilities": {
+                "hardware_ray_tracing": False,
+                "same_device_raster_and_ray_queue": False,
+                "two_level_acceleration_structures": False,
+                "primary_camera_rays": False,
+                "secondary_directional_visibility_rays": False,
+                "r16_float_visibility": False,
+                "rgba16_float_hybrid_composite": False,
+            },
+            "receiver_instance_id": 0,
+            "occluder_instance_id": 0,
+            "primary_camera_rays_per_sample": 0,
+            "secondary_directional_visibility_rays_per_sample": 0,
+            "visibility_format": "R16_FLOAT",
+            "lineage_format": "R32_UINT",
+            "hybrid_format": "RGBA16_FLOAT",
+            "visibility_readback_completed": False,
+            "lineage_readback_completed": False,
+            "hybrid_readback_completed": False,
+            "samples": [
+                {
+                    "visibility": "INVALID",
+                    "visibility_r16_bits": 0xFFFF,
+                    "ray_lineage": 0,
+                    "primary_hit_instance_id": 0,
+                    "secondary_blocker_instance_id": 0,
+                    "raster_rgba16_bits": [0, 0, 0, 0],
+                    "hybrid_rgba16_bits": [0, 0, 0, 0],
+                },
+                {
+                    "visibility": "INVALID",
+                    "visibility_r16_bits": 0xFFFF,
+                    "ray_lineage": 0,
+                    "primary_hit_instance_id": 0,
+                    "secondary_blocker_instance_id": 0,
+                    "raster_rgba16_bits": [0, 0, 0, 0],
+                    "hybrid_rgba16_bits": [0, 0, 0, 0],
+                },
+            ],
+        }
         report["ogre_frame"] = {
             "native_hidden_window_created": False,
             "pbs_material_created": False,
@@ -427,6 +542,12 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
         config_template = (
             RUNNER.PROBE_SOURCE / "windows_dxr7_config.h.in"
         ).read_text(encoding="utf-8")
+        self.assertEqual(RUNNER.SCHEMA, "ror.ogre_next_windows_dxr_rt7.v4")
+        self.assertEqual(
+            RUNNER.ATTESTATION_SCHEMA,
+            "ror.ogre_next_windows_dxr_rt7.attestation.v4",
+        )
+        self.assertIn(f'"{RUNNER.SCHEMA}"', config_template)
         self.assertIn(
             "@ROR_WINDOWS_DXR7_DXC_VERSION_C_LITERAL@", config_template
         )
@@ -445,8 +566,19 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             ("ownership", "app_owned_direct_queue", False),
             ("ownership", "ogre_d3d11_device_exact", False),
             ("ray_tracing", "blas_built", False),
+            ("ray_tracing", "blas_count", 1),
             ("ray_tracing", "dispatch_rays_called", False),
-            ("ray_tracing", "readback_value", 0x0BADCAFE),
+            ("ray_tracing", "typed_semantic_readback_exact", False),
+            (
+                "directional_shadow_semantics",
+                "exact_ogre_rgba16_source",
+                True,
+            ),
+            (
+                "directional_shadow_semantics",
+                "hybrid_ogre_image_composite",
+                True,
+            ),
             ("ogre_frame", "native_hidden_window_created", False),
             ("ogre_frame", "gpu_readback_completed", False),
             ("ogre_frame", "pbs_datablock_destroyed", False),
@@ -459,6 +591,43 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             with self.subTest(section=section, field=field):
                 report = self.make_pass_report()
                 report[section][field] = value
+                with self.assertRaises(RUNNER.Dxr7Error):
+                    self.validate(report)
+
+        for sample_index, field, value in (
+            (0, "visibility_r16_bits", 0),
+            (1, "ray_lineage", 1),
+            (1, "secondary_blocker_instance_id", 0),
+            (1, "hybrid_rgba16_bits", [0x3400, 0, 0, 0x3800]),
+        ):
+            with self.subTest(sample=sample_index, field=field):
+                report = self.make_pass_report()
+                report["directional_shadow_semantics"]["samples"][
+                    sample_index
+                ][field] = value
+                with self.assertRaises(RUNNER.Dxr7Error):
+                    self.validate(report)
+
+        for field in self.make_pass_report()["directional_shadow_semantics"][
+            "capabilities"
+        ]:
+            with self.subTest(capability=field):
+                report = self.make_pass_report()
+                report["directional_shadow_semantics"]["capabilities"][
+                    field
+                ] = False
+                with self.assertRaises(RUNNER.Dxr7Error):
+                    self.validate(report)
+
+        for field in (
+            "semantic_probe_only",
+            "visibility_readback_completed",
+            "lineage_readback_completed",
+            "hybrid_readback_completed",
+        ):
+            with self.subTest(directional_flag=field):
+                report = self.make_pass_report()
+                report["directional_shadow_semantics"][field] = False
                 with self.assertRaises(RUNNER.Dxr7Error):
                     self.validate(report)
 
@@ -973,6 +1142,10 @@ class OgreNextWindowsDxr7ContractTests(unittest.TestCase):
             "ror-ogre-next-windows-dxr7-execution-receipt.sigstore.jsonl",
             "ror-ogre-next-windows-dxr7-ogre-frame.ppm",
             "CMakeCache.txt",
+            "Hosted Windows unsupported evidence contains a directional-shadow claim",
+            "$report.scope.semantic_directional_shadow_probe -ne $false",
+            "$report.ray_tracing.typed_semantic_readback_exact -ne $false",
+            "$report.directional_shadow_semantics.hybrid_readback_completed -ne $false",
             "Upload attested Windows D3D12/D3D11On12/DXR RT7 evidence",
         ):
             self.assertIn(token, self.workflow)

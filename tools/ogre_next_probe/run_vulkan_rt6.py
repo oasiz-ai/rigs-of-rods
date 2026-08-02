@@ -30,13 +30,20 @@ MAIN_RUNNER_SPEC.loader.exec_module(MAIN_RUNNER)
 
 REPORT_NAME = "ror-ogre-next-vulkan-rt6-report.json"
 ATTESTATION_NAME = "ror-ogre-next-vulkan-rt6-attestation.json"
-SCHEMA = "ror.ogre_next_vulkan_khr_ray_dispatch_rt6.v1"
-ATTESTATION_SCHEMA = "ror.ogre_next_vulkan_khr_ray_dispatch_rt6.attestation.v1"
+SCHEMA = "ror.ogre_next_vulkan_khr_ray_dispatch_rt6.v2"
+ATTESTATION_SCHEMA = "ror.ogre_next_vulkan_khr_ray_dispatch_rt6.attestation.v2"
 UNSUPPORTED_EXIT_CODE = 77
 REQUIRED_CONFIG = "Release"
 UINT32_MAX = (1 << 32) - 1
 UINT64_MAX = (1 << 64) - 1
 EXPECTED_HIT_WORDS = [1381250561, 324508639, 610839776, 1]
+EXPECTED_N4A_VISIBILITY_R16 = [0x3C00, 0x0000]
+EXPECTED_N4A_LINEAGE_R32 = [1, 3]
+EXPECTED_N4A_RASTER_RGBA16 = [0x3800, 0x3400, 0x3A00, 0x3C00]
+EXPECTED_N4A_HYBRID_RGBA16 = [
+    EXPECTED_N4A_RASTER_RGBA16,
+    [0x0000, 0x0000, 0x0000, 0x3C00],
+]
 DEVICE_CLASSES = {"other", "integrated_gpu", "discrete_gpu", "virtual_gpu", "cpu"}
 CANDIDATE_DECISIONS = {
     "accept",
@@ -289,6 +296,7 @@ def validate_report(
     ray_properties = section(report, "ray_properties")
     adoption = section(report, "ogre_external_adoption")
     geometry = section(report, "geometry_and_acceleration")
+    semantic = section(report, "n4a_semantic_directional_shadow")
     dispatch = section(report, "pipeline_and_dispatch")
     timeline = section(report, "timeline")
     lifecycle = section(report, "lifecycle")
@@ -305,6 +313,7 @@ def validate_report(
         "ray_properties",
         "ogre_external_adoption",
         "geometry_and_acceleration",
+        "n4a_semantic_directional_shadow",
         "pipeline_and_dispatch",
         "timeline",
         "lifecycle",
@@ -340,6 +349,18 @@ def validate_report(
         "ogre_external_ownership_observed",
     )
     geometry_boolean_fields = ("geometry_buffer_created", "blas_built", "tlas_built")
+    semantic_boolean_fields = (
+        "semantic_probe_only",
+        "full_native_directional_shadow_v1",
+        "exact_ogre_rgba16_source",
+        "hybrid_ogre_image_composite",
+        "receiver_blas_built",
+        "occluder_blas_built",
+        "tlas_built",
+        "controlled_geometry_exact",
+        "readback_completed",
+        "portable_sample_oracle_passed",
+    )
     dispatch_boolean_fields = (
         "descriptor_set_bound",
         "ray_pipeline_created",
@@ -360,6 +381,7 @@ def validate_report(
         (features, feature_boolean_fields),
         (adoption, adoption_boolean_fields),
         (geometry, geometry_boolean_fields),
+        (semantic, semantic_boolean_fields),
         (dispatch, dispatch_boolean_fields),
         (lifecycle, lifecycle_boolean_fields),
     )
@@ -408,6 +430,15 @@ def validate_report(
         "scope_image_type": type(scope.get("ray_traced_image_produced")) is bool,
         "no_composite_claim": scope.get("ogre_native_image_composite")
         == "not_evaluated",
+        "semantic_scope_only": scope.get("semantic_probe_only") is True,
+        "no_full_native_v1_claim": scope.get("full_native_directional_shadow_v1")
+        is False,
+        "no_exact_ogre_source_claim": scope.get("exact_ogre_rgba16_source")
+        is False,
+        "no_hybrid_ogre_composite_claim": scope.get(
+            "hybrid_ogre_image_composite"
+        )
+        is False,
         "api_floor": vulkan.get("requested_instance_api_version") == "1.2.0",
         "loader_api_format": loader is not None,
         "physical_api_format": physical is not None,
@@ -437,8 +468,76 @@ def validate_report(
                 "acceleration_structure_scratch_alignment",
             )
         ),
-        "mirror_vertex_count": geometry.get("mirror_vertex_count") == 3
-        and type(geometry.get("mirror_vertex_count")) is int,
+        "geometry_counts": all(
+            is_uint32(geometry.get(field))
+            for field in (
+                "total_vertex_count",
+                "receiver_vertex_count",
+                "occluder_vertex_count",
+                "total_triangle_count",
+                "receiver_triangle_count",
+                "occluder_triangle_count",
+            )
+        )
+        and geometry.get("total_vertex_count") == 6
+        and geometry.get("receiver_vertex_count") == 3
+        and geometry.get("occluder_vertex_count") == 3
+        and geometry.get("total_triangle_count") == 2
+        and geometry.get("receiver_triangle_count") == 1
+        and geometry.get("occluder_triangle_count") == 1,
+        "semantic_milestone": semantic.get("milestone")
+        == "N4A_SEMANTIC_SUBMILESTONE",
+        "semantic_claim_bounds": semantic.get("semantic_probe_only") is True
+        and semantic.get("full_native_directional_shadow_v1") is False
+        and semantic.get("exact_ogre_rgba16_source") is False
+        and semantic.get("hybrid_ogre_image_composite") is False,
+        "semantic_instance_ids": is_uint32(semantic.get("receiver_instance_id"))
+        and is_uint32(semantic.get("occluder_instance_id"))
+        and semantic.get("receiver_instance_id") == 1
+        and semantic.get("occluder_instance_id") == 2,
+        "semantic_integer_types": all(
+            is_uint32(semantic.get(field))
+            for field in (
+                "blas_count",
+                "tlas_instance_count",
+                "sample_count",
+                "primary_receiver_ray_count_total",
+                "directional_visibility_ray_count_total",
+                "primary_receiver_rays_per_sample",
+                "directional_visibility_rays_per_sample",
+            )
+        ),
+        "semantic_address_types": is_uint64(
+            semantic.get("receiver_blas_device_address")
+        )
+        and is_uint64(semantic.get("occluder_blas_device_address")),
+        "semantic_encodings": semantic.get("visibility_encoding")
+        == "R16_FLOAT_binary16"
+        and semantic.get("lineage_encoding") == "R32_UINT_instance_bitset"
+        and semantic.get("raster_encoding")
+        == "canonical_RGBA16_FLOAT_binary16",
+        "semantic_readback_types": isinstance(
+            semantic.get("visibility_r16_bits"), list
+        )
+        and len(semantic.get("visibility_r16_bits", [])) == 2
+        and all(is_uint32(value) and value <= 0xFFFF for value in semantic["visibility_r16_bits"])
+        and isinstance(semantic.get("lineage_r32"), list)
+        and len(semantic.get("lineage_r32", [])) == 2
+        and all(is_uint32(value) for value in semantic["lineage_r32"])
+        and all(
+            isinstance(pixels, list)
+            and len(pixels) == 2
+            and all(
+                isinstance(pixel, list)
+                and len(pixel) == 4
+                and all(is_uint32(value) and value <= 0xFFFF for value in pixel)
+                for pixel in pixels
+            )
+            for pixels in (
+                semantic.get("raster_rgba16_bits"),
+                semantic.get("hybrid_rgba16_bits"),
+            )
+        ),
         "address_types": all(is_uint64(group.get(field)) for group, field in address_fields),
         "dispatch_dimensions": dispatch.get("dispatch_dimensions") == [1, 1, 1]
         and all(type(item) is int for item in dispatch.get("dispatch_dimensions", [])),
@@ -561,6 +660,32 @@ def validate_report(
                 "geometry_built": geometry.get("geometry_buffer_created") is True
                 and geometry.get("blas_built") is True
                 and geometry.get("tlas_built") is True,
+                "semantic_acceleration": semantic.get("blas_count") == 2
+                and semantic.get("tlas_instance_count") == 2
+                and semantic.get("receiver_blas_built") is True
+                and semantic.get("occluder_blas_built") is True
+                and semantic.get("tlas_built") is True
+                and is_positive_uint64(semantic.get("receiver_blas_device_address"))
+                and is_positive_uint64(semantic.get("occluder_blas_device_address"))
+                and semantic.get("receiver_blas_device_address")
+                == geometry.get("blas_device_address")
+                and semantic.get("receiver_blas_device_address")
+                != semantic.get("occluder_blas_device_address"),
+                "semantic_rays": semantic.get("sample_count") == 2
+                and semantic.get("primary_receiver_ray_count_total") == 2
+                and semantic.get("directional_visibility_ray_count_total") == 2
+                and semantic.get("primary_receiver_rays_per_sample") == 1
+                and semantic.get("directional_visibility_rays_per_sample") == 1
+                and semantic.get("controlled_geometry_exact") is True,
+                "semantic_typed_outputs": semantic.get("visibility_r16_bits")
+                == EXPECTED_N4A_VISIBILITY_R16
+                and semantic.get("lineage_r32") == EXPECTED_N4A_LINEAGE_R32
+                and semantic.get("raster_rgba16_bits")
+                == [EXPECTED_N4A_RASTER_RGBA16, EXPECTED_N4A_RASTER_RGBA16]
+                and semantic.get("hybrid_rgba16_bits")
+                == EXPECTED_N4A_HYBRID_RGBA16
+                and semantic.get("readback_completed") is True
+                and semantic.get("portable_sample_oracle_passed") is True,
                 "pipeline_dispatch": all(
                     dispatch.get(field) is True for field in dispatch_boolean_fields
                 ),
@@ -601,6 +726,25 @@ def validate_report(
                     geometry.get(field) is False for field in geometry_boolean_fields
                 )
                 and all(group.get(field) == 0 for group, field in address_fields[:5]),
+                "no_semantic_execution": semantic.get("blas_count") == 0
+                and semantic.get("tlas_instance_count") == 0
+                and semantic.get("sample_count") == 0
+                and semantic.get("primary_receiver_ray_count_total") == 0
+                and semantic.get("directional_visibility_ray_count_total") == 0
+                and semantic.get("primary_receiver_rays_per_sample") == 0
+                and semantic.get("directional_visibility_rays_per_sample") == 0
+                and semantic.get("receiver_blas_device_address") == 0
+                and semantic.get("occluder_blas_device_address") == 0
+                and all(
+                    semantic.get(field) is False
+                    for field in semantic_boolean_fields[4:]
+                )
+                and semantic.get("visibility_r16_bits") == [0, 0]
+                and semantic.get("lineage_r32") == [0, 0]
+                and semantic.get("raster_rgba16_bits")
+                == [[0, 0, 0, 0], [0, 0, 0, 0]]
+                and semantic.get("hybrid_rgba16_bits")
+                == [[0, 0, 0, 0], [0, 0, 0, 0]],
                 "no_dispatch": all(
                     dispatch.get(field) is False for field in dispatch_boolean_fields
                 )
@@ -644,6 +788,11 @@ def make_attestation(
             "expected_primary_hit_words": EXPECTED_HIT_WORDS,
             "software_adapter_rt_pass": False,
             "ogre_native_image_composite": "not_evaluated",
+            "n4a_semantic_directional_shadow_pass": passed,
+            "semantic_probe_only": True,
+            "full_native_directional_shadow_v1": False,
+            "exact_ogre_rgba16_source": False,
+            "hybrid_ogre_image_composite": False,
         },
         "complete": True,
     }
@@ -678,6 +827,14 @@ def validate_attestation(
         "expected_words": claims.get("expected_primary_hit_words") == EXPECTED_HIT_WORDS,
         "software_rt": claims.get("software_adapter_rt_pass") is False,
         "no_composite": claims.get("ogre_native_image_composite") == "not_evaluated",
+        "semantic_pass": claims.get("n4a_semantic_directional_shadow_pass")
+        is passed,
+        "semantic_only": claims.get("semantic_probe_only") is True,
+        "no_full_native_v1": claims.get("full_native_directional_shadow_v1")
+        is False,
+        "no_exact_ogre_source": claims.get("exact_ogre_rgba16_source") is False,
+        "no_hybrid_ogre_composite": claims.get("hybrid_ogre_image_composite")
+        is False,
         "complete": attestation.get("complete") is True,
     }
     for value, label in (
@@ -697,6 +854,7 @@ def validate_static_contract() -> None:
     ).read_text(encoding="utf-8")
     smoke = (PROBE_SOURCE / "src/vulkan_rt6_smoke.cpp").read_text(encoding="utf-8")
     cmake = (PROBE_SOURCE / "CMakeLists.txt").read_text(encoding="utf-8")
+    config = (PROBE_SOURCE / "vulkan_rt6_config.h.in").read_text(encoding="utf-8")
     contract = (
         REPOSITORY_ROOT / "source/main/gfx/render/ogrenext/OgreNextVulkanRt6Contract.cpp"
     ).read_text(encoding="utf-8")
@@ -712,6 +870,11 @@ def validate_static_contract() -> None:
         "vkCmdTraceRaysKHR",
         "VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR",
         "vkCmdCopyImageToBuffer",
+        "semantic_occluder_blas",
+        "instance_data[0U].mask = 0x01U",
+        "instance_data[1U].mask = 0x02U",
+        "packHalf2x16",
+        "TryBuildNativeDirectionalShadowSampleOracle",
         "kExpectedPrimaryHit",
         "readback_words == kExpectedPrimaryHit",
         "CompileRt6Shaders",
@@ -742,6 +905,11 @@ def validate_static_contract() -> None:
         "ProveRayTracingDispatch(2U)",
         "ProveTimelineQueue(3U)",
         "kUnsupportedExitCode = 77",
+        "N4A_SEMANTIC_SUBMILESTONE",
+        "semantic_probe_only",
+        "full_native_directional_shadow_v1",
+        "exact_ogre_rgba16_source",
+        "hybrid_ogre_image_composite",
     ):
         if token not in smoke:
             raise Rt6Error(f"RT6 smoke contract token is missing: {token}")
@@ -753,6 +921,8 @@ def validate_static_contract() -> None:
     ):
         if token not in cmake:
             raise Rt6Error(f"RT6 CMake contract token is missing: {token}")
+    if f'"{SCHEMA}"' not in config:
+        raise Rt6Error("RT6 generated config schema differs from the validator")
 
 
 def configure_build(build_dir: Path, generator: str | None) -> None:

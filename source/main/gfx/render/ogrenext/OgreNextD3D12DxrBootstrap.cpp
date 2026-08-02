@@ -45,8 +45,14 @@ namespace {
 
 using Microsoft::WRL::ComPtr;
 
-constexpr std::uint32_t kClosestHitValue = 0xd1ceb00bU;
 constexpr DWORD kFenceTimeoutMilliseconds = 15'000U;
+constexpr std::uint32_t kSemanticDispatchWidth =
+    kDxr7DirectionalShadowSemanticSampleCount;
+constexpr std::uint32_t kSemanticDispatchHeight = 1U;
+constexpr std::array<std::array<std::uint16_t, 4U>,
+                     kDxr7DirectionalShadowSemanticSampleCount>
+    kSemanticRasterRgba16 = {{{0x3400U, 0x3800U, 0x3a00U, 0x3c00U},
+                              {0x3a00U, 0x3800U, 0x3400U, 0x3800U}}};
 
 Dxr7BootstrapResult Ready() {
   return {Dxr7BootstrapCode::READY, {}};
@@ -153,6 +159,24 @@ D3D12_RESOURCE_DESC BufferDescription(std::uint64_t bytes,
   return description;
 }
 
+D3D12_RESOURCE_DESC Texture2DDescription(DXGI_FORMAT format,
+                                         std::uint32_t width,
+                                         std::uint32_t height,
+                                         D3D12_RESOURCE_FLAGS flags) {
+  D3D12_RESOURCE_DESC description{};
+  description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  description.Alignment = 0U;
+  description.Width = width;
+  description.Height = height;
+  description.DepthOrArraySize = 1U;
+  description.MipLevels = 1U;
+  description.Format = format;
+  description.SampleDesc.Count = 1U;
+  description.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+  description.Flags = flags;
+  return description;
+}
+
 ComPtr<ID3D12Resource> CreateBuffer(ID3D12Device* device,
                                     std::uint64_t bytes,
                                     D3D12_HEAP_TYPE heap_type,
@@ -174,16 +198,97 @@ ComPtr<ID3D12Resource> CreateBuffer(ID3D12Device* device,
   return resource;
 }
 
-template <typename Value>
-void UploadValue(ID3D12Resource* resource, const Value& value) {
-  void* mapped = nullptr;
-  const D3D12_RANGE no_read{0U, 0U};
-  const HRESULT result = resource->Map(0U, &no_read, &mapped);
-  if (FAILED(result) || mapped == nullptr) {
-    throw std::runtime_error(HresultFailure("ID3D12Resource::Map", result));
+ComPtr<ID3D12Resource> CreateTexture2D(ID3D12Device* device,
+                                      DXGI_FORMAT format,
+                                      std::uint32_t width,
+                                      std::uint32_t height) {
+  D3D12_HEAP_PROPERTIES heap{};
+  heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+  heap.CreationNodeMask = 1U;
+  heap.VisibleNodeMask = 1U;
+  const D3D12_RESOURCE_DESC description = Texture2DDescription(
+      format, width, height, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+  ComPtr<ID3D12Resource> resource;
+  const HRESULT result = device->CreateCommittedResource(
+      &heap, D3D12_HEAP_FLAG_NONE, &description,
+      D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+      IID_PPV_ARGS(&resource));
+  if (FAILED(result)) {
+    throw std::runtime_error(
+        HresultFailure("CreateCommittedResource(texture)", result));
   }
-  std::memcpy(mapped, &value, sizeof(value));
-  resource->Unmap(0U, nullptr);
+  return resource;
+}
+
+struct TextureReadback final {
+  ComPtr<ID3D12Resource> buffer;
+  D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+  std::uint64_t bytes = 0U;
+};
+
+TextureReadback CreateTextureReadback(ID3D12Device* device,
+                                      ID3D12Resource* texture) {
+  TextureReadback readback;
+  const D3D12_RESOURCE_DESC description = texture->GetDesc();
+  UINT rows = 0U;
+  std::uint64_t row_bytes = 0U;
+  device->GetCopyableFootprints(&description, 0U, 1U, 0U,
+                                &readback.footprint, &rows, &row_bytes,
+                                &readback.bytes);
+  if (rows != description.Height || row_bytes == 0U ||
+      readback.bytes == 0U) {
+    throw std::runtime_error("DXR returned invalid texture readback sizing");
+  }
+  readback.buffer = CreateBuffer(
+      device, readback.bytes, D3D12_HEAP_TYPE_READBACK,
+      D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+  return readback;
+}
+
+void CopyTextureToReadback(ID3D12GraphicsCommandList* command_list,
+                           ID3D12Resource* texture,
+                           const TextureReadback& readback) {
+  D3D12_TEXTURE_COPY_LOCATION source{};
+  source.pResource = texture;
+  source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+  source.SubresourceIndex = 0U;
+  D3D12_TEXTURE_COPY_LOCATION destination{};
+  destination.pResource = readback.buffer.Get();
+  destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+  destination.PlacedFootprint = readback.footprint;
+  command_list->CopyTextureRegion(&destination, 0U, 0U, 0U, &source,
+                                  nullptr);
+}
+
+std::vector<std::uint8_t> ReadTextureRow(const TextureReadback& readback,
+                                         std::size_t tight_bytes) {
+  if (tight_bytes == 0U ||
+      tight_bytes > readback.footprint.Footprint.RowPitch) {
+    throw std::runtime_error("DXR typed readback row size is invalid");
+  }
+  void* mapped = nullptr;
+  const D3D12_RANGE read_range{0U, static_cast<SIZE_T>(readback.bytes)};
+  const HRESULT result = readback.buffer->Map(0U, &read_range, &mapped);
+  if (FAILED(result) || mapped == nullptr) {
+    throw std::runtime_error(
+        HresultFailure("typed texture readback Map", result));
+  }
+  std::vector<std::uint8_t> bytes(tight_bytes);
+  std::memcpy(bytes.data(), mapped, tight_bytes);
+  const D3D12_RANGE no_write{0U, 0U};
+  readback.buffer->Unmap(0U, &no_write);
+  return bytes;
+}
+
+template <typename Value>
+Value ReadValue(const std::vector<std::uint8_t>& bytes,
+                std::size_t offset) {
+  if (offset > bytes.size() || sizeof(Value) > bytes.size() - offset) {
+    throw std::runtime_error("DXR typed readback is truncated");
+  }
+  Value value{};
+  std::memcpy(&value, bytes.data() + offset, sizeof(value));
+  return value;
 }
 
 void UploadBytes(ID3D12Resource* resource, const void* source,
@@ -495,11 +600,12 @@ OgreNextD3D12DxrBootstrap::ProveFenceBeforeDispatch() {
   return result;
 }
 
-Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::DispatchProbe(
+Dxr7BootstrapResult
+OgreNextD3D12DxrBootstrap::DispatchDirectionalShadowSemanticProbe(
     const std::filesystem::path& dxil_library) {
   if (!impl_->d3d12_device || impl_->evidence.fence_before_dispatch != 1U ||
       impl_->evidence.dispatch_rays_called) {
-    return Failure("DXR7 DispatchRays proof is out of order");
+    return Failure("DXR7 directional-shadow DispatchRays proof is out of order");
   }
   try {
     const std::vector<std::uint8_t> dxil = ReadBinary(dxil_library);
@@ -520,75 +626,96 @@ Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::DispatchProbe(
           HresultFailure("CreateCommandList(DIRECT)", result));
     }
 
-    const std::array<float, 9U> vertices = {
-        -1.0F, -1.0F, 0.0F, 1.0F, -1.0F, 0.0F,
-        0.0F,  1.0F,  0.0F};
-    ComPtr<ID3D12Resource> vertex_buffer = CreateBuffer(
-        impl_->d3d12_device.Get(), sizeof(vertices), D3D12_HEAP_TYPE_UPLOAD,
-        D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
-    UploadBytes(vertex_buffer.Get(), vertices.data(), sizeof(vertices));
+    constexpr std::array<std::array<float, 9U>, 2U> kVertices = {{
+        {{-2.0F, -1.0F, 0.0F, 2.0F, -1.0F, 0.0F,
+          0.0F, 2.0F, 0.0F}},
+        {{0.2F, -0.3F, 1.0F, 0.8F, -0.3F, 1.0F,
+          0.5F, 0.5F, 1.0F}},
+    }};
+    std::array<ComPtr<ID3D12Resource>, 2U> vertex_buffers;
+    std::array<ComPtr<ID3D12Resource>, 2U> blas_scratch;
+    std::array<ComPtr<ID3D12Resource>, 2U> blas;
+    for (std::size_t index = 0U; index < kVertices.size(); ++index) {
+      vertex_buffers[index] = CreateBuffer(
+          impl_->d3d12_device.Get(), sizeof(kVertices[index]),
+          D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_FLAG_NONE,
+          D3D12_RESOURCE_STATE_GENERIC_READ);
+      UploadBytes(vertex_buffers[index].Get(), kVertices[index].data(),
+                  sizeof(kVertices[index]));
 
-    D3D12_RAYTRACING_GEOMETRY_DESC geometry{};
-    geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-    geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
-    geometry.Triangles.VertexBuffer.StartAddress =
-        vertex_buffer->GetGPUVirtualAddress();
-    geometry.Triangles.VertexBuffer.StrideInBytes = 3U * sizeof(float);
-    geometry.Triangles.VertexCount = 3U;
-    geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+      D3D12_RAYTRACING_GEOMETRY_DESC geometry{};
+      geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+      geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+      geometry.Triangles.VertexBuffer.StartAddress =
+          vertex_buffers[index]->GetGPUVirtualAddress();
+      geometry.Triangles.VertexBuffer.StrideInBytes = 3U * sizeof(float);
+      geometry.Triangles.VertexCount = 3U;
+      geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
 
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS blas_inputs{};
-    blas_inputs.Type =
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-    blas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-    blas_inputs.Flags =
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-    blas_inputs.NumDescs = 1U;
-    blas_inputs.pGeometryDescs = &geometry;
-    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO blas_info{};
-    impl_->d3d12_device->GetRaytracingAccelerationStructurePrebuildInfo(
-        &blas_inputs, &blas_info);
-    if (blas_info.ResultDataMaxSizeInBytes == 0U ||
-        blas_info.ScratchDataSizeInBytes == 0U) {
-      throw std::runtime_error("DXR returned empty BLAS sizing");
+      D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs{};
+      inputs.Type =
+          D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+      inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+      inputs.Flags =
+          D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+      inputs.NumDescs = 1U;
+      inputs.pGeometryDescs = &geometry;
+      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO info{};
+      impl_->d3d12_device->GetRaytracingAccelerationStructurePrebuildInfo(
+          &inputs, &info);
+      if (info.ResultDataMaxSizeInBytes == 0U ||
+          info.ScratchDataSizeInBytes == 0U) {
+        throw std::runtime_error("DXR returned empty BLAS sizing");
+      }
+      blas_scratch[index] = CreateBuffer(
+          impl_->d3d12_device.Get(),
+          AlignUp(info.ScratchDataSizeInBytes,
+                  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT),
+          D3D12_HEAP_TYPE_DEFAULT,
+          D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+          D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+      blas[index] = CreateBuffer(
+          impl_->d3d12_device.Get(),
+          AlignUp(info.ResultDataMaxSizeInBytes,
+                  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT),
+          D3D12_HEAP_TYPE_DEFAULT,
+          D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+          D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+      D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build{};
+      build.Inputs = inputs;
+      build.ScratchAccelerationStructureData =
+          blas_scratch[index]->GetGPUVirtualAddress();
+      build.DestAccelerationStructureData =
+          blas[index]->GetGPUVirtualAddress();
+      command_list->BuildRaytracingAccelerationStructure(&build, 0U,
+                                                          nullptr);
+      D3D12_RESOURCE_BARRIER barrier{};
+      barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+      barrier.UAV.pResource = blas[index].Get();
+      command_list->ResourceBarrier(1U, &barrier);
     }
-    ComPtr<ID3D12Resource> blas_scratch = CreateBuffer(
-        impl_->d3d12_device.Get(),
-        AlignUp(blas_info.ScratchDataSizeInBytes,
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT),
-        D3D12_HEAP_TYPE_DEFAULT,
-        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    ComPtr<ID3D12Resource> blas = CreateBuffer(
-        impl_->d3d12_device.Get(),
-        AlignUp(blas_info.ResultDataMaxSizeInBytes,
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT),
-        D3D12_HEAP_TYPE_DEFAULT,
-        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC blas_build{};
-    blas_build.Inputs = blas_inputs;
-    blas_build.ScratchAccelerationStructureData =
-        blas_scratch->GetGPUVirtualAddress();
-    blas_build.DestAccelerationStructureData = blas->GetGPUVirtualAddress();
-    command_list->BuildRaytracingAccelerationStructure(&blas_build, 0U,
-                                                        nullptr);
-    D3D12_RESOURCE_BARRIER blas_barrier{};
-    blas_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    blas_barrier.UAV.pResource = blas.Get();
-    command_list->ResourceBarrier(1U, &blas_barrier);
     impl_->evidence.blas_built = true;
 
-    D3D12_RAYTRACING_INSTANCE_DESC instance{};
-    instance.Transform[0][0] = 1.0F;
-    instance.Transform[1][1] = 1.0F;
-    instance.Transform[2][2] = 1.0F;
-    instance.InstanceMask = 0xffU;
-    instance.AccelerationStructure = blas->GetGPUVirtualAddress();
+    std::array<D3D12_RAYTRACING_INSTANCE_DESC, 2U> instances{};
+    for (std::size_t index = 0U; index < instances.size(); ++index) {
+      instances[index].Transform[0][0] = 1.0F;
+      instances[index].Transform[1][1] = 1.0F;
+      instances[index].Transform[2][2] = 1.0F;
+      instances[index].InstanceContributionToHitGroupIndex = 0U;
+      instances[index].AccelerationStructure =
+          blas[index]->GetGPUVirtualAddress();
+    }
+    instances[0U].InstanceID = static_cast<UINT>(
+        kDxr7DirectionalShadowReceiverInstanceId);
+    instances[0U].InstanceMask = 0x01U;
+    instances[1U].InstanceID = static_cast<UINT>(
+        kDxr7DirectionalShadowOccluderInstanceId);
+    instances[1U].InstanceMask = 0x02U;
     ComPtr<ID3D12Resource> instance_buffer = CreateBuffer(
-        impl_->d3d12_device.Get(), sizeof(instance), D3D12_HEAP_TYPE_UPLOAD,
-        D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
-    UploadValue(instance_buffer.Get(), instance);
+        impl_->d3d12_device.Get(), sizeof(instances),
+        D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_FLAG_NONE,
+        D3D12_RESOURCE_STATE_GENERIC_READ);
+    UploadBytes(instance_buffer.Get(), instances.data(), sizeof(instances));
 
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tlas_inputs{};
     tlas_inputs.Type =
@@ -596,7 +723,7 @@ Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::DispatchProbe(
     tlas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
     tlas_inputs.Flags =
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-    tlas_inputs.NumDescs = 1U;
+    tlas_inputs.NumDescs = static_cast<UINT>(instances.size());
     tlas_inputs.InstanceDescs = instance_buffer->GetGPUVirtualAddress();
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO tlas_info{};
     impl_->d3d12_device->GetRaytracingAccelerationStructurePrebuildInfo(
@@ -632,12 +759,21 @@ Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::DispatchProbe(
     command_list->ResourceBarrier(1U, &tlas_barrier);
     impl_->evidence.tlas_built = true;
 
+    D3D12_DESCRIPTOR_RANGE output_range{};
+    output_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    output_range.NumDescriptors = 3U;
+    output_range.BaseShaderRegister = 0U;
+    output_range.RegisterSpace = 0U;
+    output_range.OffsetInDescriptorsFromTableStart =
+        D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
     std::array<D3D12_ROOT_PARAMETER, 2U> root_parameters{};
     root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     root_parameters[0].Descriptor.ShaderRegister = 0U;
     root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    root_parameters[1].Descriptor.ShaderRegister = 0U;
+    root_parameters[1].ParameterType =
+        D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[1].DescriptorTable.NumDescriptorRanges = 1U;
+    root_parameters[1].DescriptorTable.pDescriptorRanges = &output_range;
     root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     D3D12_ROOT_SIGNATURE_DESC root_description{};
     root_description.NumParameters =
@@ -683,7 +819,8 @@ Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::DispatchProbe(
     hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
     hit_group.ClosestHitShaderImport = kClosestHit;
     D3D12_RAYTRACING_SHADER_CONFIG shader_config{};
-    shader_config.MaxPayloadSizeInBytes = sizeof(std::uint32_t);
+    shader_config.MaxPayloadSizeInBytes =
+        sizeof(float) + sizeof(std::uint32_t);
     shader_config.MaxAttributeSizeInBytes = 2U * sizeof(float);
     D3D12_GLOBAL_ROOT_SIGNATURE global_root{};
     global_root.pGlobalRootSignature = root_signature.Get();
@@ -747,22 +884,68 @@ Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::DispatchProbe(
                 D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
     shader_table->Unmap(0U, nullptr);
 
-    ComPtr<ID3D12Resource> output = CreateBuffer(
-        impl_->d3d12_device.Get(), sizeof(std::uint32_t),
-        D3D12_HEAP_TYPE_DEFAULT,
-        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    ComPtr<ID3D12Resource> readback = CreateBuffer(
-        impl_->d3d12_device.Get(), sizeof(std::uint32_t),
-        D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_NONE,
-        D3D12_RESOURCE_STATE_COPY_DEST);
+    constexpr std::array<DXGI_FORMAT, 3U> kOutputFormats = {
+        DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_R32_UINT,
+        DXGI_FORMAT_R16G16B16A16_FLOAT};
+    for (const DXGI_FORMAT format : kOutputFormats) {
+      D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
+      support.Format = format;
+      result = impl_->d3d12_device->CheckFeatureSupport(
+          D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support));
+      if (FAILED(result) ||
+          (static_cast<UINT>(support.Support2) &
+           static_cast<UINT>(D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE)) == 0U) {
+        throw std::runtime_error(
+            "DXR adapter lacks a required typed UAV store format");
+      }
+    }
+    std::array<ComPtr<ID3D12Resource>, 3U> outputs;
+    for (std::size_t index = 0U; index < outputs.size(); ++index) {
+      outputs[index] = CreateTexture2D(
+          impl_->d3d12_device.Get(), kOutputFormats[index],
+          kSemanticDispatchWidth, kSemanticDispatchHeight);
+    }
+    D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_description{};
+    descriptor_heap_description.Type =
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    descriptor_heap_description.NumDescriptors =
+        static_cast<UINT>(outputs.size());
+    descriptor_heap_description.Flags =
+        D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ComPtr<ID3D12DescriptorHeap> descriptor_heap;
+    result = impl_->d3d12_device->CreateDescriptorHeap(
+        &descriptor_heap_description, IID_PPV_ARGS(&descriptor_heap));
+    if (FAILED(result)) {
+      throw std::runtime_error(
+          HresultFailure("CreateDescriptorHeap(CBV_SRV_UAV)", result));
+    }
+    const UINT descriptor_increment =
+        impl_->d3d12_device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    D3D12_CPU_DESCRIPTOR_HANDLE descriptor =
+        descriptor_heap->GetCPUDescriptorHandleForHeapStart();
+    for (std::size_t index = 0U; index < outputs.size(); ++index) {
+      D3D12_UNORDERED_ACCESS_VIEW_DESC view{};
+      view.Format = kOutputFormats[index];
+      view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+      impl_->d3d12_device->CreateUnorderedAccessView(
+          outputs[index].Get(), nullptr, &view, descriptor);
+      descriptor.ptr += descriptor_increment;
+    }
+    std::array<TextureReadback, 3U> readbacks = {
+        CreateTextureReadback(impl_->d3d12_device.Get(), outputs[0U].Get()),
+        CreateTextureReadback(impl_->d3d12_device.Get(), outputs[1U].Get()),
+        CreateTextureReadback(impl_->d3d12_device.Get(), outputs[2U].Get())};
 
+    ID3D12DescriptorHeap* descriptor_heaps[] = {descriptor_heap.Get()};
+    command_list->SetDescriptorHeaps(
+        static_cast<UINT>(std::size(descriptor_heaps)), descriptor_heaps);
     command_list->SetComputeRootSignature(root_signature.Get());
     command_list->SetPipelineState1(state_object.Get());
     command_list->SetComputeRootShaderResourceView(
         0U, tlas->GetGPUVirtualAddress());
-    command_list->SetComputeRootUnorderedAccessView(
-        1U, output->GetGPUVirtualAddress());
+    command_list->SetComputeRootDescriptorTable(
+        1U, descriptor_heap->GetGPUDescriptorHandleForHeapStart());
     const D3D12_GPU_VIRTUAL_ADDRESS table_address =
         shader_table->GetGPUVirtualAddress();
     D3D12_DISPATCH_RAYS_DESC dispatch{};
@@ -779,8 +962,8 @@ Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::DispatchProbe(
         D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
     dispatch.HitGroupTable.StrideInBytes =
         D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
-    dispatch.Width = 1U;
-    dispatch.Height = 1U;
+    dispatch.Width = kSemanticDispatchWidth;
+    dispatch.Height = kSemanticDispatchHeight;
     dispatch.Depth = 1U;
     command_list->DispatchRays(&dispatch);
     impl_->evidence.dispatch_rays_called = true;
@@ -788,17 +971,23 @@ Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::DispatchProbe(
     impl_->evidence.dispatch_height = dispatch.Height;
     impl_->evidence.dispatch_depth = dispatch.Depth;
 
-    D3D12_RESOURCE_BARRIER output_barrier{};
-    output_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    output_barrier.Transition.pResource = output.Get();
-    output_barrier.Transition.StateBefore =
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    output_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-    output_barrier.Transition.Subresource =
-        D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    command_list->ResourceBarrier(1U, &output_barrier);
-    command_list->CopyBufferRegion(readback.Get(), 0U, output.Get(), 0U,
-                                   sizeof(std::uint32_t));
+    for (std::size_t index = 0U; index < outputs.size(); ++index) {
+      D3D12_RESOURCE_BARRIER uav_barrier{};
+      uav_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+      uav_barrier.UAV.pResource = outputs[index].Get();
+      command_list->ResourceBarrier(1U, &uav_barrier);
+      D3D12_RESOURCE_BARRIER transition{};
+      transition.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+      transition.Transition.pResource = outputs[index].Get();
+      transition.Transition.StateBefore =
+          D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+      transition.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+      transition.Transition.Subresource =
+          D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+      command_list->ResourceBarrier(1U, &transition);
+      CopyTextureToReadback(command_list.Get(), outputs[index].Get(),
+                            readbacks[index]);
+    }
     result = command_list->Close();
     if (FAILED(result)) {
       throw std::runtime_error(
@@ -813,22 +1002,85 @@ Dxr7BootstrapResult OgreNextD3D12DxrBootstrap::DispatchProbe(
     }
     impl_->evidence.fence_after_dispatch = 2U;
 
-    void* readback_mapping = nullptr;
-    const D3D12_RANGE read_range{0U, sizeof(std::uint32_t)};
-    result = readback->Map(0U, &read_range, &readback_mapping);
-    if (FAILED(result) || readback_mapping == nullptr) {
-      throw std::runtime_error(
-          HresultFailure("readback Map", result));
+    const std::vector<std::uint8_t> visibility_bytes = ReadTextureRow(
+        readbacks[0U], kSemanticDispatchWidth * sizeof(std::uint16_t));
+    const std::vector<std::uint8_t> lineage_bytes = ReadTextureRow(
+        readbacks[1U], kSemanticDispatchWidth * sizeof(std::uint32_t));
+    const std::vector<std::uint8_t> hybrid_bytes = ReadTextureRow(
+        readbacks[2U], kSemanticDispatchWidth * 4U * sizeof(std::uint16_t));
+
+    Dxr7DirectionalShadowSemanticContract semantic;
+    semantic.capabilities.backend =
+        NativeDirectionalShadowBackend::DIRECT3D12_DXR;
+    semantic.capabilities.hardware_ray_tracing = true;
+    semantic.capabilities.same_device_raster_and_ray_queue = true;
+    semantic.capabilities.two_level_acceleration_structures = true;
+    semantic.capabilities.primary_camera_rays = true;
+    semantic.capabilities.secondary_directional_visibility_rays = true;
+    semantic.capabilities.r16_float_visibility = true;
+    semantic.capabilities.rgba16_float_hybrid_composite = true;
+    semantic.semantic_probe_only = true;
+    semantic.exact_ogre_rgba16_source = false;
+    semantic.hybrid_ogre_image_composite = false;
+    semantic.blas_count = kNativeDirectionalShadowRequiredBlasCount;
+    semantic.tlas_instance_count =
+        kNativeDirectionalShadowRequiredTlasInstanceCount;
+    semantic.receiver_instance_id =
+        kDxr7DirectionalShadowReceiverInstanceId;
+    semantic.occluder_instance_id =
+        kDxr7DirectionalShadowOccluderInstanceId;
+    semantic.receiver_blas_built = true;
+    semantic.occluder_blas_built = true;
+    semantic.tlas_built = true;
+    semantic.primary_camera_rays_per_sample =
+        kNativeDirectionalShadowRequiredPrimaryRayCount;
+    semantic.secondary_directional_visibility_rays_per_sample =
+        kNativeDirectionalShadowRequiredVisibilityRayCount;
+    semantic.visibility_r16_float = true;
+    semantic.lineage_r32_uint = true;
+    semantic.hybrid_rgba16_float = true;
+    semantic.visibility_readback_completed = true;
+    semantic.lineage_readback_completed = true;
+    semantic.hybrid_readback_completed = true;
+    for (std::size_t sample_index = 0U;
+         sample_index < semantic.samples.size(); ++sample_index) {
+      Dxr7DirectionalShadowSemanticSample& sample =
+          semantic.samples[sample_index];
+      sample.visibility_r16_bits = ReadValue<std::uint16_t>(
+          visibility_bytes, sample_index * sizeof(std::uint16_t));
+      sample.visibility =
+          sample.visibility_r16_bits == kNativeDirectionalShadowVisibleR16
+              ? NativeDirectionalShadowVisibility::VISIBLE
+              : (sample.visibility_r16_bits ==
+                         kNativeDirectionalShadowOccludedR16
+                     ? NativeDirectionalShadowVisibility::OCCLUDED
+                     : NativeDirectionalShadowVisibility::INVALID);
+      sample.ray_lineage = ReadValue<std::uint32_t>(
+          lineage_bytes, sample_index * sizeof(std::uint32_t));
+      sample.primary_hit_instance_id =
+          sample.ray_lineage == kDxr7DirectionalShadowVisibleLineage ||
+                  sample.ray_lineage ==
+                      kDxr7DirectionalShadowOccludedLineage
+              ? kDxr7DirectionalShadowReceiverInstanceId
+              : 0U;
+      sample.secondary_blocker_instance_id =
+          sample.ray_lineage == kDxr7DirectionalShadowOccludedLineage
+              ? kDxr7DirectionalShadowOccluderInstanceId
+              : 0U;
+      sample.raster_rgba16.channels = kSemanticRasterRgba16[sample_index];
+      for (std::size_t channel = 0U;
+           channel < sample.hybrid_rgba16.channels.size(); ++channel) {
+        sample.hybrid_rgba16.channels[channel] = ReadValue<std::uint16_t>(
+            hybrid_bytes,
+            (sample_index * sample.hybrid_rgba16.channels.size() + channel) *
+                sizeof(std::uint16_t));
+      }
     }
-    std::memcpy(&impl_->evidence.readback_value, readback_mapping,
-                sizeof(impl_->evidence.readback_value));
-    const D3D12_RANGE no_write{0U, 0U};
-    readback->Unmap(0U, &no_write);
-    impl_->evidence.closest_hit_readback_exact =
-        impl_->evidence.readback_value == kClosestHitValue;
-    if (!impl_->evidence.closest_hit_readback_exact) {
-      return Failure("DXR dispatch did not return the exact closest-hit value");
+    if (!ValidateDxr7DirectionalShadowSemanticContract(semantic)) {
+      return Failure(
+          "DXR directional-shadow semantic readbacks failed the portable oracle");
     }
+    impl_->evidence.directional_shadow = semantic;
     return Ready();
   } catch (const std::exception& error) {
     return Failure(error.what());
@@ -996,8 +1248,7 @@ Dxr7PassContract OgreNextD3D12DxrBootstrap::pass_contract() const noexcept {
   contract.shader_identifiers_resolved =
       impl_->evidence.shader_identifiers_resolved;
   contract.dispatch_rays_called = impl_->evidence.dispatch_rays_called;
-  contract.closest_hit_readback_exact =
-      impl_->evidence.closest_hit_readback_exact;
+  contract.directional_shadow = impl_->evidence.directional_shadow;
   contract.queue_fence_before_dispatch =
       impl_->evidence.fence_before_dispatch == 1U;
   contract.queue_fence_after_dispatch =

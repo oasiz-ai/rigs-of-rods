@@ -1,7 +1,7 @@
 # Ogre-Next and Native Ray-Tracing Decision RFC
 
-Status: **priority architecture gate; Apple M5 N3 same-device
-view-dependent hybrid-HDR slice passed, production RT not yet implemented**
+Status: **priority architecture gate; Apple M5 N4 same-device directional
+hard-shadow and lifecycle sequence passed, production RT not yet implemented**
 
 Audit date: **2026-08-01**
 
@@ -405,6 +405,16 @@ The Apple-only test executable proves its isolated Metal dispatch, but no game
 runtime populates a successful RT capability record. This change therefore
 does not claim or enable native RT in RoR.
 
+`RendererStartupPlan` is the next pre-initialization seam. It combines frontend
+intent, shadow intent, packaged-backend identity, and a current-process native
+preflight into exactly one of OGRE14/PSSM, Ogre-Next/PSSM, Ogre-Next/native
+directional shadows, or rejection. Defaults remain OGRE14/PSSM; unknown states,
+cross-platform backend identities, zero device identities, and fallback across
+either a required Ogre-Next frontend or required native-shadow request are
+rejected. The plan intentionally does not load both OGRE ABIs. A launcher and
+separate-executable handoff must consume it before this becomes a shipping
+renderer selector.
+
 ## Milestones and commit/PR sequence
 
 ### RT0 — Contract and decision evidence (this change)
@@ -445,8 +455,9 @@ world-model dependency exists.
   complete in N3 through versioned renderer-neutral geometry/image leases.
 - A view-dependent primary-ray hit contribution is now GPU-composited into the
   exact UI-free Ogre target and independently read back as raster-only,
-  contribution-only, and hybrid artifacts. A calibrated reflection or shadow
-  contribution remains open.
+  contribution-only, and hybrid artifacts. N4 adds a full-view hard directional
+  shadow on the same exact Ogre target; calibrated reflections and soft/area
+  shadows remain open.
 - Validate M3-class or newer hardware; validate raster fallback on M1/M2.
 
 Exit: exact probe, scene image, GPU capture, frame timings, lifecycle soak, and
@@ -502,13 +513,15 @@ provenance artifacts pass. Only then may the macOS build report
 Exit: `PREFER_HARDWARE` degradation is visually complete on every supported
 machine.
 
-The renderer-neutral contract for the later Metal N4 directional-hard-shadow
-feature tier is now implemented independently of platform headers. It locks
+The renderer-neutral N4 directional-hard-shadow feature contract is implemented
+independently of platform headers. It locks
 the two-BLAS/two-instance-TLAS lineage, primary plus secondary directional ray,
-and exact R16/RGBA16 sample behavior for Metal, Vulkan KHR, and DXR. This is a
-contract prerequisite only: PSSM remains the implemented fallback, and native
-N4 runtime dispatch/evidence is still required before any ray-traced-shadow
-claim.
+and exact R16/RGBA16 sample behavior for Metal, Vulkan KHR, and DXR. Metal now
+executes the full-view contract against the exact Ogre image. Vulkan RT6 and
+Windows RT7 execute a bounded two-sample native semantic subset but explicitly
+exclude exact Ogre-image source and composite claims. PSSM remains the reviewed
+fallback; production selection still requires the launcher handoff plus each
+platform's full scene/image, lifecycle, and hardware evidence.
 
 ### RT5 — Vulkan external-device foundation
 
@@ -519,25 +532,30 @@ claim.
 Exit: hardware ownership passes or software/incomplete devices return explicit
 unsupported evidence.
 
-### RT6 — Vulkan KHR primary-hit proof
+### RT6 — Vulkan KHR primary-hit and N4A semantic proof
 
 - Require the exact KHR extension and feature chain on Linux hardware.
-- Build fixed mirror geometry, BLAS/TLAS, descriptors, ray pipeline, and SBT on
-  the shared graphics-and-compute queue.
-- Dispatch one primary ray and require the deterministic nonzero host readback.
+- Preserve the fixed primary-hit proof, then build distinct receiver and
+  occluder BLAS plus a masked two-instance TLAS on the shared
+  graphics-and-compute queue.
+- Dispatch controlled receiver and +light visibility rays and require canonical
+  R16 visibility, R32 lineage, and RGBA16 sample-oracle encodings packed into
+  the RT6 std430 readback buffer.
 
 Exit: only an actual hardware dispatch may report the scoped RT6
 `hardware_dispatch_pass`; production `native_rt=vulkan-khr` remains gated on
-shared-scene integration, validation layers, resize, soak, and compositing.
+exact Ogre RGBA16 source/composite interop, validation layers, resize, soak, and
+full-scene integration.
 
 ### RT7 — DXR interop decision
 
-- Complete the D3D12/D3D11On12/Ogre-Next proof.
+- Preserve the D3D12/D3D11On12/Ogre-Next ownership proof and execute the
+  two-BLAS/two-instance N4A semantic dispatch with typed R16/R32/RGBA16 UAVs.
 - Bind every pass/unsupported result to the exact executable, DXIL, Windows SDK
   compiler closure, clean source manifest, build contract, observed process
   exit, and CI rerun receipt.
-- Pass DXR tier query, triangle probe, shared-scene pass, resource-state
-  validation, a native UI-free Ogre frame readback, resize, device removal, and
+- Pass DXR tier query, semantic receiver/occluder probe, shared-scene pass,
+  resource-state validation, a native UI-free Ogre frame readback, resize, device removal, and
   soak. Initialise-only or fabricated offline artifacts never satisfy RT7.
 
 The RT7 probe therefore rejects arbitrary `MZ`/`DXBC` byte blobs: its
@@ -608,10 +626,12 @@ parity.
 
 ## Immediate go/no-go
 
-**Passed locally:** the RT0 contract tests, standalone Apple M5 Metal
-BLAS/TLAS/dispatch/readback subgate, and the N3 view-dependent same-device
-hybrid-HDR contribution slice including camera change, resize, and bounded
-post-submission fault cleanup.
+**Passed locally:** the RT0/startup-plan contract tests, standalone Apple M5
+Metal BLAS/TLAS/dispatch/readback subgate, N3 view-dependent same-device hybrid
+HDR, and N4 full-view directional shadows including exact repeat,
+moved-occluder isolation, resize, and bounded post-submission device-loss and
+timeout cleanup. Vulkan/DXR N4A validators pass locally; native execution awaits
+their platform hardware gates.
 
 **Go:** RT1, RT2, and the remaining Ogre-Next/RoR-scene work in the
 macOS-first RT3 spike.
@@ -621,12 +641,13 @@ Ogre-Next development `master`, or claiming native RT.
 
 **Hard continuation gates:**
 
-- Metal RT must advance the proven family-9 scene composite to calibrated
-  reflection/shadow semantics, GPU capture/timing, and soak evidence while
-  M1/M2 fall back cleanly.
-- The D3D11On12/DXR spike must prove Ogre-Next and DXR can share one correct
-  Windows frame lifecycle. If it cannot, the renderer architecture must be
-  revisited before a large content migration.
+- Metal RT must advance the proven family-9 hard-shadow composite to soft/area
+  shadows, reflections, calibrated image/performance evidence, and a long soak
+  while M1/M2 fall back cleanly.
+- Vulkan and DXR must promote their bounded semantic probes to exact Ogre image
+  source/composite interop on native hardware. If the D3D11On12 lifecycle cannot
+  support that boundary, the renderer architecture must be revisited before a
+  large content migration.
 
 This preserves the user's deciding requirement: Ogre-Next is adopted only if
 it can participate in a real, native, cross-platform RT architecture rather

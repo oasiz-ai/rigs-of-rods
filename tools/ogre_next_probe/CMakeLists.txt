@@ -30,17 +30,23 @@ find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
 get_filename_component(ROR_REPOSITORY_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 set(ROR_SOURCE_REPOSITORY "https://github.com/oasiz-ai/rigs-of-rods")
+if (DEFINED ENV{ROR_OGRE_NEXT_EXPECTED_ROR_REPOSITORY} AND
+        NOT "$ENV{ROR_OGRE_NEXT_EXPECTED_ROR_REPOSITORY}" STREQUAL
+            "${ROR_SOURCE_REPOSITORY}")
+    message(FATAL_ERROR
+        "Expected RoR repository differs from the reviewed source identity")
+endif ()
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" -C "${ROR_REPOSITORY_ROOT}" rev-parse HEAD
+    RESULT_VARIABLE _ror_git_commit_result
+    OUTPUT_VARIABLE _ror_checked_out_source_commit
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
 if (DEFINED ENV{ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT} AND
         NOT "$ENV{ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT}" STREQUAL "")
     set(ROR_SOURCE_COMMIT "$ENV{ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT}")
-    set(_ror_git_commit_result 0)
 else ()
-    execute_process(
-        COMMAND "${GIT_EXECUTABLE}" -C "${ROR_REPOSITORY_ROOT}" rev-parse HEAD
-        RESULT_VARIABLE _ror_git_commit_result
-        OUTPUT_VARIABLE ROR_SOURCE_COMMIT
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET)
+    set(ROR_SOURCE_COMMIT "${_ror_checked_out_source_commit}")
 endif ()
 if (DEFINED ENV{ROR_OGRE_NEXT_EXPECTED_ROR_REF} AND
         NOT "$ENV{ROR_OGRE_NEXT_EXPECTED_ROR_REF}" STREQUAL "")
@@ -59,6 +65,8 @@ string(LENGTH "${ROR_SOURCE_COMMIT}" _ror_source_commit_length)
 if (NOT _ror_git_commit_result EQUAL 0 OR
         NOT _ror_source_commit_length EQUAL 40 OR
         NOT ROR_SOURCE_COMMIT MATCHES "^[0-9a-f]+$" OR
+        NOT "${ROR_SOURCE_COMMIT}" STREQUAL
+            "${_ror_checked_out_source_commit}" OR
         NOT _ror_git_ref_result EQUAL 0 OR
         NOT ROR_SOURCE_REF MATCHES "^[A-Za-z0-9._/-]+$")
     message(FATAL_ERROR "RoR source Git identity cannot be attested")
@@ -69,6 +77,11 @@ file(GLOB_RECURSE _ror_relevant_source_files
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/*"
     "${ROR_REPOSITORY_ROOT}/tools/ogre_next_probe/*")
 list(APPEND _ror_relevant_source_files
+    "source/main/gfx/RendererBackendPolicy.cpp"
+    "source/main/gfx/RendererBackendPolicy.h"
+    "source/main/gfx/RendererStartupPlan.cpp"
+    "source/main/gfx/RendererStartupPlan.h"
+    "tests/gfx/RendererStartupPlanTests.cpp"
     "tools/run_ogre_next_probe.py"
     "tools/validate_ogre_next_frame_probe.py"
     "tools/verify_ogre_next_artifact_set.py")
@@ -504,11 +517,24 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre_next_frontend_n1
         ror_ogre_next_pssm_source_closure_verify)
 
+    add_executable(
+        ror_renderer_startup_plan_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererStartupPlanTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp")
+    target_include_directories(
+        ror_renderer_startup_plan_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx")
+    set_target_properties(
+        ror_renderer_startup_plan_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
     set(_ror_n1_targets
         ror_ogre_next_n1_contract
         ror_ogre_next_frontend_n1
         ror_ogre_next_frontend_n1_smoke
-        ror_ogre_next_pssm_shadow_smoke)
+        ror_ogre_next_pssm_shadow_smoke
+        ror_renderer_startup_plan_tests)
     if (ROR_OGRE_NEXT_VULKAN_RT5 AND
             ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         add_executable(
@@ -727,7 +753,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             ror_ogre_next_windows_dxr7_smoke
             src/windows_dxr7_smoke.cpp
             "${_ror_render_root}/ogrenext/OgreNextD3D12DxrBootstrap.cpp"
-            "${_ror_render_root}/ogrenext/OgreNextDxr7Contract.cpp")
+            "${_ror_render_root}/ogrenext/OgreNextDxr7Contract.cpp"
+            "${_ror_render_root}/ogrenext/NativeDirectionalShadowContract.cpp")
         add_dependencies(
             ror_ogre_next_windows_dxr7_smoke
             ror_ogre_next_windows_dxr7_shader)
@@ -767,7 +794,12 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         set(_ror_n2_repository_root
             "${CMAKE_CURRENT_SOURCE_DIR}/../..")
         set(_ror_n2_relevant_source_paths
+            source/main/gfx/RendererBackendPolicy.cpp
+            source/main/gfx/RendererBackendPolicy.h
+            source/main/gfx/RendererStartupPlan.cpp
+            source/main/gfx/RendererStartupPlan.h
             source/main/gfx/render
+            tests/gfx/RendererStartupPlanTests.cpp
             tools/ogre_next_probe
             tools/run_ogre_next_probe.py
             tools/validate_ogre_next_frame_probe.py
@@ -790,26 +822,6 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 "Metal N2 provenance requires a clean relevant source set:\n"
                 "${_ror_n2_status}")
         endif ()
-        execute_process(
-            COMMAND git rev-parse --verify HEAD
-            WORKING_DIRECTORY "${_ror_n2_repository_root}"
-            RESULT_VARIABLE _ror_n2_commit_result
-            OUTPUT_VARIABLE _ror_n2_source_commit
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_QUIET)
-        if (NOT _ror_n2_commit_result EQUAL 0)
-            set(_ror_n2_source_commit "unknown")
-        endif ()
-        execute_process(
-            COMMAND git symbolic-ref --short HEAD
-            WORKING_DIRECTORY "${_ror_n2_repository_root}"
-            RESULT_VARIABLE _ror_n2_ref_result
-            OUTPUT_VARIABLE _ror_n2_source_ref
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_QUIET)
-        if (NOT _ror_n2_ref_result EQUAL 0)
-            set(_ror_n2_source_ref "detached")
-        endif ()
         add_executable(
             ror_ogre_next_metal_n2_smoke
             src/metal_n2_smoke.cpp)
@@ -821,8 +833,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             PRIVATE
                 ROR_OGRE_NEXT_N2_TEST_SEAM=1
                 ROR_OGRE_NEXT_N2_SOURCE_REPOSITORY="${ROR_SOURCE_REPOSITORY}"
-                ROR_OGRE_NEXT_N2_SOURCE_COMMIT="${_ror_n2_source_commit}"
-                ROR_OGRE_NEXT_N2_SOURCE_REF="${_ror_n2_source_ref}"
+                ROR_OGRE_NEXT_N2_SOURCE_COMMIT="${ROR_SOURCE_COMMIT}"
+                ROR_OGRE_NEXT_N2_SOURCE_REF="${ROR_SOURCE_REF}"
                 ROR_OGRE_NEXT_N2_RELEVANT_SOURCE_CLEAN=1
                 ROR_OGRE_NEXT_N2_SOURCE_MANIFEST_SHA256="${ROR_SOURCE_MANIFEST_SHA256}")
         target_link_libraries(
@@ -851,8 +863,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             PRIVATE
                 ROR_OGRE_NEXT_N2_TEST_SEAM=1
                 ROR_OGRE_NEXT_N3_SOURCE_REPOSITORY="${ROR_SOURCE_REPOSITORY}"
-                ROR_OGRE_NEXT_N3_SOURCE_COMMIT="${_ror_n2_source_commit}"
-                ROR_OGRE_NEXT_N3_SOURCE_REF="${_ror_n2_source_ref}"
+                ROR_OGRE_NEXT_N3_SOURCE_COMMIT="${ROR_SOURCE_COMMIT}"
+                ROR_OGRE_NEXT_N3_SOURCE_REF="${ROR_SOURCE_REF}"
                 ROR_OGRE_NEXT_N3_RELEVANT_SOURCE_CLEAN=1
                 ROR_OGRE_NEXT_N3_SOURCE_MANIFEST_SHA256="${ROR_SOURCE_MANIFEST_SHA256}")
         target_link_libraries(
@@ -881,8 +893,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             PRIVATE
                 ROR_OGRE_NEXT_N2_TEST_SEAM=1
                 ROR_OGRE_NEXT_N4_SOURCE_REPOSITORY="${ROR_SOURCE_REPOSITORY}"
-                ROR_OGRE_NEXT_N4_SOURCE_COMMIT="${_ror_n2_source_commit}"
-                ROR_OGRE_NEXT_N4_SOURCE_REF="${_ror_n2_source_ref}"
+                ROR_OGRE_NEXT_N4_SOURCE_COMMIT="${ROR_SOURCE_COMMIT}"
+                ROR_OGRE_NEXT_N4_SOURCE_REF="${ROR_SOURCE_REF}"
                 ROR_OGRE_NEXT_N4_RELEVANT_SOURCE_CLEAN=1
                 ROR_OGRE_NEXT_N4_SOURCE_MANIFEST_SHA256="${ROR_SOURCE_MANIFEST_SHA256}")
         target_link_libraries(
@@ -958,6 +970,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 "${ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE}"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_IBLBAKER_NOTICE_RELATIVE}")
     set(_ror_n1_package_dependencies
+        ror_renderer_startup_plan_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
         "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
         "${ROR_OGRE_NEXT_PACKAGE_RAPIDJSON_LICENSE_SOURCE}"
@@ -1121,6 +1134,10 @@ add_custom_target(
     VERBATIM)
 
 enable_testing()
+if (TARGET ror_renderer_startup_plan_tests)
+    add_test(NAME ror_renderer_startup_plan
+        COMMAND $<TARGET_FILE:ror_renderer_startup_plan_tests>)
+endif ()
 add_test(NAME ror_ogre_next_probe_runtime
     COMMAND $<TARGET_FILE:ror_ogre_next_probe>)
 add_test(NAME ror_ogre_next_frame_probe_runtime

@@ -8,6 +8,9 @@
 
 #pragma once
 
+#include "NativeDirectionalShadowContract.h"
+
+#include <array>
 #include <cstdint>
 
 namespace RoR::Render {
@@ -66,6 +69,61 @@ struct Dxr7CandidateContract {
   std::uint32_t raytracing_tier = 0U;
 };
 
+constexpr std::uint32_t kDxr7DirectionalShadowSemanticSampleCount = 2U;
+constexpr std::uint64_t kDxr7DirectionalShadowReceiverInstanceId = 1U;
+constexpr std::uint64_t kDxr7DirectionalShadowOccluderInstanceId = 2U;
+constexpr std::uint32_t kDxr7DirectionalShadowVisibleLineage = 1U;
+constexpr std::uint32_t kDxr7DirectionalShadowOccludedLineage = 3U;
+
+/// Readback for one deterministic DXR directional-shadow semantic sample.
+/// This deliberately stops before claiming that the raster pixel came from an
+/// Ogre-owned RGBA16 target or that the hybrid result was written back to it.
+struct Dxr7DirectionalShadowSemanticSample {
+  NativeDirectionalShadowVisibility visibility =
+      NativeDirectionalShadowVisibility::INVALID;
+  std::uint16_t visibility_r16_bits = 0xffffU;
+  std::uint32_t ray_lineage = 0U;
+  std::uint64_t primary_hit_instance_id = 0U;
+  std::uint64_t secondary_blocker_instance_id = 0U;
+  NativeDirectionalShadowRgba16Pixel raster_rgba16;
+  NativeDirectionalShadowRgba16Pixel hybrid_rgba16;
+};
+
+/// Windows DXR N4A proves the renderer-neutral two-ray semantics and typed
+/// formats on the exact RT7 D3D12 queue. It is not the later D3D11On12 resource
+/// bridge: both scope-limitation booleans must remain false for this milestone.
+struct Dxr7DirectionalShadowSemanticContract {
+  std::uint32_t version = kNativeDirectionalShadowContractVersion;
+  NativeDirectionalShadowCapabilities capabilities;
+  bool semantic_probe_only = false;
+  bool exact_ogre_rgba16_source = false;
+  bool hybrid_ogre_image_composite = false;
+
+  std::uint32_t blas_count = 0U;
+  std::uint32_t tlas_instance_count = 0U;
+  std::uint64_t receiver_instance_id = 0U;
+  std::uint64_t occluder_instance_id = 0U;
+  bool receiver_blas_built = false;
+  bool occluder_blas_built = false;
+  bool tlas_built = false;
+
+  std::uint32_t primary_camera_rays_per_sample = 0U;
+  std::uint32_t secondary_directional_visibility_rays_per_sample = 0U;
+  bool visibility_r16_float = false;
+  bool lineage_r32_uint = false;
+  bool hybrid_rgba16_float = false;
+  bool visibility_readback_completed = false;
+  bool lineage_readback_completed = false;
+  bool hybrid_readback_completed = false;
+
+  std::array<Dxr7DirectionalShadowSemanticSample,
+             kDxr7DirectionalShadowSemanticSampleCount>
+      samples{};
+};
+
+[[nodiscard]] bool ValidateDxr7DirectionalShadowSemanticContract(
+    const Dxr7DirectionalShadowSemanticContract& contract) noexcept;
+
 struct Dxr7PassContract {
   Dxr7CandidateContract candidate;
   bool d3d11on12_device_created = false;
@@ -89,7 +147,7 @@ struct Dxr7PassContract {
   bool state_object_created = false;
   bool shader_identifiers_resolved = false;
   bool dispatch_rays_called = false;
-  bool closest_hit_readback_exact = false;
+  Dxr7DirectionalShadowSemanticContract directional_shadow;
   bool queue_fence_before_dispatch = false;
   bool queue_fence_after_dispatch = false;
   bool queue_fence_after_ogre = false;

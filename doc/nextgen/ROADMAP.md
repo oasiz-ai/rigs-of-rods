@@ -53,9 +53,15 @@ BeamNG-derived product name without written permission, in accordance with
   exports the exact UI-free Ogre HDR target, derives rays from the submitted
   camera, writes a hit-only Metal contribution, GPU-composites it into that
   target, and independently reads back raster, contribution, and hybrid images.
-  This is still not a shipping RT renderer, reflection/GI implementation,
-  performance result, or visual-fidelity claim. Ogre-Next's audited tree provides a materially
-  stronger PBS/HDR raster foundation and Metal/Vulkan integration seams, not a
+  N4 now proves a full-view two-BLAS/two-instance directional hard shadow on
+  Ogre's Metal device and survives exact-repeat, moved-occluder, resize,
+  device-loss, and timeout sequences. Vulkan KHR RT6 and Windows DXR RT7 have
+  matching two-sample native semantic implementations: DXR uses typed
+  R16/R32/RGBA16 UAVs, while Vulkan preserves the same binary16/R32 encodings in
+  packed storage-buffer words. Their real hardware executions and Ogre-image
+  composites remain open. This is still not a shipping RT renderer, reflection/GI implementation,
+  performance result, or visual-fidelity claim. Ogre-Next's audited tree
+  provides a materially stronger PBS/HDR raster foundation and Metal/Vulkan integration seams, not a
   complete cross-platform native RT implementation or a D3D12 renderer. The
   [Ogre-Next/native RT decision RFC](NATIVE_RAY_TRACING_BACKEND.md) makes a real
   Metal RT scene pass and DXR/Ogre-Next interop hard continuation gates while
@@ -1048,9 +1054,13 @@ passes.
 
 Gate R1:
 
-- A dependency-free selector defaults to OGRE14/RT-disabled and refuses to
-  report RT without a compiled backend, accepted hardware capability, real
-  BLAS/TLAS dispatch/readback probe, and scene interop.
+- The dependency-free `RendererBackendPolicy` and `RendererStartupPlan`
+  contracts default to OGRE14/PSSM, require exact packaged-backend and
+  current-process preflight provenance, reject unknown states, and prohibit
+  fallback across either an Ogre-Next-required or native-shadow-required
+  request. They decide before renderer initialization and never mix OGRE 1.14
+  and Ogre-Next ABIs. The cross-platform launcher/process handoff that consumes
+  the plan remains open.
 - The standalone Metal admission probe and the Ogre-Next N2/N3 interop probes
   have passed on the recorded Apple M5. N2 rastered a renderer-neutral deformed RoR
   scene, exported the exact pooled Ogre v2 position/index slices from that
@@ -1128,17 +1138,25 @@ Gate R1:
   exact R16 visibility, and byte-exact RGBA16 composition. N4 and PSSM are
   mutually exclusive within one initialized frontend. The standalone N4 smoke
   initializes its frontend and then emits explicit unsupported evidence when
-  backend admission fails; wiring the production selector so incomplete native
-  capability chooses the separately validated PSSM frontend before
-  initialization remains open. The Metal N4 implementation now passes on a
+  backend admission fails. A pure pre-initialization plan now chooses native,
+  Ogre-Next PSSM, OGRE14 PSSM, or rejection without loading either renderer
+  ABI; the production launcher and executable handoff remain open. The Metal
+  N4 implementation now passes on a
   physical Apple M5 with 5,712 visible receiver pixels, 432 pixels blocked by
   the distinct occluder, zero primary misses, exact R16 visibility, exact R32
-  lineage, and byte-validated RGBA16 composition. CI compiles and executes the
-  target on macOS, accepts only an explicit capability skip on unsupported
+  lineage, and byte-validated RGBA16 composition. A second identical frame is
+  byte exact, moving only the occluder preserves raster bytes while changing
+  shadow outputs, an 80x48 frame proves resize after lease release, and fresh
+  post-submission device-loss and timeout cases clean up fail-closed. CI
+  compiles and executes the target on macOS, accepts only an explicit capability skip on unsupported
   hosted hardware, independently revalidates every retained byte, and runs the
-  portable source contract on Linux and Windows. Vulkan/DXR implementations,
-  soft/area-light shadows, production frontend selection, resize/fault soak,
-  temporal stability, and image/performance gates remain open.
+  portable source contract on Linux and Windows. Vulkan RT6 and Windows RT7 now
+  implement the same bounded two-BLAS/two-instance, primary-plus-directional-ray
+  semantics and exact visibility/lineage/hybrid readbacks (typed DXR UAVs;
+  packed Vulkan SSBO encodings). They explicitly do
+  not claim an exact Ogre RGBA16 source, an Ogre image composite, or full native
+  V1 readiness. Linux/Windows hardware execution, soft/area-light shadows,
+  the production launcher, and image/performance gates remain open.
 - The renderer-neutral scene boundary now has the prerequisite lighting slice:
   snapshot version 4 retains the sorted stable directional/point/spot identities
   introduced by version 3 and adds an ordered absolute-world reflection-probe set,

@@ -57,6 +57,7 @@ struct VulkanRt6BootstrapEvidence {
   std::uint64_t scratch_buffer_device_address = 0U;
   std::uint64_t shader_binding_table_device_address = 0U;
   std::uint64_t blas_device_address = 0U;
+  std::uint64_t semantic_occluder_blas_device_address = 0U;
   std::uint64_t tlas_device_address = 0U;
   std::uint64_t timeline_value_before_ray_dispatch = 0U;
   std::uint64_t timeline_value_at_ray_dispatch = 0U;
@@ -103,6 +104,23 @@ struct VulkanRt6BootstrapEvidence {
   bool output_image_copied_to_host = false;
   bool primary_hit_observed = false;
   std::array<std::uint32_t, 4U> readback_words{};
+  std::uint32_t semantic_blas_count = 0U;
+  std::uint32_t semantic_tlas_instance_count = 0U;
+  std::uint32_t semantic_sample_count = 0U;
+  std::uint32_t semantic_primary_receiver_ray_count = 0U;
+  std::uint32_t semantic_directional_visibility_ray_count = 0U;
+  bool semantic_receiver_blas_built = false;
+  bool semantic_occluder_blas_built = false;
+  bool semantic_tlas_built = false;
+  bool semantic_controlled_geometry_exact = false;
+  bool semantic_readback_completed = false;
+  bool semantic_sample_oracle_passed = false;
+  std::array<std::uint16_t, 2U> semantic_visibility_r16_bits{};
+  std::array<std::uint32_t, 2U> semantic_lineage_r32{};
+  std::array<std::array<std::uint16_t, 4U>, 2U>
+      semantic_raster_rgba16_bits{};
+  std::array<std::array<std::uint16_t, 4U>, 2U>
+      semantic_hybrid_rgba16_bits{};
   bool ogre_shutdown_before_owner_teardown = false;
   bool ray_resources_destroyed_before_device = false;
   bool timeline_destroyed_before_device = false;

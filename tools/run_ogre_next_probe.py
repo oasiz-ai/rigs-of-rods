@@ -99,7 +99,12 @@ BUILD_SENTINEL_CONTENT = "ror-ogre-next-probe-build-v1\n"
 REQUIRED_CONFIG = "Release"
 ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
 RELEVANT_SOURCE_PATHS = (
+    "source/main/gfx/RendererBackendPolicy.cpp",
+    "source/main/gfx/RendererBackendPolicy.h",
+    "source/main/gfx/RendererStartupPlan.cpp",
+    "source/main/gfx/RendererStartupPlan.h",
     "source/main/gfx/render",
+    "tests/gfx/RendererStartupPlanTests.cpp",
     "tools/ogre_next_probe",
     "tools/run_ogre_next_probe.py",
     "tools/validate_ogre_next_frame_probe.py",
@@ -186,21 +191,30 @@ def ror_source_identity() -> dict[str, Any]:
             raise ProbeError("could not resolve RoR Git provenance")
         return value
 
+    repository = (
+        os.environ.get("ROR_OGRE_NEXT_EXPECTED_ROR_REPOSITORY")
+        or ROR_SOURCE_REPOSITORY
+    )
+    git_commit = git_output("rev-parse", "HEAD")
     commit = (
         os.environ.get("ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT")
         or os.environ.get("GITHUB_SHA")
-        or git_output("rev-parse", "HEAD")
+        or git_commit
     )
     ref = os.environ.get("ROR_OGRE_NEXT_EXPECTED_ROR_REF") or git_output(
         "rev-parse", "--abbrev-ref", "HEAD"
     )
-    if re.fullmatch(r"[0-9a-f]{40}", commit) is None or re.fullmatch(
+    if repository != ROR_SOURCE_REPOSITORY or re.fullmatch(
+        r"[0-9a-f]{40}", commit
+    ) is None or re.fullmatch(
         r"[A-Za-z0-9._/-]+", ref
     ) is None:
         raise ProbeError("RoR Git provenance is not canonical")
+    if commit != git_commit:
+        raise ProbeError("expected RoR commit differs from checked-out source")
     manifest = relevant_source_manifest()
     return {
-        "repository": ROR_SOURCE_REPOSITORY,
+        "repository": repository,
         "ref": ref,
         "commit": commit,
         "relevant_manifest_sha256": manifest["sha256"],

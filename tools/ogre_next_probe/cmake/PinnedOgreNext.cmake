@@ -236,7 +236,7 @@ file(READ "${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
 set(ROR_OGRE_NEXT_WINDOWS_DXR7_LOCK_PATH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/windows-dxr7.lock.json")
 set(ROR_OGRE_NEXT_WINDOWS_DXR7_LOCK_SHA256
-    "c7092a523109a08111173acc6c30e9d838ca56e997764be38454db2f4b8d5359")
+    "1f54ee0b94978ccefb46753fd9b943c91a126e16b6dd28c83c641759351d9820")
 file(SHA256 "${ROR_OGRE_NEXT_WINDOWS_DXR7_LOCK_PATH}"
     _ror_windows_dxr7_lock_sha256)
 if (NOT _ror_windows_dxr7_lock_sha256 STREQUAL
@@ -337,7 +337,7 @@ if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 5 OR
     message(FATAL_ERROR "The OGRE-Next lock moved without an integration review")
 endif ()
 if (NOT ROR_WINDOWS_DXR7_LOCK_SCHEMA STREQUAL
-        "ror.ogre_next_windows_dxr7_toolchain.v2" OR
+        "ror.ogre_next_windows_dxr7_toolchain.v3" OR
         NOT ROR_WINDOWS_DXR7_PLATFORM_POLICY STREQUAL
         "windows-x64-d3d11on12-dxr" OR
         NOT ROR_WINDOWS_DXR7_OGRE_COMMIT STREQUAL

@@ -191,6 +191,21 @@ class MetalN4ContractTests(unittest.TestCase):
         self.assertIn("VerifyN2SourceProvenance.cmake", self.cmake)
         self.assertIn("Verifying clean Metal N4 source provenance", self.cmake)
 
+    def test_all_metal_reports_use_the_build_contract_source_identity(self) -> None:
+        for checkpoint in ("N2", "N3", "N4"):
+            self.assertIn(
+                f'ROR_OGRE_NEXT_{checkpoint}_SOURCE_COMMIT="${{ROR_SOURCE_COMMIT}}"',
+                self.cmake,
+            )
+            self.assertIn(
+                f'ROR_OGRE_NEXT_{checkpoint}_SOURCE_REF="${{ROR_SOURCE_REF}}"',
+                self.cmake,
+            )
+            self.assertNotIn(
+                f'ROR_OGRE_NEXT_{checkpoint}_SOURCE_REF="${{_ror_n2_source_ref}}"',
+                self.cmake,
+            )
+
     def test_cmake_target_is_apple_only_and_skips_only_capability_exit(self) -> None:
         target = "ror_ogre_next_metal_n4_directional_shadow_smoke"
         definition = self.cmake.index(f"add_executable(\n            {target}")

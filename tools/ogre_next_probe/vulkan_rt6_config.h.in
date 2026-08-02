@@ -1,7 +1,7 @@
 #pragma once
 
 #define ROR_OGRE_NEXT_RT6_SCHEMA \
-    "ror.ogre_next_vulkan_khr_ray_dispatch_rt6.v1"
+    "ror.ogre_next_vulkan_khr_ray_dispatch_rt6.v2"
 #define ROR_OGRE_NEXT_RT6_ROR_REPOSITORY "@ROR_SOURCE_REPOSITORY@"
 #define ROR_OGRE_NEXT_RT6_ROR_REF "@ROR_SOURCE_REF@"
 #define ROR_OGRE_NEXT_RT6_ROR_COMMIT "@ROR_SOURCE_COMMIT@"

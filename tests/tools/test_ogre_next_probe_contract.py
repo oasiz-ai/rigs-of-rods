@@ -11,6 +11,7 @@ import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -18,6 +19,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+from unittest import mock
 import zipfile
 
 
@@ -426,6 +428,30 @@ class OgreNextProbeContractTests(unittest.TestCase):
         drifted["relevant_manifest_sha256"] = "0" * 64
         with self.assertRaisesRegex(PROBE.ProbeError, "changed during"):
             PROBE.require_source_identity_unchanged(drifted)
+
+    def test_expected_source_labels_cannot_spoof_checkout_identity(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT": "0" * 40},
+            clear=False,
+        ), self.assertRaisesRegex(PROBE.ProbeError, "differs from checked-out"):
+            PROBE.ror_source_identity()
+        with mock.patch.dict(
+            os.environ,
+            {"ROR_OGRE_NEXT_EXPECTED_ROR_REPOSITORY": "https://invalid.test/repo"},
+            clear=False,
+        ), self.assertRaisesRegex(PROBE.ProbeError, "not canonical"):
+            PROBE.ror_source_identity()
+        cmake = CMAKE_PATH.read_text(encoding="utf-8")
+        self.assertIn("_ror_checked_out_source_commit", cmake)
+        self.assertIn(
+            "Expected RoR repository differs from the reviewed source identity",
+            cmake,
+        )
+        self.assertIn(
+            'NOT "${ROR_SOURCE_COMMIT}" STREQUAL',
+            cmake,
+        )
 
     def test_mutated_reused_build_is_rejected_and_explicitly_recovered(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogre-next-reuse-") as temp:
