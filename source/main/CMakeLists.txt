@@ -1199,7 +1199,7 @@ else ()
         ror_ogre14_install_set_list_code(
             _ror_linux_runtime_search_dirs_install_code
             ROR_LINUX_RUNTIME_SEARCH_DIRS
-            "${_ror_linux_runtime_search_dirs}")
+            _ror_linux_runtime_search_dirs)
         string(CONCAT
             _ror_linux_runtime_install_code
             "set(ROR_LINUX_BUILD_EXECUTABLE "
