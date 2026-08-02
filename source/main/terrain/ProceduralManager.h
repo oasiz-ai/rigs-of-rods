@@ -71,6 +71,14 @@ struct ProceduralObject: public RefCountingObject<ProceduralObject>
     ProceduralRoadPtr getRoad() { return road; }
     std::string getName() { return name; }
     void setName(std::string const& new_name) { name = new_name; }
+    std::uint64_t getGraphicsObjectId() const
+    {
+        return m_graphics_identity.stable_graphics_id();
+    }
+    std::uint64_t getGraphicsTopologyRevision() const
+    {
+        return m_graphics_identity.topology_revision();
+    }
 
     std::string name;
     std::vector<ProceduralPointPtr> points;
@@ -78,6 +86,10 @@ struct ProceduralObject: public RefCountingObject<ProceduralObject>
     int smoothing_num_splits = 0; // 0=off
     bool collision_enabled = true; //!< Generate collision triangles?
     bool collision_endcaps_enabled = true; //!< Generate first/final cap collision triangles?
+
+private:
+    friend class ProceduralManager;
+    RoR::Render::Ogre14ProceduralRoadIdentityState m_graphics_identity;
 };
 
 class ProceduralManager: public RefCountingObject<ProceduralManager>
@@ -88,9 +100,13 @@ public:
 
     /// Generates road mesh and adds to internal list
     void addObject(ProceduralObjectPtr po);
+    [[nodiscard]] RoR::Render::ValidationResult TryAddObject(
+        ProceduralObjectPtr po);
 
     /// Clears road mesh and removes from internal list
     void removeObject(ProceduralObjectPtr po);
+    [[nodiscard]] RoR::Render::ValidationResult TryRemoveObject(
+        ProceduralObjectPtr po);
 
     int getNumObjects() const { return (int)pObjects.size(); }
 
@@ -102,14 +118,32 @@ public:
 
     /// Rebuilds the road mesh
     void rebuildObjectMesh(ProceduralObjectPtr po);
+    [[nodiscard]] RoR::Render::ValidationResult TryRebuildObjectMesh(
+        ProceduralObjectPtr po);
 
     /// Deletes the road mesh
     void deleteObjectMesh(ProceduralObjectPtr po);
 
+    /// Copies a complete stable-ID-ordered inventory. No returned array aliases
+    /// ProceduralRoad, OGRE resources, collision storage, or simulation state.
+    [[nodiscard]] RoR::Render::ValidationResult
+    CopyFinalizedGraphicsSnapshots(
+        std::vector<RoR::Render::Ogre14ProceduralRoadCapture>& snapshots) const;
+
 private:
+
+    [[nodiscard]] RoR::Render::ValidationResult BuildObjectMeshCandidate(
+        ProceduralObjectPtr po,
+        ProceduralRoadPtr& road,
+        std::string& exact_geometry_state_key);
+    void LogMutationFailure(
+        const char* operation,
+        const RoR::Render::ValidationResult& validation) const;
 
     std::vector<ProceduralObjectPtr> pObjects;
     Ogre::SceneNode* pGroupingSceneNode = nullptr;
+    RoR::Render::Ogre14ProceduralRoadIdentityAllocator
+        m_graphics_identity_allocator;
 };
 
 /// @} // addtogroup Terrain

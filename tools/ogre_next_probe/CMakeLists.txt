@@ -104,7 +104,10 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/terrain/ProceduralManager.cpp"
     "source/main/terrain/ProceduralManager.h"
+    "source/main/terrain/ProceduralRoad.cpp"
+    "source/main/terrain/ProceduralRoad.h"
     "source/main/terrain/TerrainObjectManager.cpp"
     "source/main/terrain/TerrainObjectManager.h"
     "source/main/main.cpp"
@@ -171,6 +174,7 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
+    "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
@@ -685,6 +689,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/InputEventTransport.cpp"
         "${_ror_render_root}/MaterialDescriptor.cpp"
         "${_ror_render_root}/Ogre14GraphicsSceneSource.cpp"
+        "${_ror_render_root}/Ogre14ProceduralRoadSource.cpp"
         "${_ror_render_root}/ReflectionProbeCaptureReceipt.cpp"
         "${_ror_render_root}/ReflectionProbeRuntime.cpp"
         "${_ror_render_root}/RenderAssetDeltaTransport.cpp"
@@ -1042,6 +1047,16 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PRIVATE ror_ogre_next_n1_contract)
     set_target_properties(
         ror_ogre14_graphics_scene_source_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_procedural_road_source_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp")
+    target_link_libraries(
+        ror_ogre14_procedural_road_source_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_procedural_road_source_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
@@ -1674,6 +1689,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_ogre_next_live_session_tests
         ror_renderer_frontend_transport_dispatcher_tests
         ror_ogre14_graphics_scene_source_tests
+        ror_ogre14_procedural_road_source_tests
         ror_render_bridge_control_transport_tests
         ror_renderer_ogre_next_window_host_tests
         ror_renderer_ogre_next_sdl_window_runtime
@@ -1959,7 +1975,10 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp
             source/main/gfx/RendererStartupPlan.h
+            source/main/terrain/ProceduralManager.cpp
             source/main/terrain/ProceduralManager.h
+            source/main/terrain/ProceduralRoad.cpp
+            source/main/terrain/ProceduralRoad.h
             source/main/terrain/TerrainObjectManager.cpp
             source/main/terrain/TerrainObjectManager.h
             source/main/main.cpp
@@ -2016,6 +2035,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/render/RenderBridgeControlTransportTests.cpp
             tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
             tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
+            tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp
             tests/tools/test_ogre_next_child_runtime_contract.py
             tests/tools/test_ogre_next_product_packaging_contract.py
             tools/ogre_next_probe
@@ -2198,6 +2218,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_bridge_process_supervisor_tests
         ror_renderer_ogre_next_child_tests
         ror_ogre14_graphics_scene_source_tests
+        ror_ogre14_procedural_road_source_tests
         ror_renderer_child_launcher_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
         "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
@@ -2496,6 +2517,10 @@ endif ()
 if (TARGET ror_ogre14_graphics_scene_source_tests)
     add_test(NAME ror_ogre14_graphics_scene_source
         COMMAND $<TARGET_FILE:ror_ogre14_graphics_scene_source_tests>)
+endif ()
+if (TARGET ror_ogre14_procedural_road_source_tests)
+    add_test(NAME ror_ogre14_procedural_road_source
+        COMMAND $<TARGET_FILE:ror_ogre14_procedural_road_source_tests>)
 endif ()
 if (TARGET ror_render_bridge_control_transport_tests)
     add_test(NAME ror_render_bridge_control_transport

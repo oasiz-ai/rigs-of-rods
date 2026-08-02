@@ -24,6 +24,7 @@
 
 #include "Application.h"
 #include "RefCountingObject.h"
+#include "gfx/render/Ogre14ProceduralRoadSource.h"
 
 namespace RoR {
 
@@ -87,6 +88,22 @@ public:
     int getSidePierBuiltCount() const { return side_pier_built; }
     int getSidePierSkippedCount() const { return side_pier_skipped; }
 
+    /// Returns an owning copy of the exact post-createMesh/post-finish CPU
+    /// state. The snapshot never aliases OGRE buffers, collision triangles, or
+    /// simulation state and is therefore safe to consume at the joined
+    /// graphics boundary.
+    RoR::Render::Ogre14ProceduralRoadCapture CopyFinalizedGraphicsSnapshot() const
+    {
+        return m_finalized_graphics_snapshot;
+    }
+    bool HasFinalizedGraphicsSnapshot() const
+    {
+        return m_finalized_graphics_snapshot.finalized;
+    }
+    bool AssignFinalizedGraphicsLineage(
+        std::uint64_t stable_graphics_id,
+        std::uint64_t topology_revision) noexcept;
+
     static const unsigned int MAX_VERTEX = 50000;
     static const unsigned int MAX_TRIS = 50000;
 
@@ -105,6 +122,7 @@ private:
 
     Ogre::MeshPtr msh;
     Ogre::SubMesh* mainsub = nullptr;
+    Ogre::Entity* m_entity = nullptr;
 
     Ogre::Vector2 tex[MAX_VERTEX] = {};
     Ogre::Vector3 vertex[MAX_VERTEX] = {};
@@ -127,6 +145,7 @@ private:
     int side_pier_built = 0;
     int side_pier_skipped = 0;
     std::vector<int> registeredCollTris;
+    RoR::Render::Ogre14ProceduralRoadCapture m_finalized_graphics_snapshot;
 };
 
 /// @} // addtogroup Terrain
