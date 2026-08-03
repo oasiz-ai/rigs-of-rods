@@ -2,15 +2,15 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.blend",
-      "sha256": "3b8f78cb2bbd0507f10d689307dc31edcc5a663d655d680a97beada3192b1ece"
+      "sha256": "0c47947543e8f45abea8a59895dbf2308bed4375ecb512373a61f3e7d8508fee"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50.glb",
-      "sha256": "898080520f740fc5c67d76918e26bed87d9e3ffe143d52a21690e1db1415db2f"
+      "sha256": "4b99956246292944ac182f0f6c154fe92baafe50b0e14a26638494e4905992f7"
     },
     "preview": {
       "path": "content-source/cityworld_next/buildings/storefront_family/rorng_city_storefront_market_20x50/rorng_city_storefront_market_20x50_preview.png",
-      "sha256": "b6cc4efbf84117601e3335f3e7c641891fec4c42dff18369a4582753c38a0752"
+      "sha256": "617eafdb06510d47018a173683d4cc40393ce0befd9bb99866ff074bceab8775"
     }
   },
   "asset": {
@@ -40,13 +40,17 @@
           "sha256": "ff4687f60067f3f9b780e2add1947554d8ae45b93f1ef4f49f6f0453cc3eaa93"
         },
         {
+          "path": "tools/blender/cityworld_next/canonicalize_storefront_glb.py",
+          "sha256": "c4a189908f79c4b9c8108a57a6978d3d0098c14b6d21c59eba321bde7d15dd8c"
+        },
+        {
           "path": "tools/blender/cityworld_next/artifact_retention_contract.py",
           "sha256": "159a7b186fc94135754c3a460c7122d6aed73036d6166e1a54ec576830bd29e6"
         }
       ],
       "format": "ror-cityworld-storefront-family-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_storefront_family.py",
-      "sha256": "cf79789bf94612b9f585414fc701c85f228b50096b9a64ee02016aece395647d"
+      "sha256": "99e038c8ef7424b3b070e5eec1bac9c3923b2f67e2adb21e4cc583ac4d4323af"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -117,13 +121,13 @@
       {
         "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "1c5a407832129f0f3a49e9fdb0afea7c0545f23d726dbdcb63983e2a48028872",
+        "sha256": "c326b259238ca88943d47d6829258400697734aec7c18ca032cc3878ff56e3ef",
         "size": 8833377
       },
       {
         "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "7ea4fc65e9d62b3ad23274995cdcc5a35b84af0a6ee08a244b766cdd00a08bb7",
+        "sha256": "35a2c494b70f8b72829a03e6b0601945393a02301487865352f8cf3548f86d87",
         "size": 92335
       },
       {
@@ -135,7 +139,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_market_20x50/compiled/rorng_city_storefront_market_20x50.compile.json",
-      "sha256": "c08cbed62087ffc0f4b46796d6fa47b1ced021c6a558b103ad0dd643d8b233db"
+      "sha256": "d3573a3d56982d25a0c02cbbb2cebcfc8dba0222dbb7248ccdba27404e0a463e"
     }
   },
   "connectors": [],

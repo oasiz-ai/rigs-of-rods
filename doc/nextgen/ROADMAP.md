@@ -47,6 +47,26 @@ BeamNG-derived product name without written permission, in accordance with
 - A historical OGRE 14 migration branch exists, but it is roughly 740 commits
   behind the audited `master`, and its Conan/platform assumptions remain biased
   toward Linux and Windows. Treat it as research, not as a merge base.
+- Native ray tracing is now a renderer-selection priority. The opt-in Apple M5
+  N2 checkpoint proves same-device Metal geometry export, BLAS/TLAS build,
+  ray query/eight-byte probe readback, and guarded lifecycle. N3 additionally
+  exports the exact UI-free Ogre HDR target, derives rays from the submitted
+  camera, writes a hit-only Metal contribution, GPU-composites it into that
+  target, and independently reads back raster, contribution, and hybrid images.
+  N4 now proves a full-view two-BLAS/two-instance directional hard shadow on
+  Ogre's Metal device and survives exact-repeat, moved-occluder, resize,
+  device-loss, and timeout sequences. Vulkan KHR RT6 and Windows DXR RT7 have
+  matching two-sample native semantic implementations: DXR uses typed
+  R16/R32/RGBA16 UAVs, while Vulkan preserves the same binary16/R32 encodings in
+  packed storage-buffer words. Their real hardware executions and Ogre-image
+  composites remain open. This is still not a shipping RT renderer, reflection/GI implementation,
+  performance result, or visual-fidelity claim. Ogre-Next's audited tree
+  provides a materially stronger PBS/HDR raster foundation and Metal/Vulkan integration seams, not a
+  complete cross-platform native RT implementation or a D3D12 renderer. The
+  [Ogre-Next/native RT decision RFC](NATIVE_RAY_TRACING_BACKEND.md) makes a real
+  Metal RT scene pass and DXR/Ogre-Next interop hard continuation gates while
+  preferring Ogre-Next by default and retaining a fail-closed OGRE14 package
+  fallback until the production child is admitted.
 - CI and publishing currently target the `master` branch. Renaming it to `main`
   is a separate repository operation, not an engine change.
 
@@ -843,6 +863,44 @@ UI-free 1280x720 seam views. Two collision-enabled DAF traversals cover
 the flush Penguinville road seam, curb-free travel width, both bridge
 directions, and complete native paired-pier construction.
 
+Overlay v7 adds the first authenticated regional-infill slice without changing
+or redistributing the private CityWorld archive. Its version-2 plan places 46
+project-owned instances across eight bounded sites: 13 farmstead instances, 17
+suburb blocks, two service stations, and 14 natural-landmark instances. Seven
+curb-free native procedural routes originate at exact decoded legacy-road
+anchors. Five route-to-asset contracts close the two station forecourts, two
+suburb streets, and one farm lane with zero measured seam gap. Plan validation
+rejects non-designated route/asset intersections, road/collision overlap,
+building intrusion, component drift, and a generated-road clearance below
+5.4 m.
+
+The five glTF families now carry versioned, connected collision-component
+manifests. The service station has 17 component boxes, the suburb block has
+eight, and each remaining family has one, for 28 components total. Validation
+derives real render and collision bounds from the GLBs, rejects node transforms,
+inverted winding, overlapping boxes, non-cuboid deformation, stale Blender or
+compiler identity, and packaged component drift. The v7 ZIP has 76 unique
+members and rebuilds byte for byte at SHA-256
+`c81206e5f7805b4bf289458ebdd5960993f79a82ec18114b50799001995d359f`.
+
+At content commit `16373204b9e8bbf4c7b6949a6e7a7a37f09f7d2a`, the installed
+Apple Silicon app passed the regional-infill native gate on the Apple M5
+GL3Plus renderer. It produced 13 distinct UI-free 1280x720 captures, including
+one close view for each active seam, over 545 ready render frames and exactly
+2,176 completed deterministic physics steps. Both station instances created
+all 12 bounded canopy lights, both bridge support summaries remained
+`46/46/0` and `56/56/0`, every reviewed material resolved, and the process
+shut down cleanly. The first ready render frame arms the four-step batch, so
+the exact completed-step invariant is `(545 - 1) * 4`, not `545 * 4`.
+
+This is a verified content-density and connectivity checkpoint, not completion
+of the full-map or AirSim-referenced visual gate. The native captures remain
+stylized and sparse: regional ground materials, terrain blending, decals,
+street furniture, higher-detail vegetation, building variation, traffic, and
+PBR/HDR are still open. Fixed cameras do not prove vehicle traversal across all
+seven new routes. Native Windows and Linux repetitions, route-driving gates,
+frame-time budgets, and the shared-scene V2 comparison remain required.
+
 The optional transition, curve, span, and gateway visual families remain
 unplaced; the accepted routes use native procedural surfaces plus the
 project-owned direct road seam. Promotion still requires a complete
@@ -987,6 +1045,158 @@ This is meaningful R0 progress, not completion. The remaining gates include:
 
 Merely changing version strings is still an explicitly rejected milestone.
 
+## R1 — Ogre-Next/native ray tracing decision gate (priority)
+
+Do not treat an Ogre-Next library upgrade as proof of native ray tracing.
+Ogre-Next is the candidate high-quality raster/PBR frontend; RoR must supply and
+prove native Metal RT, DXR, and Vulkan KHR backends through explicit same-device
+resource interop. Ogre-Next is the preferred default; OGRE14 remains the
+package fallback until the full migration gate passes.
+
+Gate R1:
+
+- The dependency-free `RendererBackendPolicy`, `RendererStartupHandoff`, and
+  `RendererStartupPlan`
+  contracts default to Ogre-Next-preferred/PSSM with an explicit OGRE14
+  package fallback, require exact packaged-backend and
+  current-process preflight provenance, reject unknown states, and prohibit
+  fallback across either an Ogre-Next-required or native-shadow-required
+  request. The handoff selects only an exact sibling `RoR-Ogre14` or
+  `RoR-OgreNext` child from a versioned, trusted-platform package record. A
+  present Ogre-Next child is selectable only when its separate production-ready
+  admission fact and PSSM fallback are both true; N1 and other probes are never
+  eligible. This fact remains caller-supplied until package/signing code derives
+  it from the exact artifact. The selected Ogre-Next child must perform the
+  authoritative current-process preflight and resolve the startup plan before
+  `Ogre::Root`. Cartesian three-platform package-fact tests and child-plan
+  consistency tests prove the hard-gate precedence and prevent renderer-ABI
+  crossing. The contracts are complete, but the public launcher executable,
+  child renames, signing, and package assembly remain open.
+- The standalone Metal admission probe and the Ogre-Next N2/N3 interop probes
+  have passed on the recorded Apple M5. N2 rastered a renderer-neutral deformed RoR
+  scene, exported the exact pooled Ogre v2 position/index slices from that
+  raster `Item`, built BLAS/TLAS from those buffers on Ogre's own device and
+  queue, dispatched one ray, and validated its eight-byte GPU probe. This closes
+  API/hardware/dispatch and geometry-interoperability subgates. N3 retained and
+  exported the exact Ogre `RGBA16_FLOAT` target through a renderer-neutral
+  image lease, traced view-dependent primary rays, wrote a separate hit-only
+  contribution, and GPU-composited that contribution into the target on the
+  same device and queue. The independent readbacks prove 80 affected pixels,
+  bit-identical misses, camera-dependent output, resize after release, and
+  bounded device-loss/timeout cleanup. It still does not enable a shipping
+  `native_rt=metal` path or claim reflection, shadow, GI, denoising, material,
+  image-quality, or performance parity.
+- Ogre-Next `v3.0.0` is evaluated as an exact pin on macOS arm64, Windows
+  x86_64, and Linux x86_64; development `master` is not a shipping dependency.
+- The first isolated dependency checkpoint now pins `v3-0` commit
+  `37149a802de747f6806996fa3067b0748ecc1084`, verifies archive/license/patch
+  hashes, records the loaded HLMS shader tree as
+  `MIT AND LicenseRef-Heitz-LTC-Paper-Notice` with exact LTC source and
+  redistribution-notice hashes, and leaves the RoR/OGRE 14 graph untouched.
+  Its native macOS arm64
+  executable registered Metal, linked HLMS PBS with the Metal shader family,
+  and compiled Compositor2 while explicitly reporting native RT as not
+  evaluated. The next isolated macOS checkpoint creates a hidden native Metal
+  window, renders a manual PBR triangle through HLMS PBS and Compositor2,
+  performs UI-free GPU readback, independently validates the raster pixels,
+  and records clean renderer shutdown. The following Apple N2 checkpoint adds
+  a shared-event ownership boundary, immutable deformation revisions, exact
+  pooled-buffer bounds/generations, same-device BLAS/TLAS/query evidence, and
+  explicit shutdown plus both frontend/backend destructor orders. The N3
+  checkpoint then adds the versioned color-image handoff, exact retained Ogre
+  HDR target, GPU-only contribution/composite path, three independently hashed
+  image artifacts, view change, resize, and post-submission fault seams. The N4
+  checkpoint adds a distinct receiver and occluder, two native BLAS, a
+  two-instance TLAS, full-view primary/secondary ray lineage, canonical R16
+  hard-shadow visibility, and an exact RGBA16 GPU composite on Ogre's Metal
+  device and queue. Operational
+  Metal faults revoke leases and backend registration while latching the
+  frontend unusable, so device loss cannot permanently block cleanup. Windows
+  D3D11 and Linux Vulkan
+  reproduction remain open; Linux is deliberately an offscreen null-window
+  raster gate rather than a presentation-window claim. Soft/area-light
+  shadows, reflection semantics, material attributes,
+  presentation, image quality, performance, DXR, and Vulkan KHR interop remain
+  open; see the
+  [isolated integration checkpoint](OGRE_NEXT_INTEGRATION.md).
+- The RT4/V1 raster frontend now also has an explicit, default-off directional
+  `PSSM_3_CASCADE_V1` checkpoint. It programmatically creates one fixed
+  three-cascade `D32_FLOAT` Compositor2 atlas, honors the renderer-neutral
+  static/dynamic light masks and per-mesh cast/receive flags, reads back its
+  native topology/splits/filter/runtime bias/lifecycle, preserves perspective
+  tangents while Ogre mutates the camera near/far planes, and proves isolated
+  receiver shadows in all three cascades (HDR and SDR for the near cascade).
+  Frame-local datablock and generated-workspace-node fault seams prove clean
+  same-frame retry. A separate off-center-lens and zero-thickness receiver-AABB
+  fixture binds the native tangent and caster-bound path to UI-free pixels. A
+  transactional D32 allocation/residency/readback/cleanup probe replaces
+  generic format support as the backend capability gate. The 86 upstream
+  Ogre/HLMS source files used by the feature
+  have their own exact
+  source lock and build-time verifier, including Mesh/Item/SceneManager/AABB and
+  the Metal, Vulkan, and D3D11 allocation/readback owners. A fresh child-process
+  challenge is atomically bound through an execution receipt, exact attestation,
+  artifact manifest, and (on trusted CI runs) GitHub OIDC/DSSE provenance. The
+  smoke passed locally on Apple Metal;
+  Linux Vulkan and Windows D3D11 run the same fail-closed test in CI and may
+  report only a real pass or explicit unsupported capability evidence. This
+  does not close local-light shadows, CityWorld quality, ray-traced shadows,
+  presentation, or cross-platform native runtime parity.
+- The next native-shadow increment now has one platform-neutral
+  `NATIVE_DIRECTIONAL_HARD_SHADOW_V1` admission and sample oracle shared by
+  Metal, Vulkan KHR, and DXR. It requires RT4, two distinct receiver/occluder
+  BLAS, a two-instance TLAS, exact primary/secondary ray lineage, UI-free input,
+  exact R16 visibility, and byte-exact RGBA16 composition. N4 and PSSM are
+  mutually exclusive within one initialized frontend. The standalone N4 smoke
+  initializes its frontend and then emits explicit unsupported evidence when
+  backend admission fails. A pure pre-initialization plan now chooses native,
+  Ogre-Next PSSM, OGRE14 PSSM, or rejection without loading either renderer
+  ABI. The package-level executable handoff contract is implemented; the
+  production launcher and child binaries remain open. The Metal
+  N4 implementation now passes on a
+  physical Apple M5 with 5,712 visible receiver pixels, 432 pixels blocked by
+  the distinct occluder, zero primary misses, exact R16 visibility, exact R32
+  lineage, and byte-validated RGBA16 composition. A second identical frame is
+  byte exact, moving only the occluder preserves raster bytes while changing
+  shadow outputs, an 80x48 frame proves resize after lease release, and fresh
+  post-submission device-loss and timeout cases clean up fail-closed. CI
+  compiles and executes the target on macOS, accepts only an explicit capability skip on unsupported
+  hosted hardware, independently revalidates every retained byte, and runs the
+  portable source contract on Linux and Windows. Vulkan RT6 and Windows RT7 now
+  implement the same bounded two-BLAS/two-instance, primary-plus-directional-ray
+  semantics and exact visibility/lineage/hybrid readbacks (typed DXR UAVs;
+  packed Vulkan SSBO encodings). They explicitly do
+  not claim an exact Ogre RGBA16 source, an Ogre image composite, or full native
+  V1 readiness. Linux/Windows hardware execution, soft/area-light shadows,
+  the production launcher, and image/performance gates remain open.
+- The renderer-neutral scene boundary now has the prerequisite lighting slice:
+  snapshot version 4 retains the sorted stable directional/point/spot identities
+  introduced by version 3 and adds an ordered absolute-world reflection-probe set,
+  current/previous transforms, lux/candela photometry, exact local attenuation
+  and cones, static/dynamic shadow masks, ambient/texture/analytic-sky radiance,
+  sun linkage, bounded EV compensation, and a canonical portable digest. The
+  version-three joined-scene producer owns light/probe lineage, render-origin rebasing,
+  permanent type/tombstone lineage, and release/acquire atomic publication.
+  Dependency-free strict C++ tests include concurrent readers, and the existing
+  test graph compiles them with GCC/Clang/MSVC on Linux, macOS, and Windows.
+  This closes the data/transaction milestone only: broader Ogre-Next PBS
+  calibration, local-light and content-scale shadow rendering, atmospheric
+  scattering, RT light/material export, GI, denoising, shipping source
+  adapters, image quality, and performance remain open.
+- macOS first renders a measured RT contribution in a real UI-free RoR frame
+  on Apple family 9 or newer. M1/M2 and unsupported OS versions retain the
+  complete Ogre-Next raster fallback.
+- Linux proves a shared application-owned Vulkan device with the required KHR
+  extension/feature chain.
+- Windows proves D3D12/D3D11On12/Ogre-Next lifecycle and DXR tier 1.1. Failure
+  is an architecture no-go that requires a D3D12 renderer or different renderer
+  choice; silently substituting Vulkan RT does not satisfy the DXR endpoint.
+- Renderer choice cannot change fixed-input deterministic physics traces, and
+  the migration never reads or mutates live solver state from an RT backend.
+- No “native RT” or “UE5-quality” claim is published before the platform
+  runtime, image, performance, fallback, and lifecycle gates in the
+  [decision RFC](NATIVE_RAY_TRACING_BACKEND.md) pass.
+
 ## V0/V1 — Post-processing and PBR
 
 V0 establishes a deterministic LDR post-processing seam: scene capture,
@@ -1003,11 +1213,78 @@ Gate V0:
 - High quality adds at most 10% GPU frame time at 1920×1080 on the declared
   reference GPU; physics-step time is unchanged.
 
+The first runtime slice is V0A only. Its archived CVar defaults off; mode 1
+requests the locked LDR color curve plus five-tap FXAA on GL3Plus/GLSL 330 or
+D3D11/Shader Model 4. The fail-closed lifecycle owns only the main viewport,
+attaches after Terrain water/weather setup, stays last in the scene compositor
+chain, leaves native-resolution overlays outside the pass, recreates on real
+backing-extent changes, and detaches before scene/render teardown. This is a
+testable seam, not the V0 milestone: native three-platform image/performance
+gates, default-off pixel identity, bloom, and the other V0 acceptance items
+above remain open.
+
 V1 follows R0 and introduces a linear HDR pipeline and a documented PBR material
 schema: albedo, normal, packed occlusion/roughness/metalness, emissive, alpha
 mode, and legacy fallback. Generate or import tangents rather than pretending
 legacy cab meshes already contain them. Convert one DAF material and one terrain
 layer before bulk conversion.
+
+The opt-in Ogre-Next `MODERN_PBR_RT4_V1` checkpoint now implements a measured
+subset of that path: authored tangent/UV0 geometry, sRGB base-color/emissive
+uploads, packed linear roughness/metallic extraction, padded multi-mip rows,
+portable samplers, canonical positive-Z tangent-space normal maps at exactly
+unit scale, fail-closed non-uniform object scale, one calibrated directional light, transactional replacement and
+exact native texture retirement, default-off three-cascade directional PSSM,
+HDR/SDR evidence, simultaneous Metal N3 interop, and the Metal N4 native
+directional hard-shadow slice. The normal contract
+validates every linear RGBA8 texel/mip against the
+pinned positive-Z reconstruction within exactly `1/255`, requires alpha 255,
+derives `RG8_UNORM`, and binds `PBSM_NORMAL` with UV0 and the authored sampler.
+The checkpoint also verifies every derived RG byte in Ogre's row-pitched
+`Image2` staging memory and proves authored tangent `w` handedness with
+controlled native HDR/SDR captures.
+It has passed locally on the recorded Apple M5. This is progress toward V1, not
+completion: ambient occlusion, the full lighting inventory, local-light and
+content-scale shadow gates,
+exposure/tone mapping, reflections/GI, native Windows/Linux runtime evidence,
+content conversion, and image/performance gates remain open. The occlusion gap
+is explicit: the pinned PBS interface has no ambient-only occlusion slot, and
+detail-weight or direct-light multiplication are not accepted substitutes.
+
+The renderer-neutral V1 numerical oracle evaluates the selected analytic
+equations from the pinned Ogre-Next `PbsBrdf::Default` full32 source profile in
+strict binary64 arithmetic. A feature-specific manifest binds its exact shader
+and datablock source hashes to the canonical Ogre-Next dependency-lock commit.
+The oracle locks the metallic workflow, squared perceptual roughness and alpha
+floor, GGX distribution, height-correlated Smith visibility, Schlick Fresnel,
+and normalized Disney diffuse. Golden samples, an independent source-equation
+evaluator at normal/grazing/tangent/back-hemisphere boundaries, comprehensive
+malformed inputs, and 20,000 fixed-seed reciprocity, nonnegativity, and rotation
+fixtures run under strict AppleClang, GCC 14, Release, and ASan/UBSan builds.
+
+This idealized CPU equation reference is not bit-exact GPU shader parity. The
+pinned float path uses `0.318309886f` for datablock diffuse upload and
+`3.14159f` for metallic color reconstruction, while the oracle retains the
+intended equations in binary64. Each Metal, Vulkan, and D3D capture must still
+demonstrate the declared V1 1% relative gate, plus fixture-specific absolute
+tolerances near zero. Because this Default profile omits diffuse Fresnel,
+"normalized Disney diffuse" does not claim that the combined BRDF always
+integrates to at most one.
+
+The portable HDR numerical reference now has separate ideal-binary64 and
+shader-binary32 behaviors. The shader behavior deterministically models the
+RGBA16/R16 storage boundary and multi-frame exposure feedback; it names Ogre's
+historical bloom transfer gamma-2 rather than sRGB. An HDR-specific source lock
+is bound to the canonical Ogre-Next lock and hashes the complete selected
+utility/material/shader/compositor closure. Backend captures use the documented
+storage-normalized tone-map comparison, conditioning-aware exposure bound, and
+exact R16 policy in [the HDR reference contract](HDR_REFERENCE.md).
+Display transfer/gamut policy and image/performance acceptance remain open.
+The deterministic temporal handoff now derives Ogre exposure and adaptation
+delta from the immutable view/scene exposure and simulation timestamp, and
+advances its persistent R16 history only after an exact native-oracle readback.
+Native compositor media, spatial bloom, output transfer, and backend images are
+still required before this is a shipping HDR path.
 
 Gate V1:
 
@@ -1021,6 +1298,37 @@ Gate V1:
   and UI have dedicated regression captures.
 - The PBR DAF and terrain slice meets a recorded render budget on each reference
   platform before additional assets are converted.
+
+The first reflection-fallback reference now pins Ogre-Next's box-projected
+cubemap shader and probe-buffer sources. Its portable oracle fixes strict box
+membership, manual and automatic probe weights, ray-box correction, and the
+left-handed sampling-vector convention before Metal/HLSL/GLSL backend captures
+are compared. The first renderer-neutral runtime layer now validates rigid
+oriented correction/influence volumes and full-shape capture planes, schedules
+static invalidations or periodic updates by simulation tick under a stable
+priority budget, and publishes only atomic six-face/all-filtered-mip generations with
+revision lineage, retry/abort semantics, deterministic seeds, and permanent ID
+tombstones. Binary64 world positions are converted transactionally against each
+frame's render origin, so large-world rebasing is distinct from authored probe
+changes. Joined-scene producer wiring, the portable scheduler, canonical
+readback measurement, opaque plan/request receipts, and the native Ogre-Next
+PCC adapter are implemented. The adapter renders isolated `RGBA16_FLOAT`
+cubemap faces, filters every reviewed mip, issues the concrete receipt, and
+publishes the native generation only at the final fallible frame boundary.
+Aborting the first generation now proves balanced PCC create/destroy ownership,
+an unbound PBS pointer, and unchanged public lineage. The source-locked contract
+also pins the cleanup order and Ogre's public zero reset used to recompute the
+automatic-IBL mip state; the hidden mip value is not claimed as runtime
+readback. Three-backend image-quality acceptance, authoring, performance, and
+production scene coverage remain open.
+The portable contract mirrors Ogre-Next PCC's owned filtered
+IBL output (`max(full_chain_mips, 5) - 4`) at reviewed 32..2048 resolutions,
+including 32 => 2 mips and 256 => 5; it does not claim the source cubemap's
+full raw chain. Portable measurements bind the complete schedule request,
+exact per-mip dimensions, and active RGBA16F bytes for every face/mip while rejecting padding
+dependence and partial data. Commit rejects stale lineage,
+cross-plan replay, and reset-era transaction ABA without treating a caller's
+integer or digest as evidence of backend execution.
 
 ## V2 — AirSim-referenced visual fidelity and scene import
 

@@ -39,6 +39,9 @@ public:
 
     void SetupEnvMap();
     void UpdateEnvMap(Ogre::Vector3 center, GfxActor* gfx_actor, bool full = false);
+    /// Release render targets, viewports, cameras, and the RTT texture before
+    /// Ogre::Root teardown. Idempotent for the process-static destructor.
+    bool Shutdown() noexcept;
 
 private:
 

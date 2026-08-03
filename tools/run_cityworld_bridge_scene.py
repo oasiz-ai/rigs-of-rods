@@ -49,6 +49,7 @@ FIXTURE_FILES = (
 TERRAIN = "cityworld_bridge_runtime.terrn2"
 RUNTIME_PACK = "cityworld-next-bridge-runtime.zip"
 REPORT_FORMAT = "ror-cityworld-bridge-runtime-report-v1"
+PROCESS_DIAGNOSTIC_FORMAT = "ror-cityworld-runtime-process-diagnostic-v1"
 RGB_ARTIFACT_NAME = "cityworld_bridge_rgb.png"
 SUCCESS_PREFIX = "CityWorld bridge runtime gate passed"
 DEVIATION_METRIC_KEY = "lateral_error_m"
@@ -59,6 +60,7 @@ VEHICLE_ARCHIVE = "dafsemi.zip"
 VEHICLE_ENTRY = "b6b0UID-semi.truck"
 EXPECTED_WIDTH = 1280
 EXPECTED_HEIGHT = 720
+EXACT_WINDOW_EXTENT_CONTRACT = f"{EXPECTED_WIDTH}x{EXPECTED_HEIGHT}"
 MAX_SCREENSHOT_BYTES = 32 * 1024 * 1024
 MAX_PACK_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_CONFIG_BYTES = 1024 * 1024
@@ -104,6 +106,32 @@ PSSM_QUALITY_PROFILES = {
     1: (((2048, 2048), (1024, 1024), (1024, 1024)), 0.975),
     2: (((3072, 3072), (2048, 2048), (2048, 2048)), 0.97),
     3: (((4096, 4096), (3072, 3072), (2048, 2048)), 0.965),
+}
+POSTPROCESS_MODES = {
+    "none": 0,
+    "v0a": 1,
+}
+PHYSICS_MODES = {
+    "async": True,
+    "sync": False,
+}
+POSTPROCESS_PREFIX = "[RoR|PostProcess]"
+POSTPROCESS_PATTERN = re.compile(
+    r"\[RoR\|PostProcess\] "
+    r"event=(?P<event>[a-z0-9_]+) "
+    r"requested=(?P<requested>-?[0-9]+) "
+    r"effective=(?P<effective>-?[0-9]+) "
+    r"backend=(?P<backend>[a-z0-9_]+) "
+    r"status=(?P<status>[a-z0-9_]+) "
+    r"stage=(?P<stage>[a-z0-9_]+) "
+    r"backing=(?P<width>[0-9]+)x(?P<height>[0-9]+) "
+    r"renderer=(?P<renderer>.+?) "
+    r"detail=(?P<detail>[^\r\n]+)"
+)
+POSTPROCESS_BACKENDS = {
+    "darwin": "gl3plus_glsl330",
+    "linux": "gl3plus_glsl330",
+    "win32": "d3d11_sm4",
 }
 
 
@@ -277,6 +305,18 @@ def decode_output(payload: bytes | str | None) -> str:
     return payload.decode("utf-8", errors="replace")
 
 
+def decode_process_output(
+    completed: subprocess.CompletedProcess[bytes],
+) -> str:
+    """Decode both native output channels for semantic failure checks."""
+
+    stdout = decode_output(completed.stdout)
+    stderr = decode_output(completed.stderr)
+    if stdout and stderr and not stdout.endswith(("\n", "\r")):
+        return stdout + "\n" + stderr
+    return stdout + stderr
+
+
 def run_command(
     command: Sequence[str],
     timeout: int,
@@ -290,7 +330,7 @@ def run_command(
             cwd=None if cwd is None else str(cwd),
             env=None if environment is None else dict(environment),
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             timeout=timeout,
             check=False,
         )
@@ -302,7 +342,7 @@ def run_command(
 
 def git_output(repository: Path, arguments: Sequence[str]) -> str:
     result = run_command(("git", "-C", str(repository), *arguments), 30)
-    output = decode_output(result.stdout)
+    output = decode_process_output(result)
     if result.returncode != 0:
         raise BridgeSceneFailure(
             f"git {' '.join(arguments)} failed in {repository}: {output}"
@@ -370,7 +410,7 @@ def validate_cityworld_package(
             if completed.returncode != 0:
                 raise BridgeSceneFailure(
                     "CityWorld package validation failed: "
-                    + decode_output(completed.stdout)
+                    + decode_process_output(completed)
                 )
 
         report = load_json(repository / compile_report)
@@ -416,7 +456,7 @@ def validate_cityworld_package(
     if provenance.returncode != 0:
         raise BridgeSceneFailure(
             "CityWorld package validation failed: "
-            + decode_output(provenance.stdout)
+            + decode_process_output(provenance)
         )
     if not reports:
         raise BridgeSceneFailure("CityWorld package set is empty")
@@ -621,6 +661,9 @@ def isolated_runtime_environment(isolated_home: Path) -> dict[str, str]:
     environment = os.environ.copy()
     environment.pop("SNAP_USER_COMMON", None)
     environment["ROR_D0_SCENE_HOME"] = str(isolated_home)
+    environment["ROR_D0_EXACT_WINDOW_EXTENT"] = (
+        EXACT_WINDOW_EXTENT_CONTRACT
+    )
     environment["ALSOFT_DRIVERS"] = "null"
     environment["ALSOFT_LOGLEVEL"] = "0"
     return environment
@@ -631,6 +674,8 @@ def write_runtime_config(
     shadow_mode: str = "none",
     shadow_quality: int = 2,
     *,
+    postprocess_mode: str = "none",
+    physics_mode: str = "async",
     target_platform: str = sys.platform,
 ) -> tuple[Path, Path]:
     if shadow_mode not in ("none", "pssm"):
@@ -638,6 +683,14 @@ def write_runtime_config(
     if not 0 <= shadow_quality <= 3:
         raise BridgeSceneFailure(
             f"shadow quality is outside 0..3: {shadow_quality}"
+        )
+    if postprocess_mode not in POSTPROCESS_MODES:
+        raise BridgeSceneFailure(
+            f"unsupported post-processing mode: {postprocess_mode}"
+        )
+    if physics_mode not in PHYSICS_MODES:
+        raise BridgeSceneFailure(
+            f"unsupported physics mode: {physics_mode}"
         )
     contract = renderer_contract(target_platform)
     config_directory.mkdir(parents=True, exist_ok=True)
@@ -648,11 +701,14 @@ def write_runtime_config(
                 "; Generated by tools/run_cityworld_bridge_scene.py",
                 "app_config_long_names=false",
                 "app_num_workers=1",
-                "app_async_physics=true",
+                "app_async_physics="
+                + str(PHYSICS_MODES[physics_mode]).lower(),
                 "app_disable_online_api=true",
                 "app_force_cache_update=true",
                 "audio_master_volume=0",
                 "gfx_fps_limit=0",
+                "gfx_postprocess_mode="
+                + str(POSTPROCESS_MODES[postprocess_mode]),
                 "gfx_shadow_type="
                 + (
                     "Parallel-split Shadow Maps"
@@ -697,6 +753,210 @@ def read_required_config(path: Path, label: str) -> bytes:
     if size <= 0 or size > MAX_CONFIG_BYTES:
         raise BridgeSceneFailure(f"{label} has an invalid size: {size}")
     return path.read_bytes()
+
+
+def validate_physics_config(
+    payload: bytes,
+    physics_mode: str,
+) -> dict[str, object]:
+    """Prove the requested single-worker physics mode stayed effective."""
+
+    if physics_mode not in PHYSICS_MODES:
+        raise BridgeSceneFailure(
+            f"unsupported physics mode: {physics_mode}"
+        )
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise BridgeSceneFailure(
+            "RoR physics configuration is not UTF-8"
+        ) from error
+    settings: dict[str, list[str]] = {
+        "app_async_physics": [],
+        "app_num_workers": [],
+    }
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        for name in settings:
+            prefix = name + "="
+            if line.startswith(prefix):
+                settings[name].append(line[len(prefix) :].strip())
+    async_values = settings["app_async_physics"]
+    if len(async_values) != 1:
+        raise BridgeSceneFailure(
+            "RoR configuration does not prove the requested physics mode"
+        )
+    # The generated input uses true/false, while RoR's CVar serializer rewrites
+    # the effective saved configuration to its canonical Yes/No spelling.
+    # Admit only those two exact representations and continue rejecting
+    # missing, duplicate, ambiguous, or otherwise permissive boolean text.
+    normalized_booleans = {
+        "true": True,
+        "false": False,
+        "Yes": True,
+        "No": False,
+    }
+    async_physics = normalized_booleans.get(async_values[0])
+    if async_physics is None or async_physics != PHYSICS_MODES[physics_mode]:
+        raise BridgeSceneFailure(
+            "RoR configuration does not prove the requested physics mode"
+        )
+    if settings["app_num_workers"] != ["1"]:
+        raise BridgeSceneFailure(
+            "RoR configuration does not prove single-worker physics"
+        )
+    return {
+        "async_physics": async_physics,
+        "num_workers": 1,
+    }
+
+
+def process_termination_record(
+    returncode: int,
+    target_platform: str,
+) -> dict[str, object]:
+    """Describe a native process exit without losing Windows NTSTATUS bits."""
+
+    renderer_contract(target_platform)
+    record: dict[str, object] = {"returncode": returncode}
+    if returncode == 0:
+        record["kind"] = "success"
+        return record
+
+    unsigned = returncode & 0xFFFFFFFF
+    if target_platform == "win32" and unsigned >= 0x80000000:
+        record.update(
+            {
+                "kind": "windows_ntstatus",
+                "ntstatus_hex": f"0x{unsigned:08X}",
+                "unsigned_returncode": unsigned,
+            }
+        )
+        if unsigned == 0xC0000005:
+            record["meaning"] = "access_violation"
+        return record
+
+    if returncode < 0:
+        record.update(
+            {
+                "kind": "signal",
+                "signal": -returncode,
+            }
+        )
+        return record
+
+    record["kind"] = "exit_code"
+    return record
+
+
+def persist_runtime_process_diagnostics(
+    artifact_dir: Path,
+    completed: subprocess.CompletedProcess[bytes],
+    engine_log_path: Path,
+    script_log_path: Path,
+    requested_configs: Mapping[str, bytes],
+    effective_config_paths: Mapping[str, Path],
+    target_platform: str,
+) -> dict[str, object]:
+    """Persist child-process evidence before semantic validation can fail."""
+
+    diagnostics = artifact_dir / "diagnostics"
+    diagnostics.mkdir(exist_ok=True)
+    files: dict[str, dict[str, object]] = {}
+    last_lines: dict[str, str] = {}
+
+    def capture(name: str, payload: bytes) -> None:
+        destination = diagnostics / name
+        destination.write_bytes(payload)
+        files[name] = {
+            "artifact": "diagnostics/" + name,
+            "sha256": sha256_bytes(payload),
+            "size": len(payload),
+            "status": "captured",
+        }
+        if name.endswith(".log") or name.startswith("runtime.std"):
+            lines = [
+                line
+                for line in decode_output(payload).splitlines()
+                if line.strip()
+            ]
+            if lines:
+                last_lines[name] = lines[-1][:512]
+
+    raw_stdout = completed.stdout
+    if raw_stdout is None:
+        raw_stdout = b""
+    if not isinstance(raw_stdout, bytes):
+        raise BridgeSceneFailure(
+            "native runtime stdout was not captured as bytes"
+        )
+    capture("runtime.stdout", raw_stdout)
+
+    raw_stderr = completed.stderr
+    if raw_stderr is None:
+        raw_stderr = b""
+    if not isinstance(raw_stderr, bytes):
+        raise BridgeSceneFailure(
+            "native runtime stderr was not captured as bytes"
+        )
+    capture("runtime.stderr", raw_stderr)
+
+    for name, source in (
+        ("RoR.log", engine_log_path),
+        ("Angelscript.log", script_log_path),
+    ):
+        entry: dict[str, object] = {
+            "artifact": "diagnostics/" + name,
+        }
+        if not source.exists():
+            entry["status"] = "missing"
+        elif not source.is_file() or source.is_symlink():
+            entry["status"] = "unsafe"
+        else:
+            capture(name, source.read_bytes())
+            continue
+        files[name] = entry
+
+    for name in sorted(requested_configs):
+        requested_name = "requested-" + name
+        capture(requested_name, requested_configs[name])
+
+        effective_name = "effective-" + name
+        effective_source = effective_config_paths[name]
+        effective_entry: dict[str, object] = {
+            "artifact": "diagnostics/" + effective_name,
+        }
+        if not effective_source.exists():
+            effective_entry["status"] = "missing"
+        elif (
+            not effective_source.is_file()
+            or effective_source.is_symlink()
+        ):
+            effective_entry["status"] = "unsafe"
+        else:
+            capture(effective_name, effective_source.read_bytes())
+            continue
+        files[effective_name] = effective_entry
+
+    document: dict[str, object] = {
+        "files": files,
+        "format": PROCESS_DIAGNOSTIC_FORMAT,
+        "termination": process_termination_record(
+            completed.returncode,
+            target_platform,
+        ),
+        "last_lines": last_lines,
+        "target_platform": target_platform,
+    }
+    path = diagnostics / "runtime-process.json"
+    temporary = diagnostics / "runtime-process.json.tmp"
+    temporary.write_text(
+        json.dumps(document, indent=2, ensure_ascii=True, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+    return document
 
 
 def validate_pssm_log(
@@ -771,6 +1031,96 @@ def validate_pssm_log(
     }
 
 
+def validate_postprocess_log(
+    engine_log: str,
+    postprocess_mode: str,
+    target_platform: str,
+) -> dict[str, object]:
+    if postprocess_mode not in POSTPROCESS_MODES:
+        raise BridgeSceneFailure(
+            f"unsupported post-processing mode: {postprocess_mode}"
+        )
+    expected_backend = POSTPROCESS_BACKENDS.get(target_platform)
+    if expected_backend is None:
+        raise BridgeSceneFailure(
+            "unsupported CityWorld runtime platform: "
+            f"{target_platform}"
+        )
+    marker_count = engine_log.count(POSTPROCESS_PREFIX)
+    all_matches = list(POSTPROCESS_PATTERN.finditer(engine_log))
+    matches = [
+        match
+        for match in all_matches
+        if match.group("event") == "scene_ready"
+    ]
+    if (
+        marker_count < 1
+        or len(all_matches) != marker_count
+        or len(matches) != 1
+    ):
+        raise BridgeSceneFailure(
+            "post-processing run must emit exactly one complete "
+            "scene_ready marker"
+        )
+    if any(
+        match.group("status") == "program_unavailable"
+        or match.group("stage") == "failed"
+        for match in all_matches
+    ):
+        raise BridgeSceneFailure(
+            "post-processing lifecycle failed after scene attachment"
+        )
+    fields = matches[0].groupdict()
+    requested = int(fields["requested"])
+    effective = int(fields["effective"])
+    width = int(fields["width"])
+    height = int(fields["height"])
+    expected_mode = POSTPROCESS_MODES[postprocess_mode]
+    if requested != expected_mode:
+        raise BridgeSceneFailure(
+            "post-processing marker differs from the requested mode"
+        )
+    if fields["backend"] != expected_backend:
+        raise BridgeSceneFailure(
+            "post-processing backend differs from the platform contract"
+        )
+    if width != EXPECTED_WIDTH or height != EXPECTED_HEIGHT:
+        raise BridgeSceneFailure(
+            "post-processing backing extent differs from the fixed "
+            "render target"
+        )
+    expected = (
+        (0, "requested_none", "bypassed")
+        if postprocess_mode == "none"
+        else (1, "enabled", "attached")
+    )
+    if (
+        effective != expected[0]
+        or fields["status"] != expected[1]
+        or fields["stage"] != expected[2]
+    ):
+        raise BridgeSceneFailure(
+            "post-processing marker does not prove the requested "
+            "effective lifecycle"
+        )
+    expected_renderer = renderer_contract(target_platform).render_system
+    if fields["renderer"] != expected_renderer:
+        raise BridgeSceneFailure(
+            "post-processing marker renderer differs from the "
+            "platform contract"
+        )
+    return {
+        "backend": fields["backend"],
+        "backing_height": height,
+        "backing_width": width,
+        "detail": fields["detail"],
+        "effective_mode": effective,
+        "lifecycle_stage": fields["stage"],
+        "requested_mode": requested,
+        "status": fields["status"],
+    }
+
+
 def parse_renderer_identity(
     engine_log: str,
     target_platform: str,
@@ -815,6 +1165,29 @@ def normalize_shadow_config(payload: bytes) -> bytes:
     if matches != 1:
         raise BridgeSceneFailure(
             "RoR configuration must contain exactly one shadow-mode setting"
+        )
+    return "".join(normalized).encode("utf-8")
+
+
+def normalize_postprocess_config(payload: bytes) -> bytes:
+    text = payload.decode("utf-8")
+    lines = text.splitlines(keepends=True)
+    matches = 0
+    normalized: list[str] = []
+    for line in lines:
+        if line.startswith("gfx_postprocess_mode="):
+            ending = "\n" if line.endswith("\n") else ""
+            normalized.append(
+                "gfx_postprocess_mode=<paired-postprocess-mode>"
+                + ending
+            )
+            matches += 1
+        else:
+            normalized.append(line)
+    if matches != 1:
+        raise BridgeSceneFailure(
+            "RoR configuration must contain exactly one "
+            "post-processing-mode setting"
         )
     return "".join(normalized).encode("utf-8")
 
@@ -1050,6 +1423,16 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         choices=range(4),
         default=2,
     )
+    parser.add_argument(
+        "--postprocess-mode",
+        choices=tuple(POSTPROCESS_MODES),
+        default="none",
+    )
+    parser.add_argument(
+        "--physics-mode",
+        choices=tuple(PHYSICS_MODES),
+        default="async",
+    )
     args = parser.parse_args(argv)
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
@@ -1096,6 +1479,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         layout["config"],
         args.shadow_mode,
         args.shadow_quality,
+        postprocess_mode=args.postprocess_mode,
+        physics_mode=args.physics_mode,
         target_platform=target_platform,
     )
     requested_configs = {
@@ -1124,14 +1509,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         cwd=executable.parent,
         environment=environment,
     )
-    stdout = decode_output(completed.stdout)
+    process_output = decode_process_output(completed)
     engine_log_path = layout["logs"] / "RoR.log"
     script_log_path = layout["logs"] / "Angelscript.log"
+    persist_runtime_process_diagnostics(
+        artifact_dir,
+        completed,
+        engine_log_path,
+        script_log_path,
+        requested_configs,
+        {
+            "RoR.cfg": ror_config_path,
+            "ogre.cfg": ogre_config_path,
+        },
+        target_platform,
+    )
     engine_log = read_required(engine_log_path, "RoR engine log")
     script_log = read_required(script_log_path, "AngelScript log")
     metrics = validate_runtime_logs(
         completed.returncode,
-        stdout,
+        process_output,
         engine_log,
         script_log,
     )
@@ -1139,6 +1536,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         engine_log,
         args.shadow_mode,
         args.shadow_quality,
+    )
+    postprocess_record = validate_postprocess_log(
+        engine_log,
+        args.postprocess_mode,
+        target_platform,
     )
     renderer_identity = parse_renderer_identity(engine_log, target_platform)
     effective_configs = {
@@ -1151,19 +1553,34 @@ def main(argv: Sequence[str] | None = None) -> int:
             "effective OGRE configuration",
         ),
     }
+    physics_record = {
+        "effective": validate_physics_config(
+            effective_configs["RoR.cfg"],
+            args.physics_mode,
+        ),
+        "mode": args.physics_mode,
+        "requested": validate_physics_config(
+            requested_configs["RoR.cfg"],
+            args.physics_mode,
+        ),
+    }
     screenshot = find_single_screenshot(layout["screenshots"])
     image_record = validate_rgb_png(screenshot)
 
     diagnostics = artifact_dir / "diagnostics"
     rgb_directory = artifact_dir / "rgb"
-    diagnostics.mkdir()
+    diagnostics.mkdir(exist_ok=True)
     rgb_directory.mkdir()
     stdout_path = diagnostics / "runtime.stdout"
+    stderr_path = diagnostics / "runtime.stderr"
     copied_engine_log = diagnostics / "RoR.log"
     copied_script_log = diagnostics / "Angelscript.log"
     copied_screenshot = rgb_directory / RGB_ARTIFACT_NAME
     copied_configs: dict[str, dict[str, object]] = {}
-    stdout_path.write_text(stdout, encoding="utf-8")
+    if not stdout_path.is_file() or not stderr_path.is_file():
+        raise BridgeSceneFailure(
+            "native runtime output diagnostics were not preserved"
+        )
     copied_engine_log.write_text(engine_log, encoding="utf-8")
     copied_script_log.write_text(script_log, encoding="utf-8")
     shutil.copy2(screenshot, copied_screenshot)
@@ -1192,6 +1609,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             ] = sha256_bytes(
                 normalize_shadow_config(effective_configs[name])
             )
+            copied_configs[name][
+                "requested_postprocess_normalized_sha256"
+            ] = sha256_bytes(
+                normalize_postprocess_config(requested_configs[name])
+            )
+            copied_configs[name][
+                "effective_postprocess_normalized_sha256"
+            ] = sha256_bytes(
+                normalize_postprocess_config(effective_configs[name])
+            )
 
     repository_commit = git_output(repository, ("rev-parse", "HEAD"))
     report: dict[str, object] = {
@@ -1199,10 +1626,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             "effective_ogre_config": "diagnostics/effective-ogre.cfg",
             "effective_ror_config": "diagnostics/effective-RoR.cfg",
             "engine_log": "diagnostics/RoR.log",
+            "process_diagnostic": "diagnostics/runtime-process.json",
             "requested_ogre_config": "diagnostics/requested-ogre.cfg",
             "requested_ror_config": "diagnostics/requested-RoR.cfg",
             "rgb": f"rgb/{RGB_ARTIFACT_NAME}",
             "script_log": "diagnostics/Angelscript.log",
+            "stderr": "diagnostics/runtime.stderr",
             "stdout": "diagnostics/runtime.stdout",
         },
         "cityworld_compile_report_sha256": sha256_file(
@@ -1216,10 +1645,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "machine": platform.machine(),
         "metrics": metrics,
         "platform": platform.platform(),
+        "physics": physics_record,
         "rendering": {
             "configs": copied_configs,
             "device": renderer_identity,
             "height": EXPECTED_HEIGHT,
+            "postprocess": postprocess_record,
+            "postprocess_mode": args.postprocess_mode,
             "pssm": pssm_record,
             "shadow_mode": args.shadow_mode,
             "shadow_quality": args.shadow_quality,
@@ -1265,6 +1697,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"distance={metrics['distance_m']:.3f}m "
         f"{DEVIATION_LABEL}={metrics[DEVIATION_METRIC_KEY]:.3f}m "
         f"steps={metrics['physics_steps']} "
+        f"physics={args.physics_mode} "
         f"rgb={image_record['sha256']} report={report_path}"
     )
     return 0

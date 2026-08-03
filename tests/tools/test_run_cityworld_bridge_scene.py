@@ -20,6 +20,7 @@ FIXTURE_ROOT = (
     REPOSITORY_ROOT / "tests/fixtures/cityworld_bridge_runtime"
 )
 PLATFORM_UTILS = REPOSITORY_ROOT / "source/main/utils/PlatformUtils.cpp"
+APP_CONTEXT = REPOSITORY_ROOT / "source/main/AppContext.cpp"
 
 SPEC = importlib.util.spec_from_file_location(
     "run_cityworld_bridge_scene",
@@ -130,6 +131,28 @@ def valid_pssm_marker() -> str:
         "sizes=3072x3072/2048x2048/2048x2048 "
         "lambda=0.970000 near=0.500000 far=350.000000 "
         "splits=0.500000/7.816331/45.241116/350.000000"
+    )
+
+
+def valid_postprocess_marker(
+    mode: str,
+    target_platform: str,
+) -> str:
+    requested = SCENE.POSTPROCESS_MODES[mode]
+    effective = 0 if mode == "none" else 1
+    status = "requested_none" if mode == "none" else "enabled"
+    stage = "bypassed" if mode == "none" else "attached"
+    renderer = (
+        "Direct3D11 Rendering Subsystem"
+        if target_platform == "win32"
+        else "OpenGL 3+ Rendering Subsystem"
+    )
+    return (
+        "[RoR|PostProcess] event=scene_ready "
+        f"requested={requested} effective={effective} "
+        f"backend={SCENE.POSTPROCESS_BACKENDS[target_platform]} "
+        f"status={status} stage={stage} backing=1280x720 "
+        f"renderer={renderer} detail=none"
     )
 
 
@@ -289,6 +312,121 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         ):
             SCENE.runtime_layout(root, "freebsd14")
 
+    def test_process_diagnostics_survive_windows_access_violation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact_dir = root / "artifact"
+            artifact_dir.mkdir()
+            logs = root / "logs"
+            configs = root / "config"
+            logs.mkdir()
+            configs.mkdir()
+            engine_log = logs / "RoR.log"
+            script_log = logs / "Angelscript.log"
+            engine_log.write_text(
+                "engine start\nlast engine phase\n",
+                encoding="utf-8",
+            )
+            script_log.write_text(
+                "frame=500\nframe=600\n",
+                encoding="utf-8",
+            )
+            effective_ror = configs / "RoR.cfg"
+            effective_ogre = configs / "ogre.cfg"
+            effective_ror.write_bytes(b"effective ror\n")
+            effective_ogre.write_bytes(b"effective ogre\n")
+
+            document = SCENE.persist_runtime_process_diagnostics(
+                artifact_dir,
+                SCENE.subprocess.CompletedProcess(
+                    ["RoR.exe"],
+                    0xC0000005,
+                    b"native stdout\xff\n",
+                    b"native stderr\xfe\n",
+                ),
+                engine_log,
+                script_log,
+                {
+                    "RoR.cfg": b"requested ror\n",
+                    "ogre.cfg": b"requested ogre\n",
+                },
+                {
+                    "RoR.cfg": effective_ror,
+                    "ogre.cfg": effective_ogre,
+                },
+                "win32",
+            )
+
+            self.assertEqual(
+                document["format"],
+                SCENE.PROCESS_DIAGNOSTIC_FORMAT,
+            )
+            self.assertEqual(
+                document["termination"],
+                {
+                    "kind": "windows_ntstatus",
+                    "meaning": "access_violation",
+                    "ntstatus_hex": "0xC0000005",
+                    "returncode": 0xC0000005,
+                    "unsigned_returncode": 0xC0000005,
+                },
+            )
+            self.assertEqual(
+                document["last_lines"]["Angelscript.log"],
+                "frame=600",
+            )
+            self.assertEqual(
+                document["last_lines"]["runtime.stdout"],
+                "native stdout\ufffd",
+            )
+            self.assertEqual(
+                document["last_lines"]["runtime.stderr"],
+                "native stderr\ufffd",
+            )
+            self.assertEqual(
+                (
+                    artifact_dir
+                    / "diagnostics"
+                    / "runtime.stdout"
+                ).read_bytes(),
+                b"native stdout\xff\n",
+            )
+            self.assertEqual(
+                (
+                    artifact_dir
+                    / "diagnostics"
+                    / "runtime.stderr"
+                ).read_bytes(),
+                b"native stderr\xfe\n",
+            )
+            for name in (
+                "RoR.log",
+                "Angelscript.log",
+                "requested-RoR.cfg",
+                "effective-RoR.cfg",
+                "requested-ogre.cfg",
+                "effective-ogre.cfg",
+                "runtime-process.json",
+            ):
+                with self.subTest(name=name):
+                    self.assertTrue(
+                        (artifact_dir / "diagnostics" / name).is_file()
+                    )
+            self.assertFalse(
+                (
+                    artifact_dir
+                    / "diagnostics"
+                    / "runtime-process.json.tmp"
+                ).exists()
+            )
+
+        self.assertEqual(
+            SCENE.process_termination_record(-11, "linux"),
+            {"kind": "signal", "returncode": -11, "signal": 11},
+        )
+
     def test_isolated_environment_outranks_snap_and_portable_config(
         self,
     ) -> None:
@@ -297,6 +435,7 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
             SCENE.os.environ,
             {
                 "KEEP_ME": "yes",
+                "ROR_D0_EXACT_WINDOW_EXTENT": "640x360",
                 "SNAP_USER_COMMON": "/real/snap/home",
             },
             clear=True,
@@ -307,6 +446,10 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         self.assertEqual(
             environment["ROR_D0_SCENE_HOME"],
             str(isolated),
+        )
+        self.assertEqual(
+            environment["ROR_D0_EXACT_WINDOW_EXTENT"],
+            "1280x720",
         )
         self.assertEqual(environment["ALSOFT_DRIVERS"], "null")
         self.assertEqual(environment["ALSOFT_LOGLEVEL"], "0")
@@ -368,10 +511,12 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                         "app_force_cache_update=true",
                         ror_text,
                     )
+                    self.assertIn("app_async_physics=true", ror_text)
                     self.assertIn(
                         "gfx_shadow_type=No shadows (fastest)",
                         ror_text,
                     )
+                    self.assertIn("gfx_postprocess_mode=0", ror_text)
                     self.assertIn("gfx_shadow_quality=2", ror_text)
                     self.assertEqual(
                         ogre.read_text(encoding="utf-8"),
@@ -397,6 +542,85 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                     self.assertNotIn(gl_only_option, d3d11_text)
             self.assertEqual(len(set(ror_payloads)), 1)
 
+            sync_ror, _ = SCENE.write_runtime_config(
+                root / "win32-sync",
+                physics_mode="sync",
+                target_platform="win32",
+            )
+            sync_text = sync_ror.read_text(encoding="utf-8")
+            self.assertIn("app_num_workers=1", sync_text)
+            self.assertIn("app_async_physics=false", sync_text)
+            self.assertNotIn("app_async_physics=true", sync_text)
+            self.assertEqual(
+                SCENE.validate_physics_config(
+                    sync_ror.read_bytes(),
+                    "sync",
+                ),
+                {"async_physics": False, "num_workers": 1},
+            )
+
+            effective_sync = sync_text.replace(
+                "app_async_physics=false",
+                "app_async_physics=No",
+            )
+            self.assertEqual(
+                SCENE.validate_physics_config(
+                    effective_sync.encode("utf-8"),
+                    "sync",
+                ),
+                {"async_physics": False, "num_workers": 1},
+            )
+            effective_async = sync_text.replace(
+                "app_async_physics=false",
+                "app_async_physics=Yes",
+            )
+            self.assertEqual(
+                SCENE.validate_physics_config(
+                    effective_async.encode("utf-8"),
+                    "async",
+                ),
+                {"async_physics": True, "num_workers": 1},
+            )
+
+            invalid_physics_configs = (
+                sync_text.replace(
+                    "app_async_physics=false",
+                    "app_async_physics=true",
+                ),
+                sync_text.replace("app_num_workers=1", "app_num_workers=2"),
+                sync_text + "app_async_physics=false\n",
+                effective_sync + "app_async_physics=No\n",
+                sync_text.replace(
+                    "app_async_physics=false",
+                    "app_async_physics=no",
+                ),
+                sync_text.replace(
+                    "app_async_physics=false",
+                    "app_async_physics=0",
+                ),
+            )
+            for invalid in invalid_physics_configs:
+                with self.subTest(invalid=invalid):
+                    with self.assertRaises(SCENE.BridgeSceneFailure):
+                        SCENE.validate_physics_config(
+                            invalid.encode("utf-8"),
+                            "sync",
+                        )
+
+            self.assertEqual(
+                SCENE.parse_args(
+                    (
+                        "--executable",
+                        "RoR.exe",
+                        "--artifact-dir",
+                        "artifact",
+                        "--physics-mode",
+                        "sync",
+                    )
+                ).physics_mode,
+                "sync",
+            )
+
             unsupported = root / "freebsd14"
             with self.assertRaisesRegex(
                 SCENE.BridgeSceneFailure,
@@ -407,6 +631,15 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                     target_platform="freebsd14",
                 )
             self.assertFalse(unsupported.exists())
+            with self.assertRaisesRegex(
+                SCENE.BridgeSceneFailure,
+                "unsupported physics mode",
+            ):
+                SCENE.write_runtime_config(
+                    root / "invalid-physics-mode",
+                    physics_mode="parallel",
+                    target_platform="win32",
+                )
 
     def test_generated_config_can_lock_high_quality_pssm(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -425,6 +658,7 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                         ror_text,
                     )
                     self.assertIn("gfx_shadow_quality=2", ror_text)
+                    self.assertIn("gfx_postprocess_mode=0", ror_text)
             with self.assertRaises(SCENE.BridgeSceneFailure):
                 SCENE.write_runtime_config(
                     root / "bad-mode",
@@ -437,6 +671,21 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                     shadow_mode="pssm",
                     shadow_quality=4,
                     target_platform="win32",
+                )
+            v0a, _ = SCENE.write_runtime_config(
+                root / "v0a",
+                postprocess_mode="v0a",
+                target_platform="darwin",
+            )
+            self.assertIn(
+                "gfx_postprocess_mode=1",
+                v0a.read_text(encoding="utf-8"),
+            )
+            with self.assertRaises(SCENE.BridgeSceneFailure):
+                SCENE.write_runtime_config(
+                    root / "bad-postprocess",
+                    postprocess_mode="hdr",
+                    target_platform="darwin",
                 )
 
     def test_pssm_marker_gate_checks_complete_effective_configuration(
@@ -469,6 +718,80 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                     SCENE.validate_pssm_log(invalid, "pssm", 2)
         with self.assertRaises(SCENE.BridgeSceneFailure):
             SCENE.validate_pssm_log(marker, "none", 2)
+
+    def test_postprocess_marker_gate_proves_platform_effective_mode(
+        self,
+    ) -> None:
+        for mode in ("none", "v0a"):
+            for target_platform in ("darwin", "linux", "win32"):
+                with self.subTest(
+                    mode=mode,
+                    target_platform=target_platform,
+                ):
+                    marker = valid_postprocess_marker(
+                        mode,
+                        target_platform,
+                    )
+                    record = SCENE.validate_postprocess_log(
+                        marker,
+                        mode,
+                        target_platform,
+                    )
+                    self.assertEqual(
+                        record["requested_mode"],
+                        SCENE.POSTPROCESS_MODES[mode],
+                    )
+                    self.assertEqual(
+                        record["backend"],
+                        SCENE.POSTPROCESS_BACKENDS[target_platform],
+                    )
+                    self.assertEqual(record["backing_width"], 1280)
+                    self.assertEqual(record["backing_height"], 720)
+
+        marker = valid_postprocess_marker("v0a", "linux")
+        invalid_markers = (
+            marker.replace("requested=1", "requested=0"),
+            marker.replace("effective=1", "effective=0"),
+            marker.replace("status=enabled", "status=program_unavailable"),
+            marker.replace("stage=attached", "stage=failed"),
+            marker.replace("backing=1280x720", "backing=640x360"),
+            marker.replace("backend=gl3plus_glsl330", "backend=d3d11_sm4"),
+            marker.replace(
+                "renderer=OpenGL 3+ Rendering Subsystem",
+                "renderer=other",
+            ),
+            marker + "\n" + marker,
+            marker + "\n[RoR|PostProcess] incomplete",
+            marker
+            + "\n"
+            + marker.replace(
+                "event=scene_ready requested=1 effective=1 "
+                "backend=gl3plus_glsl330 status=enabled stage=attached",
+                "event=main_window_readback requested=1 effective=0 "
+                "backend=gl3plus_glsl330 "
+                "status=program_unavailable stage=failed",
+            ),
+        )
+        for invalid in invalid_markers:
+            with self.subTest(marker=invalid):
+                with self.assertRaises(SCENE.BridgeSceneFailure):
+                    SCENE.validate_postprocess_log(
+                        invalid,
+                        "v0a",
+                        "linux",
+                    )
+        with self.assertRaises(SCENE.BridgeSceneFailure):
+            SCENE.validate_postprocess_log(
+                marker,
+                "none",
+                "linux",
+            )
+        with self.assertRaises(SCENE.BridgeSceneFailure):
+            SCENE.validate_postprocess_log(
+                marker,
+                "v0a",
+                "freebsd14",
+            )
 
     def test_renderer_identity_and_shadow_config_are_fail_closed(self) -> None:
         gl3plus_log = "\n".join(
@@ -589,6 +912,17 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         with self.assertRaises(SCENE.BridgeSceneFailure):
             SCENE.normalize_shadow_config(b"gfx_shadow_quality=2\n")
 
+        no_postprocess = b"gfx_postprocess_mode=0\n"
+        v0a_postprocess = b"gfx_postprocess_mode=1\n"
+        self.assertEqual(
+            SCENE.normalize_postprocess_config(no_postprocess),
+            SCENE.normalize_postprocess_config(v0a_postprocess),
+        )
+        with self.assertRaises(SCENE.BridgeSceneFailure):
+            SCENE.normalize_postprocess_config(
+                b"gfx_shadow_quality=2\n"
+            )
+
     def test_fixture_locks_exact_connectors_and_collision_run(self) -> None:
         script = (FIXTURE_ROOT / "cityworld_bridge_runtime.as").read_text(
             encoding="utf-8"
@@ -638,6 +972,28 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         known_folder = windows_source.index("SHGetFolderPathW")
         self.assertLess(override, known_folder)
         self.assertIn("IsAbsolutePath(d0_scene_home)", windows_source)
+
+    def test_windows_exact_extent_is_isolated_and_fail_closed(self) -> None:
+        source = APP_CONTEXT.read_text(encoding="utf-8")
+        windows_start = source.index(
+            "#if OGRE_PLATFORM == OGRE_PLATFORM_WIN32",
+            source.index("// Validate rendering resolution"),
+        )
+        windows_end = source.index("#endif", windows_start)
+        windows_source = source[windows_start:windows_end]
+        for required in (
+            'std::getenv("ROR_D0_SCENE_HOME")',
+            'std::getenv("ROR_D0_EXACT_WINDOW_EXTENT")',
+            "IsAbsolutePath(d0_scene_home)",
+            "selected_extent == d0_exact_window_extent",
+            'ropts["Full Screen"].currentValue == "No"',
+            "!App::diag_allow_window_resize->getBool()",
+            'miscParams["border"] = "none"',
+            'miscParams["outerDimensions"] = "true"',
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, windows_source)
+        self.assertNotIn("ROR_D0_EXACT_WINDOW_EXTENT", source[:windows_start])
 
 
 if __name__ == "__main__":

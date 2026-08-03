@@ -193,14 +193,98 @@ void RoR::GfxEnvmap::SetupEnvMap()
 
 RoR::GfxEnvmap::~GfxEnvmap()
 {
+    this->Shutdown();
+}
+
+bool RoR::GfxEnvmap::Shutdown() noexcept
+{
+    bool had_renderer_resources = !m_rtt_texture.isNull();
+    bool clean_release = true;
+    Ogre::SceneManager* scene_manager = App::GetGfxScene()->GetSceneManager();
+
     for (int face = 0; face < NUM_FACES; face++)
     {
-        if (m_cameras[face] != nullptr)
+        had_renderer_resources = had_renderer_resources ||
+            m_render_targets[face] != nullptr || m_cameras[face] != nullptr;
+        bool viewports_released = m_render_targets[face] == nullptr;
+
+        // Viewports retain the camera. Release them before destroying that
+        // camera; the inverse order triggers a fatal teardown path in the
+        // Windows D3D11 runtime.
+        if (m_render_targets[face] != nullptr)
         {
-            App::GetGfxScene()->GetSceneManager()->destroyCamera(m_cameras[face]);
-            m_render_targets[face]->removeAllViewports();
+            try
+            {
+                m_render_targets[face]->removeAllViewports();
+                m_render_targets[face] = nullptr;
+                viewports_released = true;
+            }
+            catch (...)
+            {
+                clean_release = false;
+                viewports_released = false;
+            }
+        }
+        if (m_cameras[face] != nullptr && viewports_released)
+        {
+            try
+            {
+                if (scene_manager != nullptr)
+                {
+                    scene_manager->destroyCamera(m_cameras[face]);
+                    m_cameras[face] = nullptr;
+                }
+                else
+                {
+                    clean_release = false;
+                }
+            }
+            catch (...)
+            {
+                clean_release = false;
+            }
         }
     }
+
+    bool all_face_resources_released = true;
+    for (int face = 0; face < NUM_FACES; face++)
+    {
+        all_face_resources_released = all_face_resources_released &&
+            m_render_targets[face] == nullptr && m_cameras[face] == nullptr;
+    }
+    if (all_face_resources_released)
+    {
+        try
+        {
+            m_rtt_texture.reset();
+        }
+        catch (...)
+        {
+            clean_release = false;
+        }
+    }
+    else
+    {
+        // Do not explicitly release the texture before retained viewports or
+        // cameras. Normal member and Ogre::Root teardown owns that graph.
+        clean_release = false;
+    }
+
+    if (had_renderer_resources)
+    {
+        try
+        {
+            LOG(clean_release
+                ? "[RoR|Shutdown] Environment map renderer resources released"
+                : "[RoR|Shutdown] ERROR releasing environment map renderer resources");
+        }
+        catch (...)
+        {
+            // Destructors must not turn a logging failure into a fast-fail.
+        }
+    }
+
+    return clean_release;
 }
 
 void RoR::GfxEnvmap::UpdateEnvMap(Ogre::Vector3 center, GfxActor* gfx_actor, bool full/*=false*/)

@@ -40,6 +40,8 @@ namespace RoR {
 class Console : public Ogre::LogListener
 {
 public:
+    ~Console() noexcept override;
+
     typedef std::unordered_map<std::string, CVar*> CVarPtrMap;
     typedef std::unordered_map<std::string, ConsoleCmd*> CommandPtrMap;
 

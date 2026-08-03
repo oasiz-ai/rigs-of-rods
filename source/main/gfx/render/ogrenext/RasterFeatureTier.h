@@ -1,0 +1,46 @@
+/*
+    This source file is part of Rigs of Rods
+
+    Rigs of Rods is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License version 3, as
+    published by the Free Software Foundation.
+*/
+
+/// @file
+/// @brief Opt-in raster feature tiers for the isolated Ogre-Next frontend.
+
+#pragma once
+
+#include <cstdint>
+
+namespace RoR::Render {
+
+/// The default preserves the reviewed texture-free N1 adapter. RT4/V1 is an
+/// explicit, renderer-portable textured-PBS admission and upload path; it does
+/// not imply native ray tracing or modify the renderer-neutral frontend ABI.
+enum class OgreNextRasterFeatureTier : std::uint8_t {
+  STATIC_PBR_N1 = 0,
+  MODERN_PBR_RT4_V1 = 1,
+};
+
+/// Visibility layers are part of the raster-tier boundary rather than an
+/// individual feature policy. Ogre owns bits 30-31; RT4 additionally owns
+/// bits 28-29 for reflection capture and PCC proxy geometry.
+constexpr std::uint32_t kOgreNextN1OgreLayerVisibilityMask =
+    (1U << 30U) | (1U << 31U);
+constexpr std::uint32_t kOgreNextN1AuthoredVisibilityMask =
+    ~kOgreNextN1OgreLayerVisibilityMask;
+constexpr std::uint32_t kOgreNextRt4PccVisibilityMask =
+    (1U << 28U) | (1U << 29U);
+constexpr std::uint32_t kOgreNextRt4InternalVisibilityMask =
+    kOgreNextRt4PccVisibilityMask | kOgreNextN1OgreLayerVisibilityMask;
+constexpr std::uint32_t kOgreNextRt4AuthoredVisibilityMask =
+    ~kOgreNextRt4InternalVisibilityMask;
+
+[[nodiscard]] constexpr bool
+IsKnownOgreNextRasterFeatureTier(OgreNextRasterFeatureTier tier) noexcept {
+  return tier == OgreNextRasterFeatureTier::STATIC_PBR_N1 ||
+         tier == OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+}
+
+} // namespace RoR::Render

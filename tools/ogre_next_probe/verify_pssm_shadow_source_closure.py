@@ -1,0 +1,708 @@
+#!/usr/bin/env python3
+"""Verify the exact Ogre-Next source closure used by PSSM_3_CASCADE_V1."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path, PurePosixPath
+import re
+import sys
+from typing import NoReturn
+
+
+SCHEMA_VERSION = 2
+OGRE_NEXT_COMMIT = "37149a802de747f6806996fa3067b0748ecc1084"
+PLATFORM_POLICIES = [
+    "macos-arm64-metal",
+    "linux-x86_64-vulkan",
+    "windows-x64-d3d11",
+]
+PLATFORM_SOURCE_OVERRIDES = [
+    (
+        "windows-x64-d3d11",
+        "d3d11_render_system_capabilities",
+        "RenderSystems/Direct3D11/src/OgreD3D11RenderSystem.cpp",
+        "d27e8af72005cadda20834ce67bb5cb476a83f03dc9280d5fc3aff0759330b7a",
+    ),
+]
+SOURCE_ROLES_AND_PATHS = [
+    ("shadow_node_api", "OgreMain/include/Compositor/OgreCompositorShadowNode.h"),
+    (
+        "shadow_node_runtime_and_helper",
+        "OgreMain/src/Compositor/OgreCompositorShadowNode.cpp",
+    ),
+    (
+        "shadow_node_definition_api",
+        "OgreMain/include/Compositor/OgreCompositorShadowNodeDef.h",
+    ),
+    (
+        "shadow_node_definition_validation",
+        "OgreMain/src/Compositor/OgreCompositorShadowNodeDef.cpp",
+    ),
+    (
+        "scene_pass_shadow_binding_api",
+        "OgreMain/include/Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h",
+    ),
+    (
+        "scene_pass_shadow_execution",
+        "OgreMain/src/Compositor/Pass/PassScene/OgreCompositorPassScene.cpp",
+    ),
+    (
+        "workspace_first_only_ordering",
+        "OgreMain/src/Compositor/OgreCompositorWorkspace.cpp",
+    ),
+    ("frustum_projection_api", "OgreMain/include/OgreFrustum.h"),
+    ("frustum_projection_runtime", "OgreMain/src/OgreFrustum.cpp"),
+    (
+        "compositor_node_definition_api",
+        "OgreMain/include/Compositor/OgreCompositorManager2.h",
+    ),
+    (
+        "compositor_node_definition_lifecycle",
+        "OgreMain/src/Compositor/OgreCompositorManager2.cpp",
+    ),
+    ("pssm_split_api", "OgreMain/include/OgreShadowCameraSetupPSSM.h"),
+    ("pssm_split_runtime", "OgreMain/src/OgreShadowCameraSetupPSSM.cpp"),
+    ("focused_shadow_api", "OgreMain/include/OgreShadowCameraSetupFocused.h"),
+    ("focused_shadow_runtime", "OgreMain/src/OgreShadowCameraSetupFocused.cpp"),
+    (
+        "stable_cascade_api",
+        "OgreMain/include/OgreShadowCameraSetupConcentric.h",
+    ),
+    (
+        "stable_cascade_runtime",
+        "OgreMain/src/OgreShadowCameraSetupConcentric.cpp",
+    ),
+    ("movable_shadow_flag_api", "OgreMain/include/OgreMovableObject.inl"),
+    ("movable_shadow_flag_masks", "OgreMain/src/OgreMovableObject.cpp"),
+    ("mesh_bounds_api", "OgreMain/include/OgreMesh2.h"),
+    ("mesh_bounds_runtime", "OgreMain/src/OgreMesh2.cpp"),
+    ("item_bounds_api", "OgreMain/include/OgreItem.h"),
+    ("item_bounds_runtime", "OgreMain/src/OgreItem.cpp"),
+    ("scene_caster_bounds_api", "OgreMain/include/OgreSceneManager.h"),
+    ("scene_caster_bounds_runtime", "OgreMain/src/OgreSceneManager.cpp"),
+    ("scalar_aabb_dispatch", "OgreMain/include/Math/Simple/OgreAabb.h"),
+    ("scalar_aabb_api", "OgreMain/include/Math/Simple/C/OgreAabb.h"),
+    ("scalar_aabb_runtime", "OgreMain/include/Math/Simple/C/OgreAabb.inl"),
+    ("packed_aabb_dispatch", "OgreMain/include/Math/Array/OgreArrayAabb.h"),
+    ("packed_aabb_scalar_api", "OgreMain/include/Math/Array/C/OgreArrayAabb.h"),
+    (
+        "packed_aabb_scalar_runtime",
+        "OgreMain/include/Math/Array/C/OgreArrayAabb.inl",
+    ),
+    (
+        "packed_aabb_neon_api",
+        "OgreMain/include/Math/Array/NEON/Single/OgreArrayAabb.h",
+    ),
+    (
+        "packed_aabb_neon_runtime",
+        "OgreMain/include/Math/Array/NEON/Single/OgreArrayAabb.inl",
+    ),
+    (
+        "packed_aabb_sse2_api",
+        "OgreMain/include/Math/Array/SSE2/Single/OgreArrayAabb.h",
+    ),
+    (
+        "packed_aabb_sse2_runtime",
+        "OgreMain/include/Math/Array/SSE2/Single/OgreArrayAabb.inl",
+    ),
+    ("object_data_aabb_layout", "OgreMain/include/Math/Array/OgreObjectData.h"),
+    (
+        "render_system_capabilities_api",
+        "OgreMain/include/OgreRenderSystemCapabilities.h",
+    ),
+    (
+        "render_system_capabilities_runtime",
+        "OgreMain/src/OgreRenderSystemCapabilities.cpp",
+    ),
+    ("texture_gpu_api", "OgreMain/include/OgreTextureGpu.h"),
+    ("texture_gpu_residency_runtime", "OgreMain/src/OgreTextureGpu.cpp"),
+    ("texture_gpu_manager_api", "OgreMain/include/OgreTextureGpuManager.h"),
+    (
+        "texture_gpu_manager_allocation_runtime",
+        "OgreMain/src/OgreTextureGpuManager.cpp",
+    ),
+    ("image_readback_api", "OgreMain/include/OgreImage2.h"),
+    ("image_readback_runtime", "OgreMain/src/OgreImage2.cpp"),
+    ("async_texture_ticket_api", "OgreMain/include/OgreAsyncTextureTicket.h"),
+    (
+        "async_texture_ticket_runtime",
+        "OgreMain/src/OgreAsyncTextureTicket.cpp",
+    ),
+    ("metal_d32_mapping", "RenderSystems/Metal/src/OgreMetalMappings.mm"),
+    (
+        "metal_texture_allocation_api",
+        "RenderSystems/Metal/include/OgreMetalTextureGpu.h",
+    ),
+    (
+        "metal_texture_allocation_runtime",
+        "RenderSystems/Metal/src/OgreMetalTextureGpu.mm",
+    ),
+    (
+        "metal_texture_manager_api",
+        "RenderSystems/Metal/include/OgreMetalTextureGpuManager.h",
+    ),
+    (
+        "metal_texture_manager_runtime",
+        "RenderSystems/Metal/src/OgreMetalTextureGpuManager.mm",
+    ),
+    (
+        "metal_readback_ticket_api",
+        "RenderSystems/Metal/include/OgreMetalAsyncTextureTicket.h",
+    ),
+    (
+        "metal_readback_ticket_runtime",
+        "RenderSystems/Metal/src/OgreMetalAsyncTextureTicket.mm",
+    ),
+    (
+        "metal_render_system_capabilities",
+        "RenderSystems/Metal/src/OgreMetalRenderSystem.mm",
+    ),
+    ("vulkan_d32_mapping", "RenderSystems/Vulkan/src/OgreVulkanMappings.cpp"),
+    (
+        "vulkan_texture_allocation_api",
+        "RenderSystems/Vulkan/include/OgreVulkanTextureGpu.h",
+    ),
+    (
+        "vulkan_texture_allocation_runtime",
+        "RenderSystems/Vulkan/src/OgreVulkanTextureGpu.cpp",
+    ),
+    (
+        "vulkan_texture_manager_api",
+        "RenderSystems/Vulkan/include/OgreVulkanTextureGpuManager.h",
+    ),
+    (
+        "vulkan_texture_manager_runtime",
+        "RenderSystems/Vulkan/src/OgreVulkanTextureGpuManager.cpp",
+    ),
+    (
+        "vulkan_readback_ticket_api",
+        "RenderSystems/Vulkan/include/OgreVulkanAsyncTextureTicket.h",
+    ),
+    (
+        "vulkan_readback_ticket_runtime",
+        "RenderSystems/Vulkan/src/OgreVulkanAsyncTextureTicket.cpp",
+    ),
+    (
+        "vulkan_render_system_capabilities",
+        "RenderSystems/Vulkan/src/OgreVulkanRenderSystem.cpp",
+    ),
+    (
+        "d3d11_d32_mapping",
+        "RenderSystems/Direct3D11/src/OgreD3D11Mappings.cpp",
+    ),
+    (
+        "d3d11_texture_allocation_api",
+        "RenderSystems/Direct3D11/include/OgreD3D11TextureGpu.h",
+    ),
+    (
+        "d3d11_texture_allocation_runtime",
+        "RenderSystems/Direct3D11/src/OgreD3D11TextureGpu.cpp",
+    ),
+    (
+        "d3d11_texture_manager_api",
+        "RenderSystems/Direct3D11/include/OgreD3D11TextureGpuManager.h",
+    ),
+    (
+        "d3d11_texture_manager_runtime",
+        "RenderSystems/Direct3D11/src/OgreD3D11TextureGpuManager.cpp",
+    ),
+    (
+        "d3d11_readback_ticket_api",
+        "RenderSystems/Direct3D11/include/OgreD3D11AsyncTextureTicket.h",
+    ),
+    (
+        "d3d11_readback_ticket_runtime",
+        "RenderSystems/Direct3D11/src/OgreD3D11AsyncTextureTicket.cpp",
+    ),
+    (
+        "d3d11_render_system_capabilities",
+        "RenderSystems/Direct3D11/src/OgreD3D11RenderSystem.cpp",
+    ),
+    ("pbs_shadow_filter_api", "Components/Hlms/Pbs/include/OgreHlmsPbs.h"),
+    (
+        "pbs_shadow_binding_runtime",
+        "Components/Hlms/Pbs/src/OgreHlmsPbs.cpp",
+    ),
+    (
+        "pbs_receive_shadow_api",
+        "Components/Hlms/Pbs/include/OgreHlmsPbsDatablock.h",
+    ),
+    (
+        "pbs_receive_shadow_runtime",
+        "Components/Hlms/Pbs/src/OgreHlmsPbsDatablock.cpp",
+    ),
+    ("hlms_datablock_clone_api", "OgreMain/include/OgreHlmsDatablock.h"),
+    ("hlms_datablock_clone_runtime", "OgreMain/src/OgreHlmsDatablock.cpp"),
+    ("hlms_datablock_owner_api", "OgreMain/include/OgreHlms.h"),
+    ("hlms_datablock_owner_runtime", "OgreMain/src/OgreHlms.cpp"),
+    (
+        "shared_shadow_math",
+        "Samples/Media/Hlms/Pbs/Any/ShadowMapping_piece_all.any",
+    ),
+    (
+        "shared_shadow_vertex_projection",
+        "Samples/Media/Hlms/Pbs/Any/ShadowMapping_piece_vs.any",
+    ),
+    (
+        "shared_shadow_pcf_sampling",
+        "Samples/Media/Hlms/Pbs/Any/ShadowMapping_piece_ps.any",
+    ),
+    (
+        "shared_shadow_constant_layout",
+        "Samples/Media/Hlms/Pbs/Any/Main/500.Structs_piece_vs_piece_ps.any",
+    ),
+    (
+        "shared_pbs_shadow_application",
+        "Samples/Media/Hlms/Pbs/Any/Main/800.PixelShader_piece_ps.any",
+    ),
+    (
+        "metal_shadow_entrypoint",
+        "Samples/Media/Hlms/Pbs/Metal/PixelShader_ps.metal",
+    ),
+    (
+        "d3d11_shadow_entrypoint",
+        "Samples/Media/Hlms/Pbs/HLSL/PixelShader_ps.hlsl",
+    ),
+    (
+        "vulkan_shadow_entrypoint",
+        "Samples/Media/Hlms/Pbs/GLSL/PixelShader_ps.glsl",
+    ),
+]
+
+_ROOT_KEYS = {
+    "schema_version",
+    "name",
+    "canonical_dependency_lock",
+    "ogre_next_commit",
+    "platform_policies",
+    "platform_source_overrides",
+    "sources",
+}
+_SOURCE_KEYS = {"role", "path", "sha256"}
+_PLATFORM_SOURCE_OVERRIDE_KEYS = {
+    "platform_policy",
+    "role",
+    "path",
+    "sha256",
+}
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+
+
+class VerificationError(RuntimeError):
+    """A checked source-closure property was not exact."""
+
+
+def _reject(message: str) -> NoReturn:
+    raise VerificationError(message)
+
+
+def _require_exact_keys(value: object, keys: set[str], context: str) -> dict:
+    if type(value) is not dict:
+        _reject(f"{context} must be an object")
+    observed = set(value)
+    if observed != keys:
+        _reject(
+            f"{context} keys differ: missing={sorted(keys - observed)}, "
+            f"extra={sorted(observed - keys)}"
+        )
+    return value
+
+
+def _load_object(path: Path, context: str) -> dict:
+    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                _reject(f"{context} contains duplicate JSON object key {key!r}")
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise VerificationError(f"could not load {context}: {error}") from error
+    if type(value) is not dict:
+        _reject(f"{context} must be an object")
+    return value
+
+
+def validate_lock(lock_path: Path, canonical_lock_path: Path) -> dict:
+    lock = _require_exact_keys(_load_object(lock_path, "PSSM lock"), _ROOT_KEYS, "PSSM lock")
+    canonical = _load_object(canonical_lock_path, "canonical Ogre-Next lock")
+
+    if type(lock["schema_version"]) is not int or lock["schema_version"] != SCHEMA_VERSION:
+        _reject(f"PSSM lock schema_version is not exactly {SCHEMA_VERSION}")
+    if type(lock["name"]) is not str or not lock["name"]:
+        _reject("PSSM lock name must be a nonempty string")
+    if lock["canonical_dependency_lock"] != canonical_lock_path.name:
+        _reject("PSSM lock does not name the canonical dependency lock")
+    if canonical.get("commit") != OGRE_NEXT_COMMIT:
+        _reject("canonical Ogre-Next dependency pin changed")
+    if lock["ogre_next_commit"] != canonical.get("commit"):
+        _reject("PSSM source closure pin differs from the canonical dependency pin")
+    if lock["platform_policies"] != PLATFORM_POLICIES:
+        _reject("PSSM platform policy list or ordering changed")
+
+    overrides = lock["platform_source_overrides"]
+    if type(overrides) is not list or len(overrides) != len(PLATFORM_SOURCE_OVERRIDES):
+        _reject(
+            "PSSM platform source override count must be exactly "
+            f"{len(PLATFORM_SOURCE_OVERRIDES)}"
+        )
+    observed_overrides: list[tuple[str, str, str, str]] = []
+    for index, raw_override in enumerate(overrides):
+        override = _require_exact_keys(
+            raw_override,
+            _PLATFORM_SOURCE_OVERRIDE_KEYS,
+            f"platform_source_overrides[{index}]",
+        )
+        values = (
+            override["platform_policy"],
+            override["role"],
+            override["path"],
+            override["sha256"],
+        )
+        if any(type(value) is not str for value in values):
+            _reject(f"platform_source_overrides[{index}] values must all be strings")
+        if override["platform_policy"] not in PLATFORM_POLICIES:
+            _reject(f"platform_source_overrides[{index}] names an unknown policy")
+        pure_path = PurePosixPath(override["path"])
+        if (
+            pure_path.is_absolute()
+            or not pure_path.parts
+            or any(part in ("", ".", "..") for part in pure_path.parts)
+            or "\\" in override["path"]
+        ):
+            _reject(
+                f"platform_source_overrides[{index}] has a noncanonical relative path"
+            )
+        if _SHA256.fullmatch(override["sha256"]) is None:
+            _reject(
+                f"platform_source_overrides[{index}] sha256 must be lowercase hexadecimal"
+            )
+        observed_overrides.append(values)
+    if observed_overrides != PLATFORM_SOURCE_OVERRIDES:
+        _reject("PSSM platform source overrides or stable ordering changed")
+
+    sources = lock["sources"]
+    if type(sources) is not list or len(sources) != len(SOURCE_ROLES_AND_PATHS):
+        _reject(f"PSSM closure must contain exactly {len(SOURCE_ROLES_AND_PATHS)} sources")
+    observed: list[tuple[str, str]] = []
+    seen_paths: set[str] = set()
+    for index, raw_record in enumerate(sources):
+        record = _require_exact_keys(raw_record, _SOURCE_KEYS, f"sources[{index}]")
+        role = record["role"]
+        relative = record["path"]
+        digest = record["sha256"]
+        if type(role) is not str or type(relative) is not str or type(digest) is not str:
+            _reject(f"sources[{index}] values must all be strings")
+        pure_path = PurePosixPath(relative)
+        if (
+            pure_path.is_absolute()
+            or not pure_path.parts
+            or any(part in ("", ".", "..") for part in pure_path.parts)
+            or "\\" in relative
+        ):
+            _reject(f"sources[{index}] has a noncanonical relative path")
+        if relative in seen_paths:
+            _reject(f"duplicate PSSM closure source path: {relative}")
+        if _SHA256.fullmatch(digest) is None:
+            _reject(f"sources[{index}] sha256 must be lowercase hexadecimal")
+        seen_paths.add(relative)
+        observed.append((role, relative))
+    if observed != SOURCE_ROLES_AND_PATHS:
+        _reject("PSSM source roles, paths, or stable ordering changed")
+    return lock
+
+
+def _require_tokens(root: Path, relative: str, tokens: tuple[str, ...]) -> None:
+    try:
+        text = (root / relative).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise VerificationError(f"could not inspect pinned source {relative}: {error}") from error
+    for token in tokens:
+        if token not in text:
+            _reject(f"pinned source behavior token {token!r} is absent from {relative}")
+
+
+def _expected_source_digest(lock: dict, record: dict, platform_policy: str) -> str:
+    for override in lock["platform_source_overrides"]:
+        if (
+            override["platform_policy"] == platform_policy
+            and override["role"] == record["role"]
+            and override["path"] == record["path"]
+        ):
+            return override["sha256"]
+    return record["sha256"]
+
+
+def _verify_source_record(
+    lock: dict,
+    canonical_root: Path,
+    index: int,
+    record: dict,
+    platform_policy: str,
+) -> None:
+    candidate = canonical_root / record["path"]
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as error:
+        raise VerificationError(
+            f"PSSM closure source is missing: {record['path']}: {error}"
+        ) from error
+    if not resolved.is_file() or canonical_root not in resolved.parents:
+        _reject(f"PSSM closure source is indirect or escapes its root: {record['path']}")
+    digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
+    expected_digest = _expected_source_digest(lock, record, platform_policy)
+    if digest != expected_digest:
+        _reject(
+            f"PSSM closure source digest mismatch at index {index} for "
+            f"{platform_policy}: {record['path']}: "
+            f"expected={expected_digest}, got={digest}"
+        )
+
+
+def verify_source_root(lock: dict, source_root: Path, platform_policy: str) -> None:
+    if platform_policy not in PLATFORM_POLICIES:
+        _reject(f"unknown PSSM platform policy: {platform_policy!r}")
+    try:
+        canonical_root = source_root.resolve(strict=True)
+    except OSError as error:
+        raise VerificationError(f"Ogre-Next source root is unavailable: {error}") from error
+    if not canonical_root.is_dir():
+        _reject("Ogre-Next source root is not a directory")
+
+    for index, record in enumerate(lock["sources"]):
+        _verify_source_record(lock, canonical_root, index, record, platform_policy)
+
+    # Hashes pin the bytes; these checks additionally state the behavior RoR
+    # relies on so a deliberate future lock update cannot silently broaden it.
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/Compositor/OgreCompositorShadowNode.cpp",
+        (
+            "createShadowNodeWithSettings",
+            "calculateSplitPoints",
+            "camera->getNearClipDistance()",
+            "light->getShadowFarDistance()",
+        ),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/Compositor/OgreCompositorShadowNodeDef.cpp",
+        ("VisibilityFlags::LAYER_SHADOW_CASTER", "mIncludeOverlays = false"),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/Compositor/OgreCompositorWorkspace.cpp",
+        ("SHADOW_NODE_FIRST_ONLY",),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/include/OgreFrustum.h",
+        (
+            "FET_TAN_HALF_ANGLES",
+            "setFrustumExtents",
+            "getFrustumExtents",
+            "setCustomProjectionMatrix",
+        ),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreFrustum.cpp",
+        (
+            "mFrustrumExtentsType == FET_TAN_HALF_ANGLES",
+            "Frustum::setCustomProjectionMatrix",
+            "Frustum::setFrustumExtents",
+        ),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/Compositor/OgreCompositorManager2.cpp",
+        (
+            "CompositorManager2::addNodeDefinition",
+            "CompositorManager2::removeNodeDefinition",
+        ),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreMesh2.cpp",
+        ("Mesh::_setBounds", "mAabb.getRadius()"),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreItem.cpp",
+        (
+            "mObjectData.mLocalAabb->setFromAabb",
+            "mObjectData.mWorldAabb->setFromAabb",
+        ),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreSceneManager.cpp",
+        ("VisibilityFlags::LAYER_SHADOW_CASTER", "SceneManager::getCurrentCastersBox"),
+    )
+    for relative in (
+        "OgreMain/include/Math/Array/C/OgreArrayAabb.h",
+        "OgreMain/include/Math/Array/NEON/Single/OgreArrayAabb.h",
+        "OgreMain/include/Math/Array/SSE2/Single/OgreArrayAabb.h",
+    ):
+        _require_tokens(canonical_root, relative, ("getAsAabb", "setFromAabb"))
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreTextureGpu.cpp",
+        ("TextureGpu::scheduleTransitionTo", "TextureGpu::waitForData"),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreTextureGpuManager.cpp",
+        (
+            "TextureGpuManager::createTexture",
+            "TextureGpuManager::findTextureNoThrow",
+            "TextureGpuManager::destroyTexture",
+            "TextureGpuManager::createAsyncTextureTicket",
+        ),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreImage2.cpp",
+        ("Image2::convertFromTexture", "createAsyncTextureTicket", "asyncTicket->download"),
+    )
+    _require_tokens(
+        canonical_root,
+        "RenderSystems/Metal/src/OgreMetalMappings.mm",
+        ("case PFG_D32_FLOAT:", "MTLPixelFormatDepth32Float"),
+    )
+    _require_tokens(
+        canonical_root,
+        "RenderSystems/Vulkan/src/OgreVulkanMappings.cpp",
+        ("case PFG_D32_FLOAT:", "VK_FORMAT_D32_SFLOAT"),
+    )
+    _require_tokens(
+        canonical_root,
+        "RenderSystems/Direct3D11/src/OgreD3D11Mappings.cpp",
+        ("case PFG_D32_FLOAT:", "DXGI_FORMAT_D32_FLOAT"),
+    )
+    for relative, ticket_type in (
+        (
+            "RenderSystems/Metal/src/OgreMetalTextureGpuManager.mm",
+            "MetalAsyncTextureTicket",
+        ),
+        (
+            "RenderSystems/Vulkan/src/OgreVulkanTextureGpuManager.cpp",
+            "VulkanAsyncTextureTicket",
+        ),
+        (
+            "RenderSystems/Direct3D11/src/OgreD3D11TextureGpuManager.cpp",
+            "D3D11AsyncTextureTicket",
+        ),
+    ):
+        _require_tokens(
+            canonical_root,
+            relative,
+            ("createAsyncTextureTicketImpl", ticket_type),
+        )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreShadowCameraSetupPSSM.cpp",
+        ("PSSMShadowCameraSetup::calculateSplitPoints", "Math::Pow"),
+    )
+    _require_tokens(
+        canonical_root,
+        "Components/Hlms/Pbs/include/OgreHlmsPbs.h",
+        ("PCF_4x4",),
+    )
+    _require_tokens(
+        canonical_root,
+        "Components/Hlms/Pbs/include/OgreHlmsPbsDatablock.h",
+        ("setReceiveShadows", "getReceiveShadows"),
+    )
+    _require_tokens(
+        canonical_root,
+        "Components/Hlms/Pbs/src/OgreHlmsPbsDatablock.cpp",
+        ("HlmsPbsDatablock::setReceiveShadows", "mReceiveShadows"),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreHlmsDatablock.cpp",
+        ("HlmsDatablock::clone", "cloneImpl( datablock )"),
+    )
+    _require_tokens(
+        canonical_root,
+        "OgreMain/src/OgreHlms.cpp",
+        ("Hlms::destroyDatablock",),
+    )
+    _require_tokens(
+        canonical_root,
+        "Samples/Media/Hlms/Pbs/Any/ShadowMapping_piece_ps.any",
+        ("PCF", "SampleCmp"),
+    )
+    _require_tokens(
+        canonical_root,
+        "Samples/Media/Hlms/Pbs/Any/Main/800.PixelShader_piece_ps.any",
+        ("DarkenWithShadow", "hlms_num_shadow_map_lights"),
+    )
+    for relative in (
+        "Samples/Media/Hlms/Pbs/Metal/PixelShader_ps.metal",
+        "Samples/Media/Hlms/Pbs/HLSL/PixelShader_ps.hlsl",
+        "Samples/Media/Hlms/Pbs/GLSL/PixelShader_ps.glsl",
+    ):
+        _require_tokens(canonical_root, relative, ("hlms_shadowcaster",))
+
+
+def parse_arguments(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    script_root = Path(__file__).resolve().parent
+    parser.add_argument(
+        "--lock",
+        type=Path,
+        default=script_root / "ogre-next-pssm-shadow-v1.lock.json",
+    )
+    parser.add_argument(
+        "--canonical-lock", type=Path, default=script_root / "ogre-next.lock.json"
+    )
+    parser.add_argument("--source-root", type=Path)
+    parser.add_argument("--platform-policy", choices=PLATFORM_POLICIES)
+    parser.add_argument("--contract-only", action="store_true")
+    args = parser.parse_args(argv)
+    if args.contract_only == (args.source_root is not None):
+        parser.error("choose exactly one of --contract-only or --source-root")
+    if args.platform_policy is not None and args.source_root is None:
+        parser.error("--platform-policy is valid only with --source-root")
+    if args.source_root is not None and args.platform_policy is None:
+        parser.error("--platform-policy is required with --source-root")
+    return args
+
+
+def main(argv: list[str]) -> int:
+    try:
+        args = parse_arguments(argv)
+        lock = validate_lock(args.lock, args.canonical_lock)
+        if args.source_root is not None:
+            verify_source_root(lock, args.source_root, args.platform_policy)
+        print(
+            json.dumps(
+                {
+                    "status": "pass",
+                    "ogre_next_commit": lock["ogre_next_commit"],
+                    "platform_policy": args.platform_policy,
+                    "source_count": len(lock["sources"]),
+                    "source_bytes_verified": args.source_root is not None,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    except VerificationError as error:
+        print(f"Ogre-Next PSSM source verification failed: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

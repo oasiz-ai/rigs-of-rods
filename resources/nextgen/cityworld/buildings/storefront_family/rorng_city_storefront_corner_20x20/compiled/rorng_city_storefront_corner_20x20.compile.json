@@ -38,15 +38,15 @@
   "compiler": {
     "format": "ror-cityworld-scene-compiler-v1",
     "path": "tools/compile_cityworld_asset.py",
-    "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059"
+    "sha256": "8d90b2fe1b8b43b4c81d766ad0ac1d700282d36c244d6ef2b17ef81e748b2144"
   },
   "connectors": [],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "18192de70d79db6d93e9d5a56ddc5460fd5030b8202f5ba235f60e18c4c14f0d",
+    "asset_contract_sha256": "6c8079171abbdc2f2bbc1adb3a01aa93d33614ecd7b80cbc7dfae635f055c64d",
     "glb": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_corner_20x20/rorng_city_storefront_corner_20x20.glb",
-      "sha256": "8a21ef432a970cddf5b2e357f6edca517c0eba715c1034eaaa1b1bd0524b987c"
+      "sha256": "77677d3ea85cff145ada22a4484705de248c378e14f8ce284928364bfba52a1b"
     }
   },
   "limits": {
@@ -61,7 +61,7 @@
   "mesh_format": "MeshSerializer_v1.100-little-endian",
   "ogre_converter": {
     "executable": "OgreXMLConverter",
-    "sha256": "50b375974784925e8a180ca886f849b78ff61a3f94fa5e4b8abea710d800264a",
+    "sha256": "01f80e0400688d899e8934335678ea9875089d3715543f63f7b69f24f1b93ce3",
     "version": "OgreXMLConverter Tsathoggua (14.5.2)"
   },
   "options": {
@@ -95,13 +95,13 @@
     {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20_lod0.mesh",
       "role": "render-lod0",
-      "sha256": "3aaa02c89461ab33b7d9aa247ff205ec7edc9c94756c7cb57211d7c2b9dd5a69",
+      "sha256": "e2c3dbec4351344e666c72ea5ec63da9f4b37b2cfd7c2cc59ee79fc7118b2c82",
       "size": 2705313
     },
     {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_corner_20x20/compiled/rorng_city_storefront_corner_20x20_lod1.mesh",
       "role": "render-lod1",
-      "sha256": "7022728e28a30cc5e0fe58dd6813a0077922dfe1f8b4bf795127d466a7e9c549",
+      "sha256": "2b12c5f796de246e7ea91a4991c4cd49773f09c36617626f5504566ee75026f4",
       "size": 81343
     },
     {
@@ -121,8 +121,8 @@
   },
   "xml_intermediate_sha256": {
     "rorng_city_storefront_corner_20x20_collision_fixture.mesh.xml": "9e3e7814aa3fd86479654789880d6ac489330f38a1985efa70898907b7d54a2f",
-    "rorng_city_storefront_corner_20x20_lod0.mesh.xml": "2c40b52a84dd9c90f6e7dae854e3ab4627d87720842b5a8a09f9a3a27a893ce7",
-    "rorng_city_storefront_corner_20x20_lod1.mesh.xml": "c094cf20fadcc25fdc1c9503f504ea58753ac2ec9e5cedc03eed52fe5b2b8e04",
+    "rorng_city_storefront_corner_20x20_lod0.mesh.xml": "8f052f8e711fc3889a06e819fb09f55639ab49adcffdff6fbc81fad546a5f230",
+    "rorng_city_storefront_corner_20x20_lod1.mesh.xml": "bd01d2e54b9fa58e6e9b29e446cab6dff32ba42b236a51476b33ef9a69ca8e52",
     "rorng_city_storefront_corner_20x20_lod2.mesh.xml": "91e6489c649c6103bf013f2c1e004442346f0a6a967e81460aec339ec93a31b3"
   }
 }

@@ -38,15 +38,15 @@
   "compiler": {
     "format": "ror-cityworld-scene-compiler-v1",
     "path": "tools/compile_cityworld_asset.py",
-    "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059"
+    "sha256": "8d90b2fe1b8b43b4c81d766ad0ac1d700282d36c244d6ef2b17ef81e748b2144"
   },
   "connectors": [],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "14453d4d85e12036f95021e1473f6d4fbbdc3475323faf5774298efd90ccaf4b",
+    "asset_contract_sha256": "de50660e3b20d5510fcd371d25acd84a45be38b45db4b8249009185e0c1e2217",
     "glb": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_gabled_20x10/rorng_city_storefront_gabled_20x10.glb",
-      "sha256": "c2b5c660916573a2331c9b03be1281bd4baba0147946833665f4da7de9ce4516"
+      "sha256": "9c4e5310a663233ceca5b32704e41219e9014f6e2490727410b9a5657322e74d"
     }
   },
   "limits": {
@@ -61,7 +61,7 @@
   "mesh_format": "MeshSerializer_v1.100-little-endian",
   "ogre_converter": {
     "executable": "OgreXMLConverter",
-    "sha256": "50b375974784925e8a180ca886f849b78ff61a3f94fa5e4b8abea710d800264a",
+    "sha256": "01f80e0400688d899e8934335678ea9875089d3715543f63f7b69f24f1b93ce3",
     "version": "OgreXMLConverter Tsathoggua (14.5.2)"
   },
   "options": {
@@ -95,19 +95,19 @@
     {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_gabled_20x10/compiled/rorng_city_storefront_gabled_20x10_lod0.mesh",
       "role": "render-lod0",
-      "sha256": "dd901885b592381d98e931d1934bb7a70b1944a74f6d9e2684917ec3e2effa59",
+      "sha256": "769517f8880adf030473eb40bb3fa386c4ef6ca060ba88cc517dcd8780a60762",
       "size": 2933001
     },
     {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_gabled_20x10/compiled/rorng_city_storefront_gabled_20x10_lod1.mesh",
       "role": "render-lod1",
-      "sha256": "29bf6d419d4dff7e15e1ca0fada88651da07124e9e40d65d6cf865c02719cb6e",
+      "sha256": "d499d99e2bb7199d2415f2b56076d2f18e55b27e2b6f57f28101eac6338397e1",
       "size": 101209
     },
     {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_gabled_20x10/compiled/rorng_city_storefront_gabled_20x10_lod2.mesh",
       "role": "render-lod2",
-      "sha256": "81c09c39f305ef4ca962438992b71a03abe5579d3f3237728ae72df679ce62e7",
+      "sha256": "3d0968f4495493ab1ae184e623594e2bfc9c64f38cb542af3787674b236a3594",
       "size": 36509
     }
   ],
@@ -121,8 +121,8 @@
   },
   "xml_intermediate_sha256": {
     "rorng_city_storefront_gabled_20x10_collision_fixture.mesh.xml": "65b6e133bd54025f1389f0ae8cca1f6d207fe278359e2964760c7e3d1dc40a8e",
-    "rorng_city_storefront_gabled_20x10_lod0.mesh.xml": "f11914469968adc8fcfff316a780b63ebbb3457e15a1098f694f2a6767b0d1e2",
-    "rorng_city_storefront_gabled_20x10_lod1.mesh.xml": "594be40a2f89b5fbef43bb0234af911ea4582242f001d23b47ee8f7fac42f34f",
-    "rorng_city_storefront_gabled_20x10_lod2.mesh.xml": "556edd1bdac04ff36132c3db88cf3a86fa184a7d0326e20d1346595f3307fcce"
+    "rorng_city_storefront_gabled_20x10_lod0.mesh.xml": "0a5c659748986da027f6e122b0cc4af08d0201766847ae735fa75f0cb94d0b27",
+    "rorng_city_storefront_gabled_20x10_lod1.mesh.xml": "09b9d932f721f0f4f219303211e5db05c78542b81bfd14198b24f44310bd92e3",
+    "rorng_city_storefront_gabled_20x10_lod2.mesh.xml": "a92f2a68778f7f7c9a637e47a47131f8da3fdc42c4d806b31015edafd6e714aa"
   }
 }

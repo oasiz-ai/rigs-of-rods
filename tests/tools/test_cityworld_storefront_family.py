@@ -439,6 +439,14 @@ class CityWorldStorefrontFamilyTests(unittest.TestCase):
             )
 
     def test_clean_gate_copies_only_authored_toolchain_inputs(self) -> None:
+        self.assertEqual(
+            CLEAN_REPRODUCIBILITY.DEFAULT_GENERATION_TIMEOUT_SECONDS,
+            600,
+        )
+        self.assertEqual(
+            CLEAN_REPRODUCIBILITY.DEFAULT_GENERATION_WORKERS,
+            1,
+        )
         with tempfile.TemporaryDirectory(
             prefix="storefront-artifact-free-root-"
         ) as directory:
@@ -507,6 +515,7 @@ class CityWorldStorefrontFamilyTests(unittest.TestCase):
                 RETENTION_CONTRACT_PATH,
                 GENERATOR_PATH.parent / "generate_bridge_kit.py",
                 GENERATOR_PATH.parent / "canonicalize_static_glb.py",
+                GENERATOR_PATH.parent / "canonicalize_storefront_glb.py",
                 manifest_path,
                 *(
                     REPOSITORY_ROOT / manifest["artifacts"][role]["path"]

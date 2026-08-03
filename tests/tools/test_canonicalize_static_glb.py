@@ -24,6 +24,17 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC is not None and SPEC.loader is not None
 CANONICALIZER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CANONICALIZER)
+STOREFRONT_TOOL_PATH = (
+    REPOSITORY_ROOT
+    / "tools/blender/cityworld_next/canonicalize_storefront_glb.py"
+)
+STOREFRONT_SPEC = importlib.util.spec_from_file_location(
+    "canonicalize_storefront_glb",
+    STOREFRONT_TOOL_PATH,
+)
+assert STOREFRONT_SPEC is not None and STOREFRONT_SPEC.loader is not None
+STOREFRONT_CANONICALIZER = importlib.util.module_from_spec(STOREFRONT_SPEC)
+STOREFRONT_SPEC.loader.exec_module(STOREFRONT_CANONICALIZER)
 
 JSON_CHUNK = 0x4E4F534A
 BIN_CHUNK = 0x004E4942
@@ -43,7 +54,12 @@ def padded(payload: bytes, fill: bytes) -> bytes:
     return payload + fill * (-len(payload) % 4)
 
 
-def build_test_glb() -> bytes:
+def build_test_glb(
+    *,
+    positions_override: list[tuple[float, float, float]] | None = None,
+    texcoords_override: list[tuple[float, float]] | None = None,
+    indices_override: list[tuple[int]] | None = None,
+) -> bytes:
     binary = bytearray()
     views: list[dict[str, Any]] = []
     accessors: list[dict[str, Any]] = []
@@ -96,36 +112,40 @@ def build_test_glb() -> bytes:
         )
         return len(accessors) - 1
 
+    position_values = positions_override or [
+        (0.1900000125, -2.3456788, 4.0000004),
+        (1.0000004, 0.0, -0.0000004),
+        (-3.0000004, 2.0000004, 1.0),
+    ]
     positions = append_accessor(
-        [
-            (0.1900000125, -2.3456788, 4.0000004),
-            (1.0000004, 0.0, -0.0000004),
-            (-3.0000004, 2.0000004, 1.0),
-        ],
+        position_values,
         5126,
         "VEC3",
     )
     normals = append_accessor(
-        [(0.0, 0.0, 1.0)] * 3,
+        [(0.0, 0.0, 1.0)] * len(position_values),
         5126,
         "VEC3",
     )
     tangents = append_accessor(
-        [(1.0, 0.0, 0.0, 1.0)] * 3,
+        [(1.0, 0.0, 0.0, 1.0)] * len(position_values),
         5126,
         "VEC4",
     )
+    texcoord_values = texcoords_override or [
+        (0.12345678, 0.0),
+        (1.0, 0.0),
+        (0.0, 1.0),
+    ]
+    if len(texcoord_values) != len(position_values):
+        raise AssertionError("test texcoord count mismatch")
     texcoords = append_accessor(
-        [
-            (0.12345678, 0.0),
-            (1.0, 0.0),
-            (0.0, 1.0),
-        ],
+        texcoord_values,
         5126,
         "VEC2",
     )
     indices = append_accessor(
-        [(0,), (1,), (2,)],
+        indices_override or [(0,), (1,), (2,)],
         5123,
         "SCALAR",
     )
@@ -225,7 +245,189 @@ def read_accessor(
     ]
 
 
+def write_glb(
+    path: Path,
+    document: dict[str, Any],
+    binary: bytes,
+) -> None:
+    json_payload = padded(
+        json.dumps(
+            document,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8"),
+        b" ",
+    )
+    binary_payload = padded(binary, b"\x00")
+    length = 12 + 8 + len(json_payload) + 8 + len(binary_payload)
+    path.write_bytes(
+        b"".join(
+            (
+                struct.pack("<4sII", b"glTF", 2, length),
+                struct.pack("<II", len(json_payload), JSON_CHUNK),
+                json_payload,
+                struct.pack("<II", len(binary_payload), BIN_CHUNK),
+                binary_payload,
+            )
+        )
+    )
+
+
 class StaticGlbCanonicalizerTests(unittest.TestCase):
+    def test_storefront_structure_order_does_not_change_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            left = root / "left.glb"
+            right = root / "right.glb"
+            left.write_bytes(build_test_glb())
+            left_document, binary = read_glb(left)
+            primitive = left_document["meshes"][0]["primitives"][0]
+            left_document["materials"] = [
+                {"name": "fixture_facade"},
+                {"name": "fixture_collision_debug"},
+            ]
+            left_document["meshes"] = [
+                {
+                    "name": "fixture_lod0_mesh",
+                    "primitives": [
+                        {**primitive, "material": 0},
+                        {**primitive, "material": 1},
+                    ],
+                },
+                {
+                    "name": "fixture_collision_fixture_mesh",
+                    "primitives": [{**primitive, "material": 1}],
+                },
+            ]
+            left_document["nodes"] = [
+                {"mesh": 0, "name": "fixture_lod0"},
+                {"mesh": 1, "name": "fixture_collision_fixture"},
+            ]
+            left_document["scenes"] = [
+                {"name": "Scene", "nodes": [0, 1]}
+            ]
+            write_glb(left, left_document, binary)
+
+            right_document = json.loads(json.dumps(left_document))
+            right_document["materials"] = [
+                {"name": "fixture_collision_debug"},
+                {"name": "fixture_facade"},
+            ]
+            right_document["meshes"] = [
+                {
+                    "name": "fixture_collision_fixture_mesh",
+                    "primitives": [{**primitive, "material": 0}],
+                },
+                {
+                    "name": "fixture_lod0_mesh",
+                    "primitives": [
+                        {**primitive, "material": 0},
+                        {**primitive, "material": 1},
+                    ],
+                },
+            ]
+            right_document["nodes"] = [
+                {"mesh": 0, "name": "fixture_collision_fixture"},
+                {"mesh": 1, "name": "fixture_lod0"},
+            ]
+            right_document["scenes"] = [
+                {"name": "Scene", "nodes": [1, 0]}
+            ]
+            write_glb(right, right_document, binary)
+
+            self.assertNotEqual(left.read_bytes(), right.read_bytes())
+            for path in (left, right):
+                STOREFRONT_CANONICALIZER.canonicalize_storefront_structure(
+                    path
+                )
+                CANONICALIZER.canonicalize_glb_geometry(path)
+                STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(path)
+
+            self.assertEqual(left.read_bytes(), right.read_bytes())
+            canonical = left.read_bytes()
+            STOREFRONT_CANONICALIZER.canonicalize_storefront_structure(left)
+            CANONICALIZER.canonicalize_glb_geometry(left)
+            STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(left)
+            self.assertEqual(left.read_bytes(), canonical)
+
+            invalid_document, invalid_binary = read_glb(left)
+            invalid_document["materials"][0]["name"] = "fixture_unknown"
+            write_glb(right, invalid_document, invalid_binary)
+            invalid_payload = right.read_bytes()
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "unknown semantic suffix",
+            ):
+                STOREFRONT_CANONICALIZER.canonicalize_storefront_structure(
+                    right
+                )
+            self.assertEqual(right.read_bytes(), invalid_payload)
+
+    def test_duplicate_vertex_identity_does_not_change_output(self) -> None:
+        positions = [
+            (0.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+        ]
+        texcoords = [
+            (0.0, 0.0),
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (0.0, 1.0),
+        ]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            left = root / "left.glb"
+            right = root / "right.glb"
+            left.write_bytes(
+                build_test_glb(
+                    positions_override=positions,
+                    texcoords_override=texcoords,
+                    indices_override=[
+                        (0,), (2,), (3,),
+                        (1,), (3,), (2,),
+                    ],
+                )
+            )
+            right.write_bytes(
+                build_test_glb(
+                    positions_override=positions,
+                    texcoords_override=texcoords,
+                    indices_override=[
+                        (1,), (2,), (3,),
+                        (0,), (3,), (2,),
+                    ],
+                )
+            )
+
+            CANONICALIZER.canonicalize_glb_geometry(left)
+            CANONICALIZER.canonicalize_glb_geometry(right)
+            self.assertNotEqual(left.read_bytes(), right.read_bytes())
+
+            STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(left)
+            STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(right)
+
+            self.assertEqual(left.read_bytes(), right.read_bytes())
+            canonical = left.read_bytes()
+            STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(left)
+            self.assertEqual(left.read_bytes(), canonical)
+            document, binary = read_glb(left)
+            primitive = document["meshes"][0]["primitives"][0]
+            for accessor_index in primitive["attributes"].values():
+                self.assertEqual(
+                    document["accessors"][accessor_index]["count"],
+                    4,
+                )
+            indices = read_accessor(
+                document,
+                binary,
+                primitive["indices"],
+            )
+            self.assertEqual(len(indices), 6)
+            self.assertEqual({value[0] for value in indices}, {0, 1, 2, 3})
+
     def test_bounds_match_packed_positions_and_output_is_idempotent(
         self,
     ) -> None:

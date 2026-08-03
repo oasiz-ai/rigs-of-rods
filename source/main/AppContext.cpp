@@ -65,6 +65,7 @@
 #endif
 
 #include <cmath>
+#include <cstdlib>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
@@ -72,25 +73,90 @@
 
 using namespace RoR;
 
+namespace
+{
+
+void LogRendererShutdownMarker(const char* marker) noexcept
+{
+    try
+    {
+        if (Ogre::LogManager::getSingletonPtr() != nullptr)
+        {
+            Ogre::LogManager::getSingleton().logMessage(marker);
+        }
+    }
+    catch (...)
+    {
+        // Shutdown diagnostics must never replace the original failure mode.
+    }
+}
+
+} // namespace
+
 AppContext::~AppContext()
 {
-    this->FinishPendingScreenshot();
+    this->ShutdownRendering();
+}
 
-#if OGRE_VERSION_MAJOR >= 14
-    this->ShutDownRTShaderSystem();
-
-    if (m_render_window != nullptr)
+bool AppContext::ShutdownRendering() noexcept
+{
+    if (m_rendering_shutdown)
     {
-        OgreBites::WindowEventUtilities::removeWindowEventListener(
-            m_render_window, this);
-        OgreBites::WindowEventUtilities::_removeRenderWindow(m_render_window);
-        m_viewport = nullptr;
-        m_ogre_root->destroyRenderTarget(m_render_window);
-        m_render_window = nullptr;
+        return true;
     }
 
-    delete m_ogre_root;
-    m_ogre_root = nullptr;
+    bool clean_shutdown = true;
+    this->FinishPendingScreenshot();
+    m_postprocess_runtime.Shutdown();
+
+#if OGRE_VERSION_MAJOR >= 14
+    try
+    {
+        this->ShutDownRTShaderSystem();
+    }
+    catch (...)
+    {
+        clean_shutdown = false;
+    }
+
+    clean_shutdown = this->DetachRenderWindowEvents() && clean_shutdown;
+    if (m_render_window != nullptr)
+    {
+        try
+        {
+            m_viewport = nullptr;
+            m_ogre_root->destroyRenderTarget(m_render_window);
+            m_render_window = nullptr;
+        }
+        catch (...)
+        {
+            clean_shutdown = false;
+        }
+    }
+
+    if (m_ogre_root != nullptr)
+    {
+        LogRendererShutdownMarker(
+            "[RoR|Shutdown] Renderer root teardown starting");
+        try
+        {
+            delete m_ogre_root;
+            m_ogre_root = nullptr;
+            m_render_window = nullptr;
+            m_viewport = nullptr;
+            LogRendererShutdownMarker(
+                "[RoR|Shutdown] Renderer root teardown completed");
+        }
+        catch (...)
+        {
+            // A throwing C++ destructor has ended the Root object's lifetime;
+            // never retry deletion from the static fallback destructor.
+            m_ogre_root = nullptr;
+            m_render_window = nullptr;
+            m_viewport = nullptr;
+            clean_shutdown = false;
+        }
+    }
 #endif
 
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
@@ -107,6 +173,9 @@ AppContext::~AppContext()
         m_owns_sdl_video = false;
     }
 #endif
+
+    m_rendering_shutdown = true;
+    return clean_shutdown;
 }
 
 // --------------------------
@@ -237,6 +306,7 @@ bool AppContext::povMoved(const OIS::JoyStickEvent& arg, int)       { App::GetIn
 void AppContext::windowResized(Ogre::RenderWindow* rw)
 {
     this->RefreshRenderDisplayMetrics(/*log_change=*/true);
+    m_postprocess_runtime.OnMainViewportResized();
     App::GetInputEngine()->windowResized(rw); // Update mouse area
     if (App::GetOverlayWrapper())
     {
@@ -405,7 +475,7 @@ bool AppContext::SetUpRendering()
     miscParams["gamma"] = ropts["sRGB Gamma Conversion"].currentValue;
     if (!App::diag_allow_window_resize->getBool())
     {
-    miscParams["border"] = "fixed";
+        miscParams["border"] = "fixed";
     }
 #if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
     const auto rd = ropts["Rendering Device"];
@@ -446,6 +516,35 @@ bool AppContext::SetUpRendering()
         LOG(fmt::format("[RoR|Startup|Rendering] WARNING - invalid 'ogre.cfg', auto-detected resolution {}x{}", width, height));
         m_ogre_root->saveConfig();
     }
+
+#if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
+    // OGRE's D3D11 window backend expands a requested client extent by the
+    // title-bar/border size and then clamps that outer window to rcWork. The
+    // hosted Windows desktop is smaller than the D0 gate's 1280x720 target,
+    // so a decorated window silently becomes a smaller render target. Only
+    // the isolated scene harness may request a borderless outer-dimension
+    // window, for which outer and client extents are identical. Ordinary
+    // launches and malformed diagnostic environments keep the fixed border.
+    const char* d0_scene_home = std::getenv("ROR_D0_SCENE_HOME");
+    const char* d0_exact_window_extent =
+        std::getenv("ROR_D0_EXACT_WINDOW_EXTENT");
+    const std::string selected_extent =
+        fmt::format("{}x{}", width, height);
+    const bool use_d0_exact_window =
+        d0_scene_home != nullptr && IsAbsolutePath(d0_scene_home) &&
+        d0_exact_window_extent != nullptr &&
+        selected_extent == d0_exact_window_extent &&
+        ropts["Full Screen"].currentValue == "No" &&
+        !App::diag_allow_window_resize->getBool();
+    if (use_d0_exact_window)
+    {
+        miscParams["border"] = "none";
+        miscParams["outerDimensions"] = "true";
+        LOG(fmt::format(
+            "[RoR|Startup|Rendering] D0 exact window extent enabled: {}",
+            selected_extent));
+    }
+#endif
 
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     // OGRE's macOS video modes are backing-pixel dimensions, while SDL sizes
@@ -570,7 +669,9 @@ bool AppContext::SetUpRendering()
         width, height, ropts["Full Screen"].currentValue == "Yes", &miscParams);
 #endif
     OgreBites::WindowEventUtilities::_addRenderWindow(m_render_window);
+    m_render_window_registered = true;
     OgreBites::WindowEventUtilities::addWindowEventListener(m_render_window, this);
+    m_window_event_listener_registered = true;
 
     this->SetRenderWindowIcon(m_render_window);
     m_render_window->setActive(true);
@@ -588,6 +689,45 @@ bool AppContext::SetUpRendering()
 #endif
 
     return true;
+}
+
+bool AppContext::DetachRenderWindowEvents() noexcept
+{
+    if (m_render_window == nullptr)
+    {
+        m_window_event_listener_registered = false;
+        m_render_window_registered = false;
+        return true;
+    }
+
+    bool clean_detach = true;
+    if (m_window_event_listener_registered)
+    {
+        try
+        {
+            OgreBites::WindowEventUtilities::removeWindowEventListener(
+                m_render_window, this);
+            m_window_event_listener_registered = false;
+        }
+        catch (...)
+        {
+            clean_detach = false;
+        }
+    }
+    if (m_render_window_registered)
+    {
+        try
+        {
+            OgreBites::WindowEventUtilities::_removeRenderWindow(
+                m_render_window);
+            m_render_window_registered = false;
+        }
+        catch (...)
+        {
+            clean_detach = false;
+        }
+    }
+    return clean_detach;
 }
 
 void AppContext::RefreshRenderDisplayMetrics(bool log_change)
@@ -928,11 +1068,31 @@ Ogre::RenderWindow* AppContext::CreateCustomRenderWindow(std::string const& wind
     return rw;
 }
 
+void AppContext::BeginPostProcessScene()
+{
+    m_postprocess_runtime.BeginScene(
+        m_viewport,
+        m_render_window,
+        static_cast<PostProcessMode>(
+            App::gfx_postprocess_mode->getInt()));
+}
+
+void AppContext::EndPostProcessScene()
+{
+    m_postprocess_runtime.EndScene();
+}
+
+void AppContext::MaintainPostProcessSceneOrder()
+{
+    m_postprocess_runtime.MaintainSceneCompositorOrder();
+}
+
 void AppContext::CaptureScreenshot()
 {
     // Bound screenshot concurrency to one encoder and surface any previous
     // write failure on the main thread before reusing codec/runtime state.
     this->FinishPendingScreenshot();
+    m_postprocess_runtime.BeforeMainWindowReadback();
 
     const std::time_t time = std::time(nullptr);
     const int index = (time == m_prev_screenshot_time) ? m_prev_screenshot_index+1 : 1;

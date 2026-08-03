@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "name": "Ogre-Next PbsBrdf::Default analytic reference",
+  "canonical_dependency_lock": "ogre-next.lock.json",
+  "ogre_next_commit": "37149a802de747f6806996fa3067b0748ecc1084",
+  "shader_profile": {
+    "brdf": "PbsBrdf::Default",
+    "precision_mode": "full32",
+    "ggx_height_correlated": true,
+    "fresnel_has_diffuse": false
+  },
+  "oracle_arithmetic": "binary64",
+  "backend_relative_tolerance": 0.01,
+  "sources": [
+    {
+      "role": "brdf_equations",
+      "path": "Samples/Media/Hlms/Pbs/Any/Main/200.BRDFs_piece_ps.any",
+      "sha256": "e616a7d7e29e4fd6a13698acddae6f03eadb5a694afd05acfd0b92399814253d"
+    },
+    {
+      "role": "material_and_view_setup",
+      "path": "Samples/Media/Hlms/Pbs/Any/Main/800.PixelShader_piece_ps.any",
+      "sha256": "12cebd71e877c1d265df8d68f6c3f2931127679a8e77bb01c92b1221a09f5a7f"
+    },
+    {
+      "role": "datablock_diffuse_upload",
+      "path": "Components/Hlms/Pbs/src/OgreHlmsPbsDatablock.cpp",
+      "sha256": "e4847c5b267039350999ce18ed6b0158df35ef005dc62b07f7142b7f26381a50"
+    }
+  ],
+  "known_float_path_deltas": [
+    "Datablock diffuse upload uses the binary32 literal 0.318309886f.",
+    "The metallic shader path reconstructs base color with the binary32 literal 3.14159f.",
+    "The oracle evaluates the intended equations in binary64 and is not bit-identical to a backend shader."
+  ]
+}

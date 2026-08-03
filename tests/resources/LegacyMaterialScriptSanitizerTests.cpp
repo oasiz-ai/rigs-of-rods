@@ -21,6 +21,25 @@ namespace
         }                                                                       \
     } while (false)
 
+std::string ReadEnvironment(const char* name)
+{
+#if defined(_MSC_VER)
+    char* value = nullptr;
+    std::size_t length = 0U;
+    if (_dupenv_s(&value, &length, name) != 0 || value == nullptr)
+    {
+        std::free(value);
+        return std::string();
+    }
+    const std::string result(value);
+    std::free(value);
+    return result;
+#else
+    const char* const value = std::getenv(name);
+    return value == nullptr ? std::string() : std::string(value);
+#endif
+}
+
 void TestBalancedScriptIsByteExact()
 {
     const std::string input =
@@ -314,9 +333,9 @@ void TestPinnedPlanMetadataIsExact()
 
 void TestPinnedNeoQ20PayloadsWhenAvailable()
 {
-    const char* fixture_directory =
-        std::getenv("ROR_CITYWORLD_NEOQ20_MATERIAL_DIR");
-    if (fixture_directory == nullptr || fixture_directory[0] == '\0')
+    const std::string fixture_directory =
+        ReadEnvironment("ROR_CITYWORLD_NEOQ20_MATERIAL_DIR");
+    if (fixture_directory.empty())
     {
         return;
     }
@@ -332,8 +351,7 @@ void TestPinnedNeoQ20PayloadsWhenAvailable()
         "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
     for (const char* script : scripts)
     {
-        const std::string path =
-            std::string(fixture_directory) + "/" + script;
+        const std::string path = fixture_directory + "/" + script;
         std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
         CHECK(input.good());
         if (!input.good())

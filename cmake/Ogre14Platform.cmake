@@ -167,3 +167,43 @@ function(ror_ogre14_package_roots
     set(${output_prefix}_MEDIA
         "${_ror_media_root}" PARENT_SCOPE)
 endfunction()
+
+function(ror_ogre14_media_root
+        output_variable package_root system_name)
+    if (NOT IS_ABSOLUTE "${package_root}"
+            OR NOT IS_DIRECTORY "${package_root}")
+        message(FATAL_ERROR
+            "The OGRE 14 media package root is not an absolute directory: "
+            "${package_root}")
+    endif ()
+
+    string(TOLOWER "${system_name}" _ror_system)
+    if (_ror_system STREQUAL "linux")
+        # Upstream installs Unix data below its versioned shared-data prefix.
+        # Keep the version explicit so an OGRE upgrade cannot silently mix
+        # incompatible shader libraries into the runtime.
+        set(_ror_media_root
+            "${package_root}/share/OGRE-14.5/Media")
+    elseif (_ror_system STREQUAL "darwin"
+            OR _ror_system STREQUAL "windows")
+        set(_ror_media_root "${package_root}/Media")
+    else ()
+        message(FATAL_ERROR
+            "ROR_OGRE14 has no media layout for ${system_name}")
+    endif ()
+
+    set(_ror_missing_media)
+    foreach (_ror_component IN ITEMS Main RTShaderLib Terrain)
+        if (NOT IS_DIRECTORY "${_ror_media_root}/${_ror_component}")
+            list(APPEND _ror_missing_media "${_ror_component}")
+        endif ()
+    endforeach ()
+    if (_ror_missing_media)
+        list(JOIN _ror_missing_media ", " _ror_missing_media_text)
+        message(FATAL_ERROR
+            "The pinned OGRE 14 package media root "
+            "${_ror_media_root} is missing: ${_ror_missing_media_text}")
+    endif ()
+
+    set(${output_variable} "${_ror_media_root}" PARENT_SCOPE)
+endfunction()

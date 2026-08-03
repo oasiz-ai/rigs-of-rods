@@ -1,0 +1,31 @@
+/*
+    This source file is part of Rigs of Rods
+
+    Rigs of Rods is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License version 3, as
+    published by the Free Software Foundation.
+*/
+
+compositor RoR/PostProcess/V0A/LdrFxaa
+{
+    technique
+    {
+        texture ror_v0a_scene target_width target_height PF_BYTE_RGBA no_fsaa
+
+        target ror_v0a_scene
+        {
+            input previous
+        }
+
+        target_output
+        {
+            input none
+
+            pass render_quad
+            {
+                material RoR/PostProcess/V0A/LdrFxaa
+                input 0 ror_v0a_scene
+            }
+        }
+    }
+}

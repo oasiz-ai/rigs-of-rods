@@ -1,0 +1,147 @@
+{
+  "schema_version": 5,
+  "ror_source": {
+    "repository": "@ROR_SOURCE_REPOSITORY@",
+    "ref": "@ROR_SOURCE_REF@",
+    "commit": "@ROR_SOURCE_COMMIT@",
+    "relevant_manifest_sha256": "@ROR_SOURCE_MANIFEST_SHA256@",
+    "relevant_manifest_file_count": @ROR_SOURCE_MANIFEST_FILE_COUNT@
+  },
+  "provenance": {
+    "repository": "@ROR_OGRE_NEXT_REPOSITORY@",
+    "branch": "@ROR_OGRE_NEXT_BRANCH@",
+    "commit": "@ROR_OGRE_NEXT_COMMIT@",
+    "archive_sha256": "@ROR_OGRE_NEXT_ARCHIVE_SHA256@",
+    "license_spdx": "@ROR_OGRE_NEXT_LICENSE_SPDX@",
+    "license_sha256": "@ROR_OGRE_NEXT_LICENSE_SHA256@"
+  },
+  "patches": [
+    {
+      "path": "@ROR_OGRE_NEXT_PATCH_PATH@",
+      "sha256": "@ROR_OGRE_NEXT_PATCH_SHA256@",
+      "reason": "@ROR_OGRE_NEXT_PATCH_REASON@"
+    },
+    {
+      "path": "@ROR_OGRE_NEXT_IBL_PATCH_PATH@",
+      "sha256": "@ROR_OGRE_NEXT_IBL_PATCH_SHA256@",
+      "reason": "@ROR_OGRE_NEXT_IBL_PATCH_REASON@",
+      "source_path": "@ROR_OGRE_NEXT_IBL_PATCH_SOURCE_PATH@",
+      "source_sha256": "@ROR_OGRE_NEXT_IBL_PATCH_SOURCE_SHA256@",
+      "patched_sha256": "@ROR_OGRE_NEXT_IBL_PATCHED_SHA256@"
+    }
+  ],
+  "dependencies": {
+    "freetype": {
+      "repository": "@ROR_FREETYPE_REPOSITORY@",
+      "version": "@ROR_FREETYPE_VERSION@",
+      "archive_url": "@ROR_FREETYPE_ARCHIVE_URL@",
+      "archive_sha256": "@ROR_FREETYPE_ARCHIVE_SHA256@",
+      "license_expression": "@ROR_FREETYPE_LICENSE_EXPRESSION@",
+      "selected_license_spdx": "@ROR_FREETYPE_SELECTED_LICENSE_SPDX@",
+      "license_path": "@ROR_FREETYPE_LICENSE_PATH@",
+      "license_sha256": "@ROR_FREETYPE_LICENSE_SHA256@",
+      "package_license_path": "@ROR_FREETYPE_PACKAGE_LICENSE_PATH@",
+      "overview_path": "@ROR_FREETYPE_OVERVIEW_PATH@",
+      "overview_sha256": "@ROR_FREETYPE_OVERVIEW_SHA256@",
+      "package_overview_path": "@ROR_FREETYPE_PACKAGE_OVERVIEW_PATH@",
+      "target": "freetype",
+      "target_type": "@ROR_FREETYPE_TARGET_TYPE@",
+      "static_link": @ROR_FREETYPE_STATIC_LINK_JSON@,
+      "overlay_link_target": @ROR_FREETYPE_OVERLAY_LINK_TARGET_JSON@,
+      "disabled_optional_dependencies": [
+        "BZip2",
+        "Brotli",
+        "HarfBuzz",
+        "PNG",
+        "ZLIB"
+      ]
+    },
+    "rapidjson": {
+      "tag": "@ROR_RAPIDJSON_TAG@",
+      "archive_sha256": "@ROR_RAPIDJSON_ARCHIVE_SHA256@",
+      "source_archive_license_spdx": "@ROR_RAPIDJSON_LICENSE_SPDX@",
+      "compiled_headers_license_spdx": "@ROR_RAPIDJSON_COMPILED_HEADERS_SPDX@",
+      "license_sha256": "@ROR_RAPIDJSON_LICENSE_SHA256@"
+    }
+  },
+  "shader_media": {
+    "root": "@ROR_OGRE_NEXT_SHADER_MEDIA_ROOT@",
+    "license_expression": "@ROR_OGRE_NEXT_SHADER_MEDIA_LICENSE_EXPRESSION@",
+    "third_party_notice": {
+      "license_ref": "@ROR_OGRE_NEXT_SHADER_MEDIA_LICENSE_REF@",
+      "source_path": "@ROR_OGRE_NEXT_SHADER_MEDIA_SOURCE_PATH@",
+      "source_sha256": "@ROR_OGRE_NEXT_SHADER_MEDIA_SOURCE_SHA256@",
+      "notice_path": "@ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH@",
+      "notice_sha256": "@ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_SHA256@",
+      "upstream_source": "@ROR_OGRE_NEXT_SHADER_MEDIA_UPSTREAM_SOURCE@",
+      "paper_reference": "@ROR_OGRE_NEXT_SHADER_MEDIA_PAPER_REFERENCE@",
+      "source_and_binary_notice_required": true,
+      "paper_reference_required": true
+    }
+  },
+  "reflection_shader_media": {
+    "root": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_ROOT@",
+    "license_expression": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_EXPRESSION@",
+    "third_party_notice": {
+      "license_ref": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_REF@",
+      "source_path": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_SOURCE_PATH@",
+      "source_sha256": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_SOURCE_SHA256@",
+      "package_path": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_LICENSE_PACKAGE_PATH@",
+      "source_and_binary_notice_required": true
+    }
+  },
+  "platform": {
+    "policy": "@ROR_OGRE_NEXT_PLATFORM_POLICY@",
+    "system": "@CMAKE_SYSTEM_NAME@",
+    "processor": "@CMAKE_SYSTEM_PROCESSOR@",
+    "renderer_target": "@ROR_OGRE_NEXT_RENDERER_TARGET@",
+    "device_option_name": "@ROR_OGRE_NEXT_DEVICE_OPTION_NAME@"
+  },
+  "abi": {
+    "cxx_standard": 17,
+    "static_link": true,
+    "new_project_name": true,
+    "debug_level_debug": 3,
+    "debug_level_release": 0,
+    "embed_debug_mode": "auto",
+    "assert_mode": 0,
+    "double_precision": false,
+    "allocator": 0,
+    "container_custom_allocator": false,
+    "string_custom_allocator": false,
+    "memory_tracker_debug": false,
+    "memory_tracker_release": false,
+    "thread_support": 0,
+    "thread_provider": "none",
+    "id_string_128": false,
+    "id_string_always_readable": false,
+    "node_inherit_transform": false,
+    "restrict_aliasing": true,
+    "flexibility_level": 0,
+    "planar_reflections": false,
+    "simd_enabled": true,
+    "simd_alignment": 16,
+    "simd_family": "@ROR_OGRE_NEXT_SIMD_FAMILY@",
+    "simd_neon": @ROR_OGRE_NEXT_SIMD_NEON_JSON@,
+    "simd_sse2": @ROR_OGRE_NEXT_SIMD_SSE2_JSON@
+  },
+  "components": {
+    "hlms_pbs": true,
+    "hlms_unlit": true,
+    "overlay": true,
+    "compositor2_core": true,
+    "json_materials": true,
+    "mesh_lod": true,
+    "dds_codec": true,
+    "hdr_temporal_contract_version": 2,
+    "hdr_history_validation_mode": "native_authoritative_conditioning_plus_one_r16_ulp_v2",
+    "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
+    "hdr_visual_evidence_version": 1,
+    "native_ray_tracing": "not_evaluated"
+  },
+  "compiler": {
+    "id": "@CMAKE_CXX_COMPILER_ID@",
+    "version": "@CMAKE_CXX_COMPILER_VERSION@",
+    "build_type": "@CMAKE_BUILD_TYPE@"
+  }
+}

@@ -33,7 +33,21 @@ ENGINE_REQUIRED_MARKERS = (
     "[RoR|Startup|Rendering] Creating SDL host",
     "OpenGL 3+ Renderer Started",
     "SoundManager: OpenAL renderer is: OpenAL Soft",
+    "[RoR|Shutdown] Physics and graphics worker pools released",
+    "[RoR|Shutdown] Renderer runtime released",
+)
+SHUTDOWN_ENGINE_REQUIRED_MARKERS = (
+    "[RoR|Shutdown] Leaving the main loop after the shutdown message",
+    "[RoR|Shutdown] Physics and graphics worker pools released",
+    "*** Terminating OIS ***",
+    "[RoR|Shutdown] Window-bound runtime integrations released",
+    "[RoR|Shutdown] Environment map renderer resources released",
+    "[RoR|Shutdown] Environment map shutdown returned",
+    "[RoR|Shutdown] Renderer root teardown starting",
     "*-*-* OGRE Shutdown",
+    "[RoR|Shutdown] Renderer root teardown completed",
+    "[RoR|Shutdown] Renderer runtime released",
+    "[RoR|Shutdown] Console log listener detached",
 )
 SCRIPT_REQUIRED_MARKERS = (
     "[RoR|CI|BundleSmoke] START",
@@ -136,6 +150,17 @@ def validate_runtime_smoke(
     for marker in ENGINE_REQUIRED_MARKERS:
         if marker not in engine_log:
             raise SmokeFailure(f"engine log missed runtime marker: {marker}")
+    shutdown_positions: list[int] = []
+    for marker in SHUTDOWN_ENGINE_REQUIRED_MARKERS:
+        count = engine_log.count(marker)
+        if count != 1:
+            raise SmokeFailure(
+                f"engine log contains {count} copies of shutdown marker: "
+                f"{marker}"
+            )
+        shutdown_positions.append(engine_log.index(marker))
+    if shutdown_positions != sorted(shutdown_positions):
+        raise SmokeFailure("engine shutdown markers are out of order")
     for marker in SCRIPT_REQUIRED_MARKERS:
         if marker not in script_log:
             raise SmokeFailure(f"script log missed runtime marker: {marker}")

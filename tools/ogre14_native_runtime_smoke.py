@@ -26,7 +26,30 @@ COMMON_ENGINE_REQUIRED_MARKERS = (
     "[RoR|Startup|Rendering] Starting renderer '",
     "[RoR|Startup|Rendering] Creating render window with settings:",
     "RenderSystem::_createRenderWindow",
+    "[RoR|Shutdown] Leaving the main loop after the shutdown message",
+    "[RoR|Shutdown] Physics and graphics worker pools released",
+    "*** Terminating OIS ***",
+    "[RoR|Shutdown] Window-bound runtime integrations released",
+    "[RoR|Shutdown] Environment map renderer resources released",
+    "[RoR|Shutdown] Environment map shutdown returned",
+    "[RoR|Shutdown] Renderer root teardown starting",
     "*-*-* OGRE Shutdown",
+    "[RoR|Shutdown] Renderer root teardown completed",
+    "[RoR|Shutdown] Renderer runtime released",
+    "[RoR|Shutdown] Console log listener detached",
+)
+SHUTDOWN_ENGINE_REQUIRED_MARKERS = (
+    "[RoR|Shutdown] Leaving the main loop after the shutdown message",
+    "[RoR|Shutdown] Physics and graphics worker pools released",
+    "*** Terminating OIS ***",
+    "[RoR|Shutdown] Window-bound runtime integrations released",
+    "[RoR|Shutdown] Environment map renderer resources released",
+    "[RoR|Shutdown] Environment map shutdown returned",
+    "[RoR|Shutdown] Renderer root teardown starting",
+    "*-*-* OGRE Shutdown",
+    "[RoR|Shutdown] Renderer root teardown completed",
+    "[RoR|Shutdown] Renderer runtime released",
+    "[RoR|Shutdown] Console log listener detached",
 )
 LINUX_ENGINE_REQUIRED_MARKERS = (
     "Installing plugin: GL 3+ RenderSystem",
@@ -165,6 +188,7 @@ def runtime_environment(
         "LD_PRELOAD",
         "MESA_LOADER_DRIVER_OVERRIDE",
         "OGRE_PLUGIN_DIR",
+        "ROR_D0_EXACT_WINDOW_EXTENT",
         "ROR_D0_SCENE_HOME",
     )
     stripped_keys = {variable.casefold() for variable in stripped_variables}
@@ -266,6 +290,18 @@ def validate_runtime_evidence(
             raise SmokeFailure(
                 f"engine log missed runtime pattern: {pattern}"
             )
+
+    shutdown_positions: list[int] = []
+    for marker in SHUTDOWN_ENGINE_REQUIRED_MARKERS:
+        count = engine_log.count(marker)
+        if count != 1:
+            raise SmokeFailure(
+                f"engine log contains {count} copies of shutdown marker: "
+                f"{marker}"
+            )
+        shutdown_positions.append(engine_log.index(marker))
+    if shutdown_positions != sorted(shutdown_positions):
+        raise SmokeFailure("engine shutdown markers are out of order")
 
     marker_positions: list[int] = []
     for marker in SCRIPT_REQUIRED_MARKERS:

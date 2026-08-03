@@ -1,0 +1,685 @@
+name: OGRE-Next raster, Metal N2/N3, Vulkan RT5/RT6, and Windows DXR RT7 probes
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .gitattributes
+      - .github/workflows/ogre-next-probe.yml
+      - CMakeLists.txt
+      - source/main/CMakeLists.txt
+      - tests/CMakeLists.txt
+      - tools/ogre_next_probe/**
+      - tools/run_ogre_next_probe.py
+      - tools/validate_ogre_next_frame_probe.py
+      - tools/verify_ogre_next_artifact_set.py
+      - source/main/gfx/RendererBackendPolicy.*
+      - source/main/gfx/RendererStartupHandoff.*
+      - source/main/gfx/RendererStartupPlan.*
+      - source/main/gfx/render/**
+      - tests/gfx/RendererBackendPolicyTests.cpp
+      - tests/gfx/RendererStartupHandoffTests.cpp
+      - tests/gfx/RendererStartupPlanTests.cpp
+      - tests/gfx/render/**
+      - tests/tools/test_ogre_next_*.py
+  pull_request:
+    paths:
+      - .gitattributes
+      - .github/workflows/ogre-next-probe.yml
+      - CMakeLists.txt
+      - source/main/CMakeLists.txt
+      - tests/CMakeLists.txt
+      - tools/ogre_next_probe/**
+      - tools/run_ogre_next_probe.py
+      - tools/validate_ogre_next_frame_probe.py
+      - tools/verify_ogre_next_artifact_set.py
+      - source/main/gfx/RendererBackendPolicy.*
+      - source/main/gfx/RendererStartupHandoff.*
+      - source/main/gfx/RendererStartupPlan.*
+      - source/main/gfx/render/**
+      - tests/gfx/RendererBackendPolicyTests.cpp
+      - tests/gfx/RendererStartupHandoffTests.cpp
+      - tests/gfx/RendererStartupPlanTests.cpp
+      - tests/gfx/render/**
+      - tests/tools/test_ogre_next_*.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: ogre-next-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  raster-probe:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64 Metal raster plus N2/N3 capability
+            runner: macos-15
+            platform: macos-arm64-metal
+            jobs: 8
+          - name: Windows x64 Direct3D 11
+            runner: windows-2022
+            platform: windows-x64-d3d11
+            jobs: 4
+          - name: Linux x86_64 Vulkan null-window
+            runner: ubuntu-24.04
+            platform: linux-x86_64-vulkan
+            jobs: 4
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      ROR_OGRE_NEXT_EXPECTED_ROR_REPOSITORY: https://github.com/oasiz-ai/rigs-of-rods
+      ROR_OGRE_NEXT_EXPECTED_ROR_REF: ${{ github.head_ref || github.ref_name }}
+      ROR_OGRE_NEXT_EXPECTED_ROR_COMMIT: ${{ github.sha }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Enable the reviewed MSVC x64 toolset
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          arch: x64
+          toolset: "14.44"
+
+      - name: Install Linux Vulkan software-rendering prerequisites
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libvulkan-dev \
+            libx11-dev \
+            libxt-dev \
+            libxaw7-dev \
+            mesa-vulkan-drivers \
+            ninja-build \
+            vulkan-tools
+          lvp_icd="$(find /usr/share/vulkan/icd.d -name 'lvp*json' -print -quit)"
+          test -n "$lvp_icd"
+          echo "VK_ICD_FILENAMES=$lvp_icd" >> "$GITHUB_ENV"
+          echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
+
+      - name: Verify runner architecture and renderer toolchain
+        shell: bash
+        if: runner.os != 'Windows'
+        run: |
+          uname -a
+          cmake --version
+          ninja --version
+          python --version
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            vulkaninfo --summary
+          fi
+
+      - name: Verify runner architecture and renderer toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption, OSArchitecture
+          cmake --version
+          ninja --version
+          python --version
+
+      - name: Locate and attest the Windows SDK DXC compiler
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $sdkRoot = (Resolve-Path -LiteralPath `
+            (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin')).Path
+          $candidate = Get-ChildItem -LiteralPath $sdkRoot -Directory |
+            Where-Object { $_.Name -match '^10\.0\.\d+\.\d+$' } |
+            Sort-Object { [version]$_.Name } -Descending |
+            ForEach-Object {
+              $x64 = Join-Path $_.FullName 'x64'
+              if ((Test-Path -LiteralPath (Join-Path $x64 'dxc.exe') -PathType Leaf) -and
+                  (Test-Path -LiteralPath (Join-Path $x64 'dxcompiler.dll') -PathType Leaf) -and
+                  (Test-Path -LiteralPath (Join-Path $x64 'dxil.dll') -PathType Leaf)) {
+                Get-Item -LiteralPath (Join-Path $x64 'dxc.exe')
+              }
+            } | Select-Object -First 1
+          if (-not $candidate) {
+            throw 'A complete versioned Windows SDK x64 DXC closure is unavailable'
+          }
+          $dxcPath = $candidate.FullName
+          $x64Directory = Split-Path -Parent $dxcPath
+          foreach ($name in @('dxc.exe', 'dxcompiler.dll', 'dxil.dll')) {
+            Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $x64Directory $name)
+          }
+          & $dxcPath --version
+          "ROR_OGRE_NEXT_DXR7_DXC=$dxcPath" | Out-File `
+            -FilePath $env:GITHUB_ENV -Append
+          "ROR_OGRE_NEXT_DXR7_SDK_BIN_ROOT=$sdkRoot" | Out-File `
+            -FilePath $env:GITHUB_ENV -Append
+
+      - name: Run fail-closed offline contracts
+        shell: bash
+        run: |
+          python tests/tools/test_ogre_next_probe_contract.py
+          python tests/tools/test_ogre_next_frame_probe.py
+          python tests/tools/test_ogre_next_frontend_n1_contract.py
+          python tests/tools/test_ogre_next_pssm_shadow_contract.py
+          python tests/tools/test_ogre_next_native_directional_shadow_contract.py
+          python tests/tools/test_ogre_next_metal_n2_contract.py
+          python tests/tools/test_ogre_next_vulkan_rt5_contract.py
+          python tests/tools/test_ogre_next_vulkan_rt6_contract.py
+          python tests/tools/test_ogre_next_windows_dxr7_contract.py
+          python tests/tools/test_ogre_next_linux_static_closure.py
+          python tests/tools/test_ogre_next_metal_n3_contract.py
+          python tests/tools/test_ogre_next_metal_n4_contract.py
+          python tests/tools/test_ogre_next_probe_workflow.py
+          python tests/tools/test_verify_ogre_next_artifact_set.py
+          python -O tests/tools/test_ogre_next_probe_contract.py
+          python -O tests/tools/test_ogre_next_frame_probe.py
+          python -O tests/tools/test_ogre_next_frontend_n1_contract.py
+          python -O tests/tools/test_ogre_next_pssm_shadow_contract.py
+          python -O tests/tools/test_ogre_next_native_directional_shadow_contract.py
+          python -O tests/tools/test_ogre_next_metal_n2_contract.py
+          python -O tests/tools/test_ogre_next_vulkan_rt5_contract.py
+          python -O tests/tools/test_ogre_next_vulkan_rt6_contract.py
+          python -O tests/tools/test_ogre_next_windows_dxr7_contract.py
+          python -O tests/tools/test_ogre_next_linux_static_closure.py
+          python -O tests/tools/test_ogre_next_metal_n3_contract.py
+          python -O tests/tools/test_ogre_next_metal_n4_contract.py
+          python -O tests/tools/test_ogre_next_probe_workflow.py
+          python -O tests/tools/test_verify_ogre_next_artifact_set.py
+          python tools/run_ogre_next_probe.py --validate-contract-only
+          python tools/ogre_next_probe/run_vulkan_rt5.py --validate-contract-only
+          python tools/ogre_next_probe/run_vulkan_rt6.py --validate-contract-only
+          python tools/ogre_next_probe/run_windows_dxr7.py --validate-contract-only
+
+      - name: Build, render, and validate the independent N1 frontend
+        run: >-
+          python tools/run_ogre_next_probe.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --checkpoint n1
+          --jobs ${{ matrix.jobs }}
+
+      - name: Require directional PSSM native pass
+        shell: bash
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          python - "$build_root" <<'PY'
+          from pathlib import Path
+          import sys
+
+          from tools.verify_ogre_next_artifact_set import (
+              _current_source_identity,
+              _read_build_contract,
+              _verify_pssm,
+          )
+
+          root = Path(sys.argv[1]).resolve(strict=True)
+          build_contract = _read_build_contract(
+              root, _current_source_identity()
+          )
+          _verify_pssm(root, [], build_contract, require_pass=True)
+          PY
+
+      - name: Cryptographically attest the directional PSSM execution receipt
+        id: attest_pssm_receipt
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: >-
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-execution-receipt.json
+
+      - name: Stage and verify the GitHub-signed directional PSSM receipt
+        if: success() && github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          source_bundle="${{ steps.attest_pssm_receipt.outputs.bundle-path }}"
+          bundle="$build_root/ror-ogre-next-pssm-shadow-execution-receipt.sigstore.jsonl"
+          test -f "$source_bundle"
+          cp "$source_bundle" "$bundle"
+          gh attestation verify \
+            "$build_root/ror-ogre-next-pssm-shadow-execution-receipt.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --bundle "$bundle" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/ogre-next-probe.yml" \
+            --source-ref "$GITHUB_REF" \
+            --source-digest "$GITHUB_SHA" \
+            --deny-self-hosted-runners
+
+      - name: Prove N1 lifecycle and media-integrity failures independently
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre_next_frontend_(n1_|rt4_)'
+
+      - name: Build and validate the independent Apple Metal N2 proof
+        if: runner.os == 'macOS'
+        run: >-
+          python tools/run_ogre_next_probe.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --reuse-build-dir
+          --checkpoint n2
+          --jobs ${{ matrix.jobs }}
+
+      - name: Build and validate the independent Apple Metal N3 hybrid proof
+        if: runner.os == 'macOS'
+        run: >-
+          python tools/run_ogre_next_probe.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --reuse-build-dir
+          --checkpoint n3
+          --jobs ${{ matrix.jobs }}
+
+      - name: Build and validate the Apple Metal N4 directional-shadow proof
+        if: runner.os == 'macOS'
+        run: >-
+          cmake
+          --build "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --target ror_ogre_next_metal_n4_directional_shadow_report
+          --config Release
+          --parallel ${{ matrix.jobs }}
+
+      - name: Attest RoR-owned Vulkan instance and device injection
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          python tools/ogre_next_probe/run_vulkan_rt5.py \
+            --build-dir "$build_root" \
+            --reuse-build-dir \
+            --jobs "${{ matrix.jobs }}"
+          python - "$build_root/ror-ogre-next-vulkan-rt5-report.json" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if report.get("status") != "unsupported":
+              raise SystemExit("hosted lavapipe runner must not report an RT5 hardware pass")
+          if report.get("vulkan", {}).get("known_software_adapter") is not True:
+              raise SystemExit("hosted Vulkan skip did not identify the software adapter")
+          if report.get("scope", {}).get("native_ray_tracing") != "not_evaluated":
+              raise SystemExit("RT5 foundation must not claim native ray tracing")
+          PY
+
+      - name: Require real KHR ray dispatch or explicit RT6 unsupported evidence
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          python tools/ogre_next_probe/run_vulkan_rt6.py \
+            --build-dir "$build_root" \
+            --reuse-build-dir \
+            --jobs "${{ matrix.jobs }}"
+          python - "$build_root/ror-ogre-next-vulkan-rt6-report.json" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if report.get("status") != "unsupported":
+              raise SystemExit("hosted lavapipe runner must not report an RT6 hardware pass")
+          if report.get("vulkan", {}).get("known_software_adapter") is not True:
+              raise SystemExit("hosted RT6 skip did not identify the software adapter")
+          if report.get("vulkan", {}).get("candidate_decision") != "software_or_unattested_device":
+              raise SystemExit("hosted RT6 skip did not fail at the hardware gate")
+          if report.get("scope", {}).get("native_ray_tracing") != "not_executed":
+              raise SystemExit("unsupported RT6 evidence must not claim native ray tracing")
+          dispatch = report.get("pipeline_and_dispatch", {})
+          if dispatch.get("shader_contract_compiled") is not True:
+              raise SystemExit("hosted RT6 evidence did not compile the pinned shaders")
+          if dispatch.get("ray_dispatch_completed") is not False:
+              raise SystemExit("unsupported RT6 evidence must not claim a dispatch")
+          if dispatch.get("readback_words") != [0, 0, 0, 0]:
+              raise SystemExit("unsupported RT6 evidence must not claim ray output")
+          scope = report.get("scope", {})
+          if not (
+              scope.get("semantic_probe_only") is True
+              and scope.get("full_native_directional_shadow_v1") is False
+              and scope.get("exact_ogre_rgba16_source") is False
+              and scope.get("hybrid_ogre_image_composite") is False
+          ):
+              raise SystemExit("hosted RT6 evidence changed its bounded scope")
+          semantic = report.get("n4a_semantic_directional_shadow", {})
+          if not (
+              semantic.get("semantic_probe_only") is True
+              and semantic.get("full_native_directional_shadow_v1") is False
+              and semantic.get("exact_ogre_rgba16_source") is False
+              and semantic.get("hybrid_ogre_image_composite") is False
+              and semantic.get("blas_count") == 0
+              and semantic.get("tlas_instance_count") == 0
+              and semantic.get("sample_count") == 0
+              and semantic.get("visibility_r16_bits") == [0, 0]
+              and semantic.get("lineage_r32") == [0, 0]
+              and semantic.get("readback_completed") is False
+              and semantic.get("portable_sample_oracle_passed") is False
+          ):
+              raise SystemExit("hosted RT6 evidence contains an N4A execution claim")
+          PY
+
+      - name: Build, render, read back, and validate the legacy probes
+        # Windows DXR runs immediately before the shared legacy probes so a
+        # device-removal failure cannot be hidden by a later raster success.
+        if: runner.os != 'Windows'
+        run: >-
+          python tools/run_ogre_next_probe.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --reuse-build-dir
+          --checkpoint legacy
+          --jobs ${{ matrix.jobs }}
+
+      - name: Build and attest app-owned D3D12/D3D11On12/DXR RT7
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $buildRoot = '${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}'
+          python tools/ogre_next_probe/run_windows_dxr7.py `
+            --build-dir $buildRoot `
+            --reuse-build-dir `
+            --require-ci-context `
+            --jobs '${{ matrix.jobs }}'
+          $report = Get-Content `
+            (Join-Path $buildRoot 'ror-ogre-next-windows-dxr7-report.json') `
+            -Raw | ConvertFrom-Json
+          if ($report.status -ne 'unsupported') {
+            throw 'The non-GPU hosted Windows runner must not report a DXR7 pass'
+          }
+          if ($report.scope.hardware_dxr_pass -ne $false -or
+              $report.ray_tracing.dispatch_rays_called -ne $false) {
+            throw 'Hosted Windows unsupported evidence contains an RT pass claim'
+          }
+          if ($report.scope.semantic_directional_shadow_probe -ne $false -or
+              $report.scope.exact_ogre_rgba16_source -ne $false -or
+              $report.scope.hybrid_ogre_image_composite -ne $false -or
+              $report.ray_tracing.typed_semantic_readback_exact -ne $false -or
+              $report.directional_shadow_semantics.semantic_probe_only -ne $false -or
+              $report.directional_shadow_semantics.visibility_readback_completed -ne $false -or
+              $report.directional_shadow_semantics.lineage_readback_completed -ne $false -or
+              $report.directional_shadow_semantics.hybrid_readback_completed -ne $false) {
+            throw 'Hosted Windows unsupported evidence contains a directional-shadow claim'
+          }
+
+      - name: Build, render, read back, and validate the Windows legacy probes
+        if: runner.os == 'Windows'
+        run: >-
+          python tools/run_ogre_next_probe.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --reuse-build-dir
+          --checkpoint legacy
+          --jobs ${{ matrix.jobs }}
+
+      - name: Rehash Linux static closure and reject pinned dependency DSOs
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          package_root="$build_root/ror-ogre-next-n1-package"
+          cmake --build "$build_root" \
+            --target ror_ogre_next_linux_static_closure_verify \
+            --config Release --parallel "${{ matrix.jobs }}"
+          cmp tools/ogre_next_probe/linux-shader-toolchain.lock.json \
+            "$package_root/provenance/ogre-next-linux-shader-toolchain.lock.json"
+          cmp "$build_root/ogre-next-linux-static-closure.json" \
+            "$package_root/provenance/ogre-next-linux-static-closure.json"
+          for notice in \
+            Apache-2.0.txt \
+            glslang-LICENSE.txt \
+            SPIRV-Tools-LICENSE.txt \
+            SPIRV-Headers-LICENSE.txt; do
+            test -s "$package_root/licenses/$notice"
+          done
+          for executable in \
+            "$build_root/bin/ror_ogre_next_frame_probe" \
+            "$build_root/bin/ror_ogre_next_vulkan_rt6_smoke" \
+            "$package_root/bin/ror_ogre_next_frontend_n1_smoke"; do
+            ldd "$executable" | tee "${executable##*/}.ldd.txt"
+            if grep -Eiq \
+                'lib(freetype|shaderc|glslang|SPIRV(-Tools(-opt)?)?|MachineIndependent|GenericCodeGen|OSDependent)' \
+                "${executable##*/}.ldd.txt"; then
+              echo "unexpected dynamically linked pinned dependency in $executable"
+              exit 1
+            fi
+          done
+
+      - name: Re-run native lifecycle tests
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+
+      - name: Revalidate the exact artifacts selected for upload
+        run: >-
+          python tools/validate_ogre_next_frame_probe.py
+          --report "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe-report.json"
+          --image "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm"
+          --capability-report "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-probe-report.json"
+          --platform-policy "${{ matrix.platform }}"
+
+      - name: Require every exact upload artifact
+        if: always()
+        run: >-
+          python tools/verify_ogre_next_artifact_set.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+
+      - name: Verify attested Apple Metal N2 pass or skip evidence
+        if: always() && runner.os == 'macOS'
+        run: >-
+          python tools/verify_ogre_next_artifact_set.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --verify-metal-n2-evidence
+
+      - name: Verify attested Apple Metal N3 pass or skip evidence
+        if: always() && runner.os == 'macOS'
+        run: >-
+          python tools/verify_ogre_next_artifact_set.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --verify-metal-n3-evidence
+
+      - name: Verify Apple Metal N4 directional-shadow pass or skip evidence
+        if: always() && runner.os == 'macOS'
+        run: >-
+          python tools/verify_ogre_next_artifact_set.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --verify-metal-n4-evidence
+
+      - name: Verify attested Vulkan RT5 pass or explicit unsupported evidence
+        if: always() && runner.os == 'Linux'
+        run: >-
+          python tools/ogre_next_probe/run_vulkan_rt5.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --verify-existing
+
+      - name: Verify attested Vulkan RT6 dispatch or explicit unsupported evidence
+        if: always() && runner.os == 'Linux'
+        run: >-
+          python tools/ogre_next_probe/run_vulkan_rt6.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --verify-existing
+
+      - name: Integrity-check Windows DXR RT7 pass or explicit unsupported evidence
+        if: always() && runner.os == 'Windows'
+        run: >-
+          python tools/ogre_next_probe/run_windows_dxr7.py
+          --build-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --verify-existing
+          --integrity-only
+
+      - name: Cryptographically attest the Windows DXR RT7 execution receipt
+        id: attest_windows_dxr7_receipt
+        if: >-
+          success() && runner.os == 'Windows' &&
+          github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: >-
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-execution-receipt.json
+
+      - name: Stage and verify the GitHub-signed Windows DXR RT7 receipt
+        if: >-
+          success() && runner.os == 'Windows' &&
+          github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $buildRoot = '${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}'
+          $sourceBundle = '${{ steps.attest_windows_dxr7_receipt.outputs.bundle-path }}'
+          $bundle = Join-Path $buildRoot 'ror-ogre-next-windows-dxr7-execution-receipt.sigstore.jsonl'
+          if (-not (Test-Path -LiteralPath $sourceBundle -PathType Leaf)) {
+            throw 'GitHub attestation action did not produce a DSSE bundle'
+          }
+          Copy-Item -LiteralPath $sourceBundle -Destination $bundle -Force
+          python tools/ogre_next_probe/run_windows_dxr7.py `
+            --build-dir $buildRoot `
+            --verify-existing `
+            --trusted-attestation-bundle $bundle `
+            --expected-source-ref $env:GITHUB_REF
+
+      - name: Upload exact reports and UI-free frame
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-${{ matrix.platform }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-build-contract.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-probe-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-repeat/
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-isolation.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-execution-receipt.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-artifact-manifest.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-execution-receipt.sigstore.jsonl
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_pssm_shadow_smoke*
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke*
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/share/
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-linux-static-closure.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/provenance/
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/licenses/
+
+      - name: Upload attested Apple Metal N2 capability evidence
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-metal-n2-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2-probe.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n2-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_metal_n2_smoke
+
+      - name: Upload attested Apple Metal N3 hybrid evidence
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-metal-n3-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-build-contract.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-probe-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-isolation.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-repeat/
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke*
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/share/
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-raster.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-contribution.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-hybrid.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n3-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_metal_n3_smoke
+
+      - name: Upload verified Apple Metal N4 directional-shadow evidence
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-metal-n4-directional-shadow-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-build-contract.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n4-directional-shadow-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n4-raster.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n4-visibility-r16.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n4-ray-lineage-r32.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-metal-n4-hybrid.bin
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_metal_n4_directional_shadow_smoke
+
+      - name: Upload attested Vulkan RT5 external-device evidence
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-vulkan-rt5-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-vulkan-rt5-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-vulkan-rt5-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_vulkan_rt5_smoke
+
+      - name: Upload attested Vulkan RT6 KHR ray-dispatch evidence
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-vulkan-rt6-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-vulkan-rt6-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-vulkan-rt6-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_vulkan_rt6_smoke
+
+      - name: Upload attested Windows D3D12/D3D11On12/DXR RT7 evidence
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OGRE-Next-windows-dxr7-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-report.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-attestation.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-execution-receipt.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-execution-receipt.sigstore.jsonl
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-windows-dxr7-ogre-frame.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-build-contract.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/.ror-ogre-next-probe-build-v1
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/CMakeCache.txt
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/generated/ror_ogre_next_windows_dxr7_probe.dxil
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_windows_dxr7_smoke.exe

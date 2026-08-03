@@ -38,15 +38,15 @@
   "compiler": {
     "format": "ror-cityworld-scene-compiler-v1",
     "path": "tools/compile_cityworld_asset.py",
-    "sha256": "e073ac1015198aecb609e8bf3c7b70d9013bc9d77b68d8d06d6ddfed470a4059"
+    "sha256": "8d90b2fe1b8b43b4c81d766ad0ac1d700282d36c244d6ef2b17ef81e748b2144"
   },
   "connectors": [],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "2d3ee51560f57eacf9fa2dfc09afedab85e77b514096147806cdc148c8550193",
+    "asset_contract_sha256": "feddd8311b580e6b7741ba46954014056cddceb4b100129706ae6570844e91ed",
     "glb": {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/rorng_city_storefront_arcade_30x10.glb",
-      "sha256": "dcda161d217eb2c8fda0f23e51226df1046f0fa677096b1dc1e621b9afeddd70"
+      "sha256": "ceb150984f6d42b8eb01c0d92d922b5a1bc5e2ad14f726025df0cdf85e60908c"
     }
   },
   "limits": {
@@ -61,7 +61,7 @@
   "mesh_format": "MeshSerializer_v1.100-little-endian",
   "ogre_converter": {
     "executable": "OgreXMLConverter",
-    "sha256": "50b375974784925e8a180ca886f849b78ff61a3f94fa5e4b8abea710d800264a",
+    "sha256": "01f80e0400688d899e8934335678ea9875089d3715543f63f7b69f24f1b93ce3",
     "version": "OgreXMLConverter Tsathoggua (14.5.2)"
   },
   "options": {
@@ -95,13 +95,13 @@
     {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_lod0.mesh",
       "role": "render-lod0",
-      "sha256": "cac85001e07c06fa10d811c28a7a6707c25b803f02a9dfabd03c2a3185fb4633",
+      "sha256": "bfeebed8c5e86e26c2b3bb5a41001c99b1f0a61fe72b23d83322d06a578bcb4b",
       "size": 3033753
     },
     {
       "path": "resources/nextgen/cityworld/buildings/storefront_family/rorng_city_storefront_arcade_30x10/compiled/rorng_city_storefront_arcade_30x10_lod1.mesh",
       "role": "render-lod1",
-      "sha256": "265916e44473c5642ff830a7cf0ddbb21e42cd23d96a22e526d724c29426f1e4",
+      "sha256": "933bca7511f1143676bc5f4059e1df96412f31a6e3b9a08fd8a19ce9456c16fe",
       "size": 94177
     },
     {
@@ -121,8 +121,8 @@
   },
   "xml_intermediate_sha256": {
     "rorng_city_storefront_arcade_30x10_collision_fixture.mesh.xml": "0cc633a2356267c6fb0343113c860235070a129b631d1474a6567f0a4999aa73",
-    "rorng_city_storefront_arcade_30x10_lod0.mesh.xml": "10c3f52a450a4b49afde5a6f5e998a6d0876a8c025b163c30c4a2bdd7ca8757f",
-    "rorng_city_storefront_arcade_30x10_lod1.mesh.xml": "44c3173d2aae745d750f10356f3a5ca1c533eb5b6b8fa2bc9415f16ccce3bf87",
+    "rorng_city_storefront_arcade_30x10_lod0.mesh.xml": "f884dcc681f07974637e4aa25da17810f53523616596aaa0f4a8ba26b86e2a50",
+    "rorng_city_storefront_arcade_30x10_lod1.mesh.xml": "4e55d45e70bf632e148d3ccb0b3a001ecec5b265828ba252efc0645f8efac805",
     "rorng_city_storefront_arcade_30x10_lod2.mesh.xml": "498136a6e7fe58d107e7233080e3b58e25f16941ce1272e6cb84c48d90613c5b"
   }
 }

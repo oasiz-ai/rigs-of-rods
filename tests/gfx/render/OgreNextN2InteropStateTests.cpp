@@ -1,0 +1,507 @@
+/*
+    This source file is part of Rigs of Rods
+
+    Rigs of Rods is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License version 3, as
+    published by the Free Software Foundation.
+*/
+
+#include "OgreNextN2InteropState.h"
+
+#include <cstdlib>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace {
+
+using namespace RoR::Render;
+
+void Require(bool condition, const char *message) {
+  if (!condition) {
+    throw std::runtime_error(message);
+  }
+}
+
+NativeObjectToken Token(NativeObjectKind kind, std::uint64_t value,
+                        std::uint64_t generation = 7U) {
+  NativeObjectToken token;
+  token.api = NativeGraphicsApi::METAL;
+  token.kind = kind;
+  token.context_id = 41U;
+  token.value = value;
+  token.generation = generation;
+  return token;
+}
+
+NativeContextExport Context() {
+  NativeContextExport context;
+  context.native_api = NativeGraphicsApi::METAL;
+  context.context_id = 41U;
+  context.device = Token(NativeObjectKind::DEVICE, 100U);
+  context.graphics_queue = Token(NativeObjectKind::QUEUE, 101U);
+  return context;
+}
+
+RenderAssetReference Mesh(std::uint64_t revision = 3U) {
+  RenderAssetReference mesh;
+  mesh.id = RenderAssetId::FromWords(10U, 20U);
+  mesh.revision = revision;
+  mesh.kind = RenderAssetKind::MESH;
+  return mesh;
+}
+
+OgreNextN2PublishedGeometry Published(std::uint64_t frame_id,
+                                     std::uint64_t snapshot_id,
+                                     std::uint64_t deformation_revision,
+                                     std::uint64_t buffer_generation = 7U) {
+  OgreNextN2PublishedGeometry published;
+  NativeGeometryExport &geometry = published.geometry;
+  geometry.frame_id = frame_id;
+  geometry.snapshot_id = snapshot_id;
+  geometry.instance_id = 9U;
+  geometry.mesh = Mesh();
+  geometry.topology_revision = 5U;
+  geometry.deformation_revision = deformation_revision;
+  geometry.topology = MeshPrimitiveTopology::TRIANGLE_LIST;
+  geometry.positions.buffer =
+      Token(NativeObjectKind::BUFFER, 200U, buffer_generation);
+  geometry.positions.offset_bytes = 128U;
+  geometry.positions.size_bytes = 60U;
+  geometry.positions.stride_bytes = 24U;
+  geometry.indices.buffer =
+      Token(NativeObjectKind::BUFFER, 201U, buffer_generation);
+  geometry.indices.offset_bytes = 64U;
+  geometry.indices.size_bytes = 6U;
+  geometry.indices.stride_bytes = 2U;
+  geometry.position_format = NativeVertexPositionFormat::FLOAT32_XYZ;
+  geometry.index_format = NativeIndexFormat::UINT16;
+  geometry.vertex_count = 3U;
+  geometry.index_count = 3U;
+  return published;
+}
+
+NativeGeometryExportRequest Request(std::uint64_t frame_id,
+                                    std::uint64_t snapshot_id,
+                                    std::uint64_t deformation_revision) {
+  NativeGeometryExportRequest request;
+  request.frame_id = frame_id;
+  request.snapshot_id = snapshot_id;
+  request.instance_id = 9U;
+  request.mesh = Mesh();
+  request.topology_revision = 5U;
+  request.deformation_revision = deformation_revision;
+  return request;
+}
+
+std::shared_ptr<const SceneSnapshot> Snapshot(std::uint64_t snapshot_id) {
+  SceneSnapshotDescriptor descriptor;
+  descriptor.snapshot_id = snapshot_id;
+  descriptor.asset_registry_id = 73U;
+  descriptor.asset_sequence = 1U;
+  const SceneSnapshotCreateResult created =
+      CreateSceneSnapshot(std::move(descriptor));
+  Require(created.ok(), "could not create native image snapshot fixture");
+  return created.snapshot;
+}
+
+CameraViewRequest View(std::uint32_t width = 96U) {
+  CameraViewRequest view;
+  view.view_id = 4U;
+  view.width = width;
+  view.height = 64U;
+  constexpr float near_plane = 0.1F;
+  constexpr float far_plane = 100.0F;
+  view.near_plane = near_plane;
+  view.far_plane = far_plane;
+  view.clip_from_view.elements.fill(0.0F);
+  view.clip_from_view.elements[0U] = 1.0F;
+  view.clip_from_view.elements[5U] = 1.0F;
+  view.clip_from_view.elements[10U] = far_plane / (near_plane - far_plane);
+  view.clip_from_view.elements[11U] = -1.0F;
+  view.clip_from_view.elements[14U] =
+      near_plane * far_plane / (near_plane - far_plane);
+  view.previous_clip_from_view = view.clip_from_view;
+  return view;
+}
+
+OgreNextN3PublishedImage PublishedImage(std::uint64_t frame_id,
+                                       std::uint64_t snapshot_id,
+                                       const std::shared_ptr<const SceneSnapshot> &scene,
+                                       std::uint64_t generation = 7U,
+                                       std::uint32_t width = 96U) {
+  OgreNextN3PublishedImage published;
+  NativeImageExport &image = published.image;
+  image.frame_id = frame_id;
+  image.snapshot_id = snapshot_id;
+  image.view_id = 4U;
+  image.scene_snapshot = scene;
+  image.view = View(width);
+  image.output = FrameOutputMask::COLOR;
+  image.format = PixelFormat::RGBA16_FLOAT;
+  image.usage =
+      NativeImageUsage::COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE;
+  image.image = Token(NativeObjectKind::IMAGE, 202U, generation);
+  image.width = width;
+  image.height = 64U;
+  image.sample_count = 1U;
+  return published;
+}
+
+NativeImageExportRequest ImageRequest(std::uint64_t frame_id,
+                                      std::uint64_t snapshot_id,
+                                      const std::shared_ptr<const SceneSnapshot> &scene,
+                                      std::uint32_t width = 96U) {
+  NativeImageExportRequest request;
+  request.frame_id = frame_id;
+  request.snapshot_id = snapshot_id;
+  request.view_id = 4U;
+  request.scene_snapshot = scene;
+  request.view = View(width);
+  request.output = FrameOutputMask::COLOR;
+  request.format = PixelFormat::RGBA16_FLOAT;
+  request.width = width;
+  request.height = 64U;
+  return request;
+}
+
+void CompleteExternal(OgreNextN2InteropState &state,
+                      NativeFrameSynchronization &synchronization) {
+  Require(state.ArmExternalCompletion(synchronization).ok(),
+          "could not arm external completion");
+  Require(state.MarkExternalSubmitted(synchronization).ok(),
+          "could not mark external submission");
+  Require(state.MarkExternalCompleted(synchronization).ok(),
+          "could not mark external completion");
+}
+
+void TestLifecycleAndImmutableRevision() {
+  OgreNextN2InteropState state;
+  Require(state.Initialize(Context(),
+                           Token(NativeObjectKind::TIMELINE_SYNC, 102U))
+              .ok(),
+          "state initialization failed");
+  Require(state.PublishFrame(11U, 21U, {Published(11U, 21U, 2U)}).ok(),
+          "initial frame publication failed");
+
+  NativeGeometryExport lease;
+  Require(state.AcquireGeometry(Request(11U, 21U, 2U), lease).ok(),
+          "geometry acquisition failed");
+  Require(state.ValidateGeometryLease(lease).ok(),
+          "fresh geometry lease was rejected");
+
+  NativeGeometryExportRequest stale_request = Request(11U, 21U, 3U);
+  NativeGeometryExport untouched;
+  untouched.export_id = 999U;
+  const RenderOperationResult stale =
+      state.AcquireGeometry(stale_request, untouched);
+  Require(stale.code == RenderOperationCode::RESOURCE_STALE &&
+              untouched.export_id == 999U,
+          "stale deformation revision mutated the output");
+
+  NativeFrameSynchronization synchronization;
+  Require(state.BeginExternalFrame(11U, 21U, synchronization).ok(),
+          "external frame begin failed");
+  Require(synchronization.frontend_complete_value == 1U &&
+              !synchronization.external_complete_timeline.valid(),
+          "frontend completion token was not staged exactly");
+  CompleteExternal(state, synchronization);
+  Require(synchronization.external_complete_value == 2U &&
+              state.ValidateFrameLease(synchronization).ok(),
+          "completed frame lease was not live");
+
+  const RenderOperationResult blocked =
+      state.PublishFrame(12U, 22U, {Published(12U, 22U, 3U, 8U)});
+  Require(blocked.code == RenderOperationCode::OUTSTANDING_LEASES,
+          "revision N+1 replaced live revision N bytes");
+  Require(state.ValidateGeometryLease(lease).ok(),
+          "blocked replacement invalidated revision N");
+
+  Require(state.EndExternalFrame(synchronization).ok(),
+          "external frame end failed");
+  Require(state.PublishFrame(12U, 22U, {Published(12U, 22U, 3U, 8U)})
+              .code == RenderOperationCode::OUTSTANDING_LEASES,
+          "released frame still allowed replacement with a geometry lease");
+  state.ReleaseGeometry(lease.export_id);
+  Require(!state.ValidateGeometryLease(lease).ok(),
+          "released geometry lease remained valid");
+  Require(state.PublishFrame(12U, 22U, {Published(12U, 22U, 3U, 8U)}).ok(),
+          "revision N+1 did not publish after every N lease ended");
+
+  NativeGeometryExport next_lease;
+  Require(state.AcquireGeometry(Request(12U, 22U, 3U), next_lease).ok(),
+          "next geometry revision acquisition failed");
+  NativeFrameSynchronization next_sync;
+  Require(state.BeginExternalFrame(12U, 22U, next_sync).ok() &&
+              next_sync.frontend_complete_value == 3U,
+          "timeline did not advance monotonically");
+  CompleteExternal(state, next_sync);
+  Require(next_sync.external_complete_value == 4U,
+          "external timeline value was not strictly later");
+  Require(state.EndExternalFrame(next_sync).ok(),
+          "next external frame end failed");
+  state.ReleaseGeometry(next_lease.export_id);
+  Require(state.Reset().ok(), "clean state reset failed");
+}
+
+void TestTransactionalPublicationAndStaleGeneration() {
+  OgreNextN2InteropState state;
+  Require(state.Initialize(Context(),
+                           Token(NativeObjectKind::TIMELINE_SYNC, 102U))
+              .ok(),
+          "state initialization failed");
+  Require(state.PublishFrame(31U, 41U, {Published(31U, 41U, 2U)}).ok(),
+          "baseline frame publication failed");
+
+  OgreNextN2PublishedGeometry invalid = Published(32U, 42U, 3U);
+  invalid.geometry.positions.size_bytes = 1U;
+  const RenderOperationResult rejected =
+      state.PublishFrame(32U, 42U, {invalid});
+  Require(rejected.code == RenderOperationCode::INVALID_ARGUMENT,
+          "invalid replacement was accepted");
+
+  NativeGeometryExport old_lease;
+  Require(state.AcquireGeometry(Request(31U, 41U, 2U), old_lease).ok(),
+          "failed publication replaced the prior frame");
+  NativeGeometryExport stale_generation = old_lease;
+  ++stale_generation.positions.buffer.generation;
+  Require(state.ValidateGeometryLease(stale_generation).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "stale resource generation passed live-lease validation");
+  Require(state.DiscardPublishedFrame().code ==
+              RenderOperationCode::OUTSTANDING_LEASES,
+          "published storage was discarded while its lease was live");
+  state.ReleaseGeometry(old_lease.export_id);
+  Require(state.DiscardPublishedFrame().ok(),
+          "unleased published storage could not be discarded");
+  NativeGeometryExport discarded;
+  Require(state.AcquireGeometry(Request(31U, 41U, 2U), discarded).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "discarded geometry remained acquirable");
+  Require(state.Reset().ok(), "state reset failed");
+}
+
+void TestPreparedPublicationIsInvisibleAndAbortable() {
+  OgreNextN2InteropState state;
+  Require(state.Initialize(Context(),
+                           Token(NativeObjectKind::TIMELINE_SYNC, 102U))
+              .ok(),
+          "prepared-publication state initialization failed");
+  Require(state.PublishFrame(31U, 41U, {Published(31U, 41U, 2U)}).ok(),
+          "prepared-publication baseline failed");
+  Require(state.PreparePublishFrame(
+              32U, 42U, {Published(32U, 42U, 3U, 8U)})
+              .ok(),
+          "valid native replacement could not be prepared");
+  Require(state.PreparePublishFrame(
+              32U, 42U, {Published(32U, 42U, 3U, 8U)})
+              .code == RenderOperationCode::INVALID_ARGUMENT,
+          "a second native publication transaction was accepted");
+
+  NativeGeometryExport hidden;
+  Require(state.AcquireGeometry(Request(32U, 42U, 3U), hidden).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "prepared native geometry became externally visible before commit");
+  NativeGeometryExport old_lease;
+  Require(state.AcquireGeometry(Request(31U, 41U, 2U), old_lease).ok(),
+          "preparation hid the last committed native frame");
+  Require(!state.CanCommitPreparedFrame(32U, 42U),
+          "prepared replacement ignored a late lease of the prior frame");
+  state.ReleaseGeometry(old_lease.export_id);
+  Require(state.CanCommitPreparedFrame(32U, 42U),
+          "prepared replacement was not commit-ready after leases drained");
+  state.AbortPreparedFrame();
+  Require(!state.CanCommitPreparedFrame(32U, 42U),
+          "aborted native replacement remained commit-ready");
+  Require(state.AcquireGeometry(Request(31U, 41U, 2U), old_lease).ok(),
+          "aborting preparation damaged the committed frame");
+  state.ReleaseGeometry(old_lease.export_id);
+
+  Require(state.PreparePublishFrame(
+              32U, 42U, {Published(32U, 42U, 3U, 8U)})
+              .ok() &&
+              state.CanCommitPreparedFrame(32U, 42U),
+          "aborted native replacement could not be retried");
+  state.CommitPreparedFrame();
+  NativeGeometryExport replacement;
+  Require(state.AcquireGeometry(Request(32U, 42U, 3U), replacement).ok(),
+          "committed prepared replacement was not externally visible");
+  state.ReleaseGeometry(replacement.export_id);
+  Require(state.Reset().ok(), "prepared-publication state reset failed");
+}
+
+void TestSubmittedLeaseIsRetryableButNotAbortable() {
+  OgreNextN2InteropState state;
+  Require(state.Initialize(Context(),
+                           Token(NativeObjectKind::TIMELINE_SYNC, 102U))
+              .ok(),
+          "state initialization failed");
+  Require(state.PublishFrame(51U, 61U, {Published(51U, 61U, 2U)}).ok(),
+          "frame publication failed");
+  NativeGeometryExport lease;
+  Require(state.AcquireGeometry(Request(51U, 61U, 2U), lease).ok(),
+          "geometry acquisition failed");
+  NativeFrameSynchronization synchronization;
+  Require(state.BeginExternalFrame(51U, 61U, synchronization).ok(),
+          "frame begin failed");
+  Require(state.ArmExternalCompletion(synchronization).ok() &&
+              state.MarkExternalSubmitted(synchronization).ok(),
+          "submission staging failed");
+  Require(state.AbortExternalFrameBeforeSubmission(synchronization).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "submitted dependency was unsafely aborted");
+  Require(state.CanShutdown().code ==
+              RenderOperationCode::OUTSTANDING_LEASES,
+          "submitted dependency did not remain retryable after timeout");
+  Require(state.MarkExternalCompleted(synchronization).ok() &&
+              state.ValidateFrameLease(synchronization).ok(),
+          "retry completion did not recover the live lease");
+  Require(state.EndExternalFrame(synchronization).ok(),
+          "recovered frame could not end");
+  state.ReleaseGeometry(lease.export_id);
+  Require(state.Reset().ok(), "recovered state could not reset");
+}
+
+void TestPreSubmissionAbortAndShutdownOrder() {
+  OgreNextN2InteropState state;
+  Require(state.Initialize(Context(),
+                           Token(NativeObjectKind::TIMELINE_SYNC, 102U))
+              .ok(),
+          "state initialization failed");
+  Require(state.RegisterRayTracingBackend().ok(),
+          "RT backend registration failed");
+  Require(state.CanShutdown().code == RenderOperationCode::OUTSTANDING_LEASES,
+          "frontend shutdown ignored the live RT backend");
+  Require(state.PublishFrame(71U, 81U, {Published(71U, 81U, 2U)}).ok(),
+          "frame publication failed");
+  NativeGeometryExport lease;
+  Require(state.AcquireGeometry(Request(71U, 81U, 2U), lease).ok(),
+          "geometry acquisition failed");
+  NativeFrameSynchronization synchronization;
+  Require(state.BeginExternalFrame(71U, 81U, synchronization).ok(),
+          "frame begin failed");
+  Require(state.AbortExternalFrameBeforeSubmission(synchronization).ok(),
+          "unsubmitted frame could not roll back");
+  state.ReleaseGeometry(lease.export_id);
+  Require(state.UnregisterRayTracingBackend().ok(),
+          "RT backend unregistration failed");
+  Require(state.CanShutdown().ok() && state.Reset().ok(),
+          "frontend did not become shutdown-safe");
+}
+
+void TestSubmittedDeviceLossCanDrainForTeardown() {
+  OgreNextN2InteropState state;
+  Require(state.Initialize(Context(),
+                           Token(NativeObjectKind::TIMELINE_SYNC, 102U))
+              .ok(),
+          "state initialization failed");
+  Require(state.RegisterRayTracingBackend().ok(),
+          "RT backend registration failed");
+  Require(state.PublishFrame(91U, 101U, {Published(91U, 101U, 2U)}).ok(),
+          "frame publication failed");
+  NativeGeometryExport lease;
+  Require(state.AcquireGeometry(Request(91U, 101U, 2U), lease).ok(),
+          "geometry acquisition failed");
+  NativeFrameSynchronization synchronization;
+  Require(state.BeginExternalFrame(91U, 101U, synchronization).ok() &&
+              state.ArmExternalCompletion(synchronization).ok() &&
+              state.MarkExternalSubmitted(synchronization).ok(),
+          "submitted fault fixture could not be staged");
+
+  Require(state.AbandonRayTracingBackendAfterFault().ok(),
+          "device-loss teardown could not revoke submitted leases");
+  Require(!state.ray_tracing_backend_registered() &&
+              !state.has_outstanding_leases() && state.CanShutdown().ok(),
+          "fault teardown left the frontend permanently blocked");
+  Require(state.ValidateGeometryLease(lease).code ==
+              RenderOperationCode::RESOURCE_STALE &&
+              state.ValidateFrameLease(synchronization).code ==
+                  RenderOperationCode::RESOURCE_STALE,
+          "fault teardown left stale native leases valid");
+  Require(state.Reset().ok(), "fault-drained state could not reset");
+}
+
+void TestImageLeaseResizeAndSynchronization() {
+  OgreNextN2InteropState state;
+  Require(state.Initialize(Context(),
+                           Token(NativeObjectKind::TIMELINE_SYNC, 102U))
+              .ok(),
+          "image state initialization failed");
+  const std::shared_ptr<const SceneSnapshot> first_scene = Snapshot(121U);
+  Require(state.PublishFrame(111U, 121U, {Published(111U, 121U, 2U)},
+                             {PublishedImage(111U, 121U, first_scene)})
+              .ok(),
+          "image frame publication failed");
+
+  NativeImageExport image;
+  Require(state.AcquireImage(ImageRequest(111U, 121U, first_scene), image).ok() &&
+              state.ValidateImageLease(image).ok(),
+          "exact published image could not be leased");
+  NativeImageExport stale = image;
+  ++stale.image.generation;
+  Require(state.ValidateImageLease(stale).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "stale native image generation remained live");
+  NativeImageExport resized;
+  Require(state.AcquireImage(ImageRequest(111U, 121U, first_scene, 97U), resized).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "stale pre-resize image extent was accepted");
+  NativeImageExport mismatched;
+  NativeImageExportRequest wrong_view = ImageRequest(111U, 121U, first_scene);
+  wrong_view.view.view_from_render.elements[12U] = 1.0F;
+  Require(state.AcquireImage(wrong_view, mismatched).code ==
+              RenderOperationCode::RESOURCE_STALE,
+          "camera-mismatched raster image lease was accepted");
+  const std::shared_ptr<const SceneSnapshot> aliased_scene = Snapshot(121U);
+  Require(state.AcquireImage(ImageRequest(111U, 121U, aliased_scene),
+                             mismatched)
+              .code == RenderOperationCode::RESOURCE_STALE,
+          "snapshot-owner-mismatched raster image lease was accepted");
+
+  NativeGeometryExport geometry;
+  Require(state.AcquireGeometry(Request(111U, 121U, 2U), geometry).ok(),
+          "image frame geometry could not be leased");
+  NativeFrameSynchronization synchronization;
+  Require(state.BeginExternalFrame(111U, 121U, synchronization).ok() &&
+              synchronization.frontend_image_release_state ==
+                  NativeImageState::GENERAL_READ_WRITE &&
+              synchronization.external_image_return_state ==
+                  NativeImageState::GENERAL_READ_WRITE,
+          "image frame did not publish canonical read/write synchronization");
+  CompleteExternal(state, synchronization);
+  Require(state.EndExternalFrame(synchronization).ok(),
+          "completed image frame could not end");
+  state.ReleaseGeometry(geometry.export_id);
+  const std::shared_ptr<const SceneSnapshot> second_scene = Snapshot(122U);
+  Require(state.PublishFrame(112U, 122U, {Published(112U, 122U, 3U)},
+                             {PublishedImage(112U, 122U, second_scene, 8U, 128U)})
+              .code == RenderOperationCode::OUTSTANDING_LEASES,
+          "resize replaced an image allocation while its lease was live");
+  state.ReleaseImage(image.export_id);
+  Require(state.PublishFrame(112U, 122U, {Published(112U, 122U, 3U)},
+                             {PublishedImage(112U, 122U, second_scene, 8U, 128U)})
+              .ok(),
+          "resize could not publish after the old image lease ended");
+  Require(state.Reset().ok(), "image state reset failed");
+}
+
+} // namespace
+
+int main() {
+  try {
+    TestLifecycleAndImmutableRevision();
+    TestTransactionalPublicationAndStaleGeneration();
+    TestPreparedPublicationIsInvisibleAndAbortable();
+    TestSubmittedLeaseIsRetryableButNotAbortable();
+    TestPreSubmissionAbortAndShutdownOrder();
+    TestSubmittedDeviceLossCanDrainForTeardown();
+    TestImageLeaseResizeAndSynchronization();
+    std::cout << "Ogre-Next N2 interop state tests passed\n";
+    return EXIT_SUCCESS;
+  } catch (const std::exception &error) {
+    std::cerr << "Ogre-Next N2 interop state tests failed: " << error.what()
+              << '\n';
+    return EXIT_FAILURE;
+  }
+}

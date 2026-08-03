@@ -35,7 +35,31 @@ set(SOURCE_FILES
         gfx/GfxActor.{h,cpp}
         gfx/GfxData.{h,cpp}
         gfx/GfxScene.{h,cpp}
+        gfx/PostProcessPolicy.{h,cpp}
+        gfx/PostProcessRuntime.{h,cpp}
+        gfx/PostProcessRuntimeContract.{h,cpp}
+        gfx/RendererBackendPolicy.{h,cpp}
+        gfx/RendererStartupHandoff.{h,cpp}
+        gfx/RendererStartupPlan.{h,cpp}
         gfx/RenderDisplayMetrics.h
+        gfx/render/GraphicsSceneSnapshotProducer.{h,cpp}
+        gfx/render/HdrReference.{h,cpp}
+        gfx/render/MaterialDescriptor.{h,cpp}
+        gfx/render/ParallaxProbeReference.{h,cpp}
+        gfx/render/PbrReference.{h,cpp}
+        gfx/render/ReflectionProbeCaptureReceipt.{h,cpp}
+        gfx/render/ReflectionProbeRuntime.{h,cpp}
+        gfx/render/RenderAssetId.{h,cpp}
+        gfx/render/RenderAssetRegistry.{h,cpp}
+        gfx/render/README.md
+        gfx/render/RenderContracts.h
+        gfx/render/RenderFrame.{h,cpp}
+        gfx/render/RenderMath.h
+        gfx/render/RenderResourceDescriptors.{h,cpp}
+        gfx/render/RendererFrontend.{h,cpp}
+        gfx/render/RenderValidation.h
+        gfx/render/ResourceHandle.{h,cpp}
+        gfx/render/SceneSnapshot.{h,cpp}
         gfx/HydraxWater.{h,cpp}
         gfx/IGfxWater.h
         gfx/MovableText.{h,cpp}
@@ -167,6 +191,7 @@ set(SOURCE_FILES
         physics/DeterministicStateDigest.{h,cpp}
         physics/DeterministicStateTrace.{h,cpp}
         physics/DeterministicStateTraceCli.{h,cpp}
+        physics/FixedStepCaptureBridge.h
         physics/HydroActuatorResponse.h
         physics/ActorManager.{h,cpp}
         physics/ActorSlideNode.cpp
@@ -234,6 +259,7 @@ set(SOURCE_FILES
         resources/tobj_fileformat/TObjFileFormat.{h,cpp}
         resources/tuneup_fileformat/TuneupFileFormat.{h,cpp}
         system/AppCommandLine.cpp
+        system/CommandLineInfo.{h,cpp}
         system/AppConfig.cpp
         system/Console.{h,cpp}
         system/ConsoleCmd.{h,cpp}
@@ -267,6 +293,23 @@ set(SOURCE_FILES
         utils/memory/RefCountingObject.h
         utils/memory/RefCountingObjectPtr.h
         utils/bbcode/BBDocument.{h,cpp}
+        worldmodel/EpisodeArtifacts.{h,cpp}
+        worldmodel/EpisodeCaptureSink.{h,cpp}
+        worldmodel/EpisodeFormat.{h,cpp}
+        worldmodel/EpisodeProvenance.{h,cpp}
+        worldmodel/EpisodeValidator.{h,cpp}
+        worldmodel/EpisodeWriter.{h,cpp}
+        worldmodel/ObservationScheduler.{h,cpp}
+        worldmodel/RoRRuntimeCaptureProvider.{h,cpp}
+        worldmodel/RoRWorldModelRuntimeAdapter.{h,cpp}
+        worldmodel/WorldModelCaptureContract.{h,cpp}
+        worldmodel/WorldModelCaptureEncoding.{h,cpp}
+        worldmodel/WorldModelLiveCaptureConfig.{h,cpp}
+        worldmodel/WorldModelLiveCaptureController.{h,cpp}
+        worldmodel/WorldModelPlatformIdentity.{h,cpp}
+        worldmodel/WorldModelCaptureSession.{h,cpp}
+        worldmodel/WorldModelRuntimeBackend.{h,cpp}
+        worldmodel/WorldModelTelemetry.{h,cpp}
         )
 
 if (APPLE AND ROR_OGRE14)
@@ -319,6 +362,59 @@ include(SourceFileUtils)
 # Expand file extensions (i.e. path/to/file.{h,cpp} becomes path/to/file.h;path/to/file.cpp)
 expand_file_extensions(SOURCE_FILES ${SOURCE_FILES})
 
+# Renderer-neutral contracts must remain independent of the legacy renderer
+# PCH. Validation also relies on IEEE NaN/Inf classification in release builds,
+# where the game otherwise enables fast math globally.
+set(ROR_RENDER_CONTRACT_SOURCES
+        gfx/render/GraphicsSceneSnapshotProducer.cpp
+        gfx/render/HdrReference.cpp
+        gfx/render/MaterialDescriptor.cpp
+        gfx/render/ParallaxProbeReference.cpp
+        gfx/render/PbrReference.cpp
+        gfx/render/ReflectionProbeCaptureReceipt.cpp
+        gfx/render/ReflectionProbeRuntime.cpp
+        gfx/render/RenderAssetId.cpp
+        gfx/render/RenderAssetRegistry.cpp
+        gfx/render/RenderFrame.cpp
+        gfx/render/RenderResourceDescriptors.cpp
+        gfx/render/RendererFrontend.cpp
+        gfx/render/ResourceHandle.cpp
+        gfx/render/SceneSnapshot.cpp
+        )
+set_source_files_properties(
+        ${ROR_RENDER_CONTRACT_SOURCES}
+        PROPERTIES
+        SKIP_PRECOMPILE_HEADERS ON
+        )
+set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
+        gfx/render/GraphicsSceneSnapshotProducer.cpp
+        gfx/render/HdrReference.cpp
+        gfx/render/MaterialDescriptor.cpp
+        gfx/render/ParallaxProbeReference.cpp
+        gfx/render/PbrReference.cpp
+        gfx/render/ReflectionProbeCaptureReceipt.cpp
+        gfx/render/ReflectionProbeRuntime.cpp
+        gfx/render/RenderAssetId.cpp
+        gfx/render/RenderAssetRegistry.cpp
+        gfx/render/RenderFrame.cpp
+        gfx/render/RenderResourceDescriptors.cpp
+        gfx/render/RendererFrontend.cpp
+        gfx/render/SceneSnapshot.cpp
+        )
+if (MSVC)
+    set_source_files_properties(
+            ${ROR_RENDER_CONTRACT_STRICT_FP_SOURCES}
+            PROPERTIES
+            COMPILE_OPTIONS "/fp:strict"
+            )
+else ()
+    set_source_files_properties(
+            ${ROR_RENDER_CONTRACT_STRICT_FP_SOURCES}
+            PROPERTIES
+            COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off"
+            )
+endif ()
+
 # Authenticated input traces inspect and preserve exact IEEE-754 object
 # representations. Keep this small, non-solver boundary precise even when the
 # release game enables fast math globally; otherwise MSVC may assume that
@@ -342,6 +438,31 @@ else ()
             COMPILE_OPTIONS "-fno-fast-math"
             SKIP_PRECOMPILE_HEADERS ON
             )
+endif ()
+
+# The game uses fast-math in optimized builds, but recorder admission depends
+# on IEEE NaN/Inf and signed-zero checks. Keep the validation boundary strict
+# in every configuration so a release build cannot serialize hostile values.
+set(WORLDMODEL_STRICT_FP_SOURCES
+        worldmodel/RoRRuntimeCaptureProvider.cpp
+        worldmodel/WorldModelCaptureSession.cpp
+        worldmodel/WorldModelCaptureEncoding.cpp
+        worldmodel/WorldModelTelemetry.cpp
+        )
+if (MSVC)
+    set_source_files_properties(
+        ${WORLDMODEL_STRICT_FP_SOURCES}
+        PROPERTIES
+            COMPILE_OPTIONS "/fp:strict"
+            SKIP_PRECOMPILE_HEADERS ON
+    )
+else ()
+    set_source_files_properties(
+        ${WORLDMODEL_STRICT_FP_SOURCES}
+        PROPERTIES
+            COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off"
+            SKIP_PRECOMPILE_HEADERS ON
+    )
 endif ()
 
 # Generate source groups for use in IDEs
@@ -469,6 +590,7 @@ target_include_directories(${BINNAME} PRIVATE
         utils
         utils/memory
         utils/bbcode
+        worldmodel
         )
 
 
@@ -624,8 +746,10 @@ if (ROR_OGRE14)
     # Conan CMakeDeps exposes one immutable package root per build
     # configuration. Never derive an aggregate root from OGRE_INCLUDE_DIRS:
     # multi-config generation intentionally carries both package variants.
-    set(_ror_ogre14_package_root
-        "${_ror_ogre14_package_MEDIA}")
+    ror_ogre14_media_root(
+        _ror_ogre14_media_root
+        "${_ror_ogre14_package_MEDIA}"
+        "${CMAKE_SYSTEM_NAME}")
     set(_ror_ogre14_plugin_dir_RELEASE
         "${_ror_ogre14_package_RELEASE}/${_ror_ogre14_runtime_PACKAGE_PLUGIN_SUBDIR}")
     set(_ror_ogre14_plugin_dir_DEBUG
@@ -716,17 +840,11 @@ if (ROR_OGRE14)
     # shipped by the pinned OGRE package instead of carrying stale third-party
     # copies in the source tree.
     set(_ror_ogre14_main_media
-        "${_ror_ogre14_package_root}/Media/Main")
+        "${_ror_ogre14_media_root}/Main")
     set(_ror_ogre14_rtshader_media
-        "${_ror_ogre14_package_root}/Media/RTShaderLib")
+        "${_ror_ogre14_media_root}/RTShaderLib")
     set(_ror_ogre14_terrain_media
-        "${_ror_ogre14_package_root}/Media/Terrain")
-    if (NOT IS_DIRECTORY "${_ror_ogre14_main_media}" OR
-        NOT IS_DIRECTORY "${_ror_ogre14_rtshader_media}" OR
-        NOT IS_DIRECTORY "${_ror_ogre14_terrain_media}")
-        message(FATAL_ERROR
-            "The pinned OGRE 14 package is missing Main, RTShaderLib, or Terrain media")
-    endif ()
+        "${_ror_ogre14_media_root}/Terrain")
 
     file(MAKE_DIRECTORY
         "${RUNTIME_OUTPUT_DIRECTORY}/resources/ogre14/Main"
@@ -961,7 +1079,7 @@ else ()
 endif ()
 
 if (ROR_OGRE14)
-    unset(_ror_ogre14_package_root)
+    unset(_ror_ogre14_media_root)
     unset(_ror_ogre14_package_RELEASE)
     unset(_ror_ogre14_package_DEBUG)
     unset(_ror_ogre14_package_MEDIA)

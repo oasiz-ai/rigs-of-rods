@@ -32,6 +32,9 @@ import bpy
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 BASE_GENERATOR_PATH = SCRIPT_DIRECTORY / "generate_bridge_kit.py"
 CANONICALIZER_PATH = SCRIPT_DIRECTORY / "canonicalize_static_glb.py"
+STOREFRONT_CANONICALIZER_PATH = (
+    SCRIPT_DIRECTORY / "canonicalize_storefront_glb.py"
+)
 RETENTION_CONTRACT_PATH = SCRIPT_DIRECTORY / "artifact_retention_contract.py"
 BASE_SPEC = importlib.util.spec_from_file_location(
     "rorng_storefront_helpers",
@@ -49,6 +52,19 @@ if CANONICALIZER_SPEC is None or CANONICALIZER_SPEC.loader is None:
     raise RuntimeError("cannot load the static GLB canonicalizer")
 CANONICALIZER = importlib.util.module_from_spec(CANONICALIZER_SPEC)
 CANONICALIZER_SPEC.loader.exec_module(CANONICALIZER)
+STOREFRONT_CANONICALIZER_SPEC = importlib.util.spec_from_file_location(
+    "rorng_storefront_index_canonicalizer",
+    STOREFRONT_CANONICALIZER_PATH,
+)
+if (
+    STOREFRONT_CANONICALIZER_SPEC is None
+    or STOREFRONT_CANONICALIZER_SPEC.loader is None
+):
+    raise RuntimeError("cannot load the storefront index canonicalizer")
+STOREFRONT_CANONICALIZER = importlib.util.module_from_spec(
+    STOREFRONT_CANONICALIZER_SPEC
+)
+STOREFRONT_CANONICALIZER_SPEC.loader.exec_module(STOREFRONT_CANONICALIZER)
 RETENTION_SPEC = importlib.util.spec_from_file_location(
     "rorng_storefront_artifact_retention",
     RETENTION_CONTRACT_PATH,
@@ -61,6 +77,7 @@ RETENTION_SPEC.loader.exec_module(RETENTION)
 AUTHORING_DEPENDENCY_PATHS = (
     BASE_GENERATOR_PATH,
     CANONICALIZER_PATH,
+    STOREFRONT_CANONICALIZER_PATH,
     RETENTION_CONTRACT_PATH,
 )
 
@@ -1338,8 +1355,10 @@ def generate_variant(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
         use_selection=True,
         use_visible=False,
     )
+    STOREFRONT_CANONICALIZER.canonicalize_storefront_structure(candidate_glb)
     CANONICALIZER.canonicalize_glb_geometry(candidate_glb)
     canonicalize_textureless_texcoords(candidate_glb)
+    STOREFRONT_CANONICALIZER.canonicalize_storefront_indices(candidate_glb)
 
     for obj in [lod_objects[1], lod_objects[2], *collision_objects]:
         obj.hide_render = True

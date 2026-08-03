@@ -65,11 +65,189 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <vector>
 #include <fstream>
 
 #ifdef USE_CURL
 #   include <curl/curl.h>
 #endif //USE_CURL
+
+namespace
+{
+
+void ReleaseWindowBoundRuntime(
+    Ogre::OverlaySystem*& overlay_system) noexcept
+{
+    using namespace RoR;
+
+    const bool had_window_bound_state =
+        App::GetInputEngine() != nullptr ||
+        App::GetGuiManager() != nullptr ||
+        overlay_system != nullptr;
+    bool clean_release = true;
+
+    clean_release =
+        App::GetAppContext()->DetachRenderWindowEvents() && clean_release;
+    try
+    {
+        if (App::GetInputEngine() != nullptr)
+        {
+            App::DestroyInputEngine();
+        }
+    }
+    catch (...)
+    {
+        clean_release = false;
+    }
+    try
+    {
+        if (App::GetGuiManager() != nullptr)
+        {
+            App::GetGuiManager()->ShutdownMyGUI();
+        }
+    }
+    catch (...)
+    {
+        clean_release = false;
+    }
+    try
+    {
+        if (overlay_system != nullptr)
+        {
+            if (App::GetGfxScene()->GetSceneManager() != nullptr)
+            {
+                App::GetGfxScene()->GetSceneManager()
+                    ->removeRenderQueueListener(overlay_system);
+            }
+            delete overlay_system;
+            overlay_system = nullptr;
+        }
+    }
+    catch (...)
+    {
+        clean_release = false;
+    }
+
+    if (had_window_bound_state)
+    {
+        LOG(clean_release
+            ? "[RoR|Shutdown] Window-bound runtime integrations released"
+            : "[RoR|Shutdown] ERROR releasing window-bound runtime integrations");
+    }
+}
+
+void ReleaseWorkerRuntime() noexcept
+{
+    using namespace RoR;
+
+    const bool had_general_workers = App::GetThreadPool() != nullptr;
+    bool clean_release =
+        App::GetGameContext()->GetActorManager()->ShutdownWorkerRuntime();
+    clean_release = App::DestroyThreadPool() && clean_release;
+
+    if (had_general_workers && Ogre::LogManager::getSingletonPtr() != nullptr)
+    {
+        try
+        {
+            LOG(clean_release
+                ? "[RoR|Shutdown] Physics and graphics worker pools released"
+                : "[RoR|Shutdown] ERROR releasing physics and graphics worker pools");
+        }
+        catch (...)
+        {
+            // Final shutdown must not throw from a diagnostic path.
+        }
+    }
+}
+
+void ReleaseRendererRuntime() noexcept
+{
+    using namespace RoR;
+
+    const bool had_renderer_root =
+        App::GetAppContext()->GetOgreRoot() != nullptr;
+    bool clean_release = App::GetGfxScene()->GetEnvMap().Shutdown();
+
+    if (had_renderer_root && Ogre::LogManager::getSingletonPtr() != nullptr)
+    {
+        try
+        {
+            LOG(clean_release
+                ? "[RoR|Shutdown] Environment map shutdown returned"
+                : "[RoR|Shutdown] ERROR environment map shutdown returned");
+        }
+        catch (...)
+        {
+            clean_release = false;
+        }
+    }
+
+    clean_release =
+        App::GetAppContext()->ShutdownRendering() && clean_release;
+    if (had_renderer_root && Ogre::LogManager::getSingletonPtr() != nullptr)
+    {
+        try
+        {
+            LOG(clean_release
+                ? "[RoR|Shutdown] Renderer runtime released"
+                : "[RoR|Shutdown] ERROR releasing renderer runtime");
+        }
+        catch (...)
+        {
+            // The native smoke requires this marker and remains fail-closed.
+        }
+    }
+}
+
+class WindowBoundRuntimeGuard
+{
+public:
+    explicit WindowBoundRuntimeGuard(Ogre::OverlaySystem*& overlay_system):
+        m_overlay_system(overlay_system)
+    {
+    }
+
+    ~WindowBoundRuntimeGuard()
+    {
+        ReleaseWindowBoundRuntime(m_overlay_system);
+    }
+
+    WindowBoundRuntimeGuard(const WindowBoundRuntimeGuard&) = delete;
+    WindowBoundRuntimeGuard& operator=(const WindowBoundRuntimeGuard&) = delete;
+
+private:
+    Ogre::OverlaySystem*& m_overlay_system;
+};
+
+class WorkerRuntimeGuard
+{
+public:
+    WorkerRuntimeGuard() = default;
+
+    ~WorkerRuntimeGuard()
+    {
+        ReleaseWorkerRuntime();
+    }
+
+    WorkerRuntimeGuard(const WorkerRuntimeGuard&) = delete;
+    WorkerRuntimeGuard& operator=(const WorkerRuntimeGuard&) = delete;
+};
+
+class RendererRuntimeGuard
+{
+public:
+    RendererRuntimeGuard() = default;
+
+    ~RendererRuntimeGuard()
+    {
+        ReleaseRendererRuntime();
+    }
+
+    RendererRuntimeGuard(const RendererRuntimeGuard&) = delete;
+    RendererRuntimeGuard& operator=(const RendererRuntimeGuard&) = delete;
+};
+
+} // namespace
 
 #ifdef __cplusplus
 extern "C" {
@@ -82,6 +260,13 @@ int main(int argc, char *argv[])
 #ifdef USE_CURL
     curl_global_init(CURL_GLOBAL_ALL); // MUST init before any threads are started
 #endif
+
+    Ogre::OverlaySystem* overlay_system = nullptr;
+    // Local guards unwind in reverse order: workers, window integrations,
+    // then the renderer while all process-static listeners remain alive.
+    RendererRuntimeGuard renderer_runtime_guard;
+    WindowBoundRuntimeGuard window_bound_runtime_guard(overlay_system);
+    WorkerRuntimeGuard worker_runtime_guard;
 
 #ifndef _DEBUG
     try
@@ -186,7 +371,7 @@ int main(int argc, char *argv[])
             return -1; // Error already displayed
         }
 
-        Ogre::OverlaySystem* overlay_system = new Ogre::OverlaySystem(); //Overlay init
+        overlay_system = new Ogre::OverlaySystem(); //Overlay init
 
         Ogre::ConfigOptionMap ropts = App::GetAppContext()->GetOgreRoot()->getRenderSystem()->getConfigOptions();
         int resolution = Ogre::StringConverter::parseInt(Ogre::StringUtil::split(ropts["Video Mode"].currentValue, " x ")[0], 1024);
@@ -206,9 +391,44 @@ int main(int argc, char *argv[])
         if (!App::diag_warning_texture->getBool())
         {
             // We overwrite the default warning texture (yellow stripes) with something unobtrusive
-            Ogre::uchar data[3] = {0};
-            Ogre::PixelBox pixels(1, 1, 1, Ogre::PF_BYTE_RGB, &data);
-            Ogre::TextureManager::getSingleton()._getWarningTexture()->getBuffer()->blitFromMemory(pixels);
+            // D3D11 does not scale blitFromMemory uploads, so the source box
+            // must exactly match the renderer-owned warning texture.
+            Ogre::HardwarePixelBufferSharedPtr warning_buffer =
+                Ogre::TextureManager::getSingleton()
+                    ._getWarningTexture()->getBuffer();
+            const size_t warning_width = warning_buffer->getWidth();
+            const size_t warning_height = warning_buffer->getHeight();
+            const size_t warning_depth = warning_buffer->getDepth();
+            const Ogre::PixelFormat warning_format =
+                warning_buffer->getFormat();
+            const size_t warning_bytes =
+                Ogre::PixelUtil::getMemorySize(
+                    warning_width,
+                    warning_height,
+                    warning_depth,
+                    warning_format);
+            if (warning_width == 0 ||
+                warning_height == 0 ||
+                warning_depth == 0 ||
+                warning_bytes == 0)
+            {
+                LOG("[RoR|Startup|Rendering] WARNING - cannot replace "
+                    "the renderer warning texture because its storage "
+                    "contract is empty");
+            }
+            else
+            {
+                std::vector<Ogre::uchar> warning_data(
+                    warning_bytes,
+                    static_cast<Ogre::uchar>(0));
+                Ogre::PixelBox warning_pixels(
+                    warning_width,
+                    warning_height,
+                    warning_depth,
+                    warning_format,
+                    warning_data.data());
+                warning_buffer->blitFromMemory(warning_pixels);
+            }
         }
 
         App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::FLAGS);
@@ -380,6 +600,13 @@ int main(int argc, char *argv[])
             while (App::GetGameContext()->HasMessages())
             {
                 Message m = App::GetGameContext()->PopMessage();
+                if (App::IsWorldModelCaptureActive() &&
+                    App::WorldModelCaptureMessageRequiresAbort(m.type))
+                {
+                    App::AbortWorldModelCapture(
+                        std::string("game message: ") +
+                        MsgTypeToString(m.type));
+                }
                 bool failed_m = false;
                 switch (m.type)
                 {
@@ -1022,6 +1249,7 @@ int main(int argc, char *argv[])
 
                         if (App::GetGameContext()->LoadTerrain(m.description))
                         {
+                            App::GetAppContext()->BeginPostProcessScene();
                             App::GetGameContext()->CreatePlayerCharacter();
                             // Spawn preselected vehicle; commandline has precedence
                             if (App::cli_preset_vehicle->getStr() != "")
@@ -1090,6 +1318,7 @@ int main(int argc, char *argv[])
                 {
                     try
                     {
+                        App::GetAppContext()->EndPostProcessScene();
                         if (App::sim_state->getEnum<SimState>() == SimState::EDITOR_MODE)
                         {
                             App::GetGameContext()->GetTerrain()->GetTerrainEditor()->WriteSeparateOutputFile();
@@ -1113,8 +1342,10 @@ int main(int argc, char *argv[])
                         App::sim_terrain_name->setStr("");
                         App::sim_terrain_gui_name->setStr("");
                         App::GetOutGauge()->Close();
+#ifdef USE_OPENAL
                         App::GetSoundScriptManager()->SetListener(/*position:*/Ogre::Vector3::ZERO, /*direction:*/Ogre::Vector3::ZERO, /*up:*/Ogre::Vector3::UNIT_Y, /*velocity:*/Ogre::Vector3::ZERO);
                         App::GetSoundScriptManager()->getSoundManager()->CleanUp();
+#endif // USE_OPENAL
                         App::GetGameContext()->GetRaceSystem().ResetRaceUI();
                     }
                     catch (...)
@@ -2037,6 +2268,15 @@ int main(int argc, char *argv[])
                 default:;
                 }
 
+                // Once shutdown is committed, leave any remaining raw-payload
+                // messages undispatched. Process exit owns those allocations;
+                // invoking their GUI/input/render callbacks after SHUTDOWN is
+                // unsafe and was the source of the Win32 fast-fail path.
+                if (App::app_state->getEnum<AppState>() == AppState::SHUTDOWN)
+                {
+                    break;
+                }
+
                 // Process chained messages
                 if (!failed_m)
                 {
@@ -2048,6 +2288,24 @@ int main(int argc, char *argv[])
 
             } // Game events block
             OgreProfileEnd("RoR message queue");
+
+            // A shutdown request is handled inside the queue above. Do not run
+            // input, script, GUI, or renderer callbacks for a state that has
+            // already transitioned to SHUTDOWN. In particular, the Win32
+            // D3D11/OIS stack must not receive one more frame after the quit
+            // message has been committed.
+            if (App::app_state->getEnum<AppState>() == AppState::SHUTDOWN)
+            {
+                LOG("[RoR|Shutdown] Leaving the main loop after the shutdown message");
+                break;
+            }
+
+            // Arm only after the message queue has created and seated the
+            // startup truck. Admission requires this still to be a fresh
+            // joined scene at global physics step zero.
+            App::UpdateWorldModelCaptureRequest();
+            const bool world_model_capture_frame =
+                App::WorldModelCaptureOwnsSimulationLoop();
 
             // Check FPS limit
             if (App::gfx_fps_limit->getInt() > 0)
@@ -2069,7 +2327,8 @@ int main(int argc, char *argv[])
 
 #ifdef USE_SOCKETW
             // Process incoming network traffic
-            if (App::mp_state->getEnum<MpState>() == MpState::CONNECTED)
+            if (!world_model_capture_frame &&
+                App::mp_state->getEnum<MpState>() == MpState::CONNECTED)
             {
                 std::vector<RoR::NetRecvPacket> packets = App::GetNetwork()->GetIncomingStreamData();
                 if (!packets.empty())
@@ -2086,7 +2345,8 @@ int main(int argc, char *argv[])
 
             // Set arcade controls and hydro coupling settings for player actors
             // Default to false for other actors.
-            if (App::app_state->getEnum<AppState>() == AppState::SIMULATION)
+            if (!world_model_capture_frame &&
+                App::app_state->getEnum<AppState>() == AppState::SIMULATION)
             {
                 ActorPtr player_actor = App::GetGameContext()->GetPlayerActor();
                 for (ActorPtr actor : App::GetGameContext()->GetActorManager()->GetActors())
@@ -2099,7 +2359,15 @@ int main(int argc, char *argv[])
 
             // Process input events
             OgreProfileBegin("Input processing");
-            if (dt != 0.f)
+            if (world_model_capture_frame)
+            {
+                // Capture owns the simulation scheduler and samples devices
+                // exactly once before its single 48 Hz transition. The owned
+                // batch advances input-bounce time once; no GUI, sky, actor,
+                // or script input mutator runs on this path.
+                App::GetInputEngine()->Capture();
+            }
+            else if (dt != 0.f)
             {
                 App::GetInputEngine()->Capture();
                 App::GetInputEngine()->updateKeyBounces(dt);
@@ -2172,8 +2440,14 @@ int main(int argc, char *argv[])
             } // dt != 0
             OgreProfileEnd("Input processing");
 
+            if (world_model_capture_frame)
+            {
+                App::CaptureWorldModelControlledFrame();
+            }
+
             // Update OutGauge device
-            if (App::io_outgauge_mode->getInt() > 0)
+            if (!world_model_capture_frame &&
+                App::io_outgauge_mode->getInt() > 0)
             {
                 OgreProfile("OutGauge");
                 App::GetOutGauge()->Update(dt, App::GetGameContext()->GetPlayerActor());
@@ -2181,7 +2455,8 @@ int main(int argc, char *argv[])
 
             // Early GUI updates which require halted physics
             App::GetGuiManager()->NewImGuiFrame(dt);
-            if (App::app_state->getEnum<AppState>() == AppState::SIMULATION)
+            if (!world_model_capture_frame &&
+                App::app_state->getEnum<AppState>() == AppState::SIMULATION)
             {
                 OgreProfile("Scene and GUI");
                 App::GetGuiManager()->DrawSimulationGui(dt);
@@ -2215,11 +2490,13 @@ int main(int argc, char *argv[])
 
 #ifdef USE_ANGELSCRIPT
             OgreProfileBegin("Scripting");
-            App::GetScriptEngine()->framestep(dt);
+            if (!world_model_capture_frame)
+                App::GetScriptEngine()->framestep(dt);
             OgreProfileEnd("Scripting");
 #endif // USE_ANGELSCRIPT
 
-            if (App::io_ffb_enabled->getBool() &&
+            if (!world_model_capture_frame &&
+                App::io_ffb_enabled->getBool() &&
                 App::sim_state->getEnum<SimState>() == SimState::RUNNING)
             {
                 OgreProfile("Force Feedback");
@@ -2227,7 +2504,8 @@ int main(int argc, char *argv[])
             }
 
             OgreProfileBegin("Simulation");
-            if (App::sim_state->getEnum<SimState>() == SimState::RUNNING)
+            if (!world_model_capture_frame &&
+                App::sim_state->getEnum<SimState>() == SimState::RUNNING)
             {
                 App::GetGameContext()->GetSceneMouse().UpdateSimulation();
             }
@@ -2242,13 +2520,16 @@ int main(int argc, char *argv[])
 
             // Calculate elapsed simulation time (taking simulation speed and pause into account)
             float dt_sim = 0.f;
-            if (App::sim_state->getEnum<SimState>() == SimState::RUNNING && !App::GetGameContext()->GetActorManager()->IsSimulationPaused())
+            if (!world_model_capture_frame &&
+                App::sim_state->getEnum<SimState>() == SimState::RUNNING &&
+                !App::GetGameContext()->GetActorManager()->IsSimulationPaused())
             {
                 dt_sim = dt * App::GetGameContext()->GetActorManager()->GetSimulationSpeed();
             }
 
             // Advance simulation
-            if (App::sim_state->getEnum<SimState>() == SimState::RUNNING)
+            if (!world_model_capture_frame &&
+                App::sim_state->getEnum<SimState>() == SimState::RUNNING)
             {
                 if (App::GetGameContext()->GetTerrain()->getWater())
                 {
@@ -2280,6 +2561,7 @@ int main(int argc, char *argv[])
             }
             else
             {
+                App::GetAppContext()->MaintainPostProcessSceneOrder();
                 App::GetAppContext()->GetOgreRoot()->renderOneFrame();
                 if (!render_window->isActive() && render_window->isVisible())
                 {
@@ -2287,21 +2569,26 @@ int main(int argc, char *argv[])
                 }
             } // Render block
 
-            App::GetGuiManager()->ApplyGuiCaptureKeyboard();
+            if (!world_model_capture_frame)
+                App::GetGuiManager()->ApplyGuiCaptureKeyboard();
 
             App::GetGuiManager()->UpdateMouseCursorVisibility();
 
         } // End of main rendering/input loop
 
+        App::ShutdownWorldModelCapture();
+
 #ifndef _DEBUG
     }
     catch (Ogre::Exception& e)
     {
+        App::ShutdownWorldModelCapture();
         LOG(e.getFullDescription());
         ErrorUtils::ShowError(_L("An exception has occured!"), e.getFullDescription());
     }
     catch (std::runtime_error& e)
     {
+        App::ShutdownWorldModelCapture();
         LOG(e.what());
         ErrorUtils::ShowError(_L("An exception (std::runtime_error) has occured!"), e.what());
     }

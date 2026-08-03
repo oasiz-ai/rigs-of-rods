@@ -26,6 +26,7 @@
 
 #include "Application.h"
 #include "CmdKeyInertia.h"
+#include "FixedStepCaptureBridge.h"
 #include "Network.h"
 #include "RigDef_Prerequisites.h"
 #include "ScriptEvents.h"
@@ -83,7 +84,38 @@ public:
 
     void           UpdateActors(ActorPtr player_actor);
     void           SyncWithSimThread();
+    /// Stop and join the private physics worker before renderer/static
+    /// lifetime teardown. Idempotent and reserved for final app shutdown.
+    bool           ShutdownWorkerRuntime() noexcept;
     void           UpdatePhysicsSimulation();
+    /// Suspend normal render-frame scheduling and grant one exact-step runtime
+    /// exclusive ownership of this ActorManager. The opaque token prevents a
+    /// second adapter for the same Actor from releasing the active owner.
+    bool           AcquireFixedStepCaptureOwnership(
+                       const void* owner_token,
+                       ActorPtr player_actor);
+    void           ReleaseFixedStepCaptureOwnership(
+                       const void* owner_token) noexcept;
+    bool           HasFixedStepCaptureOwnership(
+                       const void* owner_token) const
+                   {
+                       return owner_token != nullptr &&
+                           m_fixed_step_capture_owner == owner_token;
+                   }
+    /// Advance one bounded batch independently of wall-clock scheduling.
+    ///
+    /// The method waits for prior physics, prepares resolved Actor/Engine
+    /// controls once for the exact authored duration, invokes `observer` at
+    /// every fixed-step start, schedules exactly `fixed_step_count` 2 kHz
+    /// steps, and joins before returning. Observer rejection is reported only
+    /// after the complete batch has drained.
+    FixedStepCaptureBridge::BatchResult
+                   AdvanceFixedStepsForCapture(
+                       const void* owner_token,
+                       ActorPtr player_actor,
+                       std::uint32_t fixed_step_count,
+                       FixedStepCaptureBridge::
+                           AppliedInputObserver& observer);
     void           WakeUpAllActors();
     void           SendAllActorsSleeping();
     void           SetTrucksForcedAwake(bool forced)       { m_forced_awake = forced; };
@@ -149,6 +181,15 @@ private:
     void           ForwardCommands(ActorPtr source_actor); //!< Fowards things to trailers
     void           UpdateTruckFeatures(ActorPtr vehicle, float dt);
     void           CalcFreeForces();                             //!< Apply FreeForces - intentionally as a separate pass over all actors
+    void           RunPhysicsStepBatch(
+                       ActorPtr player_actor,
+                       float dt,
+                       FixedStepCaptureBridge::
+                           ObservationBatch* observation_batch,
+                       bool force_join);
+    void           UpdatePhysicsSimulation(
+                       FixedStepCaptureBridge::
+                           ObservationBatch* observation_batch);
     bool           PrepareDeterministicStateTraceStep();
     void           CaptureDeterministicStateTraceStep(
                        bool contact_capture_succeeded);
@@ -174,6 +215,8 @@ private:
     bool                m_simulation_paused      = false;
     float               m_total_sim_time         = 0.f;
     std::uint64_t       m_completed_physics_steps = 0; //!< Canonical fixed-step index across one loaded simulation
+    const void*         m_fixed_step_capture_owner = nullptr; //!< Non-null suspends normal frame scheduling
+    ActorPtr            m_fixed_step_capture_player; //!< Player identity admitted with the opaque owner token
     std::uint64_t       m_inter_contact_fallback_count = 0; //!< Logged at powers of two to expose pathological contact sets without per-step spam
     std::unique_ptr<InterActorContactBufferPool> m_inter_contact_buffers; //!< Reused bounded task storage; avoids allocating at 2 kHz
     std::unique_ptr<DeterministicStateTraceRuntime> m_deterministic_state_trace; //!< Allocates/captures only while the opt-in trace is active

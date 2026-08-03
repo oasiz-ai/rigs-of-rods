@@ -738,6 +738,444 @@ class CityWorldInfillTests(unittest.TestCase):
             decoded["provenance"]["project_authored_assets_only"]
         )
 
+    def test_v3_fabric_contract_is_explicit_and_v2_compatible(self) -> None:
+        legacy = INFILL.build_manifest(self.plan)
+        v3 = INFILL.build_manifest(
+            self.plan,
+            schema_version=INFILL.V3_VERSION,
+        )
+        self.assertEqual(legacy["format"], INFILL.FORMAT)
+        self.assertEqual(legacy["version"], INFILL.VERSION)
+        self.assertIn("connectors", legacy)
+        self.assertNotIn("site_fabrics", legacy)
+        self.assertEqual(
+            INFILL.canonical_manifest_sha256(self.plan),
+            "735fca0fd917763cdfe02d8d3cbd7871ebd7f4feb3ccf4fc73771de9c9c0c0af",
+        )
+        legacy_only_plan = INFILL.InfillPlan(
+            assets=self.plan.assets,
+            sites=self.plan.sites,
+            source_anchors=self.plan.source_anchors,
+            routes=self.plan.routes,
+            placements=self.plan.placements,
+            connectors=self.plan.connectors,
+        )
+        self.assertEqual(
+            INFILL.canonical_manifest_bytes(legacy_only_plan),
+            INFILL.canonical_manifest_bytes(self.plan),
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "site-fabric schedule is not one-to-one",
+        ):
+            INFILL.build_manifest(
+                legacy_only_plan,
+                schema_version=INFILL.V3_VERSION,
+            )
+
+        self.assertEqual(v3["format"], INFILL.V3_FORMAT)
+        self.assertEqual(v3["version"], INFILL.V3_VERSION)
+        self.assertNotIn("connectors", v3)
+        self.assertEqual(
+            v3["route_gateway_connectors"]["role"],
+            "five-existing-route-to-authored-asset-gateway-seams",
+        )
+        self.assertEqual(
+            len(v3["route_gateway_connectors"]["contracts"]),
+            5,
+        )
+        self.assertEqual(
+            v3["fabric_parcel_connectors"]["role"],
+            "thirty-two-site-fabric-to-built-parcel-seams",
+        )
+        self.assertEqual(
+            len(v3["fabric_parcel_connectors"]["contracts"]),
+            32,
+        )
+        self.assertEqual(len(v3["site_fabrics"]["records"]), 8)
+        self.assertEqual(
+            sum(
+                len(record["land_treatments"])
+                for record in v3["site_fabrics"]["records"]
+            ),
+            24,
+        )
+        self.assertEqual(
+            sum(
+                len(record["prop_clusters"])
+                for record in v3["site_fabrics"]["records"]
+            ),
+            24,
+        )
+        self.assertEqual(
+            len(v3["placement_variants"]["selections"]),
+            46,
+        )
+        self.assertEqual(
+            INFILL.canonical_v3_manifest_bytes(self.plan),
+            INFILL.canonical_manifest_bytes(
+                self.plan,
+                schema_version=INFILL.V3_VERSION,
+            ),
+        )
+        self.assertEqual(
+            INFILL.canonical_v3_manifest_sha256(self.plan),
+            "f3f010ad10174f49ae17ddc66e503a26b2abc30940b3f6f4bba958b9fb7c1bb8",
+        )
+
+    def test_v3_site_fabric_coverage_and_empty_region_gates(self) -> None:
+        audit = INFILL.audit_plan(
+            self.plan,
+            schema_version=INFILL.V3_VERSION,
+        )
+        records = {
+            record["site_id"]: record
+            for record in audit["site_fabrics"]["records"]
+        }
+        self.assertEqual(set(records), {
+            site.site_id for site in self.plan.sites
+        })
+        for site in self.plan.sites:
+            with self.subTest(site=site.site_id):
+                record = records[site.site_id]
+                minimum = (
+                    INFILL.FABRIC_COVERAGE_TARGET_BASIS_POINTS[
+                        site.category
+                    ]
+                )
+                self.assertEqual(
+                    record["minimum_coverage_basis_points"],
+                    minimum,
+                )
+                self.assertGreaterEqual(
+                    record["authored_coverage_basis_points"],
+                    minimum,
+                )
+                self.assertEqual(
+                    record["coverage_grid"]["grid_size_m"],
+                    (
+                        96.0
+                        if site.category == "natural-landmark"
+                        else 64.0
+                    ),
+                )
+                self.assertGreater(
+                    record["coverage_grid"]["qualifying_cell_count"],
+                    0,
+                )
+                self.assertEqual(
+                    record["coverage_grid"]["uncovered_cell_count"],
+                    0,
+                )
+                self.assertEqual(
+                    record["coverage_grid"][
+                        "largest_empty_region_cell_count"
+                    ],
+                    0,
+                )
+                self.assertEqual(
+                    record["coverage_grid"][
+                        "largest_empty_region_area_m2"
+                    ],
+                    0.0,
+                )
+
+        self.assertEqual(
+            {
+                site_id: records[site_id]["authored_coverage_percent"]
+                for site_id in records
+            },
+            {
+                "arroyo-vista": 100.0,
+                "coyote-arch": 100.0,
+                "intercity-farm": 100.0,
+                "intercity-service": 100.0,
+                "sagebrush-arroyo": 100.0,
+                "sunset-courts": 100.0,
+                "west-farm-belt": 100.0,
+                "west-highway-service": 100.0,
+            },
+        )
+
+    def test_v3_variant_balance_and_adjacency_are_deterministic(self) -> None:
+        audit = INFILL.audit_plan(
+            self.plan,
+            schema_version=INFILL.V3_VERSION,
+        )
+        variant_audit = audit["placement_variants"]
+        self.assertEqual(variant_audit["selection_count"], 46)
+        self.assertEqual(
+            variant_audit[
+                "adjacent_built_variant_yaw_conflict_count"
+            ],
+            0,
+        )
+        for asset_id, expected_counts in (
+            INFILL.EXPECTED_VARIANT_COUNTS_BY_ASSET.items()
+        ):
+            variants = INFILL.VARIANT_FAMILY_BY_ASSET[asset_id]
+            with self.subTest(asset=asset_id):
+                self.assertEqual(
+                    tuple(
+                        variant_audit["counts_by_asset"][asset_id][variant]
+                        for variant in variants
+                    ),
+                    expected_counts,
+                )
+
+        selections = {
+            selection.placement_id: selection
+            for selection in self.plan.placement_variants
+        }
+        built = [
+            placement
+            for placement in self.plan.placements
+            if INFILL.ASSET_BY_ID[placement.asset_id].category
+            in INFILL.BUILT_PARCEL_CATEGORIES
+        ]
+        for index, first in enumerate(built):
+            for second in built[index + 1:]:
+                if (
+                    INFILL.placements_are_adjacent(first, second)
+                    and INFILL._same_yaw(first, second)
+                ):
+                    self.assertNotEqual(
+                        selections[first.placement_id].variant_id,
+                        selections[second.placement_id].variant_id,
+                    )
+        self.assertEqual(
+            self.plan.placement_variants,
+            INFILL._build_placement_variant_schedule(
+                self.plan.placements
+            ),
+        )
+
+    def test_v3_has_one_exact_fabric_seam_per_built_parcel(self) -> None:
+        audit = INFILL.audit_plan(
+            self.plan,
+            schema_version=INFILL.V3_VERSION,
+        )
+        fabric_connectors = audit["fabric_parcel_connectors"]
+        built_placement_ids = {
+            placement.placement_id
+            for placement in self.plan.placements
+            if INFILL.ASSET_BY_ID[placement.asset_id].category
+            in INFILL.BUILT_PARCEL_CATEGORIES
+        }
+        connector_placement_ids = {
+            connector.placement_id
+            for connector in self.plan.fabric_parcel_connectors
+        }
+        self.assertEqual(len(built_placement_ids), 32)
+        self.assertEqual(connector_placement_ids, built_placement_ids)
+        self.assertEqual(fabric_connectors["active"], 32)
+        self.assertEqual(fabric_connectors["built_parcel_count"], 32)
+        self.assertTrue(fabric_connectors["complete"])
+        self.assertEqual(fabric_connectors["pending"], 0)
+        self.assertEqual(
+            fabric_connectors["maximum_allowed_seam_gap_m"],
+            0.0,
+        )
+        self.assertEqual(
+            fabric_connectors["maximum_observed_active_seam_gap_m"],
+            0.0,
+        )
+        self.assertTrue(
+            all(
+                record["seam_gap_m"] == 0.0
+                and record["status"] == "active"
+                for record in fabric_connectors["contracts"]
+            )
+        )
+
+    def test_v3_hostile_fabric_data_fails_closed(self) -> None:
+        farm = self.plan.site_fabrics[0]
+        first_treatment = farm.land_treatments[0]
+        undercovered = replace(
+            first_treatment,
+            coverage_basis_points=1,
+        )
+        undercovered_farm = replace(
+            farm,
+            land_treatments=(
+                undercovered,
+                *farm.land_treatments[1:],
+            ),
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "coverage target",
+        ):
+            INFILL.audit_plan(
+                replace(
+                    self.plan,
+                    site_fabrics=(
+                        undercovered_farm,
+                        *self.plan.site_fabrics[1:],
+                    ),
+                ),
+                schema_version=INFILL.V3_VERSION,
+            )
+
+        empty_cell = (0, 0)
+        treatment_index = next(
+            index
+            for index, treatment in enumerate(farm.land_treatments)
+            if empty_cell in treatment.coverage_cells
+        )
+        sparse_treatments = list(farm.land_treatments)
+        sparse_treatment = sparse_treatments[treatment_index]
+        qualifying_count = len(
+            INFILL._qualifying_coverage_cells(
+                INFILL.SITE_BY_ID[farm.site_id],
+                farm.coverage_grid_size_m,
+            )
+        )
+        removed_basis_points = (
+            10000
+            - ((qualifying_count - 1) * 10000 // qualifying_count)
+        )
+        sparse_treatments[treatment_index] = replace(
+            sparse_treatment,
+            coverage_basis_points=(
+                sparse_treatment.coverage_basis_points
+                - removed_basis_points
+            ),
+            coverage_cells=tuple(
+                cell
+                for cell in sparse_treatment.coverage_cells
+                if cell != empty_cell
+            ),
+        )
+        sparse_farm = replace(
+            farm,
+            land_treatments=tuple(sparse_treatments),
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "contains an uncovered coverage cell",
+        ):
+            INFILL.audit_plan(
+                replace(
+                    self.plan,
+                    site_fabrics=(
+                        sparse_farm,
+                        *self.plan.site_fabrics[1:],
+                    ),
+                ),
+                schema_version=INFILL.V3_VERSION,
+            )
+
+        first_selection = self.plan.placement_variants[0]
+        wrong_variant = replace(
+            first_selection,
+            variant_id=INFILL.VARIANT_FAMILY_BY_ASSET[
+                first_selection.asset_id
+            ][1],
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "variant schedule drifted",
+        ):
+            INFILL.audit_plan(
+                replace(
+                    self.plan,
+                    placement_variants=(
+                        wrong_variant,
+                        *self.plan.placement_variants[1:],
+                    ),
+                ),
+                schema_version=INFILL.V3_VERSION,
+            )
+
+        first_connector = self.plan.fabric_parcel_connectors[0]
+        moved_seam = (
+            (
+                first_connector.fabric_seam_world_xz_m[0][0] + 1.0e-10,
+                first_connector.fabric_seam_world_xz_m[0][1],
+            ),
+            first_connector.fabric_seam_world_xz_m[1],
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "not an exact zero-gap seam",
+        ):
+            INFILL.audit_plan(
+                replace(
+                    self.plan,
+                    fabric_parcel_connectors=(
+                        replace(
+                            first_connector,
+                            fabric_seam_world_xz_m=moved_seam,
+                        ),
+                        *self.plan.fabric_parcel_connectors[1:],
+                    ),
+                ),
+                schema_version=INFILL.V3_VERSION,
+            )
+
+        truncated_connector = replace(
+            first_connector,
+            fabric_seam_world_xz_m=(
+                first_connector.fabric_seam_world_xz_m[0],
+            ),
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "seam endpoints are invalid",
+        ):
+            INFILL.audit_plan(
+                replace(
+                    self.plan,
+                    fabric_parcel_connectors=(
+                        truncated_connector,
+                        *self.plan.fabric_parcel_connectors[1:],
+                    ),
+                ),
+                schema_version=INFILL.V3_VERSION,
+            )
+
+        integer_typed_connector = replace(
+            first_connector,
+            fabric_seam_world_xz_m=tuple(
+                tuple(int(value) for value in point)
+                for point in first_connector.fabric_seam_world_xz_m
+            ),
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "seam endpoints are invalid",
+        ):
+            INFILL.audit_plan(
+                replace(
+                    self.plan,
+                    fabric_parcel_connectors=(
+                        integer_typed_connector,
+                        *self.plan.fabric_parcel_connectors[1:],
+                    ),
+                ),
+                schema_version=INFILL.V3_VERSION,
+            )
+
+        reversed_fabrics = replace(
+            self.plan,
+            site_fabrics=tuple(reversed(self.plan.site_fabrics)),
+        )
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "site-fabric schedule ordering drifted",
+        ):
+            INFILL.audit_plan(
+                reversed_fabrics,
+                schema_version=INFILL.V3_VERSION,
+            )
+
+        with self.assertRaisesRegex(
+            INFILL.InfillFailure,
+            "unsupported regional-infill schema version",
+        ):
+            INFILL.build_manifest(self.plan, schema_version=4)
+
     def test_unsafe_geometry_and_collision_drift_fail_closed(self) -> None:
         unsafe_route = replace(
             self.plan.routes[0],

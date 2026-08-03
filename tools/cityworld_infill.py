@@ -12,6 +12,7 @@ curb-free, and omit collision endcaps so a seam has one collision authority.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 import hashlib
 import json
 import math
@@ -22,6 +23,14 @@ FORMAT = "ror-cityworld-regional-infill-plan-v2"
 VERSION = 2
 SOURCE_AUDIT_FORMAT = "ror-cityworld-regional-land-audit-v2"
 CONNECTOR_FORMAT = "ror-cityworld-regional-infill-connectors-v1"
+V3_FORMAT = "ror-cityworld-regional-infill-plan-v3"
+V3_VERSION = 3
+V3_SOURCE_AUDIT_FORMAT = "ror-cityworld-regional-land-audit-v3"
+SITE_FABRIC_FORMAT = "ror-cityworld-site-fabric-schedule-v1"
+FABRIC_PARCEL_CONNECTOR_FORMAT = (
+    "ror-cityworld-fabric-parcel-connectors-v1"
+)
+VARIANT_SCHEDULE_FORMAT = "ror-cityworld-placement-variants-v1"
 PINNED_ARCHIVE_NAME = "CityWorld.zip"
 PINNED_ARCHIVE_SHA256 = (
     "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3"
@@ -49,6 +58,23 @@ POSITION_EPSILON_M = 1.0e-6
 MINIMUM_PLACEMENT_GAP_M = 8.0
 MINIMUM_ACCESS_ROAD_CLEARANCE_M = 12.0
 MAXIMUM_CONNECTOR_SEAM_GAP_M = 0.001
+EXACT_FABRIC_SEAM_GAP_M = 0.0
+BUILT_PARCEL_CATEGORIES = frozenset(
+    ("farmland", "service-station", "suburb")
+)
+FABRIC_COVERAGE_TARGET_BASIS_POINTS = {
+    "farmland": 7500,
+    "natural-landmark": 3000,
+    "service-station": 8500,
+    "suburb": 7000,
+}
+FABRIC_COVERAGE_GRID_SIZE_M = {
+    "farmland": 64.0,
+    "natural-landmark": 96.0,
+    "service-station": 64.0,
+    "suburb": 64.0,
+}
+ADJACENT_PARCEL_MAX_CLEARANCE_M = 64.0
 
 FARMSTEAD_ASSET_ID = "rorng_city_infill_farmstead_98x86"
 SUBURB_ASSET_ID = "rorng_city_infill_suburb_block_96x88"
@@ -179,6 +205,61 @@ class RouteAssetConnector:
 
 
 @dataclass(frozen=True)
+class LandTreatmentSchedule:
+    treatment_id: str
+    treatment_family: str
+    coverage_basis_points: int
+    boundary_grid_spacing_m: float
+    coverage_cells: tuple[tuple[int, int], ...]
+    variant_ids: tuple[str, ...]
+    selected_variant_id: str
+
+
+@dataclass(frozen=True)
+class PropClusterSchedule:
+    cluster_id: str
+    prop_family: str
+    center_xz_m: PointXZ
+    radius_m: float
+    instance_count: int
+    variant_ids: tuple[str, ...]
+    selected_variant_id: str
+    deterministic_seed: int
+
+
+@dataclass(frozen=True)
+class SiteFabricSchedule:
+    fabric_id: str
+    site_id: str
+    implementation_status: str
+    coverage_grid_size_m: float
+    minimum_coverage_basis_points: int
+    land_treatments: tuple[LandTreatmentSchedule, ...]
+    prop_clusters: tuple[PropClusterSchedule, ...]
+
+
+@dataclass(frozen=True)
+class PlacementVariantSelection:
+    placement_id: str
+    asset_id: str
+    variant_id: str
+    schedule_ordinal: int
+
+
+@dataclass(frozen=True)
+class FabricParcelConnector:
+    connector_id: str
+    status: str
+    fabric_id: str
+    site_id: str
+    placement_id: str
+    target_surface_id: str
+    target_seam_local_xz_m: tuple[PointXZ, PointXZ]
+    fabric_seam_world_xz_m: tuple[PointXZ, PointXZ]
+    maximum_seam_gap_m: float = EXACT_FABRIC_SEAM_GAP_M
+
+
+@dataclass(frozen=True)
 class InfillPlan:
     assets: tuple[AssetContract, ...]
     sites: tuple[InfillSite, ...]
@@ -186,6 +267,9 @@ class InfillPlan:
     routes: tuple[AccessRoute, ...]
     placements: tuple[InfillPlacement, ...]
     connectors: tuple[RouteAssetConnector, ...]
+    site_fabrics: tuple[SiteFabricSchedule, ...] = ()
+    placement_variants: tuple[PlacementVariantSelection, ...] = ()
+    fabric_parcel_connectors: tuple[FabricParcelConnector, ...] = ()
 
 
 ASSETS = (
@@ -647,6 +731,58 @@ def _normalized_degrees(value: float) -> float:
     return 0.0 if abs(result - 360.0) <= POSITION_EPSILON_M else result
 
 
+def _point_in_polygon(
+    point: PointXZ,
+    polygon: Sequence[PointXZ],
+    *,
+    epsilon: float = POSITION_EPSILON_M,
+) -> bool:
+    x, z = point
+    inside = False
+    for first, second in zip(polygon, (*polygon[1:], polygon[0])):
+        ax, az = first
+        bx, bz = second
+        cross = (x - ax) * (bz - az) - (z - az) * (bx - ax)
+        if (
+            abs(cross) <= epsilon
+            and min(ax, bx) - epsilon <= x <= max(ax, bx) + epsilon
+            and min(az, bz) - epsilon <= z <= max(az, bz) + epsilon
+        ):
+            return True
+        if (az > z) != (bz > z):
+            edge_x = ax + (z - az) * (bx - ax) / (bz - az)
+            if x < edge_x:
+                inside = not inside
+    return inside
+
+
+def deterministic_seed(scope_id: str) -> int:
+    """Return a cross-platform 32-bit seed derived only from a stable ID."""
+
+    if not scope_id:
+        raise InfillFailure("deterministic seed scope is empty")
+    return int.from_bytes(
+        hashlib.sha256(scope_id.encode("utf-8")).digest()[:4],
+        byteorder="big",
+        signed=False,
+    )
+
+
+def deterministic_variant(
+    scope_id: str,
+    variant_ids: Sequence[str],
+) -> str:
+    """Select one declared variant without Python hash randomization."""
+
+    if (
+        not variant_ids
+        or any(not item for item in variant_ids)
+        or len(set(variant_ids)) != len(variant_ids)
+    ):
+        raise InfillFailure(f"{scope_id} has an invalid variant family")
+    return variant_ids[deterministic_seed(scope_id) % len(variant_ids)]
+
+
 def _build_route(
     *,
     route_id: str,
@@ -959,6 +1095,537 @@ PLACEMENTS = (
     ),
 )
 
+
+VARIANT_FAMILY_BY_ASSET = {
+    FARMSTEAD_ASSET_ID: (
+        "farmstead-orchard",
+        "farmstead-row-crop",
+        "farmstead-pasture",
+    ),
+    SUBURB_ASSET_ID: (
+        "suburb-courtyard",
+        "suburb-ranch",
+        "suburb-solar",
+    ),
+    SERVICE_STATION_ASSET_ID: (
+        "service-classic",
+        "service-ev-forward",
+    ),
+    RED_MESA_ASSET_ID: (
+        "red-mesa-arch",
+        "red-mesa-butte",
+        "red-mesa-spire",
+    ),
+    ARROYO_OASIS_ASSET_ID: (
+        "arroyo-oasis-palms",
+        "arroyo-oasis-rocks",
+        "arroyo-oasis-scrub",
+    ),
+}
+EXPECTED_VARIANT_COUNTS_BY_ASSET = {
+    FARMSTEAD_ASSET_ID: (5, 4, 4),
+    SUBURB_ASSET_ID: (6, 6, 5),
+    SERVICE_STATION_ASSET_ID: (1, 1),
+    RED_MESA_ASSET_ID: (3, 2, 2),
+    ARROYO_OASIS_ASSET_ID: (3, 2, 2),
+}
+
+
+def _land_treatment(
+    *,
+    site_id: str,
+    treatment_family: str,
+    coverage_basis_points: int,
+    boundary_grid_spacing_m: float,
+    coverage_cells: tuple[tuple[int, int], ...],
+    variant_ids: tuple[str, ...],
+) -> LandTreatmentSchedule:
+    treatment_id = f"{site_id}-{treatment_family}"
+    return LandTreatmentSchedule(
+        treatment_id=treatment_id,
+        treatment_family=treatment_family,
+        coverage_basis_points=coverage_basis_points,
+        boundary_grid_spacing_m=boundary_grid_spacing_m,
+        coverage_cells=coverage_cells,
+        variant_ids=variant_ids,
+        selected_variant_id=deterministic_variant(
+            treatment_id,
+            variant_ids,
+        ),
+    )
+
+
+def _qualifying_coverage_cells(
+    site: InfillSite,
+    grid_size_m: float,
+) -> tuple[tuple[int, int], ...]:
+    minimum_x = min(point[0] for point in site.polygon_xz_m)
+    maximum_x = max(point[0] for point in site.polygon_xz_m)
+    minimum_z = min(point[1] for point in site.polygon_xz_m)
+    maximum_z = max(point[1] for point in site.polygon_xz_m)
+    column_count = math.ceil((maximum_x - minimum_x) / grid_size_m)
+    row_count = math.ceil((maximum_z - minimum_z) / grid_size_m)
+    result = []
+    for row in range(row_count):
+        for column in range(column_count):
+            cell_min_x = minimum_x + column * grid_size_m
+            cell_max_x = min(cell_min_x + grid_size_m, maximum_x)
+            cell_min_z = minimum_z + row * grid_size_m
+            cell_max_z = min(cell_min_z + grid_size_m, maximum_z)
+            center = (
+                (cell_min_x + cell_max_x) / 2.0,
+                (cell_min_z + cell_max_z) / 2.0,
+            )
+            if _point_in_polygon(center, site.polygon_xz_m):
+                result.append((column, row))
+    if not result:
+        raise InfillFailure(f"{site.site_id} coverage grid is empty")
+    return tuple(result)
+
+
+def _balanced_cell_partition(
+    cells: Sequence[tuple[int, int]],
+    weights: Sequence[int],
+) -> tuple[tuple[tuple[int, int], ...], ...]:
+    if (
+        not cells
+        or not weights
+        or any(
+            isinstance(weight, bool)
+            or not isinstance(weight, int)
+            or weight <= 0
+            for weight in weights
+        )
+    ):
+        raise InfillFailure("land-treatment partition weights are invalid")
+    total_weight = sum(weights)
+    quotas = [
+        len(cells) * weight // total_weight for weight in weights
+    ]
+    quota_remainders = [
+        len(cells) * weight % total_weight for weight in weights
+    ]
+    remaining = len(cells) - sum(quotas)
+    for index in sorted(
+        range(len(weights)),
+        key=lambda item: (-quota_remainders[item], item),
+    )[:remaining]:
+        quotas[index] += 1
+    if any(quota <= 0 for quota in quotas):
+        raise InfillFailure("land-treatment partition is too sparse")
+
+    assigned: list[list[tuple[int, int]]] = [
+        [] for _ in weights
+    ]
+    for cell in cells:
+        choices = [
+            (
+                Fraction(len(assigned[index]), quotas[index]),
+                index,
+            )
+            for index in range(len(weights))
+            if len(assigned[index]) < quotas[index]
+        ]
+        selected_index = min(choices)[1]
+        assigned[selected_index].append(cell)
+    return tuple(tuple(items) for items in assigned)
+
+
+def _coverage_basis_points_from_partition(
+    partitions: Sequence[Sequence[tuple[int, int]]],
+) -> tuple[int, ...]:
+    total_cells = sum(len(partition) for partition in partitions)
+    basis_points = [
+        len(partition) * 10000 // total_cells
+        for partition in partitions
+    ]
+    remainders = [
+        len(partition) * 10000 % total_cells
+        for partition in partitions
+    ]
+    remaining = 10000 - sum(basis_points)
+    for index in sorted(
+        range(len(partitions)),
+        key=lambda item: (-remainders[item], item),
+    )[:remaining]:
+        basis_points[index] += 1
+    return tuple(basis_points)
+
+
+def _prop_cluster(
+    *,
+    site_id: str,
+    cluster_suffix: str,
+    prop_family: str,
+    center_xz_m: PointXZ,
+    radius_m: float,
+    instance_count: int,
+    variant_ids: tuple[str, ...],
+) -> PropClusterSchedule:
+    cluster_id = f"{site_id}-{cluster_suffix}"
+    return PropClusterSchedule(
+        cluster_id=cluster_id,
+        prop_family=prop_family,
+        center_xz_m=center_xz_m,
+        radius_m=radius_m,
+        instance_count=instance_count,
+        variant_ids=variant_ids,
+        selected_variant_id=deterministic_variant(
+            cluster_id,
+            variant_ids,
+        ),
+        deterministic_seed=deterministic_seed(cluster_id),
+    )
+
+
+def _site_fabric(
+    *,
+    site_id: str,
+    treatment_specs: tuple[
+        tuple[str, int, tuple[str, ...]],
+        ...,
+    ],
+    prop_specs: tuple[
+        tuple[
+            str,
+            str,
+            PointXZ,
+            float,
+            int,
+            tuple[str, ...],
+        ],
+        ...,
+    ],
+) -> SiteFabricSchedule:
+    site = SITE_BY_ID[site_id]
+    grid_size = FABRIC_COVERAGE_GRID_SIZE_M[site.category]
+    qualifying_cells = _qualifying_coverage_cells(site, grid_size)
+    cell_partitions = _balanced_cell_partition(
+        qualifying_cells,
+        tuple(weight for _, weight, _ in treatment_specs),
+    )
+    coverage_basis_points = _coverage_basis_points_from_partition(
+        cell_partitions
+    )
+    return SiteFabricSchedule(
+        fabric_id=f"{site_id}-regional-fabric",
+        site_id=site_id,
+        implementation_status="contract-only",
+        coverage_grid_size_m=grid_size,
+        minimum_coverage_basis_points=(
+            FABRIC_COVERAGE_TARGET_BASIS_POINTS[site.category]
+        ),
+        land_treatments=tuple(
+            _land_treatment(
+                site_id=site_id,
+                treatment_family=family,
+                coverage_basis_points=coverage_basis_points[index],
+                boundary_grid_spacing_m=grid_size,
+                coverage_cells=cell_partitions[index],
+                variant_ids=variants,
+            )
+            for index, (family, _weight, variants) in enumerate(
+                treatment_specs
+            )
+        ),
+        prop_clusters=tuple(
+            _prop_cluster(
+                site_id=site_id,
+                cluster_suffix=suffix,
+                prop_family=family,
+                center_xz_m=center,
+                radius_m=radius,
+                instance_count=count,
+                variant_ids=variants,
+            )
+            for (
+                suffix,
+                family,
+                center,
+                radius,
+                count,
+                variants,
+            ) in prop_specs
+        ),
+    )
+
+
+SITE_FABRICS = (
+    _site_fabric(
+        site_id="west-farm-belt",
+        treatment_specs=(
+            ("tilled-soil", 4000, ("warm-loam", "dark-loam")),
+            ("crop-rows", 3000, ("orchard", "grain", "vegetable")),
+            ("irrigation", 1000, ("furrow", "drip")),
+        ),
+        prop_specs=(
+            (
+                "west-windbreak",
+                "windbreak",
+                (700.0, 250.0),
+                28.0,
+                18,
+                ("cypress", "cottonwood", "mixed"),
+            ),
+            (
+                "central-fence",
+                "farm-fence",
+                (880.0, 250.0),
+                24.0,
+                20,
+                ("timber", "wire", "hedgerow"),
+            ),
+            (
+                "east-equipment",
+                "farm-equipment",
+                (1080.0, 230.0),
+                20.0,
+                8,
+                ("tractor", "trailer", "irrigation"),
+            ),
+        ),
+    ),
+    _site_fabric(
+        site_id="intercity-farm",
+        treatment_specs=(
+            ("tilled-soil", 4000, ("red-loam", "dark-loam")),
+            ("crop-rows", 3000, ("vineyard", "grain", "orchard")),
+            ("irrigation", 1000, ("furrow", "sprinkler")),
+        ),
+        prop_specs=(
+            (
+                "west-windbreak",
+                "windbreak",
+                (3980.0, 4420.0),
+                24.0,
+                16,
+                ("cypress", "cottonwood", "mixed"),
+            ),
+            (
+                "central-fence",
+                "farm-fence",
+                (4090.0, 4420.0),
+                22.0,
+                18,
+                ("timber", "wire", "hedgerow"),
+            ),
+            (
+                "east-equipment",
+                "farm-equipment",
+                (4180.0, 4410.0),
+                18.0,
+                7,
+                ("tractor", "trailer", "irrigation"),
+            ),
+        ),
+    ),
+    _site_fabric(
+        site_id="sunset-courts",
+        treatment_specs=(
+            ("xeriscape-ground", 3500, ("sand", "gravel", "mulch")),
+            ("sidewalk-network", 2600, ("light-concrete", "warm-concrete")),
+            ("local-street-markings", 1500, ("residential", "school-zone")),
+        ),
+        prop_specs=(
+            (
+                "west-canopy",
+                "street-tree",
+                (900.0, 1360.0),
+                26.0,
+                15,
+                ("jacaranda", "palm", "sycamore"),
+            ),
+            (
+                "central-furniture",
+                "street-furniture",
+                (1055.0, 1400.0),
+                20.0,
+                12,
+                ("bench", "hydrant", "mailbox"),
+            ),
+            (
+                "east-lighting",
+                "street-light",
+                (1200.0, 1360.0),
+                24.0,
+                12,
+                ("cobra", "decorative", "solar"),
+            ),
+        ),
+    ),
+    _site_fabric(
+        site_id="arroyo-vista",
+        treatment_specs=(
+            ("xeriscape-ground", 3500, ("sand", "gravel", "mulch")),
+            ("sidewalk-network", 2600, ("light-concrete", "warm-concrete")),
+            ("local-street-markings", 1500, ("residential", "bike-route")),
+        ),
+        prop_specs=(
+            (
+                "west-canopy",
+                "street-tree",
+                (4010.0, 3520.0),
+                26.0,
+                14,
+                ("jacaranda", "palm", "sycamore"),
+            ),
+            (
+                "central-furniture",
+                "street-furniture",
+                (4240.0, 3600.0),
+                20.0,
+                12,
+                ("bench", "hydrant", "mailbox"),
+            ),
+            (
+                "east-lighting",
+                "street-light",
+                (4460.0, 3520.0),
+                24.0,
+                12,
+                ("cobra", "decorative", "solar"),
+            ),
+        ),
+    ),
+    _site_fabric(
+        site_id="west-highway-service",
+        treatment_specs=(
+            ("forecourt-pavement", 6000, ("clean", "weathered")),
+            ("traffic-markings", 1800, ("standard", "high-contrast")),
+            ("perimeter-landscape", 1200, ("xeric", "native-grass")),
+        ),
+        prop_specs=(
+            (
+                "entry-signage",
+                "service-signage",
+                (790.0, 1390.0),
+                10.0,
+                5,
+                ("price-board", "ev-board"),
+            ),
+            (
+                "forecourt-lighting",
+                "area-light",
+                (820.0, 1480.0),
+                12.0,
+                6,
+                ("dual", "quad"),
+            ),
+            (
+                "safety-furniture",
+                "safety-furniture",
+                (805.0, 1430.0),
+                8.0,
+                10,
+                ("bollard", "barrier"),
+            ),
+        ),
+    ),
+    _site_fabric(
+        site_id="intercity-service",
+        treatment_specs=(
+            ("forecourt-pavement", 6000, ("clean", "weathered")),
+            ("traffic-markings", 1800, ("standard", "high-contrast")),
+            ("perimeter-landscape", 1200, ("xeric", "native-grass")),
+        ),
+        prop_specs=(
+            (
+                "entry-signage",
+                "service-signage",
+                (3760.0, 3520.0),
+                10.0,
+                5,
+                ("price-board", "ev-board"),
+            ),
+            (
+                "forecourt-lighting",
+                "area-light",
+                (3840.0, 3640.0),
+                12.0,
+                6,
+                ("dual", "quad"),
+            ),
+            (
+                "safety-furniture",
+                "safety-furniture",
+                (3810.0, 3580.0),
+                8.0,
+                10,
+                ("bollard", "barrier"),
+            ),
+        ),
+    ),
+    _site_fabric(
+        site_id="coyote-arch",
+        treatment_specs=(
+            ("desert-ground", 1800, ("sandstone", "desert-varnish")),
+            ("trail-surface", 1000, ("packed-earth", "gravel")),
+            ("geology-detail", 800, ("talus", "bedrock")),
+        ),
+        prop_specs=(
+            (
+                "west-rocks",
+                "rock-cluster",
+                (3820.0, 2440.0),
+                32.0,
+                12,
+                ("angular", "rounded", "layered"),
+            ),
+            (
+                "central-scrub",
+                "desert-vegetation",
+                (3925.0, 2575.0),
+                28.0,
+                18,
+                ("sage", "yucca", "mixed"),
+            ),
+            (
+                "east-viewpoint",
+                "trail-furniture",
+                (4040.0, 2720.0),
+                18.0,
+                6,
+                ("marker", "bench", "interpretive"),
+            ),
+        ),
+    ),
+    _site_fabric(
+        site_id="sagebrush-arroyo",
+        treatment_specs=(
+            ("arroyo-ground", 1800, ("sand", "wash-gravel")),
+            ("trail-surface", 1000, ("packed-earth", "gravel")),
+            ("riparian-detail", 800, ("reed", "scrub")),
+        ),
+        prop_specs=(
+            (
+                "north-rocks",
+                "rock-cluster",
+                (1210.0, 300.0),
+                24.0,
+                10,
+                ("angular", "rounded", "layered"),
+            ),
+            (
+                "central-riparian",
+                "riparian-vegetation",
+                (1270.0, 450.0),
+                28.0,
+                18,
+                ("sage", "reed", "mixed"),
+            ),
+            (
+                "south-viewpoint",
+                "trail-furniture",
+                (1300.0, 600.0),
+                16.0,
+                5,
+                ("marker", "bench", "interpretive"),
+            ),
+        ),
+    ),
+)
+
+
 CONNECTORS = (
     RouteAssetConnector(
         connector_id="sunset-frontage-west-service-forecourt",
@@ -1067,6 +1734,9 @@ def build_infill_plan() -> InfillPlan:
         routes=ROUTES,
         placements=PLACEMENTS,
         connectors=CONNECTORS,
+        site_fabrics=SITE_FABRICS,
+        placement_variants=PLACEMENT_VARIANTS,
+        fabric_parcel_connectors=FABRIC_PARCEL_CONNECTORS,
     )
 
 
@@ -1077,24 +1747,7 @@ def point_in_polygon(
     epsilon: float = POSITION_EPSILON_M,
 ) -> bool:
     """Return whether a point is inside or on a simple XZ polygon."""
-
-    x, z = point
-    inside = False
-    for first, second in zip(polygon, (*polygon[1:], polygon[0])):
-        ax, az = first
-        bx, bz = second
-        cross = (x - ax) * (bz - az) - (z - az) * (bx - ax)
-        if (
-            abs(cross) <= epsilon
-            and min(ax, bx) - epsilon <= x <= max(ax, bx) + epsilon
-            and min(az, bz) - epsilon <= z <= max(az, bz) + epsilon
-        ):
-            return True
-        if (az > z) != (bz > z):
-            edge_x = ax + (z - az) * (bx - ax) / (bz - az)
-            if x < edge_x:
-                inside = not inside
-    return inside
+    return _point_in_polygon(point, polygon, epsilon=epsilon)
 
 
 def _rotate_local_xz(
@@ -1254,6 +1907,186 @@ def placement_world_to_local_xz(
         _stable_number(cosine * dx - sine * dz),
         _stable_number(sine * dx + cosine * dz),
     )
+
+
+def placements_are_adjacent(
+    first: InfillPlacement,
+    second: InfillPlacement,
+) -> bool:
+    """Return whether two same-site parcel footprints share a near axis."""
+
+    if first.site_id != second.site_id:
+        return False
+    first_points = placement_footprint(first)
+    second_points = placement_footprint(second)
+    first_min_x = min(point[0] for point in first_points)
+    first_max_x = max(point[0] for point in first_points)
+    first_min_z = min(point[1] for point in first_points)
+    first_max_z = max(point[1] for point in first_points)
+    second_min_x = min(point[0] for point in second_points)
+    second_max_x = max(point[0] for point in second_points)
+    second_min_z = min(point[1] for point in second_points)
+    second_max_z = max(point[1] for point in second_points)
+    x_gap = max(
+        0.0,
+        second_min_x - first_max_x,
+        first_min_x - second_max_x,
+    )
+    z_gap = max(
+        0.0,
+        second_min_z - first_max_z,
+        first_min_z - second_max_z,
+    )
+    return (
+        x_gap <= POSITION_EPSILON_M
+        and z_gap <= ADJACENT_PARCEL_MAX_CLEARANCE_M
+    ) or (
+        z_gap <= POSITION_EPSILON_M
+        and x_gap <= ADJACENT_PARCEL_MAX_CLEARANCE_M
+    )
+
+
+def _same_yaw(first: InfillPlacement, second: InfillPlacement) -> bool:
+    difference = (
+        _normalized_degrees(first.yaw_degrees)
+        - _normalized_degrees(second.yaw_degrees)
+        + 180.0
+    ) % 360.0 - 180.0
+    return abs(difference) <= POSITION_EPSILON_M
+
+
+def _build_placement_variant_schedule(
+    placements: Sequence[InfillPlacement],
+) -> tuple[PlacementVariantSelection, ...]:
+    """Build exact balanced families with deterministic adjacency avoidance."""
+
+    result = []
+    selections: dict[str, str] = {}
+    for asset_id, variant_ids in VARIANT_FAMILY_BY_ASSET.items():
+        asset_placements = tuple(
+            placement
+            for placement in placements
+            if placement.asset_id == asset_id
+        )
+        target_counts = EXPECTED_VARIANT_COUNTS_BY_ASSET[asset_id]
+        if (
+            len(variant_ids) != len(target_counts)
+            or sum(target_counts) != len(asset_placements)
+        ):
+            raise InfillFailure(
+                f"{asset_id} variant count contract is inconsistent"
+            )
+        assigned_counts = {variant_id: 0 for variant_id in variant_ids}
+        for ordinal, placement in enumerate(asset_placements, start=1):
+            choices = []
+            for variant_index, (variant_id, target_count) in enumerate(
+                zip(variant_ids, target_counts)
+            ):
+                assigned = assigned_counts[variant_id]
+                if assigned >= target_count:
+                    continue
+                has_conflict = any(
+                    previous.placement_id in selections
+                    and placements_are_adjacent(placement, previous)
+                    and _same_yaw(placement, previous)
+                    and selections[previous.placement_id] == variant_id
+                    for previous in asset_placements
+                )
+                if not has_conflict:
+                    choices.append(
+                        (
+                            Fraction(assigned, target_count),
+                            assigned,
+                            variant_index,
+                            variant_id,
+                        )
+                    )
+            if not choices:
+                raise InfillFailure(
+                    f"{placement.placement_id} has no balanced variant"
+                )
+            selected = min(choices)[-1]
+            assigned_counts[selected] += 1
+            selections[placement.placement_id] = selected
+            result.append(
+                PlacementVariantSelection(
+                    placement_id=placement.placement_id,
+                    asset_id=asset_id,
+                    variant_id=selected,
+                    schedule_ordinal=ordinal,
+                )
+            )
+        observed_counts = tuple(
+            assigned_counts[variant_id] for variant_id in variant_ids
+        )
+        if observed_counts != target_counts:
+            raise InfillFailure(f"{asset_id} variant balance drifted")
+    return tuple(result)
+
+
+def _fabric_target_seam(
+    placement: InfillPlacement,
+) -> tuple[str, tuple[PointXZ, PointXZ]]:
+    if placement.asset_id == FARMSTEAD_ASSET_ID:
+        return (
+            "authored-asphalt-driveway-west-edge",
+            ((-49.0, 39.0), (-49.0, 31.0)),
+        )
+    if placement.asset_id == SUBURB_ASSET_ID:
+        ordinal = int(placement.placement_id.rsplit("-", 1)[-1])
+        if ordinal % 2 == 0:
+            return (
+                "shared-internal-street-north-edge",
+                ((5.0, 42.0), (-5.0, 42.0)),
+            )
+        return (
+            "shared-internal-street-south-edge",
+            ((-5.0, -42.0), (5.0, -42.0)),
+        )
+    if placement.asset_id == SERVICE_STATION_ASSET_ID:
+        return (
+            "full-concrete-forecourt-west-edge",
+            ((-45.0, -5.0), (-45.0, 5.0)),
+        )
+    raise InfillFailure(
+        f"{placement.placement_id} is not a built parcel connector target"
+    )
+
+
+def _build_fabric_parcel_connectors(
+    placements: Sequence[InfillPlacement],
+) -> tuple[FabricParcelConnector, ...]:
+    fabric_by_site = {
+        fabric.site_id: fabric for fabric in SITE_FABRICS
+    }
+    result = []
+    for placement in placements:
+        asset = ASSET_BY_ID[placement.asset_id]
+        if asset.category not in BUILT_PARCEL_CATEGORIES:
+            continue
+        fabric = fabric_by_site[placement.site_id]
+        surface_id, local_seam = _fabric_target_seam(placement)
+        world_seam = tuple(
+            placement_local_to_world_xz(placement, point)
+            for point in local_seam
+        )
+        result.append(
+            FabricParcelConnector(
+                connector_id=f"fabric-to-{placement.placement_id}",
+                status="active",
+                fabric_id=fabric.fabric_id,
+                site_id=placement.site_id,
+                placement_id=placement.placement_id,
+                target_surface_id=surface_id,
+                target_seam_local_xz_m=local_seam,
+                fabric_seam_world_xz_m=world_seam,
+            )
+        )
+    return tuple(result)
+
+
+PLACEMENT_VARIANTS = _build_placement_variant_schedule(PLACEMENTS)
+FABRIC_PARCEL_CONNECTORS = _build_fabric_parcel_connectors(PLACEMENTS)
 
 
 def route_point_cross_section(
@@ -1904,9 +2737,613 @@ def _audit_connector_contract(
     }
 
 
-def audit_plan(plan: InfillPlan | None = None) -> dict[str, Any]:
+def _polygon_area_m2(polygon: Sequence[PointXZ]) -> float:
+    area_twice = sum(
+        first[0] * second[1] - second[0] * first[1]
+        for first, second in zip(polygon, (*polygon[1:], polygon[0]))
+    )
+    return abs(area_twice) / 2.0
+
+
+def _segment_intersects_cell(
+    start: PointXZ,
+    end: PointXZ,
+    cell: tuple[float, float, float, float],
+) -> bool:
+    minimum_x, maximum_x, minimum_z, maximum_z = cell
+    if (
+        minimum_x - POSITION_EPSILON_M
+        <= start[0]
+        <= maximum_x + POSITION_EPSILON_M
+        and minimum_z - POSITION_EPSILON_M
+        <= start[1]
+        <= maximum_z + POSITION_EPSILON_M
+    ) or (
+        minimum_x - POSITION_EPSILON_M
+        <= end[0]
+        <= maximum_x + POSITION_EPSILON_M
+        and minimum_z - POSITION_EPSILON_M
+        <= end[1]
+        <= maximum_z + POSITION_EPSILON_M
+    ):
+        return True
+    corners = (
+        (minimum_x, minimum_z),
+        (maximum_x, minimum_z),
+        (maximum_x, maximum_z),
+        (minimum_x, maximum_z),
+    )
+    return any(
+        _segments_intersect(start, end, edge_start, edge_end)
+        for edge_start, edge_end in zip(
+            corners,
+            (*corners[1:], corners[0]),
+        )
+    )
+
+
+def _coverage_grid_audit(
+    fabric: SiteFabricSchedule,
+    site: InfillSite,
+    routes: Sequence[AccessRoute],
+) -> dict[str, Any]:
+    grid_size = fabric.coverage_grid_size_m
+    minimum_x = min(point[0] for point in site.polygon_xz_m)
+    maximum_x = max(point[0] for point in site.polygon_xz_m)
+    minimum_z = min(point[1] for point in site.polygon_xz_m)
+    maximum_z = max(point[1] for point in site.polygon_xz_m)
+    column_count = math.ceil((maximum_x - minimum_x) / grid_size)
+    row_count = math.ceil((maximum_z - minimum_z) / grid_size)
+    relevant_routes = tuple(
+        route for route in routes if site.site_id in route.served_site_ids
+    )
+    surface_cells = {
+        cell
+        for treatment in fabric.land_treatments
+        for cell in treatment.coverage_cells
+    }
+    qualifying_cells: set[tuple[int, int]] = set()
+    empty_cells: set[tuple[int, int]] = set()
+    evidence_counts = {
+        "prop_cluster": 0,
+        "route": 0,
+        "surface_boundary": 0,
+    }
+    for row in range(row_count):
+        for column in range(column_count):
+            cell_min_x = minimum_x + column * grid_size
+            cell_max_x = min(cell_min_x + grid_size, maximum_x)
+            cell_min_z = minimum_z + row * grid_size
+            cell_max_z = min(cell_min_z + grid_size, maximum_z)
+            center = (
+                (cell_min_x + cell_max_x) / 2.0,
+                (cell_min_z + cell_max_z) / 2.0,
+            )
+            if not point_in_polygon(center, site.polygon_xz_m):
+                continue
+            cell_id = (column, row)
+            qualifying_cells.add(cell_id)
+            evidence = set()
+            if cell_id in surface_cells:
+                evidence.add("surface_boundary")
+            if any(
+                cell_min_x - POSITION_EPSILON_M
+                <= cluster.center_xz_m[0]
+                <= cell_max_x + POSITION_EPSILON_M
+                and cell_min_z - POSITION_EPSILON_M
+                <= cluster.center_xz_m[1]
+                <= cell_max_z + POSITION_EPSILON_M
+                for cluster in fabric.prop_clusters
+            ):
+                evidence.add("prop_cluster")
+            if any(
+                _segment_intersects_cell(
+                    (first.x, first.z),
+                    (second.x, second.z),
+                    (cell_min_x, cell_max_x, cell_min_z, cell_max_z),
+                )
+                for route in relevant_routes
+                for first, second in zip(route.points, route.points[1:])
+            ):
+                evidence.add("route")
+            for evidence_type in evidence:
+                evidence_counts[evidence_type] += 1
+            if not evidence:
+                empty_cells.add(cell_id)
+
+    largest_empty_cell_count = 0
+    remaining = set(empty_cells)
+    while remaining:
+        pending = [remaining.pop()]
+        component_size = 0
+        while pending:
+            column, row = pending.pop()
+            component_size += 1
+            for neighbour in (
+                (column - 1, row),
+                (column + 1, row),
+                (column, row - 1),
+                (column, row + 1),
+            ):
+                if neighbour in remaining:
+                    remaining.remove(neighbour)
+                    pending.append(neighbour)
+        largest_empty_cell_count = max(
+            largest_empty_cell_count,
+            component_size,
+        )
+    if not qualifying_cells:
+        raise InfillFailure(f"{fabric.fabric_id} coverage grid is empty")
+    return {
+        "evidence_cell_counts": evidence_counts,
+        "grid_size_m": grid_size,
+        "largest_empty_region_area_m2": _stable_number(
+            largest_empty_cell_count * grid_size * grid_size
+        ),
+        "largest_empty_region_cell_count": largest_empty_cell_count,
+        "qualifying_cell_count": len(qualifying_cells),
+        "uncovered_cell_count": len(empty_cells),
+    }
+
+
+def _audit_site_fabrics(
+    plan: InfillPlan,
+    site_by_id: dict[str, InfillSite],
+) -> list[dict[str, Any]]:
+    expected_by_site = {
+        fabric.site_id: fabric for fabric in SITE_FABRICS
+    }
+    fabric_by_id = {
+        fabric.fabric_id: fabric for fabric in plan.site_fabrics
+    }
+    fabric_by_site = {
+        fabric.site_id: fabric for fabric in plan.site_fabrics
+    }
+    if (
+        len(fabric_by_id) != len(plan.site_fabrics)
+        or len(fabric_by_site) != len(plan.site_fabrics)
+        or len(plan.site_fabrics) != 8
+        or set(fabric_by_site) != set(site_by_id)
+    ):
+        raise InfillFailure("site-fabric schedule is not one-to-one")
+    if tuple(
+        fabric.fabric_id for fabric in plan.site_fabrics
+    ) != tuple(
+        fabric.fabric_id for fabric in SITE_FABRICS
+    ):
+        raise InfillFailure("site-fabric schedule ordering drifted")
+    treatment_ids: set[str] = set()
+    cluster_ids: set[str] = set()
+    records = []
+    for fabric in plan.site_fabrics:
+        site = site_by_id[fabric.site_id]
+        expected_grid = FABRIC_COVERAGE_GRID_SIZE_M[site.category]
+        expected_target = FABRIC_COVERAGE_TARGET_BASIS_POINTS[
+            site.category
+        ]
+        if (
+            fabric.fabric_id != f"{site.site_id}-regional-fabric"
+            or fabric.implementation_status != "contract-only"
+            or type(fabric.coverage_grid_size_m) is not float
+            or fabric.coverage_grid_size_m != expected_grid
+            or type(fabric.minimum_coverage_basis_points) is not int
+            or fabric.minimum_coverage_basis_points != expected_target
+            or not fabric.land_treatments
+            or not fabric.prop_clusters
+        ):
+            raise InfillFailure(f"{fabric.fabric_id} profile drifted")
+        qualifying_cells = set(
+            _qualifying_coverage_cells(
+                site,
+                fabric.coverage_grid_size_m,
+            )
+        )
+        scheduled_cells: set[tuple[int, int]] = set()
+        declared_coverage_basis_points = 0
+        treatment_records = []
+        for treatment in fabric.land_treatments:
+            if treatment.treatment_id in treatment_ids:
+                raise InfillFailure("land-treatment identifiers are not unique")
+            treatment_ids.add(treatment.treatment_id)
+            if (
+                not treatment.treatment_id.startswith(site.site_id + "-")
+                or not treatment.treatment_family
+                or type(treatment.coverage_basis_points) is not int
+                or not 0 < treatment.coverage_basis_points <= 10000
+                or type(treatment.boundary_grid_spacing_m) is not float
+                or not math.isfinite(treatment.boundary_grid_spacing_m)
+                or treatment.boundary_grid_spacing_m <= 0.0
+                or treatment.selected_variant_id
+                != deterministic_variant(
+                    treatment.treatment_id,
+                    treatment.variant_ids,
+                )
+            ):
+                raise InfillFailure(
+                    f"{treatment.treatment_id} treatment schedule drifted"
+                )
+            invalid_coverage_cell = any(
+                not isinstance(cell, tuple)
+                or len(cell) != 2
+                or isinstance(cell[0], bool)
+                or isinstance(cell[1], bool)
+                or not isinstance(cell[0], int)
+                or not isinstance(cell[1], int)
+                or cell[0] < 0
+                or cell[1] < 0
+                for cell in treatment.coverage_cells
+            )
+            if (
+                not treatment.coverage_cells
+                or invalid_coverage_cell
+                or len(set(treatment.coverage_cells))
+                != len(treatment.coverage_cells)
+                or not set(treatment.coverage_cells)
+                <= qualifying_cells
+                or scheduled_cells.intersection(
+                    treatment.coverage_cells
+                )
+            ):
+                raise InfillFailure(
+                    f"{treatment.treatment_id} spatial coverage drifted"
+                )
+            scheduled_cells.update(treatment.coverage_cells)
+            declared_coverage_basis_points += (
+                treatment.coverage_basis_points
+            )
+            treatment_records.append({
+                "boundary_grid_spacing_m":
+                    treatment.boundary_grid_spacing_m,
+                "coverage_basis_points":
+                    treatment.coverage_basis_points,
+                "coverage_cells": [
+                    list(cell) for cell in treatment.coverage_cells
+                ],
+                "coverage_cell_count": len(treatment.coverage_cells),
+                "selected_variant_id":
+                    treatment.selected_variant_id,
+                "treatment_family": treatment.treatment_family,
+                "treatment_id": treatment.treatment_id,
+                "variant_ids": list(treatment.variant_ids),
+            })
+        spatial_coverage_basis_points = (
+            len(scheduled_cells) * 10000 // len(qualifying_cells)
+        )
+        if (
+            declared_coverage_basis_points
+            != spatial_coverage_basis_points
+            or spatial_coverage_basis_points
+            < fabric.minimum_coverage_basis_points
+            or spatial_coverage_basis_points > 10000
+        ):
+            raise InfillFailure(
+                f"{fabric.fabric_id} authored coverage target is not met"
+            )
+        prop_records = []
+        for cluster in fabric.prop_clusters:
+            if cluster.cluster_id in cluster_ids:
+                raise InfillFailure("prop-cluster identifiers are not unique")
+            cluster_ids.add(cluster.cluster_id)
+            invalid_center = (
+                not isinstance(cluster.center_xz_m, tuple)
+                or len(cluster.center_xz_m) != 2
+                or any(
+                    type(value) is not float
+                    or not math.isfinite(value)
+                    for value in cluster.center_xz_m
+                )
+            )
+            if (
+                not cluster.cluster_id.startswith(site.site_id + "-")
+                or not cluster.prop_family
+                or invalid_center
+                or not point_in_polygon(
+                    cluster.center_xz_m,
+                    site.polygon_xz_m,
+                )
+                or type(cluster.radius_m) is not float
+                or not math.isfinite(cluster.radius_m)
+                or cluster.radius_m <= 0.0
+                or isinstance(cluster.instance_count, bool)
+                or not isinstance(cluster.instance_count, int)
+                or cluster.instance_count <= 0
+                or type(cluster.deterministic_seed) is not int
+                or cluster.selected_variant_id
+                != deterministic_variant(
+                    cluster.cluster_id,
+                    cluster.variant_ids,
+                )
+                or cluster.deterministic_seed
+                != deterministic_seed(cluster.cluster_id)
+            ):
+                raise InfillFailure(
+                    f"{cluster.cluster_id} prop schedule drifted"
+                )
+            prop_records.append({
+                "center_xz_m": list(cluster.center_xz_m),
+                "cluster_id": cluster.cluster_id,
+                "deterministic_seed": cluster.deterministic_seed,
+                "instance_count": cluster.instance_count,
+                "prop_family": cluster.prop_family,
+                "radius_m": cluster.radius_m,
+                "selected_variant_id": cluster.selected_variant_id,
+                "variant_ids": list(cluster.variant_ids),
+            })
+        grid_audit = _coverage_grid_audit(fabric, site, plan.routes)
+        if (
+            grid_audit["uncovered_cell_count"] != 0
+            or grid_audit["largest_empty_region_cell_count"] != 0
+        ):
+            raise InfillFailure(
+                f"{fabric.fabric_id} contains an uncovered coverage cell"
+            )
+        if fabric != expected_by_site[fabric.site_id]:
+            raise InfillFailure(
+                f"{fabric.fabric_id} deterministic schedule drifted"
+            )
+        site_area = _polygon_area_m2(site.polygon_xz_m)
+        records.append({
+            "authored_coverage_area_m2": _stable_number(
+                site_area * spatial_coverage_basis_points / 10000.0
+            ),
+            "authored_coverage_basis_points":
+                spatial_coverage_basis_points,
+            "authored_coverage_percent": _stable_number(
+                spatial_coverage_basis_points / 100.0
+            ),
+            "coverage_grid": grid_audit,
+            "fabric_id": fabric.fabric_id,
+            "implementation_status": fabric.implementation_status,
+            "land_treatments": treatment_records,
+            "minimum_coverage_basis_points":
+                fabric.minimum_coverage_basis_points,
+            "minimum_coverage_percent": _stable_number(
+                fabric.minimum_coverage_basis_points / 100.0
+            ),
+            "prop_clusters": prop_records,
+            "site_id": fabric.site_id,
+        })
+    if len(treatment_ids) != 24 or len(cluster_ids) != 24:
+        raise InfillFailure("site-fabric schedule cardinality drifted")
+    return records
+
+
+def _audit_placement_variants(
+    plan: InfillPlan,
+    placement_by_id: dict[str, InfillPlacement],
+) -> dict[str, Any]:
+    selection_by_placement = {
+        selection.placement_id: selection
+        for selection in plan.placement_variants
+    }
+    if (
+        len(selection_by_placement) != len(plan.placement_variants)
+        or set(selection_by_placement) != set(placement_by_id)
+        or len(plan.placement_variants) != 46
+    ):
+        raise InfillFailure("placement variant schedule is incomplete")
+    for selection in plan.placement_variants:
+        placement = placement_by_id[selection.placement_id]
+        variants = VARIANT_FAMILY_BY_ASSET.get(selection.asset_id)
+        if (
+            selection.asset_id != placement.asset_id
+            or variants is None
+            or selection.variant_id not in variants
+            or isinstance(selection.schedule_ordinal, bool)
+            or not isinstance(selection.schedule_ordinal, int)
+            or selection.schedule_ordinal <= 0
+        ):
+            raise InfillFailure(
+                f"{selection.placement_id} variant selection is invalid"
+            )
+    expected = _build_placement_variant_schedule(plan.placements)
+    if plan.placement_variants != expected:
+        raise InfillFailure("placement variant schedule drifted")
+
+    conflicts = []
+    built = tuple(
+        placement
+        for placement in plan.placements
+        if ASSET_BY_ID[placement.asset_id].category
+        in BUILT_PARCEL_CATEGORIES
+    )
+    for index, first in enumerate(built):
+        for second in built[index + 1:]:
+            if (
+                placements_are_adjacent(first, second)
+                and _same_yaw(first, second)
+                and selection_by_placement[first.placement_id].variant_id
+                == selection_by_placement[second.placement_id].variant_id
+            ):
+                conflicts.append(
+                    (first.placement_id, second.placement_id)
+                )
+    if conflicts:
+        raise InfillFailure(
+            "adjacent built parcels share a variant and yaw"
+        )
+
+    counts_by_asset = {}
+    for asset_id, variants in VARIANT_FAMILY_BY_ASSET.items():
+        counts_by_asset[asset_id] = {
+            variant_id: sum(
+                selection.asset_id == asset_id
+                and selection.variant_id == variant_id
+                for selection in plan.placement_variants
+            )
+            for variant_id in variants
+        }
+        if tuple(counts_by_asset[asset_id].values()) != (
+            EXPECTED_VARIANT_COUNTS_BY_ASSET[asset_id]
+        ):
+            raise InfillFailure(f"{asset_id} variant quota drifted")
+    return {
+        "adjacent_built_variant_yaw_conflict_count": 0,
+        "counts_by_asset": counts_by_asset,
+        "format": VARIANT_SCHEDULE_FORMAT,
+        "selection_count": len(plan.placement_variants),
+        "selections": [
+            {
+                "asset_id": selection.asset_id,
+                "placement_id": selection.placement_id,
+                "schedule_ordinal": selection.schedule_ordinal,
+                "variant_id": selection.variant_id,
+            }
+            for selection in plan.placement_variants
+        ],
+    }
+
+
+def _audit_fabric_parcel_connectors(
+    plan: InfillPlan,
+    placement_by_id: dict[str, InfillPlacement],
+) -> dict[str, Any]:
+    fabric_by_id = {
+        fabric.fabric_id: fabric for fabric in plan.site_fabrics
+    }
+    connector_by_id = {
+        connector.connector_id: connector
+        for connector in plan.fabric_parcel_connectors
+    }
+    connector_by_placement = {
+        connector.placement_id: connector
+        for connector in plan.fabric_parcel_connectors
+    }
+    built_placement_ids = {
+        placement.placement_id
+        for placement in plan.placements
+        if ASSET_BY_ID[placement.asset_id].category
+        in BUILT_PARCEL_CATEGORIES
+    }
+    if (
+        len(connector_by_id) != len(plan.fabric_parcel_connectors)
+        or len(connector_by_placement) != len(plan.fabric_parcel_connectors)
+        or len(plan.fabric_parcel_connectors) != 32
+        or set(connector_by_placement) != built_placement_ids
+    ):
+        raise InfillFailure(
+            "fabric-to-built-parcel connector schedule is incomplete"
+        )
+    if tuple(
+        connector.connector_id
+        for connector in plan.fabric_parcel_connectors
+    ) != tuple(
+        connector.connector_id
+        for connector in FABRIC_PARCEL_CONNECTORS
+    ):
+        raise InfillFailure(
+            "fabric-to-built-parcel connector ordering drifted"
+        )
+    records = []
+    for connector in plan.fabric_parcel_connectors:
+        placement = placement_by_id.get(connector.placement_id)
+        fabric = fabric_by_id.get(connector.fabric_id)
+        if (
+            placement is None
+            or fabric is None
+            or connector.connector_id
+            != f"fabric-to-{connector.placement_id}"
+            or connector.status != "active"
+            or connector.site_id != placement.site_id
+            or fabric.site_id != connector.site_id
+            or type(connector.maximum_seam_gap_m) is not float
+            or connector.maximum_seam_gap_m
+            != EXACT_FABRIC_SEAM_GAP_M
+        ):
+            raise InfillFailure(
+                f"{connector.connector_id} fabric connector profile drifted"
+            )
+        expected_surface, expected_local_seam = _fabric_target_seam(
+            placement
+        )
+        seams = (
+            connector.target_seam_local_xz_m,
+            connector.fabric_seam_world_xz_m,
+        )
+        if any(
+            not isinstance(seam, tuple)
+            or len(seam) != 2
+            or any(
+                not isinstance(point, tuple)
+                or len(point) != 2
+                or not all(
+                    type(value) is float
+                    and math.isfinite(float(value))
+                    for value in point
+                )
+                for point in seam
+            )
+            for seam in seams
+        ):
+            raise InfillFailure(
+                f"{connector.connector_id} seam endpoints are invalid"
+            )
+        if (
+            connector.target_surface_id != expected_surface
+            or connector.target_seam_local_xz_m != expected_local_seam
+        ):
+            raise InfillFailure(
+                f"{connector.connector_id} target seam drifted"
+            )
+        target_world_seam = tuple(
+            placement_local_to_world_xz(placement, point)
+            for point in connector.target_seam_local_xz_m
+        )
+        if connector.fabric_seam_world_xz_m != target_world_seam:
+            raise InfillFailure(
+                f"{connector.connector_id} is not an exact zero-gap seam"
+            )
+        seam_gap = EXACT_FABRIC_SEAM_GAP_M
+        records.append({
+            "connector_id": connector.connector_id,
+            "fabric_id": connector.fabric_id,
+            "fabric_seam_world_xz_m": [
+                list(point)
+                for point in connector.fabric_seam_world_xz_m
+            ],
+            "maximum_seam_gap_m": connector.maximum_seam_gap_m,
+            "placement_id": connector.placement_id,
+            "seam_gap_m": seam_gap,
+            "site_id": connector.site_id,
+            "status": connector.status,
+            "target_seam_local_xz_m": [
+                list(point)
+                for point in connector.target_seam_local_xz_m
+            ],
+            "target_surface_id": connector.target_surface_id,
+            "target_world_seam_xz_m": [
+                list(point) for point in target_world_seam
+            ],
+        })
+    if plan.fabric_parcel_connectors != FABRIC_PARCEL_CONNECTORS:
+        raise InfillFailure(
+            "fabric-to-built-parcel deterministic schedule drifted"
+        )
+    return {
+        "active": len(records),
+        "built_parcel_count": len(built_placement_ids),
+        "complete": True,
+        "contracts": records,
+        "format": FABRIC_PARCEL_CONNECTOR_FORMAT,
+        "maximum_allowed_seam_gap_m": EXACT_FABRIC_SEAM_GAP_M,
+        "maximum_observed_active_seam_gap_m": max(
+            record["seam_gap_m"] for record in records
+        ),
+        "pending": 0,
+    }
+
+
+def audit_plan(
+    plan: InfillPlan | None = None,
+    *,
+    schema_version: int = VERSION,
+) -> dict[str, Any]:
     """Fail closed on geometric or provenance drift and return a stable audit."""
 
+    if schema_version not in (VERSION, V3_VERSION):
+        raise InfillFailure(
+            f"unsupported regional-infill schema version {schema_version}"
+        )
     checked = build_infill_plan() if plan is None else plan
     asset_by_id = {asset.asset_id: asset for asset in checked.assets}
     site_by_id = {site.site_id: site for site in checked.sites}
@@ -2208,6 +3645,19 @@ def audit_plan(plan: InfillPlan | None = None) -> dict[str, Any]:
                     f"{anchor.anchor_id} generated seam is disconnected"
                 )
 
+    if schema_version == V3_VERSION:
+        site_fabric_records = _audit_site_fabrics(
+            checked,
+            site_by_id,
+        )
+        placement_variant_audit = _audit_placement_variants(
+            checked,
+            placement_by_id,
+        )
+        fabric_parcel_connector_audit = (
+            _audit_fabric_parcel_connectors(checked, placement_by_id)
+        )
+
     site_counts: dict[str, int] = {}
     placement_counts: dict[str, int] = {}
     for site in checked.sites:
@@ -2215,7 +3665,7 @@ def audit_plan(plan: InfillPlan | None = None) -> dict[str, Any]:
     for placement in checked.placements:
         category = asset_by_id[placement.asset_id].category
         placement_counts[category] = placement_counts.get(category, 0) + 1
-    return {
+    result = {
         "collision": {
             "collision_endcaps_enabled": False,
             "collision_component_count": sum(
@@ -2301,6 +3751,33 @@ def audit_plan(plan: InfillPlan | None = None) -> dict[str, Any]:
             "sites_by_category": dict(sorted(site_counts.items())),
         },
     }
+    if schema_version == VERSION:
+        return result
+
+    route_gateway_connectors = result.pop("connectors")
+    route_gateway_connectors["role"] = (
+        "five-existing-route-to-authored-asset-gateway-seams"
+    )
+    result["fabric_parcel_connectors"] = (
+        fabric_parcel_connector_audit
+    )
+    result["format"] = V3_SOURCE_AUDIT_FORMAT
+    result["placement_variants"] = placement_variant_audit
+    result["route_gateway_connectors"] = route_gateway_connectors
+    result["site_fabrics"] = {
+        "format": SITE_FABRIC_FORMAT,
+        "records": site_fabric_records,
+        "site_count": len(site_fabric_records),
+    }
+    result["summary"].update({
+        "built_parcel_connectors":
+            len(checked.fabric_parcel_connectors),
+        "placement_variant_selections":
+            len(checked.placement_variants),
+        "route_gateway_connectors": len(checked.connectors),
+        "site_fabrics": len(checked.site_fabrics),
+    })
+    return result
 
 
 def _asset_record(asset: AssetContract) -> dict[str, Any]:
@@ -2517,14 +3994,97 @@ def _placement_record(placement: InfillPlacement) -> dict[str, Any]:
     }
 
 
-def build_manifest(plan: InfillPlan | None = None) -> dict[str, Any]:
+def _site_fabric_record(
+    fabric: SiteFabricSchedule,
+) -> dict[str, Any]:
+    return {
+        "coverage_grid_size_m": fabric.coverage_grid_size_m,
+        "fabric_id": fabric.fabric_id,
+        "implementation_status": fabric.implementation_status,
+        "land_treatments": [
+            {
+                "boundary_grid_spacing_m":
+                    treatment.boundary_grid_spacing_m,
+                "coverage_basis_points":
+                    treatment.coverage_basis_points,
+                "coverage_cell_count": len(treatment.coverage_cells),
+                "coverage_cells": [
+                    list(cell) for cell in treatment.coverage_cells
+                ],
+                "selected_variant_id":
+                    treatment.selected_variant_id,
+                "treatment_family": treatment.treatment_family,
+                "treatment_id": treatment.treatment_id,
+                "variant_ids": list(treatment.variant_ids),
+            }
+            for treatment in fabric.land_treatments
+        ],
+        "minimum_coverage_basis_points":
+            fabric.minimum_coverage_basis_points,
+        "prop_clusters": [
+            {
+                "center_xz_m": list(cluster.center_xz_m),
+                "cluster_id": cluster.cluster_id,
+                "deterministic_seed": cluster.deterministic_seed,
+                "instance_count": cluster.instance_count,
+                "prop_family": cluster.prop_family,
+                "radius_m": cluster.radius_m,
+                "selected_variant_id": cluster.selected_variant_id,
+                "variant_ids": list(cluster.variant_ids),
+            }
+            for cluster in fabric.prop_clusters
+        ],
+        "site_id": fabric.site_id,
+    }
+
+
+def _placement_variant_record(
+    selection: PlacementVariantSelection,
+) -> dict[str, Any]:
+    return {
+        "asset_id": selection.asset_id,
+        "placement_id": selection.placement_id,
+        "schedule_ordinal": selection.schedule_ordinal,
+        "variant_id": selection.variant_id,
+    }
+
+
+def _fabric_parcel_connector_record(
+    connector: FabricParcelConnector,
+) -> dict[str, Any]:
+    return {
+        "connector_id": connector.connector_id,
+        "fabric_id": connector.fabric_id,
+        "fabric_seam_world_xz_m": [
+            list(point) for point in connector.fabric_seam_world_xz_m
+        ],
+        "maximum_seam_gap_m": connector.maximum_seam_gap_m,
+        "placement_id": connector.placement_id,
+        "site_id": connector.site_id,
+        "status": connector.status,
+        "target_seam_local_xz_m": [
+            list(point) for point in connector.target_seam_local_xz_m
+        ],
+        "target_surface_id": connector.target_surface_id,
+    }
+
+
+def build_manifest(
+    plan: InfillPlan | None = None,
+    *,
+    schema_version: int = VERSION,
+) -> dict[str, Any]:
     """Build the versioned, JSON-ready deterministic episode-independent plan."""
 
+    if schema_version not in (VERSION, V3_VERSION):
+        raise InfillFailure(
+            f"unsupported regional-infill schema version {schema_version}"
+        )
     checked = build_infill_plan() if plan is None else plan
-    return {
+    result = {
         "access_routes": [_route_record(route) for route in checked.routes],
         "assets": [_asset_record(asset) for asset in checked.assets],
-        "audit": audit_plan(checked),
+        "audit": audit_plan(checked, schema_version=schema_version),
         "connectors": {
             "collision_policy":
                 "no-generated-road-overlap-with-building-proxies",
@@ -2560,6 +4120,43 @@ def build_manifest(plan: InfillPlan | None = None) -> dict[str, Any]:
         ],
         "version": VERSION,
     }
+    if schema_version == VERSION:
+        return result
+
+    route_gateway_connectors = result.pop("connectors")
+    route_gateway_connectors["role"] = (
+        "five-existing-route-to-authored-asset-gateway-seams"
+    )
+    result["fabric_parcel_connectors"] = {
+        "contracts": [
+            _fabric_parcel_connector_record(connector)
+            for connector in checked.fabric_parcel_connectors
+        ],
+        "format": FABRIC_PARCEL_CONNECTOR_FORMAT,
+        "maximum_seam_gap_m": EXACT_FABRIC_SEAM_GAP_M,
+        "role": "thirty-two-site-fabric-to-built-parcel-seams",
+    }
+    result["format"] = V3_FORMAT
+    result["placement_variants"] = {
+        "format": VARIANT_SCHEDULE_FORMAT,
+        "selections": [
+            _placement_variant_record(selection)
+            for selection in checked.placement_variants
+        ],
+    }
+    result["provenance"]["source_audit_format"] = (
+        V3_SOURCE_AUDIT_FORMAT
+    )
+    result["route_gateway_connectors"] = route_gateway_connectors
+    result["site_fabrics"] = {
+        "format": SITE_FABRIC_FORMAT,
+        "records": [
+            _site_fabric_record(fabric)
+            for fabric in checked.site_fabrics
+        ],
+    }
+    result["version"] = V3_VERSION
+    return result
 
 
 def canonical_json_bytes(value: Any) -> bytes:
@@ -2574,12 +4171,36 @@ def canonical_json_bytes(value: Any) -> bytes:
     ).encode("utf-8")
 
 
-def canonical_manifest_bytes(plan: InfillPlan | None = None) -> bytes:
-    return canonical_json_bytes(build_manifest(plan))
+def canonical_manifest_bytes(
+    plan: InfillPlan | None = None,
+    *,
+    schema_version: int = VERSION,
+) -> bytes:
+    return canonical_json_bytes(
+        build_manifest(plan, schema_version=schema_version)
+    )
 
 
-def canonical_manifest_sha256(plan: InfillPlan | None = None) -> str:
-    return hashlib.sha256(canonical_manifest_bytes(plan)).hexdigest()
+def canonical_manifest_sha256(
+    plan: InfillPlan | None = None,
+    *,
+    schema_version: int = VERSION,
+) -> str:
+    return hashlib.sha256(
+        canonical_manifest_bytes(plan, schema_version=schema_version)
+    ).hexdigest()
+
+
+def canonical_v3_manifest_bytes(
+    plan: InfillPlan | None = None,
+) -> bytes:
+    return canonical_manifest_bytes(plan, schema_version=V3_VERSION)
+
+
+def canonical_v3_manifest_sha256(
+    plan: InfillPlan | None = None,
+) -> str:
+    return canonical_manifest_sha256(plan, schema_version=V3_VERSION)
 
 
 def placement_ids(plan: InfillPlan | None = None) -> tuple[str, ...]:

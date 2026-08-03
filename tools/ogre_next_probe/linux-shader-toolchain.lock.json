@@ -1,0 +1,127 @@
+{
+  "schema": "ror.ogre_next_linux_shader_toolchain.v1",
+  "platform_policy": "linux-x86_64-vulkan",
+  "provider": "pinned-source",
+  "shaderc_release": {
+    "repository": "https://github.com/google/shaderc",
+    "tag": "v2025.3",
+    "commit": "8c2e602ce440b7739c95ff3d69cecb1adf6becda",
+    "archive_url": "https://github.com/google/shaderc/archive/8c2e602ce440b7739c95ff3d69cecb1adf6becda.tar.gz",
+    "archive_sha256": "1a17c01614debaacd5c3674a540368119e93bd299991e0f1c3554875c92ef5e2",
+    "dependency_manifest_path": "DEPS",
+    "dependency_manifest_sha256": "586935f05d12137e2aa587bd96a96b66e75320b1e311907e20567ab352b19a48",
+    "compatibility_patch": {
+      "path": "patches/0003-shaderc-disable-glslang-install.patch",
+      "sha256": "9742f2a9fcb5aef762298d823acb85352e536402ba7c4587173cc52130012b0b",
+      "reason": "Keep glslang install exports disabled when shaderc's reviewed static skip-install configuration suppresses SPIRV-Tools exports"
+    },
+    "license_expression": "Apache-2.0",
+    "license_path": "LICENSE",
+    "license_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "package_notice_path": "licenses/Apache-2.0.txt",
+    "package_notice_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  "dependencies": {
+    "glslang": {
+      "repository": "https://github.com/KhronosGroup/glslang",
+      "version": "15.3.0+efd24d75",
+      "commit": "efd24d75bcbc55620e759f6bf42c45a32abac5f8",
+      "archive_url": "https://github.com/KhronosGroup/glslang/archive/efd24d75bcbc55620e759f6bf42c45a32abac5f8.tar.gz",
+      "archive_sha256": "9427deccbdf4bde6a269938df38c6bd75247493786a310d8d733a2c82065ef47",
+      "selected_by": "shaderc v2025.3 DEPS glslang_revision",
+      "license_expression": "LicenseRef-glslang-composite",
+      "license_summary": "BSD-3-Clause AND BSD-2-Clause AND MIT AND Apache-2.0 plus the complete upstream preprocessor terms",
+      "license_path": "LICENSE.txt",
+      "license_sha256": "adb783e734e906d1f46db5df29991dbde84bdb0ceab502ac2febb44fe3c2b5f4",
+      "package_notice_path": "licenses/glslang-LICENSE.txt",
+      "package_notice_sha256": "adb783e734e906d1f46db5df29991dbde84bdb0ceab502ac2febb44fe3c2b5f4"
+    },
+    "spirv_tools": {
+      "repository": "https://github.com/KhronosGroup/SPIRV-Tools",
+      "version": "v2025.3",
+      "commit": "33e02568181e3312f49a3cf33df470bf96ef293a",
+      "archive_url": "https://github.com/KhronosGroup/SPIRV-Tools/archive/33e02568181e3312f49a3cf33df470bf96ef293a.tar.gz",
+      "archive_sha256": "44d1005880c583fc00a0fb41c839214c68214b000ea8dcb54d352732fee600ff",
+      "selected_by": "shaderc v2025.3 DEPS spirv_tools_revision",
+      "license_expression": "Apache-2.0",
+      "license_path": "LICENSE",
+      "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "package_notice_path": "licenses/SPIRV-Tools-LICENSE.txt",
+      "package_notice_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    "spirv_headers": {
+      "repository": "https://github.com/KhronosGroup/SPIRV-Headers",
+      "version": "1.5.5+2a611a97",
+      "commit": "2a611a970fdbc41ac2e3e328802aed9985352dca",
+      "archive_url": "https://github.com/KhronosGroup/SPIRV-Headers/archive/2a611a970fdbc41ac2e3e328802aed9985352dca.tar.gz",
+      "archive_sha256": "c2225a49c3d7efa5c4f4ce4a6b42081e6ea3daca376f3353d9d7c2722d77a28a",
+      "selected_by": "shaderc v2025.3 DEPS spirv_headers_revision",
+      "license_expression": "LicenseRef-SPIRV-Headers-composite",
+      "license_summary": "Khronos MIT-like materials terms with the complete upstream JSON and grammar data terms",
+      "license_path": "LICENSE",
+      "license_sha256": "ea43b1de38a6f90c488800d66dec1ed671e68cda530266bc96951fb5b6307613",
+      "package_notice_path": "licenses/SPIRV-Headers-LICENSE.txt",
+      "package_notice_sha256": "ea43b1de38a6f90c488800d66dec1ed671e68cda530266bc96951fb5b6307613"
+    }
+  },
+  "ogre_compatibility_patch": {
+    "path": "patches/0002-vulkan-use-glslang-spv-options.patch",
+    "sha256": "4242ad130cff4e70245d151d0b1a0a63959d3d9b25d11a5587a74f48b15b7897",
+    "reason": "Compile OGRE's Vulkan program against the exact pinned glslang SpvOptions definition instead of a shorter local ABI redeclaration"
+  },
+  "ogre_embedded_components": {
+    "spirv_reflect": {
+      "repository": "https://github.com/KhronosGroup/SPIRV-Reflect",
+      "version": "vendored by pinned OGRE-Next commit",
+      "source_path": "RenderSystems/Vulkan/src/SPIRV-Reflect/spirv_reflect.c",
+      "source_sha256": "41394a0cfed351240dc811758d398117ec2cd13ba95dc9f1a1e346546ac7b4d2",
+      "header_path": "RenderSystems/Vulkan/include/SPIRV-Reflect/spirv_reflect.h",
+      "header_sha256": "2f3823ea53c6c86902841b5bef3c0b604d56a1e18b97ca46498b6e764573ab03",
+      "license_expression": "Apache-2.0",
+      "package_notice_path": "licenses/Apache-2.0.txt",
+      "package_notice_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    }
+  },
+  "static_closure_targets": [
+    {
+      "target": "shaderc_combined",
+      "component": "shaderc",
+      "role": "single-archive link closure"
+    },
+    {
+      "target": "shaderc",
+      "component": "shaderc",
+      "role": "combined archive member"
+    },
+    {
+      "target": "shaderc_util",
+      "component": "shaderc",
+      "role": "combined archive member"
+    },
+    {
+      "target": "glslang",
+      "component": "glslang",
+      "role": "combined archive member"
+    },
+    {
+      "target": "SPIRV",
+      "component": "glslang",
+      "role": "combined archive member"
+    },
+    {
+      "target": "SPIRV-Tools-opt",
+      "component": "spirv_tools",
+      "role": "combined archive member"
+    },
+    {
+      "target": "SPIRV-Tools-static",
+      "component": "spirv_tools",
+      "role": "combined archive member exposed as SPIRV-Tools"
+    }
+  ],
+  "host_dynamic_boundary": {
+    "component": "Vulkan-Loader",
+    "cmake_library": "Vulkan_LIBRARY",
+    "policy": "host-provided dynamic system API; never copied or statically linked into the N1 package"
+  }
+}

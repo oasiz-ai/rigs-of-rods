@@ -24,3 +24,7 @@ extern const char* const ROR_VERSION_STRING_SHORT;
 extern const char* const ROR_VERSION_STRING;
 extern const char* const ROR_BUILD_DATE;
 extern const char* const ROR_BUILD_TIME;
+/// Full commit and symbolic branch captured by CMake. Live data capture fails
+/// closed if the commit is missing or noncanonical.
+extern const char* const ROR_GIT_COMMIT;
+extern const char* const ROR_GIT_BRANCH;

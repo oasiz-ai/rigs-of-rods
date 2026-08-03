@@ -899,6 +899,7 @@ DECLARE_RESOURCE_PACK( MYGUI,                 "mygui",                "MyGuiRG")
 DECLARE_RESOURCE_PACK( OVERLAYS,              "overlays",             "OverlaysRG");
 DECLARE_RESOURCE_PACK( PAGED,                 "paged",                "PagedRG");
 DECLARE_RESOURCE_PACK( PARTICLES,             "particles",            "ParticlesRG");
+DECLARE_RESOURCE_PACK( POSTPROCESS,           "postprocess",          "PostProcessRG");
 DECLARE_RESOURCE_PACK( PSSM,                  "pssm",                 "PssmRG");
 DECLARE_RESOURCE_PACK( RTSHADER,              "rtshader",             "RtShaderRG");
 DECLARE_RESOURCE_PACK( SCRIPTS,               "scripts",              "ScriptsRG");

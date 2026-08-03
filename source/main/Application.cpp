@@ -60,8 +60,11 @@ static CameraManager*       g_camera_manager = nullptr;
 static Console              g_console;
 static ContentManager       g_content_manager;
 static DiscordRpc           g_discord_rpc;
-static GameContext          g_game_context;
+// Scene users must finish before the scene registry releases renderer-owned
+// handles. Static objects in one translation unit are destroyed in reverse
+// declaration order, so keep GfxScene before GameContext deliberately.
 static GfxScene             g_gfx_scene;
+static GameContext          g_game_context;
 static GUIManager*          g_gui_manager = nullptr;
 static InputEngine*         g_input_engine = nullptr;
 static LanguageEngine       g_language_engine;
@@ -116,6 +119,18 @@ CVar* sim_deterministic_state_trace;
 CVar* sim_deterministic_state_trace_scenario_id;
 CVar* sim_deterministic_state_trace_step_limit;
 CVar* sim_deterministic_fixed_steps_per_frame;
+CVar* wm_capture_enabled;
+CVar* wm_capture_output_root;
+CVar* wm_capture_root_seed;
+CVar* wm_capture_episode_ordinal;
+CVar* wm_capture_transition_count;
+CVar* wm_capture_rgb_width;
+CVar* wm_capture_rgb_height;
+CVar* wm_capture_rights_manifest_path;
+CVar* wm_capture_rights_manifest_sha256;
+CVar* wm_capture_data_source_id;
+CVar* wm_capture_participant_release_id;
+CVar* wm_capture_allowed_use_id;
 
 // Multiplayer
 CVar* mp_state;
@@ -271,6 +286,7 @@ CVar* gfx_reduce_shadows;
 CVar* gfx_enable_rtshaders;
 CVar* gfx_alt_actor_materials;
 CVar* gfx_auto_lod;
+CVar* gfx_postprocess_mode;
 
 // Flexbodies
 CVar* flexbody_defrag_enabled;
@@ -388,6 +404,28 @@ void DestroyInputEngine()
 {
     delete g_input_engine;
     g_input_engine = nullptr;
+}
+
+bool DestroyThreadPool() noexcept
+{
+    if (g_thread_pool == nullptr)
+    {
+        return true;
+    }
+
+    try
+    {
+        delete g_thread_pool;
+        g_thread_pool = nullptr;
+        return true;
+    }
+    catch (...)
+    {
+        // Preserve the pointer if an implementation-specific worker join
+        // reports failure. The caller must report an unclean shutdown rather
+        // than pretending callbacks can no longer run.
+        return false;
+    }
 }
 
 } // namespace App

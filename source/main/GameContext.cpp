@@ -1983,10 +1983,72 @@ void GameContext::UpdateBoatInputEvents(float dt, ActorPtr boat)
     }
 }
 
+bool GameContext::ResolveTruckDrivingInputs(float dt, ActorPtr truck)
+{
+    if (truck == nullptr ||
+        truck->ar_state == ActorState::DISPOSED ||
+        truck->ar_driveable != TRUCK ||
+        truck->isBeingReset() ||
+        truck->ar_physics_paused)
+    {
+        return false;
+    }
+#ifdef USE_ANGELSCRIPT
+    if (truck->ar_vehicle_ai && truck->ar_vehicle_ai->isActive())
+        return false;
+#endif // USE_ANGELSCRIPT
+
+    // Steering and Engine::UpdateInputEvents are the canonical issued ->
+    // resolved boundary consumed by the subsequent physics batch.
+    float tmp_left_digital  = truck->getEventValue(EV_TRUCK_STEER_LEFT , false, InputSourceType::IST_DIGITAL);
+    float tmp_right_digital = truck->getEventValue(EV_TRUCK_STEER_RIGHT, false, InputSourceType::IST_DIGITAL);
+    float tmp_left_analog   = truck->getEventValue(EV_TRUCK_STEER_LEFT , false, InputSourceType::IST_ANALOG);
+    float tmp_right_analog  = truck->getEventValue(EV_TRUCK_STEER_RIGHT, false, InputSourceType::IST_ANALOG);
+
+    float sum = -std::max(tmp_left_digital, tmp_left_analog) + std::max(tmp_right_digital, tmp_right_analog);
+
+    truck->ar_hydro_dir_command = Ogre::Math::Clamp(sum, -1.0f, 1.0f);
+
+    truck->ar_hydro_speed_coupling_active = (tmp_left_digital >= tmp_left_analog) && (tmp_right_digital >= tmp_right_analog);
+
+    if (truck->ar_engine)
+    {
+        truck->ar_engine->UpdateInputEvents(dt);
+    }
+    return true;
+}
+
+bool GameContext::ApplyTruckParkingBrakeInput(ActorPtr truck)
+{
+    if (truck == nullptr ||
+        truck->ar_state == ActorState::DISPOSED ||
+        truck->ar_driveable != TRUCK ||
+        truck->isBeingReset() ||
+        truck->ar_physics_paused)
+    {
+        return false;
+    }
+#ifdef USE_ANGELSCRIPT
+    if (truck->ar_vehicle_ai && truck->ar_vehicle_ai->isActive())
+        return false;
+#endif // USE_ANGELSCRIPT
+
+    if (truck->getEventBoolValueBounce(EV_TRUCK_PARKING_BRAKE) &&
+        !truck->getEventBoolValue(EV_TRUCK_TRAILER_PARKING_BRAKE))
+    {
+        truck->parkingbrakeToggle();
+    }
+    return true;
+}
+
 void GameContext::UpdateTruckInputEvents(float dt, ActorPtr truck)
 {
-    if (truck->isBeingReset() || truck->ar_physics_paused)
+    if (truck == nullptr ||
+        truck->isBeingReset() ||
+        truck->ar_physics_paused)
+    {
         return;
+    }
 #ifdef USE_ANGELSCRIPT
     if (truck->ar_vehicle_ai && truck->ar_vehicle_ai->isActive())
         return;
@@ -2004,22 +2066,8 @@ void GameContext::UpdateTruckInputEvents(float dt, ActorPtr truck)
     if (truck->getEventBoolValueBounce(EV_TRUCK_RIGHT_MIRROR_RIGHT))
         truck->ar_right_mirror_angle += 0.001;
 
-    // steering
-    float tmp_left_digital  = truck->getEventValue(EV_TRUCK_STEER_LEFT , false, InputSourceType::IST_DIGITAL);
-    float tmp_right_digital = truck->getEventValue(EV_TRUCK_STEER_RIGHT, false, InputSourceType::IST_DIGITAL);
-    float tmp_left_analog   = truck->getEventValue(EV_TRUCK_STEER_LEFT , false, InputSourceType::IST_ANALOG);
-    float tmp_right_analog  = truck->getEventValue(EV_TRUCK_STEER_RIGHT, false, InputSourceType::IST_ANALOG);
-
-    float sum = -std::max(tmp_left_digital, tmp_left_analog) + std::max(tmp_right_digital, tmp_right_analog);
-
-    truck->ar_hydro_dir_command = Ogre::Math::Clamp(sum, -1.0f, 1.0f);
-
-    truck->ar_hydro_speed_coupling_active = (tmp_left_digital >= tmp_left_analog) && (tmp_right_digital >= tmp_right_analog);
-
-    if (truck->ar_engine)
-    {
-        truck->ar_engine->UpdateInputEvents(dt);
-    }
+    if (!this->ResolveTruckDrivingInputs(dt, truck))
+        return;
 
     if (truck->ar_brake > 1.0f / 6.0f)
     {
@@ -2074,11 +2122,8 @@ void GameContext::UpdateTruckInputEvents(float dt, ActorPtr truck)
         }
     }
 
-    if (truck->getEventBoolValueBounce(EV_TRUCK_PARKING_BRAKE) &&
-        !truck->getEventBoolValue(EV_TRUCK_TRAILER_PARKING_BRAKE))
-    {
-        truck->parkingbrakeToggle();
-    }
+    if (!this->ApplyTruckParkingBrakeInput(truck))
+        return;
 
     if (truck->getEventBoolValueBounce(EV_TRUCK_ANTILOCK_BRAKE))
     {

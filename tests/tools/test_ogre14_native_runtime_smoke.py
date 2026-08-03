@@ -38,7 +38,30 @@ EXPECTED_COMMON_ENGINE_MARKERS = (
     "[RoR|Startup|Rendering] Starting renderer '",
     "[RoR|Startup|Rendering] Creating render window with settings:",
     "RenderSystem::_createRenderWindow",
+    "[RoR|Shutdown] Leaving the main loop after the shutdown message",
+    "[RoR|Shutdown] Physics and graphics worker pools released",
+    "*** Terminating OIS ***",
+    "[RoR|Shutdown] Window-bound runtime integrations released",
+    "[RoR|Shutdown] Environment map renderer resources released",
+    "[RoR|Shutdown] Environment map shutdown returned",
+    "[RoR|Shutdown] Renderer root teardown starting",
     "*-*-* OGRE Shutdown",
+    "[RoR|Shutdown] Renderer root teardown completed",
+    "[RoR|Shutdown] Renderer runtime released",
+    "[RoR|Shutdown] Console log listener detached",
+)
+EXPECTED_SHUTDOWN_ENGINE_MARKERS = (
+    "[RoR|Shutdown] Leaving the main loop after the shutdown message",
+    "[RoR|Shutdown] Physics and graphics worker pools released",
+    "*** Terminating OIS ***",
+    "[RoR|Shutdown] Window-bound runtime integrations released",
+    "[RoR|Shutdown] Environment map renderer resources released",
+    "[RoR|Shutdown] Environment map shutdown returned",
+    "[RoR|Shutdown] Renderer root teardown starting",
+    "*-*-* OGRE Shutdown",
+    "[RoR|Shutdown] Renderer root teardown completed",
+    "[RoR|Shutdown] Renderer runtime released",
+    "[RoR|Shutdown] Console log listener detached",
 )
 EXPECTED_LINUX_ENGINE_MARKERS = (
     "Installing plugin: GL 3+ RenderSystem",
@@ -81,7 +104,20 @@ def engine_log(platform: str, user_directory: Path) -> str:
             "Installing plugin: D3D11 RenderSystem\n"
             "RenderSystem Name: Direct3D11 Rendering Subsystem\n"
         )
-    return common + renderer + "*-*-* OGRE Shutdown\n"
+    shutdown = (
+        "[RoR|Shutdown] Leaving the main loop after the shutdown message\n"
+        "[RoR|Shutdown] Physics and graphics worker pools released\n"
+        "*** Terminating OIS ***\n"
+        "[RoR|Shutdown] Window-bound runtime integrations released\n"
+        "[RoR|Shutdown] Environment map renderer resources released\n"
+        "[RoR|Shutdown] Environment map shutdown returned\n"
+        "[RoR|Shutdown] Renderer root teardown starting\n"
+        "*-*-* OGRE Shutdown\n"
+        "[RoR|Shutdown] Renderer root teardown completed\n"
+        "[RoR|Shutdown] Renderer runtime released\n"
+        "[RoR|Shutdown] Console log listener detached\n"
+    )
+    return common + renderer + shutdown
 
 
 def completed(output: str = "runtime stdout") -> subprocess.CompletedProcess[bytes]:
@@ -102,6 +138,10 @@ class Ogre14NativeRuntimeSmokeTests(unittest.TestCase):
         self.assertEqual(
             SMOKE.COMMON_ENGINE_REQUIRED_MARKERS,
             EXPECTED_COMMON_ENGINE_MARKERS,
+        )
+        self.assertEqual(
+            SMOKE.SHUTDOWN_ENGINE_REQUIRED_MARKERS,
+            EXPECTED_SHUTDOWN_ENGINE_MARKERS,
         )
         self.assertEqual(
             SMOKE.LINUX_ENGINE_REQUIRED_MARKERS,
@@ -198,6 +238,32 @@ class Ogre14NativeRuntimeSmokeTests(unittest.TestCase):
                         expected_user_directory=user_directory,
                     )
 
+    def test_shutdown_markers_are_unique_and_ordered(self) -> None:
+        user_directory = Path("/isolated/.rigsofrods")
+        valid_engine = engine_log("linux-x86_64", user_directory)
+        duplicate = (
+            valid_engine
+            + "\n"
+            + EXPECTED_SHUTDOWN_ENGINE_MARKERS[1]
+        )
+        reversed_shutdown = valid_engine
+        for marker in EXPECTED_SHUTDOWN_ENGINE_MARKERS:
+            reversed_shutdown = reversed_shutdown.replace(marker, "")
+        reversed_shutdown += "\n".join(
+            reversed(EXPECTED_SHUTDOWN_ENGINE_MARKERS)
+        )
+        for invalid in (duplicate, reversed_shutdown):
+            with self.subTest(invalid=invalid[-240:]):
+                with self.assertRaises(SMOKE.SmokeFailure):
+                    SMOKE.validate_runtime_evidence(
+                        "linux-x86_64",
+                        returncode=0,
+                        runtime_output="normal stdout",
+                        engine_log=invalid,
+                        script_log=script_log(),
+                        expected_user_directory=user_directory,
+                    )
+
     def test_crash_fatal_diagnostic_and_wrong_home_fail_closed(self) -> None:
         user_directory = Path("/isolated/.rigsofrods")
         engine = engine_log("linux-x86_64", user_directory)
@@ -240,6 +306,7 @@ class Ogre14NativeRuntimeSmokeTests(unittest.TestCase):
             "LD_LIBRARY_PATH": "/tmp/injected-library",
             "LD_PRELOAD": "/tmp/injected-preload.so",
             "MESA_LOADER_DRIVER_OVERRIDE": "host-driver",
+            "RoR_D0_Exact_Window_Extent": "1280x720",
             "ROR_D0_SCENE_HOME": "/host/scene",
         }
         linux = SMOKE.runtime_environment(
@@ -255,6 +322,7 @@ class Ogre14NativeRuntimeSmokeTests(unittest.TestCase):
         self.assertNotIn("LD_AUDIT", linux)
         self.assertNotIn("LD_LIBRARY_PATH", linux)
         self.assertNotIn("LD_PRELOAD", linux)
+        self.assertNotIn("RoR_D0_Exact_Window_Extent", linux)
 
         windows = SMOKE.runtime_environment(
             "windows-x86_64",
@@ -265,12 +333,14 @@ class Ogre14NativeRuntimeSmokeTests(unittest.TestCase):
                 "GALLIUM_DRIVER": "host",
                 "LIBGL_ALWAYS_SOFTWARE": "1",
                 "DyLd_LiBrArY_PaTh": r"C:\injected",
+                "ROR_D0_EXACT_WINDOW_EXTENT": "1280x720",
             },
         )
         self.assertNotIn("GALLIUM_DRIVER", windows)
         self.assertNotIn("LIBGL_ALWAYS_SOFTWARE", windows)
         self.assertNotIn("Path", windows)
         self.assertNotIn("DyLd_LiBrArY_PaTh", windows)
+        self.assertNotIn("ROR_D0_EXACT_WINDOW_EXTENT", windows)
         self.assertEqual(
             windows["PATH"],
             r"C:\Windows\System32;C:\Windows",

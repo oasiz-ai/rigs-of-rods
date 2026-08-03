@@ -1655,9 +1655,10 @@ void Actor::SoftReset()
     m_ongoing_reset = true;
 }
 
-void Actor::SyncReset(bool reset_position)
+void Actor::SyncReset(bool reset_position, bool emit_script_event)
 {
-    TRIGGER_EVENT_ASYNC(SE_TRUCK_RESET, ar_instance_id);
+    if (emit_script_event)
+        TRIGGER_EVENT_ASYNC(SE_TRUCK_RESET, ar_instance_id);
 
     m_reset_timer.reset();
     m_physics_step = 0;
@@ -1814,6 +1815,51 @@ void Actor::SyncReset(bool reset_position)
     }
 
     m_ongoing_reset = true;
+}
+
+bool Actor::PrepareWorldModelCaptureReset(std::uint64_t reset_seed)
+{
+    if (reset_seed == 0U ||
+        ar_state == ActorState::DISPOSED ||
+        ar_state != ActorState::LOCAL_SIMULATED ||
+        ar_driveable != TRUCK)
+    {
+        return false;
+    }
+
+    // SyncReset restores the authored node/beam state. Install the
+    // episode-derived seed before it so every future counter-noise consumer
+    // starts from the same sealed reset identity.
+    m_deterministic_seed = reset_seed;
+    this->SyncReset(
+        /*reset_position=*/true,
+        /*emit_script_event=*/false);
+    m_physics_step = 0U;
+    m_engine_update_step = 0U;
+
+    // SyncReset historically left a few live control fields untouched.
+    // Capture cannot allow pre-episode input or a previous engine mode to
+    // leak into observation zero.
+    ar_brake = 0.0f;
+    ar_hydro_dir_command = 0.0f;
+    ar_hydro_dir_state = 0.0f;
+    ar_hydro_dir_wheel_display = 0.0f;
+    ar_parking_brake = false;
+    ar_trailer_parking_brake = false;
+    if (ar_engine)
+    {
+        ar_engine->offStart();
+        ar_engine->startEngine();
+        ar_engine->setAcc(0.0f);
+        ar_engine->setClutch(0.0f);
+        ar_engine->setWheelSpin(0.0f);
+    }
+    // Interactive resets intentionally hold one ordinary manager update in
+    // `m_ongoing_reset`. Native capture starts its exact-step batch directly,
+    // so keeping that latch would silently turn the first recorded transition
+    // into a no-physics transition.
+    m_ongoing_reset = false;
+    return m_deterministic_seed == reset_seed && !m_ongoing_reset;
 }
 
 void Actor::applyNodeBeamScales()

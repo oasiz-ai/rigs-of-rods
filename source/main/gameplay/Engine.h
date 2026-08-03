@@ -101,6 +101,7 @@ public:
     int            getGearRange();
     bool           isRunning() { return m_engine_is_running; }
     bool           hasContact() { return m_contact; } //!< Ignition
+    bool           isStarterActive() const { return m_starter; }
     float          getCurEngineTorque() { return m_cur_engine_torque; }
     float          getInputShaftRPM() { return m_cur_wheel_revolutions * m_gear_ratios[m_cur_gear + 1]; }
     float          getDriveRatio() { return m_gear_ratios[m_cur_gear + 1]; }

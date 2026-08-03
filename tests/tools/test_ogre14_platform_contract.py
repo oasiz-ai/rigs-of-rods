@@ -204,6 +204,49 @@ def select_package_roots(
         return result
 
 
+def select_media_root(
+    *,
+    system_name: str,
+    layout: str,
+    missing_components: tuple[str, ...] = (),
+) -> subprocess.CompletedProcess:
+    with tempfile.TemporaryDirectory(prefix="ror-ogre14-media-") as directory:
+        temporary_root = Path(directory)
+        package_root = temporary_root / "package"
+        if layout == "versioned-share":
+            media_root = package_root / "share" / "OGRE-14.5" / "Media"
+        elif layout == "package-root":
+            media_root = package_root / "Media"
+        else:
+            raise ValueError(f"unsupported fixture layout: {layout}")
+        package_root.mkdir()
+        for component in ("Main", "RTShaderLib", "Terrain"):
+            if component not in missing_components:
+                (media_root / component).mkdir(parents=True, exist_ok=True)
+        output_path = temporary_root / "selected.txt"
+        script_path = temporary_root / "select-media.cmake"
+        script_path.write_text(
+            f'include("{PLATFORM_MODULE.as_posix()}")\n'
+            "ror_ogre14_media_root(\n"
+            f'    media "{package_root.as_posix()}" "{system_name}")\n'
+            f'file(WRITE "{output_path.as_posix()}" "${{media}}\\n")\n',
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            ["cmake", "-P", str(script_path)],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        result.expected_media_root = native_path_text(media_root)
+        if result.returncode == 0:
+            result.media_root = native_path_text(
+                output_path.read_text(encoding="utf-8").strip()
+            )
+        return result
+
+
 def active_config_values(config: str, key: str) -> list[str]:
     prefix = f"{key}="
     return [
@@ -583,6 +626,63 @@ class Ogre14PlatformContractTests(unittest.TestCase):
             package_variables={},
         )
         self.assertNotEqual(missing_variable.returncode, 0)
+
+    def test_media_layout_is_exact_for_each_native_platform(self) -> None:
+        cases = (
+            ("Linux", "versioned-share"),
+            ("Darwin", "package-root"),
+            ("Windows", "package-root"),
+        )
+        for system_name, layout in cases:
+            with self.subTest(system_name=system_name):
+                result = select_media_root(
+                    system_name=system_name,
+                    layout=layout,
+                )
+                self.assertEqual(
+                    result.returncode,
+                    0,
+                    msg=result.stdout + result.stderr,
+                )
+                self.assertEqual(
+                    result.media_root,
+                    result.expected_media_root,
+                )
+
+    def test_wrong_or_incomplete_media_layout_fails_closed(self) -> None:
+        cases = (
+            ("Linux", "package-root", ()),
+            ("Darwin", "versioned-share", ()),
+            ("Windows", "versioned-share", ()),
+            ("Linux", "versioned-share", ("RTShaderLib",)),
+            ("Windows", "package-root", ("Main", "Terrain")),
+        )
+        for system_name, layout, missing in cases:
+            with self.subTest(
+                system_name=system_name,
+                layout=layout,
+                missing=missing,
+            ):
+                result = select_media_root(
+                    system_name=system_name,
+                    layout=layout,
+                    missing_components=missing,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                diagnostics = result.stdout + result.stderr
+                self.assertIn("pinned OGRE 14 package media root", diagnostics)
+                for component in missing:
+                    self.assertIn(component, diagnostics)
+
+        unsupported = select_media_root(
+            system_name="FreeBSD",
+            layout="package-root",
+        )
+        self.assertNotEqual(unsupported.returncode, 0)
+        self.assertIn(
+            "no media layout for FreeBSD",
+            unsupported.stdout + unsupported.stderr,
+        )
 
     def test_macos_stager_owns_both_plugin_config_names(self) -> None:
         stager = (

@@ -665,6 +665,21 @@ extern CVar* sim_deterministic_state_trace_scenario_id;
 extern CVar* sim_deterministic_state_trace_step_limit;
 extern CVar* sim_deterministic_fixed_steps_per_frame;
 
+// Explicit, non-archived live world-model capture activation. Capture is
+// never enabled implicitly and rights/allowed-use fields have no defaults.
+extern CVar* wm_capture_enabled;
+extern CVar* wm_capture_output_root;
+extern CVar* wm_capture_root_seed;
+extern CVar* wm_capture_episode_ordinal;
+extern CVar* wm_capture_transition_count;
+extern CVar* wm_capture_rgb_width;
+extern CVar* wm_capture_rgb_height;
+extern CVar* wm_capture_rights_manifest_path;
+extern CVar* wm_capture_rights_manifest_sha256;
+extern CVar* wm_capture_data_source_id;
+extern CVar* wm_capture_participant_release_id;
+extern CVar* wm_capture_allowed_use_id;
+
 // Multiplayer
 extern CVar* mp_state;
 extern CVar* mp_join_on_startup;
@@ -820,6 +835,7 @@ extern CVar* gfx_reduce_shadows;
 extern CVar* gfx_enable_rtshaders;
 extern CVar* gfx_alt_actor_materials;
 extern CVar* gfx_auto_lod;
+extern CVar* gfx_postprocess_mode;
 
 // Flexbodies
 extern CVar* flexbody_defrag_enabled;
@@ -879,6 +895,16 @@ void CreateScriptEngine();
 // Cleanups
 void DestroyOverlayWrapper();
 void DestroyInputEngine();
+bool DestroyThreadPool() noexcept;
+
+// Live world-model lifecycle hooks used by the main loop.
+void UpdateWorldModelCaptureRequest();
+bool IsWorldModelCaptureActive();
+bool WorldModelCaptureOwnsSimulationLoop();
+bool CaptureWorldModelControlledFrame();
+void AbortWorldModelCapture(const std::string& reason);
+void ShutdownWorldModelCapture();
+bool WorldModelCaptureMessageRequiresAbort(MsgType type);
 
 } // namespace App
 
