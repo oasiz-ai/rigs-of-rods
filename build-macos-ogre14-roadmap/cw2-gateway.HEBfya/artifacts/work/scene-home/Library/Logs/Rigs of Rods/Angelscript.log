@@ -1,0 +1,37 @@
+22:10:56: ScriptEngine initializing ...
+22:10:56: Type registrations done. If you see no error above everything should be working
+22:10:56: Executing main() in cityworld_gateway_runtime.as(category:TERRAIN,unique ID:0)
+22:10:56: [RoR|CW2|GatewayRuntime] START modules=5 seams=4 turn_degrees=45 gateway_m=40
+22:10:56: The script finished successfully.
+22:10:57: [RoR|CW2|GatewayRuntime] ARMED actor=2026072805 heading=-3.1415
+22:10:57: [RoR|CW2|GatewayRuntime] SAMPLE frame=100 x=511.365 y=0.746337 z=452.217 speed=0.957302
+22:10:57: [RoR|CW2|GatewayRuntime] SAMPLE frame=200 x=511.313 y=0.758768 z=454.326 speed=3.0378
+22:10:58: [RoR|CW2|GatewayRuntime] SAMPLE frame=300 x=511.224 y=0.758711 z=457.948 speed=3.99289
+22:10:58: [RoR|CW2|GatewayRuntime] SAMPLE frame=400 x=511.102 y=0.759356 z=462.834 speed=5.68106
+22:10:58: [RoR|CW2|GatewayRuntime] SAMPLE frame=500 x=510.937 y=0.759488 z=469.18 speed=7.04303
+22:10:58: [RoR|CW2|GatewayRuntime] SAMPLE frame=600 x=510.731 y=0.760083 z=476.843 speed=8.14531
+22:10:58: [RoR|CW2|GatewayRuntime] ENTER x=510.676 z=482.023
+22:10:59: [RoR|CW2|GatewayRuntime] SAMPLE frame=700 x=510.947 y=0.867233 z=485.593 speed=8.91517
+22:10:59: [RoR|CW2|GatewayRuntime] SAMPLE frame=800 x=513.096 y=0.83963 z=495.382 speed=10.9884
+22:10:59: [RoR|CW2|GatewayRuntime] SEAM index=0 x=515.332 z=501.88
+22:10:59: [RoR|CW2|GatewayRuntime] SAMPLE frame=900 x=516.999 y=0.839949 z=506.119 speed=11.8226
+22:11:00: [RoR|CW2|GatewayRuntime] SAMPLE frame=1000 x=521.824 y=0.839893 z=517.312 speed=12.3949
+22:11:00: [RoR|CW2|GatewayRuntime] SEAM index=1 x=523.171 z=520.218
+22:11:00: [RoR|CW2|GatewayRuntime] SAMPLE frame=1100 x=527.53 y=0.840474 z=528.635 speed=13.318
+22:11:00: [RoR|CW2|GatewayRuntime] SEAM index=2 x=533.105 z=537.311
+22:11:00: [RoR|CW2|GatewayRuntime] SAMPLE frame=1200 x=534.882 y=0.841022 z=540.122 speed=13.9208
+22:11:00: [RoR|CW2|GatewayRuntime] SEAM index=3 x=540.705 z=546.749
+22:11:01: [RoR|CW2|GatewayRuntime] SAMPLE frame=1300 x=541.579 y=0.845099 z=547.647 speed=8.5243
+22:11:01: [RoR|CW2|GatewayRuntime] CAPTURE x=546.315 z=552.371
+22:11:01: [RoR|CW2|GatewayRuntime] SAMPLE frame=1400 x=546.998 y=0.847026 z=553.003 speed=5.91468
+22:11:01: [RoR|CW2|GatewayRuntime] SAMPLE frame=1500 x=549.771 y=0.838403 z=555.796 speed=1.12903
+22:11:01: [RoR|CW2|GatewayRuntime] SAMPLE frame=1600 x=549.992 y=0.831872 z=556.075 speed=0.106676
+22:11:02: [RoR|CW2|GatewayRuntime] SAMPLE frame=1700 x=550.008 y=0.828837 z=556.06 speed=0.0404861
+22:11:02: [RoR|CW2|GatewayRuntime] SAMPLE frame=1800 x=550.021 y=0.83064 z=556.06 speed=0.0582041
+22:11:02: [RoR|CW2|GatewayRuntime] SAMPLE frame=1900 x=550.02 y=0.829447 z=556.055 speed=0.0582066
+22:11:02: [RoR|CW2|GatewayRuntime] SAMPLE frame=2000 x=550.022 y=0.832176 z=556.058 speed=0.0499661
+22:11:02: [RoR|CW2|GatewayRuntime] SAMPLE frame=2100 x=550.024 y=0.83197 z=556.055 speed=0.0680225
+22:11:03: [RoR|CW2|GatewayRuntime] SAMPLE frame=2200 x=549.982 y=0.830325 z=556.015 speed=0.0614875
+22:11:03: [RoR|CW2|GatewayRuntime] SAMPLE frame=2300 x=550.034 y=0.832773 z=556.05 speed=0.0209018
+22:11:03: [RoR|CW2|GatewayRuntime] SAMPLE frame=2400 x=550.032 y=0.833295 z=556.048 speed=0.031973
+22:11:03: [RoR|CW2|GatewayRuntime] FAIL reason=physics-step-timeout

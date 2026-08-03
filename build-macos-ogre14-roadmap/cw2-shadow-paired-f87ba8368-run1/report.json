@@ -1,0 +1,80 @@
+{
+  "artifacts": {
+    "baseline_report": "no-shadows/report.json",
+    "baseline_rgb": "no-shadows/rgb/cityworld_gateway_rgb.png",
+    "baseline_stdout": "diagnostics/no-shadows.stdout",
+    "pssm_report": "pssm/report.json",
+    "pssm_rgb": "pssm/rgb/cityworld_gateway_rgb.png",
+    "pssm_stdout": "diagnostics/pssm.stdout"
+  },
+  "executable_sha256": "f5749e222ac18478ff3c5d64eb4992ecb4cb6be9f2a6ba0ce031477e5828b3f1",
+  "format": "ror-cityworld-shadow-comparison-report-v1",
+  "performance": {
+    "baseline_mean_ms": 1.38531,
+    "baseline_p95_ms": 2.65767,
+    "max_p95_ms": 18.333,
+    "pssm_mean_ms": 2.45928,
+    "pssm_mean_overhead_ms": 1.07397,
+    "pssm_p95_ms": 3.99663,
+    "pssm_p95_overhead_ms": 1.33896,
+    "samples": 1410
+  },
+  "physics": {
+    "distance_m": 137.569,
+    "exit_x": 567.437,
+    "exit_z": 569.519,
+    "max_path_error_m": 1.43999,
+    "max_y": 0.867233,
+    "min_y": 0.807714,
+    "physics_steps": 30580,
+    "speed_mps": 14.2319,
+    "turn_degrees": 45.0
+  },
+  "repository_commit": "f87ba8368089ba6d75f4073fd1709d40337431d7",
+  "rgb": {
+    "baseline": {
+      "channel_max": 255,
+      "channel_mean": 121.683025,
+      "channel_min": 4,
+      "height": 720,
+      "sampled_colours": 590,
+      "sha256": "3f73c19da53fcae0658e57d0bdd544fbc053b0c1bf6d730c550833d136630f7c",
+      "size": 818814,
+      "width": 1280
+    },
+    "comparison": {
+      "changed_by_4_fraction": 0.022994792,
+      "darkened_by_12_fraction": 0.013472222,
+      "darkened_by_4_fraction": 0.020819227,
+      "height": 720,
+      "lightened_by_4_fraction": 0.000152995,
+      "mean_absolute_channel_delta": 0.422039569,
+      "mean_signed_luminance_delta": -0.446478456,
+      "roi": {
+        "bottom": 340,
+        "darkened_by_12_fraction": 0.171266234,
+        "darkened_by_4_fraction": 0.202077922,
+        "left": 500,
+        "lightened_by_4_fraction": 0.0,
+        "right": 780,
+        "top": 230
+      },
+      "width": 1280
+    },
+    "pssm": {
+      "channel_max": 255,
+      "channel_mean": 121.264249,
+      "channel_min": 4,
+      "height": 720,
+      "sampled_colours": 595,
+      "sha256": "a7d949a7e9a5a485dc77b23099f368ecc34f2212ac5b302781e86807033fa4c0",
+      "size": 830881,
+      "width": 1280
+    }
+  },
+  "runner": {
+    "path": "tools/run_cityworld_shadow_scene.py",
+    "sha256": "52f00b3f9d6a92466665bfd82bda1138a069580c4bb7ae009f113bf0e58f44d8"
+  },
+  "shadow_quality": 2
+}

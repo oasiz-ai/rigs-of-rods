@@ -1,0 +1,1 @@
+. "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/conan/generators/conanbuildenv-release-armv8.sh"

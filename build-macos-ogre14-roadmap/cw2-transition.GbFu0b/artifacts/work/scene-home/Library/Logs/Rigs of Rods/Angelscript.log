@@ -1,0 +1,25 @@
+21:54:30: ScriptEngine initializing ...
+21:54:30: Type registrations done. If you see no error above everything should be working
+21:54:31: Executing main() in cityworld_bridge_transition_runtime.as(category:TERRAIN,unique ID:0)
+21:54:31: [RoR|CW2|TransitionRuntime] START modules=4 seams=3 turn_degrees=45 transition_m=12
+21:54:31: The script finished successfully.
+21:54:31: [RoR|CW2|TransitionRuntime] ARMED actor=2026072804 heading=-3.1415
+21:54:32: [RoR|CW2|TransitionRuntime] SAMPLE frame=100 x=511.364 y=0.745666 z=452.219 speed=0.953299
+21:54:32: [RoR|CW2|TransitionRuntime] SAMPLE frame=200 x=511.307 y=0.75882 z=454.379 speed=3.21184
+21:54:32: [RoR|CW2|TransitionRuntime] SAMPLE frame=300 x=511.197 y=0.758996 z=458.288 speed=4.8059
+21:54:32: [RoR|CW2|TransitionRuntime] SAMPLE frame=400 x=511.042 y=0.758698 z=463.749 speed=6.06041
+21:54:33: [RoR|CW2|TransitionRuntime] SAMPLE frame=500 x=510.838 y=0.759118 z=470.725 speed=7.5224
+21:54:33: [RoR|CW2|TransitionRuntime] SAMPLE frame=600 x=510.589 y=0.759802 z=479.186 speed=9.25988
+21:54:33: [RoR|CW2|TransitionRuntime] ENTER x=510.592 z=482.001
+21:54:33: [RoR|CW2|TransitionRuntime] SAMPLE frame=700 x=511.295 y=0.844625 z=488.615 speed=10.1849
+21:54:33: [RoR|CW2|TransitionRuntime] SAMPLE frame=800 x=514.426 y=0.840438 z=499.472 speed=12.0147
+21:54:33: [RoR|CW2|TransitionRuntime] SEAM index=0 x=515.323 z=501.855
+21:54:34: [RoR|CW2|TransitionRuntime] SAMPLE frame=900 x=519.066 y=0.840625 z=510.86 speed=12.6577
+21:54:34: [RoR|CW2|TransitionRuntime] SEAM index=1 x=523.282 z=520.201
+21:54:34: [RoR|CW2|TransitionRuntime] CAPTURE x=524.173 z=522.071
+21:54:34: [RoR|CW2|TransitionRuntime] SAMPLE frame=1000 x=524.659 y=0.840922 z=523.071 speed=13.9349
+21:54:34: [RoR|CW2|TransitionRuntime] SAMPLE frame=1100 x=531.746 y=0.840997 z=535.432 speed=14.5821
+21:54:34: [RoR|CW2|TransitionRuntime] SEAM index=2 x=533.006 z=537.409
+21:54:34: [RoR|CW2|TransitionRuntime] EXIT x=538.353 z=544.165
+21:54:34: [RoR|CW2|TransitionRuntime] SAMPLE frame=1200 x=538.978 y=0.888037 z=544.901 speed=10.8559
+21:54:34: [RoR|CW2|TransitionRuntime] PASS modules=4 seams=3 turn_degrees=45 distance_m=101.023 min_y=0.805341 max_y=0.936728 path_error=1.4352 exit_x=539.665 exit_z=545.727 speed=10.7209 physics_steps=24120

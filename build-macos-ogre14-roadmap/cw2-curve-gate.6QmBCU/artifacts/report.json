@@ -1,0 +1,145 @@
+{
+  "artifacts": {
+    "engine_log": "diagnostics/RoR.log",
+    "rgb": "rgb/cityworld_curved_bridge_rgb.png",
+    "script_log": "diagnostics/Angelscript.log",
+    "stdout": "diagnostics/runtime.stdout"
+  },
+  "cityworld_compile_report_sha256": "78b3e822d360ee68240b8178071a29318962582096c4505b2a1b2523256393e6",
+  "cityworld_compile_schema": "ror-cityworld-scene-compile-report-v1",
+  "content_commit": "34fefdd126784bf87b068fc283f812525d159dd7",
+  "executable": "/Applications/RoR.app/Contents/MacOS/RoR",
+  "executable_sha256": "cafdbdb9342008f120ccd46074a08251092cb2f2d1d7085da9ad067bd4c20a51",
+  "format": "ror-cityworld-curved-bridge-runtime-report-v1",
+  "machine": "arm64",
+  "metrics": {
+    "distance_m": 87.572,
+    "exit_x": 531.597,
+    "exit_z": 535.039,
+    "max_path_error_m": 1.41593,
+    "max_y": 0.866494,
+    "min_y": 0.805754,
+    "physics_steps": 21860,
+    "speed_mps": 14.5303,
+    "turn_degrees": 45.0
+  },
+  "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+  "repository_commit": "390d9100006d6b22c0be79c50419741182b18293",
+  "rgb": {
+    "channel_max": 255,
+    "channel_mean": 131.691395,
+    "channel_min": 6,
+    "height": 720,
+    "sampled_colours": 519,
+    "sha256": "01d21a9aa1bc33dd84211c86492437fc50ed561102b9fee274b5619b7f350b15",
+    "size": 1173842,
+    "width": 1280
+  },
+  "runtime_content": "/Applications/RoR.app/Contents/Resources/content",
+  "runtime_pack": {
+    "members": {
+      "LICENSE.md": {
+        "sha256": "da6bf11e79c39ed22d080c7938e4dd131973f75ef899555830e6fea0d2a1483d",
+        "size": 458
+      },
+      "cityworld_curved_bridge_runtime.as": {
+        "sha256": "6ac28d7ab01b7ca500f10d79c767d0a8607789035a8b2b8d6f241d2f3a6ca47f",
+        "size": 9466
+      },
+      "cityworld_curved_bridge_runtime.terrn2": {
+        "sha256": "3dd78b7ef5b35fe0f382fa82b022017c0a7301847b75f294343443af686b090b",
+        "size": 459
+      },
+      "cityworld_curved_bridge_runtime.tobj": {
+        "sha256": "8c35fe36119a1d07471711296f1ee81bf0118e8c13f95d260ab7f53437ad65d4",
+        "size": 460
+      },
+      "rorng_city_bridge_curve_left_15deg_20m.material": {
+        "sha256": "295f2931a9492a91a148d0e27d21eee92fc75f00705369634e4868a6796171a7",
+        "size": 1612
+      },
+      "rorng_city_bridge_curve_left_15deg_20m.odef": {
+        "sha256": "d061ae5bf62c69e7f2451f3ef9cb6bdf2b29387a214477d9629c0ed5eb2456db",
+        "size": 399
+      },
+      "rorng_city_bridge_curve_left_15deg_20m_collision_barrier_left.mesh": {
+        "sha256": "e64d3167e7344bcefb28c1b9b86595433e77652494eb1f83b1cabe7e49d7809a",
+        "size": 14490
+      },
+      "rorng_city_bridge_curve_left_15deg_20m_collision_barrier_right.mesh": {
+        "sha256": "3efac7900f756c8d83ed01ad7ec6b2007bfa90f352c3b669d0ae8acb40d85c41",
+        "size": 14683
+      },
+      "rorng_city_bridge_curve_left_15deg_20m_collision_road.mesh": {
+        "sha256": "6e8eca4159cb35a9a11996f1bf7e34db96f16c16b9e2d8e39055ad4b7933d7e0",
+        "size": 14482
+      },
+      "rorng_city_bridge_curve_left_15deg_20m_lod0.mesh": {
+        "sha256": "a893667c9b99dc69addb6f021abaa911a3ed41c31eaacef5f0dbc9fe40aa8413",
+        "size": 699197
+      },
+      "rorng_city_bridge_curve_left_15deg_20m_lod1.mesh": {
+        "sha256": "7efee0b0f5d8b358a5a0067aea7ac790844251e69c51828dd715990444942888",
+        "size": 130862
+      },
+      "rorng_city_bridge_curve_left_15deg_20m_lod2.mesh": {
+        "sha256": "a99f361907545bc55f2d54586a9f8562658e2239e4cf0d11408686415beec4f3",
+        "size": 42946
+      },
+      "simple2-asphalt_diffusespecular.dds": {
+        "sha256": "3f5d7c8e987e8e72eebf55aad9a3ea482c857ea264449a29eabde682ca9755c2",
+        "size": 349680
+      },
+      "simple2-asphalt_normalheight.dds": {
+        "sha256": "c119dc29aea54b6a8f2709f53b83c12fd4733f2a9b30cd7e04567b921b5921ac",
+        "size": 349680
+      },
+      "simple2-gravel_diffusespecular.dds": {
+        "sha256": "3044373765012247f0012f7f1578ab221899a0d1717dfa14453e6f51751f57c9",
+        "size": 349680
+      },
+      "simple2-gravel_normalheight.dds": {
+        "sha256": "1a3e815aec5745ba5b5a4ef3e4e88a4de9fb7c37769d8d7cbd8f906e2bba34bc",
+        "size": 349680
+      },
+      "simple2-page-0-0.otc": {
+        "sha256": "56488ced5403b6e9bc9fa4ecabf338c705bcbbba5cc8a6c9969a7603d4434808",
+        "size": 165
+      },
+      "simple2.os": {
+        "sha256": "6d4843a0c3ec7476f1ff3fb81c8b58f9a0c48de9951c386904c7c2a7147a8a40",
+        "size": 568
+      },
+      "simple2.otc": {
+        "sha256": "5940a4b8a153105a43c349f0f12668768a862793d5e0a82b1e2dfce9378307e7",
+        "size": 2443
+      },
+      "simple2_a-page-0-0.otc": {
+        "sha256": "33c8f363109e01fcd9f8d7f099d41ee2ed3999fcaefcf510d703725e7526b6ba",
+        "size": 167
+      },
+      "simple2_a.otc": {
+        "sha256": "6c8c97d738189e37739d48436e7cbf517b53331fe9022c921903bdb0889d685a",
+        "size": 2445
+      },
+      "simple2_groundmodel.cfg": {
+        "sha256": "d9da196f7c5d66200235bdce11ce993a0358f3ce686eafbbc32f0a91ef2dd94c",
+        "size": 2644
+      },
+      "simple2_landuse.cfg": {
+        "sha256": "d9b97b7e09b195b81b6ca722b21b52648d2302b2aa0fcc515e348e58d2537a27",
+        "size": 441
+      },
+      "simple2_traction.png": {
+        "sha256": "2107b41fcd73764fd2952633a141f3974256526a719aea1f08ecedc5717dd199",
+        "size": 144
+      }
+    },
+    "sha256": "a8ad2408b38ac8aa2da43eacd7bd213d6365edc86af65f210168a4f85a04acb6",
+    "size": 833328
+  },
+  "vehicle_archive": {
+    "path": "/Applications/RoR.app/Contents/Resources/content/dafsemi.zip",
+    "sha256": "8dd061da5ab8fa26e8a266b6bee1875c624f143c2a7d17eea56986ceb118672a"
+  }
+}

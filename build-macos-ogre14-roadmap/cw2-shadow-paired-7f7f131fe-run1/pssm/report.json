@@ -1,0 +1,425 @@
+{
+  "additional_cityworld_compile_reports": [
+    {
+      "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.compile.json",
+      "sha256": "bfcfa51883d1314952270bb4cb14fccbd38bb2478e7b6112520f9bfc6a5b0f04"
+    },
+    {
+      "path": "resources/nextgen/cityworld/streetscape/gateway_block_40m/compiled/rorng_city_gateway_block_40m.compile.json",
+      "sha256": "f2ab0d173390ab79a002967dbac650d61207fd958dbc556f54d8f0aa735211ba"
+    }
+  ],
+  "artifacts": {
+    "effective_ogre_config": "diagnostics/effective-ogre.cfg",
+    "effective_ror_config": "diagnostics/effective-RoR.cfg",
+    "engine_log": "diagnostics/RoR.log",
+    "requested_ogre_config": "diagnostics/requested-ogre.cfg",
+    "requested_ror_config": "diagnostics/requested-RoR.cfg",
+    "rgb": "rgb/cityworld_gateway_rgb.png",
+    "script_log": "diagnostics/Angelscript.log",
+    "stdout": "diagnostics/runtime.stdout"
+  },
+  "cityworld_compile_report_sha256": "1758bf05fb971095b852be5f5bc29e2ae3db57cdfcbb26265e5812b1837dabb8",
+  "cityworld_compile_schema": "ror-cityworld-scene-compile-report-v1",
+  "content_commit": "34fefdd126784bf87b068fc283f812525d159dd7",
+  "corridor": {
+    "entry": {
+      "heading_degrees": 0.0,
+      "x": 512.0,
+      "z": 482.0
+    },
+    "exit": {
+      "heading_degrees": 44.999999942,
+      "x": 571.144946272,
+      "z": 572.78853164
+    },
+    "format": "ror-cityworld-bridge-corridor-v1",
+    "modules": [
+      {
+        "asset_id": "rorng_city_bridge_curve_left_15deg_20m",
+        "entry_heading_degrees": 0.0,
+        "entry_x": 512.0,
+        "entry_z": 482.0,
+        "exit_heading_degrees": 14.999999981,
+        "exit_x": 514.603075122,
+        "exit_z": 501.772318589,
+        "instance_name": "bridge_module_00",
+        "manifest": "resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json",
+        "origin_x": 512.653564446,
+        "origin_z": 491.971466573,
+        "yaw_degrees": 7.49999999
+      },
+      {
+        "asset_id": "rorng_city_bridge_curve_left_15deg_20m",
+        "entry_heading_degrees": 14.999999981,
+        "entry_x": 514.603075122,
+        "entry_z": 501.772318589,
+        "exit_heading_degrees": 29.999999961,
+        "exit_x": 522.23490522,
+        "exit_z": 520.197186344,
+        "instance_name": "bridge_module_01",
+        "manifest": "resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json",
+        "origin_x": 517.815175353,
+        "origin_z": 511.234860753,
+        "yaw_degrees": 22.499999971
+      },
+      {
+        "asset_id": "rorng_city_bridge_curve_left_15deg_20m",
+        "entry_heading_degrees": 29.999999961,
+        "entry_x": 522.23490522,
+        "entry_z": 520.197186344,
+        "exit_heading_degrees": 44.999999942,
+        "exit_x": 534.375393687,
+        "exit_z": 536.018978981,
+        "instance_name": "bridge_module_02",
+        "manifest": "resources/nextgen/cityworld/bridge/curve_left_15deg/rorng_city_bridge_curve_left_15deg_20m.asset.json",
+        "origin_x": 527.786641915,
+        "origin_z": 528.50594749,
+        "yaw_degrees": 37.499999951
+      },
+      {
+        "asset_id": "rorng_city_bridge_transition_12m",
+        "entry_heading_degrees": 44.999999942,
+        "entry_x": 534.375393687,
+        "entry_z": 536.018978981,
+        "exit_heading_degrees": 44.999999942,
+        "exit_x": 542.860675053,
+        "exit_z": 544.504260364,
+        "instance_name": "bridge_module_03",
+        "manifest": "resources/nextgen/cityworld/bridge/transition_12m/rorng_city_bridge_transition_12m.asset.json",
+        "origin_x": 538.61803437,
+        "origin_z": 540.261619673,
+        "yaw_degrees": 44.999999942
+      },
+      {
+        "asset_id": "rorng_city_gateway_block_40m",
+        "entry_heading_degrees": 44.999999942,
+        "entry_x": 542.860675053,
+        "entry_z": 544.504260364,
+        "exit_heading_degrees": 44.999999942,
+        "exit_x": 571.144946272,
+        "exit_z": 572.78853164,
+        "instance_name": "bridge_module_04",
+        "manifest": "resources/nextgen/cityworld/streetscape/gateway_block_40m/rorng_city_gateway_block_40m.asset.json",
+        "origin_x": 557.002810662,
+        "origin_z": 558.646396002,
+        "yaw_degrees": 44.999999942
+      }
+    ],
+    "seams": [
+      {
+        "heading_error_degrees": 0.0,
+        "index": 0,
+        "position_gap_m": 0.0
+      },
+      {
+        "heading_error_degrees": 0.0,
+        "index": 1,
+        "position_gap_m": 0.0
+      },
+      {
+        "heading_error_degrees": 0.0,
+        "index": 2,
+        "position_gap_m": 0.0
+      },
+      {
+        "heading_error_degrees": 0.0,
+        "index": 3,
+        "position_gap_m": 0.0
+      }
+    ],
+    "surface_y": 0.08
+  },
+  "executable": "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/RoR.app/Contents/MacOS/RoR",
+  "executable_sha256": "2b4ddd0f8afa536aa63667a9a45eefb66bb5d814aeccb33beb5a5f34a02801bc",
+  "format": "ror-cityworld-gateway-runtime-report-v2",
+  "machine": "arm64",
+  "metrics": {
+    "distance_m": 137.569,
+    "exit_x": 567.437,
+    "exit_z": 569.519,
+    "frame_max_ms": 17.4522,
+    "frame_mean_ms": 1.99006,
+    "frame_p95_ms": 3.44846,
+    "frame_samples": 1410,
+    "max_path_error_m": 1.43999,
+    "max_y": 0.867233,
+    "min_y": 0.807714,
+    "physics_steps": 30580,
+    "speed_mps": 14.2319,
+    "turn_degrees": 45.0
+  },
+  "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+  "rendering": {
+    "configs": {
+      "RoR.cfg": {
+        "effective": {
+          "artifact": "diagnostics/effective-RoR.cfg",
+          "sha256": "ea97e771c4096c8e32eb9bbd431098f805ead214f9bb05c79cfc4d723f29c676",
+          "size": 3986
+        },
+        "effective_shadow_normalized_sha256": "a7d700d9eacc988b6c56fcc47bbfaccdd09012e1a0b3cc2a4dcb9acc4adbfd0e",
+        "requested": {
+          "artifact": "diagnostics/requested-RoR.cfg",
+          "sha256": "043d889789d2cfa9295351ff058a91d4ef6ac85876d91f41a4b5e263f97973d9",
+          "size": 310
+        },
+        "requested_shadow_normalized_sha256": "d3d143898c664bc5128dccef72c2d312e0e8cc98bb1f1fe571aea907a296c574"
+      },
+      "ogre.cfg": {
+        "effective": {
+          "artifact": "diagnostics/effective-ogre.cfg",
+          "sha256": "84690bb05da18f1540fd3594d8c019d03280220491f953be96dc6d412e8588e2",
+          "size": 301
+        },
+        "requested": {
+          "artifact": "diagnostics/requested-ogre.cfg",
+          "sha256": "84690bb05da18f1540fd3594d8c019d03280220491f953be96dc6d412e8588e2",
+          "size": 301
+        }
+      }
+    },
+    "device": {
+      "api_version": "4.1.0.0",
+      "device": "Apple M5",
+      "render_system": "OpenGL 3+ Rendering Subsystem",
+      "vendor": "apple"
+    },
+    "height": 720,
+    "pssm": {
+      "cascades": 3,
+      "far": 350.0,
+      "format": "PF_DEPTH16",
+      "lambda": 0.97,
+      "near": 0.5,
+      "rtss_receiver": true,
+      "sizes": [
+        [
+          3072,
+          3072
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "split_points": [
+        0.5,
+        7.816331,
+        45.241116,
+        350.0
+      ]
+    },
+    "shadow_mode": "pssm",
+    "shadow_quality": 2,
+    "width": 1280
+  },
+  "repository_commit": "7f7f131fed2a8bfaa77f0bb1bfed919112140b7f",
+  "rgb": {
+    "channel_max": 255,
+    "channel_mean": 121.264326,
+    "channel_min": 4,
+    "height": 720,
+    "sampled_colours": 595,
+    "sha256": "e2475c8ddc8a7f64406ae4360ae515ea108e24c245fa2defccb5846aa60626f0",
+    "size": 830874,
+    "width": 1280
+  },
+  "runners": {
+    "tools/run_cityworld_bridge_scene.py": {
+      "path": "tools/run_cityworld_bridge_scene.py",
+      "sha256": "cf94b77dab4d9417e7f2654501ecaeb0d9cdbfe71799eb6b15795c332145b54e"
+    },
+    "tools/run_cityworld_bridge_transition_scene.py": {
+      "path": "tools/run_cityworld_bridge_transition_scene.py",
+      "sha256": "5fb039eb1d39500f0eeffcee9c82376da442a5246544d9f4ea4b3105d6af39d4"
+    },
+    "tools/run_cityworld_curved_bridge_scene.py": {
+      "path": "tools/run_cityworld_curved_bridge_scene.py",
+      "sha256": "7a61a432d1b1b521af851e474269d0dc5afe327fdb3e9674519eeeaaf4bf4842"
+    },
+    "tools/run_cityworld_gateway_scene.py": {
+      "path": "tools/run_cityworld_gateway_scene.py",
+      "sha256": "35c90ff216f19e6327be51878358b18fd462a7f8359368c8fda100e357f6d831"
+    },
+    "tools/solve_cityworld_bridge_corridor.py": {
+      "path": "tools/solve_cityworld_bridge_corridor.py",
+      "sha256": "50e9f211ef62511daf2ca1865ac78ec60b6ee56a1259dc161383ef4b341bea44"
+    }
+  },
+  "runtime_content": "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/RoR.app/Contents/Resources/content",
+  "runtime_pack": {
+    "members": {
+      "LICENSE.md": {
+        "sha256": "53d78a566f2ba44d97c4d7c1bd7b1a68dfcc05ca8bc3ba597553471566fdb114",
+        "size": 448
+      },
+      "cityworld_gateway_runtime.as": {
+        "sha256": "323ab9614a39d5507321a7649cda7ed8d6a7d85e7f924f57c181708c7e3af5d8",
+        "size": 12887
+      },
+      "cityworld_gateway_runtime.terrn2": {
+        "sha256": "8311657f0ec60f51f528c1825700c85fcc8ffa42f98790186ebc402ed9b72376",
+        "size": 441
+      },
+      "cityworld_gateway_runtime.tobj": {
+        "sha256": "ec4fda14f77f3f38b2d08f3b4c1526048b761ac3ba6956c012b16689cba24ab9",
+        "size": 671
+      },
+      "rorng_city_bridge_curve_left_15deg_20m.material": {
+        "sha256": "295f2931a9492a91a148d0e27d21eee92fc75f00705369634e4868a6796171a7",
+        "size": 1612
+      },
+      "rorng_city_bridge_curve_left_15deg_20m.odef": {
+        "sha256": "d061ae5bf62c69e7f2451f3ef9cb6bdf2b29387a214477d9629c0ed5eb2456db",
+        "size": 399
+      },
+      "rorng_city_bridge_curve_left_15deg_20m_collision_barrier_left.mesh": {
+        "sha256": "e64d3167e7344bcefb28c1b9b86595433e77652494eb1f83b1cabe7e49d7809a",
+        "size": 14490
+      },
+      "rorng_city_bridge_curve_left_15deg_20m_collision_barrier_right.mesh": {
+        "sha256": "3efac7900f756c8d83ed01ad7ec6b2007bfa90f352c3b669d0ae8acb40d85c41",
+        "size": 14683
+      },
+      "rorng_city_bridge_curve_left_15deg_20m_collision_road.mesh": {
+        "sha256": "6e8eca4159cb35a9a11996f1bf7e34db96f16c16b9e2d8e39055ad4b7933d7e0",
+        "size": 14482
+      },
+      "rorng_city_bridge_curve_left_15deg_20m_lod0.mesh": {
+        "sha256": "a893667c9b99dc69addb6f021abaa911a3ed41c31eaacef5f0dbc9fe40aa8413",
+        "size": 699197
+      },
+      "rorng_city_bridge_curve_left_15deg_20m_lod1.mesh": {
+        "sha256": "7efee0b0f5d8b358a5a0067aea7ac790844251e69c51828dd715990444942888",
+        "size": 130862
+      },
+      "rorng_city_bridge_curve_left_15deg_20m_lod2.mesh": {
+        "sha256": "a99f361907545bc55f2d54586a9f8562658e2239e4cf0d11408686415beec4f3",
+        "size": 42946
+      },
+      "rorng_city_bridge_transition_12m.material": {
+        "sha256": "94e291f8332c2e0ee2048f29bca17fc05aaad8cb7900a554e4a4e8b74979e1f7",
+        "size": 1449
+      },
+      "rorng_city_bridge_transition_12m.odef": {
+        "sha256": "efc34693487511b67d603ac0422c40c5383f441d769f6f43d792a296fe2dc434",
+        "size": 375
+      },
+      "rorng_city_bridge_transition_12m_collision_barrier_left.mesh": {
+        "sha256": "e1d58abfc794bab711bc9f8090f59bd148a98c2bf909b10c76b8340b6dd88770",
+        "size": 911
+      },
+      "rorng_city_bridge_transition_12m_collision_barrier_right.mesh": {
+        "sha256": "4f457c388795e120ebbd1e89795a4e06ee8850281d2645ed5117114fc0b4ac58",
+        "size": 912
+      },
+      "rorng_city_bridge_transition_12m_collision_road.mesh": {
+        "sha256": "69df36443df4ae87bb9d1c33a3ea03cabd1c395c7a4204c2fe576bef6a71dd24",
+        "size": 903
+      },
+      "rorng_city_bridge_transition_12m_lod0.mesh": {
+        "sha256": "6e6329014c5c8e6a5e86d4a898253728af2f35db8e823f60a3a67264734908d2",
+        "size": 176191
+      },
+      "rorng_city_bridge_transition_12m_lod1.mesh": {
+        "sha256": "003bcd9b5941cedc5bf5e7d6409d0ff9a996b9e9c0745fd618aa347ea1f6ac41",
+        "size": 23096
+      },
+      "rorng_city_bridge_transition_12m_lod2.mesh": {
+        "sha256": "6f7e003eaea074355350ad464380fa81abd8d6308182e00c2d501ec8cc4c15d0",
+        "size": 10258
+      },
+      "rorng_city_gateway_block_40m.material": {
+        "sha256": "0b93fd353fc873bef94ec858e77597182c4f22f0aa77b18749756301c1deed78",
+        "size": 2740
+      },
+      "rorng_city_gateway_block_40m.odef": {
+        "sha256": "74ccb14ab500440727a162d636c696228d97adf8ab278b43978de67187ea62cf",
+        "size": 812
+      },
+      "rorng_city_gateway_block_40m_collision_barrier_left.mesh": {
+        "sha256": "9fe421322b65afbb04c7a523899864b40bba583eccde50348d47d46edf0bdcd9",
+        "size": 904
+      },
+      "rorng_city_gateway_block_40m_collision_barrier_right.mesh": {
+        "sha256": "7560cafea6c77cef6e310acce634a635fd14d7d17122d2ca7db3e4f57245d2a6",
+        "size": 905
+      },
+      "rorng_city_gateway_block_40m_collision_road.mesh": {
+        "sha256": "cad5170a2bef8f76fb4c08a140e392b9d6df58c4c2f12066b95588a1eb2394cc",
+        "size": 896
+      },
+      "rorng_city_gateway_block_40m_lod0.mesh": {
+        "sha256": "8c0bd3de5f83dadc65a4493c1bb7075148cf8187a151960ce06cb16301fc0615",
+        "size": 1516256
+      },
+      "rorng_city_gateway_block_40m_lod1.mesh": {
+        "sha256": "eb58a452f5d3159ac3cb0601698c51c519d170a3e2c63067f4fa59df259054bf",
+        "size": 226899
+      },
+      "rorng_city_gateway_block_40m_lod2.mesh": {
+        "sha256": "38fd91179afea95db342d7e4d6f9d4cb016d4030c052f7a1de4ca3d65124f1b2",
+        "size": 19581
+      },
+      "simple2-asphalt_diffusespecular.dds": {
+        "sha256": "3f5d7c8e987e8e72eebf55aad9a3ea482c857ea264449a29eabde682ca9755c2",
+        "size": 349680
+      },
+      "simple2-asphalt_normalheight.dds": {
+        "sha256": "c119dc29aea54b6a8f2709f53b83c12fd4733f2a9b30cd7e04567b921b5921ac",
+        "size": 349680
+      },
+      "simple2-gravel_diffusespecular.dds": {
+        "sha256": "3044373765012247f0012f7f1578ab221899a0d1717dfa14453e6f51751f57c9",
+        "size": 349680
+      },
+      "simple2-gravel_normalheight.dds": {
+        "sha256": "1a3e815aec5745ba5b5a4ef3e4e88a4de9fb7c37769d8d7cbd8f906e2bba34bc",
+        "size": 349680
+      },
+      "simple2-page-0-0.otc": {
+        "sha256": "56488ced5403b6e9bc9fa4ecabf338c705bcbbba5cc8a6c9969a7603d4434808",
+        "size": 165
+      },
+      "simple2.os": {
+        "sha256": "6d4843a0c3ec7476f1ff3fb81c8b58f9a0c48de9951c386904c7c2a7147a8a40",
+        "size": 568
+      },
+      "simple2.otc": {
+        "sha256": "5940a4b8a153105a43c349f0f12668768a862793d5e0a82b1e2dfce9378307e7",
+        "size": 2443
+      },
+      "simple2_a-page-0-0.otc": {
+        "sha256": "33c8f363109e01fcd9f8d7f099d41ee2ed3999fcaefcf510d703725e7526b6ba",
+        "size": 167
+      },
+      "simple2_a.otc": {
+        "sha256": "6c8c97d738189e37739d48436e7cbf517b53331fe9022c921903bdb0889d685a",
+        "size": 2445
+      },
+      "simple2_groundmodel.cfg": {
+        "sha256": "d9da196f7c5d66200235bdce11ce993a0358f3ce686eafbbc32f0a91ef2dd94c",
+        "size": 2644
+      },
+      "simple2_landuse.cfg": {
+        "sha256": "d9b97b7e09b195b81b6ca722b21b52648d2302b2aa0fcc515e348e58d2537a27",
+        "size": 441
+      },
+      "simple2_traction.png": {
+        "sha256": "2107b41fcd73764fd2952633a141f3974256526a719aea1f08ecedc5717dd199",
+        "size": 144
+      }
+    },
+    "sha256": "057031afd6fe4cd4514666960ade3c545daa212a3175e242a8ca8f3a10971ad1",
+    "size": 1151204
+  },
+  "vehicle_archive": {
+    "path": "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/RoR.app/Contents/Resources/content/dafsemi.zip",
+    "sha256": "8dd061da5ab8fa26e8a266b6bee1875c624f143c2a7d17eea56986ceb118672a"
+  }
+}

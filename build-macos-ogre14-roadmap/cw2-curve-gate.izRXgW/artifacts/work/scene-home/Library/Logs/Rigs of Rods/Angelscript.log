@@ -1,0 +1,26 @@
+21:26:38: ScriptEngine initializing ...
+21:26:38: Type registrations done. If you see no error above everything should be working
+21:26:39: Executing main() in cityworld_curved_bridge_runtime.as(category:TERRAIN,unique ID:0)
+21:26:39: [RoR|CW2|CurveRuntime] START modules=3 seams=2 turn_degrees=45 radius_m=76.394372684
+21:26:39: The script finished successfully.
+21:26:40: [RoR|CW2|CurveRuntime] ARMED actor=2026072803 heading=-3.1415
+21:26:41: [RoR|CW2|CurveRuntime] SAMPLE frame=100 x=511.365 y=0.745693 z=452.217 speed=0.968748
+21:26:41: [RoR|CW2|CurveRuntime] SAMPLE frame=200 x=511.311 y=0.758886 z=454.379 speed=3.22379
+21:26:41: [RoR|CW2|CurveRuntime] SAMPLE frame=300 x=511.206 y=0.759038 z=458.289 speed=4.81773
+21:26:42: [RoR|CW2|CurveRuntime] SAMPLE frame=400 x=511.057 y=0.758701 z=463.754 speed=6.07524
+21:26:42: [RoR|CW2|CurveRuntime] SAMPLE frame=500 x=510.859 y=0.759154 z=470.743 speed=7.54045
+21:26:43: [RoR|CW2|CurveRuntime] SAMPLE frame=600 x=510.61 y=0.75977 z=479.202 speed=9.25432
+21:26:43: [RoR|CW2|CurveRuntime] ENTER x=510.454 z=482.013
+21:26:43: [RoR|CW2|CurveRuntime] SAMPLE frame=700 x=509.668 y=0.923877 z=488.124 speed=5.1357
+21:26:44: [RoR|CW2|CurveRuntime] SAMPLE frame=800 x=510.439 y=0.877404 z=492.811 speed=3.72045
+21:26:44: [RoR|CW2|CurveRuntime] SAMPLE frame=900 x=511.76 y=0.839935 z=493.316 speed=0.957238
+21:26:44: [RoR|CW2|CurveRuntime] SAMPLE frame=1000 x=511.553 y=0.837525 z=494.37 speed=0.831252
+21:26:45: [RoR|CW2|CurveRuntime] SAMPLE frame=1100 x=511.627 y=0.836532 z=494.576 speed=0.320893
+21:26:45: [RoR|CW2|CurveRuntime] SAMPLE frame=1200 x=511.536 y=0.834921 z=494.372 speed=0.121005
+21:26:46: [RoR|CW2|CurveRuntime] SAMPLE frame=1300 x=511.49 y=0.836046 z=494.368 speed=0.354888
+21:26:46: [RoR|CW2|CurveRuntime] SAMPLE frame=1400 x=511.438 y=0.836259 z=494.337 speed=0.112045
+21:26:47: [RoR|CW2|CurveRuntime] SAMPLE frame=1500 x=511.431 y=0.836817 z=494.316 speed=0.0332697
+21:26:47: [RoR|CW2|CurveRuntime] SAMPLE frame=1600 x=511.431 y=0.836703 z=494.32 speed=0.0282454
+21:26:47: [RoR|CW2|CurveRuntime] SAMPLE frame=1700 x=511.431 y=0.836505 z=494.32 speed=0.0281398
+21:26:48: [RoR|CW2|CurveRuntime] SAMPLE frame=1800 x=511.431 y=0.8363 z=494.319 speed=0.0282728
+21:26:48: [RoR|CW2|CurveRuntime] FAIL reason=physics-step-timeout

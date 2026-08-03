@@ -1,0 +1,104 @@
+{
+  "artifacts": {
+    "baseline_report": {
+      "path": "no-shadows/report.json",
+      "sha256": "cf7d97d6bae4d009f1044bec41102a49f303a77be7040784f6e94f2f5412c2e4",
+      "size": 15399
+    },
+    "baseline_rgb": {
+      "path": "no-shadows/rgb/cityworld_gateway_rgb.png",
+      "sha256": "4032e3b939cfbc56ee8e046f8bef5c1ccc61e2839f3dbc4ae20007cc4651b760",
+      "size": 818817
+    },
+    "baseline_stdout": {
+      "path": "diagnostics/no-shadows.stdout",
+      "sha256": "8886109ec6fd488f132728a2da60a47dd56d8bcd0dffdc1112cc6a1d67e357cf",
+      "size": 290
+    },
+    "pssm_report": {
+      "path": "pssm/report.json",
+      "sha256": "250e55bb87fa01ce9c6b87e879576b4ecd5733e8d557ac8e13c40ee44ecfbb48",
+      "size": 15820
+    },
+    "pssm_rgb": {
+      "path": "pssm/rgb/cityworld_gateway_rgb.png",
+      "sha256": "a7d949a7e9a5a485dc77b23099f368ecc34f2212ac5b302781e86807033fa4c0",
+      "size": 830881
+    },
+    "pssm_stdout": {
+      "path": "diagnostics/pssm.stdout",
+      "sha256": "ea748babec8d79fb0bc01dc05ed08ff383cd26edf29e7718ff8a05bb1e5de04c",
+      "size": 284
+    }
+  },
+  "executable_sha256": "f5749e222ac18478ff3c5d64eb4992ecb4cb6be9f2a6ba0ce031477e5828b3f1",
+  "format": "ror-cityworld-shadow-comparison-report-v1",
+  "performance": {
+    "baseline_mean_ms": 1.06393,
+    "baseline_p95_ms": 1.93729,
+    "max_p95_ms": 18.333,
+    "pssm_mean_ms": 2.14388,
+    "pssm_mean_overhead_ms": 1.07995,
+    "pssm_p95_ms": 3.92054,
+    "pssm_p95_overhead_ms": 1.98325,
+    "samples": 1410
+  },
+  "physics": {
+    "distance_m": 137.569,
+    "exit_x": 567.437,
+    "exit_z": 569.519,
+    "max_path_error_m": 1.43999,
+    "max_y": 0.867233,
+    "min_y": 0.807714,
+    "physics_steps": 30580,
+    "speed_mps": 14.2319,
+    "turn_degrees": 45.0
+  },
+  "repository_commit": "f87ba8368089ba6d75f4073fd1709d40337431d7",
+  "rgb": {
+    "baseline": {
+      "channel_max": 255,
+      "channel_mean": 121.683023,
+      "channel_min": 4,
+      "height": 720,
+      "sampled_colours": 590,
+      "sha256": "4032e3b939cfbc56ee8e046f8bef5c1ccc61e2839f3dbc4ae20007cc4651b760",
+      "size": 818817,
+      "width": 1280
+    },
+    "comparison": {
+      "changed_by_4_fraction": 0.022994792,
+      "darkened_by_12_fraction": 0.013472222,
+      "darkened_by_4_fraction": 0.020819227,
+      "height": 720,
+      "lightened_by_4_fraction": 0.000152995,
+      "mean_absolute_channel_delta": 0.422037399,
+      "mean_signed_luminance_delta": -0.446475893,
+      "roi": {
+        "bottom": 340,
+        "darkened_by_12_fraction": 0.171266234,
+        "darkened_by_4_fraction": 0.202077922,
+        "left": 500,
+        "lightened_by_4_fraction": 0.0,
+        "right": 780,
+        "top": 230
+      },
+      "width": 1280
+    },
+    "pssm": {
+      "channel_max": 255,
+      "channel_mean": 121.264249,
+      "channel_min": 4,
+      "height": 720,
+      "sampled_colours": 595,
+      "sha256": "a7d949a7e9a5a485dc77b23099f368ecc34f2212ac5b302781e86807033fa4c0",
+      "size": 830881,
+      "width": 1280
+    }
+  },
+  "runner": {
+    "path": "tools/run_cityworld_shadow_scene.py",
+    "sha256": "f7c4f49a300d4b8a30e4db62b527047ec42b74abce470a26b8be41565b0c2748"
+  },
+  "shadow_quality": 2
+}

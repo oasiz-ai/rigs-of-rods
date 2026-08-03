@@ -1,0 +1,22 @@
+20:37:46: ScriptEngine initializing ...
+20:37:46: Type registrations done. If you see no error above everything should be working
+20:37:46: Executing main() in cityworld_bridge_runtime.as(category:TERRAIN,unique ID:0)
+20:37:46: [RoR|CW2|BridgeRuntime] START spans=3 length_m=60 lane_x=510.25 surface_y=0.08
+20:37:46: The script finished successfully.
+20:37:46: [RoR|CW2|BridgeRuntime] ARMED actor=2026072802 heading=3.14159
+20:37:46: [RoR|CW2|BridgeRuntime] SAMPLE frame=100 x=509.605 y=0.753933 z=458.206 speed=0.883068
+20:37:46: [RoR|CW2|BridgeRuntime] SAMPLE frame=200 x=509.583 y=0.759448 z=460.345 speed=3.18332
+20:37:46: [RoR|CW2|BridgeRuntime] SAMPLE frame=300 x=509.524 y=0.759326 z=464.598 speed=5.3531
+20:37:46: [RoR|CW2|BridgeRuntime] SAMPLE frame=400 x=509.435 y=0.759561 z=470.753 speed=6.96769
+20:37:47: [RoR|CW2|BridgeRuntime] SAMPLE frame=500 x=509.324 y=0.760661 z=478.698 speed=8.85395
+20:37:47: [RoR|CW2|BridgeRuntime] ENTER z=482.024
+20:37:47: [RoR|CW2|BridgeRuntime] SAMPLE frame=600 x=509.187 y=0.761506 z=488.423 speed=10.539
+20:37:47: [RoR|CW2|BridgeRuntime] SAMPLE frame=700 x=509.018 y=0.761114 z=499.891 speed=12.3091
+20:37:47: [RoR|CW2|BridgeRuntime] SEAM index=0 z=502.103
+20:37:47: [RoR|CW2|BridgeRuntime] CAPTURE z=506.002
+20:37:47: [RoR|CW2|BridgeRuntime] SAMPLE frame=800 x=508.813 y=0.762644 z=512.78 speed=13.7044
+20:37:47: [RoR|CW2|BridgeRuntime] SEAM index=1 z=522.03
+20:37:47: [RoR|CW2|BridgeRuntime] SAMPLE frame=900 x=508.56 y=0.76322 z=527.283 speed=15.2611
+20:37:47: [RoR|CW2|BridgeRuntime] EXIT z=542.06
+20:37:47: [RoR|CW2|BridgeRuntime] SAMPLE frame=1000 x=508.259 y=0.763738 z=543.216 speed=16.5376
+20:37:47: [RoR|CW2|BridgeRuntime] FAIL reason=lateral-error-2.08633

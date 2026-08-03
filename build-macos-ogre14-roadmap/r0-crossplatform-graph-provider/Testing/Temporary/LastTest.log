@@ -1,0 +1,674 @@
+Start testing: Jul 29 00:18 PDT
+----------------------------------------------------------
+1/41 Testing: render_display_metrics
+1/41 Test: render_display_metrics
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_render_display_metrics_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"render_display_metrics" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+cross-platform render display metrics verified
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"render_display_metrics" end time: Jul 29 00:18 PDT
+"render_display_metrics" time elapsed: 00:00:00
+----------------------------------------------------------
+
+39/41 Testing: macos_controller_contract
+39/41 Test: macos_controller_contract
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_macos_controller_contract_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"macos_controller_contract" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+macOS SDL raw and standardized controller contracts verified
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"macos_controller_contract" end time: Jul 29 00:18 PDT
+"macos_controller_contract" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/41 Testing: deterministic_counter_noise
+5/41 Test: deterministic_counter_noise
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_deterministic_counter_noise_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"deterministic_counter_noise" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+deterministic counter noise tests passed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"deterministic_counter_noise" end time: Jul 29 00:18 PDT
+"deterministic_counter_noise" time elapsed: 00:00:00
+----------------------------------------------------------
+
+11/41 Testing: deterministic_input_trace
+11/41 Test: deterministic_input_trace
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_deterministic_input_trace_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"deterministic_input_trace" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+All deterministic input-trace checks passed
+<end of output>
+Test time =   0.07 sec
+----------------------------------------------------------
+Test Passed.
+"deterministic_input_trace" end time: Jul 29 00:18 PDT
+"deterministic_input_trace" time elapsed: 00:00:00
+----------------------------------------------------------
+
+36/41 Testing: jbeam_to_rigdef
+36/41 Test: jbeam_to_rigdef
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_jbeam_to_rigdef_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"jbeam_to_rigdef" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+JBeamToRigDef tests passed
+<end of output>
+Test time =   0.07 sec
+----------------------------------------------------------
+Test Passed.
+"jbeam_to_rigdef" end time: Jul 29 00:18 PDT
+"jbeam_to_rigdef" time elapsed: 00:00:00
+----------------------------------------------------------
+
+12/41 Testing: deterministic_input_trace_runtime
+12/41 Test: deterministic_input_trace_runtime
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_deterministic_input_trace_runtime_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"deterministic_input_trace_runtime" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+All deterministic input runtime checks passed
+<end of output>
+Test time =   0.07 sec
+----------------------------------------------------------
+Test Passed.
+"deterministic_input_trace_runtime" end time: Jul 29 00:18 PDT
+"deterministic_input_trace_runtime" time elapsed: 00:00:00
+----------------------------------------------------------
+
+31/41 Testing: jbeam_coordinate_transform
+31/41 Test: jbeam_coordinate_transform
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_jbeam_coordinate_transform_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"jbeam_coordinate_transform" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+JBeam coordinate transform tests passed
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"jbeam_coordinate_transform" end time: Jul 29 00:18 PDT
+"jbeam_coordinate_transform" time elapsed: 00:00:00
+----------------------------------------------------------
+
+17/41 Testing: calibrated_beam_mesh_refinement
+17/41 Test: calibrated_beam_mesh_refinement
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_calibrated_beam_mesh_refinement_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"calibrated_beam_mesh_refinement" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+series N= 1 l= 8.000000e-02 crack_work= 2.000000000000e+01 total_work= 2.007920200000e+01 diss= 2.007920200001e+01 peak= 1.990000000000e+03 perm= 2.010050251256e-02 event_u= 2.018010251256e-02 eq= 0.000e+00
+series N= 2 l= 4.000000e-02 crack_work= 2.000000000000e+01 total_work= 2.003960100000e+01 diss= 2.003960100001e+01 peak= 1.990000000000e+03 perm= 2.010050251256e-02 event_u= 2.014030251256e-02 eq= 1.192e-16
+series N= 4 l= 2.000000e-02 crack_work= 2.000000000000e+01 total_work= 2.001980050000e+01 diss= 2.001980050001e+01 peak= 1.990000000000e+03 perm= 2.010050251256e-02 event_u= 2.012040251256e-02 eq= 1.192e-16
+series N= 8 l= 1.000000e-02 crack_work= 2.000000000000e+01 total_work= 2.000990025000e+01 diss= 2.000990025000e+01 peak= 1.990000000000e+03 perm= 2.010050251256e-02 event_u= 2.011045251256e-02 eq= 1.192e-16
+series N=16 l= 5.000000e-03 crack_work= 2.000000000000e+01 total_work= 2.000495012500e+01 diss= 2.000495012500e+01 peak= 1.990000000000e+03 perm= 2.010050251256e-02 event_u= 2.010547751256e-02 eq= 1.192e-16
+mesh spreads: crack_work=0.000000000% total_work=0.371259375% dissipation=0.371259375% peak=0.000000000% permanent_set=0.000000000%
+calibrated beam fracture calibration and localized mesh-refinement checks passed
+<end of output>
+Test time =   0.07 sec
+----------------------------------------------------------
+Test Passed.
+"calibrated_beam_mesh_refinement" end time: Jul 29 00:18 PDT
+"calibrated_beam_mesh_refinement" time elapsed: 00:00:00
+----------------------------------------------------------
+
+37/41 Testing: apple_executable_path
+37/41 Test: apple_executable_path
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_apple_executable_path_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"apple_executable_path" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+Apple executable path: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_apple_executable_path_tests
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"apple_executable_path" end time: Jul 29 00:18 PDT
+"apple_executable_path" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/41 Testing: deterministic_scenario_schedule
+7/41 Test: deterministic_scenario_schedule
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_deterministic_scenario_schedule_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"deterministic_scenario_schedule" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+deterministic scenario schedule tests passed
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"deterministic_scenario_schedule" end time: Jul 29 00:18 PDT
+"deterministic_scenario_schedule" time elapsed: 00:00:00
+----------------------------------------------------------
+
+41/41 Testing: macos_openal_smoke
+41/41 Test: macos_openal_smoke
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_macos_openal_smoke_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"macos_openal_smoke" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+macOS OpenAL Soft null-backend lifecycle verified
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"macos_openal_smoke" end time: Jul 29 00:18 PDT
+"macos_openal_smoke" time elapsed: 00:00:00
+----------------------------------------------------------
+
+22/41 Testing: hydro_actuator_response
+22/41 Test: hydro_actuator_response
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_hydro_actuator_response_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"hydro_actuator_response" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+Hydro actuator response tests passed
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"hydro_actuator_response" end time: Jul 29 00:18 PDT
+"hydro_actuator_response" time elapsed: 00:00:00
+----------------------------------------------------------
+
+35/41 Testing: jbeam_structural_ir
+35/41 Test: jbeam_structural_ir
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_jbeam_structural_ir_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"jbeam_structural_ir" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+JBeam structural IR tests passed
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"jbeam_structural_ir" end time: Jul 29 00:18 PDT
+"jbeam_structural_ir" time elapsed: 00:00:00
+----------------------------------------------------------
+
+34/41 Testing: jbeam_pressure_wheel_ir
+34/41 Test: jbeam_pressure_wheel_ir
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_jbeam_pressure_wheel_ir_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"jbeam_pressure_wheel_ir" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+JBeam pressure-wheel IR tests passed
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"jbeam_pressure_wheel_ir" end time: Jul 29 00:18 PDT
+"jbeam_pressure_wheel_ir" time elapsed: 00:00:00
+----------------------------------------------------------
+
+32/41 Testing: jbeam_advanced_structure_ir
+32/41 Test: jbeam_advanced_structure_ir
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_jbeam_advanced_structure_ir_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"jbeam_advanced_structure_ir" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+JBeamAdvancedStructureIR tests passed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"jbeam_advanced_structure_ir" end time: Jul 29 00:18 PDT
+"jbeam_advanced_structure_ir" time elapsed: 00:00:00
+----------------------------------------------------------
+
+25/41 Testing: beamng_material_inventory
+25/41 Test: beamng_material_inventory
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_beamng_material_inventory_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"beamng_material_inventory" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+FormulaCOUPE material inventory opt-in skipped; set ROR_FORMULACOUPE_MATERIAL_ROOT and ROR_FORMULACOUPE_ENTRY_LIST
+BeamNG material inventory tests passed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"beamng_material_inventory" end time: Jul 29 00:18 PDT
+"beamng_material_inventory" time elapsed: 00:00:00
+----------------------------------------------------------
+
+26/41 Testing: beamng_zip_archive_index
+26/41 Test: beamng_zip_archive_index
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_beamng_zip_archive_index_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"beamng_zip_archive_index" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+BeamNG ZIP archive index checks passed (PKWARE APPNOTE 6.3.10 classic profile, 5000 fixed-seed mutations)
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"beamng_zip_archive_index" end time: Jul 29 00:18 PDT
+"beamng_zip_archive_index" time elapsed: 00:00:00
+----------------------------------------------------------
+
+16/41 Testing: calibrated_beam_step_sensitivity
+16/41 Test: calibrated_beam_step_sensitivity
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_calibrated_beam_step_sensitivity_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"calibrated_beam_step_sensitivity" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+dt_ms peak_force_N permanent_strain dissipation_J damage energy_balance_J max_energy_shortfall max_momentum_residual
+0.25 551985.2393 0.002584597427 126596.2485 0.5016043862 -8.543536254 4.619805002e-05 0
+0.5 551985.1597 0.002584529576 126589.9308 0.5015693129 -33.05993475 0.0001143078797 0
+1.0 551985.1218 0.00258422549 126561.618 0.5014121381 -116.6896294 0.000499890032 0
+relative_spread 2.127346791e-07 0.0001439054815 0.0002735506249
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"calibrated_beam_step_sensitivity" end time: Jul 29 00:18 PDT
+"calibrated_beam_step_sensitivity" time elapsed: 00:00:00
+----------------------------------------------------------
+
+13/41 Testing: deterministic_vehicle_input
+13/41 Test: deterministic_vehicle_input
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_deterministic_vehicle_input_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"deterministic_vehicle_input" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+deterministic applied vehicle-input bridge checks passed
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"deterministic_vehicle_input" end time: Jul 29 00:18 PDT
+"deterministic_vehicle_input" time elapsed: 00:00:00
+----------------------------------------------------------
+
+33/41 Testing: jbeam_part_resolver
+33/41 Test: jbeam_part_resolver
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_jbeam_part_resolver_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"jbeam_part_resolver" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+JBeam part resolver tests passed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"jbeam_part_resolver" end time: Jul 29 00:18 PDT
+"jbeam_part_resolver" time elapsed: 00:00:00
+----------------------------------------------------------
+
+15/41 Testing: calibrated_beam_material_adapter
+15/41 Test: calibrated_beam_material_adapter
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_calibrated_beam_material_adapter_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"calibrated_beam_material_adapter" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"calibrated_beam_material_adapter" end time: Jul 29 00:18 PDT
+"calibrated_beam_material_adapter" time elapsed: 00:00:00
+----------------------------------------------------------
+
+10/41 Testing: deterministic_state_trace
+10/41 Test: deterministic_state_trace
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_deterministic_state_trace_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"deterministic_state_trace" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+All deterministic state-trace checks passed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"deterministic_state_trace" end time: Jul 29 00:18 PDT
+"deterministic_state_trace" time elapsed: 00:00:00
+----------------------------------------------------------
+
+14/41 Testing: calibrated_beam_material
+14/41 Test: calibrated_beam_material
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_calibrated_beam_material_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"calibrated_beam_material" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+calibrated beam material tests passed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"calibrated_beam_material" end time: Jul 29 00:18 PDT
+"calibrated_beam_material" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/41 Testing: beam_rest_length_scale
+4/41 Test: beam_rest_length_scale
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_beam_rest_length_scale_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"beam_rest_length_scale" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+Beam rest-length scaling tests passed
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"beam_rest_length_scale" end time: Jul 29 00:18 PDT
+"beam_rest_length_scale" time elapsed: 00:00:00
+----------------------------------------------------------
+
+40/41 Testing: macos_input_bridge
+40/41 Test: macos_input_bridge
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_macos_input_bridge_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"macos_input_bridge" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+macOS SDL/OIS input bridge verified
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"macos_input_bridge" end time: Jul 29 00:18 PDT
+"macos_input_bridge" time elapsed: 00:00:00
+----------------------------------------------------------
+
+20/41 Testing: rigdef_calibrated_beam_material
+20/41 Test: rigdef_calibrated_beam_material
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_rigdef_calibrated_beam_material_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"rigdef_calibrated_beam_material" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+RigDef calibrated beam material tests passed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"rigdef_calibrated_beam_material" end time: Jul 29 00:18 PDT
+"rigdef_calibrated_beam_material" time elapsed: 00:00:00
+----------------------------------------------------------
+
+8/41 Testing: deterministic_contact_order
+8/41 Test: deterministic_contact_order
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_deterministic_contact_order_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"deterministic_contact_order" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+deterministic contact-order tests passed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"deterministic_contact_order" end time: Jul 29 00:18 PDT
+"deterministic_contact_order" time elapsed: 00:00:00
+----------------------------------------------------------
+
+24/41 Testing: beamng_package_manifest
+24/41 Test: beamng_package_manifest
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_beamng_package_manifest_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"beamng_package_manifest" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+BeamNG package manifest tests passed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"beamng_package_manifest" end time: Jul 29 00:18 PDT
+"beamng_package_manifest" time elapsed: 00:00:00
+----------------------------------------------------------
+
+18/41 Testing: calibrated_beam_savegame
+18/41 Test: calibrated_beam_savegame
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_calibrated_beam_savegame_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"calibrated_beam_savegame" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"calibrated_beam_savegame" end time: Jul 29 00:18 PDT
+"calibrated_beam_savegame" time elapsed: 00:00:00
+----------------------------------------------------------
+
+27/41 Testing: beamng_zip_index_help
+27/41 Test: beamng_zip_index_help
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_beamng_zip_index" "--help"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"beamng_zip_index_help" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+usage: ror_beamng_zip_index PACKAGE.zip
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"beamng_zip_index_help" end time: Jul 29 00:18 PDT
+"beamng_zip_index_help" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/41 Testing: sky_mode_availability
+2/41 Test: sky_mode_availability
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_sky_mode_availability_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"sky_mode_availability" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+cross-platform sky backend fallback verified
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"sky_mode_availability" end time: Jul 29 00:18 PDT
+"sky_mode_availability" time elapsed: 00:00:00
+----------------------------------------------------------
+
+38/41 Testing: macos_user_directory_layout
+38/41 Test: macos_user_directory_layout
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_macos_user_directory_layout_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"macos_user_directory_layout" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+macOS user-directory layouts are deterministic
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"macos_user_directory_layout" end time: Jul 29 00:18 PDT
+"macos_user_directory_layout" time elapsed: 00:00:00
+----------------------------------------------------------
+
+23/41 Testing: shader_compatibility_policy
+23/41 Test: shader_compatibility_policy
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_shader_compatibility_policy_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"shader_compatibility_policy" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"shader_compatibility_policy" end time: Jul 29 00:18 PDT
+"shader_compatibility_policy" time elapsed: 00:00:00
+----------------------------------------------------------
+
+9/41 Testing: deterministic_state_digest
+9/41 Test: deterministic_state_digest
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_deterministic_state_digest_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"deterministic_state_digest" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+deterministic state-digest tests passed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"deterministic_state_digest" end time: Jul 29 00:18 PDT
+"deterministic_state_digest" time elapsed: 00:00:00
+----------------------------------------------------------
+
+29/41 Testing: jbeam_expression_evaluator
+29/41 Test: jbeam_expression_evaluator
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_jbeam_expression_evaluator_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"jbeam_expression_evaluator" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+JBeam expression evaluator tests passed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"jbeam_expression_evaluator" end time: Jul 29 00:18 PDT
+"jbeam_expression_evaluator" time elapsed: 00:00:00
+----------------------------------------------------------
+
+19/41 Testing: calibrated_beam_savegame_json
+19/41 Test: calibrated_beam_savegame_json
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_calibrated_beam_savegame_json_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"calibrated_beam_savegame_json" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"calibrated_beam_savegame_json" end time: Jul 29 00:18 PDT
+"calibrated_beam_savegame_json" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/41 Testing: beam_axial_response
+3/41 Test: beam_axial_response
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_beam_axial_response_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"beam_axial_response" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+beam axial response tests passed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"beam_axial_response" end time: Jul 29 00:18 PDT
+"beam_axial_response" time elapsed: 00:00:00
+----------------------------------------------------------
+
+28/41 Testing: beamng_formulacoupe_opt_in
+28/41 Test: beamng_formulacoupe_opt_in
+Command: "/opt/homebrew/bin/cmake" "-DROR_BEAMNG_ZIP_INDEX_TOOL=/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_beamng_zip_index" "-P" "/Users/beshoyhanna/Development/rigs-of-rods/tests/resources/FormulaCoupeOptIn.cmake"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"beamng_formulacoupe_opt_in" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+SKIP: FormulaCOUPE fixture is not explicitly supplied
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Pass Reason:
+Skip regular expression found in output. Regex=[SKIP: FormulaCOUPE fixture is not explicitly supplied]
+"beamng_formulacoupe_opt_in" end time: Jul 29 00:18 PDT
+"beamng_formulacoupe_opt_in" time elapsed: 00:00:00
+----------------------------------------------------------
+
+30/41 Testing: jbeam_syntax
+30/41 Test: jbeam_syntax
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_jbeam_syntax_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"jbeam_syntax" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+JBeam syntax tests passed
+<end of output>
+Test time =   0.18 sec
+----------------------------------------------------------
+Test Passed.
+"jbeam_syntax" end time: Jul 29 00:18 PDT
+"jbeam_syntax" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/41 Testing: deterministic_fixed_step_cadence
+6/41 Test: deterministic_fixed_step_cadence
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/ror_deterministic_fixed_step_cadence_tests"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"deterministic_fixed_step_cadence" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+deterministic fixed-step cadence tests passed
+<end of output>
+Test time =   0.33 sec
+----------------------------------------------------------
+Test Passed.
+"deterministic_fixed_step_cadence" end time: Jul 29 00:18 PDT
+"deterministic_fixed_step_cadence" time elapsed: 00:00:00
+----------------------------------------------------------
+
+21/41 Testing: rigdef_calibrated_beam_material_roundtrip_integration
+21/41 Test: rigdef_calibrated_beam_material_roundtrip_integration
+Command: "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/bin/RoR" "--internal-rigdef-calibrated-material-roundtrip" "/Users/beshoyhanna/Development/rigs-of-rods/tests/fixtures/rigdef/calibrated_beam_material_roundtrip.truck"
+Directory: /Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/r0-crossplatform-graph-provider/tests
+"rigdef_calibrated_beam_material_roundtrip_integration" start time: Jul 29 00:18 PDT
+Output:
+----------------------------------------------------------
+[RoR] Rigs of Rods (www.rigsofrods.org) version 2026.07-dev-de26c63c7-dirty
+[RoR] Current date: 2026-07-29
+[RoR|Actor|Warning] :11 (beams): ignoring invalid option 'n'
+[RoR|Actor|Error] :12 (beams): Calibrated beam material v1 only supports normal NOSHOCK entries in section 'beams'; skipping rope/support beam.
+[RoR|Actor|Warning] :16 (beams): ignoring invalid option 'n'
+[RoR|Actor|Warning] :21 (beams): ignoring invalid option 'n'
+[RoR|Actor|Warning] :27 (beams): ignoring invalid option 'n'
+RigDef calibrated beam authored round-trip integration passed
+<end of output>
+Test time =   0.71 sec
+----------------------------------------------------------
+Test Passed.
+"rigdef_calibrated_beam_material_roundtrip_integration" end time: Jul 29 00:18 PDT
+"rigdef_calibrated_beam_material_roundtrip_integration" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Jul 29 00:18 PDT

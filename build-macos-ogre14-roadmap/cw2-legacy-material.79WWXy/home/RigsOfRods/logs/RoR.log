@@ -1,0 +1,1282 @@
+06:19:14: [RoR] Rigs of Rods (www.rigsofrods.org) version 2026.07-dev-16e2b2ef8-dirty
+06:19:14: [RoR] Current date: 2026-07-29
+06:19:14: [RoR|CVar]        sys_config_dir:  "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/config" (was: "")
+06:19:14: [RoR|CVar]     sys_savegames_dir:  "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/savegames" (was: "")
+06:19:14: [RoR|CVar]    sys_screenshot_dir:  "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/screenshots" (was: "")
+06:19:14: [RoR|CVar]       sys_scripts_dir:  "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/scripts" (was: "")
+06:19:14: [RoR|CVar]      sys_projects_dir:  "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/projects" (was: "")
+06:19:14: [RoR|CVar]  sys_repo_attachments_dir:  "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/repo_attachments" (was: "")
+06:19:14: [RoR|Startup|Paths] process='/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin', user='/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods', config='/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/config', cache='/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/cache', thumbnails='/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/thumbnails', logs='/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/logs'
+06:19:14: [RoR|CVar]    cli_preset_terrain:  "CityWorldNextLocalOverlay" (was: "")
+06:19:14: [RoR|CVar]    cli_custom_scripts:  "cityworld_legacy_material_smoke.as" (was: "")
+06:19:14: [RoR|CVar]     sys_resources_dir:  "/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources" (was: "")
+06:19:14: [RoR|Startup|Rendering] Creating OGRE renderer Root object, config='/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/config/ogre.cfg'
+06:19:14: Creating resource group General
+06:19:14: Creating resource group OgreInternal
+06:19:14: Creating resource group OgreAutodetect
+06:19:14: SceneManagerFactory for type 'DefaultSceneManager' registered.
+06:19:14: Registering ResourceManager for type Material
+06:19:14: Registering ResourceManager for type Mesh
+06:19:14: Registering ResourceManager for type Skeleton
+06:19:14: MovableObjectFactory for type 'ParticleSystem' registered.
+06:19:14: ArchiveFactory for type 'FileSystem' registered
+06:19:14: ArchiveFactory for type 'Zip' registered
+06:19:14: ArchiveFactory for type 'EmbeddedZip' registered
+06:19:14: DDS codec registering
+06:19:14: ETC codec registering
+06:19:14: ASTC codec registering
+06:19:14: Registering ResourceManager for type GpuProgram
+06:19:14: Registering ResourceManager for type Compositor
+06:19:14: MovableObjectFactory for type 'Entity' registered.
+06:19:14: MovableObjectFactory for type 'Light' registered.
+06:19:14: MovableObjectFactory for type 'BillboardSet' registered.
+06:19:14: MovableObjectFactory for type 'ManualObject' registered.
+06:19:14: MovableObjectFactory for type 'BillboardChain' registered.
+06:19:14: MovableObjectFactory for type 'RibbonTrail' registered.
+06:19:14: MovableObjectFactory for type 'StaticGeometry' registered.
+06:19:14: MovableObjectFactory for type 'Rectangle2D' registered.
+06:19:14: *-*-* OGRE Initialising
+06:19:14: *-*-* Version 14.5.2 (Tsathoggua)
+06:19:14: [RoR|Startup|Rendering] Loading OGRE renderer plugins config '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/plugins.cfg'.
+06:19:14: Loading library /Users/beshoyhanna/.conan2/p/b/ogre3b2e515bf3f232/p/lib/OGRE/Codec_FreeImage.dylib
+06:19:14: FreeImage version: 3.18.0
+06:19:14: This program uses FreeImage, a free, open source image library supporting all common bitmap formats. See http://freeimage.sourceforge.net for details
+06:19:14: Supported formats: bmp,ico,jpg,jif,jpeg,jpe,jng,koa,iff,lbm,mng,pbm,pbm,pcd,pcx,pgm,pgm,png,ppm,ppm,ras,tga,targa,tif,tiff,wap,wbmp,wbm,psd,psb,cut,xbm,xpm,gif,hdr,sgi,rgb,rgba,bw,exr,j2k,j2c,jp2,pfm,pct,pict,pic,3fr,arw,bay,bmq,cap,cine,cr2,crw,cs1,dc2,dcr,drf,dsc,dng,erf,fff,ia,iiq,k25,kc2,kdc,mdc,mef,mos,mrw,nef,nrw,orf,pef,ptx,pxn,qtk,raf,raw,rdc,rw2,rwl,rwz,sr2,srf,srw,sti,x3f,webp,jxr,wdp,hdp
+06:19:14: Loading library /Users/beshoyhanna/.conan2/p/b/ogre3b2e515bf3f232/p/lib/OGRE/RenderSystem_GL3Plus.dylib
+06:19:14: Installing plugin: GL 3+ RenderSystem
+06:19:14: OpenGL 3+ Rendering Subsystem created.
+06:19:14: Plugin successfully installed
+06:19:14: Loading library /Users/beshoyhanna/.conan2/p/b/ogre3b2e515bf3f232/p/lib/OGRE/Plugin_ParticleFX.dylib
+06:19:14: Installing plugin: ParticleFX
+06:19:14: Particle Emitter Type 'Point' registered
+06:19:14: Particle Emitter Type 'Box' registered
+06:19:14: Particle Emitter Type 'Ellipsoid' registered
+06:19:14: Particle Emitter Type 'Cylinder' registered
+06:19:14: Particle Emitter Type 'Ring' registered
+06:19:14: Particle Emitter Type 'HollowEllipsoid' registered
+06:19:14: Particle Affector Type 'LinearForce' registered
+06:19:14: Particle Affector Type 'ColourFader' registered
+06:19:14: Particle Affector Type 'ColourFader2' registered
+06:19:14: Particle Affector Type 'ColourImage' registered
+06:19:14: Particle Affector Type 'ColourInterpolator' registered
+06:19:14: Particle Affector Type 'Scaler' registered
+06:19:14: Particle Affector Type 'Rotator' registered
+06:19:14: Particle Affector Type 'DirectionRandomiser' registered
+06:19:14: Particle Affector Type 'DeflectorPlane' registered
+06:19:14: Particle Affector Type 'TextureAnimator' registered
+06:19:14: Plugin successfully installed
+06:19:14: Loading library /Users/beshoyhanna/.conan2/p/b/ogre3b2e515bf3f232/p/lib/OGRE/Plugin_OctreeSceneManager.dylib
+06:19:14: Installing plugin: Octree Scene Manager
+06:19:14: Plugin successfully installed
+06:19:14: [RoR|Startup|Rendering] WARNING - invalid 'ogre.cfg', selecting render plugin manually...
+06:19:14: [RoR|Startup|Rendering] Auto-selected renderer plugin 'OpenGL 3+ Rendering Subsystem'
+06:19:14: [RoR|Startup|Rendering] Starting renderer 'OpenGL 3+ Rendering Subsystem' (without auto-creating render window)
+06:19:14: CPU Identifier & Features
+06:19:14: -------------------------
+06:19:14:  *   CPU ID: 
+06:19:14:  *          VFP: no
+06:19:14:  *         NEON: yes
+06:19:14: -------------------------
+06:19:14: ********************************************
+***  Starting Mac OS X OpenGL Subsystem  ***
+********************************************
+06:19:14: [RoR|Startup|Rendering] Renderer options as reported by OGRE:
+  Colour Depth = 32 (16, 32, )
+  Content Scaling Factor = 2 (1.0, 2.0, )
+  Debug Layer = Off (Off, On, )
+  Display Frequency = N/A (N/A, )
+  FSAA =  0 ( 0,  2,  4,  6,  8, )
+  Full Screen = No (No, Yes, )
+  Reversed Z-Buffer = No (No, Yes, )
+  Separate Shader Objects = Yes (No, Yes, )
+  VSync = Yes (No, Yes, )
+  VSync Interval = 1 (1, 2, 3, 4, )
+  Video Mode = 1920 x 1200 (1920 x 1200, 2048 x 1280, 2048 x 1332, 2560 x 1600, 2560 x 1664, )
+  sRGB Gamma Conversion = No (No, Yes, )
+
+06:19:14: [RoR|Startup|Rendering] WARNING - invalid 'ogre.cfg', auto-detected resolution 2560x1664
+06:19:14: [RoR|Startup|Rendering] Creating render window with settings:
+  FSAA =  0
+  border = fixed
+  contentScalingFactor = 2
+  gamma = No
+  vsync = Yes
+
+06:19:15: [RoR|Startup|Rendering] Creating SDL host at 1280x832 logical points for 2560x1664 backing pixels (scale 2.0)
+06:19:15: RenderSystem::_createRenderWindow "Rigs of Rods version 2026.07-dev-16e2b2ef8-dirty", 1280x832 windowed  miscParams: FSAA= 0 border=fixed contentScalingFactor=2 externalWindowHandle=36924214400 gamma=No vsync=Yes 
+06:19:15: Creating a Cocoa Compatible Render System
+06:19:15: Mac Cocoa Window: Rendering on an external NSWindow with nested NSView
+06:19:15: Cocoa: Window created 1280 x 832 with backing store size 2560 x 1664 using content scaling factor 2.0
+06:19:15: GL_VERSION = 4.1.0.0
+06:19:15: GL_VENDOR = Apple
+06:19:15: GL_RENDERER = Apple M5
+06:19:15: GL_EXTENSIONS = GL_ARB_blend_func_extended GL_ARB_draw_buffers_blend GL_ARB_draw_indirect GL_ARB_ES2_compatibility GL_ARB_explicit_attrib_location GL_ARB_gpu_shader_fp64 GL_ARB_gpu_shader5 GL_ARB_instanced_arrays GL_ARB_internalformat_query GL_ARB_occlusion_query2 GL_ARB_sample_shading GL_ARB_sampler_objects GL_ARB_separate_shader_objects GL_ARB_shader_bit_encoding GL_ARB_shader_subroutine GL_ARB_shading_language_include GL_ARB_tessellation_shader GL_ARB_texture_buffer_object_rgb32 GL_ARB_texture_cube_map_array GL_ARB_texture_gather GL_ARB_texture_query_lod GL_ARB_texture_rgb10_a2ui GL_ARB_texture_storage GL_ARB_texture_swizzle GL_ARB_timer_query GL_ARB_transform_feedback2 GL_ARB_transform_feedback3 GL_ARB_vertex_attrib_64bit GL_ARB_vertex_type_2_10_10_10_rev GL_ARB_viewport_array GL_EXT_debug_label GL_EXT_debug_marker GL_EXT_framebuffer_multisample_blit_scaled GL_EXT_texture_compression_s3tc GL_EXT_texture_filter_anisotropic GL_EXT_texture_sRGB_decode GL_APPLE_client_storage GL_APPLE_container_object_shareable GL_APPLE_flush_render GL_APPLE_rgb_422 GL_APPLE_row_bytes GL_APPLE_texture_range GL_NV_texture_barrier 
+06:19:15: **************************************
+06:19:15: ***   OpenGL 3+ Renderer Started   ***
+06:19:15: **************************************
+06:19:15: FBO PF_UNKNOWN depth/stencil support: D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_L8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_L16 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_A8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_BYTE_LA depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R5G6B5 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_A4R4G4B4 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_A1R5G5B5 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8G8B8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_B8G8R8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_A8R8G8B8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_A8B8G8R8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_B8G8R8A8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_A2R10G10B10 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_A2B10G10R10 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_FLOAT16_RGB depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_FLOAT16_RGBA depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_FLOAT32_RGB depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_FLOAT32_RGBA depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_X8R8G8B8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_X8B8G8R8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8G8B8A8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_DEPTH16 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_SHORT_RGBA depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R3G3B2 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_FLOAT16_R depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_FLOAT32_R depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_SHORT_GR depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_FLOAT16_GR depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_FLOAT32_GR depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_SHORT_RGB depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R11G11B10_FLOAT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8_UINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8G8_UINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8G8B8_UINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8G8B8A8_UINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R16_UINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R16G16_UINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R16G16B16_UINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R16G16B16A16_UINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R32_UINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R32G32_UINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R32G32B32_UINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R32G32B32A32_UINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8_SINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8G8_SINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8G8B8_SINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8G8B8A8_SINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R16_SINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R16G16_SINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R16G16B16_SINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R16G16B16A16_SINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R32_SINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R32G32_SINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R32G32B32_SINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R32G32B32A32_SINT depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8G8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8_SNORM depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8G8_SNORM depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8G8B8_SNORM depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R8G8B8A8_SNORM depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R16_SNORM depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R16G16_SNORM depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R16G16B16_SNORM depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_R16G16B16A16_SNORM depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_DEPTH32 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_DEPTH32F depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: FBO PF_DEPTH24_STENCIL8 depth/stencil support: D0S0 D0S1 D0S4 D0S8 D0S16 D16S0 D16S1 D16S4 D16S8 D16S16 D24S0 D24S1 D24S4 D24S8 D24S16 D32S0 D32S1 D32S4 D32S8 D32S16 D32S0 D32S1 D32S4 D32S8 D32S16 Packed-D24S8 Packed-D32S8 
+06:19:15: [GL] : Valid FBO targets PF_UNKNOWN PF_L8 PF_L16 PF_A8 PF_BYTE_LA PF_R5G6B5 PF_A4R4G4B4 PF_A1R5G5B5 PF_R8G8B8 PF_B8G8R8 PF_A8R8G8B8 PF_A8B8G8R8 PF_B8G8R8A8 PF_A2R10G10B10 PF_A2B10G10R10 PF_FLOAT16_RGB PF_FLOAT16_RGBA PF_FLOAT32_RGB PF_FLOAT32_RGBA PF_X8R8G8B8 PF_X8B8G8R8 PF_R8G8B8A8 PF_DEPTH16 PF_SHORT_RGBA PF_R3G3B2 PF_FLOAT16_R PF_FLOAT32_R PF_SHORT_GR PF_FLOAT16_GR PF_FLOAT32_GR PF_SHORT_RGB PF_R11G11B10_FLOAT PF_R8_UINT PF_R8G8_UINT PF_R8G8B8_UINT PF_R8G8B8A8_UINT PF_R16_UINT PF_R16G16_UINT PF_R16G16B16_UINT PF_R16G16B16A16_UINT PF_R32_UINT PF_R32G32_UINT PF_R32G32B32_UINT PF_R32G32B32A32_UINT PF_R8_SINT PF_R8G8_SINT PF_R8G8B8_SINT PF_R8G8B8A8_SINT PF_R16_SINT PF_R16G16_SINT PF_R16G16B16_SINT PF_R16G16B16A16_SINT PF_R32_SINT PF_R32G32_SINT PF_R32G32B32_SINT PF_R32G32B32A32_SINT PF_R8 PF_R8G8 PF_R8_SNORM PF_R8G8_SNORM PF_R8G8B8_SNORM PF_R8G8B8A8_SNORM PF_R16_SNORM PF_R16G16_SNORM PF_R16G16B16_SNORM PF_R16G16B16A16_SNORM PF_DEPTH32 PF_DEPTH32F PF_DEPTH24_STENCIL8 
+06:19:15: Registering ResourceManager for type Texture
+06:19:15: RenderSystem capabilities
+06:19:15: -------------------------
+06:19:15: RenderSystem Name: OpenGL 3+ Rendering Subsystem
+06:19:15: GPU Vendor: apple
+06:19:15: Device Name: Apple M5
+06:19:15: Driver Version: 4.1.0.0
+06:19:15:  * Fixed function pipeline: no
+06:19:15:  * 32-bit index buffers: yes
+06:19:15:  * Hardware stencil buffer: yes
+06:19:15:    - Two sided stencil support: yes
+06:19:15:    - Wrap stencil values: yes
+06:19:15:  * Gpu programs: yes
+06:19:15:    - Vertex constant 4-vectors: 1024
+06:19:15:    - Fragment constant 4-vectors: 1024
+06:19:15:  * Geometry programs: yes
+06:19:15:    - Number of constant 4-vectors: 1024
+06:19:15:  * Tessellation programs: yes
+06:19:15:    - Hull program constant 4-vectors: 1024
+06:19:15:    - Domain program constant 4-vectors: 1024
+06:19:15:  * Mesh programs: no
+06:19:15:  * Compute programs: no
+06:19:15:  * VP/RT index from any shader: no
+06:19:15:  * Supported Shader Profiles: glsl glsl150 glsl330 glsl400 glsl410
+06:19:15:  * Read-back compiled shader: no
+06:19:15:  * Number of vertex attributes: 16
+06:19:15:  * Textures
+06:19:15:    - Number of texture units: 16
+06:19:15:    - Number of vertex textures: 16
+06:19:15:    - Floating point: yes
+06:19:15:    - Non-power-of-two: yes
+06:19:15:    - 1D textures: yes
+06:19:15:    - 2D array textures: yes
+06:19:15:    - 3D textures: yes
+06:19:15:    - Anisotropic filtering: yes
+06:19:15:  * Texture Compression: yes
+06:19:15:    - DXT: yes
+06:19:15:    - VTC: no
+06:19:15:    - PVRTC: no
+06:19:15:    - ATC: no
+06:19:15:    - ETC1: no
+06:19:15:    - ETC2: no
+06:19:15:    - BC4/BC5: yes
+06:19:15:    - BC6H/BC7: no
+06:19:15:    - ASTC: no
+06:19:15:    - Automatic mipmap generation: yes
+06:19:15:  * Vertex Buffers
+06:19:15:    - Render to Vertex Buffer: yes
+06:19:15:    - Instance Data: yes
+06:19:15:    - Primitive Restart: no
+06:19:15:    - INT_10_10_10_2_NORM element type: yes
+06:19:15:    - 16x3 element types: yes
+06:19:15:  * Read/Write Buffers: no
+06:19:15:  * Hardware Occlusion Query: yes
+06:19:15:  * User clip planes: yes
+06:19:15:  * Depth clamping: yes
+06:19:15:  * Hardware render-to-texture: yes
+06:19:15:    - Multiple Render Targets: 8
+06:19:15:  * Point Sprites: yes
+06:19:15:    - Max Size: 64
+06:19:15:  * Wide Lines: no
+06:19:15:  * Hardware Gamma: yes
+06:19:15:  * PBuffer support: no
+06:19:15:  * Vertex Array Objects: yes
+06:19:15:  * Separate shader objects: no
+06:19:15:    - redeclare GLSL interface block: no
+06:19:15:  * Debugging/ profiling events: no
+06:19:15:  * Map buffer storage: yes
+06:19:15: DefaultWorkQueue('Root') initialising on thread 0x1f22718c0.
+06:19:15: Particle Renderer Type 'billboard' registered
+06:19:15: DefaultWorkQueue('Root')::WorkerFunc - thread 0x16bf6f000 starting.
+06:19:15: DefaultWorkQueue('Root')::WorkerFunc - thread 0x16bffb000 starting.
+06:19:15: SceneManagerFactory for type 'OctreeSceneManager' registered.
+06:19:15: SceneManagerFactory for type 'OctreeSceneManager' registered.
+ting.
+06:19:15: [RoR|DisplayMetrics] backend=macos logical=1280x832 backing=2560x1664 scale=2.000x2.000 viewport=2560x1664 valid=1
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/ogre14/Main' of type 'FileSystem' to resource group 'OgreInternal'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/ogre14/RTShaderLib' of type 'FileSystem' to resource group 'OgreInternal'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/ogre14/Terrain' of type 'FileSystem' to resource group 'OgreInternal'
+06:19:15: [RoR|Startup|Rendering] OGRE RTShader System initialized; cache='/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/cache/rtshader'
+06:19:15: Creating resource group SrcRG
+06:19:15: Warning: Skipping 'empty' because it already exists in resource group 'SrcRG'
+06:19:15: Warning: Skipping 'empty' because it already exists in resource group 'SrcRG'
+06:19:15: Warning: Skipping 'empty' because it already exists in resource group 'SrcRG'
+06:19:15: Warning: Skipping 'empty' because it already exists in resource group 'SrcRG'
+06:19:15: Warning: Skipping 'empty' because it already exists in resource group 'SrcRG'
+06:19:15: Warning: Skipping 'empty' because it already exists in resource group 'SrcRG'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/skeleton.zip' of type 'Zip' to resource group 'SrcRG'
+06:19:15: Creating resource group DstRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/' of type 'FileSystem' to resource group 'DstRG'
+06:19:15: Destroying resource group SrcRG
+06:19:15: Unloading resource group SrcRG
+06:19:15: Finished unloading resource group SrcRG
+06:19:15: Destroying resource group DstRG
+06:19:15: Unloading resource group DstRG
+06:19:15: Finished unloading resource group DstRG
+06:19:15: OverlayElementFactory for type Panel registered.
+06:19:15: OverlayElementFactory for type BorderPanel registered.
+06:19:15: OverlayElementFactory for type TextArea registered.
+06:19:15: Registering ResourceManager for type Font
+06:19:15: Texture 'Warning': Loading 1 faces(PF_R5G6B5,8x8x1) with 3 hardware generated mipmaps from Image. Internal format is PF_R5G6B5,8x8x1.
+06:19:15: [RoR|ContentManager] Loading resource pack "flags" to group "FlagsRG" (ZIP archive)
+06:19:15: Creating resource group FlagsRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/flags.zip' of type 'Zip' to resource group 'FlagsRG'
+06:19:15: Initialising resource group FlagsRG
+06:19:15: Parsing scripts for resource group FlagsRG
+06:19:15: Finished parsing scripts for resource group FlagsRG
+06:19:15: Creating resources for group FlagsRG
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "fonts" to group "FontsRG" (ZIP archive)
+06:19:15: Creating resource group FontsRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/fonts.zip' of type 'Zip' to resource group 'FontsRG'
+06:19:15: Initialising resource group FontsRG
+06:19:15: Parsing scripts for resource group FontsRG
+06:19:15: Parsing script Roboto-Medium.fontdef
+06:19:15: Parsing script SdkTraysRedirect.fontdef
+06:19:15: Finished parsing scripts for resource group FontsRG
+06:19:15: Creating resources for group FontsRG
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "icons" to group "IconsRG" (ZIP archive)
+06:19:15: Creating resource group IconsRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/icons.zip' of type 'Zip' to resource group 'IconsRG'
+06:19:15: Initialising resource group IconsRG
+06:19:15: Parsing scripts for resource group IconsRG
+06:19:15: Finished parsing scripts for resource group IconsRG
+06:19:15: Creating resources for group IconsRG
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "OgreCore" to group "OgreCoreRG" (ZIP archive)
+06:19:15: Creating resource group OgreCoreRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/OgreCore.zip' of type 'Zip' to resource group 'OgreCoreRG'
+06:19:15: Initialising resource group OgreCoreRG
+06:19:15: Parsing scripts for resource group OgreCoreRG
+06:19:15: Parsing script StdQuad_vp.program
+06:19:15: Parsing script OgreCore.material
+06:19:15: Parsing script OgreProfiler.material
+06:19:15: Parsing script Vera.fontdef
+06:19:15: Error: ScriptCompiler - unexpected token in Vera.fontdef(1): 'VeraMono'. If this is a legacy script you must prepend the type (e.g. font, overlay).
+06:19:15: Error: ScriptCompiler - unexpected token in Vera.fontdef(10): 'VeraMonoBold'. If this is a legacy script you must prepend the type (e.g. font, overlay).
+06:19:15: Parsing script cent.fontdef
+06:19:15: Error: ScriptCompiler - unexpected token in cent.fontdef(1): 'cent'. If this is a legacy script you must prepend the type (e.g. font, overlay).
+06:19:15: Error: ScriptCompiler - unexpected token in cent.fontdef(202): 'glyph'. If this is a legacy script you must prepend the type (e.g. font, overlay).
+06:19:15: Error: ScriptCompiler - invalid parameters in cent.fontdef(204): missing property value
+06:19:15: Error: ScriptCompiler - invalid parameters in cent.fontdef(137)
+06:19:15: Error: ScriptCompiler - invalid parameters in cent.fontdef(204): 0.835938
+06:19:15: Parsing script cyberbit.fontdef
+06:19:15: Error: ScriptCompiler - unexpected token in cyberbit.fontdef(1): 'CyberbitEnglish'. If this is a legacy script you must prepend the type (e.g. font, overlay).
+06:19:15: Parsing script highcontrast.fontdef
+06:19:15: Error: ScriptCompiler - unexpected token in highcontrast.fontdef(1): 'highcontrast_black'. If this is a legacy script you must prepend the type (e.g. font, overlay).
+06:19:15: Error: ScriptCompiler - unexpected token in highcontrast.fontdef(202): 'glyph'. If this is a legacy script you must prepend the type (e.g. font, overlay).
+06:19:15: Error: ScriptCompiler - invalid parameters in highcontrast.fontdef(204): missing property value
+06:19:15: Error: ScriptCompiler - unexpected token in highcontrast.fontdef(209): 'highcontrast_green'. If this is a legacy script you must prepend the type (e.g. font, overlay).
+06:19:15: Error: ScriptCompiler - unexpected token in highcontrast.fontdef(410): 'glyph'. If this is a legacy script you must prepend the type (e.g. font, overlay).
+06:19:15: Error: ScriptCompiler - invalid parameters in highcontrast.fontdef(412): missing property value
+06:19:15: Error: ScriptCompiler - invalid parameters in highcontrast.fontdef(137)
+06:19:15: Error: ScriptCompiler - invalid parameters in highcontrast.fontdef(204): 0.832031
+06:19:15: Error: ScriptCompiler - invalid parameters in highcontrast.fontdef(345)
+06:19:15: Error: ScriptCompiler - invalid parameters in highcontrast.fontdef(412): 0.832031
+06:19:15: Finished parsing scripts for resource group OgreCoreRG
+06:19:15: Creating resources for group OgreCoreRG
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "wallpapers" to group "Wallpapers" (ZIP archive)
+06:19:15: Creating resource group Wallpapers
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/wallpapers.zip' of type 'Zip' to resource group 'Wallpapers'
+06:19:15: Initialising resource group Wallpapers
+06:19:15: Parsing scripts for resource group Wallpapers
+06:19:15: Finished parsing scripts for resource group Wallpapers
+06:19:15: Creating resources for group Wallpapers
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "scripts" to group "ScriptsRG" (ZIP archive)
+06:19:15: Creating resource group ScriptsRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/scripts.zip' of type 'Zip' to resource group 'ScriptsRG'
+06:19:15: Initialising resource group ScriptsRG
+06:19:15: Parsing scripts for resource group ScriptsRG
+06:19:15: Finished parsing scripts for resource group ScriptsRG
+06:19:15: Creating resources for group ScriptsRG
+06:19:15: All done
+06:19:15: Creating resource group LngRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/languages' of type 'FileSystem' to resource group 'LngRG'
+06:19:15: Destroying resource group LngRG
+06:19:15: Unloading resource group LngRG
+06:19:15: Finished unloading resource group LngRG
+06:19:15: [RoR|App] Error loading language file: '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/languages/en/ror.mo'
+06:19:15: Creating resource group Config
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/config' of type 'FileSystem' to resource group 'Config'
+06:19:15: Creating resource group Savegames
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/savegames' of type 'FileSystem' to resource group 'Savegames'
+06:19:15: Creating resource group Scripts
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/scripts' of type 'FileSystem' to resource group 'Scripts'
+06:19:15: Creating resource group Logs
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/logs' of type 'FileSystem' to resource group 'Logs'
+06:19:15: Creating resource group ManagedMaterials
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/managed_materials/shadows/pssm/rtss' of type 'FileSystem' to resource group 'ManagedMaterials'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/managed_materials/texture' of type 'FileSystem' to resource group 'ManagedMaterials'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/managed_materials' of type 'FileSystem' to resource group 'ManagedMaterials'
+06:19:15: Initialising resource group ManagedMaterials
+06:19:15: Parsing scripts for resource group ManagedMaterials
+06:19:15: Parsing script nicemetal_mm.program
+06:19:15: Parsing script shadows.material
+06:19:15: Parsing script texture_manager.material
+06:19:15: Parsing script managed_mats_vehicles_nicemetal.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_nicemetal.material(31): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_nicemetal.material(51): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_nicemetal.material(56): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_nicemetal.material(92): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_nicemetal.material(118): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_nicemetal.material(123): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_nicemetal.material(151): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_nicemetal.material(157): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_nicemetal.material(176): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_nicemetal.material(181): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Parsing script managed_submesh.material
+06:19:15: Error: ScriptCompiler - unexpected token in managed_submesh.material(25): token "normalise_normals" is not recognized
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(33): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(53): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(70): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(86): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(90): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(98): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Error: ScriptCompiler - unexpected token in managed_submesh.material(131): token "normalise_normals" is not recognized
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(139): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(159): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(176): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(194): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(203): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Error: ScriptCompiler - unexpected token in managed_submesh.material(237): token "normalise_normals" is not recognized
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(245): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(270): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(286): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(290): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(298): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Error: ScriptCompiler - unexpected token in managed_submesh.material(342): token "normalise_normals" is not recognized
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(350): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(375): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(393): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_submesh.material(402): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Parsing script managed_mats_vehicles.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in texture_manager.material(16): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in texture_manager.material(16): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in texture_manager.material(16): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Parsing script managed_mats_vehicles_transparent_nicemetal.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_transparent_nicemetal.material(33): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_transparent_nicemetal.material(54): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_transparent_nicemetal.material(59): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_transparent_nicemetal.material(98): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_transparent_nicemetal.material(125): texture_alias. Use 'texture $variable'
+06:19:15: Error: ScriptCompiler - fewer parameters expected in managed_mats_vehicles_transparent_nicemetal.material(125): texture_alias must have at most 1 argument
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_transparent_nicemetal.material(130): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_transparent_nicemetal.material(166): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_transparent_nicemetal.material(186): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats_vehicles_transparent_nicemetal.material(191): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Parsing script managed_mats.material
+06:19:15: Parsing script managed_mats_vehicles_transparent.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in texture_manager.material(16): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in texture_manager.material(16): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in texture_manager.material(16): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Finished parsing scripts for resource group ManagedMaterials
+06:19:15: Creating resources for group ManagedMaterials
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "mygui" to group "MyGuiRG" (ZIP archive)
+06:19:15: Creating resource group MyGuiRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/mygui.zip' of type 'Zip' to resource group 'MyGuiRG'
+06:19:15: Initialising resource group MyGuiRG
+06:19:15: Parsing scripts for resource group MyGuiRG
+06:19:15: Finished parsing scripts for resource group MyGuiRG
+06:19:15: Creating resources for group MyGuiRG
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "dashboards" to group "DashboardsRG" (ZIP archive)
+06:19:15: Creating resource group DashboardsRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/dashboards.zip' of type 'Zip' to resource group 'DashboardsRG'
+06:19:15: Initialising resource group DashboardsRG
+06:19:15: Parsing scripts for resource group DashboardsRG
+06:19:15: Finished parsing scripts for resource group DashboardsRG
+06:19:15: Creating resources for group DashboardsRG
+06:19:15: All done
+06:19:15: Particle Affector Type 'FireExtinguisher' registered
+06:19:15: Particle Affector Type 'ExtinguishableFire' registered
+06:19:15: RoR|ContentManager: Creating Sound Manager
+06:19:15: [RoR|Audio] No audio device configured, opening default.
+06:19:15: SoundManager: OpenAL vendor is: OpenAL Community
+06:19:15: SoundManager: OpenAL version is: 1.1 ALSOFT 1.24.3
+06:19:15: SoundManager: OpenAL renderer is: OpenAL Soft
+06:19:15: SoundManager: OpenAL extensions are: AL_EXT_ALAW AL_EXT_BFORMAT AL_EXT_debug AL_EXT_direct_context AL_EXT_DOUBLE AL_EXT_EXPONENT_DISTANCE AL_EXT_FLOAT32 AL_EXT_IMA4 AL_EXT_LINEAR_DISTANCE AL_EXT_MCFORMATS AL_EXT_MULAW AL_EXT_MULAW_BFORMAT AL_EXT_MULAW_MCFORMATS AL_EXT_OFFSET AL_EXT_source_distance_model AL_EXT_SOURCE_RADIUS AL_EXT_STATIC_BUFFER AL_EXT_STEREO_ANGLES AL_LOKI_quadriphonic AL_SOFT_bformat_ex AL_SOFT_bformat_hoa AL_SOFT_block_alignment AL_SOFT_buffer_length_query AL_SOFT_callback_buffer AL_SOFTX_convolution_effect AL_SOFT_deferred_updates AL_SOFT_direct_channels AL_SOFT_direct_channels_remix AL_SOFT_effect_target AL_SOFT_events AL_SOFT_gain_clamp_ex AL_SOFTX_hold_on_disconnect AL_SOFT_loop_points AL_SOFTX_map_buffer AL_SOFT_MSADPCM AL_SOFT_source_latency AL_SOFT_source_length AL_SOFTX_source_panning AL_SOFT_source_resampler AL_SOFT_source_spatialize AL_SOFT_source_start_delay AL_SOFT_UHJ AL_SOFT_UHJ_ex
+06:19:15: SoundManager: OpenAL device is: OpenAL Soft
+06:19:15: SoundManager: OpenAL ALC extensions are: ALC_ENUMERATE_ALL_EXT ALC_ENUMERATION_EXT ALC_EXT_CAPTURE ALC_EXT_debug ALC_EXT_DEDICATED ALC_EXT_direct_context ALC_EXT_disconnect ALC_EXT_EFX ALC_EXT_thread_local_context ALC_SOFT_device_clock ALC_SOFT_HRTF ALC_SOFT_loopback ALC_SOFT_loopback_bformat ALC_SOFT_output_limiter ALC_SOFT_output_mode ALC_SOFT_pause_device ALC_SOFT_reopen_device ALC_SOFT_system_events
+06:19:15: SoundManager: Found OpenAL EFX extension
+06:19:15: SoundManager: OpenAL driver supports AL_EFFECT_EAXREVERB, using it
+06:19:15: SoundScriptManager: Sound Manager started with 32 sources
+06:19:15: [RoR|ContentManager] Loading resource pack "sounds" to group "SoundsRG" (ZIP archive)
+06:19:15: Creating resource group SoundsRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/sounds.zip' of type 'Zip' to resource group 'SoundsRG'
+06:19:15: Initialising resource group SoundsRG
+06:19:15: Parsing scripts for resource group SoundsRG
+06:19:15: Parsing script defaults.soundscript
+06:19:15: SoundScriptManager: Parsing script defaults.soundscript
+06:19:15: SoundScriptManager: creating template tracks/main_menu_tune
+06:19:15: SoundScriptManager: creating template tracks/default_diesel
+06:19:15: SoundScriptManager: creating template tracks/default_force
+06:19:15: SoundScriptManager: creating template tracks/default_car
+06:19:15: SoundScriptManager: creating template tracks/default_starter
+06:19:15: SoundScriptManager: creating template tracks/default_turbo
+06:19:15: SoundScriptManager: creating template tracks/default_turbo_small
+06:19:15: SoundScriptManager: creating template tracks/default_turbo_mid
+06:19:15: SoundScriptManager: creating template tracks/default_turbo_big
+06:19:15: SoundScriptManager: creating template tracks/default_turbo_bov
+06:19:15: SoundScriptManager: creating template tracks/default_wastegate_flutter
+06:19:15: SoundScriptManager: creating template tracks/default_turbo_backfire
+06:19:15: SoundScriptManager: creating template tracks/default_air_purge
+06:19:15: SoundScriptManager: creating template tracks/default_horn
+06:19:15: SoundScriptManager: creating template tracks/default_pump
+06:19:15: SoundScriptManager: creating template tracks/default_police
+06:19:15: SoundScriptManager: creating template tracks/default_screetch
+06:19:15: SoundScriptManager: creating template tracks/default_brakes
+06:19:15: SoundScriptManager: creating template tracks/default_parkbrakes
+06:19:15: SoundScriptManager: creating template tracks/default_air
+06:19:15: SoundScriptManager: creating template tracks/default_shift
+06:19:15: SoundScriptManager: creating template tracks/default_break
+06:19:15: SoundScriptManager: creating template tracks/default_creak
+06:19:15: Bad SoundScript attribute line: 'trigger_source	creak' in defaults.soundscript
+06:19:15: SoundScriptManager: creating template tracks/default_gear_slide
+06:19:15: SoundScriptManager: creating template tracks/default_marine_large
+06:19:15: SoundScriptManager: creating template tracks/default_marine_small
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_start1
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_lopower1
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_hipower1
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_start2
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_lopower2
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_hipower2
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_start3
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_lopower3
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_hipower3
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_start4
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_lopower4
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_hipower4
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_start5
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_lopower5
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_hipower5
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_start6
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_lopower6
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_hipower6
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_start7
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_lopower7
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_hipower7
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_start8
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_lopower8
+06:19:15: SoundScriptManager: creating template tracks/default_turboprop_hipower8
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_start1
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_lopower1
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_hipower1
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_start2
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_lopower2
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_hipower2
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_start3
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_lopower3
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_hipower3
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_start4
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_lopower4
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_hipower4
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_lopower5
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_hipower5
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_lopower6
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_hipower6
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_lopower7
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_hipower7
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_lopower8
+06:19:15: SoundScriptManager: creating template tracks/default_pistonprop_hipower8
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_start1
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_lopower1
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_hipower1
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_afterburner1
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_start2
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_lopower2
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_hipower2
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_afterburner2
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_start3
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_lopower3
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_hipower3
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_afterburner3
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_start4
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_lopower4
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_hipower4
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_afterburner4
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_start5
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_lopower5
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_hipower5
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_afterburner5
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_start6
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_lopower6
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_hipower6
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_afterburner6
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_start7
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_lopower7
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_hipower7
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_afterburner7
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_start8
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_lopower8
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_hipower8
+06:19:15: SoundScriptManager: creating template tracks/default_turbojet_afterburner8
+06:19:15: SoundScriptManager: creating template tracks/default_reverse_beep
+06:19:15: SoundScriptManager: creating template tracks/default_turn_signal
+06:19:15: SoundScriptManager: creating template tracks/default_antilock
+06:19:15: SoundScriptManager: creating template tracks/default_tractioncontrol
+06:19:15: SoundScriptManager: creating template tracks/default_gpws_10
+06:19:15: SoundScriptManager: creating template tracks/default_gpws_20
+06:19:15: SoundScriptManager: creating template tracks/default_gpws_30
+06:19:15: SoundScriptManager: creating template tracks/default_gpws_40
+06:19:15: SoundScriptManager: creating template tracks/default_gpws_50
+06:19:15: SoundScriptManager: creating template tracks/default_gpws_100
+06:19:15: SoundScriptManager: creating template tracks/default_gpws_pullup
+06:19:15: SoundScriptManager: creating template tracks/default_gpws_minimums
+06:19:15: SoundScriptManager: creating template tracks/default_gpws_apdisconnect
+06:19:15: SoundScriptManager: creating template tracks/default_aoa_warning
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat01
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat02
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat03
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat04
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat05
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat06
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat07
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat08
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat09
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat10
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat11
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat12
+06:19:15: SoundScriptManager: creating template tracks/default_aivionic_chat13
+06:19:15: Finished parsing scripts for resource group SoundsRG
+06:19:15: Creating resources for group SoundsRG
+06:19:15: All done
+06:19:15: RoR|ContentManager: Loading filesystems
+06:19:15: RoR|ContentManager: Registering colored text overlay factory
+06:19:15: OverlayElementFactory for type ColoredTextArea registered.
+06:19:15: RoR|ContentManager: Calling initialiseAllResourceGroups()
+06:19:15: Parsing scripts for resource group Config
+06:19:15: Finished parsing scripts for resource group Config
+06:19:15: Creating resources for group Config
+06:19:15: All done
+06:19:15: Parsing scripts for resource group General
+06:19:15: Finished parsing scripts for resource group General
+06:19:15: Creating resources for group General
+06:19:15: All done
+06:19:15: Parsing scripts for resource group Logs
+06:19:15: Finished parsing scripts for resource group Logs
+06:19:15: Creating resources for group Logs
+06:19:15: All done
+06:19:15: Parsing scripts for resource group OgreAutodetect
+06:19:15: Finished parsing scripts for resource group OgreAutodetect
+06:19:15: Creating resources for group OgreAutodetect
+06:19:15: All done
+06:19:15: Parsing scripts for resource group OgreInternal
+06:19:15: Parsing script ShadowVolumeExtude.program
+06:19:15: Parsing script Shadow.material
+06:19:15: Parsing script RTSSamplers.material
+06:19:15: Finished parsing scripts for resource group OgreInternal
+06:19:15: Creating resources for group OgreInternal
+06:19:15: All done
+06:19:15: Parsing scripts for resource group Savegames
+06:19:15: Finished parsing scripts for resource group Savegames
+06:19:15: Creating resources for group Savegames
+06:19:15: All done
+06:19:15: Parsing scripts for resource group Scripts
+06:19:15: Finished parsing scripts for resource group Scripts
+06:19:15: Creating resources for group Scripts
+06:19:15: All done
+06:19:15: [RoR] Loading skidmarks.cfg...
+06:19:15: [RoR] skidmarks.cfg loaded OK
+06:19:15: Texture 'ror.png': Loading 1 faces(PF_A8R8G8B8,96x96x1) with 5 hardware generated mipmaps from Image. Internal format is PF_A8R8G8B8,96x96x1.
+06:19:15: Texture 'MyGUI_BlueWhiteSkins.png': Loading 1 faces(PF_A8R8G8B8,512x256x1) Internal format is PF_A8R8G8B8,512x256x1.
+06:19:15: Texture 'RoR_Pointers.png': Loading 1 faces(PF_A8R8G8B8,256x128x1) Internal format is PF_A8R8G8B8,256x128x1.
+06:19:15: *** Loading OIS ***
+06:19:15: *** Initializing OIS ***
+06:19:15: OIS Version: 1.5.1
+06:19:15: + Release Name: 1.5.0
+06:19:15: + Manager: Mac OS X Cocoa Input Manager
+06:19:15: + Total Keyboards: 1
+06:19:15: + Total Mice: 1
+06:19:15: + Total JoySticks: 0
+06:19:15: * Device: Keyboard Vendor: Mac OS X Cocoa Input Manager
+06:19:15: * Device: Mouse Vendor: Mac OS X Cocoa Input Manager
+06:19:15: + macOS keyboard: SDL buffered keys/text + OIS device facade
+06:19:15: + macOS joysticks: SDL event backend
+06:19:15: + macOS SDL joystick force feedback is unavailable; continuing without FFB
+06:19:15:  * Loading input mapping input.map
+06:19:15: unknown event (ignored): COMMON_TOGGLE_RENDER_MODE
+06:19:15:  * Input map successfully loaded: 251 entries
+06:19:15: Texture 'loading_01.jpg': Loading 1 faces(PF_R8G8B8,1920x1080x1) with 5 hardware generated mipmaps from Image. Internal format is PF_R8G8B8,1920x1080x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material rigsofrods/WallpaperMat for use with OverlayElement rigsofrods/WallpaperPanel
+06:19:15: [RoR|CVar]       app_num_workers:  "8" (was: "0")
+06:19:15: [RoR|ThreadPool] Found 10 logical CPU cores, creating 8 worker threads
+06:19:15: Loading startup script 'cityworld_legacy_material_smoke.as' (from command line)
+06:19:15: [RoR|CVar]             app_state:  "1" (was: "0")
+06:19:15: RTSS: using 2c3a67ed69eb2b45d0879220f1d3ba9f_VS for Pass 0 of 'rigsofrods/WallpaperMat'
+06:19:15: RTSS: using 0edfb3f0978a2915ef74ad50734e28c8_FS for Pass 0 of 'rigsofrods/WallpaperMat'
+06:19:15: RTSS: using e73c7192a801d65a4bc4b8996fe43f7a_VS for Pass 0 of 'ImGui/material'
+06:19:15: RTSS: using 837f3874c816f8f40226deb62182ebb1_FS for Pass 0 of 'ImGui/material'
+06:19:15: [RoR|PleaseWaitUI] <100%> Hack
+06:19:15: Creating resource group Cache
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/cache' of type 'FileSystem' to resource group 'Cache'
+06:19:15: Creating resource group Thumbnails
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/thumbnails' of type 'FileSystem' to resource group 'Thumbnails'
+06:19:15: Creating resource group RepoAttachments
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/repo_attachments' of type 'FileSystem' to resource group 'RepoAttachments'
+06:19:15: Creating resource group Content
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/mods' of type 'FileSystem' to resource group 'Content'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/packs' of type 'FileSystem' to resource group 'Content'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/terrains' of type 'FileSystem' to resource group 'Content'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/vehicles' of type 'FileSystem' to resource group 'Content'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/projects' of type 'FileSystem' to resource group 'Content'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/content' of type 'FileSystem' to resource group 'Content'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/beamobjects.zip' of type 'Zip' to resource group 'Content'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/dashboards.zip' of type 'Zip' to resource group 'Content'
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/gadgets.zip' of type 'Zip' to resource group 'Content'
+06:19:15: Creating resource group Temp
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/mods' of type 'FileSystem' to resource group 'Temp' with recursive option
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/packs' of type 'FileSystem' to resource group 'Temp' with recursive option
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/terrains' of type 'FileSystem' to resource group 'Temp' with recursive option
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/vehicles' of type 'FileSystem' to resource group 'Temp' with recursive option
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/cw2-legacy-material.79WWXy/home/RigsOfRods/projects' of type 'FileSystem' to resource group 'Temp' with recursive option
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/content' of type 'FileSystem' to resource group 'Temp' with recursive option
+06:19:15: Destroying resource group Temp
+06:19:15: Unloading resource group Temp
+06:19:15: Finished unloading resource group Temp
+06:19:15: [RoR|ModCache] Error, cache file still invalid after check/update, content selector will be empty.
+06:19:15: [RoR|ModCache] Cannot load cache file: wrong version, corrupted or missing.
+06:19:15: [RoR|ModCache] Performing rebuild ...
+06:19:15: [RoR|PleaseWaitUI] <0%> Loading zips in group Content
+simple2-terrain.zip
+1/3
+06:19:15: [RoR|ModCache] Adding archive '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/content/simple2-terrain.zip'
+06:19:15: Creating resource group Temp
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/content/simple2-terrain.zip' of type 'Zip' to resource group 'Temp'
+06:19:15: [RoR|ModCache] Preparing to add file 'simple2.terrn2'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'simple2_a.terrn2'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'simple2_w.terrn2'
+06:19:15: done generating file cache!
+06:19:15: Destroying resource group Temp
+06:19:15: Unloading resource group Temp
+06:19:15: Finished unloading resource group Temp
+06:19:15: [RoR|PleaseWaitUI] <33%> Loading zips in group Content
+agora.zip
+2/3
+06:19:15: [RoR|ModCache] Adding archive '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/content/agora.zip'
+06:19:15: Creating resource group Temp
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/content/agora.zip' of type 'Zip' to resource group 'Temp'
+06:19:15: [RoR|ModCache] Preparing to add file '95bbUID-agoral.truck'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file '95bbUID-agoras.truck'
+06:19:15: done generating file cache!
+06:19:15: Destroying resource group Temp
+06:19:15: Unloading resource group Temp
+06:19:15: Finished unloading resource group Temp
+06:19:15: [RoR|PleaseWaitUI] <66%> Loading zips in group Content
+dafsemi.zip
+3/3
+06:19:15: [RoR|ModCache] Adding archive '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/content/dafsemi.zip'
+06:19:15: Creating resource group Temp
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/content/dafsemi.zip' of type 'Zip' to resource group 'Temp'
+06:19:15: [RoR|ModCache] Preparing to add file 'b6b0UID-semi.truck'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'b6b0UID-semi.trailer'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'b6b0UID-semiflat.trailer'
+06:19:15: done generating file cache!
+06:19:15: Destroying resource group Temp
+06:19:15: Unloading resource group Temp
+06:19:15: Finished unloading resource group Temp
+06:19:15: [RoR|ModCache] Preparing to add file 'rail1tPnt190r634dL.fixed'
+06:19:15: [RoR|ModCache] Preparing to add file 'rail1tPnt190r634dLi.fixed'
+06:19:15: [RoR|ModCache] Preparing to add file 'rail1tPnt190r634dR.fixed'
+06:19:15: [RoR|ModCache] Preparing to add file 'rail1tPnt190r634dRi.fixed'
+06:19:15: [RoR|ModCache] Preparing to add file 'rail1tPnt190r634dtri.fixed'
+06:19:15: [RoR|ModCache] Preparing to add file 'rail1tgerbuf.fixed'
+06:19:15: [RoR|ModCache] Preparing to add file 'default_boat.dashboard'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'default_truck_analog.dashboard'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'default_truck_digital.dashboard'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'rdd_classic.dashboard'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'engine_tool.gadget'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'odef_browser.gadget'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'ogre_inspector.gadget'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'overlay_editor.gadget'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'rig_editor.gadget'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'road_editor.gadget'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'script_editor.gadget'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'shock_tool.gadget'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'terrn_batcher.gadget'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Preparing to add file 'walkie_talkie.gadget'
+06:19:15: done generating file cache!
+06:19:15: [RoR|ModCache] Searching for duplicates ...
+06:19:15: [RoR|ModCache] File 'mods.cache' written OK
+06:19:15: [RoR|ModCache] Cache loaded
+06:19:15: Destroying resource group Content
+06:19:15: Unloading resource group Content
+06:19:15: Finished unloading resource group Content
+06:19:15: [RoR|General|Error] Cannot locate resource cityworld_legacy_material_smoke.as in resource group OgreAutodetect.
+06:19:15: [RoR|General|Error] Could not load script 'cityworld_legacy_material_smoke.as(category:CUSTOM,unique ID:0)' - failed to process file.
+06:19:15: [RoR|CVar]    app_recent_scripts:  "cityworld_legacy_material_smoke.as" (was: "")
+06:19:15: [RoR|PleaseWaitUI] <5%> Loading resources
+06:19:15: [RoR|ContentManager] Loading resource pack "airfoils" to group "AirfoilsRG" (ZIP archive)
+06:19:15: Creating resource group AirfoilsRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/airfoils.zip' of type 'Zip' to resource group 'AirfoilsRG'
+06:19:15: Initialising resource group AirfoilsRG
+06:19:15: Parsing scripts for resource group AirfoilsRG
+06:19:15: Finished parsing scripts for resource group AirfoilsRG
+06:19:15: Creating resources for group AirfoilsRG
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "textures" to group "TexturesRG" (ZIP archive)
+06:19:15: Creating resource group TexturesRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/textures.zip' of type 'Zip' to resource group 'TexturesRG'
+06:19:15: Initialising resource group TexturesRG
+06:19:15: Parsing scripts for resource group TexturesRG
+06:19:15: Finished parsing scripts for resource group TexturesRG
+06:19:15: Creating resources for group TexturesRG
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "famicons" to group "FamiconsRG" (ZIP archive)
+06:19:15: Creating resource group FamiconsRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/famicons.zip' of type 'Zip' to resource group 'FamiconsRG'
+06:19:15: Initialising resource group FamiconsRG
+06:19:15: Parsing scripts for resource group FamiconsRG
+06:19:15: Finished parsing scripts for resource group FamiconsRG
+06:19:15: Creating resources for group FamiconsRG
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "materials" to group "MaterialsRG" (ZIP archive)
+06:19:15: Creating resource group MaterialsRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/materials.zip' of type 'Zip' to resource group 'MaterialsRG'
+06:19:15: Initialising resource group MaterialsRG
+06:19:15: Parsing scripts for resource group MaterialsRG
+06:19:15: Parsing script general.program
+06:19:15: Parsing script nicemetal.program
+06:19:15: Parsing script character.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Parsing script eurosigns.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Parsing script ferryslip.material
+06:19:15: Parsing script floatingdocks.material
+06:19:15: Parsing script fresnel.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in fresnel.material(20): asm. Use syntax code.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in fresnel.material(37): cull_software. Only used by the BSP scene manager.
+06:19:15: Error: ScriptCompiler - invalid parameters in fresnel.material(70): overriding previous declarations of texture 'Reflection' with different parameters
+06:19:15: Error: ScriptCompiler - invalid parameters in fresnel.material(79): overriding previous declarations of texture 'Refraction' with different parameters
+06:19:15: Warning: ScriptCompiler - deprecated symbol in fresnel.material(100): cull_software. Only used by the BSP scene manager.
+06:19:15: Parsing script general.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in general.material(308): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in general.material(376): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Parsing script grass.material
+06:19:15: Parsing script hangar.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in hangar.material(5): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(83): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(86): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in hangar.material(9): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in hangar.material(14): set_texture_alias. Use 'set $variable value'
+06:19:15: Parsing script largedocks.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in largedocks.material(5): set_texture_alias. Use 'set $variable value'
+06:19:15: Parsing script load-spawner.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Parsing script marina.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in marina.material(5): set_texture_alias. Use 'set $variable value'
+06:19:15: Parsing script open-truck-spawner.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Parsing script ror.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(40): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(59): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(72): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(221): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(226): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(242): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(259): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1818): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1823): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1828): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1833): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1838): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1843): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1848): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1866): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1895): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1917): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1936): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1955): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(1974): 'cubic_texture ..'. Use 'texture .. cubic' instead.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(2013): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(2114): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(2170): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(2840): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(2854): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(2876): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in ror.material(2891): cull_software. Only used by the BSP scene manager.
+06:19:15: Parsing script runway.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Parsing script trafficlights.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Parsing script train_platform.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Parsing script train_rails.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in train_rails.material(38): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in train_rails.material(44): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in train_rails.material(50): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in train_rails.material(56): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in train_rails.material(62): set_texture_alias. Use 'set $variable value'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in train_rails.material(68): set_texture_alias. Use 'set $variable value'
+06:19:15: Parsing script truckshop.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in managed_mats.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in truckshop.material(14): set_texture_alias. Use 'set $variable value'
+06:19:15: Finished parsing scripts for resource group MaterialsRG
+06:19:15: Creating resources for group MaterialsRG
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "meshes" to group "MeshesRG" (ZIP archive)
+06:19:15: Creating resource group MeshesRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/meshes.zip' of type 'Zip' to resource group 'MeshesRG'
+06:19:15: Initialising resource group MeshesRG
+06:19:15: Parsing scripts for resource group MeshesRG
+06:19:15: Parsing script character.material
+06:19:15: Finished parsing scripts for resource group MeshesRG
+06:19:15: Creating resources for group MeshesRG
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "overlays" to group "OverlaysRG" (ZIP archive)
+06:19:15: Creating resource group OverlaysRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/overlays.zip' of type 'Zip' to resource group 'OverlaysRG'
+06:19:15: Initialising resource group OverlaysRG
+06:19:15: Parsing scripts for resource group OverlaysRG
+06:19:15: Parsing script 3d_dashblend.overlay
+06:19:15: Texture 'dashblend.dds': Loading 1 faces(PF_DXT5,128x64x1) with 5 custom mipmaps from Image. Internal format is PF_DXT5,128x64x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/dashblend for use with OverlayElement tracks/3Dblend
+06:19:15: Parsing script 3d_dashboard.overlay
+06:19:15: Texture 'dashboard.dds': Loading 1 faces(PF_DXT1,2048x1024x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,2048x1024x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/3Duptex for use with OverlayElement tracks/3Duptex
+06:19:15: Texture 'tacho.dds': Loading 1 faces(PF_DXT1,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/Tacho for use with OverlayElement tracks/3Dtacho
+06:19:15: Texture 'speedo.dds': Loading 1 faces(PF_DXT1,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/Speedo for use with OverlayElement tracks/3Dspeedo
+06:19:15: Parsing script 3d_dashboard_needles.overlay
+06:19:15: Texture 'redneedle.dds': Loading 1 faces(PF_DXT3,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT3,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/tachoneedle_mat for use with OverlayElement tracks/3Dtachoneedle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/speedoneedle_mat for use with OverlayElement tracks/3Dspeedoneedle
+06:19:15: Warning: ScriptCompiler - deprecated symbol in 3d_dashboard_needles.overlay(30): 'element type(name)'. use 'overlay_element name type'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in 3d_dashboard_needles.overlay(49): 'element type(name)'. use 'overlay_element name type'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in 3d_dashboard_needles.overlay(68): 'element type(name)'. use 'overlay_element name type'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in 3d_dashboard_needles.overlay(87): 'element type(name)'. use 'overlay_element name type'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in 3d_dashboard_needles.overlay(106): 'element type(name)'. use 'overlay_element name type'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in 3d_dashboard_needles.overlay(125): 'element type(name)'. use 'overlay_element name type'
+06:19:15: Parsing script airdashboard.overlay
+06:19:15: Texture 'dashbar.dds': Loading 1 faces(PF_DXT1,512x16x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,512x16x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/dashbar for use with OverlayElement tracks/airdashbar
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/black for use with OverlayElement tracks/airdashfiller
+06:19:15: Texture 'airspeed.dds': Loading 1 faces(PF_DXT1,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airspeed for use with OverlayElement tracks/airspeed
+06:19:15: Texture 'altimeter.dds': Loading 1 faces(PF_DXT1,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/altimeter for use with OverlayElement tracks/altimeter
+06:19:15: Texture 'vvi.dds': Loading 1 faces(PF_DXT1,128x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,128x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/vvi for use with OverlayElement tracks/vvi
+06:19:15: Texture 'adi-tape.dds': Loading 1 faces(PF_DXT1,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/adi-tape for use with OverlayElement tracks/adi-tape
+06:19:15: Texture 'adi.dds': Loading 1 faces(PF_DXT3,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT3,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/adi for use with OverlayElement tracks/adi
+06:19:15: Texture 'adi-bugs.dds': Loading 1 faces(PF_DXT3,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT3,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/adi-bugs for use with OverlayElement tracks/adi-bugs
+06:19:15: Texture 'aoa.dds': Loading 1 faces(PF_DXT1,128x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,128x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/aoa for use with OverlayElement tracks/aoa
+06:19:15: Texture 'hsi.dds': Loading 1 faces(PF_DXT1,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/hsi for use with OverlayElement tracks/hsi
+06:19:15: Texture 'hsi-rose.dds': Loading 1 faces(PF_DXT3,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT3,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/hsi-rose for use with OverlayElement tracks/hsi-rose
+06:19:15: Texture 'hsi-bug.dds': Loading 1 faces(PF_DXT3,128x128x1) with 5 custom mipmaps from Image. Internal format is PF_DXT3,128x128x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/hsi-bug for use with OverlayElement tracks/hsi-bug
+06:19:15: Texture 'hsi-v.dds': Loading 1 faces(PF_DXT3,128x128x1) with 5 custom mipmaps from Image. Internal format is PF_DXT3,128x128x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/hsi-v for use with OverlayElement tracks/hsi-v
+06:19:15: Texture 'hsi-h.dds': Loading 1 faces(PF_DXT3,128x128x1) with 5 custom mipmaps from Image. Internal format is PF_DXT3,128x128x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/hsi-h for use with OverlayElement tracks/hsi-h
+06:19:15: Texture 'thrusttrack.dds': Loading 1 faces(PF_DXT1,32x128x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,32x128x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/thrusttrack for use with OverlayElement tracks/thrusttrack1
+06:19:15: Texture 'engfire-off.dds': Loading 1 faces(PF_DXT1,64x32x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x32x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/engfire-off for use with OverlayElement tracks/engfire1
+06:19:15: Texture 'engstart-off.dds': Loading 1 faces(PF_DXT1,64x32x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x32x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/engstart-off for use with OverlayElement tracks/engstart1
+06:19:15: Texture 'airrpm.dds': Loading 1 faces(PF_DXT1,128x128x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,128x128x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airrpm for use with OverlayElement tracks/airrpm1
+06:19:15: Texture 'airpitch.dds': Loading 1 faces(PF_DXT1,128x128x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,128x128x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airpitch for use with OverlayElement tracks/airpitch1
+06:19:15: Texture 'airtorque.dds': Loading 1 faces(PF_DXT1,128x128x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,128x128x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airtorque for use with OverlayElement tracks/airtorque1
+06:19:15: Texture 'val-bg.dds': Loading 1 faces(PF_DXT1,64x32x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x32x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/val-bg for use with OverlayElement tracks/ap_hdg_val_bg
+06:19:15: Texture 'ap-up.dds': Loading 1 faces(PF_DXT1,64x32x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x32x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/ap-up for use with OverlayElement tracks/ap_hdg_up
+06:19:15: Texture 'ap-dn.dds': Loading 1 faces(PF_DXT1,64x32x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x32x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/ap-dn for use with OverlayElement tracks/ap_hdg_dn
+06:19:15: Texture 'hdg-off.dds': Loading 1 faces(PF_DXT1,64x64x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x64x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/hdg-off for use with OverlayElement tracks/ap_hdg_but
+06:19:15: Texture 'wlv-off.dds': Loading 1 faces(PF_DXT1,64x64x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x64x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/wlv-off for use with OverlayElement tracks/ap_wlv_but
+06:19:15: Texture 'nav-off.dds': Loading 1 faces(PF_DXT1,64x64x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x64x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/nav-off for use with OverlayElement tracks/ap_nav_but
+06:19:15: Texture 'hold-off.dds': Loading 1 faces(PF_DXT1,64x64x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x64x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/hold-off for use with OverlayElement tracks/ap_alt_but
+06:19:15: Texture 'vs-off.dds': Loading 1 faces(PF_DXT1,64x64x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x64x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/vs-off for use with OverlayElement tracks/ap_vs_but
+06:19:15: Texture 'athr-off.dds': Loading 1 faces(PF_DXT1,64x64x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x64x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/athr-off for use with OverlayElement tracks/ap_ias_but
+06:19:15: Texture 'gpws-on.dds': Loading 1 faces(PF_DXT1,64x64x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x64x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/gpws-on for use with OverlayElement tracks/ap_gpws_but
+06:19:15: Texture 'brks-off.dds': Loading 1 faces(PF_DXT1,64x64x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,64x64x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/brks-off for use with OverlayElement tracks/ap_brks_but
+06:19:15: Parsing script airneedles.overlay
+06:19:15: Texture 'thrusthandle.dds': Loading 1 faces(PF_DXT1,32x32x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,32x32x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/thrusthandle for use with OverlayElement tracks/thrust1
+06:19:15: Texture 'whiteneedle.dds': Loading 1 faces(PF_DXT3,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT3,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airspeedneedle_mat for use with OverlayElement tracks/airspeedneedle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airrpm1needle_mat for use with OverlayElement tracks/airrpm1needle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airrpm2needle_mat for use with OverlayElement tracks/airrpm2needle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airrpm3needle_mat for use with OverlayElement tracks/airrpm3needle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airrpm4needle_mat for use with OverlayElement tracks/airrpm4needle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airpitch1needle_mat for use with OverlayElement tracks/airpitch1needle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airpitch2needle_mat for use with OverlayElement tracks/airpitch2needle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airpitch3needle_mat for use with OverlayElement tracks/airpitch3needle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airpitch4needle_mat for use with OverlayElement tracks/airpitch4needle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airtorque1needle_mat for use with OverlayElement tracks/airtorque1needle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airtorque2needle_mat for use with OverlayElement tracks/airtorque2needle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airtorque3needle_mat for use with OverlayElement tracks/airtorque3needle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/airtorque4needle_mat for use with OverlayElement tracks/airtorque4needle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/altimeterneedle_mat for use with OverlayElement tracks/altimeterneedle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/vvineedle_mat for use with OverlayElement tracks/vvineedle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/aoaneedle_mat for use with OverlayElement tracks/aoaneedle
+06:19:15: Parsing script boatdashboard.overlay
+06:19:15: Texture 'shipsteer_bg.dds': Loading 1 faces(PF_DXT1,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/boatsteer/bg_mat for use with OverlayElement tracks/boatsteer
+06:19:15: Texture 'boatspeed.dds': Loading 1 faces(PF_DXT3,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT3,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/boatspeed for use with OverlayElement tracks/boatspeed
+06:19:15: Texture 'boatdepthmeter.dds': Loading 1 faces(PF_DXT5,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT5,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/boatdepthmeter for use with OverlayElement tracks/boatdepthmeter
+06:19:15: Texture 'boatthrusttrack.dds': Loading 1 faces(PF_DXT3,32x128x1) with 5 custom mipmaps from Image. Internal format is PF_DXT3,32x128x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/boatthrusttrack for use with OverlayElement tracks/boatthrusttrack1
+06:19:15: Parsing script boatneedles.overlay
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/boatspeedneedle_mat for use with OverlayElement tracks/boatspeedneedle
+06:19:15: Texture 'shipsteer.dds': Loading 1 faces(PF_DXT3,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT3,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/boatsteer/fg_mat for use with OverlayElement tracks/boatsteer/fg
+06:19:15: Parsing script chat.overlay
+06:19:15: Parsing script credits.overlay
+06:19:15: Texture 'credits.dds': Loading 1 faces(PF_DXT1,1024x512x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,1024x512x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/credits for use with OverlayElement tracks/credits
+06:19:15: Parsing script directionarrow.overlay
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/pointingArrowBackground for use with OverlayElement tracks/DirectionArrow/MainPanel
+06:19:15: Parsing script engine.overlay
+06:19:15: Texture 'New_Ogre_Border_Center.png': Loading 1 faces(PF_A8R8G8B8,256x128x1) with 5 hardware generated mipmaps from Image. Internal format is PF_A8R8G8B8,256x128x1.
+06:19:15: Texture 'New_Ogre_Border.png': Loading 1 faces(PF_A8R8G8B8,256x256x1) with 5 hardware generated mipmaps from Image. Internal format is PF_A8R8G8B8,256x256x1.
+06:19:15: Parsing script loader.overlay
+06:19:15: Texture 'New_Ogre_Border_Break.png': Loading 1 faces(PF_A8R8G8B8,32x32x1) with 5 hardware generated mipmaps from Image. Internal format is PF_A8R8G8B8,32x32x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/graytrans for use with OverlayElement tracks/CategoryPanel/ProgressBarBorder
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/white for use with OverlayElement tracks/CategoryPanel/ProgressBarInner
+06:19:15: Texture 'unknown.dds': Loading 1 faces(PF_DXT5,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT5,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/Viewer for use with OverlayElement tracks/picture
+06:19:15: Parsing script machinedashboard.overlay
+06:19:15: Texture 'instructions.dds': Loading 1 faces(PF_DXT1,256x256x1) with 5 custom mipmaps from Image. Internal format is PF_DXT1,256x256x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/instructions for use with OverlayElement tracks/machineinstructions
+06:19:15: Parsing script needles.overlay
+06:19:15: Error: ScriptCompiler - no object created in needles.overlay(37): Top level components must be containers, but 'TextArea' is an element
+06:19:15: Error: ScriptCompiler - no object created in needles.overlay(55): Top level components must be containers, but 'TextArea' is an element
+06:19:15: Error: ScriptCompiler - no object created in needles.overlay(71): Top level components must be containers, but 'TextArea' is an element
+06:19:15: Error: ScriptCompiler - no object created in needles.overlay(87): Top level components must be containers, but 'TextArea' is an element
+06:19:15: Error: ScriptCompiler - no object created in needles.overlay(103): Top level components must be containers, but 'TextArea' is an element
+06:19:15: Error: ScriptCompiler - no object created in needles.overlay(119): Top level components must be containers, but 'TextArea' is an element
+06:19:15: Parsing script various.overlay
+06:19:15: Texture 'pressure.dds': Loading 1 faces(PF_DXT3,128x128x1) with 5 custom mipmaps from Image. Internal format is PF_DXT3,128x128x1.
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/pressuremat for use with OverlayElement tracks/pressureo
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/pressureneedle_mat for use with OverlayElement tracks/pressureneedle
+06:19:15: Warning: force-disabling 'lighting' and 'depth_check' of Material tracks/blackFade for use with OverlayElement FadeInOutPanel
+06:19:15: Finished parsing scripts for resource group OverlaysRG
+06:19:15: Creating resources for group OverlaysRG
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "particles" to group "ParticlesRG" (ZIP archive)
+06:19:15: Creating resource group ParticlesRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/particles.zip' of type 'Zip' to resource group 'ParticlesRG'
+06:19:15: Initialising resource group ParticlesRG
+06:19:15: Parsing scripts for resource group ParticlesRG
+06:19:15: Parsing script particles.material
+06:19:15: Parsing script dust.particle
+06:19:15: Parsing script mud.particle
+06:19:15: Parsing script smoke.particle
+06:19:15: Parsing script snow.particle
+06:19:15: Parsing script water.particle
+06:19:15: Finished parsing scripts for resource group ParticlesRG
+06:19:15: Creating resources for group ParticlesRG
+06:19:15: All done
+06:19:15: [RoR|ContentManager] Loading resource pack "paged" to group "PagedRG" (ZIP archive)
+06:19:15: Creating resource group PagedRG
+06:19:15: Added resource location '/Users/beshoyhanna/Development/rigs-of-rods/build-macos-ogre14-roadmap/bin/resources/paged.zip' of type 'Zip' to resource group 'PagedRG'
+06:19:15: Initialising resource group PagedRG
+06:19:15: Parsing scripts for resource group PagedRG
+06:19:15: Parsing script grass.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in grass.material(9): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in grass.material(27): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in grass.material(44): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in grass.material(61): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in grass.material(78): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in grass.material(96): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in grass.material(114): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in grass.material(132): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in grass.material(150): cull_software. Only used by the BSP scene manager.
+06:19:15: Parsing script palm.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in palm.material(9): cull_software. Only used by the BSP scene manager.
+06:19:15: Parsing script tree.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in tree.material(26): alpha. Use PF_A8 instead
+06:19:15: Warning: ScriptCompiler - deprecated symbol in tree.material(43): alpha. Use PF_A8 instead
+06:19:15: Parsing script tree_01.material
+06:19:15: Warning: ScriptCompiler - deprecated symbol in tree_01.material(13): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in tree_01.material(31): cull_software. Only used by the BSP scene manager.
+06:19:15: Warning: ScriptCompiler - deprecated symbol in tree_01.material(37): texture_alias. Use 'texture $variable'
+06:19:15: Warning: ScriptCompiler - deprecated symbol in tree_01.material(61): texture_alias. Use 'texture $variable'
+06:19:15: Finished parsing scripts for resource group PagedRG
+06:19:15: Creating resources for group PagedRG
+06:19:15: All done
+06:19:15: Terrain not found: CityWorldNextLocalOverlay
+06:19:15: [RoR|MessageBox] Showing a message box
+<MessageBox title> Terrain loading error
+<MessageBox text> Terrain not found: CityWorldNextLocalOverlay'
+<MessageBox button> 'OK' (MsgType: )
+06:19:15: Texture 'accept.png': Loading 1 faces(PF_A8R8G8B8,16x16x1) with 4 hardware generated mipmaps from Image. Internal format is PF_A8R8G8B8,16x16x1.
+06:19:23: [RoR|CVar]             app_state:  "3" (was: "1")
+06:19:23: DefaultWorkQueue('Root') shutting down on thread 0x1f22718c0.
+06:19:06:23: DefaultWorkQueue('Root')::WorkerFunc - thread 0x16bf6f000 stopped.
+06:19:06:23: DefaultWorkQueue('Root')::WorkerFunc - thread 0x16bf6f000 stopped.
+19:23: DefaultWorkQueue('Root')::WorkerFunc - thread 0x16bffb000 stopped.
+06:19:06:23: DefaultWorkQueue('Root')::WorkerFunc - thread 0x16bf6f000 stopped.
+19:23: DefaultWorkQueue('Root')::WorkerFunc - thread 0x16bffb000 stopped.
+06:19:23: *-*-* OGRE Shutdown
+06:19:23: Unregistering ResourceManager for type Compositor
+06:19:23: Unregistering ResourceManager for type Material
+06:19:23: Unregistering ResourceManager for type GpuProgram
+06:19:23: Uninstalling plugin: Octree Scene Manager
+06:19:23: Plugin successfully uninstalled
+06:19:23: Unloading library /Users/beshoyhanna/.conan2/p/b/ogre3b2e515bf3f232/p/lib/OGRE/Plugin_OctreeSceneManager
+06:19:23: Uninstalling plugin: ParticleFX
+06:19:23: Plugin successfully uninstalled
+06:19:23: Unloading library /Users/beshoyhanna/.conan2/p/b/ogre3b2e515bf3f232/p/lib/OGRE/Plugin_ParticleFX
+06:19:23: Uninstalling plugin: GL 3+ RenderSystem
+06:19:23: Unregistering ResourceManager for type Texture
+06:19:23: ********************************************
+***  Stopping Mac OS X OpenGL Subsystem  ***
+********************************************
+06:19:23: Plugin successfully uninstalled
+06:19:23: Unloading library /Users/beshoyhanna/.conan2/p/b/ogre3b2e515bf3f232/p/lib/OGRE/RenderSystem_GL3Plus
+06:19:23: Unloading library /Users/beshoyhanna/.conan2/p/b/ogre3b2e515bf3f232/p/lib/OGRE/Codec_FreeImage
+06:19:23: Unregistering ResourceManager for type Skeleton
+06:19:23: Unregistering ResourceManager for type Mesh

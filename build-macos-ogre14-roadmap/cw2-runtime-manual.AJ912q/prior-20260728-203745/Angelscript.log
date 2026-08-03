@@ -1,0 +1,22 @@
+20:36:04: ScriptEngine initializing ...
+20:36:04: Type registrations done. If you see no error above everything should be working
+20:36:04: Executing main() in cityworld_bridge_runtime.as(category:TERRAIN,unique ID:0)
+20:36:04: [RoR|CW2|BridgeRuntime] START spans=3 length_m=60 lane_x=510.25 surface_y=0.08
+20:36:04: The script finished successfully.
+20:36:05: [RoR|CW2|BridgeRuntime] ARMED actor=2026072802 heading=1.5708
+20:36:05: [RoR|CW2|BridgeRuntime] SAMPLE frame=100 x=510.458 y=0.7551 z=458.654 speed=0.874807
+20:36:05: [RoR|CW2|BridgeRuntime] SAMPLE frame=200 x=512.588 y=0.759373 z=458.666 speed=3.16782
+20:36:05: [RoR|CW2|BridgeRuntime] SAMPLE frame=300 x=516.836 y=0.759397 z=458.705 speed=5.35287
+20:36:05: [RoR|CW2|BridgeRuntime] SAMPLE frame=400 x=522.985 y=0.759558 z=458.77 speed=6.96438
+20:36:05: [RoR|CW2|BridgeRuntime] SAMPLE frame=500 x=530.925 y=0.760717 z=458.853 speed=8.83833
+20:36:05: [RoR|CW2|BridgeRuntime] SAMPLE frame=600 x=540.65 y=0.761454 z=458.963 speed=10.5354
+20:36:05: [RoR|CW2|BridgeRuntime] SAMPLE frame=700 x=552.123 y=0.76129 z=459.101 speed=12.3422
+20:36:05: [RoR|CW2|BridgeRuntime] SAMPLE frame=800 x=565.016 y=0.762614 z=459.267 speed=13.7156
+20:36:05: [RoR|CW2|BridgeRuntime] SAMPLE frame=900 x=579.522 y=0.76323 z=459.46 speed=15.2602
+20:36:05: [RoR|CW2|BridgeRuntime] SAMPLE frame=1000 x=595.46 y=0.763786 z=459.687 speed=16.5482
+20:36:05: [RoR|CW2|BridgeRuntime] SAMPLE frame=1100 x=612.206 y=0.764342 z=459.94 speed=17.2443
+20:36:06: [RoR|CW2|BridgeRuntime] SAMPLE frame=1200 x=629.939 y=0.764691 z=460.225 speed=18.1728
+20:36:06: [RoR|CW2|BridgeRuntime] SAMPLE frame=1300 x=648.501 y=0.765212 z=460.541 speed=18.93
+20:36:06: [RoR|CW2|BridgeRuntime] SAMPLE frame=1400 x=667.766 y=0.765539 z=460.885 speed=19.5896
+20:36:06: [RoR|CW2|BridgeRuntime] SAMPLE frame=1500 x=687.653 y=0.766059 z=461.258 speed=20.1881
+20:36:06: [RoR|CW2|BridgeRuntime] FAIL reason=physics-step-timeout

@@ -1,0 +1,17 @@
+message(STATUS "Conan: Using CMakeDeps conandeps_legacy.cmake aggregator via include()")
+message(STATUS "Conan: It is recommended to use explicit find_package() per dependency instead")
+
+find_package(Angelscript)
+find_package(ois)
+find_package(discord-rpc)
+find_package(CURL)
+find_package(fmt)
+find_package(MyGUI)
+find_package(OGRE)
+find_package(SDL2)
+find_package(OpenAL)
+find_package(RapidJSON)
+find_package(SocketW)
+find_package(OpenSSL)
+
+set(CONANDEPS_LEGACY  Angelscript::angelscript  ois::ois  discord-rpc::discord-rpc  CURL::libcurl  fmt::fmt  MyGUI::MyGUI  OGRE::OGRE  SDL2::SDL2main  OpenAL::OpenAL  rapidjson  SocketW::SocketW  openssl::openssl )

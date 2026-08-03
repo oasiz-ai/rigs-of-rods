@@ -1,0 +1,73 @@
+; Rigs of Rods macOS SDL GameController mapping profile, version 1.
+;
+; This profile is deliberately device-independent. SDL normalizes supported
+; Xbox, PlayStation, Nintendo, and compatible controllers to:
+;   axes   0=LX 1=LY 2=RX 3=RY 4=LT 5=RT
+;   buttons 0=south 1=east 2=west 3=north 4=back 5=guide 6=start
+;           7=L3 8=R3 9=LB 10=RB 11=up 12=down 13=left 14=right
+;
+; Keep this filename versioned if those semantics ever change.
+
+; MENU
+MENU_UP                       JoystickButton       0 11
+MENU_DOWN                     JoystickButton       0 12
+MENU_LEFT                     JoystickButton       0 13
+MENU_RIGHT                    JoystickButton       0 14
+MENU_SELECT                   JoystickButton       0 0
+
+; COMMON
+COMMON_ENTER_OR_EXIT_TRUCK    JoystickButton       0 3
+COMMON_LOCK                   JoystickButton       0 14
+COMMON_TOGGLE_TRUCK_LOW_BEAMS JoystickButton       0 13
+COMMON_TRUCK_INFO             JoystickButton       0 6
+
+; CAMERA
+CAMERA_CHANGE                 JoystickButton       0 4
+CAMERA_ROTATE_LEFT            JoystickAxis         0 2 LOWER+DEADZONE=0.15
+CAMERA_ROTATE_RIGHT           JoystickAxis         0 2 UPPER+DEADZONE=0.15
+CAMERA_ROTATE_UP              JoystickAxis         0 3 LOWER+DEADZONE=0.15
+CAMERA_ROTATE_DOWN            JoystickAxis         0 3 UPPER+DEADZONE=0.15
+
+; CHARACTER
+CHARACTER_LEFT                JoystickAxis         0 0 LOWER+DEADZONE=0.15
+CHARACTER_RIGHT               JoystickAxis         0 0 UPPER+DEADZONE=0.15
+CHARACTER_FORWARD             JoystickAxis         0 1 LOWER+DEADZONE=0.15
+CHARACTER_BACKWARDS           JoystickAxis         0 1 UPPER+DEADZONE=0.15
+CHARACTER_JUMP                JoystickButton       0 0
+CHARACTER_RUN                 JoystickButton       0 7
+
+; TRUCK
+TRUCK_STEER_LEFT              JoystickAxis         0 0 LOWER+DEADZONE=0.15
+TRUCK_STEER_RIGHT             JoystickAxis         0 0 UPPER+DEADZONE=0.15
+TRUCK_BRAKE                   JoystickAxis         0 4 UPPER+DEADZONE=0.02
+TRUCK_ACCELERATE              JoystickAxis         0 5 UPPER+DEADZONE=0.02
+TRUCK_AUTOSHIFT_UP            JoystickButton       0 11
+TRUCK_AUTOSHIFT_DOWN          JoystickButton       0 12
+TRUCK_SHIFT_UP                JoystickButton       0 2
+TRUCK_SHIFT_DOWN              JoystickButton       0 1
+TRUCK_PARKING_BRAKE           JoystickButton       0 10
+TRUCK_MANUAL_CLUTCH           JoystickButton       0 9
+TRUCK_HORN                    JoystickButton       0 7
+TRUCK_STARTER                 JoystickButton       0 0
+TRUCK_TOGGLE_CONTACT          JoystickButton       0 8
+
+; BOAT
+BOAT_STEER_LEFT               JoystickAxis         0 0 LOWER+DEADZONE=0.15
+BOAT_STEER_RIGHT              JoystickAxis         0 0 UPPER+DEADZONE=0.15
+BOAT_THROTTLE_DOWN            JoystickAxis         0 4 UPPER+DEADZONE=0.02
+BOAT_THROTTLE_UP              JoystickAxis         0 5 UPPER+DEADZONE=0.02
+BOAT_REVERSE                  JoystickButton       0 1
+BOAT_CENTER_RUDDER            JoystickButton       0 2
+
+; AIRPLANE
+AIRPLANE_STEER_LEFT           JoystickAxis         0 0 LOWER+DEADZONE=0.15
+AIRPLANE_STEER_RIGHT          JoystickAxis         0 0 UPPER+DEADZONE=0.15
+AIRPLANE_ELEVATOR_UP          JoystickAxis         0 1 LOWER+DEADZONE=0.15
+AIRPLANE_ELEVATOR_DOWN        JoystickAxis         0 1 UPPER+DEADZONE=0.15
+AIRPLANE_RUDDER_LEFT          JoystickAxis         0 4 UPPER+DEADZONE=0.02
+AIRPLANE_RUDDER_RIGHT         JoystickAxis         0 5 UPPER+DEADZONE=0.02
+AIRPLANE_THROTTLE_UP          JoystickButton       0 11
+AIRPLANE_THROTTLE_DOWN        JoystickButton       0 12
+AIRPLANE_PARKING_BRAKE        JoystickButton       0 10
+AIRPLANE_REVERSE              JoystickButton       0 9
+AIRPLANE_TOGGLE_ENGINES       JoystickButton       0 0

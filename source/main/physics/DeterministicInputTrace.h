@@ -77,6 +77,11 @@ struct Digest
     bool operator!=(const Digest& other) const;
 };
 
+/// Dependency-free SHA-256 helper shared by higher-level deterministic
+/// identity contracts. The byte range is hashed exactly as supplied; a null
+/// pointer is accepted only for an empty range.
+Digest ComputeSha256(const std::uint8_t* data, std::size_t size);
+
 /// Run identity and cadence. The two names are canonical UTF-8 byte strings:
 /// no controls, overlong encodings, surrogates, or Unicode noncharacters.
 /// `source_digest` identifies the exact scenario/content/configuration source

@@ -1,0 +1,23 @@
+21:27:25: ScriptEngine initializing ...
+21:27:25: Type registrations done. If you see no error above everything should be working
+21:27:26: Executing main() in cityworld_curved_bridge_runtime.as(category:TERRAIN,unique ID:0)
+21:27:26: [RoR|CW2|CurveRuntime] START modules=3 seams=2 turn_degrees=45 radius_m=76.394372684
+21:27:26: The script finished successfully.
+21:27:27: [RoR|CW2|CurveRuntime] ARMED actor=2026072803 heading=-3.1415
+21:27:27: [RoR|CW2|CurveRuntime] SAMPLE frame=100 x=511.365 y=0.745693 z=452.217 speed=0.968748
+21:27:28: [RoR|CW2|CurveRuntime] SAMPLE frame=200 x=511.311 y=0.758886 z=454.379 speed=3.22379
+21:27:28: [RoR|CW2|CurveRuntime] SAMPLE frame=300 x=511.206 y=0.759038 z=458.289 speed=4.81773
+21:27:29: [RoR|CW2|CurveRuntime] SAMPLE frame=400 x=511.057 y=0.758701 z=463.754 speed=6.07524
+21:27:29: [RoR|CW2|CurveRuntime] SAMPLE frame=500 x=510.859 y=0.759154 z=470.743 speed=7.54045
+21:27:30: [RoR|CW2|CurveRuntime] SAMPLE frame=600 x=510.61 y=0.75977 z=479.202 speed=9.25099
+21:27:30: [RoR|CW2|CurveRuntime] ENTER x=510.612 z=482.016
+21:27:30: [RoR|CW2|CurveRuntime] SAMPLE frame=700 x=511.349 y=0.84518 z=488.631 speed=10.2502
+21:27:30: [RoR|CW2|CurveRuntime] SAMPLE frame=800 x=514.688 y=0.840265 z=499.414 speed=12.0089
+21:27:30: [RoR|CW2|CurveRuntime] SEAM index=0 x=515.719 z=501.872
+21:27:31: [RoR|CW2|CurveRuntime] CAPTURE x=519.638 z=510.097
+21:27:31: [RoR|CW2|CurveRuntime] SAMPLE frame=900 x=519.868 y=0.840338 z=510.547 speed=12.6385
+21:27:31: [RoR|CW2|CurveRuntime] SEAM index=1 x=525.075 z=520.303
+21:27:31: [RoR|CW2|CurveRuntime] SAMPLE frame=1000 x=526.225 y=0.840858 z=522.359 speed=13.9216
+21:27:31: [RoR|CW2|CurveRuntime] SAMPLE frame=1100 x=533.645 y=0.840123 z=534.562 speed=14.6314
+21:27:31: [RoR|CW2|CurveRuntime] EXIT x=533.645 z=534.562
+21:27:31: [RoR|CW2|CurveRuntime] FAIL reason=path-error-2.45663

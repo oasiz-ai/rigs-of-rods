@@ -1,0 +1,29 @@
+22:13:36: ScriptEngine initializing ...
+22:13:36: Type registrations done. If you see no error above everything should be working
+22:13:36: Executing main() in cityworld_gateway_runtime.as(category:TERRAIN,unique ID:0)
+22:13:36: [RoR|CW2|GatewayRuntime] START modules=5 seams=4 turn_degrees=45 gateway_m=40
+22:13:36: The script finished successfully.
+22:13:37: [RoR|CW2|GatewayRuntime] ARMED actor=2026072805 heading=-3.1415
+22:13:37: [RoR|CW2|GatewayRuntime] SAMPLE frame=100 x=511.365 y=0.746337 z=452.217 speed=0.957302
+22:13:37: [RoR|CW2|GatewayRuntime] SAMPLE frame=200 x=511.313 y=0.758768 z=454.326 speed=3.0378
+22:13:38: [RoR|CW2|GatewayRuntime] SAMPLE frame=300 x=511.224 y=0.758711 z=457.948 speed=3.99289
+22:13:38: [RoR|CW2|GatewayRuntime] SAMPLE frame=400 x=511.102 y=0.759356 z=462.834 speed=5.68106
+22:13:38: [RoR|CW2|GatewayRuntime] SAMPLE frame=500 x=510.937 y=0.759488 z=469.18 speed=7.04303
+22:13:38: [RoR|CW2|GatewayRuntime] SAMPLE frame=600 x=510.731 y=0.760083 z=476.843 speed=8.14531
+22:13:38: [RoR|CW2|GatewayRuntime] ENTER x=510.676 z=482.023
+22:13:39: [RoR|CW2|GatewayRuntime] SAMPLE frame=700 x=510.947 y=0.867233 z=485.593 speed=8.91517
+22:13:39: [RoR|CW2|GatewayRuntime] SAMPLE frame=800 x=513.096 y=0.83963 z=495.382 speed=10.9884
+22:13:39: [RoR|CW2|GatewayRuntime] SEAM index=0 x=515.332 z=501.88
+22:13:39: [RoR|CW2|GatewayRuntime] SAMPLE frame=900 x=516.999 y=0.839949 z=506.119 speed=11.8226
+22:13:39: [RoR|CW2|GatewayRuntime] SAMPLE frame=1000 x=521.824 y=0.839893 z=517.312 speed=12.3949
+22:13:39: [RoR|CW2|GatewayRuntime] SEAM index=1 x=523.171 z=520.218
+22:13:40: [RoR|CW2|GatewayRuntime] SAMPLE frame=1100 x=527.53 y=0.840474 z=528.635 speed=13.318
+22:13:40: [RoR|CW2|GatewayRuntime] SEAM index=2 x=533.116 z=537.462
+22:13:40: [RoR|CW2|GatewayRuntime] SAMPLE frame=1200 x=534.857 y=0.84063 z=540.136 speed=13.9236
+22:13:40: [RoR|CW2|GatewayRuntime] SEAM index=3 x=540.678 z=546.728
+22:13:40: [RoR|CW2|GatewayRuntime] SAMPLE frame=1300 x=543.138 y=0.84195 z=549.095 speed=12.7989
+22:13:40: [RoR|CW2|GatewayRuntime] CAPTURE x=546.623 z=552.221
+22:13:40: [RoR|CW2|GatewayRuntime] SAMPLE frame=1400 x=553.222 y=0.840043 z=557.676 speed=13.5604
+22:13:41: [RoR|CW2|GatewayRuntime] SAMPLE frame=1500 x=563.952 y=0.840356 z=566.41 speed=14.0779
+22:13:41: [RoR|CW2|GatewayRuntime] EXIT x=565.228 z=567.523
+22:13:41: [RoR|CW2|GatewayRuntime] PASS modules=5 seams=4 turn_degrees=45 distance_m=137.569 min_y=0.807714 max_y=0.867233 path_error=1.43999 exit_x=567.437 exit_z=569.519 speed=14.2319 physics_steps=30580

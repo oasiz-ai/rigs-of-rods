@@ -25,6 +25,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace RoR {
 namespace DeterministicVehicleInput {
@@ -34,14 +36,16 @@ namespace DeterministicVehicleInput {
 /// therefore does not by itself authorize live Actor replay.
 /// It is intentionally distinct from raw device mappings and from vehicle
 /// state. New controls require a new schema or an explicitly compatible
-/// extension of this registry. One trace stream owns exactly one stable target;
-/// multi-actor capture uses independently identified streams until a future
-/// atomic multi-target schema is defined.
+/// extension of this registry. One schema-1 trace stream owns exactly one
+/// stable target; composite schema 2 below provides an explicitly authenticated
+/// atomic multi-target boundary without changing schema-1 bytes or behavior.
 static const std::uint32_t SNAPSHOT_SCHEMA_VERSION = 1;
+static const std::uint32_t COMPOSITE_BATCH_SCHEMA_VERSION = 2;
 static const std::size_t STANDARD_CONTROL_COUNT = 11;
 static const std::size_t COMMAND_CONTROL_COUNT = 84;
 static const std::size_t CONTROL_SLOT_COUNT =
     STANDARD_CONTROL_COUNT + COMMAND_CONTROL_COUNT;
+static const std::size_t MAX_COMPOSITE_TARGETS = 32;
 
 enum ControlId : std::uint32_t
 {
@@ -87,12 +91,18 @@ enum class Error : std::uint32_t
     RUNTIME_MODE_MISMATCH,
     METADATA_SCHEMA_MISMATCH,
     FIXED_STEP_MISMATCH,
-    CONSUMER_REJECTED
+    CONSUMER_REJECTED,
+    EMPTY_TARGET_ROSTER,
+    TARGET_LIMIT_EXCEEDED,
+    DUPLICATE_TARGET,
+    MISSING_TARGET,
+    EXTRA_TARGET
 };
 
 struct Status
 {
     Error error;
+    std::uint64_t target_id;
     std::uint32_t control_id;
 
     Status();
@@ -145,6 +155,54 @@ bool BuildSnapshotFromPersistentState(
     Snapshot& snapshot,
     Status& status);
 
+/// Composite schema 2 binds one nonzero scenario stream to a sorted, unique
+/// roster of 1..32 stable targets. Every target remains present in the batch
+/// even when all of its controls are positive zero.
+struct SnapshotBatch
+{
+    std::uint32_t schema_version;
+    std::vector<Snapshot> snapshots;
+
+    SnapshotBatch();
+};
+
+/// Fixed composite-registry manifest. BuildCompositeRegistrySourceName()
+/// hashes this manifest, the exact schema-1 registry manifest, and the
+/// canonical big-endian target roster. The resulting source name is bounded
+/// independently of roster size.
+const char* CompositeRegistryManifest();
+
+/// Roster order is canonicalized before hashing. Entries must be unique,
+/// nonzero, and contain 1..MAX_COMPOSITE_TARGETS targets. `source_name` is
+/// unchanged on failure.
+bool BuildCompositeRegistrySourceName(
+    const std::vector<std::uint64_t>& target_roster,
+    std::string& source_name,
+    Status& status);
+
+bool IsCompositeRegistryMetadata(
+    const DeterministicInputTrace::Metadata& metadata,
+    std::uint64_t scenario_stream_id,
+    const std::vector<std::uint64_t>& target_roster);
+
+/// Validates the provider-facing batch and transactionally publishes it in
+/// canonical roster order. Provider order is deliberately irrelevant.
+bool CanonicalizeSnapshotBatch(
+    const SnapshotBatch& batch,
+    const std::vector<std::uint64_t>& target_roster,
+    SnapshotBatch& canonical_batch,
+    Status& status);
+
+/// Reconstructs every roster target from sorted authenticated D0 active state.
+/// Targets absent from active state become complete all-positive-zero
+/// snapshots; state for a target outside the roster is rejected.
+bool BuildSnapshotBatchFromPersistentState(
+    const std::vector<std::uint64_t>& target_roster,
+    const std::vector<
+        DeterministicInputTrace::PersistentControl>& persistent_state,
+    SnapshotBatch& batch,
+    Status& status);
+
 class SnapshotProvider
 {
 public:
@@ -169,6 +227,32 @@ public:
     virtual bool ApplyAppliedControls(
         std::uint64_t physics_step,
         const Snapshot& snapshot) = 0;
+};
+
+class SnapshotBatchProvider
+{
+public:
+    virtual ~SnapshotBatchProvider() {}
+
+    /// Called exactly once per accepted step. Implementations may return
+    /// snapshots in any order; the adapter canonicalizes and validates the
+    /// complete batch before emitting a single delta.
+    virtual bool CaptureAppliedControlBatch(
+        std::uint64_t physics_step,
+        SnapshotBatch& batch) = 0;
+};
+
+class SnapshotBatchConsumer
+{
+public:
+    virtual ~SnapshotBatchConsumer() {}
+
+    /// Called exactly once only after every target, scalar, delta, and
+    /// reconstructed state has validated. Production implementations must
+    /// apply the complete roster transactionally.
+    virtual bool ApplyAppliedControlBatch(
+        std::uint64_t physics_step,
+        const SnapshotBatch& batch) = 0;
 };
 
 /// Emits only bitwise changes from the previous complete snapshot. Positive
@@ -235,6 +319,76 @@ private:
     std::uint64_t m_target_id;
     SnapshotConsumer& m_consumer;
     Snapshot m_previous;
+    Status m_status;
+    Status m_initial_status;
+    std::uint64_t m_next_physics_step;
+    bool m_ready;
+};
+
+/// Composite schema-2 recorder. One provider call supplies the complete
+/// roster, whose snapshots are canonicalized by target and delta-encoded by
+/// `(target, control)` against per-target continuation baselines.
+class CompositeRecordingSource:
+    public DeterministicInputTrace::FixedStepSampleSource
+{
+public:
+    CompositeRecordingSource(
+        const DeterministicInputTrace::Runtime& runtime,
+        std::uint64_t scenario_stream_id,
+        const std::vector<std::uint64_t>& target_roster,
+        SnapshotBatchProvider& provider);
+
+    bool AcceptsRuntime(
+        const DeterministicInputTrace::Runtime& runtime) const override;
+
+    bool SampleFixedStepStart(
+        std::uint64_t physics_step,
+        DeterministicInputTrace::SampleCollector& collector) override;
+
+    const SnapshotBatch& GetPreviousBatch() const;
+    const std::vector<std::uint64_t>& GetTargetRoster() const;
+    const Status& GetStatus() const;
+
+private:
+    const DeterministicInputTrace::Runtime* m_runtime;
+    std::uint64_t m_scenario_stream_id;
+    std::vector<std::uint64_t> m_target_roster;
+    SnapshotBatchProvider& m_provider;
+    SnapshotBatch m_previous;
+    Status m_status;
+    Status m_initial_status;
+    std::uint64_t m_next_physics_step;
+    bool m_ready;
+};
+
+/// Composite schema-2 replay sink. All roster snapshots are reconstructed and
+/// proven against nonredundant deltas before exactly one atomic consumer call.
+class CompositeReplaySink:
+    public DeterministicInputTrace::FixedStepInjectionSink
+{
+public:
+    CompositeReplaySink(
+        const DeterministicInputTrace::Runtime& runtime,
+        std::uint64_t scenario_stream_id,
+        const std::vector<std::uint64_t>& target_roster,
+        SnapshotBatchConsumer& consumer);
+
+    bool AcceptsRuntime(
+        const DeterministicInputTrace::Runtime& runtime) const override;
+
+    bool InjectFixedStepStart(
+        const DeterministicInputTrace::StepInjection& injection) override;
+
+    const SnapshotBatch& GetPreviousBatch() const;
+    const std::vector<std::uint64_t>& GetTargetRoster() const;
+    const Status& GetStatus() const;
+
+private:
+    const DeterministicInputTrace::Runtime* m_runtime;
+    std::uint64_t m_scenario_stream_id;
+    std::vector<std::uint64_t> m_target_roster;
+    SnapshotBatchConsumer& m_consumer;
+    SnapshotBatch m_previous;
     Status m_status;
     Status m_initial_status;
     std::uint64_t m_next_physics_step;

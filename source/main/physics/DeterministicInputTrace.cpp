@@ -620,6 +620,15 @@ static_assert(
 namespace RoR {
 namespace DeterministicInputTrace {
 
+Digest ComputeSha256(
+    const std::uint8_t* data,
+    std::size_t size)
+{
+    if (size != 0 && data == nullptr)
+        return Digest();
+    return HashBytes(data, size);
+}
+
 Digest::Digest(): bytes()
 {
 }
