@@ -412,8 +412,9 @@ end to end.
 ### Exact OGRE 14 legacy asset translator v1
 
 `Ogre14LegacyAssetTranslator` is the replacement path for textured legacy
-assets. It is deliberately a pure-data catalog and is not wired into
-`GfxScene` yet. `gfx/ogre14/Ogre14LegacyNativeAssetExtractor` is the native
+assets. It is deliberately a pure-data catalog; the native capture and live
+scene assembly path is not wired into `GfxScene` yet.
+`gfx/ogre14/Ogre14LegacyNativeAssetExtractor` is the native
 integration adapter and deliberately lives outside this renderer-neutral
 boundary; the native application and its focused compile test pin that edge to
 OGRE 14.5.2. The eventual static/terrain adapter
@@ -544,6 +545,28 @@ lease preserves ownership, a direct legacy commit of the leased candidate is
 rejected, and a consumed lease cannot publish twice. `CloneForTransaction` and
 `CommitTransaction` retain their version-1 nonexclusive sibling/stale behavior
 for existing callers.
+
+`gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator` owns one immutable semantic
+registry and one fresh translator identity for a scene generation. For each
+authoritative material frame it resolves every exact material key from that
+registry, rejects conflicting semantic state, canonicalizes shared
+texture captures, and translates the complete inventory under one exclusive
+lease. It then batch-resolves all material closures from that one full frame
+and exposes shared immutable owners to the joined scene transaction. Only an
+explicit downstream-acceptance call publishes the translator candidate;
+discard, validation failure, allocation failure, or an arbitrary exception
+releases the lease without advancing source/catalog lineage or changing the
+caller's previously populated output. An empty inventory is a real full frame,
+so removal and generation shutdown cannot retain stale material assets.
+
+This coordinator is the pure-data admission boundary, not the finished native
+scene tap. `GfxScene` must still collect one authoritative post-update material
+inventory, capture each material using the registry-provided native
+declaration, merge its closures with static, dynamic, road, particle, terrain,
+and deformable assets, and call commit only after that entire scene transaction
+has been accepted. It must discard on every earlier return. Scene reset creates
+a new coordinator so the opaque catalog identity changes even when numeric
+sequences restart at one.
 
 `Ogre14LegacyMaterialClosure` closes the last pure-data seam between that
 catalog and `GraphicsSceneSnapshotProducer`. Given an exact material key, it

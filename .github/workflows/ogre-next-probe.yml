@@ -23,6 +23,7 @@ on:
       - source/main/gfx/RendererStartupPlan.*
       - source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*
       - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.*
+      - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
       - source/main/physics/ActorManager.*
       - source/main/physics/ActorSpawner.*
       - source/main/physics/ActorSpawnerFlow.cpp
@@ -80,6 +81,7 @@ on:
       - tests/gfx/RendererStartupPlanTests.cpp
       - tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
       - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
       - tests/gfx/render/**
       - tests/physics/**
       - tests/tools/test_ogre14_*.py
@@ -105,6 +107,7 @@ on:
       - source/main/gfx/RendererStartupPlan.*
       - source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*
       - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.*
+      - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
       - source/main/physics/ActorManager.*
       - source/main/physics/ActorSpawner.*
       - source/main/physics/ActorSpawnerFlow.cpp
@@ -162,6 +165,7 @@ on:
       - tests/gfx/RendererStartupPlanTests.cpp
       - tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
       - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
       - tests/gfx/render/**
       - tests/physics/**
       - tests/tools/test_ogre14_*.py
@@ -455,6 +459,7 @@ jobs:
           ror_gfx_actor_capture_inventory_tests
           ror_ogre14_dynamic_material_closure_tests
           ror_ogre14_material_semantic_registry_tests
+          ror_ogre14_live_material_coordinator_tests
           ror_renderer_ogre14_game_host_session_tests
           --config Release
           --parallel ${{ matrix.jobs }}
@@ -482,6 +487,14 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^ror_ogre14_material_semantic_registry$'
+
+      - name: Prove exclusive live material preparation on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_live_material_coordinator$'
 
       - name: Prove the game-host stream and native pipe half-close contract
         run: >-

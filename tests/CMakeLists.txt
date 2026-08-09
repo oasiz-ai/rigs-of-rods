@@ -1007,6 +1007,16 @@ target_include_directories(
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
 )
 add_executable(
+    ror_ogre14_live_material_coordinator_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+)
+target_include_directories(
+    ror_ogre14_live_material_coordinator_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+add_executable(
     ror_render_resource_handle_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ResourceHandleTests.cpp"
 )
@@ -1162,6 +1172,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre14_road_material_transaction_tests
     ror_ogre14_dynamic_material_closure_tests
     ror_ogre14_material_semantic_registry_tests
+    ror_ogre14_live_material_coordinator_tests
     ror_render_hdr_reference_tests
     ror_input_event_transport_tests
     ror_render_bridge_control_transport_tests
@@ -2437,6 +2448,11 @@ add_test(
 add_test(
     NAME ogre14_material_semantic_registry
     COMMAND ror_ogre14_material_semantic_registry_tests
+)
+
+add_test(
+    NAME ogre14_live_material_coordinator
+    COMMAND ror_ogre14_live_material_coordinator_tests
 )
 
 add_test(
