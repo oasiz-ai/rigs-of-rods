@@ -8,6 +8,7 @@
 #include "Ogre14LegacyLiveMaterialCoordinator.h"
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <new>
@@ -42,6 +43,128 @@ bool CheckedMultiply(std::uint64_t lhs, std::uint64_t rhs,
   return true;
 }
 
+bool SameFloat(float lhs, float rhs) noexcept {
+  std::uint32_t lhs_bits = 0U;
+  std::uint32_t rhs_bits = 0U;
+  static_assert(sizeof(lhs_bits) == sizeof(lhs), "binary32 is required");
+  std::memcpy(&lhs_bits, &lhs, sizeof(lhs_bits));
+  std::memcpy(&rhs_bits, &rhs, sizeof(rhs_bits));
+  return lhs_bits == rhs_bits;
+}
+
+bool SameFloat3(const Float3 &lhs, const Float3 &rhs) noexcept {
+  return SameFloat(lhs.x, rhs.x) && SameFloat(lhs.y, rhs.y) &&
+         SameFloat(lhs.z, rhs.z);
+}
+
+bool SameFloat4(const Float4 &lhs, const Float4 &rhs) noexcept {
+  return SameFloat(lhs.x, rhs.x) && SameFloat(lhs.y, rhs.y) &&
+         SameFloat(lhs.z, rhs.z) && SameFloat(lhs.w, rhs.w);
+}
+
+bool SamePipeline(const Ogre14LegacyPipelineStateInput &lhs,
+                  const Ogre14LegacyPipelineStateInput &rhs) noexcept {
+  return lhs.source_color == rhs.source_color &&
+         lhs.destination_color == rhs.destination_color &&
+         lhs.source_alpha == rhs.source_alpha &&
+         lhs.destination_alpha == rhs.destination_alpha &&
+         lhs.color_operation == rhs.color_operation &&
+         lhs.alpha_operation == rhs.alpha_operation &&
+         lhs.color_write_mask == rhs.color_write_mask &&
+         lhs.depth_check_enabled == rhs.depth_check_enabled &&
+         lhs.depth_write_enabled == rhs.depth_write_enabled &&
+         lhs.depth_compare == rhs.depth_compare &&
+         SameFloat(lhs.constant_depth_bias, rhs.constant_depth_bias) &&
+         SameFloat(lhs.slope_scale_depth_bias, rhs.slope_scale_depth_bias) &&
+         SameFloat(lhs.iteration_depth_bias, rhs.iteration_depth_bias) &&
+         lhs.cull == rhs.cull && lhs.manual_cull == rhs.manual_cull &&
+         lhs.alpha_reject == rhs.alpha_reject &&
+         lhs.alpha_reject_value == rhs.alpha_reject_value &&
+         lhs.alpha_to_coverage == rhs.alpha_to_coverage &&
+         lhs.solid_fill == rhs.solid_fill &&
+         lhs.pass_iteration_count == rhs.pass_iteration_count;
+}
+
+bool SameSampler(const Ogre14LegacySamplerInput &lhs,
+                 const Ogre14LegacySamplerInput &rhs) noexcept {
+  return lhs.source_revision == rhs.source_revision &&
+         lhs.minification == rhs.minification &&
+         lhs.magnification == rhs.magnification && lhs.mip == rhs.mip &&
+         lhs.address_u == rhs.address_u && lhs.address_v == rhs.address_v &&
+         lhs.address_w == rhs.address_w &&
+         SameFloat(lhs.mip_lod_bias, rhs.mip_lod_bias) &&
+         SameFloat(lhs.minimum_lod, rhs.minimum_lod) &&
+         SameFloat(lhs.maximum_lod, rhs.maximum_lod) &&
+         lhs.maximum_anisotropy == rhs.maximum_anisotropy &&
+         lhs.compare_enabled == rhs.compare_enabled &&
+         lhs.compare_operation == rhs.compare_operation &&
+         SameFloat4(lhs.border_color, rhs.border_color);
+}
+
+bool SameTextureUnit(const Ogre14LegacyTextureUnitInput &lhs,
+                     const Ogre14LegacyTextureUnitInput &rhs) noexcept {
+  return lhs.texture_key == rhs.texture_key &&
+         SameSampler(lhs.sampler, rhs.sampler) &&
+         lhs.texture_coordinate_set == rhs.texture_coordinate_set &&
+         lhs.named_content == rhs.named_content &&
+         lhs.texture_2d == rhs.texture_2d &&
+         lhs.frame_count == rhs.frame_count &&
+         lhs.has_animated_or_procedural_effect ==
+             rhs.has_animated_or_procedural_effect &&
+         lhs.projective == rhs.projective &&
+         lhs.environment_mapping == rhs.environment_mapping &&
+         lhs.compositor == rhs.compositor &&
+         lhs.render_target == rhs.render_target &&
+         lhs.canonical_color_modulate == rhs.canonical_color_modulate &&
+         lhs.canonical_alpha_modulate == rhs.canonical_alpha_modulate &&
+         lhs.identity_texture_transform == rhs.identity_texture_transform;
+}
+
+bool SameMaterial(const Ogre14LegacyMaterialInput &lhs,
+                  const Ogre14LegacyMaterialInput &rhs) noexcept {
+  if (lhs.version != rhs.version || lhs.key != rhs.key ||
+      lhs.source_revision != rhs.source_revision ||
+      lhs.technique_count != rhs.technique_count ||
+      lhs.pass_count != rhs.pass_count ||
+      lhs.generated_rtss_program != rhs.generated_rtss_program ||
+      lhs.has_vertex_program != rhs.has_vertex_program ||
+      lhs.has_fragment_program != rhs.has_fragment_program ||
+      lhs.has_geometry_program != rhs.has_geometry_program ||
+      lhs.has_tessellation_program != rhs.has_tessellation_program ||
+      lhs.has_compute_program != rhs.has_compute_program ||
+      lhs.base_color_semantic != rhs.base_color_semantic ||
+      lhs.lighting_enabled != rhs.lighting_enabled ||
+      !SameFloat4(lhs.diffuse_linear, rhs.diffuse_linear) ||
+      !SameFloat3(lhs.ambient_linear, rhs.ambient_linear) ||
+      !SameFloat3(lhs.specular_linear, rhs.specular_linear) ||
+      !SameFloat3(lhs.emissive_linear, rhs.emissive_linear) ||
+      !SameFloat(lhs.shininess, rhs.shininess) ||
+      !SamePipeline(lhs.pipeline, rhs.pipeline) ||
+      lhs.texture_units.size() != rhs.texture_units.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < lhs.texture_units.size(); ++index) {
+    if (!SameTextureUnit(lhs.texture_units[index], rhs.texture_units[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename T>
+bool SameExactOwner(const std::shared_ptr<const T> &lhs,
+                    const std::shared_ptr<const T> &rhs) noexcept {
+  return lhs != nullptr && rhs != nullptr && lhs.get() == rhs.get() &&
+         !lhs.owner_before(rhs) && !rhs.owner_before(lhs);
+}
+
+template <typename T>
+bool SharesControlBlock(const std::shared_ptr<const T> &lhs,
+                        const std::shared_ptr<const T> &rhs) noexcept {
+  return lhs != nullptr && rhs != nullptr && !lhs.owner_before(rhs) &&
+         !rhs.owner_before(lhs);
+}
+
 bool SameMip(const Ogre14LegacyTextureMipInput &lhs,
              const Ogre14LegacyTextureMipInput &rhs) noexcept {
   return lhs.width == rhs.width && lhs.height == rhs.height &&
@@ -72,6 +195,22 @@ bool SameTexture(const Ogre14LegacyTextureInput &lhs,
   return true;
 }
 
+bool SameNativeCapture(const Ogre14LegacyNativeMaterialCapture &lhs,
+                       const Ogre14LegacyNativeMaterialCapture &rhs) noexcept {
+  if (lhs.version != rhs.version || !SameMaterial(lhs.material, rhs.material) ||
+      lhs.textures.size() != rhs.textures.size() ||
+      !SameExactOwner(lhs.exact_native_material_audit,
+                      rhs.exact_native_material_audit)) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < lhs.textures.size(); ++index) {
+    if (!SameTexture(lhs.textures[index], rhs.textures[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 ValidationResult ValidateObservation(
     const Ogre14LegacyMaterialObservation &observation,
     const Ogre14LegacyMaterialSemanticRegistry &semantic_registry,
@@ -89,9 +228,32 @@ ValidationResult ValidateObservation(
         ValidationCode::REVISION_MISMATCH, "material_observations.material_key",
         "observation and native capture identify different materials");
   }
+  if (!observation.native_capture.native_material_audit_receipt.Authenticates(
+          observation.native_capture.exact_native_material_audit)) {
+    return Failure(
+        ValidationCode::MISSING_REFERENCE,
+        "material_observations.native_material_audit_owner",
+        "native material audit owner is missing, replaced, reboxed, or not "
+        "authenticated by its capture receipt");
+  }
+  Ogre14LegacyMaterialPipelineAudit expected_native_audit;
+  ValidationResult validation = DeriveOgre14LegacyMaterialPipelineAudit(
+      observation.native_capture.material, expected_native_audit);
+  if (!validation) {
+    return validation;
+  }
+  if (!EquivalentOgre14LegacyMaterialPipelineAudit(
+          expected_native_audit,
+          *observation.native_capture.exact_native_material_audit)) {
+    return Failure(
+        ValidationCode::REVISION_MISMATCH,
+        "material_observations.native_material_audit",
+        "authenticated native audit disagrees with captured material, texture, "
+        "sampler, or pipeline state");
+  }
   Ogre14LegacyMaterialSemanticResolution resolution;
-  ValidationResult validation = semantic_registry.Resolve(
-      observation.material_key, translator_configuration, resolution);
+  validation = semantic_registry.Resolve(observation.material_key,
+                                         translator_configuration, resolution);
   if (!validation) {
     return validation;
   }
@@ -330,6 +492,9 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
           "observed native texture bytes exceed the configured frame cap",
           index);
     }
+    // Charge every caller-supplied payload before canonicalization. Sharing one
+    // authenticated audit owner does not make copied mip vectors disappear from
+    // caller memory or waive the frame's resource-admission ceiling.
     observed_texture_bytes = next_observed_texture_bytes;
     IndexedObservation indexed;
     indexed.observation = &observations[index];
@@ -352,15 +517,54 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
                const IndexedObservation &rhs) noexcept {
               return lhs.material_stable_key < rhs.material_stable_key;
             });
-  for (std::size_t index = 1U; index < ordered.size(); ++index) {
-    if (ordered[index - 1U].material_stable_key ==
-        ordered[index].material_stable_key) {
-      return Failure(ValidationCode::DUPLICATE_IDENTIFIER,
-                     "material_observations.material_key",
-                     "material observation set duplicates an exact material",
-                     index);
+  std::vector<IndexedObservation> canonical_observations;
+  canonical_observations.reserve(ordered.size());
+  using NativeAuditOwner =
+      std::shared_ptr<const Ogre14LegacyMaterialPipelineAudit>;
+  std::map<NativeAuditOwner, std::string, std::owner_less<NativeAuditOwner>>
+      material_key_by_native_audit_owner;
+  for (std::size_t index = 0U; index < ordered.size(); ++index) {
+    const IndexedObservation &indexed = ordered[index];
+    if (indexed.observation == nullptr) {
+      return Failure(ValidationCode::MISSING_REFERENCE,
+                     "material_observations.shared_material",
+                     "ordered material observation is missing", index);
     }
+    const NativeAuditOwner &native_audit =
+        indexed.observation->native_capture.exact_native_material_audit;
+    const auto owner = material_key_by_native_audit_owner.find(native_audit);
+    if (owner != material_key_by_native_audit_owner.end() &&
+        owner->second != indexed.material_stable_key) {
+      return Failure(
+          ValidationCode::DUPLICATE_IDENTIFIER,
+          "material_observations.native_material_audit_owner",
+          "one authenticated native audit owner cannot identify distinct exact "
+          "materials",
+          index);
+    }
+    if (owner == material_key_by_native_audit_owner.end()) {
+      material_key_by_native_audit_owner.emplace(native_audit,
+                                                 indexed.material_stable_key);
+    }
+    if (!canonical_observations.empty() &&
+        canonical_observations.back().material_stable_key ==
+            indexed.material_stable_key) {
+      const Ogre14LegacyNativeMaterialCapture &canonical_capture =
+          canonical_observations.back().observation->native_capture;
+      if (!SameNativeCapture(canonical_capture,
+                             indexed.observation->native_capture)) {
+        return Failure(
+            ValidationCode::DUPLICATE_IDENTIFIER,
+            "material_observations.shared_material",
+            "repeated exact material observations must share one bit-exact "
+            "authenticated native audit owner",
+            index);
+      }
+      continue;
+    }
+    canonical_observations.push_back(indexed);
   }
+  ordered = std::move(canonical_observations);
 
   std::map<std::string, const Ogre14LegacyTextureInput *, std::less<>> textures;
   std::vector<const Ogre14LegacyMaterialInput *> identity_materials;
@@ -513,8 +717,55 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
                      "material_closures.material_key",
                      "resolved closure omitted its exact material key");
     }
+    std::string material_stable_key;
+    validation = BuildOgre14LegacyStableAssetKey(RenderAssetKind::MATERIAL,
+                                                 closure.asset_keys.back(),
+                                                 material_stable_key);
+    if (!validation) {
+      return validation;
+    }
+    const auto observation = std::lower_bound(
+        ordered.begin(), ordered.end(), material_stable_key,
+        [](const IndexedObservation &lhs, const std::string &rhs) noexcept {
+          return lhs.material_stable_key < rhs;
+        });
+    if (observation == ordered.end() ||
+        observation->material_stable_key != material_stable_key ||
+        observation->observation == nullptr ||
+        closure.material_audit == nullptr ||
+        observation->observation->native_capture.exact_native_material_audit ==
+            nullptr) {
+      return Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "material_closures.native_material_audit",
+          "resolved closure has no corresponding independently captured native "
+          "audit owner");
+    }
+    const std::shared_ptr<const Ogre14LegacyMaterialPipelineAudit>
+        &native_audit = observation->observation->native_capture
+                            .exact_native_material_audit;
+    if (!EquivalentOgre14LegacyMaterialPipelineAudit(*native_audit,
+                                                     *closure.material_audit)) {
+      return Failure(ValidationCode::REVISION_MISMATCH,
+                     "material_closures.native_material_audit",
+                     "translated closure audit disagrees bit-exactly with "
+                     "native material, "
+                     "texture, sampler, or pipeline capture");
+    }
+    if (SharesControlBlock(native_audit, closure.material_audit)) {
+      return Failure(
+          ValidationCode::DUPLICATE_IDENTIFIER,
+          "material_closures.native_material_audit_owner",
+          "translated closure audit owner was laundered as native capture");
+    }
+    if (fault_injector != nullptr) {
+      fault_injector->AtFaultPoint(
+          Ogre14LegacyLiveMaterialCoordinatorFaultPoint::
+              AFTER_NATIVE_AUDIT_MATCH);
+    }
     Ogre14LegacyPreparedMaterial material;
     material.material_key = closure.asset_keys.back();
+    material.native_material_audit = native_audit;
     material.closure =
         std::make_shared<const Ogre14LegacyMaterialClosure>(std::move(closure));
     prepared_state->materials.push_back(std::move(material));
@@ -629,7 +880,7 @@ ValidationResult CreateOgre14LegacyLiveMaterialCoordinator(
                  "unexpected exception before the coordinator was published");
 }
 
-const Ogre14LegacyMaterialClosure *FindOgre14LegacyPreparedMaterialClosure(
+const Ogre14LegacyPreparedMaterial *FindOgre14LegacyPreparedMaterial(
     const Ogre14LegacyPreparedMaterialFrame &frame,
     const Ogre14LegacyAssetKey &material_key) noexcept {
   try {
@@ -643,17 +894,35 @@ const Ogre14LegacyMaterialClosure *FindOgre14LegacyPreparedMaterialClosure(
     }
     for (const Ogre14LegacyPreparedMaterial &material : frame.materials()) {
       if (material.material_key == material_key &&
+          material.native_material_audit != nullptr &&
           material.closure != nullptr &&
+          material.closure->material_audit != nullptr &&
+          !SharesControlBlock(material.native_material_audit,
+                              material.closure->material_audit) &&
+          ValidateOgre14LegacyMaterialPipelineAudit(
+              *material.native_material_audit)
+              .ok() &&
+          EquivalentOgre14LegacyMaterialPipelineAudit(
+              *material.native_material_audit,
+              *material.closure->material_audit) &&
           ValidateOgre14LegacyMaterialClosureForFrame(
               *translated_frame, *material.closure, material_key)
               .ok()) {
-        return material.closure.get();
+        return &material;
       }
     }
     return nullptr;
   } catch (...) {
     return nullptr;
   }
+}
+
+const Ogre14LegacyMaterialClosure *FindOgre14LegacyPreparedMaterialClosure(
+    const Ogre14LegacyPreparedMaterialFrame &frame,
+    const Ogre14LegacyAssetKey &material_key) noexcept {
+  const Ogre14LegacyPreparedMaterial *material =
+      FindOgre14LegacyPreparedMaterial(frame, material_key);
+  return material != nullptr ? material->closure.get() : nullptr;
 }
 
 static_assert(std::is_nothrow_destructible<

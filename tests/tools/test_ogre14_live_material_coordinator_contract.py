@@ -47,6 +47,11 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
             "BuildOgre14LegacyStableAssetKey(",
             "DUPLICATE_IDENTIFIER",
             "Ogre14LegacyMaterialSemanticResolutionAuthenticates(",
+            "native_material_audit_receipt.Authenticates(",
+            "DeriveOgre14LegacyMaterialPipelineAudit(",
+            "EquivalentOgre14LegacyMaterialPipelineAudit(",
+            "std::owner_less<NativeAuditOwner>",
+            "SameNativeCapture(",
             "std::map<std::string, const Ogre14LegacyTextureInput *",
             "!SameTexture(*existing->second, texture)",
             "live native texture mip bytes are not canonical and",
@@ -73,6 +78,25 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
         self.assertLess(preflight_index, material_copy_index)
         self.assertLess(preflight_index, texture_copy_index)
         self.assertLess(preflight_index, lease_index)
+        byte_charge_index = self.source.index(
+            "observed_texture_bytes = next_observed_texture_bytes"
+        )
+        canonicalization_index = self.source.index(
+            "std::vector<IndexedObservation> canonical_observations"
+        )
+        self.assertLess(byte_charge_index, canonicalization_index)
+
+        closure_resolution_index = self.source.index(
+            "ResolveOgre14LegacyMaterialClosureBatch("
+        )
+        native_match_index = self.source.index(
+            "EquivalentOgre14LegacyMaterialPipelineAudit(*native_audit"
+        )
+        prepared_native_owner_index = self.source.index(
+            "material.native_material_audit = native_audit"
+        )
+        self.assertLess(closure_resolution_index, native_match_index)
+        self.assertLess(native_match_index, prepared_native_owner_index)
 
     def test_publication_and_lookup_fail_closed(self) -> None:
         copy_index = self.source.index("candidate_pending->prepared = prepared")
@@ -90,6 +114,8 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
             "std::is_nothrow_copy_assignable<Ogre14LegacyPreparedMaterialFrame>",
             "std::is_nothrow_move_assignable<decltype(pending_)>",
             "FindOgre14LegacyPreparedMaterialClosure(",
+            "FindOgre14LegacyPreparedMaterial(",
+            "SharesControlBlock(native_audit, closure.material_audit)",
             "catch (const std::bad_alloc &)",
             "catch (...) ",
         ):
@@ -98,13 +124,23 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
     def test_runtime_gate_covers_lineage_rollback_and_hostile_inputs(self) -> None:
         for token in (
             "shared texture capture was accepted",
-            "duplicate material observation was accepted",
+            "shared material observations did not reuse one canonical native",
+            "same material value under different native audit owners was accepted",
+            "missing native material audit owner was accepted",
+            "same-value reboxed native audit bypassed the opaque capture receipt",
+            "translated closure audit owner was laundered as native capture",
+            "authenticated translated closure owner escaped the post-translation",
+            "native audit with mismatched cull was accepted",
+            "native audit with mismatched pipeline was accepted",
+            "native audit with mismatched texture identity was accepted",
+            "one untextured native audit owner identified two exact materials",
             "material without semantic declaration was accepted",
             "native capture with forged semantics was accepted",
             "material observation with an empty semantic receipt was accepted",
             "material observation from a different registry build was accepted",
             "padded native texture payload was copied or accepted",
             "repeated observed texture bytes escaped the aggregate source cap",
+            "shared native audit owner waived duplicated texture-byte admission",
             "material observation count cap+1 was accepted",
             "unique native texture count cap+1 was accepted",
             "derived live-asset cap+1 was accepted",
@@ -123,6 +159,8 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
             "!lhs.owner_before(rhs)",
             "!rhs.owner_before(lhs)",
             "prepared material lookup did not retain exact closures",
+            "Ogre14LegacyNativeMaterialAuditTestAccess",
+            "AuthenticateExistingOwnerForHostileTesting",
         ):
             self.assertIn(token, self.cpp_test)
 

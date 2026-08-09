@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -57,11 +58,15 @@ void RequireRejectedWithoutMutation(
     const char *field, const char *message) {
   RoR::Render::Ogre14LegacyNativeMaterialCapture capture;
   capture.material.key.exact_name = "sentinel";
+  const auto sentinel_audit =
+      std::make_shared<const RoR::Render::Ogre14LegacyMaterialPipelineAudit>();
+  capture.exact_native_material_audit = sentinel_audit;
   const RoR::Render::ValidationResult result =
-      RoR::Render::CaptureOgre14LegacyNativeMaterial(
-          fixture.material, declaration, capture);
+      RoR::Render::CaptureOgre14LegacyNativeMaterial(fixture.material,
+                                                     declaration, capture);
   Require(!result && result.field == field &&
-              capture.material.key.exact_name == "sentinel",
+              capture.material.key.exact_name == "sentinel" &&
+              capture.exact_native_material_audit.get() == sentinel_audit.get(),
           message);
 }
 
@@ -73,11 +78,35 @@ void TestNativeStateValidationIsSemanticAndTransactional() {
   canonical.LoadForCapture();
   Ogre14LegacyNativeMaterialCapture capture;
   Require(CaptureOgre14LegacyNativeMaterial(canonical.material, declaration,
-                                             capture)
-              .ok() &&
+                                            capture)
+                  .ok() &&
               capture.material.key.exact_name == "Canonical" &&
-              capture.material.source_revision != 0U,
+              capture.material.source_revision != 0U &&
+              capture.exact_native_material_audit != nullptr &&
+              capture.native_material_audit_receipt.Authenticates(
+                  capture.exact_native_material_audit),
           "canonical loaded native material was not captured exactly");
+  Ogre14LegacyMaterialPipelineAudit derived_audit;
+  Require(
+      DeriveOgre14LegacyMaterialPipelineAudit(capture.material, derived_audit)
+              .ok() &&
+          EquivalentOgre14LegacyMaterialPipelineAudit(
+              derived_audit, *capture.exact_native_material_audit),
+      "native extractor did not mint the exact independently derived audit");
+  Ogre14LegacyNativeMaterialCapture repeated_capture;
+  Require(CaptureOgre14LegacyNativeMaterial(canonical.material, declaration,
+                                            repeated_capture)
+                  .ok() &&
+              repeated_capture.native_material_audit_receipt.Authenticates(
+                  repeated_capture.exact_native_material_audit) &&
+              EquivalentOgre14LegacyMaterialPipelineAudit(
+                  *capture.exact_native_material_audit,
+                  *repeated_capture.exact_native_material_audit) &&
+              (capture.exact_native_material_audit.owner_before(
+                   repeated_capture.exact_native_material_audit) ||
+               repeated_capture.exact_native_material_audit.owner_before(
+                   capture.exact_native_material_audit)),
+          "separate native captures reused one audit control block");
 
   CanonicalMaterial fog("Fog");
   fog.pass->setFog(true, Ogre::FOG_LINEAR);
@@ -104,21 +133,18 @@ void TestNativeStateValidationIsSemanticAndTransactional() {
   vertex_color.pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
   vertex_color.LoadForCapture();
   RequireRejectedWithoutMutation(
-      vertex_color, declaration,
-      "material.pipeline.vertex_colour_tracking",
+      vertex_color, declaration, "material.pipeline.vertex_colour_tracking",
       "native vertex-colour tracking was silently dropped");
 
   CanonicalMaterial shadows("Shadows");
   shadows.material.setReceiveShadows(false);
   shadows.LoadForCapture();
-  RequireRejectedWithoutMutation(shadows, declaration,
-                                 "material.shadow_policy",
+  RequireRejectedWithoutMutation(shadows, declaration, "material.shadow_policy",
                                  "native material shadow policy was dropped");
 
   CanonicalMaterial hardware_rules("HardwareRules");
-  hardware_rules.technique->addGPUVendorRule(
-      Ogre::Technique::GPUVendorRule(Ogre::GPU_NVIDIA,
-                                     Ogre::Technique::INCLUDE));
+  hardware_rules.technique->addGPUVendorRule(Ogre::Technique::GPUVendorRule(
+      Ogre::GPU_NVIDIA, Ogre::Technique::INCLUDE));
   hardware_rules.LoadForCapture();
   RequireRejectedWithoutMutation(
       hardware_rules, declaration, "material.technique_hardware_rules",
@@ -130,8 +156,7 @@ void TestNativeStateValidationIsSemanticAndTransactional() {
   texcoord_unit->setTextureCoordSet(2U);
   texcoord.LoadForCapture(false);
   RequireRejectedWithoutMutation(
-      texcoord, declaration,
-      "material.texture_unit.texture_coordinate_set",
+      texcoord, declaration, "material.texture_unit.texture_coordinate_set",
       "native texture-coordinate range was narrowed before validation");
 
   CanonicalMaterial unordered_access("UnorderedAccess");
@@ -140,21 +165,18 @@ void TestNativeStateValidationIsSemanticAndTransactional() {
   unordered_access_unit->setUnorderedAccessMipLevel(0);
   unordered_access.LoadForCapture(false);
   RequireRejectedWithoutMutation(
-      unordered_access, declaration,
-      "material.texture_unit.unordered_access",
+      unordered_access, declaration, "material.texture_unit.unordered_access",
       "native unordered-access texture state was silently dropped");
 
   if constexpr ((std::numeric_limits<std::size_t>::max)() >
                 (std::numeric_limits<std::uint32_t>::max)()) {
     CanonicalMaterial iteration_range("IterationRange");
     iteration_range.pass->setPassIterationCount(
-        static_cast<std::size_t>(
-            (std::numeric_limits<std::uint32_t>::max)()) +
+        static_cast<std::size_t>((std::numeric_limits<std::uint32_t>::max)()) +
         1U);
     iteration_range.LoadForCapture();
     RequireRejectedWithoutMutation(
-        iteration_range, declaration,
-        "material.pipeline.pass_iteration_count",
+        iteration_range, declaration, "material.pipeline.pass_iteration_count",
         "native pass iteration count saturated instead of failing closed");
   }
 

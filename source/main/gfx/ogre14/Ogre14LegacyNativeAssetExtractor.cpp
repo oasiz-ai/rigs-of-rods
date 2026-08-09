@@ -256,9 +256,10 @@ ValidationResult ValidateNativePixelFormat(Ogre::PixelFormat format) {
   return ValidationResult::Success();
 }
 
-ValidationResult ValidateNativeTechniqueAndPassState(
-    const Ogre::Material &material, const Ogre::Technique &technique,
-    const Ogre::Pass &pass) {
+ValidationResult
+ValidateNativeTechniqueAndPassState(const Ogre::Material &material,
+                                    const Ogre::Technique &technique,
+                                    const Ogre::Pass &pass) {
   if (technique.getSchemeName() != Ogre::MaterialManager::DEFAULT_SCHEME_NAME ||
       technique.getLodIndex() != 0U) {
     return ValidationResult::Failure(
@@ -301,8 +302,7 @@ ValidationResult ValidateNativeTechniqueAndPassState(
         "canonical v1 state");
   }
   if (pass.getFogOverride() || !pass.getPolygonModeOverrideable() ||
-      pass.getLightScissoringEnabled() ||
-      pass.getLightClipPlanesEnabled() ||
+      pass.getLightScissoringEnabled() || pass.getLightClipPlanesEnabled() ||
       pass.getIlluminationStage() != Ogre::IS_UNKNOWN) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE,
@@ -512,7 +512,8 @@ CaptureTextureUnit(const Ogre::TextureUnitState &native,
   const unsigned int frame_count = native.getNumFrames();
   if (frame_count != 1U) {
     return ValidationResult::Failure(
-        ValidationCode::UNSUPPORTED_FEATURE, "material.texture_unit.frame_count",
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "material.texture_unit.frame_count",
         "v1 requires exactly one native texture frame");
   }
   candidate.frame_count = static_cast<std::uint32_t>(frame_count);
@@ -718,6 +719,18 @@ ValidationResult CaptureOgre14LegacyNativeMaterial(
     if (!validation) {
       return validation;
     }
+    Ogre14LegacyMaterialPipelineAudit native_audit_value;
+    validation = DeriveOgre14LegacyMaterialPipelineAudit(candidate.material,
+                                                         native_audit_value);
+    if (!validation) {
+      return validation;
+    }
+    auto native_audit =
+        std::make_shared<const Ogre14LegacyMaterialPipelineAudit>(
+            std::move(native_audit_value));
+    candidate.exact_native_material_audit = native_audit;
+    candidate.native_material_audit_receipt =
+        Ogre14LegacyNativeMaterialAuditReceipt(std::move(native_audit));
     capture = std::move(candidate);
     return ValidationResult::Success();
   } catch (const Ogre::Exception &) {

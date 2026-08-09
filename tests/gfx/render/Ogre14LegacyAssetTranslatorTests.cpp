@@ -362,6 +362,12 @@ void TestExactSamplerMaterialAndPipelineTranslation() {
   sampler.maximum_anisotropy = 8U;
   sampler.border_color = {0.1F, 0.2F, 0.3F, 0.4F};
 
+  Ogre14LegacyMaterialPipelineAudit independently_derived_audit;
+  Require(DeriveOgre14LegacyMaterialPipelineAudit(source,
+                                                  independently_derived_audit)
+              .ok(),
+          "pure material audit derivation rejected the canonical source");
+
   Ogre14LegacyAssetTranslator translator;
   Ogre14LegacyTranslatedFrame output;
   const ValidationResult result = translator.Translate(frame, output);
@@ -408,8 +414,21 @@ void TestExactSamplerMaterialAndPipelineTranslation() {
               material_asset.material_audit->texture_source_asset_id ==
                   texture_asset.source_asset_id &&
               material_asset.material_audit->sampler_source_asset_id ==
-                  sampler_asset.source_asset_id,
+                  sampler_asset.source_asset_id &&
+              EquivalentOgre14LegacyMaterialPipelineAudit(
+                  independently_derived_audit, *material_asset.material_audit),
           "explicit base-color material or exact pipeline audit changed");
+
+  Ogre14LegacyMaterialPipelineAudit sentinel_audit;
+  sentinel_audit.texture_source_asset_id = 0xA11D17U;
+  const Ogre14LegacyMaterialPipelineAudit expected_sentinel = sentinel_audit;
+  Ogre14LegacyMaterialInput invalid_material = source;
+  invalid_material.pass_count = 2U;
+  Require(!DeriveOgre14LegacyMaterialPipelineAudit(invalid_material,
+                                                   sentinel_audit) &&
+              EquivalentOgre14LegacyMaterialPipelineAudit(sentinel_audit,
+                                                          expected_sentinel),
+          "failed pure audit derivation mutated caller output");
 }
 
 void TestUnsupportedMaterialFeaturesRejectWithoutGuessing() {
