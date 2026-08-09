@@ -1258,6 +1258,7 @@ if (ROR_OGRE14 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         ror_ogre14_legacy_native_asset_extractor_compile_tests
         "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
     )
     target_include_directories(
         ror_ogre14_legacy_native_asset_extractor_compile_tests

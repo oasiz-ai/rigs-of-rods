@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
 #include "gfx/render/Ogre14LegacyAssetTranslator.h"
 
 #include <cstdint>
@@ -24,7 +25,7 @@ class Material;
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kOgre14LegacyNativeAssetExtractorVersion = 1U;
+constexpr std::uint32_t kOgre14LegacyNativeAssetExtractorVersion = 2U;
 constexpr std::uint32_t kOgre14LegacyNativeMaterialAuditReceiptVersion = 1U;
 
 /// PBR intent and texture color role must come from explicit content metadata
@@ -85,6 +86,10 @@ private:
   friend ValidationResult CaptureOgre14LegacyNativeMaterial(
       const Ogre::Material &, const Ogre14LegacyNativeMaterialDeclaration &,
       Ogre14LegacyNativeMaterialCapture &);
+  friend ValidationResult CaptureOgre14LegacyNativeMaterial(
+      const Ogre::Material &, const Ogre14LegacyNativeMaterialDeclaration &,
+      const IOgre14AuthenticatedTextureResolver &,
+      Ogre14LegacyNativeMaterialCapture &);
   friend class Testing::Ogre14LegacyNativeMaterialAuditTestAccess;
 };
 
@@ -101,6 +106,14 @@ struct Ogre14LegacyNativeMaterialCapture {
   /// Opaque receipt bound to the exact owner above. Reboxing or replacing the
   /// audit, including substituting a translated closure owner, invalidates it.
   Ogre14LegacyNativeMaterialAuditReceipt native_material_audit_receipt;
+  /// Populated only by the authenticated overload below. When a texture is
+  /// present this vector is exactly aligned 1:1 with `textures` and retains
+  /// the registry snapshot plus the exact source-receipt control block. The
+  /// compatibility overload deliberately leaves it empty, even for textured
+  /// captures, so downstream code cannot confuse GPU readback with source
+  /// authentication.
+  std::vector<Ogre14AuthenticatedTextureResolution>
+      authenticated_texture_resolutions;
 };
 
 /// Reads one already-loaded immutable Material and its optional already-loaded
@@ -110,6 +123,17 @@ struct Ogre14LegacyNativeMaterialCapture {
 [[nodiscard]] ValidationResult CaptureOgre14LegacyNativeMaterial(
     const Ogre::Material &material,
     const Ogre14LegacyNativeMaterialDeclaration &declaration,
+    Ogre14LegacyNativeMaterialCapture &capture);
+
+/// Authenticated capture variant. After native readback it resolves the exact
+/// TextureUnitState::_getTexturePtr(), reacquires that same pointer, and asks
+/// the same registry-bound resolver for a final no-throw revalidation
+/// immediately before publishing `capture`. Textured success always carries
+/// one aligned resolution per texture; untextured success carries none.
+[[nodiscard]] ValidationResult CaptureOgre14LegacyNativeMaterial(
+    const Ogre::Material &material,
+    const Ogre14LegacyNativeMaterialDeclaration &declaration,
+    const IOgre14AuthenticatedTextureResolver &texture_resolver,
     Ogre14LegacyNativeMaterialCapture &capture);
 
 } // namespace RoR::Render

@@ -1321,8 +1321,13 @@ generated-fallback rule. Authenticated texture loads hand OGRE a replacement
 memory stream over those identical captured bytes and never reopen by name or
 `AUTODETECT`; bounded lifecycle/reset/reload semantics are specified in
 [OGRE 14 authenticated source-texture receipts](OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md).
-This closes source identity and capture, not live Ogre-Next material consumption
-or the V1 image-quality gate.
+The registry now also privately mints a non-forgeable resolution for the exact
+already-loaded Texture at checked pre-load state plus one. ContentManager
+validates TextureManager ownership and indices, and the native extractor
+retains that exact receipt/registry owner and revalidates the reacquired TUS
+TexturePtr immediately before publication. This closes source identity through
+authenticated native capture, not live Ogre-Next scene-material consumption or
+the V1 image-quality gate.
 
 The opt-in Ogre-Next `MODERN_PBR_RT4_V1` checkpoint now implements a measured
 subset of that path: authored tangent/UV0 geometry, sRGB base-color/emissive

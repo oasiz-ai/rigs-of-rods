@@ -342,6 +342,14 @@ struct Ogre14AuthenticatedTextureReceiptRegistry::State final {
   std::uint64_t maximum_group_generation_seen = 0U;
 };
 
+struct Ogre14AuthenticatedTextureResolution::State final {
+  std::uint32_t version = kOgre14AuthenticatedTextureResolutionVersion;
+  Ogre14AuthenticatedTextureReceiptRegistry registry_snapshot;
+  Ogre14AuthenticatedTextureReceipt exact_source_receipt;
+  std::uintptr_t resolver_pointer_token = 0U;
+  std::uint64_t loaded_resource_state_count = 0U;
+};
+
 Ogre14AuthenticatedTextureReceipt::Ogre14AuthenticatedTextureReceipt(
     std::shared_ptr<const State> state) noexcept
     : state_(std::move(state)) {}
@@ -415,6 +423,62 @@ bool Ogre14AuthenticatedTextureReceiptRegistry::SharesImmutableStateWith(
   return state_ != nullptr && state_ == other.state_;
 }
 
+Ogre14AuthenticatedTextureResolution::Ogre14AuthenticatedTextureResolution(
+    std::shared_ptr<const State> state) noexcept
+    : state_(std::move(state)) {}
+
+bool Ogre14AuthenticatedTextureResolution::initialized() const noexcept {
+  return state_ != nullptr &&
+         state_->version == kOgre14AuthenticatedTextureResolutionVersion &&
+         state_->registry_snapshot.initialized() &&
+         state_->exact_source_receipt.initialized() &&
+         state_->resolver_pointer_token != 0U &&
+         state_->loaded_resource_state_count != 0U;
+}
+
+std::uint32_t Ogre14AuthenticatedTextureResolution::version() const noexcept {
+  return state_ != nullptr ? state_->version : 0U;
+}
+
+const Ogre14AuthenticatedTextureReceipt *
+Ogre14AuthenticatedTextureResolution::source_receipt() const noexcept {
+  return initialized() ? &state_->exact_source_receipt : nullptr;
+}
+
+std::uint64_t
+Ogre14AuthenticatedTextureResolution::loaded_resource_state_count() const
+    noexcept {
+  return initialized() ? state_->loaded_resource_state_count : 0U;
+}
+
+bool Ogre14AuthenticatedTextureResolution::MatchesResolver(
+    const IOgre14AuthenticatedTextureResolver &resolver) const noexcept {
+  return initialized() &&
+         state_->resolver_pointer_token ==
+             reinterpret_cast<std::uintptr_t>(&resolver);
+}
+
+bool Ogre14AuthenticatedTextureResolution::MatchesLoadedResourceIdentity(
+    std::uintptr_t resource_pointer_token, std::uint64_t resource_handle,
+    const std::string &exact_resource_group,
+    const std::string &exact_resource_name,
+    std::uint64_t loaded_resource_state_count) const noexcept {
+  if (!initialized() || resource_pointer_token == 0U ||
+      loaded_resource_state_count == 0U ||
+      loaded_resource_state_count != state_->loaded_resource_state_count) {
+    return false;
+  }
+  const auto *metadata = state_->exact_source_receipt.metadata();
+  return metadata != nullptr &&
+         metadata->source.binding.kind ==
+             Ogre14AuthenticatedTextureBindingKind::RESOURCE &&
+         metadata->source.binding.resource_pointer_token ==
+             resource_pointer_token &&
+         metadata->source.binding.resource_handle == resource_handle &&
+         metadata->source.effective_resource_group == exact_resource_group &&
+         metadata->source.binding.exact_resource_name == exact_resource_name;
+}
+
 ValidationResult Ogre14AuthenticatedTextureReceiptRegistry::FindResource(
     const std::string &effective_resource_group,
     std::uint64_t group_generation, std::uintptr_t resource_pointer_token,
@@ -458,6 +522,112 @@ ValidationResult Ogre14AuthenticatedTextureReceiptRegistry::FindResource(
   }
   receipt = found->second;
   return ValidationResult::Success();
+}
+
+ValidationResult
+Ogre14AuthenticatedTextureReceiptRegistry::MintLoadedResourceResolution(
+    const std::string &effective_resource_group,
+    std::uint64_t group_generation, std::uintptr_t resource_pointer_token,
+    std::uint64_t resource_handle, const std::string &exact_resource_name,
+    std::uint64_t loaded_resource_state_count,
+    std::uintptr_t resolver_pointer_token,
+    Ogre14AuthenticatedTextureResolution &resolution,
+    IOgre14AuthenticatedTextureFaultInjector *fault_injector) const {
+  if (resolver_pointer_token == 0U || loaded_resource_state_count == 0U) {
+    return Failure(ValidationCode::INVALID_HANDLE,
+                   "texture_resolution.authority",
+                   "resolver or loaded resource identity is empty");
+  }
+  Ogre14AuthenticatedTextureReceipt exact_receipt;
+  ValidationResult lookup =
+      FindResource(effective_resource_group, group_generation,
+                   resource_pointer_token, resource_handle,
+                   exact_resource_name, exact_receipt);
+  if (!lookup) {
+    return lookup;
+  }
+  const auto *metadata = exact_receipt.metadata();
+  if (metadata == nullptr ||
+      metadata->source.binding.kind !=
+          Ogre14AuthenticatedTextureBindingKind::RESOURCE ||
+      metadata->source.binding.resource_state_count ==
+          (std::numeric_limits<std::uint64_t>::max)() ||
+      loaded_resource_state_count !=
+          metadata->source.binding.resource_state_count + 1U) {
+    return Failure(ValidationCode::REVISION_MISMATCH,
+                   "texture_resolution.resource_state_count",
+                   "loaded texture is not exactly one successful load after its authenticated source capture");
+  }
+
+  try {
+    auto candidate =
+        std::make_shared<Ogre14AuthenticatedTextureResolution::State>();
+    candidate->registry_snapshot = *this;
+    candidate->exact_source_receipt = exact_receipt;
+    candidate->resolver_pointer_token = resolver_pointer_token;
+    candidate->loaded_resource_state_count = loaded_resource_state_count;
+    if (fault_injector != nullptr) {
+      fault_injector->BeforeAuthenticatedTextureStage(
+          Ogre14AuthenticatedTextureTransactionStage::
+              BEFORE_RESOLUTION_COMMIT);
+    }
+    resolution =
+        Ogre14AuthenticatedTextureResolution(std::move(candidate));
+    return ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return Failure(ValidationCode::EMPTY_PAYLOAD,
+                   "texture_resolution.allocation",
+                   "allocation failed before authenticated texture resolution publication");
+  } catch (const std::length_error &) {
+    return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                   "texture_resolution.allocation",
+                   "authenticated texture resolution allocation exceeded implementation limits");
+  } catch (...) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "texture_resolution.exception",
+                   "unexpected exception before authenticated texture resolution publication");
+  }
+}
+
+bool Ogre14AuthenticatedTextureReceiptRegistry::
+    RevalidateLoadedResourceResolution(
+        const Ogre14AuthenticatedTextureResolution &resolution,
+        std::uintptr_t resolver_pointer_token,
+        std::uintptr_t resource_pointer_token,
+        std::uint64_t resource_handle,
+        const std::string &exact_resource_group,
+        const std::string &exact_resource_name,
+        std::uint64_t loaded_resource_state_count) const noexcept {
+  if (state_ == nullptr || !resolution.initialized() ||
+      resolution.state_->resolver_pointer_token != resolver_pointer_token ||
+      resolution.state_->registry_snapshot.state_ != state_ ||
+      !resolution.MatchesLoadedResourceIdentity(
+          resource_pointer_token, resource_handle, exact_resource_group,
+          exact_resource_name, loaded_resource_state_count)) {
+    return false;
+  }
+
+  const auto *metadata =
+      resolution.state_->exact_source_receipt.metadata();
+  if (metadata == nullptr ||
+      metadata->source.binding.resource_state_count ==
+          (std::numeric_limits<std::uint64_t>::max)() ||
+      loaded_resource_state_count !=
+          metadata->source.binding.resource_state_count + 1U) {
+    return false;
+  }
+  const auto group = state_->groups.find(exact_resource_group);
+  if (group == state_->groups.end() || !group->second.active ||
+      group->second.generation != metadata->source.group_generation) {
+    return false;
+  }
+  BindingKey key;
+  key.kind = Ogre14AuthenticatedTextureBindingKind::RESOURCE;
+  key.resource_pointer_token = resource_pointer_token;
+  const auto found = state_->receipts.find(key);
+  return found != state_->receipts.end() &&
+         found->second.SharesImmutableStateWith(
+             resolution.state_->exact_source_receipt);
 }
 
 bool IsLowercaseOgre14Sha256(const std::string &value) noexcept {

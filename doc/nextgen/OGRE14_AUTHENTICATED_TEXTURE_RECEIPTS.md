@@ -1,7 +1,8 @@
 # OGRE 14 authenticated source-texture receipts
 
-Status: implemented capture/lifecycle boundary; consumption by the Ogre-Next
-material coordinator remains a separate live-wiring step.
+Status: implemented capture/lifecycle and authenticated OGRE-native extraction
+boundary; consumption by the live Ogre-Next material coordinator remains a
+separate scene-wiring step.
 
 ## Contract
 
@@ -62,6 +63,56 @@ lock. OGRE increments `Resource::getStateCount()` only after its later
 decode/upload succeeds, so an exact same-state, same-bytes, same-provenance
 retry is idempotent. Any other same-state duplicate remains a closed failure.
 
+## Already-loaded texture resolution
+
+A plain `Ogre14AuthenticatedTextureReceipt` is source evidence, not live
+registry authority: public `BuildOgre14AuthenticatedTextureReceipt()` can
+construct an identical value outside `ContentManager`. The native extractor
+therefore accepts only an opaque
+`Ogre14AuthenticatedTextureResolution` minted through the registry's private
+`ContentManager` bridge. A resolution retains the exact source-receipt control
+block and exact immutable registry snapshot and binds the active group
+generation, `ContentManager` resolver instance, Texture pointer, handle, name,
+group, and loaded state count. Copying the resolution preserves those control
+blocks. Reboxing bytes/metadata, using an equivalent synthetic registry, or
+substituting another resolver does not.
+
+Pinned OGRE 14.5.2 establishes the only accepted state transition:
+`Resource::load()` records the source while the resource is `LOADING`, then a
+successful decode/upload stores `LOADED` and calls `_dirtyState()` exactly
+once. `unload()` does not increment the counter, a failed load resets to
+`UNLOADED` without incrementing it, and `reload()` is one unload plus one load.
+Consequently, a receipt captured at pre-load state `n` resolves only when the
+already-loaded Texture is at checked state `n + 1`. Overflow, `n`, any state
+above `n + 1`, manual dirtying, reload without a replacement receipt, or a
+non-loaded resource fails closed.
+
+`ContentManager::ResolveAuthenticatedTexture()` additionally requires the
+active `TextureManager`, resource type `Texture`, exact creator, and exact
+handle and name/group manager indices to resolve back to the same pointer. It
+re-observes all live identity after the allocating mint before publishing the
+resolution. The no-throw final revalidation repeats those ownership checks and
+requires the exact current registry snapshot. Strict v1 snapshot binding means
+even an unrelated registry publication invalidates an older proof; a fresh
+resolve succeeds if the texture's own receipt is still current.
+Neither operation performs an archive lookup or reopen: both inspect only the
+already-loaded TextureManager indices and committed immutable registry state.
+
+The authenticated native extractor performs GPU readback first, resolves the
+exact `TextureUnitState::_getTexturePtr()` it read, retains one resolution per
+captured texture, reacquires that exact TUS pointer, and calls the same resolver
+for final revalidation immediately before output publication. The legacy
+capture overload remains available but deliberately leaves the resolution
+vector empty, so GPU pixels cannot be mistaken for authenticated source bytes.
+Untextured captures remain valid with an empty vector.
+
+OGRE's `mStateCount` is a plain `size_t`, not an atomic. Its pinned source even
+allows lost concurrent dirty increments, and OGRE exposes no public Resource
+lock spanning texture readback. Resolve, native readback, and final
+revalidation must therefore run on the serialized OGRE resource/render thread.
+The ContentManager mutex makes registry snapshot access thread-safe; it does
+not claim to make concurrent OGRE reload/readback valid.
+
 ## Lifecycle and limits
 
 The registry is an immutable snapshot with hard ceilings of 65,536 live
@@ -111,12 +162,19 @@ After exact removal or a newer group generation, the pointer may be reused.
 `Ogre14AuthenticatedTextureReceiptTests` covers SHA-256, immutable replacement
 bytes, legacy and DX10 DDS facts, generated-rule provenance, caps, exact-member
 and case collisions, stale generations, downstream-failure retry, reload,
-pointer reuse, resource removal, group reset/teardown, pre-resource tokens, and
-allocation/unexpected exception rollback. Mount tests cover all three external
+pointer reuse, resource removal, group reset/teardown, pre-resource tokens,
+non-forgeable loaded resolutions, exact `n + 1` state, resolver and registry
+substitution, unrelated-snapshot invalidation/fresh resolve, exact owner
+preservation, and allocation/unexpected exception rollback. The pinned native
+extractor test adds real `Resource::load()`/`reload()` state transitions,
+readable RGBA texture capture, final resolver revalidation, untextured and
+legacy behavior, teardown invalidation, and transactional output invariance.
+Mount tests cover all three external
 side-effect boundaries, prior-map/generation/accounting preservation, and
 manager/factory/immutable-owner teardown. Terrain verifier tests cover
 same-bytes hashing, immutable ownership, cap failure, and failed replacement
 rollback. The contract test proves the ContentManager wiring, patched recipe,
 three target locks, CI target, and N2 source provenance stay in closure.
-This gate is source capture, not live Ogre-Next material consumption or a visual
-fidelity claim.
+This gate reaches authenticated OGRE-native material capture. It is
+not live Ogre-Next material consumption, scene wiring, or a visual-fidelity
+claim.

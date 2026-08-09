@@ -66,12 +66,14 @@
 #include <OgreRenderSystem.h>
 #include <OgreRenderSystemCapabilities.h>
 #include <OgreRoot.h>
+#include <OgreTexture.h>
 #include <OgreTextureManager.h>
 #include <OgreZip.h>
 #include <array>
 #include <cstdint>
 #include <exception>
 #include <limits>
+#include <new>
 #include <openssl/evp.h>
 #include <type_traits>
 #include <vector>
@@ -238,6 +240,190 @@ ContentManager::~ContentManager()
         Ogre::ResourceGroupManager::getSingleton().removeResourceGroupListener(this);
     }
 }
+
+#if OGRE_VERSION_MAJOR >= 14
+Render::ValidationResult ContentManager::ResolveAuthenticatedTexture(
+    Ogre::Texture& texture,
+    Render::Ogre14AuthenticatedTextureResolution& resolution) const
+{
+    // Pinned OGRE 14.5.2 increments Resource::mStateCount exactly once after
+    // a successful load, but the counter itself is not atomic. This resolver
+    // therefore authenticates a serialized render/resource-thread observation;
+    // the mutex protects only RoR's immutable registry publication.
+    try
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        Ogre::TextureManager* manager =
+            Ogre::TextureManager::getSingletonPtr();
+        if (manager == nullptr || texture.getCreator() != manager ||
+            manager->getResourceType() != "Texture")
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::INVALID_ASSET_REFERENCE,
+                "texture_resolution.texture_manager",
+                "loaded resource is not owned by the active TextureManager");
+        }
+        if (!texture.isLoaded())
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::MISSING_REFERENCE,
+                "texture_resolution.loaded",
+                "authenticated texture must be completely loaded");
+        }
+
+        const Ogre::ResourcePtr by_handle =
+            manager->getByHandle(texture.getHandle());
+        const Ogre::ResourcePtr by_name = manager->getResourceByName(
+            texture.getName(), texture.getGroup());
+        if (!by_handle || !by_name || by_handle.get() != &texture ||
+            by_name.get() != &texture)
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::INVALID_HANDLE,
+                "texture_resolution.texture_manager",
+                "TextureManager indices do not resolve to the exact texture pointer");
+        }
+
+        const auto generation =
+            m_legacy_material_group_generations.find(texture.getGroup());
+        if (generation == m_legacy_material_group_generations.end())
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::MISSING_REFERENCE,
+                "texture_resolution.group_generation",
+                "texture group has no active authenticated generation");
+        }
+        const std::size_t native_state_count = texture.getStateCount();
+        const std::uint64_t loaded_state_count =
+            static_cast<std::uint64_t>(native_state_count);
+        if (static_cast<std::size_t>(loaded_state_count) !=
+            native_state_count)
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::REVISION_MISMATCH,
+                "texture_resolution.resource_state_count",
+                "texture state count exceeds the authenticated integer range");
+        }
+
+        const std::uintptr_t resolver_pointer_token =
+            reinterpret_cast<std::uintptr_t>(
+                static_cast<const Render::IOgre14AuthenticatedTextureResolver*>(
+                    this));
+        Render::Ogre14AuthenticatedTextureResolution candidate;
+        const Render::ValidationResult mint =
+            m_authenticated_texture_receipts.MintLoadedResourceResolution(
+                texture.getGroup(), generation->second,
+                reinterpret_cast<std::uintptr_t>(&texture),
+                static_cast<std::uint64_t>(texture.getHandle()),
+                texture.getName(), loaded_state_count,
+                resolver_pointer_token, candidate);
+        if (!mint)
+        {
+            return mint;
+        }
+
+        // Re-observe every live identity after the allocating mint. Publication
+        // is allowed only if the exact manager indices and registry snapshot
+        // are still current.
+        const Ogre::ResourcePtr current_by_handle =
+            manager->getByHandle(texture.getHandle());
+        const Ogre::ResourcePtr current_by_name = manager->getResourceByName(
+            texture.getName(), texture.getGroup());
+        if (!texture.isLoaded() || current_by_handle.get() != &texture ||
+            current_by_name.get() != &texture ||
+            texture.getStateCount() != native_state_count ||
+            !m_authenticated_texture_receipts.
+                RevalidateLoadedResourceResolution(
+                    candidate, resolver_pointer_token,
+                    reinterpret_cast<std::uintptr_t>(&texture),
+                    static_cast<std::uint64_t>(texture.getHandle()),
+                    texture.getGroup(), texture.getName(),
+                    loaded_state_count))
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::REVISION_MISMATCH,
+                "texture_resolution.revalidation",
+                "texture or registry changed while minting its authenticated resolution");
+        }
+
+        resolution = std::move(candidate);
+        return Render::ValidationResult::Success();
+    }
+    catch (const Ogre::Exception&)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::MISSING_REFERENCE,
+            "texture_resolution.ogre_exception",
+            "OGRE rejected the exact TextureManager identity lookup");
+    }
+    catch (const std::bad_alloc&)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::EMPTY_PAYLOAD,
+            "texture_resolution.allocation",
+            "allocation failed before texture resolution publication");
+    }
+    catch (...)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "texture_resolution.exception",
+            "unexpected exception before texture resolution publication");
+    }
+}
+
+bool ContentManager::RevalidateAuthenticatedTexture(
+    Ogre::Texture& texture,
+    const Render::Ogre14AuthenticatedTextureResolution& resolution) const
+    noexcept
+{
+    try
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        Ogre::TextureManager* manager =
+            Ogre::TextureManager::getSingletonPtr();
+        if (manager == nullptr || texture.getCreator() != manager ||
+            manager->getResourceType() != "Texture" ||
+            !texture.isLoaded())
+        {
+            return false;
+        }
+        const Ogre::ResourcePtr by_handle =
+            manager->getByHandle(texture.getHandle());
+        const Ogre::ResourcePtr by_name = manager->getResourceByName(
+            texture.getName(), texture.getGroup());
+        if (!by_handle || !by_name || by_handle.get() != &texture ||
+            by_name.get() != &texture)
+        {
+            return false;
+        }
+        const std::size_t native_state_count = texture.getStateCount();
+        const std::uint64_t loaded_state_count =
+            static_cast<std::uint64_t>(native_state_count);
+        if (static_cast<std::size_t>(loaded_state_count) !=
+            native_state_count)
+        {
+            return false;
+        }
+        const std::uintptr_t resolver_pointer_token =
+            reinterpret_cast<std::uintptr_t>(
+                static_cast<const Render::IOgre14AuthenticatedTextureResolver*>(
+                    this));
+        return m_authenticated_texture_receipts.
+            RevalidateLoadedResourceResolution(
+                resolution, resolver_pointer_token,
+                reinterpret_cast<std::uintptr_t>(&texture),
+                static_cast<std::uint64_t>(texture.getHandle()),
+                texture.getGroup(), texture.getName(), loaded_state_count);
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+#endif
 
 void ContentManager::EnsureResourceGroupListener()
 {
