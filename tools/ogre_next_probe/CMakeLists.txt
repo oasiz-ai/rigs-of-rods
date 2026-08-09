@@ -218,6 +218,12 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
     "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
+    "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
+    "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h"
+    "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"
+    "tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp"
+    "tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp"
+    "doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md"
     "tests/resources/TerrainBundleArchiveVerifierTests.cpp"
     "tests/tools/assert_ogre_recipe_graph.py"
     "tests/tools/test_ogre14_exact_material_script_preopen_recipe_contract.py"
@@ -273,6 +279,7 @@ list(APPEND _ror_relevant_source_files
     "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py"
     "tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py"
     "tests/tools/test_ogre14_terrain_composite_recipe_contract.py"
+    "tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
@@ -1344,6 +1351,23 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
+        ror_ogre14_terrain_composite_capture_receipt_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp")
+    target_include_directories(
+        ror_ogre14_terrain_composite_capture_receipt_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_compile_definitions(
+        ror_ogre14_terrain_composite_capture_receipt_tests
+        PRIVATE ROR_OGRE14_TERRAIN_COMPOSITE_CAPTURE_INTERNAL_TESTING=1)
+    target_link_libraries(
+        ror_ogre14_terrain_composite_capture_receipt_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_terrain_composite_capture_receipt_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
         ror_render_bridge_control_transport_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/render/RenderBridgeControlTransportTests.cpp")
     target_link_libraries(
@@ -1991,6 +2015,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre14_live_material_coordinator_tests
         ror_ogre14_graphics_scene_prepared_material_binding_tests
         ror_ogre14_authenticated_texture_receipt_tests
+        ror_ogre14_terrain_composite_capture_receipt_tests
         ror_render_bridge_control_transport_tests
         ror_renderer_ogre_next_window_host_tests
         ror_renderer_ogre_next_sdl_window_runtime
@@ -2384,6 +2409,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h
             source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp
             source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h
+            source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp
+            source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h
+            source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
             tests/gfx/GfxActorCaptureInventoryTests.cpp
             tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
             tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
@@ -2392,6 +2420,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
             tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
             tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+            tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp
+            tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp
+            doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
             tests/resources/TerrainBundleArchiveVerifierTests.cpp
             tests/tools/assert_ogre_recipe_graph.py
             tests/tools/test_ogre14_exact_material_script_preopen_recipe_contract.py
@@ -2445,6 +2476,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/tools/test_ogre14_authenticated_texture_receipt_contract.py
             tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
             tests/tools/test_ogre14_terrain_composite_recipe_contract.py
+            tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
             tests/tools/test_ogre_next_product_packaging_contract.py
             tests/tools/test_ogre_next_probe_workflow.py
             tests/tools/test_ogre_next_window_host_contract.py
