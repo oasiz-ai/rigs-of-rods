@@ -14,6 +14,7 @@
 #include <new>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -33,8 +34,17 @@ bool SameOwner(
          !rhs.owner_before(lhs);
 }
 
-RoR::Render::Ogre14LegacyTextureInput MakeTexture(
-    std::string name = "City/BaseColor") {
+bool SameOwner(
+    const std::shared_ptr<const RoR::Render::Ogre14LegacyMaterialPipelineAudit>
+        &lhs,
+    const std::shared_ptr<const RoR::Render::Ogre14LegacyMaterialPipelineAudit>
+        &rhs) {
+  return lhs.get() == rhs.get() && !lhs.owner_before(rhs) &&
+         !rhs.owner_before(lhs);
+}
+
+RoR::Render::Ogre14LegacyTextureInput
+MakeTexture(std::string name = "City/BaseColor") {
   using namespace RoR::Render;
   Ogre14LegacyTextureInput texture;
   texture.key.exact_resource_group = "CityWorld";
@@ -234,20 +244,75 @@ private:
   bool allocation_failure_ = false;
 };
 
+class CountingClosureFaultInjector final
+    : public RoR::Render::IOgre14LegacyMaterialClosureFaultInjector {
+public:
+  void AtFaultPoint(
+      RoR::Render::Ogre14LegacyMaterialClosureFaultPoint point) override {
+    if (point == RoR::Render::Ogre14LegacyMaterialClosureFaultPoint::
+                     BEFORE_INDEX_CONSTRUCTION) {
+      ++index_count;
+    } else {
+      ++assembly_count;
+    }
+  }
+
+  std::size_t index_count = 0U;
+  std::size_t assembly_count = 0U;
+};
+
+class SecondClosureFaultInjector final
+    : public RoR::Render::IOgre14LegacyMaterialClosureFaultInjector {
+public:
+  void AtFaultPoint(
+      RoR::Render::Ogre14LegacyMaterialClosureFaultPoint point) override {
+    if (point != RoR::Render::Ogre14LegacyMaterialClosureFaultPoint::
+                     DURING_DEPENDENCY_ASSEMBLY) {
+      return;
+    }
+    ++assembly_count;
+    if (assembly_count == 2U) {
+      throw std::runtime_error(
+          "deterministic exception after one complete batch closure");
+    }
+  }
+
+  std::size_t assembly_count = 0U;
+};
+
+RoR::Render::Ogre14LegacyMaterialClosureBatch BatchSentinel() {
+  using namespace RoR::Render;
+  Ogre14LegacyMaterialClosureBatch batch;
+  batch.version = 77U;
+  batch.source_sequence = 88U;
+  batch.catalog_sequence = 99U;
+  batch.closures.push_back(Sentinel());
+  return batch;
+}
+
+void RequireBatchSentinel(
+    const RoR::Render::Ogre14LegacyMaterialClosureBatch &batch,
+    const std::shared_ptr<const RoR::Render::RenderAssetPayload> &owner,
+    const RoR::Render::RenderAssetPayload &payload_value, const char *message) {
+  Require(batch.version == 77U && batch.source_sequence == 88U &&
+              batch.catalog_sequence == 99U && batch.closures.size() == 1U,
+          message);
+  RequireSentinel(batch.closures.front(), owner, payload_value, message);
+}
+
 void TestStableKeyHelperIsCanonicalAndAtomic() {
   using namespace RoR::Render;
   std::string stable = "unchanged";
   Require(BuildOgre14LegacyStableAssetKey(RenderAssetKind::MATERIAL,
                                           MaterialKey(), stable)
-              .ok() &&
-              stable ==
-                  "material|group=9:CityWorld|name=11:City/Facade",
+                  .ok() &&
+              stable == "material|group=9:CityWorld|name=11:City/Facade",
           "public stable-key helper changed canonical identity encoding");
   Ogre14LegacyAssetKey invalid = MaterialKey();
   invalid.exact_name.clear();
   stable = "unchanged";
-  Require(!BuildOgre14LegacyStableAssetKey(RenderAssetKind::MATERIAL,
-                                           invalid, stable) &&
+  Require(!BuildOgre14LegacyStableAssetKey(RenderAssetKind::MATERIAL, invalid,
+                                           stable) &&
               stable == "unchanged",
           "invalid stable-key build changed its output");
 }
@@ -488,11 +553,244 @@ void TestNoGuessedMaterialStateAndWholeFrameValidation() {
                           "oversized requested material key was accepted");
 }
 
+void TestBatchResolutionValidatesOnceAndSharesCanonicalOwners() {
+  using namespace RoR::Render;
+  static_assert(
+      std::is_nothrow_move_constructible_v<Ogre14LegacyMaterialClosure> &&
+          std::is_nothrow_move_assignable_v<Ogre14LegacyMaterialClosure> &&
+          std::is_nothrow_move_constructible_v<
+              Ogre14LegacyMaterialClosureRequest> &&
+          std::is_nothrow_move_assignable_v<
+              Ogre14LegacyMaterialClosureRequest> &&
+          std::is_nothrow_move_constructible_v<
+              Ogre14LegacyMaterialClosureBatch> &&
+          std::is_nothrow_move_assignable_v<Ogre14LegacyMaterialClosureBatch>,
+      "published closure and batch moves must remain noexcept");
+
+  const Ogre14LegacyTranslatedFrame frame =
+      MakeTranslatedFrame(true, false, false, true);
+  Ogre14LegacyMaterialClosureRequest facade;
+  Ogre14LegacyMaterialClosureRequest roof;
+  Require(MakeOgre14LegacyMaterialClosureRequest(
+              frame, MaterialKey("City/Facade"), facade)
+                  .ok() &&
+              MakeOgre14LegacyMaterialClosureRequest(
+                  frame, MaterialKey("City/Roof"), roof)
+                  .ok() &&
+              SameOgre14LegacyCatalogIdentity(frame.catalog_identity,
+                                              facade.catalog_identity) &&
+              SameOgre14LegacyCatalogIdentity(frame.catalog_identity,
+                                              roof.catalog_identity),
+          "batch request receipts did not preserve exact catalog identity");
+
+  std::vector<Ogre14LegacyMaterialClosureRequest> requests;
+  requests.push_back(roof);
+  requests.push_back(facade);
+  CountingClosureFaultInjector counts;
+  Ogre14LegacyMaterialClosureBatch batch;
+  Require(
+      ResolveOgre14LegacyMaterialClosureBatch(frame, requests, batch, &counts)
+              .ok() &&
+          counts.index_count == 1U && counts.assembly_count == 2U &&
+          batch.closures.size() == 2U &&
+          SameOgre14LegacyCatalogIdentity(frame.catalog_identity,
+                                          batch.catalog_identity) &&
+          batch.closures[0U].material_source_asset_id <
+              batch.closures[1U].material_source_asset_id,
+      "batch did not validate/index once or publish canonical ID order");
+
+  const auto &texture = FindAsset(frame, RenderAssetKind::TEXTURE);
+  for (const Ogre14LegacyMaterialClosure &closure : batch.closures) {
+    bool shares_material_audit = false;
+    for (const Ogre14LegacyTranslatedAsset &asset : frame.live_assets) {
+      if (asset.source_asset_id == closure.material_source_asset_id) {
+        shares_material_audit =
+            SameOwner(asset.material_audit, closure.material_audit);
+        break;
+      }
+    }
+    Require(closure.assets.size() == 3U &&
+                SameOwner(closure.assets.front().payload, texture.payload) &&
+                shares_material_audit &&
+                SameOgre14LegacyCatalogIdentity(frame.catalog_identity,
+                                                closure.catalog_identity) &&
+                ValidateOgre14LegacyMaterialClosureForFrame(
+                    frame, closure, closure.asset_keys.back())
+                    .ok(),
+            "batch closure did not share canonical owners and exact lineage");
+  }
+  Require(SameOwner(batch.closures[0U].assets.front().payload,
+                    batch.closures[1U].assets.front().payload),
+          "shared texture dependency was duplicated instead of owner-shared");
+}
+
+void TestBatchRejectsDuplicateForeignStaleMissingAndForgedKeys() {
+  using namespace RoR::Render;
+  const Ogre14LegacyTranslatedFrame frame =
+      MakeTranslatedFrame(true, false, false, true);
+  Ogre14LegacyMaterialClosureRequest facade;
+  Require(MakeOgre14LegacyMaterialClosureRequest(
+              frame, MaterialKey("City/Facade"), facade)
+              .ok(),
+          "batch hostile facade request failed");
+
+  Ogre14LegacyMaterialClosureBatch sentinel = BatchSentinel();
+  const auto sentinel_owner = sentinel.closures.front().assets.front().payload;
+  const RenderAssetPayload sentinel_value = *sentinel_owner;
+  std::vector<Ogre14LegacyMaterialClosureRequest> requests{facade, facade};
+  ValidationResult validation =
+      ResolveOgre14LegacyMaterialClosureBatch(frame, requests, sentinel);
+  Require(!validation &&
+              validation.code == ValidationCode::DUPLICATE_IDENTIFIER,
+          "duplicate exact material request was accepted");
+  RequireBatchSentinel(sentinel, sentinel_owner, sentinel_value,
+                       "duplicate request mutated batch sentinel");
+
+  const Ogre14LegacyTranslatedFrame foreign_frame =
+      MakeTranslatedFrame(true, false, false, true);
+  Ogre14LegacyMaterialClosureRequest foreign;
+  Require(MakeOgre14LegacyMaterialClosureRequest(
+              foreign_frame, MaterialKey("City/Facade"), foreign)
+                  .ok() &&
+              foreign.source_sequence == facade.source_sequence &&
+              foreign.catalog_sequence == facade.catalog_sequence,
+          "foreign repeated-sequence request fixture failed");
+  requests = {foreign};
+  validation =
+      ResolveOgre14LegacyMaterialClosureBatch(frame, requests, sentinel);
+  Require(!validation &&
+              validation.field == "material_requests.catalog_identity",
+          "fresh translator forged a repeated numeric catalog lineage");
+  RequireBatchSentinel(sentinel, sentinel_owner, sentinel_value,
+                       "foreign request mutated batch sentinel");
+
+  Ogre14LegacyAssetTranslator translator;
+  Ogre14LegacyAssetFrameInput input;
+  input.source_sequence = 1U;
+  input.textures.push_back(MakeTexture());
+  input.materials.push_back(MakeMaterial(&input.textures.front()));
+  Ogre14LegacyTranslatedFrame old_frame;
+  Require(translator.Translate(input, old_frame).ok(),
+          "stale request old frame failed");
+  Ogre14LegacyMaterialClosureRequest stale;
+  Require(
+      MakeOgre14LegacyMaterialClosureRequest(old_frame, MaterialKey(), stale)
+          .ok(),
+      "stale request receipt failed");
+  input.source_sequence = 2U;
+  Ogre14LegacyTranslatedFrame incremental;
+  Ogre14LegacyTranslatedFrame current;
+  Require(translator.Translate(input, incremental).ok() &&
+              translator.BuildFullSnapshot(current).ok(),
+          "stale request current frame failed");
+  requests = {stale};
+  validation =
+      ResolveOgre14LegacyMaterialClosureBatch(current, requests, sentinel);
+  Require(!validation && validation.field == "material_requests.sequence",
+          "stale same-lineage material request was accepted");
+
+  Ogre14LegacyMaterialClosureRequest missing;
+  Require(MakeOgre14LegacyMaterialClosureRequest(
+              frame, MaterialKey("City/Missing"), missing)
+              .ok(),
+          "missing-key request could not be represented");
+  requests = {missing};
+  validation =
+      ResolveOgre14LegacyMaterialClosureBatch(frame, requests, sentinel);
+  Require(!validation && validation.field == "material.key",
+          "missing exact material key resolved from batch index");
+
+  Ogre14LegacyMaterialClosureRequest forged = facade;
+  ++forged.version;
+  requests = {forged};
+  validation =
+      ResolveOgre14LegacyMaterialClosureBatch(frame, requests, sentinel);
+  Require(!validation && validation.field == "material_requests.version",
+          "unsupported material request version was accepted");
+
+  forged = facade;
+  forged.catalog_identity = Ogre14LegacyCatalogIdentityReceipt{};
+  requests = {forged};
+  validation =
+      ResolveOgre14LegacyMaterialClosureBatch(frame, requests, sentinel);
+  Require(!validation &&
+              validation.field == "material_requests.catalog_identity",
+          "default-constructed request forged catalog identity");
+
+  Ogre14LegacyTranslatedFrame forged_frame = frame;
+  Ogre14LegacyTranslatedAsset &forged_texture =
+      FindAsset(forged_frame, RenderAssetKind::TEXTURE);
+  forged_texture.stable_key += "|forged";
+  SyncMutation(forged_frame, forged_texture);
+  requests = {facade};
+  validation =
+      ResolveOgre14LegacyMaterialClosureBatch(forged_frame, requests, sentinel);
+  Require(!validation && validation.field == "asset.stable_key",
+          "forged dependency stable key escaped the one-pass frame index");
+
+  Ogre14LegacyMaterialClosure valid;
+  Require(ResolveOgre14LegacyMaterialClosure(frame, MaterialKey(), valid).ok(),
+          "closure lineage hostile fixture failed");
+  valid.catalog_identity = foreign_frame.catalog_identity;
+  Require(
+      !ValidateOgre14LegacyMaterialClosureForFrame(frame, valid, MaterialKey()),
+      "foreign closure identity validated against authoritative frame");
+  valid.catalog_identity = frame.catalog_identity;
+  ++valid.source_sequence;
+  Require(
+      !ValidateOgre14LegacyMaterialClosureForFrame(frame, valid, MaterialKey()),
+      "stale closure sequence validated against authoritative frame");
+}
+
+void TestBatchExceptionAndRequestCapsAreAtomic() {
+  using namespace RoR::Render;
+  const Ogre14LegacyTranslatedFrame frame =
+      MakeTranslatedFrame(true, false, false, true);
+  Ogre14LegacyMaterialClosureRequest facade;
+  Ogre14LegacyMaterialClosureRequest roof;
+  Require(MakeOgre14LegacyMaterialClosureRequest(
+              frame, MaterialKey("City/Facade"), facade)
+                  .ok() &&
+              MakeOgre14LegacyMaterialClosureRequest(
+                  frame, MaterialKey("City/Roof"), roof)
+                  .ok(),
+          "batch exception requests failed");
+  std::vector<Ogre14LegacyMaterialClosureRequest> requests{facade, roof};
+
+  Ogre14LegacyMaterialClosureBatch output = BatchSentinel();
+  const auto owner = output.closures.front().assets.front().payload;
+  const RenderAssetPayload value = *owner;
+  ThrowingClosureFaultInjector allocation_fault(
+      Ogre14LegacyMaterialClosureFaultPoint::BEFORE_INDEX_CONSTRUCTION, true);
+  ValidationResult validation = ResolveOgre14LegacyMaterialClosureBatch(
+      frame, requests, output, &allocation_fault);
+  Require(!validation && validation.field == "material_closure.allocation",
+          "batch index allocation fault did not fail closed");
+  RequireBatchSentinel(output, owner, value,
+                       "batch allocation fault mutated deep sentinel owners");
+
+  SecondClosureFaultInjector unexpected_fault;
+  validation = ResolveOgre14LegacyMaterialClosureBatch(frame, requests, output,
+                                                       &unexpected_fault);
+  Require(!validation && validation.field == "material_closure.exception" &&
+              unexpected_fault.assembly_count == 2U,
+          "mid-batch unexpected fault did not fail closed");
+  RequireBatchSentinel(output, owner, value,
+                       "mid-batch fault published partial closure owners");
+
+  requests.clear();
+  requests.resize(kMaximumOgre14LegacyMaterialClosureRequests + 1U);
+  validation = ResolveOgre14LegacyMaterialClosureBatch(frame, requests, output);
+  Require(!validation && validation.code == ValidationCode::VALUE_OUT_OF_RANGE,
+          "batch material request count cap was not enforced");
+  RequireBatchSentinel(output, owner, value,
+                       "request cap failure mutated batch sentinel");
+}
+
 void TestCountCapsAndExceptionAtomicity() {
   using namespace RoR::Render;
   Ogre14LegacyTranslatedFrame frame = MakeTranslatedFrame();
-  frame.live_assets.resize(
-      kMaximumOgre14LegacyMaterialClosureLiveAssets + 1U);
+  frame.live_assets.resize(kMaximumOgre14LegacyMaterialClosureLiveAssets + 1U);
   RequireFailureUnchanged(frame, MaterialKey(),
                           "live-asset count cap was not enforced");
 
@@ -538,6 +836,9 @@ int main() {
   TestStableIdentityAndPayloadKindReject();
   TestAuditDependencyColorSemanticAndWindingReject();
   TestNoGuessedMaterialStateAndWholeFrameValidation();
+  TestBatchResolutionValidatesOnceAndSharesCanonicalOwners();
+  TestBatchRejectsDuplicateForeignStaleMissingAndForgedKeys();
+  TestBatchExceptionAndRequestCapsAreAtomic();
   TestCountCapsAndExceptionAtomicity();
   std::cout << "OGRE 14 legacy material closure tests passed\n";
   return EXIT_SUCCESS;

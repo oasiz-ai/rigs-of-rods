@@ -462,6 +462,15 @@ full snapshots include them. Validation, allocation, native readback, injected
 fault, collision, or lineage failure leaves the catalog, sequence, output
 frame, and previously shared owners untouched.
 
+Every translated frame also carries an opaque catalog-identity receipt. Only a
+translator can mint a nonempty receipt; transaction clones copy the exact
+shared receipt, while every fresh translator receives a distinct identity.
+Consumers compare receipts pointer-exactly in addition to numeric source and
+catalog sequences. A scene reset may therefore restart both numeric sequences
+without allowing the new generation to impersonate an older material frame.
+The receipt is copyable for detached requests and closures but exposes no
+constructor for a nonempty value.
+
 Versioned translator configuration bounds texture inputs, material inputs,
 derived live assets (including material-owned samplers), permanent lifetime
 records (including tombstones), canonical decoded bytes per texture, and
@@ -509,6 +518,21 @@ publication still compares every legacy and transaction configuration field
 and the borrowed injector pointer before the state swap, failing closed on any
 internal incompatibility.
 
+The publication-critical path uses `BeginCommittableTransaction`. It first
+rejects exhausted epochs and every pre-existing fork, then atomically converts
+its isolated clone into the one exclusive RAII lease for that lineage. While
+the lease is active, the source cannot `Translate`, clone, or begin another
+exclusive transaction; only the candidate may translate or build a complete
+snapshot. Clone or candidate-translation failures remain retryable, and lease
+discard or destruction releases exclusivity without changing source or catalog
+sequences. Once downstream acceptance has been exposed,
+`CommitAfterAcceptedExposure` performs only noexcept state/owner moves and is
+infallible for an active lease. Move construction of either the source or the
+lease preserves ownership, a direct legacy commit of the leased candidate is
+rejected, and a consumed lease cannot publish twice. `CloneForTransaction` and
+`CommitTransaction` retain their version-1 nonexclusive sibling/stale behavior
+for existing callers.
+
 `Ogre14LegacyMaterialClosure` closes the last pure-data seam between that
 catalog and `GraphicsSceneSnapshotProducer`. Given an exact material key, it
 accepts only a complete full snapshot with nonzero source/catalog lineage,
@@ -531,6 +555,18 @@ the caller's closure untouched, so no partially allocated dependency list can
 enter a joined graphics transaction. A borrowed test-only fault seam exercises
 both pre-index allocation failure and an unexpected exception after partial
 local dependency assembly; production callers leave it null.
+
+`ResolveOgre14LegacyMaterialClosureBatch` is the authoritative multi-material
+path. Each request carries the frame's opaque receipt plus exact numeric
+lineage. The batch validates the full frame once, builds one bounded source-ID
+index, rejects duplicate, foreign, stale, missing, or forged stable/dependency
+keys, and resolves the requested set in canonical material-ID order. Resolution
+performs one bounded ordered-index build plus logarithmic indexed lookups, not
+one full-frame scan per material. Texture, sampler, material, and audit owners
+are copied from that one index, so shared dependencies retain pointer-exact
+canonical ownership. The
+batch and all deep sentinel owners remain unchanged on validation failure,
+`bad_alloc`, or an arbitrary exception after partial local assembly.
 
 Each detached closure also retains one exact key per dependency and the exact
 immutable translated pipeline audit. Static-section admission rederives every

@@ -291,9 +291,10 @@ ValidationResult ValidateCanonicalMaterial(
       !ExactAbsentBinding(material.normal_texture) ||
       !ExactAbsentBinding(material.occlusion_texture) ||
       !ExactAbsentBinding(material.emissive_texture)) {
-    return Failure(
-        ValidationCode::INVALID_ASSET_REFERENCE, "material.texture_bindings",
-        "translated material must retain only canonical producer-owned binding state");
+    return Failure(ValidationCode::INVALID_ASSET_REFERENCE,
+                   "material.texture_bindings",
+                   "translated material must retain only canonical "
+                   "producer-owned binding state");
   }
   if (audit.texture_source_asset_id == 0U &&
       material.base_color_texture.texture_coordinate_set != 0U) {
@@ -339,7 +340,8 @@ ValidationResult ValidateAsset(const Ogre14LegacyTranslatedAsset &asset,
                                std::uint64_t &aggregate_payload_bytes) {
   if (!IsClosureAssetKind(asset.kind)) {
     return Failure(ValidationCode::WRONG_ASSET_KIND, "assets.kind",
-                   "translated closure inventory accepts only texture, sampler, and material");
+                   "translated closure inventory accepts only texture, "
+                   "sampler, and material");
   }
   if (asset.source_asset_id == 0U || asset.source_revision == 0U ||
       asset.translated_revision == 0U) {
@@ -543,15 +545,20 @@ ValidationResult ValidateCompleteFrame(const Ogre14LegacyTranslatedFrame &frame,
     return Failure(ValidationCode::SEQUENCE_MISMATCH, "frame.full_snapshot",
                    "material closure requires an authoritative full snapshot");
   }
+  if (!frame.catalog_identity.has_value()) {
+    return Failure(
+        ValidationCode::INVALID_IDENTIFIER, "frame.catalog_identity",
+        "full snapshot requires a translator-minted catalog identity");
+  }
   if (frame.source_sequence == 0U || frame.catalog_sequence == 0U ||
       frame.catalog_sequence > frame.source_sequence) {
-    return Failure(ValidationCode::SEQUENCE_MISMATCH, "frame.sequence",
-                   "full snapshot requires valid nonzero source/catalog lineage");
+    return Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "frame.sequence",
+        "full snapshot requires valid nonzero source/catalog lineage");
   }
   if (frame.live_assets.size() >
           kMaximumOgre14LegacyMaterialClosureLiveAssets ||
-      frame.mutations.size() >
-          kMaximumOgre14LegacyMaterialClosureMutations ||
+      frame.mutations.size() > kMaximumOgre14LegacyMaterialClosureMutations ||
       frame.live_assets.size() > frame.mutations.size()) {
     return Failure(ValidationCode::VALUE_OUT_OF_RANGE, "frame.asset_counts",
                    "full snapshot exceeds closure caps or omits live upserts");
@@ -678,19 +685,24 @@ GraphicsSceneAssetInput ToGraphicsAsset(
 
 } // namespace
 
-ValidationResult ValidateOgre14LegacyMaterialClosure(
-    const Ogre14LegacyMaterialClosure &closure,
-    const Ogre14LegacyAssetKey &material_key) {
+ValidationResult
+ValidateOgre14LegacyMaterialClosure(const Ogre14LegacyMaterialClosure &closure,
+                                    const Ogre14LegacyAssetKey &material_key) {
   if (closure.version != kOgre14LegacyMaterialClosureVersion) {
     return Failure(ValidationCode::UNSUPPORTED_VERSION,
                    "material_closure.version",
                    "unsupported material closure version");
   }
+  if (!closure.catalog_identity.has_value()) {
+    return Failure(
+        ValidationCode::INVALID_IDENTIFIER, "material_closure.catalog_identity",
+        "material closure requires a translator-minted catalog identity");
+  }
   if (closure.source_sequence == 0U || closure.catalog_sequence == 0U ||
       closure.catalog_sequence > closure.source_sequence) {
-    return Failure(ValidationCode::SEQUENCE_MISMATCH,
-                   "material_closure.sequence",
-                   "material closure requires valid nonzero source/catalog lineage");
+    return Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "material_closure.sequence",
+        "material closure requires valid nonzero source/catalog lineage");
   }
   std::uint64_t expected_material_id = 0U;
   ValidationResult validation = DeriveOgre14LegacySourceAssetId(
@@ -891,76 +903,82 @@ ValidationResult ValidateOgre14LegacyMaterialClosure(
   return ValidationResult::Success();
 }
 
-ValidationResult ResolveOgre14LegacyMaterialClosure(
+ValidationResult ValidateOgre14LegacyMaterialClosureForFrame(
     const Ogre14LegacyTranslatedFrame &frame,
-    const Ogre14LegacyAssetKey &material_key,
-    Ogre14LegacyMaterialClosure &output,
-    IOgre14LegacyMaterialClosureFaultInjector *fault_injector) {
-  if (frame.live_assets.size() >
-          kMaximumOgre14LegacyMaterialClosureLiveAssets ||
-      frame.mutations.size() >
-          kMaximumOgre14LegacyMaterialClosureMutations) {
-    return Failure(ValidationCode::VALUE_OUT_OF_RANGE, "frame.asset_counts",
-                   "translated frame exceeds fixed closure count caps");
+    const Ogre14LegacyMaterialClosure &closure,
+    const Ogre14LegacyAssetKey &material_key) {
+  if (!frame.catalog_identity.has_value() ||
+      !closure.catalog_identity.has_value() ||
+      !SameOgre14LegacyCatalogIdentity(frame.catalog_identity,
+                                       closure.catalog_identity)) {
+    return Failure(ValidationCode::INVALID_IDENTIFIER,
+                   "material_closure.catalog_identity",
+                   "material closure belongs to a foreign catalog lineage");
   }
-  try {
-    if (material_key.exact_name.size() > kMaximumMaterialDebugNameBytes ||
-        (!material_key.exact_resource_group.empty() &&
-         (material_key.exact_name.size() >= kMaximumMaterialDebugNameBytes ||
+  if (closure.source_sequence != frame.source_sequence ||
+      closure.catalog_sequence != frame.catalog_sequence) {
+    return Failure(ValidationCode::SEQUENCE_MISMATCH,
+                   "material_closure.sequence",
+                   "material closure is stale for the authoritative frame");
+  }
+  return ValidateOgre14LegacyMaterialClosure(closure, material_key);
+}
+
+namespace {
+
+ValidationResult
+ValidateRequestedMaterialKey(const Ogre14LegacyAssetKey &material_key,
+                             std::uint64_t &material_id,
+                             std::string &material_stable_key) {
+  if (material_key.exact_name.size() > kMaximumMaterialDebugNameBytes ||
+      (!material_key.exact_resource_group.empty() &&
+       (material_key.exact_name.size() >= kMaximumMaterialDebugNameBytes ||
           material_key.exact_resource_group.size() >
               kMaximumMaterialDebugNameBytes - 1U -
                   material_key.exact_name.size()))) {
-      return Failure(ValidationCode::VALUE_OUT_OF_RANGE, "material.key",
-                     "requested material identity exceeds translator admission");
-    }
-    std::string material_stable_key;
-    ValidationResult validation = BuildOgre14LegacyStableAssetKey(
-        RenderAssetKind::MATERIAL, material_key, material_stable_key);
-    if (!validation) {
-      return validation;
-    }
-    std::uint64_t material_id = 0U;
-    validation = DeriveOgre14LegacySourceAssetId(
-        RenderAssetKind::MATERIAL, material_key, material_id);
-    if (!validation) {
-      return validation;
-    }
+    return Failure(ValidationCode::VALUE_OUT_OF_RANGE, "material.key",
+                   "requested material identity exceeds translator admission");
+  }
+  ValidationResult validation = BuildOgre14LegacyStableAssetKey(
+      RenderAssetKind::MATERIAL, material_key, material_stable_key);
+  if (!validation) {
+    return validation;
+  }
+  return DeriveOgre14LegacySourceAssetId(RenderAssetKind::MATERIAL,
+                                         material_key, material_id);
+}
 
-    if (fault_injector != nullptr) {
-      fault_injector->AtFaultPoint(
-          Ogre14LegacyMaterialClosureFaultPoint::BEFORE_INDEX_CONSTRUCTION);
-    }
-    AssetIndex assets;
-    validation = ValidateCompleteFrame(frame, assets);
-    if (!validation) {
-      return validation;
-    }
-    const auto material = assets.find(material_id);
-    if (material == assets.end() ||
-        material->second.asset->stable_key != material_stable_key) {
+ValidationResult BuildIndexedMaterialClosure(
+    const Ogre14LegacyTranslatedFrame &frame, const AssetIndex &assets,
+    const Ogre14LegacyAssetKey &material_key,
+    const std::string &material_stable_key, std::uint64_t material_id,
+    Ogre14LegacyMaterialClosure &output,
+    IOgre14LegacyMaterialClosureFaultInjector *fault_injector) {
+  const auto material = assets.find(material_id);
+  if (material == assets.end() ||
+      material->second.asset->stable_key != material_stable_key) {
       return Failure(ValidationCode::MISSING_REFERENCE, "material.key",
                      "exact material key is absent from the full snapshot");
     }
     if (material->second.asset->kind != RenderAssetKind::MATERIAL) {
       return Failure(ValidationCode::WRONG_ASSET_KIND, "material.key",
-                     "exact material identity resolved to the wrong kind");
-    }
+                   "exact material identity resolved to the wrong kind");
+  }
 
-    const Ogre14LegacyTranslatedAsset &material_asset =
-        *material->second.asset;
-    const Ogre14LegacyMaterialPipelineAudit &audit =
-        *material_asset.material_audit;
-    Ogre14LegacyMaterialClosure candidate;
-    candidate.source_sequence = frame.source_sequence;
-    candidate.catalog_sequence = frame.catalog_sequence;
-    candidate.material_source_asset_id = material_asset.source_asset_id;
-    candidate.requires_reverse_winding = audit.requires_reverse_winding;
-    candidate.material_audit = material_asset.material_audit;
-    candidate.asset_keys.reserve(audit.texture_source_asset_id == 0U ? 1U
-                                                                     : 3U);
-    candidate.assets.reserve(audit.texture_source_asset_id == 0U ? 1U : 3U);
+  const Ogre14LegacyTranslatedAsset &material_asset = *material->second.asset;
+  const Ogre14LegacyMaterialPipelineAudit &audit =
+      *material_asset.material_audit;
+  Ogre14LegacyMaterialClosure candidate;
+  candidate.catalog_identity = frame.catalog_identity;
+  candidate.source_sequence = frame.source_sequence;
+  candidate.catalog_sequence = frame.catalog_sequence;
+  candidate.material_source_asset_id = material_asset.source_asset_id;
+  candidate.requires_reverse_winding = audit.requires_reverse_winding;
+  candidate.material_audit = material_asset.material_audit;
+  candidate.asset_keys.reserve(audit.texture_source_asset_id == 0U ? 1U : 3U);
+  candidate.assets.reserve(audit.texture_source_asset_id == 0U ? 1U : 3U);
 
-    if (audit.texture_source_asset_id != 0U) {
+  if (audit.texture_source_asset_id != 0U) {
       const auto texture = assets.find(audit.texture_source_asset_id);
       const auto sampler = assets.find(audit.sampler_source_asset_id);
       if (texture == assets.end() || sampler == assets.end()) {
@@ -985,22 +1003,205 @@ ValidationResult ResolveOgre14LegacyMaterialClosure(
               MaterialTextureSlot::BASE_COLOR)];
       binding.texture_source_asset_id = audit.texture_source_asset_id;
       binding.sampler_source_asset_id = audit.sampler_source_asset_id;
-    }
-    candidate.asset_keys.push_back(material->second.parsed_key);
-    candidate.assets.push_back(std::move(material_input));
-    validation = ValidateOgre14LegacyMaterialClosure(candidate, material_key);
+  }
+  candidate.asset_keys.push_back(material->second.parsed_key);
+  candidate.assets.push_back(std::move(material_input));
+  ValidationResult validation = ValidateOgre14LegacyMaterialClosureForFrame(
+      frame, candidate, material_key);
+  if (!validation) {
+    return validation;
+  }
+  output = std::move(candidate);
+  return ValidationResult::Success();
+}
+
+struct IndexedMaterialRequest {
+  std::uint64_t material_id = 0U;
+  const Ogre14LegacyMaterialClosureRequest *request = nullptr;
+  std::string material_stable_key;
+};
+
+} // namespace
+
+ValidationResult MakeOgre14LegacyMaterialClosureRequest(
+    const Ogre14LegacyTranslatedFrame &frame,
+    const Ogre14LegacyAssetKey &material_key,
+    Ogre14LegacyMaterialClosureRequest &output) {
+  if (!frame.catalog_identity.has_value()) {
+    return Failure(ValidationCode::INVALID_IDENTIFIER, "frame.catalog_identity",
+                   "request requires a translator-minted catalog identity");
+  }
+  if (frame.source_sequence == 0U || frame.catalog_sequence == 0U ||
+      frame.catalog_sequence > frame.source_sequence) {
+    return Failure(ValidationCode::SEQUENCE_MISMATCH, "frame.sequence",
+                   "request requires valid nonzero frame lineage");
+  }
+  try {
+    std::uint64_t material_id = 0U;
+    std::string stable_key;
+    ValidationResult validation =
+        ValidateRequestedMaterialKey(material_key, material_id, stable_key);
     if (!validation) {
       return validation;
+    }
+    (void)material_id;
+    (void)stable_key;
+    Ogre14LegacyMaterialClosureRequest candidate;
+    candidate.catalog_identity = frame.catalog_identity;
+    candidate.source_sequence = frame.source_sequence;
+    candidate.catalog_sequence = frame.catalog_sequence;
+    candidate.material_key = material_key;
+    output = std::move(candidate);
+    return ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return Failure(ValidationCode::EMPTY_PAYLOAD,
+                   "material_closure_request.allocation",
+                   "allocation failed before the request was published");
+  } catch (...) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "material_closure_request.exception",
+                   "unexpected exception before the request was published");
+  }
+}
+
+ValidationResult ResolveOgre14LegacyMaterialClosureBatch(
+    const Ogre14LegacyTranslatedFrame &frame,
+    const std::vector<Ogre14LegacyMaterialClosureRequest> &requests,
+    Ogre14LegacyMaterialClosureBatch &output,
+    IOgre14LegacyMaterialClosureFaultInjector *fault_injector) {
+  if (frame.live_assets.size() >
+          kMaximumOgre14LegacyMaterialClosureLiveAssets ||
+      frame.mutations.size() > kMaximumOgre14LegacyMaterialClosureMutations ||
+      requests.size() > kMaximumOgre14LegacyMaterialClosureRequests) {
+    return Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "frame.asset_counts",
+        "translated frame or material request set exceeds fixed caps");
+  }
+  try {
+    if (fault_injector != nullptr) {
+      fault_injector->AtFaultPoint(
+          Ogre14LegacyMaterialClosureFaultPoint::BEFORE_INDEX_CONSTRUCTION);
+    }
+    AssetIndex assets;
+    ValidationResult validation = ValidateCompleteFrame(frame, assets);
+    if (!validation) {
+      return validation;
+    }
+
+    std::vector<IndexedMaterialRequest> indexed_requests;
+    indexed_requests.reserve(requests.size());
+    for (std::size_t index = 0U; index < requests.size(); ++index) {
+      const Ogre14LegacyMaterialClosureRequest &request = requests[index];
+      if (request.version != kOgre14LegacyMaterialClosureRequestVersion) {
+        return Failure(ValidationCode::UNSUPPORTED_VERSION,
+                       "material_requests.version",
+                       "unsupported material closure request version", index);
+      }
+      if (!request.catalog_identity.has_value() ||
+          !SameOgre14LegacyCatalogIdentity(frame.catalog_identity,
+                                           request.catalog_identity)) {
+        return Failure(ValidationCode::INVALID_IDENTIFIER,
+                       "material_requests.catalog_identity",
+                       "material request belongs to a foreign catalog lineage",
+                       index);
+      }
+      if (request.source_sequence != frame.source_sequence ||
+          request.catalog_sequence != frame.catalog_sequence) {
+        return Failure(
+            ValidationCode::SEQUENCE_MISMATCH, "material_requests.sequence",
+            "material request is stale for the authoritative frame", index);
+      }
+      IndexedMaterialRequest indexed;
+      indexed.request = &request;
+      validation = ValidateRequestedMaterialKey(request.material_key,
+                                                indexed.material_id,
+                                                indexed.material_stable_key);
+      if (!validation) {
+        validation.element_index = index;
+        return validation;
+      }
+      indexed_requests.push_back(std::move(indexed));
+    }
+    std::sort(indexed_requests.begin(), indexed_requests.end(),
+              [](const IndexedMaterialRequest &lhs,
+                 const IndexedMaterialRequest &rhs) noexcept {
+                return lhs.material_id < rhs.material_id;
+              });
+    for (std::size_t index = 1U; index < indexed_requests.size(); ++index) {
+      if (indexed_requests[index - 1U].material_id ==
+          indexed_requests[index].material_id) {
+        return Failure(
+            ValidationCode::DUPLICATE_IDENTIFIER,
+            "material_requests.material_key",
+            "material request set duplicates an exact source identity", index);
+      }
+    }
+
+    Ogre14LegacyMaterialClosureBatch candidate;
+    candidate.catalog_identity = frame.catalog_identity;
+    candidate.source_sequence = frame.source_sequence;
+    candidate.catalog_sequence = frame.catalog_sequence;
+    candidate.closures.reserve(indexed_requests.size());
+    for (const IndexedMaterialRequest &request : indexed_requests) {
+      Ogre14LegacyMaterialClosure closure;
+      validation = BuildIndexedMaterialClosure(
+          frame, assets, request.request->material_key,
+          request.material_stable_key, request.material_id, closure,
+          fault_injector);
+      if (!validation) {
+        return validation;
+      }
+      candidate.closures.push_back(std::move(closure));
     }
     output = std::move(candidate);
     return ValidationResult::Success();
   } catch (const std::bad_alloc &) {
-    return Failure(ValidationCode::EMPTY_PAYLOAD, "material_closure.allocation",
-                   "allocation failed before the material closure was published");
+    return Failure(
+        ValidationCode::EMPTY_PAYLOAD, "material_closure.allocation",
+        "allocation failed before the material closure was published");
   } catch (...) {
-    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
-                   "material_closure.exception",
-                   "unexpected exception before the material closure was published");
+    return Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material_closure.exception",
+        "unexpected exception before the material closure was published");
+  }
+}
+
+ValidationResult ResolveOgre14LegacyMaterialClosure(
+    const Ogre14LegacyTranslatedFrame &frame,
+    const Ogre14LegacyAssetKey &material_key,
+    Ogre14LegacyMaterialClosure &output,
+    IOgre14LegacyMaterialClosureFaultInjector *fault_injector) {
+  try {
+    Ogre14LegacyMaterialClosureRequest request;
+    ValidationResult validation =
+        MakeOgre14LegacyMaterialClosureRequest(frame, material_key, request);
+    if (!validation) {
+      return validation;
+    }
+    std::vector<Ogre14LegacyMaterialClosureRequest> requests;
+    requests.push_back(std::move(request));
+    Ogre14LegacyMaterialClosureBatch batch;
+    validation = ResolveOgre14LegacyMaterialClosureBatch(frame, requests, batch,
+                                                         fault_injector);
+    if (!validation) {
+      return validation;
+    }
+    if (batch.closures.size() != 1U) {
+      return Failure(ValidationCode::SIZE_MISMATCH,
+                     "material_closure_batch.closures",
+                     "single resolver did not produce exactly one closure");
+    }
+    Ogre14LegacyMaterialClosure candidate = std::move(batch.closures.front());
+    output = std::move(candidate);
+    return ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return Failure(
+        ValidationCode::EMPTY_PAYLOAD, "material_closure.allocation",
+        "allocation failed before the material closure was published");
+  } catch (...) {
+    return Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material_closure.exception",
+        "unexpected exception before the material closure was published");
   }
 }
 

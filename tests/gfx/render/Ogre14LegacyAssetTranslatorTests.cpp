@@ -62,10 +62,11 @@ bool EquivalentAssetValue(
                                                      *rhs.material_audit);
 }
 
-bool EquivalentFrameValue(
-    const RoR::Render::Ogre14LegacyTranslatedFrame &lhs,
-    const RoR::Render::Ogre14LegacyTranslatedFrame &rhs) {
+bool EquivalentFrameValue(const RoR::Render::Ogre14LegacyTranslatedFrame &lhs,
+                          const RoR::Render::Ogre14LegacyTranslatedFrame &rhs) {
   if (lhs.version != rhs.version ||
+      !RoR::Render::SameOgre14LegacyCatalogIdentity(lhs.catalog_identity,
+                                                    rhs.catalog_identity) ||
       lhs.source_sequence != rhs.source_sequence ||
       lhs.catalog_sequence != rhs.catalog_sequence ||
       lhs.full_snapshot != rhs.full_snapshot ||
@@ -574,6 +575,21 @@ public:
       throw std::bad_alloc();
     }
     throw 73;
+  }
+};
+
+class ExclusiveFault final
+    : public RoR::Render::IOgre14LegacyAssetTranslatorFaultInjector {
+public:
+  bool fail_translate = false;
+
+  RoR::Render::ValidationResult BeforeCommit() noexcept override {
+    if (!fail_translate) {
+      return RoR::Render::ValidationResult::Success();
+    }
+    return RoR::Render::ValidationResult::Failure(
+        RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+        "translator.exclusive_test_fault", "injected candidate failure");
   }
 };
 
@@ -1254,6 +1270,239 @@ void TestTransactionCloneMetadataCapIsCheckedBeforeCopy() {
           "unsupported transaction configuration version was accepted");
 }
 
+void TestCatalogIdentityIsOpaqueFreshAndCloneExact() {
+  using namespace RoR::Render;
+  static_assert(!std::is_constructible_v<Ogre14LegacyCatalogIdentityReceipt,
+                                         std::shared_ptr<const void>>,
+                "callers must not be able to mint a catalog identity receipt");
+  static_assert(
+      std::is_nothrow_move_constructible_v<
+          Ogre14LegacyCatalogIdentityReceipt> &&
+          std::is_nothrow_move_assignable_v<
+              Ogre14LegacyCatalogIdentityReceipt> &&
+          noexcept(std::declval<Ogre14LegacyCatalogIdentityReceipt &>().swap(
+              std::declval<Ogre14LegacyCatalogIdentityReceipt &>())) &&
+          std::is_nothrow_move_constructible_v<Ogre14LegacyTranslatedFrame> &&
+          std::is_nothrow_move_assignable_v<Ogre14LegacyTranslatedFrame>,
+      "post-publication identity and frame moves must remain noexcept");
+
+  Ogre14LegacyCatalogIdentityReceipt empty_a;
+  Ogre14LegacyCatalogIdentityReceipt empty_b;
+  Require(!empty_a.has_value() &&
+              !SameOgre14LegacyCatalogIdentity(empty_a, empty_b),
+          "empty catalog receipts forged lineage agreement");
+
+  Ogre14LegacyAssetTranslator first;
+  Ogre14LegacyAssetTranslator fresh;
+  Ogre14LegacyTranslatedFrame first_frame;
+  Ogre14LegacyTranslatedFrame fresh_frame;
+  Require(first.Translate(MakeFrame(1U), first_frame).ok() &&
+              fresh.Translate(MakeFrame(1U), fresh_frame).ok() &&
+              first_frame.catalog_identity.has_value() &&
+              fresh_frame.catalog_identity.has_value() &&
+              !SameOgre14LegacyCatalogIdentity(first_frame.catalog_identity,
+                                               fresh_frame.catalog_identity),
+          "fresh translators with repeated sequences shared catalog identity");
+
+  Ogre14LegacyTranslatedFrame first_snapshot;
+  Require(first.BuildFullSnapshot(first_snapshot).ok() &&
+              SameOgre14LegacyCatalogIdentity(first_frame.catalog_identity,
+                                              first_snapshot.catalog_identity),
+          "one committed translator changed catalog identity");
+  std::unique_ptr<Ogre14LegacyAssetTranslator> candidate;
+  Require(first.CloneForTransaction(candidate).ok(),
+          "identity candidate clone failed");
+  Ogre14LegacyTranslatedFrame candidate_snapshot;
+  Require(
+      candidate->BuildFullSnapshot(candidate_snapshot).ok() &&
+          SameOgre14LegacyCatalogIdentity(first_frame.catalog_identity,
+                                          candidate_snapshot.catalog_identity),
+      "transaction clone did not share exact catalog identity");
+  candidate.reset();
+}
+
+void TestExclusiveCommittableTransactionIsAtomicAndInfallible() {
+  using namespace RoR::Render;
+  static_assert(
+      std::is_nothrow_move_constructible_v<
+          Ogre14LegacyAssetTranslatorCommittableTransaction> &&
+          std::is_nothrow_move_assignable_v<
+              Ogre14LegacyAssetTranslatorCommittableTransaction> &&
+          noexcept(std::declval<
+                       Ogre14LegacyAssetTranslatorCommittableTransaction &>()
+                       .CommitAfterAcceptedExposure()),
+      "exclusive post-publication path must remain noexcept");
+
+  ExclusiveFault fault;
+  Ogre14LegacyAssetTranslator source(&fault);
+  Ogre14LegacyTranslatedFrame initial;
+  Require(source.Translate(MakeFrame(1U), initial).ok(),
+          "exclusive source initialization failed");
+
+  std::unique_ptr<Ogre14LegacyAssetTranslator> sibling;
+  Require(source.CloneForTransaction(sibling).ok(),
+          "exclusive sibling fixture clone failed");
+  Ogre14LegacyAssetTranslatorCommittableTransaction rejected;
+  ValidationResult validation = source.BeginCommittableTransaction(rejected);
+  Require(!validation &&
+              validation.field == "translator.transaction_candidates" &&
+              !rejected.active() && source.source_sequence() == 1U,
+          "exclusive begin ignored an outstanding sibling or mutated output");
+  sibling.reset();
+
+  Ogre14LegacyAssetTranslatorCommittableTransaction transaction;
+  Require(source.BeginCommittableTransaction(transaction).ok() &&
+              transaction.active() && transaction.candidate() != nullptr,
+          "exclusive transaction did not acquire its unique lease");
+  Ogre14LegacyAssetTranslatorCommittableTransaction nested;
+  std::unique_ptr<Ogre14LegacyAssetTranslator> nested_clone;
+  Ogre14LegacyTranslatedFrame source_sentinel = initial;
+  Ogre14LegacyAssetTranslator foreign_source;
+  Ogre14LegacyTranslatedFrame foreign_output;
+  Require(foreign_source.Translate(MakeFrame(1U), foreign_output).ok(),
+          "exclusive foreign-source fixture failed");
+  Require(
+      !source.BeginCommittableTransaction(nested) && !nested.active() &&
+          !source.CloneForTransaction(nested_clone) &&
+          nested_clone == nullptr &&
+          !source.Translate(MakeFrame(2U), source_sentinel) &&
+          source.source_sequence() == 1U &&
+          EquivalentFrameValue(initial, source_sentinel) &&
+          source.CommitTransaction(*transaction.candidate()) ==
+              Ogre14LegacyAssetTranslatorCommitResult::
+                  EXCLUSIVE_LEASE_REQUIRED &&
+          foreign_source.CommitTransaction(*transaction.candidate()) ==
+              Ogre14LegacyAssetTranslatorCommitResult::FOREIGN_LINEAGE,
+      "nested fork, direct source mutation, or legacy commit bypassed lease");
+
+  fault.fail_translate = true;
+  Ogre14LegacyTranslatedFrame failed_output = initial;
+  validation = transaction.candidate()->Translate(MakeFrame(2U), failed_output);
+  fault.fail_translate = false;
+  Require(!validation &&
+              validation.field == "translator.exclusive_test_fault" &&
+              EquivalentFrameValue(initial, failed_output) &&
+              transaction.candidate()->source_sequence() == 1U,
+          "injected candidate failure escaped the isolated transaction");
+
+  Ogre14LegacyAssetFrameInput changed = MakeFrame(2U);
+  changed.textures.front().source_revision = 2U;
+  changed.textures.front().mip_levels.front().bytes[0U] = 201U;
+  Ogre14LegacyTranslatedFrame staged;
+  Ogre14LegacyTranslatedFrame prepared;
+  Require(transaction.candidate()->Translate(changed, staged).ok() &&
+              transaction.candidate()->BuildFullSnapshot(prepared).ok(),
+          "exclusive candidate could not stage accepted state");
+
+  Ogre14LegacyAssetTranslatorCommittableTransaction moved_transaction(
+      std::move(transaction));
+  Require(!transaction.active() && moved_transaction.active(),
+          "exclusive lease move duplicated or dropped ownership");
+  Ogre14LegacyAssetTranslator moved_source(std::move(source));
+  Require(moved_transaction.CommitAfterAcceptedExposure() ==
+                  Ogre14LegacyAssetTranslatorExclusiveCommitResult::COMMITTED &&
+              !moved_transaction.active() &&
+              moved_transaction.CommitAfterAcceptedExposure() ==
+                  Ogre14LegacyAssetTranslatorExclusiveCommitResult::
+                      ALREADY_CONSUMED,
+          "exclusive accepted publication was fallible or committed twice");
+  Ogre14LegacyTranslatedFrame committed;
+  Require(moved_source.BuildFullSnapshot(committed).ok() &&
+              EquivalentFrameValue(prepared, committed) &&
+              SameFrameOwners(prepared, committed),
+          "exclusive publication did not expose the exact prepared owners");
+
+  Ogre14LegacyAssetTranslatorCommittableTransaction discarded;
+  Require(moved_source.BeginCommittableTransaction(discarded).ok(),
+          "postcommit exclusive lease could not begin");
+  changed.source_sequence = 3U;
+  Ogre14LegacyTranslatedFrame discarded_stage;
+  Require(discarded.candidate()->Translate(changed, discarded_stage).ok(),
+          "discard candidate staging failed");
+  discarded.Discard();
+  Require(!discarded.active() && moved_source.source_sequence() == 2U &&
+              moved_source.catalog_sequence() == prepared.catalog_sequence &&
+              moved_source.Translate(changed, committed).ok() &&
+              moved_source.source_sequence() == 3U,
+          "discard changed source lineage or failed to release lease");
+}
+
+void TestExclusiveLeaseFaultExhaustionAndDestructionRelease() {
+  using namespace RoR::Render;
+  Ogre14LegacyAssetTranslatorConfiguration configuration;
+  Ogre14LegacyAssetTranslatorTransactionConfiguration transaction_configuration;
+  transaction_configuration.maximum_epoch = 1U;
+  Ogre14LegacyAssetTranslator exhausted(configuration,
+                                        transaction_configuration);
+  Ogre14LegacyTranslatedFrame output;
+  Require(exhausted.Translate(MakeFrame(1U), output).ok(),
+          "exclusive exhaustion fixture failed");
+  Ogre14LegacyAssetTranslatorCommittableTransaction exhausted_transaction;
+  const ValidationResult exhausted_result =
+      exhausted.BeginCommittableTransaction(exhausted_transaction);
+  Require(!exhausted_result &&
+              exhausted_result.field == "translator.transaction_epoch" &&
+              !exhausted_transaction.active(),
+          "exclusive begin did not preflight epoch exhaustion");
+
+  CloneFault clone_fault;
+  Ogre14LegacyAssetTranslator clone_source(&clone_fault);
+  Require(clone_source.Translate(MakeFrame(1U), output).ok(),
+          "exclusive clone-fault fixture failed");
+  clone_fault.behavior = CloneFault::Behavior::THROW_BAD_ALLOC;
+  clone_fault.stage =
+      Ogre14LegacyAssetTranslatorCloneStage::BEFORE_CANDIDATE_PUBLISH;
+  Ogre14LegacyAssetTranslatorCommittableTransaction clone_failed;
+  const ValidationResult clone_result =
+      clone_source.BeginCommittableTransaction(clone_failed);
+  clone_fault.behavior = CloneFault::Behavior::DISABLED;
+  Require(!clone_result &&
+              clone_result.field == "translator.transaction_allocation" &&
+              !clone_failed.active(),
+          "exclusive clone failure published output or retained its lease");
+  {
+    Ogre14LegacyAssetTranslatorCommittableTransaction scoped;
+    Require(clone_source.BeginCommittableTransaction(scoped).ok() &&
+                scoped.active(),
+            "exclusive lease did not recover after clone failure");
+  }
+  Require(clone_source.Translate(MakeFrame(2U), output).ok(),
+          "RAII destruction did not release the exclusive lease");
+
+  Ogre14LegacyAssetTranslator move_source_a;
+  Ogre14LegacyAssetTranslator move_source_b;
+  Require(move_source_a.Translate(MakeFrame(1U), output).ok() &&
+              move_source_b.Translate(MakeFrame(1U), output).ok(),
+          "exclusive move-assignment sources failed");
+  Ogre14LegacyAssetTranslatorCommittableTransaction move_a;
+  Ogre14LegacyAssetTranslatorCommittableTransaction move_b;
+  Require(move_source_a.BeginCommittableTransaction(move_a).ok() &&
+              move_source_b.BeginCommittableTransaction(move_b).ok(),
+          "exclusive move-assignment leases failed");
+  move_b = std::move(move_a);
+  Require(!move_a.active() && move_b.active() &&
+              move_source_b.Translate(MakeFrame(2U), output).ok(),
+          "lease move assignment did not discard its previous ownership");
+  move_b.Discard();
+  Require(move_source_a.Translate(MakeFrame(2U), output).ok(),
+          "moved lease did not preserve then release new ownership");
+
+  Ogre14LegacyAssetTranslatorCommittableTransaction orphaned;
+  {
+    auto dying_source = std::make_unique<Ogre14LegacyAssetTranslator>();
+    Require(dying_source->Translate(MakeFrame(1U), output).ok() &&
+                dying_source->BeginCommittableTransaction(orphaned).ok(),
+            "orphaned exclusive fixture failed");
+  }
+  Require(orphaned.CommitAfterAcceptedExposure() ==
+                  Ogre14LegacyAssetTranslatorExclusiveCommitResult::
+                      INVALID_SOURCE &&
+              orphaned.CommitAfterAcceptedExposure() ==
+                  Ogre14LegacyAssetTranslatorExclusiveCommitResult::
+                      ALREADY_CONSUMED,
+          "destroyed source left a forgeable or reusable exclusive lease");
+}
+
 } // namespace
 
 int main() {
@@ -1275,6 +1524,9 @@ int main() {
   TestMoveConstructionPreservesTransactionRolesAndLineage();
   TestTransactionCloneFaultsLeaveSentinelAndSourceUntouched();
   TestTransactionCloneMetadataCapIsCheckedBeforeCopy();
+  TestCatalogIdentityIsOpaqueFreshAndCloneExact();
+  TestExclusiveCommittableTransactionIsAtomicAndInfallible();
+  TestExclusiveLeaseFaultExhaustionAndDestructionRelease();
   std::cout << "OGRE 14 legacy asset translator tests passed\n";
   return EXIT_SUCCESS;
 }

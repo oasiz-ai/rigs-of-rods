@@ -13,6 +13,10 @@ HEADER = (
     / "source/main/gfx/render/Ogre14LegacyMaterialClosure.h"
 )
 SOURCE = HEADER.with_suffix(".cpp")
+TEST_SOURCE = (
+    REPOSITORY_ROOT
+    / "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp"
+)
 TRANSLATOR_HEADER = (
     REPOSITORY_ROOT
     / "source/main/gfx/render/Ogre14LegacyAssetTranslator.h"
@@ -35,6 +39,7 @@ class Ogre14LegacyMaterialClosureContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.header = HEADER.read_text(encoding="utf-8")
         cls.source = SOURCE.read_text(encoding="utf-8")
+        cls.test_source = TEST_SOURCE.read_text(encoding="utf-8")
         cls.translator_header = TRANSLATOR_HEADER.read_text(encoding="utf-8")
         cls.translator_source = TRANSLATOR_SOURCE.read_text(encoding="utf-8")
         cls.main_cmake = MAIN_CMAKE.read_text(encoding="utf-8")
@@ -56,6 +61,13 @@ class Ogre14LegacyMaterialClosureContractTests(unittest.TestCase):
             "IOgre14LegacyMaterialClosureFaultInjector",
             "Ogre14LegacyMaterialClosureFaultPoint",
             "ResolveOgre14LegacyMaterialClosure",
+            "kOgre14LegacyMaterialClosureRequestVersion = 1U",
+            "kOgre14LegacyMaterialClosureBatchVersion = 1U",
+            "kMaximumOgre14LegacyMaterialClosureRequests",
+            "Ogre14LegacyCatalogIdentityReceipt catalog_identity",
+            "Ogre14LegacyMaterialClosureRequest",
+            "Ogre14LegacyMaterialClosureBatch",
+            "ResolveOgre14LegacyMaterialClosureBatch",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.header)
@@ -63,6 +75,36 @@ class Ogre14LegacyMaterialClosureContractTests(unittest.TestCase):
         self.assertNotIn("Ogre::", self.header)
         self.assertNotIn("#include <Ogre", self.source)
         self.assertNotIn("Ogre::", self.source)
+
+    def test_batch_index_is_single_pass_lineage_exact_and_atomic(self) -> None:
+        for token in (
+            "ValidateOgre14LegacyMaterialClosureForFrame",
+            "MakeOgre14LegacyMaterialClosureRequest",
+            "SameOgre14LegacyCatalogIdentity",
+            "material_requests.catalog_identity",
+            "material_requests.sequence",
+            "std::vector<IndexedMaterialRequest>",
+            "std::sort(indexed_requests.begin()",
+            "material request set duplicates an exact source identity",
+            "BuildIndexedMaterialClosure",
+            "candidate.catalog_identity = frame.catalog_identity",
+            "output = std::move(candidate)",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.source)
+        self.assertEqual(
+            self.source.count("ValidateCompleteFrame(frame, assets)"), 1
+        )
+        for token in (
+            "TestBatchResolutionValidatesOnceAndSharesCanonicalOwners",
+            "TestBatchRejectsDuplicateForeignStaleMissingAndForgedKeys",
+            "TestBatchExceptionAndRequestCapsAreAtomic",
+            "counts.index_count == 1U",
+            "SameOwner(batch.closures[0U].assets.front().payload",
+            "std::is_nothrow_move_assignable_v",
+        ):
+            with self.subTest(test_token=token):
+                self.assertIn(token, self.test_source)
 
     def test_hostile_snapshot_revalidation_and_atomic_failure_are_explicit(self) -> None:
         for token in (
@@ -149,6 +191,10 @@ class Ogre14LegacyMaterialClosureContractTests(unittest.TestCase):
             "orphan samplers",
             "material_bindings",
             "no partially allocated dependency list",
+            "opaque catalog-identity receipt",
+            "BeginCommittableTransaction",
+            "ResolveOgre14LegacyMaterialClosureBatch",
+            "validates the full frame once",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.readme)
