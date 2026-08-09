@@ -175,6 +175,7 @@ set(_ror_n2_relevant_source_paths
     tests/tools/test_ogre14_material_semantic_catalog_v2.py
     tests/tools/test_ogre14_live_material_coordinator_contract.py
     tests/tools/test_ogre14_authenticated_texture_receipt_contract.py
+    tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
     tests/tools/test_ogre_next_probe_workflow.py
     tests/tools/test_ogre_next_window_host_contract.py
@@ -378,6 +379,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/tools/test_ogre14_material_semantic_catalog_v2.py"
     "tests/tools/test_ogre14_live_material_coordinator_contract.py"
     "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py"
+    "tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"

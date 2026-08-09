@@ -18,11 +18,20 @@
 #include <memory>
 #include <string>
 
+namespace Ogre {
+class Texture;
+}
+
+namespace RoR {
+class ContentManager;
+}
+
 namespace RoR::Render {
 
 constexpr std::uint32_t kOgre14AuthenticatedTextureReceiptVersion = 1U;
 constexpr std::uint32_t kOgre14AuthenticatedTextureCaptureInputVersion = 1U;
 constexpr std::uint32_t kOgre14AuthenticatedTextureRegistryVersion = 1U;
+constexpr std::uint32_t kOgre14AuthenticatedTextureResolutionVersion = 1U;
 constexpr std::uint32_t kOgre14GeneratedTextureFallbackRuleVersion = 1U;
 constexpr const char kOgre14GeneratedTextureFallbackRule[] =
     "ror-legacy-material-procedural-dds-v1";
@@ -167,6 +176,7 @@ enum class Ogre14AuthenticatedTextureTransactionStage : std::uint8_t {
   BEFORE_RECEIPT_COMMIT = 1U,
   BEFORE_REGISTRY_COMMIT = 2U,
   BEFORE_GROUP_TRANSITION_COMMIT = 3U,
+  BEFORE_RESOLUTION_COMMIT = 4U,
 };
 
 /// Exact externally visible boundaries in the authenticated EmbeddedZip mount
@@ -203,6 +213,12 @@ inline void MaybeInjectOgre14AuthenticatedArchiveMountFault(
 }
 
 class Ogre14AuthenticatedTextureReceiptRegistry;
+class Ogre14AuthenticatedTextureResolution;
+class IOgre14AuthenticatedTextureResolver;
+
+namespace Testing {
+class Ogre14AuthenticatedTextureResolutionTestAccess;
+}
 
 /// Immutable owner for the exact bytes and their authenticated metadata.
 class Ogre14AuthenticatedTextureReceipt final {
@@ -300,6 +316,92 @@ private:
       const std::string &, std::uintptr_t, std::uint64_t,
       const std::string &, Ogre14AuthenticatedTextureReceiptRegistry &,
       IOgre14AuthenticatedTextureFaultInjector *);
+  [[nodiscard]] ValidationResult MintLoadedResourceResolution(
+      const std::string &effective_resource_group,
+      std::uint64_t group_generation, std::uintptr_t resource_pointer_token,
+      std::uint64_t resource_handle, const std::string &exact_resource_name,
+      std::uint64_t loaded_resource_state_count,
+      std::uintptr_t resolver_pointer_token,
+      Ogre14AuthenticatedTextureResolution &resolution,
+      IOgre14AuthenticatedTextureFaultInjector *fault_injector = nullptr)
+      const;
+  [[nodiscard]] bool RevalidateLoadedResourceResolution(
+      const Ogre14AuthenticatedTextureResolution &resolution,
+      std::uintptr_t resolver_pointer_token,
+      std::uintptr_t resource_pointer_token, std::uint64_t resource_handle,
+      const std::string &exact_resource_group,
+      const std::string &exact_resource_name,
+      std::uint64_t loaded_resource_state_count) const noexcept;
+
+  friend class ::RoR::ContentManager;
+  friend class Testing::Ogre14AuthenticatedTextureResolutionTestAccess;
+};
+
+/// Registry-minted proof for one already-loaded texture. Build-only source
+/// receipts cannot construct a nonempty resolution: its immutable state is
+/// minted only from the exact current registry snapshot and is additionally
+/// bound to the ContentManager resolver instance which requested it. Copies
+/// preserve the exact registry and source-receipt control blocks.
+class Ogre14AuthenticatedTextureResolution final {
+public:
+  Ogre14AuthenticatedTextureResolution() noexcept = default;
+  ~Ogre14AuthenticatedTextureResolution() = default;
+  Ogre14AuthenticatedTextureResolution(
+      const Ogre14AuthenticatedTextureResolution &) noexcept = default;
+  Ogre14AuthenticatedTextureResolution &operator=(
+      const Ogre14AuthenticatedTextureResolution &) noexcept = default;
+  Ogre14AuthenticatedTextureResolution(
+      Ogre14AuthenticatedTextureResolution &&) noexcept = default;
+  Ogre14AuthenticatedTextureResolution &operator=(
+      Ogre14AuthenticatedTextureResolution &&) noexcept = default;
+
+  [[nodiscard]] bool initialized() const noexcept;
+  [[nodiscard]] std::uint32_t version() const noexcept;
+  [[nodiscard]] const Ogre14AuthenticatedTextureReceipt *source_receipt()
+      const noexcept;
+  [[nodiscard]] std::uint64_t loaded_resource_state_count() const noexcept;
+
+  /// This is an extractor-side substitution check, not registry
+  /// revalidation. Only the bound resolver can authoritatively revalidate the
+  /// current registry snapshot immediately before publication.
+  [[nodiscard]] bool MatchesResolver(
+      const IOgre14AuthenticatedTextureResolver &resolver) const noexcept;
+  [[nodiscard]] bool MatchesLoadedResourceIdentity(
+      std::uintptr_t resource_pointer_token, std::uint64_t resource_handle,
+      const std::string &exact_resource_group,
+      const std::string &exact_resource_name,
+      std::uint64_t loaded_resource_state_count) const noexcept;
+
+private:
+  struct State;
+  explicit Ogre14AuthenticatedTextureResolution(
+      std::shared_ptr<const State> state) noexcept;
+  std::shared_ptr<const State> state_;
+
+  friend class Ogre14AuthenticatedTextureReceiptRegistry;
+  friend class Testing::Ogre14AuthenticatedTextureResolutionTestAccess;
+};
+
+/// Narrow OGRE-native authority used by the legacy extractor. Implementations
+/// must resolve and revalidate on OGRE's serialized resource/render thread;
+/// pinned OGRE 14.5.2 exposes a non-atomic Resource state counter and therefore
+/// cannot authenticate concurrent reload/readback.
+class IOgre14AuthenticatedTextureResolver {
+public:
+  virtual ~IOgre14AuthenticatedTextureResolver() = default;
+
+  /// May allocate while minting the immutable resolution. Failure must leave
+  /// `resolution` untouched.
+  [[nodiscard]] virtual ValidationResult ResolveAuthenticatedTexture(
+      Ogre::Texture &texture,
+      Ogre14AuthenticatedTextureResolution &resolution) const = 0;
+
+  /// Allocation-free, nonthrowing final authority check against the exact
+  /// current registry snapshot and live Texture identity.
+  [[nodiscard]] virtual bool RevalidateAuthenticatedTexture(
+      Ogre::Texture &texture,
+      const Ogre14AuthenticatedTextureResolution &resolution) const
+      noexcept = 0;
 };
 
 [[nodiscard]] ValidationResult

@@ -259,6 +259,7 @@ list(APPEND _ror_relevant_source_files
     "tools/schemas/ogre14-material-semantic-catalog-v2.schema.json"
     "tests/tools/test_ogre14_live_material_coordinator_contract.py"
     "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py"
+    "tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
@@ -2398,6 +2399,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/tools/test_ogre14_material_semantic_catalog_v2.py
             tests/tools/test_ogre14_live_material_coordinator_contract.py
             tests/tools/test_ogre14_authenticated_texture_receipt_contract.py
+            tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
             tests/tools/test_ogre_next_product_packaging_contract.py
             tests/tools/test_ogre_next_probe_workflow.py
             tests/tools/test_ogre_next_window_host_contract.py

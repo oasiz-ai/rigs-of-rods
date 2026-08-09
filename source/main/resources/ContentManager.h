@@ -47,6 +47,9 @@ class ContentManager:
     public Ogre::ScriptCompilerListener,  // Ogre::ScriptCompilerManager::getSingleton().setListener()
     private Ogre::MeshSerializerListener,
     private Ogre::ResourceGroupListener
+#if OGRE_VERSION_MAJOR >= 14
+    , public Render::IOgre14AuthenticatedTextureResolver
+#endif
 {
 public:
 
@@ -113,6 +116,21 @@ public:
     std::string        ListAllUserContent(); //!< Used by ModCache for quick detection of added/removed content
     bool               DeleteDiskFile(std::string const& filename, std::string const& rg_name);
 
+#if OGRE_VERSION_MAJOR >= 14
+    /// Exact source authority for the already-loaded Texture captured by the
+    /// OGRE 14 native material extractor. Both calls must run on OGRE's
+    /// serialized resource/render thread; only the registry access itself is
+    /// synchronized for concurrent callers.
+    [[nodiscard]] Render::ValidationResult ResolveAuthenticatedTexture(
+        Ogre::Texture& texture,
+        Render::Ogre14AuthenticatedTextureResolution& resolution) const
+        override;
+    [[nodiscard]] bool RevalidateAuthenticatedTexture(
+        Ogre::Texture& texture,
+        const Render::Ogre14AuthenticatedTextureResolution& resolution) const
+        noexcept override;
+#endif
+
     // JSON:
     bool               LoadAndParseJson(std::string const& filename, std::string const& rg_name, rapidjson::Document& j_doc);
     bool               SerializeAndWriteJson(std::string const& filename, std::string const& rg_name, rapidjson::Document& j_doc);
@@ -173,7 +191,7 @@ private:
     bool              m_resource_group_listener_registered;
     bool              m_mesh_serializer_listener_registered = false;
     std::mutex        m_legacy_material_archive_io_mutex;
-    std::mutex        m_legacy_material_state_mutex;
+    mutable std::mutex m_legacy_material_state_mutex;
     std::mutex        m_legacy_material_resolution_mutex;
     std::uint64_t     m_next_legacy_material_group_generation = 0U;
     std::unordered_map<Ogre::String, std::uint64_t>

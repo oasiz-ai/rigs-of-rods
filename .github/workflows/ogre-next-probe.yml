@@ -351,6 +351,7 @@ jobs:
           python tests/tools/test_ogre_next_metal_n3_contract.py
           python tests/tools/test_ogre_next_metal_n4_contract.py
           python tests/tools/test_ogre_next_probe_workflow.py
+          python tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
           python tests/tools/test_verify_ogre_next_artifact_set.py
           python -O tests/tools/test_ogre_next_probe_contract.py
           python -O tests/tools/test_ogre_next_frame_probe.py
@@ -370,6 +371,7 @@ jobs:
           python -O tests/tools/test_ogre_next_metal_n3_contract.py
           python -O tests/tools/test_ogre_next_metal_n4_contract.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
+          python -O tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
           python -O tests/tools/test_verify_ogre_next_artifact_set.py
           python tools/run_ogre_next_probe.py --validate-contract-only
           python tools/ogre_next_probe/run_vulkan_rt5.py --validate-contract-only

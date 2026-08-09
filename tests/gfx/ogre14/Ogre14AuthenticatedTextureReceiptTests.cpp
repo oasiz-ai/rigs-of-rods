@@ -17,6 +17,39 @@
 #include <utility>
 #include <vector>
 
+namespace RoR::Render::Testing {
+
+class Ogre14AuthenticatedTextureResolutionTestAccess final {
+public:
+  static ValidationResult Mint(
+      const Ogre14AuthenticatedTextureReceiptRegistry &registry,
+      const std::string &group, std::uint64_t generation,
+      std::uintptr_t pointer_token, std::uint64_t handle,
+      const std::string &name, std::uint64_t loaded_state_count,
+      const IOgre14AuthenticatedTextureResolver &resolver,
+      Ogre14AuthenticatedTextureResolution &resolution,
+      IOgre14AuthenticatedTextureFaultInjector *fault_injector = nullptr) {
+    return registry.MintLoadedResourceResolution(
+        group, generation, pointer_token, handle, name, loaded_state_count,
+        reinterpret_cast<std::uintptr_t>(&resolver), resolution,
+        fault_injector);
+  }
+
+  static bool Revalidate(
+      const Ogre14AuthenticatedTextureReceiptRegistry &registry,
+      const Ogre14AuthenticatedTextureResolution &resolution,
+      const IOgre14AuthenticatedTextureResolver &resolver,
+      std::uintptr_t pointer_token, std::uint64_t handle,
+      const std::string &group, const std::string &name,
+      std::uint64_t loaded_state_count) noexcept {
+    return registry.RevalidateLoadedResourceResolution(
+        resolution, reinterpret_cast<std::uintptr_t>(&resolver),
+        pointer_token, handle, group, name, loaded_state_count);
+  }
+};
+
+} // namespace RoR::Render::Testing
+
 namespace {
 
 using namespace RoR::Render;
@@ -173,6 +206,24 @@ public:
       throw std::bad_alloc();
     }
     throw 23;
+  }
+};
+
+class DummyTextureResolver final
+    : public IOgre14AuthenticatedTextureResolver {
+public:
+  ValidationResult ResolveAuthenticatedTexture(
+      Ogre::Texture &,
+      Ogre14AuthenticatedTextureResolution &) const override {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "dummy.resolve",
+        "pure receipt test does not resolve an OGRE texture");
+  }
+
+  bool RevalidateAuthenticatedTexture(
+      Ogre::Texture &,
+      const Ogre14AuthenticatedTextureResolution &) const noexcept override {
+    return false;
   }
 };
 
@@ -603,6 +654,175 @@ void TestPreResourceTokensAndCaps() {
           "group-record cap+1 was accepted");
 }
 
+void TestRegistryMintedLoadedTextureResolutionAuthority() {
+  using ResolutionAccess =
+      RoR::Render::Testing::Ogre14AuthenticatedTextureResolutionTestAccess;
+  const std::vector<std::uint8_t> bytes = {4U, 3U, 2U, 1U};
+  const Ogre14AuthenticatedTextureReceipt committed_receipt =
+      BuildReceipt(MakeArchiveInput(), bytes);
+  const Ogre14AuthenticatedTextureReceipt build_only_forgery =
+      BuildReceipt(MakeArchiveInput(), bytes);
+  Require(!committed_receipt.SharesImmutableStateWith(build_only_forgery),
+          "independent Build receipts unexpectedly shared authority");
+
+  Ogre14AuthenticatedTextureReceiptRegistry registry = MakeRegistry();
+  Require(AdvanceOgre14AuthenticatedTextureGroupGeneration(
+              "CityWorld", 1U, registry)
+                  .ok() &&
+              CommitOgre14AuthenticatedTextureReceipt(committed_receipt,
+                                                       registry)
+                  .ok(),
+          "loaded resolution registry fixture did not initialize");
+  DummyTextureResolver resolver;
+  DummyTextureResolver substitute_resolver;
+  Ogre14AuthenticatedTextureResolution resolution;
+  Require(ResolutionAccess::Mint(
+              registry, "CityWorld", 1U, 0x100U, 7U,
+              "NeoQ/Wall.DDS", 1U, resolver, resolution)
+                  .ok() &&
+              resolution.initialized() &&
+              resolution.version() ==
+                  kOgre14AuthenticatedTextureResolutionVersion &&
+              resolution.loaded_resource_state_count() == 1U &&
+              resolution.source_receipt() != nullptr &&
+              resolution.source_receipt()->SharesImmutableStateWith(
+                  committed_receipt) &&
+              !resolution.source_receipt()->SharesImmutableStateWith(
+                  build_only_forgery),
+          "registry mint did not select only its exact committed receipt owner");
+  Require(resolution.MatchesResolver(resolver) &&
+              !resolution.MatchesResolver(substitute_resolver) &&
+              resolution.MatchesLoadedResourceIdentity(
+                  0x100U, 7U, "CityWorld", "NeoQ/Wall.DDS", 1U) &&
+              !resolution.MatchesLoadedResourceIdentity(
+                  0x101U, 7U, "CityWorld", "NeoQ/Wall.DDS", 1U) &&
+              !resolution.MatchesLoadedResourceIdentity(
+                  0x100U, 8U, "CityWorld", "NeoQ/Wall.DDS", 1U) &&
+              !resolution.MatchesLoadedResourceIdentity(
+                  0x100U, 7U, "Other", "NeoQ/Wall.DDS", 1U) &&
+              !resolution.MatchesLoadedResourceIdentity(
+                  0x100U, 7U, "CityWorld", "neoq/wall.dds", 1U) &&
+              !resolution.MatchesLoadedResourceIdentity(
+                  0x100U, 7U, "CityWorld", "NeoQ/Wall.DDS", 2U),
+          "loaded resolution did not bind exact resolver/pointer/handle/group/name/state");
+  Require(ResolutionAccess::Revalidate(
+              registry, resolution, resolver, 0x100U, 7U, "CityWorld",
+              "NeoQ/Wall.DDS", 1U) &&
+              !ResolutionAccess::Revalidate(
+                  registry, resolution, substitute_resolver, 0x100U, 7U,
+                  "CityWorld", "NeoQ/Wall.DDS", 1U) &&
+              !ResolutionAccess::Revalidate(
+                  registry, resolution, resolver, 0x101U, 7U, "CityWorld",
+                  "NeoQ/Wall.DDS", 1U) &&
+              !ResolutionAccess::Revalidate(
+                  registry, resolution, resolver, 0x100U, 8U, "CityWorld",
+                  "NeoQ/Wall.DDS", 1U) &&
+              !ResolutionAccess::Revalidate(
+                  registry, resolution, resolver, 0x100U, 7U, "Other",
+                  "NeoQ/Wall.DDS", 1U) &&
+              !ResolutionAccess::Revalidate(
+                  registry, resolution, resolver, 0x100U, 7U, "CityWorld",
+                  "neoq/wall.dds", 1U) &&
+              !ResolutionAccess::Revalidate(
+                  registry, resolution, resolver, 0x100U, 7U, "CityWorld",
+                  "NeoQ/Wall.DDS", 2U),
+          "registry authority accepted a resolver/resource substitution or stale state");
+
+  const Ogre14AuthenticatedTextureResolution copied_resolution = resolution;
+  Require(copied_resolution.source_receipt() != nullptr &&
+              copied_resolution.source_receipt()->SharesImmutableStateWith(
+                  committed_receipt) &&
+              ResolutionAccess::Revalidate(
+                  registry, copied_resolution, resolver, 0x100U, 7U,
+                  "CityWorld", "NeoQ/Wall.DDS", 1U),
+          "copying an authentic resolution lost its exact control blocks");
+
+  Ogre14AuthenticatedTextureReceiptRegistry equivalent_but_wrong =
+      MakeRegistry();
+  Require(AdvanceOgre14AuthenticatedTextureGroupGeneration(
+              "CityWorld", 1U, equivalent_but_wrong)
+                  .ok() &&
+              CommitOgre14AuthenticatedTextureReceipt(
+                  build_only_forgery, equivalent_but_wrong)
+                  .ok() &&
+              !ResolutionAccess::Revalidate(
+                  equivalent_but_wrong, resolution, resolver, 0x100U, 7U,
+                  "CityWorld", "NeoQ/Wall.DDS", 1U),
+          "equivalent synthetic registry substituted for the minting snapshot");
+
+  ThrowingFault fault;
+  fault.stage = Ogre14AuthenticatedTextureTransactionStage::
+      BEFORE_RESOLUTION_COMMIT;
+  Ogre14AuthenticatedTextureResolution sentinel = resolution;
+  ValidationResult result = ResolutionAccess::Mint(
+      registry, "CityWorld", 1U, 0x100U, 7U, "NeoQ/Wall.DDS", 1U,
+      resolver, sentinel, &fault);
+  Require(!result && result.field == "texture_resolution.allocation" &&
+              sentinel.source_receipt() != nullptr &&
+              sentinel.source_receipt()->SharesImmutableStateWith(
+                  committed_receipt),
+          "bad_alloc during resolution mint changed output authority");
+  fault.bad_allocation = false;
+  result = ResolutionAccess::Mint(
+      registry, "CityWorld", 1U, 0x100U, 7U, "NeoQ/Wall.DDS", 1U,
+      resolver, sentinel, &fault);
+  Require(!result && result.field == "texture_resolution.exception" &&
+              sentinel.source_receipt() != nullptr &&
+              sentinel.source_receipt()->SharesImmutableStateWith(
+                  committed_receipt),
+          "unexpected resolution-mint exception changed output authority");
+
+  const auto unrelated = BuildReceipt(
+      MakeArchiveInput(0x500U, 50U, 0U, 2U, "Other", "Other.dds"),
+      {9U});
+  Require(AdvanceOgre14AuthenticatedTextureGroupGeneration(
+              "Other", 2U, registry)
+                  .ok() &&
+              CommitOgre14AuthenticatedTextureReceipt(unrelated, registry)
+                  .ok() &&
+              !ResolutionAccess::Revalidate(
+                  registry, resolution, resolver, 0x100U, 7U, "CityWorld",
+                  "NeoQ/Wall.DDS", 1U),
+          "old proof survived an unrelated immutable-registry publication");
+  Ogre14AuthenticatedTextureResolution refreshed;
+  Require(ResolutionAccess::Mint(
+              registry, "CityWorld", 1U, 0x100U, 7U,
+              "NeoQ/Wall.DDS", 1U, resolver, refreshed)
+                  .ok() &&
+              ResolutionAccess::Revalidate(
+                  registry, refreshed, resolver, 0x100U, 7U, "CityWorld",
+                  "NeoQ/Wall.DDS", 1U),
+          "fresh resolve did not recover after unrelated strict invalidation");
+
+  const auto reload_receipt =
+      BuildReceipt(MakeArchiveInput(0x100U, 7U, 1U), bytes);
+  Require(CommitOgre14AuthenticatedTextureReceipt(reload_receipt, registry)
+                  .ok() &&
+              !ResolutionAccess::Revalidate(
+                  registry, refreshed, resolver, 0x100U, 7U, "CityWorld",
+                  "NeoQ/Wall.DDS", 1U),
+          "reload did not invalidate the prior source resolution");
+  Ogre14AuthenticatedTextureResolution reload_resolution;
+  Require(ResolutionAccess::Mint(
+              registry, "CityWorld", 1U, 0x100U, 7U,
+              "NeoQ/Wall.DDS", 2U, resolver, reload_resolution)
+                  .ok() &&
+              !ResolutionAccess::Mint(
+                  registry, "CityWorld", 1U, 0x100U, 7U,
+                  "NeoQ/Wall.DDS", 1U, resolver, sentinel) &&
+              ResolutionAccess::Revalidate(
+                  registry, reload_resolution, resolver, 0x100U, 7U,
+                  "CityWorld", "NeoQ/Wall.DDS", 2U),
+          "exact preload+1 reload state contract was not enforced");
+  Require(TeardownOgre14AuthenticatedTextureGroup(
+              "CityWorld", 1U, registry)
+                  .ok() &&
+              !ResolutionAccess::Revalidate(
+                  registry, reload_resolution, resolver, 0x100U, 7U,
+                  "CityWorld", "NeoQ/Wall.DDS", 2U),
+          "group teardown did not invalidate its loaded texture proof");
+}
+
 void TestTransactionalRollback() {
   const std::vector<std::uint8_t> bytes = {1U, 2U, 3U};
   const auto sentinel = BuildReceipt(MakeArchiveInput(), bytes);
@@ -866,8 +1086,16 @@ int main() {
           std::is_nothrow_move_constructible_v<
               Ogre14AuthenticatedTextureReceiptRegistry> &&
           std::is_nothrow_move_assignable_v<
-              Ogre14AuthenticatedTextureReceiptRegistry>,
-      "immutable texture receipt and registry snapshots must publish noexcept");
+              Ogre14AuthenticatedTextureReceiptRegistry> &&
+          std::is_nothrow_copy_constructible_v<
+              Ogre14AuthenticatedTextureResolution> &&
+          std::is_nothrow_copy_assignable_v<
+              Ogre14AuthenticatedTextureResolution> &&
+          std::is_nothrow_move_constructible_v<
+              Ogre14AuthenticatedTextureResolution> &&
+          std::is_nothrow_move_assignable_v<
+              Ogre14AuthenticatedTextureResolution>,
+      "immutable texture receipt, registry, and resolution snapshots must publish noexcept");
   TestExactBytesHashAndArchiveIdentity();
   TestDdsHeaderFactsAndGeneratedRule();
   TestArchiveMemberSelectionCollisionAndCaps();
@@ -875,6 +1103,7 @@ int main() {
   TestRegistryCollisionReloadRemovalAndPointerReuse();
   TestStaleGenerationResetTeardownAndGlobalMonotonicity();
   TestPreResourceTokensAndCaps();
+  TestRegistryMintedLoadedTextureResolutionAuthority();
   TestTransactionalRollback();
   TestAuthenticatedArchiveMountFaultRollbackAndTeardownModel();
   std::cout << "OGRE 14 authenticated texture receipt tests passed\n";

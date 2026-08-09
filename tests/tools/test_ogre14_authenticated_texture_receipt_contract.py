@@ -58,6 +58,7 @@ PATHS = (
     "tests/resources/TerrainBundleArchiveVerifierTests.cpp",
     "tests/tools/assert_ogre_recipe_graph.py",
     "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py",
+    "tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py",
 )
 
 
