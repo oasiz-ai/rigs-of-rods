@@ -871,6 +871,21 @@ locations. These are script-level migration measurements, not proof of runtime
 OGRE inheritance, listener edits, RTShaderSystem output, native pass state, or
 visual parity.
 
+The native boundary now also provides
+`Ogre14LegacyMaterialSemanticRegistry` version 1. It is an immutable, bounded,
+case-sensitive registry keyed by the exact OGRE resource group and material
+name. A declaration is admitted only when it names either authored content
+metadata or a versioned compatibility table and supplies a nonzero source
+revision, base-color semantic, and texture color role. Resolution carries that
+provenance and the exact translator limits into the native extractor. Registry
+construction is transactional, canonical ordering produces a stable diagnostic
+fingerprint, duplicate keys fail even when byte-identical, and injected
+allocation or unexpected failures preserve the previous immutable owner. The
+registry intentionally contains no filename, material-name, lighting-state, or
+specular heuristic. It supplies the explicit declaration gate required by the
+live material coordinator; it does not itself wire CityWorld materials or make
+the Ogre-Next renderer production-ready.
+
 Run the bounded audit with:
 
 ```sh
