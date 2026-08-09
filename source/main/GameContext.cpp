@@ -577,8 +577,6 @@ void GameContext::DeleteActor(ActorPtr actor)
         }
     }
 
-    App::GetGfxScene()->DestroyGfxActor(actor->GetGfxActor());
-
 #ifdef USE_SOCKETW
     if (App::mp_state->getEnum<MpState>() == MpState::CONNECTED)
     {

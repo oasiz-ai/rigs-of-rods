@@ -116,7 +116,12 @@ public:
 
     std::vector<FlexBody*> &  GetList();
     inline void               AddItemToSave(FlexBody* fb)     { m_items_to_save.push_back(fb); }
-    inline FlexBodyCacheData* GetLoadedItem(unsigned index)   { return & m_loaded_items[index]; }
+    inline FlexBodyCacheData* GetLoadedItem(unsigned index)
+    {
+        return index < m_loaded_items.size()
+            ? &m_loaded_items[index]
+            : nullptr;
+    }
     ResultCode                SaveFile();
     ResultCode                LoadFile();
 
@@ -202,6 +207,7 @@ private:
     FlexBodyFileIO          m_flexbody_cache;
     bool                    m_is_flexbody_cache_enabled;
     bool                    m_is_flexbody_cache_loaded;
+    bool                    m_is_flexbody_cache_safe_to_save = true;
     unsigned int            m_flexbody_cache_next_index;
 };
 
